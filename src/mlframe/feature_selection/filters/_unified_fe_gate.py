@@ -408,7 +408,10 @@ def local_mi_gate(
     # wrapper only RELOCATES the same one-shot upload without collapsing it, so this path stays on the exact
     # host ``_mi_classif_batch`` (byte-identical; the STRICT branch inside already uploads once + caches y).
     # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    cand_mi = np.asarray(_mi_classif_batch(arr, y_bin, nbins=nbins), dtype=np.float64)
+    from ._hermite_fe_mi import column_mi_memo_disabled
+
+    with column_mi_memo_disabled():  # a family's candidates are new columns: no memo hit, only the fingerprint pass
+        cand_mi = np.asarray(_mi_classif_batch(arr, y_bin, nbins=nbins), dtype=np.float64)
     # Family-wise calibration: the raw-column floor says nothing about the null of the MAXIMUM over this candidate set (engineered and
     # aggregated candidates have their own spread; a grouped-aggregate of an id-like column cleared the raw floor under STRICT). The
     # floor is therefore raised to the 95th percentile of the per-permutation maximum MI over the same candidates. The candidates are

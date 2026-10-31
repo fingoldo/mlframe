@@ -386,9 +386,11 @@ def _gate_rank_binning() -> bool:
 def _gate_grid_mi(feats: np.ndarray, yi: np.ndarray, nbins: int) -> np.ndarray:
     """MI of every column of the (n, k) tau-grid feature matrix vs y, in one batched kernel call (bit-identical to per-column -
     ``_mi_classif_batch`` bins each column independently, only the per-call dispatch overhead is amortised)."""
+    from ._hermite_fe_mi import column_mi_memo_disabled
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
-    return np.asarray(_mi_classif_batch(np.ascontiguousarray(feats), yi, nbins=nbins, rank_binning=_gate_rank_binning()), dtype=_crit_np_dtype())
+    with column_mi_memo_disabled():  # the tau-grid columns differ on every call (12308 columns, no hit): fingerprinting them only costs time
+        return np.asarray(_mi_classif_batch(np.ascontiguousarray(feats), yi, nbins=nbins, rank_binning=_gate_rank_binning()), dtype=_crit_np_dtype())
 
 def _is_argmax_eligible(x: np.ndarray) -> bool:
     """True iff the column is finite numeric (int or float) - argmax / gate need an order, not an integer lattice."""

@@ -639,6 +639,14 @@ def mi_classif_batch_chunked(X: pd.DataFrame | np.ndarray, y: np.ndarray, *, nbi
         chunk_cols = _mi_chunk_cols_for(n)
     from .._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default) - MI binning is scale-robust; f64 in strict mode
+    from .._hermite_fe_mi import column_mi_memo_disabled
+
+    with column_mi_memo_disabled():  # engineered candidates are new columns (5309 columns, 5% hit): the fingerprint pass costs more than the hits save
+        return _mi_classif_batch_chunked_body(X, y, nbins, chunk_cols, is_df, p, _dt)
+
+
+def _mi_classif_batch_chunked_body(X: Any, y: np.ndarray, nbins: int, chunk_cols: int, is_df: bool, p: int, _dt: Any) -> np.ndarray:
+    """The block loop of :func:`mi_classif_batch_chunked`."""
     if p <= chunk_cols:
         arr = cast("pd.DataFrame", X).to_numpy(dtype=_dt) if is_df else np.asarray(X, dtype=_dt)
         return _mi_classif_batch(arr, y, nbins=nbins)
