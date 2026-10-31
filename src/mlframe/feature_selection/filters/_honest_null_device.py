@@ -197,6 +197,9 @@ extern "C" __global__ void root_split_stats_k2(const int* __restrict__ order, co
 }
 """
 
+# bench-attempt-rejected (2026-11-01, GTX 1050 Ti, 60 columns x 200 permutations x 100000 rows, 559 ms): tile sizes 4 / 16 / 32 (570 / 581 / 730 ms) and block sizes 64 / 256 / 512 (562 / 550 / 553 ms), outputs
+# identical. The kernel does ~2.1 G scan steps per second whatever the tiling: it is bound by the random gather of label bits (the (words, permutations) table is 2.5 MB against a 1 MB L2), not by
+# occupancy or the prefetch depth. A leaner version needs the labels in sorted order without a per-step gather, which costs the same gather once per (column, permutation).
 _kernel_k2 = None
 
 
