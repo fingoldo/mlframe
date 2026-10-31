@@ -728,7 +728,7 @@ def score_candidates_by_cmi(
     if X_support is None or X_support.shape[1] == 0:
         z_joint: Optional[np.ndarray] = None
     else:
-        sup_bins = [_quantile_bin(X_support[c].to_numpy(), nbins=nbins) for c in X_support.columns]
+        sup_bins = quantile_bin_columns(X_support.to_numpy(), nbins)
         z_joint, _ = _renumber_joint(*sup_bins)
 
     cand_cols = list(X_cand.columns)
