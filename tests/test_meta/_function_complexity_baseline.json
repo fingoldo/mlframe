@@ -74,7 +74,7 @@
   "src/mlframe/training/cb/_cb_pool.py::_maybe_rewrite_eval_set_as_cb_pool": 17,
   "src/mlframe/training/composite/discovery/_auto_base.py::_auto_base_step1_requires_mi_mean": 17,
   "src/mlframe/training/composite/discovery/_auto_base.py::_auto_base_step2_getattr_self_config": 16,
-  "src/mlframe/training/composite/discovery/_tiny_rerank_waic.py::_apply_waic_tiebreak": 17,
+  "src/mlframe/training/composite/discovery/_tiny_rerank_waic.py::_apply_waic_tiebreak": 16,
   "src/mlframe/training/composite/discovery/auto_detect.py::detect_time_column_candidates": 18,
   "src/mlframe/training/composite/ensemble/_cross_target.py::CompositeCrossTargetEnsemble.predict": 18,
   "src/mlframe/training/composite/ensemble/_oof_external.py::_compute_oof_with_external_holdout": 18,
