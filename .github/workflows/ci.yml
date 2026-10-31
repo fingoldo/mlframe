@@ -751,7 +751,7 @@ jobs:
         run: uv build
 
       - name: Verify distributions with twine
-        run: uvx twine check dist/*
+        run: uvx --from twine==6.2.0 twine check dist/*
 
       # Install the BUILT wheel (not the editable checkout) into a clean venv
       # to confirm package layout, MANIFEST.in, py.typed, and __init__.py

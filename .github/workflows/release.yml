@@ -67,7 +67,7 @@ jobs:
         run: uv build
 
       - name: Verify distributions with twine
-        run: uvx twine check dist/*
+        run: uvx --from twine==6.2.0 twine check dist/*
 
       # Signed, verifiable provenance for what was built, alongside the Trusted Publishing already used
       # for the upload itself. Release-only: a dispatch build has no release to attest against.
