@@ -57,7 +57,7 @@ def _rescue(monkeypatch, *, sig_raises=False, pair_raises=False, p_value=0.001, 
         """Stand in for a dtype mismatch, a numba typing failure, or a device fault inside the probe."""
         raise RuntimeError("probe blew up")
 
-    def _maxt(data, nbins, target_index, cols, alpha, **kwargs):
+    def _maxt(data, nbins, _target_index, cols, alpha, **kwargs):
         """Stand in for the family-wise maxT probe: raise, or call every scanned column significant or not."""
         if sig_raises:
             return _boom()

@@ -142,12 +142,11 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
                 run = mlflow.start_run(run_name=run_name, experiment_id=experiment_id, tags=run_tags)
             except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 nfailed += 1
-                if nfailed > 5:
-                    # preserve traceback before final-give-up return;
-                    # caller sees only (None, False) otherwise.
-                    log_throttle(logger, "mlflow_start_run_failed_after_retries", logging.ERROR, "mlflow.start_run failed after %d retries", nfailed, exc_info=True)
-                    return None, False
+                # Log the scrubbed message only: a traceback would carry the tracking URI's credentials.
                 scrubbed = _strip_userinfo(e)
+                if nfailed > 5:
+                    log_throttle(logger, "mlflow_start_run_failed_after_retries", logging.ERROR, "mlflow.start_run failed after %d retries: %s", nfailed, scrubbed)
+                    return None, False
                 if "already active" in str(e):
                     active = mlflow.active_run()
                     if active is not None:
@@ -160,8 +159,8 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
                     # A bare `raise` here propagates the ORIGINAL (unscrubbed) exception -- any outer
                     # handler that logs str(e) on it (a common pattern) would leak the tracking-server
                     # userinfo credential `scrubbed` was computed specifically to hide. Raise a new
-                    # exception carrying the scrubbed message instead; `from e` keeps the real cause
-                    # attached to the traceback for debugging without embedding the raw credential text.
+                    # exception carrying the scrubbed message instead. The original is NOT chained (`from None`): its
+                    # message holds the raw credential, and a chained cause is printed with the traceback.
                     # type(e)(scrubbed) assumes a single-string-arg constructor, true for the vast
                     # majority of exception types but not guaranteed for an arbitrary third-party class
                     # mlflow might raise -- fall back to a plain RuntimeError if reconstruction fails.
@@ -174,7 +173,7 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
                             _reconstruct_exc,
                         )
                         scrubbed_exc = RuntimeError(scrubbed)
-                    raise scrubbed_exc from e
+                    raise scrubbed_exc from None
             else:
                 mlflow.end_run()
                 break

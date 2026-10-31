@@ -320,7 +320,7 @@ def _bootstrap_masks_mrmr_and_mi(Xnp, ynp, B: int, seed0: int, mi_k: int | None,
 # stab_mrmr ~0.6 at B=10, well above the 0.45 floor), and the comparative legs are
 # xfail(strict=False) refutations where exact B is immaterial.
 _STAB_B = 6 if is_fast_mode() else 8
-_STAB_SEEDS = [0]  # comparative legs are xfail(strict=False) refutation docs; one seed shows the direction
+_STAB_SEEDS = [0, 1, 2, 3, 4]  # gap closure is a majority over these seeds (measured deltas 0.105, 0.203, -0.118, 0.098, -0.062: 2 of 5 win, gap stays open)
 
 
 @pytest.mark.slow

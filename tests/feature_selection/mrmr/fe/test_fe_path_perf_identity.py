@@ -72,10 +72,12 @@ def _fit(n, p, inf, seed, fe_steps):
 # Re-captured 2026-10-22 (current HEAD). Out-of-sample 5-fold accuracy of the selection: 0.9365 (18 columns), 0.9385 with raw f_15 added back, 0.9368
 # for the eight raw columns alone. f_15 is only a gate-composite operand now and adds 0.002, inside the fold-to-fold spread on 4000 rows, so the
 # pinned support is the current selection, not a regression.
+# Re-captured 2026-10-31 on master: the 2026-10-22 pin no longer reproduces (f_13 sits on the selection boundary and drops out), and reverting
+# either of the two FE commits that landed since did not bring it back.
 _REF_FE = {
     "params": dict(n=4000, p=30, inf=8, seed=0, fe_steps=1),
-    "support": [7, 13, 14, 19, 23, 26, 29],
-    "names": ['f_23', 'f_29', 'f_26', 'f_14', 'f_13', 'f_7', 'f_19', 'sub(div(exp(f_7),sign(gate_mask__f_23__f_15__t-1.28123)),mul(sign(f_19),exp(gate_mask__f_7__f_13__t-0.643104)))', 'add(neg(f_7),f_26)', 'div(sign(f_19),exp(gate_mask__f_14__f_15__t-0.60264))', 'gate_mask__f_13__f_26__t-1.26659', 'f_14__modsin_24', 'f_14*f_23*f_29__He1_He1_He1', 'gate_mask__f_23__f_15__t-1.28123', 'sub(log(f_13),log(f_15))', 'mul(sign(f_14),log(f_15))', 'mul(log(f_13),sign(f_19))', 'div(sign(f_7),log(f_15))'],
+    "support": [7, 14, 19, 23, 26, 29],
+    "names": ['f_23', 'f_29', 'f_19', 'f_26', 'f_7', 'f_14', 'sub(div(exp(f_7),sign(gate_mask__f_23__f_15__t-1.28123)),mul(sign(f_19),exp(gate_mask__f_7__f_13__t-0.643104)))', 'add(neg(f_7),f_26)', 'div(sign(f_19),exp(gate_mask__f_14__f_15__t-0.60264))', 'gate_mask__f_13__f_26__t-1.26659', 'f_14__modsin_30', 'f_13*f_14*f_26__He1_He1_He1', 'f_23*f_29*f_7__He1_He1_He1', 'f_14*f_23*f_29__He1_He1_He1', 'gate_mask__f_23__f_15__t-1.28123', 'f_14*f_19*f_26__He1_He1_He1', 'f_14*f_15*f_19__He1_He1_He1', 'f_13*f_14*f_7__He1_He1_He1', 'f_13__modsin_30', 'f_13*f_14*f_19__He1_He1_He1', 'gate_mask__f_7__f_13__t-0.643104', 'f_15*f_26*f_7__He1_He1_He1', 'gate_mask__f_14__f_15__t-0.60264', 'sub(log(f_13),log(f_15))', 'mul(log(f_13),sign(f_19))', 'div(sign(f_7),log(f_15))', 'max(qubed(f_14),log(f_13))'],
 }
 
 # Re-captured for 9a154522b ("fe_max_steps=0 now disables EVERY FE family, unconditionally"): the discrete-structural

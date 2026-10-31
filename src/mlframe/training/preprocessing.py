@@ -104,7 +104,8 @@ def _process_special_values(
                 _float_cols = _pandas_float_like_columns(df)
                 if _float_cols:
                     # to_numpy(na_value=nan) so nullable Float arrays survive the np.isinf call.
-                    _inf_arr = df[_float_cols].to_numpy(dtype=np.float64, na_value=np.nan)  # type: ignore[call-arg]  # pandas-stubs miss the na_value kwarg (added pandas 1.1+); real API accepts it
+                    _float_frame: Any = df[_float_cols]  # pandas-stubs miss the na_value kwarg (added pandas 1.1+); real API accepts it
+                    _inf_arr = _float_frame.to_numpy(dtype=np.float64, na_value=np.nan)
                     inf_count = int(np.isinf(_inf_arr).sum())
                 else:
                     inf_count = 0
