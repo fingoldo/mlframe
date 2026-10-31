@@ -281,16 +281,18 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
         block = np.column_stack([np.asarray(c[idx], dtype=dt) for c in columns])
         yb = y_arr[idx]
         seed = int(random_state) + b
-        # These batches reach numba ``parallel=True`` kernels, which must be entered by one thread at a time (see ``mlframe._numba_parallel_guard``); the slicing above overlaps freely.
+        # Only the plug-in and KSG batches reach numba ``parallel=True`` kernels, which must be entered by one thread at a time (see ``mlframe._numba_parallel_guard``); the copula, xi, dCor and HSIC
+        # batches are numpy / scipy / serial njit and overlap across the pool threads.
         with parallel_kernel_entry(), column_mi_memo_disabled():
             # Intentional float64: MI batch scores kept as a double precision accumulator vector (ranking ties)
             out["plug_in"][:, b] = np.asarray(_mi_classif_batch(block, yb, nbins=int(hyper["nbins"])), dtype=np.float64)
-            # Intentional float64: copula MI batch scores kept as a double precision accumulator vector
-            out["copula"][:, b] = np.asarray(_copula_mi_batch(block, yb, n_bins=int(hyper["copula_n_bins"])), dtype=np.float64)
-            out["xi"][:, b] = xi_correlation_batch(block, yb, random_state=seed)
-            out["dcor"][:, b] = _dcor_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
-            out["hsic"][:, b] = _hsic_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
-            if ksg_ok:
+        # Intentional float64: copula MI batch scores kept as a double precision accumulator vector
+        out["copula"][:, b] = np.asarray(_copula_mi_batch(block, yb, n_bins=int(hyper["copula_n_bins"])), dtype=np.float64)
+        out["xi"][:, b] = xi_correlation_batch(block, yb, random_state=seed)
+        out["dcor"][:, b] = _dcor_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
+        out["hsic"][:, b] = _hsic_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
+        if ksg_ok:
+            with parallel_kernel_entry():
                 out["ksg"][:, b] = ksg_mi_discrete_target_columns(block, yb, n_neighbors=int(hyper["n_neighbors"]), random_state=seed)
 
     # The resamples are independent (own seed, own output column), so they run on the pool; the first runs on this thread so the njit kernels compile once.
