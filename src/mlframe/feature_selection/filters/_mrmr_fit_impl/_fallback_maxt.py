@@ -12,6 +12,7 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 
+from .._mdlp_honest_bycol_njit import seeded_permutation
 from .._parity_fe import _mi_codes_njit
 
 FALLBACK_MAXT_PERMUTATIONS = 999
@@ -54,8 +55,9 @@ def fallback_maxt_floor(
     if honest_codes_fn is not None:
         # Supervised binning: re-bin every column on each permuted RAW target (the production categorisation), so the null keeps the
         # selection bias of the cut points that the observed codes carry.
+        base_seed = int(rng.integers(0, 2**31 - 1))  # the stream of the batched null (``permuted_labels_seeded``)
         for b in range(int(n_perm)):
-            row_perm = rng.permutation(y.shape[0])
+            row_perm = seeded_permutation(y.shape[0], base_seed + b)
             codes_p, nb_p = honest_codes_fn(row_perm)
             yp = np.ascontiguousarray(y[row_perm])
             n_yp = int(yp.max()) + 1

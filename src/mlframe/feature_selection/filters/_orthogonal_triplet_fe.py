@@ -511,16 +511,20 @@ def _triple_mi_kernel(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> 
     offset = np.zeros(p + 1, np.int64)
     for i in range(p):
         offset[i + 1] = offset[i] + (p - 1 - i) * (p - 2 - i) // 2
+    codes_ny = (codes * n_y).astype(np.int32)  # Intentional int32: cell offsets (< n_cells * n_y)
     for i in prange(p):
         counts = np.zeros(n_cells * n_y, np.int64)
         pys = np.zeros(n_y, np.int64)
         t = offset[i]
+        # the part of the cell index that depends on (i, j) and y is built once per pair and reused by every k; the leg k adds ``code_k * n_y``
+        pair_y = np.empty(n, np.int32)
         for j in range(i + 1, p):
+            for r in range(n):
+                pair_y[r] = (codes[i, r] * base + codes[j, r]) * (base * n_y) + y[r]
             for k in range(j + 1, p):
                 counts[:] = 0
                 for r in range(n):
-                    code = (codes[i, r] * base + codes[j, r]) * base + codes[k, r]
-                    counts[code * n_y + y[r]] += 1
+                    counts[pair_y[r] + codes_ny[k, r]] += 1
                 pys[:] = 0
                 for c2 in range(n_cells):
                     for v in range(n_y):

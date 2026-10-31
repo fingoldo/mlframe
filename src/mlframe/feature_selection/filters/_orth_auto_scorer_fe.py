@@ -326,8 +326,14 @@ def _bootstrap_lcb_tables(columns: list, y_arr: np.ndarray, boot_idx: list, rand
     from ._adaptive_nbins import _resolve_edge_jobs
 
     jobs = _resolve_edge_jobs(n_jobs, len(columns))
-    batched = _batched_bootstrap_values(columns, y_arr, boot_idx, random_state, hyper) if hyper is not None else None
-    precomputed = [None] * len(columns) if batched is None else [{s: v[i] for s, v in batched.items()} for i in range(len(columns))]
+    precomputed: list = [None] * len(columns)
+    if hyper is not None:
+        # The batched scorers need all-finite columns: the finite columns are batched together and only a column with a missing value takes the per-column path (a single NaN column used to send every column there).
+        finite_idx = [i for i, c in enumerate(columns) if np.isfinite(c).all()]
+        batched = _batched_bootstrap_values([columns[i] for i in finite_idx], y_arr, boot_idx, random_state, hyper) if finite_idx else None
+        if batched is not None:
+            for pos, i in enumerate(finite_idx):
+                precomputed[i] = {s: v[pos] for s, v in batched.items()}
     if jobs <= 1 or len(columns) < 2 or numba.config.DISABLE_JIT:
         return [_bootstrap_lcb_per_scorer(x, y_arr, boot_idx, random_state, scorer_call, pre) for x, pre in zip(columns, precomputed)]
     from concurrent.futures import ThreadPoolExecutor

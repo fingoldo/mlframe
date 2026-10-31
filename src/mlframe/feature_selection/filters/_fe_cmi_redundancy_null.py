@@ -415,13 +415,22 @@ def _conditional_cpu_null(inp: _NullInputs, sup: _StratifiedSupport, nperm: int,
     # 1.50x slower -- the earlier verdict holds regardless of machine load; the caveat is resolved, this
     # is final. Left as the simple per-perm loop.
     # Intentional float64: permutation-null accumulator compared against the f64 observed CMI.
+    # The shuffles of a block are built in one parallel kernel (the sort of each is the dearest line of this loop); the keys of a block are drawn at once, which is the stream of the per-permutation
+    # draws (a generator fills an (m, n) request row by row), and the kernel sorts them as ``np.argsort(..., kind="stable")`` does, so every shuffle and every null value is unchanged.
+    from mlframe._numba_parallel_guard import parallel_kernel_entry
+
+    from ._numba_utils import within_stratum_shuffles
+
     nulls = np.empty(nperm, dtype=np.float64)
-    for i in range(nperm):
-        keys = inp.rng.random(inp.n_size)
-        within = np.argsort(sup.z_rank + keys, kind="stable")  # within each (already-sorted) stratum block: random order
-        x_perm = np.empty_like(xh)
-        x_perm[sup.order] = x_sorted[within]
-        nulls[i] = float(cmi_from_binned_fixed_yz(x_perm, sup.y_i, sup.z_i, sup.h_yz, sup.h_z, sup.k_yz, sup.k_z, sup.n_f))
+    block = max(1, min(64, 20_000_000 // max(1, inp.n_size)))
+    for start in range(0, nperm, block):
+        m = min(block, nperm - start)
+        keys = inp.rng.random((m, inp.n_size))
+        x_perm = np.empty((m, xh.shape[0]), dtype=xh.dtype)
+        with parallel_kernel_entry():
+            within_stratum_shuffles(keys, sup.z_rank, sup.order, x_sorted, x_perm)
+        for r in range(m):
+            nulls[start + r] = float(cmi_from_binned_fixed_yz(x_perm[r], sup.y_i, sup.z_i, sup.h_yz, sup.h_z, sup.k_yz, sup.k_z, sup.n_f))
     return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
 
 

@@ -18,6 +18,8 @@ from numba import njit, prange
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 
+from ._cache_release import register_cache_releaser
+
 __all__ = ["bootstrap_rank_mi"]
 
 _TILE = 16  # columns a thread ranks together; their buffers are reused
@@ -280,14 +282,23 @@ def _bootstrap_rank_mi_generic(arr: np.ndarray, y_codes: np.ndarray, n_classes: 
     return out, ok
 
 
-def bootstrap_rank_mi(arr: np.ndarray, y: np.ndarray, rep_rows: "list[np.ndarray]", n_bins: int) -> "tuple[np.ndarray, np.ndarray]":
-    """Rank-binned plug-in MI of every column of ``arr`` ``(n, k)`` against the class labels ``y`` on every resample in ``rep_rows`` (row-index vectors with repeats, in draw order).
+_PREP_CACHE: dict = {}  # the latest resample tables, with the resample list they were built from
 
-    Returns ``(mi (len(rep_rows), k), ok (k,))``: the MI equals ``_mi_classif_batch(arr[idx], y[idx], nbins=n_bins)`` for each resample ``idx`` and each column with ``ok`` True. A column with a
-    non-finite value is not scored (``ok`` False, MI 0): the batch MI masks such a column to its finite rows.
-    """
-    n = arr.shape[0]
-    y_arr = np.asarray(y).ravel()
+
+def _release_prep_cache() -> int:
+    """Drop the cached resample tables (registered for release under memory pressure); returns the bytes freed."""
+    hit = _PREP_CACHE.get("latest")
+    freed = sum(int(v.nbytes) for v in hit["prep"].values() if hasattr(v, "nbytes")) if hit else 0
+    _PREP_CACHE.clear()
+    return freed
+
+
+register_cache_releaser(_release_prep_cache)
+
+
+def _resample_tables(rep_rows: "list[np.ndarray]", y_arr: np.ndarray, n: int, n_bins: int, with_walk_tables: bool) -> dict:
+    """The tables of a set of resamples that every column block shares: label codes, resample lengths, the padded index matrix, the bin position of each draw and, for the float32 walk, the per-row multiplicities,
+    row pointers, draw positions and cumulative bin sizes."""
     y_codes = (y_arr.astype(np.int64) - int(y_arr.min())).astype(np.int64)
     n_classes = int(y_codes.max()) + 1
     n_rep = len(rep_rows)
@@ -300,7 +311,8 @@ def bootstrap_rank_mi(arr: np.ndarray, y: np.ndarray, rep_rows: "list[np.ndarray
         idx[b, :m] = rows
         base, rem = divmod(m, n_bins)
         binpos[b, :m] = np.repeat(np.arange(n_bins, dtype=np.int16), [base + (1 if t < rem else 0) for t in range(n_bins)])
-    if arr.dtype == np.float32:
+    prep = {"y_codes": y_codes, "n_classes": n_classes, "lens": lens, "idx": idx, "binpos": binpos}
+    if with_walk_tables:
         counts_t = np.empty((n, n_rep), dtype=np.int32)
         rowptr = np.zeros((n_rep, n + 1), dtype=np.int32)
         poslist = np.zeros((n_rep, m_max), dtype=np.int32)
@@ -313,6 +325,33 @@ def bootstrap_rank_mi(arr: np.ndarray, y: np.ndarray, rep_rows: "list[np.ndarray
         for b, rows in enumerate(rep_rows):
             base, rem = divmod(len(rows), n_bins)
             cum[b] = np.cumsum([base + (1 if t < rem else 0) for t in range(n_bins)])
+        prep.update({"counts_t": counts_t, "rowptr": rowptr, "poslist": poslist, "cum": cum})
+    return prep
+
+
+def bootstrap_rank_mi(arr: np.ndarray, y: np.ndarray, rep_rows: "list[np.ndarray]", n_bins: int) -> "tuple[np.ndarray, np.ndarray]":
+    """Rank-binned plug-in MI of every column of ``arr`` ``(n, k)`` against the class labels ``y`` on every resample in ``rep_rows`` (row-index vectors with repeats, in draw order).
+
+    Returns ``(mi (len(rep_rows), k), ok (k,))``: the MI equals ``_mi_classif_batch(arr[idx], y[idx], nbins=n_bins)`` for each resample ``idx`` and each column with ``ok`` True. A column with a
+    non-finite value is not scored (``ok`` False, MI 0): the batch MI masks such a column to its finite rows.
+    """
+    n = arr.shape[0]
+    y_arr = np.asarray(y).ravel()
+    n_rep = len(rep_rows)
+    # The resample-side tables depend on the resamples and the labels, not on the columns: a caller that scores many column blocks against the same resamples (the same list object) shares them.
+    from mlframe.utils.disk_cache import hash_array_content
+
+    cache_key = (n, n_rep, int(n_bins), str(arr.dtype), hash_array_content(np.ascontiguousarray(y_arr)))
+    hit = _PREP_CACHE.get("latest")
+    if hit is not None and hit["key"] == cache_key and hit["reps"] is rep_rows:
+        prep = hit["prep"]
+    else:
+        prep = _resample_tables(rep_rows, y_arr, n, n_bins, arr.dtype == np.float32)
+        _PREP_CACHE.clear()
+        _PREP_CACHE["latest"] = {"key": cache_key, "reps": rep_rows, "prep": prep}
+    y_codes, n_classes, lens, idx, binpos = prep["y_codes"], prep["n_classes"], prep["lens"], prep["idx"], prep["binpos"]
+    if arr.dtype == np.float32:
+        counts_t, rowptr, poslist, cum = prep["counts_t"], prep["rowptr"], prep["poslist"], prep["cum"]
         with parallel_kernel_entry():
             mi, ok = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, rowptr, poslist, cum, int(n_bins))
     else:

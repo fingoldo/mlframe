@@ -21,6 +21,7 @@ from ._pairs_materialise import (
 from mlframe.utils.log_throttle import log_throttle
 
 from .._fe_usability_signal import _crit_np_dtype
+from .._numba_utils import rows_to_columns_into
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,11 @@ def _score_one_pair_gpu_fused_done(_gpu_fused_done, combs, vars_transformations,
         # The GPU-prep candidate loop above advances ``i`` to size the fused launch; if the GPU-binning gate declines (no device / below crossover) we reach here with NO exception,
         # so the ``except``-path ``i = 0`` reset never ran - restart the column cursor before the CPU materialise, else it overruns ``final_transformed_vals`` (``_batch_candidates``/``_disc_2d`` keep their pre-try init).
         i = 0
+        # Candidates are staged as contiguous rows and copied into the row-major buffer a block at a time by a tiled transpose: storing each one as a column of that buffer is a stride of K items per
+        # element (a cache line and a page per store; 10 s of the all-families fit).
+        _stage_rows = 64
+        _stage = np.empty((_stage_rows, final_transformed_vals.shape[0]), dtype=final_transformed_vals.dtype)
+        _staged = 0
         for transformations_pair in combs:
             if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
                 continue
@@ -98,11 +104,10 @@ def _score_one_pair_gpu_fused_done(_gpu_fused_done, combs, vars_transformations,
                 for bin_func_name, bin_func in binary_transformations.items():
                     start = timer()
                     try:
-                        final_transformed_vals[:, i] = bin_func(param_a, param_b)
+                        _stage[_staged] = bin_func(param_a, param_b)
                     except Exception:
-                        # The transform raised AFTER (or instead of) writing column ``i``; the buffer slot may
-                        # still hold a prior column's data. Overwrite with NaN so the failed column is never
-                        # scored against stale/garbage values, and skip recording it as a candidate.
+                        # The transform raised AFTER (or instead of) writing its staged row; the slot is not counted, so the next candidate overwrites it and the failed column is never scored,
+                        # nor recorded as a candidate. The buffer column ``i`` it would have taken is set to NaN as before.
                         log_throttle(logger, "pairs_score_transform_final_failed", logging.ERROR, "Error when performing %s", bin_func, exc_info=True)
                         final_transformed_vals[:, i] = np.nan
                     else:
@@ -117,6 +122,12 @@ def _score_one_pair_gpu_fused_done(_gpu_fused_done, combs, vars_transformations,
                         _local_times[bin_func_name] = _local_times.get(bin_func_name, 0.0) + (timer() - start)
                         _batch_candidates.append((transformations_pair, bin_func_name, i, _uses_pw))
                         i += 1
+                        _staged += 1
+                        if _staged == _stage_rows:
+                            rows_to_columns_into(_stage[:_staged], final_transformed_vals, i - _staged)
+                            _staged = 0
+        if _staged:
+            rows_to_columns_into(_stage[:_staged], final_transformed_vals, i - _staged)
 
         # Phase 1b: ONE vectorised NaN/inf scrub over every materialised column
         # [:, :i] (replaces the per-column ``nan_to_num`` removed above). Elementwise

@@ -10,6 +10,7 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+from mlframe.feature_selection.filters._mdlp_honest_bycol_njit import seeded_permutation
 import pandas as pd
 import pytest
 
@@ -103,10 +104,10 @@ def test_null_matches_per_permutation_categorise_reference(monkeypatch, fixture,
         n = rec["factors_data"].shape[0]
         ev = np.arange(n, dtype=np.int64) if rec["eval_rows"] is None else rec["eval_rows"]
         y_codes = rec["factors_data"][:, rec["y_idx"]].astype(np.int64)
-        rng = np.random.default_rng(rec["seed"])
+        base_seed = int(np.random.default_rng(rec["seed"]).integers(0, 2**31 - 1))  # permutation b of the batched null's stream is the shuffle seeded base_seed + b
         m = ev.shape[0]
         for b in range(min(2, rec["n_perm"])):
-            perm = rng.permutation(n)
+            perm = seeded_permutation(n, base_seed + b)
             codes, nb = codes_fn(perm)
             ys = y_codes[perm][ev]
             ny = int(ys.max()) + 1

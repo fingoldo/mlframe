@@ -8,6 +8,7 @@ the number of permutations. Under the null the pass probability is at most alpha
 
 from __future__ import annotations
 
+import os
 import threading
 from collections import OrderedDict
 
@@ -15,6 +16,8 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+from ._cache_release import register_cache_releaser
 
 from mlframe.feature_selection.filters._family_columns_dedupe import unique_columns
 from mlframe._numba_parallel_guard import parallel_kernel_entry
@@ -30,6 +33,7 @@ from ._family_maxt_null_v2_njit import (
     label_bitsets_from_index,
     mi_all_columns_counts as mi_all_columns_njit,
     null_max_bitsets,
+    null_max_bitsets_from_classes,
 )
 
 if TYPE_CHECKING:
@@ -180,7 +184,7 @@ def family_null_max_njit(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray,
     return out
 
 
-_PERM_BLOCK_CACHE_BYTES = 256 * 1024 * 1024
+_PERM_BLOCK_CACHE_BYTES = int(os.environ.get("MLFRAME_PERM_BLOCK_CACHE_MB", "1024")) * 1024 * 1024  # one full permutation stream of a 100k-row family is ~400 MB; a smaller budget makes the cyclic re-reads of it miss every time
 _perm_block_cache: "OrderedDict[tuple, tuple]" = OrderedDict()
 _perm_block_cache_bytes = 0
 _perm_block_cache_lock = threading.Lock()  # move_to_end, insert and the byte-budget eviction are one read-modify-write on shared state
@@ -202,6 +206,19 @@ def _fill_permutations(idx: np.ndarray, base_seed: int) -> None:
             idx[r, j] = tmp
 
 
+def _release_perm_block_cache() -> int:
+    """Drop the cached permutation blocks (registered for release under memory pressure); returns the bytes freed."""
+    global _perm_block_cache_bytes
+    with _perm_block_cache_lock:
+        freed = _perm_block_cache_bytes
+        _perm_block_cache.clear()
+        _perm_block_cache_bytes = 0
+    return int(freed)
+
+
+register_cache_releaser(_release_perm_block_cache)
+
+
 def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.ndarray:
     """Row-permutation indices of the next ``m`` label permutations of the stream defined by ``rng``.
 
@@ -214,7 +231,7 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
     """
     global _perm_block_cache_bytes
     state_before = rng.bit_generator.state
-    key = (y.shape[0], int(m), hash(y.tobytes()), repr(state_before))
+    key = (y.shape[0], int(m), repr(state_before))  # the indices depend on the row count and the generator state only, so every target of that length shares them
     n = y.shape[0]
     with _perm_block_cache_lock:
         hit = _perm_block_cache.get(key)
@@ -263,11 +280,15 @@ def _null_device_wanted(cols: np.ndarray, y: np.ndarray, n_perm: int) -> bool:
     return _family_null_backend(int(y.shape[0]), int(cols.shape[0]), _work) == "device"
 
 
-def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, n_perm: int, rng: np.random.Generator, block: int = 256, acc: Any = None) -> np.ndarray | None:
+def family_null_max(
+    cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, n_perm: int, rng: np.random.Generator, block: int = 256, acc: Any = None, prep_cache: "dict | None" = None
+) -> np.ndarray | None:
     """Null maxima over ``n_perm`` label permutations drawn from ``rng`` in the same order as a per-permutation loop (results are identical).
 
     ``acc``: an optional device float64 vector of length ``n_perm``. The maxima are folded into it (elementwise, in place) and the
-    function returns ``None``, so a caller that scores several column groups against the same draw reads the result back once."""
+    function returns ``None``, so a caller that scores several column groups against the same draw reads the result back once.
+
+    ``prep_cache``: a dict a caller keeps for the calls that score the SAME columns (the blocks of one exact test): the column bit sets, host and device, are built by the first call and read from it by the rest."""
     out = np.empty(int(n_perm), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, or AUTO at scale) runs the null on the device; the permutations are drawn on the host in
     # the same order either way, so the decisions do not depend on the path.
@@ -283,13 +304,19 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
     dev_bits = None
     if cols.shape[0] and int(n_x.max()) <= BITSET_MAX_BINS and int(n_y) <= BITSET_MAX_CLASSES:
         # Parallel=True column-prange kernels: reachable from the pair sweep's joblib threads; see mlframe._numba_parallel_guard.
-        with parallel_kernel_entry():
-            bit_prep = bitset_groups(cols, n_x)
+        cache = prep_cache if prep_cache is not None else {}
+        if "bit_prep" not in cache:
+            with parallel_kernel_entry():
+                cache["bit_prep"] = bitset_groups(cols, n_x)
+        bit_prep = cache["bit_prep"]
         if want_device:
-            dev_bits = _device_bitsets(bit_prep, n_x, int(y.shape[0]))
+            if "dev_bits" not in cache:
+                cache["dev_bits"] = _device_bitsets(bit_prep, n_x, int(y.shape[0]))
+            dev_bits = cache["dev_bits"]
     use_device = want_device and bit_prep is None and device_supported(n_x, int(n_y))
     py_const = _label_const(bit_prep[0], y, int(n_y)) if (dev_bits is not None and bit_prep is not None) else 0.0
     words = (int(y.shape[0]) + 63) // 64
+    py_counts = np.bincount(np.asarray(y, dtype=np.int64), minlength=int(n_y)).astype(np.int64)
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
         perm_idx = _permutation_block(rng, y, m)
@@ -306,10 +333,11 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
                     continue
                 out[start : start + m] = null_max_bits_device(dev_bits, labels, py_const)
                 continue
-            perms = y[perm_idx]
             if bit_prep is not None:
-                out[start : start + m] = null_max_bitsets(bit_prep, n_x, perms, int(n_y))
+                # the class bit sets are packed straight from the permutation indices: the (block, n) matrix of permuted labels is never built
+                out[start : start + m] = null_max_bitsets_from_classes(bit_prep, n_x, label_bitsets_from_index(y, perm_idx, int(n_y), words), int(y.shape[0]), py_counts)
             elif use_device:
+                perms = y[perm_idx]
                 try:
                     out[start : start + m] = family_null_max_device(cols, n_x, perms, int(n_y))
                 except _device_null_oom_errors():
@@ -317,7 +345,7 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
                     # since the permutations were drawn on the host in the same order either way.
                     out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
             else:
-                out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
+                out[start : start + m] = family_null_max_njit(cols, n_x, y[perm_idx], int(n_y))
             if acc is not None:
                 import cupy as cp
 
@@ -534,7 +562,8 @@ def _analytic_triage_core(n_rows, nx_occ, y, n_y, observed, starts, alpha, inver
 
 def _permutation_pass_flags(cols, n_x, y, n_y, observed_max, alpha, n_perm, seed) -> np.ndarray:
     """Exact family-wise permutation test for batches with the given observed maxima (the null spans every column of ``cols``)."""
-    return _permutation_pass_flags_with(lambda m, rng: family_null_max(cols, n_x, y, n_y, m, rng), observed_max, alpha, n_perm, seed)
+    prep: dict = {}  # the column bit sets, built by the first block of this test and reused by the others
+    return _permutation_pass_flags_with(lambda m, rng: family_null_max(cols, n_x, y, n_y, m, rng, prep_cache=prep), observed_max, alpha, n_perm, seed)
 
 
 def _permutation_pass_flags_with(null_max, observed_max, alpha, n_perm, seed) -> np.ndarray:

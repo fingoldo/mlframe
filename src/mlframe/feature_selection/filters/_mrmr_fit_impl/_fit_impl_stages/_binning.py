@@ -45,7 +45,18 @@ def _target_dependent_columns(x, cols) -> "set[str] | None":
 
     if not isinstance(x, pd.DataFrame):
         return None
-    return {str(c) for c in cols if c in x.columns and pd.api.types.is_numeric_dtype(x[c]) and x[c].nunique(dropna=True) > _LOW_CARD_CAP}
+    return {str(c) for c in cols if c in x.columns and pd.api.types.is_numeric_dtype(x[c]) and _has_more_than_distinct(x[c], _LOW_CARD_CAP)}
+
+
+_DISTINCT_PROBE_ROWS = 4096
+
+
+def _has_more_than_distinct(col: Any, cap: int) -> bool:
+    """``col.nunique(dropna=True) > cap``: a head sample that already holds more distinct values than ``cap`` decides it (the sample's distinct values are among the column's), only a column that does not is counted in full."""
+    head = col.iloc[:_DISTINCT_PROBE_ROWS]
+    if head.shape[0] < col.shape[0] and head.nunique(dropna=True) > cap:
+        return True
+    return bool(col.nunique(dropna=True) > cap)
 
 
 def _compact_code_storage(data):
@@ -140,6 +151,45 @@ def _discretize_inputs(self, _is_polars_input, X, target_names):
         return _ret_discretize_inputs_part1[1]
 
 
+def _null_strategy_kwargs_with_plan_cache(nbins_strategy: Any, kwargs: Any) -> Any:
+    """``kwargs`` of the supervised binning of a permutation, with an ``OptimalJointPlanCache`` added for ``optimal_joint`` (MLFRAME_OJ_PLAN_CACHE=0 keeps the plain search)."""
+    if str(nbins_strategy).lower() in ("optimal_joint", "cv") and os.environ.get("MLFRAME_OJ_PLAN_CACHE", "1") != "0":
+        from mlframe.feature_selection.filters._adaptive_nbins import OptimalJointPlanCache
+
+        return {**(kwargs or {}), "optimal_joint_plan_cache": OptimalJointPlanCache()}
+    return kwargs
+
+
+def _attach_column_hook(codes_fn: Any, binner: Any, y_raw: np.ndarray, n_cols: int) -> None:
+    """Give the null hook ``codes_fn`` a ``column(row_perm, col)`` that bins one column alone under the permuted target (a candidate's confirmation needs one column per permutation)."""
+    if binner is None:
+        return
+
+    def _honest_null_column(row_perm, col):
+        """``(codes, bin count)`` of column ``col`` alone under the target permuted by ``row_perm``, or ``None`` (an engineered column appended after binning)."""
+        if int(col) >= n_cols:
+            return None
+        return binner.column(y_raw[np.asarray(row_perm, dtype=np.int64)], int(col))
+
+    codes_fn.column = _honest_null_column
+
+
+def _make_null_binner(self: Any, nbins_strategy: Any, x_for_cat: Any, cols: Any, dependent: set, fixed_codes: Any, strategy_for_categorize: Any, strategy_kwargs: Any) -> Any:
+    """The binner that re-bins the target-dependent columns under permuted targets (see ``PermutedTargetBinner``), or ``None`` when the strategy or the frame is not covered.
+
+    ``optimal_joint`` takes a handful of edge sets per column over the permutations: a binner that prepares the frame once and memoises the code column of each edge set replaces the whole-frame
+    ``categorize_dataset`` pass per permutation (MLFRAME_OJ_NULL_BINNER=0 restores it)."""
+    if str(nbins_strategy).lower() not in ("optimal_joint", "cv") or os.environ.get("MLFRAME_OJ_NULL_BINNER", "1") == "0":
+        return None
+    from mlframe.feature_selection.filters.discretization._null_binner import PermutedTargetBinner
+
+    dep_df = x_for_cat if fixed_codes is None else x_for_cat[[c for c in x_for_cat.columns if str(c) in dependent]]
+    if not PermutedTargetBinner.supported(dep_df):
+        return None
+    binner = PermutedTargetBinner(dep_df, strategy_for_categorize, nbins_strategy, strategy_kwargs, self.quantization_dtype, out_cols=[str(c) for c in cols], fixed=fixed_codes)
+    return binner if binner.ok else None
+
+
 def _install_honest_null_hook(
     self: Any, *, categorize_dataset: Any, _x_for_cat: Any, cols: Any, data: Any, nbins: Any, _y_for_strategy: Any, _nbins_strategy: Any,
     _nbins_strategy_kwargs: Any, _strategy_for_categorize: Any,
@@ -157,15 +207,16 @@ def _install_honest_null_hook(
 
     # The cross-validated bin-count search (``optimal_joint``) splits and bins the SAME column for every permutation; only the target changes. A plan cache keeps the target-independent part per
     # column, so a permutation costs the fold scoring only (identical edges; MLFRAME_OJ_PLAN_CACHE=0 restores the uncached search).
-    _null_strategy_kwargs = _nbins_strategy_kwargs
-    if str(_nbins_strategy).lower() in ("optimal_joint", "cv") and os.environ.get("MLFRAME_OJ_PLAN_CACHE", "1") != "0":
-        from mlframe.feature_selection.filters._adaptive_nbins import OptimalJointPlanCache
+    _null_strategy_kwargs = _null_strategy_kwargs_with_plan_cache(_nbins_strategy, _nbins_strategy_kwargs)
 
-        _null_strategy_kwargs = {**(_nbins_strategy_kwargs or {}), "optimal_joint_plan_cache": OptimalJointPlanCache()}
+    _binner = _make_null_binner(self, _nbins_strategy, _x_for_cat, cols, _dependent, _fixed_codes, _strategy_for_categorize, _null_strategy_kwargs)
 
     def _honest_null_codes_uncached(row_perm):
         """Codes of every column re-binned on the RAW target permuted by ``row_perm`` (same columns, same order as ``data``)."""
         y_perm = _y_raw_for_null[np.asarray(row_perm, dtype=np.int64)]
+        _fast = _binner.codes(np.asarray(y_perm)) if _binner is not None else None
+        if _fast is not None:
+            return _fast[0], np.asarray(_fast[2], dtype=np.int64)
         d_perm, _c_perm, nb_perm = categorize_dataset(
             df=_x_for_cat if _fixed_codes is None else _x_for_cat[[c for c in _x_for_cat.columns if str(c) in _dependent]],
             method=self.quantization_method,
@@ -205,9 +256,9 @@ def _install_honest_null_hook(
         key = hashlib.blake2b(array_buffer(perm), digest_size=16).digest()
         hit = _memo.get(key)
         if hit is not None:
-            return hit[0].astype(np.int64), hit[1].copy()
+            return hit[0], hit[1].copy()
         codes, nb = _honest_null_codes_uncached(perm)
-        compact = codes.astype(np.int16) if codes.size == 0 or int(codes.max()) < np.iinfo(np.int16).max else codes
+        compact = codes if codes.dtype == np.int16 else codes.astype(np.int16) if codes.size == 0 or int(codes.max()) < np.iinfo(np.int16).max else codes
         if _memo_bytes[0] + compact.nbytes + nb.nbytes <= _HONEST_NULL_MEMO_BYTES:
             _memo[key] = (compact, nb.copy())
             _memo_bytes[0] += compact.nbytes + nb.nbytes
@@ -219,6 +270,8 @@ def _install_honest_null_hook(
         _memo_bytes[0] = 0
 
     _honest_null_codes.clear_memo = _clear_memo  # type: ignore[attr-defined]
+
+    _attach_column_hook(_honest_null_codes, _binner, _y_raw_for_null, len(cols))
 
     # Numba spec for the honest null (see _mdlp_honest_njit): only the plain 'mdlp' (fayyad_irani) strategy with no extra kwargs is
     # covered by the njit chain, whose identity with categorize_dataset was verified on continuous columns; other strategies keep

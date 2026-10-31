@@ -77,10 +77,27 @@ def _parity_grid(v: np.ndarray) -> np.ndarray:
     return np.geomspace(span / 200.0, span * 2.0, _GRID_POINTS)
 
 
+def _dense_codes(y: np.ndarray) -> np.ndarray:
+    """The dense rank of every label among the sorted distinct labels (``np.unique(y, return_inverse=True)[1]``) as int64; an integer or boolean label with a small range is ranked through a count table instead of a sort."""
+    y = np.asarray(y).ravel()
+    if y.dtype.kind in "iub" and y.size:
+        lo = int(y.min())
+        span = int(y.max()) - lo + 1
+        if span <= (1 << 20):
+            shifted = y.astype(np.int64) - lo
+            rank = np.cumsum(np.bincount(shifted, minlength=span) > 0) - 1
+            codes: np.ndarray = np.asarray(rank[shifted], dtype=np.int64)
+            return codes
+    ranks: np.ndarray = np.unique(y, return_inverse=True)[1].astype(np.int64).ravel()
+    return ranks
+
+
 def _raw_mi(v: np.ndarray, y: np.ndarray) -> float:
     """MI of the raw column with the target: exact codes for a column with at most ``_BINS`` distinct values, else quantile binning into ``_BINS`` bins."""
-    levels = np.unique(v)
-    if levels.size <= _BINS:
+    # a head sample with more than ``_BINS`` distinct values already decides "many levels": the sort of the whole column is only needed for a column that may have few
+    head = v[:4096]
+    levels = np.unique(v) if (head.shape[0] == v.shape[0] or np.unique(head).size <= _BINS) else None
+    if levels is not None and levels.size <= _BINS:
         # The quantile edges of a two-valued column are [lo, hi] and the upper bin is clipped away, which put both values in code 0 and gave a binary
         # column an MI of 0: a parity feature that is an exact copy of it then showed the column's whole MI as uplift and was appended.
         codes = np.searchsorted(levels, v).astype(np.int64)
@@ -89,8 +106,8 @@ def _raw_mi(v: np.ndarray, y: np.ndarray) -> float:
         edges = np.unique(np.nanquantile(v, np.linspace(0.0, 1.0, _BINS + 1)))
         codes = np.clip(np.searchsorted(edges, v, side="right") - 1, 0, max(len(edges) - 2, 0)).astype(np.int64)
         n_codes = max(len(edges) - 1, 1)
-    _, y_codes = np.unique(y, return_inverse=True)
-    return float(_mi_codes_njit(codes, n_codes, y_codes.astype(np.int64).ravel(), int(y_codes.max()) + 1))
+    y_codes = _dense_codes(y)
+    return float(_mi_codes_njit(codes, n_codes, y_codes, int(y_codes.max()) + 1))
 
 
 def scan_parity_period(v: np.ndarray, y: np.ndarray) -> tuple[float, float]:
@@ -106,9 +123,9 @@ def scan_parity_period(v: np.ndarray, y: np.ndarray) -> tuple[float, float]:
     grid = _parity_grid(v)
     if grid.size == 0:
         return float("nan"), 0.0
-    _, y_codes = np.unique(y, return_inverse=True)
+    y_codes = _dense_codes(y)
     # Intentional float64: input of floor(v / period) mod 2; float32 cannot resolve the period on large values
-    mis = _parity_mi_grid_njit(np.ascontiguousarray(v, dtype=np.float64), y_codes.astype(np.int64).ravel(), int(y_codes.max()) + 1, grid)
+    mis = _parity_mi_grid_njit(np.ascontiguousarray(v, dtype=np.float64), y_codes, int(y_codes.max()) + 1, grid)
     g = int(np.argmax(mis))
     return float(grid[g]), max(float(mis[g]), 0.0)
 

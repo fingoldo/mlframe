@@ -31,3 +31,23 @@ def test_cached_permutation_blocks_match_fresh_draws_across_families():
     np.testing.assert_allclose(first, expected, rtol=0, atol=1e-12)
     np.testing.assert_allclose(second, expected, rtol=0, atol=1e-12)
     assert len(gate._perm_block_cache) > 0
+
+
+def test_blocks_are_shared_between_targets_of_the_same_length(monkeypatch):
+    """The permutation indices depend on the row count and the generator state, not on the target: a second target draws nothing new and its null equals a fresh draw."""
+    rng = np.random.default_rng(5)
+    n, k = 600, 8
+    cols = np.ascontiguousarray(rng.integers(0, 4, size=(k, n)).astype(np.int64))
+    n_x = (cols.max(axis=1) + 1).astype(np.int64)
+    y1 = rng.integers(0, 3, size=n).astype(np.int64)
+    y2 = rng.integers(0, 3, size=n).astype(np.int64)
+    expected = _fresh_null(cols, n_x, y2, 3, 300, seed=1)
+    gate._perm_block_cache.clear()
+    gate._perm_block_cache_bytes = 0
+    gate.family_null_max(cols, n_x, y1, 3, 300, np.random.default_rng(1))
+    drawn = []
+    real = gate._fill_permutations
+    monkeypatch.setattr(gate, "_fill_permutations", lambda *a, **kw: (drawn.append(1), real(*a, **kw))[1])
+    got = gate.family_null_max(cols, n_x, y2, 3, 300, np.random.default_rng(1))
+    assert not drawn
+    np.testing.assert_allclose(got, expected, rtol=0, atol=1e-12)

@@ -314,8 +314,12 @@ def surrogate_gbm_interaction_seeds(
     self_gate_min_z: float = 2.0,
     n_threads: int = 4,
     random_seed: int = 0,
+    row_cap: int = 30_000,
 ) -> tuple[list, list, dict]:
     """Propose interaction PAIR + TRIPLE seeds from a surrogate-GBM's split co-occurrence.
+
+    ``row_cap``: the surrogates are shallow trees on a few-bin ordinal matrix, whose split gains and co-occurrence ranking are settled by a few tens of thousands of rows; a larger frame is
+    subsampled once (seeded, without replacement) before the ten fits, which otherwise cost 70% of every row at every size (40 s of a 100k-row all-families fit). ``0`` keeps every row.
 
     ``disc_X`` is the ordinal-encoded screening matrix (n, p); ``candidate_indices`` the
     COLUMN INDICES (into ``disc_X``) eligible to seed (the same numeric operand pool the
@@ -349,6 +353,9 @@ def surrogate_gbm_interaction_seeds(
     # the target index) and map the surrogate's LOCAL feature indices back to the GLOBAL
     # candidate column indices. This also restricts split co-occurrence to exactly the
     # operand pool, so the post-hoc cand_set filter is a no-op.
+    if row_cap and disc_X.shape[0] > int(row_cap):
+        rows = np.sort(np.random.default_rng(int(random_seed) + 17).choice(disc_X.shape[0], int(row_cap), replace=False))
+        disc_X, y = disc_X[rows], np.asarray(y)[rows]
     sub_X = np.ascontiguousarray(disc_X[:, cand_list])
     local_to_global = {i: cand_list[i] for i in range(len(cand_list))}
 

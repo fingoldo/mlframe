@@ -100,6 +100,45 @@ def _warn_structural_nan_drops(nan_dropped: list, fd_report: Any, behavior_confi
     )
 
 
+def _add_redundant_pair_drops(fd_report, dup_threshold: float, drop_set: set) -> None:
+    """Add the alphabetically-larger member of each near-duplicate pair to ``drop_set``, collapsing correlated clusters greedily."""
+    # Walk the analyzer's diagnostics.redundant_feature_pairs (list of
+    # (a, b, |corr|)) and drop the alphabetically-larger of each pair whose
+    # corr clears the threshold. Reproducible pick keeps train/val/test
+    # column order stable across runs.
+    # diagnostics["redundant_feature_pairs"] is capped to top-50 by the
+    # analyzer; the FULL list is still available via the warning trail.
+    # For drop purposes the top-50 captures the strongest dupes which is
+    # exactly the worthwhile target -- the long tail is sub-1.0 corr.
+    _pairs = (fd_report.diagnostics or {}).get("redundant_feature_pairs") or []
+    for entry in _pairs:
+        try:
+            # Each entry is dict {a, b, corr} from the analyzer return.
+            _a = str(entry.get("a") if isinstance(entry, dict) else entry[0])
+            _b = str(entry.get("b") if isinstance(entry, dict) else entry[1])
+            _corr_raw = entry.get("corr") if isinstance(entry, dict) else entry[2]
+            _c = float(_corr_raw) if _corr_raw is not None else 0.0
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed: %s", e)
+            continue
+        if abs(_c) >= dup_threshold:
+            # Greedy vertex-cover collapse: drop the alphabetically-larger of a pair ONLY when
+            # NEITHER side is already in drop_set. If either side is already dropped, this edge
+            # is already "covered" (at least one of its endpoints is gone) -- do nothing.
+            #
+            # The prior logic instead added whichever side WASN'T yet dropped whenever the OTHER
+            # side already was, which walks a 3+ way mutually-correlated cluster (a triangle A-B,
+            # B-C, A-C in the correlation graph, not just a linear chain) into dropping every
+            # single member: pair (A,B) drops B; pair (B,C) then sees B already dropped and adds
+            # C (instead of no-op'ing since the edge is already covered); pair (A,C) then sees C
+            # already dropped and adds A too -- zero survivors. The fix only drops a NEW column
+            # when the edge isn't already covered, which guarantees at least one member of every
+            # connected correlated cluster always survives (dropping requires BOTH endpoints
+            # alive, so the last alive node touching any edge is never removed).
+            if _a not in drop_set and _b not in drop_set:
+                drop_set.add(max(_a, _b))
+
+
 def _maybe_auto_drop_after_feature_analyzer(
     *,
     fd_report,
@@ -172,41 +211,7 @@ def _maybe_auto_drop_after_feature_analyzer(
             _candidates = [c for c in _candidates if not _is_degenerate_reason(c)]
         drop_set.update(_candidates)
     if _dup_threshold <= 1.0:
-        # Walk the analyzer's diagnostics.redundant_feature_pairs (list of
-        # (a, b, |corr|)) and drop the alphabetically-larger of each pair whose
-        # corr clears the threshold. Reproducible pick keeps train/val/test
-        # column order stable across runs.
-        _pairs = (fd_report.diagnostics or {}).get("redundant_feature_pairs") or []
-        # diagnostics["redundant_feature_pairs"] is capped to top-50 by the
-        # analyzer; the FULL list is still available via the warning trail.
-        # For drop purposes the top-50 captures the strongest dupes which is
-        # exactly the worthwhile target -- the long tail is sub-1.0 corr.
-        for entry in _pairs:
-            try:
-                # Each entry is dict {a, b, corr} from the analyzer return.
-                _a = str(entry.get("a") if isinstance(entry, dict) else entry[0])
-                _b = str(entry.get("b") if isinstance(entry, dict) else entry[1])
-                _corr_raw = entry.get("corr") if isinstance(entry, dict) else entry[2]
-                _c = float(_corr_raw) if _corr_raw is not None else 0.0
-            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                continue
-            if abs(_c) >= _dup_threshold:
-                # Greedy vertex-cover collapse: drop the alphabetically-larger of a pair ONLY when
-                # NEITHER side is already in drop_set. If either side is already dropped, this edge
-                # is already "covered" (at least one of its endpoints is gone) -- do nothing.
-                #
-                # The prior logic instead added whichever side WASN'T yet dropped whenever the OTHER
-                # side already was, which walks a 3+ way mutually-correlated cluster (a triangle A-B,
-                # B-C, A-C in the correlation graph, not just a linear chain) into dropping every
-                # single member: pair (A,B) drops B; pair (B,C) then sees B already dropped and adds
-                # C (instead of no-op'ing since the edge is already covered); pair (A,C) then sees C
-                # already dropped and adds A too -- zero survivors. The fix only drops a NEW column
-                # when the edge isn't already covered, which guarantees at least one member of every
-                # connected correlated cluster always survives (dropping requires BOTH endpoints
-                # alive, so the last alive node touching any edge is never removed).
-                if _a not in drop_set and _b not in drop_set:
-                    drop_set.add(max(_a, _b))
+        _add_redundant_pair_drops(fd_report, _dup_threshold, drop_set)
     if not drop_set:
         return train_df, val_df, test_df, []
     # Filter the drop set to columns actually present in train_df.

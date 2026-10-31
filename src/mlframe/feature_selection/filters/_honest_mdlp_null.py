@@ -18,7 +18,9 @@ import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
 
-from ._numba_utils import _n_unique_codes
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+from ._mdlp_honest_bycol_njit import seeded_permutation
+from ._numba_utils import corrected_mi_best
 from ._parity_fe import _mi_codes_njit
 
 logger = logging.getLogger(__name__)
@@ -32,32 +34,20 @@ def _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, col
     """
 
     codes_p, nb_p = honest_codes_fn(row_perm)
-    if eval_rows is not None:
-        codes_p = np.asarray(codes_p)[eval_rows]
-        factors_data = factors_data[eval_rows]
-        n = len(eval_rows)
-    yc_p = np.ascontiguousarray(y_codes[row_perm])
-    if eval_rows is not None:
-        yc_p = np.ascontiguousarray(yc_p[eval_rows])
-    ny = int(yc_p.max()) + 1
-    ky_eff = float(np.unique(yc_p).shape[0])
-    best = 0.0
-    for c in cols:
-        if c < codes_p.shape[1]:
-            # Supervised bins: re-binned on the permuted target above.
-            x = np.ascontiguousarray(np.asarray(codes_p[:, c]).astype(np.int64))
-            kx = int(nb_p[c])
-        else:
-            # Columns added after binning (engineered features) are binned without the target, so their observed codes are valid under
-            # permutation of the target: the fixed codes are the correct null here.
-            x = np.ascontiguousarray(np.asarray(factors_data[:, c]).astype(np.int64))
-            kx = int(factors_nbins[c])
-        mi = _mi_codes_njit(x, kx, yc_p, ny)
-        kx_eff = float(_n_unique_codes(x))
-        corr = mi - (kx_eff - 1.0) * (ky_eff - 1.0) / (2.0 * n)
-        if corr > best:
-            best = corr
-    return best
+    rows = np.arange(n, dtype=np.int64) if eval_rows is None else np.asarray(eval_rows, dtype=np.int64)  # the kernel reads the codes at these rows: no copy of the frame per permutation
+    n = len(rows)
+    yc_p = np.ascontiguousarray(y_codes[row_perm][rows])
+    counts = np.bincount(yc_p)  # a sort of the labels to count the occupied classes is the dearest line of a permutation at 100k rows
+    ny = counts.shape[0]
+    ky_eff = float(np.count_nonzero(counts))
+    # Supervised bins (columns below ``codes_p.shape[1]``) are the ones re-binned on the permuted target above; columns added after binning (engineered features) are binned without the target,
+    # so their observed codes are valid under permutation of the target: the fixed codes are the correct null for them.
+    with parallel_kernel_entry():
+        return float(
+            corrected_mi_best(
+                np.asarray(codes_p), np.asarray(nb_p, dtype=np.int64), np.asarray(factors_data), np.asarray(factors_nbins, dtype=np.int64), np.asarray(cols, dtype=np.int64), yc_p, ny, ky_eff, n, rows,
+            )
+        )
 
 
 # Raw columns whose per-permutation null is cached on the spec for the rest of the fit: 999 permutations x 2048 columns x 2 matrices x 8 bytes
@@ -100,20 +90,34 @@ def _device_honest_null_enabled() -> bool:
 _PERM_LABELS_CACHE_MAX_BYTES = 256 * 1024 * 1024  # per spec: the permuted-label matrices of one (seed, rows, permutations) draw; larger draws are regenerated each call
 
 
+def _free_memory_bytes() -> int:
+    """Free physical memory in bytes (0 when it cannot be read)."""
+    try:
+        import psutil
+
+        return int(psutil.virtual_memory().available)
+    except Exception:  # a missing probe keeps the fixed cap
+        return 0
+
+
 def _permuted_labels_cached(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, rng, n: int, n_permutations: int, seed_key: int):
     """``permuted_labels`` of the seeded permutation stream, kept on the spec: the screen asks for the null of one column after another with the same seed, rows and permutation count,
     and every call drew the same ``n_permutations`` shuffles of ``n`` rows again (3483 draws, 1.5 s of a 20000-row fit, for 200 distinct ones)."""
-    from ._mdlp_honest_bycol_njit import permuted_labels
+    from ._mdlp_honest_bycol_njit import permuted_labels_seeded
 
     def draw():
-        """The permuted label matrices of a fresh draw from ``rng``."""
-        return permuted_labels(y_raw, y_codes, (rng.permutation(n) for _ in range(n_permutations)), n_permutations)
+        """The permuted label matrices of a fresh draw from ``rng``: one seed is taken from it and the shuffles are generated in parallel from that seed."""
+        return permuted_labels_seeded(y_raw, y_codes, n_permutations, int(rng.integers(0, 2**31 - 1)))
 
-    if n_permutations * n * 2 > _PERM_LABELS_CACHE_MAX_BYTES:
+    # one byte per label per permutation when the codes are the raw labels (one shared matrix), two otherwise; the cap is a fixed budget, widened to a quarter of the free memory (at most 2 GiB)
+    # so that a million-row draw (about 1 GB) is kept for the next call instead of redrawn
+    draw_bytes = n_permutations * n * (1 if np.array_equal(y_raw, y_codes) else 2)
+    cap = max(_PERM_LABELS_CACHE_MAX_BYTES, min(2 * 1024**3, _free_memory_bytes() // 4))
+    if draw_bytes > cap:
         log_throttle(
             logger, "honest_null_perm_labels_cache_too_large", logging.INFO,
             "honest null: the permuted-label matrices (%d permutations x %d rows, %.0f MB) exceed the %.0f MB cache cap; they are redrawn on every call",
-            n_permutations, n, n_permutations * n * 2 / 2**20, _PERM_LABELS_CACHE_MAX_BYTES / 2**20,
+            n_permutations, n, draw_bytes / 2**20, cap / 2**20,
         )
         return draw()
     # The stream of one seed is a prefix-stable sequence: the first k of a longer draw are the k permutations a shorter draw would make, so one entry serves every count up to its own.
@@ -320,9 +324,10 @@ def honest_fdr_floor(
     n = int(factors_data.shape[0])
     cols = [int(c) for c in pool]
     rng = np.random.default_rng(0 if seed is None else int(seed))
+    base_seed = int(rng.integers(0, 2**31 - 1))  # the stream of the batched null: permutation b is ``seeded_permutation(n, base_seed + b)``
     nulls = np.empty(int(n_permutations), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     for b in range(int(n_permutations)):
-        nulls[b] = _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, cols, n, rng.permutation(n), eval_rows)
+        nulls[b] = _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, cols, n, seeded_permutation(n, base_seed + b), eval_rows)
     return float(np.quantile(nulls, float(quantile), method="higher"))
 
 
@@ -359,14 +364,20 @@ def honest_candidate_nfailed(
         plain, _corr = _njit_null_columns(spec, full_factors, factors_nbins, y_idx, [int(col)], int(n_permutations), 0 if seed is None else int(seed), eval_rows)
         return int(np.count_nonzero(plain[:, 0] >= observed)), observed
     rng = np.random.default_rng(0 if seed is None else int(seed))
+    base_seed = int(rng.integers(0, 2**31 - 1))
+    column_codes = getattr(honest_codes_fn, "column", None)  # bins one column under a permuted target when the hook can (a candidate needs one column per permutation)
     nfailed = 0
-    for _ in range(int(n_permutations)):
-        row_perm = rng.permutation(n)
-        codes_p, nb_p = honest_codes_fn(row_perm)
-        if int(col) >= len(nb_p):
-            return None
-        x_p = np.ascontiguousarray(np.asarray(codes_p)[rows, int(col)]).astype(np.int64)
+    for b in range(int(n_permutations)):
+        row_perm = seeded_permutation(n, base_seed + b)
+        one = column_codes(row_perm, int(col)) if column_codes is not None else None
+        if one is not None:
+            x_p, nb_col = np.ascontiguousarray(one[0][rows]).astype(np.int64), one[1]
+        else:
+            codes_p, nb_p = honest_codes_fn(row_perm)
+            if int(col) >= len(nb_p):
+                return None
+            x_p, nb_col = np.ascontiguousarray(np.asarray(codes_p)[rows, int(col)]).astype(np.int64), int(nb_p[int(col)])
         y_p = np.ascontiguousarray(y_full[row_perm][rows]).astype(np.int64)
-        if float(_mi_codes_njit(x_p, int(nb_p[int(col)]), y_p, int(y_p.max()) + 1)) >= observed:
+        if float(_mi_codes_njit(x_p, int(nb_col), y_p, int(y_p.max()) + 1)) >= observed:
             nfailed += 1
     return nfailed, observed
