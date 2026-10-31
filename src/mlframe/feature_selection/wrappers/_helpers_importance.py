@@ -84,57 +84,8 @@ def _make_fast_default_scorer(model: object) -> Callable:
 
     # mode:      -1 = baseline pending; 0 = safe (estimator.score); 1 = fast closed-form.
     # need_copy: True = defensive copy each call (writeable-flip / read-only buffer); False = read _X directly.
-    # _ycache:   y-derived invariants keyed by id(_y) - see _fast_value.
+    # _ycache:   y-derived invariants keyed by id(_y) - see _fast_default_y_invariants.
     state: dict = {"mode": -1, "need_copy": True, "_ycache": None, "_yid": None}
-
-    def _y_invariants(_y):
-        """Return (y_arr, regressor (yt, ss_tot)) for ``_y``, computing once and reusing while ``_y`` is unchanged.
-
-        ``permutation_importance`` permutes only X across its ``p*n_repeats`` scorer calls and feeds the IDENTICAL
-        ``_y`` every time. The classifier path then re-ran ``np.asarray(_y)`` and the regressor path re-ran
-        ``_y.astype(double precision)`` + ``np.mean(_y)`` + ``ss_tot=sum((y-mean)**2)`` - all functions of ``_y`` alone -
-        on every call. Hoisting them behind an ``id(_y)`` cache is bit-identical (same float, same NaN handling)
-        and removes ~3x of the regressor-path per-call cost (18.3us -> 6.0us in isolation). The caller holds ``_y``
-        alive for the whole permutation loop, so ``id(_y)`` cannot alias a freed object mid-loop.
-        """
-        if state["_yid"] == id(_y) and state["_ycache"] is not None:
-            return state["_ycache"]
-        _y_arr = np.asarray(_y)
-        reg = None
-        if not _is_clf and _y_arr.ndim == 1:
-            # Intentional float64: ss_tot is a sum of squares over the target, cached once per fit; kept f64.
-            yt = _y_arr.astype(np.float64, copy=False)
-            ss_tot = float(np.sum((yt - np.mean(yt)) ** 2))
-            reg = (yt, ss_tot)
-        cached = (_y_arr, reg)
-        state["_yid"] = id(_y)
-        state["_ycache"] = cached
-        return cached
-
-    def _fast_value(_est, _Xc, _y):
-        """Closed-form default score; returns None if the case isn't supported (-> fall back)."""
-        _y_arr, _reg = _y_invariants(_y)
-        if _y_arr.ndim > 1 and _y_arr.shape[-1] > 1:
-            return None  # multi-output: defer to estimator.score
-        pred = _est.predict(_Xc)
-        pred = np.asarray(pred)
-        if _is_clf:
-            # accuracy: fraction of exact matches. Bit-identical to sklearn accuracy_score for 1d targets.
-            if pred.shape != _y_arr.shape:
-                return None
-            return float(np.mean(pred == _y_arr))
-        # regressor: r2 with default multioutput='uniform_average'; single-output closed form.
-        if _reg is None:
-            return None  # multi-output regressor (y_arr.ndim>1): defer to estimator.score.
-        yt, ss_tot = _reg
-        # Intentional float64: SS_res accumulator for the regressor score, kept f64 to match the cached ss_tot.
-        pred = pred.astype(np.float64, copy=False)
-        if pred.shape != yt.shape:
-            return None
-        if ss_tot == 0.0:
-            return None  # constant target: sklearn r2 has special-case semantics; defer.
-        ss_res = float(np.sum((yt - pred) ** 2))
-        return 1.0 - ss_res / ss_tot
 
     def _scorer(_est, _X, _y):
         """``permutation_importance``-compatible scoring callable: latches to the closed-form fast path (mode 1)
@@ -147,37 +98,96 @@ def _make_fast_default_scorer(model: object) -> Callable:
                 _Xc = np.array(_X, copy=True)
             else:
                 _Xc = _X
-            return _fast_value(_est, _Xc, _y) if mode == 1 else _est.score(_Xc, _y)
+            return _fast_default_value(state, _is_clf, _est, _Xc, _y) if mode == 1 else _est.score(_Xc, _y)
 
         # Undecided: this is the baseline (unpermuted) call. Always copy HERE so the probe can't corrupt
         # sklearn's reused ``X_permuted`` buffer; then decide whether subsequent calls may skip the copy.
         _Xc = np.array(_X, copy=True) if isinstance(_X, np.ndarray) else _X
         safe_val = _est.score(_Xc, _y)
-
-        # need_copy decision: if predicting through ``_est.score`` left our private copy still writeable,
-        # the estimator does not flip the flag -> subsequent calls can read sklearn's buffer directly.
-        # A non-ndarray X (pandas/polars) keeps the historical pass-through (no copy was made anyway).
-        if isinstance(_X, np.ndarray):
-            state["need_copy"] = not bool(getattr(_Xc.flags, "writeable", True))
-        else:
-            state["need_copy"] = False
-
-        if not (_is_clf or _is_reg):
-            state["mode"] = 0
-            return safe_val
-        try:
-            fast_val = _fast_value(_est, _Xc, _y)
-        except Exception as e:
-            logger.warning("_fast_value computation failed: %s", e)
-            fast_val = None
-        # Bit-identity gate: latch fast ONLY on an exact match (handles NaN equally on both sides).
-        if fast_val is not None and (fast_val == safe_val or (fast_val != fast_val and safe_val != safe_val)):
-            state["mode"] = 1
-        else:
-            state["mode"] = 0
+        _latch_fast_default(state, _is_clf, _is_reg, _est, _X, _Xc, _y, safe_val)
         return safe_val
 
     return _scorer
+
+
+def _fast_default_y_invariants(state: dict, is_clf: bool, _y):
+    """Return ``(y_arr, regressor (yt, ss_tot))`` for ``_y``, computing once and reusing while ``_y`` is unchanged.
+
+    ``permutation_importance`` permutes only X across its ``p*n_repeats`` scorer calls and feeds the IDENTICAL
+    ``_y`` every time. The classifier path then re-ran ``np.asarray(_y)`` and the regressor path re-ran
+    ``_y.astype(double precision)`` + ``np.mean(_y)`` + ``ss_tot=sum((y-mean)**2)`` - all functions of ``_y`` alone -
+    on every call. Hoisting them behind an ``id(_y)`` cache is bit-identical (same float, same NaN handling)
+    and removes ~3x of the regressor-path per-call cost (18.3us -> 6.0us in isolation). The caller holds ``_y``
+    alive for the whole permutation loop, so ``id(_y)`` cannot alias a freed object mid-loop.
+    """
+    if state["_yid"] == id(_y) and state["_ycache"] is not None:
+        return state["_ycache"]
+    _y_arr = np.asarray(_y)
+    reg = None
+    if not is_clf and _y_arr.ndim == 1:
+        # Intentional float64: ss_tot is a sum of squares over the target, cached once per fit; kept f64.
+        yt = _y_arr.astype(np.float64, copy=False)
+        ss_tot = float(np.sum((yt - np.mean(yt)) ** 2))
+        reg = (yt, ss_tot)
+    cached = (_y_arr, reg)
+    state["_yid"] = id(_y)
+    state["_ycache"] = cached
+    return cached
+
+
+def _fast_default_value(state: dict, is_clf: bool, _est, _Xc, _y):
+    """Closed-form default score; returns None if the case isn't supported (-> fall back)."""
+    _y_arr, _reg = _fast_default_y_invariants(state, is_clf, _y)
+    if _y_arr.ndim > 1 and _y_arr.shape[-1] > 1:
+        return None  # multi-output: defer to estimator.score
+    pred = _est.predict(_Xc)
+    pred = np.asarray(pred)
+    if is_clf:
+        # accuracy: fraction of exact matches. Bit-identical to sklearn accuracy_score for 1d targets.
+        if pred.shape != _y_arr.shape:
+            return None
+        return float(np.mean(pred == _y_arr))
+    # regressor: r2 with default multioutput='uniform_average'; single-output closed form.
+    if _reg is None:
+        return None  # multi-output regressor (y_arr.ndim>1): defer to estimator.score.
+    yt, ss_tot = _reg
+    # Intentional float64: SS_res accumulator for the regressor score, kept f64 to match the cached ss_tot.
+    pred = pred.astype(np.float64, copy=False)
+    if pred.shape != yt.shape:
+        return None
+    if ss_tot == 0.0:
+        return None  # constant target: sklearn r2 has special-case semantics; defer.
+    ss_res = float(np.sum((yt - pred) ** 2))
+    return 1.0 - ss_res / ss_tot
+
+
+def _latch_fast_default(state: dict, is_clf: bool, is_reg: bool, _est, _X, _Xc, _y, safe_val) -> None:
+    """Decide, from the one-shot baseline call, whether later calls may skip the defensive copy and use the closed form.
+
+    ``need_copy`` stays True when predicting left our private copy read-only; the closed form is latched (mode 1)
+    only when it reproduces ``safe_val`` exactly, with NaN matching NaN.
+    """
+    # need_copy decision: if predicting through ``_est.score`` left our private copy still writeable,
+    # the estimator does not flip the flag -> subsequent calls can read sklearn's buffer directly.
+    # A non-ndarray X (pandas/polars) keeps the historical pass-through (no copy was made anyway).
+    if isinstance(_X, np.ndarray):
+        state["need_copy"] = not bool(getattr(_Xc.flags, "writeable", True))
+    else:
+        state["need_copy"] = False
+
+    if not (is_clf or is_reg):
+        state["mode"] = 0
+        return
+    try:
+        fast_val = _fast_default_value(state, is_clf, _est, _Xc, _y)
+    except Exception as e:
+        logger.warning("_fast_value computation failed: %s", e)
+        fast_val = None
+    # Bit-identity gate: latch fast ONLY on an exact match (handles NaN equally on both sides).
+    if fast_val is not None and (fast_val == safe_val or (fast_val != fast_val and safe_val != safe_val)):
+        state["mode"] = 1
+    else:
+        state["mode"] = 0
 
 
 def _is_discrete_v2(col: np.ndarray) -> bool:
