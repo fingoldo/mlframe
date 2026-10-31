@@ -38,6 +38,24 @@ def _transpose_blocked(src: np.ndarray, dst: np.ndarray) -> None:
 
 
 @njit(nogil=True, cache=True)
+def _flat_joint_mi(joint, K_x, K_y, freqs_x, freqs_y, inv_n, use_su, su_denom) -> float:
+    """Plug-in MI (symmetric uncertainty when ``use_su``) of a flat row-major ``K_x x K_y`` joint count table."""
+    mi_perm = 0.0
+    for a in range(K_x):
+        prob_x = freqs_x[a]
+        for b in range(K_y):
+            jc = joint[a * K_y + b]
+            if jc != 0:
+                jf = jc * inv_n
+                mi_perm += jf * math.log(jf / (prob_x * freqs_y[b]))
+    if use_su:
+        if mi_perm < 0.0:
+            mi_perm = 0.0
+        mi_perm = 0.0 if su_denom <= 1e-12 else 2.0 * mi_perm / su_denom
+    return mi_perm
+
+
+@njit(nogil=True, cache=True)
 def _perm_failcount_codes(
     col_codes: np.ndarray,
     freqs_k: np.ndarray,
@@ -62,17 +80,7 @@ def _perm_failcount_codes(
     inv_n = 1.0 / n
     su_denom = 0.0
     if use_su:
-        h_x = 0.0
-        for a in range(K_x):
-            p = freqs_k[a]
-            if p > 0:
-                h_x -= p * math.log(p)
-        h_y = 0.0
-        for b in range(K_y):
-            p = freqs_y[b]
-            if p > 0:
-                h_y -= p * math.log(p)
-        su_denom = h_x + h_y
+        su_denom = _plogp_sum(freqs_k, K_x) + _plogp_sum(freqs_y, K_y)
     nfk = 0
     for i in range(npermutations):
         joint[:] = 0
@@ -85,18 +93,7 @@ def _perm_failcount_codes(
             joint[col_codes[n - 1] * K_y + lm[n - 1]] += 1
         for c in range(K_x * K_y):
             joint[c] += joint2[c]
-        mi_perm = 0.0
-        for a in range(K_x):
-            prob_x = freqs_k[a]
-            for b in range(K_y):
-                jc = joint[a * K_y + b]
-                if jc != 0:
-                    jf = jc * inv_n
-                    mi_perm += jf * math.log(jf / (prob_x * freqs_y[b]))
-        if use_su:
-            if mi_perm < 0.0:
-                mi_perm = 0.0
-            mi_perm = 0.0 if su_denom <= 1e-12 else 2.0 * mi_perm / su_denom
+        mi_perm = _flat_joint_mi(joint, K_x, K_y, freqs_k, freqs_y, inv_n, use_su, su_denom)
         if mi_perm >= original_mi_k:
             nfk += 1
             if stop_at > 0 and nfk >= stop_at:
