@@ -58,6 +58,33 @@ def apply_honest_oof_floor(self, kept_specs: list[Any], agg_scores: Any, honest_
     return kept_specs, agg_scores
 
 
+def _base_runs(indices: list[int], kept_specs: list) -> list[list[int]]:
+    """Consecutive runs of ``indices`` that share one base column (the input is already grouped by base)."""
+    runs: list[list[int]] = []
+    for i in indices:
+        if runs and getattr(kept_specs[runs[-1][0]], "base_column", None) == getattr(kept_specs[i], "base_column", None):
+            runs[-1].append(i)
+        else:
+            runs.append([i])
+    return runs
+
+
+def _score_base_runs(indices: list[int], kept_specs: list, score_one) -> dict:
+    """Score one base's specs together (threads across its specs share its matrix), one base at a time, bounding the cache."""
+    from joblib import Parallel, delayed
+    from pyutilz.parallel import cpu_count_physical
+
+    scored: dict = {}
+    for run in _base_runs(indices, kept_specs):
+        n_jobs = max(1, min(len(run), cpu_count_physical()))
+        if n_jobs > 1:
+            results = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(delayed(score_one)(i) for i in run)
+        else:
+            results = [score_one(i) for i in run]
+        scored.update(zip(run, results))
+    return scored
+
+
 def _specs_to_score(bands, top_m, kept_specs) -> list[int]:
     """Indices of the specs whose WAIC can change the result: members of multi-spec bands that reach the top-m window and keep T in y units."""
     # A WAIC over T compares densities in T units, so it can only order transforms whose T is in y units: the additive ones
@@ -153,9 +180,6 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
 
     # Specs are independent and each runs 4 single-threaded tiny-GBM folds (LightGBM releases the GIL), so they go on
     # threads: the serial loop was 73s of a 139s discovery on a 300k-row tie-heavy target.
-    from joblib import Parallel, delayed
-    from pyutilz.parallel import cpu_count_physical
-
     # The bands depend only on the RMSE order, so find them first and score WAIC only where it can change the result:
     # a singleton band has nothing to re-order, and a band starting past the top-m cut is trimmed away whatever its order.
     # Scoring every spec ran 4 folds each for scores that were then discarded.
@@ -163,12 +187,10 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
     top_m = max(1, int(getattr(self.config, "top_m_after_tiny", len(order)) or len(order)))
     to_score = _specs_to_score(bands, top_m, kept_specs)
     to_score = base_ordered(to_score, lambda i: str(getattr(kept_specs[i], "base_column", None) or ""))
-    n_jobs = max(1, min(len(to_score), cpu_count_physical()))
-    if n_jobs > 1:
-        results = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(delayed(_waic_for)(i) for i in to_score)
-    else:
-        results = [_waic_for(i) for i in to_score]
-    waic: dict[int, float] = {i: v for i, v in zip(to_score, results) if v is not None}
+    # One base at a time: threads spanning several bases would each hold that base's matrix at once, past the cache bound.
+    # Parallelism stays across the specs of each base, which share its matrix.
+    scored = _score_base_runs(to_score, kept_specs, _waic_for)
+    waic: dict[int, float] = {i: v for i in to_score if (v := scored[i]) is not None}
     self._tiny_rerank_waic_scores = {kept_specs[i].name: v for i, v in waic.items()}
     if not waic:
         return order

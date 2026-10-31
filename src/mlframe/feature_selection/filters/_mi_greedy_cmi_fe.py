@@ -43,7 +43,9 @@ from __future__ import annotations
 import functools
 import logging
 import threading
-from typing import Optional, Sequence, Any
+from typing import Any, Callable, Optional, Sequence
+
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 
 import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
@@ -576,6 +578,57 @@ def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_
         )
 
 
+def _support_scorer(y_bin: np.ndarray, z_joint: np.ndarray) -> "Callable":
+    """``codes_block -> CMI(codes; y | z)`` per row of the block, with the y/z terms computed once; ``-1`` marks a column the kernel leaves to the generic path."""
+    from ._numba_utils import cmi_columns_given_support
+
+    y_i = np.ascontiguousarray(y_bin, dtype=np.int64)
+    z_i = np.ascontiguousarray(z_joint, dtype=np.int64)
+    yz_dense, _ = _renumber_joint(y_i, z_i)
+    h_z, k_z = _entropy_from_classes(z_i)
+    h_yz, k_yz = _entropy_from_classes(yz_dense)
+    yz_dense = np.ascontiguousarray(yz_dense, dtype=np.int64)
+
+    def score(codes: np.ndarray) -> np.ndarray:
+        """The CMI of every row of ``codes`` given the support."""
+        out = np.empty(codes.shape[0], dtype=np.float64)  # Intentional float64: score output contract kept f64 (exact comparison)
+        with parallel_kernel_entry():
+            cmi_columns_given_support(codes, z_i, yz_dense, float(h_z), int(k_z), float(h_yz), int(k_yz), out)
+        return out
+
+    return score
+
+
+def _prebinned_candidates(X_cand: Any, cand_cols: list, nbins: int, score: "Callable | None" = None) -> dict:
+    """``{column: codes}`` of the finite candidate columns, binned in parallel blocks exactly as ``_quantile_bin`` would bin each (empty under the strict-resident GPU path, which bins on the device).
+
+    With ``score`` the values are ``score(codes_block)[row]`` instead (one value per column), so a block of codes is dropped as soon as it is scored."""
+    from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+    from ._numba_utils import quantile_bin_block
+
+    if len(cand_cols) < _PARALLEL_CMI_MIN_CANDS or fe_gpu_strict_resident_enabled():
+        return {}
+    n_rows = len(X_cand)
+    dt = _crit_np_dtype()
+    block = max(1, (128 << 20) // (np.dtype(dt).itemsize * max(n_rows, 1)))
+    out: dict = {}
+    for j0 in range(0, len(cand_cols), block):
+        names = cand_cols[j0 : j0 + block]
+        v = np.empty((len(names), n_rows), dtype=dt)
+        for r, c in enumerate(names):
+            v[r] = X_cand[c].to_numpy()
+        ok = np.isfinite(v).all(axis=1)
+        if not ok.any():
+            continue
+        v = v[ok]
+        codes = np.empty(v.shape, dtype=np.int16)
+        quantile_bin_block(v, nbins, codes)
+        vals = score(codes) if score is not None else codes
+        for r, c in enumerate(np.asarray(names, dtype=object)[ok]):
+            out[c] = vals[r]
+    return out
+
+
 def score_candidates_by_cmi(
     X_cand: pd.DataFrame,
     y: np.ndarray,
@@ -654,16 +707,27 @@ def score_candidates_by_cmi(
                 logger, "cmi_gpu_batched_failed", logging.WARNING,
                 "GPU-resident batched CMI of %d candidates failed (%s: %s); scoring them one by one on the CPU", len(cand_cols), type(e).__name__, e,
             )
+    pre_scores: dict = {}
+    pre_codes: dict = {}
+    if z_joint is not None and not _cmi_gpu_enabled(n=int(y_bin.shape[0]), p=1):
+        pre_scores = _prebinned_candidates(X_cand, cand_cols, nbins, score=_support_scorer(y_bin, z_joint))
+        pre_scores = {c: v for c, v in pre_scores.items() if v >= 0.0}
+    else:
+        pre_codes = _prebinned_candidates(X_cand, cand_cols, nbins)
+
     def _score(c: str) -> float:
         """CMI of one candidate: its quantile bins against ``y`` given the support."""
-        return float(_cmi_from_binned(_quantile_bin(X_cand[c].to_numpy(), nbins=nbins), y_bin, z_joint))
+        if c in pre_scores:
+            return float(pre_scores[c])
+        codes = pre_codes.get(c)
+        return float(_cmi_from_binned(codes.astype(np.int64) if codes is not None else _quantile_bin(X_cand[c].to_numpy(), nbins=nbins), y_bin, z_joint))
 
     # The candidates are independent and each score is a pure function of its own column, so a thread pool returns the serial values (the numpy partition and the njit CMI kernel release the GIL:
     # 300 columns of 20000 rows, 0.39 s -> 0.22 s on 8 threads). The first candidate runs on this thread so numba compiles once.
     from ._adaptive_nbins import _resolve_edge_jobs
 
-    jobs = _resolve_edge_jobs(None, len(cand_cols))
-    if jobs > 1 and len(cand_cols) >= _PARALLEL_CMI_MIN_CANDS:
+    jobs = _resolve_edge_jobs(None, len(cand_cols) - len(pre_scores))
+    if jobs > 1 and len(cand_cols) - len(pre_scores) >= _PARALLEL_CMI_MIN_CANDS:
         from concurrent.futures import ThreadPoolExecutor
 
         first = _score(cand_cols[0])

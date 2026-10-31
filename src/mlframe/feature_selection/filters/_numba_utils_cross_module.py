@@ -791,6 +791,117 @@ def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.n
         nx[j] = _continuous_quantile_codes(v[j], n_bins, codes[j])
 
 
+@njit(cache=True, parallel=True)
+def quantile_bin_block(v: np.ndarray, n_bins: int, codes: np.ndarray) -> None:
+    """Fill ``codes[j]`` (an integer matrix) for every row ``j`` of the finite block ``v`` ``(columns, n)`` exactly as the CMI-greedy ``_quantile_bin`` does for a finite column.
+
+    The edges are numpy's linear-interpolation quantiles with the repeated ones dropped; a column with at most two distinct edges collapses to one class, or to the two-class indicator ``x >= edges[1]``."""
+    k = v.shape[0]
+    n = v.shape[1]
+    step = 1.0 / n_bins
+    for j in prange(k):
+        want = np.empty(2 * (n_bins + 1), dtype=np.int64)
+        for b in range(n_bins + 1):
+            q = 1.0 if b == n_bins else b * step
+            virtual = (n - 1) * q
+            i0 = n - 1 if virtual >= n - 1 else int(np.floor(virtual))
+            want[2 * b] = i0
+            want[2 * b + 1] = min(i0 + 1, n - 1)
+        want.sort()
+        nw = 1
+        for b in range(1, want.shape[0]):
+            if want[b] != want[nw - 1]:
+                want[nw] = want[b]
+                nw += 1
+        s = v[j].copy()
+        _multi_select_in_place(s, want[:nw])
+        edges = np.empty(n_bins + 1, dtype=np.float64)  # Intentional float64: quantile edges in numpy's arithmetic (equal codes to the numpy path)
+        m = 0
+        for b in range(n_bins + 1):
+            q = 1.0 if b == n_bins else b * step
+            e = _edge_value(s, q)
+            if m == 0 or e != edges[m - 1]:
+                edges[m] = e
+                m += 1
+        if m <= 2:
+            for i in range(n):
+                codes[j, i] = 1 if (m == 2 and v[j, i] >= edges[1]) else 0
+            continue
+        for i in range(n):
+            x = v[j, i]
+            lo = 0
+            hi = m - 2
+            while lo < hi:
+                mid = (lo + hi) // 2
+                if edges[1 + mid] <= x:
+                    lo = mid + 1
+                else:
+                    hi = mid
+            codes[j, i] = lo
+
+
+_CMI_COLUMNS_SPAN_CAP = 4_000_000  # cells of the (x, z) histogram one column may use; a column past it is reported as -1 and scored by the generic path
+
+
+@njit(cache=True)
+def _joint_entropy_codes(a: np.ndarray, b: np.ndarray, a_max: int, b_max: int) -> tuple:
+    """Plug-in entropy and occupied-cell count of the joint of two non-negative int arrays, with the first-seen cell order and arithmetic of ``_joint_entropy_two_dense_njit``; ``k == -1`` past the span cap."""
+    n = a.shape[0]
+    stride = b_max + 1
+    span = (a_max + 1) * stride
+    if span < 0 or span >= _CMI_COLUMNS_SPAN_CAP:
+        return 0.0, -1
+    seen = np.full(span, -1, dtype=np.int32)
+    counts = np.empty(n, dtype=np.int32)
+    nc = 0
+    for i in range(n):
+        k = np.int64(a[i]) * stride + b[i]
+        s = seen[k]
+        if s >= 0:
+            counts[s] += 1
+        else:
+            seen[k] = nc
+            counts[nc] = 1
+            nc += 1
+    h = 0.0
+    inv_n = 1.0 / n
+    for j in range(nc):
+        c = counts[j]
+        p = c * inv_n
+        h -= p * math.log(p)
+    return h, nc
+
+
+@njit(cache=True, parallel=True)
+def cmi_columns_given_support(codes: np.ndarray, z: np.ndarray, yz: np.ndarray, h_z: float, k_z: int, h_yz: float, k_yz: int, out: np.ndarray) -> None:
+    """``out[j]`` = the Miller-Madow corrected ``CMI(codes[j]; y | z)`` of every row of ``codes`` ``(columns, n)``, where ``yz`` is the dense joint id of ``(y, z)``.
+
+    The entropies, cell counts and their combination follow ``_cmi_from_binned`` operation for operation; a column whose histogram passes the span cap gets ``-1``."""
+    kk = codes.shape[0]
+    n = codes.shape[1]
+    z_max = 0
+    yz_max = 0
+    for i in range(n):
+        if z[i] > z_max:
+            z_max = z[i]
+        if yz[i] > yz_max:
+            yz_max = yz[i]
+    for j in prange(kk):
+        x = codes[j]
+        x_max = 0
+        for i in range(n):
+            if x[i] > x_max:
+                x_max = x[i]
+        h_xz, k_xz = _joint_entropy_codes(x, z, x_max, z_max)
+        h_xyz, k_xyz = _joint_entropy_codes(x, yz, x_max, yz_max)
+        if k_xz < 0 or k_xyz < 0:
+            out[j] = -1.0
+            continue
+        cmi_plugin = h_xz + h_yz - h_z - h_xyz
+        bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
+        out[j] = max(0.0, cmi_plugin - bias)
+
+
 @njit(cache=True)
 def stratified_cmi(x: np.ndarray, y: np.ndarray, s: np.ndarray, min_rows: int) -> float:
     """Plug-in I(x; y | s) summed over the strata of ``s`` (non-negative integer codes), skipping strata below ``min_rows`` rows."""
@@ -1089,3 +1200,286 @@ def scrub_nonfinite_2d(a: np.ndarray) -> None:
             v = a[i, j]
             if not (v - v == 0):
                 a[i, j] = 0
+
+
+# ---- bit-packed binary label streams: the root test of the honest null on 64 labels per word ----
+
+
+@njit(cache=True)
+def _pc64(x):
+    """Population count of a uint64 (SWAR)."""
+    x = x - ((x >> np.uint64(1)) & np.uint64(0x5555555555555555))
+    x = (x & np.uint64(0x3333333333333333)) + ((x >> np.uint64(2)) & np.uint64(0x3333333333333333))
+    x = (x + (x >> np.uint64(4))) & np.uint64(0x0F0F0F0F0F0F0F0F)
+    return np.int64((x * np.uint64(0x0101010101010101)) >> np.uint64(56))
+
+
+@njit(cache=True)
+def pack_sorted_labels(yr_b: np.ndarray, order_row: np.ndarray, raw_bits: np.ndarray) -> int:
+    """Pack the 0/1 labels read through ``order_row`` (``yr_b[order_row[i]]``, the labels in the column's sorted order) into ``raw_bits`` (bit ``i`` of the stream is bit ``i & 63`` of word ``i >> 6``) and return the
+    number of ones. ``raw_bits`` is overwritten, bits past the end of the stream are zero."""
+    n = order_row.shape[0]
+    words = (n + 63) >> 6
+    ones = 0
+    for w in range(words):
+        base = w << 6
+        count = min(64, n - base)
+        acc = np.uint64(0)
+        for k in range(count):
+            acc |= np.uint64(yr_b[order_row[base + k]]) << np.uint64(k)
+        raw_bits[w] = acc
+        ones += _pc64(acc)
+    return ones
+
+
+@njit(cache=True)
+def _copy_bits(src: np.ndarray, start: int, stop: int, dst: np.ndarray, offset: int) -> int:
+    """Copy bits ``[start, stop)`` of the stream ``src`` to ``dst`` from bit ``offset`` on (``dst`` bits there must be zero); returns the offset after the copy."""
+    s = start
+    off = offset
+    while s < stop:
+        w = s >> 6
+        sh = s & 63
+        take = min(64 - sh, stop - s)
+        val = (src[w] >> np.uint64(sh)) & (np.uint64(0xFFFFFFFFFFFFFFFF) >> np.uint64(64 - take))
+        dw = off >> 6
+        dsh = off & 63
+        dst[dw] |= val << np.uint64(dsh)
+        if dsh + take > 64:
+            dst[dw + 1] |= val >> np.uint64(64 - dsh)
+        s += take
+        off += take
+    return off
+
+
+@njit(cache=True)
+def dedup_label_bits(raw_bits: np.ndarray, n: int, run_start: np.ndarray, run_end: np.ndarray, out_bits: np.ndarray, forb: np.ndarray) -> "tuple[int, int]":
+    """The deduplicated stream (see ``_dedup_binary_stream``) of the packed stream ``raw_bits`` of length ``n``, packed into ``out_bits`` (overwritten): rows outside tie runs are copied, a run of tied values
+    emits its distinct labels ascending. Returns ``(points, forbidden)``; ``forb[:forbidden]`` are the stream positions whose boundary to the next point lies inside a run."""
+    for w in range(out_bits.shape[0]):
+        out_bits[w] = np.uint64(0)
+    m = 0
+    nf = 0
+    p = 0
+    for r in range(run_start.shape[0]):
+        a = run_start[r]
+        e = run_end[r]
+        m = _copy_bits(raw_bits, p, a, out_bits, m)
+        ones = 0
+        for i in range(a, e):
+            ones += int((raw_bits[i >> 6] >> np.uint64(i & 63)) & np.uint64(1))
+        zeros = (e - a) - ones
+        if zeros > 0:
+            m += 1  # a 0 point: the bit stays zero
+        if ones > 0:
+            if zeros > 0:
+                forb[nf] = m - 1
+                nf += 1
+            out_bits[m >> 6] |= np.uint64(1) << np.uint64(m & 63)
+            m += 1
+        p = e
+    m = _copy_bits(raw_bits, p, n, out_bits, m)
+    return m, nf
+
+
+@njit(cache=True)
+def _count_ones_bits(bits: np.ndarray, start: int, stop: int) -> int:
+    """Ones among stream positions ``[start, stop)``."""
+    if stop <= start:
+        return 0
+    total = 0
+    w0 = start >> 6
+    w1 = (stop - 1) >> 6
+    for w in range(w0, w1 + 1):
+        word = bits[w]
+        lo_bit = start - (w << 6) if w == w0 else 0
+        hi_bit = stop - (w << 6) if w == w1 else 64  # exclusive
+        if lo_bit > 0:
+            word = word >> np.uint64(lo_bit) << np.uint64(lo_bit)
+        if hi_bit < 64:
+            word = word & ((np.uint64(1) << np.uint64(hi_bit)) - np.uint64(1))
+        total += _pc64(word)
+    return total
+
+
+@njit(cache=True)
+def _candidate_count_bits(bits: np.ndarray, forb: np.ndarray, n_forb: int, lo: int, hi: int) -> int:
+    """``_count_stream_candidates`` on the packed stream: label changes between positions ``i`` and ``i + 1`` for ``i`` in ``lo..hi``, minus the boundaries that lie inside a run of equal values."""
+    n_words = bits.shape[0]
+    n_cand = 0
+    for w in range(lo >> 6, (hi >> 6) + 1):
+        cur = bits[w]
+        nxt = bits[w + 1] if w + 1 < n_words else np.uint64(0)
+        change = cur ^ ((cur >> np.uint64(1)) | (nxt << np.uint64(63)))
+        base = w << 6
+        k0 = max(lo - base, 0)
+        k1 = min(hi - base, 63)
+        if k0 > 0:
+            change = change >> np.uint64(k0) << np.uint64(k0)
+        if k1 < 63:
+            change = change & ((np.uint64(1) << np.uint64(k1 + 1)) - np.uint64(1))
+        n_cand += _pc64(change)
+    for k in range(n_forb):
+        if lo <= forb[k] <= hi:
+            n_cand -= 1
+    return n_cand
+
+
+@njit(cache=True)
+def root_decision_packed(bits: np.ndarray, m: int, forb: np.ndarray, n_forb: int, min_split_size: int, alpha: float, analytic_min_n: int, analytic_min_cell: float) -> int:
+    """``root_decision_binary`` for the packed deduplicated stream ``bits`` of ``m`` points (see ``dedup_label_bits``): the same verdict.
+
+    The candidate count is a popcount of the label changes. The scan for a position whose bound reaches the acceptance threshold skips every word of 64 positions that cannot reach it: from the
+    value ``d`` at the start of the word, ``|d|`` moves by at most ``max(n_1, n_0)`` per position, so the word is skipped when even that largest value stays below the smallest threshold in the word.
+    A word that may reach it is scanned position by position with the arithmetic of the unpacked scan, and when a position does reach it the unpacked stream goes to ``_best_gain_over_bound``."""
+    n = m
+    if n < 2 * min_split_size:
+        return REJECTED
+    if not (n >= analytic_min_n and float(n) / max(1.0, 2.0 * 2) >= analytic_min_cell):
+        return UNDECIDED
+    tot1 = _count_ones_bits(bits, 0, n)
+    counts_total = np.empty(2, dtype=np.int64)
+    counts_total[0] = n - tot1
+    counts_total[1] = tot1
+    h_full = _entropy_from_counts_njit(counts_total, n)
+    if h_full <= 0.0:
+        return REJECTED
+    lo = min_split_size - 1
+    hi = n - min_split_size - 1
+    n_cand = _candidate_count_bits(bits, forb, n_forb, lo, hi)
+    x_star = _tail_threshold(alpha / max(1, n_cand)) * (1.0 - 1e-6)
+    scale = math.expm1(x_star / n) * float(tot1) * float(n - tot1)
+    fn = float(n)
+    ft1 = float(tot1)
+    step = float(max(tot1, n - tot1))
+    reached = False
+    c1_before = 0
+    for w in range(0, (hi >> 6) + 1):
+        base = w << 6
+        word = bits[w]
+        first = max(base, lo)
+        last = min(base + 63, hi)
+        if last >= first:
+            d_prev = float(c1_before) * fn - float(base) * ft1
+            bound = (abs(d_prev) + 64.0 * step) ** 2
+            f_first = scale * float(first + 1) * (fn - float(first + 1))
+            f_last = scale * float(last + 1) * (fn - float(last + 1))
+            if bound >= 0.999999 * min(f_first, f_last):
+                c1 = c1_before
+                for i in range(base, last + 1):
+                    c1 += int((word >> np.uint64(i - base)) & np.uint64(1))
+                    if i >= first:
+                        fl = float(i + 1)
+                        dd = float(c1) * fn - fl * ft1
+                        if dd * dd >= scale * fl * (fn - fl):
+                            reached = True
+                            break
+                if reached:
+                    break
+        c1_before += _pc64(word)
+    if not reached:
+        return REJECTED
+    yd = np.empty(n, dtype=np.int8)
+    for i in range(n):
+        yd[i] = np.int8((bits[i >> 6] >> np.uint64(i & 63)) & np.uint64(1))
+    best_gain = _best_gain_over_bound(yd, forb, n_forb, lo, hi, n, tot1, h_full, scale)
+    if best_gain <= 0.0:
+        return REJECTED
+    p_value = min(1.0, _analytic_p_value(best_gain, n, 2) * max(1, n_cand))
+    return ACCEPTED if p_value < alpha else REJECTED
+
+
+@njit(cache=True, parallel=True)
+def pack_label_rows(rows: np.ndarray) -> np.ndarray:
+    """``(rows, words)`` uint64: every row of the 0/1 matrix ``rows`` packed 64 labels to a word (bit ``i`` of a row is bit ``i & 63`` of word ``i >> 6``)."""
+    n_rows = rows.shape[0]
+    n = rows.shape[1]
+    words = (n + 63) >> 6
+    out = np.zeros((n_rows, words), dtype=np.uint64)
+    for b in prange(n_rows):
+        for w in range(words):
+            base = w << 6
+            count = min(64, n - base)
+            acc = np.uint64(0)
+            for k in range(count):
+                acc |= np.uint64(rows[b, base + k]) << np.uint64(k)
+            out[b, w] = acc
+    return out
+
+
+@njit(cache=True)
+def pack_sorted_labels_from_bits(label_bits: np.ndarray, order_row: np.ndarray, raw_bits: np.ndarray) -> int:
+    """``pack_sorted_labels`` for labels held packed in ``label_bits``: the random reads of the gather hit a row of n / 8 bytes (cache resident) instead of n."""
+    n = order_row.shape[0]
+    words = (n + 63) >> 6
+    ones = 0
+    for w in range(words):
+        base = w << 6
+        count = min(64, n - base)
+        acc = np.uint64(0)
+        for k in range(count):
+            r = order_row[base + k]
+            acc |= ((label_bits[r >> 6] >> np.uint64(r & 63)) & np.uint64(1)) << np.uint64(k)
+        raw_bits[w] = acc
+        ones += _pc64(acc)
+    return ones
+
+
+@njit(cache=True, parallel=True)
+def within_stratum_shuffles(keys: np.ndarray, z_rank: np.ndarray, order: np.ndarray, x_sorted: np.ndarray, out: np.ndarray) -> None:
+    """Row ``i`` of ``out`` is the candidate column shuffled within the strata of the support: ``out[i][order[j]] = x_sorted[w[j]]`` with ``w`` the stable argsort of ``z_rank + keys[i]``.
+
+    ``order`` sorts the rows by stratum, ``x_sorted`` is the candidate in that order and ``z_rank`` the dense stratum number of each sorted row, so adding a key in ``[0, 1)`` sorts the rows of a stratum
+    by their key: a uniform shuffle inside each stratum. The rows are independent, hence one parallel task per shuffle; the result is that of ``np.argsort(z_rank + keys[i], kind="stable")`` row by row."""
+    for i in prange(keys.shape[0]):
+        within = np.argsort(z_rank + keys[i], kind="mergesort")
+        for j in range(within.shape[0]):
+            out[i, order[j]] = x_sorted[within[j]]
+
+
+@njit(cache=True)
+def rows_to_columns(rows: np.ndarray) -> np.ndarray:
+    """``(n, k)`` C-ordered copy of the ``(k, n)`` matrix ``rows`` (``out[r, j] = rows[j, r]``), by tiles of rows so that every tile of the output is written while it is cache resident.
+
+    Writing the candidate columns of a block one by one into an ``(n, k)`` matrix touches a cache line and a page per element (a stride of ``k`` items); filling contiguous rows and transposing once is the same
+    data movement without that pattern."""
+    k, n = rows.shape
+    out = np.empty((n, k), dtype=rows.dtype)
+    tile = 64
+    for r0 in range(0, n, tile):
+        r1 = min(n, r0 + tile)
+        for j in range(k):
+            for r in range(r0, r1):
+                out[r, j] = rows[j, r]
+    return out
+
+
+@njit(cache=True, parallel=True)
+def column_fingerprints(bits: np.ndarray) -> np.ndarray:
+    """``(k, 2)`` uint64 content fingerprints of the columns of the ``(n, k)`` integer matrix ``bits`` (the raw bit patterns of a float matrix): two independent FNV-1a style lanes over the column in row order, so
+    two columns with equal values in the same order get equal fingerprints and a different value or order changes both. Reads the columns in place (no per-column copy of a strided column)."""
+    n, k = bits.shape
+    out = np.empty((k, 2), dtype=np.uint64)
+    for j in prange(k):
+        h1 = np.uint64(14695981039346656037)
+        h2 = np.uint64(0x9E3779B97F4A7C15)
+        for i in range(n):
+            v = np.uint64(bits[i, j])
+            h1 = (h1 ^ v) * np.uint64(1099511628211)
+            h2 = (h2 ^ (v + np.uint64(0x632BE59BD9B4E019))) * np.uint64(0xC2B2AE3D27D4EB4F)
+            h2 ^= h2 >> np.uint64(29)
+        out[j, 0] = h1
+        out[j, 1] = h2
+    return out
+
+
+@njit(cache=True)
+def rows_to_columns_into(rows: np.ndarray, out: np.ndarray, col0: int) -> None:
+    """``out[r, col0 + j] = rows[j, r]``: the ``(k, n)`` block ``rows`` written, tile by tile, into columns ``col0 .. col0 + k`` of the ``(n, K)`` matrix ``out`` (see ``rows_to_columns``)."""
+    k, n = rows.shape
+    tile = 64
+    for r0 in range(0, n, tile):
+        r1 = min(n, r0 + tile)
+        for j in range(k):
+            for r in range(r0, r1):
+                out[r, col0 + j] = rows[j, r]

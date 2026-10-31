@@ -367,6 +367,17 @@ def _enumerate_routing_cells(
     return cand_cols, cand_values, cand_meta
 
 
+def _stack_candidates(cand_values: "list[np.ndarray]") -> np.ndarray:
+    """The ``(n, k)`` candidate matrix at the criterion dtype, as ``np.column_stack(values).astype(dtype)`` builds it, but collected as contiguous rows and turned by tiles (the stack stores with a stride of ``k`` items)."""
+    from ._numba_utils import rows_to_columns
+
+    rows = np.empty((len(cand_values), len(cand_values[0])), dtype=_crit_np_dtype())
+    for i, v in enumerate(cand_values):
+        rows[i] = v
+    stacked: np.ndarray = rows_to_columns(rows)
+    return stacked
+
+
 def generate_conditional_basis_routing_features(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -462,7 +473,7 @@ def generate_conditional_basis_routing_features(
         return pd.DataFrame(index=X.index), {}
 
     # ---- Step 3: ONE batch MI call across every candidate
-    cand_mat = np.column_stack(cand_values).astype(_crit_np_dtype(), copy=False)
+    cand_mat = _stack_candidates(cand_values)
     eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
 
     route_score = _routing_scores(routing_criterion, y_arr, cand_mat, eng_mi)

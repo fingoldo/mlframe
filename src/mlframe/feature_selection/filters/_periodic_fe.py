@@ -290,6 +290,7 @@ def _parse_modular_name(name: str):
     return None
 
 
+_BASELINE_BLOCK_COLUMNS = 32  # source columns whose raw bootstrap baseline is scored together
 _MODULAR_CHUNK_BYTES = 256 * 1024 * 1024  # candidate-matrix budget of one source-column chunk (3 ops x periods x float width x copies per source column)
 
 
@@ -446,6 +447,7 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
     nxs: list = []
     names: list = []
     base_parts: list = []
+    kept_sources: list = []
     source_of: dict = {}
     periods_pos = [float(p) for p in periods if float(p) > 0.0]
     for c0 in range(0, len(src_cols), chunk):
@@ -461,10 +463,15 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
             for p in periods_pos:
                 for op in ("mod", "sin", "cos"):
                     source_of[engineered_name_modular(c, p, op)] = str(c)
-        base_parts.append(pd.DataFrame({"baseline_mi_lcb": baseline_lcb_by_bootstrap_mi(X[cs], y, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins)}))
+        kept_sources.extend(cs)
         del eng
-    if not names or not base_parts:
+    if not names or not kept_sources:
         return X.copy(deep=False), pd.DataFrame()
+    # The raw baseline depends on the column and the seeded resamples only, so it is scored in blocks of source columns of its own (not one block per candidate chunk, which can be a single column
+    # at a million rows): a wide block keeps every thread busy and the resamples and their tables are prepared once. Per-column values do not depend on the block.
+    for b0 in range(0, len(kept_sources), _BASELINE_BLOCK_COLUMNS):
+        block = kept_sources[b0 : b0 + _BASELINE_BLOCK_COLUMNS]
+        base_parts.append(pd.DataFrame({"baseline_mi_lcb": baseline_lcb_by_bootstrap_mi(X[block], y, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins)}))
     base = pd.concat(base_parts, ignore_index=True)
     noise_floor = _modular_noise_floor(base)
     cols_all = codes[0] if len(codes) == 1 else np.concatenate(codes, axis=0)

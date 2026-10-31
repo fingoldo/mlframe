@@ -278,13 +278,17 @@ def _factorize_dense_njit(joint: np.ndarray) -> tuple:
     if n == 0:
         return joint, 0
     jmax = 0
+    jmin = 0
     for i in range(n):
         v = joint[i]
         if v > jmax:
             jmax = v
+        if v < jmin:
+            jmin = v
     inv = np.empty(n, dtype=np.int64)
     nc = 0
-    if 0 <= jmax < _FAC_ARRAY_CAP:
+    # A direct table over the id range costs a memset and a cache miss per element once the range is far above the row count; beyond 16 n it is cheaper to hash.
+    if jmin >= 0 and jmax < _FAC_ARRAY_CAP and jmax < 16 * n + 1024:
         # Direct-array counting path (fast common case).
         seen = np.full(jmax + 1, -1, dtype=np.int64)
         for i in range(n):
@@ -297,15 +301,24 @@ def _factorize_dense_njit(joint: np.ndarray) -> tuple:
                 inv[i] = nc
                 nc += 1
     else:
-        # Hash fallback for cartesian blow-up (or pathological negative ids).
-        d = _NbDict.empty(key_type=_nb_types.int64, value_type=_nb_types.int64)
+        # Open-addressing hash table (power-of-two size, at most half full, Fibonacci hashing, linear probing) for a wide id range or negative ids; ids are first-seen, as in the direct table.
+        bits = 4
+        while (1 << bits) < 2 * n:
+            bits += 1
+        mask = np.int64((1 << bits) - 1)
+        shift = np.uint64(64 - bits)
+        keys = np.empty(1 << bits, dtype=np.int64)
+        slot_id = np.full(1 << bits, -1, dtype=np.int64)
         for i in range(n):
             v = joint[i]
-            s = d.get(v, -1)
-            if s >= 0:
-                inv[i] = s
+            h = np.int64((np.uint64(v) * np.uint64(11400714819323198485)) >> shift)
+            while slot_id[h] >= 0 and keys[h] != v:
+                h = (h + 1) & mask
+            if slot_id[h] >= 0:
+                inv[i] = slot_id[h]
             else:
-                d[v] = nc
+                keys[h] = v
+                slot_id[h] = nc
                 inv[i] = nc
                 nc += 1
     return inv, nc

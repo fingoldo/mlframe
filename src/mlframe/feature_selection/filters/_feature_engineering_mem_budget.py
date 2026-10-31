@@ -343,6 +343,27 @@ def _can_hoist_shared_buffer(
     n_workers: int = 1,
     overhead_aware: bool = True,
 ) -> tuple[bool, int, int]:
+    """:func:`_decide_hoist_shared_buffer`, asked a second time after the registered stage caches are dropped when the first answer is no.
+
+    The caches that stages keep between calls (see ``_cache_release``) can be what leaves too little free RAM; dropping them costs a recomputation later, a refusal costs the batched path of the
+    caller (per-candidate loops, an order of magnitude slower)."""
+    decision = _decide_hoist_shared_buffer(buffer_bytes, budget_ratio, n_workers, overhead_aware)
+    if decision[0]:
+        return decision
+    from ._cache_release import release_registered_caches
+
+    if release_registered_caches() <= 0:
+        return decision
+    _set_live("_FE_VMEM_CACHE", None)  # the free-RAM reading predates the release
+    return _decide_hoist_shared_buffer(buffer_bytes, budget_ratio, n_workers, overhead_aware)
+
+
+def _decide_hoist_shared_buffer(
+    buffer_bytes: int,
+    budget_ratio: float = _FE_BUFFER_RAM_BUDGET_RATIO,
+    n_workers: int = 1,
+    overhead_aware: bool = True,
+) -> tuple[bool, int, int]:
     """Decide whether the shared scratch buffer fits in available RAM.
 
     Uses ``psutil.virtual_memory().available`` (via the OPT5 short-TTL cache

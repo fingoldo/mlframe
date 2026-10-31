@@ -30,11 +30,77 @@ otherwise look like strong dependence.
 from __future__ import annotations
 
 import numpy as np
+from numba import njit, prange
 
 from ._fe_usability_signal import _crit_np_dtype
 from ._orthogonal_copula_mi_fe import _rank_to_uniform
 
 __all__ = ["tail_dependence_score"]
+
+
+@njit(cache=True, parallel=True)
+def _tail_dep_columns_njit(cols_rows: np.ndarray, v: np.ndarray, q: float, out: np.ndarray) -> None:
+    """``out[j]`` = ``max(upper, lower)`` floored tail-dependence of row ``j`` of ``cols_rows`` ``(k, n)`` against the rank-uniformised target ``v``.
+
+    The column is rank-transformed once (average ranks for ties, divided by ``n + 1``) and both tails are read from the same ranks: the co-exceedance rate past the ``q`` quantile (upper) and
+    below ``1 - q`` (lower), each minus its closed-form shuffle expectation ``P(u in tail) * P(v in tail) / (1 - q)``, clamped at 0. One parallel task per column."""
+    kk = cols_rows.shape[0]
+    n = cols_rows.shape[1]
+    hi = q
+    lo = 1.0 - q
+    denom = 1.0 - q
+    n_v_hi = 0
+    n_v_lo = 0
+    for i in range(n):
+        if v[i] > hi:
+            n_v_hi += 1
+        if v[i] < lo:
+            n_v_lo += 1
+    for j in prange(kk):
+        col = cols_rows[j]
+        order = np.argsort(col, kind="mergesort")
+        n_u_hi = 0
+        n_u_lo = 0
+        both_hi = 0
+        both_lo = 0
+        i = 0
+        while i < n:
+            e = i + 1
+            while e < n and col[order[e]] == col[order[i]]:
+                e += 1
+            u = 0.5 * (i + 1 + e) / (n + 1.0)  # mean of the 1-based ranks i + 1 .. e
+            u_hi = u > hi
+            u_lo = u < lo
+            for t in range(i, e):
+                if u_hi:
+                    n_u_hi += 1
+                    if v[order[t]] > hi:
+                        both_hi += 1
+                if u_lo:
+                    n_u_lo += 1
+                    if v[order[t]] < lo:
+                        both_lo += 1
+            i = e
+        up = both_hi / n / denom - (n_u_hi / n) * (n_v_hi / n) / denom
+        low = both_lo / n / denom - (n_u_lo / n) * (n_v_lo / n) / denom
+        best = up if up > low else low
+        out[j] = best if best > 0.0 else 0.0
+
+
+def tail_dependence_columns(cols_rows: np.ndarray, y: np.ndarray, *, q: float = 0.95) -> np.ndarray:
+    """Floored tail dependence (max of the two tails) of every row of ``cols_rows`` ``(k, n)`` against ``y``, in one parallel kernel; all values must be finite.
+
+    ``y`` is rank-uniformised once here. Zero for every column when ``n < 2`` or ``q`` leaves no tail."""
+    k, n = cols_rows.shape
+    out = np.zeros(k, dtype=np.float64)  # Intentional float64: statistic output kept f64
+    if n < 2 or (1.0 - q) <= 0.0 or k == 0:
+        return out
+    v = _rank_to_uniform(np.asarray(y).ravel())
+    from mlframe._numba_parallel_guard import parallel_kernel_entry
+
+    with parallel_kernel_entry():
+        _tail_dep_columns_njit(np.ascontiguousarray(cols_rows), np.ascontiguousarray(v, dtype=np.float64), float(q), out)  # Intentional float64: ranks in double precision
+    return out
 
 
 def tail_dependence_score(

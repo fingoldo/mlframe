@@ -25,7 +25,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from mlframe.feature_selection.filters._ratio_delta_fe import pairwise_log_ratio_features
+from mlframe.feature_selection.filters._ratio_delta_fe import pairwise_log_ratio_features, pairwise_ratio_features
 
 
 from tests.feature_selection.mrmr.biz_val._fe_family_survival_common import (
@@ -188,7 +188,7 @@ FAMILIES = [
         "linear",
         {"fe_missingness_indicator_cols": ("field_a", "field_b", "field_c"), "fe_missingness_pattern_top_k": 4},
     ),
-    Family("pairwise_ratio", {"fe_pairwise_ratio_enable": True}, ("pairwise_ratio",), build_ratio_band, _C, "boost", {"fe_pairwise_ratio_cols": ("revenue", "cost")}, pattern=r"^ratio__"),
+    Family("pairwise_ratio", {"fe_pairwise_ratio_enable": True}, ("pairwise_ratio",), build_ratio_band, _C, "boost", {"fe_pairwise_ratio_cols": ("revenue", "cost")}, pattern=r"^ratio__", equivalent_rank_corr=0.95, reference=lambda X: pairwise_ratio_features(X, ("revenue", "cost"))[0]),
     Family("pairwise_log_ratio", {"fe_pairwise_log_ratio_enable": True}, ("pairwise_ratio",), build_ratio_band, _C, "linear", {"fe_pairwise_log_ratio_cols": ("revenue", "cost")}, pattern=r"^log_ratio__", equivalent_rank_corr=0.95, reference=lambda X: pairwise_log_ratio_features(X, ("revenue", "cost"))[0]),
     Family(
         "grouped_delta",

@@ -12,3 +12,13 @@ Workflow used to take the F2 example from 15 s to 11 s at 1M rows (and to find t
 7. `python time_tuner.py <kernel> <seconds>` - how long one kernel-tuning sweep takes and where it is when it exceeds the limit.
 
 Always profile on a quiet machine and compare paired runs: a concurrent GPU process moves every figure by more than most single optimisations gain.
+
+## Per-family profiles of the MRMR fit
+
+Every `fe_*_enable` family can be measured on its own against a BASE fit (all families off), at any size, on the CPU or the strict-resident GPU path:
+
+- `python -m mlframe.feature_selection._benchmarks.profiling.family_profile <family> --n 100000 --p 100 --mode cpu|gpu --binning mdlp|mdlp_validated|optimal_joint|fd|sturges|none_quantile|none_uniform` - one cProfile of one fit (after a warm-up fit with the same flags), top functions by own and cumulative time, the family walls, and `prof_<family>_<mode>_<binning>.pstats` in the profile directory. `--dump-every 120` prints every thread's stack every 120 s, which shows where a fit that does not finish is spending its time (cProfile does not see the numba threads: a function that waits on them shows as a lock acquire).
+- `python -m mlframe.feature_selection._benchmarks.profiling.family_scale run --n 1000000 --p 100 --mode gpu --family <stem>|BASE|DEFAULTS` - one fit in a child process with a time limit, a memory guard and a sample of the CPU used by other processes; the record is appended to a JSONL file and carries `contaminated` when other processes used more than a tenth of the machine (such a timing is not comparable).
+- `python -m mlframe.feature_selection._benchmarks.profiling.family_batch <n> <p> <mode> [timeout] [results.jsonl]` - every family one after another, resuming after the records already in the file.
+
+Run one profile at a time and nothing else heavy beside it (tests, a second fit): a concurrent job made a GPU batch 3.4x slower.

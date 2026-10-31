@@ -462,7 +462,14 @@ def _stage_cat_pair(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_
                 # raises KeyError. Crossing raw categoricals only keeps the
                 # recipe a pure function of X.
                 if _cp_cols is None:
-                    _cp_cols = [c for c in _raw_input_cols_pre_fe if c in X.columns] or None
+                    # The members are the categorical-looking RAW columns (the detector of the family, run on the raw columns only): handing every raw column over as ``cat_cols``
+                    # skipped the detector and crossed every continuous column with every other (5778 pairs of 100k-valued keys on a 100-column frame).
+                    from mlframe.feature_selection.filters._cat_pair_fe import auto_detect_cat_pair_cols
+
+                    _raw_cp = [c for c in _raw_input_cols_pre_fe if c in X.columns]
+                    _cp_cols = auto_detect_cat_pair_cols(X[_raw_cp]) if _raw_cp else []
+                    if len(_cp_cols) < 2:
+                        return X
                 _cp_min_ii = float(getattr(self, "fe_cat_pair_min_interaction_info", 0.001))
                 _cp_top_k = int(getattr(self, "fe_cat_pair_top_k", 16))
                 _X_before_cp_cols = list(X.columns)
@@ -517,7 +524,12 @@ def _stage_cat_triple(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _ca
                 # recipe replays as a pure function of X (an engineered
                 # intermediate would raise KeyError at transform time).
                 if _ct_cols is None:
-                    _ct_cols = [c for c in _raw_input_cols_pre_fe if c in X.columns] or None
+                    from mlframe.feature_selection.filters._cat_pair_fe import auto_detect_cat_pair_cols
+
+                    _raw_ct = [c for c in _raw_input_cols_pre_fe if c in X.columns]
+                    _ct_cols = auto_detect_cat_pair_cols(X[_raw_ct], max_cols=8) if _raw_ct else []
+                    if len(_ct_cols) < 3:
+                        return X
                 _ct_min_ii = float(getattr(self, "fe_cat_triple_min_interaction_info", 0.001))
                 _ct_beam = int(getattr(self, "fe_cat_triple_beam_width", 3))
                 _ct_top_k = int(getattr(self, "fe_cat_triple_top_k", 3))

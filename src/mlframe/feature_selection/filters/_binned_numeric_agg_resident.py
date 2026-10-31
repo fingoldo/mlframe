@@ -85,14 +85,14 @@ def _per_cell_moments_stable_gpu(cp, codes_g, v_g, n_cells: int):
     bit-parity -- which meant the same bug)."""
     nc = int(n_cells)
     cnt = resident_bincount(cp, codes_g, nc).astype(cp.float64, copy=False)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
-    s1 = resident_bincount(cp, codes_g, nc, weights=v_g)
+    s1 = resident_bincount(cp, codes_g, nc, weights=v_g, dtype=cp.float64)  # Intentional float64: per-cell sums feed the centred moments; a float32 accumulator is wrong in the 4th digit at an offset of 8500
     mean = s1 / cp.maximum(cnt, 1.0)
     mean_row = mean[codes_g]
     d = v_g - mean_row
     d2 = d * d
-    cm2 = resident_bincount(cp, codes_g, nc, weights=d2)
-    cm3 = resident_bincount(cp, codes_g, nc, weights=d2 * d)
-    cm4 = resident_bincount(cp, codes_g, nc, weights=d2 * d2)
+    cm2 = resident_bincount(cp, codes_g, nc, weights=d2, dtype=cp.float64)  # Intentional float64: moment accumulator
+    cm3 = resident_bincount(cp, codes_g, nc, weights=d2 * d, dtype=cp.float64)  # Intentional float64: moment accumulator
+    cm4 = resident_bincount(cp, codes_g, nc, weights=d2 * d2, dtype=cp.float64)  # Intentional float64: moment accumulator
     return cnt, mean, cm2, cm3, cm4
 
 
@@ -124,15 +124,15 @@ def _per_cell_moments_stable_masked_gpu(cp, codes_g, v_safe, w, n_cells: int):
 def _per_cell_moments_stable_masked_scatter_gpu(cp, codes_g, v_safe, w, n_cells: int):
     """Scatter-add form of :func:`_per_cell_moments_stable_masked_gpu` (one global-atomic launch per moment); the fallback when the fused kernels do not apply."""
     nc = int(n_cells)
-    cnt = resident_bincount(cp, codes_g, nc, weights=w)
-    s1 = resident_bincount(cp, codes_g, nc, weights=v_safe * w)
+    cnt = resident_bincount(cp, codes_g, nc, weights=w, dtype=cp.float64)  # Intentional float64: moment accumulator
+    s1 = resident_bincount(cp, codes_g, nc, weights=v_safe * w, dtype=cp.float64)  # Intentional float64: moment accumulator
     mean = s1 / cp.maximum(cnt, 1.0)
     mean_row = mean[codes_g]
     d = v_safe - mean_row
     d2 = d * d
-    cm2 = resident_bincount(cp, codes_g, nc, weights=d2 * w)
-    cm3 = resident_bincount(cp, codes_g, nc, weights=d2 * d * w)
-    cm4 = resident_bincount(cp, codes_g, nc, weights=d2 * d2 * w)
+    cm2 = resident_bincount(cp, codes_g, nc, weights=d2 * w, dtype=cp.float64)  # Intentional float64: moment accumulator
+    cm3 = resident_bincount(cp, codes_g, nc, weights=d2 * d * w, dtype=cp.float64)  # Intentional float64: moment accumulator
+    cm4 = resident_bincount(cp, codes_g, nc, weights=d2 * d2 * w, dtype=cp.float64)  # Intentional float64: moment accumulator
     return cnt, mean, cm2, cm3, cm4
 
 

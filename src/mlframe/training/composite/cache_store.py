@@ -370,19 +370,19 @@ class DiscoveryCache:
             return default
         # Route the load through safe_pickle so a corrupt-sidecar finding (digest mismatch from
         # tampering or partial write) raises PickleVerificationError instead of silently returning
-        # stale data. allow_unverified=True keeps the migration story: legacy entries written before
-        # the sidecar landed remain readable (cache miss is the safe fallback if they're broken).
-        # Operators who want strict-only behaviour set MLFRAME_DISCOVERY_CACHE_STRICT=1.
+        # stale data. A file with no sidecar is rejected by default (fail-closed): an unsigned pickle in a
+        # shared cache directory is code execution on read. Legacy entries written before the sidecar landed
+        # are readable only when MLFRAME_ALLOW_UNVERIFIED_PICKLE=1 (the migration opt-out); otherwise they
+        # are a cache miss. Operators who want strict-only behaviour set MLFRAME_DISCOVERY_CACHE_STRICT=1.
         _strict = env_flag("MLFRAME_DISCOVERY_CACHE_STRICT")
         try:
             if _strict:
                 value = _safe_pickle_load(path)
             else:
-                # allow_unverified=True: missing sidecar is OK (WARN-logged once by verify_sidecar);
-                # digest mismatch still raises so a tampered file does not slip into the cache hit
-                # path. The broad except below converts the mismatch to a cache miss so callers see
-                # consistent semantics.
-                value = _safe_pickle_load(path, allow_unverified=True)
+                # allow_unverified=None defers to MLFRAME_ALLOW_UNVERIFIED_PICKLE (unset means reject): a missing
+                # sidecar is a miss, never an unpickle. A digest mismatch raises as before, and the broad except
+                # below converts it to a cache miss so callers see consistent semantics.
+                value = _safe_pickle_load(path, allow_unverified=None)
         except FileNotFoundError as _exc:
             logger.debug("get fell back to its default after %s", type(_exc).__name__)
             return default

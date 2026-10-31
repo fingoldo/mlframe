@@ -7531,6 +7531,7 @@ gpu = [
     { name = "cupy-cuda12x", version = "13.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10' or python_full_version >= '3.15'" },
     { name = "cupy-cuda12x", version = "14.2.0", source = { registry = "https://pypi.org/simple" }, extra = ["ctk"], marker = "python_full_version >= '3.10' and python_full_version < '3.15'" },
     { name = "gpu-info" },
+    { name = "nvidia-cublas-cu12" },
     { name = "nvidia-cuda-nvcc-cu12" },
 ]
 gpu-cuda11 = [
@@ -7542,6 +7543,7 @@ gpu-cuda12 = [
     { name = "cupy-cuda12x", version = "13.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10' or python_full_version >= '3.15'" },
     { name = "cupy-cuda12x", version = "14.2.0", source = { registry = "https://pypi.org/simple" }, extra = ["ctk"], marker = "python_full_version >= '3.10' and python_full_version < '3.15'" },
     { name = "gpu-info" },
+    { name = "nvidia-cublas-cu12" },
     { name = "nvidia-cuda-nvcc-cu12" },
 ]
 mlflow = [
@@ -7700,6 +7702,7 @@ requires-dist = [
     { name = "numba", specifier = ">=0.59" },
     { name = "numpy", specifier = ">=1.23,<2.5" },
     { name = "numpy", marker = "python_full_version < '3.10'", specifier = "<2.0" },
+    { name = "nvidia-cublas-cu12", marker = "extra == 'gpu'", specifier = ">=12.8,<12.9" },
     { name = "nvidia-cuda-nvcc-cu11", marker = "python_full_version < '3.13' and extra == 'gpu-cuda11'", specifier = ">=11.8.89" },
     { name = "nvidia-cuda-nvcc-cu12", marker = "extra == 'gpu'", specifier = ">=12.9" },
     { name = "optbinning", marker = "extra == 'feature-engineering'", specifier = ">=0.21" },

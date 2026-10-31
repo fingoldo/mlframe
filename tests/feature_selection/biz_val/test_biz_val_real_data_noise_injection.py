@@ -116,11 +116,13 @@ def _output_names(sel, all_cols):
     return _support_names(sel, all_cols)
 
 
-def _recall_and_rejection(out_names, real, noise):
-    """Recall and rejection."""
+def _recall_and_rejection(out_names, real, noise, dup_sources=None):
+    """Recall and rejection; a selected near-duplicate credits the real column it copies (``dup_sources``: dup name -> real name)."""
     toks = set()
     for nm in out_names:
         toks.update(_TOKEN.findall(nm))
+        if dup_sources and nm in dup_sources:
+            toks.add(dup_sources[nm])
     real_used = sum(1 for c in real if c in toks)
     noise_used = sum(1 for c in noise if c in toks)
     noise_dropped = len(noise) - noise_used
@@ -259,7 +261,8 @@ def _assert_case(case):
 
         support = _support_names(sel, all_cols)
         out_names = _output_names(sel, all_cols)
-        recall, noise_rej = _recall_and_rejection(out_names, real, noise)
+        dup_sources = {d: feat_names[i % len(feat_names)] for i, d in enumerate(_dup)}
+        recall, noise_rej = _recall_and_rejection(out_names, real, noise, dup_sources)
 
         sel_lin = _downstream(df, y, support, task, "linear")
         full_lin = _downstream(df, y, all_cols, task, "linear")

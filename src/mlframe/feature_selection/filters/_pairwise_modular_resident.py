@@ -218,7 +218,8 @@ def perm_null_residue_mis_resident(
             for t in range(m):
                 # The inverse is a scatter, not an argsort: bit-identical for a duplicate-free permutation and O(n) rather than O(n log n).
                 inv_blk[t, np.asarray(perms[i0 + t])] = _arange_n
-            code_mat[:, i0 : i0 + m] = codes_r[cp.asarray(inv_blk[:m])].T
+            # The inverse blocks depend only on the permutations (the same for every candidate of this size), so they ride the content-keyed resident cache.
+            code_mat[:, i0 : i0 + m] = codes_r[resident_operand(inv_blk[:m], ("modular_inv_perm", n), dtype=np.int32)].T
         # y rides the SAME resident "y_mi_classif" role the host STRICT MI path uses (uploaded once per fit).
         _yi = np.ascontiguousarray(encode_y_for_classif_mi(y))
         yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)

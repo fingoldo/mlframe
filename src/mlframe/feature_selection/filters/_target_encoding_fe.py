@@ -59,6 +59,7 @@ __all__ = [
 # they need y sorted within each category (not expressible from raw moments), and carry their own per-stat stability
 # floors so rare cells fall back to the global value. Promoting the order-stat winners to the ctor default is a tracked
 # follow-up - it needs a multi-seed sweep confirming the biz_value win generalises before the default flips.
+from ._cache_release import register_cache_releaser
 from ._target_encoding_order_stats import ORDER_STATS as _TE_ORDER_STATS, global_order_stats, per_category_order_stats
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -269,6 +270,19 @@ def _column_content_key(arr: np.ndarray) -> tuple:
     if arr.dtype.kind == "O":
         return ("O", arr.shape[0], int(pd.util.hash_array(arr, categorize=False).sum() & 0xFFFFFFFFFFFFFFFF))
     return (arr.dtype.str, arr.shape[0], hash(np.ascontiguousarray(arr).tobytes()))
+
+
+def _release_column_codes_cache() -> int:
+    """Drop the cached column codings (registered for release under memory pressure); returns the bytes freed."""
+    global _column_codes_cache_bytes
+    with _COLUMN_CODES_CACHE_LOCK:
+        freed = _column_codes_cache_bytes
+        _COLUMN_CODES_CACHE.clear()
+        _column_codes_cache_bytes = 0
+    return int(freed)
+
+
+register_cache_releaser(_release_column_codes_cache)
 
 
 def column_string_codes(col: pd.Series) -> "tuple[np.ndarray, np.ndarray]":

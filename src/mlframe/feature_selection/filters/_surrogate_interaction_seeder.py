@@ -32,6 +32,7 @@ fastest-default-routed by ``fe_gbm_seeder_enable`` + the ``(n, p)`` cost gate be
 from __future__ import annotations
 
 import logging
+import os
 from typing import Sequence
 
 import numpy as np
@@ -312,10 +313,14 @@ def surrogate_gbm_interaction_seeds(
     self_gate_margin: float = 0.0,
     self_gate_reps: int = 5,
     self_gate_min_z: float = 2.0,
-    n_threads: int = 4,
+    n_threads: int | None = None,
     random_seed: int = 0,
+    row_cap: int = 30_000,
 ) -> tuple[list, list, dict]:
     """Propose interaction PAIR + TRIPLE seeds from a surrogate-GBM's split co-occurrence.
+
+    ``row_cap``: the surrogates are shallow trees on a few-bin ordinal matrix, whose split gains and co-occurrence ranking are settled by a few tens of thousands of rows; a larger frame is
+    subsampled once (seeded, without replacement) before the ten fits, which otherwise cost 70% of every row at every size (40 s of a 100k-row all-families fit). ``0`` keeps every row.
 
     ``disc_X`` is the ordinal-encoded screening matrix (n, p); ``candidate_indices`` the
     COLUMN INDICES (into ``disc_X``) eligible to seed (the same numeric operand pool the
@@ -349,6 +354,9 @@ def surrogate_gbm_interaction_seeds(
     # the target index) and map the surrogate's LOCAL feature indices back to the GLOBAL
     # candidate column indices. This also restricts split co-occurrence to exactly the
     # operand pool, so the post-hoc cand_set filter is a no-op.
+    if row_cap and disc_X.shape[0] > int(row_cap):
+        rows = np.sort(np.random.default_rng(int(random_seed) + 17).choice(disc_X.shape[0], int(row_cap), replace=False))
+        disc_X, y = disc_X[rows], np.asarray(y)[rows]
     sub_X = np.ascontiguousarray(disc_X[:, cand_list])
     local_to_global = {i: cand_list[i] for i in range(len(cand_list))}
 
@@ -366,6 +374,8 @@ def surrogate_gbm_interaction_seeds(
     # proposer GENERATES, floors GATE), so a marginally-separable hard 3-way (whose OOF is
     # near chance for a shallow tree even though its split co-occurrence still ranks the
     # operands) is recovered via the floors even if the OOF gate is conservative.
+    # bench-attempt-rejected: running the surrogate fits concurrently (6 fits: 4.8 s serial at 4 threads, 5.5 s on 2 workers, 8.4 s on 3, 10 s on 6). One fit on every core is the fastest (3.7 s), with identical scores.
+    n_threads = int(n_threads) if n_threads else (os.cpu_count() or 4)
     reps = max(1, int(self_gate_reps))
     fit_kwargs = dict(is_classification=is_classification, n_estimators=n_estimators, max_depth=max_depth, num_leaves=num_leaves,
                       learning_rate=learning_rate, min_data_in_leaf=min_data_in_leaf, n_threads=n_threads)

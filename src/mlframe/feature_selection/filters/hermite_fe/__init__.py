@@ -99,6 +99,9 @@ def _plugin_mi_classif_batch_njit(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     #   (card=5 @1M -> 283k bin diffs -> partition shift -> selection-risky); (b) a k==1 fast-path skipping prange
     #   saves only ~6ms/call @1M (4%, negative at 200k) -> ~70ms over the 24 k=1 calls = sub-0.1% of a ~90s fit,
     #   not worth the branch. Left as-is: optimal safe form.
+    # bench-attempt-rejected (2026-10-31, bit-identity relaxed by the user): approximate equi-frequency edges from a strided 2048- or 8192-row sample of each column + binary-search binning
+    #   (no selection pass at all). 200 columns x 100000 rows: 0.27 s exact against 0.20-0.22 s approximate, 1.2-1.3x, with MI errors up to 1.3e-4 (8192 rows) / 3.4e-4 (2048 rows). The exact
+    #   kernel is already near the memory floor, so the approximation buys too little for a primitive every family uses. Do not retry.
     k = X_cols.shape[1]
     # Intentional float64: coefficient / output contract kept f64
     out = np.zeros(k, dtype=np.float64)

@@ -91,6 +91,19 @@ def _is_discrete_target(y: np.ndarray) -> bool:
         return int(np.unique(arr).size) <= 32
     return True
 
+def _ksg_mi_batch_with_missing(X: np.ndarray, y: np.ndarray, finite: np.ndarray, *, n_neighbors: int, random_state: int) -> np.ndarray:
+    """:func:`_ksg_mi_batch` for a matrix with non-finite values: complete columns in one call, every other column on the rows where it is finite (0.0 when fewer than ``n_neighbors + 2`` rows remain)."""
+    out = np.zeros(X.shape[1], dtype=np.float64)  # Intentional float64: MI output vector (output contract of the ranking consumers)
+    complete = finite.all(axis=0)
+    if complete.any():
+        out[complete] = _ksg_mi_batch(X[:, complete], y, n_neighbors=n_neighbors, random_state=random_state)
+    for j in np.flatnonzero(~complete):
+        rows = finite[:, j]
+        if int(rows.sum()) >= n_neighbors + 2:
+            out[j] = _ksg_mi_batch(X[rows][:, [j]], y[rows], n_neighbors=n_neighbors, random_state=random_state)[0]
+    return out
+
+
 def _ksg_mi_batch(
     X: np.ndarray, y: np.ndarray, *, n_neighbors: int = 3,
     random_state: int = 0,
@@ -117,6 +130,10 @@ def _ksg_mi_batch(
     if X.ndim == 1:
         X = X.reshape(-1, 1)
     y_arr = np.asarray(y).ravel()
+    finite = np.isfinite(X)
+    if not finite.all():
+        # sklearn's k-NN MI rejects NaN: the finite columns are scored together and a column with a missing value on its own rows (as the plug-in batch MI does); a column with too few rows scores 0.
+        return _ksg_mi_batch_with_missing(X, y_arr, finite, n_neighbors=int(n_neighbors), random_state=int(random_state))
     if _is_discrete_target(y_arr):
         if not np.issubdtype(y_arr.dtype, np.integer):
             # densify via np.unique(return_inverse=...) rather than

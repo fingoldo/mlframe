@@ -137,6 +137,14 @@ def _route_gradient_seeder(n_rows: int, n_pool: int):
 
 def _standardize(X: np.ndarray):
     """Column-wise zero-mean/unit-std standardization; degenerate (all-constant) columns get std=1 to avoid a divide-by-zero."""
+    if not np.isfinite(X).all():
+        # a missing value is the column mean: zero after standardising (the surrogate's RBF features reject NaN); statistics from the finite values, an all-missing column is all zeros
+        with np.errstate(all="ignore"):
+            mu = np.nanmean(np.where(np.isfinite(X), X, np.nan), axis=0)
+            sd = np.nanstd(np.where(np.isfinite(X), X, np.nan), axis=0)
+        mu = np.where(np.isfinite(mu), mu, 0.0)
+        sd = np.where(np.isfinite(sd) & (sd != 0.0), sd, 1.0)
+        return np.where(np.isfinite(X), (X - mu) / sd, 0.0)
     mu = X.mean(axis=0)
     sd = X.std(axis=0)
     sd = np.where(sd == 0.0, 1.0, sd)
@@ -381,8 +389,11 @@ def _raw_numeric_candidate_idx(self, cols, target_indices, categorical_vars, non
 def _rank_gradient_pool(X_continuous, data, pool, t0, row_cap, kernel):
     """Return ``(proposed, diag)`` from the smooth-surrogate ranker, or ``None`` when the inputs or the ranker fail (best-effort proposer)."""
     try:
-        Xfull = np.asarray(X_continuous, dtype=_crit_np_dtype())  # RAW continuous features
-        X = Xfull[:, pool]
+        # Only the pool columns are materialised: converting the whole (wide, mixed-dtype) frame to one matrix first cost 1.9 s per call at 100000 rows.
+        if hasattr(X_continuous, "iloc"):
+            X = np.asarray(X_continuous.iloc[:, list(pool)], dtype=_crit_np_dtype())  # RAW continuous features
+        else:
+            X = np.asarray(X_continuous, dtype=_crit_np_dtype())[:, pool]
         y = np.asarray(data)[:, t0]  # discretised ordinal target
     except Exception as exc:  # not array-coercible -> skip silently (proposer is best-effort)
         # Was gated behind `if verbose`, so with the

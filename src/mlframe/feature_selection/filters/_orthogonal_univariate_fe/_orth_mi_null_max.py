@@ -58,16 +58,20 @@ def _mi_from_codes_rows_njit(codes: np.ndarray, y: np.ndarray, n_bins: int) -> n
         if y[i] > y_max:
             y_max = y[i]
     n_classes = (y_max - y_min) + 1
+    # the class counts and the shifted labels are the same for every column: counted once, and the bin counts are the row sums of the joint table
+    yc = np.empty(n, dtype=np.int64)
+    hist_y = np.zeros(n_classes, dtype=np.int64)
+    for i in range(n):
+        yc[i] = y[i] - y_min
+        hist_y[yc[i]] += 1
     for j in prange(k):
         hist_xy = np.zeros((n_bins, n_classes), dtype=np.int64)
-        hist_x = np.zeros(n_bins, dtype=np.int64)
-        hist_y = np.zeros(n_classes, dtype=np.int64)
         for i in range(n):
-            b = codes[j, i]
-            c = y[i] - y_min
-            hist_xy[b, c] += 1
-            hist_x[b] += 1
-            hist_y[c] += 1
+            hist_xy[codes[j, i], yc[i]] += 1
+        hist_x = np.zeros(n_bins, dtype=np.int64)
+        for b in range(n_bins):
+            for c in range(n_classes):
+                hist_x[b] += hist_xy[b, c]
         log_n = math.log(n)
         mi = 0.0
         for b in range(n_bins):

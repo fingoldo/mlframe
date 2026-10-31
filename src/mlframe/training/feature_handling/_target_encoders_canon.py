@@ -323,7 +323,7 @@ def _coerce_y_to_float64(y) -> np.ndarray:
     try:
         import polars as pl
         if isinstance(y, pl.Series):
-            return y.cast(pl.Float64).to_numpy().ravel()
+            return np.asarray(y.cast(pl.Float64).to_numpy()).ravel()
     except ImportError:
         pass
     return np.asarray(y, dtype=np.float64).ravel()

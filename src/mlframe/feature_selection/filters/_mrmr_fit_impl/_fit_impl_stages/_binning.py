@@ -45,7 +45,18 @@ def _target_dependent_columns(x, cols) -> "set[str] | None":
 
     if not isinstance(x, pd.DataFrame):
         return None
-    return {str(c) for c in cols if c in x.columns and pd.api.types.is_numeric_dtype(x[c]) and x[c].nunique(dropna=True) > _LOW_CARD_CAP}
+    return {str(c) for c in cols if c in x.columns and pd.api.types.is_numeric_dtype(x[c]) and _has_more_than_distinct(x[c], _LOW_CARD_CAP)}
+
+
+_DISTINCT_PROBE_ROWS = 4096
+
+
+def _has_more_than_distinct(col: Any, cap: int) -> bool:
+    """``col.nunique(dropna=True) > cap``: a head sample that already holds more distinct values than ``cap`` decides it (the sample's distinct values are among the column's), only a column that does not is counted in full."""
+    head = col.iloc[:_DISTINCT_PROBE_ROWS]
+    if head.shape[0] < col.shape[0] and head.nunique(dropna=True) > cap:
+        return True
+    return bool(col.nunique(dropna=True) > cap)
 
 
 def _compact_code_storage(data):

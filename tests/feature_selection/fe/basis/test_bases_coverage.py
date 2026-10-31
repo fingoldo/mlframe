@@ -22,6 +22,7 @@ import math
 import numpy as np
 import pytest
 
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters.bases import (
     EXTRA_BASES,
     _fourier_eval_njit,
@@ -331,14 +332,14 @@ class TestCanonicalSeedsShape:
     @pytest.mark.parametrize("family", _FAMILIES_FAST)
     @pytest.mark.parametrize("degree", _DEGREES_FAST)
     def test_seeds_match_coef_size(self, family: str, degree: int):
-        """Every canonical seed vector for every family/degree combo has shape (K,), dtype float64, and is finite."""
+        """Every canonical seed vector for every family/degree combo has shape (K,), the crit-policy dtype, and is finite."""
         b = EXTRA_BASES[family]
         K = b["coef_size_func"](degree)
         seeds = b["canonical_seeds_func"](degree)
         assert len(seeds) >= 1
         for s in seeds:
             assert s.shape == (K,)
-            assert s.dtype == np.float64
+            assert s.dtype == _crit_np_dtype()
             assert np.all(np.isfinite(s))
 
     def test_fourier_degree1_minimal_seeds(self):
