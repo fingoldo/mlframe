@@ -322,6 +322,72 @@ def load_and_prepare_dataframe(
     return _df
 
 
+def _normalise_string_dtypes(df, verbose):
+    """Recast pandas StringDtype columns to object so downstream dtype checks keep working; the caller frame is not mutated."""
+    if isinstance(df, pd.DataFrame):
+        # Pandas allows duplicate column names; ``df[c]`` for a duplicate-named
+        # ``c`` returns a DataFrame (not a Series) which has no ``.dtype``.
+        # Walk dtypes positionally instead so the column-by-name lookup never
+        # fires on duplicates - the dedicated dup-column raise downstream
+        # handles surfacing the real error to the caller.
+        # is_string_dtype (not isinstance(_dt, pd.StringDtype)): some pandas versions/configs infer a
+        # DIFFERENT numpy-backed "str" dtype by default for plain-string columns (not an instance of
+        # the nullable pd.StringDtype class), which the narrower isinstance check silently missed --
+        # is_string_dtype is pandas' own general-purpose test and covers both. Excludes plain object
+        # dtype explicitly since those columns are already what this loop normalises TO (a no-op that
+        # would otherwise re-astype every object-dtype string column for nothing).
+        _string_cols = [c for c, _dt in zip(df.columns, df.dtypes) if pd.api.types.is_string_dtype(_dt) and not pd.api.types.is_object_dtype(_dt)]
+        if _string_cols:
+            # Shallow copy: only StringDtype columns are recast below; deep-copying a 100+ GB frame to normalise a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
+            df = df.copy(deep=False)
+            for _c in _string_cols:
+                df[_c] = df[_c].astype(object)
+            if verbose:
+                logger.info(
+                    "Normalised %d pandas StringDtype column(s) -> object: %s",
+                    len(_string_cols), _string_cols,
+                )
+    return df
+
+
+def _batched_scan_pass(df, verbose, _do_remove_const, _do_fix_inf):
+    """Polars fastpath: one fused scan for constant columns and infinities, then drop the constants and replace the infinities with NaN."""
+    from ._nan_processing import batch_scan_constants_and_inf_polars
+    import polars.selectors as _cs
+    scan = batch_scan_constants_and_inf_polars(
+        df,
+        detect_constant_numeric=_do_remove_const,
+        detect_constant_nonnumeric=_do_remove_const,
+        detect_inf=_do_fix_inf,
+    )
+    if _do_remove_const:
+        _drop = scan["constant_numeric"] + scan["constant_nonnumeric"]
+        if _drop:
+            if verbose:
+                logger.info(
+                    "Removing %d constant column(s) (numeric: %d, non-numeric: %d): %s",
+                    len(_drop), len(scan["constant_numeric"]),
+                    len(scan["constant_nonnumeric"]), _drop,
+                )
+            df = df.drop(_drop)
+    if _do_fix_inf and scan["inf_counts"]:
+        if verbose:
+            logger.info(
+                "Replacing infinities in %d numeric column(s) (total %d rows): %s",
+                len(scan["inf_counts"]), sum(scan["inf_counts"].values()),
+                sorted(scan["inf_counts"]),
+            )
+        # NaN (not 0.0): a hardcoded fill value pre-split biases the post-split imputer's
+        # learned mean/median toward the sentinel, exactly the bias the module docstring
+        # explains and the fillna_value branch below already avoids (matches its own
+        # cs.float().replace([...], float("nan")) pattern).
+        df = df.with_columns(_cs.float().replace([float("inf"), float("-inf")], float("nan")))
+    # Float32 cast is the only remaining work; the fillna_value=None
+    # branch is unreachable in the batched fastpath since _do_fix_inf
+    # gates on fillna_value is None.
+    return df
+
+
 def preprocess_dataframe(
     df: Union[pl.DataFrame, pd.DataFrame],
     config: PreprocessingConfig,
@@ -350,29 +416,7 @@ def preprocess_dataframe(
     # (observed on S: in test_each_ensemble_method_writes_its_own_perfplot).
     # Treat StringDtype as legacy object; the explicit cat-handling path
     # converts to ``category`` downstream when appropriate.
-    if isinstance(df, pd.DataFrame):
-        # Pandas allows duplicate column names; ``df[c]`` for a duplicate-named
-        # ``c`` returns a DataFrame (not a Series) which has no ``.dtype``.
-        # Walk dtypes positionally instead so the column-by-name lookup never
-        # fires on duplicates - the dedicated dup-column raise downstream
-        # handles surfacing the real error to the caller.
-        # is_string_dtype (not isinstance(_dt, pd.StringDtype)): some pandas versions/configs infer a
-        # DIFFERENT numpy-backed "str" dtype by default for plain-string columns (not an instance of
-        # the nullable pd.StringDtype class), which the narrower isinstance check silently missed --
-        # is_string_dtype is pandas' own general-purpose test and covers both. Excludes plain object
-        # dtype explicitly since those columns are already what this loop normalises TO (a no-op that
-        # would otherwise re-astype every object-dtype string column for nothing).
-        _string_cols = [c for c, _dt in zip(df.columns, df.dtypes) if pd.api.types.is_string_dtype(_dt) and not pd.api.types.is_object_dtype(_dt)]
-        if _string_cols:
-            # Shallow copy: only StringDtype columns are recast below; deep-copying a 100+ GB frame to normalise a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
-            df = df.copy(deep=False)
-            for _c in _string_cols:
-                df[_c] = df[_c].astype(object)
-            if verbose:
-                logger.info(
-                    "Normalised %d pandas StringDtype column(s) -> object: %s",
-                    len(_string_cols), _string_cols,
-                )
+    df = _normalise_string_dtypes(df, verbose)
 
     # iter291: batched-scan fastpath for polars frames.
     # ``remove_constant_columns`` + ``process_infinities`` legacy chain
@@ -391,39 +435,7 @@ def preprocess_dataframe(
     _do_fix_inf = bool(config.fix_infinities) and config.fillna_value is None
     _use_batched = isinstance(df, pl.DataFrame) and (_do_remove_const or _do_fix_inf) and os.environ.get("MLFRAME_DISABLE_BATCHED_PREPROCESS_SCAN") != "1"
     if _use_batched:
-        from ._nan_processing import batch_scan_constants_and_inf_polars
-        import polars.selectors as _cs
-        scan = batch_scan_constants_and_inf_polars(
-            df,
-            detect_constant_numeric=_do_remove_const,
-            detect_constant_nonnumeric=_do_remove_const,
-            detect_inf=_do_fix_inf,
-        )
-        if _do_remove_const:
-            _drop = scan["constant_numeric"] + scan["constant_nonnumeric"]
-            if _drop:
-                if verbose:
-                    logger.info(
-                        "Removing %d constant column(s) (numeric: %d, non-numeric: %d): %s",
-                        len(_drop), len(scan["constant_numeric"]),
-                        len(scan["constant_nonnumeric"]), _drop,
-                    )
-                df = df.drop(_drop)
-        if _do_fix_inf and scan["inf_counts"]:
-            if verbose:
-                logger.info(
-                    "Replacing infinities in %d numeric column(s) (total %d rows): %s",
-                    len(scan["inf_counts"]), sum(scan["inf_counts"].values()),
-                    sorted(scan["inf_counts"]),
-                )
-            # NaN (not 0.0): a hardcoded fill value pre-split biases the post-split imputer's
-            # learned mean/median toward the sentinel, exactly the bias the module docstring
-            # explains and the fillna_value branch below already avoids (matches its own
-            # cs.float().replace([...], float("nan")) pattern).
-            df = df.with_columns(_cs.float().replace([float("inf"), float("-inf")], float("nan")))
-        # Float32 cast is the only remaining work; the fillna_value=None
-        # branch is unreachable in the batched fastpath since _do_fix_inf
-        # gates on fillna_value is None.
+        df = _batched_scan_pass(df, verbose, _do_remove_const, _do_fix_inf)
     else:
         # Legacy 3-pass path (pandas, or batched fastpath disabled).
         # Remove constant columns (: gated on config flag; default True).

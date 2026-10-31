@@ -32,7 +32,6 @@
   "src/mlframe/training/neural/_flat_torch_module/_flat_torch_loss.py::_LossMixin.compute_metrics": 17,
   "src/mlframe/training/neural/_muon_triton_kernel.py::maybe_newton_schulz_triton": 16,
   "src/mlframe/training/pipeline/_entity_time_composite_fe.py::apply_entity_time_composite_fe": 17,
-  "src/mlframe/training/preprocessing.py::preprocess_dataframe": 17,
   "src/mlframe/training/ranking/_ranker_suite_train_helpers.py::_train_mlframe_rank_lockstep_rank_fusion_math": 17,
   "src/mlframe/training/targets/_target_distribution_analyzer_features.py::_target_leakage_scan": 18,
   "src/mlframe/training/targets/_target_temporal_changepoint.py::find_change_points_zscore": 17
