@@ -43,7 +43,7 @@ from __future__ import annotations
 import functools
 import logging
 import threading
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence, cast
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 
@@ -597,6 +597,35 @@ def _support_scorer(y_bin: np.ndarray, z_joint: np.ndarray) -> "Callable":
         return out
 
     return score
+
+
+def quantile_bin_columns(X: np.ndarray, nbins: int) -> "list[np.ndarray]":
+    """``_quantile_bin`` of every column of the host matrix ``X`` ``(n, k)``, as one int64 vector per column (the codes are consumed on the host).
+
+    The all-finite columns are binned in parallel blocks by ``quantile_bin_block`` (the dedupe and two-class rules of ``_quantile_bin``, equal codes); a column with a NaN or infinity takes the scalar
+    host ``_quantile_bin``. Looping ``_quantile_bin`` over the columns ran one full device round trip (upload, two sorts, ~15 launches, download) per column on the strict GPU path."""
+    from ._numba_utils import quantile_bin_block
+
+    n, k = int(X.shape[0]), int(X.shape[1])
+    out: "list[np.ndarray | None]" = [None] * k
+    dt = _crit_np_dtype()
+    block = max(1, (128 << 20) // (np.dtype(dt).itemsize * max(n, 1)))
+    for j0 in range(0, k, block):
+        j1 = min(k, j0 + block)
+        v = np.ascontiguousarray(np.asarray(X[:, j0:j1], dtype=dt).T)
+        ok = np.isfinite(v).all(axis=1)
+        if ok.any():
+            codes = np.empty((int(ok.sum()), n), dtype=np.int16)
+            quantile_bin_block(np.ascontiguousarray(v[ok]), int(nbins), codes)
+            r = 0
+            for j in range(j1 - j0):
+                if ok[j]:
+                    out[j0 + j] = codes[r].astype(np.int64)
+                    r += 1
+        for j in range(j1 - j0):
+            if out[j0 + j] is None:
+                out[j0 + j] = _quantile_bin(np.ascontiguousarray(v[j]), nbins=int(nbins), host_only=True)
+    return cast("list[np.ndarray]", out)
 
 
 def _prebinned_candidates(X_cand: Any, cand_cols: list, nbins: int, score: "Callable | None" = None) -> dict:

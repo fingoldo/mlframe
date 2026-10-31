@@ -114,7 +114,7 @@ import pandas as pd
 from ._mi_greedy_cmi_fe import (
     _cmi_from_binned,
     _entropy_from_classes,
-    _quantile_bin,
+    quantile_bin_columns,
 )
 from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import (
@@ -325,13 +325,7 @@ def _reference_support_bins(raw_X: pd.DataFrame, engineered_X: pd.DataFrame, cur
             len(engineered_X),
         )
         use_support = raw_X
-    sel_bins: list[np.ndarray] = []
-    for c in use_support.columns:
-        col = use_support[c].to_numpy()
-        sel_bins.append(_quantile_bin(
-            np.ascontiguousarray(col, dtype=_crit_np_dtype()),
-            nbins=int(n_bins),
-        ))
+    sel_bins = quantile_bin_columns(use_support.to_numpy(dtype=_crit_np_dtype()), int(n_bins))
     return sel_bins, list(use_support.columns)
 
 
@@ -438,14 +432,11 @@ def score_features_by_cmim(
     }
 
     rows: list[dict] = []
-    for eng_name in engineered_X.columns:
+    eng_bins = quantile_bin_columns(engineered_X.to_numpy(dtype=_crit_np_dtype()), int(n_bins))  # every candidate column binned at once (not one device round trip per column)
+    for eng_idx, eng_name in enumerate(engineered_X.columns):
         source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
         baseline = float(raw_mi_map.get(source, 0.0))
-        cand_col = engineered_X[eng_name].to_numpy()
-        cand_bin = _quantile_bin(
-            np.ascontiguousarray(cand_col, dtype=_crit_np_dtype()),
-            nbins=int(n_bins),
-        )
+        cand_bin = eng_bins[eng_idx]
         # Fleuret 2004 CMIM: min over support of CMI(cand; y | X_j).
         # CRITICAL: skip the candidate's own raw source when scoring -
         # CMI(He_2(x_dup_a); y | x_dup_a) collapses to ~0 trivially
