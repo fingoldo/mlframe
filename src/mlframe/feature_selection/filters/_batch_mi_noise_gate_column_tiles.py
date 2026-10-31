@@ -103,4 +103,5 @@ def gate_in_column_tiles(
         K_y,
         len(parts),
     )
-    return np.concatenate(parts)
+    out: np.ndarray = np.concatenate(parts)
+    return out
