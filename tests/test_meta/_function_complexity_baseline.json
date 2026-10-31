@@ -11,7 +11,6 @@
   "src/mlframe/feature_selection/filters/batch_pair_usability_corr_gpu.py::_cuda_kernel_warp_factory": 16,
   "src/mlframe/feature_selection/filters/cat_fe_state.py::CatFEConfig.__post_init__": 18,
   "src/mlframe/feature_selection/filters/discretization/__init__.py::categorize_1d_array": 18,
-  "src/mlframe/feature_selection/filters/discretization/_multiselect.py::multiselect_inplace": 17,
   "src/mlframe/feature_selection/filters/engineered_recipes/_recipe_unary_binary_gpu.py::_gpu_binary": 17,
   "src/mlframe/feature_selection/filters/info_theory/_batch_kernels.py::_perm_failcount_col": 18,
   "src/mlframe/feature_selection/filters/info_theory/_batch_kernels_v3.py::_observed_column": 17,

@@ -27,6 +27,39 @@ def _insertion_sort_range(a: np.ndarray, lo: int, hi: int) -> None:
 
 
 @njit(nogil=True, cache=True)
+def _partition_around_median(a: np.ndarray, left: int, h: int) -> tuple[int, int]:
+    """Median-of-three pivot and one Hoare partition over ``a[left..h]``; returns ``(i, j)`` with ``[left..j] <= p <= [i..h]`` and ``j < i``."""
+    m = (left + h) // 2
+    if a[m] < a[left]:
+        t = a[m]
+        a[m] = a[left]
+        a[left] = t
+    if a[h] < a[left]:
+        t = a[h]
+        a[h] = a[left]
+        a[left] = t
+    if a[h] < a[m]:
+        t = a[h]
+        a[h] = a[m]
+        a[m] = t
+    p = a[m]
+    i = left
+    j = h
+    while i <= j:
+        while a[i] < p:
+            i += 1
+        while a[j] > p:
+            j -= 1
+        if i <= j:
+            t = a[i]
+            a[i] = a[j]
+            a[j] = t
+            i += 1
+            j -= 1
+    return i, j
+
+
+@njit(nogil=True, cache=True)
 def multiselect_inplace(a: np.ndarray, kths: np.ndarray) -> None:
     """Rearrange NaN-free ``a`` in place so ``a[k]`` equals ``np.sort(a)[k]`` for every ``k`` in ``kths``.
 
@@ -68,33 +101,7 @@ def multiselect_inplace(a: np.ndarray, kths: np.ndarray) -> None:
                 a[left : h + 1].sort()
                 break
             budget -= 1
-            m = (left + h) // 2
-            if a[m] < a[left]:
-                t = a[m]
-                a[m] = a[left]
-                a[left] = t
-            if a[h] < a[left]:
-                t = a[h]
-                a[h] = a[left]
-                a[left] = t
-            if a[h] < a[m]:
-                t = a[h]
-                a[h] = a[m]
-                a[m] = t
-            p = a[m]
-            i = left
-            j = h
-            while i <= j:
-                while a[i] < p:
-                    i += 1
-                while a[j] > p:
-                    j -= 1
-                if i <= j:
-                    t = a[i]
-                    a[i] = a[j]
-                    a[j] = t
-                    i += 1
-                    j -= 1
+            i, j = _partition_around_median(a, left, h)
             # [left..j] <= p <= [i..h] with j < i; anything strictly between equals p and is already final.
             if k <= j:
                 h = j
