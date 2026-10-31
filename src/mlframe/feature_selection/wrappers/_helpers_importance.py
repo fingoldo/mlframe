@@ -366,7 +366,8 @@ def _cpi_conditioning_leaves(Xj, Xnotj, max_depth, min_samples_leaf, random_stat
     try:
         tree.fit(Xnotj, Xj)
         return tree.apply(Xnotj)
-    except (ValueError, TypeError, MemoryError, RuntimeError):
+    except (ValueError, TypeError, MemoryError, RuntimeError) as exc:
+        logger.debug("conditioning-leaf tree fit failed (%s); no conditioning leaves", exc)
         return None
 
 

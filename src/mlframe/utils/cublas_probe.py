@@ -52,7 +52,7 @@ def _has_pkg(name: str) -> bool:
     try:
         _pkg_version(name)
         return True
-    except PackageNotFoundError:
+    except PackageNotFoundError:  # best-effort: an absent package means the backend is not installed
         return False
 
 
@@ -86,6 +86,7 @@ def _probe() -> tuple[bool, str]:
             return False, f"matmul returned {value}, expected 3.0"
         return True, "ok"
     except _matmul_demote_errors() as exc:
+        logger.debug("cuBLAS probe matmul failed (%s: %s)", type(exc).__name__, exc)
         return False, f"{type(exc).__name__}: {exc}"
 
 

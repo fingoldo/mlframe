@@ -549,6 +549,7 @@ def _eligible_candidate(c, anchor, state, _tgt_set, n_cols) -> Optional[int]:
     try:
         c_int = int(c)
     except (TypeError, ValueError):
+        logger.debug("candidate %r is not a column index; not clustered", c)
         return None
     if c_int == anchor or c_int in _tgt_set:
         return None

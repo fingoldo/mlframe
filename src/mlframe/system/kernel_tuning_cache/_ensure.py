@@ -167,14 +167,14 @@ def _create_lock(path: Path) -> bool:
     try:
         os.link(tmp, path)
         return True
-    except FileExistsError:
+    except FileExistsError:  # best-effort: a held lock is the normal contention answer, not a failure
         return False
     except OSError:  # no hard links on this filesystem: exclusive create, pid written right after (the narrow window stays, as before)
         try:
             with open(path, "x", encoding="utf-8") as lock:
                 lock.write(str(os.getpid()))
             return True
-        except FileExistsError:
+        except FileExistsError:  # best-effort: a held lock is the normal contention answer, not a failure
             return False
     finally:
         with contextlib.suppress(OSError):
@@ -185,7 +185,7 @@ def _lock_is_young(path: Path) -> bool:
     """Whether the lock file was written recently enough that its owner may still be filling it in."""
     try:
         return time.time() - path.stat().st_mtime < _YOUNG_LOCK_SECONDS
-    except OSError:
+    except OSError:  # best-effort: a lock that vanished or cannot be stat'd is not young
         return False
 
 

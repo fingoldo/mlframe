@@ -413,7 +413,8 @@ def _sampled_rows_payload(df: Any, cols_sorted: list, sample_idx: np.ndarray) ->
         if isinstance(df, pl.DataFrame):
             try:
                 return _polars_rows_payload(df, cols_sorted, sample_idx)
-            except TypeError:
+            except TypeError as exc:
+                logger.debug("polars payload not fingerprintable (%s); falling back", exc)
                 return None
     except ImportError:
         pass

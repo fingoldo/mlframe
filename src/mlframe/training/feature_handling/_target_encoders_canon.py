@@ -114,7 +114,7 @@ def _series_tokens_pandas(values) -> Optional[np.ndarray]:
     """Tokens of a pandas Series, or ``None`` when ``values`` is not one (or pandas is not importable)."""
     try:
         import pandas as pd
-    except ImportError:
+    except ImportError:  # best-effort: the optional dataframe library is absent, so this frame kind is not tokenised
         return None
     if not isinstance(values, pd.Series):
         return None
@@ -148,7 +148,7 @@ def _series_tokens_polars(values) -> Optional[np.ndarray]:
     """Tokens of a polars Series, or ``None`` when ``values`` is not one (or polars is not importable)."""
     try:
         import polars as pl
-    except ImportError:
+    except ImportError:  # best-effort: the optional dataframe library is absent, so this frame kind is not tokenised
         return None
     if not isinstance(values, pl.Series):
         return None

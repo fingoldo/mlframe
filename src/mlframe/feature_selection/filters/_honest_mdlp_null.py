@@ -96,7 +96,8 @@ def _free_memory_bytes() -> int:
         import psutil
 
         return int(psutil.virtual_memory().available)
-    except Exception:  # a missing probe keeps the fixed cap
+    except Exception as exc:  # a missing probe keeps the fixed cap
+        logger.debug("free-memory probe unavailable (%s); keeping the fixed cap", exc)
         return 0
 
 

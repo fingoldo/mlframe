@@ -129,7 +129,10 @@ def _time_column_info(series: Any, dtype_str: str) -> dict[str, Any] | None:
             arr = np.asarray(series)
         if not np.issubdtype(arr.dtype, np.number):
             arr = arr.astype(np.float64, copy=False)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as exc:
+        import logging
+
+        logging.getLogger(__name__).debug("time column is not numeric (%s); no time order", exc)
         return None
     finite = np.isfinite(arr)
     if finite.sum() < 2:

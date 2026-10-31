@@ -261,7 +261,10 @@ def _device_null_oom_errors() -> tuple[type[BaseException], ...]:
         from cupy_backends.cuda.api import runtime as _cp_runtime
 
         return (_cp_memory.OutOfMemoryError, _cp_runtime.CUDARuntimeError)
-    except ImportError:
+    except ImportError as exc:
+        import logging
+
+        logging.getLogger("mlframe.feature_selection.filters.mrmr").debug("cupy error types unavailable; no device OOM fallback (%s)", exc)
         return ()
 
 

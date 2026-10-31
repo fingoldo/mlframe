@@ -247,6 +247,7 @@ def _resolve_null_block_length(config, n_screen) -> int:
     try:
         return max(1, int(block_len_cfg))
     except (TypeError, ValueError):
+        logger.warning("null block length %r is not an integer; using sqrt(n_screen)", block_len_cfg)
         return max(1, int(np.sqrt(n_screen)))
 
 
