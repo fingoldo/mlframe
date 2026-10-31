@@ -103,3 +103,13 @@ No High finding in any class.
 - Concurrency: the kernel-tuning write path lives in external `pyutilz` and was out of scope.
 - Supply chain: no live PyPI or branch-protection check from this environment; SUP-02 from the prior round still holds (`pyutilz` 404 on PyPI).
 - Subprocess: the scan found no `os.system`, `os.popen`, or `shell=True` in non-benchmark code.
+
+## Implemented in this round
+
+| ID | Commit | What changed | Regression test |
+|---|---|---|---|
+| NET2-01 | `d3a067b00` | `trust_remote_code` parsed as a flag (`parse_trust_remote_code`); unknown values refused | `tests/training/feature_handling/test_hf_trust_remote_code_parse.py` (imports the new helper, so it fails on the previous code at import) |
+| DSR2-01 | `1c3e12f11` | `validate_trusted_path` resolves both sides with `realpath` | `tests/core/test_validate_trusted_path_symlink_escape.py` (fails on the previous code) |
+| SUP2-1 | `b2955e718` | `twine` pinned to 6.2.0 in `ci.yml` and `release.yml` | workflow change, checked by YAML parse and the `git diff` |
+
+The other FUTURE and DOC rows above are not implemented yet. Each needs the owner's triage first.
