@@ -86,8 +86,10 @@ def _dense_codes(y: np.ndarray) -> np.ndarray:
         if span <= (1 << 20):
             shifted = y.astype(np.int64) - lo
             rank = np.cumsum(np.bincount(shifted, minlength=span) > 0) - 1
-            return np.asarray(rank[shifted], dtype=np.int64)
-    return np.unique(y, return_inverse=True)[1].astype(np.int64).ravel()
+            codes: np.ndarray = np.asarray(rank[shifted], dtype=np.int64)
+            return codes
+    ranks: np.ndarray = np.unique(y, return_inverse=True)[1].astype(np.int64).ravel()
+    return ranks
 
 
 def _raw_mi(v: np.ndarray, y: np.ndarray) -> float:

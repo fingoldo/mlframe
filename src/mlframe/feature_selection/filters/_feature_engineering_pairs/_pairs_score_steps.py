@@ -632,7 +632,7 @@ def _replay_pending_scores(st, pending, scores, fe_print_best_mis_only, verbose,
     pending.clear()
 
 
-def _bin_held_block(blk, blk_cols, meta, pending, st, need_recompute_map, config_by_i, quantization_nbins, quantization_dtype, quantization_method, discretize_array) -> None:
+def _bin_held_block(blk, meta, pending, st, need_recompute_map, config_by_i, quantization_nbins, quantization_dtype, quantization_method, discretize_array) -> None:
     """Clean and quantile-bin the ``len(meta)`` columns held in ``blk`` in one call, and queue each (config, codes) entry on ``pending`` in order."""
     _n_held = len(meta)
     _vals = rows_to_columns(blk[:_n_held])  # ``blk`` holds one candidate per row
@@ -680,7 +680,7 @@ def _score_recompute_blocked(
         """Bin the held columns in one call, score their MI and replay the tracking in order."""
         if not _meta:
             return
-        _bin_held_block(_blk, _blk_cols, _meta, _pending, st, _need_recompute_map, _config_by_i, quantization_nbins, quantization_dtype, quantization_method, discretize_array)
+        _bin_held_block(_blk, _meta, _pending, st, _need_recompute_map, _config_by_i, quantization_nbins, quantization_dtype, quantization_method, discretize_array)
         _meta.clear()
         if _pending:
             _replay_pending_scores(

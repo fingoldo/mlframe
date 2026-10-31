@@ -70,6 +70,16 @@ _GATE_MED = "gate_med"
 _PSEUDO = (_PREWARP, _GATE_MED)
 
 
+def _as_working_float(vals: np.ndarray) -> np.ndarray:
+    """``vals`` as the working float when it is stored as an integer, boolean or half-precision array.
+
+    The operators run on the float values the pair search scored (the fit casts its operands to the working float). Left as stored, numpy gives float16 for exp/sqrt of an int8 column, which loses
+    precision and which the compiled binary kernels do not accept (replay of the recipe raised)."""
+    if vals.dtype.kind in "iub" or vals.dtype == np.float16:
+        return vals.astype(_crit_np_dtype())
+    return vals
+
+
 def _apply_unary_side(recipe: EngineeredRecipe, side: str, uname: str, vals: Any, unary_funcs: "dict[str, Callable]") -> Any:
     """Apply the ``uname`` unary to one operand side, dispatching between the closed-form pseudo-unaries
     (``gate_med``, ``poly_<coef>``, ``prewarp``), the frozen-anchor ``log`` replay, and the plain preset registry lookup."""
@@ -209,12 +219,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
     _np_b = recipe.extra.get("nested_parent_b")
     vals_a = _nested_continuous(_np_a) if _np_a is not None else _extract_column(X, name_a, col_cache=col_cache)
     vals_b = _nested_continuous(_np_b) if _np_b is not None else _extract_column(X, name_b, col_cache=col_cache)
-    # The operators run on the float values the pair search scored (the fit casts its operands to the working float): an integer, boolean or half-precision operand is cast the same way first. Left as
-    # stored, numpy gives float16 for exp/sqrt of an int8 column, which loses precision and which the compiled binary kernels do not accept (replay of the recipe raised).
-    if vals_a.dtype.kind in "iub" or vals_a.dtype == np.float16:
-        vals_a = vals_a.astype(_crit_np_dtype())
-    if vals_b.dtype.kind in "iub" or vals_b.dtype == np.float16:
-        vals_b = vals_b.astype(_crit_np_dtype())
+    vals_a, vals_b = _as_working_float(vals_a), _as_working_float(vals_b)
 
     # Any unary/binary in the registry can overflow or hit an invalid op on an extreme replay input
     # (e.g. an unguarded power, or a reciprocal-power's pre-eps-floor era); suppress the resulting numpy

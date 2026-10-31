@@ -438,7 +438,7 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
 
         raw = np.ascontiguousarray(X_cols).view(np.uint32 if X_cols.dtype.itemsize == 4 else np.uint64)
         fp = column_fingerprints(raw)
-        keys = [(int(fp[j, 0]), int(fp[j, 1]), *base) for j in range(fp.shape[0])]
+        keys: list = [(int(fp[j, 0]), int(fp[j, 1]), *base) for j in range(fp.shape[0])]
     else:
         keys = [(hash_array_content(np.ascontiguousarray(X_cols[:, j])), *base) for j in range(X_cols.shape[1])]
     out = np.empty(len(keys), dtype=np.float64)  # Intentional float64: MI statistic vector, output contract kept f64
