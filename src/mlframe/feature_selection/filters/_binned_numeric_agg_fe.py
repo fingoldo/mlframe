@@ -616,6 +616,13 @@ def _redundancy_gate_binagg(
     _NULL_Z = _family_wise_null_z(len(cands.names))
     _rng = np.random.default_rng(int(random_state))
 
+    # every source column the candidates condition on is binned together once (one parallel block), not one column at a time on first use
+    _warm_srcs = [c for c in dict.fromkeys(v for nm in cands.names for v in (raw[nm].get("group_col"), raw[nm].get("agg_col"))) if c is not None and c in X.columns and c not in _src_bin_cache]
+    if _warm_srcs:
+        from ._mi_greedy_cmi_fe import quantile_bin_columns
+
+        _src_bin_cache.update(zip(_warm_srcs, quantile_bin_columns(X[_warm_srcs].to_numpy(dtype=_crit_np_dtype()), nbins_base)))
+
     def _src_bins(col: str) -> np.ndarray:
         """Quantile-bin codes for a raw source column, memoized in ``_src_bin_cache`` since the same source column conditions many candidate binagg columns."""
         b = _src_bin_cache.get(col)

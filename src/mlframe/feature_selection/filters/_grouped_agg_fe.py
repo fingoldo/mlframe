@@ -454,15 +454,14 @@ def _filter_num_cols_by_relevance(
     if len(cols) <= 1:
         return cols
     try:
-        from ._mi_greedy_cmi_fe import _quantile_bin, _cmi_from_binned
+        from ._mi_greedy_cmi_fe import _cmi_from_binned, quantile_bin_columns
         y_arr = np.asarray(y)
         if not np.issubdtype(y_arr.dtype, np.integer):
             y_arr = y_arr.astype(np.int64)
         _, y_bin = np.unique(y_arr, return_inverse=True)
         y_bin = y_bin.astype(np.int64)
         mis = {}
-        for c in cols:
-            xb = _quantile_bin(X[c].to_numpy(), nbins=n_bins)
+        for c, xb in zip(cols, quantile_bin_columns(X[cols].to_numpy(), n_bins)):
             mis[c] = float(_cmi_from_binned(xb, y_bin, None))
         m_max = max(mis.values())
         if m_max <= 0.0:
