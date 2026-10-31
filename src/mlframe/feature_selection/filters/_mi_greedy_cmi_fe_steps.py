@@ -298,7 +298,7 @@ def _entropy_from_classes_njit(classes: np.ndarray) -> tuple:
         v = classes[i]
         if v > cmax:
             cmax = v
-    counts = np.zeros(cmax + 1, dtype=np.int64)
+    counts = np.zeros(cmax + 1, dtype=np.int32)
     for i in range(n):
         counts[classes[i]] += 1
     H = 0.0
@@ -345,8 +345,8 @@ def _joint_entropy_two_dense_njit(a: np.ndarray, b: np.ndarray) -> tuple:
     span = (amax + 1) * stride
     if span < 0 or span >= _FAC_ARRAY_CAP:
         return 0.0, -1
-    seen = np.full(span, -1, dtype=np.int64)
-    counts = np.empty(n, dtype=np.int64)  # count per dense id (<= n distinct); no length-n label array
+    seen = np.full(span, -1, dtype=np.int32)
+    counts = np.empty(n, dtype=np.int32)  # count per dense id (<= n distinct); no length-n label array
     nc = 0
     for i in range(n):
         k = a[i] * stride + b[i]
