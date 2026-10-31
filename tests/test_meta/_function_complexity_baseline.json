@@ -11,7 +11,6 @@
   "src/mlframe/feature_selection/filters/engineered_recipes/_recipe_unary_binary_gpu.py::_gpu_binary": 17,
   "src/mlframe/feature_selection/filters/info_theory/_group_mi.py::_group_blocked_mi": 18,
   "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_interaction_proxy.py::interaction_proxy_top_n": 18,
-  "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_revalidate/_shap_proxy_loss.py::_honest_loss": 17,
   "src/mlframe/feature_selection/wrappers/_helpers_importance.py::_conditional_permutation_importance": 17,
   "src/mlframe/feature_selection/wrappers/_helpers_importance.py::_make_fast_default_scorer": 18,
   "src/mlframe/metrics/calibration/_calibration_plot.py::_fast_calibration_binning_prange_kernel": 17,
