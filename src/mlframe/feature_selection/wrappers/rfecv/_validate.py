@@ -79,14 +79,8 @@ def _id_like_description(ser: pd.Series, verdict) -> str:
     return f"{kind}; dtype={ser.dtype}; nunique={nunique}; n={n_valid}; unique_frac={nunique / n_valid:.3f}"
 
 
-def _sanitize_X_inputs(self, X, y):
-    """Apply validation warnings + the four destructive sanitise passes.
-
-    Returns the (possibly modified) ``X``. ``y`` is not modified;
-    the leakage scan is read-only. Comments preserved verbatim from
-    the prior in-line shape so the bug-class context stays attached
-    to each step.
-    """
+def _warn_fit_preconditions(self, X):
+    """Warn on fit preconditions that leave the search unbounded or degenerate: p >> n without a cap, sub-second runtime, cv >= n_samples."""
     # p >> n with no max_nfeatures cap - MBH search space is O(p) and each iter is a CV fit, so runtime is unbounded.
     # W9: unconditional (was gated on verbose, default 0, so this never fired under default settings) -
     # a one-time O(1) per-fit diagnostic, not per-iteration noise, matching the unconditional leakage-scan
@@ -123,27 +117,9 @@ def _sanitize_X_inputs(self, X, y):
             self.cv, X.shape[0],
         )
 
-    # Drop zero-variance / all-null columns BEFORE recording ``feature_names_in_``. Otherwise a constant column can land in support_ and
-    # downstream pipeline steps that silently drop it (e.g. SimpleImputer with keep_empty_features=False) cause transform-time column-set
-    # drift. Vectorised across ALL dtypes via DataFrame.nunique() so constant categorical / string / bool columns are also caught.
-    # E6: also treat numeric columns with variance < 1e-12 as zero-variance (e.g. constant floats with numerical
-    # noise around the same value, or near-constant categorical encodings). Pre-fix used strict nunique<=1 only and missed these.
-    X = _drop_degenerate_columns(self, X)
 
-    # Drop exact-duplicate columns (numeric AND categorical). Without this, RFECV's voting splits the importance of a duplicated feature across all copies,
-    # biasing selection toward isolated noise features whose FI isn't diluted. ``pandas.util.hash_array`` is dtype-agnostic and treats NaN as a single sentinel,
-    # so a real ``-1.234e308`` value no longer collides with NaN the way the prior ``np.nan_to_num(...).tobytes()`` path did; categorical columns are factorised
-    # to integer codes before hashing so two semantically-identical category sequences with different ordered category dictionaries still dedup.
-    # Columns the user declared in ``feature_groups`` are EXEMPT from every dedup pass: the group exists precisely to keep a set of
-    # (often collinear / near-identical) columns together for the all-or-nothing decision, so silently dropping its members would
-    # both break that contract and make the finalize-time group expansion see only the surviving member. The docstrings below promise
-    # "pass them via feature_groups" - this is where that promise is honoured.
-    _group_protected: set = set()
-    _fg = getattr(self, "feature_groups", None)
-    if _fg:
-        for _members in _fg.values():
-            _group_protected.update(_members)
-
+def _drop_exact_duplicate_columns(self, X, _group_protected):
+    """Drop columns bit-identical to an earlier kept column, skipping columns in a user feature group."""
     if isinstance(X, pd.DataFrame) and X.shape[1] > 1:
         try:
             from pandas.util import hash_array as _hash_array
@@ -181,6 +157,41 @@ def _sanitize_X_inputs(self, X, y):
         except (TypeError, ValueError):
             # Non-hashable dtype - skip dedup.
             pass
+    return X
+
+
+def _sanitize_X_inputs(self, X, y):
+    """Apply validation warnings + the four destructive sanitise passes.
+
+    Returns the (possibly modified) ``X``. ``y`` is not modified;
+    the leakage scan is read-only. Comments preserved verbatim from
+    the prior in-line shape so the bug-class context stays attached
+    to each step.
+    """
+    _warn_fit_preconditions(self, X)
+
+    # Drop zero-variance / all-null columns BEFORE recording ``feature_names_in_``. Otherwise a constant column can land in support_ and
+    # downstream pipeline steps that silently drop it (e.g. SimpleImputer with keep_empty_features=False) cause transform-time column-set
+    # drift. Vectorised across ALL dtypes via DataFrame.nunique() so constant categorical / string / bool columns are also caught.
+    # E6: also treat numeric columns with variance < 1e-12 as zero-variance (e.g. constant floats with numerical
+    # noise around the same value, or near-constant categorical encodings). Pre-fix used strict nunique<=1 only and missed these.
+    X = _drop_degenerate_columns(self, X)
+
+    # Drop exact-duplicate columns (numeric AND categorical). Without this, RFECV's voting splits the importance of a duplicated feature across all copies,
+    # biasing selection toward isolated noise features whose FI isn't diluted. ``pandas.util.hash_array`` is dtype-agnostic and treats NaN as a single sentinel,
+    # so a real ``-1.234e308`` value no longer collides with NaN the way the prior ``np.nan_to_num(...).tobytes()`` path did; categorical columns are factorised
+    # to integer codes before hashing so two semantically-identical category sequences with different ordered category dictionaries still dedup.
+    # Columns the user declared in ``feature_groups`` are EXEMPT from every dedup pass: the group exists precisely to keep a set of
+    # (often collinear / near-identical) columns together for the all-or-nothing decision, so silently dropping its members would
+    # both break that contract and make the finalize-time group expansion see only the surviving member. The docstrings below promise
+    # "pass them via feature_groups" - this is where that promise is honoured.
+    _group_protected: set = set()
+    _fg = getattr(self, "feature_groups", None)
+    if _fg:
+        for _members in _fg.values():
+            _group_protected.update(_members)
+
+    X = _drop_exact_duplicate_columns(self, X, _group_protected)
 
     # Drop near-exact correlation duplicates: a column that is a (near-)monotone copy of one already kept - a scaled / shifted / tiny-noise-perturbed replica
     # (``100*x``, ``x + 1e-3*eps``). The exact-dup hash above misses these because the values differ bit-for-bit; yet RFECV's voting still splits the replica's
