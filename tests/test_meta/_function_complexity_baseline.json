@@ -4,7 +4,6 @@
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_materialise.py::_materialise_chunk_rowblock_njit_parallel": 16,
   "src/mlframe/feature_selection/filters/_gpu_resident_shared.py::_binary_apply": 18,
   "src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py::detect_hinge_breakpoints_gpu": 16,
-  "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py::_maybe_relax_prevalence_for_tail_concentrated_pool": 16,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_post_selection.py::_run_additional_rfecv": 17,
   "src/mlframe/feature_selection/filters/_mrmr_partial_fit.py::partial_fit": 17,
   "src/mlframe/feature_selection/filters/_numba_utils_cross_module.py::quantile_codes_block": 17,
