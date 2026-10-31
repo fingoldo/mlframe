@@ -400,6 +400,41 @@ def _hash_pandas_frame_via_polars(arr) -> Optional[str]:
     return h.hexdigest()
 
 
+def _x_as_hashable_array(arr):
+    """``(ndarray, column-name tag)`` for the legacy hash path, or None when the array cannot be materialised (the failure is logged)."""
+    if pl is not None and isinstance(arr, pl.Series):
+        try:
+            np_arr = arr.to_numpy()
+        except Exception as exc:
+            log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash: polars Series.to_numpy() failed, skipping the full-content hash: %s", exc)
+            return None
+        return np_arr, (str(arr.name) if getattr(arr, "name", None) else "")
+    if isinstance(arr, pd.DataFrame):
+        # Fallback to legacy to_numpy + tobytes path on any polars failure
+        # (mixed-dtype frame polars can't ingest, etc).
+        try:
+            np_arr = arr.to_numpy()
+        except Exception as exc:
+            log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash: pandas DataFrame.to_numpy() fallback failed, skipping the full-content hash: %s", exc)
+            return None
+        return np_arr, ",".join(str(c) for c in arr.columns)
+    if isinstance(arr, pd.Series):
+        try:
+            np_arr = arr.to_numpy()
+        except Exception as exc:
+            log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash: pandas Series.to_numpy() failed, skipping the full-content hash: %s", exc)
+            return None
+        return np_arr, (str(arr.name) if arr.name is not None else "")
+    if isinstance(arr, np.ndarray):
+        return arr, ""
+    try:
+        np_arr = np.asarray(arr)
+    except Exception as exc:
+        log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash: np.asarray() fallback failed, skipping the full-content hash: %s", exc)
+        return None
+    return np_arr, ""
+
+
 def _full_x_content_hash(arr) -> str:
     """Full blake2b content hash of an X frame for cache-key disambiguation.
 
@@ -431,43 +466,15 @@ def _full_x_content_hash(arr) -> str:
             if _result:
                 _weakref_cache_put(_PIPELINE_X_HASH_CACHE, id_shape, arr, _result, _PIPELINE_X_HASH_CACHE_MAX)
             return _result
-        if pl is not None and isinstance(arr, pl.Series):
-            try:
-                np_arr = arr.to_numpy()
-            except Exception as exc:
-                log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash: polars Series.to_numpy() failed, skipping the full-content hash: %s", exc)
-                return ""
-            col_names = str(arr.name) if getattr(arr, "name", None) else ""
-        elif isinstance(arr, pd.DataFrame):
+        if isinstance(arr, pd.DataFrame):
             _result_pd = _hash_pandas_frame_via_polars(arr)
             if _result_pd is not None:
                 _weakref_cache_put(_PIPELINE_X_HASH_CACHE, id_shape, arr, _result_pd, _PIPELINE_X_HASH_CACHE_MAX)
                 return _result_pd
-            # Fallback to legacy to_numpy + tobytes path on any polars failure
-            # (mixed-dtype frame polars can't ingest, etc).
-            try:
-                np_arr = arr.to_numpy()
-            except Exception as exc:
-                log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash: pandas DataFrame.to_numpy() fallback failed, skipping the full-content hash: %s", exc)
-                return ""
-            col_names = ",".join(str(c) for c in arr.columns)
-        elif isinstance(arr, pd.Series):
-            try:
-                np_arr = arr.to_numpy()
-            except Exception as exc:
-                log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash: pandas Series.to_numpy() failed, skipping the full-content hash: %s", exc)
-                return ""
-            col_names = str(arr.name) if arr.name is not None else ""
-        elif isinstance(arr, np.ndarray):
-            np_arr = arr
-            col_names = ""
-        else:
-            try:
-                np_arr = np.asarray(arr)
-            except Exception as exc:
-                log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash: np.asarray() fallback failed, skipping the full-content hash: %s", exc)
-                return ""
-            col_names = ""
+        loaded = _x_as_hashable_array(arr)
+        if loaded is None:
+            return ""
+        np_arr, col_names = loaded
         if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
             return ""
         if np_arr.dtype == object:
