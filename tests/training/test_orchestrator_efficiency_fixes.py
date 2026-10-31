@@ -259,8 +259,10 @@ def test_main_dropped_high_card_clear_no_dead_try_except():
         if isinstance(n, ast.Call)
         and isinstance(n.func, ast.Attribute)
         and n.func.attr == "clear"
-        and isinstance(n.func.value, ast.Name)
-        and n.func.value.id == "_dropped_high_card_data"
+        and (
+            (isinstance(n.func.value, ast.Name) and n.func.value.id == "_dropped_high_card_data")
+            or (isinstance(n.func.value, ast.Attribute) and n.func.value.attr == "_dropped_high_card_data")
+        )
     ]
     assert clears, "_dropped_high_card_data.clear() call not found"
     dead = []
@@ -333,6 +335,24 @@ def test_main_del_df_has_why_comment():
             and any(isinstance(t, ast.Attribute) and t.attr == "df" and isinstance(t.value, ast.Name) and t.value.id == "ctx" for t in stmt.targets)
         )
 
+    def _calls_stage_load_and_split(stmt: ast.stmt) -> bool:
+        """True for ``x = _suite_stage_load_and_split(...)``: the stage helper that takes over the frame reference."""
+        return isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call) and getattr(stmt.value.func, "id", None) == "_suite_stage_load_and_split"
+
+    def _stage_releases_frame() -> bool:
+        """True when ``_suite_stage_load_and_split`` nulls ``st.df`` after reading it, so the frame is released there."""
+        for fn in ast.walk(tree):
+            if isinstance(fn, ast.FunctionDef) and fn.name == "_suite_stage_load_and_split":
+                return any(
+                    isinstance(s, ast.Assign)
+                    and isinstance(s.value, ast.Constant)
+                    and s.value.value is None
+                    and any(isinstance(t, ast.Attribute) and t.attr == "df" and isinstance(t.value, ast.Name) and t.value.id == "st" for t in s.targets)
+                    for s in ast.walk(fn)
+                )
+        return False
+
+    stage_releases_frame = _stage_releases_frame()
     checked = 0
     for node in ast.walk(tree):
         body = getattr(node, "body", None)
@@ -341,5 +361,8 @@ def test_main_del_df_has_why_comment():
         for i, stmt in enumerate(body):
             if isinstance(stmt, ast.Delete) and [getattr(t, "id", None) for t in stmt.targets] == ["df"]:
                 checked += 1
-                assert _clears_ctx_df(body[i + 1]), "`del df` without clearing ctx.df leaves the context holding the frame, so nothing is reclaimed"
+                nxt = body[i + 1]
+                assert _clears_ctx_df(nxt) or (
+                    stage_releases_frame and _calls_stage_load_and_split(nxt)
+                ), "`del df` leaves the frame referenced: neither ctx.df is cleared here nor does the stage helper it hands off to null st.df"
     assert checked, "del df statement not found"
