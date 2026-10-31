@@ -157,6 +157,50 @@ def _maybe_collect_lazy(df):
 # =============================================================================
 
 
+def _fill_nan_1d(vals, nan_filler):
+    """Replace NaN entries of ``vals`` with ``nan_filler``, warning about the MI bias; raises when ``nan_filler`` is None."""
+    # Surface the legacy bias when it actually fires.
+    if nan_filler is None:
+        raise ValueError("categorize_1d_array: input contains NaN and nan_filler=None; " "drop NaN upstream or pick a non-colliding sentinel.")
+    import warnings as _w
+
+    _w.warn(
+        f"categorize_1d_array: filling NaN with {nan_filler!r} biases MI by mixing " "NaN rows with real-equal values. Pass nan_filler=None to raise instead.",
+        stacklevel=3,
+    )
+    vals = pd.Series(vals).fillna(nan_filler).values
+    return vals
+
+
+def _histogram_encode_1d(vals, method, bins):
+    """Ordinal-encode one column by numpy histogram bin edges (``numpy``, or the deprecated ``astropy`` served the same way)."""
+    if method == "numpy":
+        bin_edges = np.histogram_bin_edges(vals, bins=bins if bins is not None else "auto")
+    elif method == "astropy":
+        # Astropy removed from the install graph. The legacy 'astropy'
+        # method used Bayesian-blocks / Knuth-rule binning; both have native numba
+        # implementations elsewhere in the project (see filters/supervised_binning.py).
+        # Until callers migrate, downgrade to numpy's histogram_bin_edges with bin
+        # count derived from the legacy 'bins' arg.
+        _bins_for_numpy = bins if isinstance(bins, (int, np.integer)) else "auto"
+        bin_edges = np.histogram_bin_edges(vals, bins=_bins_for_numpy)
+        logger.info(
+            "categorize_1d_array: method='astropy' is deprecated; " "using numpy histogram_bin_edges(bins=%r). astropy removed from install graph 2026-05-28.",
+            _bins_for_numpy,
+        )
+    else:
+        # pre-fix, an unknown method (typo / "quantile" / "kmeans")
+        # left bin_edges undefined and the next line raised UnboundLocalError. Raise
+        # honestly with the offender so callers see a typed contract failure.
+        raise ValueError(f"categorize_1d_array: unknown method={method!r}; expected one of " "'discretizer', 'numpy', 'astropy'.")
+
+    if bin_edges[0] <= vals.min():
+        bin_edges = bin_edges[1:]
+
+    new_vals = _native_ordinal_encode_2d(np.digitize(vals, bins=bin_edges, right=True))
+    return new_vals
+
+
 def categorize_1d_array(
     vals: np.ndarray,
     min_ncats: int,
@@ -187,17 +231,7 @@ def categorize_1d_array(
         vals = vals.astype(np.int8)
 
     if pd.isna(vals).any():
-        # Surface the legacy bias when it actually fires.
-        if nan_filler is None:
-            raise ValueError("categorize_1d_array: input contains NaN and nan_filler=None; " "drop NaN upstream or pick a non-colliding sentinel.")
-        import warnings as _w
-
-        _w.warn(
-            f"categorize_1d_array: filling NaN with {nan_filler!r} biases MI by mixing "
-            "NaN rows with real-equal values. Pass nan_filler=None to raise instead.",
-            stacklevel=2,
-        )
-        vals = pd.Series(vals).fillna(nan_filler).values
+        vals = _fill_nan_1d(vals, nan_filler)
 
     vals = vals.reshape(-1, 1)
 
@@ -232,31 +266,7 @@ def categorize_1d_array(
             else:
                 new_vals = _native_ordinal_encode_2d(vals)
         else:
-            if method == "numpy":
-                bin_edges = np.histogram_bin_edges(vals, bins=bins if bins is not None else "auto")
-            elif method == "astropy":
-                # Astropy removed from the install graph. The legacy 'astropy'
-                # method used Bayesian-blocks / Knuth-rule binning; both have native numba
-                # implementations elsewhere in the project (see filters/supervised_binning.py).
-                # Until callers migrate, downgrade to numpy's histogram_bin_edges with bin
-                # count derived from the legacy 'bins' arg.
-                _bins_for_numpy = bins if isinstance(bins, (int, np.integer)) else "auto"
-                bin_edges = np.histogram_bin_edges(vals, bins=_bins_for_numpy)
-                logger.info(
-                    "categorize_1d_array: method='astropy' is deprecated; "
-                    "using numpy histogram_bin_edges(bins=%r). astropy removed from install graph 2026-05-28.",
-                    _bins_for_numpy,
-                )
-            else:
-                # pre-fix, an unknown method (typo / "quantile" / "kmeans")
-                # left bin_edges undefined and the next line raised UnboundLocalError. Raise
-                # honestly with the offender so callers see a typed contract failure.
-                raise ValueError(f"categorize_1d_array: unknown method={method!r}; expected one of " "'discretizer', 'numpy', 'astropy'.")
-
-            if bin_edges[0] <= vals.min():
-                bin_edges = bin_edges[1:]
-
-            new_vals = _native_ordinal_encode_2d(np.digitize(vals, bins=bin_edges, right=True))
+            new_vals = _histogram_encode_1d(vals, method, bins)
     else:
         new_vals = _native_ordinal_encode_2d(vals)
 
