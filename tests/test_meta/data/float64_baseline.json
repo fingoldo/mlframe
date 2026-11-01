@@ -29,7 +29,6 @@
   "feature_selection/filters/_wavelet_basis_fe_batched.py": 1,
   "feature_selection/filters/batch_mi_noise_gate_gpu.py": 8,
   "feature_selection/filters/discretization/_discretization_dataset.py": 4,
-  "feature_selection/filters/engineered_recipes/_orth_basis_recipes.py": 19,
   "feature_selection/filters/engineered_recipes/_recipe_unary_binary_gpu.py": 3,
   "feature_selection/filters/gpu.py": 6,
   "feature_selection/shap_proxied_fs/_shap_proxied_fit_steps.py": 1,

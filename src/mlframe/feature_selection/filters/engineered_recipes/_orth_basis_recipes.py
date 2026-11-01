@@ -23,6 +23,7 @@ def _fourier_linear_sincos_njit(vals: np.ndarray, lo: float, span: float, freq: 
     filled (the caller's isfinite-mask/fill step, kept in numpy since it needs a reduction over the whole
     array first); this kernel only fuses the per-element trig chain."""
     n = vals.shape[0]
+    # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
     out = np.empty(n, dtype=np.float64)
     two_pi_freq = 2.0 * np.pi * freq
     for i in prange(n):
@@ -70,6 +71,7 @@ def _apply_orth_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
     holds (z-score in the basis preprocess already does the same). Unknown
     values fall back to identity with a logger warning rather than raising.
     """
+    # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
     x = np.asarray(x, dtype=np.float64)
     if pre_transform in (None, "", "raw", "identity"):
         return np.asarray(x)
@@ -133,6 +135,7 @@ def _eval_orth_basis_column(
     # the SAME fill so the basis-evaluation parity holds row-by-row when the
     # train and test frames disagree on which rows are NaN. The hybrid FE
     # path uses ``np.nanmean`` on the column at fit time; we replicate.
+    # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
     x = np.asarray(x, dtype=np.float64)
     finite_mask = np.isfinite(x)
     if not finite_mask.all():
@@ -153,10 +156,12 @@ def _eval_orth_basis_column(
         # BUG2 FIX: replay the basis axis from the FROZEN fit-time params (no
         # data-dependent refit -> byte-exact on any row-slice).
         apply_fn = basis_info["apply"]
+        # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
         z = apply_fn(np.asarray(x, dtype=np.float64), preprocess_params)
         params = preprocess_params
     else:
         z, params = fit_fn(x)
+    # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
     z = np.ascontiguousarray(z, dtype=np.float64)
     return eval_basis_cell(basis, z, int(degree), params)
 
@@ -290,6 +295,7 @@ def _freeze_preprocess_params(params: Optional[dict]) -> Optional[dict]:
         if v is None:
             continue
         if np.ndim(v) > 0:
+            # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
             out[str(k)] = tuple(float(t) for t in np.asarray(v, dtype=np.float64).ravel())  # centres / thresholds of rbf and sigmoid
         else:
             out[str(k)] = float(v)
@@ -458,7 +464,9 @@ def _bspline_basis_values(z: np.ndarray, knots: np.ndarray, idx: int, degree: in
     inside a ``1e-12``-wide boundary sliver immediately above ``knots[degree]``, well
     below FP-reorder tolerance and never hit by real (non-adversarial) data.
     """
+    # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
     z = np.asarray(z, dtype=np.float64)
+    # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
     knots = np.asarray(knots, dtype=np.float64)
     nk = knots.shape[0]
     degree = int(degree)
@@ -475,10 +483,12 @@ def _bspline_basis_values(z: np.ndarray, knots: np.ndarray, idx: int, degree: in
         if v is not None:
             return v
         if p == 0:
+            # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
             v = ((zc >= knots[i]) & (zc < knots[i + 1])).astype(np.float64)
         else:
             d1 = knots[i + p] - knots[i]
             d2 = knots[i + p + 1] - knots[i + 1]
+            # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
             v = np.zeros(zc.shape, dtype=np.float64)
             if d1 > 1e-12:
                 v = v + ((zc - knots[i]) / d1) * _basis(i, p - 1)
@@ -496,6 +506,7 @@ def _fit_spline_knots(x: np.ndarray, n_inner_knots: int, degree: int = 3) -> tup
     Returns the FULL augmented knot vector (with degree+1 boundary
     repetitions at 0 and 1) plus the (lo, hi) normalisation range.
     """
+    # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
     x = np.asarray(x, dtype=np.float64)
     finite = np.isfinite(x)
     if not finite.any():
@@ -518,8 +529,11 @@ def _fit_spline_knots(x: np.ndarray, n_inner_knots: int, degree: int = 3) -> tup
             inner = np.unique(np.concatenate([inner, uni]))
         inner = np.clip(inner, 1e-6, 1.0 - 1e-6)
     # Augment with degree+1 boundary repetitions on each end (clamped knot vector).
+    # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
     boundary_lo = np.zeros(degree + 1, dtype=np.float64)
+    # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
     boundary_hi = np.ones(degree + 1, dtype=np.float64)
+    # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
     knots = np.concatenate([boundary_lo, inner.astype(np.float64), boundary_hi])
     return knots, float(lo), float(hi)
 
@@ -539,10 +553,12 @@ def _apply_orth_spline(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, n
         if key not in recipe.extra:
             raise KeyError(f"orth_spline recipe '{recipe.name}' missing '{key}' " f"in extra. Re-fit MRMR to regenerate.")
     name = recipe.src_names[0]
+    # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
     knots = np.asarray(recipe.extra["knots"], dtype=np.float64)
     idx = int(recipe.extra["idx"])
     lo = float(recipe.extra["lo"])
     hi = float(recipe.extra["hi"])
+    # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
     vals = np.asarray(_extract_column(X, name, col_cache=col_cache), dtype=np.float64)
     finite = np.isfinite(vals)
     if not finite.all():
@@ -576,6 +592,7 @@ def _apply_orth_fourier(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
     power = int(recipe.extra.get("power", 1))
     # arg defaults to "linear" (legacy recipes pre-dating the chirp warp).
     arg = str(recipe.extra.get("arg", "linear"))
+    # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
     vals = np.asarray(_extract_column(X, name, col_cache=col_cache), dtype=np.float64)
     finite = np.isfinite(vals)
     if not finite.all():
@@ -610,6 +627,7 @@ def _apply_orth_fourier(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
             raise ValueError(f"orth_fourier recipe '{recipe.name}': unknown kind {kind!r}")
         # Fused njit path for the common arg='linear' branch (see _fourier_linear_sincos_njit):
         # subtract/divide/multiply/(sin|cos)/nan_to_num collapse into one pass.
+        # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
         return np.asarray(_fourier_linear_sincos_njit(np.ascontiguousarray(vals, dtype=np.float64), lo, span, freq, kind == "sin"), dtype=np.float64)
 
 
@@ -625,6 +643,7 @@ def build_orth_spline_recipe(
         kind="orth_spline",
         src_names=(src_name,),
         extra={
+            # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
             "knots": np.asarray(knots, dtype=np.float64).copy(),
             "idx": int(idx),
             "lo": float(lo),
