@@ -595,7 +595,7 @@ def _full_x_content_hash(X) -> str:
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                 logger.debug("suppressed: %s", e)
                 pass
-        result = h.hexdigest()
+        result = str(h.hexdigest())
         # Same lock as the read above, so a reader never observes a half-written (key, value) pair.
         with _MRMR_LAST_X_HASH_LOCK:
             _MRMR_LAST_X_HASH_CACHE["hash"] = result
@@ -627,7 +627,7 @@ def _full_named_frame_hash(X, sh) -> str:
             h.update(repr(categories).encode("utf-8"))
     h.update(str(tuple(str(d) for d in X.dtypes)).encode())
     h.update(",".join(str(c) for c in columns).encode())
-    result = h.hexdigest()
+    result = str(h.hexdigest())
     with _MRMR_LAST_X_HASH_LOCK:
         _MRMR_LAST_X_HASH_CACHE["hash"] = result
         _MRMR_LAST_X_HASH_CACHE["id_shape"] = id_shape

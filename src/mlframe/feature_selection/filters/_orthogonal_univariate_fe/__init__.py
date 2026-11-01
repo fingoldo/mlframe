@@ -561,27 +561,10 @@ def _generate_univariate_basis_features_impl(
                 continue
         return cells
 
-    from concurrent.futures import ThreadPoolExecutor
+    from .._edge_pool import map_on_edge_pool, until_first_none
 
-    from .._adaptive_nbins import _resolve_edge_jobs
-    from .._fe_deadline import _state as _deadline_state, fe_deadline_scope
-
-    deadline = getattr(_deadline_state, "deadline", None)
-
-    def _run(col):
-        """``_one_column`` with the fit's wall-clock budget published to the worker thread."""
-        with fe_deadline_scope(deadline):
-            return _one_column(col)
-
-    jobs = _resolve_edge_jobs(None, len(cols))
-    if jobs > 1 and len(cols) > 3:
-        with ThreadPoolExecutor(max_workers=jobs) as pool:
-            results = list(pool.map(_run, cols))
-    else:
-        results = [_run(c) for c in cols]
-    for found in results:
-        if found is None:
-            break
+    results = map_on_edge_pool(_one_column, cols)
+    for found in until_first_none(results):
         out_cols.update(found)
     return pd.DataFrame(out_cols, index=X.index)
 

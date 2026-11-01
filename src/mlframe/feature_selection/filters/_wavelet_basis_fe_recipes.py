@@ -7,6 +7,8 @@ constants stay in the parent, imported back here.
 """
 from __future__ import annotations
 
+from functools import partial
+
 import logging
 from typing import TYPE_CHECKING, Optional, Sequence
 
@@ -51,6 +53,69 @@ def _heldout_r2(v: np.ndarray, y: np.ndarray) -> float:
     if a.size < 10 or float(a.std()) < 1e-12 or float(b.std()) < 1e-12:
         return 0.0
     return float(np.corrcoef(a, b)[0, 1] ** 2)
+
+
+def _wavelet_legs_of_column(col, X, y_arr, allowed, max_scale, max_legs, scale_sigma, feature_dtype):
+    """Legs of one source column as ``[(name, values, meta)]`` (empty when the column is skipped), ``None`` once the wall-clock budget has passed."""
+    from ._fe_deadline import fe_deadline_passed
+
+    found: list = []
+    if allowed is not None and col not in allowed:
+        return []
+    # Optional-enrichment wall-clock budget: stop the per-column held-out scale-selection scan once
+    # MRMR.fit's deadline passes; return whatever legs were engineered so far. No-op without a budget
+    # (mirrors the orth-univariate/pair-cross/extra-basis generators' internal deadline check).
+    if fe_deadline_passed():
+        return None
+    if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
+        return []
+    x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
+    finite_mask = np.isfinite(x)
+    if not finite_mask.any():
+        return []
+    if not finite_mask.all():
+        # A wavelet basis over a NaN column is unsound: the nanmean-imputed wavelet becomes a missingness proxy that displaces the genuine
+        # missingness-FE columns, and the recipe replay does not impute (transform() emits all-NaN). Skip; the missingness signal belongs to the
+        # dedicated missingness-FE family.
+        return []
+    xf = x[np.isfinite(x)]
+    lo = float(xf.min())
+    hi = float(xf.max())
+    span = max(hi - lo, 1e-12)
+    try:
+        legs = _select_wavelet_legs(
+            x, y_arr, lo, span,
+            max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma,
+            return_arrays=True,
+        )
+    except Exception as exc:
+        log_throttle(
+            logger,
+            "wavelet_basis_fe_scale_select_failed",
+            logging.WARNING,
+            "generate_wavelet_features: scale-select on col=%r raised %r; "
+            "skipping wavelet for that column.", col, exc,
+        )
+        return []
+    for j, k, leg_arr in legs:
+        # Reuse the array _select_wavelet_legs already built to rank this survivor instead of rebuilding
+        # it from scratch; a plain dtype cast (when feature_dtype differs from the selection's default
+        # float32) is cheaper than a fresh zeros_like + two boolean-mask assigns, and exact - the leg
+        # only ever holds {-1, 0, +1}, bit-identically representable in any float dtype.
+        leg = leg_arr if leg_arr.dtype == np.dtype(feature_dtype) else leg_arr.astype(feature_dtype)
+        if float(np.std(leg)) <= 1e-12:
+            continue
+        box = False
+        y_num = np.asarray(y_arr, dtype=_crit_np_dtype())
+        if _heldout_r2(np.abs(leg), y_num) >= _heldout_r2(leg, y_num) + _WAVELET_BOX_MIN_R2_GAIN:
+            leg = np.abs(leg)
+            box = True
+        name = f"{col}__haar_{'box_' if box else ''}j{j}k{k}"
+        found.append((name, leg, {
+            "src": col, "j": int(j), "k": int(k),
+            "lo": float(lo), "span": float(span), "box": box,
+        }))
+    return found
 
 
 def generate_wavelet_features(
@@ -117,94 +182,16 @@ def generate_wavelet_features(
         return pd.DataFrame(index=X.index), {}
     out_cols: dict = {}
     meta: dict = {}
-    from ._fe_deadline import fe_deadline_passed
 
     from ._orthogonal_univariate_fe._orth_extra_basis_fe_generate import _adaptive_cols_by_relevance
 
     _allowed = _adaptive_cols_by_relevance(X, cols, y_arr, max_cols)
-    def _one_column(col):
-        """Legs of one source column as ``[(name, values, meta)]`` (empty when the column is skipped), ``None`` once the wall-clock budget has passed."""
-        found: list = []
-        if _allowed is not None and col not in _allowed:
-            return []
-        # Optional-enrichment wall-clock budget: stop the per-column held-out scale-selection scan once
-        # MRMR.fit's deadline passes; return whatever legs were engineered so far. No-op without a budget
-        # (mirrors the orth-univariate/pair-cross/extra-basis generators' internal deadline check).
-        if fe_deadline_passed():
-            return None
-        if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
-            return []
-        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
-        finite_mask = np.isfinite(x)
-        if not finite_mask.any():
-            return []
-        if not finite_mask.all():
-            # A wavelet basis over a NaN column is unsound: the nanmean-imputed wavelet becomes a missingness proxy that displaces the genuine
-            # missingness-FE columns, and the recipe replay does not impute (transform() emits all-NaN). Skip; the missingness signal belongs to the
-            # dedicated missingness-FE family.
-            return []
-        xf = x[np.isfinite(x)]
-        lo = float(xf.min())
-        hi = float(xf.max())
-        span = max(hi - lo, 1e-12)
-        try:
-            legs = _select_wavelet_legs(
-                x, y_arr, lo, span,
-                max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma,
-                return_arrays=True,
-            )
-        except Exception as exc:
-            log_throttle(
-                logger,
-                "wavelet_basis_fe_scale_select_failed",
-                logging.WARNING,
-                "generate_wavelet_features: scale-select on col=%r raised %r; "
-                "skipping wavelet for that column.", col, exc,
-            )
-            return []
-        for j, k, leg_arr in legs:
-            # Reuse the array _select_wavelet_legs already built to rank this survivor instead of rebuilding
-            # it from scratch; a plain dtype cast (when feature_dtype differs from the selection's default
-            # float32) is cheaper than a fresh zeros_like + two boolean-mask assigns, and exact - the leg
-            # only ever holds {-1, 0, +1}, bit-identically representable in any float dtype.
-            leg = leg_arr if leg_arr.dtype == np.dtype(feature_dtype) else leg_arr.astype(feature_dtype)
-            if float(np.std(leg)) <= 1e-12:
-                continue
-            box = False
-            y_num = np.asarray(y_arr, dtype=_crit_np_dtype())
-            if _heldout_r2(np.abs(leg), y_num) >= _heldout_r2(leg, y_num) + _WAVELET_BOX_MIN_R2_GAIN:
-                leg = np.abs(leg)
-                box = True
-            name = f"{col}__haar_{'box_' if box else ''}j{j}k{k}"
-            found.append((name, leg, {
-                "src": col, "j": int(j), "k": int(k),
-                "lo": float(lo), "span": float(span), "box": box,
-            }))
-        return found
-
-    from concurrent.futures import ThreadPoolExecutor
-
-    from ._adaptive_nbins import _resolve_edge_jobs
-    from ._fe_deadline import _state as _deadline_state, fe_deadline_scope
+    from ._edge_pool import map_on_edge_pool, until_first_none
 
     # The columns are independent (own scale selection, own legs): the scan runs on the edge-jobs pool and the legs are folded in column order, so the result is the serial one.
-    deadline = getattr(_deadline_state, "deadline", None)
-
-    def _run(col):
-        """``_one_column`` with the fit's wall-clock budget published to the worker thread."""
-        with fe_deadline_scope(deadline):
-            return _one_column(col)
-
-    todo = [c for c in cols if _allowed is None or c in _allowed]
-    jobs = _resolve_edge_jobs(None, len(todo))
-    if jobs > 1 and len(todo) > 3:
-        with ThreadPoolExecutor(max_workers=jobs) as pool:
-            results = list(pool.map(_run, todo))
-    else:
-        results = [_run(c) for c in todo]
-    for found in results:
-        if found is None:
-            break
+    one_column = partial(_wavelet_legs_of_column, X=X, y_arr=y_arr, allowed=_allowed, max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma, feature_dtype=feature_dtype)
+    results = map_on_edge_pool(one_column, [c for c in cols if _allowed is None or c in _allowed])
+    for found in until_first_none(results):
         for name, leg, entry in found:
             out_cols[name] = leg
             meta[name] = entry
