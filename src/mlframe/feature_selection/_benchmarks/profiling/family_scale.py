@@ -54,6 +54,15 @@ def _flag_names() -> list[str]:
     return sorted(p for p in inspect.signature(MRMR.__init__).parameters if p.startswith("fe_") and p.endswith("_enable"))
 
 
+#: Families the ALL configuration leaves off: the LightGBM surrogate seeder costs about 10 s of a GPU fit and adds no selected feature that the other seeders do not already find.
+ALL_EXCLUDED = ("fe_gbm_seeder_enable",)
+
+
+def all_families_kwargs() -> dict:
+    """MRMR keyword arguments of the ALL configuration: every ``fe_*_enable`` family on except :data:`ALL_EXCLUDED`."""
+    return {f: f not in ALL_EXCLUDED for f in _flag_names()}
+
+
 def child(a: argparse.Namespace) -> None:
     """Fit once and print one JSON line with the wall, the family walls, the peak resident memory and the selected features."""
     warnings.simplefilter("ignore")

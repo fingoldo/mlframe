@@ -73,7 +73,7 @@ def _fit(a: argparse.Namespace, data: tuple, on: "str | None", profile: bool) ->
     from mlframe.feature_selection.filters import _fe_family_timing as FT
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    kw = {} if on == "DEFAULTS" else {f: on == "ALL" for f in F._flag_names()}  # ALL switches every fe_*_enable family on
+    kw = {} if on == "DEFAULTS" else (F.all_families_kwargs() if on == "ALL" else {f: False for f in F._flag_names()})  # ALL switches every fe_*_enable family on
     kw.update(binning_kwargs(a.binning))
     if on and on not in ("BASE", "DEFAULTS", "ALL"):
         kw[f"fe_{on}_enable"] = True
