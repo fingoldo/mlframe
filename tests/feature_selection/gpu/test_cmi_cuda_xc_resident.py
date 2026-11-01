@@ -107,7 +107,9 @@ def test_dispatch_bit_identical_resident_on_vs_off():
 
     assert np.array_equal(on, off), f"maxdiff={np.max(np.abs(on - off))}"
     cpu = _cpu_ref(fd, fnb, len(cand), y_index, z_index)
-    assert np.abs(on - cpu).max() < 1e-9
+    # the device result keeps its own dtype: 1e-9 for double, 64 ulps of the stored type (about 7.6e-6 for float32) otherwise
+    tol = 1e-9 if on.dtype == np.float64 else 64 * float(np.finfo(on.dtype).eps)
+    assert np.abs(on - cpu).max() < tol, f"dtype={on.dtype} maxdiff={np.abs(on - cpu).max()}"
 
 
 @_gpu_only
