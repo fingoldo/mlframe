@@ -57,11 +57,22 @@ def _root_split_kernel(cp):
     return get_kernel_k5(cp), False
 
 
+def _order_and_ties(raw_cont):
+    """``(order, tie)`` of the continuous columns: the stable sort order and the tie flags of the sorted rows, on the device for large finite blocks (the same permutation as the host's stable sort, ties included), else on the host."""
+    from mlframe.feature_selection.filters._honest_null_presort_gpu import presort_and_ties_gpu, use_device_presort
+
+    if use_device_presort(int(raw_cont.shape[0]), int(raw_cont.shape[1])):
+        got = presort_and_ties_gpu(raw_cont)
+        if got is not None:
+            return got
+    order = _presort_columns(raw_cont)
+    return order, _tie_flags(raw_cont, order)
+
+
 def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx_table, cp, n_perm, min_split_size, alpha, accepted_c, order, tie):
     """Stage of ``honest_null_columns_device``."""
     if kc:
-        order = _presort_columns(raw_cont)
-        tie = _tie_flags(raw_cont, order)
+        order, tie = _order_and_ties(raw_cont)
         counts = np.bincount(np.asarray(y_raw_perm[0], dtype=np.int64), minlength=n_classes_total)
         h_full = _entropy(counts, n)
         tab = xlogx_table(XLOGX_TABLE_SIZE)
