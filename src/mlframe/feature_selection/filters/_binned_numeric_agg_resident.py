@@ -288,17 +288,6 @@ def _pair_fold_stat_tables(cp, codes_g, v_safe, finite_f, fold_g, n_folds: int, 
     return _stats_from_moments_gpu(cp, moments, stats)
 
 
-def _oof_column_foldloop(cp, per_fold_stats: list, fold_g, codes_g, n: int, fallback: float):
-    """Reference per-fold assembly of one OOF column (kept as the parity oracle for :func:`_oof_column_gather`)."""
-    # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
-    oof = cp.full(n, fallback, dtype=cp.float64)
-    for f, per_s in enumerate(per_fold_stats):
-        row_vals = per_s[codes_g]
-        row_stat = cp.where(cp.isfinite(row_vals), row_vals, fallback)
-        oof = cp.where(fold_g == f, row_stat, oof)
-    return oof
-
-
 def build_binagg_oof_matrix_gpu(
     cp: Any,
     X: pd.DataFrame,

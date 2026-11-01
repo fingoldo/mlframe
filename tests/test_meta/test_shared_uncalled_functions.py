@@ -891,7 +891,6 @@ _SUPERSEDED = {
     "hyvarinen_score",
     # stacks the per-fold tables first; _oof_column_from_table does the same gather on the table already stacked and is what the builder calls
     "_oof_column_gather",
-    "_oof_column_foldloop",  # parity oracle for _oof_column_gather (tests/feature_selection/fe/gpu/test_binagg_oof_gather_parity.py)
     # per-combo cupy twin of _pair_combo_mi_cupy; parity pinned in tests/feature_selection/gpu/test_usability_pool_cupy_batched_twin.py
     "_pair_combo_mi_cupy_loop",
     "_propose_fourier",  # predecessor of _propose_fourier_both_warps; parity pinned in tests/feature_selection/fe/adaptive/test_propose_fourier_parity.py
