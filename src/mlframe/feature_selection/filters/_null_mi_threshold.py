@@ -37,7 +37,8 @@ def target_entropy(y: np.ndarray) -> float:
 def null_mi_threshold(n_rows: int, n_bins: int, entropy: float, n_candidates: int) -> float | None:
     """The table's null-MI floor for this fingerprint (nearest entry), or None when the table is missing or empty.
 
-    Distance is taken on log n, bins, entropy and log N, so a fingerprint between two table points gets the nearer one's floor.
+    Distance is taken on log n, bins, entropy and log N, so a fingerprint between two table points gets the nearer one's floor. A pool larger than
+    every tabulated one is scaled up from the largest entry by the ratio of the logs of the pool sizes.
     """
     entries = _entries()
     if not entries:
@@ -49,7 +50,15 @@ def null_mi_threshold(n_rows: int, n_bins: int, entropy: float, n_candidates: in
         d = (math.log(e["n"]) - ln) ** 2 + (e["bins"] - n_bins) ** 2 / 16.0 + (e["entropy"] - entropy) ** 2 * 4.0 + (math.log(e["candidates"]) - lc) ** 2
         if d < best_d:
             best, best_d = e, d
-    return float(best["threshold"]) if best is not None else None
+    if best is None:
+        return None
+    threshold = float(best["threshold"])
+    max_candidates = max(e["candidates"] for e in entries)
+    if n_candidates > max_candidates and best["candidates"] == max_candidates:
+        # Beyond the grid the nearest entry is the largest pool, whose floor is too low for a bigger one: the maximum of N null statistics grows with ln N
+        # (the plug-in MI is a chi-square statistic over 2n), so the floor is rescaled by ln N / ln N_entry rather than held flat.
+        threshold *= math.log(int(n_candidates)) / math.log(max_candidates)
+    return threshold
 
 
 def pair_search_floor(n_rows: int, classes_y: np.ndarray, n_bins: int, n_candidates: int) -> float | None:
