@@ -558,6 +558,19 @@ def _triple_mi_kernel(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> 
     return out_i, out_j, out_k, out_mi
 
 
+def _triple_mi_scores(codes: np.ndarray, y_arr: np.ndarray, base: int, n_y: int) -> tuple:
+    """``_triple_mi_kernel`` of the host, or its device twin (one block per triple, ``_triple_mi_gpu``) when the work is large enough and the table fits; same triples in the same order, same MI to rounding."""
+    p, n = int(codes.shape[0]), int(codes.shape[1])
+    from ._triple_mi_gpu import triple_mi_gpu, use_device_triples
+
+    if p >= 3 and use_device_triples(n, p * (p - 1) * (p - 2) // 6):
+        got = triple_mi_gpu(codes, y_arr, base, n_y)
+        if got is not None:
+            return got
+    with parallel_kernel_entry():
+        return _triple_mi_kernel(codes, y_arr, base, n_y)
+
+
 def _enumerate_triplet_candidates(
     X: pd.DataFrame, columns: Sequence[str], y_codes: np.ndarray, *, top_m: int = TRIPLET_ENUM_TOP_M, nbins: int = 4
 ) -> list[tuple]:
@@ -574,8 +587,7 @@ def _enumerate_triplet_candidates(
 
     # Independent columns: the binning runs on the edge-jobs pool and the rows are stacked in name order.
     codes = np.vstack(map_on_edge_pool(lambda c: _quantile_codes(X[c].to_numpy(dtype=_crit_np_dtype()), nbins), names)).astype(np.int64)
-    with parallel_kernel_entry():
-        out_i, out_j, out_k, out_mi = _triple_mi_kernel(codes, y_arr, base, n_y)
+    out_i, out_j, out_k, out_mi = _triple_mi_scores(codes, y_arr, base, n_y)
     order = np.lexsort((out_k, out_j, out_i, -out_mi))[: int(top_m)]
     return [(names[out_i[t]], names[out_j[t]], names[out_k[t]]) for t in order]
 
