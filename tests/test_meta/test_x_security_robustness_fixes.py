@@ -154,3 +154,22 @@ def test_sec3_feature_cache_getstate_drops_lock():
 # ---------------------------------------------------------------------------
 # SEC-5: the CDN plotly.js dependency is now documented at its call site
 # ---------------------------------------------------------------------------
+
+
+def test_cached_dump_without_a_save_sidecar_retrains_instead_of_raising(tmp_path):
+    """A cached model dump that has no recorded sha256 is a cache miss: the reload block keeps the caller's model and returns."""
+    from types import SimpleNamespace
+
+    import dill
+    import zstandard
+
+    from mlframe.training._trainer_train_and_evaluate_parts import _train_and_evaluate_use_cache_exists_model
+
+    model_file = tmp_path / "cached_model.dump"
+    model_file.write_bytes(zstandard.ZstdCompressor().compress(dill.dumps(SimpleNamespace(model="cached", pre_pipeline=None))))
+
+    sentinel_model, sentinel_pre = object(), object()
+    model, pre_pipeline = _train_and_evaluate_use_cache_exists_model(True, str(model_file), None, sentinel_model, sentinel_pre)
+
+    assert model is sentinel_model
+    assert pre_pipeline is sentinel_pre
