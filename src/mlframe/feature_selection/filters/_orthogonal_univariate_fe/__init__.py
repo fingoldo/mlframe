@@ -354,14 +354,24 @@ def _basis_memo_key(X: pd.DataFrame, cols: Any, degrees: Any, basis: str, dedup:
     import hashlib
 
     try:
+        import xxhash
+
+        new_hash = xxhash.xxh3_128  # several times faster than blake2b on the ~1 GB a 100000 x 600 frame hashes per call
+    except ImportError:
+
+        def new_hash(data: Any = b"") -> Any:
+            """blake2b stand-in when xxhash is not installed."""
+            return hashlib.blake2b(data, digest_size=16)
+
+    try:
         names = list(cols) if cols is not None else [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
-        h = hashlib.blake2b(digest_size=16)
+        h = new_hash()
         for c in names:
             h.update(str(c).encode())
             h.update(np.ascontiguousarray(X[c].to_numpy()).view(np.uint8).data)
         hy = None
         if y is not None:
-            hy = hashlib.blake2b(np.ascontiguousarray(np.asarray(y)).view(np.uint8).data, digest_size=16).hexdigest()
+            hy = new_hash(np.ascontiguousarray(np.asarray(y)).view(np.uint8).data).hexdigest()
         return (h.hexdigest(), tuple(map(str, names)), tuple(int(d) for d in degrees), str(basis), bool(dedup), float(thr), hy, str(routing), len(X))
     except Exception as exc:
         logger.debug("basis memo key failed (%s); computing without the memo", exc)
