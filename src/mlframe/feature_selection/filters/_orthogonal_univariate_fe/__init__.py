@@ -243,6 +243,8 @@ def basis_route_by_signal(
         return basis_route_by_moments(x)
     best_basis = None
     best_corr = -1.0
+    y_centred = yv.astype(np.float64) - float(yv.astype(np.float64).mean())  # Intentional float64: Pearson sums in double precision
+    y_norm = float(np.sqrt(y_centred @ y_centred))
     _route_no_aux = aux_for_fit is None or len(np.asarray(aux_for_fit)) == 0
     # MEMO SCOPE: all 4 candidate bases' preprocess fits run _detect_heavy_tail on the SAME x
     # (the verdict depends on x's values, not the basis), so memoise it for this routing sweep -> 4 sort-based
@@ -278,7 +280,7 @@ def basis_route_by_signal(
                 v = np.asarray(v, dtype=_crit_np_dtype())
                 if v.size != yv.size or not np.all(np.isfinite(v)) or float(np.std(v)) < 1e-12:
                     continue
-                c = abs(float(np.corrcoef(v, yv)[0, 1]))
+                c = _abs_pearson(v, y_centred, y_norm)
                 if np.isfinite(c) and c > bcorr:
                     bcorr = c
             if bcorr > best_corr:
@@ -287,6 +289,13 @@ def basis_route_by_signal(
     if best_basis is None:
         return basis_route_by_moments(x)
     return best_basis
+
+def _abs_pearson(v: np.ndarray, y_centred: np.ndarray, y_norm: float) -> float:
+    """``abs(np.corrcoef(v, y)[0, 1])`` against a target already centred (``y_centred``) with its norm, without the 2 x 2 covariance matrix ``np.corrcoef`` builds per call."""
+    vc = v.astype(np.float64)  # Intentional float64: Pearson sums in double precision
+    vc -= vc.mean()
+    return abs(float(vc @ y_centred) / (float(np.sqrt(vc @ vc)) * y_norm))
+
 
 def _choose_univariate_basis(x: np.ndarray, y: Optional[np.ndarray], basis: str, basis_routing: str, degrees: Sequence[int], aux_col: Optional[np.ndarray]) -> str:
     """Basis for one source column: the pinned ``basis``, or under ``'auto'`` the signal-adaptive / moment-fingerprint route."""
