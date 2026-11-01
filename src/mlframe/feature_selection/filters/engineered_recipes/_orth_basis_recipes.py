@@ -441,8 +441,48 @@ def build_orth_cluster_basis_recipe(
     )
 
 
+@njit(cache=True, nogil=True, parallel=True)
+def _bspline_basis_njit(zc: np.ndarray, knots: np.ndarray, idx: int, degree: int) -> np.ndarray:
+    """``B_{idx,degree}`` at the clipped points ``zc`` by the Cox-de Boor triangle, one point per parallel iteration, with the same operations in the same order as the recursive numpy form (so the values are equal)."""
+    n = zc.shape[0]
+    out = np.zeros(n, dtype=np.float64)  # Intentional float64: spline values at full precision (fit and replay agree)
+    for r in prange(n):
+        z = zc[r]
+        tri = np.zeros((degree + 1, degree + 1), dtype=np.float64)  # tri[p, j] = B_{idx + j, p}(z)
+        for j in range(degree + 1):
+            tri[0, j] = 1.0 if (z >= knots[idx + j] and z < knots[idx + j + 1]) else 0.0
+        for p in range(1, degree + 1):
+            for j in range(degree + 1 - p):
+                i = idx + j
+                d1 = knots[i + p] - knots[i]
+                d2 = knots[i + p + 1] - knots[i + 1]
+                v = 0.0
+                if d1 > 1e-12:
+                    v = v + ((z - knots[i]) / d1) * tri[p - 1, j]
+                if d2 > 1e-12:
+                    v = v + ((knots[i + p + 1] - z) / d2) * tri[p - 1, j + 1]
+                tri[p, j] = v
+        out[r] = tri[degree, 0]
+    return out
+
+
 def _bspline_basis_values(z: np.ndarray, knots: np.ndarray, idx: int, degree: int = 3) -> np.ndarray:
-    """Evaluate the ``idx``-th cubic B-spline basis function at points ``z``.
+    """Evaluate the ``idx``-th cubic B-spline basis function at points ``z`` (Cox-de Boor, full augmented ``knots`` vector, eval points clipped into ``[knots[degree] + 1e-12, knots[nk - degree - 1] - 1e-12]``); shape ``(n,)``.
+
+    The compiled twin of ``_bspline_basis_values_numpy`` (kept below as the oracle) and of the GPU-resident ``_extra_basis_resident._bspline_col_gpu``: the recursive numpy form made ~10 temporary arrays per call (5 s of a 15 s extra-basis scan at 100000 rows x 100 columns).
+    """
+    z = np.asarray(z, dtype=np.float64)
+    knots = np.ascontiguousarray(knots, dtype=np.float64)
+    nk = knots.shape[0]
+    degree = int(degree)
+    lo_c = float(knots[degree]) + 1e-12
+    hi_c = float(knots[nk - degree - 1]) - 1e-12
+    zc = np.ascontiguousarray(np.clip(z, lo_c, hi_c))
+    return _bspline_basis_njit(zc, knots, int(idx), degree)
+
+
+def _bspline_basis_values_numpy(z: np.ndarray, knots: np.ndarray, idx: int, degree: int = 3) -> np.ndarray:
+    """The numpy twin of :func:`_bspline_basis_values` (kept as its test oracle): evaluate the ``idx``-th cubic B-spline basis function at points ``z``.
 
     Uses the Cox-de Boor recursion, fully vectorised across all points at once (no
     per-point Python loop): this is the CPU/numpy twin of the GPU-resident
