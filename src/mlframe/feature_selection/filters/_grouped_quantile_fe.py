@@ -130,7 +130,16 @@ def _pct_rank_in_sorted(sorted_vals: np.ndarray, x: np.ndarray) -> np.ndarray:
     if m == 0:
         return np.full(x.shape, 0.5, dtype=_crit_np_dtype())
     lo = np.searchsorted(sorted_vals, x, side="left")
-    hi = np.searchsorted(sorted_vals, x, side="right")
+    # ``hi`` differs from ``lo`` only for a value present in ``sorted_vals``: one more than ``lo`` when it occurs once, a second search only for the tied values
+    at = np.minimum(lo, m - 1)
+    present = sorted_vals[at] == x
+    hi = lo.copy()
+    nxt = sorted_vals[np.minimum(lo + 1, m - 1)]
+    single = present & ((lo + 1 >= m) | (nxt != x))
+    hi[single] = lo[single] + 1
+    tied = present & ~single
+    if tied.any():
+        hi[tied] = np.searchsorted(sorted_vals, x[tied], side="right")
     # Average rank for ties; normalise by m so the result is a CDF position.
     return (lo + hi) / (2.0 * m)
 
