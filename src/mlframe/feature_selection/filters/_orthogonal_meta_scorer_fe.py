@@ -207,14 +207,18 @@ def _dcor_proxy(X_num: pd.DataFrame, num_cols: list, y_arr: np.ndarray, n: int, 
     return dcor_proxy
 
 
-def _pearson_matrix(X_num: pd.DataFrame) -> np.ndarray:
-    """Pearson correlation matrix of the columns: one BLAS pass when every value is finite, else pandas' pairwise-complete ``corr`` (rows with a NaN count only for the pairs that have it)."""
+def _abs_pearson_matrix(X_num: pd.DataFrame) -> np.ndarray:
+    """``|Pearson r|`` of every column pair: one BLAS pass when every value is finite, else the vectorised pairwise-complete form of the dedup (rows with a missing value count only for the pairs that have it;
+    a pair with fewer than 8 common rows or a constant side is NaN). pandas' pairwise ``corr`` took 2.2 s for 100 columns x 100000 rows on either branch."""
     # Intentional float64: the correlation sums run in double precision
     arr = np.asarray(X_num.to_numpy(dtype=np.float64))
     if arr.size and np.isfinite(arr).all():
         with np.errstate(invalid="ignore", divide="ignore"):
-            return np.asarray(np.corrcoef(arr, rowvar=False))
-    return np.asarray(X_num.corr(method="pearson").to_numpy())
+            return np.abs(np.asarray(np.corrcoef(arr, rowvar=False)))
+    from ._orthogonal_univariate_fe._orth_dedup import _pairwise_complete_abs_corr
+
+    q = np.ascontiguousarray(arr.T)
+    return np.asarray(_pairwise_complete_abs_corr(q, q))
 
 
 def _inter_x_max_corr(X_num: pd.DataFrame) -> float:
@@ -223,7 +227,7 @@ def _inter_x_max_corr(X_num: pd.DataFrame) -> float:
     # proxy that powers the L75 xor_redundant -> CMIM routing.
     try:
         if X_num.shape[1] >= 2:
-            corr_mat = _pearson_matrix(X_num)
+            corr_mat = _abs_pearson_matrix(X_num)
             d = corr_mat.shape[0]
             mask = ~np.eye(d, dtype=bool)
             finite_off = corr_mat[mask]
