@@ -232,9 +232,9 @@ def _frame_has_non_finite(X) -> bool:
             return bool(num.shape[1] and not np.isfinite(num.to_numpy(dtype=np.float64, na_value=np.nan)).all())
         pl_df = _pl_DataFrame()
         if isinstance(X, pl_df):
-            import polars as pl
-
-            num = X.select(pl.col(pl.NUMERIC_DTYPES)) if hasattr(pl, "NUMERIC_DTYPES") else X
+            # Select by schema, not by ``pl.NUMERIC_DTYPES``: on a polars build without that alias the old fallback fed
+            # the whole mixed-dtype frame to ``astype(float64)``, which raised, and the probe reported "clean" for a NaN frame.
+            num = X.select([name for name, dtype in X.schema.items() if dtype.is_numeric()])
             return bool(num.width and not np.isfinite(num.to_numpy().astype(np.float64)).all())
         arr = np.asarray(X)
         return bool(np.issubdtype(arr.dtype, np.number) and not np.isfinite(arr).all())

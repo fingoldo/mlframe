@@ -177,3 +177,19 @@ def test_biz_val_predict_nan_guard_polars_faster_than_pandas_at_100k_rows():
         f"polars min={pl_min * 1000:.1f}ms vs pandas min={pd_min * 1000:.1f}ms). "
         f"Likely regression: polars input was round-tripped through pandas."
     )
+
+
+def test_mixed_frame_nan_probe_does_not_depend_on_pl_numeric_dtypes_alias():
+    """The full-frame NaN probe finds a NaN in a mixed-dtype polars frame even when polars has no ``NUMERIC_DTYPES`` alias.
+
+    Without the alias the probe fed the whole frame, string column included, to a float cast; the cast raised and the probe
+    answered "no NaN", so the guard skipped its non-numeric warning on frames that do carry a NaN.
+    """
+    import polars as pl
+
+    from mlframe.training import _predict_guards as guards
+
+    arr = _synth_with_nans(200, 2, nan_rate=0.10, seed=1)
+    X_pl = pl.DataFrame({"c0": arr[:, 0], "c1": arr[:, 1], "label": ["a"] * 200})
+    assert guards._frame_has_non_finite(X_pl) is True
+    assert guards._frame_has_non_finite(pl.DataFrame({"c0": [1.0, 2.0], "label": ["a", "b"]})) is False

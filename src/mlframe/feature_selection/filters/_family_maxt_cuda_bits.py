@@ -140,7 +140,7 @@ class DeviceBitsets:
 def null_max_bits_device(dev: DeviceBitsets, cls_host: np.ndarray, py_const: float, acc: Any = None) -> np.ndarray | None:
     """Per-permutation maximum MI over the family. ``cls_host`` is ``(B, n_y, words)`` uint64; ``py_const = n log n - sum_b xlogx(py_b)``.
 
-    ``acc``: an optional device float64 vector of length ``B``. When given, the maxima are folded into it on the device and nothing
+    ``acc``: an optional device double vector of length ``B``. When given, the maxima are folded into it on the device and nothing
     is copied to the host (returns ``None``); the caller reads the whole family's maxima back once, after every column group."""
     # Intentional float64: label-entropy constant of the MI formula (exact permutation ties)
     const_b = np.full(cls_host.shape[0], float(py_const), dtype=np.float64)

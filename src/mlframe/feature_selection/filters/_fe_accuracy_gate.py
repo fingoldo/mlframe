@@ -109,6 +109,7 @@ def _held_out_probe_score(Xfull, *, tr, va, y_enc, classification, binary):
                 _w, _b = _fit
                 # Intentional float64: the Newton weights are double precision, so the held-out score is computed in that precision
                 with parallel_kernel_entry():  # the AUC ranks with a parallel numba kernel: one thread in it at a time when candidates are probed concurrently
+                    # Intentional float64: the Newton weights are double precision, so the held-out score is computed in that precision
                     return fast_roc_auc(y_enc[va], 1.0 / (1.0 + np.exp(-(np.asarray(Xv, dtype=np.float64) @ _w + _b))))
         m = LogisticRegression(max_iter=200, C=1.0)
         m.fit(Xt, y_enc[tr])

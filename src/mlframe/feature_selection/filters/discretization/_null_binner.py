@@ -52,6 +52,7 @@ class PermutedTargetBinner:
         nan_cols = np.flatnonzero(nan_mask.any(axis=0)) if nan_mask is not None else np.empty(0, dtype=np.int64)
         arr = _handle_missing(arr, strategy=missing_strategy, nan_mask=nan_mask)
         # a column is one contiguous run, in the float64 the edge builders convert each column to (the float32 values widen exactly, so every comparison is the same)
+        # Intentional float64: the edge builders convert each column to float64; widening float32 is exact
         self._arr = np.asfortranarray(arr, dtype=np.float64)
         self._nan = {int(j): nan_mask[:, j].copy() for j in nan_cols} if nan_mask is not None else {}
         self._strategy = nbins_strategy

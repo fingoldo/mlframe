@@ -1,6 +1,6 @@
 """Device twin of the cell enumeration + scoring of the conditional basis routing FE.
 
-The host path builds every ``(source column, pre-transform, basis, degree)`` cell as its own float64 vector (about 90 ms per cell at 100000 rows), stacks them into one matrix and scores the
+The host path builds every ``(source column, pre-transform, basis, degree)`` cell as its own double vector (about 90 ms per cell at 100000 rows), stacks them into one matrix and scores the
 matrix. Here the pre-transformed columns of a block of source columns are uploaded once, every basis x degree is built by the batched Clenshaw kernels of ``_gpu_resident_basis``, and the cells
 are scored (plug-in MI and |Pearson corr| with the target) without leaving the device. Only the per-cell scores come back; the few winning columns are rebuilt on the host by the host path, so the
 engineered values and the recipes are the host ones.

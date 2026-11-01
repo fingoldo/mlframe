@@ -41,10 +41,12 @@ def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, dur
         compressor = zstd.ZstdCompressor(level=4, write_checksum=True, write_content_size=True, threads=0)
         with compressor.stream_writer(f) as zf:
             dill.dump(model, zf)
+    from mlframe.training.io import _write_save_meta_sidecar
+    _write_save_meta_sidecar(file)
     return True
 
 
-def _atomic_write_bytes_threads_zero(target_path, writer_fn):
+def _atomic_write_bytes_threads_zero(target_path, writer_fn, fsync=False):
     """Returns ``True`` (after 1 setup step)."""
     with open(target_path, "wb") as f:
         writer_fn(f)

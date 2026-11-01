@@ -39,6 +39,8 @@ def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, dur
         with open(file, "wb") as f:
             with zstd.ZstdCompressor(level=4, write_checksum=True, threads=0).stream_writer(f) as zf:
                 dill.dump(model, zf)
+        from mlframe.training.io import _write_save_meta_sidecar
+        _write_save_meta_sidecar(file)
         return True
     except Exception:
         import traceback

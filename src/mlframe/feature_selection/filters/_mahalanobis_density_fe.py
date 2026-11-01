@@ -115,6 +115,7 @@ def generate_mahalanobis_density_features(X: "pd.DataFrame", cols: Sequence[str]
     lw = LedoitWolf().fit(X_cols)
     # Intentional float64: serialised recipe payload (mu / Sigma_inv) keeps a fixed f64 contract across the policy switch.
     mu = np.asarray(lw.location_, dtype=np.float64).copy()
+    # Intentional float64: serialised recipe payload (mu / Sigma_inv) keeps a fixed f64 contract across the policy switch
     Sigma_inv = np.asarray(lw.get_precision(), dtype=np.float64).copy()
     scores = _score_from_frozen(X_cols, mu, Sigma_inv)
 

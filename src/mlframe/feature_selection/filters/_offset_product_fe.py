@@ -150,6 +150,7 @@ def apply_offset_product_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.D
     u = _apply_unary(funcs, ua, _replay_column(extract_column(X, recipe.src_names[0])), ex["log_shift_u"])
     v = _apply_unary(funcs, ub, _replay_column(extract_column(X, recipe.src_names[1])), ex["log_shift_v"])
     out = _product(u, v, float(ex["s"]), float(ex["t"]), ex["fill_u"], ex["fill_v"])
+    # Intentional float64: clip bounds keep the stored recipe values at f64
     return np.asarray(np.clip(out, np.float64(ex["clip_lo"]), np.float64(ex["clip_hi"])))
 
 def _scan_inputs(cols: "list[np.ndarray]", funcs: "dict[str, Callable]", unaries: Sequence[str], rows: np.ndarray, log_shifts: Optional[Sequence[float]] = None):

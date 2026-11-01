@@ -48,7 +48,7 @@ from __future__ import annotations
 from .._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 
 import logging
-from typing import Any, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
@@ -353,6 +353,7 @@ def _basis_memo_key(X: pd.DataFrame, cols: Any, degrees: Any, basis: str, dedup:
     """Content key of one call: the numeric source columns it can read, ``y`` and every parameter (``None`` when the inputs cannot be hashed)."""
     import hashlib
 
+    new_hash: Callable[..., Any]
     try:
         import xxhash
 

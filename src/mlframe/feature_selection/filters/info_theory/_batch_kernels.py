@@ -396,9 +396,9 @@ def batch_triple_mi_prange(
          then the standard plug-in ``sum jf * log(jf / (px * py))`` MI.
 
     BIT-CONSISTENT with the pair kernel's MI reduction (same ``jf * log(jf / (px * py))``
-    accumulation, same float64 ``inv_n`` normalisation), differing only in the 3-way dense
+    accumulation, same double ``inv_n`` normalisation), differing only in the 3-way dense
     code construction. ``factors_data`` MUST be the ordinal-encoded (int) screening matrix;
-    a float matrix gives undefined results. Returns ``float64[n_triples]``; an empty
+    a float matrix gives undefined results. Returns ``double[n_triples]``; an empty
     ``factors_data`` yields all-zero (no-information baseline), matching the pair kernel.
     """
     n_samples = factors_data.shape[0]
@@ -888,6 +888,7 @@ def batch_mi_with_noise_gate_v2(
             npermutations, original_mi[k], use_su, dtype, max_failed,
         )
 
+    # Intentional float64: gate verdict vector, output contract kept f64
     return np.asarray(_gate_verdicts(original_mi, nfailed, max_failed), dtype=np.float64)
 
 
