@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
 
 import os
+import shutil
 import tempfile
 
 import joblib
@@ -156,8 +157,22 @@ def optimize_pipeline_by_gridsearch(
         possible_pipeline_blocks = {}
     if output_dir is None:
         # Read back with joblib.load, so the dump must not sit at a name any local user can pre-create in the shared temp root.
-        output_dir = tempfile.mkdtemp(prefix="mlframe-cv-")
-        logger.info("CV results dump directory: %s", output_dir)
+        # Nothing but this call knows the directory, and the accumulated results are returned, so it is removed on the way out.
+        scratch_dir = tempfile.mkdtemp(prefix="mlframe-cv-")
+        logger.info("CV results scratch directory (removed when the search ends; pass output_dir to keep the dumps): %s", scratch_dir)
+        try:
+            return optimize_pipeline_by_gridsearch(
+                X,
+                Y,
+                title=title,
+                cv_func=cv_func,
+                cv_results=cv_results,
+                possible_pipeline_blocks=possible_pipeline_blocks,
+                constants=constants,
+                output_dir=scratch_dir,
+            )
+        finally:
+            shutil.rmtree(scratch_dir, ignore_errors=True)
     if not possible_pipeline_blocks:
         # what's this paramset unique (but meaningful) hash?
         paramset_hash = get_fqn(constants)
