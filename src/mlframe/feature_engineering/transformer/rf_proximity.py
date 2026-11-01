@@ -43,7 +43,7 @@ def _fit_aux_lgb(X: np.ndarray, y: np.ndarray, task: str, n_estimators: int, max
     params = dict(
         n_estimators=n_estimators,
         max_depth=max_depth,
-        num_leaves=2**max_depth,
+        num_leaves=min(2**max_depth, 63),
         learning_rate=0.05,
         random_state=seed,
         n_jobs=-1,
@@ -168,7 +168,7 @@ def compute_rf_proximity_attention(
     if X_query is not None:
         X_query_f = np.asarray(X_query, dtype=np.float32)
         model = _fit_aux_lgb(X_train_f, y_train_f, task=task, n_estimators=n_aux_trees, max_depth=aux_max_depth, seed=seed)
-        num_leaves = 2**aux_max_depth
+        num_leaves = min(2**aux_max_depth, 63)
         S_train = _leaf_embedding(model, X_train_f, num_leaves=num_leaves)
         S_query = _leaf_embedding(model, X_query_f, num_leaves=num_leaves)
         topk_ids, topk_sims = _topk_proximity(S_query, S_train, k=k)
@@ -189,7 +189,7 @@ def compute_rf_proximity_attention(
         X_va = X_train_f[val_idx]
         y_tr = y_train_f[train_idx]
         model = _fit_aux_lgb(X_tr, y_tr, task=task, n_estimators=n_aux_trees, max_depth=aux_max_depth, seed=int(seed) + fold_idx)
-        num_leaves = 2**aux_max_depth
+        num_leaves = min(2**aux_max_depth, 63)
         S_tr = _leaf_embedding(model, X_tr, num_leaves=num_leaves)
         S_va = _leaf_embedding(model, X_va, num_leaves=num_leaves)
         topk_ids, topk_sims = _topk_proximity(S_va, S_tr, k=k)
