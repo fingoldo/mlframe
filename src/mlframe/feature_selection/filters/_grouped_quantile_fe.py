@@ -194,7 +194,10 @@ def generate_grouped_quantile_features(
         # group_rows) instead of rebuilding the groupby-of-arange for every num_col.
         n = len(X)
         group_rows: dict[str, np.ndarray] = {str(gv): idx.to_numpy() for gv, idx in pd.Series(np.arange(n)).groupby(g_keys, sort=False)}
-        for num_col in cur_num_cols:
+        def _one_num_col(num_col, group_col=group_col, g_keys=g_keys, group_rows=group_rows):
+            """The three engineered columns and recipes of one numeric column within this group column; reads only its own data, so columns may run on the pool."""
+            encoded: dict[str, np.ndarray] = {}
+            raw_recipes: dict[str, dict] = {}
             x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
             finite_all = x[np.isfinite(x)]
             global_sorted = np.sort(finite_all) if finite_all.size else np.array([], dtype=_crit_np_dtype())
@@ -288,6 +291,21 @@ def generate_grouped_quantile_features(
                 "global_p90p10": global_p90p10,
                 "quantiles": list(quantiles),
             }
+            return encoded, raw_recipes
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        from ._adaptive_nbins import _resolve_edge_jobs
+
+        jobs = _resolve_edge_jobs(None, len(cur_num_cols))
+        if jobs > 1 and len(cur_num_cols) > 3:
+            with ThreadPoolExecutor(max_workers=jobs) as pool:
+                col_results = list(pool.map(_one_num_col, cur_num_cols))
+        else:
+            col_results = [_one_num_col(c) for c in cur_num_cols]
+        for enc_part, rec_part in col_results:
+            encoded.update(enc_part)
+            raw_recipes.update(rec_part)
 
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes
