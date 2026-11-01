@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess  # nosec B404 - reads git history; every invocation below is a fixed argument list
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -82,9 +83,13 @@ def _git(args: Sequence[str], repo: str) -> Optional[str]:
     return out.stdout.strip()
 
 
+_SHA_RE = re.compile(r"[0-9a-fA-F]{7,64}")
+
+
 def commits_since(sha: str, repo: str, paths: Sequence[str] = WATCHED_PATHS) -> Optional[int]:
     """Return how many commits touched ``paths`` between ``sha`` and HEAD, or ``None`` when git cannot say."""
-    if not sha:
+    if not sha or not _SHA_RE.fullmatch(sha):
+        # The manifest is data: a value that is not a hex object name (for example one starting with ``-``) must never reach git's argv as an option.
         return None
     out = _git(["rev-list", "--count", f"{sha}..HEAD", "--", *paths], repo)
     if out is None:
