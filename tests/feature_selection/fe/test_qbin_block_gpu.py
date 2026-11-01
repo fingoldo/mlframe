@@ -53,3 +53,20 @@ def test_cached_entry_point_matches_and_serves_repeats():
         assert np.array_equal(cp.asnumpy(c), cp.asnumpy(_sync_free_qbin_codes(cp, xd[:, j].copy(), 10)))
     again = resident_qbin_codes_block(hosts, 10, np.float32)
     assert again is not None and all(np.array_equal(cp.asnumpy(a), cp.asnumpy(b)) for a, b in zip(first, again))
+
+
+def test_group_mi_block_matches_the_per_column_cheap_mi():
+    """One device pass scores every column as ``_cheap_mi_with_y`` does on the host: same values to rounding, same ranking."""
+    from mlframe.feature_selection.filters._binned_agg_cheap_mi import _cheap_mi_with_y
+    from mlframe.feature_selection.filters._qbin_block_gpu import group_mi_block_gpu
+
+    rng = np.random.default_rng(5)
+    n = 6000
+    y = rng.integers(0, 3, n)
+    cols = [rng.standard_normal(n) + 0.8 * y, rng.standard_normal(n), np.round(rng.standard_normal(n), 1) + 0.3 * y, rng.exponential(size=n) * (1 + y), rng.choice([0.0, 1.0, 2.0], n)]
+    cols = [c.astype(np.float32) for c in cols]
+    got = group_mi_block_gpu(cols, y, 10)
+    assert got is not None
+    want = np.array([_cheap_mi_with_y(c, y, 10) for c in cols])
+    np.testing.assert_allclose(got, want, rtol=1e-4, atol=1e-6)
+    assert list(np.argsort(got)) == list(np.argsort(want))

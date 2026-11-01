@@ -15,3 +15,7 @@ Codes are bit-identical to the per-column binner for continuous, tied, mass-poin
 Measured trap: stacking the host columns as an `(n, k)` matrix (`np.stack(axis=1)`) cost 93 ms and cancelled the whole gain; the `(k, n)` layout uploads each column contiguously and sorts along the last axis (blocked 246 -> 241 ms before the layout change, 246 -> 146 after).
 
 Remaining: the compare-and-count pass is about 45 ms of the 69 ms above the sort; other per-column loops (`_pair_usability_tasks`, `_build_binned_agg_recipes`, `_cheap_mi_group_selection`) can take the same block entry point.
+
+## group_mi_block_gpu (the strict-resident group pre-selection of the binned-aggregate family)
+
+`_cheap_mi_group_selection` under the strict-resident path scored each candidate on its own (sort, searchsorted, bincount and three host reads per column). `group_mi_block_gpu` sorts the block once and hands every column's edges to the existing fused `binned_mi_from_values_gpu` kernel. Values equal the host `_cheap_mi_with_y` to rtol 1e-4 with the same ranking (`test_group_mi_block_matches_the_per_column_cheap_mi`); a failed pass keeps the per-column device loop.

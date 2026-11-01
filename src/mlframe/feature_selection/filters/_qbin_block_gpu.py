@@ -109,4 +109,34 @@ def resident_qbin_codes_block(columns: Sequence[np.ndarray], nbins: int, dtype) 
     return codes
 
 
-__all__ = ["resident_qbin_codes_block", "sync_free_qbin_codes_block"]
+def group_mi_block_gpu(columns: Sequence[np.ndarray], y_codes: np.ndarray, nbins: int) -> "np.ndarray | None":
+    """``MI(qbin(column); y_codes)`` of every host column of ``columns`` (finite, not constant) in one device pass, as ``_cheap_mi_with_y`` computes it per column: numpy's linear-interpolated interior edges, ``searchsorted(side="right")`` codes, plug-in MI in nats.
+
+    One ``cp.sort(axis=1)`` of the block gives every column's edges and one fused kernel bins, histograms and scores all columns. ``None`` when the device path fails or the (bins x y classes) tile does not fit, so the caller keeps its per-column loop."""
+    try:
+        import cupy as cp
+
+        from ._fe_batched_mi import binned_mi_from_values_gpu
+        from ._fe_gpu_batch._devices import crit_float_dtype
+
+        y = np.ascontiguousarray(y_codes, dtype=np.int64)
+        n = int(y.size)
+        k = len(columns)
+        if k == 0 or n < 2 or int(nbins) < 2:
+            return None
+        xd = cp.asarray(np.stack([np.ascontiguousarray(c) for c in columns], axis=0), dtype=crit_float_dtype())  # (k, n), one contiguous row per column
+        xs = cp.sort(xd, axis=1)
+        pos = cp.asarray(np.linspace(0.0, 1.0, int(nbins) + 1)[1:-1]) * (n - 1)
+        lo = cp.floor(pos).astype(cp.int64)
+        hi = cp.minimum(lo + 1, n - 1)
+        xlo = xs[:, lo]
+        edges = cp.ascontiguousarray((xlo + (xs[:, hi] - xlo) * (pos - lo)[None, :]).T)  # (nbins - 1, k)
+        del xs
+        mi = binned_mi_from_values_gpu(None, edges, cp.asarray(y), int(nbins), int(y.max()) + 1, x_cm=xd)
+        return None if mi is None else np.asarray(mi, dtype=np.float64)  # Intentional float64: MI statistic vector
+    except Exception:
+        logger.debug("batched device group MI failed; per-column path", exc_info=True)
+        return None
+
+
+__all__ = ["group_mi_block_gpu", "resident_qbin_codes_block", "sync_free_qbin_codes_block"]
