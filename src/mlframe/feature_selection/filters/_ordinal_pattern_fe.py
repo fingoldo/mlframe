@@ -145,6 +145,17 @@ def _fit_perm_id_te_lookup(perm_id: np.ndarray, y: np.ndarray, *, smoothing: flo
     return lookup, global_mean
 
 
+def _lookup_perm_ids(perm_ids: np.ndarray, lookup: dict, default: float) -> np.ndarray:
+    """``lookup[int(p)]`` (``default`` for an unseen pattern, NaN for a non-finite id) for every id, resolving each DISTINCT id once instead of every row through Python."""
+    out = np.full(perm_ids.shape[0], np.nan, dtype=_crit_np_dtype())
+    finite = np.isfinite(perm_ids)
+    if finite.any():
+        uniq, inverse = np.unique(perm_ids[finite], return_inverse=True)
+        table = np.array([lookup.get(int(u), default) for u in uniq], dtype=_crit_np_dtype())
+        out[finite] = table[inverse]
+    return out
+
+
 def generate_ordinal_pattern_te_features(
     X: "pd.DataFrame",
     col_tuples: Sequence[Sequence[str]],
@@ -199,8 +210,7 @@ def generate_ordinal_pattern_te_features(
                 continue
             fold_lookup, fold_global = _fit_perm_id_te_lookup(perm_id[train_mask], y_arr[train_mask], smoothing=smoothing)
             test_pid = perm_id[test_mask]
-            test_vals = np.array([fold_lookup.get(int(p), fold_global) if np.isfinite(p) else np.nan for p in test_pid], dtype=_crit_np_dtype())
-            vals[test_mask] = test_vals
+            vals[test_mask] = _lookup_perm_ids(test_pid, fold_lookup, fold_global)
 
         name = engineered_name_ordinal_pattern(tup)
         encoded[name] = vals
@@ -226,11 +236,7 @@ def apply_ordinal_pattern_te(X_test: "pd.DataFrame", recipe: dict) -> np.ndarray
     global_mean = float(recipe["global_mean"])
     X_cols = X_test[cols].to_numpy(dtype=_crit_np_dtype())
     perm_id = ordinal_pattern_ids(X_cols)
-    out = np.full(perm_id.shape[0], global_mean, dtype=_crit_np_dtype())
-    finite = np.isfinite(perm_id)
-    out[finite] = np.array([lookup.get(int(p), global_mean) for p in perm_id[finite]], dtype=_crit_np_dtype())
-    out[~finite] = np.nan
-    return out
+    return _lookup_perm_ids(perm_id, lookup, global_mean)
 
 
 def build_ordinal_pattern_te_recipe(*, name: str, cols: Sequence[str], lookup: dict, global_mean: float, smoothing: float) -> "EngineeredRecipe":
