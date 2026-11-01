@@ -57,8 +57,8 @@ def adaptive_degree_cells_on_device(
         from ._gpu_resident_fe import fe_gpu_resident_basis_mi_enabled
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
         from ._orthogonal_adaptive_degree_fe import _BASIS_CODE
-        from .hermite_fe._hermite_robust import _robust_axis_enabled
         from ._orthogonal_univariate_fe import evaluable_bases
+        from .hermite_fe._hermite_robust import _robust_axis_enabled
     except Exception as exc:
         log_throttle(logger, "adaptive_degree_device_imports", logging.DEBUG, "adaptive-degree device path unavailable (%s: %s)", type(exc).__name__, exc)
         return None
@@ -67,6 +67,8 @@ def adaptive_degree_cells_on_device(
         return None
     if basis != "auto" and basis not in _PREWARP_CLENSHAW_GPU:
         return None
+    if basis == "auto" and any(b not in _PREWARP_CLENSHAW_GPU for b in evaluable_bases()):
+        return None  # a base without a device twin would be skipped by the device router while the host router scores it
     try:
         dt = crit_float_dtype()
         columns = []

@@ -112,7 +112,11 @@ def _gpu_route_candidate_bases(cp: Any, cand_x: list, cand_cols: list, basis: st
     # n>=30) match basis_route_by_signal's host fallback conditions, applied once since y/n are shared.
     _gpu_routed = None
     _Mr = None  # resident (n, n_cand) operand matrix uploaded ONCE for routing, reused for the basis-MI build
-    if basis == "auto" and y is not None and fe_gpu_routing_enabled():
+    from .._gpu_resident_basis import _PREWARP_CLENSHAW_GPU
+
+    # The device router scores only the bases with a Clenshaw twin; while a candidate has none the host router decides (it scores every candidate).
+    _all_on_device = all(b in _PREWARP_CLENSHAW_GPU for b in evaluable_bases())
+    if basis == "auto" and y is not None and _all_on_device and fe_gpu_routing_enabled():
         _yc = np.asarray(_ya, dtype=crit_float_dtype()).ravel()
         if _yc.size == cand_x[0].size and cand_x[0].size >= 30 and np.isfinite(_yc).all() and float(np.std(_yc)) >= 1e-12:
             try:

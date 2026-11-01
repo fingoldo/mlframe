@@ -55,6 +55,7 @@ from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from ..hermite_fe import basis_route_by_moments, polyeval_dispatch
+from ..hermite_fe._nonpoly_cells import eval_basis_cell, is_nonpoly
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from ._orth_mi_backends import (
     _MI_BACKEND,
@@ -196,10 +197,8 @@ def _evaluate_basis_column(
     else:
         z, params = fit_fn(x)
     z = np.ascontiguousarray(z, dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
-    # One-hot coefficient vector: He_n / L_n / T_n / L^Lag_n at the chosen degree.
-    coef = np.zeros(degree + 1, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
-    coef[degree] = 1.0
-    out = polyeval_dispatch(basis, z, coef)
+    # The degree-th basis function of the axis: the one-hot polynomial for He / L / T / L^Lag, the single-function cell for fourier / rbf / sigmoid / pade.
+    out = eval_basis_cell(basis, z, degree, params)
     return (out, params) if return_params else out
 
 # Carved out to _orth_dedup.py (monolith-split, LOC budget); re-exported here so the
@@ -207,13 +206,12 @@ def _evaluate_basis_column(
 from ._orth_dedup import _dedup_collinear_source_cols
 
 def evaluable_bases() -> tuple:
-    """The registered bases that have a polynomial evaluator (hermite, legendre, chebyshev, laguerre).
+    """The registered bases that have a cell evaluator: the four orthogonal polynomials and fourier / rbf / sigmoid / pade (``hermite_fe._nonpoly_cells``).
 
-    fourier / rbf / sigmoid / pade are registered with a fit but no entry in ``polyeval_dispatch``, so evaluating them raises ``KeyError`` for every column and degree; the router used to run their fit
-    and swallow that error, and a basis whose every cell fails never beats the first basis. Leaving them out of the default candidates gives the same routing without the dead fits."""
+    Before the cells existed the last four had a fit but no entry in ``polyeval_dispatch``, so every column and degree raised ``KeyError`` that the router swallowed; they are candidates now."""
     from mlframe.feature_selection.filters.hermite_fe import _NJIT_FUNCS
 
-    return tuple(b for b in _POLY_BASES if b in _NJIT_FUNCS)
+    return tuple(b for b in _POLY_BASES if b in _NJIT_FUNCS or is_nonpoly(b))
 
 
 def basis_route_by_signal(
@@ -273,7 +271,7 @@ def basis_route_by_signal(
             _zc = None
             if _route_no_aux:
                 try:
-                    _zf, _ = _POLY_BASES[basis]["fit"](x)
+                    _zf, _pf = _POLY_BASES[basis]["fit"](x)
                     _zc = np.ascontiguousarray(_zf, dtype=_crit_np_dtype())
                 except Exception as e:
                     log_throttle(logger, "orth_basis_fit_failed_route", logging.WARNING, "basis fit for %r failed: %s", basis, e)
@@ -281,9 +279,7 @@ def basis_route_by_signal(
             for d in degrees:
                 try:
                     if _zc is not None:
-                        _coef = np.zeros(int(d) + 1, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
-                        _coef[int(d)] = 1.0
-                        v = polyeval_dispatch(basis, _zc, _coef)
+                        v = eval_basis_cell(basis, _zc, int(d), _pf)
                     else:
                         v = _evaluate_basis_column(x, basis, int(d), aux_for_fit=aux_for_fit)
                 except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
@@ -525,7 +521,7 @@ def _generate_univariate_basis_features_impl(
             _z_cached = None
             if aux_col is None or len(np.asarray(aux_col)) == 0:
                 try:
-                    _z_fit, _ = _POLY_BASES[chosen_basis]["fit"](x)
+                    _z_fit, _p_fit = _POLY_BASES[chosen_basis]["fit"](x)
                     _z_cached = np.ascontiguousarray(_z_fit, dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
                 except Exception as e:
                     log_throttle(logger, "orth_basis_fit_failed_gen", logging.WARNING, "basis fit for %r failed: %s", chosen_basis, e)
@@ -533,9 +529,7 @@ def _generate_univariate_basis_features_impl(
         for d in degrees:
             try:
                 if _z_cached is not None:
-                    _coef = np.zeros(int(d) + 1, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
-                    _coef[int(d)] = 1.0
-                    vals = np.asarray(polyeval_dispatch(chosen_basis, _z_cached, _coef)).astype(_crit_np_dtype(), copy=False)  # one rounding to the output dtype, as the replay's cast
+                    vals = np.asarray(eval_basis_cell(chosen_basis, _z_cached, int(d), _p_fit)).astype(_crit_np_dtype(), copy=False)  # one rounding to the output dtype, as the replay's cast
                 else:
                     vals = _evaluate_basis_column(
                         x, chosen_basis, int(d), aux_for_fit=aux_col,

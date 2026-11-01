@@ -124,7 +124,7 @@ def _eval_orth_basis_column(
     |delta|=1 bin drift on a nested ``a__He2`` sub-operand). ``None`` (legacy /
     pre-fix pickles) falls back to the refit path, byte-identical to before.
     """
-    from ..hermite_fe import polyeval_dispatch
+    from ..hermite_fe._nonpoly_cells import eval_basis_cell
     from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
     basis_info = _POLY_BASES[basis]
     fit_fn = basis_info["fit"]
@@ -154,12 +154,11 @@ def _eval_orth_basis_column(
         # data-dependent refit -> byte-exact on any row-slice).
         apply_fn = basis_info["apply"]
         z = apply_fn(np.asarray(x, dtype=np.float64), preprocess_params)
+        params = preprocess_params
     else:
-        z, _params = fit_fn(x)
+        z, params = fit_fn(x)
     z = np.ascontiguousarray(z, dtype=np.float64)
-    coef = np.zeros(int(degree) + 1, dtype=np.float64)
-    coef[int(degree)] = 1.0
-    return polyeval_dispatch(basis, z, coef)
+    return eval_basis_cell(basis, z, int(degree), params)
 
 
 def _basis_cache_key(
@@ -290,7 +289,10 @@ def _freeze_preprocess_params(params: Optional[dict]) -> Optional[dict]:
     for k, v in params.items():
         if v is None:
             continue
-        out[str(k)] = float(v)
+        if np.ndim(v) > 0:
+            out[str(k)] = tuple(float(t) for t in np.asarray(v, dtype=np.float64).ravel())  # centres / thresholds of rbf and sigmoid
+        else:
+            out[str(k)] = float(v)
     return out or None
 
 
