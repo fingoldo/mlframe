@@ -8,7 +8,7 @@ device. Only the per-cell MI returns; the one winning degree per source is rebui
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 import numpy as np
 
@@ -33,7 +33,7 @@ class LazyAdaptiveValues:
         finite = np.isfinite(x)
         if not finite.all():
             x = np.where(finite, x, float(np.nanmean(x[finite])) if finite.any() else 0.0)
-        return _evaluate_basis_column(x, basis, int(deg))
+        return cast("np.ndarray", _evaluate_basis_column(x, basis, int(deg)))
 
     def __len__(self) -> int:
         return len(self._cells)

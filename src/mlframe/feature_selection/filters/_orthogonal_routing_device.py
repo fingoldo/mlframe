@@ -9,7 +9,7 @@ engineered values and the recipes are the host ones.
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 import numpy as np
 
@@ -31,7 +31,7 @@ class LazyRoutingValues:
 
         src, pt, basis, deg = self._meta[j]
         _, values, _ = _routing_cells_of_column(self._X, src, (pt,), (basis,), (int(deg),))
-        return values[0]
+        return cast("np.ndarray", values[0])
 
     def __len__(self) -> int:
         return len(self._meta)

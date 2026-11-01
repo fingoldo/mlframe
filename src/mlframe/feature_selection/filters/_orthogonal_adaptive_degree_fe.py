@@ -36,7 +36,7 @@ from X alone, no y reference.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
@@ -257,6 +257,7 @@ def generate_adaptive_degree_basis_features(
     # The cells are built and scored on the device when it applies (only the winners are rebuilt on the host); otherwise the host enumeration runs.
     from ._orthogonal_adaptive_degree_device import LazyAdaptiveValues, adaptive_degree_cells_on_device
 
+    cand_values: Any  # the host path builds a list of vectors, the device path a lazy sequence that rebuilds the winners
     on_device = adaptive_degree_cells_on_device(X, cols, y_arr, degree_range, basis, nbins)
     if on_device is not None:
         cand_cols, cand_to_source, eng_mi = on_device

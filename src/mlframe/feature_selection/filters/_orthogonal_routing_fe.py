@@ -66,7 +66,7 @@ from __future__ import annotations
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 
 import logging
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
@@ -472,6 +472,7 @@ def generate_conditional_basis_routing_features(
     # The cells are built and scored on the device when it applies (only the winners come back to the host); otherwise the host enumeration runs.
     from ._orthogonal_routing_device import LazyRoutingValues, routing_scores_on_device
 
+    cand_values: Any  # the host path builds a list of vectors, the device path a lazy sequence that rebuilds the winners
     on_device = routing_scores_on_device(X, list(cols), transform_variants, candidate_bases, degrees, y_arr, nbins, routing_criterion)
     if on_device is not None:
         cand_cols, cand_meta, eng_mi, route_score = on_device
