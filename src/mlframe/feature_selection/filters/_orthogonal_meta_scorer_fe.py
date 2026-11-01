@@ -109,7 +109,7 @@ from mlframe.utils.log_throttle import log_throttle
 
 import importlib
 import logging
-from typing import Optional, Sequence
+from typing import Optional, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -207,13 +207,27 @@ def _dcor_proxy(X_num: pd.DataFrame, num_cols: list, y_arr: np.ndarray, n: int, 
     return dcor_proxy
 
 
+def _abs_pearson_matrix(X_num: pd.DataFrame) -> np.ndarray:
+    """``|Pearson r|`` of every column pair: one BLAS pass when every value is finite, else the vectorised pairwise-complete form of the dedup (rows with a missing value count only for the pairs that have it;
+    a pair with fewer than 8 common rows or a constant side is NaN). pandas' pairwise ``corr`` took 2.2 s for 100 columns x 100000 rows on either branch."""
+    # Intentional float64: the correlation sums run in double precision
+    arr = np.asarray(X_num.to_numpy(dtype=np.float64))
+    if arr.size and np.isfinite(arr).all():
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return cast(np.ndarray, np.abs(np.asarray(np.corrcoef(arr, rowvar=False))))
+    from ._orthogonal_univariate_fe._orth_dedup import _pairwise_complete_abs_corr
+
+    q = np.ascontiguousarray(arr.T)
+    return np.asarray(_pairwise_complete_abs_corr(q, q))
+
+
 def _inter_x_max_corr(X_num: pd.DataFrame) -> float:
     """Max ``|Pearson|`` among off-diagonal column pairs (0.0 for fewer than two columns or on numeric failure)."""
     # inter_x_max_corr: max |Pearson| among off-diagonal pairs. Redundancy
     # proxy that powers the L75 xor_redundant -> CMIM routing.
     try:
         if X_num.shape[1] >= 2:
-            corr_mat = X_num.corr(method="pearson").to_numpy()
+            corr_mat = _abs_pearson_matrix(X_num)
             d = corr_mat.shape[0]
             mask = ~np.eye(d, dtype=bool)
             finite_off = corr_mat[mask]

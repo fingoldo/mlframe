@@ -220,6 +220,10 @@ def _unique_inverse(keys: np.ndarray):
     O(n log n) argsort inside ``np.unique`` is not repaid per column."""
     keys = np.asarray(keys, dtype=object)
     try:
+        if keys.size > 1024 and pd.api.types.infer_dtype(keys, skipna=False) == "string":
+            # Hash-based factorisation, then only the distinct keys are sorted (np.unique sorts all n Python strings): the same sorted uniques and inverse.
+            inverse, uniq = pd.factorize(keys, sort=True)
+            return np.asarray(uniq, dtype=object), np.asarray(inverse, dtype=np.intp)
         uniq, inverse = np.unique(keys, return_inverse=True)
         return uniq, np.asarray(inverse).reshape(-1)
     except (TypeError, ValueError) as _exc:

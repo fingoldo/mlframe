@@ -60,7 +60,7 @@ from __future__ import annotations
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 
 import logging
-from typing import Optional, Sequence
+from typing import cast, Optional, Sequence
 
 import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
@@ -183,6 +183,14 @@ def _batch_one_scorer(s, Xmat, y_arr, *, nbins, random_state, n_neighbors, copul
         else:
             # Intentional float64: scorer values kept as a double precision vector, like the batched ones
             return np.array([call(s, Xmat[:, j], y_arr) for j in range(Xmat.shape[1])], dtype=np.float64)
+    elif s == "tail_dep":
+        # One parallel kernel for all columns (a column is ranked once and both tails read from it) in place of two scipy rank passes per column; a non-finite value keeps the per-column scorer (0.0 for that column).
+        from ._orthogonal_tail_dependence_fe import tail_dependence_columns
+
+        if np.isfinite(Xmat).all() and np.isfinite(y_arr).all():
+            return tail_dependence_columns(np.ascontiguousarray(Xmat.T), y_arr)
+        # Intentional float64: scorer values kept as a double precision vector, like the batched ones
+        return np.array([call(s, Xmat[:, j], y_arr) for j in range(Xmat.shape[1])], dtype=np.float64)
     raise ValueError(f"_batch_one_scorer: {s!r} is not a batchable scorer")
 
 
@@ -235,7 +243,7 @@ def _compute_per_scorer_rank_table(
     # subsample) stay per-column via _call.
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-    _BATCHABLE = {"plug_in", "copula", "xi", "ksg", "dcor", "hsic"}
+    _BATCHABLE = {"plug_in", "copula", "xi", "ksg", "dcor", "hsic", "tail_dep"}
     _batch_scorers = [s for s in scorers if s in _BATCHABLE]
 
     def _batch_scores(frame: pd.DataFrame, cols: list) -> dict:
@@ -245,12 +253,18 @@ def _compute_per_scorer_rank_table(
         if not _batch_scorers or not cols:
             return {}
         Xmat = frame[cols].to_numpy(dtype=_dt)
-        res: dict = {}
-        for s in _batch_scorers:
-            res[s] = _batch_one_scorer(
-                s, Xmat, y_arr, nbins=nbins, random_state=random_state, n_neighbors=n_neighbors, copula_n_bins=copula_n_bins, dcor_n_sample=dcor_n_sample, call=_call
+        from ._edge_pool import map_on_edge_pool
+
+        def _one(s: str) -> np.ndarray:
+            """One scorer over the whole matrix (the scorers are independent, each with its own fixed ``random_state``)."""
+            return cast(
+                np.ndarray,
+                _batch_one_scorer(
+                    s, Xmat, y_arr, nbins=nbins, random_state=random_state, n_neighbors=n_neighbors, copula_n_bins=copula_n_bins, dcor_n_sample=dcor_n_sample, call=_call
+                ),
             )
-        return res
+
+        return dict(zip(_batch_scorers, map_on_edge_pool(_one, _batch_scorers, min_items=2)))
 
     raw_batched = _batch_scores(raw_X, raw_cols)
     baseline_per_source: dict = {}

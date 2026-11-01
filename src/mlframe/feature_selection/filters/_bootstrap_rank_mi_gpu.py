@@ -74,6 +74,32 @@ extern "C" __global__ void bootstrap_rank_walk(const int* __restrict__ ord, cons
 _MODULE = RawModuleCache(_SRC)
 
 
+#: Device bytes one column of a block holds at its peak: the float32 block, the int64 argsort, the sorted copy, the int32 order and the walk's int32 table, per row.
+_BYTES_PER_COLUMN_ROW = 32
+_BUDGET_FRACTION = 0.3
+
+
+def _column_block(cp, n_rows: int) -> int:
+    """Columns per launch such that a block's temporaries stay within ``_BUDGET_FRACTION`` of what the memory pool can still hand out (the smaller of the device's free memory and the pool limit minus its used bytes), at least 8 and at most ``_COLUMN_BLOCK``."""
+    try:
+        pool = cp.get_default_memory_pool()
+        free_device = int(cp.cuda.runtime.memGetInfo()[0]) + int(pool.free_bytes())
+        limit = int(pool.get_limit())
+        room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))
+    except Exception as exc:
+        logger.debug("device bootstrap walk: free memory unknown (%s); small blocks", exc)
+        return 32
+    return int(max(8, min(_COLUMN_BLOCK, (_BUDGET_FRACTION * room) // (_BYTES_PER_COLUMN_ROW * max(1, n_rows)))))
+
+
+def _release_pool_cache(cp) -> None:
+    """Return the memory pool's unused cached blocks to the device (blocks in use are kept)."""
+    try:
+        cp.get_default_memory_pool().free_all_blocks()
+    except Exception as exc:
+        logger.debug("device bootstrap walk: could not release the pool cache (%s)", exc)
+
+
 def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.ndarray, np.ndarray] | None":
     """``(mi (B, k), done (k,) bool)``: the MI of every fully distinct finite column of ``arr`` ``(n, k)`` for the resamples of ``prep`` (from ``_resample_tables`` with the walk tables), the other columns left to the host.
 
@@ -88,32 +114,41 @@ def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.nda
     except Exception as exc:
         logger.debug("device bootstrap walk unavailable (%s)", exc)
         return None
-    kernel = _MODULE.get(cp).get_function("bootstrap_rank_walk")
-    counts = cp.asarray(np.ascontiguousarray(prep["counts_t"], dtype=np.int32))
-    ycode = cp.asarray(np.ascontiguousarray(prep["y_codes"], dtype=np.int32))
-    cum = cp.asarray(np.ascontiguousarray(prep["cum"], dtype=np.int32))
-    lens = cp.asarray(np.ascontiguousarray(prep["lens"], dtype=np.int32))
-    mi = np.zeros((n_rep, k), dtype=np.float64)  # Intentional float64: MI statistic matrix
-    done = np.zeros(k, dtype=bool)
-    for c0 in range(0, k, _COLUMN_BLOCK):
-        c1 = min(k, c0 + _COLUMN_BLOCK)
-        block = cp.asarray(np.ascontiguousarray(arr[:, c0:c1]))
-        finite = cp.isfinite(block).all(axis=0)
-        order = cp.argsort(block, axis=0)
-        sv = cp.take_along_axis(block, order, axis=0)
-        distinct = finite & (sv[1:] != sv[:-1]).all(axis=0)
-        ok = np.flatnonzero(cp.asnumpy(distinct))
-        if ok.size == 0:
-            continue
-        ord_t = cp.ascontiguousarray(order[:, cp.asarray(ok)].T.astype(cp.int32))
-        # Intentional float64: device MI statistic matrix, same element type as the host array
-        out = cp.zeros((n_rep, ok.size), dtype=cp.float64)
-        threads = 128
-        grid = (int(ok.size) * n_rep + threads - 1) // threads
-        kernel((grid,), (threads,), (ord_t, counts, ycode, cum, lens, np.int32(n), np.int32(ok.size), np.int32(n_rep), np.int32(n_bins), np.int32(n_classes), out))
-        mi[:, c0 + ok] = cp.asnumpy(out)
-        done[c0 + ok] = True
-    return mi, done
+    _release_pool_cache(cp)  # start from a pool without cached blocks of other sizes: the argsort asks thrust for large temporaries that must fit contiguously
+    try:
+        kernel = _MODULE.get(cp).get_function("bootstrap_rank_walk")
+        counts = cp.asarray(np.ascontiguousarray(prep["counts_t"], dtype=np.int32))
+        ycode = cp.asarray(np.ascontiguousarray(prep["y_codes"], dtype=np.int32))
+        cum = cp.asarray(np.ascontiguousarray(prep["cum"], dtype=np.int32))
+        lens = cp.asarray(np.ascontiguousarray(prep["lens"], dtype=np.int32))
+        mi = np.zeros((n_rep, k), dtype=np.float64)  # Intentional float64: MI statistic matrix
+        done = np.zeros(k, dtype=bool)
+        block_cols = _column_block(cp, n)
+        for c0 in range(0, k, block_cols):
+            c1 = min(k, c0 + block_cols)
+            block = cp.asarray(np.ascontiguousarray(arr[:, c0:c1]))
+            finite = cp.isfinite(block).all(axis=0)
+            order = cp.argsort(block, axis=0)
+            sv = cp.take_along_axis(block, order, axis=0)
+            distinct = finite & (sv[1:] != sv[:-1]).all(axis=0)
+            ok = np.flatnonzero(cp.asnumpy(distinct))
+            if ok.size == 0:
+                continue
+            ord_t = cp.ascontiguousarray(order[:, cp.asarray(ok)].T.astype(cp.int32))
+            # Intentional float64: device MI statistic matrix, same element type as the host array
+            out = cp.zeros((n_rep, ok.size), dtype=cp.float64)
+            threads = 128
+            grid = (int(ok.size) * n_rep + threads - 1) // threads
+            kernel((grid,), (threads,), (ord_t, counts, ycode, cum, lens, np.int32(n), np.int32(ok.size), np.int32(n_rep), np.int32(n_bins), np.int32(n_classes), out))
+            mi[:, c0 + ok] = cp.asnumpy(out)
+            done[c0 + ok] = True
+        return mi, done
+    except Exception as exc:  # out of device memory or a driver fault: the host walk scores every column
+        logger.warning("device bootstrap rank walk failed (%s: %s); using the host walk", type(exc).__name__, exc)
+        return None
+    finally:
+        # The argsort / take temporaries come in sizes no later request reuses; handing the unused pool blocks back keeps the pool from filling up with them (a 525 MB request of the CMI scorer failed against them).
+        _release_pool_cache(cp)
 
 
 def use_device_walk(n_rows: int) -> bool:
@@ -122,12 +157,12 @@ def use_device_walk(n_rows: int) -> bool:
     if forced in ("0", "1"):
         return forced == "1"
     if _SPEC is None:
-        return False
+        return int(n_rows) >= DEVICE_WALK_FALLBACK_ROWS
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("fe_bootstrap_rank_device: KTC choose() failed, using the fallback (host): %s", exc)
-        return False
+        logger.debug("fe_bootstrap_rank_device: KTC choose() failed, using the fallback: %s", exc)
+        return int(n_rows) >= DEVICE_WALK_FALLBACK_ROWS
 
 
 _SWEEP_ROWS = [5_000, 30_000, 100_000]
@@ -181,9 +216,14 @@ def _run_sweep() -> list:
     )
 
 
+#: Rows from which the device walk is the fallback choice when the kernel-tuning cache has no entry.
+DEVICE_WALK_FALLBACK_ROWS = 30_000
+
+
 def _fallback_choice(n_samples: int) -> str:
-    """Pre-sweep fallback: the host walk (measured faster than the device walk on the development GPU at every size)."""
-    return "host"
+    """Pre-sweep fallback: the device walk from ``DEVICE_WALK_FALLBACK_ROWS`` rows. Re-measured 2026-11-01 on the development GPU (105 columns, 10 resamples, min of 5): 30000 rows host 0.05 s / device 0.04 s,
+    100000 rows host 0.29 s / device 0.15 s. (The earlier note that the host walk won, 0.24 against 0.56 s, was taken under contention and does not reproduce.)"""
+    return "device" if int(n_samples) >= DEVICE_WALK_FALLBACK_ROWS else "host"
 
 
 try:

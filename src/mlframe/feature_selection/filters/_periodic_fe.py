@@ -204,7 +204,7 @@ def apply_modular(x: np.ndarray, period: float, op: str) -> np.ndarray:
     return np.asarray(_modular_njit(arr, p, op_code)).astype(out_dtype, copy=False)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _modular_all_ops_into(arr: np.ndarray, p: float, out_mod: np.ndarray, out_sin: np.ndarray, out_cos: np.ndarray) -> None:
     """:func:`_modular_all_ops_njit` written into caller-allocated outputs of any float dtype (computed at full precision, stored at the
     output's width), so a float32 candidate pool is filled without a full-width intermediate per column."""
@@ -253,9 +253,11 @@ def generate_modular_features(
     import os
 
     drop_copies = os.environ.get("MLFRAME_MODULAR_DROP_COPIES", "0").strip().lower() in ("1", "true", "on", "yes")
-    for c in cols:
+    def _one_column(c):
+        """The ``(name, values)`` pairs of one source column over all periods, in emission order."""
         # Intentional float64: input of the residue v - p*floor(v/p); a float32 timestamp (~1.6e9) has resolution 128, so mod 7 would be noise.
         arr = np.ascontiguousarray(X[c].to_numpy(), dtype=np.float64)
+        emitted = []
         for p in periods:
             # Fused single pass: residue computed once, all three ops emitted (vs three apply_modular passes), written at the output width.
             mod_v, sin_v, cos_v = np.empty(n, dtype=out_dtype), np.empty(n, dtype=out_dtype), np.empty(n, dtype=out_dtype)
@@ -263,9 +265,15 @@ def generate_modular_features(
             # A column that already lies in [0, period) has its own value as residue: the ``mod`` candidate would be an exact copy of the raw column (a binary column and period 7
             # gave ``A__mod_7`` == ``A``), which the selection could then carry beside, or instead of, the column itself.
             if not (drop_copies and np.array_equal(mod_v, arr.astype(out_dtype, copy=False))):
-                out[engineered_name_modular(c, p, "mod")] = mod_v
-            out[engineered_name_modular(c, p, "sin")] = sin_v
-            out[engineered_name_modular(c, p, "cos")] = cos_v
+                emitted.append((engineered_name_modular(c, p, "mod"), mod_v))
+            emitted.append((engineered_name_modular(c, p, "sin"), sin_v))
+            emitted.append((engineered_name_modular(c, p, "cos"), cos_v))
+        return emitted
+
+    from ._edge_pool import map_on_edge_pool
+
+    for emitted in map_on_edge_pool(_one_column, cols):  # independent columns on the edge-jobs pool, folded in column order
+        out.update(emitted)
     return pd.DataFrame(out, index=X.index)
 
 

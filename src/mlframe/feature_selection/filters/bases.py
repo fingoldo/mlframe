@@ -54,7 +54,7 @@ def _fourier_apply(x: np.ndarray, params: dict) -> np.ndarray:
     return np.asarray((x - params["lo"]) / params["span"])
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, cache=True, nogil=True)
 def _fourier_eval_njit(z: np.ndarray, c: np.ndarray) -> np.ndarray:
     """``sum_k a_k * sin(2*pi*k*z) + b_k * cos(2*pi*k*z)`` for k = 1..K. ``c`` packs ``[a_1, b_1, a_2, b_2, ..., a_K, b_K]`` - length 2K."""
     n = z.shape[0]
@@ -130,7 +130,7 @@ def _rbf_apply(x: np.ndarray, params: dict) -> np.ndarray:
     return np.ascontiguousarray(x, dtype=_crit_np_dtype())
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, cache=True, nogil=True)
 def _rbf_eval_kernel_njit(z: np.ndarray, c: np.ndarray, centres: np.ndarray, bandwidth: float) -> np.ndarray:
     """``sum_k c_k * exp(-((z - centres_k) / bandwidth)^2)``."""
     n = z.shape[0]
@@ -200,7 +200,7 @@ def _sigmoid_fit(x: np.ndarray):
 _sigmoid_apply = _rbf_apply
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, cache=True, nogil=True)
 def _sigmoid_eval_kernel_njit(z: np.ndarray, c: np.ndarray, thresholds: np.ndarray, slope: float) -> np.ndarray:
     """njit-compiled kernel for ``sum_k c_k * sigma(slope * (z - thresholds_k))``: a weighted sum of logistic bumps, one per quantile threshold, using a numerically stable sigmoid split on the sign of the argument to avoid overflow in ``exp``."""
     n = z.shape[0]
@@ -279,7 +279,7 @@ def _pade_apply(x: np.ndarray, params: dict) -> np.ndarray:
     return np.asarray(((x - params["mean"]) / params["std"]).astype(_crit_np_dtype()))
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, cache=True, nogil=True)
 def _pade_eval_njit(z: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Rational ``(a_0 + a_1*z + ... + a_p*z^p) / (1 + b_1*z + ... + b_q*z^q)``.
 

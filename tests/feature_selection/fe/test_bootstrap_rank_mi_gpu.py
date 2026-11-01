@@ -45,3 +45,33 @@ def test_too_many_classes_stay_on_the_host(monkeypatch):
     arr, y, reps = _data(2000, 4, 20)
     prep = host._resample_tables(reps, y, arr.shape[0], 10, True)
     assert distinct_walk_gpu(arr, prep, 10) is None
+
+
+def test_small_column_blocks_and_a_device_fault_keep_the_result(monkeypatch):
+    """A block of 3 columns gives the same MI; a fault inside the device walk falls back to the host walk instead of raising."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters import _bootstrap_rank_mi_gpu as gpu
+
+    arr, y, reps = _data(3000, 10)
+    monkeypatch.setenv("MLFRAME_BOOTSTRAP_RANK_DEVICE", "0")
+    host._PREP_CACHE.clear()
+    want_mi, want_ok = host.bootstrap_rank_mi(arr, y, reps, 10)
+    monkeypatch.setenv("MLFRAME_BOOTSTRAP_RANK_DEVICE", "1")
+    monkeypatch.setattr(gpu, "_column_block", lambda cp, n: 3)
+    host._PREP_CACHE.clear()
+    try:
+        got_mi, got_ok = host.bootstrap_rank_mi(arr, y, reps, 10)
+    except Exception as exc:  # pragma: no cover - no usable device
+        pytest.skip(f"needs a usable CUDA device: {exc}")
+    np.testing.assert_array_equal(got_ok, want_ok)
+    np.testing.assert_allclose(got_mi, want_mi, rtol=1e-12, atol=1e-14)
+
+    def _boom(cp, n):
+        """A block-size probe that fails like an exhausted pool."""
+        raise MemoryError("pool exhausted")
+
+    monkeypatch.setattr(gpu, "_column_block", _boom)
+    host._PREP_CACHE.clear()
+    mi2, ok2 = host.bootstrap_rank_mi(arr, y, reps, 10)
+    np.testing.assert_array_equal(ok2, want_ok)
+    np.testing.assert_allclose(mi2, want_mi, rtol=1e-12, atol=1e-14)

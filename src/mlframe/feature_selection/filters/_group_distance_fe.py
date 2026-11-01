@@ -139,7 +139,7 @@ def _kl_from_bin_counts(g_counts: np.ndarray, global_hist: np.ndarray) -> float:
 
 if _HAVE_NUMBA:
 
-    @njit(cache=True)
+    @njit(cache=True, nogil=True)
     def _wasserstein1_sorted_kernel(u_sorted, v_sorted) -> float:
         """Exact Wasserstein-1 between two PRE-SORTED empirical distributions in
         O(nu + nv). Reproduces ``scipy.stats._cdf_distance(p=1)``: the integral of

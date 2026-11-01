@@ -10,7 +10,7 @@ the column name, the period and the op, so ``transform`` reproduces them exactly
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 from collections.abc import Sequence
 
 import numpy as np
@@ -130,6 +130,29 @@ def scan_parity_period(v: np.ndarray, y: np.ndarray) -> tuple[float, float]:
     return float(grid[g]), max(float(mis[g]), 0.0)
 
 
+def _scan_parity_columns(usable: list, y_arr: np.ndarray) -> "list[tuple[float, float]]":
+    """``scan_parity_period`` of every ``(name, values, labels, all_finite)`` entry: the all-finite columns go to the device grid scan in one batch (when it applies), the others to the host scan one by one."""
+    out: "list[Any]" = [None] * len(usable)
+    batch = [i for i, (_c, v, _y, fin) in enumerate(usable) if fin]
+    if batch and len(usable[batch[0]][1]) and len(np.unique(y_arr)) <= 4:
+        from ._parity_gpu import parity_mi_grids_gpu, use_device_parity
+
+        n_rows = len(usable[batch[0]][1])
+        if use_device_parity(n_rows):
+            grids = [_parity_grid(usable[i][1]) for i in batch]
+            ok_idx = [j for j, g in enumerate(grids) if g.size]
+            y_codes = _dense_codes(y_arr)
+            mis = parity_mi_grids_gpu([usable[batch[j]][1] for j in ok_idx], y_codes, int(y_codes.max()) + 1, [grids[j] for j in ok_idx]) if ok_idx else None
+            if mis is not None:
+                for j, mi in zip(ok_idx, mis):
+                    best = int(np.argmax(mi))
+                    out[batch[j]] = (float(grids[j][best]), max(float(mi[best]), 0.0))
+                for j, grid in enumerate(grids):
+                    if not grid.size:
+                        out[batch[j]] = (float("nan"), 0.0)
+    return [out[i] if out[i] is not None else scan_parity_period(usable[i][1], usable[i][2]) for i in range(len(usable))]
+
+
 def hybrid_parity_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -147,14 +170,17 @@ def hybrid_parity_fe_with_recipes(
     if cols is None:
         cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c]) and not pd.api.types.is_bool_dtype(X[c])]
     rows = []
+    usable = []
     for c in cols:
         # Intentional float64: input of floor(v / period) mod 2; float32 cannot resolve the period on large values
         v = np.asarray(X[c].to_numpy(), dtype=np.float64)
         ok = np.isfinite(v)
         if ok.sum() < 20:
             continue
-        raw = _raw_mi(v[ok], y_arr[ok])
-        period, pmi = scan_parity_period(v[ok], y_arr[ok])
+        usable.append((c, v[ok], y_arr[ok], bool(ok.all())))
+    scans = _scan_parity_columns(usable, y_arr)
+    for (c, v_ok, y_ok, _all_finite), (period, pmi) in zip(usable, scans):
+        raw = _raw_mi(v_ok, y_ok)
         if not np.isfinite(period):
             continue
         rows.append({"col": c, "raw_mi": raw, "period": period, "parity_mi": pmi, "uplift": pmi - raw})

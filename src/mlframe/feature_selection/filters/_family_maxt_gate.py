@@ -25,6 +25,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 from numba import njit, prange
 
 from ._family_codes_njit import quantile_codes_block
+from ._quantile_codes_gpu import quantile_codes_block_auto
 from ._family_maxt_null_v2_njit import (
     BITSET_MAX_BINS,
     BITSET_MAX_CLASSES,
@@ -432,7 +433,7 @@ def _family_codes(X, n_bins: int):
                 col[bad] = np.median(col[~bad]) if (~bad).any() else 0.0
             v[j - j0] = col
         with parallel_kernel_entry():
-            quantile_codes_block(v, int(n_bins), cols[j0:j1], nx[j0:j1])
+            quantile_codes_block_auto(v, int(n_bins), cols[j0:j1], nx[j0:j1], host_kernel=quantile_codes_block)
     return cols, nx
 
 

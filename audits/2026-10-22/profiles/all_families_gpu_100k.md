@@ -129,3 +129,15 @@ the content memo, the accuracy-gate baseline key (rebuilt for every engineered s
 Also: `_row_center_finite` of the dedup (2.77 s to 0.16 s for 1800 x 100000) as one parallel njit pass.
 
 Not parallelisable by a host pool (checked): `_stage_greedy_cmi` (sequential greedy rounds), `hybrid_orth_mi_fe` (one device batch), `score_candidates_by_cmi` (device wait), `fleuret_conditional_recheck` (early stop on shared caches).
+
+## State after the device kernels of the 2026-11-01 series
+
+Stage map under the sampler (100000 x 100, every family, one process): wall 162.2 s, no OutOfMemoryError, no family raised. Largest main-thread stages: `_fit_body_run_fit_impl` 13.6 s (2.7 cores), `honest_null_columns_device` 8.8 (the v5 root-split kernel is the bulk:
+about 20x the 60 x 200 shape of the micro-benchmark), `_stage_binned_numeric_agg` 7.6 (device waits), `score_prospective_pairs` 6.6, `score_features_by_bootstrap_mi` 6.2 (4.2 cores), `score_features_by_auto_scorer_uplift` 5.6 (5.6 cores).
+
+New device kernels of the series, each with a host twin, an equivalence test and a profile note under `audits/2026-10-22/profiles/`: `_parity_gpu` (15x), `_triple_mi_gpu` (6.5x), `_quantile_codes_gpu` (radix selection, 2.4x; the sort variant is rejected, kept), `_honest_null_k4` (v5 default, v4/v4f kept),
+`_bootstrap_rank_mi_gpu` (default from 30000 rows after a pool-pressure fix). Host kernels given `nogil` so the column pools scale: Wasserstein, polynomial basis evaluators, digit extract, modular residue; the B-spline basis is now a compiled Cox-de Boor kernel (extra-basis scan 16.1 s to 10.9 s).
+
+Method lessons recorded here because they cost time: (1) a micro-benchmark win is not a fit win until the full fit is grepped for `OutOfMemoryError` and `FE raised` (the device bootstrap walk passed its benchmark and broke the pool in the fit); (2) identical code gives 145 to 230 s on this machine, so
+two-run A/B pairs are only direction, and the stage seconds of the sampler or the call time are the instruments for a 1 to 3 s change; (3) the pool wait of a main thread in a profile means the work is in the workers: scale the pool (1, 2, 4, 8 jobs) to see whether a GIL-held section is hiding there.
+Still not parallel or device-ported: `fleuret_conditional_recheck` and `_stage_greedy_cmi` (sequential with early stop), the within-stratum permutation null of the triplet scorer (needs its own device RNG scheme), `score_candidates_by_cmi` (waits on the device).

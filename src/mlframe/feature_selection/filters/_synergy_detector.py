@@ -68,8 +68,8 @@ def _quantize(col: np.ndarray, nbins: int, rng: np.random.Generator) -> np.ndarr
     uniq = np.unique(finite)
     if uniq.size <= nbins:
         # direct factorisation - preserves discrete bits exactly
-        lut = {v: i for i, v in enumerate(uniq.tolist())}
-        out = np.array([lut.get(v, 0) for v in col], dtype=np.int64)
+        out = np.searchsorted(uniq, col).astype(np.int64)  # every finite value is one of the sorted distinct values: its rank is its code
+        out[~np.isfinite(col)] = 0  # NaN / inf are not levels: code 0, as the dict lookup's default gave
         return out
     qs = np.quantile(finite, np.linspace(0, 1, nbins + 1)[1:-1])
     return np.clip(np.searchsorted(qs, col), 0, nbins - 1).astype(np.int64)
