@@ -400,57 +400,46 @@ def _binary_apply(xp, name, x, y):
     """Apply binary ``name`` to ``(x, y)`` mirroring ``feature_engineering.create_binary_transformations``
     EXACTLY (full catalog minus the temporarily-disabled agm/logn/binom - see _FULL_BINARY), incl. safe
     div's y==0 branch. Raises ValueError for an unknown/disabled op."""
+    op = _BINARY_APPLY_OPS.get(name)
+    if op is None:
+        raise ValueError(f"unknown binary {name!r}")
+    return op(xp, x, y)
+
+
+# GPU-DISABLED(restore): uncomment these + the matching _FULL_BINARY entries + the
+# feature_engineering.py catalog lines to re-enable. agm needs a cupyx/custom kernel (absent here);
+# logn is np.emath.logn (complex base) - a real GPU form is log(y-ymin+0.1)/log(x-xmin+0.1); binom
+# is deferred with the batch.
+# if name == "agm":
+#     return _xp_special(xp).agm(x, y)
+# if name == "logn":
+#     xs = x - xp.min(x) + 0.1
+#     ys = y - xp.min(y) + 0.1
+#     return xp.log(ys) / xp.log(xs)
+# if name == "binom":
+#     return _xp_special(xp).binom(x, y)
+_BINARY_APPLY_OPS = {
     # --- minimal ---
-    if name == "mul":
-        return x * y
-    if name == "add":
-        return x + y
-    if name == "sub":
-        return x - y
-    if name == "div":
-        safe_y = xp.where(y == 0.0, 1e-9, y)
-        return x / safe_y
-    if name == "max":
-        return xp.maximum(x, y)
-    if name == "min":
-        return xp.minimum(x, y)
+    "mul": lambda xp, x, y: x * y,
+    "add": lambda xp, x, y: x + y,
+    "sub": lambda xp, x, y: x - y,
+    "div": lambda xp, x, y: x / xp.where(y == 0.0, 1e-9, y),
+    "max": lambda xp, x, y: xp.maximum(x, y),
+    "min": lambda xp, x, y: xp.minimum(x, y),
     # --- medium ---
-    if name == "abs_diff":
-        return xp.abs(x - y)
-    if name == "hypot":
-        return xp.hypot(x, y)
-    if name == "signed":  # sign(x)*|y| - non-symmetrical
-        return xp.sign(x) * xp.abs(y)
-    if name == "ratio_abs":  # x/(|y|+1) - non-symmetrical
-        return x / (xp.abs(y) + 1.0)
+    "abs_diff": lambda xp, x, y: xp.abs(x - y),
+    "hypot": lambda xp, x, y: xp.hypot(x, y),
+    "signed": lambda xp, x, y: xp.sign(x) * xp.abs(y),  # sign(x)*|y| - non-symmetrical
+    "ratio_abs": lambda xp, x, y: x / (xp.abs(y) + 1.0),  # x/(|y|+1) - non-symmetrical
     # --- maximal ---
-    if name == "logaddexp":
-        return xp.logaddexp(x, y)
-    if name == "pow":  # non-symmetrical; negative^frac -> nan, scrubbed downstream (matches np.power)
-        return xp.power(x, y)
-    if name == "heaviside":
-        return xp.heaviside(x, y)
-    if name == "greater":
-        return (x > y).astype(int)
-    if name == "less":
-        return (x < y).astype(int)
-    if name == "equal":
-        return (x == y).astype(int)
-    if name == "beta":
-        return _xp_special(xp).beta(x, y)
-    # GPU-DISABLED(restore): uncomment these + the matching _FULL_BINARY entries + the
-    # feature_engineering.py catalog lines to re-enable. agm needs a cupyx/custom kernel (absent here);
-    # logn is np.emath.logn (complex base) - a real GPU form is log(y-ymin+0.1)/log(x-xmin+0.1); binom
-    # is deferred with the batch.
-    # if name == "agm":
-    #     return _xp_special(xp).agm(x, y)
-    # if name == "logn":
-    #     xs = x - xp.min(x) + 0.1
-    #     ys = y - xp.min(y) + 0.1
-    #     return xp.log(ys) / xp.log(xs)
-    # if name == "binom":
-    #     return _xp_special(xp).binom(x, y)
-    raise ValueError(f"unknown binary {name!r}")
+    "logaddexp": lambda xp, x, y: xp.logaddexp(x, y),
+    "pow": lambda xp, x, y: xp.power(x, y),  # non-symmetrical; negative^frac -> nan, scrubbed downstream (matches np.power)
+    "heaviside": lambda xp, x, y: xp.heaviside(x, y),
+    "greater": lambda xp, x, y: (x > y).astype(int),
+    "less": lambda xp, x, y: (x < y).astype(int),
+    "equal": lambda xp, x, y: (x == y).astype(int),
+    "beta": lambda xp, x, y: _xp_special(xp).beta(x, y),
+}
 
 
 def _candidate_names(a_label: str = "a", b_label: str = "b") -> list[str]:

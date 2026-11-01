@@ -144,6 +144,56 @@ def _batched_gate_scalars(cp: Any, Vdev: Any, basis_by_idx: list, name_to_idx: d
     return _gate
 
 
+def _upload_pure_form_inputs(cp, form_values, base_columns, rel_host, n, P, B):
+    """ONE bulk host-to-device upload of the form-value matrix, the raw-operand matrix and the relevance target; ``None`` on a ragged column."""
+    from ._usability_aware_selection import _f64, _scrub
+
+    # ---- ONE bulk H2D: the (n, P) form-value matrix, the (n, B) raw-operand matrix, the (n,) target. ----
+    Vhost = np.empty((n, P), dtype=np.float64)
+    for j in range(P):
+        col = _f64(_scrub(np.asarray(form_values[j])))
+        if col.shape[0] != n:
+            return None  # ragged -> let the CPU path handle it exactly
+        Vhost[:, j] = col
+    Bhost = np.empty((n, B), dtype=np.float64)
+    for i in range(B):
+        col = _f64(_scrub(np.asarray(base_columns[i])))
+        if col.shape[0] != n:
+            return None
+        Bhost[:, i] = col
+
+    return cp.asarray(Vhost), cp.asarray(Bhost), cp.asarray(rel_host)
+
+
+def _basis_stack(cp, xcol):
+    """Standardize ``xcol`` and expand it into the 6-function additive basis (linear, square, cube, signed-sqrt, signed-log1p, reciprocal-magnitude) used to test whether a candidate adds nonlinear value over its raw operand."""
+    xs = standardise(xcol, xp=cp)
+    return cp.stack([
+        xs, xs * xs, xs * xs * xs,
+        cp.sign(xs) * cp.sqrt(cp.abs(xs)),
+        cp.sign(xs) * cp.log1p(cp.abs(xs)),
+        1.0 / (cp.abs(xs) + 1.0),
+    ], axis=1)                                 # (n, 6)
+def _verdict_flags(_gate, P, min_resid_frac, min_resid_corr, y_std, ss_yrel) -> list:
+    """Per-candidate keep verdicts from the batched gate scalars: non-separable and residual relevant to y."""
+    out = [False] * P
+    for j in range(P):
+        f_std, resid_std, ss_rc, num = (float(_v) for _v in _gate[j])
+        if f_std <= 1e-12:
+            continue
+        # (a) non-separable gate.
+        if resid_std < min_resid_frac * f_std:
+            continue
+        # (b) residual relevant to y: the SAME centered |corr| estimator (std<1e-12 -> 0) the CPU ``_abscorr``
+        # uses; only the scalar |corr| decides admission.
+        if resid_std < 1e-12 or y_std < 1e-12 or ss_yrel <= 0.0 or ss_rc <= 0.0:
+            continue
+        denom = float(np.sqrt(ss_rc * ss_yrel))
+        corr = abs(num / denom) if denom > 0.0 and np.isfinite(num / denom) else 0.0
+        out[j] = corr >= min_resid_corr
+    return out
+
+
 def adds_nonlinear_value_batch_gpu_resident(
     form_values: list,
     src_pairs: list,
@@ -201,37 +251,15 @@ def adds_nonlinear_value_batch_gpu_resident(
             return None
         name_to_idx = {nm: i for i, nm in enumerate(base_names)}
 
-        # ---- ONE bulk H2D: the (n, P) form-value matrix, the (n, B) raw-operand matrix, the (n,) target. ----
-        Vhost = np.empty((n, P), dtype=np.float64)
-        for j in range(P):
-            col = _f64(_scrub(np.asarray(form_values[j])))
-            if col.shape[0] != n:
-                return None  # ragged -> let the CPU path handle it exactly
-            Vhost[:, j] = col
-        Bhost = np.empty((n, B), dtype=np.float64)
-        for i in range(B):
-            col = _f64(_scrub(np.asarray(base_columns[i])))
-            if col.shape[0] != n:
-                return None
-            Bhost[:, i] = col
-
-        Vdev = cp.asarray(Vhost)  # (n, P) resident
-        Bdev = cp.asarray(Bhost)  # (n, B) resident
-        ydev = cp.asarray(rel_host)  # (n,) resident
+        uploaded = _upload_pure_form_inputs(cp, form_values, base_columns, rel_host, n, P, B)
+        if uploaded is None:
+            return None
+        Vdev, Bdev, ydev = uploaded
 
         # Precompute the 6-function additive basis for EVERY distinct raw operand ONCE (resident, (n, 6) each),
         # so a candidate's design is two index lookups - not a re-derivation/re-upload per candidate.
-        def _basis(xcol):
-            """Standardize ``xcol`` and expand it into the 6-function additive basis (linear, square, cube, signed-sqrt, signed-log1p, reciprocal-magnitude) used to test whether a candidate adds nonlinear value over its raw operand."""
-            xs = standardise(xcol, xp=cp)
-            return cp.stack([
-                xs, xs * xs, xs * xs * xs,
-                cp.sign(xs) * cp.sqrt(cp.abs(xs)),
-                cp.sign(xs) * cp.log1p(cp.abs(xs)),
-                1.0 / (cp.abs(xs) + 1.0),
-            ], axis=1)                                 # (n, 6)
 
-        basis_by_idx = [_basis(Bdev[:, i]) for i in range(B)]
+        basis_by_idx = [_basis_stack(cp, Bdev[:, i]) for i in range(B)]
 
         # Relevance-target centered pieces (resident, computed ONCE).
         ybar_rel = ydev.mean()
@@ -239,25 +267,10 @@ def adds_nonlinear_value_batch_gpu_resident(
         ss_yrel = float(cp.dot(yc_rel, yc_rel))  # scalar; bounded
         y_std = float(ydev.std())
 
-        out = [False] * P
         _gate = _batched_gate_scalars(cp, Vdev, basis_by_idx, name_to_idx, src_pairs, yc_rel, P)
         if _gate is None:
             return None  # operand missing from the resident base set -> exact CPU path
-        for j in range(P):
-            f_std, resid_std, ss_rc, num = (float(_v) for _v in _gate[j])
-            if f_std <= 1e-12:
-                continue
-            # (a) non-separable gate.
-            if resid_std < min_resid_frac * f_std:
-                continue
-            # (b) residual relevant to y: the SAME centered |corr| estimator (std<1e-12 -> 0) the CPU ``_abscorr``
-            # uses; only the scalar |corr| decides admission.
-            if resid_std < 1e-12 or y_std < 1e-12 or ss_yrel <= 0.0 or ss_rc <= 0.0:
-                continue
-            denom = float(np.sqrt(ss_rc * ss_yrel))
-            corr = abs(num / denom) if denom > 0.0 and np.isfinite(num / denom) else 0.0
-            out[j] = corr >= min_resid_corr
-        return out
+        return _verdict_flags(_gate, P, min_resid_frac, min_resid_corr, y_std, ss_yrel)
     except _DEV_ERRS as _exc:
         logger.debug("adds_nonlinear_value_batch_gpu_resident fell back to its default after %s", type(_exc).__name__)
         return None  # genuine cupy/device/linalg fault in setup/upload -> exact CPU path (logic bugs propagate)

@@ -7,7 +7,6 @@ import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 try:
-    from numba import njit
     from numba.core import types as _nb_types
     from numba.typed import Dict as _NbDict
     _NUMBA_AVAILABLE = True
@@ -15,8 +14,6 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
     _NUMBA_AVAILABLE = False
     _nb_types = None
     _NbDict = None
-
-    from mlframe._numba_fallback import njit
 
 
 from mlframe.utils.log_throttle import log_throttle
@@ -253,72 +250,4 @@ def _quantile_bin(col: np.ndarray, nbins: int, *, host_only: bool = False) -> np
     return out
 
 
-_FAC_ARRAY_CAP = 16_000_000
-
-
-@njit(cache=True)
-def _factorize_dense_njit(joint: np.ndarray) -> tuple:
-    """Factorize an int64 array to dense first-seen ids in one O(n) pass.
-
-    Replaces ``np.unique(joint, return_inverse=True)``'s O(n log n) sort. The
-    per-fold joint is bounded (``old_dense(0..mult-1) + c*mult``), so when the
-    max id keeps the ``seen`` buffer small we use a direct-array counting pass
-    (array indexing, no hashing - ~10x over the typed.Dict form, ~17x over
-    np.unique on the common low-cardinality group/cat joints). A typed.Dict
-    fallback guards the rare cartesian-blow-up (high-card col x large running
-    class count) so the lookup buffer never explodes.
-
-    Ids are assigned FIRST-SEEN, not sorted - semantically equivalent for every
-    consumer: the joint feeds only plug-in entropy (count-based, label-
-    permutation-invariant) and further renumbering, and the next
-    ``joint + c*mult`` step is a bijection regardless of the 0..k-1 permutation.
-    nclasses + the induced partition are identical to the numpy form (verified).
-    """
-    n = joint.size
-    if n == 0:
-        return joint, 0
-    jmax = 0
-    jmin = 0
-    for i in range(n):
-        v = joint[i]
-        if v > jmax:
-            jmax = v
-        if v < jmin:
-            jmin = v
-    inv = np.empty(n, dtype=np.int64)
-    nc = 0
-    # A direct table over the id range costs a memset and a cache miss per element once the range is far above the row count; beyond 16 n it is cheaper to hash.
-    if jmin >= 0 and jmax < _FAC_ARRAY_CAP and jmax < 16 * n + 1024:
-        # Direct-array counting path (fast common case).
-        seen = np.full(jmax + 1, -1, dtype=np.int64)
-        for i in range(n):
-            v = joint[i]
-            s = seen[v]
-            if s >= 0:
-                inv[i] = s
-            else:
-                seen[v] = nc
-                inv[i] = nc
-                nc += 1
-    else:
-        # Open-addressing hash table (power-of-two size, at most half full, Fibonacci hashing, linear probing) for a wide id range or negative ids; ids are first-seen, as in the direct table.
-        bits = 4
-        while (1 << bits) < 2 * n:
-            bits += 1
-        mask = np.int64((1 << bits) - 1)
-        shift = np.uint64(64 - bits)
-        keys = np.empty(1 << bits, dtype=np.int64)
-        slot_id = np.full(1 << bits, -1, dtype=np.int64)
-        for i in range(n):
-            v = joint[i]
-            h = np.int64((np.uint64(v) * np.uint64(11400714819323198485)) >> shift)
-            while slot_id[h] >= 0 and keys[h] != v:
-                h = (h + 1) & mask
-            if slot_id[h] >= 0:
-                inv[i] = slot_id[h]
-            else:
-                keys[h] = v
-                slot_id[h] = nc
-                inv[i] = nc
-                nc += 1
-    return inv, nc
+from ._numba_utils_shared import _FAC_ARRAY_CAP, _factorize_dense_njit  # noqa: F401  -- hosted in _numba_utils_shared for the cross-module njit invariant

@@ -65,13 +65,7 @@ def apply_entity_time_composite_fe(
         return train_df, val_df, test_df
 
     if metadata is not None:
-        metadata["state_duration_columns"] = state_cols
-        metadata["state_duration_include_activation_count"] = bool(getattr(config, "state_duration_include_activation_count", False))
-        metadata["recency_aggregation_columns"] = recency_cols
-        metadata["recency_aggregation_scheme"] = str(getattr(config, "recency_aggregation_scheme", "poly") or "poly")
-        _recency_param = getattr(config, "recency_aggregation_param", None)
-        metadata["recency_aggregation_param"] = 1.0 if _recency_param is None else float(_recency_param)
-        metadata["recency_aggregation_agg"] = str(getattr(config, "recency_aggregation_agg", "mean") or "mean")
+        _persist_entity_time_metadata(metadata, config, state_cols, recency_cols)
 
     group_ids = np.asarray(group_ids)
     ts_arr = np.asarray(timestamps) if timestamps is not None else None
@@ -100,41 +94,58 @@ def apply_entity_time_composite_fe(
             out[split_name] = df
             continue
         g, t = sliced
-        new_cols = pd.DataFrame(index=range(row_count(df)))
-
-        for col in state_cols:
-            state_vals = _to_numpy_column(df, col)
-            if state_vals is None:
-                continue
-            try:
-                include_ac = bool(getattr(config, "state_duration_include_activation_count", False))
-                result = time_since_state_change(state_vals, g, include_activation_count=include_ac)
-                for out_name, out_vals in result.items():
-                    new_cols[f"{col}__{out_name}"] = out_vals
-            except Exception:
-                log_throttle(logger, "entity_time_fe_state_duration_failed", logging.ERROR, "apply_entity_time_composite_fe: state_duration step failed for column %r; skipping.", col, exc_info=True)
-
-        for col in recency_cols:
-            vals = _to_numpy_column(df, col)
-            if vals is None:
-                continue
-            try:
-                scheme = str(getattr(config, "recency_aggregation_scheme", "poly") or "poly")
-                _recency_param = getattr(config, "recency_aggregation_param", None)
-                param = 1.0 if _recency_param is None else float(_recency_param)
-                agg = str(getattr(config, "recency_aggregation_agg", "mean") or "mean")
-                recency_vals = per_group_recency_weighted_agg(
-                    np.asarray(vals, dtype=np.float64), g, agg=agg, order=t, scheme=scheme, param=param,
-                )
-                new_cols[f"{col}__recency_{agg}"] = recency_vals
-            except Exception:
-                log_throttle(logger, "entity_time_fe_recency_aggregation_failed", logging.ERROR, "apply_entity_time_composite_fe: recency_aggregation step failed for column %r; skipping.", col, exc_info=True)
+        new_cols = _build_entity_time_columns(df, g, t, config, state_cols, recency_cols)
 
         out[split_name] = attach_new_columns(df, new_cols)
         if verbose and new_cols.shape[1] > 0:
             logger.info("apply_entity_time_composite_fe[%s]: added %d column(s)", split_name, new_cols.shape[1])
 
     return out["train"], out["val"], out["test"]
+
+
+def _persist_entity_time_metadata(metadata: dict, config: Any, state_cols: list, recency_cols: list) -> None:
+    """Record the exact state/recency column lists and params on ``metadata`` so predict-time replay matches fit."""
+    metadata["state_duration_columns"] = state_cols
+    metadata["state_duration_include_activation_count"] = bool(getattr(config, "state_duration_include_activation_count", False))
+    metadata["recency_aggregation_columns"] = recency_cols
+    metadata["recency_aggregation_scheme"] = str(getattr(config, "recency_aggregation_scheme", "poly") or "poly")
+    _recency_param = getattr(config, "recency_aggregation_param", None)
+    metadata["recency_aggregation_param"] = 1.0 if _recency_param is None else float(_recency_param)
+    metadata["recency_aggregation_agg"] = str(getattr(config, "recency_aggregation_agg", "mean") or "mean")
+
+
+def _build_entity_time_columns(df: Any, g: Any, t: Any, config: Any, state_cols: list, recency_cols: list) -> pd.DataFrame:
+    """Compute the state-duration and recency-aggregation columns for one split's rows, failing soft per column."""
+    new_cols = pd.DataFrame(index=range(row_count(df)))
+
+    for col in state_cols:
+        state_vals = _to_numpy_column(df, col)
+        if state_vals is None:
+            continue
+        try:
+            include_ac = bool(getattr(config, "state_duration_include_activation_count", False))
+            result = time_since_state_change(state_vals, g, include_activation_count=include_ac)
+            for out_name, out_vals in result.items():
+                new_cols[f"{col}__{out_name}"] = out_vals
+        except Exception:
+            log_throttle(logger, "entity_time_fe_state_duration_failed", logging.ERROR, "apply_entity_time_composite_fe: state_duration step failed for column %r; skipping.", col, exc_info=True)
+
+    for col in recency_cols:
+        vals = _to_numpy_column(df, col)
+        if vals is None:
+            continue
+        try:
+            scheme = str(getattr(config, "recency_aggregation_scheme", "poly") or "poly")
+            _recency_param = getattr(config, "recency_aggregation_param", None)
+            param = 1.0 if _recency_param is None else float(_recency_param)
+            agg = str(getattr(config, "recency_aggregation_agg", "mean") or "mean")
+            recency_vals = per_group_recency_weighted_agg(
+                np.asarray(vals, dtype=np.float64), g, agg=agg, order=t, scheme=scheme, param=param,
+            )
+            new_cols[f"{col}__recency_{agg}"] = recency_vals
+        except Exception:
+            log_throttle(logger, "entity_time_fe_recency_aggregation_failed", logging.ERROR, "apply_entity_time_composite_fe: recency_aggregation step failed for column %r; skipping.", col, exc_info=True)
+    return new_cols
 
 
 class _ReplayConfig:

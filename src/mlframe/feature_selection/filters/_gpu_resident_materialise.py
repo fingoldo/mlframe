@@ -769,6 +769,21 @@ def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype: Any = np.i
     # the round-trip is skipped only when the resident CUDA gate is the actual consumer (it matches ``out``
     # by identity). Bit-identical to the host codes -> selection unchanged.
     _resident_codes_on = fe_gpu_resident_codes_enabled()
+    if _resident_codes_on:
+        # Residency is an optimisation: when the full (n, K) resident buffer cannot fit free VRAM, drop it and keep the
+        # blockwise host path. Allocating it anyway oversubscribes the card and stalls the blockwise uploads that follow.
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        _resident_bytes = n * K * np.dtype(dtype).itemsize
+        if not fe_gpu_has_vram_cushion(_resident_bytes):
+            log_throttle(
+                logger,
+                "gpu_discretize.resident_codes_vram",
+                logging.WARNING,
+                "GPU discretise: the resident (n, K) codes buffer (%d MB) does not fit the free VRAM cushion; keeping the codes on the host",
+                _resident_bytes // (1024 * 1024),
+            )
+            _resident_codes_on = False
     dev_codes = cp.empty((n, K), dtype=cp.dtype(np.dtype(dtype))) if _resident_codes_on else None
     # HOST-CODES D2H DEFERRAL. Direct callers (gpu_pairs_fe_mi's analytic path + the bit-identity
     # tests) read the returned host array IMMEDIATELY, so this leg's DEFAULT stays eager (defer_host_fill=False)

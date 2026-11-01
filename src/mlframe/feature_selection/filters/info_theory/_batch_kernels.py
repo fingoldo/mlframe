@@ -495,6 +495,29 @@ def batch_triple_mi_perm_batched(
 
 
 @njit(nogil=True, cache=True)
+def _plogp_sum(p: np.ndarray, m: int) -> float:
+    """Shannon entropy in nats of the first ``m`` probabilities; zero entries contribute nothing."""
+    h = 0.0
+    for i in range(m):
+        if p[i] > 0:
+            h -= p[i] * math.log(p[i])
+    return h
+
+
+@njit(nogil=True, cache=True)
+def _mi_from_joint(joint: np.ndarray, prob_x: np.ndarray, prob_y: np.ndarray, inv_n: float) -> float:
+    """Plug-in mutual information in nats of a joint count table given its marginal frequencies."""
+    mi_xy = 0.0
+    for i in range(joint.shape[0]):
+        for j in range(joint.shape[1]):
+            jc = joint[i, j]
+            if jc != 0:
+                jf = jc * inv_n
+                mi_xy += jf * math.log(jf / (prob_x[i] * prob_y[j]))
+    return mi_xy
+
+
+@njit(nogil=True, cache=True)
 def _perm_failcount_col(
     classes_dense: np.ndarray, k: int, freqs_dense: np.ndarray, K_x: int,
     locals_mat: np.ndarray, freqs_y: np.ndarray, n: int, npermutations: int,
@@ -521,17 +544,7 @@ def _perm_failcount_col(
     # SU normalisation denom is perm-invariant (depends only on freqs_dense[k] + freqs_y) -> hoist (same float).
     su_denom = 0.0
     if use_su:
-        h_x = 0.0
-        for a in range(K_x):
-            p = freqs_dense[k, a]
-            if p > 0:
-                h_x -= p * math.log(p)
-        h_y = 0.0
-        for b in range(K_y):
-            p = freqs_y[b]
-            if p > 0:
-                h_y -= p * math.log(p)
-        su_denom = h_x + h_y
+        su_denom = _plogp_sum(freqs_dense[k], K_x) + _plogp_sum(freqs_y, K_y)
     nfk = 0
     for i in range(npermutations):
         for a in range(K_x):
@@ -539,14 +552,7 @@ def _perm_failcount_col(
                 joint[a, b] = 0
         for r in range(n):
             joint[col_codes[r], locals_mat[i, r]] += 1
-        mi_perm = 0.0
-        for a in range(K_x):
-            prob_x = freqs_dense[k, a]
-            for b in range(K_y):
-                jc = joint[a, b]
-                if jc != 0:
-                    jf = jc * inv_n
-                    mi_perm += jf * math.log(jf / (prob_x * freqs_y[b]))
+        mi_perm = _mi_from_joint(joint, freqs_dense[k], freqs_y, inv_n)
         if use_su:
             if mi_perm < 0.0:
                 mi_perm = 0.0

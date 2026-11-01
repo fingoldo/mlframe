@@ -115,6 +115,7 @@ def test_the_honest_null_hook_returns_the_same_codes_with_and_without_the_binner
         return [fn(np.random.default_rng(s).permutation(n)) for s in range(3)]
 
     fast, plain = fit_and_codes(False), fit_and_codes(True)
+    assert len(fast) == len(plain) == 3
     for (c1, nb1), (c0, nb0) in zip(fast, plain):
         assert np.array_equal(c1, c0) and np.array_equal(nb1, nb0)
 

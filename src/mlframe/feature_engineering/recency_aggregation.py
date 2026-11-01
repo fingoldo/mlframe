@@ -157,6 +157,29 @@ def per_group_recency_weighted_mean(
 
 
 @njit(fastmath=False, cache=True)
+def _weighted_mean_or_spread(v_sorted: np.ndarray, s: int, m: int, scheme_code: int, param: float, agg_code: int) -> float:
+    """Recency-weighted mean (``agg_code`` 0) or population std / var (4 / 5) of the group ``v_sorted[s:s+m]``, two passes with inline weights."""
+    num = 0.0
+    den = 0.0
+    for pos in range(m):
+        w = _recency_weight(scheme_code, param, m, m - pos)
+        num += w * v_sorted[s + pos]
+        den += w
+    mean = num / den if den > 0.0 else np.nan
+    if agg_code == 0:
+        return mean
+    if den <= 0.0 or m < 2:
+        return np.nan
+    sq = 0.0
+    for pos in range(m):
+        w = _recency_weight(scheme_code, param, m, m - pos)
+        dv = v_sorted[s + pos] - mean
+        sq += w * dv * dv
+    var = sq / den
+    return np.sqrt(var) if agg_code == 4 else var
+
+
+@njit(fastmath=False, cache=True)
 def _group_recency_weighted_agg_sorted(v_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, scheme_code: int, param: float, agg_code: int) -> np.ndarray:
     """Per-group aggregation (mean/sum/min/max/std/var) of ``weight * value`` over group-contiguous, oldest-first values.
 
@@ -178,38 +201,8 @@ def _group_recency_weighted_agg_sorted(v_sorted: np.ndarray, starts: np.ndarray,
             out[g] = np.nan
             continue
         if agg_code == 0 or agg_code == 4 or agg_code == 5:
-            num = 0.0
-            den = 0.0
-            for pos in range(m):
-                i = m - pos
-                if scheme_code == 0:
-                    w = ((m - i + 1) / m) ** param
-                elif scheme_code == 1:
-                    w = param**i
-                else:
-                    w = 1.0 / (i**param)
-                num += w * v_sorted[s + pos]
-                den += w
-            mean = num / den if den > 0.0 else np.nan
-            if agg_code == 0:
-                out[g] = mean
-                continue
-            if den <= 0.0 or m < 2:
-                out[g] = np.nan
-                continue
-            sq = 0.0
-            for pos in range(m):
-                i = m - pos
-                if scheme_code == 0:
-                    w = ((m - i + 1) / m) ** param
-                elif scheme_code == 1:
-                    w = param**i
-                else:
-                    w = 1.0 / (i**param)
-                dv = v_sorted[s + pos] - mean
-                sq += w * dv * dv
-            var = sq / den
-            out[g] = np.sqrt(var) if agg_code == 4 else var
+            out[g] = _weighted_mean_or_spread(v_sorted, s, m, scheme_code, param, agg_code)
+            continue
         else:
             acc = 0.0 if agg_code == 1 else np.nan
             for pos in range(m):
@@ -229,6 +222,17 @@ def _group_recency_weighted_agg_sorted(v_sorted: np.ndarray, starts: np.ndarray,
                     acc = wv if (pos == 0 or wv > acc) else acc
             out[g] = acc
     return out
+
+
+@njit(fastmath=False, cache=True)
+def _recency_weight(scheme_code, param, m, i):
+    """Weight of the observation ``i`` steps from the end of a group of ``m`` rows under decay scheme ``scheme_code``."""
+    if scheme_code == 0:
+        return ((m - i + 1) / m) ** param
+    elif scheme_code == 1:
+        return param**i
+    else:
+        return 1.0 / (i**param)
 
 
 @njit(fastmath=False, cache=True)
@@ -262,12 +266,7 @@ def _group_recency_weighted_agg_multi_sorted(
                 den = 0.0
                 for pos in range(m):
                     i = m - pos
-                    if scheme_code == 0:
-                        w = ((m - i + 1) / m) ** param
-                    elif scheme_code == 1:
-                        w = param**i
-                    else:
-                        w = 1.0 / (i**param)
+                    w = _recency_weight(scheme_code, param, m, i)
                     num += w * v_sorted[s + pos]
                     den += w
                 mean = num / den if den > 0.0 else np.nan
@@ -280,12 +279,7 @@ def _group_recency_weighted_agg_multi_sorted(
                 sq = 0.0
                 for pos in range(m):
                     i = m - pos
-                    if scheme_code == 0:
-                        w = ((m - i + 1) / m) ** param
-                    elif scheme_code == 1:
-                        w = param**i
-                    else:
-                        w = 1.0 / (i**param)
+                    w = _recency_weight(scheme_code, param, m, i)
                     dv = v_sorted[s + pos] - mean
                     sq += w * dv * dv
                 var = sq / den
@@ -294,12 +288,7 @@ def _group_recency_weighted_agg_multi_sorted(
                 acc = 0.0 if agg_code == 1 else np.nan
                 for pos in range(m):
                     i = m - pos
-                    if scheme_code == 0:
-                        w = ((m - i + 1) / m) ** param
-                    elif scheme_code == 1:
-                        w = param**i
-                    else:
-                        w = 1.0 / (i**param)
+                    w = _recency_weight(scheme_code, param, m, i)
                     wv = w * v_sorted[s + pos]
                     if agg_code == 1:
                         acc += wv

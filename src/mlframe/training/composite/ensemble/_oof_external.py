@@ -29,6 +29,82 @@ from mlframe.training.composite.transforms.shared import call_transform
 logger = logging.getLogger("mlframe.training.composite.ensemble")
 
 
+def _composite_component_holdout_preds(inner, spec, base_train_full_per_spec, train_X, y_train_full, X_stack_t, X_holdout_t,
+                                       external_holdout_X, sample_weight, group_ids, _g_arr_all, random_state):
+    """Refit a composite component on its valid train rows and predict the external holdout (inner transform undone by the wrapper)."""
+    from mlframe.training.composite import ensemble as _ens  # helpers stay in the package module; resolved at call time (import order)
+
+    if spec is None:
+        raise ValueError("composite component with no spec")
+    base_full = base_train_full_per_spec.get(
+        str(spec.get("base_column") if spec.get("name") is None or spec.get("name") == "" else spec.get("name")),
+    )
+    if base_full is None:
+        raise ValueError(f"missing base column '{spec['base_column']}' " "for external-holdout OOF (train side)")
+    transform = get_transform(spec["transform_name"])
+    valid = transform.domain_check(y_train_full, base_full)
+    if valid.sum() < 10:
+        raise ValueError("too few valid rows after domain filter")
+    # A grouped transform reads the component's own group column from the raw train frame.
+    _t_group_col = getattr(inner, "group_column", None)
+    _t_groups = _extract_groups(train_X, _t_group_col)[valid] if _t_group_col else None
+    t_train = call_transform(transform, "forward", y_train_full[valid], base_full[valid], spec["fitted_params"], groups=_t_groups)
+    inner_clone = clone(inner.estimator_)
+    if isinstance(X_stack_t, pd.DataFrame):
+        X_train_valid = X_stack_t.iloc[valid].reset_index(
+            drop=True,
+        )
+    elif _is_polars_df(X_stack_t):
+        X_train_valid = X_stack_t.filter(pl.Series(valid))
+    else:
+        X_train_valid = X_stack_t[valid]
+    _sw_train_valid = None if sample_weight is None else sample_weight[valid]
+    _group_for_valid = None
+    if group_ids is not None:
+        try:
+            _g_arr = _g_arr_all
+            assert _g_arr is not None  # guaranteed by the `group_ids is not None` check above
+            if _g_arr.shape[0] == valid.shape[0]:
+                _group_for_valid = _g_arr[valid]
+        except (TypeError, IndexError):
+            _group_for_valid = None
+    _X_fit_c, _t_fit_c, _X_ev_c, _t_ev_c, _fm_c = (
+        _carve_inner_eval_split(
+            X_train_valid, t_train, random_state=int(random_state),
+            group_ids=_group_for_valid, return_fit_mask=True,
+        )
+    )
+    _eval_set_c = (_X_ev_c, _t_ev_c) if _X_ev_c is not None else None
+    _sw_fit_c = _align_fit_sw(_sw_train_valid, _fm_c, len(_t_fit_c))
+    _ens._maybe_pass_sample_weight(
+        inner_clone, _X_fit_c, _t_fit_c, _sw_fit_c,
+        eval_set=_eval_set_c, fitted_source=inner.estimator_,
+    )
+    wrapped = _ens._wrap_fitted_inner(spec, inner_clone, spec["fitted_params"], y_train_full[valid], base_full[valid], getattr(inner, "group_column", None),
+                                      train_X, valid)
+    return wrapped.predict(external_holdout_X, inner_X=X_holdout_t)
+
+
+def _plain_component_holdout_preds(inner, X_stack_t, X_holdout_t, y_train_full, sample_weight, group_ids, random_state):
+    """Refit a plain component on the full train and predict the external holdout."""
+    from mlframe.training.composite import ensemble as _ens  # helpers stay in the package module; resolved at call time (import order)
+
+    inner_clone = clone(inner)
+    _X_fit_r, _y_fit_r, _X_ev_r, _y_ev_r, _fm_r = (
+        _carve_inner_eval_split(
+            X_stack_t, y_train_full, random_state=int(random_state),
+            group_ids=group_ids, return_fit_mask=True,
+        )
+    )
+    _eval_set_r = (_X_ev_r, _y_ev_r) if _X_ev_r is not None else None
+    _sw_fit_r = _align_fit_sw(sample_weight, _fm_r, len(_y_fit_r))
+    _ens._maybe_pass_sample_weight(
+        inner_clone, _X_fit_r, _y_fit_r, _sw_fit_r,
+        eval_set=_eval_set_r, fitted_source=inner,
+    )
+    return inner_clone.predict(X_holdout_t)
+
+
 def _compute_oof_with_external_holdout(
     *,
     # Slice-stable ES (mlframe.training.SliceStableESConfig) is NOT propagated into the inner OOF refit loop: this function builds its own per-fold ``eval_set`` via ``_carve_eval_set_from_train_with_groups`` and a single (X_holdout, y_holdout) pair, incompatible with the multi-eval-set / per-shard registration path slice-ES needs. Callers wanting robust ES inside OOF refit should use full-K-fold CV with an outer selector (see ``_cv_aggregation.aggregate_fold_scores``).
@@ -70,70 +146,12 @@ def _compute_oof_with_external_holdout(
                 _pair_memo, pp, train_X, external_holdout_X, y_train=y_train_full,
             )
             if isinstance(inner, CompositeTargetEstimator):
-                if spec is None:
-                    raise ValueError("composite component with no spec")
-                base_full = base_train_full_per_spec.get(
-                    str(spec.get("base_column") if spec.get("name") is None or spec.get("name") == "" else spec.get("name")),
+                preds = _composite_component_holdout_preds(
+                    inner, spec, base_train_full_per_spec, train_X, y_train_full, X_stack_t, X_holdout_t,
+                    external_holdout_X, sample_weight, group_ids, _g_arr_all, random_state,
                 )
-                if base_full is None:
-                    raise ValueError(f"missing base column '{spec['base_column']}' " "for external-holdout OOF (train side)")
-                transform = get_transform(spec["transform_name"])
-                valid = transform.domain_check(y_train_full, base_full)
-                if valid.sum() < 10:
-                    raise ValueError("too few valid rows after domain filter")
-                # A grouped transform reads the component's own group column from the raw train frame.
-                _t_group_col = getattr(inner, "group_column", None)
-                _t_groups = _extract_groups(train_X, _t_group_col)[valid] if _t_group_col else None
-                t_train = call_transform(transform, "forward", y_train_full[valid], base_full[valid], spec["fitted_params"], groups=_t_groups)
-                inner_clone = clone(inner.estimator_)
-                if isinstance(X_stack_t, pd.DataFrame):
-                    X_train_valid = X_stack_t.iloc[valid].reset_index(
-                        drop=True,
-                    )
-                elif _is_polars_df(X_stack_t):
-                    X_train_valid = X_stack_t.filter(pl.Series(valid))
-                else:
-                    X_train_valid = X_stack_t[valid]
-                _sw_train_valid = None if sample_weight is None else sample_weight[valid]
-                _group_for_valid = None
-                if group_ids is not None:
-                    try:
-                        _g_arr = _g_arr_all
-                        assert _g_arr is not None  # guaranteed by the `group_ids is not None` check above
-                        if _g_arr.shape[0] == valid.shape[0]:
-                            _group_for_valid = _g_arr[valid]
-                    except (TypeError, IndexError):
-                        _group_for_valid = None
-                _X_fit_c, _t_fit_c, _X_ev_c, _t_ev_c, _fm_c = (
-                    _carve_inner_eval_split(
-                        X_train_valid, t_train, random_state=int(random_state),
-                        group_ids=_group_for_valid, return_fit_mask=True,
-                    )
-                )
-                _eval_set_c = (_X_ev_c, _t_ev_c) if _X_ev_c is not None else None
-                _sw_fit_c = _align_fit_sw(_sw_train_valid, _fm_c, len(_t_fit_c))
-                _ens._maybe_pass_sample_weight(
-                    inner_clone, _X_fit_c, _t_fit_c, _sw_fit_c,
-                    eval_set=_eval_set_c, fitted_source=inner.estimator_,
-                )
-                wrapped = _ens._wrap_fitted_inner(spec, inner_clone, spec["fitted_params"], y_train_full[valid], base_full[valid], getattr(inner, "group_column", None),
-                                                  train_X, valid)
-                preds = wrapped.predict(external_holdout_X, inner_X=X_holdout_t)
             else:
-                inner_clone = clone(inner)
-                _X_fit_r, _y_fit_r, _X_ev_r, _y_ev_r, _fm_r = (
-                    _carve_inner_eval_split(
-                        X_stack_t, y_train_full, random_state=int(random_state),
-                        group_ids=group_ids, return_fit_mask=True,
-                    )
-                )
-                _eval_set_r = (_X_ev_r, _y_ev_r) if _X_ev_r is not None else None
-                _sw_fit_r = _align_fit_sw(sample_weight, _fm_r, len(_y_fit_r))
-                _ens._maybe_pass_sample_weight(
-                    inner_clone, _X_fit_r, _y_fit_r, _sw_fit_r,
-                    eval_set=_eval_set_r, fitted_source=inner,
-                )
-                preds = inner_clone.predict(X_holdout_t)
+                preds = _plain_component_holdout_preds(inner, X_stack_t, X_holdout_t, y_train_full, sample_weight, group_ids, random_state)
             preds = np.asarray(preds).reshape(-1).astype(np.float64)
             if preds.shape[0] != external_holdout_y.shape[0]:
                 raise ValueError(f"component '{name}' predicted " f"{preds.shape[0]} rows but external holdout has " f"{external_holdout_y.shape[0]}")

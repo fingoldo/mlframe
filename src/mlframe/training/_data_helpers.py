@@ -219,25 +219,8 @@ def _initialize_mutable_defaults(drop_columns, default_drop_columns, fi_kwargs, 
     return drop_columns, default_drop_columns, fi_kwargs, confidence_model_kwargs
 
 
-def _validate_target_values(target, subset_name="train", is_classification=None):
-    """Check target for NaN / infinity values and (for classification)
-    single-class collapse before training.
-
-    Single-class detection: when ``is_classification=True`` and the
-    target carries fewer than 2 unique values, raise a ValueError
-    BEFORE the per-backend fit. CatBoost otherwise crashes with
-    ``target_converter.cpp:404: Target contains only one unique value``,
-    XGBoost with ``num_class is 1, expected at least 2``, etc. -- all
-    opaque C++ errors. The proximate cause in fuzz is upstream filter
-    aggression (outlier_detection + trainset_aging_limit + rare imbalance
-    class) eliminating the minority class entirely from train. The
-    early raise gives operators a clear diagnostic instead of a deep
-    backend crash (fuzz seed=99 c0016 / 2026-04-27).
-
-    is_classification=None preserves the historical behaviour: only
-    the NaN/inf check runs, so callers that haven't been migrated to
-    pass the flag explicitly are unaffected.
-    """
+def _target_as_numpy(target):
+    """Plain numpy array of a target for the finiteness checks; nullable and polars nulls come through as NaN."""
     # Coerce target to a plain numpy ndarray for the np.isfinite checks below.
     # Pre-fix shape (previous silent-coercion audit): bare
     # ``target.values if pd.Series else target`` returned a pandas
@@ -265,6 +248,91 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
                 arr = target.to_numpy()
         else:
             arr = np.asarray(target)
+    return arr
+
+
+def _check_classification_target(target, subset_name):
+    """Raise on a single-class classification target and log degenerate multilabel columns."""
+    try:
+        arr_np = np.asarray(target)
+        # Object dtype with nested arrays (polars ``pl.List`` roundtrip
+        # for multilabel) presents as 1-D but each cell is itself an
+        # array. Stack to a true 2-D shape so the per-label degenerate
+        # check below works without ``np.unique`` choking on cell-array
+        # comparison ("truth value ambiguous", surfaced 3-way fuzz
+        # c0000).
+        if arr_np.dtype == object and arr_np.ndim == 1 and arr_np.shape[0] > 0:
+            _first = arr_np[0]
+            if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
+                try:
+                    arr_np = np.stack([np.asarray(c) for c in arr_np], axis=0)
+                except Exception as e:
+                    logger.debug("swallowed exception in _data_helpers.py: %s", e)
+                    pass
+        if arr_np.ndim > 1:
+            # Multilabel / multiclass-prob: per-column unique check.
+            # If ANY column has only one unique value, the model
+            # for that label is degenerate but the others may
+            # train. Report at WARNING and let the per-backend
+            # path decide.
+            degenerate_cols = [_i for _i in range(arr_np.shape[1]) if len(np.unique(arr_np[:, _i])) < 2]
+            if degenerate_cols:
+                logger.warning(
+                    "%s target has %d label column(s) with a single unique "
+                    "value: %s. The corresponding per-label model(s) will "
+                    "fail; the rest may train normally if the multilabel "
+                    "strategy supports it.",
+                    subset_name,
+                    len(degenerate_cols),
+                    degenerate_cols,
+                )
+        else:
+            if len(np.unique(arr_np)) < 2:
+                # arr_np.size == 0 (an empty target) means np.unique returns an empty array too
+                # (len 0 < 2), so this branch also fires on a genuinely EMPTY target, not just a
+                # single-value one -- arr_np.flat[0] on an empty array raises IndexError, which
+                # the `except ValueError: raise` below does NOT match, so it fell through to the
+                # generic `except Exception` and was silently swallowed as a debug log, masking
+                # the intended diagnostic entirely and letting the empty target proceed straight
+                # to a much more opaque downstream backend crash. Guard the message construction
+                # so both the single-value and empty-target cases raise their own clear ValueError.
+                _value_desc = f"({arr_np.flat[0]!r}); classification needs at least 2 classes" if arr_np.size > 0 else "-- the target is EMPTY (0 rows)"
+                raise ValueError(
+                    f"{subset_name} target has only one unique value "
+                    f"{_value_desc}. Most likely cause: upstream filtering "
+                    f"(outlier_detection + trainset_aging_limit + rare "
+                    f"imbalance) eliminated the minority class entirely. "
+                    f"Investigate the filter pipeline OR loosen the "
+                    f"contamination / aging knobs."
+                )
+    except ValueError:
+        raise
+    except Exception as e:  # nosec B110 - non-trivial body
+        # np.unique/asarray edge cases on object dtype etc -- let the
+        # downstream backend surface its own error.
+        logger.debug("target uniqueness pre-check failed, deferring to downstream backend: %s", e)
+
+
+def _validate_target_values(target, subset_name="train", is_classification=None):
+    """Check target for NaN / infinity values and (for classification)
+    single-class collapse before training.
+
+    Single-class detection: when ``is_classification=True`` and the
+    target carries fewer than 2 unique values, raise a ValueError
+    BEFORE the per-backend fit. CatBoost otherwise crashes with
+    ``target_converter.cpp:404: Target contains only one unique value``,
+    XGBoost with ``num_class is 1, expected at least 2``, etc. -- all
+    opaque C++ errors. The proximate cause in fuzz is upstream filter
+    aggression (outlier_detection + trainset_aging_limit + rare imbalance
+    class) eliminating the minority class entirely from train. The
+    early raise gives operators a clear diagnostic instead of a deep
+    backend crash (fuzz seed=99 c0016 / 2026-04-27).
+
+    is_classification=None preserves the historical behaviour: only
+    the NaN/inf check runs, so callers that haven't been migrated to
+    pass the flag explicitly are unaffected.
+    """
+    arr = _target_as_numpy(target)
     # Single-pass finiteness check; only re-scan the (typically empty) non-finite subset to split nan_count vs inf_count.
     # Two separate isnan/isinf .sum() calls walked the full array twice on the common all-finite case.
     finite_mask = _finite_mask_or_none(arr)
@@ -282,64 +350,7 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
             parts.append(f"{inf_count:_} infinity")
         raise ValueError(f"{subset_name} target contains {' and '.join(parts)} value(s). " f"Clean the target before training.")
     if is_classification:
-        try:
-            arr_np = np.asarray(target)
-            # Object dtype with nested arrays (polars ``pl.List`` roundtrip
-            # for multilabel) presents as 1-D but each cell is itself an
-            # array. Stack to a true 2-D shape so the per-label degenerate
-            # check below works without ``np.unique`` choking on cell-array
-            # comparison ("truth value ambiguous", surfaced 3-way fuzz
-            # c0000).
-            if arr_np.dtype == object and arr_np.ndim == 1 and arr_np.shape[0] > 0:
-                _first = arr_np[0]
-                if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
-                    try:
-                        arr_np = np.stack([np.asarray(c) for c in arr_np], axis=0)
-                    except Exception as e:
-                        logger.debug("swallowed exception in _data_helpers.py: %s", e)
-                        pass
-            if arr_np.ndim > 1:
-                # Multilabel / multiclass-prob: per-column unique check.
-                # If ANY column has only one unique value, the model
-                # for that label is degenerate but the others may
-                # train. Report at WARNING and let the per-backend
-                # path decide.
-                degenerate_cols = [_i for _i in range(arr_np.shape[1]) if len(np.unique(arr_np[:, _i])) < 2]
-                if degenerate_cols:
-                    logger.warning(
-                        "%s target has %d label column(s) with a single unique "
-                        "value: %s. The corresponding per-label model(s) will "
-                        "fail; the rest may train normally if the multilabel "
-                        "strategy supports it.",
-                        subset_name,
-                        len(degenerate_cols),
-                        degenerate_cols,
-                    )
-            else:
-                if len(np.unique(arr_np)) < 2:
-                    # arr_np.size == 0 (an empty target) means np.unique returns an empty array too
-                    # (len 0 < 2), so this branch also fires on a genuinely EMPTY target, not just a
-                    # single-value one -- arr_np.flat[0] on an empty array raises IndexError, which
-                    # the `except ValueError: raise` below does NOT match, so it fell through to the
-                    # generic `except Exception` and was silently swallowed as a debug log, masking
-                    # the intended diagnostic entirely and letting the empty target proceed straight
-                    # to a much more opaque downstream backend crash. Guard the message construction
-                    # so both the single-value and empty-target cases raise their own clear ValueError.
-                    _value_desc = f"({arr_np.flat[0]!r}); classification needs at least 2 classes" if arr_np.size > 0 else "-- the target is EMPTY (0 rows)"
-                    raise ValueError(
-                        f"{subset_name} target has only one unique value "
-                        f"{_value_desc}. Most likely cause: upstream filtering "
-                        f"(outlier_detection + trainset_aging_limit + rare "
-                        f"imbalance) eliminated the minority class entirely. "
-                        f"Investigate the filter pipeline OR loosen the "
-                        f"contamination / aging knobs."
-                    )
-        except ValueError:
-            raise
-        except Exception as e:  # nosec B110 - non-trivial body
-            # np.unique/asarray edge cases on object dtype etc -- let the
-            # downstream backend surface its own error.
-            logger.debug("target uniqueness pre-check failed, deferring to downstream backend: %s", e)
+        _check_classification_target(target, subset_name)
 
 
 def _validate_infinity_and_columns(df, train_df, skip_infinity_checks, drop_columns):
@@ -649,38 +660,9 @@ def _setup_eval_set(
     # one eval per element; LGB tuple-only path is upgraded to list (LGB accepts both).
     use_shards = extra_eval_sets is not None and len(extra_eval_sets) > 0
     if use_shards:
-        assert extra_eval_sets is not None  # guaranteed by use_shards construction above
-        eval_list: list[tuple[Any, Any]] = [(val_df, val_target)]
-        eval_list.extend((shard.X, shard.y) for shard in extra_eval_sets)
-        if value_format == "list_of_tuples_values":
-            eval_list = [(X.values if hasattr(X, "values") else X, y.values if hasattr(y, "values") else y) for X, y in eval_list]
-        if value_format in ("tuple", "list_of_tuples", "list_of_tuples_values"):
-            fit_params[param_name] = eval_list
-        elif value_format == "separate":
-            # HGB / NGB only support a single (X_val, y_val) pair. Slice-stable ES is not supported
-            # for these models via the online multi-eval-set path; the caller should route through
-            # ``on_unsupported`` policy (default ``posthoc``). Here we just register the full val.
-            if _hgb_supports_external_val(model_obj):
-                fit_params["X_val"] = val_df
-                fit_params["y_val"] = val_target
-        elif value_format == "separate_Y":
-            fit_params["X_val"] = val_df
-            fit_params["Y_val"] = val_target
+        _register_shard_eval_sets(fit_params, param_name, value_format, val_df, val_target, extra_eval_sets, model_obj)
     else:
-        if value_format == "tuple":
-            fit_params[param_name] = (val_df, val_target)
-        elif value_format == "list_of_tuples":
-            fit_params[param_name] = [(val_df, val_target)]
-        elif value_format == "list_of_tuples_values":
-            _val_df_values = val_df.values if hasattr(val_df, "values") else val_df
-            fit_params[param_name] = [(_val_df_values, val_target.values if hasattr(val_target, "values") else val_target)]
-        elif value_format == "separate":
-            if _hgb_supports_external_val(model_obj):
-                fit_params["X_val"] = val_df
-                fit_params["y_val"] = val_target
-        elif value_format == "separate_Y":
-            fit_params["X_val"] = val_df
-            fit_params["Y_val"] = val_target
+        _register_single_eval_set(fit_params, param_name, value_format, val_df, val_target, model_obj)
 
     _attach_eval_row_attributes(
         fit_params, model_category, model_obj, model_type_name, (extra_eval_sets if extra_eval_sets is not None else []) if use_shards else [],
@@ -689,6 +671,45 @@ def _setup_eval_set(
 
     if callback_params:
         _setup_early_stopping_callback(model_category, fit_params, callback_params, model_obj)
+
+
+def _register_shard_eval_sets(fit_params, param_name, value_format, val_df, val_target, extra_eval_sets, model_obj) -> None:
+    """Register ``[full_val, shard_0, ..., shard_K-1]`` under the booster's eval-set kwarg; formats that take one pair get the full val only."""
+    assert extra_eval_sets is not None  # guaranteed by use_shards construction in _setup_eval_set
+    eval_list: list[tuple[Any, Any]] = [(val_df, val_target)]
+    eval_list.extend((shard.X, shard.y) for shard in extra_eval_sets)
+    if value_format == "list_of_tuples_values":
+        eval_list = [(X.values if hasattr(X, "values") else X, y.values if hasattr(y, "values") else y) for X, y in eval_list]
+    if value_format in ("tuple", "list_of_tuples", "list_of_tuples_values"):
+        fit_params[param_name] = eval_list
+    elif value_format == "separate":
+        # HGB / NGB only support a single (X_val, y_val) pair. Slice-stable ES is not supported
+        # for these models via the online multi-eval-set path; the caller should route through
+        # ``on_unsupported`` policy (default ``posthoc``). Here we just register the full val.
+        if _hgb_supports_external_val(model_obj):
+            fit_params["X_val"] = val_df
+            fit_params["y_val"] = val_target
+    elif value_format == "separate_Y":
+        fit_params["X_val"] = val_df
+        fit_params["Y_val"] = val_target
+
+
+def _register_single_eval_set(fit_params, param_name, value_format, val_df, val_target, model_obj) -> None:
+    """Register the full val alone under the booster's eval-set kwarg, in the format that booster reads."""
+    if value_format == "tuple":
+        fit_params[param_name] = (val_df, val_target)
+    elif value_format == "list_of_tuples":
+        fit_params[param_name] = [(val_df, val_target)]
+    elif value_format == "list_of_tuples_values":
+        _val_df_values = val_df.values if hasattr(val_df, "values") else val_df
+        fit_params[param_name] = [(_val_df_values, val_target.values if hasattr(val_target, "values") else val_target)]
+    elif value_format == "separate":
+        if _hgb_supports_external_val(model_obj):
+            fit_params["X_val"] = val_df
+            fit_params["y_val"] = val_target
+    elif value_format == "separate_Y":
+        fit_params["X_val"] = val_df
+        fit_params["Y_val"] = val_target
 
 
 def _fit_accepts(model_obj: Any, kwarg: str, model_type_name: str) -> bool:

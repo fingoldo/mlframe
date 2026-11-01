@@ -361,74 +361,82 @@ def _build_usability_cand_step3_pidx_n1_n2(pairs, base_f64, _ua_codes, unary, bi
         _build_usability_cand_step2_sub_quantum_cpu(cand_here, _mi_key, max_per_pair, diversity_corr, unary_preset, binary_preset, quantization_nbins, quantization_method, quantization_dtype, _combo_replay_ok, X_df, feature_dtype, pool)
 
 
-def _build_usability_cand_step1_ua_codes_none(_ua_codes, unary, binary, _resident_table, _pidx, x1, x2, y_codes, y_terms, quantization_nbins, _ub_codes, _bn_codes, mi_floor, _mi_key, max_per_pair, feature_dtype, diversity_corr, n1, n2, cand_here):
-    """Step 1 of _build_usability_cand_step3_pidx_n1_n2: lines starting at ``if _ua_codes is not None:``."""
+def _njit_usable_candidates(unary, binary, _resident_table, _pidx, x1, x2, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes, mi_floor, _mi_key, max_per_pair, feature_dtype, diversity_corr, n1, n2):
+    """The njit-scored retention path: MI of every (unary, unary, binary) combo of a pair, ranked by MI and diversity-filtered to ``max_per_pair`` forms."""
     from mlframe.feature_selection.filters._usability_njit_pool import (
         score_pair_combos,
     )
 
+    # njit-scored retention path. The kernel enumerates ``for ua: for ub: for bn`` in the SAME
+    # order as the Python loop, so the flat combo index maps 1:1 to (ua, ub, bn) below.
+    _unary_names = list(unary.keys())
+    _binary_names = list(binary.keys())
+    if _resident_table is not None:
+        # resident GPU table row p == score_pair_combos for pair p (selection-equivalent after the
+        # distinct-edge dedup fix; ULP ties absorbed by ``_mi_key`` grid-snap engaged under ``_seleq``).
+        mis = _resident_table[_pidx]
+    else:
+        mis = score_pair_combos(
+            x1, x2, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes,
+        )
+    nu = len(_unary_names)
+    nb = len(_binary_names)
+    # LAZY-RECOMPUTE: the njit kernel already produced the MI of EVERY combo, and the
+    # only use of the recomputed numpy value is (a) the per-pair diversity filter that keeps the
+    # top ``max_per_pair`` MI-ranked DISTINCT forms and (b) the recipe replay for those few kept
+    # forms. The prior code materialised the float64 value + ``_scrub`` for EVERY mi_floor-clearing
+    # combo (~1700/pair here) only to discard all but 3 - ~17k full-n value+scrub builds/fit, the
+    # second-largest retention cost after the kernel. Instead, collect only the cheap combo METADATA
+    # (mi + op indices), sort by MI (STABLE -> identical tie order to the old append-order +
+    # ``cand_here.sort(key=mi, reverse=True)``), then recompute the numpy value LAZILY while building
+    # the diverse ``kept`` set, stopping at ``max_per_pair``. Selection-identical: the same MI order,
+    # the same diversity gate, the same kept forms - just ~10-15 value builds/pair instead of ~1700.
+    metas = []  # (mi, ia, ib, ibn) for floor-clearing combos, in enumeration order
+    j = 0
+    for ia in range(nu):
+        for ib in range(nu):
+            for ibn in range(nb):
+                m = float(mis[j]); j += 1
+                if m < mi_floor:   # also rejects the -1.0 std<=1e-9 sentinel
+                    continue
+                metas.append((m, ia, ib, ibn))
+    # stable sort by MI desc; under the resident path the key is grid-snapped (``_mi_key``) so a
+    # sub-quantum (~1e-15) CPU-vs-GPU MI difference can't flip the kept set. Default path: raw MI
+    # (byte-identical). Exact ties keep enumeration order; only within-quantum near-ties differ.
+    metas.sort(key=lambda t: _mi_key(t[0]), reverse=True)
+    _ta_cache: dict = {}  # unary(x1) by ua index - reused across combos sharing ua
+    _tb_cache: dict = {}  # unary(x2) by ub index
+    _njit_kept: list[UsableCandidate] = []
+    for m, ia, ib, ibn in metas:
+        if len(_njit_kept) >= max_per_pair:
+            break
+        ua = _unary_names[ia]; ub = _unary_names[ib]; bn = _binary_names[ibn]
+        ta = _ta_cache.get(ia)
+        if ta is None:
+            ta = unary[ua](x1); _ta_cache[ia] = ta
+        tb = _tb_cache.get(ib)
+        if tb is None:
+            tb = unary[ub](x2); _tb_cache[ib] = tb
+        try:
+            val = _scrub(binary[bn](ta, tb), feature_dtype)
+        except Exception as e:  # nosec B112 - best-effort path
+            logger.debug("binary op %r on this candidate pair raised, skipping: %s", bn, e)
+            continue
+        if any(_abscorr(val, k.values) > diversity_corr for k in _njit_kept):
+            continue
+        name = f"{bn}({ua}({n1}),{ub}({n2}))"
+        _njit_kept.append(UsableCandidate(name, val, m, None, (n1, n2), (ua, ub, bn)))
+    # already MI-sorted + diversity-filtered + capped -> feed straight to the recipe builder.
+    return _njit_kept
+
+
+def _build_usability_cand_step1_ua_codes_none(_ua_codes, unary, binary, _resident_table, _pidx, x1, x2, y_codes, y_terms, quantization_nbins, _ub_codes, _bn_codes, mi_floor, _mi_key, max_per_pair, feature_dtype, diversity_corr, n1, n2, cand_here):
+    """Step 1 of _build_usability_cand_step3_pidx_n1_n2: lines starting at ``if _ua_codes is not None:``."""
     if _ua_codes is not None:
-        # njit-scored retention path. The kernel enumerates ``for ua: for ub: for bn`` in the SAME
-        # order as the Python loop, so the flat combo index maps 1:1 to (ua, ub, bn) below.
-        _unary_names = list(unary.keys())
-        _binary_names = list(binary.keys())
-        if _resident_table is not None:
-            # resident GPU table row p == score_pair_combos for pair p (selection-equivalent after the
-            # distinct-edge dedup fix; ULP ties absorbed by ``_mi_key`` grid-snap engaged under ``_seleq``).
-            mis = _resident_table[_pidx]
-        else:
-            mis = score_pair_combos(
-                x1, x2, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes,
-            )
-        nu = len(_unary_names)
-        nb = len(_binary_names)
-        # LAZY-RECOMPUTE: the njit kernel already produced the MI of EVERY combo, and the
-        # only use of the recomputed numpy value is (a) the per-pair diversity filter that keeps the
-        # top ``max_per_pair`` MI-ranked DISTINCT forms and (b) the recipe replay for those few kept
-        # forms. The prior code materialised the float64 value + ``_scrub`` for EVERY mi_floor-clearing
-        # combo (~1700/pair here) only to discard all but 3 - ~17k full-n value+scrub builds/fit, the
-        # second-largest retention cost after the kernel. Instead, collect only the cheap combo METADATA
-        # (mi + op indices), sort by MI (STABLE -> identical tie order to the old append-order +
-        # ``cand_here.sort(key=mi, reverse=True)``), then recompute the numpy value LAZILY while building
-        # the diverse ``kept`` set, stopping at ``max_per_pair``. Selection-identical: the same MI order,
-        # the same diversity gate, the same kept forms - just ~10-15 value builds/pair instead of ~1700.
-        metas = []  # (mi, ia, ib, ibn) for floor-clearing combos, in enumeration order
-        j = 0
-        for ia in range(nu):
-            for ib in range(nu):
-                for ibn in range(nb):
-                    m = float(mis[j]); j += 1
-                    if m < mi_floor:   # also rejects the -1.0 std<=1e-9 sentinel
-                        continue
-                    metas.append((m, ia, ib, ibn))
-        # stable sort by MI desc; under the resident path the key is grid-snapped (``_mi_key``) so a
-        # sub-quantum (~1e-15) CPU-vs-GPU MI difference can't flip the kept set. Default path: raw MI
-        # (byte-identical). Exact ties keep enumeration order; only within-quantum near-ties differ.
-        metas.sort(key=lambda t: _mi_key(t[0]), reverse=True)
-        _ta_cache: dict = {}  # unary(x1) by ua index - reused across combos sharing ua
-        _tb_cache: dict = {}  # unary(x2) by ub index
-        _njit_kept: list[UsableCandidate] = []
-        for m, ia, ib, ibn in metas:
-            if len(_njit_kept) >= max_per_pair:
-                break
-            ua = _unary_names[ia]; ub = _unary_names[ib]; bn = _binary_names[ibn]
-            ta = _ta_cache.get(ia)
-            if ta is None:
-                ta = unary[ua](x1); _ta_cache[ia] = ta
-            tb = _tb_cache.get(ib)
-            if tb is None:
-                tb = unary[ub](x2); _tb_cache[ib] = tb
-            try:
-                val = _scrub(binary[bn](ta, tb), feature_dtype)
-            except Exception as e:  # nosec B112 - best-effort path
-                logger.debug("binary op %r on this candidate pair raised, skipping: %s", bn, e)
-                continue
-            if any(_abscorr(val, k.values) > diversity_corr for k in _njit_kept):
-                continue
-            name = f"{bn}({ua}({n1}),{ub}({n2}))"
-            _njit_kept.append(UsableCandidate(name, val, m, None, (n1, n2), (ua, ub, bn)))
-        # already MI-sorted + diversity-filtered + capped -> feed straight to the recipe builder.
-        cand_here = _njit_kept
+        cand_here = _njit_usable_candidates(
+            unary, binary, _resident_table, _pidx, x1, x2, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes,
+            mi_floor, _mi_key, max_per_pair, feature_dtype, diversity_corr, n1, n2,
+        )
     else:
         # Default / fallback Python loop (``rank_pairs_by_joint_mi=False``, the shipped default).
         #

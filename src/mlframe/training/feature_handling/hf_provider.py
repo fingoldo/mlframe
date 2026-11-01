@@ -121,6 +121,26 @@ def _hf_cache_lock_path(model_name: str, revision: Optional[str]) -> str:
     return os.path.join(lock_dir, f"hf_{sig_hash}.lock")
 
 
+_TRUE_STRINGS = frozenset({"true", "1", "yes", "on"})
+_FALSE_STRINGS = frozenset({"false", "0", "no", "off", ""})
+
+
+def parse_trust_remote_code(value: Any) -> bool:
+    """Read the ``trust_remote_code`` flag, which arrives as a bool from Python or as text from a ``hf://`` URL query.
+
+    ``bool("False")`` is True, so a URL asking for the safe value would silently run the hub repo's code. Text is matched
+    against explicit true and false spellings; anything else is refused rather than guessed.
+    """
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in _TRUE_STRINGS:
+        return True
+    if text in _FALSE_STRINGS:
+        return False
+    raise ValueError(f"trust_remote_code must be a boolean or one of true/false, got {value!r}")
+
+
 def _resolve_device(device_param: str) -> str:
     """Resolve ``"auto"`` to a concrete device string. Round-3 R2-18:
     enumerate cuda > mps > xpu > cpu, not just cuda-or-cpu.
@@ -204,7 +224,7 @@ class HuggingFaceProvider:
         # Round-3 S4: trust_remote_code=False hardcoded; users opt in
         # via params={"trust_remote_code": True} which we explicitly
         # surface as a warning.
-        trust_remote = bool(params.get("trust_remote_code", False))
+        trust_remote = parse_trust_remote_code(params.get("trust_remote_code", False))
         if trust_remote:
             warnings.warn(
                 f"HuggingFaceProvider loading {model_name!r} with "

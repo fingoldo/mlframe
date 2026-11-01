@@ -173,10 +173,8 @@ def warn_if_narrowing_exceeds_headroom(ctx: Any, rows: TargetRows) -> Optional[s
     return message
 
 
-def _narrowed_fields(ctx: Any, rows: TargetRows) -> dict[str, Any]:
-    """New values of every narrowed field; a frame shared by two fields is sliced once."""
-    out: dict[str, Any] = {}
-    memo: dict[tuple[int, Any], Any] = {}
+def _narrow_split_fields(ctx: Any, rows: TargetRows, out: dict[str, Any], memo: dict[tuple[int, Any], Any]) -> None:
+    """Slice every per-split field of ``_NARROW`` to the target's labelled rows into ``out``; a frame shared by two fields is sliced once."""
     for split, fields in _NARROW.items():
         pos = _split_pos(rows, split)
         for name in fields:
@@ -194,15 +192,10 @@ def _narrowed_fields(ctx: Any, rows: TargetRows) -> dict[str, Any]:
             out[name] = memo[key]
         if split in rows.idx:
             out[split] = rows.idx[split]
-    if "calib_idx" in rows.dropped:  # the suite's "no calib" is None, not an empty slice
-        out["calib_idx"] = out["calib_df"] = None
-    # A val or test left with no labelled row looks like the suite's val_size=0 / test_size=0: an empty index and no
-    # frame (the pipeline turns an empty frame into None, and the consumers after it test for None, not for length).
-    for split in ("val_idx", "filtered_val_idx", "test_idx"):
-        if split in rows.n_labelled and rows.n_labelled[split] == 0:
-            for name in _NARROW[split]:
-                if name in out:
-                    out[name] = None
+
+
+def _narrow_side_fields(ctx: Any, rows: TargetRows, out: dict[str, Any]) -> None:
+    """Narrow the outlier masks, the outlier result and the dropped high-cardinality data to the labelled rows into ``out``."""
     train_pos, val_pos = rows.pos.get("train_idx"), rows.pos.get("val_idx")
     od_masks = {"train_od_idx": train_pos, "val_od_idx": val_pos}
     for name, pos in od_masks.items():
@@ -218,6 +211,23 @@ def _narrowed_fields(ctx: Any, rows: TargetRows) -> dict[str, Any]:
         out["_dropped_high_card_data"] = {
             col: {k: (_take(v, by_split[k]) if v is not None and by_split.get(k) is not None else v) for k, v in parts.items()} for col, parts in dropped.items()
         }
+
+
+def _narrowed_fields(ctx: Any, rows: TargetRows) -> dict[str, Any]:
+    """New values of every narrowed field; a frame shared by two fields is sliced once."""
+    out: dict[str, Any] = {}
+    memo: dict[tuple[int, Any], Any] = {}
+    _narrow_split_fields(ctx, rows, out, memo)
+    if "calib_idx" in rows.dropped:  # the suite's "no calib" is None, not an empty slice
+        out["calib_idx"] = out["calib_df"] = None
+    # A val or test left with no labelled row looks like the suite's val_size=0 / test_size=0: an empty index and no
+    # frame (the pipeline turns an empty frame into None, and the consumers after it test for None, not for length).
+    for split in ("val_idx", "filtered_val_idx", "test_idx"):
+        if split in rows.n_labelled and rows.n_labelled[split] == 0:
+            for name in _NARROW[split]:
+                if name in out:
+                    out[name] = None
+    _narrow_side_fields(ctx, rows, out)
     out.update(_narrowed_details(ctx, rows))
     for name, split in (("train_df_size_bytes_cached", "train_idx"), ("val_df_size_bytes_cached", "val_idx")):
         size, share = getattr(ctx, name, None), rows.labelled_share(split)

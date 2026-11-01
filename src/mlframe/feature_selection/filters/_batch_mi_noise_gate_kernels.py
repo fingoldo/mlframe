@@ -674,6 +674,8 @@ def _cuda_fused_gate_kernel_factory():
     from numba import float64 as _f64
     from numba import int32 as _i32
 
+    _bin_row_contribution, _fused_statistic = _fused_gate_device_helpers()
+
     @_nb_cuda.jit(cache=True)
     def _kernel_fused(disc_cm, nbins_col, y_all, freqs_y, n, K_y, ref_mi, out_mi, h_y, use_su):
         """numba.cuda kernel: shared-memory joint histogram of column k against y-vector p, reduced to MI / SU in the same block."""
@@ -701,37 +703,50 @@ def _cuda_fused_gate_kernel_factory():
             _nb_cuda.atomic.add(sh, disc_cm[k, r] * K_y + y_all[p, r], 1)
         _nb_cuda.syncthreads()
         if tid < nb_k:
-            base = tid * K_y
-            fx = 0
-            for j in range(K_y):
-                fx += sh[base + j]
-            mi_r = 0.0
-            hx_r = 0.0
-            if fx != 0:
-                prob_x = fx / n
-                inv_n = 1.0 / n
-                for j in range(K_y):
-                    jc = sh[base + j]
-                    if jc != 0:
-                        jf = jc * inv_n
-                        mi_r += jf * math.log(jf / (prob_x * freqs_y[j]))
-                hx_r = -(prob_x * math.log(prob_x))
-            part_mi[tid] = mi_r
-            part_hx[tid] = hx_r
+            part_mi[tid], part_hx[tid] = _bin_row_contribution(sh, tid * K_y, K_y, n, freqs_y)
         _nb_cuda.syncthreads()
         if tid == 0:
-            mi = 0.0
-            hx = 0.0
-            for b in range(nb_k):
-                mi += part_mi[b]
-                hx += part_hx[b]
-            if use_su:
-                denom = hx + h_y
-                out_mi[p, k] = 0.0 if denom <= 1e-12 else 2.0 * mi / denom
-            else:
-                out_mi[p, k] = mi
+            out_mi[p, k] = _fused_statistic(part_mi, part_hx, nb_k, h_y, use_su)
 
     return _kernel_fused
+
+
+def _fused_gate_device_helpers():
+    """Device-side reductions of the fused gate: one bin row's MI and entropy contribution, and the final MI or SU statistic."""
+
+    @_nb_cuda.jit(device=True)
+    def _bin_row_contribution(sh, base, K_y, n, freqs_y):
+        """MI and H(x) contribution of one bin row of the shared joint histogram, starting at ``sh[base]``."""
+        fx = 0
+        for j in range(K_y):
+            fx += sh[base + j]
+        mi_r = 0.0
+        hx_r = 0.0
+        if fx != 0:
+            prob_x = fx / n
+            inv_n = 1.0 / n
+            for j in range(K_y):
+                jc = sh[base + j]
+                if jc != 0:
+                    jf = jc * inv_n
+                    mi_r += jf * math.log(jf / (prob_x * freqs_y[j]))
+            hx_r = -(prob_x * math.log(prob_x))
+        return mi_r, hx_r
+
+    @_nb_cuda.jit(device=True)
+    def _fused_statistic(part_mi, part_hx, nb_k, h_y, use_su):
+        """Sum the per-row partials in bin order and return MI, or ``2 MI / (H(x) + h_y)`` when ``use_su`` (0 at a vanishing denominator)."""
+        mi = 0.0
+        hx = 0.0
+        for b in range(nb_k):
+            mi += part_mi[b]
+            hx += part_hx[b]
+        if use_su:
+            denom = hx + h_y
+            return 0.0 if denom <= 1e-12 else 2.0 * mi / denom
+        return mi
+
+    return _bin_row_contribution, _fused_statistic
 
 
 _CUDA_SHARED_BYTES_PER_BLOCK: int = -1

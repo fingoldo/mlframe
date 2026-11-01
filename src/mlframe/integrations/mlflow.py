@@ -95,12 +95,8 @@ def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:
     with open(fname + extension, "w", encoding="utf-8") as f:
         f.write(website_embed)
 
-def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None, experiment_name: Optional[str] = None, experiment_id: Optional[str] = None, tags: Optional[dict] = None) -> Tuple[object, bool]:
-    """Tries to find a run by name within current mlflow experiment.
-    If not found, creates new one.
-    """
-    if tags is None:
-        tags = {}
+def _search_runs_by_name(run_name, parent_run_id, experiment_name, experiment_id):
+    """Runs matching ``run_name`` (and parent run id), scoped to the given experiment id, else experiment name, else the active experiment."""
     # Escape embedded double-quotes/backslashes so user-controlled run_name can't
     # break out of the mlflow DSL filter literal.
     def _dsl_escape(s: object) -> str:
@@ -121,63 +117,77 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
         runs = mlflow.search_runs(experiment_names=[experiment_name], filter_string=filter_string, output_format="list")
     else:
         runs = mlflow.search_runs(filter_string=filter_string, output_format="list")
+    return runs
+
+
+def _start_run_with_retries(run_name, experiment_id, run_tags):
+    """Start a run, retrying transient failures; returns None once retries are exhausted and re-raises a scrubbed error for non-retryable ones."""
+    nfailed = 0
+    while True:
+        try:
+            run = mlflow.start_run(run_name=run_name, experiment_id=experiment_id, tags=run_tags)
+        except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+            nfailed += 1
+            # Log the scrubbed message only: a traceback would carry the tracking URI's credentials.
+            scrubbed = _strip_userinfo(e)
+            if nfailed > 5:
+                log_throttle(logger, "mlflow_start_run_failed_after_retries", logging.ERROR, "mlflow.start_run failed after %d retries: %s", nfailed, scrubbed)
+                return None
+            if "already active" in str(e):
+                active = mlflow.active_run()
+                if active is not None:
+                    log_throttle(logger, "mlflow_run_already_active", logging.WARNING, "%s active run_id=%s", scrubbed, active.info.run_id)
+                    mlflow.end_run()
+                else:
+                    log_throttle(logger, "mlflow_run_already_active_no_handle", logging.WARNING, scrubbed)
+            else:
+                log_throttle(logger, "mlflow_start_run_error", logging.ERROR, scrubbed)
+                # A bare `raise` here propagates the ORIGINAL (unscrubbed) exception -- any outer
+                # handler that logs str(e) on it (a common pattern) would leak the tracking-server
+                # userinfo credential `scrubbed` was computed specifically to hide. Raise a new
+                # exception carrying the scrubbed message instead. The original is NOT chained (`from None`): its
+                # message holds the raw credential, and a chained cause is printed with the traceback.
+                # type(e)(scrubbed) assumes a single-string-arg constructor, true for the vast
+                # majority of exception types but not guaranteed for an arbitrary third-party class
+                # mlflow might raise -- fall back to a plain RuntimeError if reconstruction fails.
+                try:
+                    scrubbed_exc: BaseException = type(e)(scrubbed)
+                except Exception as _reconstruct_exc:
+                    logger.debug(
+                        "mlflow start_run: could not reconstruct %s with a single-string arg (%s); " "falling back to RuntimeError.",
+                        type(e).__name__,
+                        _reconstruct_exc,
+                    )
+                    scrubbed_exc = RuntimeError(scrubbed)
+                raise scrubbed_exc from None
+        else:
+            mlflow.end_run()
+            break
+    return run
+
+
+def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None, experiment_name: Optional[str] = None, experiment_id: Optional[str] = None, tags: Optional[dict] = None) -> Tuple[object, bool]:
+    """Tries to find a run by name within current mlflow experiment.
+    If not found, creates new one.
+    """
+    if tags is None:
+        tags = {}
+    runs = _search_runs_by_name(run_name, parent_run_id, experiment_name, experiment_id)
     if runs:
         return runs[0], True
-    else:
-        if experiment_name:
-            mlflow.set_experiment(experiment_name=experiment_name)
-        run_tags = {"mlflow.parentRunId": parent_run_id} if parent_run_id else None
-        if tags:
-            if run_tags is None:
-                run_tags = tags
-            else:
-                run_tags.update(tags)
+    if experiment_name:
+        mlflow.set_experiment(experiment_name=experiment_name)
+    run_tags = {"mlflow.parentRunId": parent_run_id} if parent_run_id else None
+    if tags:
+        if run_tags is None:
+            run_tags = tags
+        else:
+            run_tags.update(tags)
 
-        nfailed = 0
-        if not run_name:
-            logger.warning("empty run name!!!")
+    if not run_name:
+        logger.warning("empty run name!!!")
+    return _start_run_with_retries(run_name, experiment_id, run_tags), False
 
-        while True:
-            try:
-                run = mlflow.start_run(run_name=run_name, experiment_id=experiment_id, tags=run_tags)
-            except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                nfailed += 1
-                # Log the scrubbed message only: a traceback would carry the tracking URI's credentials.
-                scrubbed = _strip_userinfo(e)
-                if nfailed > 5:
-                    log_throttle(logger, "mlflow_start_run_failed_after_retries", logging.ERROR, "mlflow.start_run failed after %d retries: %s", nfailed, scrubbed)
-                    return None, False
-                if "already active" in str(e):
-                    active = mlflow.active_run()
-                    if active is not None:
-                        log_throttle(logger, "mlflow_run_already_active", logging.WARNING, "%s active run_id=%s", scrubbed, active.info.run_id)
-                        mlflow.end_run()
-                    else:
-                        log_throttle(logger, "mlflow_run_already_active_no_handle", logging.WARNING, scrubbed)
-                else:
-                    log_throttle(logger, "mlflow_start_run_error", logging.ERROR, scrubbed)
-                    # A bare `raise` here propagates the ORIGINAL (unscrubbed) exception -- any outer
-                    # handler that logs str(e) on it (a common pattern) would leak the tracking-server
-                    # userinfo credential `scrubbed` was computed specifically to hide. Raise a new
-                    # exception carrying the scrubbed message instead. The original is NOT chained (`from None`): its
-                    # message holds the raw credential, and a chained cause is printed with the traceback.
-                    # type(e)(scrubbed) assumes a single-string-arg constructor, true for the vast
-                    # majority of exception types but not guaranteed for an arbitrary third-party class
-                    # mlflow might raise -- fall back to a plain RuntimeError if reconstruction fails.
-                    try:
-                        scrubbed_exc: BaseException = type(e)(scrubbed)
-                    except Exception as _reconstruct_exc:
-                        logger.debug(
-                            "mlflow start_run: could not reconstruct %s with a single-string arg (%s); " "falling back to RuntimeError.",
-                            type(e).__name__,
-                            _reconstruct_exc,
-                        )
-                        scrubbed_exc = RuntimeError(scrubbed)
-                    raise scrubbed_exc from None
-            else:
-                mlflow.end_run()
-                break
-        return run, False
 
 def create_mlflow_run_label(params: Optional[dict] = None, category: Optional[str] = None) -> str:
     """Build a compact, human-readable run label like ``"category:key1=val1,key2=val2"`` from a params dict, skipping falsy values.

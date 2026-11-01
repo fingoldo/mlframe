@@ -1,9 +1,8 @@
 {
   "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py::MRMR.__init__": 2885,
-  "src/mlframe/training/reporting/_reporting_probabilistic.py::_report_probabilistic_step1_produced_single_most": 211,
+  "src/mlframe/training/reporting/_reporting_probabilistic.py::_report_probabilistic_step1_produced_single_most": 198,
   "src/mlframe/training/reporting/_reporting_probabilistic.py::report_probabilistic_model_perf": 320,
   "src/mlframe/training/reporting/_reporting_regression/__init__.py::report_regression_model_perf": 433,
   "src/mlframe/training/targets/_target_distribution_analyzer_target_fn.py::analyze_target_distribution": 196,
-  "src/mlframe/training/utils.py::get_pandas_view_of_polars_df": 357,
-  "src/mlframe/training/xgb_shim.py::_DMatrixReuseMixin.fit": 251
+  "src/mlframe/training/utils.py::get_pandas_view_of_polars_df": 313
 }

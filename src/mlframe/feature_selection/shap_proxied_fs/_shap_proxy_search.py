@@ -311,6 +311,9 @@ def _merge_topn(
     return kept
 
 
+_BRUTE_FORCE_MAX_COMBO_BYTES = 1 << 30  # one fixed-r combination table; the exhaustive search above it is refused, not attempted
+
+
 def brute_force_top_n(
     phi: np.ndarray,
     base: np.ndarray,
@@ -349,8 +352,16 @@ def brute_force_top_n(
     seq = np.arange(n_features, dtype=np.int32)
     candidates: list[tuple[float, tuple[int, ...]]] = []
     for r in range(min_card, max_card + 1):
-        if math.comb(n_features, r) == 0:
+        n_rows = math.comb(n_features, r)
+        if n_rows == 0:
             continue
+        # generate_combinations materialises every row at once; refuse before the allocation instead of exhausting memory (INP2-1).
+        combo_bytes = n_rows * r * np.dtype(np.int32).itemsize
+        if combo_bytes > _BRUTE_FORCE_MAX_COMBO_BYTES:
+            raise ValueError(
+                f"brute force over r={r} of {n_features} features would materialise {combo_bytes / 2**30:.1f} GiB of combinations "
+                f"(cap {_BRUTE_FORCE_MAX_COMBO_BYTES / 2**30:.1f} GiB); lower max_card or use a non-exhaustive search"
+            )
         combos = generate_combinations(seq, r)
         if combos.shape[0] == 0:
             continue

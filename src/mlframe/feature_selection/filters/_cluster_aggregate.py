@@ -342,17 +342,21 @@ def _connected_components(n: int, edges: "list[tuple[int, int]]") -> "list[list[
     return [c for c in comps.values() if len(c) > 1]
 
 
-def _discover_clusters(
-    *, data, cols, nbins, X, target_indices, feature_names_in_, categorical_idx,
-    cached_MIs, min_member_relevance, corr_threshold, min_cluster_size, max_cluster_size,
-    homogeneity_tau, max_candidates, mi_eps, edge_significance, dtype,
-):
-    """Return a list of clusters; each = dict(members=[col_idx...], rep=col_idx, rel={idx:rel})."""
-    target = np.asarray(target_indices, dtype=np.int64)
-    target_set = set(int(t) for t in target_indices)
-    feat_in = set(feature_names_in_) if feature_names_in_ is not None else None
-    cat_set = set(int(c) for c in (categorical_idx or ()))
+def _significant_pool_edges(pool, corr, data, nbins, n_samples, corr_threshold, mi_eps, edge_significance, dtype):
+    """Index pairs of the pool whose continuous correlation clears ``corr_threshold`` and whose pairwise MI edge is significant."""
+    edges = []
+    for a in range(len(pool)):
+        for b in range(a + 1, len(pool)):
+            if abs(corr[a, b]) < corr_threshold:
+                continue
+            if pairwise_mi_edge(data, pool[a], pool[b], nbins, n_samples, mi_eps=mi_eps, edge_significance=edge_significance, dtype=dtype) is None:
+                continue
+            edges.append((a, b))
+    return edges
 
+
+def _relevant_raw_pool(data, cols, target, target_set, cat_set, feat_in, cached_MIs, nbins, dtype, min_member_relevance, max_candidates):
+    """Numeric raw columns, excluding targets and categoricals, whose marginal relevance clears ``min_member_relevance``; returns ``(pool sorted by relevance, relevance by column)``."""
     # Pool: numeric RAW (feature_names_in_) columns, excluding targets/categoricals, with marginal
     # relevance above a LOW floor (captures the high-value case where every reflection is individually
     # too weak to be selected). Reuse cached_MIs[(i,)] (target-relevance key matches) where present.
@@ -374,6 +378,70 @@ def _discover_clusters(
     pool.sort(key=lambda i: (-rel[i], i))
     if len(pool) > max_candidates:
         pool = pool[:max_candidates]
+    return pool, rel
+
+
+def _component_cluster(comp, pool, rel, corr, X, cols, used, *, min_cluster_size, corr_threshold, max_cluster_size, homogeneity_tau):
+    """The cluster one connected component of the pool forms, or ``None`` when it is too small or not unidimensional."""
+    members = [pool[j] for j in comp if pool[j] not in used]
+    if len(members) < min_cluster_size:
+        return None
+    members.sort(key=lambda i: (-rel[i], i))  # representative = highest-relevance member
+    rep = members[0]
+    # FCBF-style (Yu & Liu 2004) ordered-relevance pruning. Plain single-linkage connected
+    # components (above) can chain A-B-C into one cluster via a bridge member B even when A and C
+    # don't directly correlate - a genuine multi-latent-factor group gets merged with a spurious
+    # reflection group. Processing members in DESCENDING relevance order and keeping only those that
+    # correlate directly with the REPRESENTATIVE (not merely transitively, via some other member)
+    # rejects chain artifacts while a genuine single-latent reflection cluster (every member directly
+    # correlated with every other) is unaffected, since its representative-vs-member correlations are
+    # all >= corr_threshold by construction.
+    rep_pos = pool.index(rep)
+    _pruned = [rep]
+    for m in members[1:]:
+        _m_pos = pool.index(m)
+        if abs(corr[rep_pos, _m_pos]) >= corr_threshold:
+            _pruned.append(m)
+    members = _pruned
+    if len(members) < min_cluster_size:
+        return None
+    if len(members) > max_cluster_size:
+        # keep representative + top-|corr|-to-rep members
+        members = [rep, *sorted([m for m in members if m != rep], key=lambda m: -abs(corr[rep_pos, pool.index(m)]))[: max_cluster_size - 1]]
+    # Unidimensionality: PC1 explains >= tau of the standardized cluster variance. This is the
+    # structural discriminator - genuine reflections of ONE latent are unidimensional; a
+    # partial-shared+distinct cluster (z + delta_i) is multi-factor -> low PC1 ratio -> rejected.
+    # (The friend-graph conditional-MI "sink" test is NOT used here: for reflections it conflates
+    # denoising-gain with distinct-signal info and would wrongly reject good clusters.)
+    M = _continuous_cols(X, [cols[m] for m in members])
+    Z, mu, sd, sg = _standardize_align(M, 0)
+    Zc = Z - Z.mean(axis=0)
+    sv = np.linalg.svd(Zc, full_matrices=False, compute_uv=False)
+    var_ratio = float((sv[0] ** 2) / max(np.sum(sv**2), 1e-12))
+    if var_ratio < homogeneity_tau:
+        return None
+    # ``members[0] == rep`` always (set two lines above, or forced to index 0 by the max_cluster_size
+    # truncation branch), so Z/mu/sd/sg (standardized against ref_col=0) are exactly what
+    # run_cluster_aggregate_step would rebuild for this cluster's aggregate - stash them so it reuses
+    # this array instead of re-extracting + re-standardizing the same member columns.
+    return {
+        "members": members, "rep": rep, "rel": {m: rel[m] for m in members},
+        "Z": Z, "mean": mu, "std": sd, "signs": sg,
+    }
+
+
+def _discover_clusters(
+    *, data, cols, nbins, X, target_indices, feature_names_in_, categorical_idx,
+    cached_MIs, min_member_relevance, corr_threshold, min_cluster_size, max_cluster_size,
+    homogeneity_tau, max_candidates, mi_eps, edge_significance, dtype,
+):
+    """Return a list of clusters; each = dict(members=[col_idx...], rep=col_idx, rel={idx:rel})."""
+    target = np.asarray(target_indices, dtype=np.int64)
+    target_set = set(int(t) for t in target_indices)
+    feat_in = set(feature_names_in_) if feature_names_in_ is not None else None
+    cat_set = set(int(c) for c in (categorical_idx or ()))
+
+    pool, rel = _relevant_raw_pool(data, cols, target, target_set, cat_set, feat_in, cached_MIs, nbins, dtype, min_member_relevance, max_candidates)
     if len(pool) < min_cluster_size:
         return []
 
@@ -384,64 +452,18 @@ def _discover_clusters(
     corr = np.nan_to_num(corr, nan=0.0)
     n_samples = max(1, int(data.shape[0]))
 
-    edges = []
-    for a in range(len(pool)):
-        for b in range(a + 1, len(pool)):
-            if abs(corr[a, b]) < corr_threshold:
-                continue
-            if pairwise_mi_edge(data, pool[a], pool[b], nbins, n_samples, mi_eps=mi_eps, edge_significance=edge_significance, dtype=dtype) is None:
-                continue
-            edges.append((a, b))
+    edges = _significant_pool_edges(pool, corr, data, nbins, n_samples, corr_threshold, mi_eps, edge_significance, dtype)
 
     clusters = []
-    used = set()
+    used: set[int] = set()
     for comp in sorted(_connected_components(len(pool), edges), key=len, reverse=True):
-        members = [pool[j] for j in comp if pool[j] not in used]
-        if len(members) < min_cluster_size:
-            continue
-        members.sort(key=lambda i: (-rel[i], i))  # representative = highest-relevance member
-        rep = members[0]
-        # FCBF-style (Yu & Liu 2004) ordered-relevance pruning. Plain single-linkage connected
-        # components (above) can chain A-B-C into one cluster via a bridge member B even when A and C
-        # don't directly correlate - a genuine multi-latent-factor group gets merged with a spurious
-        # reflection group. Processing members in DESCENDING relevance order and keeping only those that
-        # correlate directly with the REPRESENTATIVE (not merely transitively, via some other member)
-        # rejects chain artifacts while a genuine single-latent reflection cluster (every member directly
-        # correlated with every other) is unaffected, since its representative-vs-member correlations are
-        # all >= corr_threshold by construction.
-        rep_pos = pool.index(rep)
-        _pruned = [rep]
-        for m in members[1:]:
-            _m_pos = pool.index(m)
-            if abs(corr[rep_pos, _m_pos]) >= corr_threshold:
-                _pruned.append(m)
-        members = _pruned
-        if len(members) < min_cluster_size:
-            continue
-        if len(members) > max_cluster_size:
-            # keep representative + top-|corr|-to-rep members
-            members = [rep, *sorted([m for m in members if m != rep], key=lambda m: -abs(corr[rep_pos, pool.index(m)]))[: max_cluster_size - 1]]
-        # Unidimensionality: PC1 explains >= tau of the standardized cluster variance. This is the
-        # structural discriminator - genuine reflections of ONE latent are unidimensional; a
-        # partial-shared+distinct cluster (z + delta_i) is multi-factor -> low PC1 ratio -> rejected.
-        # (The friend-graph conditional-MI "sink" test is NOT used here: for reflections it conflates
-        # denoising-gain with distinct-signal info and would wrongly reject good clusters.)
-        M = _continuous_cols(X, [cols[m] for m in members])
-        Z, mu, sd, sg = _standardize_align(M, 0)
-        Zc = Z - Z.mean(axis=0)
-        sv = np.linalg.svd(Zc, full_matrices=False, compute_uv=False)
-        var_ratio = float((sv[0] ** 2) / max(np.sum(sv**2), 1e-12))
-        if var_ratio < homogeneity_tau:
-            continue
-        # ``members[0] == rep`` always (set two lines above, or forced to index 0 by the max_cluster_size
-        # truncation branch), so Z/mu/sd/sg (standardized against ref_col=0) are exactly what
-        # run_cluster_aggregate_step would rebuild for this cluster's aggregate - stash them so it reuses
-        # this array instead of re-extracting + re-standardizing the same member columns.
-        clusters.append({
-            "members": members, "rep": rep, "rel": {m: rel[m] for m in members},
-            "Z": Z, "mean": mu, "std": sd, "signs": sg,
-        })
-        used.update(members)
+        cluster = _component_cluster(
+            comp, pool, rel, corr, X, cols, used,
+            min_cluster_size=min_cluster_size, corr_threshold=corr_threshold, max_cluster_size=max_cluster_size, homogeneity_tau=homogeneity_tau,
+        )
+        if cluster is not None:
+            clusters.append(cluster)
+            used.update(cluster["members"])
     return clusters
 
 

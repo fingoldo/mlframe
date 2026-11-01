@@ -109,33 +109,8 @@ def _initialize_training_defaults(
     )
 
 
-def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None = None) -> None:
-    """Finalize ``ctx.metadata`` (set outlier_detector / OD result / trainset stats / slug maps) and atomically save to disk.
-
-    ``verbose=None`` reads ``ctx.verbose``; explicit ``0`` silences the save-log -- used by ``finalize_suite`` to avoid
-    the duplicate "Saved metadata to ..." line when the suite saves once after main.py already saved partway.
-    """
-    metadata = ctx.metadata
-    _verbose = ctx.verbose if verbose is None else verbose
-    metadata.update(
-        {
-            "outlier_detector": ctx.outlier_detector,
-            "outlier_detection_result": ctx.outlier_detection_result,
-            "trainset_features_stats": ctx.trainset_features_stats,
-        }
-    )
-
-    # Defensive dict() copy so metadata's slug maps are decoupled from ctx (and from the
-    # picklable suite metadata that a long-running serving process loads ONCE and uses
-    # across many predict calls). Pre-fix the assignment aliased ctx's dict; any
-    # predict-side ``setdefault`` for a fallback slug would mutate the loaded metadata
-    # in place and leak the entry into the next predict call -- effectively building up
-    # phantom slug entries across the serving session.
-    if ctx.slug_to_original_target_type:
-        metadata["slug_to_original_target_type"] = dict(ctx.slug_to_original_target_type)
-    if ctx.slug_to_original_target_name:
-        metadata["slug_to_original_target_name"] = dict(ctx.slug_to_original_target_name)
-
+def _wrap_pipeline_for_pickle(metadata: dict) -> None:
+    """Replace a polars-ds Pipeline in ``metadata`` by its JSON-serialising proxy when the JSON round-trip validates; otherwise leave it to standard pickling."""
     # Wrap the polars-ds Pipeline with a JSON-serializing proxy BEFORE pickling.
     # Pre-fix: pickle descended through every internal pl.Expr in the Pipeline,
     # and on complex Pipeline state (Yeo-Johnson + dim_reducer + ordinal_encode
@@ -191,6 +166,36 @@ def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None =
                     )
         except ImportError:
             pass  # polars-ds unavailable; nothing to wrap
+
+
+def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None = None) -> None:
+    """Finalize ``ctx.metadata`` (set outlier_detector / OD result / trainset stats / slug maps) and atomically save to disk.
+
+    ``verbose=None`` reads ``ctx.verbose``; explicit ``0`` silences the save-log -- used by ``finalize_suite`` to avoid
+    the duplicate "Saved metadata to ..." line when the suite saves once after main.py already saved partway.
+    """
+    metadata = ctx.metadata
+    _verbose = ctx.verbose if verbose is None else verbose
+    metadata.update(
+        {
+            "outlier_detector": ctx.outlier_detector,
+            "outlier_detection_result": ctx.outlier_detection_result,
+            "trainset_features_stats": ctx.trainset_features_stats,
+        }
+    )
+
+    # Defensive dict() copy so metadata's slug maps are decoupled from ctx (and from the
+    # picklable suite metadata that a long-running serving process loads ONCE and uses
+    # across many predict calls). Pre-fix the assignment aliased ctx's dict; any
+    # predict-side ``setdefault`` for a fallback slug would mutate the loaded metadata
+    # in place and leak the entry into the next predict call -- effectively building up
+    # phantom slug entries across the serving session.
+    if ctx.slug_to_original_target_type:
+        metadata["slug_to_original_target_type"] = dict(ctx.slug_to_original_target_type)
+    if ctx.slug_to_original_target_name:
+        metadata["slug_to_original_target_name"] = dict(ctx.slug_to_original_target_name)
+
+    _wrap_pipeline_for_pickle(metadata)
 
     # Atomic write (serialize -> temp file -> os.replace) avoids metadata.* corruption when two
     # train runs race on the same target. Reader sees the complete old or new file, never partial.

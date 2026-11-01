@@ -20,44 +20,8 @@ from ._hermite_fe_optimise_helpers import (
 )
 
 
-def _eval_coef_pair_batch_part1(
-    l2_penalty_saturation: Optional[float], coefs_a: np.ndarray, direction_only: bool, coefs_b: np.ndarray, z_a: np.ndarray, z_b: np.ndarray,
-    eval_func: Callable[..., Any], eval_func_b: Optional[Callable[..., Any]], B_a: Optional[np.ndarray], B_b: Optional[np.ndarray],
-    bf_callables: Sequence[Callable[..., Any]], bf_names: Sequence[str], mi_estimator: str, discrete_target: bool, y_njit: np.ndarray, plugin_n_bins: int,
-    y: np.ndarray, n_neighbors: int, random_state: int, l2_penalty: float,
-) -> tuple[Any, ...]:
-    """Extracted block of ``_eval_coef_pair_batch`` (part 1); returns the names the caller still uses."""
-    from ._hermite_fe_optimise import _candidate_h_arrays
-    p: Any = None
-    k: Any = None
-    from mlframe.feature_selection.filters.hermite_fe.shared import L2_PENALTY_SATURATION_DEFAULT as _L2_PENALTY_SATURATION_DEFAULT, l2_normalize_pair as _l2_normalize_pair, l2_penalty_value as _l2_penalty_value, plugin_mi_classif_batch_rows_njit as _plugin_mi_classif_batch_rows_njit, plugin_mi_regression_batch_njit as _plugin_mi_regression_batch_njit
-    if l2_penalty_saturation is None:
-        l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
-
-    P = int(coefs_a.shape[0])
-    # Direction-only normalisation per candidate. Loop because
-    # _l2_normalize_pair operates on a single pair; cheap.
-    if direction_only:
-        coefs_a = coefs_a.copy()
-        coefs_b = coefs_b.copy()
-        for p in range(P):
-            ca_n, cb_n = _l2_normalize_pair(coefs_a[p], coefs_b[p], target_norm=1.0)
-            coefs_a[p] = ca_n
-            coefs_b[p] = cb_n
-
-    # Phase 1: per-candidate h_a / h_b (see _candidate_h_arrays).
-    h_a_arr, h_b_arr, cand_valid = _candidate_h_arrays(
-        coefs_a, coefs_b, z_a=z_a, z_b=z_b, eval_func=eval_func, eval_func_b=eval_func_b, B_a=B_a, B_b=B_b,
-    )
-    n_rows = z_a.shape[0]
-
-    # Phase 2: accumulate (candidate, bf) columns into one stacked
-    # X_batch. Track (cand_idx, bf_idx) per column for the per-candidate
-    # argmax later.
-    # njit bf twins (bit-parity with the numpy callables pinned by test_numba_bf_dispatch_parity) replace
-    # the numpy ufunc chains: cProfile showed _atan2 (0.44s) + _log_abs_signed (0.41s) + np.column_stack
-    # (0.43s) = ~40%% of a cma_batch search. Columns are written straight into the preallocated X_batch
-    # (no per-column copy, no stack); unknown bf names keep the numpy callable path.
+def _assemble_bf_columns(P, n_rows, h_a_arr, h_b_arr, cand_valid, bf_callables, bf_names):
+    """Assemble every finite (candidate, bf) column into one preallocated row-major ``X_batch``; returns ``(X_batch, nc, col_meta)``."""
     _bf_name_to_id: dict[str, int]
     try:
         from ._numba_polynom_optimizer import _BF_NAME_TO_ID as _bf_name_to_id, _bf_dispatch_njit, _fill_bf_batch_njit  # noqa: N811
@@ -97,6 +61,48 @@ def _eval_coef_pair_batch_part1(
                     X_batch[nc] = combined
                     col_meta.append((p, k))
                     nc += 1
+    return X_batch, nc, col_meta
+
+
+def _eval_coef_pair_batch_part1(
+    l2_penalty_saturation: Optional[float], coefs_a: np.ndarray, direction_only: bool, coefs_b: np.ndarray, z_a: np.ndarray, z_b: np.ndarray,
+    eval_func: Callable[..., Any], eval_func_b: Optional[Callable[..., Any]], B_a: Optional[np.ndarray], B_b: Optional[np.ndarray],
+    bf_callables: Sequence[Callable[..., Any]], bf_names: Sequence[str], mi_estimator: str, discrete_target: bool, y_njit: np.ndarray, plugin_n_bins: int,
+    y: np.ndarray, n_neighbors: int, random_state: int, l2_penalty: float,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_eval_coef_pair_batch`` (part 1); returns the names the caller still uses."""
+    from ._hermite_fe_optimise import _candidate_h_arrays
+    p: Any = None
+    k: Any = None
+    from mlframe.feature_selection.filters.hermite_fe.shared import L2_PENALTY_SATURATION_DEFAULT as _L2_PENALTY_SATURATION_DEFAULT, l2_normalize_pair as _l2_normalize_pair, l2_penalty_value as _l2_penalty_value, plugin_mi_classif_batch_rows_njit as _plugin_mi_classif_batch_rows_njit, plugin_mi_regression_batch_njit as _plugin_mi_regression_batch_njit
+    if l2_penalty_saturation is None:
+        l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
+
+    P = int(coefs_a.shape[0])
+    # Direction-only normalisation per candidate. Loop because
+    # _l2_normalize_pair operates on a single pair; cheap.
+    if direction_only:
+        coefs_a = coefs_a.copy()
+        coefs_b = coefs_b.copy()
+        for p in range(P):
+            ca_n, cb_n = _l2_normalize_pair(coefs_a[p], coefs_b[p], target_norm=1.0)
+            coefs_a[p] = ca_n
+            coefs_b[p] = cb_n
+
+    # Phase 1: per-candidate h_a / h_b (see _candidate_h_arrays).
+    h_a_arr, h_b_arr, cand_valid = _candidate_h_arrays(
+        coefs_a, coefs_b, z_a=z_a, z_b=z_b, eval_func=eval_func, eval_func_b=eval_func_b, B_a=B_a, B_b=B_b,
+    )
+    n_rows = z_a.shape[0]
+
+    # Phase 2: accumulate (candidate, bf) columns into one stacked
+    # X_batch. Track (cand_idx, bf_idx) per column for the per-candidate
+    # argmax later.
+    # njit bf twins (bit-parity with the numpy callables pinned by test_numba_bf_dispatch_parity) replace
+    # the numpy ufunc chains: cProfile showed _atan2 (0.44s) + _log_abs_signed (0.41s) + np.column_stack
+    # (0.43s) = ~40%% of a cma_batch search. Columns are written straight into the preallocated X_batch
+    # (no per-column copy, no stack); unknown bf names keep the numpy callable path.
+    X_batch, nc, col_meta = _assemble_bf_columns(P, n_rows, h_a_arr, h_b_arr, cand_valid, bf_callables, bf_names)
 
     best_scores = np.full(P, -np.inf, dtype=_crit_np_dtype())
     best_raws = np.zeros(P, dtype=_crit_np_dtype())

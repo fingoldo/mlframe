@@ -23,6 +23,44 @@ _RANK_METHOD_CODES = {"average": 0, "min": 1, "max": 2, "dense": 3, "ordinal": 4
 
 
 @njit(cache=True)
+def _assign_tie_ranks(seg_vals, s, order, seg_n, method_code, out):
+    """Write the average, min or max rank of every tie block of one group's sorted order into ``out``; dense ranks are left to :func:`_assign_dense_ranks`."""
+    i = 0
+    while i < seg_n:
+        j = i + 1
+        v = seg_vals[s + order[i]]
+        while j < seg_n and seg_vals[s + order[j]] == v:
+            j += 1
+        # tie block covers ranks (i+1 .. j) in 1-based ordinal terms
+        if method_code == 0:  # average
+            rank = (i + 1 + j) / 2.0
+        elif method_code == 1:  # min
+            rank = i + 1.0
+        elif method_code == 2:  # max
+            rank = float(j)
+        else:  # dense -- assigned below
+            rank = 0.0
+        for k in range(i, j):
+            out[s + order[k]] = rank
+        i = j
+
+
+@njit(cache=True)
+def _assign_dense_ranks(seg_vals, s, order, seg_n, out):
+    """Write the dense rank (count of distinct values up to each row) of one group's sorted order into ``out``."""
+    dense = 0.0
+    prev_set = False
+    prev = 0.0
+    for k in range(seg_n):
+        v = seg_vals[s + order[k]]
+        if (not prev_set) or v != prev:
+            dense += 1.0
+            prev = v
+            prev_set = True
+        out[s + order[k]] = dense
+
+
+@njit(cache=True)
 def _per_group_rank_sorted_njit(seg_vals, starts, ends, method_code, pct):
     """Within-group rank of finite values, one pass over group-sorted segments.
 
@@ -50,35 +88,9 @@ def _per_group_rank_sorted_njit(seg_vals, starts, ends, method_code, pct):
                     r = r / seg_n
                 out[s + order[k]] = r
             continue
-        i = 0
-        while i < seg_n:
-            j = i + 1
-            v = seg_vals[s + order[i]]
-            while j < seg_n and seg_vals[s + order[j]] == v:
-                j += 1
-            # tie block covers ranks (i+1 .. j) in 1-based ordinal terms
-            if method_code == 0:  # average
-                rank = (i + 1 + j) / 2.0
-            elif method_code == 1:  # min
-                rank = i + 1.0
-            elif method_code == 2:  # max
-                rank = float(j)
-            else:  # dense -- assigned below
-                rank = 0.0
-            for k in range(i, j):
-                out[s + order[k]] = rank
-            i = j
+        _assign_tie_ranks(seg_vals, s, order, seg_n, method_code, out)
         if method_code == 3:  # dense: recompute as count of distinct values seen
-            dense = 0.0
-            prev_set = False
-            prev = 0.0
-            for k in range(seg_n):
-                v = seg_vals[s + order[k]]
-                if (not prev_set) or v != prev:
-                    dense += 1.0
-                    prev = v
-                    prev_set = True
-                out[s + order[k]] = dense
+            _assign_dense_ranks(seg_vals, s, order, seg_n, out)
         if pct:
             for k in range(seg_n):
                 out[s + k] = out[s + k] / seg_n

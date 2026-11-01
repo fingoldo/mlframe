@@ -19,6 +19,30 @@ N_EDGE_SAMPLE = 2048  # even rows whose statistic defines the bin edges
 _MIN, _MAX, _MED, _RNG, _STD, _LSE_POS, _LSE_NEG = 0, 1, 2, 3, 4, 5, 6
 
 @njit(cache=True, nogil=True)
+def _insertion_sort_prefix(vals, k):
+    """Sort the first ``k`` entries of ``vals`` in place by insertion sort."""
+    for a in range(1, k):
+        v = vals[a]
+        b = a - 1
+        while b >= 0 and vals[b] > v:
+            vals[b + 1] = vals[b]
+            b -= 1
+        vals[b + 1] = v
+
+
+@njit(cache=True, nogil=True)
+def _log_sum_exp_stat(vals, k, beta):
+    """Scaled log-sum-exp mean of the first ``k`` entries with sharpness ``beta`` (negative ``beta`` gives the soft minimum)."""
+    mx = beta * vals[0]
+    for j in range(1, k):
+        mx = max(mx, beta * vals[j])
+    acc = 0.0
+    for j in range(k):
+        acc += np.exp(beta * vals[j] - mx)
+    return (mx + np.log(acc / k)) / beta
+
+
+@njit(cache=True, nogil=True)
 def _stat_of(vals, k, stat):
     """The statistic ``stat`` of the first ``k`` entries of ``vals`` (``vals`` may be reordered by the median)."""
     if stat == _MIN:
@@ -39,13 +63,7 @@ def _stat_of(vals, k, stat):
             hi = max(hi, vals[j])
         return hi - lo
     if stat == _MED:
-        for a in range(1, k):
-            v = vals[a]
-            b = a - 1
-            while b >= 0 and vals[b] > v:
-                vals[b + 1] = vals[b]
-                b -= 1
-            vals[b + 1] = v
+        _insertion_sort_prefix(vals, k)
         if k % 2 == 1:
             return vals[k // 2]
         return 0.5 * (vals[k // 2 - 1] + vals[k // 2])
@@ -60,13 +78,7 @@ def _stat_of(vals, k, stat):
             s += d * d
         return np.sqrt(s / k)
     beta = LSE_BETA if stat == _LSE_POS else -LSE_BETA
-    mx = beta * vals[0]
-    for j in range(1, k):
-        mx = max(mx, beta * vals[j])
-    acc = 0.0
-    for j in range(k):
-        acc += np.exp(beta * vals[j] - mx)
-    return (mx + np.log(acc / k)) / beta
+    return _log_sum_exp_stat(vals, k, beta)
 
 @njit(cache=True, nogil=True)
 def _row_value(Zt, subset, k, stat, i, vals):
@@ -140,9 +152,8 @@ _SINGULAR_REL_TOL = 1e-12
 _MIN_SPAN = 1e-300
 
 @njit(cache=True, nogil=True)
-def _solve4(acc, coef):
-    """Solve the 4x4 normal equations stored in ``acc`` (see ``NACC``) by Gaussian elimination with partial pivoting; NaN coefficients when singular."""
-    M = np.empty((4, 5))
+def _load_normal_equations(acc, M):
+    """Fill the symmetric 4x4 block of ``M`` and its right-hand side column from the packed accumulator ``acc`` (see ``NACC``)."""
     t = 0
     for j in range(4):
         for k in range(j, 4):
@@ -151,6 +162,13 @@ def _solve4(acc, coef):
             t += 1
     for j in range(4):
         M[j, 4] = acc[10 + j]
+
+
+@njit(cache=True, nogil=True)
+def _solve4(acc, coef):
+    """Solve the 4x4 normal equations stored in ``acc`` (see ``NACC``) by Gaussian elimination with partial pivoting; NaN coefficients when singular."""
+    M = np.empty((4, 5))
+    _load_normal_equations(acc, M)
     scale = 0.0
     for j in range(4):
         scale = max(scale, abs(M[j, j]))

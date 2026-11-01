@@ -139,20 +139,10 @@ def _cheap_mi_group_selection(X: pd.DataFrame, gcands: Sequence[str], y_codes: n
 
 
 @njit(cache=True, fastmath=True)
-def _cheap_mi_edge_dedup_njit(cv: np.ndarray, y_codes: np.ndarray, nbins: int) -> float:
-    """Bit-identical njit port of ``_cheap_mi_with_y``'s host fallback (``quantile_edges`` dedup +
-    ``searchsorted`` + ``compute_mi_from_codes``), one column, for use inside ``_cheap_mi_batch_njit``'s
-    ``prange`` over columns. Interior quantile edges via the SAME linear-interpolation order-statistic
-    convention ``np.quantile`` uses (order statistics found via ``np.partition``, matching
-    ``_fe_edge_mi._edge_bin_codes``'s technique), then adjacent-deduped (the edges are non-decreasing by
-    quantile-function monotonicity, so a single adjacent-dedup pass is equivalent to ``np.unique`` on this
-    array) -- unlike ``_fe_edge_mi.plugin_mi_classif_batch_edge_njit`` (the OTHER existing batched-edge-MI
-    kernel), which deliberately does NOT dedup so it bit-matches the GPU orth-family kernel; that would
-    change the effective bin count on tied columns and is NOT a safe drop-in for this call site."""
+def _dedup_quantile_edges(cv: np.ndarray, nbins: int):
+    """Interior quantile edges of ``cv`` with adjacent duplicates removed; returns the edge buffer and how many of its leading entries are valid."""
     n = cv.shape[0]
     nq = nbins - 1
-    if nq <= 0 or n == 0:
-        return 0.0
     los = np.empty(nq, dtype=np.int64)
     # Intentional float64: quantile fraction accumulator kept f64
     fracs = np.empty(nq, dtype=np.float64)
@@ -182,6 +172,44 @@ def _cheap_mi_edge_dedup_njit(cv: np.ndarray, y_codes: np.ndarray, nbins: int) -
         if ne == 0 or raw_edges[k] != edges[ne - 1]:
             edges[ne] = raw_edges[k]
             ne += 1
+    return edges, ne
+
+
+@njit(cache=True, fastmath=True)
+def _mi_from_joint_counts(hist_xy, hist_x, hist_y, n):
+    """Plug-in mutual information in nats from a joint count table and its marginals over ``n`` rows, clipped at zero."""
+    log_n = np.log(n)
+    mi = 0.0
+    for b in range(hist_x.shape[0]):
+        if hist_x[b] == 0:
+            continue
+        log_hx = np.log(hist_x[b])
+        for c in range(hist_y.shape[0]):
+            n_xy = hist_xy[b, c]
+            if n_xy == 0 or hist_y[c] == 0:
+                continue
+            mi += (n_xy / n) * (np.log(n_xy) + log_n - log_hx - np.log(hist_y[c]))
+    if mi < 0.0:
+        mi = 0.0
+    return mi
+
+
+@njit(cache=True, fastmath=True)
+def _cheap_mi_edge_dedup_njit(cv: np.ndarray, y_codes: np.ndarray, nbins: int) -> float:
+    """Bit-identical njit port of ``_cheap_mi_with_y``'s host fallback (``quantile_edges`` dedup +
+    ``searchsorted`` + ``compute_mi_from_codes``), one column, for use inside ``_cheap_mi_batch_njit``'s
+    ``prange`` over columns. Interior quantile edges via the SAME linear-interpolation order-statistic
+    convention ``np.quantile`` uses (order statistics found via ``np.partition``, matching
+    ``_fe_edge_mi._edge_bin_codes``'s technique), then adjacent-deduped (the edges are non-decreasing by
+    quantile-function monotonicity, so a single adjacent-dedup pass is equivalent to ``np.unique`` on this
+    array) -- unlike ``_fe_edge_mi.plugin_mi_classif_batch_edge_njit`` (the OTHER existing batched-edge-MI
+    kernel), which deliberately does NOT dedup so it bit-matches the GPU orth-family kernel; that would
+    change the effective bin count on tied columns and is NOT a safe drop-in for this call site."""
+    n = cv.shape[0]
+    nq = nbins - 1
+    if nq <= 0 or n == 0:
+        return 0.0
+    edges, ne = _dedup_quantile_edges(cv, nbins)
     if ne == 0:
         return 0.0
     na = ne + 1
@@ -211,20 +239,7 @@ def _cheap_mi_edge_dedup_njit(cv: np.ndarray, y_codes: np.ndarray, nbins: int) -
         hist_xy[b, c] += 1
         hist_x[b] += 1
         hist_y[c] += 1
-    log_n = np.log(n)
-    mi = 0.0
-    for b in range(na):
-        if hist_x[b] == 0:
-            continue
-        log_hx = np.log(hist_x[b])
-        for c in range(nb):
-            n_xy = hist_xy[b, c]
-            if n_xy == 0 or hist_y[c] == 0:
-                continue
-            mi += (n_xy / n) * (np.log(n_xy) + log_n - log_hx - np.log(hist_y[c]))
-    if mi < 0.0:
-        mi = 0.0
-    return mi
+    return float(_mi_from_joint_counts(hist_xy, hist_x, hist_y, n))
 
 
 @njit(cache=True, fastmath=True, parallel=True)

@@ -195,5 +195,6 @@ def test_the_honest_null_hook_uses_the_cache_and_returns_the_codes_of_the_uncach
     cached, names_cached = fit_and_codes(False)
     plain, names_plain = fit_and_codes(True)
     assert names_cached == names_plain
+    assert len(cached) == len(plain) == 3
     for (c1, nb1), (c0, nb0) in zip(cached, plain):
         assert np.array_equal(c1, c0) and np.array_equal(nb1, nb0)

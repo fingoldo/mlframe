@@ -367,68 +367,82 @@ def _target_leakage_scan(y, candidate_numeric, n_samples, target_type, df, leaka
             n_classes = int(np.unique(y_arr[y_notna]).size) if ttype == "classification" else 0
 
             if ttype == "classification" and n_classes > 2:
-                # Documented multiclass leakage statistic (module docstring: "per-class AUC > 0.99
-                # for classification"). Pearson correlation against unordered integer class codes
-                # (the pre-fix behavior) is not a meaningful signal for 3+ classes.
                 if n_classes <= _LEAKAGE_MAX_CLASSES_FOR_AUC:
-                    from mlframe.metrics.core import fast_roc_auc
-
-                    classes = np.unique(y_arr[y_notna])
-                    for c in candidate_numeric:
-                        col = df[c].to_numpy(dtype=np.float64)
-                        finite = np.isfinite(col) & y_notna
-                        if finite.sum() < 2:
-                            continue
-                        y_finite = y_arr[finite]
-                        col_finite = col[finite]
-                        best_auc = 0.0
-                        for cls in classes:
-                            y_bin = (y_finite == cls).astype(np.int8)
-                            if y_bin.min() == y_bin.max():
-                                continue  # class absent (or omnipresent) in the finite subset -- AUC undefined
-                            try:
-                                auc = fast_roc_auc(y_bin, col_finite)
-                            except ValueError:
-                                continue
-                            auc = max(auc, 1.0 - auc)  # direction-agnostic: AUC and 1-AUC reflect the same separability
-                            if auc > best_auc:
-                                best_auc = auc
-                        if best_auc >= leakage_corr_threshold:
-                            leakage_candidates.append(c)
-                            _add_warning(c, f"suspected_target_leakage(max_per_class_auc={best_auc:.4f})")
+                    _multiclass_leakage_scan(y_arr, y_notna, candidate_numeric, df, leakage_corr_threshold, leakage_candidates, _add_warning)
                 else:
                     diagnostics["leakage_skipped"] = (
                         f"n_classes={n_classes} > cap={_LEAKAGE_MAX_CLASSES_FOR_AUC}; per-class AUC leakage "
                         "detection skipped to avoid an O(n_features * n_classes) blowup."
                     )
             else:
-                # Regression, or binary classification -- point-biserial Pearson is a
-                # legitimate leakage proxy for a 2-class target.
-                # pandas.DataFrame.corrwith vectorises pairwise-complete-obs
-                # correlation across all columns in one C-level call: ~65 ms vs
-                # the prior per-column np.corrcoef loop's ~145 ms at 200k rows /
-                # 15 cols, and bit-exact -- it builds the per-column finite mask
-                # internally instead of imputing NaN cells to the column mean
-                # (which would dilute the correlation enough to drop legitimate
-                # leakage below the 0.99 threshold on combos with sparse NaN).
-                y_series = pd.Series(y_arr, index=df.index)
-                try:
-                    corrs = df[candidate_numeric].corrwith(y_series, drop=False)
-                except Exception as e:
-                    # Object-dtype mix or other corrwith refusal — fall through
-                    # to nothing rather than crash the analyzer.
-                    logger.debug("corrwith() failed, treating correlations as empty: %s", e)
-                    corrs = pd.Series(dtype=np.float64)
-                for c, corr_val_raw in corrs.items():
-                    if not pd.notna(corr_val_raw):
-                        continue
-                    corr_val = float(corr_val_raw)
-                    if abs(corr_val) >= leakage_corr_threshold:
-                        leakage_candidates.append(c)
-                        _add_warning(c, f"suspected_target_leakage(corr_with_y={corr_val:.4f})")
+                _pearson_leakage_scan(y_arr, candidate_numeric, df, leakage_corr_threshold, leakage_candidates, _add_warning)
         if leakage_candidates:
             pathologies.append(f"suspected_target_leakage(n={len(leakage_candidates)})")
             diagnostics["leakage_candidates"] = list(leakage_candidates)
+
+
+def _multiclass_leakage_scan(y_arr, y_notna, candidate_numeric, df, leakage_corr_threshold, leakage_candidates, _add_warning):
+    """Flag candidates whose best one-vs-rest AUC over the classes reaches ``leakage_corr_threshold``.
+
+    Documented multiclass leakage statistic (module docstring: "per-class AUC > 0.99
+    for classification"). Pearson correlation against unordered integer class codes
+    (the pre-fix behavior) is not a meaningful signal for 3+ classes.
+    """
+    from mlframe.metrics.core import fast_roc_auc
+
+    classes = np.unique(y_arr[y_notna])
+    for c in candidate_numeric:
+        col = df[c].to_numpy(dtype=np.float64)
+        finite = np.isfinite(col) & y_notna
+        if finite.sum() < 2:
+            continue
+        y_finite = y_arr[finite]
+        col_finite = col[finite]
+        best_auc = 0.0
+        for cls in classes:
+            y_bin = (y_finite == cls).astype(np.int8)
+            if y_bin.min() == y_bin.max():
+                continue  # class absent (or omnipresent) in the finite subset -- AUC undefined
+            try:
+                auc = fast_roc_auc(y_bin, col_finite)
+            except ValueError:
+                continue
+            auc = max(auc, 1.0 - auc)  # direction-agnostic: AUC and 1-AUC reflect the same separability
+            if auc > best_auc:
+                best_auc = auc
+        if best_auc >= leakage_corr_threshold:
+            leakage_candidates.append(c)
+            _add_warning(c, f"suspected_target_leakage(max_per_class_auc={best_auc:.4f})")
+
+
+def _pearson_leakage_scan(y_arr, candidate_numeric, df, leakage_corr_threshold, leakage_candidates, _add_warning):
+    """Flag candidates whose pairwise-complete Pearson correlation with ``y_arr`` reaches ``leakage_corr_threshold``.
+
+    Regression, or binary classification -- point-biserial Pearson is a
+    legitimate leakage proxy for a 2-class target.
+    pandas.DataFrame.corrwith vectorises pairwise-complete-obs
+    correlation across all columns in one C-level call: ~65 ms vs
+    the prior per-column np.corrcoef loop's ~145 ms at 200k rows /
+    15 cols, and bit-exact -- it builds the per-column finite mask
+    internally instead of imputing NaN cells to the column mean
+    (which would dilute the correlation enough to drop legitimate
+    leakage below the 0.99 threshold on combos with sparse NaN).
+    """
+    y_series = pd.Series(y_arr, index=df.index)
+    try:
+        corrs = df[candidate_numeric].corrwith(y_series, drop=False)
+    except Exception as e:
+        # Object-dtype mix or other corrwith refusal — fall through
+        # to nothing rather than crash the analyzer.
+        logger.debug("corrwith() failed, treating correlations as empty: %s", e)
+        corrs = pd.Series(dtype=np.float64)
+    for c, corr_val_raw in corrs.items():
+        if not pd.notna(corr_val_raw):
+            continue
+        corr_val = float(corr_val_raw)
+        if abs(corr_val) >= leakage_corr_threshold:
+            leakage_candidates.append(c)
+            _add_warning(c, f"suspected_target_leakage(corr_with_y={corr_val:.4f})")
 
 
 def _high_cardinality_categoricals(categorical_cols, polars_cat_nunique, df, high_cardinality_max, high_card_features, _add_warning):

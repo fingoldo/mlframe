@@ -176,6 +176,45 @@ def _hinge_max_rows() -> int:
         return 250000
 
 
+def _hinge_full_scan(cp, xg, yg, ones, n, proj, r_y, sse_lin, cand_q_lo, cand_q_hi, n_candidates, min_seg_rows, max_breakpoints, min_heldout_r2_uplift, min_rows) -> list:
+    """Scan the inner-quantile candidate cuts for hinge breakpoints: each round scores every cut against the growing design, then held-out-validates the argmin."""
+    # FULL SCAN: inner-quantile candidate cuts; per round QR the growing block once and score every
+    # cut in one batched FWL evaluation; held-out-validate the argmin tau; add its relu leg and repeat.
+    qs = np.linspace(float(cand_q_lo), float(cand_q_hi), int(n_candidates))
+    cand = np.unique(cp.asnumpy(cp.quantile(xg, cp.asarray(qs))))
+    if cand.size == 0:
+        return []
+    found: list = []
+    extra_legs: list = []
+    # The candidate relu-leg block and row-guard mask depend only on (xg, cand); hoist them ONCE
+    # out of the round loop (they are re-scored against each round's growing design via proj/r_yk).
+    R_cand, ok_cand = _fwl_relu_legs(cp, xg, cand, n, min_seg_rows)
+    for _round_idx in range(max(1, int(max_breakpoints))):
+        if _round_idx == 0:
+            # Round 0's fixed design IS B=[1, xg] (extra_legs still empty) - the SAME block + Gram
+            # projector already built for the pre-check above (identical GEMM sequence); reuse instead of
+            # re-running it.
+            projk = proj
+            r_yk = r_y
+            sse_B = sse_lin
+        else:
+            Bk = cp.stack([ones, xg, *extra_legs], axis=1)
+            projk = _gram_projector(cp, Bk)
+            r_yk = yg - projk(yg)
+            sse_B = float(r_yk @ r_yk)
+        sse_all = _batched_fwl_sse(cp, R_cand, ok_cand, r_yk, projk, sse_B, cand, found)
+        _bi = int(np.argmin(sse_all))
+        if not np.isfinite(sse_all[_bi]):
+            break
+        best_tau = float(cand[_bi])
+        uplift = _heldout_uplift_gpu(cp, xg, yg, best_tau, min_rows)
+        if uplift < float(min_heldout_r2_uplift):
+            break
+        found.append(best_tau)
+        extra_legs.append(cp.maximum(xg - best_tau, 0.0))
+    return found
+
+
 def detect_hinge_breakpoints_gpu(
     x: np.ndarray,
     y: np.ndarray,
@@ -264,41 +303,7 @@ def detect_hinge_breakpoints_gpu(
         if best_drop < float(precheck_min_sse_drop):
             return []
 
-        # FULL SCAN: inner-quantile candidate cuts; per round QR the growing block once and score every
-        # cut in one batched FWL evaluation; held-out-validate the argmin tau; add its relu leg and repeat.
-        qs = np.linspace(float(cand_q_lo), float(cand_q_hi), int(n_candidates))
-        cand = np.unique(cp.asnumpy(cp.quantile(xg, cp.asarray(qs))))
-        if cand.size == 0:
-            return []
-        found: list = []
-        extra_legs: list = []
-        # The candidate relu-leg block and row-guard mask depend only on (xg, cand); hoist them ONCE
-        # out of the round loop (they are re-scored against each round's growing design via proj/r_yk).
-        R_cand, ok_cand = _fwl_relu_legs(cp, xg, cand, n, min_seg_rows)
-        for _round_idx in range(max(1, int(max_breakpoints))):
-            if _round_idx == 0:
-                # Round 0's fixed design IS B=[1, xg] (extra_legs still empty) - the SAME block + Gram
-                # projector already built for the pre-check above (identical GEMM sequence); reuse instead of
-                # re-running it.
-                projk = proj
-                r_yk = r_y
-                sse_B = sse_lin
-            else:
-                Bk = cp.stack([ones, xg, *extra_legs], axis=1)
-                projk = _gram_projector(cp, Bk)
-                r_yk = yg - projk(yg)
-                sse_B = float(r_yk @ r_yk)
-            sse_all = _batched_fwl_sse(cp, R_cand, ok_cand, r_yk, projk, sse_B, cand, found)
-            _bi = int(np.argmin(sse_all))
-            if not np.isfinite(sse_all[_bi]):
-                break
-            best_tau = float(cand[_bi])
-            uplift = _heldout_uplift_gpu(cp, xg, yg, best_tau, min_rows)
-            if uplift < float(min_heldout_r2_uplift):
-                break
-            found.append(best_tau)
-            extra_legs.append(cp.maximum(xg - best_tau, 0.0))
-        return found
+        return _hinge_full_scan(cp, xg, yg, ones, n, proj, r_y, sse_lin, cand_q_lo, cand_q_hi, n_candidates, min_seg_rows, max_breakpoints, min_heldout_r2_uplift, min_rows)
     except Exception as _exc:
         logger.debug("detect_hinge_breakpoints_gpu failed (%s); host detector fallback", _exc)
         return None

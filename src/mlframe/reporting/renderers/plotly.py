@@ -481,13 +481,12 @@ class PlotlyRenderer:
 
     def _histogram(self, fig, p: HistogramPanelSpec, row: int, col: int) -> None:
         """Render a histogram panel: uses spec-supplied ``bin_centers`` directly, pre-bins raw values above ``_HIST_PREBIN_THRESHOLD`` (avoids embedding huge raw arrays into HTML), else falls back to plotly's own ``go.Histogram`` binning; optionally overlays a fitted Normal PDF curve spanning the bin range."""
-        go = _go()
-
         # ``overlay_x_lo/hi`` anchors the Normal-overlay grid. When we pre-bin (here or upstream) they come from
         # the bin EDGES, avoiding two extra full-n min/max passes over raw values (PERF-18).
         overlay_x_lo = overlay_x_hi = None
         bin_centers = p.bin_centers
         heights = None
+        width0 = None
         if bin_centers is None and len(np.asarray(p.values)) > _HIST_PREBIN_THRESHOLD:
             # Raw spec with n above the embed-hazard ceiling: bin once with numpy instead of shipping n values
             # into the HTML (37 MB / browser-freezing at 2M).
@@ -497,80 +496,11 @@ class PlotlyRenderer:
                 bin_centers = centers
 
         if bin_centers is not None:
-            # A per-bar width array and a single float are both valid here (plotly's ``Bar.width`` accepts either),
-            # so the binding is deliberately widened rather than coerced.
-            width_any: Any
-            if heights is None:
-                heights = np.asarray(p.values)
-                if isinstance(p.bin_width, np.ndarray):
-                    width_any = np.asarray(p.bin_width, dtype=float)
-                else:
-                    width_any = float(p.bin_width if p.bin_width is not None else ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
-            else:
-                width_any = float(cast(float, width0))
-            width = width_any
-            colors_kw: dict[str, Any] = dict(color=p.color)
-            if p.bar_colors is not None:
-                # The range and its degeneracy guard were computed and then discarded -- `colors_kw` was
-                # reassigned without them -- so plotly auto-scaled per trace while matplotlib's twin pinned
-                # cmin/cmax. On a constant bar_colors vector plotly's autoscale is undefined; the guard exists
-                # precisely for that, so pass both through as matplotlib already does.
-                _h_min = float(np.min(p.bar_colors))
-                _h_max = float(np.max(p.bar_colors))
-                if _h_max <= _h_min:
-                    _h_max = _h_min + 1.0
-                colors_kw = dict(
-                    color=np.asarray(p.bar_colors),
-                    colorscale=_mpl_to_plotly_cmap(p.colormap),
-                    cmin=_h_min,
-                    cmax=_h_max,
-                )
-            fig.add_trace(
-                go.Bar(x=np.asarray(bin_centers), y=np.asarray(heights),
-                       width=width,
-                       marker=dict(line=dict(color="white", width=0.5), **colors_kw),
-                       showlegend=False),
-                row=row, col=col,
-            )
-            if len(bin_centers) > 0:
-                overlay_x_lo, overlay_x_hi = histogram_bar_extent(bin_centers, width)
+            overlay_x_lo, overlay_x_hi, heights = self._draw_prebinned_bars(fig, p, row, col, bin_centers, heights, width0)
         else:
-            # Matplotlib's twin drops non-finite values before binning and says so when nothing survives;
-            # go.Histogram silently renders an empty framed panel instead, which reads as "no data at all".
-            raw_vals = np.asarray(p.values, dtype=float).ravel()
-            raw_vals = raw_vals[np.isfinite(raw_vals)]
-            if raw_vals.size:
-                fig.add_trace(
-                    go.Histogram(x=raw_vals,
-                                 nbinsx=p.bins,
-                                 histnorm="probability density" if p.density else "",
-                                 marker=dict(color=p.color, line=dict(color="white", width=0.4)),
-                                 opacity=0.6, showlegend=False),
-                    row=row, col=col,
-                )
-            else:
-                # A subplot cell holding no trace at all is never laid out, and an annotation anchored to its
-                # (undrawn) axes silently lands on a neighbouring panel. One empty scatter forces the cell to
-                # exist, which also gives the reader the same framed-but-empty axes matplotlib draws.
-                fig.add_trace(go.Scatter(x=[], y=[], mode="markers", showlegend=False, hoverinfo="skip"), row=row, col=col)
-                fig.add_annotation(text="no finite values", x=0.5, y=0.5, xref="x domain", yref="y domain",
-                                   showarrow=False, font=dict(size=9), row=row, col=col)
+            self._draw_raw_histogram(fig, p, row, col)
 
-        if p.overlay_normal is not None:
-            mu, sigma = p.overlay_normal
-            if sigma > 0:
-                if overlay_x_lo is None:
-                    vals = np.asarray(p.values)
-                    overlay_x_lo, overlay_x_hi = float(np.min(vals)), float(np.max(vals))
-                assert overlay_x_hi is not None
-                x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
-                normal_pdf = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
-                label = p.overlay_label if p.overlay_label is not None else f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
-                fig.add_trace(
-                    go.Scatter(x=x_grid, y=normal_pdf, mode="lines", line=dict(color=NORMAL_OVERLAY, dash="dash", width=1.4), name=label, showlegend=True),
-                    row=row,
-                    col=col,
-                )
+        self._draw_normal_overlay(fig, p, row, col, overlay_x_lo, overlay_x_hi)
 
         if p.xlim is not None:
             fig.update_xaxes(range=list(p.xlim), row=row, col=col)
@@ -602,6 +532,92 @@ class PlotlyRenderer:
     # ``_confusion_margins`` / ``_colorbar_placement`` / ``_heatmap`` live in ``._plotly_heatmap`` and are
     # bound onto this class at the bottom of the module. Carved out to keep this file under the house
     # 1000-LOC limit; they are the largest self-contained group here and share no state with the rest.
+
+    def _draw_prebinned_bars(self, fig, p: HistogramPanelSpec, row: int, col: int, bin_centers, heights, width0):
+        """Draw a bar trace from pre-binned counts; return the ``(lo, hi)`` x-extent for the Normal overlay and the bar heights."""
+        go = _go()
+        overlay_x_lo = overlay_x_hi = None
+        # A per-bar width array and a single float are both valid here (plotly's ``Bar.width`` accepts either),
+        # so the binding is deliberately widened rather than coerced.
+        width_any: Any
+        if heights is None:
+            heights = np.asarray(p.values)
+            if isinstance(p.bin_width, np.ndarray):
+                width_any = np.asarray(p.bin_width, dtype=float)
+            else:
+                width_any = float(p.bin_width if p.bin_width is not None else ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
+        else:
+            width_any = float(cast(float, width0))
+        width = width_any
+        colors_kw: dict[str, Any] = dict(color=p.color)
+        if p.bar_colors is not None:
+            # The range and its degeneracy guard were computed and then discarded -- `colors_kw` was
+            # reassigned without them -- so plotly auto-scaled per trace while matplotlib's twin pinned
+            # cmin/cmax. On a constant bar_colors vector plotly's autoscale is undefined; the guard exists
+            # precisely for that, so pass both through as matplotlib already does.
+            _h_min = float(np.min(p.bar_colors))
+            _h_max = float(np.max(p.bar_colors))
+            if _h_max <= _h_min:
+                _h_max = _h_min + 1.0
+            colors_kw = dict(
+                color=np.asarray(p.bar_colors),
+                colorscale=_mpl_to_plotly_cmap(p.colormap),
+                cmin=_h_min,
+                cmax=_h_max,
+            )
+        fig.add_trace(
+            go.Bar(
+                x=np.asarray(bin_centers), y=np.asarray(heights), width=width, marker=dict(line=dict(color="white", width=0.5), **colors_kw), showlegend=False
+            ),
+            row=row,
+            col=col,
+        )
+        if len(bin_centers) > 0:
+            overlay_x_lo, overlay_x_hi = histogram_bar_extent(bin_centers, width)
+        return overlay_x_lo, overlay_x_hi, heights
+
+    def _draw_raw_histogram(self, fig, p: HistogramPanelSpec, row: int, col: int) -> None:
+        """Draw a histogram from raw finite values, or an explicit empty-cell marker when none survive."""
+        go = _go()
+        # Matplotlib's twin drops non-finite values before binning and says so when nothing survives;
+        # go.Histogram silently renders an empty framed panel instead, which reads as "no data at all".
+        raw_vals = np.asarray(p.values, dtype=float).ravel()
+        raw_vals = raw_vals[np.isfinite(raw_vals)]
+        if raw_vals.size:
+            fig.add_trace(
+                go.Histogram(x=raw_vals,
+                             nbinsx=p.bins,
+                             histnorm="probability density" if p.density else "",
+                             marker=dict(color=p.color, line=dict(color="white", width=0.4)),
+                             opacity=0.6, showlegend=False),
+                row=row, col=col,
+            )
+        else:
+            # A subplot cell holding no trace at all is never laid out, and an annotation anchored to its
+            # (undrawn) axes silently lands on a neighbouring panel. One empty scatter forces the cell to
+            # exist, which also gives the reader the same framed-but-empty axes matplotlib draws.
+            fig.add_trace(go.Scatter(x=[], y=[], mode="markers", showlegend=False, hoverinfo="skip"), row=row, col=col)
+            fig.add_annotation(text="no finite values", x=0.5, y=0.5, xref="x domain", yref="y domain", showarrow=False, font=dict(size=9), row=row, col=col)
+
+    def _draw_normal_overlay(self, fig, p: HistogramPanelSpec, row: int, col: int, overlay_x_lo, overlay_x_hi) -> None:
+        """Overlay the fitted Normal PDF across the bin range when a positive sigma is supplied."""
+        go = _go()
+        if p.overlay_normal is None:
+            return
+        mu, sigma = p.overlay_normal
+        if sigma > 0:
+            if overlay_x_lo is None:
+                vals = np.asarray(p.values)
+                overlay_x_lo, overlay_x_hi = float(np.min(vals)), float(np.max(vals))
+            assert overlay_x_hi is not None
+            x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
+            normal_pdf = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
+            label = p.overlay_label if p.overlay_label is not None else f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
+            fig.add_trace(
+                go.Scatter(x=x_grid, y=normal_pdf, mode="lines", line=dict(color=NORMAL_OVERLAY, dash="dash", width=1.4), name=label, showlegend=True),
+                row=row,
+                col=col,
+            )
 
     def _bar(self, fig, p: BarPanelSpec, row: int, col: int) -> None:
         """Render a bar panel (grouped when ``p.values`` is a tuple of series), with an optional reference line perpendicular to the bars and long category-label truncation/thinning/rotation on the value-orthogonal axis."""

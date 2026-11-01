@@ -1,12 +1,13 @@
 """Meta-test enforcing the cross-module ``@njit`` invariant.
 
 INVARIANT (per ``mlframe/feature_selection/filters/_numba_utils.py``):
-    All @njit helpers called from > 1 filters submodule live in
-    ``_numba_utils.py``. Single-module njit helpers stay in their owner.
+    All @njit helpers called from > 1 filters submodule live in the
+    ``_numba_utils`` family: ``_numba_utils.py`` and its ``_numba_utils_*``
+    siblings. Single-module njit helpers stay in their owner.
 
-This test fails if any filters submodule ``X.py`` (other than
-``_numba_utils.py``) imports an ``@njit``-decorated symbol from a sibling
-filters submodule. Such cross-module imports cause numba's dispatcher to
+This test fails if any filters submodule ``X.py`` (outside the
+``_numba_utils`` family) imports an ``@njit``-decorated symbol from a sibling
+filters submodule that is not in the family. Such cross-module imports cause numba's dispatcher to
 recompile against each importer's module path, producing silent cache
 misses and Windows file-lock races during pytest-xdist runs.
 
@@ -22,6 +23,11 @@ from pathlib import Path
 
 FILTERS_DIR = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "feature_selection" / "filters"
 ALLOWED_HOST = "_numba_utils"
+
+
+def _is_host_family(stem: str) -> bool:
+    """``_numba_utils`` and its ``_numba_utils_*`` siblings, the modules that host shared njit helpers."""
+    return stem == ALLOWED_HOST or stem.startswith(ALLOWED_HOST + "_")
 NJIT_NAMES_HINT = re.compile(r"^@njit", re.MULTILINE)
 RELATIVE_IMPORT_RE = re.compile(
     r"^from\s+\.(\w+)\s+import\s+([^\n#]+)",
@@ -48,12 +54,12 @@ def _violations(sources: dict[str, str]) -> list[str]:
 
     violations: list[str] = []
     for importer in submodules:
-        if importer == ALLOWED_HOST:
+        if _is_host_family(importer):
             continue
         text = sources[importer]
         for m in RELATIVE_IMPORT_RE.finditer(text):
             source_module = m.group(1)
-            if source_module in (ALLOWED_HOST, "_internals", "_legacy"):
+            if _is_host_family(source_module) or source_module in ("_internals", "_legacy"):
                 # Allowed to import @njit helpers from `_numba_utils`.
                 # ``_legacy`` is the migration scaffold (etap 1-10) and is
                 # exempted; the invariant only applies between the new
@@ -75,6 +81,7 @@ def test_cross_module_njit_detector_catches_a_sibling_import_and_passes_the_shar
     bad = _violations({"a": owner, "b": "from .a import kern\n"})
     assert bad == ["b.py imports @njit symbol(s) ['kern'] from sibling a.py (should live in _numba_utils.py)"]
     assert _violations({"_numba_utils": owner, "b": "from ._numba_utils import kern\n"}) == []
+    assert _violations({"_numba_utils_shared": owner, "b": "from ._numba_utils_shared import kern\n"}) == []
 
 
 def test_no_cross_module_njit_imports():

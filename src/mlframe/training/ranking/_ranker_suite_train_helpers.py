@@ -327,6 +327,53 @@ def _train_mlframe_rank_protocol_beyond_just_group(_doc_field, df_features, trai
     return _doc_te, _doc_tr, _doc_va
 
 
+def _quality_gate_drop(keep_idx, models_dict, flavor_order):
+    """Return ``(drop, best)``: the kept members whose val NDCG@10 is below half of the best finite NDCG, and that best value.
+
+    The exact threshold is a heuristic (half-best is the same rule
+    ``ensemble_probabilistic_predictions`` applies for outlier members); the goal is to
+    avoid dragging the fused score below the best single member.
+    """
+    _ndcgs = {i: float(models_dict[flavor_order[i]]["val_metrics"].get("ndcg@10", 0.0)) for i in keep_idx}
+    _ndcg_finite = {i: v for i, v in _ndcgs.items() if np.isfinite(v)}
+    if not _ndcg_finite:
+        return [], float("nan")
+    _best = max(_ndcg_finite.values())
+    _floor = 0.5 * _best
+    return [i for i, v in _ndcg_finite.items() if v < _floor], _best
+
+
+def _diversity_gate_drop(keep_idx, val_scores_per_model, models_dict, flavor_order) -> set[int]:
+    """Return the lower-NDCG member of every kept pair whose val-score Spearman correlation exceeds 0.99.
+
+    Spearman (rank correlation) is the rank-fusion-appropriate measure -- Pearson on
+    raw scores would over-flag flavours with different score scales but identical orders.
+    """
+    from scipy.stats import spearmanr  # local import: heavy dep only when ensembling
+    _drop_div: set[int] = set()
+    _kept_sorted = sorted(
+        keep_idx,
+        key=lambda i: float(models_dict[flavor_order[i]]["val_metrics"].get("ndcg@10", 0.0)),
+        reverse=True,
+    )
+    for _ix, _i in enumerate(_kept_sorted):
+        if _i in _drop_div:
+            continue
+        _vi = np.asarray(val_scores_per_model[_i], dtype=np.float64)
+        for _j in _kept_sorted[_ix + 1 :]:
+            if _j in _drop_div:
+                continue
+            _vj = np.asarray(val_scores_per_model[_j], dtype=np.float64)
+            try:
+                _rho, _ = spearmanr(_vi, _vj)
+            except Exception:
+                logger.debug("spearmanr failed for diversity gate between models %d and %d; skipping pair", _i, _j, exc_info=True)
+                continue
+            if _rho is not None and np.isfinite(_rho) and _rho > 0.99:
+                _drop_div.add(_j)
+    return _drop_div
+
+
 def _train_mlframe_rank_lockstep_rank_fusion_math(use_mlframe_ensembles, val_scores_per_model, flavor_order, test_scores_per_model, models_dict):
     """Block of train_mlframe_ranker_suite starting at ``if use_mlframe_ensembles and len(val_scores_per_model) >= 2:``."""
     if use_mlframe_ensembles and len(val_scores_per_model) >= 2:
@@ -357,43 +404,13 @@ def _train_mlframe_rank_lockstep_rank_fusion_math(use_mlframe_ensembles, val_sco
         # ``ensemble_probabilistic_predictions`` applies for outlier members); the goal is to
         # avoid dragging the fused score below the best single member.
         if len(_keep_idx) >= 2:
-            _ndcgs = {i: float(models_dict[flavor_order[i]]["val_metrics"].get("ndcg@10", 0.0)) for i in _keep_idx}
-            _ndcg_finite = {i: v for i, v in _ndcgs.items() if np.isfinite(v)}
-            if _ndcg_finite:
-                _best = max(_ndcg_finite.values())
-                _floor = 0.5 * _best
-                _q_drop = [i for i, v in _ndcg_finite.items() if v < _floor]
-                if _q_drop and len(_keep_idx) - len(_q_drop) >= 2:
-                    _gate_log.append(f"quality: dropped {[flavor_order[i] for i in _q_drop]} " f"(val_ndcg@10 below 0.5x best={_best:.4f})")
-                    _keep_idx = [i for i in _keep_idx if i not in set(_q_drop)]
+            _q_drop, _best = _quality_gate_drop(_keep_idx, models_dict, flavor_order)
+            if _q_drop and len(_keep_idx) - len(_q_drop) >= 2:
+                _gate_log.append(f"quality: dropped {[flavor_order[i] for i in _q_drop]} " f"(val_ndcg@10 below 0.5x best={_best:.4f})")
+                _keep_idx = [i for i in _keep_idx if i not in set(_q_drop)]
 
-        # Diversity gate: when two members have val_score Spearman correlation > 0.99 they
-        # contribute almost no independent signal; keep the higher-NDCG of each near-duplicate
-        # pair. Spearman (rank correlation) is the rank-fusion-appropriate measure -- Pearson on
-        # raw scores would over-flag flavours with different score scales but identical orders.
         if len(_keep_idx) >= 2:
-            from scipy.stats import spearmanr  # local import: heavy dep only when ensembling
-            _drop_div: set[int] = set()
-            _kept_sorted = sorted(
-                _keep_idx,
-                key=lambda i: float(models_dict[flavor_order[i]]["val_metrics"].get("ndcg@10", 0.0)),
-                reverse=True,
-            )
-            for _ix, _i in enumerate(_kept_sorted):
-                if _i in _drop_div:
-                    continue
-                _vi = np.asarray(val_scores_per_model[_i], dtype=np.float64)
-                for _j in _kept_sorted[_ix + 1 :]:
-                    if _j in _drop_div:
-                        continue
-                    _vj = np.asarray(val_scores_per_model[_j], dtype=np.float64)
-                    try:
-                        _rho, _ = spearmanr(_vi, _vj)
-                    except Exception:
-                        logger.debug("spearmanr failed for diversity gate between models %d and %d; skipping pair", _i, _j, exc_info=True)
-                        continue
-                    if _rho is not None and np.isfinite(_rho) and _rho > 0.99:
-                        _drop_div.add(_j)
+            _drop_div = _diversity_gate_drop(_keep_idx, val_scores_per_model, models_dict, flavor_order)
             if _drop_div and len(_keep_idx) - len(_drop_div) >= 2:
                 _gate_log.append(f"diversity: dropped {[flavor_order[i] for i in sorted(_drop_div)]} " f"(val Spearman > 0.99 vs higher-NDCG sibling)")
                 _keep_idx = [i for i in _keep_idx if i not in _drop_div]

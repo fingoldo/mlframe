@@ -22,6 +22,52 @@ if not hasattr(np, "in1d"):
     np.in1d = np.isin  # type: ignore[attr-defined, assignment]  # noqa: NPY201 -- this IS the removed-API compat shim, not a use of the removed API
 
 
+def _discretize(X_ref: np.ndarray, X_target: np.ndarray, n_bins: int) -> np.ndarray:
+    """One-hot quantile-bin ``X_target`` using bin edges computed from ``X_ref``; all-NaN columns emit all-zero bin columns instead of propagating NaN."""
+    d = X_ref.shape[1]
+    bin_cols: list[np.ndarray] = []
+    for j in range(d):
+        # use nanquantile so a NaN-bearing column doesn't
+        # poison every edge -> np.digitize then clamps every target row
+        # to bin 0 -> the entire discretised feature collapses to a
+        # constant. nanquantile returns NaN only when ALL inputs are
+        # NaN; guard that explicitly.
+        edges = np.nanquantile(X_ref[:, j], np.linspace(0, 1, n_bins + 1))
+        if not np.all(np.isfinite(edges)):
+            # Column is degenerate (all-NaN). Emit an all-zero set of
+            # bin columns rather than letting NaN propagate downstream.
+            bin_cols.extend(np.zeros(X_target.shape[0], dtype=bool) for _ in range(n_bins))
+            continue
+        target_bins = np.clip(np.digitize(X_target[:, j], edges[1:-1]), 0, n_bins - 1)
+        bin_cols.extend(target_bins == b for b in range(n_bins))
+    out: np.ndarray = np.array(bin_cols, dtype=bool).T  # (n_rows, d*n_bins)
+    return out
+
+
+def _itemset_lifts(frequent: Any, bin_matrix_train: np.ndarray, col_index: dict[str, int], y_t: np.ndarray, task: str) -> list[float]:
+    """Score each frequent itemset by its target lift on the train slice (0.0 when the itemset matches no train row)."""
+    if task == "binary":
+        target_mean = float(y_t.mean())
+    else:
+        target_mean = float(np.median(y_t))
+    lifts: list[float] = []
+    for _, row in frequent.iterrows():
+        itemset = list(row["itemsets"])
+        cols_idx = [col_index[it] for it in itemset]
+        mask_train = np.all(bin_matrix_train[:, cols_idx], axis=1)
+        if mask_train.sum() == 0:
+            lifts.append(0.0)
+            continue
+        if task == "binary":
+            cond_mean = float(y_t[mask_train].mean())
+            lift = max(cond_mean, 1e-6) / max(target_mean, 1e-6)
+        else:
+            cond_mean = float(np.mean(y_t[mask_train]))
+            lift = abs(cond_mean - target_mean) / max(float(np.std(y_t)), 1e-9)
+        lifts.append(lift)
+    return lifts
+
+
 def compute_apriori_itemsets_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -63,26 +109,6 @@ def compute_apriori_itemsets_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_features_out = top_k + 2
 
-    def _discretize(X_ref: np.ndarray, X_target: np.ndarray, n_bins: int):
-        """One-hot quantile-bin ``X_target`` using bin edges computed from ``X_ref``; all-NaN columns emit all-zero bin columns instead of propagating NaN."""
-        d = X_ref.shape[1]
-        bin_cols: list[np.ndarray] = []
-        for j in range(d):
-            # use nanquantile so a NaN-bearing column doesn't
-            # poison every edge -> np.digitize then clamps every target row
-            # to bin 0 -> the entire discretised feature collapses to a
-            # constant. nanquantile returns NaN only when ALL inputs are
-            # NaN; guard that explicitly.
-            edges = np.nanquantile(X_ref[:, j], np.linspace(0, 1, n_bins + 1))
-            if not np.all(np.isfinite(edges)):
-                # Column is degenerate (all-NaN). Emit an all-zero set of
-                # bin columns rather than letting NaN propagate downstream.
-                bin_cols.extend(np.zeros(X_target.shape[0], dtype=bool) for _ in range(n_bins))
-                continue
-            target_bins = np.clip(np.digitize(X_target[:, j], edges[1:-1]), 0, n_bins - 1)
-            bin_cols.extend(target_bins == b for b in range(n_bins))
-        return np.array(bin_cols, dtype=bool).T  # (n_rows, d*n_bins)
-
     def _process(Xt, Xq, y_t):
         """Discretize the fold, mine frequent itemsets on the train slice, rank by target lift, and emit top-K membership indicators for the query rows."""
         # Discretize
@@ -109,26 +135,7 @@ def compute_apriori_itemsets_features(
             top_indicators_q = np.zeros((Xq.shape[0], top_k), dtype=np.float32)
             n_matched = np.zeros(Xq.shape[0], dtype=np.float32)
             return np.column_stack([top_indicators_q, n_matched, np.zeros(Xq.shape[0], dtype=np.float32)])
-        # Score by lift against target
-        if task == "binary":
-            target_mean = float(y_t.mean())
-        else:
-            target_mean = float(np.median(y_t))
-        lifts = []
-        for _, row in frequent.iterrows():
-            itemset = list(row["itemsets"])
-            cols_idx = [col_index[it] for it in itemset]
-            mask_train = np.all(bin_matrix_train[:, cols_idx], axis=1)
-            if mask_train.sum() == 0:
-                lifts.append(0.0)
-                continue
-            if task == "binary":
-                cond_mean = float(y_t[mask_train].mean())
-                lift = max(cond_mean, 1e-6) / max(target_mean, 1e-6)
-            else:
-                cond_mean = float(np.mean(y_t[mask_train]))
-                lift = abs(cond_mean - target_mean) / max(float(np.std(y_t)), 1e-9)
-            lifts.append(lift)
+        lifts = _itemset_lifts(frequent, bin_matrix_train, col_index, y_t, task)
         # Sort by lift, take top_k.
         # lexsort with itemset-index tiebreak so tied
         # lifts (rare items often saturate) give deterministic top-K.

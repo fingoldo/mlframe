@@ -96,7 +96,7 @@ def _content_key(arr: np.ndarray) -> str:
         norm = arr.astype(np.int64, copy=False)
     else:
         norm = arr
-    return hashlib.blake2b(np.ascontiguousarray(norm).tobytes(), digest_size=16).hexdigest()
+    return hashlib.blake2b(np.ascontiguousarray(norm).data, digest_size=16).hexdigest()
 
 
 def _call_site() -> str:

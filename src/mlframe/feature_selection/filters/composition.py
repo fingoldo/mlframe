@@ -18,6 +18,73 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+def _score_pairs(cur_X, top_idx, y, *, discrete_target, mi_estimator, plugin_n_bins) -> list:
+    """Joint MI of every pair drawn from ``top_idx``, best first, with a deterministic index tie-break."""
+    from itertools import combinations
+
+    from .fe_baselines import _mi_1d
+
+    pairs = list(combinations(top_idx, 2))
+    pair_scores = []
+    for i, j in pairs:
+        xi, xj = cur_X[:, i], cur_X[:, j]
+        mi_pair = max(
+            _mi_1d(xi * xj, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins),
+            _mi_1d(xi + xj, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins),
+        )
+        pair_scores.append((i, j, mi_pair))
+    # Secondary key on (i, j) for deterministic
+    # pair selection across runs when MIs tie.
+    pair_scores.sort(key=lambda kv: (-kv[2], kv[0], kv[1]))
+    return pair_scores
+
+
+def _engineer_top_pairs(
+    top_pairs, cur_X, cur_names, y, r, *, discrete_target, n_trials, max_degree, basis, mi_estimator, plugin_n_bins, use_trivial_baseline,
+    baseline_uplift_threshold, optimizer, verbose,
+) -> tuple[list, list, list]:
+    """Fit the hermite pair transform for each selected pair and keep the finite engineered columns with their provenance (round ``r`` is 0-based)."""
+    from .hermite_fe import optimise_hermite_pair
+
+    new_cols = []
+    new_names = []
+    prov = []
+    for i, j, _ in top_pairs:
+        xi, xj = cur_X[:, i], cur_X[:, j]
+        try:
+            res = optimise_hermite_pair(
+                xi, xj, y,
+                discrete_target=discrete_target,
+                n_trials=n_trials, max_degree=max_degree,
+                basis=basis, mi_estimator=mi_estimator,
+                plugin_n_bins=plugin_n_bins,
+                use_trivial_baseline=use_trivial_baseline,
+                baseline_uplift_threshold=baseline_uplift_threshold,
+                optimizer=optimizer,
+            )
+        except Exception as e:
+            # Was `if verbose: logger.debug(...)`, so a
+            # genuinely-broken pair silently vanished with zero trace under the default (non-verbose)
+            # config. Always log at warning level (not opt-in), with the traceback only under verbose.
+            log_throttle(logger, "compose_pair_fe_failed", logging.WARNING, "compose_pair_fe: pair (%d,%d) FE failed: %s", i, j, e, exc_info=verbose)
+            continue
+        if res is None:
+            continue
+        engineered = res.transform(xi, xj)
+        if not np.all(np.isfinite(engineered)):
+            continue
+        name = f"r{r + 1}_pair_{cur_names[i]}_{cur_names[j]}_{res.bin_func_name}"
+        new_cols.append(engineered)
+        new_names.append(name)
+        prov.append({
+            "round": r + 1, "i": i, "j": j,
+            "name_i": cur_names[i], "name_j": cur_names[j],
+            "bf": res.bin_func_name, "mi": res.mi,
+            "uplift": res.uplift,
+        })
+    return new_cols, new_names, prov
+
+
 def compose_pair_fe(
     X: np.ndarray, y: np.ndarray, *, n_rounds: int = 2, top_k_per_round: int = 3, discrete_target: bool = True, basis: str = "chebyshev", n_trials: int = 30,
     max_degree: int = 3, mi_estimator: str = "plugin", plugin_n_bins: int = 20, optimizer: str = "cma", use_trivial_baseline: bool = True,
@@ -42,9 +109,7 @@ def compose_pair_fe(
     -------
     Cascaded FE is prone to overfitting on small N. ``baseline_uplift_threshold=1.05`` (5% improvement over the HONEST trivial baseline) gates each engineered feature; round 2 typically adds 0-2 features instead of ``top_k_per_round``. Use ``validate_pair_fe_cv`` for nested-CV-validated cascading.
     """
-    from .hermite_fe import optimise_hermite_pair
     from .fe_baselines import _mi_1d
-    from itertools import combinations
 
     X_in = np.asarray(X)
     if X_in.dtype.kind != "f":
@@ -91,58 +156,16 @@ def compose_pair_fe(
             if verbose:
                 logger.debug("[compose] not enough features with MI>0; stopping")
             break
-        # Pair candidates.
-        pairs = list(combinations(top_idx, 2))
         # Score each pair via joint MI on the train data, take top ``top_k_per_round`` candidates for FE.
-        pair_scores = []
-        for i, j in pairs:
-            xi, xj = cur_X[:, i], cur_X[:, j]
-            mi_pair = max(
-                _mi_1d(xi * xj, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins),
-                _mi_1d(xi + xj, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins),
-            )
-            pair_scores.append((i, j, mi_pair))
-        # Secondary key on (i, j) for deterministic
-        # pair selection across runs when MIs tie.
-        pair_scores.sort(key=lambda kv: (-kv[2], kv[0], kv[1]))
+        pair_scores = _score_pairs(cur_X, top_idx, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
         top_pairs = pair_scores[:top_k_per_round]
 
-        new_cols = []
-        new_names = []
-        prov = []
-        for i, j, _ in top_pairs:
-            xi, xj = cur_X[:, i], cur_X[:, j]
-            try:
-                res = optimise_hermite_pair(
-                    xi, xj, y,
-                    discrete_target=discrete_target,
-                    n_trials=n_trials, max_degree=max_degree,
-                    basis=basis, mi_estimator=mi_estimator,
-                    plugin_n_bins=plugin_n_bins,
-                    use_trivial_baseline=use_trivial_baseline,
-                    baseline_uplift_threshold=baseline_uplift_threshold,
-                    optimizer=optimizer,
-                )
-            except Exception as e:
-                # Was `if verbose: logger.debug(...)`, so a
-                # genuinely-broken pair silently vanished with zero trace under the default (non-verbose)
-                # config. Always log at warning level (not opt-in), with the traceback only under verbose.
-                log_throttle(logger, "compose_pair_fe_failed", logging.WARNING, "compose_pair_fe: pair (%d,%d) FE failed: %s", i, j, e, exc_info=verbose)
-                continue
-            if res is None:
-                continue
-            engineered = res.transform(xi, xj)
-            if not np.all(np.isfinite(engineered)):
-                continue
-            name = f"r{r + 1}_pair_{cur_names[i]}_{cur_names[j]}_{res.bin_func_name}"
-            new_cols.append(engineered)
-            new_names.append(name)
-            prov.append({
-                "round": r + 1, "i": i, "j": j,
-                "name_i": cur_names[i], "name_j": cur_names[j],
-                "bf": res.bin_func_name, "mi": res.mi,
-                "uplift": res.uplift,
-            })
+        new_cols, new_names, prov = _engineer_top_pairs(
+            top_pairs, cur_X, cur_names, y, r,
+            discrete_target=discrete_target, n_trials=n_trials, max_degree=max_degree, basis=basis, mi_estimator=mi_estimator,
+            plugin_n_bins=plugin_n_bins, use_trivial_baseline=use_trivial_baseline, baseline_uplift_threshold=baseline_uplift_threshold,
+            optimizer=optimizer, verbose=verbose,
+        )
         rounds_log.append({
             "round": r + 1,
             "selected_pairs": [(i, j) for i, j, _ in top_pairs],

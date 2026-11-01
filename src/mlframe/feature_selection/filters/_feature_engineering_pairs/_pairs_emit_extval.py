@@ -74,6 +74,57 @@ def _hstack_chunk_codes(chunks):
     return np.hstack([np.asarray(c) for c in chunks])
 
 
+def _score_scalar_param_pairs(
+    param_a,
+    _ev_param_bs,
+    binary_transformations,
+    _resolve_col,
+    i,
+    quantization_nbins,
+    quantization_method,
+    quantization_dtype,
+    discretize_array,
+    _family_exact,
+    _else_cols,
+    mi_direct,
+    classes_y,
+    classes_y_safe,
+    freqs_y,
+    fe_min_nonzero_confidence,
+    fe_npermutations,
+    best_valid_mi,
+):
+    """Score every binary transform of the first operand against every scalar second parameter; returns ``(best_valid_mi, param_a, k_seen_increment)``."""
+    k_seen = 0
+    if param_a is None:
+        param_a = _resolve_col(i)
+    for _pb_vals in _ev_param_bs:
+        param_b = _pb_vals
+        for valid_bin_func in binary_transformations.values():
+
+            valid_vals = valid_bin_func(param_a, param_b)
+
+            discretized_transformed_values = discretize_array(arr=valid_vals, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype)
+            k_seen += 1
+            if _family_exact:
+                _else_cols.append(np.asarray(discretized_transformed_values).reshape(-1, 1))
+            fe_mi, _fe_conf = mi_direct(
+                discretized_transformed_values.reshape(-1, 1),
+                x=np.array([0], dtype=np.int64),
+                y=None,
+                factors_nbins=np.array([code_table_bins(discretized_transformed_values, quantization_nbins)], dtype=np.int64),
+                classes_y=classes_y,
+                classes_y_safe=classes_y_safe,
+                freqs_y=freqs_y,
+                min_nonzero_confidence=fe_min_nonzero_confidence,
+                npermutations=fe_npermutations,
+            )
+
+            if fe_mi > best_valid_mi:
+                best_valid_mi = fe_mi
+    return best_valid_mi, param_a, k_seen
+
+
 def _emit_pair_features_step2_read_here_once(
     _ev_configs,
     final_transformed_vals,
@@ -158,34 +209,12 @@ def _emit_pair_features_step2_read_here_once(
             if _family_exact and _ev_chunk_codes and _ev_all_scored:
                 _pair_batches.append((config, _ev_chunk_codes[0] if len(_ev_chunk_codes) == 1 else _hstack_chunk_codes(_ev_chunk_codes)))
         else:
-            if param_a is None:
-                param_a = _resolve_col(i)
-            for _pb_vals in _ev_param_bs:
-                param_b = _pb_vals
-                for valid_bin_func in binary_transformations.values():
-
-                    valid_vals = valid_bin_func(param_a, param_b)
-
-                    discretized_transformed_values = discretize_array(
-                        arr=valid_vals, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
-                    )
-                    _k_seen += 1
-                    if _family_exact:
-                        _else_cols.append(np.asarray(discretized_transformed_values).reshape(-1, 1))
-                    fe_mi, _fe_conf = mi_direct(
-                        discretized_transformed_values.reshape(-1, 1),
-                        x=np.array([0], dtype=np.int64),
-                        y=None,
-                        factors_nbins=np.array([code_table_bins(discretized_transformed_values, quantization_nbins)], dtype=np.int64),
-                        classes_y=classes_y,
-                        classes_y_safe=classes_y_safe,
-                        freqs_y=freqs_y,
-                        min_nonzero_confidence=fe_min_nonzero_confidence,
-                        npermutations=fe_npermutations,
-                    )
-
-                    if fe_mi > best_valid_mi:
-                        best_valid_mi = fe_mi
+            best_valid_mi, param_a, _k_inc = _score_scalar_param_pairs(
+                param_a, _ev_param_bs, binary_transformations, _resolve_col, i, quantization_nbins, quantization_method, quantization_dtype,
+                discretize_array, _family_exact, _else_cols, mi_direct, classes_y, classes_y_safe, freqs_y, fe_min_nonzero_confidence,
+                fe_npermutations, best_valid_mi,
+            )
+            _k_seen += _k_inc
 
         if _else_cols:
             _pair_batches.append((config, np.hstack(_else_cols)))

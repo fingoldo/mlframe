@@ -35,6 +35,65 @@ logger = logging.getLogger(__name__)
 _DEFAULT_TEMPS: tuple[float, ...] = (0.3, 1.0, 3.0)
 
 
+def _band_masks(y_t: np.ndarray, task: str, n_bands: int) -> list:
+    """Boolean membership of each train row in its band: the two classes for binary, otherwise the quantile bands of ``y_t``."""
+    if task == "binary":
+        return [y_t > 0.5, y_t <= 0.5]
+    quantiles = np.quantile(y_t, np.linspace(0.0, 1.0, n_bands + 1))
+    masks = []
+    for b in range(n_bands):
+        if b == 0:
+            masks.append(y_t <= quantiles[b + 1])
+        elif b == n_bands - 1:
+            masks.append(y_t > quantiles[b])
+        else:
+            masks.append((y_t > quantiles[b]) & (y_t <= quantiles[b + 1]))
+    return masks
+
+
+def _band_centroids_and_stats(Xt_s: np.ndarray, y_t: np.ndarray, masks: list) -> tuple:
+    """Per-band X centroid, y mean, y std (plus a 1e-9 floor), and an empty-band flag over the train rows."""
+    n_bands = len(masks)
+    band_centroids = np.zeros((n_bands, Xt_s.shape[1]), dtype=np.float32)
+    band_y_mean = np.zeros(n_bands, dtype=np.float32)
+    band_y_std = np.zeros(n_bands, dtype=np.float32)
+    band_empty = np.zeros(n_bands, dtype=bool)
+    for b, mask in enumerate(masks):
+        X_band = Xt_s[mask]
+        y_band = y_t[mask]
+        if X_band.shape[0] < 1:
+            band_empty[b] = True
+            continue
+        band_centroids[b] = X_band.mean(axis=0)
+        band_y_mean[b] = float(y_band.mean())
+        band_y_std[b] = float(y_band.std()) + 1e-9
+    return band_centroids, band_y_mean, band_y_std, band_empty
+
+
+def _fill_temperature_blocks(
+    out_blocks: np.ndarray,
+    scores: np.ndarray,
+    temps_list: tuple,
+    n_bands: int,
+    band_y_mean: np.ndarray,
+    band_y_std: np.ndarray,
+) -> None:
+    """For each temperature, write the softmax band weights, entropy, aggregated y mean / std and argmax band into its block of ``out_blocks``."""
+    features_per_temp = n_bands + 4
+    for ti, t in enumerate(temps_list):
+        weights = softmax(scores, temp=t)
+        entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)
+        agg_y_mean = (weights * band_y_mean[None, :]).sum(axis=-1).astype(np.float32)
+        agg_y_std = (weights * band_y_std[None, :]).sum(axis=-1).astype(np.float32)
+        best_band = weights.argmax(axis=-1).astype(np.float32)
+        base = ti * features_per_temp
+        out_blocks[:, base : base + n_bands] = weights
+        out_blocks[:, base + n_bands] = entropy
+        out_blocks[:, base + n_bands + 1] = agg_y_mean
+        out_blocks[:, base + n_bands + 2] = agg_y_std
+        out_blocks[:, base + n_bands + 3] = best_band
+
+
 def compute_multi_temp_band_attention_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -76,31 +135,8 @@ def compute_multi_temp_band_attention_features(
         else:
             Xt_s = Xt
             Xq_s = Xq
-        if task == "binary":
-            masks = [y_t > 0.5, y_t <= 0.5]
-        else:
-            quantiles = np.quantile(y_t, np.linspace(0.0, 1.0, effective_n_bands + 1))
-            masks = []
-            for b in range(effective_n_bands):
-                if b == 0:
-                    masks.append(y_t <= quantiles[b + 1])
-                elif b == effective_n_bands - 1:
-                    masks.append(y_t > quantiles[b])
-                else:
-                    masks.append((y_t > quantiles[b]) & (y_t <= quantiles[b + 1]))
-        band_centroids = np.zeros((effective_n_bands, Xt_s.shape[1]), dtype=np.float32)
-        band_y_mean = np.zeros(effective_n_bands, dtype=np.float32)
-        band_y_std = np.zeros(effective_n_bands, dtype=np.float32)
-        band_empty = np.zeros(effective_n_bands, dtype=bool)
-        for b, mask in enumerate(masks):
-            X_band = Xt_s[mask]
-            y_band = y_t[mask]
-            if X_band.shape[0] < 1:
-                band_empty[b] = True
-                continue
-            band_centroids[b] = X_band.mean(axis=0)
-            band_y_mean[b] = float(y_band.mean())
-            band_y_std[b] = float(y_band.std()) + 1e-9
+        masks = _band_masks(y_t, task, effective_n_bands)
+        band_centroids, band_y_mean, band_y_std, band_empty = _band_centroids_and_stats(Xt_s, y_t, masks)
         sq = _squared_dists(Xq_s, band_centroids)  # (n_q, n_total)
         scores = -sq
         if band_empty.any():
@@ -110,18 +146,7 @@ def compute_multi_temp_band_attention_features(
             scores[:, band_empty] = -np.inf
         n_q = Xq_s.shape[0]
         out_blocks = np.zeros((n_q, n_temps * features_per_temp), dtype=np.float32)
-        for ti, t in enumerate(temps_list):
-            weights = softmax(scores, temp=t)
-            entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)
-            agg_y_mean = (weights * band_y_mean[None, :]).sum(axis=-1).astype(np.float32)
-            agg_y_std = (weights * band_y_std[None, :]).sum(axis=-1).astype(np.float32)
-            best_band = weights.argmax(axis=-1).astype(np.float32)
-            base = ti * features_per_temp
-            out_blocks[:, base : base + effective_n_bands] = weights
-            out_blocks[:, base + effective_n_bands] = entropy
-            out_blocks[:, base + effective_n_bands + 1] = agg_y_mean
-            out_blocks[:, base + effective_n_bands + 2] = agg_y_std
-            out_blocks[:, base + effective_n_bands + 3] = best_band
+        _fill_temperature_blocks(out_blocks, scores, temps_list, effective_n_bands, band_y_mean, band_y_std)
         return out_blocks
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:

@@ -130,28 +130,63 @@ def single_flight() -> Iterator[bool]:
     """
     path = _lock_path()
     for _ in range(2):
-        try:
-            with open(path, "x", encoding="utf-8") as lock:  # "x": create exclusively, so exactly one process wins
-                lock.write(str(os.getpid()))
-        except FileExistsError:
-            holder = _lock_holder(path)
-            if holder and holder != os.getpid() and _pid_alive(holder):
-                yield False
-                return
+        if _create_lock(path):
             try:
-                path.unlink()
-            except OSError as exc:
-                logger.warning("could not remove the stale tuning lock %s (%s: %s); not starting a run", path, type(exc).__name__, exc)
-                yield False
-                return
-            continue
+                yield True
+            finally:
+                with contextlib.suppress(OSError):
+                    path.unlink()
+            return
+        holder = _lock_holder(path)
+        if holder and holder != os.getpid() and _pid_alive(holder):
+            yield False
+            return
+        # An empty or unreadable lock is either a live process mid-creation or a crashed one. Only one that has stopped changing is taken over (CON2-1).
+        if not holder and _lock_is_young(path):
+            yield False
+            return
         try:
-            yield True
-        finally:
-            with contextlib.suppress(OSError):
-                path.unlink()
-        return
+            path.unlink()
+        except OSError as exc:
+            logger.warning("could not remove the stale tuning lock %s (%s: %s); not starting a run", path, type(exc).__name__, exc)
+            yield False
+            return
     yield False
+
+
+_YOUNG_LOCK_SECONDS = 10.0
+
+
+def _create_lock(path: Path) -> bool:
+    """Create the lock with this process's pid already in it, so no other process can read it empty (CON2-1).
+
+    The pid goes into a per-process temp file first, which is then hard-linked to the lock path: the link fails if the lock exists, and the lock never exists without its pid.
+    """
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(str(os.getpid()), encoding="utf-8")
+    try:
+        os.link(tmp, path)
+        return True
+    except FileExistsError:  # best-effort: a held lock is the normal contention answer, not a failure
+        return False
+    except OSError:  # no hard links on this filesystem: exclusive create, pid written right after (the narrow window stays, as before)
+        try:
+            with open(path, "x", encoding="utf-8") as lock:
+                lock.write(str(os.getpid()))
+            return True
+        except FileExistsError:  # best-effort: a held lock is the normal contention answer, not a failure
+            return False
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+
+
+def _lock_is_young(path: Path) -> bool:
+    """Whether the lock file was written recently enough that its owner may still be filling it in."""
+    try:
+        return time.time() - path.stat().st_mtime < _YOUNG_LOCK_SECONDS
+    except OSError:  # best-effort: a lock that vanished or cannot be stat'd is not young
+        return False
 
 
 def _run_sweep(spec: Any, timeout_s: float) -> tuple:

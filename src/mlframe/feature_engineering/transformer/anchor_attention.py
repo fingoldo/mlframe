@@ -105,6 +105,83 @@ def _score_rows_against_anchors(X: np.ndarray, anchors: np.ndarray, anchor_aggs:
     return out
 
 
+def _validate_anchor_args(aggregate: tuple[str, ...], n_anchors: int, softmax_temp: float) -> None:
+    """Reject empty or unknown aggregates and out-of-range anchor count or temperature."""
+    if not aggregate:
+        raise ValueError("aggregate must be a non-empty tuple.")
+    for agg in aggregate:
+        if agg not in _VALID_AGGS:
+            raise ValueError(f"aggregate item {agg!r} not in {_VALID_AGGS}.")
+    if n_anchors < 2:
+        raise ValueError(f"n_anchors must be >= 2; got {n_anchors}.")
+    if softmax_temp <= 0:
+        raise ValueError(f"softmax_temp must be > 0; got {softmax_temp}.")
+
+
+def _score_query_rows(
+    X_train_f: np.ndarray,
+    y_train_f: np.ndarray,
+    X_query: np.ndarray,
+    *,
+    aggregate: tuple[str, ...],
+    n_anchors: int,
+    softmax_temp: float,
+    standardize: bool,
+    seed: int,
+) -> dict[str, np.ndarray]:
+    """Mode B: fit anchors and aggregates on the full train set, then score ``X_query`` rows against them."""
+    from sklearn.preprocessing import RobustScaler
+    Xq = np.asarray(X_query, dtype=np.float32)
+    if standardize:
+        scaler_full = RobustScaler().fit(X_train_f)
+        Xt_std = scaler_full.transform(X_train_f).astype(np.float32)
+        Xq_std = scaler_full.transform(Xq).astype(np.float32)
+    else:
+        Xt_std = X_train_f
+        Xq_std = Xq
+    anchors = _fit_anchors(Xt_std, n_anchors=n_anchors, seed=seed)
+    # Hard assignment of train rows to nearest anchor for aggregate computation.
+    train_dists = _squared_dists(Xt_std, anchors)
+    # np.argmin returns 0 on all-NaN rows (numpy>=1.18),
+    # silently bucketing NaN-bearing rows under anchor 0 and
+    # contaminating anchor 0's per-row aggregate. Use np.nanargmin,
+    # which raises only when an entire row is all-NaN; that case is
+    # data corruption deserving a loud error rather than a silent
+    # bucket-to-0.
+    train_assign = np.nanargmin(train_dists, axis=1)
+    anchor_aggs = _compute_anchor_aggregates(y_train_f, train_assign, n_anchors=n_anchors, aggregates=aggregate)
+    return _score_rows_against_anchors(Xq_std, anchors, anchor_aggs, softmax_temp=softmax_temp, n_anchors=n_anchors)
+
+
+def _score_fold_rows(
+    X_tr: np.ndarray,
+    y_tr: np.ndarray,
+    X_va: np.ndarray,
+    *,
+    aggregate: tuple[str, ...],
+    n_anchors: int,
+    softmax_temp: float,
+    standardize: bool,
+    seed: int,
+) -> dict[str, np.ndarray]:
+    """Mode A, one fold: fit anchors and aggregates on the fold's train rows only, then score the validation rows."""
+    from sklearn.preprocessing import RobustScaler
+    if standardize:
+        scaler = RobustScaler().fit(X_tr)
+        X_tr_s = scaler.transform(X_tr).astype(np.float32)
+        X_va_s = scaler.transform(X_va).astype(np.float32)
+    else:
+        X_tr_s = X_tr
+        X_va_s = X_va
+    anchors = _fit_anchors(X_tr_s, n_anchors=n_anchors, seed=seed)
+    train_dists = _squared_dists(X_tr_s, anchors)
+    # Same NaN-poisoned-row bucket-to-0 bug Mode B's np.nanargmin above already guards against --
+    # plain np.argmin returns 0 on an all-NaN row, silently contaminating anchor 0's aggregate.
+    train_assign = np.nanargmin(train_dists, axis=1)
+    anchor_aggs = _compute_anchor_aggregates(y_tr, train_assign, n_anchors=n_anchors, aggregates=aggregate)
+    return _score_rows_against_anchors(X_va_s, anchors, anchor_aggs, softmax_temp=softmax_temp, n_anchors=n_anchors)
+
+
 def compute_anchor_attention(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -134,24 +211,10 @@ def compute_anchor_attention(
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
     if X_query is not None:
         validate_numeric_input(X_query, name="X_query", allow_fp16=False)
-    if not aggregate:
-        raise ValueError("aggregate must be a non-empty tuple.")
-    for agg in aggregate:
-        if agg not in _VALID_AGGS:
-            raise ValueError(f"aggregate item {agg!r} not in {_VALID_AGGS}.")
-    if n_anchors < 2:
-        raise ValueError(f"n_anchors must be >= 2; got {n_anchors}.")
-    if softmax_temp <= 0:
-        raise ValueError(f"softmax_temp must be > 0; got {softmax_temp}.")
+    _validate_anchor_args(aggregate, n_anchors, softmax_temp)
 
     X_train_f = np.asarray(X_train, dtype=np.float32)
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
-
-    if standardize:
-        from sklearn.preprocessing import RobustScaler
-        scaler_full = RobustScaler().fit(X_train_f)
-    else:
-        scaler_full = None
 
     def _build_output(scores_per_row: dict[str, np.ndarray], n_rows: int) -> dict[str, np.ndarray]:
         """Slice the per-anchor similarity matrix and per-row soft-aggregate scores into a name-tagged output dict (``{prefix}_sim_a{k}`` per anchor, ``{prefix}_{agg}_soft`` per aggregate), cast to the requested output dtype."""
@@ -165,22 +228,10 @@ def compute_anchor_attention(
         return out
 
     if X_query is not None:
-        # Mode B: fit once on full X_train.
-        Xt_std = scaler_full.transform(X_train_f).astype(np.float32) if standardize else X_train_f
-        Xq_std = scaler_full.transform(np.asarray(X_query, dtype=np.float32)).astype(np.float32) if standardize else np.asarray(X_query, dtype=np.float32)
-        anchors = _fit_anchors(Xt_std, n_anchors=n_anchors, seed=seed)
-        # Hard assignment of train rows to nearest anchor for aggregate computation.
-        train_dists = _squared_dists(Xt_std, anchors)
-        # np.argmin returns 0 on all-NaN rows (numpy>=1.18),
-        # silently bucketing NaN-bearing rows under anchor 0 and
-        # contaminating anchor 0's per-row aggregate. Use np.nanargmin,
-        # which raises only when an entire row is all-NaN; that case is
-        # data corruption deserving a loud error rather than a silent
-        # bucket-to-0.
-        train_assign = np.nanargmin(train_dists, axis=1)
-        anchor_aggs = _compute_anchor_aggregates(y_train_f, train_assign, n_anchors=n_anchors, aggregates=aggregate)
-        scores = _score_rows_against_anchors(Xq_std, anchors, anchor_aggs, softmax_temp=softmax_temp, n_anchors=n_anchors)
-        cols = _build_output(scores, n_rows=Xq_std.shape[0])
+        scores = _score_query_rows(
+            X_train_f, y_train_f, X_query, aggregate=aggregate, n_anchors=n_anchors, softmax_temp=softmax_temp, standardize=standardize, seed=seed
+        )
+        cols = _build_output(scores, n_rows=scores["similarity"].shape[0])
         return pl.DataFrame(cols)
 
     # Mode A: OOF per-fold.
@@ -195,24 +246,16 @@ def compute_anchor_attention(
 
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        X_tr = X_train_f[train_idx]
-        X_va = X_train_f[val_idx]
-        y_tr = y_train_f[train_idx]
-        if standardize:
-            from sklearn.preprocessing import RobustScaler
-            scaler = RobustScaler().fit(X_tr)
-            X_tr_s = scaler.transform(X_tr).astype(np.float32)
-            X_va_s = scaler.transform(X_va).astype(np.float32)
-        else:
-            X_tr_s = X_tr
-            X_va_s = X_va
-        anchors = _fit_anchors(X_tr_s, n_anchors=n_anchors, seed=int(seed) + fold_idx)
-        train_dists = _squared_dists(X_tr_s, anchors)
-        # Same NaN-poisoned-row bucket-to-0 bug Mode B's np.nanargmin above already guards against --
-        # plain np.argmin returns 0 on an all-NaN row, silently contaminating anchor 0's aggregate.
-        train_assign = np.nanargmin(train_dists, axis=1)
-        anchor_aggs = _compute_anchor_aggregates(y_tr, train_assign, n_anchors=n_anchors, aggregates=aggregate)
-        scores = _score_rows_against_anchors(X_va_s, anchors, anchor_aggs, softmax_temp=softmax_temp, n_anchors=n_anchors)
+        scores = _score_fold_rows(
+            X_train_f[train_idx],
+            y_train_f[train_idx],
+            X_train_f[val_idx],
+            aggregate=aggregate,
+            n_anchors=n_anchors,
+            softmax_temp=softmax_temp,
+            standardize=standardize,
+            seed=int(seed) + fold_idx,
+        )
         sim = scores["similarity"]
         for a in range(n_anchors):
             out_cols[f"{column_prefix}_sim_a{a}"][val_idx] = sim[:, a].astype(dtype, copy=False)

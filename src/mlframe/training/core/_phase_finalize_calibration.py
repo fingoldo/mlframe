@@ -193,33 +193,8 @@ def _optimize_decision_threshold_on_calib_slice(ctx: "TrainingContext") -> None:
             logger.info("[threshold_optimizer] stamped optimized decision threshold for %d model(s).", len(out))
 
 
-def _apply_confidence_shrinkage_to_regression(ctx: "TrainingContext") -> None:
-    """Final prediction-shrinkage step for regression targets: pull weakly-discriminative targets' test/val
-    predictions toward a neutral value, per ``mlframe.calibration.confidence_shrinkage``.
-
-    Confidence is computed from each model's OOF preds/target (``compute_oof_confidence``); the shrinkage is
-    then applied to that same model's test/val predictions in place (``apply_confidence_shrinkage``). Gated by
-    ``RegressionCalibrationConfig.apply_confidence_shrinkage``, which is ON by default - and the config is
-    constructed for every run, so this applies even when the caller passes no ``regression_calibration_config``
-    at all. Set it to False for the bit-identical no-op. The step only ever moves a LOW-confidence target's
-    predictions toward neutral, which is why it is on; this docstring and the suite kwarg used to describe it as
-    disabled unless requested, which was the opposite of what every run actually did.
-
-    ON is not the same as able to run: it needs each regression model's OOF predictions, and those exist only
-    when ``TrainingBehaviorConfig.oof_n_splits >= 2`` (default 0). At defaults this step therefore never applies;
-    ``_phase_finalize_calib_skipped.report_oof_dependent_steps_inert`` says so once at INFO.
-    """
-    from ...calibration.confidence_shrinkage import apply_confidence_shrinkage, compute_oof_confidence
-
-    # ``ctx.configs`` was a dead fallback: TrainingContext has always exposed its configs as flat
-    # ``*_config`` fields (see _training_context.py), never a nested "configs" bag -- the getattr
-    # always returned None and the fallback branch never ran.
-    _cfg = ctx.regression_calibration_config
-    if _cfg is None or not bool(getattr(_cfg, "apply_confidence_shrinkage", False)):
-        return
-    _kwargs = _param_kwargs(_cfg.confidence_shrinkage_kwargs)
-    _segment_ids = _kwargs.pop("segment_ids", None)
-
+def _collect_regression_entries(ctx: "TrainingContext") -> dict:
+    """Regression model entries with OOF predictions and targets, keyed by ``type/target/model``; classification entries are skipped."""
     entries_by_key: dict = {}
     for _ttype, _by_name in (ctx.models or {}).items():
         if not isinstance(_by_name, dict):
@@ -238,28 +213,28 @@ def _apply_confidence_shrinkage_to_regression(ctx: "TrainingContext") -> None:
                     continue
                 _mn = _entry_model_name(_e, _i)
                 entries_by_key[f"{_ttype}/{_tname}/{_mn}"] = (_e, oof_preds, train_target, test_preds)
+    return entries_by_key
 
-    if not entries_by_key:
-        return
+
+def _compute_entry_confidences(entries_by_key: dict, segment_ids) -> tuple[dict, dict]:
+    """OOF confidence of every entry and the test predictions it would shrink; an entry whose confidence fails to compute is left out."""
+    from ...calibration.confidence_shrinkage import compute_oof_confidence
 
     confidences: dict = {}
     preds: dict = {}
     for _key, (_e, _oof_preds, _train_target, _test_preds) in entries_by_key.items():
         try:
-            confidences[_key] = compute_oof_confidence(_oof_preds, _train_target, segment_ids=_segment_ids)
+            confidences[_key] = compute_oof_confidence(_oof_preds, _train_target, segment_ids=segment_ids)
         except Exception as _conf_err:
             log_throttle(logger, "finalize_calib_confidence_shrinkage_failed", logging.WARNING, "[confidence_shrinkage] OOF confidence failed for %s: %s", _key, _conf_err)
             continue
         preds[_key] = _test_preds
+    return confidences, preds
 
-    if not confidences:
-        return
 
-    try:
-        shrunk = apply_confidence_shrinkage(preds, confidences, **_kwargs)
-    except Exception as _shrink_err:
-        logger.warning("[confidence_shrinkage] shrinkage failed: %s", _shrink_err)
-        return
+def _write_shrunk_entries(entries_by_key: dict, shrunk: dict, confidences: dict, kwargs: dict) -> dict:
+    """Write the shrunk test predictions back onto their entries, shrinking the validation predictions too; returns the applied confidences."""
+    from ...calibration.confidence_shrinkage import apply_confidence_shrinkage
 
     applied: dict = {}
     for _key, _shrunk_preds in shrunk.items():
@@ -269,8 +244,53 @@ def _apply_confidence_shrinkage_to_regression(ctx: "TrainingContext") -> None:
         _val_raw = _arr(getattr(_e, "val_preds", None))
         if _val_raw is not None:
             _e.val_preds_pre_shrinkage = _val_raw
-            _e.val_preds = apply_confidence_shrinkage({_key: _val_raw}, {_key: confidences[_key]}, **_kwargs)[_key]
+            _e.val_preds = apply_confidence_shrinkage({_key: _val_raw}, {_key: confidences[_key]}, **kwargs)[_key]
         applied[_key] = {"confidence": confidences[_key], "metrics_are_pre_shrinkage": True, "shipped_model_applies_shrinkage": False}
+    return applied
+
+
+def _apply_confidence_shrinkage_to_regression(ctx: "TrainingContext") -> None:
+    """Final prediction-shrinkage step for regression targets: pull weakly-discriminative targets' test/val
+    predictions toward a neutral value, per ``mlframe.calibration.confidence_shrinkage``.
+
+    Confidence is computed from each model's OOF preds/target (``compute_oof_confidence``); the shrinkage is
+    then applied to that same model's test/val predictions in place (``apply_confidence_shrinkage``). Gated by
+    ``RegressionCalibrationConfig.apply_confidence_shrinkage``, which is ON by default - and the config is
+    constructed for every run, so this applies even when the caller passes no ``regression_calibration_config``
+    at all. Set it to False for the bit-identical no-op. The step only ever moves a LOW-confidence target's
+    predictions toward neutral, which is why it is on; this docstring and the suite kwarg used to describe it as
+    disabled unless requested, which was the opposite of what every run actually did.
+
+    ON is not the same as able to run: it needs each regression model's OOF predictions, and those exist only
+    when ``TrainingBehaviorConfig.oof_n_splits >= 2`` (default 0). At defaults this step therefore never applies;
+    ``_phase_finalize_calib_skipped.report_oof_dependent_steps_inert`` says so once at INFO.
+    """
+    from ...calibration.confidence_shrinkage import apply_confidence_shrinkage
+
+    # ``ctx.configs`` was a dead fallback: TrainingContext has always exposed its configs as flat
+    # ``*_config`` fields (see _training_context.py), never a nested "configs" bag -- the getattr
+    # always returned None and the fallback branch never ran.
+    _cfg = ctx.regression_calibration_config
+    if _cfg is None or not bool(getattr(_cfg, "apply_confidence_shrinkage", False)):
+        return
+    _kwargs = _param_kwargs(_cfg.confidence_shrinkage_kwargs)
+    _segment_ids = _kwargs.pop("segment_ids", None)
+
+    entries_by_key = _collect_regression_entries(ctx)
+    if not entries_by_key:
+        return
+
+    confidences, preds = _compute_entry_confidences(entries_by_key, _segment_ids)
+    if not confidences:
+        return
+
+    try:
+        shrunk = apply_confidence_shrinkage(preds, confidences, **_kwargs)
+    except Exception as _shrink_err:
+        logger.warning("[confidence_shrinkage] shrinkage failed: %s", _shrink_err)
+        return
+
+    applied = _write_shrunk_entries(entries_by_key, shrunk, confidences, _kwargs)
     if applied:
         ctx.metadata["confidence_shrinkage"] = applied
         if getattr(ctx, "verbose", 0):

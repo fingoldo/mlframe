@@ -378,7 +378,7 @@ def surrogate_gbm_interaction_seeds(
     # near chance for a shallow tree even though its split co-occurrence still ranks the
     # operands) is recovered via the floors even if the OOF gate is conservative.
     # bench-attempt-rejected: running the surrogate fits concurrently (6 fits: 4.8 s serial at 4 threads, 5.5 s on 2 workers, 8.4 s on 3, 10 s on 6). One fit on every core is the fastest (3.7 s), with identical scores.
-    n_threads = int(n_threads) if n_threads else (os.cpu_count() or 4)
+    n_threads = int(n_threads) if (n_threads is not None and n_threads > 0) else (os.cpu_count() or 4)
     reps = max(1, int(self_gate_reps))
     fit_kwargs = dict(is_classification=is_classification, n_estimators=n_estimators, max_depth=max_depth, num_leaves=num_leaves,
                       learning_rate=learning_rate, min_data_in_leaf=min_data_in_leaf, n_threads=n_threads)

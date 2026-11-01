@@ -293,40 +293,67 @@ def find_change_points_zscore(
         valid_for_baseline = np.ones(n, dtype=bool)
 
     if window is None:
-        # ---- Global-median baseline ----
-        valid_rates = rates[valid_for_baseline]
-        if valid_rates.size < 3:
+        flagged = _zscore_flags_global_median(rates, valid_for_baseline, z_threshold, abs_min_spread)
+        if flagged is None:
             return []
-        med = float(np.median(valid_rates))
-        mad = float(np.median(np.abs(valid_rates - med)))
-        if mad < 1e-9:
-            flagged = np.abs(rates - med) > abs_min_spread
-        else:
-            mz = 0.6745 * np.abs(rates - med) / mad
-            # Combine z-score + absolute-spread floor (catches narrow
-            # but real shifts in series with tiny baseline MAD).
-            flagged = (mz > z_threshold) | (np.abs(rates - med) > abs_min_spread * 2)
     else:
-        # ---- Local rolling-window baseline ----
         if window % 2 == 0:
             window += 1
-        half = window // 2
-        flagged = np.zeros(n, dtype=bool)
-        for i in range(n):
-            lo = max(0, i - half)
-            hi = min(n, i + half + 1)
-            window_vals = rates[lo:hi][valid_for_baseline[lo:hi]]
-            if window_vals.size < 2:
-                continue
-            med_i = float(np.median(window_vals))
-            mad_i = float(np.median(np.abs(window_vals - med_i)))
-            if mad_i < 1e-9:
-                flagged[i] = abs(rates[i] - med_i) > abs_min_spread
-            else:
-                mz_i = 0.6745 * abs(rates[i] - med_i) / mad_i
-                flagged[i] = (mz_i > z_threshold) or (abs(rates[i] - med_i) > abs_min_spread * 2)
+        flagged = _zscore_flags_rolling_window(rates, valid_for_baseline, window, z_threshold, abs_min_spread)
 
-    # Group consecutive flags into runs; report run boundaries.
+    return _flag_runs_to_boundaries(flagged, min_anomaly_run)
+
+
+def _zscore_flags_global_median(
+    rates: np.ndarray,
+    valid_for_baseline: np.ndarray,
+    z_threshold: float,
+    abs_min_spread: float,
+) -> np.ndarray | None:
+    """Flag bins against one global median/MAD baseline; ``None`` when fewer than 3 valid bins anchor it."""
+    valid_rates = rates[valid_for_baseline]
+    if valid_rates.size < 3:
+        return None
+    med = float(np.median(valid_rates))
+    mad = float(np.median(np.abs(valid_rates - med)))
+    if mad < 1e-9:
+        return np.abs(rates - med) > abs_min_spread
+    mz = 0.6745 * np.abs(rates - med) / mad
+    # Combine z-score + absolute-spread floor (catches narrow
+    # but real shifts in series with tiny baseline MAD).
+    return (mz > z_threshold) | (np.abs(rates - med) > abs_min_spread * 2)
+
+
+def _zscore_flags_rolling_window(
+    rates: np.ndarray,
+    valid_for_baseline: np.ndarray,
+    window: int,
+    z_threshold: float,
+    abs_min_spread: float,
+) -> np.ndarray:
+    """Flag bins against a centred rolling median/MAD baseline of odd width ``window``."""
+    n = len(rates)
+    half = window // 2
+    flagged = np.zeros(n, dtype=bool)
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        window_vals = rates[lo:hi][valid_for_baseline[lo:hi]]
+        if window_vals.size < 2:
+            continue
+        med_i = float(np.median(window_vals))
+        mad_i = float(np.median(np.abs(window_vals - med_i)))
+        if mad_i < 1e-9:
+            flagged[i] = abs(rates[i] - med_i) > abs_min_spread
+        else:
+            mz_i = 0.6745 * abs(rates[i] - med_i) / mad_i
+            flagged[i] = (mz_i > z_threshold) or (abs(rates[i] - med_i) > abs_min_spread * 2)
+    return flagged
+
+
+def _flag_runs_to_boundaries(flagged: np.ndarray, min_anomaly_run: int) -> list[int]:
+    """Group consecutive flagged bins into runs of at least ``min_anomaly_run``; return ``[start, end_exclusive, ...]``."""
+    n = len(flagged)
     boundaries: list[int] = []
     in_run = False
     run_start = -1

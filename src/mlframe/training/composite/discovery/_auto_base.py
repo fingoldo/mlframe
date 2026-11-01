@@ -237,23 +237,28 @@ def _auto_base_step2_genuinely_high_mi(self, finite, hint_kept, usable_features,
             )
 
 
+def _resolve_null_block_length(config, n_screen) -> int:
+    """Block length for the block-shuffled null: the configured integer, or ``sqrt(n_screen)`` for ``"auto"`` or an unparseable value."""
+    block_len_cfg = getattr(
+        config, "auto_base_null_block_length", "auto",
+    )
+    if isinstance(block_len_cfg, str) and block_len_cfg == "auto":
+        return max(1, int(np.sqrt(n_screen)))
+    try:
+        return max(1, int(block_len_cfg))
+    except (TypeError, ValueError):
+        logger.warning("null block length %r is not an integer; using sqrt(n_screen)", block_len_cfg)
+        return max(1, int(np.sqrt(n_screen)))
+
+
 def _auto_base_step1_requires_mi_mean(self, n_perms, finite, y_screen, x_matrix, use_per_pair, x_matrix_for_mi, mi_per_feature, usable_features):
     """Step 1 of _auto_base: lines starting at ``if n_perms > 0:``."""
     if n_perms > 0:
         n_sigma = float(getattr(
             self.config, "auto_base_null_z_threshold", 3.0,
         ))
-        block_len_cfg = getattr(
-            self.config, "auto_base_null_block_length", "auto",
-        )
         n_screen = int(finite.sum())
-        if isinstance(block_len_cfg, str) and block_len_cfg == "auto":
-            block_len = max(1, int(np.sqrt(n_screen)))
-        else:
-            try:
-                block_len = max(1, int(block_len_cfg))
-            except (TypeError, ValueError):
-                block_len = max(1, int(np.sqrt(n_screen)))
+        block_len = _resolve_null_block_length(self.config, n_screen)
 
         rng_perm = np.random.default_rng(int(self.config.random_state) + 7919)
         y_finite = y_screen[finite]
@@ -370,6 +375,45 @@ def _auto_base_step1_requires_mi_mean(self, n_perms, finite, y_screen, x_matrix,
     return mi_for_ranking
 
 
+def _gram_abs_corr(X_screen):
+    """Absolute pairwise correlation matrix of the columns of ``X_screen`` with a zero diagonal."""
+    # Vectorised |corr|: centre each column, normalise to unit-L2, then take Gram matrix
+    # (~12x over the nested ``_safe_corr`` loop on 25 features x 50k rows). Constant
+    # columns (zero variance) map to all-zero correlations, matching ``_safe_corr``'s
+    # degenerate-input contract.
+    n_feats = X_screen.shape[1]
+    corr_matrix = np.zeros((n_feats, n_feats))
+    if n_feats >= 2 and X_screen.shape[0] >= 3:
+        Xc = X_screen - X_screen.mean(axis=0)
+        norms = np.sqrt((Xc**2).sum(axis=0))
+        live = norms > 1e-12
+        if live.sum() >= 2:
+            live_idx = np.where(live)[0]
+            Xn = Xc[:, live_idx] / norms[live_idx]
+            gram = np.abs(Xn.T @ Xn)
+            np.fill_diagonal(gram, 0.0)
+            corr_matrix[np.ix_(live_idx, live_idx)] = gram
+    return corr_matrix
+
+
+def _qualifying_coord_block(j, corr_matrix, usable_features):
+    """Tight neighbourhood of feature ``j`` when it forms a spatial-coordinate block (size, pairwise and name criteria), else None."""
+    tight_neighbours = np.where(corr_matrix[j] > 0.75)[0]
+    if not (2 <= len(tight_neighbours) <= 5):
+        return None
+    block_idx = np.unique(np.r_[j, tight_neighbours])
+    if not (3 <= len(block_idx) <= 6):
+        return None
+    # Mean within-block pairwise corr; also require EVERY pair > 0.75 (no weak edge in the cluster).
+    sub = corr_matrix[np.ix_(block_idx, block_idx)]
+    upper = sub[np.triu_indices_from(sub, k=1)]
+    if upper.size == 0 or float(upper.mean()) < 0.80 or float(upper.min()) < 0.75:
+        return None
+    if sum(is_coordinate_like_name(usable_features[k]) for k in block_idx) < 2:
+        return None
+    return block_idx
+
+
 def _auto_base_step2_getattr_self_config(self, usable_features, finite, x_matrix, hint_kept, demote_set):
     """Step 2 of _auto_base: lines starting at ``if getattr(self.config, "auto_base_demote_spatial_coords", True) and l``."""
     if getattr(self.config, "auto_base_demote_spatial_coords", True) and len(usable_features) >= 3 and finite.sum() >= 50:
@@ -394,23 +438,7 @@ def _auto_base_step2_getattr_self_config(self, usable_features, finite, x_matrix
         #      groups such as text lengths or budget variants, which the
         #      dedup step already reduces to one representative.
         # All four must hold; otherwise the group is preserved.
-        X_screen = x_matrix[finite]
-        n_feats = X_screen.shape[1]
-        # Vectorised |corr|: centre each column, normalise to unit-L2, then take Gram matrix
-        # (~12x over the nested ``_safe_corr`` loop on 25 features x 50k rows). Constant
-        # columns (zero variance) map to all-zero correlations, matching ``_safe_corr``'s
-        # degenerate-input contract.
-        corr_matrix = np.zeros((n_feats, n_feats))
-        if n_feats >= 2 and X_screen.shape[0] >= 3:
-            Xc = X_screen - X_screen.mean(axis=0)
-            norms = np.sqrt((Xc**2).sum(axis=0))
-            live = norms > 1e-12
-            if live.sum() >= 2:
-                live_idx = np.where(live)[0]
-                Xn = Xc[:, live_idx] / norms[live_idx]
-                gram = np.abs(Xn.T @ Xn)
-                np.fill_diagonal(gram, 0.0)
-                corr_matrix[np.ix_(live_idx, live_idx)] = gram
+        corr_matrix = _gram_abs_corr(x_matrix[finite])
         spatial_demoted: list[str] = []
         spatial_block_sizes: list[int] = []
         seen_blocks: set[tuple[int, ...]] = set()
@@ -419,25 +447,8 @@ def _auto_base_step2_getattr_self_config(self, usable_features, finite, x_matrix
         # neighbourhood (including j) is size 3-6 AND has mean
         # within-pair corr > 0.80, demote ALL members.
         for j, _col_name in enumerate(usable_features):
-            tight_neighbours = np.where(corr_matrix[j] > 0.75)[0]
-            if not (2 <= len(tight_neighbours) <= 5):
-                continue
-            block_idx = np.r_[j, tight_neighbours]
-            block_idx = np.unique(block_idx)
-            if not (3 <= len(block_idx) <= 6):
-                continue
-            # Mean within-block pairwise corr.
-            sub = corr_matrix[np.ix_(block_idx, block_idx)]
-            upper = sub[np.triu_indices_from(sub, k=1)]
-            if upper.size == 0:
-                continue
-            if float(upper.mean()) < 0.80:
-                continue
-            # Also require EVERY pair > 0.75 (no weak edge in the
-            # cluster).
-            if float(upper.min()) < 0.75:
-                continue
-            if sum(is_coordinate_like_name(usable_features[k]) for k in block_idx) < 2:
+            block_idx = _qualifying_coord_block(j, corr_matrix, usable_features)
+            if block_idx is None:
                 continue
             block_key = tuple(int(k) for k in block_idx)
             if block_key not in seen_blocks:

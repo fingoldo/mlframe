@@ -85,6 +85,31 @@ class TemporalAuditResult:
             "plot_path": self.plot_path,
         }
 
+    def _select_segments(self, segment: str) -> list[dict[str, Any]]:
+        """The audit segments the ``segment`` selector picks (see :meth:`recommended_filter_mask` for the selector names)."""
+        chosen_segs: list[dict[str, Any]]
+        if segment == "most_recent_stable":
+            chosen_segs = []
+            for s in reversed(self.segments):
+                if s["n_bins"] >= 3:
+                    chosen_segs = [s]
+                    break
+            if not chosen_segs:
+                chosen_segs = [self.segments[-1]]
+        elif segment == "largest":
+            chosen_segs = [max(self.segments, key=lambda s: s["n_obs"])]
+        elif segment == "all_stable":
+            chosen_segs = [s for s in self.segments if s["n_bins"] >= 3]
+            if not chosen_segs:
+                chosen_segs = list(self.segments)
+        elif segment == "first":
+            chosen_segs = [self.segments[0]]
+        elif segment == "last":
+            chosen_segs = [self.segments[-1]]
+        else:
+            raise ValueError(f"Unknown segment selector: {segment!r}. " "Choose from: most_recent_stable / largest / all_stable / first / last.")
+        return chosen_segs
+
     def recommended_filter_mask(
         self,
         timestamps: Any,
@@ -144,27 +169,7 @@ class TemporalAuditResult:
             ts = coerce_timestamps_for_audit(timestamps)
             return np.zeros(len(ts), dtype=bool)
 
-        chosen_segs: list[dict[str, Any]]
-        if segment == "most_recent_stable":
-            chosen_segs = []
-            for s in reversed(self.segments):
-                if s["n_bins"] >= 3:
-                    chosen_segs = [s]
-                    break
-            if not chosen_segs:
-                chosen_segs = [self.segments[-1]]
-        elif segment == "largest":
-            chosen_segs = [max(self.segments, key=lambda s: s["n_obs"])]
-        elif segment == "all_stable":
-            chosen_segs = [s for s in self.segments if s["n_bins"] >= 3]
-            if not chosen_segs:
-                chosen_segs = list(self.segments)
-        elif segment == "first":
-            chosen_segs = [self.segments[0]]
-        elif segment == "last":
-            chosen_segs = [self.segments[-1]]
-        else:
-            raise ValueError(f"Unknown segment selector: {segment!r}. " "Choose from: most_recent_stable / largest / all_stable / first / last.")
+        chosen_segs = self._select_segments(segment)
 
         # Compute (start_ts, end_ts) for each chosen segment. The
         # segment's start_idx is into the kept-bin list; the bin's

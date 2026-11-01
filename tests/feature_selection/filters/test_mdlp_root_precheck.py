@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters._numba_utils import column_tie_runs, root_decision_binary
-from mlframe.feature_selection.filters._numba_utils_cross_module import ACCEPTED, REJECTED, UNDECIDED
+from mlframe.feature_selection.filters._numba_utils_root_decision import ACCEPTED, REJECTED, UNDECIDED
 from mlframe.feature_selection.filters._numba_utils_cross_module import _mdlp_cuts_presorted
 
 _MIN_SPLIT, _ALPHA, _MAX_DEPTH, _N_PERM, _ANALYTIC_MIN_N, _MIN_CELL = 5, 0.05, 8, 15, 15000, 5.0

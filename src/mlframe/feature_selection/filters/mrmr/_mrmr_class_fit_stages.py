@@ -18,6 +18,7 @@ from .._fe_family_timing import log_fe_family_summary as _log_fe_wall
 from .._fe_gpu_strict import clear_auto_fit_n as _clear_auto_fit_n
 from .._fe_gpu_strict import set_auto_fit_n as _set_auto_fit_n
 from .._fe_rejection_ledger import populate_fe_rejection_ledger as _pop_rej
+from .._gpu_host_permutations import clear_permutation_caches as _clear_permutation_caches
 from .._leak_suspects import record_leak_suspects
 from .._mrmr_fe_provenance import populate_fe_provenance as _pop_prov
 from .._mrmr_fingerprints import _MRMR_IDENTITY_FP_CACHE
@@ -490,6 +491,9 @@ class _MRMRFitStagesMixin:
             _clear_memo = getattr(getattr(self, "_honest_null_codes_fn", None), "clear_memo", None)
             if _clear_memo is not None:
                 _clear_memo()  # the memo of re-binned codes under permuted targets lives for one fit only
+            # The permutation batches cache up to 128 MB on the host and 128 MB on the device. The device copies pin VRAM,
+            # which the 4 GB card needs back between fits; a cache hit never changes a result.
+            _clear_permutation_caches()
         return result
 
     def _fit_body_post_fit(self, result: Any, X: Any, y: Any, st: Any) -> Any:

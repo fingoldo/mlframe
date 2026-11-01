@@ -24,7 +24,7 @@ BASELINE = Path(__file__).resolve().parent / "_uncalled_functions_baseline.json"
 #: Called by the interpreter, a framework or the import system rather than by name.
 #: `__getattr__`/`__dir__` are PEP 562 lazy-module hooks; `main` is a console entry point;
 #: `upgrade`/`downgrade` are alembic's.
-_INTERPRETER_INVOKED = {"__getattr__", "__dir__", "main", "upgrade", "downgrade"}
+_INTERPRETER_INVOKED = {"__getattr__", "__dir__", "main", "upgrade", "downgrade", "_popcount64_overload"}  # the last one: numba calls it through @overload
 
 #: Earlier CPU kernel versions of the sufficient-summary pair check, kept on purpose: the measured predecessors of `_pair_mi_block_cpu` stay in the module so a later sweep or a regression
 #: bisect can run them (see the profile record `audits/2026-10-22/profiles/_fe_sufficient_summary_pairs.md`).
@@ -637,6 +637,8 @@ _REEXPORTED_PUBLIC_API = {
 #: Cache-reset helpers that tests call to isolate a memoised availability probe (documented in each docstring).
 _TEST_UTILITIES = {
     "reset_catboost_available_cache",
+    "reset_cublas_probe",  # tests re-probe a monkeypatched backend through it (its docstring says so)
+    "invalidate_stale_numba_caches",  # the numba cache guard, called by the session fixture in tests/conftest.py (commit 664925a85)
     "reset_cluster_su_gpu_probe",
     "reset_gpu_model_available_cache",
     "is_numba_active",  # fast-path probe that tests assert on; not a production call site
@@ -660,6 +662,25 @@ _TEST_UTILITIES = {
     "_discovery_cache_bytes_total",  # directory-walk ground truth the caching tests compare the incremental _total_bytes accumulator against
     # live-registry reader used by tests/training/composite/test_provenance_formula_coverage.py to check every transform has a formula and description
     "_registered_transform_names",
+}
+
+#: Superseded implementations kept as runnable references (REJECTED is not DELETED): each was replaced by a faster or
+#: differently-shaped production path, and its removed caller is recorded in the commit that swapped it. They stay as the
+#: bit-identity oracle of the replacement's tests. Restoring a caller here would route production back to the old path.
+_KEPT_SUPERSEDED_REFERENCES = {
+    "root_decision_binary",  # the int8 reference of the packed root decision; test_packed_root_decision compares against it
+    "root_decision_tie_free",  # the tie-free root reference; test_mdlp_root_precheck compares against it
+    "gather_binary_stream",  # the sequential label gather of the binary root decision; kept as the reference of the packed path
+    "pack_sorted_labels",  # the first packing; superseded by pack_sorted_labels_from_bits (test_packed_root_decision compares them)
+    "oos_dedupe_njit",  # replaced by the presorted distinct-pair pass (commit 9d6a49ae6); kept for the parity test
+    "oos_mdlp_cuts_njit",  # the unsorted OOS MDLP cut search; test_mdlp_oos_presorted compares it to the presorted variant
+    "permuted_labels",  # replaced by the parallel batched generator (commit 493deb834); kept as the sequential reference
+    "_top_marginal_mi_columns",  # removed from the FE sweep in commit 6eeec7029 (the sweep now covers every column); kept as a reference
+}
+
+#: Diagnostic hooks: the docstring says they are not for the production path (every transfer is hashed on the host anyway).
+_DIAGNOSTIC_HOOKS = {
+    "duplicate_transfer_audit",  # yields a report of repeated device-to-host copies inside a block; a developer tool
 }
 
 _OFFLINE_GENERATORS = {
@@ -1175,7 +1196,7 @@ def test_no_new_function_without_a_caller(request):
         files,
         REPO_ROOT,
         BASELINE,
-        ignore=_INTERPRETER_INVOKED | _KEPT_KERNEL_VERSIONS
+        ignore=_INTERPRETER_INVOKED | _KEPT_KERNEL_VERSIONS | _KEPT_SUPERSEDED_REFERENCES | _DIAGNOSTIC_HOOKS
         | _PUBLIC_API
         | _REEXPORTED_PUBLIC_API
         | _OFFLINE_GENERATORS

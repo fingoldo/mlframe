@@ -684,6 +684,7 @@ def _composite_block_budget_bytes() -> int:
     try:
         return int(float(os.environ.get("MLFRAME_COMPOSITE_BLOCK_MB", "256")) * 1024 * 1024)
     except ValueError:
+        logger.warning("MLFRAME_COMPOSITE_BLOCK_MB is not a number; using the 256 MB default")
         return 256 * 1024 * 1024
 
 

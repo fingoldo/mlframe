@@ -259,6 +259,53 @@ def _resolve_polars_expr(col: str, method: str, pl_dtype: pl.DataType) -> pl.Exp
     return cast(pl.Expr, getattr(col_dt, pl_name)().cast(pl_dtype).alias(col + "_" + method))
 
 
+def _emit_date_parts_pandas(df: Any, cols: List[str], methods: Dict[str, type], add_cyclical: bool) -> Tuple[Any, Dict[Tuple[str, str], np.ndarray]]:
+    """Append every requested date part of ``cols`` to a copy of the pandas frame; also return the integer fields for the cyclical pass to reuse."""
+    precomputed_bases: Dict[Tuple[str, str], np.ndarray] = {}
+    df = df.copy(deep=False)  # the caller's is_pandas check guarantees a pandas.DataFrame here
+    # Accumulate every derived field and insert them in ONE pd.concat instead of column-at-a-time
+    # assignment (which fragments the block manager -> PerformanceWarning + ~O(n_cols^2) copies).
+    new_cols: Dict[str, pd.Series] = {}
+    for col in cols:
+        obj = df[col].dt
+        for method, dtype in methods.items():
+            field = _resolve_pandas_method(obj, method, dtype)
+            new_cols[col + "_" + method] = field
+            # Cache the just-extracted integer field so the cyclical pass below reuses it instead of re-decoding .dt.
+            if add_cyclical and method != "is_weekend":
+                precomputed_bases[(col, method)] = field.to_numpy()
+    if new_cols:
+        df = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1, copy=False)
+    return df, precomputed_bases
+
+
+def _emit_date_parts_polars(df: Any, cols: List[str], methods: Dict[str, type]) -> Any:
+    """Append every requested date part of ``cols`` to the polars frame in one ``with_columns`` call."""
+    all_exprs = []
+    for col in cols:
+        for method, np_dtype in methods.items():
+            pl_dtype = _NP_TO_PL_DTYPE.get(np_dtype)
+            if pl_dtype is None:
+                raise ValueError(f"Unsupported dtype {np_dtype} for polars; supported: {list(_NP_TO_PL_DTYPE.keys())}")
+            all_exprs.append(_resolve_polars_expr(col, method, pl_dtype()))
+    return df.with_columns(all_exprs)
+
+
+def _cyclical_periods_for_call(
+    cyclical_periods: Optional[Sequence[Tuple[str, Union[float, str]]]],
+    cyclical_version: Optional[int],
+    methods_explicit: bool,
+    methods: Dict[str, type],
+) -> Sequence[Tuple[str, Union[float, str]]]:
+    """Periods for the cyclical pass: an explicit ``cyclical_periods`` wins, an explicit ``methods`` keeps only its own parts, otherwise the version default."""
+    version_defaults = cyclical_periods_for_version(cyclical_version)
+    if cyclical_periods is None and methods_explicit:
+        return tuple((_name, _p) for _name, _p in version_defaults if _name in methods)
+    if cyclical_periods is None:
+        return version_defaults
+    return cyclical_periods
+
+
 def create_date_features(
     df: Union[pd.DataFrame, pl.DataFrame],
     cols: List[str],
@@ -340,29 +387,9 @@ def create_date_features(
 
     precomputed_bases: Dict[Tuple[str, str], np.ndarray] = {}
     if is_pandas:
-        df = df.copy(deep=False)  # type: ignore[union-attr]  # is_pandas guards this to a pandas.DataFrame; mypy can't narrow the Union on a bool flag
-        # Accumulate every derived field and insert them in ONE pd.concat instead of column-at-a-time
-        # assignment (which fragments the block manager -> PerformanceWarning + ~O(n_cols^2) copies).
-        new_cols: Dict[str, pd.Series] = {}
-        for col in cols:
-            obj = df[col].dt
-            for method, dtype in methods.items():
-                field = _resolve_pandas_method(obj, method, dtype)
-                new_cols[col + "_" + method] = field
-                # Cache the just-extracted integer field so the cyclical pass below reuses it instead of re-decoding .dt.
-                if add_cyclical and method != "is_weekend":
-                    precomputed_bases[(col, method)] = field.to_numpy()
-        if new_cols:
-            df = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1, copy=False)
+        df, precomputed_bases = _emit_date_parts_pandas(df, cols, methods, add_cyclical)
     else:
-        all_exprs = []
-        for col in cols:
-            for method, np_dtype in methods.items():
-                pl_dtype = _NP_TO_PL_DTYPE.get(np_dtype)
-                if pl_dtype is None:
-                    raise ValueError(f"Unsupported dtype {np_dtype} for polars; supported: {list(_NP_TO_PL_DTYPE.keys())}")
-                all_exprs.append(_resolve_polars_expr(col, method, pl_dtype()))
-        df = df.with_columns(all_exprs)
+        df = _emit_date_parts_polars(df, cols, methods)
 
     # ``add_cyclical`` MUST run before ``delete_original_cols`` drops the source datetimes -- the cyclical helper reads ``df[col].dt`` directly off the source column rather than recomputing from the just-emitted integer fields.
     if add_cyclical:
@@ -378,12 +405,7 @@ def create_date_features(
         # pairs, not comparable names).
         # ``cyclical_version`` picks the default period table (see ``cyclical_periods_for_version``); predict passes the
         # version the model was trained with so the replayed encoding matches.
-        _version_defaults = cyclical_periods_for_version(cyclical_version)
-        _periods = cyclical_periods
-        if _periods is None and _methods_explicit:
-            _periods = tuple((_name, _p) for _name, _p in _version_defaults if _name in methods)
-        elif _periods is None:
-            _periods = _version_defaults
+        _periods = _cyclical_periods_for_call(cyclical_periods, cyclical_version, _methods_explicit, methods)
         df = add_cyclical_date_features(
             df, cols=cols, periods=_periods,
             delete_original_cols=False,

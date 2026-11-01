@@ -130,7 +130,7 @@ pip install -e "./mlframe[db]"                   # sqlalchemy + psycopg2 + duckd
 pip install -e "./mlframe[signal]"               # astropy + entropy-estimators + pywavelets + ruptures
 pip install -e "./mlframe[unsupervised]"         # hdbscan + umap-learn
 pip install -e "./mlframe[stats]"                # statsmodels, dit, pycddlib-standalone (non-Windows)
-pip install -e "./mlframe[gpu]"                  # cupy-cuda12x + nvidia-cuda-nvcc-cu12 + gpu-info for the GPU stages (CUDA 12; alias: [gpu-cuda12])
+pip install -e "./mlframe[gpu]"                  # cupy-cuda12x + nvidia-cuda-nvcc-cu12 + nvidia-cublas-cu12 + gpu-info for the GPU stages (CUDA 12; alias: [gpu-cuda12])
 pip install -e "./mlframe[gpu-cuda11]"           # cupy-cuda11x + nvidia-cuda-nvcc-cu11 + gpu-info (CUDA 11 hosts)
 pip install -e "./mlframe[transformer]"          # transformer-style FE: nothing extra, the CPU path is numba-only
 pip install -e "./mlframe[transformer_ann]"      # pynndescent for approximate-NN at N >= 500k

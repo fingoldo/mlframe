@@ -284,8 +284,16 @@ def family_null_max_bitsets_classes(bits: np.ndarray, n_x: np.ndarray, cls_all: 
     return out
 
 
+FAMILY_NULL_DIRECT_MAX_PERMS = 2  # measured: the one-permutation kernel wins at 1-2 permutations, the four-permutation block from 3 on
+
+
 def family_null_max_bitsets_blocked(bits: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray, n_y: int, table: np.ndarray, c_a: np.ndarray, px: np.ndarray) -> np.ndarray:
-    """:func:`family_null_max_bitsets_classes` for permuted label vectors ``y_perms``: the class bit sets are packed first."""
+    """:func:`family_null_max_bitsets_classes` for permuted label vectors ``y_perms``: the class bit sets are packed first.
+
+    A batch of at most :data:`FAMILY_NULL_DIRECT_MAX_PERMS` permutations goes straight to :func:`family_null_max_bitsets`, which skips the class packing and is bit-equal to the blocked kernel."""
+    if y_perms.shape[0] <= FAMILY_NULL_DIRECT_MAX_PERMS:
+        direct: np.ndarray = family_null_max_bitsets(bits, n_x, y_perms, n_y, table, c_a, px)
+        return direct
     words = bits.shape[2]
     py = np.bincount(y_perms[0], minlength=n_y).astype(np.int64)
     out: np.ndarray = family_null_max_bitsets_classes(bits, n_x, label_bitsets_batch(y_perms, n_y, words), y_perms.shape[1], table, c_a, px, py)

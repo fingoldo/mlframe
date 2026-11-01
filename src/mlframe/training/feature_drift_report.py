@@ -238,6 +238,87 @@ which is per-target-type. Kept for back-compat with callers that
 imported the flat constant before per-type thresholds landed."""
 
 
+def _translate_alpha(sklearn_overrides, existing_mlp_kwargs, out, untranslated) -> None:
+    """Route the sklearn ``alpha`` (L2) override into the optimizer's ``weight_decay``, keeping a caller-pinned optimizer."""
+    if "alpha" in sklearn_overrides:
+        try:
+            import torch  # local import: torch is an MLP-only optional dep.
+            out.setdefault("model_params", {})
+            # Preserve a caller-supplied optimizer (e.g. MuonAdamWHybrid).
+            # Audit-pass-10 #1 surfaced this as a real bug: hardcoding
+            # torch.optim.AdamW here silently overwrote the user's Muon
+            # choice whenever ``alpha`` was in sklearn_overrides AND the
+            # downstream deep-merge at
+            # ``training/core/_phase_train_one_target_model_setup.py``
+            # had ``{**existing, **override}`` direction. We now only
+            # set the optimizer when the caller did not pin one.
+            _existing_optimizer = None
+            if existing_mlp_kwargs:
+                _existing_model_params = existing_mlp_kwargs.get("model_params") or {}
+                _existing_optimizer = _existing_model_params.get("optimizer")
+            if _existing_optimizer is None:
+                out["model_params"]["optimizer"] = torch.optim.AdamW
+            out["model_params"].setdefault("optimizer_kwargs", {})
+            out["model_params"]["optimizer_kwargs"]["weight_decay"] = float(sklearn_overrides["alpha"])
+        except Exception as e:
+            logger.debug("could not translate sklearn 'alpha' override to weight_decay: %s", e)
+            untranslated.append("alpha")
+
+
+def _translate_hidden_layer_sizes(sklearn_overrides, out, untranslated) -> None:
+    """Map the sklearn ``hidden_layer_sizes`` topology onto the network depth, first and minimum layer widths, and width ratio."""
+    if "hidden_layer_sizes" in sklearn_overrides:
+        hls = sklearn_overrides["hidden_layer_sizes"]
+        if isinstance(hls, (tuple, list)) and len(hls) >= 1:
+            first = int(hls[0])
+            minl = int(hls[-1])
+            consec = (first / minl) if minl > 0 else 1.0
+            out.setdefault("network_params", {})
+            out["network_params"]["nlayers"] = len(hls)
+            out["network_params"]["first_layer_num_neurons"] = first
+            out["network_params"]["min_layer_neurons"] = minl
+            out["network_params"]["consec_layers_neurons_ratio"] = float(consec)
+        else:
+            untranslated.append("hidden_layer_sizes")
+
+
+def _translate_activation(sklearn_overrides, out, untranslated) -> None:
+    """Map the sklearn ``activation`` name onto the matching torch activation; ``identity`` is a single linear layer with no dropout."""
+    if "activation" in sklearn_overrides:
+        try:
+            import torch
+            _act = str(sklearn_overrides["activation"]).lower()
+            out.setdefault("network_params", {})
+            if _act == "relu":
+                out["network_params"]["activation_function"] = torch.nn.ReLU
+            elif _act == "tanh":
+                out["network_params"]["activation_function"] = torch.nn.Tanh
+            elif _act in ("leaky_relu", "leakyrelu"):
+                out["network_params"]["activation_function"] = torch.nn.LeakyReLU
+            elif _act == "identity":
+                # Identity activation = single linear transform on the
+                # input. ``generate_mlp`` requires ``nlayers >= 1``;
+                # force ``nlayers=1`` so the network is an honest
+                # ``Linear(in, out) -> Identity`` instead of a multi-
+                # layer stack that mathematically collapses but
+                # is redundantly parameterised, optimises poorly,
+                # and catastrophically OOD-extrapolates under
+                # covariate shift (observed in prod: 25->32->16->1
+                # Identity stack went to ~-17 sigma on test split,
+                # R^2=-326 while Ridge R^2=1.00 on the same data).
+                out["network_params"]["activation_function"] = torch.nn.Identity
+                out["network_params"]["nlayers"] = 1
+                # Aux dropout sources also break linearity if non-zero --
+                # zero them so the network really IS linear end-to-end.
+                out["network_params"]["dropout_prob"] = 0.0
+                out["network_params"]["inputs_dropout_prob"] = 0.0
+            else:
+                untranslated.append(f"activation={_act}")
+        except Exception as e:
+            logger.debug("could not translate sklearn activation override: %s", e)
+            untranslated.append("activation")
+
+
 def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
     sklearn_overrides: dict[str, Any],
     existing_mlp_kwargs: dict[str, Any] | None = None,
@@ -278,77 +359,9 @@ def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
     out: dict[str, Any] = {}
     untranslated: list[str] = []
 
-    if "alpha" in sklearn_overrides:
-        try:
-            import torch  # local import: torch is an MLP-only optional dep.
-            out.setdefault("model_params", {})
-            # Preserve a caller-supplied optimizer (e.g. MuonAdamWHybrid).
-            # Audit-pass-10 #1 surfaced this as a real bug: hardcoding
-            # torch.optim.AdamW here silently overwrote the user's Muon
-            # choice whenever ``alpha`` was in sklearn_overrides AND the
-            # downstream deep-merge at
-            # ``training/core/_phase_train_one_target_model_setup.py``
-            # had ``{**existing, **override}`` direction. We now only
-            # set the optimizer when the caller did not pin one.
-            _existing_optimizer = None
-            if existing_mlp_kwargs:
-                _existing_model_params = existing_mlp_kwargs.get("model_params") or {}
-                _existing_optimizer = _existing_model_params.get("optimizer")
-            if _existing_optimizer is None:
-                out["model_params"]["optimizer"] = torch.optim.AdamW
-            out["model_params"].setdefault("optimizer_kwargs", {})
-            out["model_params"]["optimizer_kwargs"]["weight_decay"] = float(sklearn_overrides["alpha"])
-        except Exception as e:
-            logger.debug("could not translate sklearn 'alpha' override to weight_decay: %s", e)
-            untranslated.append("alpha")
-
-    if "hidden_layer_sizes" in sklearn_overrides:
-        hls = sklearn_overrides["hidden_layer_sizes"]
-        if isinstance(hls, (tuple, list)) and len(hls) >= 1:
-            first = int(hls[0])
-            minl = int(hls[-1])
-            consec = (first / minl) if minl > 0 else 1.0
-            out.setdefault("network_params", {})
-            out["network_params"]["nlayers"] = len(hls)
-            out["network_params"]["first_layer_num_neurons"] = first
-            out["network_params"]["min_layer_neurons"] = minl
-            out["network_params"]["consec_layers_neurons_ratio"] = float(consec)
-        else:
-            untranslated.append("hidden_layer_sizes")
-
-    if "activation" in sklearn_overrides:
-        try:
-            import torch
-            _act = str(sklearn_overrides["activation"]).lower()
-            out.setdefault("network_params", {})
-            if _act == "relu":
-                out["network_params"]["activation_function"] = torch.nn.ReLU
-            elif _act == "tanh":
-                out["network_params"]["activation_function"] = torch.nn.Tanh
-            elif _act in ("leaky_relu", "leakyrelu"):
-                out["network_params"]["activation_function"] = torch.nn.LeakyReLU
-            elif _act == "identity":
-                # Identity activation = single linear transform on the
-                # input. ``generate_mlp`` requires ``nlayers >= 1``;
-                # force ``nlayers=1`` so the network is an honest
-                # ``Linear(in, out) -> Identity`` instead of a multi-
-                # layer stack that mathematically collapses but
-                # is redundantly parameterised, optimises poorly,
-                # and catastrophically OOD-extrapolates under
-                # covariate shift (observed in prod: 25->32->16->1
-                # Identity stack went to ~-17 sigma on test split,
-                # R^2=-326 while Ridge R^2=1.00 on the same data).
-                out["network_params"]["activation_function"] = torch.nn.Identity
-                out["network_params"]["nlayers"] = 1
-                # Aux dropout sources also break linearity if non-zero --
-                # zero them so the network really IS linear end-to-end.
-                out["network_params"]["dropout_prob"] = 0.0
-                out["network_params"]["inputs_dropout_prob"] = 0.0
-            else:
-                untranslated.append(f"activation={_act}")
-        except Exception as e:
-            logger.debug("could not translate sklearn activation override: %s", e)
-            untranslated.append("activation")
+    _translate_alpha(sklearn_overrides, existing_mlp_kwargs, out, untranslated)
+    _translate_hidden_layer_sizes(sklearn_overrides, out, untranslated)
+    _translate_activation(sklearn_overrides, out, untranslated)
 
     for k, v in sklearn_overrides.items():
         if k in {"alpha", "hidden_layer_sizes", "activation"}:

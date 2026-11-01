@@ -190,6 +190,58 @@ def _collect_prescan_pair_keys(cached_MIs, sorted_pairs, sort_dict_by_value, num
     return scan_pks
 
 
+def _dominant_pair_by_linear_corr(scan_pks, ya_pre, cached_operand):
+    """The pair with the highest linear |corr| against the continuous target, scored in memory-sized blocks; ``None`` when no pair scores."""
+    _dom_cp, _dom_pk = -1.0, None
+    from .._fe_usability_signal import _corr_stride
+    from ..batch_pair_usability_corr_gpu import ALL_PAIR_FORM_IDS, dispatch_batch_pair_usability_corr
+
+    # Match usability_form_corrs's OWN internal _subsample_for_corr stride exactly - it
+    # subsamples (y, x0, x1) TOGETHER to _ABS_PEARSON_MAX_ROWS before ever computing a form;
+    # skipping this here would silently run the batched call on the FULL row count instead
+    # (wrong answer AND far slower - the whole point of the cap). Also cast to
+    # _crit_np_dtype() (f32 by default) BEFORE batching - usability_form_corrs casts its
+    # own y/x0/x1 internally, so a caller passing raw f64 here would compute every form at
+    # STRICTLY HIGHER precision than the reference (a real, if small, ~1e-9 divergence from
+    # comparing f32-then-f64-accumulated vs pure-f64 arithmetic - found via direct A/B
+    # against usability_form_corrs, not assumed).
+    _stride_pre = _corr_stride(ya_pre.shape[0])
+    _dtype_pre = _crit_np_dtype()
+    _y_batch = np.asarray(ya_pre[::_stride_pre] if _stride_pre > 1 else ya_pre, dtype=_dtype_pre)
+
+    def _op_rows_of(idx: int) -> np.ndarray:
+        """One operand's row, subsampled with the y rows."""
+        _op_full = cached_operand(idx)
+        return cast(np.ndarray, _op_full[::_stride_pre] if _stride_pre > 1 else _op_full)
+
+    # Every scanned pair is scored, in blocks sized from the free host RAM: a block gathers only its own operands, and the
+    # running maximum keeps the first pair of the largest value, the same pair one call over all pairs would return.
+    # Operands are uploaded once per block, so when every operand of the scan fits the budget the whole scan is one block.
+    _n_scan_operands = len({_i for _pk in scan_pks for _i in _pk})
+    _budget_pre, _row_pre = _prescan_budget_bytes(_y_batch.shape[0], _dtype_pre)
+    _block_pairs = len(scan_pks) if _n_scan_operands * _row_pre <= _budget_pre else _prescan_block_pairs(_y_batch.shape[0], _dtype_pre)
+    for _b0 in range(0, len(scan_pks), _block_pairs):
+        _block = scan_pks[_b0 : _b0 + _block_pairs]
+        _blk_row_of: dict = {}
+        _blk_rows: list = []
+        for _pk in _block:
+            for _idx in (_pk[0], _pk[1]):
+                if _idx not in _blk_row_of:
+                    _blk_row_of[_idx] = len(_blk_rows)
+                    _blk_rows.append(np.asarray(_op_rows_of(_idx), dtype=_dtype_pre))
+        _pair_a = np.array([_blk_row_of[_pk[0]] for _pk in _block], dtype=np.int64)
+        _pair_b = np.array([_blk_row_of[_pk[1]] for _pk in _block], dtype=np.int64)
+        _pair_form_corrs, _ = dispatch_batch_pair_usability_corr(
+            _y_batch, np.vstack(_blk_rows), _pair_a, _pair_b, form_ids=ALL_PAIR_FORM_IDS,
+        )
+        _cp_block = _pair_form_corrs.max(axis=1)
+        _bi = int(np.argmax(_cp_block))
+        if _dom_pk is None or float(_cp_block[_bi]) > _dom_cp:
+            _dom_cp = float(_cp_block[_bi])
+            _dom_pk = _block[_bi]
+    return _dom_pk
+
+
 def _maybe_relax_prevalence_for_tail_concentrated_pool(
     *, self, cached_MIs, numeric_vars_to_consider, data, num_fs_steps, verbose,
     fe_min_pair_mi_prevalence, cached_operand, sorted_pairs=None, sort_dict_by_value=None,
@@ -254,52 +306,7 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
             cached_MIs, sorted_pairs, sort_dict_by_value, numeric_vars_to_consider, cached_operand, _ya_pre.shape[0], _max_prescan
         )
         if _scan_pks:
-            from .._fe_usability_signal import _corr_stride
-            from ..batch_pair_usability_corr_gpu import ALL_PAIR_FORM_IDS, dispatch_batch_pair_usability_corr
-
-            # Match usability_form_corrs's OWN internal _subsample_for_corr stride exactly - it
-            # subsamples (y, x0, x1) TOGETHER to _ABS_PEARSON_MAX_ROWS before ever computing a form;
-            # skipping this here would silently run the batched call on the FULL row count instead
-            # (wrong answer AND far slower - the whole point of the cap). Also cast to
-            # _crit_np_dtype() (f32 by default) BEFORE batching - usability_form_corrs casts its
-            # own y/x0/x1 internally, so a caller passing raw f64 here would compute every form at
-            # STRICTLY HIGHER precision than the reference (a real, if small, ~1e-9 divergence from
-            # comparing f32-then-f64-accumulated vs pure-f64 arithmetic - found via direct A/B
-            # against usability_form_corrs, not assumed).
-            _stride_pre = _corr_stride(_ya_pre.shape[0])
-            _dtype_pre = _crit_np_dtype()
-            _y_batch = np.asarray(_ya_pre[::_stride_pre] if _stride_pre > 1 else _ya_pre, dtype=_dtype_pre)
-
-            def _op_rows_of(idx: int) -> np.ndarray:
-                """One operand's row, subsampled with the y rows."""
-                _op_full = cached_operand(idx)
-                return cast(np.ndarray, _op_full[::_stride_pre] if _stride_pre > 1 else _op_full)
-
-            # Every scanned pair is scored, in blocks sized from the free host RAM: a block gathers only its own operands, and the
-            # running maximum keeps the first pair of the largest value, the same pair one call over all pairs would return.
-            # Operands are uploaded once per block, so when every operand of the scan fits the budget the whole scan is one block.
-            _n_scan_operands = len({_i for _pk in _scan_pks for _i in _pk})
-            _budget_pre, _row_pre = _prescan_budget_bytes(_y_batch.shape[0], _dtype_pre)
-            _block_pairs = len(_scan_pks) if _n_scan_operands * _row_pre <= _budget_pre else _prescan_block_pairs(_y_batch.shape[0], _dtype_pre)
-            for _b0 in range(0, len(_scan_pks), _block_pairs):
-                _block = _scan_pks[_b0 : _b0 + _block_pairs]
-                _blk_row_of: dict = {}
-                _blk_rows: list = []
-                for _pk in _block:
-                    for _idx in (_pk[0], _pk[1]):
-                        if _idx not in _blk_row_of:
-                            _blk_row_of[_idx] = len(_blk_rows)
-                            _blk_rows.append(np.asarray(_op_rows_of(_idx), dtype=_dtype_pre))
-                _pair_a = np.array([_blk_row_of[_pk[0]] for _pk in _block], dtype=np.int64)
-                _pair_b = np.array([_blk_row_of[_pk[1]] for _pk in _block], dtype=np.int64)
-                _pair_form_corrs, _ = dispatch_batch_pair_usability_corr(
-                    _y_batch, np.vstack(_blk_rows), _pair_a, _pair_b, form_ids=ALL_PAIR_FORM_IDS,
-                )
-                _cp_block = _pair_form_corrs.max(axis=1)
-                _bi = int(np.argmax(_cp_block))
-                if _dom_pk is None or float(_cp_block[_bi]) > _dom_cp:
-                    _dom_cp = float(_cp_block[_bi])
-                    _dom_pk = _block[_bi]
+            _dom_pk = _dominant_pair_by_linear_corr(_scan_pks, _ya_pre, cached_operand)
             if _dom_pk is not None:
                 _dom_p0 = cached_operand(_dom_pk[0])
                 _dom_p1 = cached_operand(_dom_pk[1])

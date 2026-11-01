@@ -125,6 +125,60 @@ class BaselineReport(NamedTuple):
             "extras": {k: v for k, v in self.extras.items() if k not in ("strongest_val_preds", "strongest_test_preds")},
         }
 
+    def _per_output_lines(self) -> list[str]:
+        """Per-output strongest-pick lines and the cross-output summary for a multi-output target."""
+        lines: list[str] = []
+        # Extras: per-output multi-output strongest-pick.
+        if "per_output_strongest" in self.extras:
+            for out_idx, info in enumerate(self.extras["per_output_strongest"]):
+                lines.append(
+                    f"[DUMMY_BASELINES] target='{self.target_name}' Y[{out_idx}]:"
+                    f" strongest={info['name']} ({info['primary_metric']}="
+                    f"{info['primary_value']:.4f}, normalized={info.get('normalized', float('nan')):.3f})"
+                )
+            if "cross_output_strongest" in self.extras:
+                xo = self.extras["cross_output_strongest"]
+                lines.append(
+                    f"[DUMMY_BASELINES] target='{self.target_name}'"
+                    f" cross-output normalized strongest={xo['name']}"
+                    f" (mean_normalized_RMSE={xo['mean_normalized']:.4f})"
+                )
+        return lines
+
+    def _paired_delta_lines(self) -> list[str]:
+        """Paired-bootstrap delta vs the runner-up with its 95% CI, when the paired bootstrap ran."""
+        lines: list[str] = []
+        paired = self.extras.get("paired_bootstrap") if isinstance(self.extras, dict) else None
+        # Paired-bootstrap delta vs runner-up with 95% CI.
+        if paired:
+            ru = paired.get("runner_up", "?")
+            delta = paired.get("delta")
+            ci = paired.get("delta_ci")
+            p = paired.get("p_strongest_beats")
+            if delta is not None and ci is not None and p is not None:
+                metric_short = (self.primary_metric or "").replace("val_", "")
+                lines.append(
+                    f"[DUMMY_BASELINES] target='{self.target_name}'"
+                    f" Delta_{metric_short} vs runner-up ({ru}) = {delta:+.4f}"
+                    f" [95% bootstrap CI: {ci[0]:+.4f}, {ci[1]:+.4f}];"
+                    f" beats runner-up in {round(p * 100)}% of resamples"
+                )
+        return lines
+
+    def _bootstrap_ci_lines(self) -> list[str]:
+        """The strongest validation metric's bootstrap CI line when the bootstrap CI ran."""
+        lines: list[str] = []
+        # Bootstrap CI line when present (small-n grounding).
+        ci = self.extras.get("bootstrap_ci") if isinstance(self.extras, dict) else None
+        if ci and "val" in ci:
+            lo, _point, hi = ci["val"]
+            lines.append(
+                f"[DUMMY_BASELINES] target='{self.target_name}'"
+                f" strongest val 95% bootstrap CI: [{lo:.4f}, {hi:.4f}]"
+                f" (n_resamples={self.extras.get('bootstrap_ci_n_resamples', 1000)})"
+            )
+        return lines
+
     def format_text(self, default_level: str = "INFO") -> str:
         """Render report for log emission.
 
@@ -194,29 +248,8 @@ class BaselineReport(NamedTuple):
                 f"{lift_str}"
                 f" (n_baselines={len(self.table)}, full table at DEBUG){tie_suffix}"
             )
-            # Paired-bootstrap delta vs runner-up with 95% CI.
-            if paired:
-                ru = paired.get("runner_up", "?")
-                delta = paired.get("delta")
-                ci = paired.get("delta_ci")
-                p = paired.get("p_strongest_beats")
-                if delta is not None and ci is not None and p is not None:
-                    metric_short = (self.primary_metric or "").replace("val_", "")
-                    lines.append(
-                        f"[DUMMY_BASELINES] target='{self.target_name}'"
-                        f" Delta_{metric_short} vs runner-up ({ru}) = {delta:+.4f}"
-                        f" [95% bootstrap CI: {ci[0]:+.4f}, {ci[1]:+.4f}];"
-                        f" beats runner-up in {round(p * 100)}% of resamples"
-                    )
-            # Bootstrap CI line when present (small-n grounding).
-            ci = self.extras.get("bootstrap_ci") if isinstance(self.extras, dict) else None
-            if ci and "val" in ci:
-                lo, _point, hi = ci["val"]
-                lines.append(
-                    f"[DUMMY_BASELINES] target='{self.target_name}'"
-                    f" strongest val 95% bootstrap CI: [{lo:.4f}, {hi:.4f}]"
-                    f" (n_resamples={self.extras.get('bootstrap_ci_n_resamples', 1000)})"
-                )
+            lines.extend(self._paired_delta_lines())
+            lines.extend(self._bootstrap_ci_lines())
         except Exception as e:
             logger.debug("verdict formatting failed for target=%s: %s", self.target_name, e)
             lines.append(f"[DUMMY_BASELINES] target='{self.target_name}'" f" strongest={self.strongest} (verdict format failed: {e})")
@@ -225,21 +258,7 @@ class BaselineReport(NamedTuple):
         if self.plot_path:
             lines.append(f"[DUMMY_BASELINES] target='{self.target_name}'" f" overlay plot saved: {self.plot_path}")
 
-        # Extras: per-output multi-output strongest-pick.
-        if "per_output_strongest" in self.extras:
-            for out_idx, info in enumerate(self.extras["per_output_strongest"]):
-                lines.append(
-                    f"[DUMMY_BASELINES] target='{self.target_name}' Y[{out_idx}]:"
-                    f" strongest={info['name']} ({info['primary_metric']}="
-                    f"{info['primary_value']:.4f}, normalized={info.get('normalized', float('nan')):.3f})"
-                )
-            if "cross_output_strongest" in self.extras:
-                xo = self.extras["cross_output_strongest"]
-                lines.append(
-                    f"[DUMMY_BASELINES] target='{self.target_name}'"
-                    f" cross-output normalized strongest={xo['name']}"
-                    f" (mean_normalized_RMSE={xo['mean_normalized']:.4f})"
-                )
+        lines.extend(self._per_output_lines())
 
         if str(default_level).upper() == "DEBUG" and self.table is not None and not self.table.empty:
             lines.append(f"[DUMMY_BASELINES] target='{self.target_name}' full table:\n{self.table.to_string()}")

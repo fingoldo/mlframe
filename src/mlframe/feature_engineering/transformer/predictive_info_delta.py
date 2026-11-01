@@ -21,6 +21,48 @@ from ._utils import require_seed, validate_numeric_input
 logger = logging.getLogger(__name__)
 
 
+def _bin_mask(values: np.ndarray, edges: np.ndarray, b: int, n_bins: int) -> np.ndarray:
+    """Membership of ``values`` in quantile bin ``b``: the first bin is closed on the left by the edge, the last is open on the right, the rest are half-open."""
+    if b == 0:
+        return np.asarray(values <= edges[b + 1], dtype=bool)
+    if b == n_bins - 1:
+        return np.asarray(values > edges[b], dtype=bool)
+    return np.asarray((values > edges[b]) & (values <= edges[b + 1]), dtype=bool)
+
+
+def _train_bin_entropies(
+    p_train: np.ndarray,
+    y_t: np.ndarray,
+    bin_edges: np.ndarray,
+    n_bins: int,
+    task: str,
+    H_y: float,
+) -> np.ndarray:
+    """Conditional entropy H(y | bin) per baseline-prediction bin; empty bins fall back to the marginal ``H_y``."""
+    # Global marginal entropy H_y (already computed above for both branches) is the correct
+    # fallback for an empty bin -- H(y) - H(y|bin) = 0 ("no information gain from this bin") is
+    # neutral, whereas the previous 0.0 default falsely read as "perfectly certain" (var==1 for
+    # regression's log-variance form).
+    H_y_per_bin = np.full(n_bins, H_y, dtype=np.float32)
+    for b in range(n_bins):
+        mask = _bin_mask(p_train, bin_edges, b, n_bins)
+        if mask.sum() > 0:
+            if task == "binary":
+                p_bin = max(min(float(y_t[mask].mean()), 1 - 1e-6), 1e-6)
+                H_y_per_bin[b] = float(-p_bin * np.log(p_bin) - (1 - p_bin) * np.log(1 - p_bin))
+            else:
+                H_y_per_bin[b] = float(np.log(np.var(y_t[mask]) + 1e-9))
+    return H_y_per_bin
+
+
+def _query_bins(p_query: np.ndarray, bin_edges: np.ndarray, n_bins: int) -> np.ndarray:
+    """Quantile-bin index of each query baseline prediction."""
+    query_bin = np.zeros(p_query.shape[0], dtype=np.int32)
+    for b in range(n_bins):
+        query_bin[_bin_mask(p_query, bin_edges, b, n_bins)] = b
+    return query_bin
+
+
 def compute_predictive_info_delta_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -80,37 +122,9 @@ def compute_predictive_info_delta_features(
 
         # Bin train baseline predictions.
         bin_edges = np.quantile(p_train, np.linspace(0.0, 1.0, n_bins + 1))
-        train_bin = np.zeros(p_train.shape[0], dtype=np.int32)
-        # Global marginal entropy H_y (already computed above for both branches) is the correct
-        # fallback for an empty bin -- H(y) - H(y|bin) = 0 ("no information gain from this bin") is
-        # neutral, whereas the previous 0.0 default falsely read as "perfectly certain" (var==1 for
-        # regression's log-variance form).
-        H_y_per_bin = np.full(n_bins, H_y, dtype=np.float32)
-        for b in range(n_bins):
-            if b == 0:
-                mask = p_train <= bin_edges[b + 1]
-            elif b == n_bins - 1:
-                mask = p_train > bin_edges[b]
-            else:
-                mask = (p_train > bin_edges[b]) & (p_train <= bin_edges[b + 1])
-            train_bin[mask] = b
-            if mask.sum() > 0:
-                if task == "binary":
-                    p_bin = max(min(float(y_t[mask].mean()), 1 - 1e-6), 1e-6)
-                    H_y_per_bin[b] = float(-p_bin * np.log(p_bin) - (1 - p_bin) * np.log(1 - p_bin))
-                else:
-                    H_y_per_bin[b] = float(np.log(np.var(y_t[mask]) + 1e-9))
-
+        H_y_per_bin = _train_bin_entropies(p_train, y_t, bin_edges, n_bins, task, H_y)
         # Assign query rows to bins.
-        query_bin = np.zeros(p_query.shape[0], dtype=np.int32)
-        for b in range(n_bins):
-            if b == 0:
-                mask = p_query <= bin_edges[b + 1]
-            elif b == n_bins - 1:
-                mask = p_query > bin_edges[b]
-            else:
-                mask = (p_query > bin_edges[b]) & (p_query <= bin_edges[b + 1])
-            query_bin[mask] = b
+        query_bin = _query_bins(p_query, bin_edges, n_bins)
         query_H_given_bin = H_y_per_bin[query_bin]
         pred_info_delta = (H_y - query_H_given_bin).astype(np.float32)
 
