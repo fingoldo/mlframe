@@ -10,6 +10,8 @@ plus its recipe-emitting variant. The shared univariate scaffolding
 """
 from __future__ import annotations
 
+from .._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
+
 import logging
 from typing import Optional, Sequence
 
@@ -568,7 +570,7 @@ def hybrid_orth_mi_pair_fe_with_recipes(
         nbins=nbins,
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
-    code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
+    code_to_basis = CODE_TO_BASIS
     # D1: authoritative raw-source set for un-stemming engineered names.
     _raw_src_cols = [c for c in X.columns]
     recipes = []
@@ -647,7 +649,7 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             suffix = name[len(src) + 2 :] if name.startswith(src + "__") else name.split("__", 1)[1]
             chosen_basis = None
             chosen_degree = None
-            for code in ("LL", "He", "T", "L"):
+            for code in BASIS_NAME_CODES:
                 if suffix.startswith(code):
                     rest = suffix[len(code) :]
                     if rest.isdigit():

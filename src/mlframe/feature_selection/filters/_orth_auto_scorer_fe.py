@@ -12,6 +12,8 @@ The ensemble-of-scorers rank-fusion path lives in the parent module
 """
 from __future__ import annotations
 
+from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
+
 import logging
 from typing import Callable, Optional, Sequence
 
@@ -693,16 +695,14 @@ def hybrid_orth_mi_auto_scorer_fe_with_recipes(
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
     recipes = []
-    code_to_basis = {
-        "He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre",
-    }
+    code_to_basis = CODE_TO_BASIS
     for name in appended:
         if "__" not in name:
             continue
         src, suffix = name.split("__", 1)
         chosen_basis = None
         chosen_degree = None
-        for code in ("LL", "He", "T", "L"):
+        for code in BASIS_NAME_CODES:
             if suffix.startswith(code):
                 rest = suffix[len(code) :]
                 if rest.isdigit():

@@ -5,6 +5,8 @@ so a fix can't silently drift out of sync across copies.
 """
 from __future__ import annotations
 
+from ._basis_name_codes import BASIS_NAME_CODES
+
 from typing import cast
 from typing import Any
 
@@ -60,7 +62,7 @@ def parse_code_deg_with_basis(s: str) -> "tuple[str | None, int | None]":
     ignores the code since the GPU leg spec re-routes basis via ``basis_route_by_moments``. This one is for
     the host-side generators that need the parsed basis name too.
     """
-    for code in ("LL", "He", "T", "L"):
+    for code in BASIS_NAME_CODES:
         if s.startswith(code):
             rest = s[len(code) :]
             if rest.isdigit():

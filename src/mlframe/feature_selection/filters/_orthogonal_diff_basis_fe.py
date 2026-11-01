@@ -44,6 +44,8 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 """
 from __future__ import annotations
 
+from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
+
 import logging
 from typing import Optional, Sequence
 
@@ -105,8 +107,8 @@ def parse_diff_basis_col_name(name: str) -> Optional[tuple[str, str, str, int]]:
     # effort and used only for diagnostics / lookup keys.
     if "_" not in body:
         return None
-    code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
-    for code in ("LL", "He", "T", "L"):
+    code_to_basis = CODE_TO_BASIS
+    for code in BASIS_NAME_CODES:
         if suffix.startswith(code):
             deg_str = suffix[len(code) :]
             if deg_str.isdigit():

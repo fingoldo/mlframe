@@ -21,6 +21,8 @@ from mlframe.utils.log_throttle import log_throttle
 
 import numpy as np
 from ._fe_gpu_batch._devices import crit_float_dtype
+from .hermite_fe._nonpoly_cells import NONPOLY_BASES
+from .hermite_fe._nonpoly_cells_gpu import nonpoly_block_gpu
 
 from mlframe.feature_selection.filters._safe_scale import guarded_scale
 
@@ -119,6 +121,12 @@ _PREWARP_CLENSHAW_GPU = {
     "hermite": _herme_clenshaw_gpu,
     "laguerre": _lag_clenshaw_gpu,
 }
+
+
+def device_bases() -> frozenset:
+    """The bases the device builders cover: the four Clenshaw bases and the non-polynomial cells."""
+    return frozenset(_PREWARP_CLENSHAW_GPU) | frozenset(NONPOLY_BASES)
+
 
 _BASIS_ID = {"chebyshev": 0, "legendre": 1, "hermite": 2, "laguerre": 3}
 
@@ -766,6 +774,13 @@ def _gpu_evaluate_basis_matrix(cp, M, bases, degrees, *, robust_axis, heavy_host
     cand_blocks: list = []
     meta: list = []
     for (basis, robust), idx in groups.items():
+        if basis in NONPOLY_BASES:
+            # fourier / rbf / sigmoid / pade: one launch builds every (column, degree) cell of the group (their fit does not use the robust axis)
+            built = nonpoly_block_gpu(cp, M[:, idx], basis, list(degrees))
+            if built is not None:
+                cand_blocks.append(built[0])
+                meta.extend((idx[c], basis, d) for c, d in built[1])
+            continue
         clen = _PREWARP_CLENSHAW_GPU.get(basis)
         if clen is None:
             continue

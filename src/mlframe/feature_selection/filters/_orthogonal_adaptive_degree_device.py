@@ -53,7 +53,7 @@ def adaptive_degree_cells_on_device(
         from ._basis_cells_ktc import use_device_cells
         from ._fe_gpu_batch._devices import crit_float_dtype
         from ._fe_resident_operands import resident_operand
-        from ._gpu_resident_basis import _PREWARP_CLENSHAW_GPU, _gpu_evaluate_basis_matrix, _gpu_route_bases_batched
+        from ._gpu_resident_basis import _gpu_evaluate_basis_matrix, _gpu_route_bases_batched, device_bases
         from ._gpu_resident_fe import fe_gpu_resident_basis_mi_enabled
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
         from ._orthogonal_adaptive_degree_fe import _BASIS_CODE
@@ -65,9 +65,9 @@ def adaptive_degree_cells_on_device(
     n = len(X)
     if not fe_gpu_resident_basis_mi_enabled() or not use_device_cells(n):
         return None
-    if basis != "auto" and basis not in _PREWARP_CLENSHAW_GPU:
+    if basis != "auto" and basis not in device_bases():
         return None
-    if basis == "auto" and any(b not in _PREWARP_CLENSHAW_GPU for b in evaluable_bases()):
+    if basis == "auto" and any(b not in device_bases() for b in evaluable_bases()):
         return None  # a base without a device twin would be skipped by the device router while the host router scores it
     try:
         dt = crit_float_dtype()

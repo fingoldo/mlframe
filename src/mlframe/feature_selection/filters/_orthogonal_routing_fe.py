@@ -63,6 +63,8 @@ Off in MRMR.fit unless explicitly enabled via
 """
 from __future__ import annotations
 
+from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
+
 import logging
 from typing import Optional, Sequence
 
@@ -150,8 +152,8 @@ def parse_routing_col_name(name: str) -> Optional[tuple[str, str, str, int]]:
     pre_transform = _TAG_TO_PRE_TRANSFORM.get(tag)
     if pre_transform is None:
         return None
-    code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
-    for code in ("LL", "He", "T", "L"):
+    code_to_basis = CODE_TO_BASIS
+    for code in BASIS_NAME_CODES:
         if rest.startswith(code):
             deg_str = rest[len(code) :]
             if deg_str.isdigit():

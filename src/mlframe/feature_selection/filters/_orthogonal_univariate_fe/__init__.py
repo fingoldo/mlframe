@@ -45,6 +45,8 @@ genuinely separate, directly-callable opt-in utility for ad hoc use outside MRMR
 """
 from __future__ import annotations
 
+from .._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
+
 import logging
 from typing import Any, Optional, Sequence
 
@@ -858,10 +860,10 @@ def hybrid_orth_mi_fe_with_recipes(
         suffix = name[len(src) + 2 :] if name.startswith(src + "__") else name.split("__", 1)[1]
         # _BASIS_CODE = {"hermite":"He","legendre":"L","chebyshev":"T","laguerre":"LL"}
         # Order longest-first to avoid 'L' matching the start of 'LL'.
-        code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
+        code_to_basis = CODE_TO_BASIS
         chosen_basis = None
         chosen_degree = None
-        for code in ("LL", "He", "T", "L"):
+        for code in BASIS_NAME_CODES:
             if suffix.startswith(code):
                 rest = suffix[len(code) :]
                 if rest.isdigit():

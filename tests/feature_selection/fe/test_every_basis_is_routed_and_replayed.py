@@ -13,41 +13,7 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
 from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 from mlframe.feature_selection.filters.engineered_recipes._orth_basis_recipes import build_orth_univariate_recipe
 
-N = 6000
-DEGREES = (1, 2, 3, 4, 5, 6, 7, 8, 9)
-
-
-def _case(basis: str):
-    """``(x, y, expected degree)``: a column and a target that the ``basis`` expansion of that degree reproduces better than any other basis."""
-    rng = np.random.default_rng(11)
-    if basis == "hermite":
-        x = rng.normal(size=N)
-        return x, x**2 - 1.0, 2
-    if basis == "legendre":
-        x = rng.uniform(-1, 1, N)
-        return x, (3 * x**2 - 1) / 2, 2
-    if basis == "chebyshev":
-        x = rng.uniform(-1, 1, N)
-        return x, 4 * x**3 - 3 * x, 3
-    if basis == "laguerre":
-        x = rng.exponential(size=N)
-        return x, (x**2 - 4 * x + 2) / 2, 2
-    if basis == "fourier":
-        x = rng.uniform(0, 1, N)
-        return x, np.sin(2 * np.pi * x), 1
-    if basis == "rbf":
-        x = rng.normal(size=N)
-        centre = np.quantile(x, 0.8)
-        return x, (np.abs(x - centre) < 0.12).astype(float), 8
-    if basis == "sigmoid":
-        x = rng.uniform(0, 1, N)
-        return x, (x > np.quantile(x, 0.9)).astype(float), 9
-    if basis == "pade":
-        x = rng.normal(size=N)
-        z = (x - x.mean()) / x.std()
-        return x, 1.0 / (1.0 + z**2), 2
-    raise KeyError(basis)
-
+from ._basis_cases import DEGREES, N, _case
 
 def test_the_candidates_are_every_registered_basis():
     """No registered basis is left out of the router's candidates."""
@@ -77,3 +43,21 @@ def test_basis_is_routed_generated_and_replayed(basis):
     np.testing.assert_array_equal(full[1000:3000], sliced)
     np.testing.assert_allclose(full, values, rtol=1e-5, atol=1e-6)
     np.testing.assert_allclose(out[name].to_numpy(), values, rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize("basis", ["hermite", "legendre", "chebyshev", "laguerre", "fourier", "rbf", "sigmoid", "pade"])
+def test_family_recipes_are_built_and_replay_for_every_basis(basis):
+    """A scoring family pinned to ``basis`` gets its engineered column parsed back into a recipe of that basis, and the recipe replays the column on a row slice."""
+    from mlframe.feature_selection.filters._orthogonal_cmim_fe import hybrid_orth_mi_cmim_fe_with_recipes
+
+    x, y, _degree = _case(basis)
+    labels = np.digitize(y, np.quantile(y, [0.33, 0.66])) if len(np.unique(y)) > 4 else y.astype(int)
+    X = pd.DataFrame({"a": x.astype(np.float32), "b": np.random.default_rng(3).normal(size=N).astype(np.float32)})
+    out = hybrid_orth_mi_cmim_fe_with_recipes(X, labels, basis=basis)
+    recipes = [r for r in out[2] if r.extra.get("basis") == basis]
+    assert recipes, f"no recipe of basis {basis} built; got {[(r.name, r.extra.get('basis')) for r in out[2]]}"
+    recipe = recipes[0]
+    full = np.asarray(apply_recipe(recipe, X))
+    sliced = np.asarray(apply_recipe(recipe, X.iloc[500:2500]))
+    assert np.isfinite(full).all()
+    np.testing.assert_array_equal(full[500:2500], sliced)

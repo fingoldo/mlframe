@@ -65,7 +65,7 @@ def routing_scores_on_device(
         from ._fe_gpu_batch._devices import crit_float_dtype
         from ._fe_resident_operands import resident_operand
         from ._gpu_resident_fe import _gpu_k_chunk, fe_gpu_resident_basis_mi_enabled
-        from ._gpu_resident_basis import _PREWARP_CLENSHAW_GPU, _gpu_batched_abs_corr, _gpu_detect_heavy_tail_batched, _gpu_evaluate_basis_matrix
+        from ._gpu_resident_basis import _gpu_batched_abs_corr, _gpu_detect_heavy_tail_batched, _gpu_evaluate_basis_matrix, device_bases
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
         from ._orthogonal_routing_fe import _pre_transform_variants_for_column, _routing_col_name
         from .hermite_fe._hermite_robust import _robust_axis_enabled
@@ -75,7 +75,7 @@ def routing_scores_on_device(
     n = len(X)
     if not fe_gpu_resident_basis_mi_enabled() or not (force or use_device_cells(n)):
         return None
-    if any(b not in _PREWARP_CLENSHAW_GPU for b in candidate_bases):
+    if any(b not in device_bases() for b in candidate_bases):
         return None  # a basis without a device port would silently lose its cells
     try:
         y_int = np.ascontiguousarray(y_arr, dtype=np.int64).ravel()

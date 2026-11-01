@@ -41,6 +41,8 @@ path untouched). NEVER ``free_all_blocks`` (mempool teardown owns that).
 """
 from __future__ import annotations
 
+from .._basis_name_codes import BASIS_NAME_CODES
+
 import logging
 from typing import Any, Optional, Sequence
 
@@ -60,7 +62,7 @@ def _parse_code_deg(token: str):
     """Parse a ``"{code}{degree}"`` leg token (e.g. ``"He2"``) -> ``degree`` (int) or ``None``. The basis code is
     IGNORED for the device leg spec - the device builder re-routes each leg via ``basis_route_by_moments`` EXACTLY
     as the host generator did (the name carries only leg-1's code, the same convention the recipe builders unwind)."""
-    for code in ("LL", "He", "T", "L"):
+    for code in BASIS_NAME_CODES:
         if token.startswith(code):
             rest = token[len(code) :]
             if rest.isdigit():
