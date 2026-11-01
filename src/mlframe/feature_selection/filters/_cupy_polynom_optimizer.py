@@ -49,13 +49,13 @@ _BF_ORDER = ("mul", "add", "sub", "div", "atan2", "logabs")
 def _basis_matrix_gpu(cp, x, degree: int, basis_id: int):
     """(n, degree+1) device basis matrix via the exact numpy.polynomial recurrences.
 
-    float32 (2026-07-20, GPU-residency pass): built and consumed in float32, not float64 - the
+    float32 (2026-07-20, GPU-residency pass): built and consumed in float32, not double - the
     GEMM output feeds straight into rank-based equi-frequency binning (a small fixed bin count),
-    which absorbs float32-vs-float64 rounding noise long before it could move a bin assignment.
+    which absorbs float32-vs-double rounding noise long before it could move a bin assignment.
     Verified (see ``_benchmarks/bench_cupy_polynom_f32_gemm.py``) bit-identical winning MI across
     multiple seeds on the module's own cubic-inner regression scenario when BOTH this matrix and
-    the coefficient population upload are float32 - cupy promotes float32 @ float64 back to
-    float64 silently, so half-measures (only one side float32) would give zero benefit."""
+    the coefficient population upload are float32 - cupy promotes float32 @ double back to
+    double silently, so half-measures (only one side float32) would give zero benefit."""
     n = x.shape[0]
     B = cp.empty((n, degree + 1), dtype=cp.float32)
     B[:, 0] = 1.0
