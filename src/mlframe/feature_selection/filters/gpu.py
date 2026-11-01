@@ -50,10 +50,10 @@ class _GpuBufferPool:
     def __init__(self):
         self.classes_x = None  # CuPy int32 vector, length >= n
         self.classes_y = None  # CuPy int32 vector, length >= n
-        self.freqs_x = None  # CuPy float64 vector, length >= nbins_x
-        self.freqs_y = None  # CuPy float64 vector, length >= nbins_y
+        self.freqs_x = None  # CuPy double vector, length >= nbins_x
+        self.freqs_y = None  # CuPy double vector, length >= nbins_y
         self.joint_counts = None  # CuPy int32, shape >= (nbins_x, nbins_y)
-        self.totals = None  # CuPy float64 length 1
+        self.totals = None  # CuPy double length 1
         self.cap_n = 0
         self.cap_nbins_x = 0
         self.cap_nbins_y = 0
@@ -67,9 +67,11 @@ class _GpuBufferPool:
             self.classes_y = cp.empty(n, dtype=cp.int32)
             self.cap_n = n
         if self.cap_nbins_x < nbins_x:
+            # Intentional float64: device frequency buffer the MI kernel accumulates in double
             self.freqs_x = cp.empty(nbins_x, dtype=cp.float64)
             self.cap_nbins_x = nbins_x
         if self.cap_nbins_y < nbins_y:
+            # Intentional float64: device frequency buffer the MI kernel accumulates in double
             self.freqs_y = cp.empty(nbins_y, dtype=cp.float64)
             self.cap_nbins_y = nbins_y
         # The CUDA joint-hist + MI kernels index ``joint_counts`` as a row-major
@@ -85,6 +87,7 @@ class _GpuBufferPool:
             _rows = max(int(nbins_x), int(self.joint_counts.shape[0]) if self.joint_counts is not None else 0)
             self.joint_counts = cp.empty((_rows, nbins_y), dtype=cp.int32)
         if self.totals is None:
+            # Intentional float64: device frequency buffer the MI kernel accumulates in double
             self.totals = cp.zeros(1, dtype=cp.float64)
 
     def free(self) -> None:
