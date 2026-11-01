@@ -35,6 +35,7 @@ from itertools import combinations
 from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
+from numba import njit
 import pandas as pd
 
 from ._group_stats_njit import group_mean_std_count
@@ -169,6 +170,36 @@ def _global_value_for_stat(x: np.ndarray, stat: str, digest: "str | None" = None
         _GLOBAL_STAT_MEMO.clear()
     _GLOBAL_STAT_MEMO[key] = value
     return value
+
+@njit(cache=True, nogil=True)
+def _composite_residuals_kernel(x: np.ndarray, inverse: np.ndarray, mean_u: np.ndarray, std_u: np.ndarray, denom_u: np.ndarray, z_out: np.ndarray, r_out: np.ndarray) -> None:
+    """One pass over the rows: ``z = (x - mean[g]) / std[g]`` with a non-finite result set to 0 and ``ratio = x / denom[g]`` with a non-finite result set to 1, in double precision (what the vectorised chain computed)."""
+    for i in range(x.shape[0]):
+        g = inverse[i]
+        xi = float(x[i])
+        z = (xi - mean_u[g]) / std_u[g]
+        z_out[i] = z if np.isfinite(z) else 0.0
+        q = xi / denom_u[g]
+        r_out[i] = q if np.isfinite(q) else 1.0
+
+
+def _composite_residuals(x: np.ndarray, uniq: np.ndarray, inverse: np.ndarray, lookup_mean: dict, lookup_std: dict, global_mean: float, global_std: float) -> "tuple[np.ndarray, np.ndarray]":
+    """``(z-within-group, ratio-to-group-mean)`` columns of ``x`` in ``x``'s dtype, from the per-group mean / std tables (the replacement of non-finite values and the near-zero-mean rule are applied to the distinct groups)."""
+    mean_u = np.nan_to_num(
+        np.array([lookup_mean.get(str(k), global_mean) for k in uniq], dtype=np.float64),  # Intentional float64: group statistics from the f64 recipe lookup
+        nan=global_mean, posinf=global_mean, neginf=global_mean,
+    )
+    std_u = np.nan_to_num(
+        np.array([lookup_std.get(str(k), global_std) for k in uniq], dtype=np.float64),  # Intentional float64: group statistics from the f64 recipe lookup
+        nan=global_std, posinf=global_std, neginf=global_std,
+    )
+    std_u = np.where(std_u > 0.0, std_u, 1.0)
+    denom_u = _ratio_denominator(mean_u, global_mean, global_std)
+    z = np.empty(x.shape[0], dtype=x.dtype)
+    ratio = np.empty(x.shape[0], dtype=x.dtype)
+    _composite_residuals_kernel(np.ascontiguousarray(x), np.ascontiguousarray(inverse, dtype=np.int64), mean_u, std_u, denom_u, z, ratio)
+    return z, ratio
+
 
 def _ratio_denominator(per_row_mean: np.ndarray, global_mean: float, global_std: float) -> np.ndarray:
     """Per-row group mean with near-zero cells set to NaN; "near zero" is 1e-12 of the column scale, capped at the absolute 1e-12 for scale >= 1."""
@@ -349,18 +380,23 @@ def _emit_num_col_features(
         }
 
     # ---- z-within-composite-group residual ----
-    per_row_mean = _broadcast_lookup(
-        keys, lookup_mean, global_mean,
-        uniq=key_uniq, inverse=key_inverse,
-    )
-    per_row_std = _broadcast_lookup(
-        keys, lookup_std, global_std,
-        uniq=key_uniq, inverse=key_inverse,
-    )
-    per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
-    zscore = np.nan_to_num(
-        (x - per_row_mean) / per_row_std, nan=0.0, posinf=0.0, neginf=0.0,
-    ).astype(x.dtype, copy=False)
+    if key_uniq is not None and key_inverse is not None:
+        # both residuals depend on the row only through its group code: the per-group tables are built once and one pass over the rows writes z and the ratio
+        zscore, ratio_fast = _composite_residuals(x, key_uniq, key_inverse, lookup_mean, lookup_std, global_mean, global_std)
+    else:
+        ratio_fast = None
+        per_row_mean = _broadcast_lookup(
+            keys, lookup_mean, global_mean,
+            uniq=key_uniq, inverse=key_inverse,
+        )
+        per_row_std = _broadcast_lookup(
+            keys, lookup_std, global_std,
+            uniq=key_uniq, inverse=key_inverse,
+        )
+        per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
+        zscore = np.nan_to_num(
+            (x - per_row_mean) / per_row_std, nan=0.0, posinf=0.0, neginf=0.0,
+        ).astype(x.dtype, copy=False)
     z_name = engineered_name_composite_z(num_col, group_cols)
     encoded[z_name] = zscore
     raw_recipes[z_name] = {
@@ -377,8 +413,11 @@ def _emit_num_col_features(
     }
 
     # ---- ratio-to-composite-group residual ----
-    denom = _ratio_denominator(per_row_mean, global_mean, global_std)
-    ratio = np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0).astype(x.dtype, copy=False)
+    if ratio_fast is not None:
+        ratio = ratio_fast
+    else:
+        denom = _ratio_denominator(per_row_mean, global_mean, global_std)
+        ratio = np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0).astype(x.dtype, copy=False)
     r_name = engineered_name_composite_ratio(num_col, group_cols)
     encoded[r_name] = ratio
     raw_recipes[r_name] = {
