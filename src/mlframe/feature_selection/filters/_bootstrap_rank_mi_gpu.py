@@ -92,6 +92,14 @@ def _column_block(cp, n_rows: int) -> int:
     return int(max(8, min(_COLUMN_BLOCK, (_BUDGET_FRACTION * room) // (_BYTES_PER_COLUMN_ROW * max(1, n_rows)))))
 
 
+def _release_pool_cache(cp) -> None:
+    """Return the memory pool's unused cached blocks to the device (blocks in use are kept)."""
+    try:
+        cp.get_default_memory_pool().free_all_blocks()
+    except Exception as exc:
+        logger.debug("device bootstrap walk: could not release the pool cache (%s)", exc)
+
+
 def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.ndarray, np.ndarray] | None":
     """``(mi (B, k), done (k,) bool)``: the MI of every fully distinct finite column of ``arr`` ``(n, k)`` for the resamples of ``prep`` (from ``_resample_tables`` with the walk tables), the other columns left to the host.
 
@@ -106,6 +114,7 @@ def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.nda
     except Exception as exc:
         logger.debug("device bootstrap walk unavailable (%s)", exc)
         return None
+    _release_pool_cache(cp)  # start from a pool without cached blocks of other sizes: the argsort asks thrust for large temporaries that must fit contiguously
     try:
         kernel = _MODULE.get(cp).get_function("bootstrap_rank_walk")
         counts = cp.asarray(np.ascontiguousarray(prep["counts_t"], dtype=np.int32))
@@ -136,6 +145,9 @@ def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.nda
     except Exception as exc:  # out of device memory or a driver fault: the host walk scores every column
         logger.warning("device bootstrap rank walk failed (%s: %s); using the host walk", type(exc).__name__, exc)
         return None
+    finally:
+        # The argsort / take temporaries come in sizes no later request reuses; handing the unused pool blocks back keeps the pool from filling up with them (a 525 MB request of the CMI scorer failed against them).
+        _release_pool_cache(cp)
 
 
 def use_device_walk(n_rows: int) -> bool:
