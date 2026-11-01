@@ -69,7 +69,11 @@ def instantiate_recommended_estimator(recommendation: Optional[dict[str, Any]], 
     if module_name != "mlframe" and not module_name.startswith("mlframe."):
         raise ValueError(f"instantiate_recommended_estimator: refusing to import {module_name!r}; recommendations must name an mlframe module")
     mod = importlib.import_module(module_name)
-    cls = getattr(mod, recommendation["estimator"])
+    name = str(recommendation["estimator"])
+    cls = getattr(mod, name) if not name.startswith("_") else None
+    # Only an estimator class is constructed: any other attribute a recommendation names would be called with the caller's kwargs (EXE-10 / DYN2-2).
+    if not isinstance(cls, type) or not callable(getattr(cls, "fit", None)):
+        raise ValueError(f"instantiate_recommended_estimator: {module_name}.{name} is not an estimator class")
     return cls(**kwargs)
 
 
