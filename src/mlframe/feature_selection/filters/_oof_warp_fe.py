@@ -63,6 +63,14 @@ def apply_oof_warp1d_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.DataF
     x = np.asarray(extract_column(X, recipe.src_names[0]), dtype=_crit_np_dtype())
     return np.asarray(np.clip(apply_warp1d(x, ex["cx"], ex["cy"], ex["fill"]), ex["lo"], ex["hi"]))
 
+def _has_few_values(v: np.ndarray, cap: int) -> bool:
+    """``np.unique(v).size <= cap``; a prefix that already holds more than ``cap`` distinct values settles it without sorting the whole column."""
+    head = v[:4096]
+    if head.size < v.size and np.unique(head).size > cap:
+        return False
+    return bool(np.unique(v).size <= cap)
+
+
 def warp_candidates(
     X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, scan_rows: int = DEFAULT_SCAN_ROWS, seed: int = 0, multiclass: str = "rank"
 ) -> "list[dict]":
@@ -90,7 +98,7 @@ def warp_candidates(
         x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())
         xr = x[rows]
         finite = np.isfinite(xr)
-        if finite.sum() < _MIN_ROWS or np.unique(xr[finite]).size <= FEW_CLASSES_MAX:
+        if finite.sum() < _MIN_ROWS or _has_few_values(xr[finite], FEW_CLASSES_MAX):
             continue
         cr = held_out_codes(np.where(finite, xr, np.min(xr[finite])), even, ~even, N_MI_BINS)
         mi_r = plugin_mi_of_codes(cr, N_MI_BINS, y_odd, ky)
