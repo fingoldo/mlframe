@@ -103,15 +103,15 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
     under ``auto``) on the SAME mean-filled operand. A leg may instead be a 3-tuple ``(col, degree, basis)`` to
     pin an EXPLICIT basis name (e.g. ``"laguerre"``) - used when the engineered column NAME already carries the
     exact basis code the host generator chose (the univariate uplift scorer), so the device must reproduce THAT
-    basis rather than re-deriving it from moments (which can route differently). Returns an (n, K) cupy float64
+    basis rather than re-deriving it from moments (which can route differently). Returns an (n, K) cupy double
     matrix whose columns are the device reconstructions.
 
     The per-leg operand and its polynomial recurrence run at ``_crit_np_dtype()`` - f32 under the default
     ``MLFRAME_CRIT_DTYPE_RELAXED=1``, matching the host generators (_orth_pair_cross_fe.py /
     _orthogonal_{triplet,quadruplet}_fe.py use the SAME dtype for their operand) - only the returned matrix's
-    CONTAINER is float64; no extra precision is recovered by that final cast. Under relaxed mode this makes the
+    CONTAINER is double; no extra precision is recovered by that final cast. Under relaxed mode this makes the
     device/host match within ~5e-6 (measured worst case across families/bases/degrees: 2.52e-6, quadruplet
-    degree 2 - see test_device_born_cross_basis_parity.py), not the ~1e-12 that pure float64 arithmetic on
+    degree 2 - see test_device_born_cross_basis_parity.py), not the ~1e-12 that pure double arithmetic on
     both sides would give (device backward-Clenshaw vs host forward recurrence delta) - set
     MLFRAME_CRIT_DTYPE_RELAXED=0 to recover that tighter bound at the cost of the memory/bandwidth win relaxed
     mode gives the wide candidate-generation loop on the host side.
@@ -133,7 +133,7 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
         robust_axis = False
 
     n = len(X)
-    leg_cache: dict = {}  # (col, basis, degree) -> (n,) cupy float64 leg values
+    leg_cache: dict = {}  # (col, basis, degree) -> (n,) cupy double leg values
     basis_of_col: dict = {}  # col -> routed basis (host moment route, computed once)
 
     def _leg(col: str, degree: int, explicit_basis: str | None = None):
@@ -227,7 +227,7 @@ def raw_and_product_mi_resident(
     Host product-matrix upload at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (dropped the exact line number, which had already gone stale)``) and scores BOTH raw and engineered through the
     SAME percentile-edge resident plug-in MI - so the uplift RATIO is internally consistent (no estimator
     switch / no host-vs-device mismatch that could flip selection). Returns ``(raw_mi_map, eng_mi)`` where
-    ``raw_mi_map`` is ``{raw_col: mi}`` and ``eng_mi`` is the (K,) host float64 array in ``engineered_X.columns``
+    ``raw_mi_map`` is ``{raw_col: mi}`` and ``eng_mi`` is the (K,) host double array in ``engineered_X.columns``
     order, OR ``None`` on any cupy failure / no-cupy / unsupported basis so the caller falls back to the EXACT
     host scorer (byte-identical default path untouched).
 
