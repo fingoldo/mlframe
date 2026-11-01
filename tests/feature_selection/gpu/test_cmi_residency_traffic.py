@@ -368,6 +368,8 @@ def pair_search_audit():
         "launch on this card; not reproduced in isolation (single, sequential, threaded replays all pass). See the commit log."
     ),
 )
+# the full pair search stalls in a GPU kernel on the 4 GB card; runs in the gpu job, not the CPU shards
+@pytest.mark.slow
 def test_pair_search_residency_codes_resident_into_mi_gate(pair_search_audit):
     """PRIMARY GATE for the pair-search path: the candidate codes the GPU binner produced stay RESIDENT and
     are consumed IN PLACE by the noise-gate MI -- every producer stash is matched by exactly one consumer
@@ -393,6 +395,8 @@ def test_pair_search_residency_codes_resident_into_mi_gate(pair_search_audit):
     assert cnt["gate_with_devcodes"] >= 1, f"the resident-codes gate never ran; counters={cnt}"
 
 
+# the full pair search stalls in a GPU kernel on the 4 GB card; runs in the gpu job, not the CPU shards
+@pytest.mark.slow
 def test_pair_search_residency_no_nk_codes_bulk_d2h(pair_search_audit):
     """Invariant (2), byte-audited: NO (n, K) codes buffer is bulk-D2H'd mid-pipeline. The codes are produced
     resident and consumed by the gate in place, so the only legitimate bulk D2H are the handful of SINGLE
@@ -413,6 +417,8 @@ def test_pair_search_residency_no_nk_codes_bulk_d2h(pair_search_audit):
     )
 
 
+# the full pair search stalls in a GPU kernel on the 4 GB card; runs in the gpu job, not the CPU shards
+@pytest.mark.slow
 def test_strict_fit_copies_back_only_result_columns(pair_search_audit):
     """The whole strict F2 fit (pair search, redundancy gates, retention, additive fusion) copies back to the host only its RESULTS: the engineered
     columns that are written out, small score tables and scalars. Every intermediate (candidate codes, binned operands, conditioning supports,

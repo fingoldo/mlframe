@@ -341,6 +341,8 @@ def matrix():
 class TestMechanismOnEveryDataset:
     """Every (dataset, mechanism) cell in the 7x10 matrix completes without raising."""
 
+    # the 70-cell showdown matrix runs about 70 full fits and exceeds the default 900 s
+    @pytest.mark.timeout(3600)
     def test_full_matrix_populated_no_nans(self, matrix):
         """No cell in the 7x10 matrix produced a non-finite score."""
         bad: list[tuple[str, str]] = []
@@ -350,6 +352,8 @@ class TestMechanismOnEveryDataset:
                     bad.append((ds, mech))
         assert not bad, f"{len(bad)} (dataset, mechanism) cells produced non-finite score: {bad[:10]} ..."
 
+    # the 70-cell showdown matrix runs about 70 full fits and exceeds the default 900 s
+    @pytest.mark.timeout(3600)
     def test_full_matrix_shape_70_cells(self, matrix):
         """The matrix covers exactly 7 datasets x 10 mechanisms = 70 cells."""
         n_cells = sum(len(p["mech"]) for p in matrix.values())
@@ -364,6 +368,8 @@ class TestMechanismOnEveryDataset:
 class TestPerDatasetAtLeastOneMechanismMatchesBaseline:
     """Per dataset, at least one of the 10 mechanisms does not regress vs. baseline."""
 
+    # the 70-cell showdown matrix runs about 70 full fits and exceeds the default 900 s
+    @pytest.mark.timeout(3600)
     def test_per_dataset_best_within_tolerance(self, matrix):
         """The toolkit must be at least useful: across the 10 mechanisms there is at least one whose downstream score does not
         regress materially below the raw all-features baseline.
@@ -611,6 +617,8 @@ class TestCombinedAllOnSmoke:
 class TestMatrixProvenance:
     """Print the full 7x10 matrix under -s for human review."""
 
+    # the 70-cell showdown matrix runs about 70 full fits and exceeds the default 900 s
+    @pytest.mark.timeout(3600)
     def test_print_matrix(self, matrix, capsys):
         """Emit the full 7x10 matrix to stdout so the Layer 83 report can
         cite verbatim numbers. The assertions only check that every cell
