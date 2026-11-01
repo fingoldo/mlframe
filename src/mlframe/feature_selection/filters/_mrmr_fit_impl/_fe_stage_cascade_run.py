@@ -15,6 +15,7 @@ from ._fe_stage_cascade_early_b import _fe_stage_cascade_early_b
 from ._fe_stage_cascade_mid_a import _fe_stage_cascade_mid_a
 from ._fe_stage_cascade_mid_b import _fe_stage_cascade_mid_b
 from ._fe_stage_merge import _fe_merge_new_columns
+from ._fe_stage_concurrency import concurrency_enabled, run_stages_concurrently
 from .._fe_dominant_candidate import dominant_candidate
 from .._fe_frame_ops import fe_drop_columns
 
@@ -40,51 +41,71 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
     # One column that already carries nearly all of y leaves nothing for the remaining families to add.
     if dominant_candidate(X, _y_np) is not None:
         return X, _raw_input_cols_pre_fe
-    X = _fe_merge_new_columns(X, _fe_stage_cascade_early_b(
-        self, X=_X_step_input, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
-        _fit_entry_nan_mask=_fit_entry_nan_mask, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,
-        _kfold_te_pre_recipes=recipes.kfold_te, _binned_agg_pre_recipes=recipes.binned_agg,
-        _count_enc_pre_recipes=recipes.count_enc, _freq_enc_pre_recipes=recipes.freq_enc,
-        _cat_num_pre_recipes=recipes.cat_num,
-        _miss_ind_pre_recipes=recipes.miss_ind, _miss_cnt_pre_recipes=recipes.miss_cnt,
-        _miss_pat_pre_recipes=recipes.miss_pat,
-        _ratio_pre_recipes=recipes.ratio, _log_ratio_pre_recipes=recipes.log_ratio,
-        _grouped_delta_pre_recipes=recipes.grouped_delta, _lagged_diff_pre_recipes=recipes.lagged_diff,
-    ), _X_step_input)
+    def _stage_early_b(stage_self):
+        """Run the early_b cascade on the given estimator (the real one, or a private copy when the cascades run together)."""
+        return _fe_stage_cascade_early_b(
+            stage_self, X=_X_step_input, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
+            _fit_entry_nan_mask=_fit_entry_nan_mask, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,
+            _kfold_te_pre_recipes=recipes.kfold_te, _binned_agg_pre_recipes=recipes.binned_agg,
+            _count_enc_pre_recipes=recipes.count_enc, _freq_enc_pre_recipes=recipes.freq_enc,
+            _cat_num_pre_recipes=recipes.cat_num,
+            _miss_ind_pre_recipes=recipes.miss_ind, _miss_cnt_pre_recipes=recipes.miss_cnt,
+            _miss_pat_pre_recipes=recipes.miss_pat,
+            _ratio_pre_recipes=recipes.ratio, _log_ratio_pre_recipes=recipes.log_ratio,
+            _grouped_delta_pre_recipes=recipes.grouped_delta, _lagged_diff_pre_recipes=recipes.lagged_diff,
+        )
+
+    def _stage_mid_a(stage_self):
+        """Run the mid_a cascade on the given estimator (the real one, or a private copy when the cascades run together)."""
+        return _fe_stage_cascade_mid_a(
+            stage_self, X=_X_step_input, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
+            _fe_budget_ok=_fe_budget_ok, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,
+            _cat_pair_pre_recipes=recipes.cat_pair, _cat_triple_pre_recipes=recipes.cat_triple,
+            _composite_group_agg_pre_recipes=recipes.composite_group_agg,
+            _conditional_gate_pre_recipes=recipes.conditional_gate,
+            _grouped_agg_pre_recipes=recipes.grouped_agg,
+            _grouped_quantile_pre_recipes=recipes.grouped_quantile,
+            _integer_lattice_pre_recipes=recipes.integer_lattice,
+            _modular_pre_recipes=recipes.modular,
+            _numeric_decompose_pre_recipes=recipes.numeric_decompose,
+            _pairwise_modular_pre_recipes=recipes.pairwise_modular,
+            _row_argmax_pre_recipes=recipes.row_argmax,
+        )
+
+    def _stage_mid_b(stage_self):
+        """Run the mid_b cascade on the given estimator (the real one, or a private copy when the cascades run together)."""
+        return _fe_stage_cascade_mid_b(
+            stage_self, X=_X_step_input, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
+            _fe_budget_ok=_fe_budget_ok, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,
+            _group_distance_pre_recipes=recipes.group_distance,
+            _rare_category_pre_recipes=recipes.rare_category,
+            _conditional_residual_pre_recipes=recipes.conditional_residual,
+            _conditional_dispersion_pre_recipes=recipes.conditional_dispersion,
+            _conditional_quantile_rank_pre_recipes=recipes.conditional_quantile_rank,
+            _ordinal_pattern_pre_recipes=recipes.ordinal_pattern,
+            _random_fourier_pre_recipes=recipes.random_fourier,
+            _sir_direction_pre_recipes=recipes.sir_direction,
+            _lof_pre_recipes=recipes.lof,
+            _mahalanobis_density_pre_recipes=recipes.mahalanobis_density,
+            _offset_product_pre_recipes=recipes.offset_product,
+            _oof_warp_pre_recipes=recipes.oof_warp,
+            _row_stat_pre_recipes=recipes.row_stat,
+            _wavelet_pre_recipes=recipes.wavelet,
+            _rankgauss_pre_recipes=recipes.rankgauss,
+        )
+
+    if concurrency_enabled():
+        # the three cascades are independent (same step input, disjoint recipes): run them together, each on a copy of the estimator in a device slot of its own, and fold in the fixed order
+        outs = run_stages_concurrently(self, [_stage_early_b, _stage_mid_a, _stage_mid_b])
+        if outs is not None:
+            for out in outs:
+                X = _fe_merge_new_columns(X, out, _X_step_input)
+            _close_lap()
+            return X, _raw_input_cols_pre_fe
+    X = _fe_merge_new_columns(X, _stage_early_b(self), _X_step_input)
     _close_lap()
-    X = _fe_merge_new_columns(X, _fe_stage_cascade_mid_a(
-        self, X=_X_step_input, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
-        _fe_budget_ok=_fe_budget_ok, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,
-        _cat_pair_pre_recipes=recipes.cat_pair, _cat_triple_pre_recipes=recipes.cat_triple,
-        _composite_group_agg_pre_recipes=recipes.composite_group_agg,
-        _conditional_gate_pre_recipes=recipes.conditional_gate,
-        _grouped_agg_pre_recipes=recipes.grouped_agg,
-        _grouped_quantile_pre_recipes=recipes.grouped_quantile,
-        _integer_lattice_pre_recipes=recipes.integer_lattice,
-        _modular_pre_recipes=recipes.modular,
-        _numeric_decompose_pre_recipes=recipes.numeric_decompose,
-        _pairwise_modular_pre_recipes=recipes.pairwise_modular,
-        _row_argmax_pre_recipes=recipes.row_argmax,
-    ), _X_step_input)
+    X = _fe_merge_new_columns(X, _stage_mid_a(self), _X_step_input)
     _close_lap()
-    X = _fe_merge_new_columns(X, _fe_stage_cascade_mid_b(
-        self, X=_X_step_input, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
-        _fe_budget_ok=_fe_budget_ok, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,
-        _group_distance_pre_recipes=recipes.group_distance,
-        _rare_category_pre_recipes=recipes.rare_category,
-        _conditional_residual_pre_recipes=recipes.conditional_residual,
-        _conditional_dispersion_pre_recipes=recipes.conditional_dispersion,
-        _conditional_quantile_rank_pre_recipes=recipes.conditional_quantile_rank,
-        _ordinal_pattern_pre_recipes=recipes.ordinal_pattern,
-        _random_fourier_pre_recipes=recipes.random_fourier,
-        _sir_direction_pre_recipes=recipes.sir_direction,
-        _lof_pre_recipes=recipes.lof,
-        _mahalanobis_density_pre_recipes=recipes.mahalanobis_density,
-        _offset_product_pre_recipes=recipes.offset_product,
-        _oof_warp_pre_recipes=recipes.oof_warp,
-        _row_stat_pre_recipes=recipes.row_stat,
-        _wavelet_pre_recipes=recipes.wavelet,
-        _rankgauss_pre_recipes=recipes.rankgauss,
-    ), _X_step_input)
+    X = _fe_merge_new_columns(X, _stage_mid_b(self), _X_step_input)
     _close_lap()
     return X, _raw_input_cols_pre_fe

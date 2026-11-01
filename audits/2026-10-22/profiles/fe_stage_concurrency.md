@@ -30,3 +30,22 @@ different regime; at this size the limit is device MEMORY, not device time.
 * Per-device resident-operand caches (`_fe_resident_operands` keys are content-only today) and per-device kernel modules (`RawModuleCache` is keyed by element type only).
 * Estimator copies per stage with the list attributes merged back in the fixed stage order (deterministic selection), as the bench does for the frame.
 * A measured gate: concurrency only when the free VRAM covers the stages' budgets, else the sequential cascade (the CPU fallback of every device path already exists).
+
+## Implemented and measured (flag `MLFRAME_FE_STAGE_CONCURRENCY=1`, off by default)
+
+`_fe_device_scheduler.py` (device plan + private pool per stage), `_mrmr_fit_impl/_fe_stage_concurrency.py` (private estimator copies, fold in stage order) and the switch in `_fe_stage_cascade_run.py`.
+The state the stages share, found by diffing the estimator and `recipes` after each stage of a sequential run: the lists `hybrid_orth_features_` and `_fe_rejection_records_` (every stage appends), the per-family
+`*_features_` lists (created empty by early_b, filled by mid_a / mid_b), a few scalars; the recipes of the three stages are disjoint families. The merge rules reproduce the sequential state exactly
+(`test_fe_stage_concurrency_merge.py`), and fits at 20000 x 30 and 100000 x 100 give the same support, the same `hybrid_orth_features_` and the same rejection count in both modes.
+
+Measured at 100000 x 100, every family except the surrogate, one process, fit cache cleared between the modes:
+
+| run | sequential s | concurrent s |
+|---|---|---|
+| numba parallel-kernel lock on | 154.3 | 151.2 |
+| lock off under the TBB layer | 154.3 | 155.2 |
+
+No gain either way: the three stages did run together (plan: budgets 0.52 / 1.26 / 0.67 GB on the one card), so the time is not waiting for a lock or for memory. What the sampler showed holds: the stage
+time is host Python and numpy that holds the GIL, and a GPU that is idle 82% of the time because only one thread feeds it. Threads cannot overlap GIL-bound work; the remaining ways are to move the host work
+into nogil kernels or the device (the per-family kernels of the other notes), or to run the stages in separate processes with their own copies of the data (large memory, and the resident caches are per process).
+The code stays, off, for hosts where the stages are not GIL-bound (a faster host, free-threaded Python) and as the base of a multi-device plan.
