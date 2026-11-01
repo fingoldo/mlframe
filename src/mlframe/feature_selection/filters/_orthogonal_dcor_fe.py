@@ -64,6 +64,7 @@ from __future__ import annotations
 import logging
 from typing import Optional, Sequence
 
+from numba import njit
 import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
 
@@ -102,6 +103,35 @@ def _u_centered_distance_matrix(z: np.ndarray) -> np.ndarray:
     col_mean = a.mean(axis=0, keepdims=True)
     grand_mean = a.mean()
     return np.asarray(a - row_mean - col_mean + grand_mean)
+
+@njit(cache=True, nogil=True)
+def _dcor_columns_kernel(xs: np.ndarray, b: np.ndarray, dcov2: np.ndarray, dvar2_x: np.ndarray) -> None:
+    """``dcov2[j] = mean(A_j * B)`` and ``dvar2_x[j] = mean(A_j * A_j)`` for the double-centred distance matrix ``A_j`` of every row ``xs[j]``, without building ``A_j``.
+
+    ``B`` is double centred, so its row sums vanish and ``sum(A * B) = sum(a * B)`` for the raw distances ``a``; and ``sum(A * A) = sum(a * a) - 2 m sum(r_i^2) + m^2 g^2`` with the row means ``r_i``
+    and grand mean ``g`` of ``a``. One pass over the ``m x m`` distances per column replaces the five full-matrix passes of the dense form (the same quantities up to rounding).
+    """
+    k, m = xs.shape
+    for j in range(k):
+        x = xs[j]
+        total = 0.0
+        sq = 0.0
+        cross = 0.0
+        sum_r2 = 0.0
+        for i in range(m):
+            row = 0.0
+            xi = x[i]
+            for q in range(m):
+                d = abs(xi - x[q])
+                row += d
+                sq += d * d
+                cross += d * b[i, q]
+            total += row
+            sum_r2 += (row / m) * (row / m)
+        g = total / (m * m)
+        dcov2[j] = cross / (m * m)
+        dvar2_x[j] = (sq - 2.0 * m * sum_r2 + m * m * g * g) / (m * m)
+
 
 def _subsample_indices(
     n: int, n_sample: int, random_state: int,
@@ -234,11 +264,13 @@ def _dcor_batch(
         idx, B, dvar2_y = _dcor_y_side_prep(y, n, n_sample=n_sample, random_state=random_state)
     # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     out = np.empty(X_arr.shape[1], dtype=np.float64)
+    xs_all = np.ascontiguousarray(X_arr[idx].T, dtype=np.float64)  # Intentional float64: the kernel accumulates m x m sums
+    dcov2_all = np.empty(X_arr.shape[1], dtype=np.float64)  # Intentional float64: accumulator vector
+    dvar2_all = np.empty(X_arr.shape[1], dtype=np.float64)  # Intentional float64: accumulator vector
+    _dcor_columns_kernel(xs_all, np.ascontiguousarray(B, dtype=np.float64), dcov2_all, dvar2_all)
     for j in range(X_arr.shape[1]):
-        xs = X_arr[idx, j]
-        A = _u_centered_distance_matrix(xs)
-        dvar2_x = float(np.mean(A * A))
-        dcov2 = float(np.mean(A * B))
+        dvar2_x = float(dvar2_all[j])
+        dcov2 = float(dcov2_all[j])
         denom = dvar2_x * dvar2_y
         # A non-finite denom (all-NaN/inf column) makes `denom <= 0` False, so a NaN score would otherwise escape and sort to the top; guard explicitly.
         if not np.isfinite(denom) or denom <= 0.0 or not np.isfinite(dcov2):
