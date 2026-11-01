@@ -31,31 +31,47 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-# Device-property cache (queried once per process). Keyed nothing - single current device.
+# Device-property cache: the properties of ONE device, the one whose id is ``_DEV_PROPS_ID`` (None = the id was not
+# recorded, e.g. a test that sets ``_DEV_PROPS`` directly). A different current device re-queries, so a host with
+# two different cards never hands the first card's limits to the second.
 _DEV_PROPS: "dict | None" = None
+_DEV_PROPS_ID: "int | None" = None
 _DEV_PROPS_LOCK = threading.Lock()
 
 
+def _current_device_id() -> "int | None":
+    """Id of the current cupy device, or ``None`` when cupy / CUDA is unavailable."""
+    try:
+        import cupy as cp
+
+        return int(cp.cuda.Device().id)
+    except Exception:
+        return None
+
+
 def device_props() -> dict:
-    """Device launch-relevant properties (cached once). Empty dict if cupy/CUDA is unavailable - callers
+    """Launch-relevant properties of the CURRENT device (cached per device id). Empty dict if cupy/CUDA is unavailable - callers
     treat an empty dict as 'no HW info' and fall back to their historical default / KTC sweep."""
     global _DEV_PROPS
-    if _DEV_PROPS is not None:  # fast path, no lock
+    cur = _current_device_id()
+    if _DEV_PROPS is not None and (_DEV_PROPS_ID is None or cur is None or _DEV_PROPS_ID == cur):  # fast path, no lock
         return _DEV_PROPS
     with _DEV_PROPS_LOCK:
-        if _DEV_PROPS is not None:  # re-check under the lock (double-checked init)
+        if _DEV_PROPS is not None and (_DEV_PROPS_ID is None or cur is None or _DEV_PROPS_ID == cur):  # re-check under the lock
             return _DEV_PROPS
         return _device_props_uncached()
 
 
 def _device_props_uncached() -> dict:
     """Populate and cache ``_DEV_PROPS`` under the caller's lock. Query the current CUDA device once."""
-    global _DEV_PROPS
+    global _DEV_PROPS, _DEV_PROPS_ID
     props: dict = {}
+    dev_id: "int | None" = None
     try:
         import cupy as cp
 
         dev = cp.cuda.Device()
+        dev_id = int(dev.id)
         a = dev.attributes
         props = {
             "sm_count": int(a.get("MultiProcessorCount", 0)) or 0,
@@ -65,6 +81,11 @@ def _device_props_uncached() -> dict:
             "warp": int(a.get("WarpSize", 32)) or 32,
             "shared_per_block": int(a.get("MaxSharedMemoryPerBlock", 48 * 1024)) or 48 * 1024,
             "regs_per_block": int(a.get("MaxRegistersPerBlock", 65536)) or 65536,
+            # shared memory the driver reserves per block on top of the kernel's own (1 KB from cc 8.x on, 0 on Pascal) and the L2 size
+            "reserved_shared_per_block": int(a.get("ReservedSharedMemoryPerBlock", 0)) or 0,
+            "l2_bytes": int(a.get("L2CacheSize", 0)) or 0,
+            # registers are handed out per warp in units of 256 on every architecture from Kepler to Hopper
+            "reg_alloc_unit": 256,
         }
         # Per-SM register / shared budgets (occupancy is limited per-SM, not per-block). getDeviceProperties
         # exposes them; fall back to the per-block budget when absent (a safe lower bound for occupancy).
@@ -80,6 +101,7 @@ def _device_props_uncached() -> dict:
         logger.warning("device-property probe failed: %s", e)
         props = {}
     _DEV_PROPS = props
+    _DEV_PROPS_ID = dev_id
     return props
 
 
@@ -98,12 +120,14 @@ def _max_active_blocks_per_sm(block: int, regs_per_thread: int, static_smem: int
     warps_per_block = (block + warp - 1) // warp
     max_warps_per_sm = props["max_threads_per_sm"] // warp
     by_threads = max_warps_per_sm // warps_per_block if warps_per_block > 0 else 0
-    # register limit: registers are allocated per-warp-granularity on most archs but per-thread total is a
-    # safe, slightly-conservative bound (block * regs_per_thread <= regs_per_sm).
-    regs_per_block_used = block * max(regs_per_thread, 1)
+    # register limit: registers are allocated per warp, rounded up to ``reg_alloc_unit`` (53 registers cost 56)
+    unit = int(props.get("reg_alloc_unit", 1)) or 1
+    regs_per_warp = ((max(regs_per_thread, 1) * warp + unit - 1) // unit) * unit
+    regs_per_block_used = warps_per_block * regs_per_warp
     by_regs = props["regs_per_sm"] // regs_per_block_used if regs_per_block_used > 0 else props["max_blocks_per_sm"]
-    # shared limit
-    by_smem = (props["shared_per_sm"] // smem_per_block) if smem_per_block > 0 else props["max_blocks_per_sm"]
+    # shared limit: the driver adds its per-block reserve to the kernel's request
+    smem_charged = smem_per_block + int(props.get("reserved_shared_per_block", 0))
+    by_smem = (props["shared_per_sm"] // smem_charged) if smem_charged > 0 else props["max_blocks_per_sm"]
     # hard block-count cap
     by_blocks = props["max_blocks_per_sm"]
     return int(max(0, min(by_threads, by_regs, by_smem, by_blocks)))
@@ -165,3 +189,43 @@ def fill_grid_1d(n_work: int, block: int, *, regs_per_thread: int = 32, static_s
     mab = _max_active_blocks_per_sm(block, regs_per_thread, static_smem, dyn_smem, props)
     fill = props["sm_count"] * max(mab, 1)
     return int(max(1, cover, fill))
+
+
+def fixed_shared_block_size(
+    shared_bytes: int,
+    *,
+    regs_per_thread: int = 32,
+    static_smem: int = 0,
+    pow2: bool = True,
+    min_width: "int | None" = None,
+    max_width: "int | None" = None,
+    work_items: "int | None" = None,
+    tie_prefers_wider: bool = False,
+) -> int:
+    """Threads per block for a kernel whose shared memory is FIXED per block (a histogram or bitset that does not grow with the width).
+
+    Wider blocks share the same table among more threads, so the right width is the one that keeps the most threads resident on an SM:
+    for every candidate width (powers of two when ``pow2``, else warp multiples) the analytic active blocks per SM is taken from the
+    thread, register (per-warp allocation), shared (plus the driver reserve) and block-count limits, and the width with the most resident
+    threads wins; at equal resident threads the NARROWER block wins by default (more blocks per SM hide the barriers of a phased kernel: measured 147 ms for 512 x 2 blocks against 170 ms for 1024 x 1 on the honest-null accept kernel), the wider one with ``tie_prefers_wider`` (fewer block-level reductions). ``work_items`` caps the width at the work one block can use.
+    Returns 0 without device information, so the caller keeps its historical constant.
+    """
+    props = device_props()
+    if not props:
+        return 0
+    warp = props["warp"]
+    lo = max(warp, int(min_width or warp))
+    hi = min(props["max_threads_per_block"], int(max_width or props["max_threads_per_block"]))
+    if work_items is not None and int(work_items) > 0:
+        hi = min(hi, ((int(work_items) + warp - 1) // warp) * warp)
+    if hi < lo:
+        return 0
+    best_w, best_resident = 0, -1
+    w = 1 << (lo - 1).bit_length() if pow2 else lo
+    while w <= hi:
+        blocks = _max_active_blocks_per_sm(w, regs_per_thread, static_smem, int(shared_bytes), props)
+        resident = blocks * w
+        if blocks > 0 and (resident > best_resident or (tie_prefers_wider and resident == best_resident)):
+            best_w, best_resident = w, resident
+        w = w * 2 if pow2 else w + warp
+    return int(best_w)

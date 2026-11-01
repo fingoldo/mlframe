@@ -186,6 +186,23 @@ def accept_fits(n: int, y_raw_perm: np.ndarray) -> bool:
     return bool(ones.size and (ones == ones[0]).all() and 0 < int(ones[0]) < int(n))
 
 
+def _block_width(kernel, shared_bytes: int, n: int) -> int:
+    """Threads per block from the device's limits (``_gpu_hw_launch.fixed_shared_block_size``: the table is fixed per block, so the width that keeps the most threads resident on an SM), ``THREADS`` without device information; ``MLFRAME_GPU_BLOCK_HONEST_ACCEPT`` overrides."""
+    import os
+
+    forced = os.environ.get("MLFRAME_GPU_BLOCK_HONEST_ACCEPT", "").strip()
+    if forced.isdigit() and 32 <= int(forced) <= 1024 and int(forced) % 32 == 0:
+        return int(forced)
+    from ._gpu_hw_launch import fixed_shared_block_size
+
+    try:
+        width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kernel.num_regs), static_smem=int(kernel.shared_size_bytes), min_width=64, max_width=1024, work_items=n)
+    except Exception as exc:
+        logger.debug("honest-null accept block width: device limits unavailable (%s)", exc)
+        width = 0
+    return width or THREADS
+
+
 def root_split_accept_gpu(cp, order, tie, y_raw_perm, n: int, n_perm: int, kc: int, min_split: int, alpha: float, h_full: float, tab_full, d_gain, d_ncand, d_idx) -> bool:
     """Fill ``d_gain`` / ``d_ncand`` / ``d_idx`` (index ``column * n_perm + permutation``) with the pruned acceptance scan of every pair; ``False`` when the path does not apply (nothing written)."""
     if not accept_fits(n, y_raw_perm):
@@ -197,10 +214,12 @@ def root_split_accept_gpu(cp, order, tie, y_raw_perm, n: int, n_perm: int, kc: i
     thr = cp.asarray(threshold_table(int(n), float(alpha)))
     ybits = cp.asarray(np.ascontiguousarray(_pack_bits(y_raw_perm)))  # (permutations, words): the row-space labels of every permutation
     kernel = _MODULE.get(cp).get_function("root_split_accept")
+    shared = (words + int(ybits.shape[1])) * 4
+    width = _block_width(kernel, shared, n)
     kernel(
-        (kc * n_perm,), (THREADS,),
+        (kc * n_perm,), (width,),
         (d_order, valid, ybits, tab_full, thr, np.int64(n), np.int32(words), np.int32(ybits.shape[1]), np.int32(m), np.int32(n_perm), np.float64(h_full), np.float64(m / float(n)), d_gain, d_ncand, d_idx),  # Intentional float64: the kernel signature declares double
-        shared_mem=(words + int(ybits.shape[1])) * 4,
+        shared_mem=shared,
     )
     return True
 
