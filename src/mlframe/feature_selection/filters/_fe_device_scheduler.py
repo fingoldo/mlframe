@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any, Iterator, Sequence
 
@@ -90,13 +91,31 @@ def plan_stage_slots(
     return [s for s in slots if s is not None]
 
 
-@contextlib.contextmanager
-def stage_device_slot(slot: DeviceSlot) -> "Iterator[Any]":
-    """Run the calling thread on ``slot.device_id`` with a private memory pool limited to ``slot.budget_bytes``; the pool's cached blocks are released on exit."""
+#: Pools of the stage slots, kept alive for the whole process: an array allocated inside a slot can outlive the slot (the process-global caches keep device columns), and cupy frees the in-use chunks of a pool when
+#: the pool object is destroyed, so a dropped pool turned those cached arrays into dangling pointers (``cudaErrorIllegalAddress`` in the next kernel that read one).
+_SLOT_POOLS: "dict[tuple[int, int], Any]" = {}
+_SLOT_POOLS_LOCK = threading.Lock()
+
+
+def _slot_pool(slot: DeviceSlot, key: int) -> Any:
+    """The persistent pool of stage ``key`` on the slot's device, its limit set to the slot's budget."""
     import cupy as cp
 
-    pool = cp.cuda.MemoryPool()
+    with _SLOT_POOLS_LOCK:
+        pool = _SLOT_POOLS.get((slot.device_id, key))
+        if pool is None:
+            pool = cp.cuda.MemoryPool()
+            _SLOT_POOLS[(slot.device_id, key)] = pool
     pool.set_limit(size=int(slot.budget_bytes))
+    return pool
+
+
+@contextlib.contextmanager
+def stage_device_slot(slot: DeviceSlot, key: int = 0) -> "Iterator[Any]":
+    """Run the calling thread on ``slot.device_id`` with the persistent memory pool of stage ``key``, limited to ``slot.budget_bytes``; the pool's unused blocks are released on exit (its in-use blocks stay valid for the arrays that outlive the slot)."""
+    import cupy as cp
+
+    pool = _slot_pool(slot, key)
     try:
         with cp.cuda.Device(slot.device_id), cp.cuda.using_allocator(pool.malloc):
             yield pool
