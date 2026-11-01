@@ -125,9 +125,9 @@ def resolve_crash_dir(crash_dir: Optional[str] = None) -> str:
                 cur = cur.parent if getattr(cur, "propagate", False) else None
     except Exception as e:
         logger.debug("could not derive crash dir from logging handlers: %s", e)
-    import tempfile
+    from mlframe.utils.private_temp import private_temp_dir
 
-    return tempfile.gettempdir()
+    return private_temp_dir("mlframe_crash")
 
 
 _BREADCRUMB_LOCK = threading.Lock()
