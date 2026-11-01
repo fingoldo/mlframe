@@ -5,7 +5,6 @@
   "feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py": 1,
   "feature_selection/filters/_mah.py": 1,
   "feature_selection/filters/_mi_greedy_cmi_fe_binning.py": 1,
-  "feature_selection/filters/_mrmr_artifacts.py": 2,
   "feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe.py": 2,
   "feature_selection/filters/_resident_candidate_mi_ktc.py": 1,
   "feature_selection/filters/_wavelet_basis_fe.py": 2,
