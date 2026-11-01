@@ -663,6 +663,7 @@ def _install_macos_lgb_crash_skip() -> None:
     lightgbm.basic.Dataset.construct = _construct_or_skip
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
     """Deselect fuzz/biz_transformer-marked items unless their opt-in flags are passed."""
     # Always: deselect ``fuzz``-marked items unless --run-fuzz is given. Applies
