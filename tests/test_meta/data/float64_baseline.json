@@ -2,7 +2,6 @@
   "feature_selection/filters/_cluster_aggregate.py": 1,
   "feature_selection/filters/_cupy_polynom_optimizer.py": 4,
   "feature_selection/filters/_dcd_pair_su_batch.py": 2,
-  "feature_selection/filters/_fe_additive_fusion_gpu_resident.py": 8,
   "feature_selection/filters/_fe_auto_escalation_proposers.py": 1,
   "feature_selection/filters/_fe_batched_mi.py": 6,
   "feature_selection/filters/_fe_interaction_prerank.py": 1,

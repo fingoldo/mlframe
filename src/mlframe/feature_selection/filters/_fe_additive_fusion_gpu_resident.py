@@ -76,6 +76,7 @@ def _multiple_r_gpu(cp, X2_dev, yv_dev, y_std: float) -> float:
     n = int(X2_dev.shape[0])
     if n < 3 or y_std <= 1e-12:
         return 0.0
+    # Intentional float64: regression design and target in double, the fit solve they feed needs that precision
     ones = cp.ones((n, 1), dtype=cp.float64)
     design = cp.concatenate([X2_dev, ones], axis=1)
     try:
@@ -122,6 +123,7 @@ def _collect_gpu_candidate_halves(newly_engineered_names: list, engineered_recip
         if rec is None or vals is None:
             continue
         # A device-backed engineered column stays a device array: it is stacked into the (n, H) matrix below without a host round trip.
+        # Intentional float64: fused column values stay float64 so the fit and replay paths match exactly
         vals = vals if hasattr(vals, "dev") else np.asarray(vals, dtype=np.float64).ravel()
         if vals.shape[0] != n_rows:
             continue
@@ -139,9 +141,11 @@ def _upload_and_subsample(cp: Any, _vals_cols: list, n_rows: int, y_dense: np.nd
     """Bulk H2D of the (n, H) half-values matrix and y codes plus the strided scoring subsample; returns ``(vals_dev, y_dev, vals_sc, y_dense_sc, y_dev_sc, stride)``."""
     # ---- ONE bulk H2D: the (n, H) half-values matrix + the y codes. Everything below stays resident. ----
     if all(hasattr(c, "dev") for c in _vals_cols):
+        # Intentional float64: fused column values stay float64 so the fit and replay paths match exactly
         _stk = cp.stack([c.dev.astype(cp.float64, copy=False).ravel() for c in _vals_cols], axis=1)
         vals_dev = cp.where(cp.isfinite(_stk), _stk, cp.asarray(0.0, dtype=_stk.dtype))  # (n, H) built on the device - FULL n (output values)
     else:
+        # Intentional float64: fused column values stay float64 so the fit and replay paths match exactly
         vals_host = np.empty((n_rows, H), dtype=np.float64)
         for j in range(H):
             vals_host[:, j] = _vals_cols[j] if not hasattr(_vals_cols[j], "dev") else np.asarray(_vals_cols[j]).ravel()
@@ -189,6 +193,7 @@ def _gpu_relevant_halves(cp: Any, vals_sc: Any, nbins: int, y_dense_sc: np.ndarr
 
     # Every half's marginal relevance MI(half; y) in ONE batched device workload over the RESIDENT codes (no
     # code H2D). Same Miller-Madow plug-in MI as the CPU pre-pass's batched_cmi_gpu.
+    # Intentional float64: statistic vector (MI), exact ties decide the selection
     mis = np.asarray(batched_cmi_gpu(codes_dev, y_dense_sc, None), dtype=np.float64)
 
     halves: list[dict] = []
@@ -300,6 +305,7 @@ def _gpu_build_fusion(self: Any, cp: Any, ha: dict, hb: dict, _binary: str, vals
     _tfull = (_fa - _fb) if _binary == "sub" else (_fa + _fb)
     _fused_full = cp.where(cp.isfinite(_tfull), _tfull, cp.asarray(0.0, dtype=_tfull.dtype))
     # Stays on the device: the recipe edges are fitted there and the consumer bins / stores it from there; a host reader copies it back (once) on demand.
+    # Intentional float64: fused column values stay float64 so the fit and replay paths match exactly
     fused_vals = LazyHostCodes(_fused_full.astype(cp.float64, copy=False), np.float64)
     name = f"{_binary}({ha['name']},{hb['name']})"
     base = name
@@ -396,6 +402,7 @@ def propose_additive_fusions_gpu(
 
     # Resident float target for the OLS multiple-R fits (cleaned once) - on the SCORING subsample (the OLS-R
     # separability razor is a decision, scored on the same sample as the MI razor).
+    # Intentional float64: regression design and target in double, the fit solve they feed needs that precision
     yc_dev = y_dev_sc.astype(cp.float64)
     y_std = float(cp.std(yc_dev))
 
@@ -456,6 +463,7 @@ def _subsumed_raw_operand_check_gpu(ha, hb, subsumed_raws, X, n_rows, _raw_bin_c
         _rv = None
         try:
             if hasattr(X, "columns") and _rn in getattr(X, "columns", []):
+                # Intentional float64: fused column values stay float64 so the fit and replay paths match exactly
                 _rv = np.asarray(X[_rn], dtype=np.float64).ravel()
         except Exception as e:
             log_throttle(logger, "fe_additive_fusion_gpu_resident.hot_loop_warning", logging.WARNING, "reading raw column %r failed: %s", _rn, e)
