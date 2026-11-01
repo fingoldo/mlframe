@@ -21,6 +21,7 @@ from mlframe.utils.log_throttle import log_throttle
 
 import numpy as np
 from ._fe_gpu_batch._devices import crit_float_dtype
+from ._abs_corr_tiled_gpu import MIN_COLUMNS, abs_corr_tiled
 from .hermite_fe._nonpoly_cells import NONPOLY_BASES
 from .hermite_fe._nonpoly_cells_gpu import nonpoly_block_gpu
 
@@ -872,6 +873,8 @@ def _gpu_batched_abs_corr(cp, cand, y_cont, mu=None):
         yc = cp.ascontiguousarray(yv - yv.mean())
         mu = cp.ascontiguousarray(cand2.mean(axis=0) if mu is None else cp.asarray(mu, dtype=cand2.dtype))  # ``mu``: the column means when the caller already has them (the fused validity pass)
         Syy = float((yc * yc).sum())
+        if m >= MIN_COLUMNS:
+            return abs_corr_tiled(cp, cand2, yc, mu, Syy)  # version 2: a warp reads consecutive columns of one row
         out = cp.empty(m, dtype=cp.float64)  # Intentional float64: statistic vector (|corr|), accumulated in double
         real_t = "float" if cand2.dtype == cp.float32 else "double"
         # Intentional float64: scalar kernel argument contract (must match the CUDA kernel signature)

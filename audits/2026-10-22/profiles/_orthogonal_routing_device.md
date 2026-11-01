@@ -61,3 +61,9 @@ Kernel time of the warm 20-column call, nvprof: 260 ms -> about 190 ms (-27%): t
 `cell_moments` is 7%. Wall of the call is unchanged at 0.50 s: the remaining wall is host work (the pre-transforms and `column_stack`, 0.23 s) and the host-device score copies. What is left on the device:
 `clenshaw_basis` 22%, `radix_select_f32_v3` 14%, `abs_corr` 11% (global-load efficiency 22%: one block per column reads a row-major block with stride m; a column-tile layout like `cell_moments` would
 coalesce it), `mi_hist_split_f32` 6%, `basis_preprocess_nr` 6%, `cupy_copy` 6%, `transpose_f32` 5%, `cupy_take` 3% (only when some cell is unusable).
+
+## abs_corr version 2 (`_abs_corr_tiled_gpu.py`)
+
+v1 (one block per column, stride m through the row-major block) kept global-load efficiency at 22%. v2 uses a block of 32 columns x 8 row lanes, so a warp reads consecutive columns of one row; centred double
+sums per lane, fixed-order merge, row-chunk partials summed on the host in chunk order. For `m >= 32` columns (below that v1 runs, both kept). Measured (nvprof, 20 columns x 4 bases x 2 degrees x pre-transforms,
+100000 rows): 2.70 ms -> 1.05 ms per launch (2.6x); global-load efficiency 22% -> 82.5%, SM efficiency 94.9%, achieved occupancy 0.64. Agreement with numpy's Pearson: 2e-5 (float32), 1e-9 (float64).
