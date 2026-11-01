@@ -533,6 +533,9 @@ def _verify_bundle_digest(bundle_path: str) -> None:
     The sidecar is written at save time next to the bundle; a bundle without a recorded digest, or with one that no longer matches, is not
     unpickled. ``MLFRAME_ALLOW_UNVERIFIED_PICKLE`` is the explicit opt-out for a bundle that predates the digest.
     """
+    if not os.path.exists(bundle_path):
+        # Nothing to verify: the loader's own read fails and returns its documented None for a missing file.
+        return
     meta = load_save_meta_sidecar(bundle_path)
     expected = (meta or {}).get("bundle_sha256")
     if not expected:

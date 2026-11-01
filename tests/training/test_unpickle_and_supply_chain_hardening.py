@@ -95,6 +95,9 @@ def test_load_mlframe_model_safe_default_rejects_function_payload(tmp_path):
     bundle = tmp_path / "evil.bundle"
     raw = dill.dumps(_marker_exploit_by_value(marker), byref=False, recurse=True)
     bundle.write_bytes(zstd.ZstdCompressor().compress(raw))
+    from mlframe.training.io import _write_save_meta_sidecar
+
+    _write_save_meta_sidecar(str(bundle))
     assert load_mlframe_model(str(bundle)) is None
     assert not marker.exists()
 
@@ -254,6 +257,9 @@ def test_load_mlframe_model_returns_none_on_oversized_stream(tmp_path, monkeypat
     monkeypatch.setenv("MLFRAME_MAX_DECOMPRESSED_BYTES", "10000")
     path = tmp_path / "big.bundle"
     path.write_bytes(zstd.ZstdCompressor().compress(pickle.dumps(np.zeros(100_000))))
+    from mlframe.training.io import _write_save_meta_sidecar
+
+    _write_save_meta_sidecar(str(path))
     assert load_mlframe_model(str(path)) is None
 
 
