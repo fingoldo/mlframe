@@ -93,13 +93,14 @@ def warp_candidates(
     targets: list[tuple[Optional[int], np.ndarray]] = list(ovr_indicators(codes, ky) if multiclass == "ovr" else [])
     if not targets:
         targets = [(None, _rank_scaled(y_arr[rows]))]
-    out = []
-    for c in cols:
+    def _one_column(c):
+        """The scored warp candidates of one column (one per target), empty when the column is skipped."""
+        found: list = []
         x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())
         xr = x[rows]
         finite = np.isfinite(xr)
         if finite.sum() < _MIN_ROWS or _has_few_values(xr[finite], FEW_CLASSES_MAX):
-            continue
+            return []
         cr = held_out_codes(np.where(finite, xr, np.min(xr[finite])), even, ~even, N_MI_BINS)
         mi_r = plugin_mi_of_codes(cr, N_MI_BINS, y_odd, ky)
         x_odd = xr[~even]
@@ -114,12 +115,26 @@ def warp_candidates(
                 bulk_se = paired_gain_se(cw[bulk], cr[bulk], y_odd[bulk], ky, N_MI_BINS)
             else:
                 bulk_gain, bulk_se = mi_w - mi_r, paired_gain_se(cw, cr, y_odd, ky, N_MI_BINS)
-            out.append(
+            found.append(
                 {
                     "col": c, "cls": cls, "x": x, "fit": fit, "rows": rows, "mi_raw": mi_r, "mi_warp": mi_w, "gain": mi_w - mi_r, "se": paired_gain_se(cw, cr, y_odd, ky, N_MI_BINS),
                     "bulk_gain": bulk_gain, "bulk_se": bulk_se,
                 }
             )
+        return found
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    # The columns are independent (own fit, own scores, one seed for all): scanned on the edge-jobs pool and folded in column order, so the result is the serial one.
+    jobs = _resolve_edge_jobs(None, len(cols))
+    if jobs > 1 and len(cols) > 3:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            per_column = list(pool.map(_one_column, cols))
+    else:
+        per_column = [_one_column(c) for c in cols]
+    out = [cand for found in per_column for cand in found]
     return out
 
 def training_column(cand: dict) -> np.ndarray:
