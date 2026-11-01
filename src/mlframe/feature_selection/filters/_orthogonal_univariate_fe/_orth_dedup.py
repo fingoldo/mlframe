@@ -204,6 +204,7 @@ def _row_center_finite(A: np.ndarray) -> np.ndarray:
     the ``n < 8`` common-row guard either way.
     """
     A = np.ascontiguousarray(A)
+    # Intentional float64: dtype identity check on the input, not a compute dtype
     if A.ndim == 2 and A.dtype in (np.float32, np.float64):
         out = np.empty_like(A)
         _row_center_kernel(A, out)
@@ -222,7 +223,7 @@ def _row_center_finite(A: np.ndarray) -> np.ndarray:
 def _row_center_kernel(A: np.ndarray, out: np.ndarray) -> None:
     """One pass per row: the mean of the finite entries in double precision, then ``out = A - mean`` cast to the dtype of ``A`` (all-NaN rows stay as they are; no temporaries).
 
-    Replaces the isfinite / where / sum / subtract chain of numpy (five passes over the matrix and two float64 copies of it)."""
+    Replaces the isfinite / where / sum / subtract chain of numpy (five passes over the matrix and two double-precision copies of it)."""
     q, n = A.shape
     for i in prange(q):
         s = 0.0
