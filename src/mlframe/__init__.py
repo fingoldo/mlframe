@@ -64,7 +64,8 @@ def _autoconfigure_macos_omp_threads() -> None:
     if sys.platform != "darwin":
         return
     import os
-    if os.environ.get("MLFRAME_NO_MACOS_OMP_AUTOCONFIG", "").strip() not in ("", "0", "false", "False"):
+    from mlframe.utils.env_flags import env_flag
+    if env_flag("MLFRAME_NO_MACOS_OMP_AUTOCONFIG"):
         return
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
@@ -94,7 +95,8 @@ def _autoconfigure_cuda_home() -> None:
     raises. Opt-out: ``MLFRAME_NO_CUDA_AUTOCONFIG=1``.
     """
     import os
-    if os.environ.get("MLFRAME_NO_CUDA_AUTOCONFIG", "").strip() not in ("", "0", "false", "False"):
+    from mlframe.utils.env_flags import env_flag
+    if env_flag("MLFRAME_NO_CUDA_AUTOCONFIG"):
         return
 
     import pathlib
@@ -200,7 +202,8 @@ def _disable_broken_cupy() -> None:
     debugging cupy itself).
     """
     import os
-    if os.environ.get("MLFRAME_KEEP_BROKEN_CUPY", "").strip() not in ("", "0", "false", "False"):
+    from mlframe.utils.env_flags import env_flag
+    if env_flag("MLFRAME_KEEP_BROKEN_CUPY"):
         return
     import sys
     try:
@@ -296,7 +299,8 @@ def _patch_colorama_reinit_storm() -> None:
     Opt-out: ``MLFRAME_KEEP_COLORAMA_REINIT=1``."""
     import logging
     import os
-    if os.environ.get("MLFRAME_KEEP_COLORAMA_REINIT", "").strip() not in ("", "0", "false", "False"):
+    from mlframe.utils.env_flags import env_flag
+    if env_flag("MLFRAME_KEEP_COLORAMA_REINIT"):
         return
     try:
         import colorama.initialise as _ci

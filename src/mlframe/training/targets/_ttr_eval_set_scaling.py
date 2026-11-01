@@ -104,8 +104,8 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
         _clip_low = getattr(self, "_y_train_clip_low_", float("-inf"))
         _clip_high = getattr(self, "_y_train_clip_high_", float("+inf"))
         if np.isfinite(_clip_low) or np.isfinite(_clip_high):
-            import os as _os
-            if not _os.environ.get("MLFRAME_TTR_DISABLE_PREDICT_CLIP"):
+            from mlframe.utils.env_flags import env_flag
+            if not env_flag("MLFRAME_TTR_DISABLE_PREDICT_CLIP"):
                 try:
                     _arr = np.asarray(pred_trans, dtype=np.float64)
                     _n_low = int(np.sum(_arr < _clip_low))
