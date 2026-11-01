@@ -546,6 +546,9 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
 _PARALLEL_CMI_MIN_CANDS = 16  # below this many candidates the pool costs more than it saves
 
 
+_CMI_CHUNK_START: dict[int, int] = {}  # candidate count -> chunk width that last fitted on the device
+
+
 def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_cmi_gpu: Any) -> np.ndarray:
     """``batched_cmi_gpu`` over all columns of ``codes``; when the device cannot hold the whole batch's joint histograms (a wide conditioning support makes them ``K x Kx x Kyz`` cells) the
     columns are scored in chunks, halving the chunk until it fits. Every column is scored independently, so the values are the whole-batch values."""
@@ -563,10 +566,11 @@ def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_
         scored: np.ndarray = parts[0] if len(parts) == 1 else np.concatenate(parts)
         return scored
 
-    step = k
+    step = min(k, _CMI_CHUNK_START.get(k, k))  # the chunk that fitted last time for this width: a failed whole-batch attempt costs an allocation sweep and a pool reclaim
     while True:
         out = attempt(step)
         if out is not None:
+            _CMI_CHUNK_START[k] = step
             return out
         if step <= 1:
             whole: np.ndarray = batched_cmi_gpu(codes, y_bin, z_joint, codes_trusted=True)  # nothing left to halve: let the error reach the caller's CPU fallback
