@@ -467,16 +467,26 @@ def generate_conditional_basis_routing_features(
     # layers (total-correlation / adaptive-degree / cluster-basis / diff-basis / adaptive-arity).
     raw_mi_map = cached_raw_mi_baseline(cols, raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins)
 
-    cand_cols, cand_values, cand_meta = _enumerate_routing_cells(X, cols, transform_variants, candidate_bases, degrees)
+    # The cells are built and scored on the device when it applies (only the winners come back to the host); otherwise the host enumeration runs.
+    from ._orthogonal_routing_device import LazyRoutingValues, routing_scores_on_device
 
-    if not cand_cols:
-        return pd.DataFrame(index=X.index), {}
+    on_device = routing_scores_on_device(X, list(cols), transform_variants, candidate_bases, degrees, y_arr, nbins, routing_criterion)
+    if on_device is not None:
+        cand_cols, cand_meta, eng_mi, route_score = on_device
+        cand_values = LazyRoutingValues(X, cand_meta)
+        if not cand_cols:
+            return pd.DataFrame(index=X.index), {}
+    else:
+        cand_cols, cand_values, cand_meta = _enumerate_routing_cells(X, cols, transform_variants, candidate_bases, degrees)
 
-    # ---- Step 3: ONE batch MI call across every candidate
-    cand_mat = _stack_candidates(cand_values)
-    eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
+        if not cand_cols:
+            return pd.DataFrame(index=X.index), {}
 
-    route_score = _routing_scores(routing_criterion, y_arr, cand_mat, eng_mi)
+        # ---- Step 3: ONE batch MI call across every candidate
+        cand_mat = _stack_candidates(cand_values)
+        eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
+
+        route_score = _routing_scores(routing_criterion, y_arr, cand_mat, eng_mi)
 
     best_per_source = _best_cell_per_source(cand_meta, cand_cols, eng_mi, route_score)
 
