@@ -40,3 +40,17 @@ def test_cupy_stage4_softmax_temp_zero_no_inf():
     assert (
         np.isfinite(y_mean).all() and np.isfinite(y_std).all() and np.isfinite(x_mean).all()
     ), "softmax_temp=0 produced non-finite output; the cupy kernel must guard 1/softmax_temp like its njit twin."
+
+
+def test_stage4_refuses_a_top_k_above_the_block_limit():
+    """K above 1024 is refused with a ValueError that names K, before any GPU work (OVF5-2)."""
+    import numpy as np
+    import pytest
+
+    from mlframe.feature_engineering.transformer._kernels_cupy import row_attention_stage4_cupy
+
+    q = np.zeros((2, 4), dtype=np.float32)
+    kp = np.zeros((10, 4), dtype=np.float32)
+    ids = np.zeros((2, 2000), dtype=np.int32)
+    with pytest.raises(ValueError, match="K=2000"):
+        row_attention_stage4_cupy(q, kp, np.zeros(10, dtype=np.float32), ids, 1.0, np.zeros(2, dtype=np.float32), np.zeros(2, dtype=np.float32), np.zeros((2, 4), dtype=np.float32))
