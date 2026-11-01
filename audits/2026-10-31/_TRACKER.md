@@ -58,16 +58,16 @@ Each row is a finding and the disposition its report proposed. None is executed 
 | Status | ID | Class | Location |
 |---|---|---|---|
 | **DOC** | DESER-01 | deserialization | `src/mlframe/training/io.py:601` |
-| **FUTURE** | DESER-02 | deserialization | `src/mlframe/training/io.py:524` (`load_mlframe_model`, callers `_trainer_train_and_evaluate_parts.py:126`, `core/_phase_persist_post.py:49`)` |
-| **FUTURE** | DESER-03 | deserialization | `src/mlframe/training/_unpickle_policy.py` (`resolve_restricted_class`, allowlist prefixes and `_DENIED_NAMES`)` |
-| **FUTURE** | DESER-04 | deserialization | `src/mlframe/inference/predict.py:245` (`safe_joblib_load` in `read_trained_models`)` |
-| **FUTURE** | DESER-05 | deserialization | `src/mlframe/inference/predict.py:123` (`features.dump` joblib fallback)` |
-| **FUTURE** | DESER-06 | deserialization | `src/mlframe/estimators/pipelines.py:111` (`replay_cv_results`, plain `joblib.load`)` |
-| **FUTURE** | DESER-07 | deserialization | `src/mlframe/training/core/_metadata_loader.py:20-21` (legacy joblib metadata, no sidecar)` |
+| **RESOLVED** | DESER-02 | deserialization | `src/mlframe/training/io.py:524` (`load_mlframe_model`, callers `_trainer_train_and_evaluate_parts.py:126`, `core/_phase_persist_post.py:49`)` |
+| **DOC** | DESER-03 | deserialization | `src/mlframe/training/_unpickle_policy.py` (`resolve_restricted_class`, allowlist prefixes and `_DENIED_NAMES`)` |
+| **DOC** | DESER-04 | deserialization | `src/mlframe/inference/predict.py:245` (`safe_joblib_load` in `read_trained_models`)` |
+| **DOC** | DESER-05 | deserialization | `src/mlframe/inference/predict.py:123` (`features.dump` joblib fallback)` |
+| **RESOLVED** | DESER-06 | deserialization | `src/mlframe/estimators/pipelines.py:111` (`replay_cv_results`, plain `joblib.load`)` |
+| **RESOLVED** | DESER-07 | deserialization | `src/mlframe/training/core/_metadata_loader.py:20-21` (legacy joblib metadata, no sidecar)` |
 | **DOC** | DESER-08 | deserialization | `src/mlframe/training/feature_handling/cache.py:574-580` (pickle fallback, `allow_pickle=True`)` |
 | **RESOLVED** | DESER-09 | deserialization | `src/mlframe/training/feature_handling/cache.py:557` (`np.load` with `allow_pickle=False` default)` |
 | **FUTURE** | DESER-10 | deserialization | `src/mlframe/training/composite/cache_store.py:385` (`safe_load(..., allow_unverified=True)`)` |
-| **FUTURE** | DESER-11 | deserialization | `src/mlframe/training/_trainer_train_and_evaluate_parts.py:117-119` (`trusted_root` defaults to the file's own directory)` |
+| **RESOLVED** | DESER-11 | deserialization | `src/mlframe/training/_trainer_train_and_evaluate_parts.py:117-119` (`trusted_root` defaults to the file's own directory)` |
 | **RESOLVED** | DESER-12 | deserialization | `src/mlframe/utils/disk_cache.py:368` |
 | **RESOLVED** | DESER-13 | deserialization | `src/mlframe/feature_selection/wrappers/rfecv/__init__.py:598` |
 | **RESOLVED** | DESER-14 | deserialization | `src/mlframe/feature_engineering/transformer/_key_bank.py:179-182, 182, 204` |
@@ -88,7 +88,7 @@ Each row is a finding and the disposition its report proposed. None is executed 
 | **RESOLVED** | EXE-07 | dynamic_exec | `src/mlframe/feature_selection/filters/_permutation_null_resident_ktc.py:113` |
 | **RESOLVED** | EXE-08 | dynamic_exec | `src/mlframe/feature_selection/__init__.py:128` |
 | **RESOLVED** | EXE-09 | dynamic_exec | `src/mlframe/training/_param_model_spec.py:48` |
-| **FUTURE** | EXE-10 | dynamic_exec | `src/mlframe/training/composite/_estimator_dispatch.py:70-72` |
+| **RESOLVED** | EXE-10 | dynamic_exec | `src/mlframe/training/composite/_estimator_dispatch.py:70-72` |
 | **RESOLVED** | EXE-11 | dynamic_exec | `src/mlframe/training/__init__.py:324-325` |
 | **RESOLVED** | EXE-12 | dynamic_exec | `src/mlframe/training/_polars_native_support.py:109` |
 | **RESOLVED** | EXE-13 | dynamic_exec | `src/mlframe/training/core/_setup_helpers_pipeline_cache.py:155-156` |
@@ -96,7 +96,7 @@ Each row is a finding and the disposition its report proposed. None is executed 
 | **RESOLVED** | EXE-15 | dynamic_exec | `src/mlframe/preprocessing/opt_in_slow.py:58-59` |
 | **RESOLVED** | EXE-16 | dynamic_exec | `src/mlframe/_optional_imports.py:12` |
 | **RESOLVED** | EXE-17 | dynamic_exec | `src/mlframe/__init__.py:482` |
-| **FUTURE** | EXE-18 | dynamic_exec | `src/mlframe/training/neural/_flat_torch_module/__init__.py:216-217` |
+| **RESOLVED** | EXE-18 | dynamic_exec | `src/mlframe/training/neural/_flat_torch_module/__init__.py:216-217` |
 | **FUTURE** | EXE-19 | dynamic_exec | `src/mlframe/data/datasets/_sapp.py:17` |
 | **RESOLVED** | EXE-20 | dynamic_exec | `src/mlframe/data/datasets/_sapp.py:21` |
 | **DOC** | EXE-21 | dynamic_exec | `src/mlframe/feature_engineering/_benchmarks/bench_anchor_slope_cache.py:36` |
@@ -109,10 +109,10 @@ Each row is a finding and the disposition its report proposed. None is executed 
 | **REJECTED** | EXE-28 | dynamic_exec | `src/mlframe/feature_selection/_benchmarks/profile_mrmr_line_profile.py:58-59` |
 | **DOC** | EXE-29 | dynamic_exec | `Benchmark and profiling importlib sites: `_benchmarks/nvprof_autotag.py:44`, `fs_hybrid/_arms.py:86`, `fs_hybrid/_matched_k.py:56`, `bench_mrmr.py:85` |
 | **DOC** | FS-01 | filesystem | `src/mlframe/integrations/mlflow.py:95` |
-| **FUTURE** | FS-02 | filesystem | `src/mlframe/estimators/pipelines.py:163-166` |
+| **RESOLVED** | FS-02 | filesystem | `src/mlframe/estimators/pipelines.py:163-166` |
 | **FUTURE** | FS-03 | filesystem | `src/mlframe/training/core/_setup_helpers_pipeline_cache.py:136-138` |
 | **FUTURE** | FS-04 | filesystem | `src/mlframe/training/crash_diagnostics.py:130` |
-| **FUTURE** | FS-05 | filesystem | `src/mlframe/training/feature_handling/hf_provider.py:113-124` |
+| **RESOLVED** | FS-05 | filesystem | `src/mlframe/training/feature_handling/hf_provider.py:113-124` |
 | **FUTURE** | FS-06 | filesystem | `src/mlframe/feature_selection/filters/_benchmarks/bench_temporal_agg_fe.py:39`, `src/mlframe/reporting/_benchmarks/_e2e_slice_finder_ab_iter71.py:49-50` |
 | **RESOLVED** | FS-07 | filesystem | `src/mlframe/system/kernel_tuning_cache/_ensure.py:96-101, 131-134` |
 | **RESOLVED** | FS-08 | filesystem | `src/mlframe/training/io.py:58-68, 155-167` |
@@ -125,7 +125,7 @@ Each row is a finding and the disposition its report proposed. None is executed 
 | **REJECTED** | FS-15 | filesystem | `src/mlframe/reporting/report_html.py:258`, `src/mlframe/reporting/renderers/plotly.py:418-424`, `src/mlframe/reporting/renderers/_kaleido.py:235-243`, `src/mlframe/training/ranking/_ranker_suite_train_helpers.py:484` |
 | **RESOLVED** | FS-16 | filesystem | `whole `src/mlframe` tree (no `chmod`, `umask`, `0o666`, `0o777`)` |
 | **DOC** | NET-01 | network | `src/mlframe/integrations/mlflow.py:71-96` |
-| **FUTURE** | NET-02 | network | `src/mlframe/feature_selection/filters/_neural_mi.py:284-291` |
+| **RESOLVED** | NET-02 | network | `src/mlframe/feature_selection/filters/_neural_mi.py:284-291` |
 | **RESOLVED** | NET-03 | network | `src/mlframe/feature_selection/filters/_neural_mi.py:443-477` |
 | **RESOLVED** | NET-04 | network | `src/mlframe/training/feature_handling/hf_provider.py:66-88, 204-256` |
 | **DOC** | NET-05 | network | `src/mlframe/training/feature_handling/hf_provider.py:74-88` |
@@ -133,14 +133,14 @@ Each row is a finding and the disposition its report proposed. None is executed 
 | **REJECTED** | NET-07 | network | `src/mlframe/feature_selection/_benchmarks/fs_hybrid/_realdata_cache.py:136-146` (and round3/round4/_downstream_shared bench files)` |
 | **RESOLVED** | NET-08 | network | `src/mlframe/integrations/mlflow.py:34-41, 150-177` |
 | **REJECTED** | NET-09 | network | `src/mlframe/reporting/renderers/_plotly_interactivity.py:24` |
-| **FUTURE** | SEC-01 | secrets | `src/mlframe/integrations/mlflow.py:148` |
+| **RESOLVED** | SEC-01 | secrets | `src/mlframe/integrations/mlflow.py:148` |
 | **FUTURE** | SEC-02 | secrets | `.github/workflows/pandas-matrix.yml:163`, `.github/workflows/polars-matrix.yml:167` |
-| **FUTURE** | SEC-03 | secrets | `src/mlframe/training/feature_handling/providers.py:43-54` |
-| **FUTURE** | SEC-04 | secrets | `src/mlframe/training/feature_handling/providers.py:115-123`, `:126-150` (params handling)` |
+| **RESOLVED** | SEC-03 | secrets | `src/mlframe/training/feature_handling/providers.py:43-54` |
+| **RESOLVED** | SEC-04 | secrets | `src/mlframe/training/feature_handling/providers.py:115-123`, `:126-150` (params handling)` |
 | **DOC** | SEC-05 | secrets | `src/mlframe/training/feature_handling/providers.py:269-280` |
-| **FUTURE** | CMD-01 | subprocess | `src/mlframe/utils/native_import_probe.py:56` |
+| **RESOLVED** | CMD-01 | subprocess | `src/mlframe/utils/native_import_probe.py:56` |
 | **FUTURE** | CMD-02 | subprocess | `src/mlframe/feature_selection/_benchmarks/fs_hybrid/_staleness.py:89` (+ `:122-125`)` |
-| **FUTURE** | CMD-03 | subprocess | `src/mlframe/training/_gpu_state_probe.py:88` and `:99` |
+| **RESOLVED** | CMD-03 | subprocess | `src/mlframe/training/_gpu_state_probe.py:88` and `:99` |
 | **RESOLVED** | CMD-04 | subprocess | `src/mlframe/training/_polars_native_support.py:90` |
 | **RESOLVED** | CMD-05 | subprocess | `src/mlframe/system/kernel_tuning_cache/_ensure.py:164` |
 | **RESOLVED** | CMD-06 | subprocess | `src/mlframe/feature_selection/_benchmarks/fs_hybrid/_manifest.py:74` |
@@ -165,12 +165,22 @@ Each row is a finding and the disposition its report proposed. None is executed 
 | **RESOLVED** | SUP-13 | supply_chain | `.github/workflows/ci.yml:548-559; numba-coverage.yml:326-330; codecov-full.yml:56-62` |
 | **RESOLVED** | SUP-14 | supply_chain | `.github/workflows/codecov-full.yml:36, 56-62` |
 | **RESOLVED** | SUP-15 | supply_chain | `uv.lock:12331, uv.lock (1797 registry refs)` |
-| **FUTURE** | INP-01 | untrusted_input | `src/mlframe/calibration/policy.py:461` |
-| **FUTURE** | INP-02 | untrusted_input | `src/mlframe/votenrank/shapley_blend.py:183` |
-| **FUTURE** | INP-03 | untrusted_input | `src/mlframe/data_valuation/_mc_sampling.py:102` |
-| **FUTURE** | INP-04 | untrusted_input | `src/mlframe/feature_engineering/graph_spectral_features.py:56` |
-| **FUTURE** | INP-05 | untrusted_input | `src/mlframe/reporting/output.py:55` |
+| **RESOLVED** | INP-01 | untrusted_input | `src/mlframe/calibration/policy.py:461` |
+| **REJECTED** | INP-02 | untrusted_input | `src/mlframe/votenrank/shapley_blend.py:183` |
+| **RESOLVED** | INP-03 | untrusted_input | `src/mlframe/data_valuation/_mc_sampling.py:102` |
+| **RESOLVED** | INP-04 | untrusted_input | `src/mlframe/feature_engineering/graph_spectral_features.py:56` |
+| **RESOLVED** | INP-05 | untrusted_input | `src/mlframe/reporting/output.py:55` |
 | **DOC** | INP-06 | untrusted_input | `src/mlframe/preprocessing/_cleaning_helpers.py:188` |
 | **DOC** | INP-07 | untrusted_input | `src/mlframe/training/targets_performance.py:284` |
 | **REJECTED** | INP-08 | untrusted_input | `src/mlframe/calibration/post.py:30-33` |
 | **RESOLVED** | INP-09 | untrusted_input | `src/mlframe/feature_engineering/_grouped_segments.py:92-96` |
+
+
+## Dispositions after the implementation rounds (2026-11-02)
+
+Rows marked RESOLVED were implemented in the 2026-11-01 rounds (commits are listed in `audits/2026-11-01/_TRACKER.md`) or were already guarded at HEAD:
+INP-01 (`calibration/policy.py` size guard `_resample_matrix_max_bytes`, `tests/calibration/test_statistical_rigor_fixes.py`) and INP-04 (`graph_spectral_features` raises above `max_nodes=2000` before allocating the adjacency).
+INP-03 is fixed by `data_banzhaf` drawing its masks in byte-bounded blocks (`tests/data_valuation/test_data_banzhaf_mask_blocks.py`).
+INP-02 is REJECTED: `shapley_blend` has no exact 2^n enumeration (`_permutation_shapley` and `_msr_banzhaf` sample), and its only allocations are linear in the caller's permutation count.
+DESER-03/04/05 are DOC under the denylist trust model stated in `safe_joblib_load`.
+Still open from this tracker: DESER-10, EXE-19, FS-03, FS-04, FS-06, NET-06, SEC-02, CMD-02, SUP-02, SUP-03, SUP-04, SUP-05.
