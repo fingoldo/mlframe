@@ -224,7 +224,7 @@ def build_unit_matrix(
 
     Returns
     -------
-    units : (n, n_units) float64
+    units : (n, n_units) double
         Singleton clusters pass through their raw column; multi-member clusters become a denoised
         aggregate (standardized, sign-aligned members combined by ``weighting``).
     unit_to_members : list of int arrays

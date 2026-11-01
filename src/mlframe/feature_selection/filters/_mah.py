@@ -331,7 +331,7 @@ def mah_bin_edges(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.nd
             adapts down.
 
     Returns:
-        1-D float64 array of the surviving inner bin edges of ``x``; empty when fewer than 16 samples or no edge survives.
+        1-D double array of the surviving inner bin edges of ``x``; empty when fewer than 16 samples or no edge survives.
 
     Reference: Marx, Yang, van Leeuwen (2021), SDM 2021. arXiv:2101.05009.
     """

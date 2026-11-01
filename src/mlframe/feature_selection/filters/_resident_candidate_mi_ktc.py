@@ -64,7 +64,7 @@ def rescand_use_resident(n: int, k: int) -> bool:
 
 
 def _make_rescand_inputs(dims: dict):
-    """An (n, k) host float64 candidate matrix + an int64 y, shaped like a gate MI call. The two probe
+    """An (n, k) host double candidate matrix + an int64 y, shaped like a gate MI call. The two probe
     variants score the SAME matrix (njit on host vs the resident GPU plug-in MI on its device copy), so the
     crossover measured is gen-agnostic launch+MI vs njit - the dominant cost the gate routes."""
     n = int(dims["n_samples"])

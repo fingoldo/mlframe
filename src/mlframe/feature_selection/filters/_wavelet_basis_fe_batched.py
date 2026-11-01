@@ -42,7 +42,7 @@ def batched_binned_mi_gpu(code_cols: np.ndarray, y_codes: np.ndarray, kx_per_col
     kx_per_col: optional (K,) ints - per-column cardinality; default = per-column max+1.
     ky        : optional int  - target cardinality; default = y_codes.max()+1.
 
-    Returns a host (K,) float64 array of MI values. Uses ONE ``cp.bincount`` over the padded flat joint
+    Returns a host (K,) double array of MI values. Uses ONE ``cp.bincount`` over the padded flat joint
     index (k, cx, cy) so there is no per-column kernel launch. Raises on cupy error (caller falls back).
     """
     import cupy as cp

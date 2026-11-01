@@ -287,6 +287,7 @@ def _fit_fourier_amplitude_spec(axis01: np.ndarray, t: np.ndarray, freqs, prepro
     return {
         "basis": "fourier_adaptive",
         "degree": int(K),
+        # Intentional float64: coefficient array of the escalation proposer, kept in double as its fit
         "coef": np.ascontiguousarray(coef, dtype=np.float64),
         "preprocess": pp,
     }

@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 def _qbin_float_dtype():
     """Float dtype for the ``qbin_x`` candidate-column upload the device quantile binners do: the criterion dtype, the same one the host ``_quantile_bin`` narrows its column to.
 
-    The two binners must see the same values. The host path casts to the criterion dtype before taking the quantile edges; a device path that uploaded float64 (the old default, selected by the
+    The two binners must see the same values. The host path casts to the criterion dtype before taking the quantile edges; a device path that uploaded double (the old default, selected by the
     separate ``MLFRAME_FE_VRAM_F32`` flag) placed its edges on different order statistics and moved a few rows of a tied column into the neighbouring bin. One dtype for both binners also keeps
     identical candidate content deduplicated in the resident-operand cache.
     """
