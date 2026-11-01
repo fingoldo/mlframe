@@ -298,6 +298,7 @@ def _no_harm_guard_result(
         st._gmi_payload = None
     _drop_redundant_raw_o_step2_st_gmi_payload(st, y_binned, cols, data, verbose)
 
+    # Intentional float64: continuous values for the informativeness guard and the held-out linear fit, kept in double
     st._yv = np.asarray(y_continuous, dtype=np.float64).ravel() if y_continuous is not None else None
     st._guard_on = (
         st._yv is not None
@@ -315,10 +316,13 @@ def _no_harm_guard_result(
                 snapshot, and anything else falls back to the (lossy, but only-available) binned ``data`` codes."""
                 nm = cols[i]
                 if nm in raw_name_set and raw_X is not None and hasattr(raw_X, "columns") and nm in raw_X.columns:
+                    # Intentional float64: continuous values for the informativeness guard and the held-out linear fit, kept in double
                     return np.asarray(raw_X[nm], dtype=np.float64).ravel()
                 if engineered_continuous and nm in engineered_continuous:
                     # A lazy device column is read once in the criterion dtype, shared with the other readers of it, and widened for the probe's own float64 solve.
+                    # Intentional float64: continuous values for the informativeness guard and the held-out linear fit, kept in double
                     return host_as(engineered_continuous[nm], _crit_np_dtype()).astype(np.float64, copy=False).ravel()
+                # Intentional float64: continuous values for the informativeness guard and the held-out linear fit, kept in double
                 return np.asarray(data[:, i], dtype=np.float64).ravel()
 
             _kept_idx = [i for i in st.sel if i not in st.drop_idx_set]
@@ -328,6 +332,7 @@ def _no_harm_guard_result(
             _raw_names = [c for c in raw_X.columns if c in raw_name_set and c not in st._group_leak_names] if (raw_X is not None and hasattr(raw_X, "columns")) else []
             if _kept_idx and _raw_names and st._yv.shape[0] == st.n_rows:
                 _X_kept = np.column_stack([_cont_of(i) for i in _kept_idx])
+                # Intentional float64: continuous values for the informativeness guard and the held-out linear fit, kept in double
                 _X_rawonly = np.column_stack([np.asarray(raw_X[c], dtype=np.float64).ravel() for c in _raw_names])
                 _r_kept = _heldout_ridge_r2(_X_kept, st._yv)
                 _r_rawonly = _heldout_ridge_r2(_X_rawonly, st._yv)
