@@ -66,9 +66,10 @@ def _pair_bf_rows(h_a, h_b, bf_names, bf_callables):
     valid_idx = []
     if _fill_bf_batch_njit is not None and all(i >= 0 for i in _bf_ids1):
         KBF = len(bf_callables)
+        # Intentional float64: the njit basis evaluator reproduces the numpy float64 callables it replaces bit for bit
         rows = np.empty((KBF, h_a.shape[0]), dtype=np.float64)
         finite = np.zeros(KBF, dtype=np.bool_)
-        _fill_bf_batch_njit(np.ascontiguousarray(h_a, dtype=np.float64)[None, :],
+        _fill_bf_batch_njit(np.ascontiguousarray(h_a, dtype=np.float64)[None, :],  # Intentional float64: same bit-for-bit contract
                             np.ascontiguousarray(h_b, dtype=np.float64)[None, :],
                             np.ones(1, dtype=np.bool_), np.asarray(_bf_ids1, dtype=np.int64), rows, finite)
         nc1 = 0
