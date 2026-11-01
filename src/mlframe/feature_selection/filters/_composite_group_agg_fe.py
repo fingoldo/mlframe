@@ -214,7 +214,9 @@ def _broadcast_lookup(
             # Intentional float64: group statistics come from the f64 recipe lookup; the output column stays f64 to match the stored values.
             dtype=np.float64,
         )
-        out = uniq_vals[inverse]
+        # the non-finite replacement is elementwise, so it is applied to the few group values and the gather then carries the result to every row
+        uniq_vals = np.nan_to_num(uniq_vals, nan=global_value, posinf=global_value, neginf=global_value)
+        return np.asarray(uniq_vals[inverse], dtype=out_dtype)
     else:
         out = np.array(
             [lookup.get(str(_k), global_value) for _k in keys],
