@@ -143,7 +143,14 @@ class KerasCompatibleMLP(RegressorMixin, BaseEstimator):
             from tensorflow.keras.models import Sequential
         except ModuleNotFoundError:
             from keras.models import Sequential
-        self.model_ = Sequential.from_config(config)
+        # Keras 3 resolves callables named in the serialized config only outside safe mode; enter the scope when this Keras has it (YAML3-2).
+        from contextlib import nullcontext
+        try:
+            from keras.saving import SafeModeScope
+        except ImportError:
+            SafeModeScope = None
+        with SafeModeScope(True) if SafeModeScope is not None else nullcontext():
+            self.model_ = Sequential.from_config(config)
         self.model_.set_weights(weights)
 
     def fit(self, X, y):
