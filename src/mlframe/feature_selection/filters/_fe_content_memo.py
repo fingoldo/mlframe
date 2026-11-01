@@ -8,7 +8,7 @@ one. The store is bounded by entries and bytes and is dropped under memory press
 from __future__ import annotations
 
 import functools
-import hashlib
+from ._content_hasher import new_content_hasher
 from typing import Any, Callable
 
 import numpy as np
@@ -53,7 +53,7 @@ def content_memo(max_entries: int = 4, max_bytes: int = 256 * 1024 * 1024) -> Ca
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             """Return the stored copy for equal inputs, else call ``fn`` and store its DataFrame result."""
             try:
-                h = hashlib.blake2b(digest_size=16)
+                h = new_content_hasher()
                 _digest(args, h)
                 _digest(kwargs, h)
                 key = h.hexdigest()
