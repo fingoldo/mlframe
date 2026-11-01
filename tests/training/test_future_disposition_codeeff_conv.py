@@ -267,19 +267,20 @@ def test_codelow2_no_redundant_slug_assignment():
 
 
 def test_codelow3_models_dir_read_once():
-    """``models_dir = ctx.models_dir`` is bound exactly once across the _train_one_target modules."""
-    tree = ast.parse(_read("training/core/_phase_train_one_target.py"))
-    binds = [
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, ast.Assign)
-        and [t.id for t in n.targets if isinstance(t, ast.Name)] == ["models_dir"]
-        and isinstance(n.value, ast.Attribute)
-        and n.value.attr == "models_dir"
-        and isinstance(n.value.value, ast.Name)
-        and n.value.value.id == "ctx"
-    ]
-    assert len(binds) == 1
+    """``ctx.models_dir`` is read exactly once across the _phase_train_one_target modules, wherever the read lives after module splits."""
+    import glob
+    import os
+
+    reads = []
+    for path in sorted(glob.glob(os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "src", "mlframe", "training", "core", "_phase_train_one_target*.py"))):
+        with open(path, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        reads += [
+            (os.path.basename(path), n.lineno)
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Attribute) and n.attr == "models_dir" and isinstance(n.value, ast.Name) and n.value.id == "ctx"
+        ]
+    assert len(reads) == 1, reads
 
 
 # ---------- CODE-LOW-7: dataset reuse cache helper ----------
