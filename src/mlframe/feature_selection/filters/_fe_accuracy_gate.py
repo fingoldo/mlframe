@@ -255,7 +255,9 @@ def infer_classification(y: np.ndarray) -> bool:
         return True
     _key = None
     try:
-        _key = (y.shape, str(y.dtype), hash(y.tobytes()))
+        from mlframe.utils.disk_cache import hash_array_content
+
+        _key = (y.shape, str(y.dtype), hash_array_content(y))
     except Exception as e:
         logger.warning("classification-inference memo key computation failed: %s", e)
         _key = None
