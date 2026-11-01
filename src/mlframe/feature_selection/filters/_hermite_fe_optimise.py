@@ -381,6 +381,7 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
 
     # Warm-start batch: evaluate canonical seeds in one batch call.
     if warm_start_seeds:
+        # Intentional float64: CMA-ES state (cma library) is float64, so the seed and start vectors are float64 too
         seeds_arr = np.stack([np.asarray(s, dtype=np.float64) for s in warm_start_seeds])
         ws_a = seeds_arr[:, :ca_size]
         ws_b = seeds_arr[:, ca_size:]
@@ -392,9 +393,11 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
             ws_scores, ws_raws, ws_idxs, ws_a, ws_b, len(ws_scores), direction_only, track_history, history,
             best_score, best_raw, best_idx, best_coefs,
         )
+        # Intentional float64: CMA-ES state (cma library) is float64, so the seed and start vectors are float64 too
         x0 = np.concatenate([best_coefs[0], best_coefs[1]]) if best_coefs is not None else np.zeros(dim, dtype=np.float64)
         sigma0 = sigma0 * 0.5
     else:
+        # Intentional float64: CMA-ES state (cma library) is float64, so the seed and start vectors are float64 too
         x0 = np.zeros(dim, dtype=np.float64)
 
     es = cma.CMAEvolutionStrategy(
@@ -422,6 +425,7 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
                 "_run_cma_search_batch: es.ask() raised (%s: %s); stopping CMA early with the best solution found so far.", type(exc).__name__, exc,
             )
             break
+        # Intentional float64: CMA-ES state (cma library) is float64, so the seed and start vectors are float64 too
         solutions_arr = np.asarray(solutions, dtype=np.float64)
         # Truncate batch if we'd exceed the budget mid-generation.
         _avail = n_trials - n_evals
@@ -481,6 +485,7 @@ def _evaluate_warm_starts(warm_start_seeds, ca_size, direction_only, eval_kwargs
     """
     from mlframe.feature_selection.filters.hermite_fe.shared import l2_normalize_pair as _l2_normalize_pair
 
+    # Intentional float64: CMA-ES state (cma library) is float64, so the seed and start vectors are float64 too
     seeds_arr = np.stack([np.asarray(s, dtype=np.float64) for s in warm_start_seeds])
     ws_a = seeds_arr[:, :ca_size]
     ws_b = seeds_arr[:, ca_size:]
@@ -609,6 +614,7 @@ def _plateau_step(best_score, last_gen_best, plateau_gens, early_stop_no_improve
 def _cma_warm_start_pass(warm_start_seeds, ca_size, direction_only, eval_kwargs, eval_pair_fn, track_history, history, best_score, best_raw, best_idx, best_coefs, n_evals):
     """Score every canonical warm-start seed once and fold each into the running best; returns ``(best_score, best_raw, best_idx, best_coefs, n_evals)``."""
     for ws in warm_start_seeds:
+        # Intentional float64: CMA-ES state (cma library) is float64, so the seed and start vectors are float64 too
         ws = np.asarray(ws, dtype=np.float64)
         coef_a = ws[:ca_size]
         coef_b = ws[ca_size:]
@@ -664,11 +670,13 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
             warm_start_seeds, ca_size, direction_only, eval_kwargs, eval_pair_fn, track_history, history, best_score, best_raw, best_idx, best_coefs, n_evals,
         )
         # Use the best canonical seed as CMA's starting point.
+        # Intentional float64: CMA-ES state (cma library) is float64, so the seed and start vectors are float64 too
         x0 = np.concatenate([best_coefs[0], best_coefs[1]]) if best_coefs is not None else np.zeros(dim, dtype=np.float64)
         # Tighter sigma when we already have a good seed - exploit
         # rather than explore.
         sigma0 = sigma0 * 0.5
     else:
+        # Intentional float64: CMA-ES state (cma library) is float64, so the seed and start vectors are float64 too
         x0 = np.zeros(dim, dtype=np.float64)
 
     es = cma.CMAEvolutionStrategy(
@@ -686,6 +694,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     )
     # Inject remaining canonical seeds into the first generation - CMA
     # 4.x lets us replace ask()'s random samples directly.
+    # Intentional float64: CMA-ES state (cma library) is float64, so the seed and start vectors are float64 too
     inject_arrays = [np.asarray(s, dtype=np.float64) for s in (warm_start_seeds or [])]
 
     first_gen = True

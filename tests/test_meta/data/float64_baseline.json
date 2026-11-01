@@ -10,7 +10,7 @@
   "feature_selection/filters/_fe_raw_redundancy_drop.py": 5,
   "feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py": 1,
   "feature_selection/filters/_gpu_resident_select.py": 16,
-  "feature_selection/filters/_hermite_fe_optimise.py": 21,
+  "feature_selection/filters/_hermite_fe_optimise.py": 12,
   "feature_selection/filters/_mah.py": 1,
   "feature_selection/filters/_mi_greedy_cmi_fe_binning.py": 1,
   "feature_selection/filters/_mrmr_artifacts.py": 2,
