@@ -74,6 +74,24 @@ extern "C" __global__ void bootstrap_rank_walk(const int* __restrict__ ord, cons
 _MODULE = RawModuleCache(_SRC)
 
 
+#: Device bytes one column of a block holds at its peak: the float32 block, the int64 argsort, the sorted copy, the int32 order and the walk's int32 table, per row.
+_BYTES_PER_COLUMN_ROW = 32
+_BUDGET_FRACTION = 0.3
+
+
+def _column_block(cp, n_rows: int) -> int:
+    """Columns per launch such that a block's temporaries stay within ``_BUDGET_FRACTION`` of what the memory pool can still hand out (the smaller of the device's free memory and the pool limit minus its used bytes), at least 8 and at most ``_COLUMN_BLOCK``."""
+    try:
+        pool = cp.get_default_memory_pool()
+        free_device = int(cp.cuda.runtime.memGetInfo()[0]) + int(pool.free_bytes())
+        limit = int(pool.get_limit())
+        room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))
+    except Exception as exc:
+        logger.debug("device bootstrap walk: free memory unknown (%s); small blocks", exc)
+        return 32
+    return int(max(8, min(_COLUMN_BLOCK, (_BUDGET_FRACTION * room) // (_BYTES_PER_COLUMN_ROW * max(1, n_rows)))))
+
+
 def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.ndarray, np.ndarray] | None":
     """``(mi (B, k), done (k,) bool)``: the MI of every fully distinct finite column of ``arr`` ``(n, k)`` for the resamples of ``prep`` (from ``_resample_tables`` with the walk tables), the other columns left to the host.
 
@@ -88,31 +106,36 @@ def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.nda
     except Exception as exc:
         logger.debug("device bootstrap walk unavailable (%s)", exc)
         return None
-    kernel = _MODULE.get(cp).get_function("bootstrap_rank_walk")
-    counts = cp.asarray(np.ascontiguousarray(prep["counts_t"], dtype=np.int32))
-    ycode = cp.asarray(np.ascontiguousarray(prep["y_codes"], dtype=np.int32))
-    cum = cp.asarray(np.ascontiguousarray(prep["cum"], dtype=np.int32))
-    lens = cp.asarray(np.ascontiguousarray(prep["lens"], dtype=np.int32))
-    mi = np.zeros((n_rep, k), dtype=np.float64)  # Intentional float64: MI statistic matrix
-    done = np.zeros(k, dtype=bool)
-    for c0 in range(0, k, _COLUMN_BLOCK):
-        c1 = min(k, c0 + _COLUMN_BLOCK)
-        block = cp.asarray(np.ascontiguousarray(arr[:, c0:c1]))
-        finite = cp.isfinite(block).all(axis=0)
-        order = cp.argsort(block, axis=0)
-        sv = cp.take_along_axis(block, order, axis=0)
-        distinct = finite & (sv[1:] != sv[:-1]).all(axis=0)
-        ok = np.flatnonzero(cp.asnumpy(distinct))
-        if ok.size == 0:
-            continue
-        ord_t = cp.ascontiguousarray(order[:, cp.asarray(ok)].T.astype(cp.int32))
-        out = cp.zeros((n_rep, ok.size), dtype=cp.float64)
-        threads = 128
-        grid = (int(ok.size) * n_rep + threads - 1) // threads
-        kernel((grid,), (threads,), (ord_t, counts, ycode, cum, lens, np.int32(n), np.int32(ok.size), np.int32(n_rep), np.int32(n_bins), np.int32(n_classes), out))
-        mi[:, c0 + ok] = cp.asnumpy(out)
-        done[c0 + ok] = True
-    return mi, done
+    try:
+        kernel = _MODULE.get(cp).get_function("bootstrap_rank_walk")
+        counts = cp.asarray(np.ascontiguousarray(prep["counts_t"], dtype=np.int32))
+        ycode = cp.asarray(np.ascontiguousarray(prep["y_codes"], dtype=np.int32))
+        cum = cp.asarray(np.ascontiguousarray(prep["cum"], dtype=np.int32))
+        lens = cp.asarray(np.ascontiguousarray(prep["lens"], dtype=np.int32))
+        mi = np.zeros((n_rep, k), dtype=np.float64)  # Intentional float64: MI statistic matrix
+        done = np.zeros(k, dtype=bool)
+        block_cols = _column_block(cp, n)
+        for c0 in range(0, k, block_cols):
+            c1 = min(k, c0 + block_cols)
+            block = cp.asarray(np.ascontiguousarray(arr[:, c0:c1]))
+            finite = cp.isfinite(block).all(axis=0)
+            order = cp.argsort(block, axis=0)
+            sv = cp.take_along_axis(block, order, axis=0)
+            distinct = finite & (sv[1:] != sv[:-1]).all(axis=0)
+            ok = np.flatnonzero(cp.asnumpy(distinct))
+            if ok.size == 0:
+                continue
+            ord_t = cp.ascontiguousarray(order[:, cp.asarray(ok)].T.astype(cp.int32))
+            out = cp.zeros((n_rep, ok.size), dtype=cp.float64)
+            threads = 128
+            grid = (int(ok.size) * n_rep + threads - 1) // threads
+            kernel((grid,), (threads,), (ord_t, counts, ycode, cum, lens, np.int32(n), np.int32(ok.size), np.int32(n_rep), np.int32(n_bins), np.int32(n_classes), out))
+            mi[:, c0 + ok] = cp.asnumpy(out)
+            done[c0 + ok] = True
+        return mi, done
+    except Exception as exc:  # out of device memory or a driver fault: the host walk scores every column
+        logger.warning("device bootstrap rank walk failed (%s: %s); using the host walk", type(exc).__name__, exc)
+        return None
 
 
 def use_device_walk(n_rows: int) -> bool:
