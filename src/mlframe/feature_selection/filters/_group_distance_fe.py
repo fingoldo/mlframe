@@ -252,87 +252,96 @@ def generate_group_distance_features(
     # x / global_mean / global_std / global_edges / global_hist / global_sorted depend only on num_col (not
     # group_col), including an O(n log n) sort for global_sorted; memoize per num_col so they're computed once
     # and reused across every group_col instead of recomputed on each pass through the outer loop.
-    _global_cache: dict[str, tuple] = {}
-    _gc_bins: dict[str, np.ndarray] = {}  # per num_col: the global-histogram bin of every row
     n = len(X)
+    # Phase 1: the keys and row indices of every group column, and the (group, numeric) pairs in the order the serial loops visited them.
+    per_group: dict = {}
+    pairs: list = []
     for group_col in group_cols:
         g_keys = group_key_strings(X[group_col])
-        cur_num_cols = [c for c in num_cols if c in X.columns and c != group_col and pd.api.types.is_numeric_dtype(X[c])]
-        # Row indices per group key depend only on group_col; hoist once instead of rebuilding the
-        # groupby-of-arange for every num_col.
+        # Row indices per group key depend only on group_col; hoist once instead of rebuilding the groupby-of-arange for every num_col.
         group_rows: dict[str, np.ndarray] = {str(gv): idx.to_numpy() for gv, idx in pd.Series(np.arange(n)).groupby(g_keys, sort=False)}
-        for num_col in cur_num_cols:
-            _gc = _global_cache.get(num_col)
-            if _gc is None:
-                x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
-                finite_all = x[np.isfinite(x)]
-                if finite_all.size == 0:
-                    global_mean = 0.0
-                    global_std = 1.0
-                    global_edges = np.array([0.0, 1.0], dtype=np.float64)  # Intentional float64: empty global-edge vector keeps the float64 contract
-                    global_hist = np.array([1.0], dtype=np.float64)  # Intentional float64: global histogram statistic
-                    global_sorted = np.array([], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
-                else:
-                    global_mean = float(np.mean(finite_all))
-                    _std = float(np.std(finite_all))
-                    global_std = _std if _std > 0.0 else 1.0
-                    lo, hi = float(finite_all.min()), float(finite_all.max())
-                    if hi <= lo:
-                        hi = lo + 1.0
-                    global_edges = np.linspace(lo, hi, _DIST_NBINS + 1)
-                    global_hist, _ = np.histogram(finite_all, bins=global_edges)
-                    global_hist = global_hist.astype(np.float64)  # Intentional float64: global histogram statistic
-                    global_sorted = np.sort(finite_all)
-                _gc = (x, global_mean, global_std, global_edges, global_hist, global_sorted)
-                _global_cache[num_col] = _gc
-            x, global_mean, global_std, global_edges, global_hist, global_sorted = _gc
-            if global_edges.size >= 2:
-                _bin_idx = _gc_bins.get(num_col)
+        per_group[group_col] = (g_keys, group_rows)
+        pairs.extend((group_col, c) for c in num_cols if c in X.columns and c != group_col and pd.api.types.is_numeric_dtype(X[c]))
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    def _global_stats(num_col: str) -> tuple:
+        """The column's global mean / std / histogram / sorted values and the global-histogram bin of every row (they depend on the column only)."""
+        x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
+        finite_all = x[np.isfinite(x)]
+        if finite_all.size == 0:
+            global_mean = 0.0
+            global_std = 1.0
+            global_edges = np.array([0.0, 1.0], dtype=np.float64)  # Intentional float64: empty global-edge vector keeps the float64 contract
+            global_hist = np.array([1.0], dtype=np.float64)  # Intentional float64: global histogram statistic
+            global_sorted = np.array([], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+        else:
+            global_mean = float(np.mean(finite_all))
+            _std = float(np.std(finite_all))
+            global_std = _std if _std > 0.0 else 1.0
+            lo, hi = float(finite_all.min()), float(finite_all.max())
+            if hi <= lo:
+                hi = lo + 1.0
+            global_edges = np.linspace(lo, hi, _DIST_NBINS + 1)
+            global_hist, _ = np.histogram(finite_all, bins=global_edges)
+            global_hist = global_hist.astype(np.float64)  # Intentional float64: global histogram statistic
+            global_sorted = np.sort(finite_all)
+        bin_idx = _global_bin_index(x, global_edges) if global_edges.size >= 2 else None
+        return (x, global_mean, global_std, global_edges, global_hist, global_sorted, bin_idx)
+
+    def _pair_columns(group_col: str, num_col: str) -> list:
+        """``[(name, values, recipe)]`` of the z-distance, KL and Wasserstein columns of one (group, numeric) pair."""
+        g_keys, group_rows = per_group[group_col]
+        x, global_mean, global_std, global_edges, global_hist, global_sorted, _bin_idx = _global[num_col]
+        z_lookup: dict[str, float] = {}
+        kl_lookup: dict[str, float] = {}
+        w_lookup: dict[str, float] = {}
+        for key, rows in group_rows.items():
+            vals = x[rows]
+            fin = vals[np.isfinite(vals)]
+            if fin.size >= _MIN_GROUP_SIZE:
+                z_lookup[key] = float((np.mean(fin) - global_mean) / global_std)
                 if _bin_idx is None:
-                    _bin_idx = _gc_bins[num_col] = _global_bin_index(x, global_edges)
-            else:
-                _bin_idx = None
-
-            z_lookup: dict[str, float] = {}
-            kl_lookup: dict[str, float] = {}
-            w_lookup: dict[str, float] = {}
-            for key, rows in group_rows.items():
-                vals = x[rows]
-                fin = vals[np.isfinite(vals)]
-                if fin.size >= _MIN_GROUP_SIZE:
-                    z_lookup[key] = float((np.mean(fin) - global_mean) / global_std)
-                    if _bin_idx is None:
-                        kl_lookup[key] = _kl_divergence(fin, global_edges, global_hist)
-                    else:
-                        _rb = _bin_idx[rows]
-                        kl_lookup[key] = _kl_from_bin_counts(np.bincount(_rb[_rb >= 0], minlength=global_edges.size - 1), global_hist)
-                    w_lookup[key] = _wasserstein1(fin, global_sorted)
+                    kl_lookup[key] = _kl_divergence(fin, global_edges, global_hist)
                 else:
-                    z_lookup[key] = 0.0
-                    kl_lookup[key] = 0.0
-                    w_lookup[key] = 0.0
+                    _rb = _bin_idx[rows]
+                    kl_lookup[key] = _kl_from_bin_counts(np.bincount(_rb[_rb >= 0], minlength=global_edges.size - 1), global_hist)
+                w_lookup[key] = _wasserstein1(fin, global_sorted)
+            else:
+                z_lookup[key] = 0.0
+                kl_lookup[key] = 0.0
+                w_lookup[key] = 0.0
+        common = {
+            "group_col": group_col,
+            "num_col": num_col,
+            "z_lookup": z_lookup,
+            "kl_lookup": kl_lookup,
+            "w_lookup": w_lookup,
+            "global_mean": global_mean,
+            "global_std": global_std,
+        }
+        return [
+            (engineered_name_group_zdist(num_col, group_col), _broadcast_lookup(g_keys, z_lookup, 0.0), {**common, "distance_type": "zdist"}),
+            (engineered_name_group_kl(num_col, group_col), _broadcast_lookup(g_keys, kl_lookup, 0.0), {**common, "distance_type": "kl"}),
+            (engineered_name_group_wasserstein(num_col, group_col), _broadcast_lookup(g_keys, w_lookup, 0.0), {**common, "distance_type": "wasserstein"}),
+        ]
 
-            common = {
-                "group_col": group_col,
-                "num_col": num_col,
-                "z_lookup": z_lookup,
-                "kl_lookup": kl_lookup,
-                "w_lookup": w_lookup,
-                "global_mean": global_mean,
-                "global_std": global_std,
-            }
-
-            z_name = engineered_name_group_zdist(num_col, group_col)
-            encoded[z_name] = _broadcast_lookup(g_keys, z_lookup, 0.0)
-            raw_recipes[z_name] = {**common, "distance_type": "zdist"}
-
-            kl_name = engineered_name_group_kl(num_col, group_col)
-            encoded[kl_name] = _broadcast_lookup(g_keys, kl_lookup, 0.0)
-            raw_recipes[kl_name] = {**common, "distance_type": "kl"}
-
-            w_name = engineered_name_group_wasserstein(num_col, group_col)
-            encoded[w_name] = _broadcast_lookup(g_keys, w_lookup, 0.0)
-            raw_recipes[w_name] = {**common, "distance_type": "wasserstein"}
+    # The columns are independent: both phases run on the edge-jobs pool and the results are folded in the order of the serial loops.
+    unique_cols = list(dict.fromkeys(c for _g, c in pairs))
+    jobs = _resolve_edge_jobs(None, len(pairs))
+    if jobs > 1 and len(pairs) > 3:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            _global = dict(zip(unique_cols, pool.map(_global_stats, unique_cols)))
+            results = list(pool.map(lambda gp: _pair_columns(*gp), pairs))
+    else:
+        _global = {c: _global_stats(c) for c in unique_cols}
+        results = [_pair_columns(g, c) for g, c in pairs]
+    for found in results:
+        for name, values, recipe in found:
+            encoded[name] = values
+            raw_recipes[name] = recipe
 
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes

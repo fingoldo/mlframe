@@ -354,14 +354,24 @@ def _basis_memo_key(X: pd.DataFrame, cols: Any, degrees: Any, basis: str, dedup:
     import hashlib
 
     try:
+        import xxhash
+
+        new_hash = xxhash.xxh3_128  # several times faster than blake2b on the ~1 GB a 100000 x 600 frame hashes per call
+    except ImportError:
+
+        def new_hash(data: Any = b"") -> Any:
+            """blake2b stand-in when xxhash is not installed."""
+            return hashlib.blake2b(data, digest_size=16)
+
+    try:
         names = list(cols) if cols is not None else [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
-        h = hashlib.blake2b(digest_size=16)
+        h = new_hash()
         for c in names:
             h.update(str(c).encode())
             h.update(np.ascontiguousarray(X[c].to_numpy()).view(np.uint8).data)
         hy = None
         if y is not None:
-            hy = hashlib.blake2b(np.ascontiguousarray(np.asarray(y)).view(np.uint8).data, digest_size=16).hexdigest()
+            hy = new_hash(np.ascontiguousarray(np.asarray(y)).view(np.uint8).data).hexdigest()
         return (h.hexdigest(), tuple(map(str, names)), tuple(int(d) for d in degrees), str(basis), bool(dedup), float(thr), hy, str(routing), len(X))
     except Exception as exc:
         logger.debug("basis memo key failed (%s); computing without the memo", exc)
@@ -466,11 +476,13 @@ def _generate_univariate_basis_features_impl(
 
     # The routing of all eligible columns in one device pass when the signal router applies (a column it cannot route is decided by the host router below).
     _device_basis = route_columns_on_device(X, cols, y, degrees, _cols_auto, _aux_pool) if (basis == "auto" and basis_routing == "signal") else {}
-    for col in cols:
+    def _one_column(col):
+        """The cells of one column (``{}`` when it is skipped, ``None`` once the fit deadline has passed); a column reads only its own data, so columns may run on the pool."""
+        cells: dict = {}
         # Optional-enrichment wall-clock budget: stop the per-column basis scan once MRMR.fit's deadline passes and return
         # whatever was engineered so far (the core selection still produces a usable partial). No-op when no budget is set.
         if fe_deadline_passed():
-            break
+            return None
         # BUG FIX (test_layer23::test_replay_matches_fit_time_values): the fit axis must have the replay's precision (float64), NOT
         # _crit_np_dtype()'s f32 relaxation. The basis-preprocess params computed from ``x`` here get frozen
         # into an EngineeredRecipe and replayed at transform() time by
@@ -489,14 +501,14 @@ def _generate_univariate_basis_features_impl(
         # provided ``cols`` is trusted as-is, because a 3-level ORDINAL integer (a binned threshold) is a legitimate basis-FE
         # axis the caller asked for - only the auto scan over arbitrary group-key labels needs protecting.
         if _cols_auto and _is_int_as_cat_axis(x):
-            continue
+            return {}
         finite_mask = np.isfinite(x)
         if not finite_mask.all():
             # An orthogonal-polynomial basis over a NaN-containing column is unsound: the recipe replay path does NOT impute (NaN in -> NaN out, so
             # transform() emits an all-NaN engineered column), and fit-time the nanmean-imputed basis becomes a MISSINGNESS PROXY whose binned MI ties /
             # beats the genuine missingness-FE columns (is_missing__/missingness_pattern), displacing them from MRMR selection. Skip the column; the
             # missingness signal belongs to the dedicated missingness-FE family, not to a non-replayable mean-imputed polynomial.
-            continue
+            return {}
         aux_col = None
         if _aux_pool is not None and col in _aux_pool:
             aux_col = _aux_pool[col]
@@ -516,7 +528,7 @@ def _generate_univariate_basis_features_impl(
                     logger, "univariate_basis_unknown_basis", logging.WARNING,
                     "generate_univariate_basis_features: unknown basis %r for col %r; skipping", chosen_basis, col,
                 )
-                continue
+                return {}
             # FIT-ONCE-PER-COLUMN: the basis preprocess ``z`` + params depend ONLY on
             # (x, basis), NOT on degree - the degree only swaps the one-hot coefficient. Re-fitting it
             # inside the degrees loop recomputed the robust heavy-tail axis (np.median/MAD) once per
@@ -540,13 +552,20 @@ def _generate_univariate_basis_features_impl(
                     vals = _evaluate_basis_column(
                         x, chosen_basis, int(d), aux_for_fit=aux_col,
                     )
-                out_cols[f"{col}__{code.get(chosen_basis, chosen_basis)}{d}"] = vals
+                cells[f"{col}__{code.get(chosen_basis, chosen_basis)}{d}"] = vals
             except Exception as exc:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
                 log_throttle(
                     logger, "univariate_basis_eval_raised", logging.WARNING,
                     "generate_univariate_basis_features: basis=%r degree=%d on col=%r raised %r; skipping", chosen_basis, d, col, exc,
                 )
                 continue
+        return cells
+
+    from .._edge_pool import map_on_edge_pool, until_first_none
+
+    results = map_on_edge_pool(_one_column, cols)
+    for found in until_first_none(results):
+        out_cols.update(found)
     return pd.DataFrame(out_cols, index=X.index)
 
 # Carved out to _orth_gpu_resident.py (monolith-split, LOC budget); re-exported here so the

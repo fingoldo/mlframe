@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from typing import cast
 import hashlib
+
+from ._content_hasher import new_content_hasher
 from uuid import uuid4
 import logging
 from itertools import islice
@@ -582,7 +584,8 @@ def _full_x_content_hash(X) -> str:
                 return str(_MRMR_LAST_X_HASH_CACHE["hash"])
         # blake2b reads the contiguous array via the buffer protocol directly
         # (no .tobytes() copy); bit-identical to hashing tobytes() bytes.
-        h = hashlib.blake2b(np.ascontiguousarray(arr), digest_size=16)  # type: ignore[arg-type]  # ndarray supports the buffer protocol; hashlib's Buffer stub doesn't recognize it
+        h = new_content_hasher()
+        h.update(np.ascontiguousarray(arr).data)
         h.update(str(arr.shape).encode())
         h.update(str(arr.dtype).encode())
         # Fold column names (DataFrame-only) so df vs df.rename produce different keys.
@@ -592,7 +595,7 @@ def _full_x_content_hash(X) -> str:
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                 logger.debug("suppressed: %s", e)
                 pass
-        result = h.hexdigest()
+        result = str(h.hexdigest())
         # Same lock as the read above, so a reader never observes a half-written (key, value) pair.
         with _MRMR_LAST_X_HASH_LOCK:
             _MRMR_LAST_X_HASH_CACHE["hash"] = result
@@ -616,15 +619,15 @@ def _full_named_frame_hash(X, sh) -> str:
     with _MRMR_LAST_X_HASH_LOCK:
         if _MRMR_LAST_X_HASH_CACHE["id_shape"] == id_shape:
             return str(_MRMR_LAST_X_HASH_CACHE["hash"])
-    h = hashlib.blake2b(digest_size=16)
+    h = new_content_hasher()
     for name, vals, categories in buffers:
-        h.update(vals)  # type: ignore[arg-type]  # ndarray supports the buffer protocol; hashlib's Buffer stub doesn't recognize it
+        h.update(vals.data)
         h.update(f"|{name}|{vals.dtype}|{vals.shape}".encode())
         if categories is not None:
             h.update(repr(categories).encode("utf-8"))
     h.update(str(tuple(str(d) for d in X.dtypes)).encode())
     h.update(",".join(str(c) for c in columns).encode())
-    result = h.hexdigest()
+    result = str(h.hexdigest())
     with _MRMR_LAST_X_HASH_LOCK:
         _MRMR_LAST_X_HASH_CACHE["hash"] = result
         _MRMR_LAST_X_HASH_CACHE["id_shape"] = id_shape

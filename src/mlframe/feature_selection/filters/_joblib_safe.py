@@ -318,12 +318,12 @@ def _fit_constant_key(arr) -> tuple:
     "never copy a large frame" rule; the cost is paid once per distinct-content array per
     process (repeat calls on the SAME object still re-hash, but that's unchanged from the
     prior sampled version and stays far cheaper than the disk dump it guards)."""
-    import hashlib
-
     import numpy as _np
 
+    from ._content_hasher import new_content_hasher
+
     a = _np.ascontiguousarray(arr)
-    h = hashlib.blake2b(digest_size=16)
+    h = new_content_hasher()
     h.update(a.data)
     return (a.shape, str(a.dtype), h.hexdigest())
 

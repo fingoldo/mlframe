@@ -23,7 +23,7 @@ single MI or R^2 metric cannot.
 """
 from __future__ import annotations
 
-import hashlib
+from ._content_hasher import new_content_hasher
 from functools import partial
 import logging
 import threading
@@ -64,7 +64,7 @@ def _baseline_cv_key(X_base: np.ndarray, y: np.ndarray, *, classification: bool,
         # blake2b rather than `hash(bytes)` because a 64-bit truncation that collides returns the WRONG cached
         # baseline silently; the dtype is part of the key because same-shape float32 and int32 buffers are the same
         # bytes and would otherwise share an entry.
-        h = hashlib.blake2b(digest_size=16)
+        h = new_content_hasher()
         h.update(array_buffer(X_base))
         h.update(b"|y|")
         h.update(array_buffer(y))

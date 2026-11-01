@@ -14,7 +14,7 @@ Like ``residency_audit`` it monkeypatches ``cp.asnumpy`` and ``cupy.ndarray.get`
 from __future__ import annotations
 
 import contextlib
-import hashlib
+from .._content_hasher import new_content_hasher
 import logging
 import os
 import sys
@@ -96,7 +96,9 @@ def _content_key(arr: np.ndarray) -> str:
         norm = arr.astype(np.int64, copy=False)
     else:
         norm = arr
-    return hashlib.blake2b(np.ascontiguousarray(norm).data, digest_size=16).hexdigest()
+    h = new_content_hasher()
+    h.update(np.ascontiguousarray(norm).data)
+    return str(h.hexdigest())
 
 
 def _call_site() -> str:

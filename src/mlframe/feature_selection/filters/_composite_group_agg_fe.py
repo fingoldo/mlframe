@@ -482,6 +482,7 @@ def generate_composite_group_agg_features(
     if not norm_sets:
         return pd.DataFrame(index=X.index), raw_recipes
 
+    tasks: list = []
     for group_cols in norm_sets:
         _pre = _precomputed_keys.get(group_cols) if _precomputed_keys is not None else None
         if _pre is not None:
@@ -509,8 +510,34 @@ def generate_composite_group_agg_features(
         # replicating pandas' NaN-skipping mean/Welford-based std exactly (not just mathematically) needs the
         # same empirical bit-identity verification as the K-fold subtraction rewrite, and this file's num_cols
         # loop is uncapped (unlike the capped max_pairs paths that make that verification cheap to scope).
-        for num_col in cur_num_cols:
-            _emit_num_col_features(X, num_col, keys, key_uniq, key_inverse, group_cols, stats, encoded, raw_recipes)
+        tasks.extend((num_col, keys, key_uniq, key_inverse, group_cols) for num_col in cur_num_cols)
+
+    # Every (key set, numeric column) task writes its own columns into private dicts, so the tasks run on the edge-jobs pool and are folded in task order (the serial result).
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ._adaptive_nbins import _resolve_edge_jobs
+    from ._fe_deadline import _state as _deadline_state, fe_deadline_scope
+
+    deadline = getattr(_deadline_state, "deadline", None)
+
+    def _run(task):
+        """One task into private dicts, with the fit's wall-clock budget published to the worker thread."""
+        num_col, keys, key_uniq, key_inverse, group_cols = task
+        enc: dict[str, np.ndarray] = {}
+        rec: dict[str, dict] = {}
+        with fe_deadline_scope(deadline):
+            _emit_num_col_features(X, num_col, keys, key_uniq, key_inverse, group_cols, stats, enc, rec)
+        return enc, rec
+
+    jobs = _resolve_edge_jobs(None, len(tasks))
+    if jobs > 1 and len(tasks) > 3:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            results = list(pool.map(_run, tasks))
+    else:
+        results = [_run(t) for t in tasks]
+    for enc, rec in results:
+        encoded.update(enc)
+        raw_recipes.update(rec)
 
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes

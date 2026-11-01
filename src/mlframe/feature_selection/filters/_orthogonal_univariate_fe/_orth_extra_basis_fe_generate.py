@@ -154,17 +154,20 @@ def generate_extra_basis_features(
     _chirp_f_grid = tuple(0.5 * k for k in range(1, 49))  # 0.5 .. 24.0
     from .._fe_deadline import fe_deadline_passed
     _adaptive_allowed = _adaptive_cols_by_relevance(X, cols, _y_adapt, max_adaptive_cols)
-    for _col_idx, col in enumerate(cols):
+    def _one_column(col):
+        """The extra-basis columns of one source column as ``(out_cols, meta)`` (own dictionaries, so columns can be scanned together), ``None`` once the wall-clock budget has passed."""
+        out_cols: dict = {}
+        meta: dict = {}
         # Optional-enrichment wall-clock budget: stop the per-column extra-basis scan (spline / fourier / adaptive /
         # chirp + their pair-MI scoring) once MRMR.fit's deadline passes; return the partial output. No-op without a budget.
         if fe_deadline_passed():
-            break
+            return None
         if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
-            continue
+            return {}, {}
         x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
         finite_mask = np.isfinite(x)
         if not finite_mask.any():
-            continue
+            return {}, {}
         if not finite_mask.all():
             # A Fourier/spline/chirp basis over a NaN-containing column is unsound: the nanmean-imputed basis becomes a MISSINGNESS PROXY (its binned
             # MI ties / beats the genuine missingness-FE columns and displaces them from MRMR selection) AND the recipe replay does not impute
@@ -175,7 +178,7 @@ def generate_extra_basis_features(
             # genuine signal, not an all-NaN replay, and it no longer doubles as a missingness proxy (pair it with an
             # explicit missing-indicator column so the missingness signal still lands in its dedicated family). Until
             # then the conservative skip stays (correctness over coverage).
-            continue
+            return {}, {}
         # Auto-gate: only let the adaptive Fourier/chirp operators fire where the raw column is NOT already a strong smooth predictor of y (see _ADAPTIVE_FE_RAW_USABILITY_CAP).
         # Column-count cap on the expensive detector (see max_adaptive_cols): columns beyond it still get the cheap fixed-grid Fourier basis.
         _adaptive_fe_ok = _adaptive_fe_ok_for_col(x, col, _y_adapt, _y_adapt_prep, fourier_adaptive, fourier_chirp, _adaptive_allowed)
@@ -190,6 +193,15 @@ def generate_extra_basis_features(
         # held-out MAD floor + max_legs cap); here we only emit the selected legs
         # so the extra-basis MI-uplift gate can screen them like spline/Fourier.
         _wavelet_extra_basis(extra_bases, y, x, col, out_cols, meta)
+        return out_cols, meta
+
+    from .._edge_pool import map_on_edge_pool, until_first_none
+
+    # The columns are independent (own detection, own legs): they are scanned on the edge-jobs pool and folded in column order, so the result is the serial one.
+    results = map_on_edge_pool(_one_column, cols)
+    for found in until_first_none(results):
+        out_cols.update(found[0])
+        meta.update(found[1])
     return pd.DataFrame(out_cols, index=X.index), meta
 
 def _adaptive_cols_by_relevance(X, cols, y, max_adaptive_cols):

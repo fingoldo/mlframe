@@ -10,6 +10,10 @@ the order a sequential run would have produced them in:
 * a new attribute that several stages create (an empty list in one, the filled list in another) is the concatenation of their lists in stage order;
 * any other attribute that changed is taken from the last stage that changed it.
 
+CUDA-context corruption (``cudaErrorIllegalAddress``, thousands per fit) that stopped the first attempt was caused by the slot pool being destroyed when its slot ended: cupy frees the in-use chunks of a destroyed pool,
+and the process-global caches kept arrays allocated inside the slot, so the next kernel that read one hit freed memory. The slot pools now live for the whole process (``_fe_device_scheduler``); with that the
+30000 x 40 fit has no device errors and the same selection as the sequential run.
+
 Off by default (``MLFRAME_FE_STAGE_CONCURRENCY=1`` turns it on); it also needs a device plan from ``_fe_device_scheduler`` (every stage gets at least the minimum VRAM budget), else the caller runs the cascades one by one.
 """
 
@@ -98,7 +102,7 @@ def run_stages_concurrently(estimator: Any, stages: Sequence[Callable[[Any], Any
 
     def _run(i: int) -> Any:
         """One stage on its copy, in its device slot, with the fit's deadline published to this worker thread."""
-        with fe_deadline_scope(deadline), stage_device_slot(slots[i]):
+        with fe_deadline_scope(deadline), stage_device_slot(slots[i], i):
             return stages[i](copies[i])
 
     with ThreadPoolExecutor(max_workers=len(stages)) as pool:

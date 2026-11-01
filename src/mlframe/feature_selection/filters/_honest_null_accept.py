@@ -22,6 +22,21 @@ def _int_to_host(cp, dev, bound: int) -> np.ndarray:
     return np.asarray(cp.asnumpy(dev))
 
 
+def _root_split_kernel(cp):
+    """``(kernel, full_table)`` of the binary-target root-split kernel, chosen by ``MLFRAME_HONEST_ROOT_SPLIT``: ``k5`` (default: one float pass, exact gain once at the best cut, selection-equivalent to v2), ``k4`` (one exact pass over a full
+    ``x ln x`` table, outputs equal to v2) or ``k2`` (the two-pass original). ``full_table`` says the kernel reads a table over every count."""
+    import os
+
+    mode = os.environ.get("MLFRAME_HONEST_ROOT_SPLIT", "k5").strip().lower()
+    if mode == "k2" or os.environ.get("MLFRAME_HONEST_ROOT_SPLIT_K4", "") == "0":
+        return _get_kernel_k2(cp), False
+    from mlframe.feature_selection.filters._honest_null_k4 import get_kernel_k4, get_kernel_k5
+
+    if mode == "k4":
+        return get_kernel_k4(cp), True
+    return get_kernel_k5(cp), False
+
+
 def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx_table, cp, n_perm, min_split_size, alpha, accepted_c, order, tie):
     """Stage of ``honest_null_columns_device``."""
     if kc:
@@ -35,14 +50,15 @@ def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx
         d_idx = cp.empty(n_perm * kc, dtype=cp.int32)
         if n_classes_total == 2:
             ybits = _pack_bits(y_raw_perm)
-            _get_kernel_k2(cp)(
+            _kernel, _full_table = _root_split_kernel(cp)
+            _kernel(
                 ((n_perm * kc + 127) // 128,),
                 (128,),
                 (
                     cp.asarray(order),
                     cp.asarray(tie),
                     cp.asarray(np.ascontiguousarray(ybits.T).view(np.uint8)),  # (words, permutations): a warp of consecutive permutations reads consecutive words
-                    cp.asarray(tab),
+                    cp.asarray(xlogx_table(n) if _full_table else tab),
                     cp.asarray(counts.astype(np.int64)),
                     np.int32(n),
                     np.int32(n_perm),

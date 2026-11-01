@@ -180,7 +180,29 @@ def _keep_linearly_usable(cands, raw, X, _src_bins, nbins_base, y_cls, rejected,
         if rejected[nm][0] and group_col in X.columns:
             by_pair.setdefault((group_col, agg_col), []).append(nm)
     level = 0.05 / max(1, len({(raw[n].get("group_col"), raw[n].get("agg_col")) for n in cands.names}))
+    # The codes come from the device (one pass per pair, here and in order); the test of each pair is host arithmetic on its own seeded draws, so the pairs run on the edge-jobs pool and are folded in pair order.
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ._adaptive_nbins import _resolve_edge_jobs
+    from ._fe_deadline import _state as _deadline_state, fe_deadline_scope
+
+    tasks = []
     for (group_col, agg_col), names in by_pair.items():
-        srcs = rejected[names[0]][0]
-        codes = {nm: cands.codes(nm, nbins_base) for nm in names}
-        kept_cols.extend(sorted(linear_usability_keeps(X, srcs, codes, y_cls, _src_bins(group_col), level, f"{group_col}|{agg_col}"), key=names.index))
+        codes = {nm: (lambda c: c.get() if hasattr(c, "get") else c)(cands.codes(nm, nbins_base)) for nm in names}
+        tasks.append((names, rejected[names[0]][0], codes, _src_bins(group_col), f"{group_col}|{agg_col}"))
+    deadline = getattr(_deadline_state, "deadline", None)
+
+    def _run(task):
+        """The usability test of one pair, with the fit's wall-clock budget published to the worker thread."""
+        names, srcs, codes, cell_ids, pair_key = task
+        with fe_deadline_scope(deadline):
+            return sorted(linear_usability_keeps(X, srcs, codes, y_cls, cell_ids, level, pair_key), key=names.index)
+
+    jobs = _resolve_edge_jobs(None, len(tasks))
+    if jobs > 1 and len(tasks) > 3:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            results = list(pool.map(_run, tasks))
+    else:
+        results = [_run(t) for t in tasks]
+    for kept in results:
+        kept_cols.extend(kept)

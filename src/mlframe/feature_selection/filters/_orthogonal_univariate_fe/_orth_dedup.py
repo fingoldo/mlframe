@@ -203,6 +203,11 @@ def _row_center_finite(A: np.ndarray) -> np.ndarray:
     passthrough is unaffected. All-NaN rows yield a NaN mean and stay all-NaN; they are excluded downstream by
     the ``n < 8`` common-row guard either way.
     """
+    A = np.ascontiguousarray(A)
+    if A.ndim == 2 and A.dtype in (np.float32, np.float64):
+        out = np.empty_like(A)
+        _row_center_kernel(A, out)
+        return out
     finite = np.isfinite(A)
     counts = finite.sum(axis=1, keepdims=True)
     # Intentional float64: mean taken in f64 for accuracy, then cast back (documented)
@@ -211,6 +216,25 @@ def _row_center_finite(A: np.ndarray) -> np.ndarray:
         means = np.where(counts > 0, sums / np.maximum(counts, 1), 0.0)
     # Intentional float64: mean taken in f64 for accuracy, then cast back (documented)
     return np.asarray(np.asarray(A, dtype=np.float64) - means, dtype=A.dtype)
+
+
+@njit(parallel=True, cache=True, nogil=True)
+def _row_center_kernel(A: np.ndarray, out: np.ndarray) -> None:
+    """One pass per row: the mean of the finite entries in double precision, then ``out = A - mean`` cast to the dtype of ``A`` (all-NaN rows stay as they are; no temporaries).
+
+    Replaces the isfinite / where / sum / subtract chain of numpy (five passes over the matrix and two float64 copies of it)."""
+    q, n = A.shape
+    for i in prange(q):
+        s = 0.0
+        c = 0
+        for j in range(n):
+            v = A[i, j]
+            if np.isfinite(v):
+                s += v
+                c += 1
+        m = s / c if c > 0 else 0.0
+        for j in range(n):
+            out[i, j] = A[i, j] - m
 
 
 def _pairwise_complete_abs_corr(Q: np.ndarray, R: np.ndarray) -> np.ndarray:

@@ -84,3 +84,48 @@ rank-MI walk (0.56 s against 0.24 s host), threads over the independent stage ca
 
 Looked at and left alone (no frame above 0.8 s, or a kernel already at its measured limit): `_stage_binned_numeric_agg` (7.4 s, flat, mostly device waits), parity scan (`_parity_mi_grid_njit`, 1.8 s, a parallel
 kernel whose cupy twin was measured and rejected), `screen_predictors` (3.2 s inside the serial Fleuret confirmation, the core MRMR njit kernels), wavelet and group-distance (flat).
+
+## Idle share of the cores and the card (target: both near zero)
+
+Tool: `python -m mlframe.feature_selection._benchmarks.profiling.utilization 100000 100` (psutil per core and nvidia-smi, twice a second, one every-family fit; the surrogate seeder excluded).
+Baseline of 2026-11-01 (fit 192.9 s under the sampler, 8 logical cores, GTX 1050 Ti):
+
+| resource | busy on average | idle |
+|---|---|---|
+| CPU, all cores | 40.8% | about 59%; under a quarter of the cores busy in 12% of the samples |
+| GPU | 21.1% | about 79%; the card under 10% in 62% of the samples |
+| both idle together | | 6% of the samples |
+
+Window means (CPU % / GPU %) run 36-50 / 6-21 for the whole fit except one window (140-160 s: 42 / 65). Reading: the cores are used less than half and the card a fifth, and the two are idle at DIFFERENT times,
+so overlapping the host work with the device work is where the idle time can be recovered; threads cannot do it while the stage time is GIL-bound Python (stage cascades in threads: 151-155 s against 154 s), so
+the order is (1) turn the GIL-bound host loops into nogil / parallel kernels so that all cores can work, (2) then feed the card from several threads (the opt-in stage concurrency, the device scheduler and the per-stage
+VRAM budgets are in place for that).
+
+## Utilization after the column pools (2026-11-01)
+
+Same meter, 100000 x 100, every family, one process: fit wall 230.0 s (noisy machine). CPU busy 41.6% of all cores (baseline 40.8%), samples under 25% busy 8%; GPU busy 17.4% (baseline 21.1%), card under 10% in 67% of the samples;
+both idle together 3% of the samples (baseline 6%).
+
+Reading: the pools added since the baseline (wavelet, extra basis, group distance, oof warp, univariate basis, composite group agg) moved the mean CPU load by under one point, because the big single-core stages are
+unchanged: honest null columns (17 s, 1.5 cores, device wait), the binned numeric agg (8.8 s, 1.0), score_candidates_by_cmi (6.6 s, 1.0). The gate stage (`hybrid_conditional_gate_fe_with_recipes`) is a per-column
+device loop (median, where, batched MI each sync), so a host pool would only add contention. Next lever is overlapping those device waits with host work of the next stage (the concurrent stage mode, now correct,
+gained 7%), not more host pools.
+
+## Utilization after the honest-null v5, memo key and pair pools (2026-11-01)
+
+Same meter, 100000 x 100, every family, one process: fit wall 176.1 s (230.0 s in the previous measurement of this note; the machine is noisy, so read it as a direction). CPU busy 45.3% of all cores (41.6% before),
+samples under 25% busy 4% (8% before); GPU busy 20.3% (17.4% before), card under 10% in 61% of the samples (67% before); both idle together 3%.
+
+Changes since the previous section: honest-null root split v5 (one float pass, 287 ms against 861 ms for v2 on 60 x 200 x 100000; the stage fell from 17.4 s to 11.2 s in the stage map), the univariate basis memo key hashed
+with xxh3 (a 600-column call 1.39 s to 0.35 s), the composite group-agg tasks and the binned-agg linear-usability pairs on the edge-jobs pool, the univariate basis column pool.
+
+## Stage map and hashing findings (2026-11-01, later run)
+
+Stage map under the sampler at 100000 x 100, every family: wall 153.9 s (194.7 s in the previous map). Largest stages by main-thread seconds: `_fit_body_run_fit_impl` 12.2 (spread over the discretization 2.0 s on the edge pool, the engineered-duplicate scan about 2 s,
+the honest-spec build 0.8 s), `honest_null_columns_device` 7.2 (was 17.4), `_stage_binned_numeric_agg` 6.0 (device-bound), `score_prospective_pairs` 5.8 (the fused observed-MI kernel), `score_candidates_by_cmi` 5.4 (waits on the device).
+
+Whole-array content hashes were a hidden cost spread over many stages: blake2b runs at about 0.4 GB/s (0.19 s per 80 MB), xxh3 at 13 GB/s (0.006 s). Moved to the shared `_content_hasher.new_content_hasher` (xxh3, blake2b fallback): the univariate basis memo key,
+the content memo, the accuracy-gate baseline key (rebuilt for every engineered sibling), the duplicate-transfer fingerprint, the fit-constant memmap key and the fit signature / fit cache key (three full-frame hashes per fit).
+Also: `_row_center_finite` of the dedup (2.77 s to 0.16 s for 1800 x 100000) as one parallel njit pass.
+
+Not parallelisable by a host pool (checked): `_stage_greedy_cmi` (sequential greedy rounds), `hybrid_orth_mi_fe` (one device batch), `score_candidates_by_cmi` (device wait), `fleuret_conditional_recheck` (early stop on shared caches).
