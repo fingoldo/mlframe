@@ -221,6 +221,7 @@ def _make_haar_leg_inputs(dims: dict) -> tuple:
     the kernel's per-element cost doesn't depend on which dyadic cell is tested."""
     n = int(dims["n"])
     rng = np.random.default_rng(0)
+    # Intentional float64: synthetic uniform axis of the Haar legs; the leg cells are compared against float64 values, as on the host
     z = np.ascontiguousarray(rng.random(n), dtype=np.float64)
     return (z, 0.0, 0.25, 0.5)
 
@@ -296,6 +297,7 @@ def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndar
     mid = left + width / 2.0
     right = left + width
     leg = np.empty_like(z, dtype=dtype)
+    # Intentional float64: the z axis the leg cells are cut on is float64 on the host; the parity tests compare against that
     zc = np.ascontiguousarray(z, dtype=np.float64)
     try:
         choice = _HAAR_LEG_PARALLELISM_SPEC.choose(n=int(zc.shape[0]))
@@ -378,6 +380,7 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
     # call, and stays a raw upload.
     from ._fe_resident_operands import resident_operand
 
+    # Intentional float64: MI binning on the device compares against float64 edges, as the host path does; parity needs float64
     df = cp.asarray(np.asarray(feat, dtype=np.float64).ravel())
     if discrete:
         from ._fe_batched_mi import binned_mi_from_codes_gpu
@@ -419,6 +422,7 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
         if int(uy.size) <= 20:
             yb = cp.searchsorted(uy, dy)
         else:
+            # Intentional float64: MI binning of the device target uses float64 edges, as the host path does; parity needs float64
             yb = cp.digitize(dy.astype(cp.float64), _interior_edges(dy.astype(cp.float64)))
 
     # Fused one-launch MI-from-codes (launch-reduction): the binned feat/y codes ``fb``/``yb`` are already
@@ -442,6 +446,7 @@ def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10, y_codes: Option
     ``y_codes``: optional precomputed integer y-binning (from :func:`_bin_y_codes`).
     When given, the per-call y re-binning is skipped (byte-identical result). The
     default ``None`` preserves the original behavior for every other caller."""
+    # Intentional float64: plug-in MI bins the feature against float64 edges; the host reference is float64, parity needs it
     feat = np.asarray(feat, dtype=np.float64).ravel()
     y = np.asarray(y).ravel()
     n = feat.size
@@ -504,6 +509,7 @@ def _x_codes(v: np.ndarray, nbins: int = 10) -> np.ndarray:
     """Quantile-bin a continuous column into <= nbins integer codes (or use the
     distinct values directly if low-cardinality). Helper for the joint-MI
     admission gate."""
+    # Intentional float64: binned-MI codes are derived from float64 values, as the host path does; parity needs float64
     v = np.asarray(v, dtype=np.float64).ravel()
     if not _has_more_distinct_than(v, nbins):
         return np.searchsorted(np.unique(v), v)
@@ -519,6 +525,7 @@ def _heldout_incremental_mi_prep(x: np.ndarray, y: np.ndarray, *, nbins: int = 1
     column and calls this once per group, reusing the result via :func:`_heldout_incremental_mi_from_prep`.
     Returns ``None`` on the same guards the original function used to return ``(0.0, 0.0)`` for - the caller
     then scores every leg of this column as ``(0.0, 0.0)``."""
+    # Intentional float64: held-out MI prep bins the feature in float64, matching the host reference; parity needs it
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y).ravel()
     n = x.size
@@ -531,6 +538,7 @@ def _heldout_incremental_mi_prep(x: np.ndarray, y: np.ndarray, *, nbins: int = 1
     xc = _x_codes(x[va], nbins=nbins)
     y_va = np.asarray(y[va])
     base_nb = max(nbins, int(xc.max()) + 1)
+    # Intentional float64: base MI of the held-out fold is a float64 binned-MI input; parity needs float64
     base_mi = _binned_mi(xc.astype(np.float64), y_va, nbins=base_nb, discrete=True)
 
     n_perm = int(_WAVELET_INCR_NULL_PERMS)
@@ -538,6 +546,7 @@ def _heldout_incremental_mi_prep(x: np.ndarray, y: np.ndarray, *, nbins: int = 1
     bm: Optional[np.ndarray] = None
     if n_perm > 0:
         _rng = np.random.default_rng(0)
+        # Intentional float64: held-out fold feature is float64 for the binned-MI call; parity needs float64
         xc_f = xc.astype(np.float64)
         Yp = np.empty((int(y_va.size), n_perm), dtype=np.int64)
         for _p in range(n_perm):
@@ -561,11 +570,13 @@ def _heldout_incremental_mi_prep(x: np.ndarray, y: np.ndarray, *, nbins: int = 1
                 n_cls = int(y_va.max()) + 1 if y_va.size else 1
                 Yp_d = cp.asarray(Yp)
                 xc_d = cp.asarray(np.ascontiguousarray(xc.astype(np.int64)))
+                # Intentional float64: the device MI statistic matrix is float64 (MI output contract)
                 bm = np.asarray(binned_mi_from_codes_gpu(Yp_d, xc_d, kx_per_col=[n_cls] * n_perm, ky=int(base_nb)), dtype=np.float64)
             except Exception as e:
                 logger.warning("binned_mi_from_codes_gpu (base) failed, falling back to the CPU path: %s", e)
                 bm = None
         if bm is None:
+            # Intentional float64: null MI statistic buffer is float64 (MI output contract)
             bm = np.empty(n_perm, dtype=np.float64)
             for _p in range(n_perm):
                 bm[_p] = _binned_mi(xc_f, Yp[:, _p], nbins=base_nb, discrete=True)
@@ -573,6 +584,7 @@ def _heldout_incremental_mi_prep(x: np.ndarray, y: np.ndarray, *, nbins: int = 1
     # SMOOTH-refinement competitor: finer (2*nbins) location binning of raw x. Leg-independent.
     xc_fine = _x_codes(x[va], nbins=2 * nbins)
     fine_mi = _binned_mi(
+        # Intentional float64: fine-grained held-out binned-MI input is float64; parity needs float64
         xc_fine.astype(np.float64), y[va], nbins=max(2 * nbins, int(xc_fine.max()) + 1), discrete=True,
     )
     smooth_gain = float(fine_mi - base_mi)
@@ -589,17 +601,20 @@ def _heldout_incremental_mi_from_prep(prep: Optional[dict], leg: np.ndarray) -> 
     if prep is None:
         return 0.0, 0.0
     va = prep["va"]
+    # Intentional float64: legs are float64 so the held-out binning matches the host reference
     leg = np.asarray(leg, dtype=np.float64).ravel()
     if leg.size != va.size:
         return 0.0, 0.0
     xc = prep["xc"]
     y_va = prep["y_va"]
     base_mi = prep["base_mi"]
+    # Intentional float64: held-out leg values are float64 for the binned-MI call; parity needs float64
     legc = np.asarray(leg[va], dtype=np.float64)
     # 3-cell leg codes {-1,0,+1} -> {0,1,2}; joint code = xc * 3 + legcode.
     leg_code = np.searchsorted(np.array([-1.0, 0.0, 1.0]), legc)
     leg_code = np.clip(leg_code, 0, 2)
     joint = xc * 3 + leg_code
+    # Intentional float64: joint-leg held-out binned-MI input is float64; parity needs float64
     joint_mi = _binned_mi(joint.astype(np.float64), y_va, nbins=int(joint.max()) + 1, discrete=True)
     leg_incr_raw = float(joint_mi - base_mi)
     # PERMUTATION-NULL DEBIAS: subtract the worst-shuffle incremental MI so the leg's finite-sample plug-in
@@ -609,6 +624,7 @@ def _heldout_incremental_mi_from_prep(prep: Optional[dict], leg: np.ndarray) -> 
     Yp = prep["Yp"]
     bm = prep["bm"]
     if n_perm > 0 and Yp is not None and bm is not None:
+        # Intentional float64: joint-leg values are float64 for the binned-MI call; parity needs float64
         joint_f = joint.astype(np.float64)
         joint_nb = int(joint.max()) + 1
         null = None
@@ -624,12 +640,14 @@ def _heldout_incremental_mi_from_prep(prep: Optional[dict], leg: np.ndarray) -> 
                 n_cls = int(y_va.max()) + 1 if y_va.size else 1
                 Yp_d = cp.asarray(Yp)
                 joint_d = cp.asarray(np.ascontiguousarray(joint.astype(np.int64)))
+                # Intentional float64: the device joint-leg MI statistic matrix is float64 (MI output contract)
                 jm = np.asarray(binned_mi_from_codes_gpu(Yp_d, joint_d, kx_per_col=[n_cls] * n_perm, ky=int(joint_nb)), dtype=np.float64)
                 null = jm - bm
             except Exception as e:
                 logger.warning("binned_mi_from_codes_gpu (joint) failed, falling back to the CPU path: %s", e)
                 null = None
         if null is None:
+            # Intentional float64: joint null MI statistic buffer is float64 (MI output contract)
             null = np.empty(n_perm, dtype=np.float64)
             for _p in range(n_perm):
                 null[_p] = _binned_mi(joint_f, Yp[:, _p], nbins=joint_nb, discrete=True) - bm[_p]
@@ -738,7 +756,9 @@ def _wavelet_legs_mi_batch_njit(z, yb_tr, yb_va, tr_idx, va_idx, n_y_classes, js
     order only); wired at the sole CPU fallback call site, byte-identical candidate-list order preserved
     (``js``/``ks`` built in the same ``for j: for k:`` enumeration order as before)."""
     n_legs = js.shape[0]
+    # Intentional float64: train MI statistic per leg is float64 (MI output contract)
     mi_tr = np.zeros(n_legs, dtype=np.float64)
+    # Intentional float64: validation MI statistic per leg is float64 (MI output contract)
     mi_va = np.zeros(n_legs, dtype=np.float64)
     for li in prange(n_legs):
         j = js[li]
@@ -760,6 +780,7 @@ def _try_gpu_leg_selection(x, y, lo, span, max_scale, max_legs, scale_sigma, ret
         _legs = select_wavelet_legs_batched(x, y, lo, span, max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma)
         if not return_arrays:
             return _legs
+        # Intentional float64: legs map the input onto [0,1] in float64 so cell boundaries match the host reference
         _z = np.clip((np.asarray(x, dtype=np.float64).ravel() - lo) / span, 0.0, 1.0)
         return [(j, k, _dyadic_haar_leg(_z, j, k)) for j, k in _legs]
     except Exception as e:  # nosec B110 - optional dependency import guard
@@ -806,6 +827,7 @@ def _select_wavelet_legs(
         _legs_gpu = _try_gpu_leg_selection(x, y, lo, span, max_scale, max_legs, scale_sigma, return_arrays)
         if _legs_gpu is not None:
             return _legs_gpu
+    # Intentional float64: leg selection bins the feature in float64, matching the host reference; parity needs it
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y).ravel()
     n = x.size
@@ -851,6 +873,7 @@ def _select_wavelet_legs(
     va_idx = np.flatnonzero(va).astype(np.int64)
     n_y_classes = int(max(int(yb_tr.max()), int(yb_va.max()))) + 1
     mi_tr_arr, mi_va_arr = _wavelet_legs_mi_batch_njit(
+        # Intentional float64: the leg kernel takes z as float64 (kernel contract)
         np.ascontiguousarray(z, dtype=np.float64),
         np.ascontiguousarray(yb_tr, dtype=np.int64),
         np.ascontiguousarray(yb_va, dtype=np.int64),
@@ -859,6 +882,7 @@ def _select_wavelet_legs(
     cand = [(float(mi_tr_arr[i]), float(mi_va_arr[i]), int(js_arr[i]), int(ks_arr[i])) for i in range(js_arr.size)]
     if not cand:
         return []
+    # Intentional float64: held-out MI statistic per candidate is float64 (MI output contract)
     heldout = np.array([c[1] for c in cand], dtype=np.float64)
     if heldout.size >= 4:
         med = float(np.median(heldout))
