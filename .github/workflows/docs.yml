@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   docs:
-    uses: fingoldo/py-ci-shared/.github/workflows/docs.yml@670b80cbfd4b851578346741c21b62b8aa0ce4dc  # v1.23.7  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/docs.yml@2ab4fdf4b0e1c7ba7613913ac78ad61b91913391  # v1.23.8  # pragma: allowlist secret
     with:
       default-branch: master
       # composite_targets_tutorial.ipynb imports mlframe; install the package so a future flip
