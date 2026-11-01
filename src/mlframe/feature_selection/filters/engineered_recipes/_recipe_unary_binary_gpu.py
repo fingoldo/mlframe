@@ -139,6 +139,7 @@ def _gpu_smart_log(cp, x, recipe: EngineeredRecipe, side: str):
     # shift as a device 0-dim scalar (cp.where picks 0 when min>0) instead of a float(x_min) sync - x+0.0
     # is identity, so this is bit-identical to the min>0 -> log(x) branch.
     x_min = cp.nanmin(x)
+    # Intentional float64: the replay domain shift must equal the fit-time shift, computed in double
     shift = cp.where(x_min > 0.0, cp.float64(0.0), 1e-5 - x_min)
     return cp.log(x + shift)
 
@@ -244,6 +245,7 @@ def apply_unary_binary_gpu_resident(recipe: EngineeredRecipe, X: Any, col_cache:
 
     import cupy as cp
 
+    # Intentional float64: dtype choice, float32 under VRAM pressure and float64 otherwise, as at fit
     dt = cp.float32 if _vram_f32() else cp.float64
     return _materialise_recipe_gpu(recipe, X, cp, dt, col_cache=col_cache)
 
@@ -264,6 +266,7 @@ def apply_unary_binary_gpu(recipe: EngineeredRecipe, X: Any, col_cache: "dict[st
 
     import cupy as cp
 
+    # Intentional float64: dtype choice, float32 under VRAM pressure and float64 otherwise, as at fit
     dt = cp.float32 if _vram_f32() else cp.float64
     out_gpu = _materialise_recipe_gpu(recipe, X, cp, dt, col_cache=col_cache)
     if out_gpu is None:
