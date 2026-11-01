@@ -487,7 +487,7 @@ def _bspline_basis_values(z: np.ndarray, knots: np.ndarray, idx: int, degree: in
     lo_c = float(knots[degree]) + 1e-12
     hi_c = float(knots[nk - degree - 1]) - 1e-12
     zc = np.ascontiguousarray(np.clip(z, lo_c, hi_c))
-    return _bspline_basis_njit(zc, knots, int(idx), degree)
+    return cast(np.ndarray, _bspline_basis_njit(zc, knots, int(idx), degree))
 
 
 def _bspline_basis_values_numpy(z: np.ndarray, knots: np.ndarray, idx: int, degree: int = 3) -> np.ndarray:

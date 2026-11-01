@@ -45,7 +45,7 @@ from __future__ import annotations
 from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
 
 import logging
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
@@ -577,7 +577,7 @@ def _apply_target_aware_group_bin_recipe(recipe, X) -> np.ndarray:
 # MI-uplift scorer / gate
 # ---------------------------------------------------------------------------
 
-def _bin_columns_pooled(bin_one: "Callable[[str], np.ndarray]", cols: list) -> list:
+def _bin_columns_pooled(bin_one: "Callable[[str], Any]", cols: list) -> list:
     """``bin_one`` of every column, in order; the columns are independent and np.quantile / sort release the GIL, so they run on the edge-jobs pool."""
     from concurrent.futures import ThreadPoolExecutor
 

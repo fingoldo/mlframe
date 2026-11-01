@@ -109,7 +109,7 @@ from mlframe.utils.log_throttle import log_throttle
 
 import importlib
 import logging
-from typing import Optional, Sequence
+from typing import Optional, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -214,7 +214,7 @@ def _abs_pearson_matrix(X_num: pd.DataFrame) -> np.ndarray:
     arr = np.asarray(X_num.to_numpy(dtype=np.float64))
     if arr.size and np.isfinite(arr).all():
         with np.errstate(invalid="ignore", divide="ignore"):
-            return np.abs(np.asarray(np.corrcoef(arr, rowvar=False)))
+            return cast(np.ndarray, np.abs(np.asarray(np.corrcoef(arr, rowvar=False))))
     from ._orthogonal_univariate_fe._orth_dedup import _pairwise_complete_abs_corr
 
     q = np.ascontiguousarray(arr.T)

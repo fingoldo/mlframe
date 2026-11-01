@@ -45,7 +45,7 @@ from __future__ import annotations
 import logging
 import math
 import zlib
-from typing import Optional
+from typing import Optional, cast
 from collections.abc import Sequence
 
 import numpy as np
@@ -335,7 +335,7 @@ def _quantile_codes(values, nbins: int) -> np.ndarray:
             # Few distinct values: exact codes. Quantile edges would merge a rare level into its neighbour.
             codes[finite] = np.searchsorted(sv[first], fv)
         else:
-            edges = np.unique(_sorted_linear_quantiles(sv, np.linspace(0.0, 1.0, nbins + 1)[1:-1]))
+            edges = np.unique(_sorted_linear_quantiles(sv, np.linspace(0.0, 1.0, nbins + 1)[1:-1].tolist()))
             codes[finite] = np.searchsorted(edges, fv, side="right")
     return codes
 
@@ -568,7 +568,7 @@ def _triple_mi_scores(codes: np.ndarray, y_arr: np.ndarray, base: int, n_y: int)
         if got is not None:
             return got
     with parallel_kernel_entry():
-        return _triple_mi_kernel(codes, y_arr, base, n_y)
+        return cast(tuple, _triple_mi_kernel(codes, y_arr, base, n_y))
 
 
 def _enumerate_triplet_candidates(
