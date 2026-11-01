@@ -269,8 +269,13 @@ def _check_target_identity(_name: Any, _tt_np: Any, _calib_target_np: Any) -> No
             )
     except _CalibTestOverlapError:
         raise
-    except (TypeError, ValueError):
-        pass  # Non-comparable dtypes (e.g. mixed-type pandas Series) - skip the equality check.
+    except (TypeError, ValueError) as exc:
+        log_throttle(
+            logger, "post_train_calib_target_identity_skipped", logging.WARNING,
+            "train_postcalibrators: the calib_target / test_target identity check for model %r was skipped (%s: %s); "
+            "calib/test leakage through the target values is not ruled out.",
+            _name, type(exc).__name__, exc,
+        )
 
 
 def _check_index_overlap(_name: Any, _tt: Any, _calib_index: Any, OVERLAP_RAISE_THRESHOLD: Any, OVERLAP_WARN_THRESHOLD: Any) -> None:
@@ -302,9 +307,11 @@ def _check_index_overlap(_name: Any, _tt: Any, _calib_index: Any, OVERLAP_RAISE_
                     _idx_overlap * 100, _name,
                 )
     except TypeError as exc:
-        logger.debug(
-            "train_postcalibrators: could not hash row index for overlap check on model %r: %r",
-            _name, exc, exc_info=True,
+        log_throttle(
+            logger, "post_train_calib_index_check_skipped", logging.WARNING,
+            "train_postcalibrators: the row-index overlap check for model %r was skipped (index not hashable: %r); "
+            "calib/test leakage through shared rows is not ruled out.",
+            _name, exc,
         )
 
 
@@ -323,7 +330,12 @@ def _check_probs_overlap(_name: Any, _m: Any, calib_probs_per_model: Any, OVERLA
         try:
             _prob_overlap = _values_overlap_fraction(np.asarray(_cp), np.asarray(_test_probs))
         except Exception as exc:
-            logger.debug("train_postcalibrators: probs overlap check failed for model %r: %r", _name, exc, exc_info=True)
+            log_throttle(
+                logger, "post_train_calib_probs_check_skipped", logging.WARNING,
+                "train_postcalibrators: the probability-row overlap check for model %r was skipped (%r); "
+                "calib/test leakage through shared predictions is not ruled out.",
+                _name, exc,
+            )
             continue
         if _prob_overlap >= OVERLAP_RAISE_THRESHOLD:
             raise ValueError(
