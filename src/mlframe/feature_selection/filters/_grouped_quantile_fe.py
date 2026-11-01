@@ -120,6 +120,23 @@ def _sorted_linear_quantiles(sv: np.ndarray, qs: Sequence[float]) -> np.ndarray:
     return out
 
 
+def _member_pct_ranks(order: np.ndarray, sv: np.ndarray, vals: np.ndarray, finite: np.ndarray) -> np.ndarray:
+    """:func:`_pct_rank_in_sorted` of the group's own values ``vals`` against ``sv = vals[finite][order]``, from the sort permutation: a member's left and right insertion ranks are the start and end of its run of
+    equal values (ties get the average rank), so no search is needed. A non-finite value is ranked by the search, as before (NaN and +inf at the end, -inf at the start)."""
+    m = sv.size
+    starts = np.flatnonzero(np.concatenate(([True], sv[1:] != sv[:-1])))
+    counts = np.diff(np.concatenate((starts, [m])))
+    lo = np.repeat(starts, counts)
+    hi = np.repeat(starts + counts, counts)
+    ranks = np.empty(m, dtype=np.float64)  # Intentional float64: rank positions, as the searchsorted midpoint is formed
+    ranks[order] = (lo + hi) / (2.0 * m)
+    out = np.empty(vals.shape, dtype=np.float64)  # Intentional float64: rank positions, as the searchsorted midpoint is formed
+    out[finite] = ranks
+    if not finite.all():
+        out[~finite] = _pct_rank_in_sorted(sv, vals[~finite])
+    return out
+
+
 def _pct_rank_in_sorted(sorted_vals: np.ndarray, x: np.ndarray) -> np.ndarray:
     """Empirical CDF position of each ``x`` in ``sorted_vals`` - the fraction
     of group values ``<= x`` via the midpoint of the left / right insertion
@@ -195,9 +212,14 @@ def generate_grouped_quantile_features(
 
             for gv, rows in group_rows.items():
                 vals = x[rows]
-                fin = vals[np.isfinite(vals)]
+                finite = np.isfinite(vals)
+                fin = vals[finite]
+                pct_vals = None
                 if fin.size >= _MIN_GROUP_SIZE:
-                    sv = np.sort(fin)
+                    # one stable argsort gives the sorted values AND the rank position of every member, so the group's own values need no binary search
+                    order = np.argsort(fin, kind="stable")
+                    sv = fin[order]
+                    pct_vals = _member_pct_ranks(order, sv, vals, finite)
                     # Same linear-interpolation quantiles as np.quantile(fin, q), read off the sorted array (exact, no second partition per call).
                     q25, q75, p10, p90 = _sorted_linear_quantiles(sv, (0.25, 0.75, 0.10, 0.90))
                     group_iqr = float(q75 - q25)
@@ -213,7 +235,7 @@ def generate_grouped_quantile_features(
                 # value against the stored train-only sorted array: a small systematic ~1/m per-group distributional
                 # offset (not a y-leak). Acceptable and unchanged by design; documented so a future reader does not
                 # mistake it for a fit/serve skew (mrmr_critique FE-F6).
-                pct_out[rows] = _pct_rank_in_sorted(sv, vals)
+                pct_out[rows] = pct_vals if pct_vals is not None else _pct_rank_in_sorted(sv, vals)
 
             pct_out = np.nan_to_num(pct_out, nan=0.5, posinf=1.0, neginf=0.0)
 
