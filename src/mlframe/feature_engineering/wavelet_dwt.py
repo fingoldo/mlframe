@@ -345,6 +345,9 @@ def wavedec(
         return list(pywt.wavedec(signal, wavelet, level=max_level, mode="symmetric"))
     lo, hi, _, _ = get_wavelet_filters(wavelet)
     sig = np.ascontiguousarray(signal, dtype=np.float64)
+    if sig.shape[0] == 0:
+        # The symmetric-reflect kernel never ends on an empty signal (HNG4-1); pywt raises for it too.
+        raise ValueError("wavedec: the signal is empty")
     details_lvl1_first: list = []
     current = sig
     for _ in range(int(max_level)):
@@ -392,6 +395,8 @@ def wavedec_batched(
     lo, hi, _, _ = get_wavelet_filters(wavelet)
     sig = np.ascontiguousarray(signals, dtype=np.float64)
     N, T = sig.shape
+    if T == 0:
+        raise ValueError("wavedec_batched: the signals are empty")  # the reflect kernel never ends on length 0 (HNG4-1)
     flen = lo.shape[0]
     lengths = _precompute_out_lengths(T, flen, int(max_level))
     out_lengths = np.asarray(lengths, dtype=np.int64)
