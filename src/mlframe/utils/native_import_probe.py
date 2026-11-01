@@ -53,7 +53,7 @@ def _probe_child(name: str) -> subprocess.CompletedProcess[str] | None:
     """Run ``import name`` in a child interpreter; None when the child cannot be started at all."""
     try:
         return subprocess.run(  # nosec B603 - fixed trusted executable and argument list
-            [sys.executable, "-c", f"import {name}"],
+            [sys.executable, "-P", "-c", f"import {name}"],
             capture_output=True,
             text=True,
             timeout=_PROBE_TIMEOUT_S,

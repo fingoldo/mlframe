@@ -194,7 +194,7 @@ def _run_sweep(spec: Any, timeout_s: float) -> tuple:
 
     Returns ``("ok", "")``, ``("timeout", detail)`` or ``("failed", detail)``. The child is ``mlframe-tune-kernels refresh <kernel>`` and persists its own result.
     """
-    cmd = [sys.executable, "-m", "mlframe.system.kernel_tuning_cache", "refresh", spec.kernel_name]
+    cmd = [sys.executable, "-P", "-m", "mlframe.system.kernel_tuning_cache", "refresh", spec.kernel_name]
     try:
         proc = subprocess.run(cmd, timeout=timeout_s, check=False)  # nosec B603 - fixed argv: this interpreter, this package, a registered kernel name
     except subprocess.TimeoutExpired as _exc:
