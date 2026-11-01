@@ -118,3 +118,14 @@ samples under 25% busy 4% (8% before); GPU busy 20.3% (17.4% before), card under
 
 Changes since the previous section: honest-null root split v5 (one float pass, 287 ms against 861 ms for v2 on 60 x 200 x 100000; the stage fell from 17.4 s to 11.2 s in the stage map), the univariate basis memo key hashed
 with xxh3 (a 600-column call 1.39 s to 0.35 s), the composite group-agg tasks and the binned-agg linear-usability pairs on the edge-jobs pool, the univariate basis column pool.
+
+## Stage map and hashing findings (2026-11-01, later run)
+
+Stage map under the sampler at 100000 x 100, every family: wall 153.9 s (194.7 s in the previous map). Largest stages by main-thread seconds: `_fit_body_run_fit_impl` 12.2 (spread over the discretization 2.0 s on the edge pool, the engineered-duplicate scan about 2 s,
+the honest-spec build 0.8 s), `honest_null_columns_device` 7.2 (was 17.4), `_stage_binned_numeric_agg` 6.0 (device-bound), `score_prospective_pairs` 5.8 (the fused observed-MI kernel), `score_candidates_by_cmi` 5.4 (waits on the device).
+
+Whole-array content hashes were a hidden cost spread over many stages: blake2b runs at about 0.4 GB/s (0.19 s per 80 MB), xxh3 at 13 GB/s (0.006 s). Moved to the shared `_content_hasher.new_content_hasher` (xxh3, blake2b fallback): the univariate basis memo key,
+the content memo, the accuracy-gate baseline key (rebuilt for every engineered sibling), the duplicate-transfer fingerprint, the fit-constant memmap key and the fit signature / fit cache key (three full-frame hashes per fit).
+Also: `_row_center_finite` of the dedup (2.77 s to 0.16 s for 1800 x 100000) as one parallel njit pass.
+
+Not parallelisable by a host pool (checked): `_stage_greedy_cmi` (sequential greedy rounds), `hybrid_orth_mi_fe` (one device batch), `score_candidates_by_cmi` (device wait), `fleuret_conditional_recheck` (early stop on shared caches).
