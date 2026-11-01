@@ -42,7 +42,7 @@ from ._gpu_resident_select_kernels import transpose_codes_to_cm  # noqa: F401 - 
 
 def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extremes: bool = False, data_is_cm: bool = False):
     """Return the (nbins-1, K) INTERIOR quantile edges of the resident (n, K) cupy ``cand_gpu`` via the
-    sort-free radix-select kernel + cupy's exact 'linear' interpolation (reproduced in float64). The edges
+    sort-free radix-select kernel + cupy's exact 'linear' interpolation (reproduced in double). The edges
     are BIT-IDENTICAL (in the resulting codes) to ``cp.percentile(cand, linspace(0,100,nbins+1))[1:-1]``.
     Returns ``None`` if the radix path is inapplicable (R over the kernel cap, shared-mem over the device
     limit) so the caller uses the cp.percentile fallback. ``cand_gpu`` must be C-contiguous (n, K).
@@ -115,7 +115,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
             pos = {int(r): i for i, r in enumerate(uniq)}
             bi = cp.asarray(np.asarray([pos[int(b)] for b in bel], dtype=np.int64))
             ai = cp.asarray(np.asarray([pos[int(a)] for a in abv], dtype=np.int64))
-            w = cp.asarray(np.ascontiguousarray(idx - bel))  # float64 weight_above = idx - floor(idx)
+            w = cp.asarray(np.ascontiguousarray(idx - bel))  # double weight_above = idx - floor(idx)
             return (bi, ai, w, ranks_g, int(R), int(shmem))
 
     _ic = radix_interp_get_or_build(_ik, _build_interp_entry)
@@ -133,6 +133,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
         data_cm = cand_gpu if cand_gpu.flags.c_contiguous else cp.ascontiguousarray(cand_gpu)
     elif cm_hint is not None and cm_hint.shape == (K, n) and cm_hint.flags.c_contiguous and cm_hint.dtype == cand_gpu.dtype:
         data_cm = cm_hint
+    # Intentional float64: dtype identity check on the candidate matrix, not a compute dtype
     elif cm_hint is not None and cm_hint.shape == (K, n) and cm_hint.flags.c_contiguous and cm_hint.dtype == cp.float32 and cand_gpu.dtype == cp.float64:
         # STRICT-f64 fusion recovery (nsys-driven): under MLFRAME_FE_GPU_BINNING_DTYPE=float64 the
         # discretize sibling upcasts the f32 materialise output to f64 (cand_gpu.astype(f64)) BEFORE calling in,
@@ -144,6 +145,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
         # already-computed hint (12 B/elem, coalesced elementwise) instead of re-transposing the f64 cand
         # (16 B/elem tiled transpose) -> BIT-IDENTICAL data_cm (same order statistics -> same edges -> same
         # codes), restoring the intended fusion and dropping the transpose_f64 kernel on this path.
+        # Intentional float64: bit-identical to cp.percentile's linear interpolation, which computes in float64
         data_cm = cm_hint.astype(cp.float64)
     else:
         data_cm = _transpose_to_cm(cand_gpu)  # (K, n) C-order = column-major (coalesced tiled-transpose kernel)
@@ -154,6 +156,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
         # memory and emits the (ne, K) interior edges directly - ONE launch, no osv global, no separate
         # radix_interp launch. Bit-identical to the two-kernel f64 path (same select body + same f64 interp).
         try:
+            # Intentional float64: bit-identical to cp.percentile's linear interpolation, which computes in float64
             edges = cp.empty((ne_rows, K), dtype=cp.float64)
             kern3 = _get_radix_select_interp_f64_v3_kernel()
             if kern3 is not None:
@@ -164,14 +167,14 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
                         (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R),
                          bi, ai, cp.ascontiguousarray(w), np.int32(ne_rows),
                          cand, np.int64(cap), edges), shared_mem=shmem)
-                    return edges          # (nbins-1, K) float64
+                    return edges          # (nbins-1, K) double
                 except Exception:
                     import logging
                     logging.getLogger(__name__).debug("v3 compaction launch failed (likely scratch OOM); v2", exc_info=True)
             _get_radix_select_interp_f64_kernel()((K,), (threads,),
                 (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R),
                  bi, ai, cp.ascontiguousarray(w), np.int32(ne_rows), edges), shared_mem=shmem)
-            return edges                  # (nbins-1, K) float64
+            return edges                  # (nbins-1, K) double
         except Exception:
             import logging
             logging.getLogger(__name__).debug("fused f64 select+interp failed; two-kernel path", exc_info=True)
@@ -183,19 +186,21 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     # FUSED interpolation (launch-reduction): the two fancy-index gathers + diff + cp.where
     # linear-interp collapse into ONE RawKernel that reads the two order-statistic rows from ``osv`` and writes
     # the (nbins-1, K) interior edges directly. Bit-identical to the cupy 'linear' interp (same f64 formula).
+    # Intentional float64: bit-identical to cp.percentile's linear interpolation, which computes in float64
     osv64 = osv if osv.dtype == cp.float64 else osv.astype(cp.float64)
+    # Intentional float64: bit-identical to cp.percentile's linear interpolation, which computes in float64
     edges = cp.empty((ne_rows, K), dtype=cp.float64)
     _ker_interp = _get_radix_interp_kernel()
     _threads = 256
     _total = ne_rows * K
     _ker_interp(((_total + _threads - 1) // _threads,), (_threads,), (osv64, bi, ai, cp.ascontiguousarray(w), np.int32(K), np.int32(ne_rows), edges))
-    return edges  # (nbins-1, K) float64
+    return edges  # (nbins-1, K) double
 
 
 def _radix_quantiles(cand_gpu, q_fracs):
     """Per-column quantiles at ``q_fracs`` (fractions in [0,1]) over the resident (n, K) cupy ``cand_gpu``
     via the SAME sort-free radix-select kernel + cupy 'linear' interpolation as ``_radix_select_interior_edges``.
-    Returns ``(len(q_fracs), K)`` float64, BIT-IDENTICAL to ``cp.percentile(cand, [q*100 ...], axis=0)``
+    Returns ``(len(q_fracs), K)`` double, BIT-IDENTICAL to ``cp.percentile(cand, [q*100 ...], axis=0)``
     (and to ``cp.median`` at q=0.5 - even-n linear interp == mean of the two middle order statistics).
     Returns ``None`` when the radix path is inapplicable (R over the kernel cap / shared-mem over the device
     limit) so the caller takes the cp.percentile fallback. ``cand_gpu`` must be a finite (n, K) cupy array.
@@ -209,6 +214,7 @@ def _radix_quantiles(cand_gpu, q_fracs):
     cand_gpu = cp.ascontiguousarray(cand_gpu)
     n, K = cand_gpu.shape
     is_f32 = cand_gpu.dtype == cp.float32
+    # Intentional float64: bit-identical to cp.percentile's linear interpolation, which computes in float64
     qfr = np.asarray(q_fracs, dtype=np.float64)
     idx = qfr * (n - 1)
     bel = np.floor(idx).astype(np.int64)
@@ -234,8 +240,9 @@ def _radix_quantiles(cand_gpu, q_fracs):
     pos = {int(r): i for i, r in enumerate(uniq)}
     bi = cp.asarray(np.asarray([pos[int(b)] for b in bel], dtype=np.int64))
     ai = cp.asarray(np.asarray([pos[int(a)] for a in abv], dtype=np.int64))
-    w = cp.ascontiguousarray(cp.asarray(idx - bel))  # float64 weight_above
+    w = cp.ascontiguousarray(cp.asarray(idx - bel))  # double weight_above
     nq = int(qfr.size)
+    # Intentional float64: bit-identical to cp.percentile's linear interpolation, which computes in float64
     out = cp.empty((nq, K), dtype=cp.float64)
     if not is_f32:
         # FUSED select+interp (launch-reduction): the f64 radix select keeps its order statistics in shared
@@ -251,12 +258,13 @@ def _radix_quantiles(cand_gpu, q_fracs):
     osv = cp.empty((R, K), dtype=cand_gpu.dtype)
     ker = _get_radix_select_f32_dispatch(n) if is_f32 else _get_radix_select_kernel(is_f32)
     ker((K,), (threads,), (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
+    # Intentional float64: bit-identical to cp.percentile's linear interpolation, which computes in float64
     osv64 = osv if osv.dtype == cp.float64 else osv.astype(cp.float64)
     _ker = _get_radix_interp_kernel()
     t = 256
     total = nq * K
     _ker(((total + t - 1) // t,), (t,), (osv64, bi, ai, w, np.int32(K), np.int32(nq), out))
-    return out  # (len(q_fracs), K) float64
+    return out  # (len(q_fracs), K) double
 
 
 # --- Carve re-exports (sibling pattern): the kernel-source / lazy-getter / KTC-dispatch block ->
