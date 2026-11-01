@@ -30,7 +30,7 @@ returns ``None`` -> the EXACT host scorer (byte-identical default path untouched
 """
 from __future__ import annotations
 
-from .._basis_name_codes import BASIS_NAME_CODES
+from .._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 
 import logging
 from typing import Any, Optional
@@ -46,7 +46,7 @@ _POLY_CODES = BASIS_NAME_CODES  # longest-first so "LL" is not shadowed by "L"
 # Engineered-name basis CODE -> the basis NAME the device evaluator expects (the inverse of
 # ``_orthogonal_univariate_fe._BASIS_CODE``). The name carries the EXACT basis the host generator chose, so the
 # device must reproduce THAT basis rather than re-deriving from moments (which can route differently).
-_CODE_TO_BASIS = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
+_CODE_TO_BASIS = CODE_TO_BASIS
 
 
 def _specs_from_engineered_names(eng_names, raw_cols):

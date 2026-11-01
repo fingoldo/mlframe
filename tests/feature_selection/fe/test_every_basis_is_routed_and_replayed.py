@@ -61,3 +61,13 @@ def test_family_recipes_are_built_and_replay_for_every_basis(basis):
     sliced = np.asarray(apply_recipe(recipe, X.iloc[500:2500]))
     assert np.isfinite(full).all()
     np.testing.assert_array_equal(full[500:2500], sliced)
+
+
+@pytest.mark.parametrize("basis", ["hermite", "legendre", "chebyshev", "laguerre", "fourier", "rbf", "sigmoid", "pade"])
+def test_engineered_name_parses_back_to_its_basis_and_degree(basis):
+    """The name the generators write for a cell is parsed back to the same basis and degree by the shared parsers."""
+    from mlframe.feature_selection.filters._orthogonal_shared import parse_code_deg_with_basis
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import _BASIS_CODE
+
+    token = f"{_BASIS_CODE.get(basis, basis)}7"
+    assert parse_code_deg_with_basis(token) == (basis, 7)

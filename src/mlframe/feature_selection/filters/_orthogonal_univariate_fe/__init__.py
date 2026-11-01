@@ -462,6 +462,10 @@ def _generate_univariate_basis_features_impl(
     code = _BASIS_CODE
     out_cols: dict = {}
     from .._fe_deadline import fe_deadline_passed
+    from .._univariate_route_device import route_columns_on_device
+
+    # The routing of all eligible columns in one device pass when the signal router applies (a column it cannot route is decided by the host router below).
+    _device_basis = route_columns_on_device(X, cols, y, degrees, _cols_auto, _aux_pool) if (basis == "auto" and basis_routing == "signal") else {}
     for col in cols:
         # Optional-enrichment wall-clock budget: stop the per-column basis scan once MRMR.fit's deadline passes and return
         # whatever was engineered so far (the core selection still produces a usable partial). No-op when no budget is set.
@@ -506,7 +510,7 @@ def _generate_univariate_basis_features_impl(
         # verdict only when the stored array IS x). Cleared at column exit, so no cross-column ref retention.
         from mlframe.feature_selection.filters.hermite_fe.shared import heavy_tail_memo_scope
         with heavy_tail_memo_scope():
-            chosen_basis = _choose_univariate_basis(x, y, basis, basis_routing, degrees, aux_col)
+            chosen_basis = _device_basis.get(col) or _choose_univariate_basis(x, y, basis, basis_routing, degrees, aux_col)
             if chosen_basis not in _POLY_BASES:
                 log_throttle(
                     logger, "univariate_basis_unknown_basis", logging.WARNING,

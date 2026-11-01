@@ -5,14 +5,14 @@ so a fix can't silently drift out of sync across copies.
 """
 from __future__ import annotations
 
-from ._basis_name_codes import BASIS_NAME_CODES
+from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 
 from typing import cast
 from typing import Any
 
 import numpy as np
 
-_CODE_TO_BASIS = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
+_CODE_TO_BASIS = CODE_TO_BASIS
 
 
 def quantile_bin_batched(arr: np.ndarray, nbins: int) -> np.ndarray:
