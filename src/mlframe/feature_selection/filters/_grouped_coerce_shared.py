@@ -43,13 +43,16 @@ def broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarra
     category but ``str()`` tells them apart ('nan' vs 'None'), so missing rows are mapped one by one; there are few. Shared by grouped_agg_fe, grouped_quantile_fe and group_distance_fe."""
     g_keys = np.asarray(g_keys)
     missing, present, codes, uniq = _prepared_keys(g_keys)
+    # the non-finite replacement is elementwise, so it is applied to the few distinct values and the gather carries it to every row (no full-length pass)
+    uniq_vals = np.nan_to_num(np.array([lookup.get(str(_k), glob) for _k in uniq], dtype=_crit_np_dtype()), nan=glob, posinf=glob, neginf=glob) if present.any() else None
+    if not missing.any() and uniq_vals is not None:
+        return cast("np.ndarray", uniq_vals[codes])
     out = np.empty(g_keys.shape[0], dtype=_crit_np_dtype())
-    if present.any():
-        uniq_vals = np.array([lookup.get(str(_k), glob) for _k in uniq], dtype=_crit_np_dtype())
+    if uniq_vals is not None:
         out[present] = uniq_vals[codes]
     for i in np.flatnonzero(missing):
-        out[i] = lookup.get(str(g_keys[i]), glob)
-    return cast("np.ndarray", np.nan_to_num(out, nan=glob, posinf=glob, neginf=glob))
+        out[i] = np.nan_to_num(np.array([lookup.get(str(g_keys[i]), glob)], dtype=_crit_np_dtype()), nan=glob, posinf=glob, neginf=glob)[0]
+    return out
 
 
 def auto_detect_num_cols_plain(X: pd.DataFrame, group_cols: "list | tuple | set", max_cols: int = 32) -> list:
