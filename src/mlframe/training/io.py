@@ -249,6 +249,9 @@ def safe_joblib_load(filename: str) -> Any:
     pickle RCE gadgets (eval/exec/os/subprocess/etc.) while still permitting arbitrary custom model/
     wrapper classes -- the loader's threat model documented in ``inference/predict.py`` treats the sha256
     sidecar as the integrity gate, not authenticity, and intentionally supports non-allowlisted classes.
+    Trust model (DESER-03/04, DOC): the denylist blocks known gadgets, not every callable a pickle can name, so a bundle that passes
+    its sidecar check is code-execution-equivalent for whoever can write it. Custom model classes must stay loadable, which is why
+    the allowlist is not used here; a writer that can rewrite both the bundle and its sidecar is outside the threat model.
     Does not support ``mmap_mode`` (models loaded this way are read fully into memory, matching how
     ``inference/predict.py`` already used plain ``joblib.load``)."""
     with open(filename, "rb") as fobj:
