@@ -667,11 +667,11 @@ def score_grouped_quantile_by_mi_uplift(
         return float(mi)
 
     eng_cols = list(eng_X.columns)
-    eng_codes = _bin_columns_pooled(lambda c: _bin(eng_X[c].to_numpy()), eng_cols)
+    # Binning and the plug-in MI of one column are independent of the other columns: both run in the pool worker, so the MI is not a serial tail behind the binning.
+    eng_mis = _bin_columns_pooled(lambda c: float(_plug_in_mi(_bin(eng_X[c].to_numpy()), y_bin)), eng_cols)
 
     rows = []
-    for col, codes in zip(eng_cols, eng_codes):
-        mi = float(_plug_in_mi(codes, y_bin))
+    for col, mi in zip(eng_cols, eng_mis):
         src = eng_to_source.get(col)
         smi = _source_mi(src)
         rows.append({
