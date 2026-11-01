@@ -160,9 +160,12 @@ jobs:
           python scripts/ci_version_matrix.py badge --package pandas --legs "$MATRIX" --result "$RESULT" --out "$RUNNER_TEMP/pandas.json"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          remote="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
-          if git ls-remote --exit-code --heads "$remote" badges > /dev/null; then
-            git fetch --depth=1 "$remote" badges
+          # The credential goes in an HTTP header, not in the remote URL, so no git error message can echo it; the encoded form is masked too.
+          remote="https://github.com/${REPO}.git"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${auth#AUTHORIZATION: basic }"
+          if git -c http.extraheader="$auth" ls-remote --exit-code --heads "$remote" badges > /dev/null; then
+            git -c http.extraheader="$auth" fetch --depth=1 "$remote" badges
             git checkout -B badges FETCH_HEAD
           else
             git checkout --orphan badges
@@ -175,4 +178,4 @@ jobs:
             exit 0
           fi
           git commit -m "pandas badge: $RESULT"
-          git push "$remote" HEAD:badges
+          git -c http.extraheader="$auth" push "$remote" HEAD:badges
