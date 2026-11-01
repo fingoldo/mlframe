@@ -676,7 +676,7 @@ def _binned_cmi_in_column_blocks(cp: Any, X_float: np.ndarray, nbins: int, y_bin
     while j0 < k:
         j1 = min(k, j0 + block)
         try:
-            codes_dev = batched_quantile_bin_gpu(cp.asarray(X_float[:, j0:j1]), nbins)
+            codes_dev = batched_quantile_bin_gpu(cp.asarray(np.ascontiguousarray(X_float[:, j0:j1])), nbins)
             parts.append(np.asarray(_batched_cmi_in_chunks(codes_dev, y_bin, z_joint, batched_cmi_gpu)))
             del codes_dev
             j0 = j1
@@ -742,9 +742,11 @@ def score_candidates_by_cmi(
     if (_cmi_gpu_enabled(n=int(y_bin.shape[0]), p=len(cand_cols)) or _cmi_candidate_batch_on_device(n=int(y_bin.shape[0]), p=len(cand_cols))) and len(cand_cols) > 1:
         try:
             from ._fe_batched_mi import batched_cmi_gpu, batched_quantile_bin_gpu
-            X_float = np.empty((y_bin.shape[0], len(cand_cols)), dtype=_crit_np_dtype())
+            # filled as contiguous rows of the transpose (a column write into a C-ordered matrix strides over every row); the F-ordered view keeps every column block contiguous
+            X_rows = np.empty((len(cand_cols), y_bin.shape[0]), dtype=_crit_np_dtype())
             for j, c in enumerate(cand_cols):
-                X_float[:, j] = X_cand[c].to_numpy()
+                X_rows[j] = X_cand[c].to_numpy()
+            X_float = X_rows.T
             if np.isfinite(X_float).all():
                 # Born-on-device: bin the whole candidate matrix on the GPU (one batched cp.percentile
                 # sort) and keep the codes RESIDENT, scoring CMI on them without a code H2D round-trip.
