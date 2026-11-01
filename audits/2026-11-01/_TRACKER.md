@@ -134,7 +134,7 @@ No High finding in any class.
 | FS2-1, FS2-2 | `1579c7253` | cache keys guarded, directory mode 0o700 | `tests/training/test_suite_artefact_cache_key_guard.py` |
 | (tests) | `075d68530` | GPU-stalling tests `slow`, CPU-heavy tests `timeout(3600)` | policy commit |
 
-**Open:** SUP2-3 (mypy pins in pre-commit differ from `uv.lock`) needs a whole-project mypy run to verify any pin change; the pins were chosen to reproduce CI mypy errors, so they are not changed blind.
+**SUP2-3 (DOC):** the mypy pins in pre-commit differ from `uv.lock` on purpose: they reproduce the CI environment where mypy errors were traced to a different numpy, scipy, scikit-learn and pydantic combination (see the comment above the hook). Changing them needs a whole-project mypy run, so the drift is documented here and checked on every pre-push.
 
 ## DOC rows documented here
 
