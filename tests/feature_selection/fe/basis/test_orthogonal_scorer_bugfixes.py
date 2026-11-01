@@ -255,19 +255,19 @@ def test_meta_scorer_propagates_programming_error():
 
     # A genuine programming error inside the inter_x_max_corr path
     # (AttributeError, not a numeric error) must propagate, not be coerced to
-    # 0.0. That branch calls ``DataFrame.corr`` with no inner nan-catch.
-    orig = pd.DataFrame.corr
+    # 0.0. That branch calls ``np.corrcoef`` (via ``_abs_pearson_matrix``) with no inner nan-catch.
+    orig = np.corrcoef
 
     def _broken_corr(self, *a, **k):
         """Broken corr."""
         raise AttributeError("simulated programming error in corr")
 
-    pd.DataFrame.corr = _broken_corr
+    np.corrcoef = _broken_corr
     try:
         with pytest.raises(AttributeError):
             meta.fingerprint_signal(X, y)
     finally:
-        pd.DataFrame.corr = orig
+        np.corrcoef = orig
 
 
 def test_meta_scorer_numeric_failure_still_yields_zero(caplog):
