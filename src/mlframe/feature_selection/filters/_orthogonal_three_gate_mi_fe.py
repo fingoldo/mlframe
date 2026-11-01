@@ -368,9 +368,10 @@ def score_features_by_kfold_oof_mi(
     raw_fold_mis: list[np.ndarray] = []
     eng_fold_mis: list[np.ndarray] = []
 
-    for test_idx in fold_test_idx:
+    def _one_fold(test_idx):
+        """``(raw MI, engineered MI)`` of one held-out fold, or ``None`` when the fold is empty or single-class; the folds only read the shared arrays."""
         if test_idx.size == 0:
-            continue
+            return None
         train_mask = np.ones(n, dtype=bool)
         train_mask[test_idx] = False
         train_idx = np.where(train_mask)[0]
@@ -379,7 +380,7 @@ def score_features_by_kfold_oof_mi(
         # classes - can't compute joint entropy meaningfully.
         y_test = y_arr[test_idx]
         if np.unique(y_test).size < 2:
-            continue
+            return None
         # Bin y_test as a dense renumbering of classes (consistent with
         # _quantile_bin's int output for the support).
         _, y_test_bin = np.unique(y_test, return_inverse=True)
@@ -405,7 +406,6 @@ def score_features_by_kfold_oof_mi(
             [_mi_from_binned_xy(raw_test_bins[:, j], y_test_bin, clip_zero=False) for j in range(len(raw_cols))],
             dtype=np.float64,  # Intentional float64: score statistic output contract
         )
-        raw_fold_mis.append(raw_mi_k)
 
         # Engineered columns (same per-fold non-clipping rule).
         eng_test_bins = _fold_test_bins(
@@ -415,7 +415,39 @@ def score_features_by_kfold_oof_mi(
             [_mi_from_binned_xy(eng_test_bins[:, j], y_test_bin, clip_zero=False) for j in range(len(eng_cols))],
             dtype=np.float64,  # Intentional float64: score statistic output contract
         )
-        eng_fold_mis.append(eng_mi_k)
+        return raw_mi_k, eng_mi_k
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ._adaptive_nbins import _resolve_edge_jobs
+    from ._fe_deadline import _state as _deadline_state, fe_deadline_scope
+
+    deadline = getattr(_deadline_state, "deadline", None)
+
+    def _run(test_idx):
+        """``_one_fold`` with the fit's wall-clock budget published to the worker thread."""
+        with fe_deadline_scope(deadline):
+            return _one_fold(test_idx)
+
+    # Each fold copies the train rows of every column (about twice over while it bins): the folds in flight are bounded by 40% of the available memory; the results are folded in fold order.
+    jobs = _resolve_edge_jobs(None, len(fold_test_idx))
+    try:
+        import psutil
+
+        per_fold = int(0.8 * n) * (len(raw_cols) + len(eng_cols)) * int(raw_arr.dtype.itemsize) * 2
+        jobs = max(1, min(jobs, int(0.4 * psutil.virtual_memory().available // max(1, per_fold))))
+    except Exception as exc:
+        logger.debug("fold pool memory bound unavailable (%s); two folds at most", exc)
+        jobs = min(jobs, 2)
+    if jobs > 1 and len(fold_test_idx) > 1:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            fold_results = list(pool.map(_run, fold_test_idx))
+    else:
+        fold_results = [_run(t) for t in fold_test_idx]
+    for res in fold_results:
+        if res is not None:
+            raw_fold_mis.append(res[0])
+            eng_fold_mis.append(res[1])
 
     if not raw_fold_mis:
         # All folds degenerated. Fall back to plug-in MI on full frame so
