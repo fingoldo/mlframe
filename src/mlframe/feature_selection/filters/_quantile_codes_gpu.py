@@ -1,8 +1,10 @@
-"""BENCH-ATTEMPT-REJECTED (2026-11-01, GTX 1050 Ti, codes bit-equal to the host kernel in float32 and double on continuous, tied, few-level, constant and heavy-tailed columns): the device twin is NOT faster than the host kernel.
-100000 rows x 1944 columns: device 1963 ms (float32) / 2491 ms (double) against host 2405 / 2572 ms; 256 columns: 285 against 260 ms. Phases for 256 columns: host-to-device 27 ms, batched sort 191 ms (0.75 ms per column),
-distinct count 34 ms, device-to-host of the codes 12 ms. The sort of every column is what the device pays for, while the host kernel only selects the ~22 order statistics the edges read (about 1 ms per column on 8 cores).
-Retry condition: a device order-statistic selection (radix select by bit-pattern histograms, 3 passes) instead of the full sort, or a card with a much faster sort. Not wired into ``_family_codes``; ``MLFRAME_QUANTILE_CODES_DEVICE=1`` forces the device path in
-``quantile_codes_block_auto``, the default is the host kernel. Tests: ``tests/feature_selection/fe/test_quantile_codes_gpu.py`` keep the equivalence.
+"""BENCH-ATTEMPT-REJECTED for the SORT-based variant (``method="sort"``, kept; also the float64 path) (2026-11-01, GTX 1050 Ti, codes bit-equal to the host kernel): 100000 rows x 1944 columns device 1963 ms (float32) / 2491 ms (double) against
+host 2405 / 2572 ms; 256 columns 285 against 260 ms. Phases for 256 columns: host-to-device 27 ms, batched sort 191 ms (0.75 ms per column), distinct count 34 ms, device-to-host of the codes 12 ms: the device paid for sorting every column, while the host kernel only selects the
+~22 order statistics the edges read.
+
+DEFAULT for float32 blocks of at least ``DEVICE_MIN_ELEMENTS``: the order statistics are SELECTED on the device too (``_order_statistics_f32``: three radix passes of 11 + 11 + 10 bits over the order-preserving integer key of the float, per-target histograms, no sort).
+100000 rows x 1944 columns: 871 ms against 2085 ms on the host (2.4x), 256 columns 130 against 278 ms, codes equal. Remaining cost at 256 columns: transfers about 40 ms, order statistics 37 ms (histogram kernels about 15 ms), code kernel 11 ms.
+``MLFRAME_QUANTILE_CODES_DEVICE=0|1`` forces a path.
 
 Device twin of ``_numba_utils.quantile_codes_block``: int16 quantile-bin codes for a block of finite columns.
 
@@ -19,12 +21,16 @@ import logging
 import os
 
 import numpy as np
+from numba import njit, prange
 
+from ._numba_utils_cross_module import _few_distinct_levels
 from ._raw_module_cache import RawModuleCache
 
 logger = logging.getLogger(__name__)
 
 THREADS = 256
+#: Elements (columns x rows) from which the device radix path is the default choice for float32 blocks.
+DEVICE_MIN_ELEMENTS = 20_000_000
 #: Fraction of the memory the pool can still hand out that one launch may use, and the device bytes held per column row (input, sorted copy, sort workspace, codes).
 _BUDGET_FRACTION = 0.25
 _BYTES_PER_COLUMN_ROW = 20
@@ -47,6 +53,104 @@ extern "C" __global__ void quantile_codes_{TAG}(const {REAL}* __restrict__ V, co
     }
 }
 """
+
+
+_RADIX_SRC = r"""
+__device__ __forceinline__ unsigned int to_key(float x) {
+    const unsigned int u = __float_as_uint(x);
+    return u ^ ((u >> 31) ? 0xFFFFFFFFu : 0x80000000u);
+}
+extern "C" __global__ void radix_hist1(const float* __restrict__ V, const long long n, unsigned int* __restrict__ H1) {
+    __shared__ unsigned int sh[2048];
+    for (int b = threadIdx.x; b < 2048; b += blockDim.x) sh[b] = 0u;
+    __syncthreads();
+    const int col = blockIdx.y;
+    const float* v = V + (long long)col * n;
+    for (long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) atomicAdd(&sh[to_key(v[i]) >> 21], 1u);
+    __syncthreads();
+    for (int b = threadIdx.x; b < 2048; b += blockDim.x) if (sh[b]) atomicAdd(&H1[(long long)col * 2048 + b], sh[b]);
+}
+extern "C" __global__ void radix_hist2(const float* __restrict__ V, const long long n, const int* __restrict__ BIN1, const int T, unsigned int* __restrict__ H2) {
+    __shared__ unsigned char is_target[2048];
+    const int col = blockIdx.y;
+    const float* v = V + (long long)col * n;
+    const int* b1 = BIN1 + (long long)col * T;
+    for (int b = threadIdx.x; b < 2048; b += blockDim.x) is_target[b] = 0;
+    __syncthreads();
+    for (int t = threadIdx.x; t < T; t += blockDim.x) is_target[b1[t]] = 1;
+    __syncthreads();
+    for (long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
+        const unsigned int key = to_key(v[i]);
+        const int top = (int)(key >> 21);
+        if (!is_target[top]) continue;
+        for (int t = 0; t < T; ++t)
+            if (top == b1[t]) atomicAdd(&H2[((long long)col * T + t) * 2048 + ((key >> 10) & 2047u)], 1u);
+    }
+}
+extern "C" __global__ void radix_hist3(const float* __restrict__ V, const long long n, const int* __restrict__ BIN1, const int* __restrict__ BIN2, const int T, unsigned int* __restrict__ H3) {
+    __shared__ unsigned char is_target[2048];
+    const int col = blockIdx.y;
+    const float* v = V + (long long)col * n;
+    const int* b1 = BIN1 + (long long)col * T;
+    const int* b2 = BIN2 + (long long)col * T;
+    for (int b = threadIdx.x; b < 2048; b += blockDim.x) is_target[b] = 0;
+    __syncthreads();
+    for (int t = threadIdx.x; t < T; t += blockDim.x) is_target[b1[t]] = 1;
+    __syncthreads();
+    for (long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
+        const unsigned int key = to_key(v[i]);
+        const int top = (int)(key >> 21);
+        if (!is_target[top]) continue;
+        const int mid = (int)((key >> 10) & 2047u);
+        for (int t = 0; t < T; ++t)
+            if (top == b1[t] && mid == b2[t]) atomicAdd(&H3[((long long)col * T + t) * 1024 + (key & 1023u)], 1u);
+    }
+}
+"""
+
+_RADIX = RawModuleCache(_RADIX_SRC)
+
+
+def _order_statistics_f32(cp, v_dev, ranks: np.ndarray):
+    """``(columns, len(ranks))`` float32: the value of rank ``ranks[t]`` (0-based, ascending, distinct) of every row of ``v_dev`` ``(columns, n)``, by three radix passes (11 + 11 + 10 key bits) instead of a sort."""
+    cb, n = int(v_dev.shape[0]), int(v_dev.shape[1])
+    T = int(ranks.size)
+    mod = _RADIX.get(cp)
+    w = cp.asarray(ranks.astype(np.int64))
+    grid = (min(64, (n + THREADS - 1) // THREADS), cb)
+
+    h1 = cp.zeros((cb, 2048), dtype=cp.uint32)
+    mod.get_function("radix_hist1")(grid, (THREADS,), (v_dev, np.int64(n), h1))
+    cs1 = cp.cumsum(h1, axis=1, dtype=cp.int64)
+    bin1 = (cs1[:, None, :] <= w[None, :, None]).sum(axis=2).astype(cp.int32)  # (cb, T): first bin whose running count passes the rank
+    before1 = cp.where(bin1 > 0, cp.take_along_axis(cs1, cp.maximum(bin1 - 1, 0).astype(cp.int64), axis=1), 0)
+    r1 = (w[None, :] - before1).astype(cp.int32)
+
+    h2 = cp.zeros((cb, T, 2048), dtype=cp.uint32)
+    mod.get_function("radix_hist2")(grid, (THREADS,), (v_dev, np.int64(n), cp.ascontiguousarray(bin1), np.int32(T), h2))
+    cs2 = cp.cumsum(h2, axis=2, dtype=cp.int32)
+    bin2 = (cs2 <= r1[:, :, None]).sum(axis=2).astype(cp.int32)
+    before2 = cp.where(bin2 > 0, cp.take_along_axis(cs2, cp.maximum(bin2 - 1, 0).astype(cp.int64)[:, :, None], axis=2)[:, :, 0], 0)
+    r2 = (r1 - before2).astype(cp.int32)
+
+    h3 = cp.zeros((cb, T, 1024), dtype=cp.uint32)
+    mod.get_function("radix_hist3")(grid, (THREADS,), (v_dev, np.int64(n), cp.ascontiguousarray(bin1), cp.ascontiguousarray(bin2), np.int32(T), h3))
+    cs3 = cp.cumsum(h3, axis=2, dtype=cp.int32)
+    bin3 = (cs3 <= r2[:, :, None]).sum(axis=2).astype(cp.int32)
+
+    key = (bin1.astype(cp.uint32) << 21) | (bin2.astype(cp.uint32) << 10) | bin3.astype(cp.uint32)
+    bits = cp.where((key >> 31) != 0, key ^ cp.uint32(0x80000000), ~key)
+    return bits.view(cp.float32)
+
+
+@njit(cache=True, parallel=True)
+def _few_levels_mask(v: np.ndarray, n_bins: int) -> np.ndarray:
+    """True for the rows of ``v`` ``(columns, n)`` with at most ``n_bins`` distinct values (the early-exit scan ends within the first few values of a continuous row)."""
+    out = np.zeros(v.shape[0], dtype=np.bool_)
+    for j in prange(v.shape[0]):
+        out[j] = _few_distinct_levels(v[j], n_bins).shape[0] > 0
+    return out
+
 
 _MODULES = {
     "float": RawModuleCache(_SRC.replace("{REAL}", "float").replace("{TAG}", "f32")),
@@ -87,7 +191,7 @@ def _column_block(cp, n_rows: int) -> int:
     return int(max(4, (_BUDGET_FRACTION * room) // (_BYTES_PER_COLUMN_ROW * max(1, n_rows))))
 
 
-def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray) -> bool:
+def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray, method: str = "radix") -> bool:
     """Fill ``codes`` ``(columns, n)`` int16 and ``nx`` as ``quantile_codes_block`` does for the finite block ``v``; ``False`` when the device path does not apply (the caller then runs the host kernel on the whole block)."""
     k, n = int(v.shape[0]), int(v.shape[1])
     if k == 0 or n < 2 or v.dtype not in (np.float32, np.float64):
@@ -104,15 +208,22 @@ def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: 
     i0, i1, gamma = _edge_positions(n, int(n_bins))
     i0_dev, i1_dev, gamma_dev = cp.asarray(i0), cp.asarray(i1), cp.asarray(gamma)
     nb1 = int(n_bins) + 1
-    block = _column_block(cp, n)
+    w_unique = np.unique(np.concatenate([i0, i1]))
+    block = min(_column_block(cp, n), 256)
     for c0 in range(0, k, block):
         c1 = min(k, c0 + block)
         v_dev = cp.asarray(np.ascontiguousarray(v[c0:c1]))
-        s = cp.sort(v_dev, axis=1)
-        distinct = 1 + (s[:, 1:] != s[:, :-1]).sum(axis=1)
-        few = np.flatnonzero(cp.asnumpy(distinct) <= int(n_bins))
-        a = s[:, i0_dev].astype(cp.float64)
-        b = s[:, i1_dev].astype(cp.float64)
+        if method == "radix" and v.dtype == np.float32:
+            few = np.flatnonzero(_few_levels_mask(np.ascontiguousarray(v[c0:c1]), int(n_bins)))
+            vals = _order_statistics_f32(cp, v_dev, w_unique)  # (cb, T) values at the ranks the edges read
+            a = vals[:, cp.asarray(np.searchsorted(w_unique, i0))].astype(cp.float64)
+            b = vals[:, cp.asarray(np.searchsorted(w_unique, i1))].astype(cp.float64)
+        else:
+            s = cp.sort(v_dev, axis=1)
+            distinct = 1 + (s[:, 1:] != s[:, :-1]).sum(axis=1)
+            few = np.flatnonzero(cp.asnumpy(distinct) <= int(n_bins))
+            a = s[:, i0_dev].astype(cp.float64)
+            b = s[:, i1_dev].astype(cp.float64)
         diff = b - a
         edges = a + diff * gamma_dev
         edges = cp.where(gamma_dev >= 0.5, b - diff * (1.0 - gamma_dev), edges)
@@ -134,19 +245,20 @@ def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: 
     return True
 
 
-def quantile_codes_block_auto(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray) -> None:
-    """``quantile_codes_block`` on the device when the block is large enough and the device is usable, else the host kernel; any device fault returns to the host kernel."""
-    from ._numba_utils import quantile_codes_block
+def quantile_codes_block_auto(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray, host_kernel=None) -> None:
+    """``quantile_codes_block`` on the device when the block is a large float32 one and the device is usable, else ``host_kernel`` (default: the njit kernel); any device fault returns to the host kernel."""
+    if host_kernel is None:
+        from ._numba_utils import quantile_codes_block as host_kernel
 
     forced = os.environ.get("MLFRAME_QUANTILE_CODES_DEVICE", "").strip()
-    use_device = forced == "1"  # rejected as a default: no faster than the host kernel (see the module note)
+    use_device = (forced == "1") if forced in ("0", "1") else (v.dtype == np.float32 and int(v.shape[0]) * int(v.shape[1]) >= DEVICE_MIN_ELEMENTS)
     if use_device:
         try:
             if quantile_codes_block_gpu(v, n_bins, codes, nx):
                 return
         except Exception as exc:
             logger.warning("device quantile codes failed (%s: %s); using the host kernel", type(exc).__name__, exc)
-    quantile_codes_block(v, n_bins, codes, nx)
+    host_kernel(v, n_bins, codes, nx)
 
 
 __all__ = ["quantile_codes_block_gpu", "quantile_codes_block_auto"]
