@@ -71,7 +71,7 @@ def _newton_kernel(A: np.ndarray, y: np.ndarray, lam: float, max_iter: int, grad
             for a in range(p - 1):
                 pen += w_new[a] * w_new[a]
             f_new += 0.5 * lam * pen
-            if np.isfinite(f_new) and f_new <= f:
+            if np.isfinite(f_new) and f_new <= f + 1e-11 * abs(f):
                 accepted = True
                 break
             t *= 0.5
