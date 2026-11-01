@@ -28,3 +28,21 @@ def test_strict_load_is_not_served_from_a_lenient_cache_entry(tmp_path, monkeypa
     with pytest.raises(ValueError, match="drift"):
         io_mod.load_mlframe_model(str(bundle), strict_version=True)
     io_mod._load_model_cache_clear()
+
+
+def test_unverified_pickle_opt_out_reads_the_shared_flag_vocabulary(tmp_path, monkeypatch):
+    """A bundle without a recorded digest loads under ``y``/``t`` too, and stays refused under ``0`` (ENV4-1)."""
+    bundle = tmp_path / "old.dump"
+    io_mod.save_mlframe_model(SimpleNamespace(payload=3), str(bundle), verbose=0)
+    sidecar = Path(io_mod._meta_sidecar_path(str(bundle)))
+    meta = orjson.loads(sidecar.read_bytes())
+    meta.pop("bundle_sha256", None)
+    sidecar.write_bytes(orjson.dumps(meta))
+    monkeypatch.setenv(io_mod.UNVERIFIED_ENV_VAR, "0")
+    io_mod._load_model_cache_clear()
+    with pytest.raises(RuntimeError, match="no sha256 recorded"):
+        io_mod.load_mlframe_model(str(bundle))
+    monkeypatch.setenv(io_mod.UNVERIFIED_ENV_VAR, "y")
+    io_mod._load_model_cache_clear()
+    assert io_mod.load_mlframe_model(str(bundle)).payload == 3
+    io_mod._load_model_cache_clear()
