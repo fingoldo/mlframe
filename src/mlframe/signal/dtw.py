@@ -325,6 +325,15 @@ def _backtrace_band(
     return path
 
 
+_KERNEL_INDEX_MAX = 2**31 - 1  # the CUDA kernels index their cost/band buffers with 32-bit ints (MEM3-1, MEM3-2)
+
+
+def _check_kernel_index_range(cells: int, what: str) -> None:
+    """Refuse a buffer whose flat index would overflow the kernel's 32-bit int, before any device work (MEM3-1, MEM3-2)."""
+    if cells > _KERNEL_INDEX_MAX:
+        raise ValueError(f"{what} needs {cells} cells, above the 32-bit kernel index limit {_KERNEL_INDEX_MAX}; shorten the series or use a smaller window")
+
+
 def dtw_cupy_banded(
     x: np.ndarray,
     y: np.ndarray,
@@ -339,6 +348,7 @@ def dtw_cupy_banded(
     keeps one launch per anti-diagonal; the memory reduction is the win. Distance
     + path are bit-identical to the full-matrix ``dtw_cupy`` and the dtaidistance
     reference; this is the default cupy path (``dtw_cupy`` dispatches here)."""
+    _check_kernel_index_range((len(x) + 1) * (2 * window + 1), "banded DTW band")
     if not _HAS_CUPY:
         raise ImportError("dtw_cupy requires cupy + a CUDA-capable GPU.")
     kernel = _get_cupy_banded_kernel()
@@ -394,6 +404,8 @@ def dtw_cupy_full(
     """Pre-CPX-P0-2 full-matrix cupy diagonal sweep. Allocates the full
     ``(n+1)x(m+1)`` cost matrix (O(n*m) device RAM); retained for A/B benching
     against ``dtw_cupy_banded`` (REJECTED!=DELETED). Numerically identical."""
+    n = len(x)
+    _check_kernel_index_range((n + 1) * (len(y) + 1), "full DTW matrix")
     if not _HAS_CUPY:
         raise ImportError("dtw_cupy requires cupy + a CUDA-capable GPU.")
     kernel = _get_cupy_kernel()
