@@ -40,7 +40,7 @@ except ImportError:  # pragma: no cover
 # across cores (the existing _parallel path). Do not re-try the register rewrite for n<50k.
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _hermeval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Evaluate the probabilist's Hermite series ``sum_k c[k]*He_k(x)`` via the He recurrence, single-thread Horner form
     with the fused prologue (see the module-level perf note above). ``x`` and the returned array share length ``n``."""
@@ -71,7 +71,7 @@ def _hermeval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     return out
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _legval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Evaluate the Legendre series ``sum_k c[k]*P_k(x)`` via Bonnet's recurrence, single-thread Horner form."""
     n = x.shape[0]
@@ -103,7 +103,7 @@ def _legval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     return out
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _chebval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Evaluate the Chebyshev series ``sum_k c[k]*T_k(x)`` via ``T_{k+1} = 2x*T_k - T_{k-1}``, single-thread Horner form."""
     n = x.shape[0]
@@ -132,7 +132,7 @@ def _chebval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     return out
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _lagval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Evaluate the Laguerre series ``sum_k c[k]*L_k(x)`` via the Laguerre recurrence, single-thread Horner form. Unlike
     the other three kernels, ``L_1 = 1 - x`` so the prologue can't reuse ``x`` directly and computes ``p_curr`` explicitly."""
@@ -173,7 +173,7 @@ def _lagval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
 # overhead is amortised.
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _hermeval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Prange variant of ``_hermeval_njit``: recomputes the He recurrence in per-element registers (no shared p_prev/
     p_curr arrays) so each output element is independent across threads; wins over the single-thread form for n>=50k."""
@@ -201,7 +201,7 @@ def _hermeval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     return out
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _legval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Prange variant of ``_legval_njit``: per-element register recurrence, parallelised across elements for n>=50k."""
     n = x.shape[0]
@@ -231,7 +231,7 @@ def _legval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     return out
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _chebval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Prange variant of ``_chebval_njit``: per-element register recurrence, parallelised across elements for n>=50k."""
     n = x.shape[0]
@@ -258,7 +258,7 @@ def _chebval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     return out
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _lagval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Prange variant of ``_lagval_njit``: per-element register recurrence, parallelised across elements for n>=50k."""
     n = x.shape[0]
@@ -307,7 +307,7 @@ def _lagval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
 # path it's ~110 KB.
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _build_basis_hermite(x: np.ndarray, max_degree: int) -> np.ndarray:
     """Build ``B[i, k] = He_k(x[i])`` for k=0..max_degree using the He recurrence."""
     n = x.shape[0]
@@ -323,7 +323,7 @@ def _build_basis_hermite(x: np.ndarray, max_degree: int) -> np.ndarray:
     return B
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _build_basis_legendre(x: np.ndarray, max_degree: int) -> np.ndarray:
     """Build ``B[i, k] = P_k(x[i])`` via Bonnet's recurrence."""
     n = x.shape[0]
@@ -342,7 +342,7 @@ def _build_basis_legendre(x: np.ndarray, max_degree: int) -> np.ndarray:
     return B
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _build_basis_chebyshev(x: np.ndarray, max_degree: int) -> np.ndarray:
     """Build ``B[i, k] = T_k(x[i])`` via T_{k+1} = 2x*T_k - T_{k-1}."""
     n = x.shape[0]
@@ -359,7 +359,7 @@ def _build_basis_chebyshev(x: np.ndarray, max_degree: int) -> np.ndarray:
     return B
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _build_basis_laguerre(x: np.ndarray, max_degree: int) -> np.ndarray:
     """Build ``B[i, k] = L_k(x[i])`` via the Laguerre recurrence."""
     n = x.shape[0]
