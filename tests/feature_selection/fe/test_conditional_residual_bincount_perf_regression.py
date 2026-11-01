@@ -97,4 +97,5 @@ def test_conditional_residual_generate_bit_identical_to_add_at_reference():
             bm = np.where(bc > 0.0, bs / np.maximum(bc, 1.0), gm)
             ref = np.where(fin, xi - bm[codes_j], 0.0)
             got = enc[f"{x_i}__cond_resid_by__{x_j}"].to_numpy()
+            ref = ref.astype(got.dtype)  # the block is stored at the crit dtype; the float64 reference rounds to it
             assert np.array_equal(got, ref), f"mismatch for ({x_i},{x_j})"
