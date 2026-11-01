@@ -162,6 +162,14 @@ def _batch_one_scorer(s, Xmat, y_arr, *, nbins, random_state, n_neighbors, copul
 
         # dCor shares one subsample index set across columns (same seed), so the batch equals each per-column call bit for bit.
         return _dcor_batch(Xmat, y_arr, n_sample=int(dcor_n_sample), random_state=int(random_state))
+    elif s == "hsic":
+        from ._orthogonal_hsic_fe import _hsic_batch
+
+        # HSIC shares one subsample index set across columns (same seed), as the per-column call draws it, so the batch is the per-column value up to rounding.
+        if np.isfinite(Xmat).all():
+            return _hsic_batch(Xmat, y_arr, n_sample=int(dcor_n_sample), random_state=int(random_state))
+        # Intentional float64: scorer values kept as a double precision vector, like the batched ones
+        return np.array([call(s, Xmat[:, j], y_arr) for j in range(Xmat.shape[1])], dtype=np.float64)
     elif s == "ksg":
         # KSG is per column in the per-column path (one kNN build each); the batch draws each column's noise from its own seed, so every column equals its
         # single-column call bit for bit. A continuous target or a non-finite column keeps the per-column scorer.
@@ -225,7 +233,7 @@ def _compute_per_scorer_rank_table(
     # subsample) stay per-column via _call.
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-    _BATCHABLE = {"plug_in", "copula", "xi", "ksg", "dcor"}
+    _BATCHABLE = {"plug_in", "copula", "xi", "ksg", "dcor", "hsic"}
     _batch_scorers = [s for s in scorers if s in _BATCHABLE]
 
     def _batch_scores(frame: pd.DataFrame, cols: list) -> dict:
