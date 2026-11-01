@@ -44,7 +44,7 @@ Contract:
     list, any ``distance`` ('su' / 'vi' / 'auto' / 'sotoca_pla'), and any
     cache state; SU values agree to ~1 ULP (marginals bit-identical, the
     parallel joint reduction may differ by one ULP on a multi-pair batch).
-  - Returns a 1-D float64 ndarray of length len(pair_indices).
+  - Returns a 1-D double ndarray of length len(pair_indices).
   - Mutates ``state.pairwise_su_cache`` and ``state.column_entropy_cache``
     in-place (cache-warming is a feature: subsequent single-pair calls
     hit the cache).
@@ -258,7 +258,7 @@ def pair_su_batch(
     Returns
     -------
     np.ndarray
-        ``float64`` array of shape ``(len(pair_indices),)`` holding
+        ``double`` array of shape ``(len(pair_indices),)`` holding
         ``SU(a, b)`` for each input pair in the input order.
     """
     # Lazy-import to break the circular dep with the parent module.

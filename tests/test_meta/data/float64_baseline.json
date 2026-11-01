@@ -1,6 +1,5 @@
 {
   "feature_selection/filters/_cluster_aggregate.py": 1,
-  "feature_selection/filters/_dcd_pair_su_batch.py": 2,
   "feature_selection/filters/_fe_auto_escalation_proposers.py": 1,
   "feature_selection/filters/_fe_interaction_prerank.py": 1,
   "feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py": 1,
