@@ -80,13 +80,18 @@ def test_the_allowlist_still_describes_real_modules():
     assert not missing, f"allowlisted modules no longer exist: {missing}"
 
 
-def test_the_guard_serialises_entry():
+def test_the_guard_serialises_entry(monkeypatch, request):
     """The guard is only worth importing if it actually excludes a second THREAD -- but is reentrant on
     the same thread (nested guards must not deadlock, see the module's own docstring)."""
     import threading
 
+    from mlframe import _numba_parallel_guard as guard
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
+    # the lock is what protects a threading layer that cannot be entered concurrently (workqueue); under TBB the guard is a no-op by design, so this test pins the locked mode
+    monkeypatch.setenv("MLFRAME_NUMBA_PARALLEL_GUARD", "always")
+    guard._concurrent_entry_ok.cache_clear()
+    request.addfinalizer(guard._concurrent_entry_ok.cache_clear)  # the forced answer must not outlive this test
     lock = parallel_kernel_entry()
     assert lock is parallel_kernel_entry(), "each call handed back a different lock; nothing would be serialised"
 

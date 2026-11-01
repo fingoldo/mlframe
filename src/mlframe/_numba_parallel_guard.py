@@ -27,6 +27,7 @@ holding it is by definition still only one thread inside.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import threading
 
@@ -41,11 +42,47 @@ def _entry_lock() -> threading.RLock:
     return threading.RLock()
 
 
-def parallel_kernel_entry() -> threading.RLock:
-    """The lock to hold while calling a ``parallel=True`` kernel from a thread that may not be alone.
+def _layer_allows_concurrent_entry() -> bool:
+    """Whether numba's ACTIVE threading layer is one that tolerates several Python threads inside ``parallel=True`` regions at once.
 
-    Used as ``with parallel_kernel_entry(): out = some_prange_kernel(...)``. Reentrant: the same thread
-    may hold it across nested guarded calls (a caller guarding a callee that already guards itself)
-    without deadlocking; a DIFFERENT thread still blocks until every level on the holding thread exits.
+    The Intel TBB layer does (its scheduler is a shared, thread-safe pool); ``workqueue``, numba's fallback, does not, and the OpenMP layer depends on the runtime. The layer is only chosen when the first
+    parallel kernel is compiled, so a tiny one is compiled here to ask. ``MLFRAME_NUMBA_PARALLEL_GUARD=always`` keeps the lock whatever the layer (the previous behaviour); the answer is computed once.
     """
+    import os
+
+    if os.environ.get("MLFRAME_NUMBA_PARALLEL_GUARD", "").strip().lower() == "always":
+        return False
+    try:
+        import numba
+        import numpy as np
+        from numba import njit, prange
+
+        @njit(parallel=True)
+        def _probe(a):  # pragma: no cover - compiled, not traced
+            """Smallest ``prange`` kernel: compiling and running it makes numba pick its threading layer."""
+            s = 0.0
+            for i in prange(a.size):
+                s += a[i]
+            return s
+
+        _probe(np.ones(8))
+        return str(numba.threading_layer()) == "tbb"
+    except Exception:
+        return False
+
+
+@functools.lru_cache(maxsize=1)
+def _concurrent_entry_ok() -> bool:
+    """Cached :func:`_layer_allows_concurrent_entry`."""
+    return _layer_allows_concurrent_entry()
+
+
+def parallel_kernel_entry() -> "contextlib.AbstractContextManager[object]":
+    """The context to hold while calling a ``parallel=True`` kernel from a thread that may not be alone.
+
+    Used as ``with parallel_kernel_entry(): out = some_prange_kernel(...)``. With a thread-safe threading layer (TBB) it is a no-op, so concurrent stages do overlap their parallel kernels; otherwise it is the
+    process-wide RLock: reentrant (the same thread may hold it across nested guarded calls without deadlocking), and a DIFFERENT thread blocks until every level on the holding thread exits.
+    """
+    if _concurrent_entry_ok():
+        return contextlib.nullcontext()
     return _entry_lock()

@@ -620,7 +620,8 @@ def quantile_bin_columns(X: np.ndarray, nbins: int) -> "list[np.ndarray]":
         ok = np.isfinite(v).all(axis=1)
         if ok.any():
             codes = np.empty((int(ok.sum()), n), dtype=np.int16)
-            quantile_bin_block(np.ascontiguousarray(v[ok]), int(nbins), codes)
+            with parallel_kernel_entry():
+                quantile_bin_block(np.ascontiguousarray(v[ok]), int(nbins), codes)
             r = 0
             for j in range(j1 - j0):
                 if ok[j]:
@@ -655,7 +656,8 @@ def _prebinned_candidates(X_cand: Any, cand_cols: list, nbins: int, score: "Call
             continue
         v = v[ok]
         codes = np.empty(v.shape, dtype=np.int16)
-        quantile_bin_block(v, nbins, codes)
+        with parallel_kernel_entry():
+            quantile_bin_block(v, nbins, codes)
         vals = score(codes) if score is not None else codes
         for r, c in enumerate(np.asarray(names, dtype=object)[ok]):
             out[c] = vals[r]

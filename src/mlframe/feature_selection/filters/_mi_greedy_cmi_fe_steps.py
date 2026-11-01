@@ -23,6 +23,7 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
 
     from mlframe._numba_fallback import njit, prange
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from mlframe.utils.log_throttle import log_throttle
 
 from ._xxh3_hash import resolve_xxh3_64
@@ -223,7 +224,8 @@ def _renumber_joint(*cols: np.ndarray) -> tuple[np.ndarray, int]:
         # the actual occupied joint cardinality (~ <= n) instead of the cartesian
         # product (which would blow up at d=4+ support cols * 10 bins).
         if n:
-            joint, mult = _combine_factorize_njit(joint, c64, mult)
+            with parallel_kernel_entry():
+                joint, mult = _combine_factorize_njit(joint, c64, mult)
         else:
             joint = joint + c64 * mult
     return joint, int(mult)
