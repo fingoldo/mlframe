@@ -18,7 +18,6 @@
   "feature_selection/filters/_resident_candidate_mi_ktc.py": 1,
   "feature_selection/filters/_wavelet_basis_fe.py": 2,
   "feature_selection/filters/_wavelet_basis_fe_batched.py": 1,
-  "feature_selection/filters/batch_mi_noise_gate_gpu.py": 8,
   "feature_selection/filters/discretization/_discretization_dataset.py": 4,
   "feature_selection/filters/engineered_recipes/_recipe_unary_binary_gpu.py": 3,
   "feature_selection/filters/gpu.py": 6,
