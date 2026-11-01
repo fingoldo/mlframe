@@ -52,7 +52,7 @@ def _fit_aux_lgb_and_filter(
     """Train aux LGB and keep only virtuals with predicted P(y=1) >= threshold (binary) or top-quantile predicted (regression)."""
     import lightgbm as lgb
     params = dict(
-        n_estimators=n_estimators, max_depth=max_depth, num_leaves=2 ** max_depth,
+        n_estimators=n_estimators, max_depth=max_depth, num_leaves=min(2 ** max_depth, 63),
         learning_rate=0.05, random_state=seed, n_jobs=-1, verbose=-1, min_data_in_leaf=5,
     )
     if task == "binary":

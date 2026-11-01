@@ -30,6 +30,8 @@ import os
 import uuid
 from collections import OrderedDict
 import warnings
+
+from mlframe.utils.safe_pickle import UNVERIFIED_ENV_VAR
 from types import SimpleNamespace
 from typing import Callable, Optional, Dict, Any
 
@@ -247,6 +249,9 @@ def safe_joblib_load(filename: str) -> Any:
     pickle RCE gadgets (eval/exec/os/subprocess/etc.) while still permitting arbitrary custom model/
     wrapper classes -- the loader's threat model documented in ``inference/predict.py`` treats the sha256
     sidecar as the integrity gate, not authenticity, and intentionally supports non-allowlisted classes.
+    Trust model (DESER-03/04, DOC): the denylist blocks known gadgets, not every callable a pickle can name, so a bundle that passes
+    its sidecar check is code-execution-equivalent for whoever can write it. Custom model classes must stay loadable, which is why
+    the allowlist is not used here; a writer that can rewrite both the bundle and its sidecar is outside the threat model.
     Does not support ``mmap_mode`` (models loaded this way are read fully into memory, matching how
     ``inference/predict.py`` already used plain ``joblib.load``)."""
     with open(filename, "rb") as fobj:
@@ -521,6 +526,24 @@ def _load_model_cache_clear() -> None:
         _LOAD_MODEL_CACHE.clear()
 
 
+def _verify_bundle_digest(bundle_path: str) -> None:
+    """Refuse a model bundle whose bytes do not match the sha256 recorded in its save sidecar (DESER-02).
+
+    The sidecar is written at save time next to the bundle; a bundle without a recorded digest, or with one that no longer matches, is not
+    unpickled. ``MLFRAME_ALLOW_UNVERIFIED_PICKLE`` is the explicit opt-out for a bundle that predates the digest.
+    """
+    meta = load_save_meta_sidecar(bundle_path)
+    expected = (meta or {}).get("bundle_sha256")
+    if not expected:
+        if os.environ.get(UNVERIFIED_ENV_VAR, "").strip().lower() in ("1", "true", "yes", "on"):
+            logger.warning("load_mlframe_model: %r has no recorded sha256; loading because %s is set", bundle_path, UNVERIFIED_ENV_VAR)
+            return
+        raise RuntimeError(f"load_mlframe_model: no sha256 recorded for {bundle_path!r}; refusing to unpickle. Set {UNVERIFIED_ENV_VAR}=1 to load it.")
+    actual = _bundle_sha256(bundle_path)
+    if actual != expected:
+        raise RuntimeError(f"load_mlframe_model: sha256 of {bundle_path!r} does not match its save sidecar; refusing to unpickle.")
+
+
 def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = False) -> Optional[object]:
     """
     Load an mlframe model from a compressed file.
@@ -571,6 +594,7 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
         # AttributeError deep in predict(). Returns None on legacy bundles
         # (previous) with no sidecar; that's a back-compat path with a
         # one-line INFO message in the helper.
+        _verify_bundle_digest(file)
         try:
             validate_load_meta_sidecar(file, strict=strict_version)
         except ValueError:

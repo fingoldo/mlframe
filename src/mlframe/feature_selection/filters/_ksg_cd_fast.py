@@ -132,7 +132,7 @@ def ksg_mi_discrete_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbors:
     means = np.maximum(1.0, np.mean(np.abs(X), axis=0))
     # Intentional float64: the noise is drawn in double precision, as the per-column call draws it
     # every column draws from a fresh ``RandomState(random_state)``, so all columns get the SAME n values: one draw, broadcast
-    one_draw = np.random.RandomState(int(random_state)).standard_normal(size=n)
+    one_draw = np.asarray(np.random.RandomState(int(random_state)).standard_normal(size=n), dtype=np.float64)
     X += 1e-10 * means * one_draw[:, None]
     _, d = np.unique(np.asarray(y).ravel(), return_inverse=True)
     d = np.ascontiguousarray(d, dtype=np.int64)

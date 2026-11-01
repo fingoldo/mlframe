@@ -52,9 +52,8 @@ class PlotOutputSpec:
 
 # Match a single backend clause: "plotly[html,png]" with optional whitespace.
 # Group 1 = backend name (alpha only), Group 2 = format list inside [].
-_CLAUSE_RE = re.compile(r"^\s*([A-Za-z]+)\s*\[\s*([A-Za-z0-9_,\s]+?)\s*\]\s*$")
-# Split the plot_outputs DSL on '+' with optional surrounding whitespace.
-_CLAUSE_SPLIT_RE = re.compile(r"\s*\+\s*")
+# Format names are separated by commas with optional spaces; the separators do not overlap the surrounding whitespace, so a long run of spaces inside an unterminated bracket is scanned once (RDS2-2).
+_CLAUSE_RE = re.compile(r"^\s*([A-Za-z]+)\s*\[\s*([A-Za-z0-9_]+(?:\s*,\s*[A-Za-z0-9_]+)*)\s*\]\s*$")
 
 
 def parse_plot_output_dsl(s: str) -> PlotOutputSpec:
@@ -74,7 +73,8 @@ def parse_plot_output_dsl(s: str) -> PlotOutputSpec:
     raw = s
     # Split on '+' (allowing whitespace around it). Keep order so callers
     # can rely on (matplotlib first, so matplotlib is primary) when both are requested.
-    clauses = [c.strip() for c in _CLAUSE_SPLIT_RE.split(s) if c.strip()]
+    # str.split plus strip is what the old '+' regex did, without its quadratic scan of whitespace runs (RDS2-2).
+    clauses = [c.strip() for c in s.split("+") if c.strip()]
     if not clauses:
         raise ValueError(f"plot_outputs DSL has no clauses: {s!r}")
 

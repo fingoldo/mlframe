@@ -46,7 +46,7 @@ def _filter_boundary_virtuals(X_train: np.ndarray, y_train: np.ndarray, virtuals
     """Train aux LGB, keep virtuals near decision boundary (|p - 0.5| < margin_threshold for binary)."""
     import lightgbm as lgb
     params = dict(
-        n_estimators=n_estimators, max_depth=max_depth, num_leaves=2 ** max_depth,
+        n_estimators=n_estimators, max_depth=max_depth, num_leaves=min(2 ** max_depth, 63),
         learning_rate=0.05, random_state=seed, n_jobs=-1, verbose=-1, min_data_in_leaf=5,
     )
     if task == "binary":

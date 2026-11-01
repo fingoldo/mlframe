@@ -53,7 +53,7 @@ repos:
   # here so a syntax typo in e.g. .pre-commit-config.yaml itself or a workflow file fails fast
   # with a clear message instead of a confusing downstream tool crash.
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # v6.0.0  # pragma: allowlist secret
     hooks:
       - id: check-merge-conflict
       - id: check-added-large-files
@@ -83,7 +83,7 @@ repos:
   # Bootstrap the baseline once with:
   #   detect-secrets scan > .secrets.baseline
   - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.5.0
+    rev: 01886c8a910c64595c47f186ca1ffc0b77fa5458  # v1.5.0  # pragma: allowlist secret
     hooks:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
@@ -172,7 +172,7 @@ repos:
   # locally). Custom self-hosted runner labels are allow-listed in
   # .github/actionlint.yaml.
   - repo: https://github.com/Mateusz-Grzelinski/actionlint-py
-    rev: v1.7.12.24
+    rev: 2f3dbd354aa118b539dee99d8eed05a83097a199  # v1.7.12.24  # pragma: allowlist secret
     hooks:
       - id: actionlint
 
@@ -183,7 +183,7 @@ repos:
   # line endings (SC1017), which breaks its shebang on Linux -- no .gitattributes
   # existed to force LF on .sh files. Fixed both.
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.11.0.1
+    rev: 745eface02aef23e168a8afb6b5737818efbea95  # v0.11.0.1  # pragma: allowlist secret
     hooks:
       - id: shellcheck
 
@@ -218,7 +218,7 @@ repos:
   # sanctioned, filtered formatting pass instead of
   # `pre-commit run --hook-stage manual black`.
   - repo: https://github.com/psf/black
-    rev: 26.5.1
+    rev: 87928e6d6761a4a6d22250e1fee5601b3998086e  # 26.5.1  # pragma: allowlist secret
     hooks:
       - id: black
         language_version: python3
@@ -264,7 +264,7 @@ repos:
   # tests/test_meta/test_precommit_mypy_beachhead_coverage.py for the meta-test that now pins
   # this regex against pyproject.toml's actual override list.
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.1.0
+    rev: d2823d321df3af8f878f7ee3414dc94d037145b9  # v2.1.0  # pragma: allowlist secret
     hooks:
       - id: mypy
         files: '^(src/mlframe/calibration/|src/mlframe/utils/safe_pickle\.py$|src/mlframe/system/_gpu_guard\.py$|src/mlframe/metrics/(_numba_params|rank_correlation|_core_precision_mape)\.py$)'
@@ -668,7 +668,7 @@ repos:
   # runnable via `pre-commit run mypy-full-manual --hook-stage manual` for a quick changed-files-
   # only check without paying the whole-project scan) rather than deleting the hook entirely.
   - repo: https://github.com/fingoldo/py-ci-shared
-    rev: 670b80cbfd4b851578346741c21b62b8aa0ce4dc  # v1.23.7  # pragma: allowlist secret
+    rev: 2ab4fdf4b0e1c7ba7613913ac78ad61b91913391  # v1.23.8  # pragma: allowlist secret
     hooks:
       - id: mypy-full-manual
         pass_filenames: true

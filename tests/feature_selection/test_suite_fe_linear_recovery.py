@@ -209,6 +209,8 @@ def test_fe_delivers_usable_signal_uplift(gen, dist, min_uplift):
         pytest.param("ratio_heavytail", "uniform", 0.60, 0.30, id="ridge-ratio_heavytail-uniform"),
     ],
 )
+# the test runs a child MRMR fit; the default timeout is shorter than that fit
+@pytest.mark.timeout(3600)
 def test_ridge_magnitude_recovery(gen, dist, r2_floor, span_floor):
     """The fix is not linear-only: ``model="ridge"`` reaches the same magnitude-recovery
     floors on the heavy-tail target."""

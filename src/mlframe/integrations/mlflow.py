@@ -33,7 +33,9 @@ except ImportError as _exc:
 
 # Matches ``scheme://user:password@`` prefixes so we can scrub them before
 # printing or logging exception text that bubbled up from mlflow.
-_USERINFO_RE = re.compile(r"(?i)([a-z][a-z0-9+\-.]*://)[^/@\s]+@")
+# The scheme may start only at a word boundary, so a long run of letters is scanned once instead of from every position (RDS2-1). The userinfo
+# runs to the last "@" before a "/" or whitespace, so a password that itself contains "@" is fully redacted (NET2-02).
+_USERINFO_RE = re.compile(r"(?i)(?<![a-z0-9+\-.])([a-z][a-z0-9+\-.]*://)[^/\s]*@")
 
 
 def _strip_userinfo(text: object) -> str:

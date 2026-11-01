@@ -57,7 +57,7 @@ def _fit_aux_lgb(X: np.ndarray, y: np.ndarray, *, task: str, seed: int, focal: b
         train_data = lgb.Dataset(X, label=y)
         params = dict(
             objective=_focal_obj(gamma=2.0),
-            learning_rate=0.05, max_depth=max_depth, num_leaves=2 ** max_depth,
+            learning_rate=0.05, max_depth=max_depth, num_leaves=min(2 ** max_depth, 63),
             min_data_in_leaf=5, seed=seed, verbosity=-1,
         )
         return lgb.train(params, train_data, num_boost_round=n_estimators)
@@ -66,7 +66,7 @@ def _fit_aux_lgb(X: np.ndarray, y: np.ndarray, *, task: str, seed: int, focal: b
         # model's squared-error loss -- same lgb quantile-objective pattern already used by
         # quantile_spread_fan.py / jackknife_endpoint_stability.py / distributional_moments.py.
         model = lgb.LGBMRegressor(
-            n_estimators=n_estimators, max_depth=max_depth, num_leaves=2 ** max_depth,
+            n_estimators=n_estimators, max_depth=max_depth, num_leaves=min(2 ** max_depth, 63),
             learning_rate=0.05, random_state=seed, n_jobs=-1, verbose=-1, min_data_in_leaf=5,
             objective="quantile", alpha=0.5,
         )
@@ -74,12 +74,12 @@ def _fit_aux_lgb(X: np.ndarray, y: np.ndarray, *, task: str, seed: int, focal: b
         return model
     if task == "binary":
         model = lgb.LGBMClassifier(
-            n_estimators=n_estimators, max_depth=max_depth, num_leaves=2 ** max_depth,
+            n_estimators=n_estimators, max_depth=max_depth, num_leaves=min(2 ** max_depth, 63),
             learning_rate=0.05, random_state=seed, n_jobs=-1, verbose=-1, min_data_in_leaf=5,
         )
     else:
         model = lgb.LGBMRegressor(
-            n_estimators=n_estimators, max_depth=max_depth, num_leaves=2 ** max_depth,
+            n_estimators=n_estimators, max_depth=max_depth, num_leaves=min(2 ** max_depth, 63),
             learning_rate=0.05, random_state=seed, n_jobs=-1, verbose=-1, min_data_in_leaf=5,
         )
     model.fit(X, y)

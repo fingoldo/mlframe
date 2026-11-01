@@ -149,6 +149,8 @@ def test_engineered_unary_binary_transform_is_continuous():
 
 
 @pytest.mark.slow
+# the MRMR fit on this case stalls in a GPU kernel on the 4 GB card
+@pytest.mark.slow
 def test_suite_linear_reaches_r2_099_on_case2_via_mrmr():
     """``train_mlframe_models_suite(model="linear")`` with MRMR feature selection
     must reach test-R2 >= 0.99 on the user's exact CASE2.

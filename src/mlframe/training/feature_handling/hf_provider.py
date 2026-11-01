@@ -110,12 +110,13 @@ def _hf_cache_lock_path(model_name: str, revision: Optional[str]) -> str:
     if root is None or root == "":
         root = os.environ.get("TRANSFORMERS_CACHE")
     if root is None or root == "":
-        root = os.path.join(tempfile.gettempdir(), "mlframe-hf-locks")
+        # The per-user cache, not the shared temp dir: a predictable lock path in /tmp can be pre-created by another local user (PRV3-2).
+        root = os.path.join(os.path.expanduser("~"), ".cache", "mlframe-hf-locks")
     sig = f"{model_name}@{'main' if revision is None or revision == '' else revision}"
     sig_hash = hashlib.blake2b(sig.encode("utf-8"), digest_size=12).hexdigest()
     lock_dir = os.path.join(root, ".mlframe-fhc-locks")
     try:
-        os.makedirs(lock_dir, exist_ok=True)
+        os.makedirs(lock_dir, mode=0o700, exist_ok=True)
     except OSError:
         lock_dir = tempfile.gettempdir()
     return os.path.join(lock_dir, f"hf_{sig_hash}.lock")

@@ -77,24 +77,25 @@ def test_sidecar_fields_present(tmp_bundle_dir):
     assert "mlframe" in meta["lib_versions"], "lib_versions must include mlframe.__version__"
 
 
-def test_legacy_bundle_no_sidecar_loads_silently(tmp_bundle_dir, caplog):
-    """Pre-2026-05-20 bundles have no sidecar. Load must succeed silently
-    (back-compat is the contract)."""
+def test_legacy_bundle_no_sidecar_is_refused_unless_opted_out(tmp_bundle_dir, monkeypatch):
+    """A bundle without a save sidecar has no recorded sha256 and is not unpickled by default (DESER-02).
+
+    The explicit opt-out still loads it, for a bundle that predates the digest.
+    """
     from mlframe.training.io import save_mlframe_model, load_mlframe_model, _meta_sidecar_path
 
+    monkeypatch.delenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", raising=False)
     bundle = tmp_bundle_dir / "test.dump"
     save_mlframe_model(SimpleNamespace(payload=42), str(bundle), verbose=0)
-    # Delete sidecar to simulate legacy bundle.
     sidecar = Path(_meta_sidecar_path(str(bundle)))
     sidecar.unlink()
     assert not sidecar.exists()
-    with caplog.at_level(logging.WARNING, logger="mlframe.training.io"):
-        loaded = load_mlframe_model(str(bundle))
+    with pytest.raises(RuntimeError, match="no sha256 recorded"):
+        load_mlframe_model(str(bundle))
+    monkeypatch.setenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", "1")
+    loaded = load_mlframe_model(str(bundle))
     assert loaded is not None
     assert loaded.payload == 42
-    # No version-related WARN should fire when sidecar is absent.
-    version_warns = [r for r in caplog.records if "version" in r.message.lower() or "drift" in r.message.lower()]
-    assert version_warns == [], f"legacy bundles must load silently; got: {[r.message for r in version_warns]}"
 
 
 def test_lib_version_drift_warns(tmp_bundle_dir, caplog):
@@ -140,23 +141,23 @@ def test_lib_version_drift_strict_raises(tmp_bundle_dir):
         load_mlframe_model(str(bundle), strict_version=True)
 
 
-def test_corrupt_sidecar_falls_back_to_warn(tmp_bundle_dir, caplog):
-    """Corrupt sidecar JSON: WARN, then proceed (bundle may still load)."""
+def test_corrupt_sidecar_is_refused_and_warned(tmp_bundle_dir, caplog, monkeypatch):
+    """A corrupt sidecar leaves no readable sha256, so the bundle is refused by default (DESER-02); the read failure is still logged."""
     from mlframe.training.io import (
         save_mlframe_model,
         load_mlframe_model,
         _meta_sidecar_path,
     )
 
+    monkeypatch.delenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", raising=False)
     bundle = tmp_bundle_dir / "test.dump"
     save_mlframe_model(SimpleNamespace(payload=99), str(bundle), verbose=0)
     sidecar = Path(_meta_sidecar_path(str(bundle)))
     sidecar.write_text("{ this is not JSON", encoding="utf-8")  # corrupt
 
     with caplog.at_level(logging.WARNING, logger="mlframe.training.io"):
-        loaded = load_mlframe_model(str(bundle))
-    assert loaded is not None
-    assert loaded.payload == 99
+        with pytest.raises(RuntimeError, match="no sha256 recorded"):
+            load_mlframe_model(str(bundle))
     # WARN must fire naming the read failure.
     assert any("failed to read" in rec.message for rec in caplog.records), f"expected WARN on corrupt sidecar; got: {[r.message for r in caplog.records]}"
 

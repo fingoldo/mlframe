@@ -15,11 +15,14 @@ zstd = pytest.importorskip("zstandard")
 
 
 def _write_dummy_bundle(path: str, payload) -> None:
-    """Write dummy bundle."""
+    """Write dummy bundle, then record its sha256 in the save sidecar: a bundle without one is refused (DESER-02)."""
+    from mlframe.training import io as io_mod
+
     cctx = zstd.ZstdCompressor()
     with open(path, "wb") as f:
         with cctx.stream_writer(f) as zw:
             dill.dump(payload, zw)
+    io_mod._write_save_meta_sidecar(path)
 
 
 def test_load_mlframe_model_caches_by_path_and_mtime(tmp_path, monkeypatch):

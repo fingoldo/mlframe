@@ -13,7 +13,6 @@ import os
 import tempfile
 import threading
 import time
-import warnings
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
@@ -322,68 +321,38 @@ def test_h_fh_09_batch_size_recovers_after_oom() -> None:
 # =====================================================================
 
 
-def test_h_fh_10_stale_lock_retry_uses_fresh_filelock() -> None:
-    """Pre-fix: after detecting a dead PID and unlinking the lockfile,
-    the same ``self._lock`` object was retry-acquired - that object on
-    Windows can hold a closed handle to the now-unlinked path, and
-    the retry used only the short ``reclaim_grace_timeout`` rather
-    than the full configured timeout. The fix constructs a fresh
-    ``FileLock`` and uses ``max(reclaim_grace_timeout, timeout)``.
+def test_h_fh_10_held_lock_with_a_stale_pid_is_not_reclaimed() -> None:
+    """A lock the OS still holds is never taken over, even when the meta file names a dead PID (CON2-3).
 
-    Asserts the fresh lock object is wired in by simulating the
-    stale-PID path with a never-running PID and checking the
-    StaleLockReclaimed warning fires + acquisition succeeds.
+    The meta PID can be stale (a new holder writes its PID only after acquiring). Unlinking the lock file on that basis let a second
+    process acquire on POSIX while the holder kept its flock on the old inode. The acquire now raises Timeout and the lock file stays.
     """
     pytest.importorskip("filelock")
 
+    from filelock import FileLock as _FL
     from filelock import Timeout
 
-    from mlframe.training.feature_handling.locking import (
-        PIDAwareFileLock,
-        StaleLockReclaimed,
-    )
+    from mlframe.training.feature_handling.locking import PIDAwareFileLock
 
     with tempfile.TemporaryDirectory() as tmp:
         lock_path = os.path.join(tmp, "stale.lock")
         meta = lock_path + ".pid"
-        # Plant a fake PID file pointing at a PID that doesn't exist.
-        # Use 2**31 - 1 which is well outside the live process range on
-        # any normal system; psutil.pid_exists returns False.
+        # A PID that no live process has.
         with open(meta, "w") as f:
             f.write(str(2**31 - 1))
-
-        # Plant the .lock file itself so a naive acquire times out.
         with open(lock_path, "w"):
             pass
 
-        # Hold a real filelock on it so the FIRST acquire times out
-        # quickly, triggering the stale-reclaim path.
-        from filelock import FileLock as _FL
-
         holder = _FL(lock_path)
         holder.acquire(timeout=1.0)
-
-        # The reclaim path will: read the PID meta, see PID doesn't
-        # exist, unlink, build a fresh FileLock, retry. Because we
-        # still hold the real lock, the retry will fail with a Timeout -
-        # the fresh-lock construction is what we're verifying, so assert
-        # that StaleLockReclaimed was warned before that Timeout. On POSIX the unlink succeeds while the holder keeps its flock on the
-        # old inode, so the fresh lock on the recreated path is free and the retry acquires instead of timing out.
-        with warnings.catch_warnings(record=True) as ws:
-            warnings.simplefilter("always")
+        try:
             lock = PIDAwareFileLock(lock_path, timeout=1.0, reclaim_grace_timeout=0.5)
-            if os.name == "nt":
-                with pytest.raises(Timeout):
-                    lock.__enter__()  # holder still locks it
-            else:
-                with lock:
-                    pass
-        reclaimed = [w for w in ws if issubclass(w.category, StaleLockReclaimed)]
-        assert reclaimed, "StaleLockReclaimed warning not fired"
-        # And after reclaim the holder must still own the lock,
-        # confirming no spurious unlock of a live holder.
-        assert holder.is_locked
-        holder.release()
+            with pytest.raises(Timeout):
+                lock.__enter__()
+            assert os.path.exists(lock_path), "the lock file of a live holder was removed"
+            assert holder.is_locked
+        finally:
+            holder.release()
 
 
 # =====================================================================

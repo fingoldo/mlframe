@@ -116,4 +116,38 @@ No High finding in any class.
 | CON2-1 | `d77a62c80` | tuning lock created with its pid already in it (hard link); a young empty lock counts as live | `tests/system/test_kernel_tuning_lock_race.py` (the young-lock test fails on the previous code) |
 | CON2-2 | `80ec158f5` | analytic-null floor override kept per block in a locked list, not a saved and restored global | `tests/feature_selection/filters/test_analytic_null_override_overlap.py` (both tests fail on the previous code) |
 
+| DESER-07 | `8a02c732b` | joblib suite metadata needs a sha256 sidecar like the pickle kinds | `tests/training/test_metadata_loader_sidecar_required.py` (joblib refusal fails on the previous code) |
+| DESER-02 | `71d53db0e` | model bundle bytes must match `bundle_sha256` before unpickling; three tests that pinned the old behaviour updated | `tests/training/test_load_model_bundle_digest_required.py` (tampered bundle fails on the previous code) |
+| DESER-06 | `981c6a956` | gridsearch dump read through `safe_joblib_load` | `tests/estimators/test_replay_cv_results_refuses_gadget.py` (marker created on the previous code) |
+| DESER-03/04 | DOC | denylist trust model stated in the `safe_joblib_load` docstring | docstring (`io.py`) |
+| SUB2-01 | `9f0ee5cd2`, `28161bf23` | `-P` on the probe, polars probe and tuning children | `tests/utils/test_native_import_probe_cwd_not_on_path.py` (fails on the previous code) |
+| SUB2-02 | `5093beb1b` | nvidia-smi resolved from absolute PATH entries only | `tests/training/test_gpu_state_probe_smi_not_from_cwd.py` (fails on the previous code) |
+| INP2-2 | `c52afb8f0`, `5ac588b1e` | auxiliary LightGBM leaves capped at 63 | `tests/feature_engineering/transformer/test_aux_leaf_cap.py` (LightGBM fatal on the previous code) |
+| CON2-3 | `ee447a266` | held feature-handling lock never reclaimed | `tests/training/test_feature_handling_high_feature_handling.py::test_h_fh_10_*` (rewritten; does not separate the versions on Windows, POSIX check pending) |
+| SEC2-1 | `6f00c4c4a` | URL userinfo scrubbed from provider signature and repr | `tests/training/feature_handling/test_provider_signature_strips_url_credentials.py` (fails on the previous code) |
+| DYN2-1 | `26f0976bd` | optimizer class restored only from `torch.optim` | `tests/training/neural/test_flat_torch_setstate_optimizer_ref.py` (fails on the previous code) |
+| DYN2-2 / EXE-10 | `66b4221a1` | recommendation constructs only an estimator class | `tests/training/composite/test_instantiate_recommended_estimator_class_only.py` (fails on the previous code) |
+| SUP2-2 | `3f22d8738` | external pre-commit revs pinned to SHAs (ruff stays on its tag: the shared check requires it) | config |
+| NET2-03 | `6cdf0b0c2` | InfoNet checkpoint pinned by sha256, trust on first use | `tests/feature_selection/filters/test_infonet_checkpoint_digest.py` (replaced-file test fails on the previous code) |
+| RDS2-1, NET2-02 | `17f8f9840` | userinfo scrub redacts a whole password and runs in linear time | `tests/integrations/test_mlflow_userinfo_scrub.py` |
+| RDS2-2 | `4108b3871` | plot-output DSL linear on whitespace runs | `tests/reporting/test_plot_output_dsl_linear.py` |
+| FS2-1, FS2-2 | `1579c7253` | cache keys guarded, directory mode 0o700 | `tests/training/test_suite_artefact_cache_key_guard.py` |
+| (tests) | `075d68530` | GPU-stalling tests `slow`, CPU-heavy tests `timeout(3600)` | policy commit |
+
+**SUP2-3 (DOC):** the mypy pins in pre-commit differ from `uv.lock` on purpose: they reproduce the CI environment where mypy errors were traced to a different numpy, scipy, scikit-learn and pydantic combination (see the comment above the hook). Changing them needs a whole-project mypy run, so the drift is documented here and checked on every pre-push.
+
+## DOC rows documented here
+
+- **DESER-01**: `dill.load` in `load_mlframe_model` runs only with `safe=False`, which warns; no in-repo caller passes it. Documented: `safe=False` is an explicit trust-the-source opt-in.
+- **DESER-08**: the feature-handling cache falls back to pickle with `allow_pickle=True` only for its own files. Documented: that cache directory is trusted like the process itself.
+- **DSR2-02**: the denylist matches module prefixes, not resolved objects. Documented as part of the `safe_joblib_load` trust model (see DESER-03/04).
+- **NET2-04, NET2-05, NET2-06**: intended behaviour of the InfoNet download hint, the Boruta-SHAP network path and the MLflow scrub order. Documented as stated in the audit report.
+- **SEC2-2**: model string logged at INFO on the HF provider. Documented: the model name is not a secret.
+- **SUP2-4**: the vendored InfoNet NOTICE is the provenance record. Documented.
+- **SUP2-6, SUP2-8**: `uses:` lines pinned to tags in workflows and py-ci-shared actions are the project's pinning convention for those repos. Documented.
+- **INP2-4**: `inference/predict.py` accepts caller-sized inputs by design. Documented.
+- **CON2-4**: `_training_loop_refit` shares a process-wide state by design for one fit. Documented.
+- **CON2-7**: `suite_artefact_cache` lock and write ordering is per process. Documented.
+- **RDS2-3, RDS2-4, RDS2-5, RDS2-6**: regexes from operator config are trusted input, not data; the field descriptions say they must be linear-time. Documented.
+
 The other FUTURE and DOC rows above are not implemented yet. Each needs the owner's triage first.

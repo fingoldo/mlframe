@@ -80,11 +80,21 @@ def _num(s: str) -> Optional[float]:
         return None
 
 
+def _resolve_smi() -> str:
+    """Path of ``nvidia-smi`` from absolute PATH entries only.
+
+    A relative or empty PATH entry means the working directory, where Windows runs a planted ``nvidia-smi.exe`` before the real one (SUB2-02).
+    """
+    search = os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep) if p and os.path.isabs(p))
+    exe = shutil.which("nvidia-smi", path=search)
+    if exe is None:
+        raise FileNotFoundError("nvidia-smi is not on an absolute PATH entry")
+    return exe
+
+
 def _probe_smi() -> Dict[str, Any]:
     """Same snapshot as :func:`_probe_nvml`, parsed from two ``nvidia-smi --query-*`` CSV calls (the process query is optional)."""
-    exe = shutil.which("nvidia-smi")
-    if exe is None:
-        exe = "nvidia-smi"
+    exe = _resolve_smi()
     out = subprocess.run(  # nosec B603
         [exe, "--query-gpu=index,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
         capture_output=True, text=True, timeout=_SMI_TIMEOUT_S, check=True,

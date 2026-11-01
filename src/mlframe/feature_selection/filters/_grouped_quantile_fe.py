@@ -158,7 +158,8 @@ def _pct_rank_in_sorted(sorted_vals: np.ndarray, x: np.ndarray) -> np.ndarray:
     if tied.any():
         hi[tied] = np.searchsorted(sorted_vals, x[tied], side="right")
     # Average rank for ties; normalise by m so the result is a CDF position.
-    return (lo + hi) / (2.0 * m)
+    rank: np.ndarray = (lo + hi) / (2.0 * m)
+    return rank
 
 def generate_grouped_quantile_features(
     X: pd.DataFrame,

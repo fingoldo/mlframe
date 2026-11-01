@@ -210,6 +210,12 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
     def __setstate__(self, state):
         _opt_ref = state.get("optimizer")
         if isinstance(_opt_ref, tuple) and len(_opt_ref) == 3 and _opt_ref[0] == "__optimizer_class_ref__":
+            # Only torch optimizer classes are resolved: the reference comes from a pickle, so an arbitrary module or attribute chain would
+            # import and getattr whatever the stream names (DYN2-1). Any other reference is kept as a string.
+            if _opt_ref[1] != "torch.optim" and not _opt_ref[1].startswith("torch.optim."):
+                logger.warning("Refusing to restore optimizer class %r from outside torch.optim; leaving as reference.", _opt_ref)
+                self.__dict__.update(state)
+                return
             try:
                 import importlib
 

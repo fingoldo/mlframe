@@ -88,7 +88,7 @@ def _probe(library: str) -> bool:
         return False
     try:
         completed = subprocess.run(  # nosec B603 - fixed source string, no shell, argv built here
-            [sys.executable, "-c", _PROBE_SOURCE, library],
+            [sys.executable, "-P", "-c", _PROBE_SOURCE, library],
             capture_output=True,
             timeout=_PROBE_TIMEOUT_SECONDS,
             check=False,

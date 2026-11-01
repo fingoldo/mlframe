@@ -28,8 +28,6 @@ import logging
 import os
 from typing import Optional
 
-import psutil
-
 logger = logging.getLogger(__name__)
 
 try:
@@ -97,61 +95,10 @@ class PIDAwareFileLock:
         try:
             self._lock.acquire(timeout=self.timeout)
         except Timeout:
-            # Stale-lock detection: read PID from lockfile, check if the
-            # holder is alive. If dead, remove and retry once.
-            holder_pid = self._read_holder_pid()
-            if holder_pid is not None and not psutil.pid_exists(holder_pid):
-                logger.warning(
-                    "PIDAwareFileLock: lock %s held by dead PID %d; reclaiming",
-                    self.path, holder_pid,
-                )
-                # Surface to callers via Python warnings BEFORE the unlink
-                # attempt -- on Windows a still-open exclusive handle from
-                # a third process can make unlink raise PermissionError;
-                # the warning is the load-bearing signal for test
-                # fixtures (``pytest.warns(StaleLockReclaimed)``) so it
-                # must fire regardless of unlink success.
-                import warnings
-                warnings.warn(
-                    f"reclaimed lock {self.path} from dead PID {holder_pid}",
-                    StaleLockReclaimed,
-                    stacklevel=2,
-                )
-                # Race: a third process may unlink + re-acquire in the
-                # window between our unlink and our retry-acquire. We
-                # tolerate that by building a fresh FileLock object
-                # (the stale ``self._lock`` may hold a closed-fd
-                # reference to the unlinked path on Windows) and using
-                # the full ``self.timeout`` for the retry, not the
-                # 5-second grace window. The pre-fix grace timeout
-                # could fire as a plain Timeout when the third
-                # reclaimer was mid-work, masking the situation as
-                # "lock contention" instead of "stale-then-re-held".
-                try:
-                    os.unlink(self.path)
-                except (FileNotFoundError, PermissionError):
-                    # Windows: file in use by another handle. The fresh
-                    # FileLock retry below will still produce the right
-                    # behaviour (Timeout if contention, success if free).
-                    pass
-                # Release the first lock object before discarding it. ``filelock``
-                # generally cleans up in ``__del__`` but on Windows + AV scanners
-                # the OS handle can outlive the Python reference long enough for
-                # the retry on the same path to see a phantom contender. Explicit
-                # release drops the OS handle deterministically.
-                try:
-                    self._lock.release(force=True)
-                except (AttributeError, RuntimeError, OSError):
-                    pass
-                # Fresh lock object so any closed-handle state from the
-                # earlier failed acquire doesn't bleed into the retry.
-                self._lock = _BaseFileLock(self.path)
-                # Retry with the full configured timeout; the grace
-                # variable stays as the floor.
-                retry_timeout = max(self.reclaim_grace_timeout, self.timeout)
-                self._lock.acquire(timeout=retry_timeout)
-            else:
-                raise  # holder is alive (or no PID written) -- propagate timeout
+            # The OS lock is still held, so a live process owns it. The PID in the meta file can be stale (a new holder writes its PID
+            # only after acquiring), and unlinking the lock file on that basis lets a second process take a lock the first still holds
+            # (CON2-3). The lock is never reclaimed here; the caller sees the Timeout.
+            raise
 
         # Write our PID alongside the exclusive lock so a future
         # contender can detect us if WE die holding it.
