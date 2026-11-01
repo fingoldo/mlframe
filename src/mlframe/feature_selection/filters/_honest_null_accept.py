@@ -22,6 +22,17 @@ def _int_to_host(cp, dev, bound: int) -> np.ndarray:
     return np.asarray(cp.asnumpy(dev))
 
 
+def _root_split_kernel(cp):
+    """``(kernel, full_table)`` of the binary-target root-split kernel: the one-pass version 4 that reads an ``x ln x`` table over every count (``full_table`` True), or version 2 with ``MLFRAME_HONEST_ROOT_SPLIT_K4=0``."""
+    import os
+
+    if os.environ.get("MLFRAME_HONEST_ROOT_SPLIT_K4", "1") == "0":
+        return _get_kernel_k2(cp), False
+    from mlframe.feature_selection.filters._honest_null_k4 import get_kernel_k4
+
+    return get_kernel_k4(cp), True
+
+
 def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx_table, cp, n_perm, min_split_size, alpha, accepted_c, order, tie):
     """Stage of ``honest_null_columns_device``."""
     if kc:
@@ -35,14 +46,15 @@ def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx
         d_idx = cp.empty(n_perm * kc, dtype=cp.int32)
         if n_classes_total == 2:
             ybits = _pack_bits(y_raw_perm)
-            _get_kernel_k2(cp)(
+            _kernel, _full_table = _root_split_kernel(cp)
+            _kernel(
                 ((n_perm * kc + 127) // 128,),
                 (128,),
                 (
                     cp.asarray(order),
                     cp.asarray(tie),
                     cp.asarray(np.ascontiguousarray(ybits.T).view(np.uint8)),  # (words, permutations): a warp of consecutive permutations reads consecutive words
-                    cp.asarray(tab),
+                    cp.asarray(xlogx_table(n) if _full_table else tab),
                     cp.asarray(counts.astype(np.int64)),
                     np.int32(n),
                     np.int32(n_perm),
