@@ -1,16 +1,16 @@
 """One-pass versions of the binary-target root-split kernel of the device honest null (``root_split_stats_k2`` is version 2 and stays).
 
-DEFAULT, version 4 (``get_kernel_k4``, exact): v2 scans the sorted rows twice (pass 1 the smallest float32 entropy score, pass 2 the exact double gain of the candidates within 0.5 of it). Here one pass keeps the running
+DISPATCHED BY DEFAULT is version 5 (below, selection-equivalent; ``MLFRAME_HONEST_ROOT_SPLIT=k4|k2`` selects the exact versions). Version 4 (``get_kernel_k4``, exact): v2 scans the sorted rows twice (pass 1 the smallest float32 entropy score, pass 2 the exact double gain of the candidates within 0.5 of it). Here one pass keeps the running
 minimum and evaluates the exact gain of every candidate within 0.5 of the RUNNING minimum, with the ``x ln x`` table covering EVERY count up to ``n`` (``xlogx_table(n)``): the ``log((double)v)`` that v2 takes for counts of 32768 and
 more is a double-precision call on almost every step at 100000 rows, and that, not the double adds, made the first attempt of this version 2.3 times slower than v2. Measured on the GTX 1050 Ti, 60 columns x 200
 permutations x 100000 rows: v2 861 ms, v2 with the full table 770 ms, v4 535 ms; outputs equal to v2 (index and candidate count identical, gain within 2e-15, the device ``log`` against numpy's).
 Why the outputs are v2's: the running minimum never goes below the final minimum, so the candidate with the smallest exact entropy (within the float error of about 0.02 of the final minimum) is always admitted at its own
 step; a candidate admitted early but outside the final window has a gain lower than the best one by about 0.5 / n or more, so it is never the first strictly greater gain.
 
-KEPT, not dispatched (``MLFRAME_HONEST_ROOT_SPLIT_K4=0`` returns to v2):
+Other versions:
 * v4f (``get_kernel_k4f``): the same scan with the gain in ``{REAL}`` = float. 577 ms, but the cancellation of the large ``x ln x`` terms gives a gain error up to 2.4e-6 against gains of 1e-4: too coarse for the significance test.
-* v5 (``get_kernel_k5``): one pass in float over the stable entropy score only, the exact double gain taken once at its minimum. 287 ms, gain error up to 1.8e-7 and 7% of the split indices differ from v2 (near ties of the float score);
-  a candidate for a selection-equivalence-only path.
+* v5 (``get_kernel_k5``, DEFAULT): one pass in float over the stable entropy score only, the exact double gain taken once at its minimum. 287 ms, gain error up to 1.8e-7 and 7% of the split indices differ from v2 (near ties of the float score);
+  enough for the honest null: it only decides which (column, permutation) pairs have an accepted root split, the accepted ones are redone exactly on the host, so the error can only miss a pair whose gain sits within 1e-7 of the significance threshold.
 """
 
 from __future__ import annotations

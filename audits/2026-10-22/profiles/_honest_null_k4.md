@@ -1,6 +1,6 @@
 # _honest_null_k4 (honest-null root split, one pass, full x ln x table)
 
-Kernel `root_split_stats_k4` in `src/mlframe/feature_selection/filters/_honest_null_k4.py`; dispatched from `_honest_null_accept._root_split_kernel` (binary target). `MLFRAME_HONEST_ROOT_SPLIT_K4=0` returns to v2.
+Default is v5 (`MLFRAME_HONEST_ROOT_SPLIT=k5`, 287 ms; `k4` exact 535 ms; `k2` original); kernel `root_split_stats_k4` in `src/mlframe/feature_selection/filters/_honest_null_k4.py`; dispatched from `_honest_null_accept._root_split_kernel` (binary target). `MLFRAME_HONEST_ROOT_SPLIT_K4=0` returns to v2.
 
 Measured (GTX 1050 Ti, 60 columns x 200 permutations x 100000 rows, synchronized, one process, min of 3):
 

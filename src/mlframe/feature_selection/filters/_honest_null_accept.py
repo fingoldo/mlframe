@@ -23,14 +23,18 @@ def _int_to_host(cp, dev, bound: int) -> np.ndarray:
 
 
 def _root_split_kernel(cp):
-    """``(kernel, full_table)`` of the binary-target root-split kernel: the one-pass version 4 that reads an ``x ln x`` table over every count (``full_table`` True), or version 2 with ``MLFRAME_HONEST_ROOT_SPLIT_K4=0``."""
+    """``(kernel, full_table)`` of the binary-target root-split kernel, chosen by ``MLFRAME_HONEST_ROOT_SPLIT``: ``k5`` (default: one float pass, exact gain once at the best cut, selection-equivalent to v2), ``k4`` (one exact pass over a full
+    ``x ln x`` table, outputs equal to v2) or ``k2`` (the two-pass original). ``full_table`` says the kernel reads a table over every count."""
     import os
 
-    if os.environ.get("MLFRAME_HONEST_ROOT_SPLIT_K4", "1") == "0":
+    mode = os.environ.get("MLFRAME_HONEST_ROOT_SPLIT", "k5").strip().lower()
+    if mode == "k2" or os.environ.get("MLFRAME_HONEST_ROOT_SPLIT_K4", "") == "0":
         return _get_kernel_k2(cp), False
-    from mlframe.feature_selection.filters._honest_null_k4 import get_kernel_k4
+    from mlframe.feature_selection.filters._honest_null_k4 import get_kernel_k4, get_kernel_k5
 
-    return get_kernel_k4(cp), True
+    if mode == "k4":
+        return get_kernel_k4(cp), True
+    return get_kernel_k5(cp), False
 
 
 def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx_table, cp, n_perm, min_split_size, alpha, accepted_c, order, tie):
