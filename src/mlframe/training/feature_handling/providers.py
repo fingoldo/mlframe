@@ -109,7 +109,13 @@ def _scrub_value(value: Any) -> Any:
         return [_scrub_value(v) for v in value]
     if isinstance(value, tuple):
         return tuple(_scrub_value(v) for v in value)
+    if isinstance(value, str):
+        # A URL under a non-secret key can still carry credentials; they must not reach the cache signature or repr (SEC2-1).
+        return _URL_USERINFO_RE.sub(r"\1***@", value)
     return value
+
+
+_URL_USERINFO_RE = re.compile(r"(?i)(?<![a-z0-9+\-.])([a-z][a-z0-9+\-.]*://)[^/\s]*@")
 
 
 def _scrub_dict(d: Dict[str, Any]) -> Dict[str, Any]:
