@@ -21,7 +21,7 @@ pulled back - NO per-candidate residual D2H, NO per-candidate re-upload.
 
 What is resident vs host control-flow (allowed by the contract):
   * RESIDENT (one bulk H2D at entry): the (n, P) candidate form-value matrix
-    ``Vdev`` (float64), the (n, B) distinct raw-operand matrix ``Bdev`` and the
+    ``Vdev`` (double), the (n, B) distinct raw-operand matrix ``Bdev`` and the
     (n,) relevance target ``ydev``. From them, per candidate, the device builds the
     12-column additive basis (6 functions of each of the candidate's two operands,
     looked up by base-column index - NO re-upload), solves the mean-centered OLS
@@ -113,11 +113,17 @@ def _batched_gate_scalars(cp: Any, Vdev: Any, basis_by_idx: list, name_to_idx: d
     # handles the near-collinear designs lstsq would rank-cut - the gate scalars still do not flip, F2 +
     # the retention suites confirm). f_std / the four gate scalars read back in ONE batched D2H.
     _nrows = float(int(Vdev.shape[0]))
+    # Intentional float64: batched Gram solve, the 1e-10 trace ridge is below float32 epsilon so the solve needs double
     _G = cp.empty((P, 12, 12), dtype=cp.float64)
+    # Intentional float64: batched Gram solve, the 1e-10 trace ridge is below float32 epsilon so the solve needs double
     _rhs = cp.empty((P, 12), dtype=cp.float64)
+    # Intentional float64: batched Gram solve, the 1e-10 trace ridge is below float32 epsilon so the solve needs double
     _xy = cp.empty((P, 12), dtype=cp.float64)
+    # Intentional float64: batched Gram solve, the 1e-10 trace ridge is below float32 epsilon so the solve needs double
     _sfc = cp.zeros(P, dtype=cp.float64)
+    # Intentional float64: batched Gram solve, the 1e-10 trace ridge is below float32 epsilon so the solve needs double
     _fyr = cp.zeros(P, dtype=cp.float64)
+    # Intentional float64: batched Gram solve, the 1e-10 trace ridge is below float32 epsilon so the solve needs double
     _fstd_v = cp.zeros(P, dtype=cp.float64)
     for j in range(P):
         ia = name_to_idx.get(src_pairs[j][0])
@@ -134,6 +140,7 @@ def _batched_gate_scalars(cp: Any, Vdev: Any, basis_by_idx: list, name_to_idx: d
         _xy[j] = Xc.T @ yc_rel
         _sfc[j] = cp.dot(fc, fc)
         _fyr[j] = cp.dot(fc, yc_rel)
+    # Intentional float64: batched Gram solve, the 1e-10 trace ridge is below float32 epsilon so the solve needs double
     _ridge = (1e-10 * cp.einsum("pii->p", _G) / 12.0 + 1e-30)[:, None, None] * cp.eye(12, dtype=cp.float64)
     _beta = cp.linalg.solve(_G + _ridge, _rhs[:, :, None])[:, :, 0]  # (P, 12) batched
     _ssrc_v = _sfc - (_beta * _rhs).sum(axis=1)
@@ -149,12 +156,14 @@ def _upload_pure_form_inputs(cp, form_values, base_columns, rel_host, n, P, B):
     from ._usability_aware_selection import _f64, _scrub
 
     # ---- ONE bulk H2D: the (n, P) form-value matrix, the (n, B) raw-operand matrix, the (n,) target. ----
+    # Intentional float64: host copy of the float64 producer matrix the batched solve reads back
     Vhost = np.empty((n, P), dtype=np.float64)
     for j in range(P):
         col = _f64(_scrub(np.asarray(form_values[j])))
         if col.shape[0] != n:
             return None  # ragged -> let the CPU path handle it exactly
         Vhost[:, j] = col
+    # Intentional float64: host copy of the float64 producer matrix the batched solve reads back
     Bhost = np.empty((n, B), dtype=np.float64)
     for i in range(B):
         col = _f64(_scrub(np.asarray(base_columns[i])))
@@ -240,6 +249,7 @@ def adds_nonlinear_value_batch_gpu_resident(
     try:
         from ._usability_aware_selection import _f64, _scrub
 
+        # Intentional float64: host copy of the float64 producer matrix the batched solve reads back
         rel_host = _f64(_scrub(np.asarray(rel_y, dtype=np.float64)))
         n = int(rel_host.shape[0])
         if n < 2:

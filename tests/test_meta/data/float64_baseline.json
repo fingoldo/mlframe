@@ -6,7 +6,6 @@
   "feature_selection/filters/_fe_auto_escalation_proposers.py": 1,
   "feature_selection/filters/_fe_batched_mi.py": 6,
   "feature_selection/filters/_fe_interaction_prerank.py": 1,
-  "feature_selection/filters/_fe_pure_form_retention_gpu_resident.py": 11,
   "feature_selection/filters/_fe_raw_redundancy_drop.py": 5,
   "feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py": 1,
   "feature_selection/filters/_hermite_fe_optimise.py": 12,
