@@ -167,6 +167,13 @@ def _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_c
             pass
 
 
+def _pair_usability_tasks(cands, rejected, by_pair, nbins_base, src_bins):
+    """Yield ``(names, source columns, host codes, cell ids, pair key)`` of each (group, agg) pair, building the pair's device codes when it is asked for."""
+    for (group_col, agg_col), names in by_pair.items():
+        codes = {nm: (lambda c: c.get() if hasattr(c, "get") else c)(cands.codes(nm, nbins_base)) for nm in names}
+        yield names, rejected[names[0]][0], codes, src_bins(group_col), f"{group_col}|{agg_col}"
+
+
 def _keep_linearly_usable(cands, raw, X, _src_bins, nbins_base, y_cls, rejected, kept_cols) -> None:
     """Add to ``kept_cols`` the columns the CMI gate rejected that lift an out-of-fold linear fit over their raw sources.
 
@@ -186,10 +193,6 @@ def _keep_linearly_usable(cands, raw, X, _src_bins, nbins_base, y_cls, rejected,
     from ._adaptive_nbins import _resolve_edge_jobs
     from ._fe_deadline import _state as _deadline_state, fe_deadline_scope
 
-    tasks = []
-    for (group_col, agg_col), names in by_pair.items():
-        codes = {nm: (lambda c: c.get() if hasattr(c, "get") else c)(cands.codes(nm, nbins_base)) for nm in names}
-        tasks.append((names, rejected[names[0]][0], codes, _src_bins(group_col), f"{group_col}|{agg_col}"))
     deadline = getattr(_deadline_state, "deadline", None)
 
     def _run(task):
@@ -198,10 +201,12 @@ def _keep_linearly_usable(cands, raw, X, _src_bins, nbins_base, y_cls, rejected,
         with fe_deadline_scope(deadline):
             return sorted(linear_usability_keeps(X, srcs, codes, y_cls, cell_ids, level, pair_key), key=names.index)
 
-    jobs = _resolve_edge_jobs(None, len(tasks))
-    if jobs > 1 and len(tasks) > 3:
+    tasks = _pair_usability_tasks(cands, rejected, by_pair, nbins_base, _src_bins)  # lazy: the device codes of pair i + 1 are built while the pool tests pair i
+    jobs = _resolve_edge_jobs(None, len(by_pair))
+    if jobs > 1 and len(by_pair) > 3:
         with ThreadPoolExecutor(max_workers=jobs) as pool:
-            results = list(pool.map(_run, tasks))
+            futures = [pool.submit(_run, t) for t in tasks]
+            results = [f.result() for f in futures]
     else:
         results = [_run(t) for t in tasks]
     for kept in results:
