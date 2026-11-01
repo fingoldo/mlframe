@@ -40,3 +40,22 @@ The rest of the window is host work (numpy / numba CPU kernels, pandas, python g
 2. `fold_cell_*` grids of 24 blocks on a 6-SM device.
 3. CPU-only stages with no device twin: surrogate LightGBM, honest-null host redo, DCD joint entropies, grouped-quantile / group-distance / composite-group-agg statistics, bootstrap_rank_mi.
 4. Host round trips: `cudaMemcpyAsync` is 2.7 s of API time in the window (pageable copies and syncs).
+
+## Host-side sampling, 100000 x 100, every family (no profiler, 0.2 s sampler)
+
+Fit walls 221-246 s in one harness (noise range 230-400 s). Stage seconds by innermost stage frame, then the self time inside the largest stages:
+
+| stage | s | what the main thread is doing |
+|---|---|---|
+| `_fit_body_run_fit_impl` | 14-17 | spread: MDLP edges on the pool 1.8, `_pair_collisions` 1.4, `build_honest_spec` 2.0 (now pooled), rest at 0.4 or less |
+| `honest_null_columns_device` | 13.6 | 10.2 waiting for the k2 kernel (random label-bit gather), host prep 2.4 |
+| `score_prospective_pairs` | 10.6-11.6 | spread: usability-corr warp kernel 1.2, conditional gate 2.2, pair perm-null admission 2.0, CMI joint entropies 0.8 |
+| `apply_surrogate_gbm_seeder` | 10.0 | 8.2 in two CPU LightGBM fit sets (fastest exact form; concurrent fits measured slower) |
+| `generate_univariate_basis_features` | 6.8-7.4 | flat, every frame 0.7 s or less |
+| `_stage_binned_numeric_agg` | 7.0-7.6 | flat, every frame 0.8 s or less |
+
+Fixed from this sampling: CMI chunk width remembered across calls (`score_candidates_by_cmi` 13.6 -> 4.8 s), grouped-quantile binning on the pool, one content hash per composite-agg column, balanced
+triple-MI kernel loop, root of the chosen LOF neighbours only, shared conditional-gate code matrix (int16), honest-spec edges on the pool.
+
+Checked and left alone (no dominant frame or no safe saving): `_gate_base_columns` probes (pooled), routing cells (pooled), bootstrap tables (pooled), `bootstrap_rank_mi` (radix walk), pair-admission column
+copies (a cache would pin the data matrix on the estimator), honest-null host prep overlap (about 0.6 s).
