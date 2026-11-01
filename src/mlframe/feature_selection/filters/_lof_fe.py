@@ -127,6 +127,17 @@ def _lof_row_block(n_ref: int, itemsize: int) -> int:
 
 
 def _lof_transform(X_new: np.ndarray, X_ref: np.ndarray, lrd_ref: np.ndarray, k_distance_ref: np.ndarray, k_eff: int) -> np.ndarray:
+    """LOF scores of ``X_new`` against a frozen reference: the fused device kernel when the tuner says so and the shape fits it, else :func:`_lof_transform_host`."""
+    from ._lof_gpu import lof_transform_gpu, use_device_lof
+
+    if use_device_lof(int(X_new.shape[0])):
+        scored = lof_transform_gpu(X_new, X_ref, lrd_ref, k_distance_ref, k_eff)
+        if scored is not None:
+            return scored
+    return _lof_transform_host(X_new, X_ref, lrd_ref, k_distance_ref, k_eff)
+
+
+def _lof_transform_host(X_new: np.ndarray, X_ref: np.ndarray, lrd_ref: np.ndarray, k_distance_ref: np.ndarray, k_eff: int) -> np.ndarray:
     """Score new rows' LOF against a FROZEN reference set (disjoint from ``X_new``, so no
     self-exclusion is needed): find each new row's k-NN within the reference, form reach-dist
     against the reference points' own frozen ``k_distance_ref``, and compare the new row's local
