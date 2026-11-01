@@ -24,9 +24,9 @@ def _frame(n=6000, seed=0):
 def test_pool_and_serial_probes_agree(monkeypatch):
     """Same surviving columns and same dropped columns with 1 and with 4 workers; the useful square of x0 survives."""
     X, y, gate_cols = _frame()
-    monkeypatch.setattr(AN, "_resolve_edge_jobs", lambda n_jobs, n_miss: 1)
+    monkeypatch.setattr(AN, "_resolve_edge_jobs", lambda n_jobs, _n_miss: 1)
     serial = _gate_base_columns(X, gate_cols, y, 0)
-    monkeypatch.setattr(AN, "_resolve_edge_jobs", lambda n_jobs, n_miss: 4)
+    monkeypatch.setattr(AN, "_resolve_edge_jobs", lambda n_jobs, _n_miss: 4)
     pooled = _gate_base_columns(X, gate_cols, y, 0)
     assert serial == pooled
     assert "x0__sq" in serial[0].get("x0", [])
