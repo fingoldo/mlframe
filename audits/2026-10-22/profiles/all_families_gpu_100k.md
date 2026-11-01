@@ -110,3 +110,11 @@ Reading: the pools added since the baseline (wavelet, extra basis, group distanc
 unchanged: honest null columns (17 s, 1.5 cores, device wait), the binned numeric agg (8.8 s, 1.0), score_candidates_by_cmi (6.6 s, 1.0). The gate stage (`hybrid_conditional_gate_fe_with_recipes`) is a per-column
 device loop (median, where, batched MI each sync), so a host pool would only add contention. Next lever is overlapping those device waits with host work of the next stage (the concurrent stage mode, now correct,
 gained 7%), not more host pools.
+
+## Utilization after the honest-null v5, memo key and pair pools (2026-11-01)
+
+Same meter, 100000 x 100, every family, one process: fit wall 176.1 s (230.0 s in the previous measurement of this note; the machine is noisy, so read it as a direction). CPU busy 45.3% of all cores (41.6% before),
+samples under 25% busy 4% (8% before); GPU busy 20.3% (17.4% before), card under 10% in 61% of the samples (67% before); both idle together 3%.
+
+Changes since the previous section: honest-null root split v5 (one float pass, 287 ms against 861 ms for v2 on 60 x 200 x 100000; the stage fell from 17.4 s to 11.2 s in the stage map), the univariate basis memo key hashed
+with xxh3 (a 600-column call 1.39 s to 0.35 s), the composite group-agg tasks and the binned-agg linear-usability pairs on the edge-jobs pool, the univariate basis column pool.
