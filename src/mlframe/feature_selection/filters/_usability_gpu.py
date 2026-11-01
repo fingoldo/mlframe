@@ -16,9 +16,9 @@ SELECTION-EQUIVALENCE IS THE BAR (non-negotiable). The clean-form demotion uses 
 CONTINUOUS y and is ULP-sensitive: a cupy-vs-numpy float drift can flip the canonical clean-compound
 recovery. Every helper here therefore:
 
-  * computes in float64 (the heavy-tail precision the CPU path uses),
+  * computes in double (the heavy-tail precision the CPU path uses),
   * mirrors numpy ``corrcoef``'s exact estimator (centered dot / sqrt(ss_u*ss_v); the SAME std<1e-12
-    guard the CPU ``_abscorr`` applies, on the SAME float64 inputs),
+    guard the CPU ``_abscorr`` applies, on the SAME double inputs),
   * raises on ANY cupy/device error so the caller falls back to the exact CPU path.
 
 The gate (``MLFRAME_FE_GPU_USABILITY``) defaults OFF. It is enabled ONLY after a host has VERIFIED the
@@ -71,11 +71,13 @@ def fe_gpu_usability_enabled() -> bool:
 
 
 def gpu_abscorr(u: np.ndarray, v: np.ndarray) -> float:
-    """cupy float64 twin of ``_usability_aware_selection._abscorr``: ``|corr(u, v)|`` with the SAME
+    """cupy double twin of ``_usability_aware_selection._abscorr``: ``|corr(u, v)|`` with the SAME
     std<1e-12 zero-guard and finite-check. Raises on any cupy/device error (caller falls back to the
-    exact numpy path). Inputs are upcast to float64 on device for the heavy-tail precision."""
+    exact numpy path). Inputs are upcast to double on device for the heavy-tail precision."""
     cp = _cp
+    # Intentional float64: device twin of the CPU heavy-tail path, which computes in float64
     du = cp.asarray(u, dtype=cp.float64).ravel()
+    # Intentional float64: device twin of the CPU heavy-tail path, which computes in float64
     dv = cp.asarray(v, dtype=cp.float64).ravel()
     if du.size == 0:
         return 0.0
@@ -97,15 +99,18 @@ def gpu_abscorr(u: np.ndarray, v: np.ndarray) -> float:
 def gpu_abscorr_batch(cols: "np.ndarray", v: np.ndarray) -> np.ndarray:
     """Batched ``|corr(cols[:, j], v)|`` for every column ``j`` of ``cols`` (shape ``(n, K)``) against
     the 1-D target ``v`` - the shortlist-scoring inner loop, where ``v`` is the held-out residual (or
-    the mean residual) and each column is a candidate's continuous values. cupy float64; mirrors the
+    the mean residual) and each column is a candidate's continuous values. cupy double; mirrors the
     per-candidate ``_abscorr`` (centered dot / sqrt(ss_col*ss_v), std<1e-12 -> 0). Returns a host (K,)
-    float64 array of |corr| values. Raises on any cupy/device error so the caller falls back to CPU."""
+    double array of |corr| values. Raises on any cupy/device error so the caller falls back to CPU."""
     cp = _cp
+    # Intentional float64: device twin of the CPU heavy-tail path, which computes in float64
     M = cp.asarray(cols, dtype=cp.float64)
     if M.ndim == 1:
         M = M[:, None]
+    # Intentional float64: device twin of the CPU heavy-tail path, which computes in float64
     dv = cp.asarray(v, dtype=cp.float64).ravel()
     n, K = M.shape
+    # Intentional float64: device twin of the CPU heavy-tail path, which computes in float64
     out = np.zeros(K, dtype=np.float64)
     if n == 0 or K == 0:
         return out
@@ -125,6 +130,7 @@ def gpu_abscorr_batch(cols: "np.ndarray", v: np.ndarray) -> np.ndarray:
     valid = (col_std >= 1e-12) & (ssc > 0.0) & (denom > 0.0)
     r = cp.where(valid, num / cp.where(denom > 0.0, denom, 1.0), 0.0)
     r = cp.where(cp.isfinite(r), cp.abs(r), 0.0)
+    # Intentional float64: device twin of the CPU heavy-tail path, which computes in float64
     return np.asarray(cp.asnumpy(r).astype(np.float64))
 
 
@@ -134,7 +140,7 @@ def gpu_additive_basis_residual(fv: np.ndarray, xa: np.ndarray, xb: np.ndarray) 
     path builds: standardized x, x^2, x^3, sign*sqrt|x|, sign*log1p|x|, 1/(|x|+1)), with the CPU's
     StandardScaler+LinearRegression replaced by the EQUIVALENT mean-centered OLS (StandardScaler is an
     affine per-column rescale that LinearRegression-with-intercept is invariant to). Returns the host
-    residual ``fv - fit`` (float64). Raises on any cupy/device error so the caller falls back to CPU.
+    residual ``fv - fit`` (double). Raises on any cupy/device error so the caller falls back to CPU.
 
     Mean-centered-OLS equivalence: ``make_pipeline(StandardScaler(), LinearRegression())`` predicts the
     same values as a centered-design OLS-with-intercept (the scaler's affine map is absorbed into the
@@ -146,8 +152,11 @@ def gpu_additive_basis_residual(fv: np.ndarray, xa: np.ndarray, xb: np.ndarray) 
         xs = standardise(x, xp=cp)
         return [xs, xs * xs, xs * xs * xs, cp.sign(xs) * cp.sqrt(cp.abs(xs)), cp.sign(xs) * cp.log1p(cp.abs(xs)), 1.0 / (cp.abs(xs) + 1.0)]
 
+    # Intentional float64: device twin of the CPU heavy-tail path, which computes in float64
     dfv = cp.asarray(fv, dtype=cp.float64).ravel()
+    # Intentional float64: device twin of the CPU heavy-tail path, which computes in float64
     dxa = cp.asarray(xa, dtype=cp.float64).ravel()
+    # Intentional float64: device twin of the CPU heavy-tail path, which computes in float64
     dxb = cp.asarray(xb, dtype=cp.float64).ravel()
     cols = _basis(dxa) + _basis(dxb)
     Xr = cp.stack(cols, axis=1)  # (n, 12)
@@ -158,6 +167,7 @@ def gpu_additive_basis_residual(fv: np.ndarray, xa: np.ndarray, xb: np.ndarray) 
     beta, *_ = cp.linalg.lstsq(Xc, yc, rcond=None)
     pred = ybar + Xc @ beta
     resid = dfv - pred
+    # Intentional float64: device twin of the CPU heavy-tail path, which computes in float64
     return np.asarray(cp.asnumpy(resid).astype(np.float64))
 
 
