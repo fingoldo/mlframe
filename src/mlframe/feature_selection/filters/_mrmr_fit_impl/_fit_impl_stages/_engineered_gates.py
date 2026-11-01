@@ -181,14 +181,14 @@ def _gate_fourier_columns(X, gate_cols, surviving_by_src, y, seed, groups, class
     """
     from mlframe.feature_selection.filters._fe_accuracy_gate import _FE_UPLIFT_MIN, measure_feature_uplift
 
-    dropped: list[str] = []
-    for _gc, _src, _is_fourier in gate_cols:
-        if not _is_fourier:
-            continue
+    fourier_cols = [(_gc, _src) for _gc, _src, _is_fourier in gate_cols if _is_fourier]
+
+    def _dropped_name(item: tuple) -> "str | None":
+        """The probe of one Fourier / chirp column: its name when it is dropped, else ``None`` (columns are independent: each probe has its own subsample, drawn from the fixed seed)."""
+        _gc, _src = item
         _src_arr = _gate_col_arr(X, _src)
         if float(np.mean(~np.isfinite(_src_arr))) > 0.02:
-            dropped.append(_gc)
-            continue
+            return _gc
         _base_sibs = surviving_by_src.get(_src, [])
         _base_mat = np.column_stack([_src_arr] + [_gate_col_arr(X, _b) for _b in _base_sibs])
         _eng_arr = _gate_col_arr(X, _gc)
@@ -212,8 +212,14 @@ def _gate_fourier_columns(X, gate_cols, surviving_by_src, y, seed, groups, class
         # Fail-open: None == probe could not measure (degenerate / exception);
         # keep the candidate rather than silently dropping it. Only a genuine
         # MEASURED sub-threshold uplift evicts.
-        if _cond_uplift is not None and _cond_uplift < _FE_UPLIFT_MIN:
-            dropped.append(_gc)
+        return _gc if (_cond_uplift is not None and _cond_uplift < _FE_UPLIFT_MIN) else None
+
+    from mlframe.feature_selection.filters._edge_pool import map_on_edge_pool
+
+    # The first column runs on this thread so the numba kernels compile once, then the rest on the edge-jobs pool; the names are folded in column order.
+    first = [_dropped_name(fourier_cols[0])] if fourier_cols else []
+    rest = map_on_edge_pool(_dropped_name, fourier_cols[1:], min_items=3)
+    dropped = [name for name in [*first, *rest] if name is not None]
     return dropped
 
 
