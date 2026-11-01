@@ -59,7 +59,7 @@ def test_small_frames_stay_on_the_host():
 def test_cells_equal_host_across_sizes_and_criterion_dtypes(monkeypatch, n, relaxed):
     """Odd row counts around block boundaries, float32 and float64 criterion dtypes: same cell list, MI and score close to the host's."""
     pytest.importorskip("cupy")
-    monkeypatch.setenv("MLFRAME_ROUTING_DEVICE_MIN_ROWS", "0")
+    monkeypatch.setenv("MLFRAME_BASIS_CELLS_DEVICE", "1")
     monkeypatch.setenv("MLFRAME_CRIT_DTYPE_RELAXED", relaxed)
     X, y = _data(n=n, p=3)
     ya = coerce_y_classif(y)

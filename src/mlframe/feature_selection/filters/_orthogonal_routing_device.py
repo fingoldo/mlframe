@@ -18,19 +18,6 @@ from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
-#: Fallback crossover (rows). Speed is no limit (10 columns: device 6 to 12 times faster from 2000 to 100000 rows on the GTX 1050 Ti); below this the MI binning of the device
-#: (edge selection) and of the host differ visibly on a frame of a few hundred rows. ``MLFRAME_ROUTING_DEVICE_MIN_ROWS`` overrides it per host.
-ROUTING_DEVICE_MIN_ROWS = 5_000
-
-
-def routing_device_min_rows() -> int:
-    """Row count from which the device cells are used: the env override, else the measured fallback :data:`ROUTING_DEVICE_MIN_ROWS`."""
-    import os
-
-    raw = os.environ.get("MLFRAME_ROUTING_DEVICE_MIN_ROWS", "").strip()
-    return int(raw) if raw.isdigit() else ROUTING_DEVICE_MIN_ROWS
-
-
 class LazyRoutingValues:
     """``cand_values``-like sequence whose element ``j`` is rebuilt on the host when asked for (only the winning cells are asked for)."""
 
@@ -64,6 +51,7 @@ def routing_scores_on_device(
     y_arr: np.ndarray,
     nbins: int,
     routing_criterion: str,
+    force: bool = False,
 ) -> "tuple[list, list, np.ndarray, np.ndarray] | None":
     """``(cand_cols, cand_meta, eng_mi, route_score)`` of every usable cell in the host enumeration order, or ``None`` when the device path does not apply (the host path then runs).
 
@@ -73,6 +61,7 @@ def routing_scores_on_device(
     try:
         import cupy as cp
 
+        from ._basis_cells_ktc import use_device_cells
         from ._fe_gpu_batch._devices import crit_float_dtype
         from ._fe_resident_operands import resident_operand
         from ._gpu_resident_fe import _gpu_k_chunk, fe_gpu_resident_basis_mi_enabled
@@ -84,7 +73,7 @@ def routing_scores_on_device(
         log_throttle(logger, "routing_device_imports", logging.DEBUG, "routing device path unavailable (%s: %s)", type(exc).__name__, exc)
         return None
     n = len(X)
-    if n < routing_device_min_rows() or not fe_gpu_resident_basis_mi_enabled():
+    if not fe_gpu_resident_basis_mi_enabled() or not (force or use_device_cells(n)):
         return None
     if any(b not in _PREWARP_CLENSHAW_GPU for b in candidate_bases):
         return None  # a basis without a device port would silently lose its cells

@@ -26,7 +26,7 @@ def _data(n: int, p: int = 5):
 def test_cells_equal_host_cells(monkeypatch, n, relaxed):
     """Same cells in the same order, MI close to the host's, same winning (degree, basis) for every clear source."""
     pytest.importorskip("cupy")
-    monkeypatch.setenv("MLFRAME_ADAPTIVE_DEGREE_DEVICE_MIN_ROWS", "0")
+    monkeypatch.setenv("MLFRAME_BASIS_CELLS_DEVICE", "1")
     monkeypatch.setenv("MLFRAME_CRIT_DTYPE_RELAXED", relaxed)
     X, ya = _data(n)
     cols = list(X.columns)

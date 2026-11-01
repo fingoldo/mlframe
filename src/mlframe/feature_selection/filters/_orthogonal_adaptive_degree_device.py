@@ -16,18 +16,6 @@ from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
-#: Fallback row count from which the device is used (the MI binning of the device and of the host differ visibly on frames of a few hundred rows); ``MLFRAME_ADAPTIVE_DEGREE_DEVICE_MIN_ROWS`` overrides it.
-ADAPTIVE_DEGREE_DEVICE_MIN_ROWS = 5_000
-
-
-def adaptive_degree_device_min_rows() -> int:
-    """The env override, else the fallback :data:`ADAPTIVE_DEGREE_DEVICE_MIN_ROWS`."""
-    import os
-
-    raw = os.environ.get("MLFRAME_ADAPTIVE_DEGREE_DEVICE_MIN_ROWS", "").strip()
-    return int(raw) if raw.isdigit() else ADAPTIVE_DEGREE_DEVICE_MIN_ROWS
-
-
 class LazyAdaptiveValues:
     """``cand_values``-like sequence: element ``j`` is rebuilt on the host when asked for (only the winning cell of each source is)."""
 
@@ -62,6 +50,7 @@ def adaptive_degree_cells_on_device(
     try:
         import cupy as cp
 
+        from ._basis_cells_ktc import use_device_cells
         from ._fe_gpu_batch._devices import crit_float_dtype
         from ._fe_resident_operands import resident_operand
         from ._gpu_resident_basis import _PREWARP_CLENSHAW_GPU, _gpu_evaluate_basis_matrix, _gpu_route_bases_batched
@@ -74,7 +63,7 @@ def adaptive_degree_cells_on_device(
         log_throttle(logger, "adaptive_degree_device_imports", logging.DEBUG, "adaptive-degree device path unavailable (%s: %s)", type(exc).__name__, exc)
         return None
     n = len(X)
-    if n < adaptive_degree_device_min_rows() or not fe_gpu_resident_basis_mi_enabled():
+    if not fe_gpu_resident_basis_mi_enabled() or not use_device_cells(n):
         return None
     if basis != "auto" and basis not in _PREWARP_CLENSHAW_GPU:
         return None
