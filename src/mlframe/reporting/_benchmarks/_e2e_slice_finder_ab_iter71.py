@@ -46,7 +46,7 @@ def _load_old(ref: str = _OLD_REF_DEFAULT):
         if os.path.isdir(os.path.join(repo, ".git")) or os.path.isfile(os.path.join(repo, "pyproject.toml")):
             break
     src = subprocess.check_output(["git", "show", f"{ref}:src/mlframe/reporting/charts/slice_finder.py"], cwd=repo)  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
-    path = os.path.join(tempfile.gettempdir(), "_old_slice_finder_iter71.py")
+    path = os.path.join(tempfile.mkdtemp(prefix="old_slice_finder_iter71_"), "_old_slice_finder_iter71.py")
     with open(path, "wb") as f:
         f.write(src)
     spec = importlib.util.spec_from_file_location("_old_slice_finder_iter71", path)
