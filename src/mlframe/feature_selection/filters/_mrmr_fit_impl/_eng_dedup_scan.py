@@ -147,6 +147,12 @@ def _precompute_full_ranks(X: pd.DataFrame, scan_order: list, fourier_keep: set)
     return {c: ranks[i] for i, c in enumerate(names)}
 
 
+def _column_1d(X: pd.DataFrame, name: str) -> pd.Series:
+    """``X[name]`` as a Series; with duplicate column labels the first of them."""
+    col = X[name]
+    return col.iloc[:, 0] if isinstance(col, pd.DataFrame) else col
+
+
 def scan_engineered_duplicates(
     X: pd.DataFrame,
     _eng_cols_appended: list[str],
@@ -199,11 +205,8 @@ def scan_engineered_duplicates(
         if _c in _adaptive_fourier_keep:
             # Force-keep adaptive Fourier columns; record their array so
             # later candidates can still be deduped AGAINST them.
-            _col_view_a = X[_c]
-            if isinstance(_col_view_a, pd.DataFrame):
-                _col_view_a = _col_view_a.iloc[:, 0]
             _eng_keep.append(_c)
-            _eng_arrs[_c] = np.asarray(_col_view_a.to_numpy(), dtype=_crit_np_dtype())
+            _eng_arrs[_c] = np.asarray(_column_1d(X, _c).to_numpy(), dtype=_crit_np_dtype())
             continue
         # Defense in depth: if X carries duplicate column labels (a
         # caller-side data-quality issue we don't want to silently
@@ -211,10 +214,7 @@ def scan_engineered_duplicates(
         # DataFrame; collapse to the first column so rank/corrcoef
         # downstream see a 1-D array and the cross-stage dedup
         # still runs.
-        _col_view = X[_c]
-        if isinstance(_col_view, pd.DataFrame):
-            _col_view = _col_view.iloc[:, 0]
-        _arr_c = np.asarray(_col_view.to_numpy(), dtype=_crit_np_dtype())
+        _arr_c = np.asarray(_column_1d(X, _c).to_numpy(), dtype=_crit_np_dtype())
         _fin_c = np.isfinite(_arr_c)
         _eng_fully_finite[_c] = bool(_fin_c.all())
         if not _fin_c.any() or _arr_c[_fin_c].std() <= _REL_TOL * float(np.abs(_arr_c[_fin_c]).max()):

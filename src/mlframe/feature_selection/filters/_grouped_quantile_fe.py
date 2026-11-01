@@ -45,7 +45,7 @@ from __future__ import annotations
 from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
 
 import logging
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
@@ -523,6 +523,19 @@ def _apply_target_aware_group_bin_recipe(recipe, X) -> np.ndarray:
 # MI-uplift scorer / gate
 # ---------------------------------------------------------------------------
 
+def _bin_columns_pooled(bin_one: "Callable[[str], np.ndarray]", cols: list) -> list:
+    """``bin_one`` of every column, in order; the columns are independent and np.quantile / sort release the GIL, so they run on the edge-jobs pool."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    jobs = _resolve_edge_jobs(None, len(cols))
+    if jobs > 1 and len(cols) > 1:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            return list(pool.map(bin_one, cols))
+    return [bin_one(c) for c in cols]
+
+
 def score_grouped_quantile_by_mi_uplift(
     raw_X: pd.DataFrame,
     eng_X: pd.DataFrame,
@@ -599,18 +612,8 @@ def score_grouped_quantile_by_mi_uplift(
         source_mi_cache[col] = float(mi)
         return float(mi)
 
-    # The columns are binned independently (np.quantile / sort release the GIL), so the codes come from a pool; the MI stays in column order.
-    from concurrent.futures import ThreadPoolExecutor
-
-    from ._adaptive_nbins import _resolve_edge_jobs
-
     eng_cols = list(eng_X.columns)
-    jobs = _resolve_edge_jobs(None, len(eng_cols))
-    if jobs > 1 and len(eng_cols) > 1:
-        with ThreadPoolExecutor(max_workers=jobs) as pool:
-            eng_codes = list(pool.map(lambda c: _bin(eng_X[c].to_numpy()), eng_cols))
-    else:
-        eng_codes = [_bin(eng_X[c].to_numpy()) for c in eng_cols]
+    eng_codes = _bin_columns_pooled(lambda c: _bin(eng_X[c].to_numpy()), eng_cols)
 
     rows = []
     for col, codes in zip(eng_cols, eng_codes):
