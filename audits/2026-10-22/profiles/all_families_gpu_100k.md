@@ -84,3 +84,19 @@ rank-MI walk (0.56 s against 0.24 s host), threads over the independent stage ca
 
 Looked at and left alone (no frame above 0.8 s, or a kernel already at its measured limit): `_stage_binned_numeric_agg` (7.4 s, flat, mostly device waits), parity scan (`_parity_mi_grid_njit`, 1.8 s, a parallel
 kernel whose cupy twin was measured and rejected), `screen_predictors` (3.2 s inside the serial Fleuret confirmation, the core MRMR njit kernels), wavelet and group-distance (flat).
+
+## Idle share of the cores and the card (target: both near zero)
+
+Tool: `python -m mlframe.feature_selection._benchmarks.profiling.utilization 100000 100` (psutil per core and nvidia-smi, twice a second, one every-family fit; the surrogate seeder excluded).
+Baseline of 2026-11-01 (fit 192.9 s under the sampler, 8 logical cores, GTX 1050 Ti):
+
+| resource | busy on average | idle |
+|---|---|---|
+| CPU, all cores | 40.8% | about 59%; under a quarter of the cores busy in 12% of the samples |
+| GPU | 21.1% | about 79%; the card under 10% in 62% of the samples |
+| both idle together | | 6% of the samples |
+
+Window means (CPU % / GPU %) run 36-50 / 6-21 for the whole fit except one window (140-160 s: 42 / 65). Reading: the cores are used less than half and the card a fifth, and the two are idle at DIFFERENT times,
+so overlapping the host work with the device work is where the idle time can be recovered; threads cannot do it while the stage time is GIL-bound Python (stage cascades in threads: 151-155 s against 154 s), so
+the order is (1) turn the GIL-bound host loops into nogil / parallel kernels so that all cores can work, (2) then feed the card from several threads (the opt-in stage concurrency, the device scheduler and the per-stage
+VRAM budgets are in place for that).
