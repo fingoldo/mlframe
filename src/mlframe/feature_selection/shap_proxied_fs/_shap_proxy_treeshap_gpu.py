@@ -194,12 +194,9 @@ def _block_size() -> int:
 
 def _ensure_kernel(max_depth: int):
     """Compile (once per depth, under a module-global lock with double-checked locking) and cache the ``cp.RawKernel``
-    for the TreeSHAP scan. The per-thread scratch is sized by the ensemble's real depth, not the cap: at the cap's
+    for the TreeSHAP scan (the lookup and the compile share one lock block, so a hit costs one lock acquire). The per-thread scratch is sized by the ensemble's real depth, not the cap: at the cap's
     depth 24 the kernel reserves gigabytes of device local memory that stay allocated and starve later GPU paths."""
     key = int(max_depth)
-    kernel = _TREESHAP_KERNELS.get(key)
-    if kernel is not None:
-        return kernel
     with _KERNEL_INIT_LOCK:
         kernel = _TREESHAP_KERNELS.get(key)
         if kernel is None:

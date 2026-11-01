@@ -272,9 +272,6 @@ def _ensure_kernel(max_depth: int, n_features: int):
     starves every later GPU path in the process. Each distinct (depth, width) gets its own module.
     """
     key = (int(max_depth), int(n_features))
-    kernel = _INTERACTION_KERNELS.get(key)
-    if kernel is not None:
-        return kernel
     with _KERNEL_INIT_LOCK:
         kernel = _INTERACTION_KERNELS.get(key)
         if kernel is None:
