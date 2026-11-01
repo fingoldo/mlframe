@@ -62,6 +62,7 @@ def routing_scores_on_device(
         import cupy as cp
 
         from ._basis_cells_ktc import use_device_cells
+        from ._cell_validity_gpu import cell_validity_gpu
         from ._fe_gpu_batch._devices import crit_float_dtype
         from ._fe_resident_operands import resident_operand
         from ._gpu_resident_fe import _gpu_k_chunk, fe_gpu_resident_basis_mi_enabled
@@ -110,14 +111,15 @@ def routing_scores_on_device(
                 cand, meta = _gpu_evaluate_basis_matrix(cp, M, [basis] * M.shape[1], list(degrees), robust_axis=robust, heavy_host=heavy)
                 if cand is None:
                     continue
-                usable = cp.isfinite(cand).all(axis=0) & (cand.std(axis=0) > 1e-12)
-                keep = np.flatnonzero(cp.asnumpy(usable))
+                usable, col_mean = cell_validity_gpu(cp, cand)
+                keep = np.flatnonzero(usable)
                 if keep.size == 0:
                     continue
-                sel = cand[:, cp.asarray(keep)]
+                # the whole block when every cell is usable (the usual case), else only the usable columns
+                sel = cand if keep.size == cand.shape[1] else cand[:, cp.asarray(keep)]
                 mi = np.asarray(_plugin_mi_classif_batch_cuda_resident(sel, y_gpu, int(nbins), y_min=y_min, n_classes=n_classes, relax_binning=True), dtype=np.float64)  # Intentional float64: MI statistic
                 if use_corr:
-                    ac = cp.asnumpy(_gpu_batched_abs_corr(cp, sel, y_f_gpu))
+                    ac = cp.asnumpy(_gpu_batched_abs_corr(cp, sel, y_f_gpu, mu=col_mean[keep]))
                     score = np.where(ac < 0.0, 0.0, ac)  # the kernel marks a degenerate column with -1
                 else:
                     score = mi

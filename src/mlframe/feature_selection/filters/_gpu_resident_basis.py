@@ -850,7 +850,7 @@ def _get_abs_corr_kernel(real_t: str = "double"):
     return kern
 
 
-def _gpu_batched_abs_corr(cp, cand, y_cont):
+def _gpu_batched_abs_corr(cp, cand, y_cont, mu=None):
     """|Pearson corr| of every column of ``cand`` (n, m) with the (n,) continuous ``y_cont``, on device.
     Degenerate columns (std <= 1e-12) or non-finite results -> -1.0 (so the host argmax skips them, mirroring
     the host router's ``if std(v) < 1e-12: continue``). Same Pearson definition as np.corrcoef(v, y)[0,1].
@@ -870,7 +870,7 @@ def _gpu_batched_abs_corr(cp, cand, y_cont):
         cand2 = cp.ascontiguousarray(cand2.astype(work_dtype, copy=False))
         yv = y_cont.astype(work_dtype, copy=False).ravel()
         yc = cp.ascontiguousarray(yv - yv.mean())
-        mu = cp.ascontiguousarray(cand2.mean(axis=0))
+        mu = cp.ascontiguousarray(cand2.mean(axis=0) if mu is None else cp.asarray(mu, dtype=cand2.dtype))  # ``mu``: the column means when the caller already has them (the fused validity pass)
         Syy = float((yc * yc).sum())
         out = cp.empty(m, dtype=cp.float64)  # Intentional float64: statistic vector (|corr|), accumulated in double
         real_t = "float" if cand2.dtype == cp.float32 else "double"

@@ -51,6 +51,7 @@ def adaptive_degree_cells_on_device(
         import cupy as cp
 
         from ._basis_cells_ktc import use_device_cells
+        from ._cell_validity_gpu import cell_validity_gpu
         from ._fe_gpu_batch._devices import crit_float_dtype
         from ._fe_resident_operands import resident_operand
         from ._gpu_resident_basis import _gpu_evaluate_basis_matrix, _gpu_route_bases_batched, device_bases
@@ -93,14 +94,14 @@ def adaptive_degree_cells_on_device(
         cand, meta = _gpu_evaluate_basis_matrix(cp, M, chosen, list(degree_range), robust_axis=robust)
         if cand is None:
             return None
-        usable = cp.isfinite(cand).all(axis=0) & (cand.std(axis=0) > 1e-12)
-        keep = np.flatnonzero(cp.asnumpy(usable))
+        usable, _col_mean = cell_validity_gpu(cp, cand)
+        keep = np.flatnonzero(usable)
         if keep.size == 0:
             return [], [], np.empty(0, dtype=np.float64)  # Intentional float64: MI statistic vector
         y_gpu = resident_operand(y_int, "adaptive_degree_y_int", dtype=np.int64)
         n_classes = int(y_int.max()) - int(y_int.min()) + 1
         mi = np.asarray(
-            _plugin_mi_classif_batch_cuda_resident(cand[:, cp.asarray(keep)], y_gpu, int(nbins), y_min=int(y_int.min()), n_classes=n_classes, relax_binning=True),
+            _plugin_mi_classif_batch_cuda_resident(cand if keep.size == cand.shape[1] else cand[:, cp.asarray(keep)], y_gpu, int(nbins), y_min=int(y_int.min()), n_classes=n_classes, relax_binning=True),
             dtype=np.float64,  # Intentional float64: MI statistic vector
         )
     except Exception as exc:

@@ -50,3 +50,14 @@ nsys 2022.4 recorded no kernels for this python (0 records in the trace), so the
 
 About 38% of the kernel time is generic cupy elementwise / reduction launches around the fused kernels (validity mask, column take, copies). A fused validity kernel (finite flag and variance in one pass,
 one block per column) and a `take`-free MI call on the full block with the unusable columns masked would remove most of it; not done yet (measure before restructuring, CUDA.md section 6).
+
+## After the fused validity kernel (`_cell_validity_gpu.py`)
+
+The usable-cell mask (isfinite, all, std, take) and the per-column mean for `abs_corr` come from one kernel, `cell_moments` (32 columns x 8 row lanes per block, Welford per lane, fixed-order Chan merge, partials per
+row chunk merged on the host in chunk order; reciprocal table in shared memory because a double division runs at 1/32 rate on Pascal): 3.08 ms -> 1.58 ms per launch on 100000 x 160. The block goes to the MI
+and the score without the column take when every cell is usable.
+
+Kernel time of the warm 20-column call, nvprof: 260 ms -> about 190 ms (-27%): the generic `cupy_mean`, `cupy_var_core`, `cupy_all` and `cupy_isfinite` launches (about 40% of the time) are gone and
+`cell_moments` is 7%. Wall of the call is unchanged at 0.50 s: the remaining wall is host work (the pre-transforms and `column_stack`, 0.23 s) and the host-device score copies. What is left on the device:
+`clenshaw_basis` 22%, `radix_select_f32_v3` 14%, `abs_corr` 11% (global-load efficiency 22%: one block per column reads a row-major block with stride m; a column-tile layout like `cell_moments` would
+coalesce it), `mi_hist_split_f32` 6%, `basis_preprocess_nr` 6%, `cupy_copy` 6%, `transpose_f32` 5%, `cupy_take` 3% (only when some cell is unusable).
