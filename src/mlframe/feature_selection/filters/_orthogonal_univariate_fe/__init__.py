@@ -466,11 +466,13 @@ def _generate_univariate_basis_features_impl(
 
     # The routing of all eligible columns in one device pass when the signal router applies (a column it cannot route is decided by the host router below).
     _device_basis = route_columns_on_device(X, cols, y, degrees, _cols_auto, _aux_pool) if (basis == "auto" and basis_routing == "signal") else {}
-    for col in cols:
+    def _one_column(col):
+        """The cells of one column (``{}`` when it is skipped, ``None`` once the fit deadline has passed); a column reads only its own data, so columns may run on the pool."""
+        cells: dict = {}
         # Optional-enrichment wall-clock budget: stop the per-column basis scan once MRMR.fit's deadline passes and return
         # whatever was engineered so far (the core selection still produces a usable partial). No-op when no budget is set.
         if fe_deadline_passed():
-            break
+            return None
         # BUG FIX (test_layer23::test_replay_matches_fit_time_values): the fit axis must have the replay's precision (float64), NOT
         # _crit_np_dtype()'s f32 relaxation. The basis-preprocess params computed from ``x`` here get frozen
         # into an EngineeredRecipe and replayed at transform() time by
@@ -489,14 +491,14 @@ def _generate_univariate_basis_features_impl(
         # provided ``cols`` is trusted as-is, because a 3-level ORDINAL integer (a binned threshold) is a legitimate basis-FE
         # axis the caller asked for - only the auto scan over arbitrary group-key labels needs protecting.
         if _cols_auto and _is_int_as_cat_axis(x):
-            continue
+            return {}
         finite_mask = np.isfinite(x)
         if not finite_mask.all():
             # An orthogonal-polynomial basis over a NaN-containing column is unsound: the recipe replay path does NOT impute (NaN in -> NaN out, so
             # transform() emits an all-NaN engineered column), and fit-time the nanmean-imputed basis becomes a MISSINGNESS PROXY whose binned MI ties /
             # beats the genuine missingness-FE columns (is_missing__/missingness_pattern), displacing them from MRMR selection. Skip the column; the
             # missingness signal belongs to the dedicated missingness-FE family, not to a non-replayable mean-imputed polynomial.
-            continue
+            return {}
         aux_col = None
         if _aux_pool is not None and col in _aux_pool:
             aux_col = _aux_pool[col]
@@ -516,7 +518,7 @@ def _generate_univariate_basis_features_impl(
                     logger, "univariate_basis_unknown_basis", logging.WARNING,
                     "generate_univariate_basis_features: unknown basis %r for col %r; skipping", chosen_basis, col,
                 )
-                continue
+                return {}
             # FIT-ONCE-PER-COLUMN: the basis preprocess ``z`` + params depend ONLY on
             # (x, basis), NOT on degree - the degree only swaps the one-hot coefficient. Re-fitting it
             # inside the degrees loop recomputed the robust heavy-tail axis (np.median/MAD) once per
@@ -540,13 +542,37 @@ def _generate_univariate_basis_features_impl(
                     vals = _evaluate_basis_column(
                         x, chosen_basis, int(d), aux_for_fit=aux_col,
                     )
-                out_cols[f"{col}__{code.get(chosen_basis, chosen_basis)}{d}"] = vals
+                cells[f"{col}__{code.get(chosen_basis, chosen_basis)}{d}"] = vals
             except Exception as exc:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
                 log_throttle(
                     logger, "univariate_basis_eval_raised", logging.WARNING,
                     "generate_univariate_basis_features: basis=%r degree=%d on col=%r raised %r; skipping", chosen_basis, d, col, exc,
                 )
                 continue
+        return cells
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    from .._adaptive_nbins import _resolve_edge_jobs
+    from .._fe_deadline import _state as _deadline_state, fe_deadline_scope
+
+    deadline = getattr(_deadline_state, "deadline", None)
+
+    def _run(col):
+        """``_one_column`` with the fit's wall-clock budget published to the worker thread."""
+        with fe_deadline_scope(deadline):
+            return _one_column(col)
+
+    jobs = _resolve_edge_jobs(None, len(cols))
+    if jobs > 1 and len(cols) > 3:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            results = list(pool.map(_run, cols))
+    else:
+        results = [_run(c) for c in cols]
+    for found in results:
+        if found is None:
+            break
+        out_cols.update(found)
     return pd.DataFrame(out_cols, index=X.index)
 
 # Carved out to _orth_gpu_resident.py (monolith-split, LOC budget); re-exported here so the
