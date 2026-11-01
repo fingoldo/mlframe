@@ -7,7 +7,6 @@
   "feature_selection/filters/_mah.py": 1,
   "feature_selection/filters/_mi_greedy_cmi_fe_binning.py": 1,
   "feature_selection/filters/_mrmr_artifacts.py": 2,
-  "feature_selection/filters/_orthogonal_univariate_fe/_imbalance_mi.py": 4,
   "feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe.py": 2,
   "feature_selection/filters/_pairwise_modular_resident.py": 3,
   "feature_selection/filters/_resident_candidate_mi_ktc.py": 1,
