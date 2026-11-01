@@ -79,6 +79,7 @@ from ._fe_auto_escalation_proposers import (  # noqa: F401  -- carved sibling, r
     _identity_prewarp_spec,
     _propose_poly,
 )
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 __all__ = ["run_fe_auto_escalation", "find_underdelivering_pairs"]
 
@@ -329,7 +330,7 @@ def _subsample_decision_inputs(self: Any, X: Any, classes_y: Any, capture_vals: 
             capture_vals = {k: np.asarray(v)[_esc_idx] for k, v in capture_vals.items()}
         if admitted_pool:
             admitted_pool = _slice_admitted_pool(admitted_pool, _esc_idx, classes_y, nbins)
-        if _y_rank_eff is not None and np.asarray(_y_rank_eff).shape[0] == n_rows:
+        if _y_rank_eff is not None and shape_of(_y_rank_eff)[0] == n_rows:
             _y_rank_eff = np.asarray(_y_rank_eff)[_esc_idx]
         n_rows = int(_esc_ss_n)
 
@@ -342,7 +343,7 @@ def _subsample_decision_inputs(self: Any, X: Any, classes_y: Any, capture_vals: 
     # The rank is monotone-equivalent to y and heavy-tail-robust; fall back to the
     # codes when the stash is unavailable (multi-output / non-numeric y).
     _y_rank = _y_rank_eff
-    if _y_rank is not None and np.asarray(_y_rank).shape[0] == n_rows:
+    if _y_rank is not None and shape_of(_y_rank)[0] == n_rows:
         y_f = np.ascontiguousarray(_y_rank, dtype=_crit_np_dtype())
     else:
         y_f = np.ascontiguousarray(np.asarray(classes_y), dtype=_crit_np_dtype())

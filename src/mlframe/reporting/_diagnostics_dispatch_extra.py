@@ -25,6 +25,7 @@ import os
 from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import ndim_of
 
 logger = logging.getLogger(__name__)
 
@@ -606,7 +607,7 @@ def _split_entry_arrays(entry: Any, split: str, task: str) -> Optional[Dict[str,
             ys = arr.astype(np.float64)
     if ys is None:
         preds = getattr(entry, f"{split}_preds", None)
-        if preds is not None and np.asarray(preds).ndim == 1:
+        if preds is not None and ndim_of(preds) == 1:
             ys = np.asarray(preds).astype(np.float64)
     if ys is None:
         return None

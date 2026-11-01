@@ -36,6 +36,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 # Default additive-smoothing strength (pseudo-count toward the global mean).
 # 20 means a category needs ~20 train rows before its own mean dominates the
@@ -208,7 +209,7 @@ def _target_encoding_residual_forward(
         raise ValueError("target_encoding_residual.forward: groups kwarg is required.")
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
     fp = params.get("train_fingerprint")
-    if fp is not None and y_f.size == np.asarray(groups).size:
+    if fp is not None and y_f.size == size_of(groups):
         from . import _unique_group_labels
         uniq, inverse_idx = _unique_group_labels(np.asarray(groups).reshape(-1))
         if _train_fingerprint(y_f, uniq, inverse_idx) == fp:

@@ -8,6 +8,7 @@ from typing import Optional
 import numpy as np
 from .._fe_gpu_batch._devices import crit_float_dtype
 from .._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ def batched_device_marginals(cols: list, y_codes: np.ndarray, nbins: int) -> Opt
         return []
     try:
         on_device = all(hasattr(c, "dev") for c in cols)
-        n = int(cols[0].shape[0]) if on_device else int(np.asarray(cols[0]).shape[0])
+        n = int(cols[0].shape[0]) if on_device else int(shape_of(cols[0])[0])
         if on_device:
             import cupy as cp
 

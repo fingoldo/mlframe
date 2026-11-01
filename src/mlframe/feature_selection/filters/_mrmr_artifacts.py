@@ -29,6 +29,7 @@ from typing import Any
 import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 logger = logging.getLogger(__name__)
 
@@ -232,10 +233,10 @@ def compute_mrmr_artifacts(
 
     # Target marginal entropy: H(y). Computed once and reused below.
     y_idx = int(target_indices[0])
-    if np.asarray(target_indices).size > 1:
+    if size_of(target_indices) > 1:
         logger.warning(
             "compute_mrmr_artifacts: %d targets; su_to_target / mi_to_target are computed against the first target only (column index %d)",
-            int(np.asarray(target_indices).size), y_idx,
+            int(size_of(target_indices)), y_idx,
         )
     y_bins = data[:, y_idx]
     y_nbins = int(nbins[y_idx])

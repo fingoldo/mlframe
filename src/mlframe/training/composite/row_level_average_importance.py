@@ -25,6 +25,7 @@ import pandas as pd
 import polars as pl
 
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ def _feature_names(X_rows: Any) -> list[str]:
         return [str(c) for c in X_rows.columns]
     if isinstance(X_rows, pl.DataFrame):
         return [str(c) for c in X_rows.columns]
-    n_cols = np.asarray(X_rows).shape[1]
+    n_cols = shape_of(X_rows)[1]
     return [f"f{i}" for i in range(n_cols)]
 
 

@@ -31,6 +31,7 @@ from pyutilz.system import ensure_dir_exists
 
 from mlframe._optional_imports import import_optional
 from mlframe._output_paths import ensure_parent_dir
+from mlframe.feature_selection.filters._lazy_host_codes import ndim_of
 
 # Precompile once; strips anything that could turn ``model_name`` into a path
 # traversal, a hidden file, or a Windows-reserved character when interpolated
@@ -369,7 +370,7 @@ def compute_permutation_importances(*sklearn_args, columns: list, **sklearn_kwar
     # `result` is a Bunch; "importances" is 2D (n_features x n_repeats) and
     # breaks Polars construction on some versions. Keep only the per-feature
     # 1-D arrays that survive conversion, then assemble the frame explicitly.
-    frame: dict = {key: np.asarray(value) for key, value in result.items() if key != "importances" and hasattr(value, "__len__") and np.asarray(value).ndim == 1}
+    frame: dict = {key: np.asarray(value) for key, value in result.items() if key != "importances" and hasattr(value, "__len__") and ndim_of(value) == 1}
     frame["feature"] = list(columns)
 
     return (

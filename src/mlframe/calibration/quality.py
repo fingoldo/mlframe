@@ -38,6 +38,7 @@ from mlframe._optional_imports import import_optional
 from mlframe.metrics.core import fast_brier_score_loss, fast_r2_score  # sklearn-equivalent, faster
 
 from scipy.stats import ks_1samp, cramervonmises, chisquare, entropy
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
@@ -62,7 +63,7 @@ def mutual_information_score(y: np.ndarray, y_preds: np.ndarray) -> float:
     the score function of the density) despite the historical misnomer - see the deprecated
     ``hyvarinen_score`` alias below.
     """
-    if np.asarray(y).shape[0] <= 2:
+    if shape_of(y)[0] <= 2:
         # sklearn's KNN MI estimator requires n_samples > n_neighbors (=2); return NaN on a degenerate tiny
         # input instead of raising a cryptic ValueError from deep inside sklearn.
         return float("nan")
@@ -88,7 +89,7 @@ def hyvarinen_score(y: np.ndarray, y_preds: np.ndarray) -> float:
 
 def crps(y: np.ndarray, y_preds: np.ndarray) -> float:
     """Computes mean Continuous Ranked Probability Score of true binary outcomes versus predicted probabilities."""
-    if np.asarray(y).shape[0] == 0:
+    if shape_of(y)[0] == 0:
         return float("nan")  # mean of an empty CRPS array is a silent NaN; surface it explicitly.
     crps_ensemble = import_optional("properscoring", "calibration", "CRPS scoring").crps_ensemble
     return float(crps_ensemble(observations=y, forecasts=y_preds).mean())

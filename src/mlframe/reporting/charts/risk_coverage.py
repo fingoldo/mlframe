@@ -37,6 +37,7 @@ import numpy as np
 
 from mlframe.metrics import trapezoid
 from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 MAX_PLOT_POINTS: int = 2000
 
@@ -170,7 +171,7 @@ def _risk_coverage_unavailable(
     task: Task,
 ) -> RiskCoverageResult:
     """Placeholder result for an input with no usable (finite) rows: an annotation figure and all-NaN summary statistics."""
-    n_in = int(np.asarray(y_true).shape[0])
+    n_in = int(shape_of(y_true)[0])
     return RiskCoverageResult(
         figure=FigureSpec(
             suptitle="",

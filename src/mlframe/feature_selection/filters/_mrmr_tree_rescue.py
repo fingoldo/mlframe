@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 
 from .mrmr import MRMR
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ class MRMRTreeRescued(MRMR):
         if mode is True or (isinstance(mode, str) and mode.lower() in ("always", "true")):
             return True
         # "auto": fire only on under-selection (the collapse regime)
-        n_sel = int(np.asarray(getattr(self, "support_", np.array([]))).size)
+        n_sel = int(size_of(getattr(self, "support_", np.array([]))))
         floor = max(int(self.tree_rescue_min_features), math.ceil(float(self.tree_rescue_min_ratio) * p))
         return n_sel < floor
 
@@ -189,9 +190,9 @@ class MRMRTreeRescued(MRMR):
         """Fit MRMR normally, then apply the gated tree-importance rescue on top of the resulting ``support_``."""
         t0 = time.perf_counter()
         super().fit(X, y, *args, **kwargs)
-        n_before = int(np.asarray(self.support_).size) if hasattr(self, "support_") else 0
+        n_before = int(size_of(self.support_)) if hasattr(self, "support_") else 0
         self._apply_tree_rescue(X, y)
-        if hasattr(self, "support_") and int(np.asarray(self.support_).size) != n_before:
+        if hasattr(self, "support_") and int(size_of(self.support_)) != n_before:
             from .mrmr.shared import log_mrmr_fit_summary
 
             log_mrmr_fit_summary(self, time.perf_counter() - t0)

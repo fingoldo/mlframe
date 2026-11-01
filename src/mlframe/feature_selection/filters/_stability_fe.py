@@ -46,6 +46,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from mlframe.feature_selection._selection_log import logs_fit
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 logger = logging.getLogger(__name__)
 
@@ -291,7 +292,7 @@ def stability_select_fe(
 def _selection_summary(sel):
     """Selection-summary fragment of this selector for the end-of-fit log."""
     names = [str(n) for n in sel.get_feature_names_out()]
-    n_eng = max(len(names) - int(np.asarray(sel.full_mrmr_.support_).size), 0)
+    n_eng = max(len(names) - int(size_of(sel.full_mrmr_.support_)), 0)
     return names, int(sel.n_features_in_), f"+{n_eng} engineered, {len(sel.stable_set_)} stable over {sel.n_bootstraps} bootstrap(s)", len(names) - n_eng
 
 

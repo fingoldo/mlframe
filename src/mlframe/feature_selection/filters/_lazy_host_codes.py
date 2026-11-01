@@ -192,6 +192,22 @@ def size_of(values: Any) -> int:
     return int(np.asarray(values).size)  # length-ok: no shape attribute means a plain sequence
 
 
+def shape_of(values: Any) -> tuple:
+    """Shape of an array, a lazy device-backed array or any sequence, without materialising a lazy one (``np.asarray(x).shape`` copies it whole)."""
+    shape = getattr(values, "shape", None)
+    if shape is not None:
+        return tuple(int(d) for d in shape)
+    return np.asarray(values).shape  # length-ok: no shape attribute means a plain sequence
+
+
+def ndim_of(values: Any) -> int:
+    """Number of dimensions of an array, a lazy device-backed array or any sequence, without materialising a lazy one."""
+    shape = getattr(values, "shape", None)
+    if shape is not None:
+        return len(shape)
+    return np.asarray(values).ndim  # length-ok: no shape attribute means a plain sequence
+
+
 def host_as(values: Any, dtype: Any) -> np.ndarray:
     """``values`` as a host array of ``dtype``: a lazy device-backed array goes through its cached, possibly narrowed copy (``LazyHostCodes.host_as``), anything else through ``np.asarray``."""
     if isinstance(values, LazyHostCodes):

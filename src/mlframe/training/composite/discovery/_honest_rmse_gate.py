@@ -57,6 +57,7 @@ from .._row_roles import note_rows
 from ._rejection_ledger import gate_error_reject as _gate_error_reject
 from ._rejection_ledger import spec_inverse
 from mlframe.training.composite.transforms.shared import call_transform
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ def _log_gate_summary(survivors: list, n_candidates: int, raw_rmse: float, tol: 
 def _base_arg(df: Any, base_columns: Sequence[str], rows: np.ndarray) -> np.ndarray:
     """Materialise the ``base`` argument shape ``transform.forward/inverse`` expects on the given rows."""
     if not base_columns:
-        return np.zeros(np.asarray(rows).size, dtype=np.float64)
+        return np.zeros(size_of(rows), dtype=np.float64)
     if len(base_columns) == 1:
         return _extract_column_array(df, base_columns[0], rows=rows).astype(np.float64)
     return np.column_stack([_extract_column_array(df, c, rows=rows).astype(np.float64) for c in base_columns])
@@ -407,7 +408,7 @@ def apply_honest_rmse_gate(
     cfg = self.config
     if not getattr(cfg, "honest_rmse_gate_enabled", True) or not kept_specs:
         return kept_specs
-    if holdout_idx is None or np.asarray(holdout_idx).size < 50:
+    if holdout_idx is None or size_of(holdout_idx) < 50:
         logger.info("[CompositeTargetDiscovery.honest_rmse_gate] no usable honest holdout (honest_holdout_frac disabled or too small) -- OOS RMSE gate skipped.")
         return kept_specs
 

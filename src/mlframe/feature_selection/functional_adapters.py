@@ -23,6 +23,7 @@ from .cascade_select import cascade_select
 from .forward_select import forward_select
 from .greedy_backward_elimination import greedy_backward_elimination
 from .zero_importance_pruning import iterative_zero_importance_pruning
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +203,7 @@ class _FunctionalSelectorBase(TransformerMixin, BaseEstimator):
     def _finalize(self, X, selected: list) -> None:
         """Record fitted feature-name/support-mask state from the selected column list."""
         _is_frame = hasattr(X, "columns")
-        names = [str(c) for c in X.columns] if _is_frame else [f"x{i}" for i in range(np.asarray(X).shape[1])]
+        names = [str(c) for c in X.columns] if _is_frame else [f"x{i}" for i in range(shape_of(X)[1])]
         self.feature_names_in_ = np.asarray(names, dtype=object)
         self.n_features_in_ = len(names)
         # ``positional`` comes from the fit input's own shape, not from the dtype of ``selected``: a frame with

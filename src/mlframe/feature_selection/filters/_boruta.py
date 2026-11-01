@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 import numpy as np
 
 from mlframe.feature_selection._selection_log import logs_selection
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 
 def _summ_boruta(res, b):
@@ -76,7 +77,7 @@ def _resolve_feature_layout(X: Any, feature_names: Optional[Sequence[str]]) -> t
         # (polars, etc.) falls through to the dtype-agnostic numpy path, which needs no index.
         is_pandas_frame = isinstance(X, pd.DataFrame)
     else:
-        n_features = np.asarray(X).shape[1]
+        n_features = shape_of(X)[1]
         names = list(feature_names) if feature_names is not None else [f"f{i}" for i in range(n_features)]
         is_pandas_frame = False
     return cols, n_features, names, is_pandas_frame

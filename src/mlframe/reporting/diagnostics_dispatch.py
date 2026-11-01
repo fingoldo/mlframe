@@ -482,7 +482,7 @@ def render_target_drift_diagnostics(
     if not plot_outputs or not base_path:
         return
 
-    has_time = timestamps is not None and len(np.asarray(timestamps)) > 0
+    has_time = timestamps is not None and length_of(timestamps) > 0
 
     # Calendar encodings of the timestamp (day/weekday/hour sin-cos, ...) differ between time buckets and between an
     # earlier and a later split BY CONSTRUCTION; left in, they dominate both the PSI heatmap and the adversarial ranking.
@@ -935,3 +935,4 @@ from ._diagnostics_dispatch_extra import (  # noqa: F401
     render_target_dist_overlay,
 )
 from mlframe._output_paths import ensure_parent_dir
+from mlframe.feature_selection.filters._lazy_host_codes import length_of

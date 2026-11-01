@@ -90,6 +90,7 @@ from ._fe_usability_signal import (  # shared leaf |corr| (numpy-only, no cycle)
 from types import SimpleNamespace as _SimpleNamespace
 
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -525,7 +526,7 @@ def drop_redundant_raw_operands(
     st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
 
     st.sel = list(selected_cols_idx)
-    st.n_rows = int(np.asarray(y_binned).shape[0])
+    st.n_rows = int(shape_of(y_binned)[0])
     if st.n_rows < _MIN_ROWS or len(st.sel) < 2:
         return st.sel, []
 

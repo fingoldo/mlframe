@@ -22,6 +22,7 @@ from ._gpu_resident_shared import (
     _quantile_levels_dev,
     _unary_stack_cm,
 )
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 
 def _grand_fused_pair_mi_part1(
@@ -171,7 +172,7 @@ def _grand_fused_pair_mi_fused_part1(
     # y-vectors: row 0 = original y, rows 1.. = the Fisher-Yates shuffles (SAME host LCG the noise-gate
     # uses -> bit-identical permutation stream). Uploaded ONCE as (P1, n) int32 and shared by every chunk.
     y_orig = np.ascontiguousarray(y_codes, dtype=np.int64).reshape(1, n)
-    K_y = int(np.asarray(freqs_y).shape[0])
+    K_y = int(shape_of(freqs_y)[0])
     fy = np.ascontiguousarray(freqs_y, dtype=np.float64)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
     nperm = int(npermutations) if npermutations and npermutations > 0 else 0
     if nperm > 0:

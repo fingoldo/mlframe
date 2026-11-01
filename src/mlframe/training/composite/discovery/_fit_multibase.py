@@ -26,6 +26,7 @@ from ..transforms import compose_target_name
 from mlframe.training.composite.transforms.shared import linear_residual_multi_fit as _linear_residual_multi_fit
 from .forward_stepwise import forward_stepwise_multi_base
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ def _upgrade_spec(
         mi_gain=float("nan"),  # the screen measured the seed, not this transform (see CompositeSpec.stats_measured_for)
         mi_y=float("nan"), mi_t=float("nan"),
         valid_domain_frac=float(np.mean(np.all(np.isfinite(_base_matrix), axis=1) & np.isfinite(_y_train_local))),
-        n_train_rows=int(np.asarray(_y_train_local).size),
+        n_train_rows=int(size_of(_y_train_local)),
         extra_base_columns=tuple(_kept_bases[1:]),
         stats_measured_for=_spec.name,
     )

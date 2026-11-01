@@ -18,6 +18,7 @@ from mlframe.reporting.spec import ScatterPanelSpec
 
 from ._plotly_color import _axis_ref, _mpl_to_plotly_cmap, _rgba
 from ._shared_helpers import _SCATTER_MAX_POINTS, PX_PER_INCH, low_evidence_mask, non_colliding_label_indices, select_per_point
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +163,7 @@ def _scatter_main_traces(
     """Add the main marker trace, split into confident and hollow low-evidence traces when the spec flags weak bins."""
     # Points resting on too little data to be an observation: drawn hollow in their own trace, mirroring the
     # matplotlib twin, so the two backends do not disagree about which bins are readable.
-    weak = low_evidence_mask(p.low_evidence_indices if len(x) == len(np.asarray(p.x)) else None, len(x))
+    weak = low_evidence_mask(p.low_evidence_indices if len(x) == length_of(p.x) else None, len(x))
 
     def _sel_err(err, mask, muted: bool = False):
         """Narrow a plotly error spec to the masked points, keeping symmetric/asymmetric structure.
@@ -205,7 +206,7 @@ def _scatter_main_traces(
         if not ht:
             return {}
         arr = np.asarray(ht, dtype=object)
-        if arr.shape[0] != len(np.asarray(p.x)):
+        if arr.shape[0] != length_of(p.x):
             return {}
         if idx is not None:
             arr = arr[idx]

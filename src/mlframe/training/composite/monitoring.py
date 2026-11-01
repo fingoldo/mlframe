@@ -285,7 +285,7 @@ class CompositeDriftMonitor:
             "pred_knots": pred_knots,
             "resid_mean": resid_mean,
             "resid_std": resid_std,
-            "n_reference": int(np.asarray(y_hat).size),
+            "n_reference": int(size_of(y_hat)),
         }
 
     # ------------------------------------------------------------------
@@ -429,3 +429,4 @@ class CompositeDriftMonitor:
 # Drift-aware rediscovery helper lives in the sibling module (LOC discipline); re-exported here so
 # callers import both the monitor and its automatic reaction from one place.
 from .monitoring_rediscovery import check_and_rediscover  # noqa: F401
+from mlframe.feature_selection.filters._lazy_host_codes import size_of

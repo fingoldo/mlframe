@@ -64,6 +64,7 @@ from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec,
     PanelSpec, ScatterPanelSpec,
 )
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 # Above this many finite points the pred-vs-actual cloud is drawn as a log-density 2-D histogram instead of a raw scatter
 # (a 2M-point Scattergl/SVG cloud is both slow and a solid unreadable blob; density binning preserves structure).
@@ -221,7 +222,7 @@ def _scatter_panel(
     """
     yt, yp = _finite_pair(y_true, y_pred)
     if yt.size == 0:
-        return _empty_annotation("Predictions vs true", int(np.asarray(y_true).size))
+        return _empty_annotation("Predictions vs true", int(size_of(y_true)))
     n = yt.size
     # Map original-array worst-K positions onto the finite-filtered index space the panel x/y live in.
     wk_finite = _worst_k_into_finite(y_true, y_pred, worst_k_indices)
@@ -348,7 +349,7 @@ def _pred_sample_trace_panel(
     """
     yt, yp = _finite_pair(y_true, y_pred)
     if yt.size == 0:
-        return _empty_annotation("Predictions vs true (sample)", int(np.asarray(y_true).size))
+        return _empty_annotation("Predictions vs true (sample)", int(size_of(y_true)))
     n = yt.size
     k = min(sample_size, n)
     # Rows at evenly spaced RANKS of the true value, not a random draw: on a mostly-zero target a random 20 were all
@@ -390,7 +391,7 @@ def _resid_hist_panel(
     """Residual histogram + fitted-Normal overlay. Hypothesis + suggested loss ride in the title."""
     yt, yp = _finite_pair(y_true, y_pred)
     if yt.size == 0:
-        return _empty_annotation("Residual distribution", int(np.asarray(y_true).size))
+        return _empty_annotation("Residual distribution", int(size_of(y_true)))
     resid = yt - yp
     n_full = int(resid.size)
     if resid.size > sample_size:
@@ -455,7 +456,7 @@ def _resid_vs_pred_panel(
     """
     yt, yp = _finite_pair(y_true, y_pred)
     if yt.size == 0:
-        return _empty_annotation("Residuals vs predicted", int(np.asarray(y_true).size))
+        return _empty_annotation("Residuals vs predicted", int(size_of(y_true)))
     resid = yt - yp
     n = resid.size
     if n == 0:
@@ -533,7 +534,7 @@ def _err_by_decile_panel(
     resid = yt - yp
     n = yt.size
     if n == 0:
-        return _empty_annotation("Error by target decile", int(np.asarray(y_true).size))
+        return _empty_annotation("Error by target decile", int(size_of(y_true)))
     # Equal-frequency deciles via quantile cut-points + searchsorted: a full argsort over n=2M is the chart's single
     # biggest cost (~0.4s); np.quantile does only a k-way partial sort, then searchsorted is O(n). Ties land in one
     # bucket consistently (acceptable -- ranks split ties arbitrarily anyway), so decile populations stay ~equal.
@@ -729,7 +730,7 @@ def _resid_acf_panel(
     # variable amount of real time. State how much was closed up rather than implying an even grid.
     # Measured on the ORIGINAL rows: ``resid`` is already the finite-filtered pair, so the rows that were
     # dropped -- the ones that make the lag spacing uneven -- are exactly the ones no longer visible here.
-    _n_in = int(np.asarray(y_true).size)
+    _n_in = int(size_of(y_true))
     _gap = (1.0 - resid.size / _n_in) if _n_in else 0.0
     _gap_note = f"; {_gap:.1%} of rows were non-finite and closed up, so lag spacing is uneven" if _gap > 0 else ""
     band = significance_band(n_used)

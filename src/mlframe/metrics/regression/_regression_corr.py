@@ -14,6 +14,7 @@ import numba
 
 from .._numba_params import NUMBA_NJIT_PARAMS, _check_equal_length
 from ..rank_correlation import spearmanr_scalar_dispatch
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -73,7 +74,7 @@ def fast_spearman_corr(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     is the faster default at all n -- ~1.5-2.7x over scipy across n in {5k..1M}.
     """
     _check_equal_length(y_true, y_pred)
-    if np.asarray(y_true).size < 2:
+    if size_of(y_true) < 2:
         return np.nan
     return spearmanr_scalar_dispatch(y_true, y_pred)
 

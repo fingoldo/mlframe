@@ -797,7 +797,7 @@ def dispatch_batch_pair_mi_chunked(
     second request is answered from the first (a copy: a caller cannot change the stored table). Requests below ``_CHUNKED_MI_MEMO_MIN_WORK`` pair-rows are not hashed. See the uncached
     function for the contract.
     """
-    k = int(np.asarray(ids).shape[0])
+    k = int(shape_of(ids)[0])
     if k * (k - 1) // 2 * int(factors_data.shape[0]) < _CHUNKED_MI_MEMO_MIN_WORK:
         return _dispatch_batch_pair_mi_chunked_uncached(factors_data, ids, nbins, classes_y, freqs_y, force_backend, max_pairs_per_chunk)
     from ._gpu_policy import gpu_globally_disabled
@@ -816,6 +816,7 @@ def dispatch_batch_pair_mi_chunked(
 # discover + batch-tune batch_pair_mi. GPU-capable (cuda/cupy backends).
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 from typing import cast
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 _BPMI_SPEC = kernel_tuner(
     kernel_name="batch_pair_mi",

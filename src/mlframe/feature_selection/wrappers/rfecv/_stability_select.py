@@ -25,6 +25,7 @@ from .._helpers import (
     select_appropriate_feature_importances,
 )
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
@@ -635,7 +636,7 @@ def select_optimal_nfeatures_(
     # those and only two ever set a ranking, which is how the consensus NAME list escaped under this
     # attribute and broke `np.asarray(ranking_, dtype=float)` for every sklearn-shaped caller. A branch
     # added later inherits the contract instead of having to remember it.
-    if getattr(self, "support_", None) is not None and len(np.asarray(self.support_)) == len(self.feature_names_in_):
+    if getattr(self, "support_", None) is not None and length_of(self.support_) == len(self.feature_names_in_):
         self.ranking_ = _sklearn_ranking_vector(self.feature_names_in_, getattr(self, "consensus_ranking_", None), self.support_)
 
     if verbose:

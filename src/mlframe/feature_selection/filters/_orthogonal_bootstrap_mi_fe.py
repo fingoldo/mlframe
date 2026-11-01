@@ -69,6 +69,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 from ._cache_release import register_cache_releaser
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 __all__ = [
     "baseline_lcb_by_bootstrap_mi",
@@ -257,8 +258,8 @@ def score_features_by_bootstrap_mi(
             f"engineered_X has {len(engineered_X)}; positional joint "
             f"subsampling requires aligned indices."
         )
-    if len(raw_X) != len(np.asarray(y)):
-        raise ValueError(f"score_features_by_bootstrap_mi: raw_X has {len(raw_X)} rows but " f"y has {len(np.asarray(y))}; aligned indices required.")
+    if len(raw_X) != length_of(y):
+        raise ValueError(f"score_features_by_bootstrap_mi: raw_X has {len(raw_X)} rows but " f"y has {length_of(y)}; aligned indices required.")
 
     y_arr = coerce_y_classif(y)
     raw_cols = list(raw_X.columns)

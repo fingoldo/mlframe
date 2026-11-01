@@ -16,6 +16,7 @@ from mlframe.reporting.colors import PERFECT_FIT_LINE, OVERLAY_LINE, TREND_LINE
 from mlframe.reporting.spec import ScatterPanelSpec
 
 from ._shared_helpers import _SCATTER_MAX_POINTS, low_evidence_mask, non_colliding_label_indices, select_per_point
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,7 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
     # error arrays align with x/y as-passed.
     # Points whose value rests on too little data to be an observation. Their interval is drawn muted and
     # their marker hollow, so the pair keeps its honest width without carrying an observation's weight.
-    weak = low_evidence_mask(p.low_evidence_indices if len(x) == len(np.asarray(p.x)) else None, len(x))
+    weak = low_evidence_mask(p.low_evidence_indices if len(x) == length_of(p.x) else None, len(x))
 
     _draw_scatter_error_bars(ax, p, x, y, weak)
 

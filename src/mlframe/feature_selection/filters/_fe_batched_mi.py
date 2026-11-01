@@ -895,7 +895,7 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
     Kx = int(kx) if kx and kx > 0 else (int(X.max()) + 1 if X.size else 1)
     _assert_codes_in_range(X, Kx, "batched_cmi_gpu X codes", codes_trusted)
 
-    if z is None or (hasattr(z, "size") and (z.size if isinstance(z, cp.ndarray) else np.asarray(z).size) == 0):
+    if z is None or (hasattr(z, "size") and (z.size if isinstance(z, cp.ndarray) else size_of(z)) == 0):
         # Marginal MI(x_k; y), MM-corrected:  H(x)+H(y)-H(x,y) - (k_x+k_y-k_xy-1)/2n
         Ky = int(ky) if ky and ky > 0 else (int(dy.max()) + 1 if dy.size else 1)
         _assert_codes_in_range(dy, Ky, "batched_cmi_gpu y codes", codes_trusted)
@@ -983,3 +983,4 @@ from ._fe_batched_mi_cmi import (  # noqa: F401
     _cmi_assemble,
     joint_nnz_gpu,
 )
+from mlframe.feature_selection.filters._lazy_host_codes import size_of

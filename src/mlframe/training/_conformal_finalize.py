@@ -25,6 +25,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 SplitStructure = str  # one of: "iid", "temporal", "grouped", "temporal_grouped", "stratified"
 
@@ -253,7 +254,7 @@ def conformal_regression_report(
     never mistakes the weaker CV+ bound for split-conformal. Falls back to absolute score when the
     normalized sigma model is not computable (no ``y_pred_cal``).
     """
-    if residuals_cal is not None and np.asarray(residuals_cal).size > 0:
+    if residuals_cal is not None and size_of(residuals_cal) > 0:
         eff_score = score if (score == "normalized" and y_pred_cal is not None) else "absolute"
         intervals = split_conformal_intervals(
             y_pred_test,
@@ -264,7 +265,7 @@ def conformal_regression_report(
         )
         method = "split_conformal"
         guarantee = "marginal>=1-alpha"
-    elif oof_residuals is not None and np.asarray(oof_residuals).size > 0:
+    elif oof_residuals is not None and size_of(oof_residuals) > 0:
         eff_score = "absolute"
         intervals = cv_plus_intervals(y_pred_test, oof_residuals, alphas)
         method = "cv_plus"

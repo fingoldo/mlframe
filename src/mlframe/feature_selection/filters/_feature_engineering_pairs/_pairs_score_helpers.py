@@ -23,6 +23,7 @@ from mlframe.utils.log_throttle import log_throttle
 
 from .._fe_usability_signal import _crit_np_dtype
 from .._numba_utils import rows_to_columns_into
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of, size_of
 
 logger = logging.getLogger(__name__)
 
@@ -294,7 +295,7 @@ def _score_one_pair_mi_threshold_ratio_fix(fe_mm_debias_prevalence, pair_mi, bes
     if fe_mm_debias_prevalence and pair_mi > 0.0 and best_config is not None:
         from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_gates import _occupied_k, mm_debiased_prevalence_ratio
         _n_rows = len(classes_y)
-        _k_y = int(np.asarray(freqs_y).shape[0])
+        _k_y = int(shape_of(freqs_y)[0])
         # Engineered winner occupied-K: discretise its CONTINUOUS column (the buffer
         # column ``best_config[2]``) with the SAME quantiser the MI was scored under.
         _k_eng = quantization_nbins
@@ -313,7 +314,7 @@ def _score_one_pair_mi_threshold_ratio_fix(fe_mm_debias_prevalence, pair_mi, bes
         _ca = _operand_discretized(raw_vars_pair[0])
         _cb = _operand_discretized(raw_vars_pair[1])
         if _ca is not None and _cb is not None:
-            _nb_b = int(np.asarray(_cb).max()) + 1 if np.asarray(_cb).size else quantization_nbins
+            _nb_b = int(np.asarray(_cb).max()) + 1 if size_of(_cb) else quantization_nbins
             _joint_codes = np.asarray(_ca, dtype=np.int64) * _nb_b + np.asarray(_cb, dtype=np.int64)
             _k_joint = _occupied_k(_joint_codes)
         else:

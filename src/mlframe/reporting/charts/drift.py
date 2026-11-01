@@ -378,7 +378,7 @@ def psi_heatmap(
         return FigureSpec(suptitle="", panels=((panel,),), figsize=FIGSIZE_WIDE if figsize is None else figsize)
 
     n_feat, n_buckets = matrix.shape
-    n_rows_total = int(np.asarray(timestamps).shape[0])
+    n_rows_total = int(shape_of(timestamps)[0])
     n_per_bucket = max(1, n_rows_total // max(1, n_buckets))
     # PSI is a chi-square-like statistic: under NO drift its expectation is about (bins-1)/n_bucket. At 50 rows per
     # bucket that floor is ~0.18, well past the "moderate" line, so i.i.d. data painted the grid orange.
@@ -870,6 +870,7 @@ def _coerce_x(v: Any, pd: Any) -> float:
 # Re-exported so every existing ``from ...drift import adversarial_auc`` keeps working. Imported at the BOTTOM
 # because the sibling imports this module's frame helpers and ADV_* constants back.
 from ._drift_adversarial import adversarial_auc, adversarial_validation
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 __all__ = [
     "PSI_MODERATE",

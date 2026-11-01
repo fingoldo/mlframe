@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Optional
 import logging
 
-import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -22,7 +22,7 @@ def apply_learned_fe_budgets(self, X: Any, loaded_budgets: Optional[dict], quota
     try:
         from mlframe.feature_selection.filters._fe_family_budget import dataset_fingerprint as _fe_budget_fp, load_budgets as _fe_load_budgets
 
-        _fe_budget_cols = list(X.columns) if hasattr(X, "columns") else [str(i) for i in range(np.asarray(X).shape[1])]
+        _fe_budget_cols = list(X.columns) if hasattr(X, "columns") else [str(i) for i in range(shape_of(X)[1])]
         self._fe_budget_fingerprint_ = _fe_budget_fp(len(_fe_budget_cols), _fe_budget_cols)
         if loaded_budgets is None:
             loaded_budgets = _fe_load_budgets(fingerprint=self._fe_budget_fingerprint_)

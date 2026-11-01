@@ -23,6 +23,7 @@ from pandas.api.extensions import ExtensionDtype
 
 # A column is near-constant when its std is within this factor of machine epsilon of its largest |value|: its spread is then rounding noise.
 from types import SimpleNamespace as _SimpleNamespace
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 
 def _check_prospective_fe_pairs_part10(
@@ -146,7 +147,7 @@ def _check_prospective_fe_pairs_part5(
     _gpu_mat_on = os.environ.get("MLFRAME_FE_GPU_MATERIALISE", "1").strip().lower() not in ("0", "false", "no", "off")
     _op_code_arr_all = _njit_binary_op_codes(binary_transformations)
     _op_code_arr = _op_code_arr_all if _gpu_mat_on else None
-    _mi_band = mi_tie_band(int(quantization_nbins), len(classes_y), int(np.asarray(freqs_y).shape[0]))
+    _mi_band = mi_tie_band(int(quantization_nbins), len(classes_y), int(shape_of(freqs_y)[0]))
     # Same rationale, for the noise-gate dispatcher's own CUDA-opt-out / resident-gate env reads (it runs
     # once per pair AND once per chunk AND once per ext-val tied-leader-set - see resolve_fe_dispatch_env_gate).
     _fe_env_gate = resolve_fe_dispatch_env_gate()

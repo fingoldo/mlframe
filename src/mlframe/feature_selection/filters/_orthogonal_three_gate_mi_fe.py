@@ -84,6 +84,7 @@ from ._mi_greedy_cmi_fe import (
 )
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -342,8 +343,8 @@ def score_features_by_kfold_oof_mi(
             f"but engineered_X has {len(engineered_X)}; positional joint "
             f"K-fold splitting requires aligned indices."
         )
-    if len(raw_X) != len(np.asarray(y)):
-        raise ValueError(f"score_features_by_kfold_oof_mi: raw_X has {len(raw_X)} rows " f"but y has {len(np.asarray(y))}; aligned indices required.")
+    if len(raw_X) != length_of(y):
+        raise ValueError(f"score_features_by_kfold_oof_mi: raw_X has {len(raw_X)} rows " f"but y has {length_of(y)}; aligned indices required.")
 
     y_arr = coerce_y_classif(y)
     raw_cols = list(raw_X.columns)

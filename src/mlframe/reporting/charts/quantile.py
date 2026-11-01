@@ -68,6 +68,7 @@ from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HistogramPanelSpec,
     LinePanelSpec, PanelSpec,
 )
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -322,7 +323,7 @@ def _coverage_panel(y_true, preds_NK, alphas) -> PanelSpec:
     y, P = y[row_ok], P[row_ok]
     n = y.shape[0]
     if n == 0:
-        return _no_rows_annotation("Interval coverage", int(np.asarray(preds_NK).shape[0]))
+        return _no_rows_annotation("Interval coverage", int(shape_of(preds_NK)[0]))
     pairs = _symmetric_interval_pairs(alphas)
     if not pairs:
         return AnnotationPanelSpec(
@@ -395,7 +396,7 @@ def _pit_hist_panel(y_true, preds_NK, alphas) -> PanelSpec:
     pit = pit_values(y_true, preds_NK, alphas)
     pit = pit[np.isfinite(pit)]
     if pit.size == 0:
-        return _no_rows_annotation("PIT histogram", int(np.asarray(preds_NK).shape[0]))
+        return _no_rows_annotation("PIT histogram", int(shape_of(preds_NK)[0]))
     mean = float(pit.mean())
     from mlframe.calibration.quality import kolmogorov_smirnov_statistic
     ks = float(kolmogorov_smirnov_statistic(pit))

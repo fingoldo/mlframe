@@ -67,6 +67,7 @@ from ._model_factories import (
     GPU_VRAM_SAFE_FREE_LIMIT_GB, GPU_VRAM_SAFE_SATURATION_LIMIT,
 )
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 # Optional model backends mirrored from parent: defaults to None when the
 # library is not installed; downstream branches gate on that.
@@ -315,7 +316,7 @@ def _configure_training_use_regression_2(use_regression, config_params, target, 
                 try:
                     assert target_arr is not None
                     _first = target_arr[0]
-                    nlabels = (len(_first) if hasattr(_first, "__len__") else int(np.asarray(_first).size)) + 1
+                    nlabels = (len(_first) if hasattr(_first, "__len__") else int(size_of(_first))) + 1
                 except Exception as e:
                     log_throttle(logger, "_trainer_configure_helpers._configure_training_use_regression_2", logging.WARNING, "inferring nlabels from target_arr failed, defaulting to 3: %s", e)
                     nlabels = 3

@@ -31,6 +31,7 @@ from ._recurrent_wrapper_base import (  # noqa: F401 -- re-exported; recurrent_d
     _monitor_mode,
     _RecurrentWrapperBase,
 )
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger("mlframe.training.neural.recurrent_dataset_helpers")  # matches the pre-carve logger name; preserves log-filter/caplog compatibility for existing callers/tests
 
@@ -112,9 +113,9 @@ class RecurrentClassifierWrapper(ClassifierMixin, _RecurrentWrapperBase):
         # consequence here would be a misconfigured BCEWithLogitsLoss with
         # a num_classes=1 output head for what is actually multi-class
         # classification.
-        self._is_multilabel = bool(hasattr(labels, "ndim") and labels.ndim == 2 and np.asarray(labels).shape[1] >= 2)
+        self._is_multilabel = bool(hasattr(labels, "ndim") and labels.ndim == 2 and shape_of(labels)[1] >= 2)
         if self._is_multilabel:
-            self._n_labels = int(np.asarray(labels).shape[1])
+            self._n_labels = int(shape_of(labels)[1])
             # Override config.num_classes to match label count so the MLP head builds the right number of output units.
             self._cfg.num_classes = self._n_labels
 

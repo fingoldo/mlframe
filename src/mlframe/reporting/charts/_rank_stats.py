@@ -10,6 +10,7 @@ implementation both sites use now.
 from __future__ import annotations
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 # Above this length the whole-vector rank+Pearson runs in the njit kernel (single argsort + tie-average in machine
 # code) instead of the pure-Python tie-collapse loop below; ~2.1x at N=200k, bit-identical (same average-rank
@@ -50,7 +51,7 @@ def ovr_rank_auc(labels_pos: np.ndarray, proba: np.ndarray, n_classes: int) -> n
     overlays, which carried near-identical copies of this loop: same formula, same tie handling, two places to fix.
     """
     out = np.full(n_classes, np.nan, dtype=np.float64)
-    n = int(np.asarray(labels_pos).shape[0])
+    n = int(shape_of(labels_pos)[0])
     if n == 0:
         return out
     valid = labels_pos >= 0

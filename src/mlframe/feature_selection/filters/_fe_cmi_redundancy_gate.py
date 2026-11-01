@@ -170,6 +170,7 @@ _MIN_ROWS_FOR_CMI = 500
 # analytic null where the cells are dense and falls back to permutation where they are sparse. Env-
 # tunable (``MLFRAME_CMI_ANALYTIC_NULL_MIN_N``); a future kernel_tuning_cache sweep can refine per host.
 import os as _os
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 # COST GUARD: the greedy gate is O(K^2) in the candidate count K -
 # every still-remaining candidate is re-scored against the admitted support in
@@ -206,7 +207,7 @@ def _cmi_gate_resident_eligible(y_bin, names) -> bool:
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
-        return bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(np.asarray(y_bin).shape[0]), p=len(names)))
+        return bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(shape_of(y_bin)[0]), p=len(names)))
     except Exception as e:
         log_throttle(logger, "cmi_gate.resident_probe", logging.WARNING, "CMI gate: the resident-GPU eligibility probe failed, using the host path: %s", e)
         return False

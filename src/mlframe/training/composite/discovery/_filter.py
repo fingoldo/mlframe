@@ -18,6 +18,7 @@ from .screening import (
     _is_numeric_column,
     _safe_abs_corr_all,
 )
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 logger = logging.getLogger(__name__)
 
@@ -339,9 +340,9 @@ def _filter_features(
     corr_drops: list[tuple[str, float]] = []
     candidates: list[str] = []
     candidate_arrays: list[np.ndarray] = []
-    _leak_rows = _leak_corr_sample_rows(int(np.asarray(train_idx).size))
+    _leak_rows = _leak_corr_sample_rows(int(size_of(train_idx)))
     _y_leak = y_train if _leak_rows is None or y_train is None else np.asarray(y_train)[_leak_rows]
-    _n_leak_rows = int(np.asarray(train_idx).size) if _leak_rows is None else int(_leak_rows.size)
+    _n_leak_rows = int(size_of(train_idx)) if _leak_rows is None else int(_leak_rows.size)
     # Train rows that are the whole frame in order are read as whole columns: a row gather copies the index and, on pandas,
     # a float64 column per feature on the way to float32, for the same values.
     _col_rows = None if _is_every_row(train_idx, df) else train_idx
@@ -350,7 +351,7 @@ def _filter_features(
         logger.info(
             "[CompositeTargetDiscovery] leak-corr test reads a %d-row stride of the %d train rows; the constancy and "
             "finite-row checks still read every row, so only the correlation is sampled.",
-            _leak_rows.size, int(np.asarray(train_idx).size),
+            _leak_rows.size, int(size_of(train_idx)),
         )
     # Only when the leak-corr test samples rows: otherwise every full column is read for it anyway.
     _polars_stats = _polars_train_stats(self, df, feature_cols, train_idx) if _leak_rows is not None else None

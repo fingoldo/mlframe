@@ -13,6 +13,7 @@ import logging
 from typing import Any, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -518,7 +519,7 @@ def compute_pair_maxt_floor(
             # resident-GPU floor can subtract the IDENTICAL per-pair term the CPU floor does (consistent debias).
             _bias_vec = None
             if _mm_debias:
-                _k_y = int(np.asarray(freqs_y).shape[0])
+                _k_y = int(shape_of(freqs_y)[0])
                 _bias_vec = pairwise_mm_joint_bias(data, _maxt_pa, _maxt_pb, nbins, _k_y)
             # Resident-GPU branch (selection-equivalent device twin: same pooled-MAX construction, device-born
             # shuffles, host-owned quantile). DEFAULT ON under the resident FE path / opt-out
@@ -707,7 +708,7 @@ def apply_interaction_information_routing(
         _pa = np.fromiter((k[0][0] for k in _keys), dtype=np.int64, count=len(_keys))
         _pb = np.fromiter((k[0][1] for k in _keys), dtype=np.int64, count=len(_keys))
         _n = int(data.shape[0]) if hasattr(data, "shape") else 0
-        _nbins_y = int(np.asarray(freqs_y).shape[0])
+        _nbins_y = int(shape_of(freqs_y)[0])
         _ii_floor = pooled_pair_ii_null_floor(
             factors_data=data,
             nbins=nbins,

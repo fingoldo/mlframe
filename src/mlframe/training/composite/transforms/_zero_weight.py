@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 import numpy as np
 import logging
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ class ZeroWeightDroppingFit:
         y_arr = np.asarray(y)
         kwargs = dict(kwargs, sample_weight=w[keep])
         g = kwargs.get("groups")
-        if g is not None and np.asarray(g).shape[0] == w.shape[0]:
+        if g is not None and shape_of(g)[0] == w.shape[0]:
             kwargs["groups"] = np.asarray(g)[keep]
         base_kept = None if base is None else np.asarray(base)[keep]
         return self.fn(y_arr[keep], base_kept, *args, **kwargs)

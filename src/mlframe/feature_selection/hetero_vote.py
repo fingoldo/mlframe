@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 
 from ._selection_log import logs_selection, n_columns
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,7 @@ def heterogeneous_relevance_vote(
     Sample-weight note: the permutation-importance fallback (used only for estimators exposing neither ``feature_importances_`` nor ``coef_``) subsamples to 1000 rows
         and does NOT thread ``sample_weight`` - the voting path carries no sample-weight contract at all, so this is consistent across the whole panel, not a silent drop.
     """
-    cols = list(X.columns) if isinstance(X, pd.DataFrame) else [f"x{i}" for i in range(np.asarray(X).shape[1])]
+    cols = list(X.columns) if isinstance(X, pd.DataFrame) else [f"x{i}" for i in range(shape_of(X)[1])]
     Xv = X.values if isinstance(X, pd.DataFrame) else np.asarray(X, dtype=float)
     yv = np.asarray(y)
     P = Xv.shape[1]

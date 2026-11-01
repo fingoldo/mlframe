@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover
     _HAS_POLARS = False
 
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 logger = logging.getLogger(__name__)
 
@@ -577,7 +578,7 @@ class CompositeCrossTargetEnsemble:
             _stash = getattr(self, "_linear_stack_train_preds", None)
             if _stash is None:
                 _stash = getattr(self, "_nnls_stack_train_preds", None)
-            if _stash is not None and np.asarray(_stash).size:
+            if _stash is not None and size_of(_stash):
                 _col_means = np.asarray(_stash, dtype=np.float64).mean(axis=0).tolist()
         logger.warning(
             "[CompositeCrossTargetEnsemble] %s: %d of %d components dropped out at predict time; %s "

@@ -411,7 +411,7 @@ def _prebin_feature_columns_lazy(
     path stays the default for ndarray carriers / where the float matrix is also
     consumed downstream (dedup / knn); the caller size-gates the dispatch."""
     code_dtype = _prebin_code_dtype(nbins)
-    n_rows = int(np.asarray(rows).shape[0])
+    n_rows = int(shape_of(rows)[0])
     n_cols = len(cols)
     if n_rows < 5 * nbins:
         return np.full((n_rows, n_cols), -1, dtype=code_dtype)
@@ -878,6 +878,7 @@ from ._screening_tiny import (  # noqa: F401
     _per_bin_from_fold_preds,
     _tiny_cv_rmse_y_scale,
 )
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 
 def _sample_indices(
