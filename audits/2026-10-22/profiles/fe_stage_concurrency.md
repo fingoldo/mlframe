@@ -64,3 +64,14 @@ Stages on exactly 1.0 core (single-threaded Python): `_stage_binned_numeric_agg`
 `hybrid_conditional_gate_fe` 3.4, `hybrid_oof_warp_fe` 3.2, `generate_composite_group_agg_features` 3.0, `generate_wavelet_features` 2.8, `hybrid_orth_mi_fe` 2.4, `score_features_by_jmim` 2.2 and a long tail: about 55 s at one
 core with seven idle. Already parallel: auto-scorer (5.5 cores), bootstrap MI (5.1), triplet (4.6 to 5.0), parity scan (4.2), modular (3.4). Device-wait stages: honest null 16.2 s at 1.6 cores (the card is busy there),
 `_fit_body_run_fit_impl` 13.4 s at 2.6, `score_prospective_pairs` 6.4 s at 1.5.
+
+## Fix of the device errors and re-measure (2026-11-01)
+
+Cause of the `cudaErrorIllegalAddress` storm: the private pool of a stage slot was destroyed when the slot ended, and cupy frees the in-use chunks of a destroyed pool; process-global caches kept arrays allocated inside the slot,
+so the next kernel that read one hit freed memory. It reproduced with ONE worker (so it was never a thread race). Fix: the slot pools live for the process (`_fe_device_scheduler._SLOT_POOLS`, per device and stage).
+
+After the fix, GTX 1050 Ti (4 GB; three slots of about 0.35 to 0.9 GB each), one process, same data:
+* 30000 x 40: sequential 56 s, concurrent 109 s (the small slots push device paths to host fallbacks), selection identical, 0 device errors.
+* 100000 x 100: sequential 247.9 s, concurrent 229.4 s (-7%), selection, `hybrid_orth_features_` and rejection count identical, 0 device errors (noisy machine).
+
+Verdict: correct now, gain small on a 4 GB card because three stages share the VRAM. Still off by default (`MLFRAME_FE_STAGE_CONCURRENCY=1`); worth re-measuring on a card with more VRAM or on two cards, where the scheduler gives each stage a real budget.
