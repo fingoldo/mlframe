@@ -35,7 +35,9 @@ def detect_pair_symmetry(
     Score >= 0.95: caller can constrain c_a = c_b to halve search dim. Score <= 0.7: clearly asymmetric - per-feature basis routing matters more.
     """
     from .fe_baselines import _mi_1d
+    # Intentional float64: pair evaluation inputs in double, as the basis and MI evaluators compute them
     x_a = np.asarray(x_a, dtype=np.float64)
+    # Intentional float64: pair evaluation inputs in double, as the basis and MI evaluators compute them
     x_b = np.asarray(x_b, dtype=np.float64)
     # Marginal MI test
     mi_a = _mi_1d(x_a, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
@@ -94,6 +96,7 @@ def _pair_bf_rows(h_a, h_b, bf_names, bf_callables):
                 valid_idx.append(k)
         if not cols:
             return None, None
+        # Intentional float64: pair evaluation inputs in double, as the basis and MI evaluators compute them
         X_rows = np.ascontiguousarray(np.stack(cols, axis=0), dtype=np.float64)
     return X_rows, valid_idx
 
@@ -174,7 +177,9 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     if B_a is not None and B_b is not None:
         # B_a / B_b arrive PRE-TRUNCATED to (ca_size, cb_size) by the only caller that ever sets them
         # (optimise_hermite_pair slices once per degree, before the trial loop) - do not re-slice per trial.
+        # Intentional float64: coefficient and batch buffers of the pair evaluator, kept in double
         _ca = np.ascontiguousarray(coef_a, dtype=np.float64)
+        # Intentional float64: coefficient and batch buffers of the pair evaluator, kept in double
         _cb = np.ascontiguousarray(coef_b, dtype=np.float64)
         h_a = B_a @ _ca
         h_b = B_b @ _cb
@@ -229,7 +234,9 @@ def _candidate_h_arrays(
     # simpler per-candidate loop; the batched form would need re-measuring at a much larger P (e.g. a wider
     # cupy-side generation batch) before it nets positive.
     n_rows = z_a.shape[0]
+    # Intentional float64: coefficient and batch buffers of the pair evaluator, kept in double
     h_a_arr = np.empty((P, n_rows), dtype=np.float64)
+    # Intentional float64: coefficient and batch buffers of the pair evaluator, kept in double
     h_b_arr = np.empty((P, n_rows), dtype=np.float64)
     cand_valid = np.zeros(P, dtype=bool)
     for p in range(P):
@@ -238,7 +245,9 @@ def _candidate_h_arrays(
         if B_a is not None and B_b is not None:
             # B_a / B_b are pre-truncated to (ca_size, cb_size) by the caller (once per degree) - see the
             # matching note in _eval_coef_pair; no per-candidate re-slice.
+            # Intentional float64: coefficient and batch buffers of the pair evaluator, kept in double
             _ca = np.ascontiguousarray(ca, dtype=np.float64)
+            # Intentional float64: coefficient and batch buffers of the pair evaluator, kept in double
             _cb = np.ascontiguousarray(cb, dtype=np.float64)
             h_a = B_a @ _ca
             h_b = B_b @ _cb
@@ -765,13 +774,16 @@ def _baseline_mi_pair(x_a, x_b, y, *, discrete_target: bool, n_neighbors: int = 
         # Plug-in is 1-D-x by design; use max(MI(x_a, y), MI(x_b, y)) as a lower bound on the true joint MI.
         # Conservative gate (under-estimates baseline so engineered features clear it more easily); for the
         # final uplift number the bias is consistent (same estimator on both sides of the ratio).
+        # Intentional float64: pair evaluation inputs in double, as the basis and MI evaluators compute them
         x_a_arr = np.asarray(x_a, dtype=np.float64)
+        # Intentional float64: pair evaluation inputs in double, as the basis and MI evaluators compute them
         x_b_arr = np.asarray(x_b, dtype=np.float64)
         if discrete_target:
             y_arr = np.asarray(y, dtype=np.int64)
             mi_a = _plugin_mi_classif_njit(x_a_arr, y_arr, plugin_n_bins)
             mi_b = _plugin_mi_classif_njit(x_b_arr, y_arr, plugin_n_bins)
         else:
+            # Intentional float64: pair evaluation inputs in double, as the basis and MI evaluators compute them
             y_arr = np.asarray(y, dtype=np.float64)
             mi_a = _plugin_mi_regression_njit(x_a_arr, y_arr, plugin_n_bins)
             mi_b = _plugin_mi_regression_njit(x_b_arr, y_arr, plugin_n_bins)
