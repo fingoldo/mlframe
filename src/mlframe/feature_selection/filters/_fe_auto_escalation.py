@@ -106,7 +106,7 @@ def _joint_pair_codes(ca: np.ndarray, cb: np.ndarray) -> np.ndarray:
     """Dense joint code of two per-column quantile-bin encodings."""
     joint = ca * (int(cb.max()) + 1) + cb
     _, joint = np.unique(joint, return_inverse=True)
-    return joint.astype(np.int64)
+    return np.asarray(joint, dtype=np.int64)
 
 
 def _best_admitted_column(tvals: Any, ncols_names: Any, sl: slice, nbq: int, y_dense: np.ndarray) -> tuple:

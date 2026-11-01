@@ -73,6 +73,8 @@ class ConditionalPartnerGate:
         self._pos = {c: k for k, c in enumerate(self._cand)}
         self._seed = int(seed)
         self._cache: "dict[int, Optional[tuple[np.ndarray, float]]]" = {}
+        self._prep: "Optional[tuple]" = None  # filled by ``_prepared``
+        self._prep_built = False
 
     def clears(self, weak_idx: int, strong_idx: int) -> bool:
         """Whether column ``weak_idx`` carries information about the target beyond column ``strong_idx`` that stands out among all the candidate partners.
@@ -92,11 +94,12 @@ class ConditionalPartnerGate:
     def _prepared(self) -> "Optional[tuple]":
         """``(row slice, shifted target, (candidates, rows) int64 code matrix, widths, target width)`` shared by every strong operand, built once (each call used to gather, transpose and widen the same
         matrix again); ``None`` for a degenerate target."""
-        if getattr(self, "_prep", False) is not False:
-            return self._prep  # type: ignore[no-any-return]
+        if self._prep_built:
+            return self._prep
         y = self._y
         n = int(y.shape[0])
         if n == 0 or int(y.max()) == int(y.min()):
+            self._prep_built = True
             self._prep = None
             return None
         step = max(1, n // MAX_ROWS)
@@ -107,6 +110,7 @@ class ConditionalPartnerGate:
         widths = (codes.max(axis=1) + 1).astype(np.int64)
         y = y - y.min()
         self._prep = (rows, y, codes, widths, int(y.max()) + 1)
+        self._prep_built = True
         return self._prep
 
     def _compute(self, strong_idx: int) -> "Optional[tuple[np.ndarray, float]]":

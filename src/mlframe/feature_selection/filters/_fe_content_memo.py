@@ -19,7 +19,7 @@ from ._cache_release import register_cache_releaser
 _STORES: "list[dict]" = []
 
 
-def _digest(obj: Any, h: "hashlib._Hash", depth: int = 0) -> None:
+def _digest(obj: Any, h: Any, depth: int = 0) -> None:
     """Feed ``obj`` into the hash by content (arrays, frames, series, short containers) or by repr."""
     if isinstance(obj, np.ndarray):
         h.update(str(obj.shape).encode() + str(obj.dtype).encode())
