@@ -644,12 +644,20 @@ def _greedy_cmi_fe_constr_step1_content_hash_already(cand_names, engineered, nbi
         if fe_gpu_strict_resident_enabled():
             import cupy as _cp
 
-            for _name in cand_names:
-                _codes_dev = _quantile_bin_gpu_resident(engineered[_name].to_numpy(dtype=_crit_np_dtype()), nbins)
-                if _codes_dev is None:
-                    cand_bins_dev = {}
-                    break
-                cand_bins_dev[_name] = _codes_dev
+            from ._mi_greedy_cmi_fe_binning import _qbin_float_dtype
+            from ._qbin_block_gpu import resident_qbin_codes_block
+
+            _cand_cols = [engineered[_name].to_numpy(dtype=_crit_np_dtype()) for _name in cand_names]
+            _block_codes = resident_qbin_codes_block(_cand_cols, nbins, _qbin_float_dtype()) if len(_cand_cols) > 1 else None  # one sort for the whole pool
+            if _block_codes is not None:
+                cand_bins_dev.update(zip(cand_names, _block_codes))
+            else:
+                for _name, _col in zip(cand_names, _cand_cols):
+                    _codes_dev = _quantile_bin_gpu_resident(_col, nbins)
+                    if _codes_dev is None:
+                        cand_bins_dev = {}
+                        break
+                    cand_bins_dev[_name] = _codes_dev
             if cand_bins_dev:
                 # cupy (this version) has no ``bitwise_xor.reduce`` - a weighted-sum reduction is an
                 # equally-cheap, equally-accepted (see module docstring) content hash: same n for every
