@@ -207,13 +207,23 @@ def _dcor_proxy(X_num: pd.DataFrame, num_cols: list, y_arr: np.ndarray, n: int, 
     return dcor_proxy
 
 
+def _pearson_matrix(X_num: pd.DataFrame) -> np.ndarray:
+    """Pearson correlation matrix of the columns: one BLAS pass when every value is finite, else pandas' pairwise-complete ``corr`` (rows with a NaN count only for the pairs that have it)."""
+    # Intentional float64: the correlation sums run in double precision
+    arr = np.asarray(X_num.to_numpy(dtype=np.float64))
+    if arr.size and np.isfinite(arr).all():
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.asarray(np.corrcoef(arr, rowvar=False))
+    return np.asarray(X_num.corr(method="pearson").to_numpy())
+
+
 def _inter_x_max_corr(X_num: pd.DataFrame) -> float:
     """Max ``|Pearson|`` among off-diagonal column pairs (0.0 for fewer than two columns or on numeric failure)."""
     # inter_x_max_corr: max |Pearson| among off-diagonal pairs. Redundancy
     # proxy that powers the L75 xor_redundant -> CMIM routing.
     try:
         if X_num.shape[1] >= 2:
-            corr_mat = X_num.corr(method="pearson").to_numpy()
+            corr_mat = _pearson_matrix(X_num)
             d = corr_mat.shape[0]
             mask = ~np.eye(d, dtype=bool)
             finite_off = corr_mat[mask]
