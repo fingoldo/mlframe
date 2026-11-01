@@ -81,7 +81,7 @@ _MODULE = RawModuleCache(_SRC)
 def parity_mi_grids_gpu(columns: "list[np.ndarray]", y_codes: np.ndarray, n_classes: int, grids: "list[np.ndarray]") -> "list[np.ndarray] | None":
     """MI of ``floor(v / p) mod 2`` against ``y_codes`` for every period ``p`` of each column's grid, one array per column (or ``None`` when the device path does not apply: more than ``NC`` classes, no cupy).
 
-    ``columns`` are all-finite float64 vectors of one length; ``y_codes`` is the dense class code of every row (the same rows for every column); ``grids[j]`` is the period grid of column ``j``.
+    ``columns`` are all-finite double-precision vectors of one length; ``y_codes`` is the dense class code of every row (the same rows for every column); ``grids[j]`` is the period grid of column ``j``.
     """
     if not columns or n_classes > NC or n_classes < 1:
         return None

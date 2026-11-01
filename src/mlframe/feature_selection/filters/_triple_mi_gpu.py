@@ -109,6 +109,7 @@ def triple_mi_gpu(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> "tup
     out = np.empty(m, dtype=np.float64)  # Intentional float64: MI statistic vector compared with the host's
     for s in range(0, m, TRIPLES_PER_LAUNCH):
         e = min(m, s + TRIPLES_PER_LAUNCH)
+        # Intentional float64: MI statistic vector compared with the host's
         d_out = cp.empty(e - s, dtype=cp.float64)
         kernel((e - s,), (THREADS,), (codes_dev, y_dev, cp.asarray(ti[s:e]), cp.asarray(tj[s:e]), cp.asarray(tk[s:e]), np.int64(n), np.int32(base), np.int32(n_y), np.int32(n_cells), d_out), shared_mem=n_cells * n_y * 4)
         out[s:e] = cp.asnumpy(d_out)

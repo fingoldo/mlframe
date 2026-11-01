@@ -189,6 +189,7 @@ def _batch_one_scorer(s, Xmat, y_arr, *, nbins, random_state, n_neighbors, copul
 
         if np.isfinite(Xmat).all() and np.isfinite(y_arr).all():
             return tail_dependence_columns(np.ascontiguousarray(Xmat.T), y_arr)
+        # Intentional float64: scorer values kept as a double precision vector, like the batched ones
         return np.array([call(s, Xmat[:, j], y_arr) for j in range(Xmat.shape[1])], dtype=np.float64)
     raise ValueError(f"_batch_one_scorer: {s!r} is not a batchable scorer")
 

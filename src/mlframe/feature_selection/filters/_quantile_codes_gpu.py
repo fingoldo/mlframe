@@ -1,4 +1,4 @@
-"""BENCH-ATTEMPT-REJECTED for the SORT-based variant (``method="sort"``, kept; also the float64 path) (2026-11-01, GTX 1050 Ti, codes bit-equal to the host kernel): 100000 rows x 1944 columns device 1963 ms (float32) / 2491 ms (double) against
+"""BENCH-ATTEMPT-REJECTED for the SORT-based variant (``method="sort"``, kept; also the double-precision path) (2026-11-01, GTX 1050 Ti, codes bit-equal to the host kernel): 100000 rows x 1944 columns device 1963 ms (float32) / 2491 ms (double) against
 host 2405 / 2572 ms; 256 columns 285 against 260 ms. Phases for 256 columns: host-to-device 27 ms, batched sort 191 ms (0.75 ms per column), distinct count 34 ms, device-to-host of the codes 12 ms: the device paid for sorting every column, while the host kernel only selects the
 ~22 order statistics the edges read.
 
@@ -12,7 +12,7 @@ Win axis: the host kernel selects the ~22 order statistics each column's edges r
 once with the device batched sort, the edges are read off the sorted rows with numpy's linear-interpolation arithmetic in double precision (``_edge_value``), adjacent equal edges are dropped, and one thread per value counts the kept edges
 that are <= the value (the code is that count minus one, clipped to ``[0, kept - 2]``), which is the host's upper-bound binary search. A column with at most ``n_bins`` distinct values takes exact level codes on the host, as there.
 
-The edges are computed in float64 from the values at the input width, the comparison is ``edge <= (double) x``: the same numbers as the host kernel, so the codes are equal.
+The edges are computed in double precision from the values at the input width, the comparison is ``edge <= (double) x``: the same numbers as the host kernel, so the codes are equal.
 """
 
 from __future__ import annotations
@@ -194,7 +194,7 @@ def _column_block(cp, n_rows: int) -> int:
 def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray, method: str = "radix") -> bool:
     """Fill ``codes`` ``(columns, n)`` int16 and ``nx`` as ``quantile_codes_block`` does for the finite block ``v``; ``False`` when the device path does not apply (the caller then runs the host kernel on the whole block)."""
     k, n = int(v.shape[0]), int(v.shape[1])
-    if k == 0 or n < 2 or v.dtype not in (np.float32, np.float64):
+    if k == 0 or n < 2 or v.dtype not in (np.float32, np.float64):  # Intentional float64: the dtypes the block coder accepts
         return False
     try:
         import cupy as cp
@@ -216,13 +216,17 @@ def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: 
         if method == "radix" and v.dtype == np.float32:
             few = np.flatnonzero(_few_levels_mask(np.ascontiguousarray(v[c0:c1]), int(n_bins)))
             vals = _order_statistics_f32(cp, v_dev, w_unique)  # (cb, T) values at the ranks the edges read
+            # Intentional float64: the edges are computed in numpy's double-precision arithmetic, as the host kernel does
             a = vals[:, cp.asarray(np.searchsorted(w_unique, i0))].astype(cp.float64)
+            # Intentional float64: same double-precision edge arithmetic as the lower order statistic
             b = vals[:, cp.asarray(np.searchsorted(w_unique, i1))].astype(cp.float64)
         else:
             s = cp.sort(v_dev, axis=1)
             distinct = 1 + (s[:, 1:] != s[:, :-1]).sum(axis=1)
             few = np.flatnonzero(cp.asnumpy(distinct) <= int(n_bins))
+            # Intentional float64: the edges are computed in numpy's double-precision arithmetic, as the host kernel does
             a = s[:, i0_dev].astype(cp.float64)
+            # Intentional float64: same double-precision edge arithmetic as the lower order statistic
             b = s[:, i1_dev].astype(cp.float64)
         diff = b - a
         edges = a + diff * gamma_dev

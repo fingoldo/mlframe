@@ -454,6 +454,7 @@ def _bspline_basis_njit(zc: np.ndarray, knots: np.ndarray, idx: int, degree: int
     out = np.zeros(n, dtype=np.float64)  # Intentional float64: spline values at full precision (fit and replay agree)
     for r in prange(n):
         z = zc[r]
+        # Intentional float64: Cox-de Boor triangle at full precision (fit and replay agree)
         tri = np.zeros((degree + 1, degree + 1), dtype=np.float64)  # tri[p, j] = B_{idx + j, p}(z)
         for j in range(degree + 1):
             tri[0, j] = 1.0 if (z >= knots[idx + j] and z < knots[idx + j + 1]) else 0.0
@@ -477,7 +478,9 @@ def _bspline_basis_values(z: np.ndarray, knots: np.ndarray, idx: int, degree: in
 
     The compiled twin of ``_bspline_basis_values_numpy`` (kept below as the oracle) and of the GPU-resident ``_extra_basis_resident._bspline_col_gpu``: the recursive numpy form made ~10 temporary arrays per call (5 s of a 15 s extra-basis scan at 100000 rows x 100 columns).
     """
+    # Intentional float64: the spline is evaluated at full precision (fit and replay agree)
     z = np.asarray(z, dtype=np.float64)
+    # Intentional float64: the knot vector is kept at full precision, like the points
     knots = np.ascontiguousarray(knots, dtype=np.float64)
     nk = knots.shape[0]
     degree = int(degree)
