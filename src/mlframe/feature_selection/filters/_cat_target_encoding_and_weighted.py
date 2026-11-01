@@ -256,6 +256,8 @@ def _group_aware_shuffle(
     group_y = np.full(n_groups, -1, dtype=np.int32)
     for i in range(n):
         g = groups[i]
+        if g < 0 or g >= n_groups:
+            raise ValueError("_group_aware_shuffle: a group id is outside [0, n_groups)")
         if group_y[g] < 0:
             group_y[g] = classes_y_safe[i]
     # Shuffle the group_y array

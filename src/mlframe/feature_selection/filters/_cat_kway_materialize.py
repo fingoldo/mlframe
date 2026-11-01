@@ -115,6 +115,8 @@ def _scatter_factorize_lookup(
     n = factors_data.shape[0]
     for r in range(n):
         code = factors_data[r, idx_a] + factors_data[r, idx_b] * nbins_a
+        if code < 0 or code >= lookup.shape[0]:
+            raise ValueError("_scatter_factorize_lookup: a combined code is outside the lookup table (codes built for different bin counts?)")
         lookup[code] = classes_pair_post[r]
     return lookup
 
@@ -133,6 +135,8 @@ def _dense_renumber_codes(codes: np.ndarray, expected_size: int) -> tuple:
     """
     freqs = np.zeros(expected_size, dtype=np.int64)
     for i in range(codes.shape[0]):
+        if codes[i] < 0 or codes[i] >= expected_size:
+            raise ValueError("_dense_renumber_codes: a code is outside [0, expected_size)")
         freqs[codes[i]] += 1
     nzeros = 0
     lookup_table = np.empty(expected_size, dtype=np.int64)
