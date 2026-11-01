@@ -274,6 +274,23 @@ _INFONET_MODEL_CACHE: dict = {}
 _NEURAL_MI_CACHE_LOCK = threading.RLock()
 
 
+def _verify_infonet_checkpoint(ckpt_path: Path) -> None:
+    """Pin the InfoNet checkpoint by sha256 (NET2-03), trust-on-first-use.
+
+    The checkpoint is downloaded by hand and loaded with ``torch.load``. On first use its digest is recorded in a sidecar next to it; every later
+    load must match that digest or the load is refused. A changed file is therefore caught, while a first download is trusted as it arrives.
+    """
+    from mlframe.utils.safe_pickle import verify_sidecar, write_sidecar
+
+    sidecar = Path(str(ckpt_path) + ".sha256")
+    if not sidecar.exists():
+        write_sidecar(str(ckpt_path))
+        logger.warning("InfoNet checkpoint %s has no recorded sha256; recorded its digest now (first use)", ckpt_path)
+        return
+    if not verify_sidecar(str(ckpt_path)):
+        raise RuntimeError(f"InfoNet checkpoint {ckpt_path} does not match its recorded sha256; refusing to load it")
+
+
 def _get_infonet_model(device: str = "auto"):
     """Lazy-load + cache the InfoNet pre-trained model from the local cache
     or trigger a one-time download instruction."""
@@ -289,6 +306,7 @@ def _get_infonet_model(device: str = "auto"):
                 f"'https://drive.google.com/drive/folders/1R7ah_ymD3M9Fp9EegyJrWNo5hI6Z5gZ7', "
                 f"output='{ckpt_path.parent}')\""
             )
+        _verify_infonet_checkpoint(ckpt_path)
         # Locate vendored config relative to this module.
         pkg_root = Path(__file__).resolve().parent
         config_path = pkg_root / "_vendored" / "infonet" / "configs" / "config.yaml"
