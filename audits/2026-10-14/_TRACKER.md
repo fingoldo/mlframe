@@ -31,21 +31,36 @@ Generated from each report's `**Disposition**` line: OPEN is recorded as TODO an
 
 | Status | Finding | Report | Title |
 |---|---|---|---|
-| **TODO** | F01 | `level_strictness_critique.md` | Single global level 0.999 is unstable and loses recall |
-| **TODO** | F02 | `level_strictness_critique.md` | Dense weak-signal failure is power, not calibration |
+| **RESOLVED** | F01 | `level_strictness_critique.md` | Single global level 0.999 is unstable and loses recall |
+| **RESOLVED** | F02 | `level_strictness_critique.md` | Dense weak-signal failure is power, not calibration |
 | **RESOLVED** | F03 | `level_strictness_critique.md` | Test checks a dead predicate |
 | **TODO** | F04 | `level_strictness_critique.md` | Live gate applies to every narrow pool |
 | **TODO** | F05 | `level_strictness_critique.md` | Uniform alpha across families is not principled |
 | **TODO** | F06 | `level_strictness_critique.md` | Step-down maxT (Westfall-Young) as a power fix |
 | **TODO** | F07 | `level_strictness_critique.md` | Reliability predicate in the live gate |
 | **TODO** | F08 | `level_strictness_critique.md` | Unmeasured end-to-end checks |
-| **TODO** | F01 | `pair_family_threshold_critique.md` | Per-pair exact threshold does not control FWER over all pairs |
-| **TODO** | F02 | `pair_family_threshold_critique.md` | Cost of the exact test per pair |
-| **TODO** | F03 | `pair_family_threshold_critique.md` | Table docstring and table metadata disagree on the quantile |
-| **TODO** | F04 | `pair_family_threshold_critique.md` | Nearest-neighbour lookup underestimates the threshold for K above the grid |
-| **TODO** | F05 | `pair_family_threshold_critique.md` | Discretisation of the gate and of the pair search differ |
-| **TODO** | F06 | `pair_family_threshold_critique.md` | GPU residency |
-| **TODO** | F07 | `pair_family_threshold_critique.md` | Sharing permutations across pairs |
-| **TODO** | F08 | `pair_family_threshold_critique.md` | Determinism |
-| **TODO** | F09 | `pair_family_threshold_critique.md` | Analytic bound as a cheap pre-filter |
-| **TODO** | F10 | `pair_family_threshold_critique.md` | Sequential stopping rule for borderline pairs |
+| **PARTIAL** | F01 | `pair_family_threshold_critique.md` | Per-pair exact threshold does not control FWER over all pairs |
+| **RESOLVED** | F02 | `pair_family_threshold_critique.md` | Cost of the exact test per pair |
+| **RESOLVED** | F03 | `pair_family_threshold_critique.md` | Table docstring and table metadata disagree on the quantile |
+| **RESOLVED** | F04 | `pair_family_threshold_critique.md` | Nearest-neighbour lookup underestimates the threshold for K above the grid |
+| **RESOLVED** | F05 | `pair_family_threshold_critique.md` | Discretisation of the gate and of the pair search differ |
+| **RESOLVED** | F06 | `pair_family_threshold_critique.md` | GPU residency |
+| **REJECTED** | F07 | `pair_family_threshold_critique.md` | Sharing permutations across pairs |
+| **PARTIAL** | F08 | `pair_family_threshold_critique.md` | Determinism |
+| **RESOLVED** | F09 | `pair_family_threshold_critique.md` | Analytic bound as a cheap pre-filter |
+| **PARTIAL** | F10 | `pair_family_threshold_critique.md` | Sequential stopping rule for borderline pairs |
+
+
+## Verification at HEAD (2026-11-02)
+
+Each row was checked against the code; the evidence:
+
+- level_strictness F01: the default stayed at quantile 0.975 (`_screen_predictors.py:350`), as the critique recommended. F02 is an analysis finding with no code change.
+- pair_family F02: the cost is mitigated by the analytic triage, the probe, the certainty stop, column dedupe and the device path (`_family_maxt_gate.py:469-605`, `_family_columns_dedupe.py`, `_family_maxt_gate_device.py`); tests `tests/feature_selection/test_family_maxt_triage.py`, `tests/feature_selection/filters/test_family_columns_dedupe.py`.
+- F03: the docstring, the builder and the table metadata all say 0.95 (`_null_mi_threshold.py`, `build_null_mi_table.py`, `data/null_mi_table.json`).
+- F04: past the largest tabulated pool the floor is rescaled by ln N / ln N_entry (`_null_mi_threshold.py`, `tests/feature_selection/filters/test_null_mi_threshold_beyond_grid.py`).
+- F05 and F06: the gate reads the codes the pair search stored (`_pairs_emit.py:119`, `tests/feature_selection/fe/test_fe_pair_family_gate_sees_real_codes.py`) and has a device path (`tests/feature_selection/gpu/test_family_gate_device_parity.py`).
+- F07 is REJECTED with the engineering critique's F08 (a shared null across pairs breaks the per-pair FWER argument).
+- F09: the analytic tail is used only with a pass margin and a density guard (`_family_maxt_gate.py:503-564`).
+- Still PARTIAL: F01 (Bonferroni across prospective pairs, not one joint family of pairs and configurations), F08 (the seed is fixed per call but not derived from the pair), F10 (reject-early on the median probe exists; the accept-after-99-null-maxima and h-exceedance stopping rules do not).
+- Still TODO, level_strictness F04 to F08: unmeasured benchmarks and design options for the narrow-pool floor, per-family alpha, step-down maxT, a reliability predicate and end-to-end runs.
