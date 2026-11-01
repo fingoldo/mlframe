@@ -277,9 +277,9 @@ def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndar
     The output is allocated in ``dtype`` (float32 by default, the large-n working
     dtype). The leg holds only the exact values {-1, 0, +1}, which are bit-exact in
     float32 -> every downstream consumer (binned MI via np.unique/searchsorted, the
-    engineered column) is bit-identical to float64 while halving the (n_scales, n)
+    engineered column) is bit-identical to double while halving the (n_scales, n)
     working-array footprint (e.g. (10, 1M) = 76 MiB -> 38 MiB). The dyadic-cell
-    boolean masks are computed against the float64 ``z`` axis, so the cell
+    boolean masks are computed against the double ``z`` axis, so the cell
     membership (and hence the leg) does not depend on the output dtype.
 
     PERF (2026-08-03, incidental to a profiling cycle): fused into one njit pass (originally
