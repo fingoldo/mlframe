@@ -576,7 +576,8 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
             except ValueError:
                 _max_mb = 2048.0
             if _st.st_size <= _max_mb * (1024**2):
-                _cache_key = (_abs, _st.st_mtime_ns, bool(safe))
+                # strict_version is part of the key: a hit returns before the version check, so a lenient load must not satisfy a strict one (FOP4-1).
+                _cache_key = (_abs, _st.st_mtime_ns, bool(safe), bool(strict_version))
                 _hit = _LOAD_MODEL_CACHE.get(_cache_key)
                 if _hit is not None:
                     _LOAD_MODEL_CACHE.move_to_end(_cache_key)
