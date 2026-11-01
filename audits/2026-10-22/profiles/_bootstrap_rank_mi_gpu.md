@@ -25,3 +25,6 @@ or many more columns / resamples per call, where the tuner will switch by itself
 105 float32 columns, 10 resamples of 80% of the rows, min of 5 in one process (GTX 1050 Ti): 30000 rows host 0.05 s / device 0.04 s; 100000 rows host 0.29 s / device 0.15 s (2x). The earlier verdict (host 0.24 s against device 0.56 s) was taken under contention and does not reproduce.
 Dispatch fallback (no kernel-tuning entry on the machine) is now the device walk from 30000 rows (`DEVICE_WALK_FALLBACK_ROWS`); `MLFRAME_BOOTSTRAP_RANK_DEVICE=0|1` still forces a path. A host/device split of the columns (20 / 30 / 40% on the device, the rest on the host at the same time) took 0.25 / 0.22 / 0.21 s,
 slower than the device alone (0.15 s), so no split is dispatched.
+
+Full-fit A/B of the new default (100000 x 100, every family, back to back in two processes, same machine state): device walk forced on 169.6 s, host forced 169.3 s. The call itself is 2x faster (about 1 to 2 s over the fit), which sits inside the run-to-run noise
+of the whole fit (145 to 170 s for identical code on this machine on the same day), so the fit-level gain is not resolvable by wall time; the stage seconds in the sampler are the instrument for it.
