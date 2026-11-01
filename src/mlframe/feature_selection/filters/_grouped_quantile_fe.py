@@ -599,9 +599,22 @@ def score_grouped_quantile_by_mi_uplift(
         source_mi_cache[col] = float(mi)
         return float(mi)
 
+    # The columns are binned independently (np.quantile / sort release the GIL), so the codes come from a pool; the MI stays in column order.
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    eng_cols = list(eng_X.columns)
+    jobs = _resolve_edge_jobs(None, len(eng_cols))
+    if jobs > 1 and len(eng_cols) > 1:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            eng_codes = list(pool.map(lambda c: _bin(eng_X[c].to_numpy()), eng_cols))
+    else:
+        eng_codes = [_bin(eng_X[c].to_numpy()) for c in eng_cols]
+
     rows = []
-    for col in eng_X.columns:
-        mi = float(_plug_in_mi(_bin(eng_X[col].to_numpy()), y_bin))
+    for col, codes in zip(eng_cols, eng_codes):
+        mi = float(_plug_in_mi(codes, y_bin))
         src = eng_to_source.get(col)
         smi = _source_mi(src)
         rows.append({
