@@ -146,7 +146,7 @@ def _start_run_with_retries(run_name, experiment_id, run_tags):
             # The traceback is logged from a scrubbed copy: the original exception's message can carry the tracking URI's credentials.
             scrubbed = _strip_userinfo(e)
             if nfailed > 5:
-                log_throttle(logger, "mlflow_start_run_failed_after_retries", logging.ERROR, "mlflow.start_run failed after %d retries: %s", nfailed, scrubbed, exc_info=_scrubbed_exc_info(e))
+                logger.error("mlflow.start_run failed after %d retries: %s", nfailed, scrubbed, exc_info=_scrubbed_exc_info(e))
                 return None
             if "already active" in str(e):
                 active = mlflow.active_run()
