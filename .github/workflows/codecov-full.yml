@@ -72,7 +72,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install coverage
-        run: pip install "coverage[toml]>=7.0"
+        run: pip install "coverage[toml]==7.17.0"
 
       - name: Find the latest completed numba-coverage-nightly run with real data
         id: find_numba_run

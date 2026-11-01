@@ -42,4 +42,4 @@ jobs:
       # resolve fails).
       install-command: |
         pip install -e . --no-deps
-        pip install "mkdocs-material>=9.5" "mkdocs-jupyter>=0.24"
+        pip install "mkdocs-material==9.8.0" "mkdocs-jupyter==0.27.0"
