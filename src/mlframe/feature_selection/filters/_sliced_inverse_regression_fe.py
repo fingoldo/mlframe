@@ -215,7 +215,7 @@ def build_sir_direction_recipe(*, name: str, idx: int, cols: Sequence[str], x_me
         name=name,
         kind="sir_direction",
         src_names=tuple(str(c) for c in cols),
-        extra={"cols": tuple(str(c) for c in cols), "x_mean": np.asarray(x_mean, dtype=_crit_np_dtype()).copy(), "v": np.asarray(v[:, idx], dtype=_crit_np_dtype()).copy()},
+        extra={"cols": tuple(str(c) for c in cols), "x_mean": np.asarray(x_mean).copy(), "v": np.asarray(v[:, idx]).copy()},  # dtypes as fitted, so replay equals the fit
     )
 
 

@@ -63,8 +63,9 @@ def _apply_rff_params(X: np.ndarray, W: np.ndarray, b: np.ndarray, bandwidth: fl
     m = W.shape[1]
     if X.shape[0] < 1:
         return np.empty((0, m), dtype=_crit_np_dtype())
-    Z = (X @ W) / bandwidth + b
-    return np.asarray(np.sqrt(2.0 / m) * np.cos(Z))
+    # Intentional float64: the projection is summed in double so a block and a one-column replay round to the same stored value
+    Z = (X.astype(np.float64) @ np.asarray(W, dtype=np.float64)) / bandwidth + b
+    return np.asarray(np.sqrt(2.0 / m) * np.cos(Z), dtype=_crit_np_dtype())
 
 
 def _median_pairwise_distance(X: np.ndarray, *, max_sample: int = 500, random_state: int = 0) -> float:
@@ -194,7 +195,7 @@ def build_random_fourier_recipe(*, name: str, idx: int, cols: Sequence[str], W: 
         extra={
             "cols": tuple(str(c) for c in cols),
             "idx": int(idx),
-            "W": np.asarray(W, dtype=_crit_np_dtype()).copy(),
+            "W": np.asarray(W, dtype=np.float64).copy(),  # Intentional float64: the frozen projection keeps the drawn precision so replay equals the fit
             "m_total": int(W.shape[1]),
             "b": float(b[idx]),
             "bandwidth": float(bandwidth),
@@ -224,8 +225,9 @@ def _apply_random_fourier_recipe(recipe, X) -> np.ndarray:
     W = recipe.extra["W"]
     idx = int(recipe.extra["idx"])
     m_total = int(recipe.extra["m_total"])
-    Z = (X_cols @ W[:, idx : idx + 1]) / recipe.extra["bandwidth"] + recipe.extra["b"]
-    return np.asarray(np.sqrt(2.0 / m_total) * np.cos(Z))[:, 0]
+    # Intentional float64: same double-precision projection as ``_apply_rff_params``
+    Z = (X_cols.astype(np.float64) @ np.asarray(W[:, idx : idx + 1], dtype=np.float64)) / recipe.extra["bandwidth"] + recipe.extra["b"]
+    return np.asarray(np.sqrt(2.0 / m_total) * np.cos(Z), dtype=_crit_np_dtype())[:, 0]
 
 
 def hybrid_random_fourier_fe(
