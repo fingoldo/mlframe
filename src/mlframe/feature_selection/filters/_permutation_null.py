@@ -97,12 +97,14 @@ def _pooled_gain_floor_perms_njit(scaled_flat, offsets, joint_card, h_x, mm_bias
     nperm = y_perms.shape[0]
     n = y_perms.shape[1]
     ncand = offsets.shape[0] - 1
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     maxes = np.empty(nperm, dtype=np.float64)
     max_jc = 0
     for j in range(ncand):
         if joint_card[j] > max_jc:
             max_jc = joint_card[j]
     for k in prange(nperm):
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         counts = np.empty(max_jc, dtype=np.float64)  # per-thread scratch (prange-private)
         yp = y_perms[k]
         best = 0.0
@@ -277,6 +279,7 @@ def _order1_candidate_stats(
         if nb < 2:
             continue
         xc = np.ascontiguousarray(factors_data[:, ci]).astype(np.int64)
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         xcounts = np.bincount(xc, minlength=nb).astype(np.float64)
         px = xcounts[xcounts > 0] * inv_n
         kx_eff = int(px.shape[0])  # occupied bins of this candidate (idea-#9)
@@ -345,6 +348,7 @@ def pooled_permutation_null_gain_floor(
 
     # H(y) is invariant under permutation (relabelling only); H(x) too. Only the
     # joint H(x, y_perm) changes per shuffle, so precompute the invariants once.
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     y_counts = np.bincount(y_codes, minlength=nbins_y).astype(np.float64)
     py = y_counts[y_counts > 0] * inv_n
     h_y = float(-(py * np.log(py)).sum())
@@ -403,7 +407,9 @@ def pooled_permutation_null_gain_floor(
     scaled_flat = np.concatenate(scaled_codes).astype(_fdr_dt)
     offsets = np.arange(n_cand + 1, dtype=np.int64) * n  # int64: true flat indices, can exceed 2^31
     _jc = np.asarray(joint_card, dtype=np.int64)
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     _hx = np.asarray(h_x, dtype=np.float64)
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     _mm = np.asarray(mm_bias, dtype=np.float64)
 
     # RESIDENT-GPU CROSSOVER (iter16): the per-shuffle MAX corrected MI over the pool is a
@@ -605,6 +611,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
         classes_y = np.asarray(classes_y)[:_max_rows]
         n = _max_rows
         # freqs_y must match the subsample scale (per-shuffle MI normalises by this y-marginal).
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         freqs_y = np.bincount(np.asarray(classes_y).astype(np.int64), minlength=k_y).astype(np.float64) / n
 
     # Reuse the exact batched plug-in joint-MI estimator the FE pair screen scores ``pair_mi`` with (CPU njit
@@ -617,12 +624,14 @@ def pooled_pair_permutation_null_joint_mi_floor(
     pa = np.ascontiguousarray(pair_a, dtype=np.int64)
     pb = np.ascontiguousarray(pair_b, dtype=np.int64)
     nb = np.ascontiguousarray(nbins)
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
 
     # Per-pair Miller-Madow bias vector (occupied joint-K), permutation-invariant.
     mm_bias = None
     if mm_debias:
         k_joint = _pairwise_occupied_joint_k(factors_data, pa, pb, nb)
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         mm_bias = (k_joint - 1).astype(np.float64) * float(k_y - 1) / (2.0 * n)
         mm_bias[k_joint <= 1] = 0.0
 
@@ -654,6 +663,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
         # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
         with parallel_kernel_entry():
             all_mis = batch_pair_mi_perm_batched(factors_data, pa, pb, nb, y_perms, fy, joint_cardinality_cap())  # (K, n_pairs)
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     maxes = np.empty(K, dtype=np.float64)
     for k in range(K):
         mis = all_mis[k]
@@ -732,6 +742,7 @@ def pooled_triple_permutation_null_joint_mi_floor(
     tb = np.ascontiguousarray(triple_b, dtype=np.int64)
     tc = np.ascontiguousarray(triple_c, dtype=np.int64)
     nb = np.ascontiguousarray(nbins)
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
 
     rng = np.random.default_rng(random_seed)
@@ -742,6 +753,7 @@ def pooled_triple_permutation_null_joint_mi_floor(
         rng.shuffle(y_perm)  # SAME sequential in-place shuffles as the per-shuffle loop -> identical permutations
         y_perms[k] = y_perm
     all_mis = batch_triple_mi_perm_batched(factors_data, ta, tb, tc, nb, y_perms, fy, joint_cardinality_cap())  # (K, n_triples)
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     maxes = np.empty(K, dtype=np.float64)
     for k in range(K):
         mis = all_mis[k]
@@ -768,8 +780,10 @@ def pairwise_mm_joint_bias(
     pb = np.ascontiguousarray(pair_b, dtype=np.int64)
     nb = np.ascontiguousarray(nbins)
     if int(k_y) <= 1 or n <= 0:
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         return np.zeros(int(pa.shape[0]), dtype=np.float64)
     k_joint = _pairwise_occupied_joint_k(factors_data, pa, pb, nb)
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     bias = (k_joint - 1).astype(np.float64) * float(int(k_y) - 1) / (2.0 * n)
     bias[k_joint <= 1] = 0.0
     return bias
