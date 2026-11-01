@@ -86,11 +86,13 @@ def test_candidate_nfailed_identical_on_both_routes(monkeypatch):
 
 
 def test_candidate_test_is_served_by_the_batched_kernel(monkeypatch):
-    """Every candidate honest test with a spec runs the batched kernel for its column, not a per-permutation re-binning."""
+    """Every candidate honest test with a spec goes through the batched null matrices for its column - from the per-column cache the pool floor filled, or from one kernel call for that column - never through a per-permutation re-binning."""
     from mlframe.feature_selection.filters import _honest_mdlp_null as hmn
 
     single_col_kernel_calls: list = []
+    single_col_matrix_calls: list = []
     real_null = hmn._njit_null_columns
+    real_matrices = hmn._njit_null_matrices
 
     def _spy_null(spec, factors_data, factors_nbins, y_idx, cols, n_permutations, seed_key, eval_rows=None):
         """Record the single-column kernel calls that serve a candidate test."""
@@ -98,10 +100,45 @@ def test_candidate_test_is_served_by_the_batched_kernel(monkeypatch):
             single_col_kernel_calls.append(int(cols[0]))
         return real_null(spec, factors_data, factors_nbins, y_idx, cols, n_permutations, seed_key, eval_rows)
 
+    def _spy_matrices(spec, factors_data, factors_nbins, y_idx, pool, n_permutations, seed, eval_rows=None):
+        """Record the single-column cache lookups of the candidate tests."""
+        if len(pool) == 1:
+            single_col_matrix_calls.append(int(pool[0]))
+        return real_matrices(spec, factors_data, factors_nbins, y_idx, pool, n_permutations, seed, eval_rows)
+
     monkeypatch.setattr(hmn, "_njit_null_columns", _spy_null)
+    monkeypatch.setattr(hmn, "_njit_null_matrices", _spy_matrices)
     calls = _fit_capturing(monkeypatch)
     served = [rec for rec in calls if rec["res"] is not None and hasattr(rec["fn"], "spec")]
     assert served, "a fit must run spec-backed candidate tests"
-    assert len(single_col_kernel_calls) == len(
-        served
-    ), f"{len(served)} candidate tests with a spec, but the batched kernel served {len(single_col_kernel_calls)}"
+    assert len(single_col_matrix_calls) == len(served), f"{len(served)} candidate tests with a spec, but {len(single_col_matrix_calls)} went through the batched null matrices"
+    assert len(single_col_kernel_calls) <= len(served), "a candidate test must never cost more than one kernel call for its column"
+
+
+def test_null_cache_serves_prefixes_bit_for_bit(monkeypatch):
+    """A request for fewer permutations than a stored column is a slice of it, equal to a direct computation, and costs no kernel call; a longer request recomputes and replaces the entry."""
+    from mlframe.feature_selection.filters import _honest_mdlp_null as hmn
+
+    calls = _fit_capturing(monkeypatch)
+    rec = next(r for r in calls if r["res"] is not None and hasattr(r["fn"], "spec"))
+    spec = {k: v for k, v in rec["fn"].spec.items() if k != "_null_columns"}  # an empty cache of this spec
+    kernel_calls: list = []
+    real_null = hmn._njit_null_columns
+
+    def _count(*args, **kwargs):
+        """Count the kernel calls."""
+        kernel_calls.append(args[4])
+        return real_null(*args, **kwargs)
+
+    monkeypatch.setattr(hmn, "_njit_null_columns", _count)
+    args = (rec["full"], rec["nb"], rec["y_idx"], [rec["col"]])
+    long_plain, long_corr = hmn._njit_null_matrices(spec, *args, 40, rec["seed"], rec["eval_rows"])
+    short_plain, short_corr = hmn._njit_null_matrices(spec, *args, 3, rec["seed"], rec["eval_rows"])
+    assert len(kernel_calls) == 1, "the 3-permutation request must be served from the 40-permutation entry"
+    np.testing.assert_array_equal(short_plain, long_plain[:3])
+    np.testing.assert_array_equal(short_corr, long_corr[:3])
+    direct_plain, direct_corr = real_null(spec, *args, 3, int(rec["seed"]), rec["eval_rows"])
+    np.testing.assert_array_equal(short_plain[:, 0], direct_plain[:, 0])
+    np.testing.assert_array_equal(short_corr[:, 0], direct_corr[:, 0])
+    hmn._njit_null_matrices(spec, *args, 60, rec["seed"], rec["eval_rows"])
+    assert len(kernel_calls) == 2, "a longer request recomputes the column"
