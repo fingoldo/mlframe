@@ -206,12 +206,22 @@ def _evaluate_basis_column(
 # package-facade name `_dedup_collinear_source_cols` and all internal callers keep working.
 from ._orth_dedup import _dedup_collinear_source_cols
 
+def evaluable_bases() -> tuple:
+    """The registered bases that have a polynomial evaluator (hermite, legendre, chebyshev, laguerre).
+
+    fourier / rbf / sigmoid / pade are registered with a fit but no entry in ``polyeval_dispatch``, so evaluating them raises ``KeyError`` for every column and degree; the router used to run their fit
+    and swallow that error, and a basis whose every cell fails never beats the first basis. Leaving them out of the default candidates gives the same routing without the dead fits."""
+    from mlframe.feature_selection.filters.hermite_fe import _NJIT_FUNCS
+
+    return tuple(b for b in _POLY_BASES if b in _NJIT_FUNCS)
+
+
 def basis_route_by_signal(
     x: np.ndarray,
     y: np.ndarray,
     *,
     degrees: Sequence[int] = (2, 3),
-    candidate_bases: Sequence[str] = tuple(_POLY_BASES),
+    candidate_bases: Optional[Sequence[str]] = None,
     aux_for_fit: Optional[np.ndarray] = None,
 ) -> str:
     """Signal-adaptive orthogonal-polynomial basis routing.
@@ -237,6 +247,8 @@ def basis_route_by_signal(
     (no y needed at transform -> leakage-free). Falls back to
     ``basis_route_by_moments`` when y is degenerate / size-mismatched / too small.
     """
+    if candidate_bases is None:
+        candidate_bases = evaluable_bases()
     x = np.asarray(x, dtype=_crit_np_dtype())
     yv = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     if x.size < 30 or yv.size != x.size or not np.isfinite(yv).all() or float(np.std(yv)) < 1e-12:

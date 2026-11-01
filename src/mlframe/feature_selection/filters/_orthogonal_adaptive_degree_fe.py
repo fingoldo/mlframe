@@ -254,14 +254,24 @@ def generate_adaptive_degree_basis_features(
     # layers (total-correlation / routing / cluster-basis / diff-basis / adaptive-arity).
     raw_mi_map = cached_raw_mi_baseline(cols, raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins)
 
-    cand_cols, cand_values, cand_to_source = _build_degree_candidates(X, cols, y_arr, degree_range, basis, _dt)
+    # The cells are built and scored on the device when it applies (only the winners are rebuilt on the host); otherwise the host enumeration runs.
+    from ._orthogonal_adaptive_degree_device import LazyAdaptiveValues, adaptive_degree_cells_on_device
 
-    if not cand_cols:
-        return pd.DataFrame(index=X.index), {}
+    on_device = adaptive_degree_cells_on_device(X, cols, y_arr, degree_range, basis, nbins)
+    if on_device is not None:
+        cand_cols, cand_to_source, eng_mi = on_device
+        cand_values = LazyAdaptiveValues(X, cand_to_source, _dt)
+        if not cand_cols:
+            return pd.DataFrame(index=X.index), {}
+    else:
+        cand_cols, cand_values, cand_to_source = _build_degree_candidates(X, cols, y_arr, degree_range, basis, _dt)
 
-    # ---- Step 3: ONE batch MI call across all (col, degree) candidates
-    cand_mat = np.column_stack(cand_values).astype(_crit_np_dtype(), copy=False)
-    eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
+        if not cand_cols:
+            return pd.DataFrame(index=X.index), {}
+
+        # ---- Step 3: ONE batch MI call across all (col, degree) candidates
+        cand_mat = np.column_stack(cand_values).astype(_crit_np_dtype(), copy=False)
+        eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
 
     out_cols, meta = _gate_best_degree_per_source(cand_to_source, cand_cols, cand_values, eng_mi, raw_mi_map, min_uplift)
     return pd.DataFrame(out_cols, index=X.index), meta

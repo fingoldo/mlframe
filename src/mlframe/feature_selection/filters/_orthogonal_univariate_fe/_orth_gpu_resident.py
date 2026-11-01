@@ -103,6 +103,7 @@ def _used_operand_matrix(_Mr: Any, used_idx: list, used_x: list, used_src: list)
 def _gpu_route_candidate_bases(cp: Any, cand_x: list, cand_cols: list, basis: str, y: Any, _ya: np.ndarray, degrees: Any, ra: bool) -> tuple:
     """Opt-in GPU routing of every candidate column's basis; returns ``(gpu_routed, resident_matrix)`` (both None when routing is off, inapplicable or failed)."""
     from .._fe_resident_operands import resident_operand, assemble_resident_matrix
+    from . import evaluable_bases
     from .._gpu_resident_fe import fe_gpu_routing_enabled, _gpu_route_bases_batched
 
     # GPU ROUTING (opt-in, default OFF): decide every candidate column's basis on the device at once,
@@ -129,7 +130,7 @@ def _gpu_route_candidate_bases(cp: Any, cand_x: list, cand_cols: list, basis: st
                 # every later orth call reuses the resident copy. Read-only f64 -> selection-equivalent.
                 _yc_gpu = resident_operand(_yc, "orth_route_y", dtype=crit_float_dtype())
                 _gpu_routed = _gpu_route_bases_batched(
-                    cp, _Mr, _yc_gpu, list(_POLY_BASES), tuple(degrees), robust_axis=ra,
+                    cp, _Mr, _yc_gpu, list(evaluable_bases()), tuple(degrees), robust_axis=ra,
                 )
             except Exception as e:
                 log_throttle(logger, "orth_gpu_batched_routing_failed", logging.WARNING, "GPU-resident batched basis routing failed: %s", e)
