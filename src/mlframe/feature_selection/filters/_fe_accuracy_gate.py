@@ -33,6 +33,8 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 from mlframe._array_buffer import array_buffer
 from ._fast_host_ops import ContentMemo
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 logger = logging.getLogger(__name__)
 
 # Minimum held-out score uplift (engineered over its raw source) to keep a candidate. Set just above the variance-reduced CV noise floor: with 10-fold averaging the per-column noise band is ~+-0.015, so this separates pure-noise / redundant columns (~0) from real signal while a genuine win clears it by an order of magnitude (~0.4).
@@ -106,11 +108,13 @@ def _held_out_probe_score(Xfull, *, tr, va, y_enc, classification, binary):
             if _fit is not None:
                 _w, _b = _fit
                 # Intentional float64: the Newton weights are double precision, so the held-out score is computed in that precision
-                return fast_roc_auc(y_enc[va], 1.0 / (1.0 + np.exp(-(np.asarray(Xv, dtype=np.float64) @ _w + _b))))
+                with parallel_kernel_entry():  # the AUC ranks with a parallel numba kernel: one thread in it at a time when candidates are probed concurrently
+                    return fast_roc_auc(y_enc[va], 1.0 / (1.0 + np.exp(-(np.asarray(Xv, dtype=np.float64) @ _w + _b))))
         m = LogisticRegression(max_iter=200, C=1.0)
         m.fit(Xt, y_enc[tr])
         if binary:
-            return fast_roc_auc(y_enc[va], m.predict_proba(Xv)[:, 1])
+            with parallel_kernel_entry():
+                return fast_roc_auc(y_enc[va], m.predict_proba(Xv)[:, 1])
         # Multiclass accuracy (fraction correct); accuracy_ratio is CAP-AR (2*AUC-1),
         # a different quantity, so compute the exact hit-rate directly.
         return float(np.mean(y_enc[va] == m.predict(Xv)))
@@ -201,36 +205,39 @@ def measure_feature_uplift(
     # X_base-only baseline CV score is deterministic across sibling calls - cache it keyed on
     # the exact content that determines the split + fit (see ``_baseline_cv_key``).
     _bkey = _baseline_cv_key(X_base, y_enc, classification=classification, n_splits=n_splits, seed=seed, groups=groups)
+    # The memo lock covers the lookup and the store only: holding it across the whole cross-validation serialised every probe, and the baseline is deterministic, so two threads that
+    # miss together just compute the same list twice.
     with _FE_GATE_MEMO_LOCK:
         _bcache = _BASELINE_CV_MEMO.get(_bkey) if _bkey is not None else None
-        _base_scores: list[float] = []
-        try:
-            _fold_i = 0
-            for tr, va in split_iter:
-                if classification and np.unique(y_enc[tr]).size < 2:
-                    continue
+    _base_scores: list[float] = []
+    try:
+        _fold_i = 0
+        for tr, va in split_iter:
+            if classification and np.unique(y_enc[tr]).size < 2:
+                continue
 
-                _score = partial(_held_out_probe_score, tr=tr, va=va, y_enc=y_enc, classification=classification, binary=binary)
+            _score = partial(_held_out_probe_score, tr=tr, va=va, y_enc=y_enc, classification=classification, binary=binary)
 
-                aug_score = _score(X_aug)
-                if _bcache is not None and _fold_i < len(_bcache):
-                    base_score = _bcache[_fold_i]
-                else:
-                    base_score = _score(X_base)
-                    _base_scores.append(base_score)
-                _fold_i += 1
-                deltas.append(aug_score - base_score)
-        except Exception as exc:  # pragma: no cover - the probe must never break a fit
-            logger.warning("measure_feature_uplift: probe failed (%s); fail-open (None)", exc)
-            return None
-        if not deltas:
-            return None
-        if _bkey is not None and _bcache is None and _base_scores:
+            aug_score = _score(X_aug)
+            if _bcache is not None and _fold_i < len(_bcache):
+                base_score = _bcache[_fold_i]
+            else:
+                base_score = _score(X_base)
+                _base_scores.append(base_score)
+            _fold_i += 1
+            deltas.append(aug_score - base_score)
+    except Exception as exc:  # pragma: no cover - the probe must never break a fit
+        logger.warning("measure_feature_uplift: probe failed (%s); fail-open (None)", exc)
+        return None
+    if not deltas:
+        return None
+    if _bkey is not None and _bcache is None and _base_scores:
+        with _FE_GATE_MEMO_LOCK:
             if len(_BASELINE_CV_MEMO) > _BASELINE_CV_MEMO_MAXSIZE:
                 # evict-ok: memo; a miss recomputes the value
                 _BASELINE_CV_MEMO.pop(next(iter(_BASELINE_CV_MEMO)))
             _BASELINE_CV_MEMO[_bkey] = _base_scores
-        return float(np.mean(deltas))
+    return float(np.mean(deltas))
 
 
 _INFER_CLS_MEMO: dict = {}

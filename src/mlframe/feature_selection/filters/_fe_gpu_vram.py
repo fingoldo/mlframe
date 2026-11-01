@@ -107,6 +107,26 @@ def _cushion_bytes(total_b: int) -> int:
     return cushion_b
 
 
+def _own_pool_free_bytes() -> int:
+    """Bytes our cupy default pool holds cached and unused (0 when cupy is missing or the pool cannot be read)."""
+    try:
+        import cupy as cp
+
+        return int(cp.get_default_memory_pool().free_bytes())
+    except Exception:
+        return 0
+
+
+def _release_own_pool() -> None:
+    """Give the cached unused blocks of our default pool back to the device."""
+    try:
+        import cupy as cp
+
+        cp.get_default_memory_pool().free_all_blocks()
+    except Exception as exc:
+        logger.debug("fe_gpu_has_vram_cushion: releasing the pool blocks failed: %s", exc)
+
+
 def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = None, total_b: "int | None" = None) -> bool:
     """Is there enough FREE VRAM to safely launch a GPU-FE kernel needing ``bytes_needed`` extra bytes?
 
@@ -166,6 +186,12 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
     # (test_fe_gpu_vram_cushion_no_reprobe.py's whole point: "independent of any internal memGetInfo
     # probe" once free_b/total_b are supplied).
     if caller_supplied_probe:
+        # The caller's free figure counts the blocks our own pool keeps cached as used. When those cached-free blocks would bring the device to the cushion, release them (they are ours and
+        # idle) and allow the dispatch: observed with 2.4 GB of pool total, 0.4 GB in use and 885 MiB free, every dispatch of the caller was declined to the CPU for the rest of the fit.
+        pool_free = _own_pool_free_bytes()
+        if pool_free > 0 and (int(free_b) + pool_free - int(bytes_needed)) >= cushion_b:
+            _release_own_pool()
+            return True
         _warn_cushion_refused(free_b, bytes_needed, total_b)
         return False
     # ``memGetInfo``'s free counts blocks RETAINED by our own cupy pool as used - after a few FE stages the
@@ -225,14 +251,21 @@ def ensure_fe_gpu_pool_limit() -> bool:
     try:
         requested_frac = _pool_fraction()
         try:
-            _, total_b = cp.cuda.runtime.memGetInfo()
+            free0_b, total_b = cp.cuda.runtime.memGetInfo()
         except Exception as e:
             logger.warning("cp.cuda.runtime.memGetInfo() failed, treating total VRAM as 0: %s", e)
-            total_b = 0
+            free0_b, total_b = 0, 0
         frac = requested_frac
         if total_b > 0:
             cushion_frac = _cushion_bytes(total_b) / total_b
             frac = max(0.0, min(requested_frac, 1.0 - cushion_frac))
+            # The device is rarely empty: the display and other applications already hold part of it (0.75 GB of 4 GB here). A cap taken from the TOTAL then lets the pool grow until the
+            # device shows less free memory than the cushion, and every later dispatch is declined (observed: 634 MiB free against a 1024 MiB cushion, the rest of the fit on the CPU). The pool is
+            # still empty when this runs, so the memory free NOW is what it can have while the cushion stays satisfiable.
+            if free0_b > 0:
+                room_frac = (int(free0_b) - _cushion_bytes(total_b)) / total_b
+                if room_frac >= 0.1:
+                    frac = min(frac, room_frac)
         cp.get_default_memory_pool().set_limit(fraction=frac)
         if total_b > 0:
             logger.info(

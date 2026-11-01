@@ -151,6 +151,9 @@ def _fit_surrogate_and_oof(
     else:
         params["objective"] = "regression"
 
+    # bench-attempt-rejected (2026-11-01, 21000 rows x 100 ordinal features, 300 rounds, depth 3, 4C/8T host): LightGBM variants with predictions equal to the baseline. force_col_wise 0.93 s, num_threads=4 0.92 s,
+    #   num_threads=6 0.73 s, max_bin=16 0.67 s against 0.66 s for the baseline (row-wise histograms, all 8 threads). The baseline is the fastest exact form; the fits are CPU-only, so on the GPU fit the 10 of them
+    #   stay a ~10 s serial block.
     try:
         ds = lgb.Dataset(Xtr, label=ytr, free_raw_data=False)
         booster = lgb.train(params, ds, num_boost_round=int(n_estimators))

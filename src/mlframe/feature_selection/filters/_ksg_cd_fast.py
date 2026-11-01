@@ -125,16 +125,15 @@ def ksg_mi_discrete_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbors:
     """
     # Intentional float64: reproduces sklearn mutual_info_classif, which scales and adds the noise in double precision
     X = np.array(X, dtype=np.float64, copy=True)
-    n, p = X.shape
+    n = X.shape[0]
     std = X.std(axis=0)
     std[std == 0.0] = 1.0
     X /= std
     means = np.maximum(1.0, np.mean(np.abs(X), axis=0))
     # Intentional float64: the noise is drawn in double precision, as the per-column call draws it
-    noise = np.empty((n, p), dtype=np.float64)
-    for j in range(p):
-        noise[:, j] = np.random.RandomState(int(random_state)).standard_normal(size=n)
-    X += 1e-10 * means * noise
+    # every column draws from a fresh ``RandomState(random_state)``, so all columns get the SAME n values: one draw, broadcast
+    one_draw = np.random.RandomState(int(random_state)).standard_normal(size=n)
+    X += 1e-10 * means * one_draw[:, None]
     _, d = np.unique(np.asarray(y).ravel(), return_inverse=True)
     d = np.ascontiguousarray(d, dtype=np.int64)
     return cast(np.ndarray, _mi_cd_columns(np.ascontiguousarray(X), d, int(d.max()) + 1 if d.size else 0, int(n_neighbors)))

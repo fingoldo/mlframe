@@ -317,11 +317,11 @@ def _zscore_flags_global_median(
     med = float(np.median(valid_rates))
     mad = float(np.median(np.abs(valid_rates - med)))
     if mad < 1e-9:
-        return np.abs(rates - med) > abs_min_spread
+        return np.asarray(np.abs(rates - med) > abs_min_spread)
     mz = 0.6745 * np.abs(rates - med) / mad
     # Combine z-score + absolute-spread floor (catches narrow
     # but real shifts in series with tiny baseline MAD).
-    return (mz > z_threshold) | (np.abs(rates - med) > abs_min_spread * 2)
+    return np.asarray((mz > z_threshold) | (np.abs(rates - med) > abs_min_spread * 2))
 
 
 def _zscore_flags_rolling_window(

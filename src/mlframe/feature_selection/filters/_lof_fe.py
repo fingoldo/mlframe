@@ -143,9 +143,9 @@ def _lof_transform(X_new: np.ndarray, X_ref: np.ndarray, lrd_ref: np.ndarray, k_
         sq_new = np.sum(rows * rows, axis=1)
         d2 = sq_new[:, None] + sq_ref[None, :] - 2.0 * (rows @ X_ref.T)
         np.maximum(d2, 0.0, out=d2)
-        dist = np.sqrt(d2)
-        nn_idx = np.argpartition(dist, k_eff - 1, axis=1)[:, :k_eff]
-        nn_dist = np.take_along_axis(dist, nn_idx, axis=1)
+        # the neighbours are picked on the squared distances (same order) and only the k chosen are rooted, not all n_ref per row
+        nn_idx = np.argpartition(d2, k_eff - 1, axis=1)[:, :k_eff]
+        nn_dist = np.sqrt(np.take_along_axis(d2, nn_idx, axis=1))
         reach_dist = np.maximum(k_distance_ref[nn_idx], nn_dist)
         lrd_new = 1.0 / np.maximum(reach_dist.mean(axis=1), 1e-12)
         parts.append(lrd_ref[nn_idx].mean(axis=1) / np.maximum(lrd_new, 1e-12))

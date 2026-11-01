@@ -43,7 +43,7 @@ from __future__ import annotations
 import functools
 import logging
 import threading
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence, cast
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 
@@ -546,6 +546,9 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
 _PARALLEL_CMI_MIN_CANDS = 16  # below this many candidates the pool costs more than it saves
 
 
+_CMI_CHUNK_START: dict[int, int] = {}  # candidate count -> chunk width that last fitted on the device
+
+
 def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_cmi_gpu: Any) -> np.ndarray:
     """``batched_cmi_gpu`` over all columns of ``codes``; when the device cannot hold the whole batch's joint histograms (a wide conditioning support makes them ``K x Kx x Kyz`` cells) the
     columns are scored in chunks, halving the chunk until it fits. Every column is scored independently, so the values are the whole-batch values."""
@@ -563,10 +566,11 @@ def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_
         scored: np.ndarray = parts[0] if len(parts) == 1 else np.concatenate(parts)
         return scored
 
-    step = k
+    step = min(k, _CMI_CHUNK_START.get(k, k))  # the chunk that fitted last time for this width: a failed whole-batch attempt costs an allocation sweep and a pool reclaim
     while True:
         out = attempt(step)
         if out is not None:
+            _CMI_CHUNK_START[k] = step
             return out
         if step <= 1:
             whole: np.ndarray = batched_cmi_gpu(codes, y_bin, z_joint, codes_trusted=True)  # nothing left to halve: let the error reach the caller's CPU fallback
@@ -599,6 +603,35 @@ def _support_scorer(y_bin: np.ndarray, z_joint: np.ndarray) -> "Callable":
     return score
 
 
+def quantile_bin_columns(X: np.ndarray, nbins: int) -> "list[np.ndarray]":
+    """``_quantile_bin`` of every column of the host matrix ``X`` ``(n, k)``, as one int64 vector per column (the codes are consumed on the host).
+
+    The all-finite columns are binned in parallel blocks by ``quantile_bin_block`` (the dedupe and two-class rules of ``_quantile_bin``, equal codes); a column with a NaN or infinity takes the scalar
+    host ``_quantile_bin``. Looping ``_quantile_bin`` over the columns ran one full device round trip (upload, two sorts, ~15 launches, download) per column on the strict GPU path."""
+    from ._numba_utils import quantile_bin_block
+
+    n, k = int(X.shape[0]), int(X.shape[1])
+    out: "list[np.ndarray | None]" = [None] * k
+    dt = _crit_np_dtype()
+    block = max(1, (128 << 20) // (np.dtype(dt).itemsize * max(n, 1)))
+    for j0 in range(0, k, block):
+        j1 = min(k, j0 + block)
+        v = np.ascontiguousarray(np.asarray(X[:, j0:j1], dtype=dt).T)
+        ok = np.isfinite(v).all(axis=1)
+        if ok.any():
+            codes = np.empty((int(ok.sum()), n), dtype=np.int16)
+            quantile_bin_block(np.ascontiguousarray(v[ok]), int(nbins), codes)
+            r = 0
+            for j in range(j1 - j0):
+                if ok[j]:
+                    out[j0 + j] = codes[r].astype(np.int64)
+                    r += 1
+        for j in range(j1 - j0):
+            if out[j0 + j] is None:
+                out[j0 + j] = _quantile_bin(np.ascontiguousarray(v[j]), nbins=int(nbins), host_only=True)
+    return cast("list[np.ndarray]", out)
+
+
 def _prebinned_candidates(X_cand: Any, cand_cols: list, nbins: int, score: "Callable | None" = None) -> dict:
     """``{column: codes}`` of the finite candidate columns, binned in parallel blocks exactly as ``_quantile_bin`` would bin each (empty under the strict-resident GPU path, which bins on the device).
 
@@ -627,6 +660,32 @@ def _prebinned_candidates(X_cand: Any, cand_cols: list, nbins: int, score: "Call
         for r, c in enumerate(np.asarray(names, dtype=object)[ok]):
             out[c] = vals[r]
     return out
+
+
+def _binned_cmi_in_column_blocks(cp: Any, X_float: np.ndarray, nbins: int, y_bin: np.ndarray, z_joint: Any, batched_cmi_gpu: Any, batched_quantile_bin_gpu: Any) -> np.ndarray:
+    """``CMI(candidate; y | z)`` of every column of the host matrix ``X_float`` ``(n, k)``: the columns are binned and scored on the device in blocks sized from the free VRAM.
+
+    Binning the whole candidate matrix at once converts it to a double-precision device copy plus the binner's temporaries (1920 candidates of 100000 rows: a 1.5 GB allocation against a 2.6 GB pool limit),
+    so the device path failed with an out-of-memory error and the whole batch fell to the per-candidate CPU loop. A block that still does not fit is halved and retried; a single column that does not fit raises."""
+    n, k = int(X_float.shape[0]), int(X_float.shape[1])
+    per_col = max(1, n * 36)  # f32 upload + f64 copy + the binner's temporaries + int64 codes
+    free = int(cp.cuda.runtime.memGetInfo()[0])
+    block = int(max(1, min(k, (free // 3) // per_col)))
+    parts: list = []
+    j0 = 0
+    while j0 < k:
+        j1 = min(k, j0 + block)
+        try:
+            codes_dev = batched_quantile_bin_gpu(cp.asarray(np.ascontiguousarray(X_float[:, j0:j1])), nbins)
+            parts.append(np.asarray(_batched_cmi_in_chunks(codes_dev, y_bin, z_joint, batched_cmi_gpu)))
+            del codes_dev
+            j0 = j1
+        except cp.cuda.memory.OutOfMemoryError:
+            cp.get_default_memory_pool().free_all_blocks()
+            if block <= 1:
+                raise
+            block = max(1, block // 2)
+    return np.concatenate(parts) if parts else np.empty(0, dtype=np.float64)
 
 
 def score_candidates_by_cmi(
@@ -673,7 +732,7 @@ def score_candidates_by_cmi(
     if X_support is None or X_support.shape[1] == 0:
         z_joint: Optional[np.ndarray] = None
     else:
-        sup_bins = [_quantile_bin(X_support[c].to_numpy(), nbins=nbins) for c in X_support.columns]
+        sup_bins = quantile_bin_columns(X_support.to_numpy(), nbins)
         z_joint, _ = _renumber_joint(*sup_bins)
 
     cand_cols = list(X_cand.columns)
@@ -683,17 +742,18 @@ def score_candidates_by_cmi(
     if (_cmi_gpu_enabled(n=int(y_bin.shape[0]), p=len(cand_cols)) or _cmi_candidate_batch_on_device(n=int(y_bin.shape[0]), p=len(cand_cols))) and len(cand_cols) > 1:
         try:
             from ._fe_batched_mi import batched_cmi_gpu, batched_quantile_bin_gpu
-            X_float = np.empty((y_bin.shape[0], len(cand_cols)), dtype=_crit_np_dtype())
+            # filled as contiguous rows of the transpose (a column write into a C-ordered matrix strides over every row); the F-ordered view keeps every column block contiguous
+            X_rows = np.empty((len(cand_cols), y_bin.shape[0]), dtype=_crit_np_dtype())
             for j, c in enumerate(cand_cols):
-                X_float[:, j] = X_cand[c].to_numpy()
+                X_rows[j] = X_cand[c].to_numpy()
+            X_float = X_rows.T
             if np.isfinite(X_float).all():
                 # Born-on-device: bin the whole candidate matrix on the GPU (one batched cp.percentile
                 # sort) and keep the codes RESIDENT, scoring CMI on them without a code H2D round-trip.
                 import cupy as cp
-                X_codes_dev = batched_quantile_bin_gpu(cp.asarray(X_float), nbins)
                 # codes_trusted: binner-produced (batched_quantile_bin_gpu) + dense renumbered y/z are 0-based ->
                 # the range guard cannot fire; skip its 2 blocking min/max syncs on the resident hot path (FIX1).
-                cmis = _batched_cmi_in_chunks(X_codes_dev, y_bin, z_joint, batched_cmi_gpu)
+                cmis = _binned_cmi_in_column_blocks(cp, X_float, nbins, y_bin, z_joint, batched_cmi_gpu, batched_quantile_bin_gpu)
             else:
                 # Non-finite columns -> host equi-freq binning (handles nan/inf), then device CMI.
                 X_codes = np.empty((y_bin.shape[0], len(cand_cols)), dtype=np.int64)

@@ -106,6 +106,53 @@ class _RankRowBuffer:
         return row
 
 
+_PRE_RANK_MAX_BYTES = 512 * 1024 * 1024  # the ranks of all fully finite candidates are held until the scan reaches them (it keeps them anyway); more than this are ranked one by one
+
+
+def _precompute_full_ranks(X: pd.DataFrame, scan_order: list, fourier_keep: set) -> "dict[str, np.ndarray]":
+    """Average ranks of every fully finite, non-constant candidate column, computed together by one parallel kernel (the scan ranked them one at a time with pandas, 2.2 s of a 100000-row fit)."""
+    n = len(X)
+    if n < 8 or len(scan_order) < 4:
+        return {}
+    # the batch obeys the rank-buffer byte budget (a column over it is ranked one by one when the scan reaches it), so no allocation here exceeds what the scan itself may hold
+    max_cols = min(int(_PRE_RANK_MAX_BYTES), int(_RANK_BUF_MAX_BYTES)) // (8 * n)
+    if max_cols < 2:
+        return {}
+    names: list = []
+    arrays = []
+    for c in scan_order:
+        if c in fourier_keep or c not in X.columns:
+            continue
+        v = X[c]
+        if isinstance(v, pd.DataFrame):
+            v = v.iloc[:, 0]
+        a = np.asarray(v.to_numpy(), dtype=_crit_np_dtype())
+        if not np.isfinite(a).all() or a.std() <= _REL_TOL * float(np.abs(a).max()):
+            continue
+        names.append(c)
+        arrays.append(np.ascontiguousarray(a))
+        if len(names) >= max_cols:
+            break
+    if len(names) < 2:
+        return {}
+    from numba.typed import List as _TypedList
+
+    from ._eng_dedup_batch_corr import average_ranks_many
+
+    cols = _TypedList()
+    for a in arrays:
+        cols.append(a)
+    ranks = np.empty((len(names), n), dtype=np.float64)  # Intentional float64: rank values kept at the width pandas ranks have
+    average_ranks_many(cols, ranks)
+    return {c: ranks[i] for i, c in enumerate(names)}
+
+
+def _column_1d(X: pd.DataFrame, name: str) -> pd.Series:
+    """``X[name]`` as a Series; with duplicate column labels the first of them."""
+    col = X[name]
+    return col.iloc[:, 0] if isinstance(col, pd.DataFrame) else col
+
+
 def scan_engineered_duplicates(
     X: pd.DataFrame,
     _eng_cols_appended: list[str],
@@ -151,17 +198,15 @@ def scan_engineered_duplicates(
 
     _eng_fully_finite: dict[str, bool] = {}
     _scan_order = sorted(_eng_cols_appended, key=cmp_to_key(partial(_strongest_first_cmp, _eng_dedup_prefer=_eng_dedup_prefer)))
+    _pre_ranks = _precompute_full_ranks(X, _scan_order, _adaptive_fourier_keep)
     for _c in _scan_order:
         if _c in _eng_drop:
             continue
         if _c in _adaptive_fourier_keep:
             # Force-keep adaptive Fourier columns; record their array so
             # later candidates can still be deduped AGAINST them.
-            _col_view_a = X[_c]
-            if isinstance(_col_view_a, pd.DataFrame):
-                _col_view_a = _col_view_a.iloc[:, 0]
             _eng_keep.append(_c)
-            _eng_arrs[_c] = np.asarray(_col_view_a.to_numpy(), dtype=_crit_np_dtype())
+            _eng_arrs[_c] = np.asarray(_column_1d(X, _c).to_numpy(), dtype=_crit_np_dtype())
             continue
         # Defense in depth: if X carries duplicate column labels (a
         # caller-side data-quality issue we don't want to silently
@@ -169,10 +214,7 @@ def scan_engineered_duplicates(
         # DataFrame; collapse to the first column so rank/corrcoef
         # downstream see a 1-D array and the cross-stage dedup
         # still runs.
-        _col_view = X[_c]
-        if isinstance(_col_view, pd.DataFrame):
-            _col_view = _col_view.iloc[:, 0]
-        _arr_c = np.asarray(_col_view.to_numpy(), dtype=_crit_np_dtype())
+        _arr_c = np.asarray(_column_1d(X, _c).to_numpy(), dtype=_crit_np_dtype())
         _fin_c = np.isfinite(_arr_c)
         _eng_fully_finite[_c] = bool(_fin_c.all())
         if not _fin_c.any() or _arr_c[_fin_c].std() <= _REL_TOL * float(np.abs(_arr_c[_fin_c]).max()):
@@ -188,7 +230,9 @@ def scan_engineered_duplicates(
         # catches the full monotone-equivalent family that MRMR's
         # downstream gate cannot distinguish.
         # Full-column ranks of the candidate, cached (reused below when a pair is fully finite).
-        _ranks_c = pd.Series(_arr_c).rank(method="average").to_numpy()
+        _ranks_c = _pre_ranks.pop(_c, None)
+        if _ranks_c is None:
+            _ranks_c = pd.Series(_arr_c).rank(method="average").to_numpy()
         _eng_ranks[_c] = _ranks_c
         _colliding_kept: list[str] = []
         # BATCHED FAST PATH: the ``_mask.all()`` fast-path condition below can only ever
@@ -232,7 +276,12 @@ def scan_engineered_duplicates(
 
 
 def _pair_collisions(_colliding_kept, _eng_keep, _fast_kept_set, _arr_c, _fin_c, _ranks_c, _eng_arrs, _eng_ranks, _eng_fully_finite):
-    """Append each kept column the candidate Spearman-collides with (|rho| >= 0.99) to ``_colliding_kept``, skipping batched ones."""
+    """Append each kept column the candidate Spearman-collides with (|rho| >= 0.99) to ``_colliding_kept``, skipping batched ones.
+
+    Pairs that are not fully finite are ranked over their jointly finite rows; they are collected and scored together by one parallel kernel (two pandas ranks per pair, one pair at a time,
+    were about 5 s of a 100000-row fit), and the colliding columns are appended in the order of ``_eng_keep`` as before."""
+    _decided: list = []  # (kept column, True/False collides) or (kept column, None) for a pair left to the masked kernel
+    _masked: list = []
     for _kept_col in _eng_keep:
         if _kept_col in _fast_kept_set:
             continue
@@ -253,12 +302,29 @@ def _pair_collisions(_colliding_kept, _eng_keep, _fast_kept_set, _arr_c, _fin_c,
                 _ranks_b = pd.Series(_arr_k).rank(method="average").to_numpy()
                 _eng_ranks[_kept_col] = _ranks_b
         else:
-            _ranks_a = pd.Series(_a).rank(method="average").to_numpy()
-            _ranks_b = pd.Series(_b).rank(method="average").to_numpy()
+            _decided.append((_kept_col, None))
+            _masked.append(_kept_col)
+            continue
         if _ranks_a.std() <= 1e-12 or _ranks_b.std() <= 1e-12:
             continue
         _rank_corr = abs(float(np.corrcoef(_ranks_a, _ranks_b)[0, 1]))
-        if np.isfinite(_rank_corr) and _rank_corr >= 0.99:
+        _decided.append((_kept_col, bool(np.isfinite(_rank_corr) and _rank_corr >= 0.99)))
+    _masked_hit: set = set()
+    if _masked:
+        from numba.typed import List as _TypedList
+
+        from ._eng_dedup_batch_corr import masked_abs_spearman_many
+
+        _others = _TypedList()
+        for _kept_col in _masked:
+            _others.append(np.ascontiguousarray(_eng_arrs[_kept_col]))
+        _rho = np.empty(len(_masked), dtype=np.float64)  # Intentional float64: |rho| statistic vector
+        masked_abs_spearman_many(np.ascontiguousarray(_arr_c), np.ascontiguousarray(_fin_c), _others, float(_REL_TOL), _rho)
+        _masked_hit = {_kept_col for _kept_col, _r in zip(_masked, _rho) if _r >= 0.99}
+    for _kept_col, _collides in _decided:
+        if _collides is None:
+            _collides = _kept_col in _masked_hit
+        if _collides:
             _colliding_kept.append(_kept_col)
 
 

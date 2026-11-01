@@ -97,7 +97,7 @@ import pandas as pd
 
 from ._jmim_scorer import jmim_score
 from ._numba_utils import _joint_mi_3d_njit
-from ._mi_greedy_cmi_fe import _quantile_bin
+from ._mi_greedy_cmi_fe import quantile_bin_columns
 from ._orthogonal_shared import coerce_y_classif, quantile_bin_batched as _quantile_bin_batched
 from ._orthogonal_univariate_fe import (
     _mi_classif_batch,
@@ -157,8 +157,8 @@ def _bin_columns(
     # ``_quantile_bin`` for mixed-finite data.
     bins = []
     ks = []
-    for c in names:
-        b = _quantile_bin(df[c].to_numpy(), nbins=nbins).astype(np.int64)
+    for b in quantile_bin_columns(df[names].to_numpy(), nbins):
+        b = b.astype(np.int64)
         k = int(b.max()) + 1 if b.size else 1
         bins.append(b)
         ks.append(max(1, k))

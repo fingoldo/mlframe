@@ -270,6 +270,13 @@ def pair_su_batch(
     if n_pairs == 0:
         return out
 
+    from ._dynamic_cluster_discovery._dcd_metrics import _is_foreign, _scratch_state
+
+    if _is_foreign(state, factors_data, factors_nbins):
+        # data that is not the state's own is scored on its scratch state, as ``pair_su`` does; the warm-up has to fill THAT state's caches or the per-pair calls below recompute everything
+        state = _scratch_state(state, factors_data, factors_nbins)
+        factors_data = factors_nbins = None
+
     fd = factors_data if factors_data is not None else state.factors_data
     fn = factors_nbins if factors_nbins is not None else state.factors_nbins
 

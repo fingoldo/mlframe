@@ -377,6 +377,7 @@ def score_grouped_agg_by_cmi_uplift(
         score_candidates_by_cmi,
         _quantile_bin,
         _cmi_from_binned,
+        quantile_bin_columns,
     )
 
     if eng_X.shape[1] == 0:
@@ -401,6 +402,10 @@ def score_grouped_agg_by_cmi_uplift(
     source_mi_cache: dict[str, float] = {}
     eng_to_source = eng_to_source or {}
 
+    # The source columns are binned together once (one parallel block), not one column at a time on first use.
+    _src_cols = [c for c in dict.fromkeys(eng_to_source.values()) if c and c in raw_X.columns]
+    _src_bins = dict(zip(_src_cols, quantile_bin_columns(raw_X[_src_cols].to_numpy(), n_bins))) if _src_cols else {}
+
     def _source_mi(col: str) -> float:
         """Memoized marginal MI(source col, y) used as the uplift baseline (an engineered stat should beat its source's own signal)."""
         if col in source_mi_cache:
@@ -410,7 +415,7 @@ def score_grouped_agg_by_cmi_uplift(
             # source is missing from raw_X, bypassing the redundancy-vs-source check entirely. NaN fails ``>=``.
             source_mi_cache[col] = float("nan")
             return float("nan")
-        x_bin = _quantile_bin(raw_X[col].to_numpy(), nbins=n_bins)
+        x_bin = _src_bins[col] if col in _src_bins else _quantile_bin(raw_X[col].to_numpy(), nbins=n_bins)
         mi = _cmi_from_binned(x_bin, y_bin, None)
         source_mi_cache[col] = float(mi)
         return float(mi)
@@ -449,15 +454,14 @@ def _filter_num_cols_by_relevance(
     if len(cols) <= 1:
         return cols
     try:
-        from ._mi_greedy_cmi_fe import _quantile_bin, _cmi_from_binned
+        from ._mi_greedy_cmi_fe import _cmi_from_binned, quantile_bin_columns
         y_arr = np.asarray(y)
         if not np.issubdtype(y_arr.dtype, np.integer):
             y_arr = y_arr.astype(np.int64)
         _, y_bin = np.unique(y_arr, return_inverse=True)
         y_bin = y_bin.astype(np.int64)
         mis = {}
-        for c in cols:
-            xb = _quantile_bin(X[c].to_numpy(), nbins=n_bins)
+        for c, xb in zip(cols, quantile_bin_columns(X[cols].to_numpy(), n_bins)):
             mis[c] = float(_cmi_from_binned(xb, y_bin, None))
         m_max = max(mis.values())
         if m_max <= 0.0:

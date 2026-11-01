@@ -208,7 +208,10 @@ def _adaptive_cols_by_relevance(X, cols, y, max_adaptive_cols):
         x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
         if not np.isfinite(x).all():
             continue
-        bins = np.minimum(np.argsort(np.argsort(x, kind="stable"), kind="stable") * 64 // len(x), 63)
+        order = np.argsort(x, kind="stable")
+        rank = np.empty(len(x), dtype=np.int64)
+        rank[order] = np.arange(len(x))  # the inverse permutation is the rank vector (what a second argsort would return), in O(n)
+        bins = np.minimum(rank * 64 // len(x), 63)
         cnt = np.bincount(bins, minlength=64)
         sm = np.bincount(bins, weights=yy, minlength=64)
         scores[c] = float(np.sum(np.where(cnt > 0, sm * sm / np.maximum(cnt, 1), 0.0)))

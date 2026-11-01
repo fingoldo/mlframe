@@ -45,7 +45,7 @@ from __future__ import annotations
 from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
 
 import logging
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
@@ -130,7 +130,16 @@ def _pct_rank_in_sorted(sorted_vals: np.ndarray, x: np.ndarray) -> np.ndarray:
     if m == 0:
         return np.full(x.shape, 0.5, dtype=_crit_np_dtype())
     lo = np.searchsorted(sorted_vals, x, side="left")
-    hi = np.searchsorted(sorted_vals, x, side="right")
+    # ``hi`` differs from ``lo`` only for a value present in ``sorted_vals``: one more than ``lo`` when it occurs once, a second search only for the tied values
+    at = np.minimum(lo, m - 1)
+    present = sorted_vals[at] == x
+    hi = lo.copy()
+    nxt = sorted_vals[np.minimum(lo + 1, m - 1)]
+    single = present & ((lo + 1 >= m) | (nxt != x))
+    hi[single] = lo[single] + 1
+    tied = present & ~single
+    if tied.any():
+        hi[tied] = np.searchsorted(sorted_vals, x[tied], side="right")
     # Average rank for ties; normalise by m so the result is a CDF position.
     return (lo + hi) / (2.0 * m)
 
@@ -171,8 +180,12 @@ def generate_grouped_quantile_features(
             x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
             finite_all = x[np.isfinite(x)]
             global_sorted = np.sort(finite_all) if finite_all.size else np.array([], dtype=_crit_np_dtype())
-            global_iqr = float(np.quantile(finite_all, 0.75) - np.quantile(finite_all, 0.25)) if finite_all.size else 0.0
-            global_p90p10 = float(np.quantile(finite_all, 0.90) - np.quantile(finite_all, 0.10)) if finite_all.size else 0.0
+            if finite_all.size:
+                # the four quantiles are read off the sorted column (equal to np.quantile bit for bit), not from four more partitions of it
+                g25, g75, g10, g90 = _sorted_linear_quantiles(global_sorted, (0.25, 0.75, 0.10, 0.90))
+                global_iqr, global_p90p10 = float(g75 - g25), float(g90 - g10)
+            else:
+                global_iqr = global_p90p10 = 0.0
 
             # Per-group sorted-value arrays (str-keyed) for the CDF position.
             group_sorted: dict[str, list] = {}
@@ -523,6 +536,19 @@ def _apply_target_aware_group_bin_recipe(recipe, X) -> np.ndarray:
 # MI-uplift scorer / gate
 # ---------------------------------------------------------------------------
 
+def _bin_columns_pooled(bin_one: "Callable[[str], np.ndarray]", cols: list) -> list:
+    """``bin_one`` of every column, in order; the columns are independent and np.quantile / sort release the GIL, so they run on the edge-jobs pool."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    jobs = _resolve_edge_jobs(None, len(cols))
+    if jobs > 1 and len(cols) > 1:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            return list(pool.map(bin_one, cols))
+    return [bin_one(c) for c in cols]
+
+
 def score_grouped_quantile_by_mi_uplift(
     raw_X: pd.DataFrame,
     eng_X: pd.DataFrame,
@@ -599,9 +625,12 @@ def score_grouped_quantile_by_mi_uplift(
         source_mi_cache[col] = float(mi)
         return float(mi)
 
+    eng_cols = list(eng_X.columns)
+    eng_codes = _bin_columns_pooled(lambda c: _bin(eng_X[c].to_numpy()), eng_cols)
+
     rows = []
-    for col in eng_X.columns:
-        mi = float(_plug_in_mi(_bin(eng_X[col].to_numpy()), y_bin))
+    for col, codes in zip(eng_cols, eng_codes):
+        mi = float(_plug_in_mi(codes, y_bin))
         src = eng_to_source.get(col)
         smi = _source_mi(src)
         rows.append({

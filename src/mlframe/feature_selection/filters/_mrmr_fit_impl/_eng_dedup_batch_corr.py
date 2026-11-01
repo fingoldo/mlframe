@@ -31,6 +31,105 @@ from .._fe_usability_signal import _crit_np_dtype
 from numba import prange
 
 
+@numba.njit(cache=True, parallel=True)
+def average_ranks_many(cols, out: np.ndarray) -> None:
+    """``out[k]`` = average ranks (ties share the mean rank, as ``pandas.Series.rank(method="average")``) of the all-finite 1-D column ``cols[k]``; one parallel task per column."""
+    for k in prange(len(cols)):
+        c = cols[k]
+        n = c.shape[0]
+        order = np.argsort(c, kind="mergesort")
+        i = 0
+        while i < n:
+            e = i + 1
+            while e < n and c[order[e]] == c[order[i]]:
+                e += 1
+            r = 0.5 * (i + 1 + e)
+            for t in range(i, e):
+                out[k, order[t]] = r
+            i = e
+
+
+@numba.njit(cache=True)
+def _avg_ranks_inplace(v: np.ndarray, m: int, order: np.ndarray, ranks: np.ndarray) -> None:
+    """Average ranks (ties share the mean rank, as ``pandas.Series.rank(method="average")``) of the first ``m`` values of ``v`` into ``ranks``; ``order`` is scratch."""
+    order[:m] = np.argsort(v[:m], kind="mergesort")
+    i = 0
+    while i < m:
+        e = i + 1
+        while e < m and v[order[e]] == v[order[i]]:
+            e += 1
+        r = 0.5 * (i + 1 + e)
+        for t in range(i, e):
+            ranks[order[t]] = r
+        i = e
+
+
+@numba.njit(cache=True, parallel=True)
+def masked_abs_spearman_many(a: np.ndarray, fin_a: np.ndarray, others, rel_tol: float, out: np.ndarray) -> None:
+    """``out[k]`` = |Spearman rho| of ``a`` and ``others[k]`` over the rows finite in both, or ``-1`` when the pair is skipped.
+
+    A pair is skipped (as the one-pair loop skips it) with fewer than 8 jointly finite rows, a constant masked column (std at most ``rel_tol`` times its largest magnitude) or constant ranks.
+    One parallel task per kept column."""
+    n = a.shape[0]
+    for k in prange(len(others)):
+        b = others[k]
+        am = np.empty(n)
+        bm = np.empty(n)
+        m = 0
+        for i in range(n):
+            if fin_a[i] and np.isfinite(b[i]):
+                am[m] = a[i]
+                bm[m] = b[i]
+                m += 1
+        out[k] = -1.0
+        if m < 8:
+            continue
+        ma = 0.0
+        mb = 0.0
+        for i in range(m):
+            ma += am[i]
+            mb += bm[i]
+        ma /= m
+        mb /= m
+        va = 0.0
+        vb = 0.0
+        xa = 0.0
+        xb = 0.0
+        for i in range(m):
+            va += (am[i] - ma) ** 2
+            vb += (bm[i] - mb) ** 2
+            if abs(am[i]) > xa:
+                xa = abs(am[i])
+            if abs(bm[i]) > xb:
+                xb = abs(bm[i])
+        if (va / m) ** 0.5 <= rel_tol * xa or (vb / m) ** 0.5 <= rel_tol * xb:
+            continue
+        order = np.empty(m, dtype=np.int64)
+        ra = np.empty(m)
+        rb = np.empty(m)
+        _avg_ranks_inplace(am, m, order, ra)
+        _avg_ranks_inplace(bm, m, order, rb)
+        mra = 0.0
+        mrb = 0.0
+        for i in range(m):
+            mra += ra[i]
+            mrb += rb[i]
+        mra /= m
+        mrb /= m
+        sab = 0.0
+        saa = 0.0
+        sbb = 0.0
+        for i in range(m):
+            da = ra[i] - mra
+            db = rb[i] - mrb
+            sab += da * db
+            saa += da * da
+            sbb += db * db
+        if (saa / m) ** 0.5 <= 1e-12 or (sbb / m) ** 0.5 <= 1e-12:
+            continue
+        out[k] = abs(sab / (saa * sbb) ** 0.5)
+
+
 @numba.njit(cache=True, parallel=True, fastmath=False)
 def _row_mean_and_centred_ss_njit(row: np.ndarray):
     """``(mean, sum((row - mean)^2))`` for one buffer row, in the same two passes the comparison kernel used to do inline."""

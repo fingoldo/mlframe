@@ -73,6 +73,8 @@ class ConditionalPartnerGate:
         self._pos = {c: k for k, c in enumerate(self._cand)}
         self._seed = int(seed)
         self._cache: "dict[int, Optional[tuple[np.ndarray, float]]]" = {}
+        self._prep: "Optional[tuple]" = None  # filled by ``_prepared``
+        self._prep_built = False
 
     def clears(self, weak_idx: int, strong_idx: int) -> bool:
         """Whether column ``weak_idx`` carries information about the target beyond column ``strong_idx`` that stands out among all the candidate partners.
@@ -89,22 +91,39 @@ class ConditionalPartnerGate:
         observed, floor = result
         return bool(observed[k] > floor)
 
-    def _compute(self, strong_idx: int) -> "Optional[tuple[np.ndarray, float]]":
-        """``(conditional MI of every candidate given the strong operand, the q quantile of the permutation maximum)``, or ``None`` for a degenerate target."""
+    def _prepared(self) -> "Optional[tuple]":
+        """``(row slice, shifted target, (candidates, rows) int64 code matrix, widths, target width)`` shared by every strong operand, built once (each call used to gather, transpose and widen the same
+        matrix again); ``None`` for a degenerate target."""
+        if self._prep_built:
+            return self._prep
         y = self._y
         n = int(y.shape[0])
         if n == 0 or int(y.max()) == int(y.min()):
+            self._prep_built = True
+            self._prep = None
             return None
         step = max(1, n // MAX_ROWS)
         rows = slice(None, None, step)
         y = np.ascontiguousarray(y[rows])
-        z = np.asarray(self._data[rows, strong_idx]).astype(np.int64)
         codes = np.ascontiguousarray(np.asarray(self._data[rows][:, self._cand]).T)
         codes = codes.astype(np.int64) - codes.min(axis=1, keepdims=True).astype(np.int64)
         widths = (codes.max(axis=1) + 1).astype(np.int64)
+        if int(widths.max()) <= 32767:
+            codes = codes.astype(np.int16)  # the kernel reads the matrix once per permutation; narrow codes cut that memory traffic 4x, the counts are the same integers
         y = y - y.min()
+        self._prep = (rows, y, codes, widths, int(y.max()) + 1)
+        self._prep_built = True
+        return self._prep
+
+    def _compute(self, strong_idx: int) -> "Optional[tuple[np.ndarray, float]]":
+        """``(conditional MI of every candidate given the strong operand, the q quantile of the permutation maximum)``, or ``None`` for a degenerate target."""
+        prepared = self._prepared()
+        if prepared is None:
+            return None
+        rows, y, codes, widths, ky = prepared
+        z = np.asarray(self._data[rows, strong_idx]).astype(np.int64)
         z = z - z.min()
-        ky, kz = int(y.max()) + 1, int(z.max()) + 1
+        kz = int(z.max()) + 1
         observed = np.empty(len(self._cand), dtype=np.float64)  # Intentional float64: plug-in MI statistic vector (exact permutation ties)
         with parallel_kernel_entry():
             _conditional_mi_columns(codes, widths, y, z, ky, kz, observed)

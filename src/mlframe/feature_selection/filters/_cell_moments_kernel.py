@@ -197,6 +197,9 @@ def fold_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, finite_f: Any, 
 
     Two moment launches for all folds instead of two per fold, and the tables come out stacked. ``None`` when the kernels cannot be used (``3 * n_folds * n_cells`` doubles must fit in
     shared memory) so the caller takes the per-fold form."""
+    # bench-attempt-rejected (2026-11-01, GTX 1050 Ti, 6 SMs): a larger grid than 4 blocks per SM (24 blocks of 256 threads). 48 / 96 / 192 blocks measured 0.95-1.07 ms / 0.98 / 0.99 ms against 0.95 ms for the
+    #   pair of kernels at (5 folds, 12 cells), 0.67 / 0.79 / 0.69 / 0.70 at (5, 40) and 1.35 / 1.52 / 1.40 / 1.40 at (10, 30), values equal to 1e-10. The two kernels are bound by the shared-memory double atomics
+    #   of the (folds x cells) tables, not by occupancy: more blocks add contention and no throughput. Keep 4 x SM count.
     nf, nc = int(n_folds), int(n_cells)
     if nf < 1 or nc < 1 or 3 * nf * nc > _SHARED_DOUBLES:
         return None

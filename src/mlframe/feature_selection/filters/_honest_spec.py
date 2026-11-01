@@ -42,6 +42,7 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
     is_cont = np.zeros(m, dtype=np.bool_)
     q_fb_rows: list[np.ndarray] = []
     q_rf_rows: list[np.ndarray] = []
+    numeric_js: list[int] = []
     for j, c in enumerate(cols):
         if c not in X.columns:
             # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
@@ -70,18 +71,32 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
             v = np.where(nan_here, float(np.nanmedian(v)), v)
             nan_cols[:, j] = nan_here
         raw[:, j] = v
-        uniq = np.unique(v)
-        if uniq.size > _LOW_CARD_CAP:
-            is_cont[j] = True
-            # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
-            q_fb_rows.append(np.asarray(_edges_from_quantiles(v, _FALLBACK_NBINS), dtype=np.float64))
-            # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
-            q_rf_rows.append(np.asarray(_fallback_edges(v, "quantile", _FALLBACK_NBINS), dtype=np.float64))
-        else:
-            # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
-            q_fb_rows.append(np.empty(0, dtype=np.float64))
-            # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
-            q_rf_rows.append(np.empty(0, dtype=np.float64))
+        q_fb_rows.append(np.empty(0, dtype=np.float64))  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
+        q_rf_rows.append(np.empty(0, dtype=np.float64))  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
+        numeric_js.append(j)
+    # The distinct-value count and the two quantile edge sets of a column read only that column, so the columns run on the edge-jobs pool; results are written by column index.
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    def _edges_of(j: int) -> "tuple[bool, np.ndarray, np.ndarray]":
+        """``(is continuous, ranked-quantile edges, fallback edges)`` of the filled column ``j``."""
+        v = raw[:, j]
+        if np.unique(v).size <= _LOW_CARD_CAP:
+            return False, np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width
+        # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
+        return True, np.asarray(_edges_from_quantiles(v, _FALLBACK_NBINS), dtype=np.float64), np.asarray(_fallback_edges(v, "quantile", _FALLBACK_NBINS), dtype=np.float64)
+
+    jobs = _resolve_edge_jobs(None, len(numeric_js))
+    if jobs > 1 and len(numeric_js) > 1:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            edge_sets = list(pool.map(_edges_of, numeric_js))
+    else:
+        edge_sets = [_edges_of(j) for j in numeric_js]
+    for j, (cont, fb, rf) in zip(numeric_js, edge_sets):
+        is_cont[j] = cont
+        q_fb_rows[j] = fb
+        q_rf_rows[j] = rf
     if method == "oos":
         # Held-out-validated MDLP: the cut search reads the raw (compact) class labels directly.
         _, enc = np.unique(np.asarray(y_raw), return_inverse=True)

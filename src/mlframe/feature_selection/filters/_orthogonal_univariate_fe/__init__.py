@@ -46,7 +46,7 @@ genuinely separate, directly-callable opt-in utility for ad hoc use outside MRMR
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
@@ -243,6 +243,8 @@ def basis_route_by_signal(
         return basis_route_by_moments(x)
     best_basis = None
     best_corr = -1.0
+    y_centred = yv.astype(np.float64) - float(yv.astype(np.float64).mean())  # Intentional float64: Pearson sums in double precision
+    y_norm = float(np.sqrt(y_centred @ y_centred))
     _route_no_aux = aux_for_fit is None or len(np.asarray(aux_for_fit)) == 0
     # MEMO SCOPE: all 4 candidate bases' preprocess fits run _detect_heavy_tail on the SAME x
     # (the verdict depends on x's values, not the basis), so memoise it for this routing sweep -> 4 sort-based
@@ -278,7 +280,7 @@ def basis_route_by_signal(
                 v = np.asarray(v, dtype=_crit_np_dtype())
                 if v.size != yv.size or not np.all(np.isfinite(v)) or float(np.std(v)) < 1e-12:
                     continue
-                c = abs(float(np.corrcoef(v, yv)[0, 1]))
+                c = _abs_pearson(v, y_centred, y_norm)
                 if np.isfinite(c) and c > bcorr:
                     bcorr = c
             if bcorr > best_corr:
@@ -287,6 +289,13 @@ def basis_route_by_signal(
     if best_basis is None:
         return basis_route_by_moments(x)
     return best_basis
+
+def _abs_pearson(v: np.ndarray, y_centred: np.ndarray, y_norm: float) -> float:
+    """``abs(np.corrcoef(v, y)[0, 1])`` against a target already centred (``y_centred``) with its norm, without the 2 x 2 covariance matrix ``np.corrcoef`` builds per call."""
+    vc = v.astype(np.float64)  # Intentional float64: Pearson sums in double precision
+    vc -= vc.mean()
+    return abs(float(vc @ y_centred) / (float(np.sqrt(vc @ vc)) * y_norm))
+
 
 def _choose_univariate_basis(x: np.ndarray, y: Optional[np.ndarray], basis: str, basis_routing: str, degrees: Sequence[int], aux_col: Optional[np.ndarray]) -> str:
     """Basis for one source column: the pinned ``basis``, or under ``'auto'`` the signal-adaptive / moment-fingerprint route."""
@@ -313,7 +322,76 @@ def _choose_univariate_basis(x: np.ndarray, y: Optional[np.ndarray], basis: str,
         return basis
 
 
+_BASIS_MEMO: "dict[tuple, pd.DataFrame]" = {}  # content key -> the generated columns; one fit asks for the same expansion of the same columns from many scorers
+_BASIS_MEMO_MAX_ENTRIES = 6
+_BASIS_MEMO_MAX_BYTES = 768 * 1024 * 1024
+
+
+def _release_basis_memo() -> int:
+    """Drop the memoised basis expansions (registered for release under memory pressure); returns the bytes freed."""
+    freed = sum(int(df.memory_usage(index=False).sum()) for df in _BASIS_MEMO.values())
+    _BASIS_MEMO.clear()
+    return freed
+
+
+from .._cache_release import register_cache_releaser
+
+register_cache_releaser(_release_basis_memo)
+
+
+def _basis_memo_key(X: pd.DataFrame, cols: Any, degrees: Any, basis: str, dedup: bool, thr: float, y: Any, routing: str) -> "tuple | None":
+    """Content key of one call: the numeric source columns it can read, ``y`` and every parameter (``None`` when the inputs cannot be hashed)."""
+    import hashlib
+
+    try:
+        names = list(cols) if cols is not None else [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
+        h = hashlib.blake2b(digest_size=16)
+        for c in names:
+            h.update(str(c).encode())
+            h.update(np.ascontiguousarray(X[c].to_numpy()).view(np.uint8).data)
+        hy = None
+        if y is not None:
+            hy = hashlib.blake2b(np.ascontiguousarray(np.asarray(y)).view(np.uint8).data, digest_size=16).hexdigest()
+        return (h.hexdigest(), tuple(map(str, names)), tuple(int(d) for d in degrees), str(basis), bool(dedup), float(thr), hy, str(routing), len(X))
+    except Exception as exc:
+        logger.debug("basis memo key failed (%s); computing without the memo", exc)
+        return None
+
+
 def generate_univariate_basis_features(
+    X: pd.DataFrame,
+    *,
+    cols: Optional[Sequence[str]] = None,
+    degrees: Sequence[int] = (2, 3),
+    basis: str = "auto",
+    dedup_collinear_sources: bool = True,
+    dedup_corr_threshold: float = 0.999,
+    y: Optional[np.ndarray] = None,
+    basis_routing: str = "signal",
+) -> pd.DataFrame:
+    """:func:`_generate_univariate_basis_features_impl` with a content-keyed memo: the families of one fit ask for the same expansion of the same columns (17 calls, 4 distinct inputs in a 100000-row every-family fit).
+
+    A hit returns a deep copy re-indexed to the caller's frame, so a caller that edits its result cannot corrupt the stored one."""
+    key = _basis_memo_key(X, cols, degrees, basis, dedup_collinear_sources, dedup_corr_threshold, y, basis_routing)
+    if key is not None:
+        hit = _BASIS_MEMO.get(key)
+        if hit is not None:
+            out = hit.copy(deep=True)
+            out.index = X.index
+            return out
+    result = _generate_univariate_basis_features_impl(
+        X, cols=cols, degrees=degrees, basis=basis, dedup_collinear_sources=dedup_collinear_sources, dedup_corr_threshold=dedup_corr_threshold, y=y, basis_routing=basis_routing,
+    )
+    if key is not None and isinstance(result, pd.DataFrame):
+        size = int(result.memory_usage(index=False).sum())
+        if size <= _BASIS_MEMO_MAX_BYTES:
+            while _BASIS_MEMO and (len(_BASIS_MEMO) >= _BASIS_MEMO_MAX_ENTRIES or sum(int(d.memory_usage(index=False).sum()) for d in _BASIS_MEMO.values()) + size > _BASIS_MEMO_MAX_BYTES):
+                _BASIS_MEMO.pop(next(iter(_BASIS_MEMO)))
+            _BASIS_MEMO[key] = result.copy(deep=True)
+    return result
+
+
+def _generate_univariate_basis_features_impl(
     X: pd.DataFrame,
     *,
     cols: Optional[Sequence[str]] = None,

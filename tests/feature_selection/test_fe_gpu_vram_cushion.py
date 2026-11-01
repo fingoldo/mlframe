@@ -207,7 +207,8 @@ def test_ensure_pool_limit_idempotent(monkeypatch, vram):
     assert vram.ensure_fe_gpu_pool_limit() is False  # second call is a no-op
     assert vram.ensure_fe_gpu_pool_limit() is False
     assert len(calls) == 1
-    assert calls[0][0] is None and calls[0][1] == pytest.approx(0.6)  # fraction=0.6 default, size unused
+    # 3 GB of 4 GB free at install: the cap leaves the 1 GB cushion free, (3 - 1) / 4 = 0.5 (the requested 0.6 would not)
+    assert calls[0][0] is None and calls[0][1] == pytest.approx(0.5)
 
 
 @pytest.mark.gpu
@@ -300,7 +301,29 @@ def test_pool_cap_unaffected_on_large_card(monkeypatch, vram):
     monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _FakePool())
     _patch_meminfo(monkeypatch, free_b=8 * GB, total_b=16 * GB)
     assert vram.ensure_fe_gpu_pool_limit() is True
-    assert calls == [pytest.approx(0.6)]  # requested default honoured exactly; cushion (<=1GB) is tiny vs 16GB
+    # 8 GB of 16 GB free at install: (8 - 1) / 16 = 0.4375 keeps the cushion free; the requested 0.6 would not
+    assert calls == [pytest.approx(0.4375)]
+
+
+@pytest.mark.gpu
+def test_pool_cap_honours_the_requested_fraction_on_an_empty_card(monkeypatch, vram):
+    """With nearly the whole card free at install, the requested fraction is the cap (the free-memory bound does not bite)."""
+    pytest.importorskip("cupy")
+    import cupy as cp
+
+    calls = []
+
+    class _FakePool:
+        """Records the requested limit."""
+
+        def set_limit(self, size=None, fraction=None):
+            """Record the fraction."""
+            calls.append(fraction)
+
+    monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _FakePool())
+    _patch_meminfo(monkeypatch, free_b=int(15.5 * GB), total_b=16 * GB)
+    assert vram.ensure_fe_gpu_pool_limit() is True
+    assert calls == [pytest.approx(0.6)]
 
 
 def test_cushion_bytes_shared_by_both_mechanisms(vram):
@@ -327,3 +350,16 @@ def test_regression_guard_declines_gpu_at_low_free(monkeypatch, vram):
 
     # A modest shape whose working set easily fits the RELATIVE cap but the card is near-full.
     assert _cmi_cuda._should_use_cuda(n=50_000, p=8, joint_size=64, nbins_x=4, nbins_y=4, nbins_z=4) is False
+
+
+def test_supplied_probe_reclaims_the_own_pool_when_that_reaches_the_cushion(monkeypatch, vram):
+    """A caller's free figure of 885 MiB is below the 1 GiB cushion, but the pool holds 2 GiB of cached unused blocks: the guard releases them and allows the dispatch; with nothing cached it still declines."""
+    released = []
+    monkeypatch.setattr(vram, "_own_pool_free_bytes", lambda: 2 * GB)
+    monkeypatch.setattr(vram, "_release_own_pool", lambda: released.append(1))
+    assert vram.fe_gpu_has_vram_cushion(22 * 1024 * 1024, free_b=885 * 1024 * 1024, total_b=4 * GB) is True
+    assert released == [1]
+    released.clear()
+    monkeypatch.setattr(vram, "_own_pool_free_bytes", lambda: 0)
+    assert vram.fe_gpu_has_vram_cushion(22 * 1024 * 1024, free_b=885 * 1024 * 1024, total_b=4 * GB) is False
+    assert released == []

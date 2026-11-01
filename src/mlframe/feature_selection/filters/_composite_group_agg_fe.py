@@ -151,13 +151,16 @@ _GLOBAL_STAT_MEMO: "dict[tuple, float]" = {}  # (column content, statistic) -> w
 _GLOBAL_STAT_MEMO_MAX = 4096
 
 
-def _global_value_for_stat(x: np.ndarray, stat: str) -> float:
-    """Global fallback statistic for unseen composite cells at replay time; a column seen before (another key set of the same fit) takes its stored value."""
+def _global_value_for_stat(x: np.ndarray, stat: str, digest: "str | None" = None) -> float:
+    """Global fallback statistic for unseen composite cells at replay time; a column seen before (another key set of the same fit) takes its stored value.
+
+    ``digest`` is the content hash of ``x`` when the caller already has it (one column asks for several statistics).
+    """
     from mlframe.utils.disk_cache import hash_array_content
 
     from ._agg_stat_helpers import global_value_for_stat
 
-    key = (hash_array_content(np.ascontiguousarray(x)), x.dtype.str, int(x.size), stat)
+    key = (digest if digest is not None else hash_array_content(np.ascontiguousarray(x)), x.dtype.str, int(x.size), stat)
     hit = _GLOBAL_STAT_MEMO.get(key)
     if hit is not None:
         return hit
@@ -211,7 +214,9 @@ def _broadcast_lookup(
             # Intentional float64: group statistics come from the f64 recipe lookup; the output column stays f64 to match the stored values.
             dtype=np.float64,
         )
-        out = uniq_vals[inverse]
+        # the non-finite replacement is elementwise, so it is applied to the few group values and the gather then carries the result to every row
+        uniq_vals = np.nan_to_num(uniq_vals, nan=global_value, posinf=global_value, neginf=global_value)
+        return np.asarray(uniq_vals[inverse], dtype=out_dtype)
     else:
         out = np.array(
             [lookup.get(str(_k), global_value) for _k in keys],
@@ -291,8 +296,11 @@ def _emit_num_col_features(
         std_series = grouped.std(ddof=1)
         lookup_mean = _group_lookup(mean_series, label, zero_nonfinite=False)
         lookup_std = _group_lookup(std_series, label, zero_nonfinite=True)
-    global_mean = _global_value_for_stat(x, "mean")
-    global_std = _global_value_for_stat(x, "std")
+    from mlframe.utils.disk_cache import hash_array_content
+
+    x_digest = hash_array_content(np.ascontiguousarray(x))
+    global_mean = _global_value_for_stat(x, "mean", x_digest)
+    global_std = _global_value_for_stat(x, "std", x_digest)
 
     for stat in stats:
         # mean / std are already materialised above for the z / ratio residuals; reuse them instead of running the groupby a second time
@@ -320,7 +328,7 @@ def _emit_num_col_features(
             cell_values = count_arr if (kernel and stat == "count") else agg_series.to_numpy()
             global_value = float(np.median(cell_values)) if len(cell_values) else 0.0
         else:
-            global_value = _global_value_for_stat(x, stat)
+            global_value = _global_value_for_stat(x, stat, x_digest)
         broadcast = _broadcast_lookup(
             keys, lookup, global_value,
             uniq=key_uniq, inverse=key_inverse, out_dtype=x.dtype,
