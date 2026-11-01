@@ -820,17 +820,17 @@ def _drop_redundant_raw_o_step2_adversarial_multi_contamination(_all_leaf_pair, 
         try:
             _lin_raw = None
             if raw_X is not None and rname in getattr(raw_X, "columns", []):
-                _lin_raw = np.asarray(raw_X[rname], dtype=np.float64).ravel()
+                _lin_raw = np.asarray(raw_X[rname], dtype=_crit_np_dtype()).ravel()
             if _lin_raw is None:
-                _lin_raw = np.asarray(data[:, ri], dtype=np.float64).ravel()
-            _lin_y = np.asarray(y_continuous, dtype=np.float64).ravel() if y_continuous is not None else np.asarray(st.y_arr, dtype=np.float64).ravel()
+                _lin_raw = np.asarray(data[:, ri], dtype=_crit_np_dtype()).ravel()
+            _lin_y = np.asarray(y_continuous, dtype=_crit_np_dtype()).ravel() if y_continuous is not None else np.asarray(st.y_arr, dtype=_crit_np_dtype()).ravel()
             _lin_children = []
             for _ei in consumers:
                 _enm = cols[_ei]
                 if engineered_continuous and _enm in engineered_continuous:
-                    _lin_children.append(np.asarray(engineered_continuous[_enm], dtype=np.float64).ravel())
+                    _lin_children.append(np.asarray(engineered_continuous[_enm], dtype=_crit_np_dtype()).ravel())
                 else:
-                    _lin_children.append(np.asarray(data[:, _ei], dtype=np.float64).ravel())
+                    _lin_children.append(np.asarray(data[:, _ei], dtype=_crit_np_dtype()).ravel())
             if raw_retains_linear_signal_given_children(_lin_raw, _lin_y, _lin_children, seed=seed):
                 keep = True
                 if verbose:
