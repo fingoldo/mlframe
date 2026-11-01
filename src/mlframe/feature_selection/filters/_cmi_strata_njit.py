@@ -41,15 +41,24 @@ def _permutation_sources_njit(order: np.ndarray, starts: np.ndarray, lens: np.nd
     return src
 
 
-def permutation_sources(s: np.ndarray, n_perm: int, rng: np.random.Generator) -> np.ndarray:
-    """(n_perm, n) int32 source positions: row p permutes the positions of every stratum of ``s`` among themselves."""
+def permutation_seed(rng: np.random.Generator) -> int:
+    """The one draw that seeds every permutation of a null: permutation ``p`` is seeded ``seed + p``, so any slice of the null is the same data however it is chunked."""
+    return int(rng.integers(0, 2**31 - 1))
+
+
+def permutation_sources_chunk(s: np.ndarray, first: int, count: int, seed: int) -> np.ndarray:
+    """(count, n) int32 source positions of permutations ``first .. first + count - 1`` of the null seeded by ``seed``: row p permutes the positions of every stratum of ``s`` among themselves."""
     n = s.shape[0]
     order = np.argsort(s, kind="stable").astype(np.int64)
     sorted_s = s[order]
     starts = np.flatnonzero(np.r_[True, sorted_s[1:] != sorted_s[:-1]]).astype(np.int64)
     lens = np.diff(np.r_[starts, n]).astype(np.int64)
-    seed = int(rng.integers(0, 2**31 - 1))
-    return np.asarray(_permutation_sources_njit(order, starts, lens, int(n_perm), seed))
+    return np.asarray(_permutation_sources_njit(order, starts, lens, int(count), int(seed) + int(first)))
 
 
-__all__ = ["permutation_sources", "stratified_cmi", "stratified_cmi_null"]
+def permutation_sources(s: np.ndarray, n_perm: int, rng: np.random.Generator) -> np.ndarray:
+    """(n_perm, n) int32 source positions: row p permutes the positions of every stratum of ``s`` among themselves."""
+    return permutation_sources_chunk(s, 0, n_perm, permutation_seed(rng))
+
+
+__all__ = ["permutation_seed", "permutation_sources_chunk", "permutation_sources", "stratified_cmi", "stratified_cmi_null"]

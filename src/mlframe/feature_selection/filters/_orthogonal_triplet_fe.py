@@ -61,7 +61,7 @@ from mlframe.utils.log_throttle import log_throttle
 from .hermite_fe import basis_route_by_moments
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from ._orthogonal_shared import coerce_y_classif, parse_code_deg_with_basis
-from ._cmi_strata_njit import permutation_sources, stratified_cmi, stratified_cmi_null
+from ._cmi_strata_njit import permutation_seed, permutation_sources_chunk, stratified_cmi, stratified_cmi_null
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch,
@@ -350,6 +350,30 @@ def _dense_codes(x_codes, y_codes, s_codes):
     return tuple(np.ascontiguousarray(np.unique(np.asarray(c), return_inverse=True)[1], dtype=np.int64).ravel() for c in (x_codes, y_codes, s_codes))
 
 
+_NULL_CHUNK = 32  # permutations drawn per step of the early-stopping null
+
+
+def _null_quantile_or_bound(x_d, y_d, s_d, strata, cmi: float, n_perm: int, quantile: float, seed: int) -> float:
+    """The ``quantile`` of the within-stratum permutation null of ``cmi``, or - once the candidate cannot win - a bound at or above ``cmi``.
+
+    numpy's linear quantile at ``q`` lies ``r = (n_perm - 1) * (1 - q)`` index steps below the largest null value, so it is at least the ``(floor(r) + 2)``-th largest value. Once that many permutations
+    reach ``cmi`` the quantile is >= ``cmi`` and the gain ``cmi - quantile`` cannot be positive: the draw stops there and the ``(floor(r) + 2)``-th largest value seen (>= ``cmi``, so the reported gain is a
+    non-positive upper bound of the true one) stands for the quantile. A candidate that does not reach that many exceedances runs every permutation and gets the exact quantile; the draws are prefix-stable
+    (permutation p is seeded ``seed + p``), so chunking gives the same data as one block.
+    """
+    need = int(np.floor((n_perm - 1) * (1.0 - quantile))) + 2
+    parts: list = []
+    exceed = 0
+    for first in range(0, n_perm, _NULL_CHUNK):
+        count = min(_NULL_CHUNK, n_perm - first)
+        part = stratified_cmi_null(x_d, y_d, s_d, permutation_sources_chunk(strata, first, count, seed), 30)
+        parts.append(part)
+        exceed += int((part >= cmi).sum())
+        if exceed >= need:
+            return float(np.sort(np.concatenate(parts))[::-1][need - 1])
+    return float(np.quantile(np.concatenate(parts), quantile))
+
+
 def score_triplet_cross_basis_by_cmi(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -391,8 +415,7 @@ def score_triplet_cross_basis_by_cmi(
         # Random stream keyed by the candidate name, so the null does not depend on how many candidates precede it.
         rng = np.random.default_rng([int(seed), zlib.crc32(str(eng_name).encode())])
         x_d, y_d, s_d = _dense_codes(eng_codes, y_codes, strata)
-        null = stratified_cmi_null(x_d, y_d, s_d, permutation_sources(strata, n_perm, rng), 30)
-        null_q = float(np.quantile(null, quantile))
+        null_q = _null_quantile_or_bound(x_d, y_d, s_d, strata, cmi, n_perm, quantile, permutation_seed(rng))
         rows.append(
             {
                 "engineered_col": eng_name,
