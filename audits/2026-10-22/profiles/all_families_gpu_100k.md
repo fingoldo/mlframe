@@ -63,3 +63,10 @@ copies (a cache would pin the data matrix on the estimator), honest-null host pr
 Later fixes from the same sampling: OOF-warp few-values screen without the full sort, grouped-quantile global spreads from the sorted column, composite-agg non-finite replacement on the group values before the
 gather, adaptive-column relevance ranks by inverse permutation. Same-harness walls after them: 219.7-223.6 s (before them 227-246 s; the harness noise is about 10%, so treat the difference as indicative).
 A heavy-tail memo for the routing cells was tried and reverted: 18 -> 3 detector calls per column, column time unchanged (the 7.57 s seen in a call counter was thread-summed, not wall time).
+
+Fixes after the previous update, each from a self-time frame of the sampler: dCor columns with a one-pass kernel (no 1000 x 1000 matrix per column), batched KSG noise drawn once, HSIC added to the batched scorers of
+the ensemble / auto scorers, basis-routing Pearson without `np.corrcoef`, CMI candidate matrix filled by contiguous rows (`score_candidates_by_cmi` back to its 4.6 s), group percentile rank with one binary search for
+untied values. Same-harness walls (stage_sample, 100000 x 100, every family): 235.8 s at the start of the sampling, 210-217 s with the fixes (harness noise about 10%).
+
+What is left is kernel-bound or CPU-only: honest-null k2 wait (about 10 s), surrogate LightGBM (8 s), device pair MI and conditional permutation null waits, MDLP edges on the pool; no stage has a frame above 1 s that has a cheaper
+equivalent. Further reduction needs a faster GPU than the 6-SM 1050 Ti, a different surrogate model, or a quality trade.
