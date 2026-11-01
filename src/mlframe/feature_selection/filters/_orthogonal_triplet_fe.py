@@ -512,7 +512,9 @@ def _triple_mi_kernel(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> 
     for i in range(p):
         offset[i + 1] = offset[i] + (p - 1 - i) * (p - 2 - i) // 2
     codes_ny = (codes * n_y).astype(np.int32)  # Intentional int32: cell offsets (< n_cells * n_y)
-    for i in prange(p):
+    for q in prange(p):
+        # first indices alternate between the long end (many triples) and the short end, so contiguous chunks of ``q`` carry similar work
+        i = q // 2 if q % 2 == 0 else p - 1 - q // 2
         counts = np.zeros(n_cells * n_y, np.int64)
         pys = np.zeros(n_y, np.int64)
         t = offset[i]
