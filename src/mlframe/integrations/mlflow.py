@@ -23,7 +23,9 @@ logger = logging.getLogger(__name__)
 
 from typing import Optional, Sequence, Tuple
 import html
+import os
 import re
+import tempfile
 from enum import Enum
 
 try:
@@ -90,10 +92,13 @@ def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:
     internally-controlled URLs (e.g. a dashboard link the training pipeline itself generated), never
     an untrusted/user-supplied string, since the MLflow UI artifact viewer will render it as-is.
 
-    ``fname`` is likewise used unsanitized as a filesystem path (``open(fname + extension, "w")``) --
-    callers must pass only an internally-controlled filename, never an untrusted/user-supplied string,
-    since a ``fname`` containing ``../`` or an absolute path would write outside the intended directory.
+    ``fname`` is the path of the file to write (relative to the working directory, or absolute when the caller chooses so). A ``..`` component is refused with
+    ``ValueError``, so a name built from a run or experiment name cannot climb out of the directory; callers must still pass only an internally-controlled
+    name, never an untrusted/user-supplied string. The file is written to a temporary name and renamed over the target, so a symlink at the target is replaced
+    rather than followed and a crash leaves no half-written file.
     """
+    if ".." in re.split(r"[\\/]+", str(fname)):
+        raise ValueError(f"embed_website_to_mlflow: fname {fname!r} contains a '..' path component")
 
     safe_url = html.escape(url, quote=True)
     safe_width = int(width)
@@ -107,8 +112,16 @@ def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:
     if fname.lower().endswith(extension.lower()):
         extension = ""
 
-    with open(fname + extension, "w", encoding="utf-8") as f:
-        f.write(website_embed)
+    target = fname + extension
+    fd, tmp_path = tempfile.mkstemp(prefix=".embed_", suffix=".tmp", dir=os.path.dirname(os.path.abspath(target)))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(website_embed)
+        os.replace(tmp_path, target)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
 
 def _search_runs_by_name(run_name, parent_run_id, experiment_name, experiment_id):
     """Runs matching ``run_name`` (and parent run id), scoped to the given experiment id, else experiment name, else the active experiment."""
