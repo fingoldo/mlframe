@@ -47,3 +47,20 @@ def test_other_parameters_data_and_index_do_not_collide():
     d = U.generate_univariate_basis_features(X3, y=y)
     assert d.index.equals(X3.index)
     np.testing.assert_array_equal(d.to_numpy(), a.to_numpy())
+
+
+def test_a_categorical_column_among_cols_still_reaches_the_memo():
+    """A ``cols`` list that names a categorical column used to fail the key (no byte view of an object array), so every such call recomputed; now it is keyed and served."""
+    U._release_basis_memo()
+    X = _frame()
+    X["c0"] = pd.Categorical(np.random.default_rng(1).integers(0, 4, len(X)))
+    cols = list(X.columns)
+    first = U.generate_univariate_basis_features(X, cols=cols)
+    assert len(U._BASIS_MEMO) == 1
+    second = U.generate_univariate_basis_features(X, cols=cols)
+    pd.testing.assert_frame_equal(first, second)
+    assert len(U._BASIS_MEMO) == 1
+    X2 = X.copy()
+    X2["c0"] = pd.Categorical(np.random.default_rng(2).integers(0, 4, len(X)))
+    U.generate_univariate_basis_features(X2, cols=cols)
+    assert len(U._BASIS_MEMO) == 2, "a changed categorical column must key a different entry"
