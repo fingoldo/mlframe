@@ -100,3 +100,13 @@ Window means (CPU % / GPU %) run 36-50 / 6-21 for the whole fit except one windo
 so overlapping the host work with the device work is where the idle time can be recovered; threads cannot do it while the stage time is GIL-bound Python (stage cascades in threads: 151-155 s against 154 s), so
 the order is (1) turn the GIL-bound host loops into nogil / parallel kernels so that all cores can work, (2) then feed the card from several threads (the opt-in stage concurrency, the device scheduler and the per-stage
 VRAM budgets are in place for that).
+
+## Utilization after the column pools (2026-11-01)
+
+Same meter, 100000 x 100, every family, one process: fit wall 230.0 s (noisy machine). CPU busy 41.6% of all cores (baseline 40.8%), samples under 25% busy 8%; GPU busy 17.4% (baseline 21.1%), card under 10% in 67% of the samples;
+both idle together 3% of the samples (baseline 6%).
+
+Reading: the pools added since the baseline (wavelet, extra basis, group distance, oof warp, univariate basis, composite group agg) moved the mean CPU load by under one point, because the big single-core stages are
+unchanged: honest null columns (17 s, 1.5 cores, device wait), the binned numeric agg (8.8 s, 1.0), score_candidates_by_cmi (6.6 s, 1.0). The gate stage (`hybrid_conditional_gate_fe_with_recipes`) is a per-column
+device loop (median, where, batched MI each sync), so a host pool would only add contention. Next lever is overlapping those device waits with host work of the next stage (the concurrent stage mode, now correct,
+gained 7%), not more host pools.
