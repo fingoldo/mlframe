@@ -70,3 +70,17 @@ untied values. Same-harness walls (stage_sample, 100000 x 100, every family): 23
 
 What is left is kernel-bound or CPU-only: honest-null k2 wait (about 10 s), surrogate LightGBM (8 s), device pair MI and conditional permutation null waits, MDLP edges on the pool; no stage has a frame above 1 s that has a cheaper
 equivalent. Further reduction needs a faster GPU than the 6-SM 1050 Ti, a different surrogate model, or a quality trade.
+
+## Session of 2026-11-01: where the 100000 x 100 fit stands (every family except the LightGBM surrogate seeder)
+
+Wall in the same harness: 235.8 s (start of the sampling) -> 205-217 s (host fixes) -> 154-169 s on a quiet machine after the device ports below (machine noise about 10%, and the box was quieter in the last runs, so
+compare walls only inside one process). nvprof over a whole fit (165 s): the GPU kernels add up to about 25 s, i.e. the card is idle about 85% of the time; `root_split_stats_k2` (honest null) is 10.5 s of those
+(41%), then `batch_pair_usability_corr` 1.2 s, `radix_select` 1.2 + 1.05 s, `mi_hist_split` 0.96 s, `batched_joint_hist2` 0.95 s, `pair_mi_shared_fused` 0.71 s, 9394 host-to-device copies 0.72 s.
+
+Device ports made: conditional-routing cells, adaptive-degree cells, univariate-generator routing in one batch, the four non-polynomial bases (fourier, rbf, sigmoid, pade; these were unreachable before), LOF (11x),
+the fused cell-validity pass and the column-tiled |corr|. Host fixes: Newton gate kernel, dCor / KSG / HSIC scorers, group percentile ranks from the sort permutation, group broadcast scrub, composite z / ratio in one
+pass, CMI chunk memo, candidate matrix filled by rows, honest-spec edges on a pool. Tried and rejected, with numbers in their notes: the shared-memory honest-null kernel (1.4-1.8x slower), the device bootstrap
+rank-MI walk (0.56 s against 0.24 s host), threads over the independent stage cascades (151-155 s against 154 s: the stage time is GIL-bound host work).
+
+Looked at and left alone (no frame above 0.8 s, or a kernel already at its measured limit): `_stage_binned_numeric_agg` (7.4 s, flat, mostly device waits), parity scan (`_parity_mi_grid_njit`, 1.8 s, a parallel
+kernel whose cupy twin was measured and rejected), `screen_predictors` (3.2 s inside the serial Fleuret confirmation, the core MRMR njit kernels), wavelet and group-distance (flat).
