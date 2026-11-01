@@ -14,16 +14,16 @@ from mlframe.utils.safe_pickle import verify_sidecar
 def load_metadata_file(metadata_file: str, kind: str, caller: str) -> Any:
     """Load ``metadata_file`` (``kind`` is ``pkl.zst``, ``pkl`` or ``joblib``) through the restricted unpickler.
 
-    A pickle metadata file without a matching sha256 sidecar is refused unless ``MLFRAME_ALLOW_UNVERIFIED_PICKLE`` opts in. Legacy ``joblib`` metadata
-    predates sidecars and goes through the denylist joblib loader.
+    Every kind, ``joblib`` included, needs a matching sha256 sidecar unless ``MLFRAME_ALLOW_UNVERIFIED_PICKLE`` opts in (DESER-07: joblib metadata
+    used to load before any check).
     """
-    if kind == "joblib":
-        return safe_joblib_load(metadata_file)
     if not verify_sidecar(metadata_file):
         raise RuntimeError(
             f"{caller}: sha256 sidecar missing or mismatched on {metadata_file!r}; refusing to load. "
-            f"Set {UNVERIFIED_ENV_VAR}=1 to load a legacy bundle without a sidecar."
+            f"Set {UNVERIFIED_ENV_VAR}=1 to load a bundle without a sidecar."
         )
+    if kind == "joblib":
+        return safe_joblib_load(metadata_file)
     with open(metadata_file, "rb") as f:
         raw = f.read()
     payload = decompress_bounded(raw) if kind == "pkl.zst" else raw
