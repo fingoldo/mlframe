@@ -19,3 +19,9 @@ fallback: the host walk; `MLFRAME_BOOTSTRAP_RANK_DEVICE=0|1` forces a path); tes
 The tuner picks the host at every size here (the MI agrees exactly, so the choice is speed only). BENCH-ATTEMPT-REJECTED as the default on this GPU: the host walk is already fast once compiled (the 3 to 4 s the stage shows
 is many calls, not one slow one), and the device path pays for sorting 105 columns of 100000 floats (about 0.3 s on Pascal) plus a walk with only 1050 threads. Retry condition: a card with a faster sort (a newer GPU),
 or many more columns / resamples per call, where the tuner will switch by itself.
+
+## Re-measure (2026-11-01, later): the device walk wins
+
+105 float32 columns, 10 resamples of 80% of the rows, min of 5 in one process (GTX 1050 Ti): 30000 rows host 0.05 s / device 0.04 s; 100000 rows host 0.29 s / device 0.15 s (2x). The earlier verdict (host 0.24 s against device 0.56 s) was taken under contention and does not reproduce.
+Dispatch fallback (no kernel-tuning entry on the machine) is now the device walk from 30000 rows (`DEVICE_WALK_FALLBACK_ROWS`); `MLFRAME_BOOTSTRAP_RANK_DEVICE=0|1` still forces a path. A host/device split of the columns (20 / 30 / 40% on the device, the rest on the host at the same time) took 0.25 / 0.22 / 0.21 s,
+slower than the device alone (0.15 s), so no split is dispatched.

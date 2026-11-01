@@ -121,12 +121,12 @@ def use_device_walk(n_rows: int) -> bool:
     if forced in ("0", "1"):
         return forced == "1"
     if _SPEC is None:
-        return False
+        return int(n_rows) >= DEVICE_WALK_FALLBACK_ROWS
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("fe_bootstrap_rank_device: KTC choose() failed, using the fallback (host): %s", exc)
-        return False
+        logger.debug("fe_bootstrap_rank_device: KTC choose() failed, using the fallback: %s", exc)
+        return int(n_rows) >= DEVICE_WALK_FALLBACK_ROWS
 
 
 _SWEEP_ROWS = [5_000, 30_000, 100_000]
@@ -180,9 +180,14 @@ def _run_sweep() -> list:
     )
 
 
+#: Rows from which the device walk is the fallback choice when the kernel-tuning cache has no entry.
+DEVICE_WALK_FALLBACK_ROWS = 30_000
+
+
 def _fallback_choice(n_samples: int) -> str:
-    """Pre-sweep fallback: the host walk (measured faster than the device walk on the development GPU at every size)."""
-    return "host"
+    """Pre-sweep fallback: the device walk from ``DEVICE_WALK_FALLBACK_ROWS`` rows. Re-measured 2026-11-01 on the development GPU (105 columns, 10 resamples, min of 5): 30000 rows host 0.05 s / device 0.04 s,
+    100000 rows host 0.29 s / device 0.15 s. (The earlier note that the host walk won, 0.24 against 0.56 s, was taken under contention and does not reproduce.)"""
+    return "device" if int(n_samples) >= DEVICE_WALK_FALLBACK_ROWS else "host"
 
 
 try:
