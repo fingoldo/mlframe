@@ -50,6 +50,8 @@ class DeviceOofCandidates:
         self._pos = {nm: i for i, nm in enumerate(self.names)}
         self._chunk_start = -1
         self._chunk: Any = None
+        self._chunk_codes: Any = None
+        self._chunk_codes_key: tuple = ()
 
     @classmethod
     def create(cls, X: pd.DataFrame, raw: dict, names: Sequence[str], n_folds: int, random_state: int) -> Optional["DeviceOofCandidates"]:
@@ -77,16 +79,24 @@ class DeviceOofCandidates:
             specs.append({"name": nm, "group_col": r["group_col"], "agg_col": r["agg_col"], "stat": r.get("stat"), "edges": r["edges"], "global": r["global"]})
         fold_ids = binagg_fold_ids(len(self._X), self._n_folds, self._random_state)
         self._chunk = build_binagg_oof_matrix_gpu(cp, self._X, specs, fold_ids, self._n_folds)
+        self._chunk_codes = None
         self._chunk_start = start
 
     def codes(self, name: str, nbins: int) -> Any:
         """Resident equi-frequency codes of the candidate *name*, binned on the device (an out-of-fold column is finite by construction)."""
-        from ._mi_greedy_cmi_fe_binning import _quantile_bin_device
+        import cupy as cp
+
+        from ._mi_greedy_cmi_fe_binning import _qbin_float_dtype
+        from ._qbin_block_gpu import sync_free_qbin_codes_block
 
         i = self._pos[name]
         if self._chunk is None or not (self._chunk_start <= i < self._chunk_start + self._chunk.shape[1]):
             self._load_chunk((i // _CHUNK_COLS) * _CHUNK_COLS)
-        return _quantile_bin_device(self._chunk[:, i - self._chunk_start], nbins)
+        # The whole chunk is binned with one sort (the redundancy gate asks for every column of it), the codes of the asked column are a row of the result.
+        if self._chunk_codes is None or self._chunk_codes_key != (self._chunk_start, int(nbins)):
+            self._chunk_codes = sync_free_qbin_codes_block(cp, cp.ascontiguousarray(self._chunk.T.astype(_qbin_float_dtype(), copy=False)), int(nbins))
+            self._chunk_codes_key = (self._chunk_start, int(nbins))
+        return self._chunk_codes[i - self._chunk_start].copy()
 
 
 def device_born_candidates(fit_fn: Any, X: pd.DataFrame, y: Any, gsel: Sequence[str], asel: Sequence[str], stats: Sequence[str], nbins_base: int, n_folds: int, random_state: int, precap_pairs: Any, cap_names: Any, redundancy_gate: bool, reject_sink: Any) -> tuple:
