@@ -428,7 +428,8 @@ jobs:
       # added together). `.coverage` is a dotfile -- same upload-artifact hidden-file gotcha as
       # `.test_durations` above.
       - name: Upload raw coverage data (for the cross-workflow merged report)
-        if: matrix.python-version == env.REPRESENTATIVE_PYTHON && matrix.os == env.COVERAGE_OS && (success() || failure())
+        # Not on pull_request runs: codecov-full merges these artefacts into a report that carries the repository's token, and a run from a fork branch named master must not feed it.
+        if: github.event_name != 'pull_request' && matrix.python-version == env.REPRESENTATIVE_PYTHON && matrix.os == env.COVERAGE_OS && (success() || failure())
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: raw-coverage-ci-${{ matrix.group }}
