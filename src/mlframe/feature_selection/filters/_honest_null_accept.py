@@ -22,12 +22,32 @@ def _int_to_host(cp, dev, bound: int) -> np.ndarray:
     return np.asarray(cp.asnumpy(dev))
 
 
+def _use_bitset_accept() -> bool:
+    """Whether the binary-target acceptance runs as the sorted-space bitset scan with the provable prune (``_honest_null_accept_bits``): ``MLFRAME_HONEST_ROOT_SPLIT=accept`` (default) or ``k5`` / ``k4`` / ``k2`` for the per-step kernels."""
+    import os
+
+    return os.environ.get("MLFRAME_HONEST_ROOT_SPLIT", "accept").strip().lower() == "accept"
+
+
+def _bitset_accept(cp, order, tie, y_raw_perm, n, n_perm, kc, min_split_size, alpha, h_full, tab_full, d_gain, d_ncand, d_idx) -> bool:
+    """The bitset acceptance scan into the three output vectors; ``False`` (nothing written) when it does not apply or the device refuses, so the per-step kernel runs."""
+    try:
+        from mlframe.feature_selection.filters._honest_null_accept_bits import root_split_accept_gpu
+
+        return bool(root_split_accept_gpu(cp, order, tie, y_raw_perm, n, n_perm, kc, min_split_size, alpha, h_full, cp.asarray(tab_full), d_gain, d_ncand, d_idx))
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).warning("bitset honest-null acceptance failed (%s: %s); using the per-step kernel", type(exc).__name__, exc)
+        return False
+
+
 def _root_split_kernel(cp):
     """``(kernel, full_table)`` of the binary-target root-split kernel, chosen by ``MLFRAME_HONEST_ROOT_SPLIT``: ``k5`` (default: one float pass, exact gain once at the best cut, selection-equivalent to v2), ``k4`` (one exact pass over a full
     ``x ln x`` table, outputs equal to v2) or ``k2`` (the two-pass original). ``full_table`` says the kernel reads a table over every count."""
     import os
 
-    mode = os.environ.get("MLFRAME_HONEST_ROOT_SPLIT", "k5").strip().lower()
+    mode = os.environ.get("MLFRAME_HONEST_ROOT_SPLIT", "k5").strip().lower()  # "accept" (the default of the caller) falls through to k5 when the bitset scan declines
     if mode == "k2" or os.environ.get("MLFRAME_HONEST_ROOT_SPLIT_K4", "") == "0":
         return _get_kernel_k2(cp), False
     from mlframe.feature_selection.filters._honest_null_k4 import get_kernel_k4, get_kernel_k5
@@ -48,7 +68,9 @@ def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx
         d_gain = cp.empty(n_perm * kc, dtype=cp.float64)  # Intentional float64: statistic vector (best split gains, compared with the host's)
         d_ncand = cp.empty(n_perm * kc, dtype=cp.int32)
         d_idx = cp.empty(n_perm * kc, dtype=cp.int32)
-        if n_classes_total == 2:
+        if n_classes_total == 2 and _use_bitset_accept() and _bitset_accept(cp, order, tie, y_raw_perm, n, n_perm, kc, min_split_size, alpha, h_full, xlogx_table(n), d_gain, d_ncand, d_idx):
+            pass
+        elif n_classes_total == 2:
             ybits = _pack_bits(y_raw_perm)
             _kernel, _full_table = _root_split_kernel(cp)
             _kernel(
