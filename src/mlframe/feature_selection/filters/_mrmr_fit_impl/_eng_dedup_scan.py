@@ -313,13 +313,17 @@ def _pair_collisions(_colliding_kept, _eng_keep, _fast_kept_set, _arr_c, _fin_c,
     if _masked:
         from numba.typed import List as _TypedList
 
-        from ._eng_dedup_batch_corr import masked_abs_spearman_many
+        from ._eng_dedup_batch_corr import finite_sort_order, masked_abs_spearman_presorted
 
         _others = _TypedList()
+        _orders = _TypedList()
         for _kept_col in _masked:
-            _others.append(np.ascontiguousarray(_eng_arrs[_kept_col]))
+            _col = np.ascontiguousarray(_eng_arrs[_kept_col])
+            _others.append(_col)
+            _orders.append(finite_sort_order(_col))  # a kept column is sorted once for the whole fit, not once per candidate
+        _arr_cc = np.ascontiguousarray(_arr_c)
         _rho = np.empty(len(_masked), dtype=np.float64)  # Intentional float64: |rho| statistic vector
-        masked_abs_spearman_many(np.ascontiguousarray(_arr_c), np.ascontiguousarray(_fin_c), _others, float(_REL_TOL), _rho)
+        masked_abs_spearman_presorted(_arr_cc, np.ascontiguousarray(_fin_c), finite_sort_order(_arr_cc, cache=False), _others, _orders, float(_REL_TOL), _rho)
         _masked_hit = {_kept_col for _kept_col, _r in zip(_masked, _rho) if _r >= 0.99}
     for _kept_col, _collides in _decided:
         if _collides is None:

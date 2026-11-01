@@ -130,6 +130,112 @@ def masked_abs_spearman_many(a: np.ndarray, fin_a: np.ndarray, others, rel_tol: 
         out[k] = abs(sab / (saa * sbb) ** 0.5)
 
 
+@numba.njit(cache=True)
+def _avg_ranks_presorted(v: np.ndarray, order_full: np.ndarray, cm: np.ndarray, m: int, seq: np.ndarray, ranks: np.ndarray) -> None:
+    """Average ranks of the ``m`` rows kept by the compact map ``cm`` (row -> compact index, -1 for a dropped row), from the full sorted row order ``order_full`` of ``v``: no sort, the dropped rows are skipped in the walk."""
+    c = 0
+    for t in range(order_full.shape[0]):
+        r = order_full[t]
+        if cm[r] >= 0:
+            seq[c] = r
+            c += 1
+    i = 0
+    while i < m:
+        e = i + 1
+        while e < m and v[seq[e]] == v[seq[i]]:
+            e += 1
+        rk = 0.5 * (i + 1 + e)
+        for t in range(i, e):
+            ranks[cm[seq[t]]] = rk
+        i = e
+
+
+@numba.njit(cache=True, parallel=True)
+def masked_abs_spearman_presorted(a: np.ndarray, fin_a: np.ndarray, order_a: np.ndarray, others, orders, rel_tol: float, out: np.ndarray) -> None:
+    """Version 2 of :func:`masked_abs_spearman_many`: the sorted row order of the candidate (``order_a``, finite rows only) and of every kept column (``orders[k]``) is given, so a pair costs linear passes instead of two sorts.
+
+    The averaged ranks, the skip rules and every sum are the version-1 ones in the same order, so the results are equal."""
+    n = a.shape[0]
+    for k in prange(len(others)):
+        b = others[k]
+        cm = np.full(n, -1, dtype=np.int64)
+        am = np.empty(n)
+        bm = np.empty(n)
+        m = 0
+        for i in range(n):
+            if fin_a[i] and np.isfinite(b[i]):
+                cm[i] = m
+                am[m] = a[i]
+                bm[m] = b[i]
+                m += 1
+        out[k] = -1.0
+        if m < 8:
+            continue
+        ma = 0.0
+        mb = 0.0
+        for i in range(m):
+            ma += am[i]
+            mb += bm[i]
+        ma /= m
+        mb /= m
+        va = 0.0
+        vb = 0.0
+        xa = 0.0
+        xb = 0.0
+        for i in range(m):
+            va += (am[i] - ma) ** 2
+            vb += (bm[i] - mb) ** 2
+            if abs(am[i]) > xa:
+                xa = abs(am[i])
+            if abs(bm[i]) > xb:
+                xb = abs(bm[i])
+        if (va / m) ** 0.5 <= rel_tol * xa or (vb / m) ** 0.5 <= rel_tol * xb:
+            continue
+        seq = np.empty(m, dtype=np.int64)
+        ra = np.empty(m)
+        rb = np.empty(m)
+        _avg_ranks_presorted(a, order_a, cm, m, seq, ra)
+        _avg_ranks_presorted(b, orders[k], cm, m, seq, rb)
+        mra = 0.0
+        mrb = 0.0
+        for i in range(m):
+            mra += ra[i]
+            mrb += rb[i]
+        mra /= m
+        mrb /= m
+        sab = 0.0
+        saa = 0.0
+        sbb = 0.0
+        for i in range(m):
+            da = ra[i] - mra
+            db = rb[i] - mrb
+            sab += da * db
+            saa += da * da
+            sbb += db * db
+        if (saa / m) ** 0.5 <= 1e-12 or (sbb / m) ** 0.5 <= 1e-12:
+            continue
+        out[k] = abs(sab / (saa * sbb) ** 0.5)
+
+
+_ORDER_CACHE: "dict[int, tuple]" = {}  # id(column) -> (the column, its finite rows in ascending value order); the column is held so its id cannot be reused while the entry lives
+_ORDER_CACHE_MAX = 96
+
+
+def finite_sort_order(col: np.ndarray, *, cache: bool = True) -> np.ndarray:
+    """The row ids of the finite values of ``col`` in ascending value order (stable), int64; cached per column object for the kept columns, which live for a whole fit."""
+    if cache:
+        hit = _ORDER_CACHE.get(id(col))
+        if hit is not None and hit[0] is col:
+            return cast("np.ndarray", hit[1])
+    rows = np.flatnonzero(np.isfinite(col))
+    order = rows[np.argsort(col[rows], kind="mergesort")]
+    if cache:
+        if len(_ORDER_CACHE) >= _ORDER_CACHE_MAX:
+            _ORDER_CACHE.pop(next(iter(_ORDER_CACHE)))
+        _ORDER_CACHE[id(col)] = (col, order)
+    return order
+
+
 @numba.njit(cache=True, parallel=True, fastmath=False)
 def _row_mean_and_centred_ss_njit(row: np.ndarray):
     """``(mean, sum((row - mean)^2))`` for one buffer row, in the same two passes the comparison kernel used to do inline."""
