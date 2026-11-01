@@ -17,3 +17,9 @@ a table over all counts (`xlogx_table(n)`, 800 KB) removes it. The table already
 
 Next: v5 at 287 ms is the remaining headroom (selection-equivalence only); the stage also spends time outside the kernel (host sort of the columns, tie flags, label bit packing, the redo of accepted pairs).
 Tests: `tests/feature_selection/fe/test_honest_null_k4.py`, `tests/feature_selection/discretization/test_honest_null_device_equivalence.py`.
+
+## GPU profile of v5 (nvprof, GTX 1050 Ti, 60 columns x 200 permutations x 100000 rows, 12000 threads)
+
+achieved occupancy 0.50 (53 registers per thread), multiprocessor activity 95.3%, device memory utilization low (2 of 10), warp execution efficiency 66.6% (the candidate branch diverges inside a warp).
+Register cap: `--maxrregcount` 32 / 40 / 48 / 64 gave 247 / 297 / 302 / 299 ms against 267 ms uncapped, inside the run-to-run noise, so the cap is not applied.
+Reading: the 12000 threads are one resident wave on 6 SMs, so the kernel is bound by per-thread latency (the dependent label-bit gather), not by DRAM or by occupancy; more work per launch (250 columns x 999 permutations in the real stage) raises SM coverage, not the per-thread chain.
