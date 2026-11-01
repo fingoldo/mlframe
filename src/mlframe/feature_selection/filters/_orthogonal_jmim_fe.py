@@ -309,6 +309,22 @@ def score_features_by_jmim(
     sel_ks_arr = list(sel_ks)
     has_support = bool(sel_bins_c)
 
+    def _candidate_score(j: int) -> float:
+        """JMIM score of engineered column ``j`` (the njit kernel releases the GIL, so the candidates run side by side)."""
+        return _jmim_min_score(np.ascontiguousarray(eng_bins[j], dtype=np.int64), int(eng_ks[j]), y_bin_c, K_y, sel_bins_c, sel_ks_arr, has_support)
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    jobs = _resolve_edge_jobs(None, len(eng_names))
+    if jobs > 1 and len(eng_names) > 3:
+        _candidate_score(0)  # compiles the kernel on this thread before the workers start
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            scores = list(pool.map(_candidate_score, range(len(eng_names))))
+    else:
+        scores = [_candidate_score(j) for j in range(len(eng_names))]
+
     rows: list[dict] = []
     for j, eng_name in enumerate(eng_names):
         source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
@@ -322,9 +338,7 @@ def score_features_by_jmim(
         # to roughly ``I(x_dup_a; Y)``, which the min then pins below
         # ``I((He_2(x2), x1); Y)`` - the redundancy suppression
         # mechanism the paper describes.
-        x_c = np.ascontiguousarray(eng_bins[j], dtype=np.int64)
-        K_x = int(eng_ks[j])
-        score = _jmim_min_score(x_c, K_x, y_bin_c, K_y, sel_bins_c, sel_ks_arr, has_support)
+        score = scores[j]
         uplift = relative_uplift(score, baseline)
         rows.append({
             "engineered_col": eng_name,
