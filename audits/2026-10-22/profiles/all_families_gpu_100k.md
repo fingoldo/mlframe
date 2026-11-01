@@ -59,3 +59,7 @@ triple-MI kernel loop, root of the chosen LOF neighbours only, shared conditiona
 
 Checked and left alone (no dominant frame or no safe saving): `_gate_base_columns` probes (pooled), routing cells (pooled), bootstrap tables (pooled), `bootstrap_rank_mi` (radix walk), pair-admission column
 copies (a cache would pin the data matrix on the estimator), honest-null host prep overlap (about 0.6 s).
+
+Later fixes from the same sampling: OOF-warp few-values screen without the full sort, grouped-quantile global spreads from the sorted column, composite-agg non-finite replacement on the group values before the
+gather, adaptive-column relevance ranks by inverse permutation. Same-harness walls after them: 219.7-223.6 s (before them 227-246 s; the harness noise is about 10%, so treat the difference as indicative).
+A heavy-tail memo for the routing cells was tried and reverted: 18 -> 3 detector calls per column, column time unchanged (the 7.57 s seen in a call counter was thread-summed, not wall time).
