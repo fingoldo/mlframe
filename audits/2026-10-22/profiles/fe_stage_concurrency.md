@@ -49,3 +49,18 @@ No gain either way: the three stages did run together (plan: budgets 0.52 / 1.26
 time is host Python and numpy that holds the GIL, and a GPU that is idle 82% of the time because only one thread feeds it. Threads cannot overlap GIL-bound work; the remaining ways are to move the host work
 into nogil kernels or the device (the per-family kernels of the other notes), or to run the stages in separate processes with their own copies of the data (large memory, and the resident caches are per process).
 The code stays, off, for hosts where the stages are not GIL-bound (a faster host, free-threaded Python) and as the base of a multi-device plan.
+
+## Update: the opt-in mode is unsafe on a GPU host
+
+A later full-size run (100000 x 100, `MLFRAME_FE_STAGE_CONCURRENCY=1`) printed `cudaErrorIllegalAddress` 3272 times ("illegal memory access"), preceded by `batched CMI ... ran out of device memory` chunking, and never reached the
+end of the fit: the CUDA context was corrupted. The same switch had completed at the same size before (equal results, no gain). The cause was not found; suspects: device arrays allocated in one stage's private
+pool and held by process-global caches (`_fe_resident_operands`, memo dictionaries) while other threads use them, and numba.cuda kernels launched from several threads against cupy allocations of different pools.
+The module docstring now says so. What to do instead (measured map in the next section): the stages that run on exactly one core are the target, and the safe way to fill the other cores is a column-level pool INSIDE
+those stages (no shared device state), as the accuracy-gate probes already do.
+
+## Cores busy per stage (100000 x 100, 8 logical cores, mean over the stage's samples)
+
+Stages on exactly 1.0 core (single-threaded Python): `_stage_binned_numeric_agg` 8.2 s, `generate_grouped_quantile_features` 4.4, `generate_extra_basis_features` 4.2, `generate_group_distance_features` 3.8, `_stage_greedy_cmi` 3.6,
+`hybrid_conditional_gate_fe` 3.4, `hybrid_oof_warp_fe` 3.2, `generate_composite_group_agg_features` 3.0, `generate_wavelet_features` 2.8, `hybrid_orth_mi_fe` 2.4, `score_features_by_jmim` 2.2 and a long tail: about 55 s at one
+core with seven idle. Already parallel: auto-scorer (5.5 cores), bootstrap MI (5.1), triplet (4.6 to 5.0), parity scan (4.2), modular (3.4). Device-wait stages: honest null 16.2 s at 1.6 cores (the card is busy there),
+`_fit_body_run_fit_impl` 13.4 s at 2.6, `score_prospective_pairs` 6.4 s at 1.5.

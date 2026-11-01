@@ -10,6 +10,10 @@ the order a sequential run would have produced them in:
 * a new attribute that several stages create (an empty list in one, the filled list in another) is the concatenation of their lists in stage order;
 * any other attribute that changed is taken from the last stage that changed it.
 
+EXPERIMENTAL AND NOT SAFE ON A GPU HOST: measured at 100000 x 100, the stages in threads gained nothing (151-155 s against 154 s sequential, the stage time is GIL-bound Python), and a later run with the newest tree
+raised ``cudaErrorIllegalAddress`` thousands of times and corrupted the CUDA context (cause not found: the suspects are device arrays that the process-global caches share between a stage's private pool and the
+other threads, and numba.cuda kernels launched from several threads). Do not enable it without a device-side reproduction and a fix.
+
 Off by default (``MLFRAME_FE_STAGE_CONCURRENCY=1`` turns it on); it also needs a device plan from ``_fe_device_scheduler`` (every stage gets at least the minimum VRAM budget), else the caller runs the cascades one by one.
 """
 
