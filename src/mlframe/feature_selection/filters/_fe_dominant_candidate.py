@@ -58,6 +58,7 @@ def dominant_candidate(X, y, n_rows_min: int = _MIN_ROWS) -> "str | None":
     mat = np.column_stack([np.nan_to_num(np.asarray(cols[c], dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0) for c in names])
     from ._hermite_fe_mi import plugin_mi_classif_batch_dispatch
 
+    # Intentional float64: MI statistic vector from the plug-in estimator
     mi = np.asarray(plugin_mi_classif_batch_dispatch(mat, codes, _N_BINS), dtype=np.float64)
     bias = (_N_BINS - 1) * (len(p) - 1) / (2.0 * n)
     best = int(np.argmax(mi))

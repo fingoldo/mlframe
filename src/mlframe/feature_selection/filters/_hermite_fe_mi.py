@@ -465,6 +465,7 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
                 out[j] = hit
     if missing:
         sub = X_cols if len(missing) == len(keys) else np.ascontiguousarray(X_cols[:, missing])
+        # Intentional float64: MI statistic vector, output contract kept f64
         fresh = np.asarray(_plugin_mi_classif_batch_dispatch_uncached(sub, y, n_bins), dtype=np.float64)
         out[missing] = fresh
         with _COLUMN_MI_MEMO_LOCK:

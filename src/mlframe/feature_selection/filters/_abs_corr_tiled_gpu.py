@@ -54,6 +54,7 @@ def abs_corr_tiled(cp: Any, cand: Any, yc: Any, mu: Any, syy: float) -> Any:
     """``|corr|`` of each column of the row-major ``(n, m)`` block ``cand`` with the centred target ``yc``, or -1.0 for a degenerate column (the v1 convention); ``mu`` are the column means."""
     n, m = int(cand.shape[0]), int(cand.shape[1])
     chunks = max(1, (n + _ROWS_PER_CHUNK - 1) // _ROWS_PER_CHUNK)
+    # Intentional float64: device accumulator for the tiled correlation sums
     part = cp.zeros((chunks, m, 2), dtype=cp.float64)
     module = _MODULES_BY_REAL["float" if cand.dtype.itemsize == 4 else "double"].get(cp)
     module.get_function("abs_corr_tiled")(((m + 31) // 32, chunks), (32, 8), (cand, yc, mu, np.int64(n), np.int32(m), np.int64(_ROWS_PER_CHUNK), part))

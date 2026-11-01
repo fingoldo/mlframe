@@ -52,7 +52,9 @@ def banzhaf_msr(
     """
     # Intentional float64: the coalition sums must match the sequential reference to 1e-10; the f32 crit relaxation breaks that contract.
     phi = np.ascontiguousarray(phi, dtype=np.float64)
+    # Intentional float64: coalition sums must match the sequential reference to 1e-10
     base = np.ascontiguousarray(base, dtype=np.float64)
+    # Intentional float64: coalition sums must match the sequential reference to 1e-10
     y = np.ascontiguousarray(y, dtype=np.float64)
     metric = resolve_metric(classification, metric)
     if metric == "auc":
@@ -68,9 +70,11 @@ def banzhaf_msr(
     m = int(n_coalitions)
     masks = rng.random((m, n_features)) < 0.5  # (m, P) bool
 
+    # Intentional float64: v(S) values for the sampled coalitions, same contract as the reference
     v = np.empty(m, dtype=np.float64)  # v(S) = -loss(S) for every sampled coalition
     for start in range(0, m, batch):
         end = min(start + batch, m)
+        # Intentional float64: coalition masks widened for the double-precision sums
         chunk = masks[start:end].astype(np.float64)  # (b, P)
         margins_chunk = np.ascontiguousarray(base[None, :] + chunk @ phi_T)  # (b, n_samples)
         # score_margin_batch scores the whole chunk in ONE compiled call instead of one call per
@@ -81,7 +85,9 @@ def banzhaf_msr(
             losses = np.sqrt(losses)
         v[start:end] = -losses
 
+    # Intentional float64: Banzhaf coefficients accumulated in double
     beta = np.zeros(n_features, dtype=np.float64)
+    # Intentional float64: Banzhaf standard errors accumulated in double
     beta_stderr = np.zeros(n_features, dtype=np.float64)
     degenerate: list[int] = []
     for j in range(n_features):

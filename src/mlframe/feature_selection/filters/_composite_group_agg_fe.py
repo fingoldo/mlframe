@@ -228,6 +228,7 @@ def _unique_inverse(keys: np.ndarray):
 
 def _broadcast_lookup(
     keys: np.ndarray, lookup: dict, global_value: float,
+    # Intentional float64: output dtype of the composite aggregates, matches the stored recipe values
     *, uniq=None, inverse=None, out_dtype=np.float64,
 ) -> np.ndarray:
     """Map each row's composite key through ``lookup`` (str-keyed), unseen ->
@@ -275,7 +276,7 @@ def composite_cardinality_ok(
 def _group_lookup(series: pd.Series, label: Callable[[Any], str], zero_nonfinite: bool) -> dict:
     """``{label(group): float(value)}`` of a per-group statistic Series. One array conversion and one ``zip`` instead of ``Series.items()`` with a ``float()`` per group;
     ``zero_nonfinite`` replaces NaN / inf by 0.0 (the std and aggregate lookups), exactly as ``float(v) if np.isfinite(v) else 0.0`` did."""
-    values = series.to_numpy(dtype=np.float64)  # float32 -> float64 is exact, so tolist() gives the same Python floats as float(v)
+    values = series.to_numpy(dtype=np.float64)  # float32 -> float64 is exact, so tolist() gives the same Python floats as float(v)  # Intentional float64: float32 -> float64 is exact, so tolist() gives the same Python floats
     if zero_nonfinite:
         values = np.where(np.isfinite(values), values, 0.0)
     return dict(zip(map(label, series.index.tolist()), values.tolist()))
@@ -283,7 +284,7 @@ def _group_lookup(series: pd.Series, label: Callable[[Any], str], zero_nonfinite
 
 def _array_lookup(labels: list, values: np.ndarray, zero_nonfinite: bool) -> dict:
     """:func:`_group_lookup` for a per-group-code array: ``{labels[code]: value}``."""
-    vals = np.asarray(values, dtype=np.float64)  # float32 -> float64 is exact
+    vals = np.asarray(values, dtype=np.float64)  # float32 -> float64 is exact  # Intentional float64: float32 -> float64 is exact
     if zero_nonfinite:
         vals = np.where(np.isfinite(vals), vals, 0.0)
     return dict(zip(labels, vals.tolist()))
@@ -305,7 +306,7 @@ def _emit_num_col_features(
     # Group on the integer codes of the key when the caller has them (the key strings are then hashed once per column set, not once per numeric column and statistic);
     # the recipe lookups stay keyed by the key string, taken from the unique keys.
     label: Callable[[Any], str]
-    kernel = key_uniq is not None and key_inverse is not None and x.dtype in (np.float32, np.float64)
+    kernel = key_uniq is not None and key_inverse is not None and x.dtype in (np.float32, np.float64)  # Intentional float64: dtype identity check, not a compute dtype
     grouped = None
     if key_uniq is not None and key_inverse is not None:
         key_labels = [str(u) for u in key_uniq]  # the key string of group code c is key_labels[c]
@@ -714,7 +715,7 @@ def auto_detect_key_sets(
     return [c for c, _ in cand[:max_sets]]
 
 def _composite_full_matrix_bytes(n_rows: int, n_keys: int, n_num: int, n_stats: int) -> int:
-    """Bytes of the full broadcast of composite aggregates: a column per (source, stat) plus the z and ratio residuals, float64 each, n rows."""
+    """Bytes of the full broadcast of composite aggregates: a column per (source, stat) plus the z and ratio residuals, 8 bytes each, n rows."""
     return int(n_rows) * 8 * int(n_num) * (int(n_stats) + 2) * max(1, min(int(n_keys), 1))
 
 
@@ -730,7 +731,7 @@ def _composite_block_budget_bytes() -> int:
 
 
 def _block_columns(n_rows: int) -> int:
-    """How many engineered columns one block may hold: a column is ``n_rows`` float64 values, and ``5`` columns per numeric source (one per stat, z, ratio) are built per block."""
+    """How many engineered columns one block may hold: a column is ``n_rows`` 8-byte values, and ``5`` columns per numeric source (one per stat, z, ratio) are built per block."""
     per_col = max(1, n_rows) * 8
     return max(1, _composite_block_budget_bytes() // max(1, per_col * 5))
 

@@ -121,10 +121,10 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
     hermite-poly / any name in ``fallback_unaries`` / any GPU-unbuildable column) from the host array.
 
     ``col_specs`` is a list aligned with the operand-table columns: each entry is ``(col_idx, raw_vals,
-    unary_name)`` where ``raw_vals`` is the host float64 raw operand input the CPU applied ``unary_name`` to
+    unary_name)`` where ``raw_vals`` is the host double raw operand input the CPU applied ``unary_name`` to
     (or ``None`` for a column with no GPU recipe -> copied from the host). A column is GPU-built iff
     ``raw_vals is not None``, ``unary_name`` is a known plain unary (``_unary_apply`` accepts it, not in
-    ``fallback_unaries``). The unary is applied on the GPU in float64 (the dtype the CPU ``tr_func``
+    ``fallback_unaries``). The unary is applied on the GPU in double (the dtype the CPU ``tr_func``
     received) then cast to float32 (mirroring the CPU's compute-in-f64-then-store-f32) so the GPU column
     matches the host column to fp round-off. Any per-column GPU failure falls that column back to the host
     copy (never a correctness regression). Returns the device array (already row-major C-contiguous f32);
@@ -185,7 +185,7 @@ def _upload_dtype_groups(cp, _groups):
     return _dev_groups
 
 def _batched_unary_prepass(cp, col_specs, _raw_slot, _dev_groups, fb, g, n, n_operands):
-    """Apply the GPU-buildable plain-unary columns per float64 group with one batch kernel each; returns the set of batched column indices."""
+    """Apply the GPU-buildable plain-unary columns per double group with one batch kernel each; returns the set of batched column indices."""
     _batched: set = set()
     _f64_key = np.dtype(np.float64).str  # batch ONLY the float64 group: the kernel computes in f64, matching  # Intentional float64: float64 batching key; kernel contract
     try:  # the CPU tr_func's f64 math; an f32 group must compute in f32 -> per-col

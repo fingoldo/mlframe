@@ -422,6 +422,7 @@ def _conditional_cpu_null(inp: _NullInputs, sup: _StratifiedSupport, nperm: int,
 
     from ._numba_utils import within_stratum_shuffles
 
+    # Intentional float64: permutation-null accumulator compared against the f64 observed CMI
     nulls = np.empty(nperm, dtype=np.float64)
     block = max(1, min(64, 20_000_000 // max(1, inp.n_size)))
     for start in range(0, nperm, block):

@@ -433,6 +433,7 @@ def _binned_cmi_in_column_blocks(cp: Any, X_float: np.ndarray, nbins: int, y_bin
             if block <= 1:
                 raise
             block = max(1, block // 2)
+    # Intentional float64: score output contract kept f64 (exact comparison)
     return np.concatenate(parts) if parts else np.empty(0, dtype=np.float64)
 
 

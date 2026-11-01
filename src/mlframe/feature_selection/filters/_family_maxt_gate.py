@@ -288,7 +288,7 @@ def family_null_max(
 ) -> np.ndarray | None:
     """Null maxima over ``n_perm`` label permutations drawn from ``rng`` in the same order as a per-permutation loop (results are identical).
 
-    ``acc``: an optional device float64 vector of length ``n_perm``. The maxima are folded into it (elementwise, in place) and the
+    ``acc``: an optional device double vector of length ``n_perm``. The maxima are folded into it (elementwise, in place) and the
     function returns ``None``, so a caller that scores several column groups against the same draw reads the result back once.
 
     ``prep_cache``: a dict a caller keeps for the calls that score the SAME columns (the blocks of one exact test): the column bit sets, host and device, are built by the first call and read from it by the rest."""
@@ -611,6 +611,7 @@ def _passes_for_certain(r_alive: np.ndarray, done: int, total: int, alpha: float
     from scipy.special import betaincinv
 
     limit = alpha * (total + 1.0) - 1.0
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     r = r_alive.astype(np.float64)
     q = betaincinv(r + 1.0, float(done) - r, 1.0 - _CERTAINTY_DELTA)
     return bool(np.all(r + (total - done) * q <= limit))

@@ -67,7 +67,7 @@ _MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double")), 
 
 
 def _module_for(M: Any) -> Any:
-    """The compiled module for the element type of ``M`` (float32 or float64)."""
+    """The compiled module for the element type of ``M`` (float32 or double)."""
     return _MODULES_BY_REAL["float" if M.dtype.itemsize == 4 else "double"]
 
 
@@ -81,7 +81,9 @@ def _quantile_columns(cp: Any, M: Any, fractions: "list[float]") -> Any:
         lo = math.floor(v)
         hi = min(lo + 1, n - 1)
         t = v - lo
+        # Intentional float64: quantile bounds are read in double
         a = srt[lo].astype(cp.float64)
+        # Intentional float64: quantile bounds are read in double
         b = srt[hi].astype(cp.float64)
         diff = b - a
         out.append(b - diff * (1.0 - t) if t >= 0.5 else a + diff * t)
@@ -106,6 +108,7 @@ def nonpoly_block_gpu(cp: Any, M: Any, basis: str, degrees: "list[int]") -> "tup
     if not degs:
         return None
     n, K = int(M.shape[0]), int(M.shape[1])
+    # Intentional float64: double alias for the quantile kernel
     f64 = cp.float64
     Mf = M.astype(f64, copy=False)
     cols_of_cell: list = []

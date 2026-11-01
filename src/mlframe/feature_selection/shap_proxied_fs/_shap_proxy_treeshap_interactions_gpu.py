@@ -329,6 +329,7 @@ def interaction_tensor_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.nd
     thr_d = cp.asarray(ensemble.thresholds)
     # Intentional float64: the interaction CUDA kernel reads leaf values and cover as double*, so float32 host arrays would be misread.
     val_d = cp.asarray(ensemble.values, dtype=np.float64)
+    # Intentional float64: the interaction CUDA kernel reads node cover as double*
     cover_d = cp.asarray(ensemble.node_sample_weight, dtype=np.float64)
     roots_d = cp.asarray(ensemble.tree_roots)
     cond_d = cp.asarray(cond_feats)

@@ -106,6 +106,7 @@ def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.nda
         if ok.size == 0:
             continue
         ord_t = cp.ascontiguousarray(order[:, cp.asarray(ok)].T.astype(cp.int32))
+        # Intentional float64: device MI statistic matrix, same element type as the host array
         out = cp.zeros((n_rep, ok.size), dtype=cp.float64)
         threads = 128
         grid = (int(ok.size) * n_rep + threads - 1) // threads

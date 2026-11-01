@@ -9,7 +9,6 @@
   "feature_selection/filters/_fe_pure_form_retention_gpu_resident.py": 11,
   "feature_selection/filters/_fe_raw_redundancy_drop.py": 10,
   "feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py": 1,
-  "feature_selection/filters/_gpu_resident_operand_build.py": 2,
   "feature_selection/filters/_gpu_resident_select.py": 16,
   "feature_selection/filters/_hermite_fe_optimise.py": 24,
   "feature_selection/filters/_mah.py": 1,
@@ -33,7 +32,6 @@
   "feature_selection/filters/engineered_recipes/_orth_basis_recipes.py": 19,
   "feature_selection/filters/engineered_recipes/_recipe_unary_binary_gpu.py": 3,
   "feature_selection/filters/gpu.py": 6,
-  "feature_selection/filters/info_theory/_batch_kernels.py": 2,
   "feature_selection/shap_proxied_fs/_shap_proxied_fit_steps.py": 1,
   "feature_selection/shap_proxied_fs/_shap_proxy_cluster.py": 1,
   "feature_selection/shap_proxied_fs/_shap_proxy_interaction_proxy.py": 1

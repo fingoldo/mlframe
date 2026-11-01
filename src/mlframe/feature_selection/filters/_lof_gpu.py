@@ -71,6 +71,7 @@ def lof_transform_gpu(X_new: np.ndarray, X_ref: np.ndarray, lrd_ref: np.ndarray,
     except Exception as exc:
         logger.debug("device LOF unavailable (%s)", exc)
         return None
+    # Intentional float64: output keeps the input width (float32 or float64)
     dt = np.float32 if X_new.dtype.itemsize == 4 else np.float64
     ref = cp.asarray(np.ascontiguousarray(X_ref, dtype=dt))
     kd = cp.asarray(np.ascontiguousarray(k_distance_ref, dtype=dt))

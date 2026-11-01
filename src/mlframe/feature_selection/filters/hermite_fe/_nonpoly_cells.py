@@ -57,7 +57,9 @@ def nonpoly_cell(basis: str, z: np.ndarray, degree: int, params: "Mapping[str, A
             raise ValueError(f"{basis} needs the fitted centres / thresholds")
         c = _one_hot(d, d - 1)
         if basis == "rbf":
+            # Intentional float64: the njit evaluators accumulate in double
             return np.asarray(_rbf_eval_kernel_njit(zc, c, np.ascontiguousarray(params["centres"], dtype=np.float64), float(params["bandwidth"])))
+        # Intentional float64: the njit evaluators accumulate in double
         return np.asarray(_sigmoid_eval_kernel_njit(zc, c, np.ascontiguousarray(params["thresholds"], dtype=np.float64), float(params["slope"])))
     raise KeyError(basis)
 

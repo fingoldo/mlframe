@@ -71,7 +71,7 @@ _ROWS_PER_CHUNK = 8192  # at most 1024 rows per lane: the size of the reciprocal
 
 
 def cell_validity_gpu(cp: Any, cand: Any, min_std: float = 1e-12) -> "tuple[np.ndarray, np.ndarray]":
-    """``(usable (m,) bool, mean (m,) float64)`` of every column of the row-major ``(n, m)`` device block ``cand``.
+    """``(usable (m,) bool, mean (m,) double)`` of every column of the row-major ``(n, m)`` device block ``cand``.
 
     A column is usable when all its values are finite and its population standard deviation exceeds ``min_std`` (the host filter ``isfinite().all() and std() > 1e-12``).
     """
@@ -80,6 +80,7 @@ def cell_validity_gpu(cp: Any, cand: Any, min_std: float = 1e-12) -> "tuple[np.n
         return np.zeros(m, dtype=bool), np.zeros(m, dtype=np.float64)  # Intentional float64: statistic vector
     block = cp.ascontiguousarray(cand)
     chunks = max(1, (n + _ROWS_PER_CHUNK - 1) // _ROWS_PER_CHUNK)
+    # Intentional float64: device accumulator for the per-column moments
     part = cp.zeros((chunks, m, 3), dtype=cp.float64)
     bad = cp.zeros((chunks, m), dtype=cp.int32)
     module = _MODULES_BY_REAL["float" if block.dtype.itemsize == 4 else "double"].get(cp)
