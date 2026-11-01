@@ -66,7 +66,7 @@ Each row is a finding and the disposition its report proposed. None is executed 
 | **RESOLVED** | DESER-07 | deserialization | `src/mlframe/training/core/_metadata_loader.py:20-21` (legacy joblib metadata, no sidecar)` |
 | **DOC** | DESER-08 | deserialization | `src/mlframe/training/feature_handling/cache.py:574-580` (pickle fallback, `allow_pickle=True`)` |
 | **RESOLVED** | DESER-09 | deserialization | `src/mlframe/training/feature_handling/cache.py:557` (`np.load` with `allow_pickle=False` default)` |
-| **FUTURE** | DESER-10 | deserialization | `src/mlframe/training/composite/cache_store.py:385` (`safe_load(..., allow_unverified=True)`)` |
+| **RESOLVED** | DESER-10 | deserialization | `src/mlframe/training/composite/cache_store.py:385` (`safe_load(..., allow_unverified=True)`)` |
 | **RESOLVED** | DESER-11 | deserialization | `src/mlframe/training/_trainer_train_and_evaluate_parts.py:117-119` (`trusted_root` defaults to the file's own directory)` |
 | **RESOLVED** | DESER-12 | deserialization | `src/mlframe/utils/disk_cache.py:368` |
 | **RESOLVED** | DESER-13 | deserialization | `src/mlframe/feature_selection/wrappers/rfecv/__init__.py:598` |
@@ -97,7 +97,7 @@ Each row is a finding and the disposition its report proposed. None is executed 
 | **RESOLVED** | EXE-16 | dynamic_exec | `src/mlframe/_optional_imports.py:12` |
 | **RESOLVED** | EXE-17 | dynamic_exec | `src/mlframe/__init__.py:482` |
 | **RESOLVED** | EXE-18 | dynamic_exec | `src/mlframe/training/neural/_flat_torch_module/__init__.py:216-217` |
-| **FUTURE** | EXE-19 | dynamic_exec | `src/mlframe/data/datasets/_sapp.py:17` |
+| **RESOLVED** | EXE-19 | dynamic_exec | `src/mlframe/data/datasets/_sapp.py:17` |
 | **RESOLVED** | EXE-20 | dynamic_exec | `src/mlframe/data/datasets/_sapp.py:21` |
 | **DOC** | EXE-21 | dynamic_exec | `src/mlframe/feature_engineering/_benchmarks/bench_anchor_slope_cache.py:36` |
 | **DOC** | EXE-22 | dynamic_exec | `src/mlframe/feature_selection/filters/_benchmarks/bench_conditional_permutation_strata_arrs.py:45` |
@@ -110,10 +110,10 @@ Each row is a finding and the disposition its report proposed. None is executed 
 | **DOC** | EXE-29 | dynamic_exec | `Benchmark and profiling importlib sites: `_benchmarks/nvprof_autotag.py:44`, `fs_hybrid/_arms.py:86`, `fs_hybrid/_matched_k.py:56`, `bench_mrmr.py:85` |
 | **DOC** | FS-01 | filesystem | `src/mlframe/integrations/mlflow.py:95` |
 | **RESOLVED** | FS-02 | filesystem | `src/mlframe/estimators/pipelines.py:163-166` |
-| **FUTURE** | FS-03 | filesystem | `src/mlframe/training/core/_setup_helpers_pipeline_cache.py:136-138` |
-| **FUTURE** | FS-04 | filesystem | `src/mlframe/training/crash_diagnostics.py:130` |
+| **RESOLVED** | FS-03 | filesystem | `src/mlframe/training/core/_setup_helpers_pipeline_cache.py:136-138` |
+| **RESOLVED** | FS-04 | filesystem | `src/mlframe/training/crash_diagnostics.py:130` |
 | **RESOLVED** | FS-05 | filesystem | `src/mlframe/training/feature_handling/hf_provider.py:113-124` |
-| **FUTURE** | FS-06 | filesystem | `src/mlframe/feature_selection/filters/_benchmarks/bench_temporal_agg_fe.py:39`, `src/mlframe/reporting/_benchmarks/_e2e_slice_finder_ab_iter71.py:49-50` |
+| **RESOLVED** | FS-06 | filesystem | `src/mlframe/feature_selection/filters/_benchmarks/bench_temporal_agg_fe.py:39`, `src/mlframe/reporting/_benchmarks/_e2e_slice_finder_ab_iter71.py:49-50` |
 | **RESOLVED** | FS-07 | filesystem | `src/mlframe/system/kernel_tuning_cache/_ensure.py:96-101, 131-134` |
 | **RESOLVED** | FS-08 | filesystem | `src/mlframe/training/io.py:58-68, 155-167` |
 | **RESOLVED** | FS-09 | filesystem | `src/mlframe/utils/disk_cache.py:420-430` |
@@ -129,17 +129,17 @@ Each row is a finding and the disposition its report proposed. None is executed 
 | **RESOLVED** | NET-03 | network | `src/mlframe/feature_selection/filters/_neural_mi.py:443-477` |
 | **RESOLVED** | NET-04 | network | `src/mlframe/training/feature_handling/hf_provider.py:66-88, 204-256` |
 | **DOC** | NET-05 | network | `src/mlframe/training/feature_handling/hf_provider.py:74-88` |
-| **FUTURE** | NET-06 | network | `src/mlframe/training/feature_handling/hf_provider.py:236-256`, `src/mlframe/feature_selection/filters/_neural_mi.py:473` |
+| **DOC** | NET-06 | network | `src/mlframe/training/feature_handling/hf_provider.py:236-256`, `src/mlframe/feature_selection/filters/_neural_mi.py:473` |
 | **REJECTED** | NET-07 | network | `src/mlframe/feature_selection/_benchmarks/fs_hybrid/_realdata_cache.py:136-146` (and round3/round4/_downstream_shared bench files)` |
 | **RESOLVED** | NET-08 | network | `src/mlframe/integrations/mlflow.py:34-41, 150-177` |
 | **REJECTED** | NET-09 | network | `src/mlframe/reporting/renderers/_plotly_interactivity.py:24` |
 | **RESOLVED** | SEC-01 | secrets | `src/mlframe/integrations/mlflow.py:148` |
-| **FUTURE** | SEC-02 | secrets | `.github/workflows/pandas-matrix.yml:163`, `.github/workflows/polars-matrix.yml:167` |
+| **RESOLVED** | SEC-02 | secrets | `.github/workflows/pandas-matrix.yml:163`, `.github/workflows/polars-matrix.yml:167` |
 | **RESOLVED** | SEC-03 | secrets | `src/mlframe/training/feature_handling/providers.py:43-54` |
 | **RESOLVED** | SEC-04 | secrets | `src/mlframe/training/feature_handling/providers.py:115-123`, `:126-150` (params handling)` |
 | **DOC** | SEC-05 | secrets | `src/mlframe/training/feature_handling/providers.py:269-280` |
 | **RESOLVED** | CMD-01 | subprocess | `src/mlframe/utils/native_import_probe.py:56` |
-| **FUTURE** | CMD-02 | subprocess | `src/mlframe/feature_selection/_benchmarks/fs_hybrid/_staleness.py:89` (+ `:122-125`)` |
+| **RESOLVED** | CMD-02 | subprocess | `src/mlframe/feature_selection/_benchmarks/fs_hybrid/_staleness.py:89` (+ `:122-125`)` |
 | **RESOLVED** | CMD-03 | subprocess | `src/mlframe/training/_gpu_state_probe.py:88` and `:99` |
 | **RESOLVED** | CMD-04 | subprocess | `src/mlframe/training/_polars_native_support.py:90` |
 | **RESOLVED** | CMD-05 | subprocess | `src/mlframe/system/kernel_tuning_cache/_ensure.py:164` |
@@ -153,8 +153,8 @@ Each row is a finding and the disposition its report proposed. None is executed 
 | **DOC** | SUP-01 | supply_chain | `pyproject.toml:176` |
 | **FUTURE** | SUP-02 | supply_chain | `pyproject.toml:154` |
 | **FUTURE** | SUP-03 | supply_chain | `.github/workflows/dependabot-auto-merge.yml:36-43` |
-| **FUTURE** | SUP-04 | supply_chain | `.github/workflows/macos-abort-probe.yml:173-175` |
-| **FUTURE** | SUP-05 | supply_chain | `.github/workflows/docs.yml:45-46; codecov-full.yml:75; dep-floors.yml:89` |
+| **RESOLVED** | SUP-04 | supply_chain | `.github/workflows/macos-abort-probe.yml:173-175` |
+| **RESOLVED** | SUP-05 | supply_chain | `.github/workflows/docs.yml:45-46; codecov-full.yml:75; dep-floors.yml:89` |
 | **DOC** | SUP-06 | supply_chain | `pyproject.toml:64-65, 88, 79 (open-ended runtime floors)` |
 | **DOC** | SUP-07 | supply_chain | `.github/workflows/pandas-matrix.yml:94; polars-matrix.yml:97; sklearn-matrix-ci.yml:140; numba-coverage.yml:141; gpu-matrix.yml:60` |
 | **REJECTED** | SUP-08 | supply_chain | `.github/workflows/fs-benchmark-nightly.yml:89,98; gpu-matrix.yml:38` |
@@ -183,4 +183,6 @@ INP-01 (`calibration/policy.py` size guard `_resample_matrix_max_bytes`, `tests/
 INP-03 is fixed by `data_banzhaf` drawing its masks in byte-bounded blocks (`tests/data_valuation/test_data_banzhaf_mask_blocks.py`).
 INP-02 is REJECTED: `shapley_blend` has no exact 2^n enumeration (`_permutation_shapley` and `_msr_banzhaf` sample), and its only allocations are linear in the caller's permutation count.
 DESER-03/04/05 are DOC under the denylist trust model stated in `safe_joblib_load`.
-Still open from this tracker: DESER-10, EXE-19, FS-03, FS-04, FS-06, NET-06, SEC-02, CMD-02, SUP-02, SUP-03, SUP-04, SUP-05.
+Implemented in the 2026-11-02 pass: DESER-10 (already fail-closed at HEAD, `tests/training/composite/cache/test_cache_unsigned_pickle_rejected.py`), EXE-19 (`_distribution` accepts only `rv_continuous`/`rv_discrete` objects, `tests/data/datasets/test_sapp_distribution_allowlist.py`), FS-03 and FS-04 (`utils/private_temp.py`, `tests/utils/test_private_temp_dir.py`), FS-06 (benchmark baselines in a fresh `mkdtemp` directory), SEC-02 (token in `http.extraheader` in `pandas-matrix.yml` and `polars-matrix.yml`), CMD-02 (`commits_since` needs a hex object name, `tests/feature_selection/test_fs_hybrid_staleness.py`), SUP-04 (sha256 check of the fetched formula), SUP-05 (tool versions pinned in `docs.yml`, `codecov-full.yml`, `dep-floors.yml`).
+NET-06 is DOC: `huggingface_hub` applies its own 10 s `HF_HUB_DOWNLOAD_TIMEOUT` and `HF_HUB_ETAG_TIMEOUT` defaults (checked on 1.18.0), so a stalled connection is bounded; both can be raised or lowered by environment variable.
+Still FUTURE, both need a maintainer decision outside the code: SUP-02 (publishing or reserving the `pyutilz` name on PyPI) and SUP-03 (the auto-merge policy for dependabot PRs).
