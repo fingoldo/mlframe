@@ -71,7 +71,7 @@ try:
 except ImportError:  # pragma: no cover - numba is a hard dep in practice
     from mlframe._numba_fallback import njit
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _digit_extract_njit(arr: np.ndarray, scale: float) -> np.ndarray:
     """Single-pass ``floor(x*scale) mod 10`` with NaN/inf -> 0. Fuses the
     numpy ``mul -> floor -> mod -> nan_to_num`` 4-pass (each allocating a
@@ -166,11 +166,16 @@ def generate_rounding_features(
     of ``X`` - no y reference.
     """
     cols = _numeric_cols(X, num_cols)
-    out: dict[str, np.ndarray] = {}
-    for c in cols:
+    from ._edge_pool import map_on_edge_pool
+
+    def _one_column(c):
+        """The ``(name, values)`` pairs of one source column (numpy elementwise passes release the GIL, so columns run side by side)."""
         x = X[c].to_numpy()
-        for p in precisions:
-            out[engineered_name_rounding(c, p)] = apply_rounding(x, p)
+        return [(engineered_name_rounding(c, p), apply_rounding(x, p)) for p in precisions]
+
+    out: dict[str, np.ndarray] = {}
+    for emitted in map_on_edge_pool(_one_column, cols):
+        out.update(emitted)
     return pd.DataFrame(out, index=X.index)
 
 def generate_digit_features(
@@ -183,11 +188,16 @@ def generate_digit_features(
     :func:`engineered_name_digit`. Pure function of ``X`` - no y reference.
     """
     cols = _numeric_cols(X, num_cols)
-    out: dict[str, np.ndarray] = {}
-    for c in cols:
+    from ._edge_pool import map_on_edge_pool
+
+    def _one_column(c):
+        """The ``(name, values)`` pairs of one source column."""
         x = X[c].to_numpy()
-        for k in digit_positions:
-            out[engineered_name_digit(c, k)] = apply_digit_extract(x, k)
+        return [(engineered_name_digit(c, k), apply_digit_extract(x, k)) for k in digit_positions]
+
+    out: dict[str, np.ndarray] = {}
+    for emitted in map_on_edge_pool(_one_column, cols):
+        out.update(emitted)
     return pd.DataFrame(out, index=X.index)
 
 def score_decompose_by_bootstrap_mi(
