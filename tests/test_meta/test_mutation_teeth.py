@@ -34,12 +34,14 @@ BASELINE = Baseline("mutation_survivors", directory=str(Path(__file__).resolve()
 def _suites_for(module: Path) -> list[Path]:
     """Repo-relative ``test_*.py`` files under ``tests/`` that import *module* by its dotted path, shortest path first.
 
-    A suite is any test file that names the module's dotted import path, so a module whose tests are not called
+    Meta-tests are excluded: they name modules to check structure, not behaviour. A suite is any other test file that names the module's dotted import path, so a module whose tests are not called
     ``test_<stem>.py`` (most of mlframe) still gets its suites; a file that never names the module is not its suite.
     """
     dotted = ".".join(module.with_suffix("").parts[1:])
     found = []
     for path in TESTS_DIR.rglob("test_*.py"):
+        if "test_meta" in path.relative_to(TESTS_DIR).parts:
+            continue
         if dotted in path.read_text(encoding="utf-8", errors="replace"):
             found.append(path)
     found.sort(key=lambda p: (len(p.parts), p.as_posix()))
