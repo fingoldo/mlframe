@@ -171,8 +171,12 @@ def generate_grouped_quantile_features(
             x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
             finite_all = x[np.isfinite(x)]
             global_sorted = np.sort(finite_all) if finite_all.size else np.array([], dtype=_crit_np_dtype())
-            global_iqr = float(np.quantile(finite_all, 0.75) - np.quantile(finite_all, 0.25)) if finite_all.size else 0.0
-            global_p90p10 = float(np.quantile(finite_all, 0.90) - np.quantile(finite_all, 0.10)) if finite_all.size else 0.0
+            if finite_all.size:
+                # the four quantiles are read off the sorted column (equal to np.quantile bit for bit), not from four more partitions of it
+                g25, g75, g10, g90 = _sorted_linear_quantiles(global_sorted, (0.25, 0.75, 0.10, 0.90))
+                global_iqr, global_p90p10 = float(g75 - g25), float(g90 - g10)
+            else:
+                global_iqr = global_p90p10 = 0.0
 
             # Per-group sorted-value arrays (str-keyed) for the CDF position.
             group_sorted: dict[str, list] = {}
