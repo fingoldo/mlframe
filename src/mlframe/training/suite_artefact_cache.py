@@ -24,6 +24,7 @@ this as a standalone, ready-to-wire facade rather than an already-integrated cro
 finishing the wire-in (or deciding it's no longer needed) is future work, not assumed-done.
 """
 from __future__ import annotations
+import re
 
 import functools
 import hashlib
@@ -151,6 +152,9 @@ class SuiteKeyBuilder:
         return hashlib.blake2b(blob, digest_size=cls.DIGEST_SIZE).hexdigest()
 
 
+_SAFE_KEY = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
 class SuiteArtefactCache:
     """Thin LRU + size-aware facade over a disk directory of sidecar-verified pickles.
 
@@ -197,12 +201,19 @@ class SuiteArtefactCache:
     # ----- internal helpers ----------------------------------------------------
 
     def _path(self, key: str) -> str:
-        """Full on-disk path for a given cache key's pickle file."""
+        """Full on-disk path for a given cache key's pickle file.
+
+        Keys are built from digests (hex) by ``SuiteKeyBuilder``; anything else is refused so a key cannot name a path outside
+        ``cache_dir`` (FS2-1: ``..`` or a separator would otherwise escape the directory on ``put`` and ``evict``).
+        """
+        if not _SAFE_KEY.fullmatch(key) or ".." in key:
+            raise ValueError(f"cache key {key!r} must be a plain name of letters, digits, '_', '-' or '.'")
         return os.path.join(self.cache_dir, f"{key}.pkl")
 
     def _ensure_dir(self) -> None:
         """Create the cache directory (and parents) if missing; no-op otherwise."""
-        Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+        # Private to the user: the directory holds pickles that get() loads, so other local users must not write into it (FS2-2).
+        Path(self.cache_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
 
     def _file_size(self, path: str) -> int:
         """Byte size of ``path``, or 0 if it does not exist / is unreadable -- never raises."""
