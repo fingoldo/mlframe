@@ -43,7 +43,9 @@ def results_to_csv(self, filename: str = "feature_importance") -> None:
     features["Decision"] = features["Features"].map(decision_mapper)
     features = features.sort_values(by="Average Feature Importance", ascending=False)
 
-    features.to_csv(filename + ".csv", index=False, encoding="utf-8")
+    from mlframe.utils.csv_safe import csv_safe_frame
+
+    csv_safe_frame(features).to_csv(filename + ".csv", index=False, encoding="utf-8")
 
 
 def plot(
