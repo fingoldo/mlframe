@@ -19,7 +19,6 @@
   "feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe.py": 2,
   "feature_selection/filters/_pairwise_modular_resident.py": 3,
   "feature_selection/filters/_resident_candidate_mi_ktc.py": 1,
-  "feature_selection/filters/_target_encoding_fe.py": 12,
   "feature_selection/filters/_usability_greedy_gpu_resident.py": 10,
   "feature_selection/filters/_wavelet_basis_fe.py": 2,
   "feature_selection/filters/_wavelet_basis_fe_batched.py": 1,
