@@ -369,7 +369,7 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     """Miller-Madow MARGINAL MI(col_k; y) for an (n,K) float matrix binned by per-column ``interior_edges``
     ((nbins-1, K) cupy), in ONE fused RawKernel (bin + joint hist + MM-MI). ``ky`` is the y-cardinality
     (histogram width; y codes in [0, ky)); ``h_y`` / ``k_y`` are the shared target plug-in entropy +
-    OCCUPIED class count used in the bias. Returns a host (K,) float64 array (clamped >=0), matching
+    OCCUPIED class count used in the bias. Returns a host (K,) double array (clamped >=0), matching
     _gpu_marginal_mi / _marginal_mi_njit. Returns None if the (nbins*ky) shared tile won't fit."""
     import cupy as cp
 
@@ -466,7 +466,7 @@ def _get_mi_split_f32_kernels(cp):
 def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nbins: int, ky: int, codes_trusted: bool = False, x_cm: Any = None) -> np.ndarray | None:
     """Plug-in MI(col_k; y) for an (n,K) float matrix ``x_vals`` binned by per-column ``interior_edges``
     ((nbins-1, K) cupy) in ONE fused RawKernel (bin + joint histogram + MI), replacing _searchsorted_codes
-    + binned_mi_from_codes_gpu. Returns a host (K,) float64 array. Selection-equivalent (codes match
+    + binned_mi_from_codes_gpu. Returns a host (K,) double array. Selection-equivalent (codes match
     cp.searchsorted side='right' bit-for-bit). Falls back to None if the (nbins*ky) shared tile won't fit.
 
     ``x_cm``: the ``(K, n)`` C-order column-major copy of ``x_vals`` when the caller already has one (the radix edge select needs the same buffer), so the matrix is not transposed a second time."""
@@ -637,7 +637,7 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
 
     Drop-in for ``_wavelet_basis_fe_batched.batched_binned_mi_gpu`` (same plain plug-in MI, no MM bias).
     Falls back to that cupy path when the (Kx*Ky) shared tile would exceed the shared-memory cap. Returns
-    a host (K,) float64 array by default (``as_device=False``, unchanged contract for existing callers).
+    a host (K,) double array by default (``as_device=False``, unchanged contract for existing callers).
     Accepts a host ndarray or a resident cupy code matrix.
 
     ``as_device=True`` (2026-07-20, GPU-residency pass): skip the ``cp.asnumpy`` sync and return the
@@ -829,7 +829,7 @@ def cmi_device_argmax(mi_d: Any) -> tuple[int, float]:
     Tiebreak matches ``np.argmax`` (LOWEST index among ties): ``cp.argmax`` already returns the first
     occurrence of the maximum on a contiguous 1-D array, and that value is byte-identical to the host vector
     the kernel would have produced (same buffer), so ``np.argmax(mi_d.get())`` and this agree exactly. We pull
-    the scalar index (int64, 8 B) and gather its value (float64, 8 B) - two sub-``BULK_BYTES`` D2Hs - instead
+    the scalar index (int64, 8 B) and gather its value (double, 8 B) - two sub-``BULK_BYTES`` D2Hs - instead
     of D2H-ing the whole (K,) vector and arg-maxing on the host."""
     import cupy as cp
 
@@ -849,11 +849,11 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
     from ``batched_quantile_bin_gpu``, no code H2D); ``y`` (n,) int codes (host OR resident cupy - the
     FIT-CONSTANT label, uploaded ONCE via the resident-operand cache when host); ``z`` (n,) int codes or None
     (marginal MI; host OR resident cupy - the ROUND-CONSTANT conditioning support, also resident-cached).
-    Returns a host (K,) float64 array. Matches ``_mi_greedy_cmi_fe._cmi_from_binned`` per column
+    Returns a host (K,) double array. Matches ``_mi_greedy_cmi_fe._cmi_from_binned`` per column
     (selection-equivalent).
 
     ``return_device`` (default False -> byte-identical to today's ``cp.asnumpy`` return): keep the (K,)
-    float64 ``mi`` RESIDENT and return the cupy device array instead of D2H-ing the whole vector. The greedy
+    double ``mi`` RESIDENT and return the cupy device array instead of D2H-ing the whole vector. The greedy
     loop then takes the argmax on-device (:func:`cmi_device_argmax`) so only the 2 winning scalars cross back
     rather than the (K,) vector. With ``return_cards`` the card arrays are likewise returned resident.
 
