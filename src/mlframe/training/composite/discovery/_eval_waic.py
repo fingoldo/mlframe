@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional, Sequence, cast
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +217,7 @@ def _oof_residuals_kfold(
     finite = np.isfinite(y) & np.all(np.isfinite(x), axis=1)
     if not finite.all():  # keep the caller's matrix object when nothing is dropped: the shared fold datasets key on it
         y, x = y[finite], x[finite]
-    g = None if groups is None or np.asarray(groups).shape[0] != finite.shape[0] else np.asarray(groups)[finite]
+    g = None if groups is None or shape_of(groups)[0] != finite.shape[0] else np.asarray(groups)[finite]
     n = y.size
     if n < n_folds * 4:  # too small for an honest K-fold split.
         return [], []

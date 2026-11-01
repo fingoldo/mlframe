@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+from mlframe.utils.env_flags import env_flag
 from mlframe.utils.log_throttle import log_throttle
 import os
 import uuid
@@ -535,7 +536,7 @@ def _verify_bundle_digest(bundle_path: str) -> None:
     meta = load_save_meta_sidecar(bundle_path)
     expected = (meta or {}).get("bundle_sha256")
     if not expected:
-        if os.environ.get(UNVERIFIED_ENV_VAR, "").strip().lower() in ("1", "true", "yes", "on"):
+        if env_flag(UNVERIFIED_ENV_VAR):
             logger.warning("load_mlframe_model: %r has no recorded sha256; loading because %s is set", bundle_path, UNVERIFIED_ENV_VAR)
             return
         raise RuntimeError(f"load_mlframe_model: no sha256 recorded for {bundle_path!r}; refusing to unpickle. Set {UNVERIFIED_ENV_VAR}=1 to load it.")
@@ -576,7 +577,8 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
             except ValueError:
                 _max_mb = 2048.0
             if _st.st_size <= _max_mb * (1024**2):
-                _cache_key = (_abs, _st.st_mtime_ns, bool(safe))
+                # strict_version is part of the key: a hit returns before the version check, so a lenient load must not satisfy a strict one (FOP4-1).
+                _cache_key = (_abs, _st.st_mtime_ns, bool(safe), bool(strict_version))
                 _hit = _LOAD_MODEL_CACHE.get(_cache_key)
                 if _hit is not None:
                     _LOAD_MODEL_CACHE.move_to_end(_cache_key)

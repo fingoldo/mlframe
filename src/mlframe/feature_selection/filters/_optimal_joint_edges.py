@@ -11,6 +11,7 @@ import threading
 from typing import Any, Optional, cast
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import ndim_of
 
 
 def _a() -> Any:
@@ -156,7 +157,7 @@ def edges_optimal_joint(
     # The plan depends on the column (after the mask) and the settings, not on y; it is kept per column when a cache is given. A y with a different finite pattern gives a different masked
     # column, hence a different key, so the cache can never serve a plan built for other rows.
     # The plan is keyed on the array the caller handed in (hashed once per call, shared with the column facts) when nothing was dropped; the float64 copy is only built on a miss.
-    keyed = x_in if (plan_cache is not None and x is x_in) or (plan_cache is not None and mask.all() and np.asarray(x_in).ndim == 1) else x
+    keyed = x_in if (plan_cache is not None and x is x_in) or (plan_cache is not None and mask.all() and ndim_of(x_in) == 1) else x
     plan = plan_cache.get(keyed, candidates, n_splits, base, random_state) if plan_cache is not None else None
     if plan is None:
         plan = _optimal_joint_plan(x, candidates, n_splits, base, random_state)

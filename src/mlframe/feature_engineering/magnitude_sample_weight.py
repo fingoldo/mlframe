@@ -11,6 +11,7 @@ binary label is close to a coin flip regardless of what the model predicts).
 from __future__ import annotations
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import ndim_of
 
 
 def magnitude_sample_weight(y_multi: np.ndarray, norm: str = "mean_abs", robust: bool = False, winsor_quantile: float = 0.99) -> np.ndarray:
@@ -40,7 +41,7 @@ def magnitude_sample_weight(y_multi: np.ndarray, norm: str = "mean_abs", robust:
         ``(n_samples,)`` non-negative weights, one per row.
     """
     arr = np.atleast_2d(np.asarray(y_multi, dtype=np.float64))
-    if np.asarray(y_multi).ndim == 1:
+    if ndim_of(y_multi) == 1:
         arr = arr.T  # atleast_2d on a 1D array makes it (1, n) -- transpose to (n, 1)
 
     abs_arr = np.abs(arr)

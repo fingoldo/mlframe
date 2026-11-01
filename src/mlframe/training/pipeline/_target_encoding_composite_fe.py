@@ -23,6 +23,7 @@ import pandas as pd
 
 from mlframe.feature_engineering.two_step_target_encode import two_step_recency_weighted_target_encode
 from ._composite_fe_shared import attach_new_columns, to_pandas, row_count
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,7 @@ def apply_target_encoding_composite_fe(
         """Attach the train-fitted per-entity target encoding onto a val/test split by group id."""
         if df is None:
             return None
-        if idx is None or len(np.asarray(idx)) != row_count(df) or len(group_ids) <= int(np.asarray(idx).max()):
+        if idx is None or length_of(idx) != row_count(df) or len(group_ids) <= int(np.asarray(idx).max()):
             return df
         g = group_ids[np.asarray(idx)]
         vals = np.array([entity_lookup.get(gid, global_prior) for gid in g], dtype=np.float64)

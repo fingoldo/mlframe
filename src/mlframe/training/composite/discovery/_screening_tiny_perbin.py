@@ -48,6 +48,7 @@ from ._fold_refit import refit_transform_on_fold
 from ._lgb_shared_fold import fit_on_rows, fit_on_shared_fold, lgb_params
 from ._ridge_shared_fold import fit_ridge_on_shared_fold
 from mlframe.training.composite.transforms.shared import call_transform
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 
 def _per_bin_rmse(
@@ -259,7 +260,7 @@ def _build_yscale_population(
     finite_y = np.isfinite(np.asarray(y_train, dtype=np.float64))
     # The rows' groups for the transform itself (a grouped transform's forward / inverse / refit needs them), kept even when
     # the split below falls back from GroupKFold for too few groups.
-    _g_in = np.asarray(groups) if groups is not None and np.asarray(groups).shape[0] == len(y_train) else None
+    _g_in = np.asarray(groups) if groups is not None and shape_of(groups)[0] == len(y_train) else None
     _emulate_fallback = (not _all_valid) and bool((finite_y & ~valid).any())
     _split_valid_mask: np.ndarray | None = None
     _group_mask: np.ndarray | None = None

@@ -50,6 +50,7 @@ from ._multiclass_confusion import (
     _confusion_panel,
     _resolve_pred,
 )
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 def _class_color(idx: int) -> str:
     """Per-class line colour from the shared palette (paired with ``line_style``'s per-wrap dash past 10 classes)."""
@@ -621,7 +622,7 @@ def compose_multiclass_figure(
         K <= this threshold every class still renders (no behaviour change for typical K).
     overlay_top_n : number of worst-by-AUC classes drawn on the overlay panels when K exceeds the threshold.
     """
-    if np.asarray(y_true).shape[0] == 0:
+    if shape_of(y_true)[0] == 0:
         # Four of the six panels draw an empty or zero surface on no rows; only two annotate. One figure-level
         # guard states the cause once rather than leaving four panels to each imply a measurement.
         return FigureSpec(

@@ -14,6 +14,7 @@ import threading
 import numpy as np
 
 from ._internals import GPU_MAX_BLOCK_SIZE
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -236,7 +237,7 @@ def _mi_direct_gpu_batched_pairs_part1(
     # flattened row-major.
     nbins_a = factors_nbins[pairs_a].astype(np.int32)
     nbins_b = factors_nbins[pairs_b].astype(np.int32)
-    nbins_y = int(np.asarray(freqs_y).shape[0])
+    nbins_y = int(shape_of(freqs_y)[0])
     pair_merged_sizes = nbins_a.astype(np.int64) * nbins_b.astype(np.int64)
     pair_joint_sizes = pair_merged_sizes * nbins_y
     # A3 fix: int32 cumsum truncates at total_cells >= 2**31 (the 4 GB guard

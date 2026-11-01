@@ -34,6 +34,7 @@ from ..configs import TargetTypes
 from ..utils import log_phase
 from ._misc_helpers import _compute_neural_max_time
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 if TYPE_CHECKING:
     from ._training_context import TrainingContext
@@ -232,7 +233,7 @@ def _validate_member_shape_uniformity(members: list, *, target_name: str) -> boo
             arr = getattr(m, attr, None)
             if arr is None:
                 continue
-            sizes.append(int(np.asarray(arr).shape[0]))
+            sizes.append(int(shape_of(arr)[0]))
         if len(set(sizes)) > 1:
             log_throttle(
                 logger, "recurrent_member_shape_nonuniform", logging.WARNING,
@@ -304,12 +305,12 @@ def _apply_recurrent_to_ensemble(
     ):
         if _sliced is None:
             continue
-        _expected = int(np.asarray(_sliced).shape[0])
+        _expected = int(shape_of(_sliced)[0])
         for _m in members:
             _arr = getattr(_m, _attr, None)
             if _arr is None:
                 continue
-            _got = int(np.asarray(_arr).shape[0])
+            _got = int(shape_of(_arr)[0])
             if _got != _expected:
                 log_throttle(
                     logger, "recurrent_row_count_drift", logging.WARNING,

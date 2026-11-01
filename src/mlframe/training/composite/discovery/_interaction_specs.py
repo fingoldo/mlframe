@@ -19,6 +19,7 @@ import numpy as np
 from .._synthetic_bases import SPECABLE_OPS, synthetic_column
 from ._interaction_bases import discover_interaction_bases
 from .screening import _extract_column_array, _is_numeric_column, _sample_indices
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def add_interaction_bases(self: Any, df: Any, usable_features: Sequence[str], ba
     if len(parents) < 2:
         return df, usable, bases
     try:
-        sample = _sample_indices(np.asarray(train_idx).size, cfg.mi_sample_n, cfg.random_state,
+        sample = _sample_indices(size_of(train_idx), cfg.mi_sample_n, cfg.random_state,
                                  strategy=getattr(cfg, "mi_sample_strategy", "stratified_quantile"), y=y_train,
                                  n_strata=getattr(cfg, "mi_n_strata", 10))
         rows = np.asarray(train_idx)[sample]

@@ -39,6 +39,7 @@ import numba
 from numba import njit
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 try:  # scipy is a hard mlframe dep, but keep the import defensive so an env without it degrades.
     from scipy.special import gammaincc as _gammaincc  # chi2.sf(x, df) == gammaincc(df/2, x/2), ~20x cheaper per call
@@ -307,7 +308,7 @@ def analytic_batch_noise_gate(
     if disc_2d is not None:
         K = int(disc_2d.shape[1])
     elif bx_per_col is not None:
-        K = int(np.asarray(bx_per_col).shape[0])
+        K = int(shape_of(bx_per_col)[0])
     else:
         raise ValueError("analytic_batch_noise_gate requires disc_2d or bx_per_col")
     fe_mi = observed.copy()

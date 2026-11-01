@@ -43,7 +43,6 @@ from __future__ import annotations
 
 import logging
 import math
-import os
 from typing import Any, NamedTuple, Optional
 
 import numba
@@ -170,8 +169,10 @@ def clip_predictions_to_train_envelope(
     when the clip actually fires. Idempotent: in-envelope predictions
     pass through bit-exact.
     """
+    from mlframe.utils.env_flags import env_flag
+
     arr = np.asarray(preds, dtype=np.float64)
-    if not apply_clip or stats is None or os.environ.get(_ENV_DISABLE):
+    if not apply_clip or stats is None or env_flag(_ENV_DISABLE):
         return arr
     low = stats.y_min - k_sigma * stats.y_std
     high = stats.y_max + k_sigma * stats.y_std

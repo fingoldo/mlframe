@@ -44,7 +44,9 @@ def _persist(frame: Any, plot_file: Optional[str], metadata: dict) -> None:
         # genuinely "the current directory" here, not a caller value being overwritten by a default.
         parent = os.path.dirname(path)
         os.makedirs(parent if parent else ".", exist_ok=True)
-        frame.to_csv(path, index=False)
+        from mlframe.utils.csv_safe import csv_safe_frame
+
+        csv_safe_frame(frame).to_csv(path, index=False)
         metadata["targets_performance_path"] = path
         logger.info("targets quality frame written to %s", path)
     except Exception as err:

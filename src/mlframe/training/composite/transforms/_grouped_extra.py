@@ -20,6 +20,7 @@ import logging
 from typing import Any, Callable, Optional, cast
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +160,7 @@ def _ewma_residual_grouped_inverse(
     """Undo the transform: ``y = T_hat + EWMA_k(base)`` per group (per-group tail seed under recurrence continuation)."""
     from ._nonlinear_ewma_fracdiff import _warn_cold_recurrence
     groups_arr = _require_groups(groups, "ewma_residual_grouped", "inverse")
-    _warn_cold_recurrence("ewma_residual_grouped", int(np.asarray(t_hat).size), int(params["k"]), params, history_base)
+    _warn_cold_recurrence("ewma_residual_grouped", int(size_of(t_hat)), int(params["k"]), params, history_base)
     return _ewma_residual_grouped_apply(t_hat, base, params, groups_arr, sign=1.0, history_base=history_base, history_groups=history_groups)
 
 
@@ -247,7 +248,7 @@ def _rolling_quantile_ratio_grouped_inverse(
     """Undo the transform: ``y = T_hat * max(RollingMedian_k(base), eps)`` with the same per-group window."""
     from ._nonlinear_ewma_fracdiff import _warn_cold_recurrence
     groups_arr = _require_groups(groups, "rolling_quantile_ratio_grouped", "inverse")
-    _warn_cold_recurrence("rolling_quantile_ratio_grouped", int(np.asarray(t_hat).size), int(params["k"]), params, history_base)
+    _warn_cold_recurrence("rolling_quantile_ratio_grouped", int(size_of(t_hat)), int(params["k"]), params, history_base)
     roll_med = _rqr_grouped_median(base, params, groups_arr, history_base, history_groups, continuation=True)
     eps = float(params["eps"])
     safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)

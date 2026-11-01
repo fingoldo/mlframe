@@ -364,7 +364,7 @@ class CompositeMultiOutputEstimator(MultiOutputMixin, RegressorMixin, BaseEstima
             return len(X)
         except TypeError as _exc:
             logger.debug("_infer_n_rows fell back to its default after %s", type(_exc).__name__)
-            return int(np.asarray(X).shape[0])
+            return int(shape_of(X)[0])
 
     @property
     def n_features_in_(self) -> Optional[int]:
@@ -390,6 +390,7 @@ from .multi_output_conformal import (
     calibrate_conformal as _calibrate_conformal,
     predict_interval as _predict_interval,
 )
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 CompositeMultiOutputEstimator.calibrate_conformal = _calibrate_conformal
 CompositeMultiOutputEstimator.predict_interval = _predict_interval

@@ -99,6 +99,7 @@ from ._orthogonal_univariate_fe import (
 )
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -421,8 +422,8 @@ def score_features_by_tc_uplift(
         raise ValueError(
             f"score_features_by_tc_uplift: raw_X has {len(raw_X)} rows " f"but engineered_X has {len(engineered_X)}; positional row " f"alignment required."
         )
-    if len(raw_X) != len(np.asarray(y)):
-        raise ValueError(f"score_features_by_tc_uplift: raw_X has {len(raw_X)} rows " f"but y has {len(np.asarray(y))}; positional row alignment " f"required.")
+    if len(raw_X) != length_of(y):
+        raise ValueError(f"score_features_by_tc_uplift: raw_X has {len(raw_X)} rows " f"but y has {length_of(y)}; positional row alignment " f"required.")
     empty_cols = [
         "engineered_col", "source_col",
         "baseline_mi", "engineered_mi", "uplift",

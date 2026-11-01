@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union, o
 
 import numpy as np
 import pandas as pd
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +230,7 @@ def build_test_like_validation_fold(
         train_full = X_train[cols].to_numpy()
         test_full = X_test[cols].to_numpy()
     else:
-        cols = list(feature_names) if feature_names is not None else [str(i) for i in range(np.asarray(X_train).shape[1])]
+        cols = list(feature_names) if feature_names is not None else [str(i) for i in range(shape_of(X_train)[1])]
         train_full = np.asarray(X_train)
         test_full = np.asarray(X_test)
 

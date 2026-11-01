@@ -45,6 +45,7 @@ from ._usability_greedy_steps import (  # noqa: F401  -- carved sibling, re-expo
     _usability_greedy_step3_cheap_residual_aware,
     _usability_greedy_step4_consistency_across_folds,
 )
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 # bench-attempt-rejected (2026-06-18): per-operand near-duplicate unary dedup (|corr|>0.999) to shrink
 # the retention pool's unary^2*binary enumeration. Measured on a structured n=10000 fit: retention
@@ -532,7 +533,7 @@ def _usability_greedy_try_gpu_resident(pool, y_cont, *, w, K, seed, n_folds, mae
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         # The per-call work floor STRICT applies to every other dispatch (n * p >= 1e6): a greedy over a handful of candidates on a few thousand rows is ~6k tiny launches
         # (0.14-0.25 s resident against 0.03-0.06 s on the host, same selection). ``min_p=2`` because the pool is the shortlisted candidate set, not a wide batch.
-        if fe_gpu_strict_resident_enabled() and fe_gpu_strict_enabled(n=int(np.asarray(y_cont).shape[0]), p=len(pool), min_p=2):
+        if fe_gpu_strict_resident_enabled() and fe_gpu_strict_enabled(n=int(shape_of(y_cont)[0]), p=len(pool), min_p=2):
             from ._usability_greedy_gpu_resident import usability_greedy_gpu_resident
             _res = usability_greedy_gpu_resident(
                 pool, y_cont, w=w, K=K, seed=seed, n_folds=n_folds,

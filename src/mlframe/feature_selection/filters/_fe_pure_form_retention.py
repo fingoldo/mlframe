@@ -32,6 +32,7 @@ import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._safe_scale import standardise
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -741,7 +742,7 @@ def _is_group_leak_raw(X_fit, name, y_values, n_bins: int = 8) -> bool:
         return False
     sort_idx, group_offsets, min_rows, size_weighted = payload
     n = len(y_values)
-    if int(np.asarray(sort_idx).shape[0]) != n or len(X_fit) != n:
+    if int(shape_of(sort_idx)[0]) != n or len(X_fit) != n:
         return False
 
     def _quantile_codes(v: np.ndarray) -> np.ndarray:

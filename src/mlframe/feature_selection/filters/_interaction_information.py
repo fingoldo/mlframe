@@ -43,6 +43,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -139,8 +140,8 @@ def pooled_pair_ii_null_floor(
     order-2 joint-MI floor already uses) - left un-numba'd deliberately while opt-in to keep it readable.
     """
     n = int(factors_data.shape[0])
-    n_pairs = int(np.asarray(pair_a).shape[0])
-    k_y = int(np.asarray(freqs_y).shape[0])
+    n_pairs = int(shape_of(pair_a)[0])
+    k_y = int(shape_of(freqs_y)[0])
     if n < 8 or n_permutations < 1 or n_pairs < 2 or k_y < 2:
         return 0.0
 

@@ -55,6 +55,7 @@ from typing import Any, Optional
 import numpy as np
 
 from mlframe.training.composite._composite_report_shared import factorize as _shared_factorize, to_native
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 try:
     import pandas as pd
@@ -473,7 +474,7 @@ class MoESelectionGate:
     def route_labels(self, group_ids: Any = None, *, n: Optional[int] = None) -> np.ndarray:
         """Per-row chosen expert NAME (before per-row NaN fallback). Needs ``n`` when ``group_ids is None``."""
         if group_ids is not None:
-            n = np.asarray(group_ids).shape[0]
+            n = shape_of(group_ids)[0]
         if n is None:
             raise ValueError("route_labels: pass group_ids or n")
         codes = self._codes_for(group_ids, n)

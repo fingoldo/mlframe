@@ -282,6 +282,9 @@ class EarlyStoppingWrapper(BaseEstimator):
                 log_throttle(logger, "early_stopping._fit_warm", logging.WARNING, "could not resolve base %s from estimator params: %s", n_attr, e)
                 base_n = 0
             step = max(1, base_n // 10) if base_n else 10
+        if int(step) < 1:
+            # A step of 0 keeps n at 0 for ever, so the loop below would refit without end when no runtime limit is set (HNG4-2).
+            raise ValueError(f"warm_start_step must be at least 1, got {step}")
         i = 0
         n = 0
         while n < self.max_iter:

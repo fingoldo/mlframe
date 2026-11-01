@@ -25,6 +25,7 @@ import numpy as np
 # dependency is the leaf, not the ``mlframe.reporting`` package surface -- that back-edge closes the reporting.charts
 # facade into one import SCC. ``colors`` has no internal imports, so this is a true leaf edge.
 import mlframe.reporting.colors as _colors
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 # ----------------------------------------------------------------------------
 # Panel specs
@@ -221,10 +222,8 @@ class HeatmapPanelSpec:
             )
         for name in ("cell_text", "cell_hovertext"):
             val = getattr(self, name)
-            if val is not None and np.asarray(val).shape != np.asarray(self.matrix).shape:
-                raise ValueError(
-                    f"HeatmapPanelSpec: {name} must have the same shape as matrix " f"({np.asarray(val).shape} != {np.asarray(self.matrix).shape})."
-                )
+            if val is not None and shape_of(val) != shape_of(self.matrix):
+                raise ValueError(f"HeatmapPanelSpec: {name} must have the same shape as matrix " f"({shape_of(val)} != {shape_of(self.matrix)}).")
 
 
 @dataclass(frozen=True)

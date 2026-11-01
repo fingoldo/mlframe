@@ -20,6 +20,7 @@ import numpy as np
 
 from ._selection_log import logs_selection, summ_selected_of_x
 import logging
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +184,7 @@ def forward_select(
     from sklearn.model_selection import cross_val_score
 
     is_frame = hasattr(X, "columns")
-    all_candidates = list(candidate_features) if candidate_features is not None else (list(X.columns) if is_frame else list(range(np.asarray(X).shape[1])))
+    all_candidates = list(candidate_features) if candidate_features is not None else (list(X.columns) if is_frame else list(range(shape_of(X)[1])))
 
     def _subset(cols: List[Any]) -> Any:
         """Column-select ``cols`` from X, working for both a DataFrame and a bare ndarray."""

@@ -20,6 +20,7 @@ from ._pairs_chunks import _FE_CHUNK_MAX_COLS_HARD_CAP
 from ._pairs_gates import _GATE_MED_SPECS_RESULT_KEY
 from ._pairs_gates import _PREWARP_SPECS_RESULT_KEY
 from ._pairs_gates import _prewarp_pair_spec_key
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 
 def _short_fe_name(name, maxlen: int = 30) -> str:
@@ -139,7 +140,7 @@ def _check_prospective__total_get_proportions_matching(classes_y, freqs_y):
         # (k_y) by the number of missing trailing labels, skewing the MM-debias/tie-band width
         # (fe_mm_debias_prevalence, default OFF) - use the PRE-subsample freqs_y width so k_y never
         # shrinks just because a class got unlucky in the draw.
-        _minlength = int(np.asarray(freqs_y).shape[0])
+        _minlength = int(shape_of(freqs_y)[0])
         _counts = np.bincount(classes_y.astype(np.int64), minlength=_minlength)
         _total = _counts.sum()
         if _total > 0:

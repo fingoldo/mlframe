@@ -29,6 +29,7 @@ from .._mrmr_fe_step_helpers import compute_pair_maxt_floor
 from .._joblib_safe import disable_cuda_in_worker
 from .._fe_family_timing import record_fe_family_wall
 from mlframe.utils.gpu_sync import synchronize_gpu_if_available
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 # Measured floor (7-site joblib.Parallel audit) for the loky pool built below: at the realistic
 # ``fe_npermutations=3`` production regime, the pool LOSES to serial at every pair count tested - n_pairs=190
@@ -600,7 +601,7 @@ def _debias_pair_mis_by_prevalence(self, _prevalence_debias_auto, _pair_mm_bias,
             # pair-MI sweep a few screens up, and the "NO POOL-SIZE CAP" rationale) explicitly avoids
             # exactly that O(k^2) tuple/array blowup (~300 MB at k=5000) at a wide production pool.
             # ``_lazy_chunks`` keeps peak memory O(chunk_size), mirroring the primary sweep's own chunking.
-            _auto_ky = int(np.asarray(freqs_y).shape[0])
+            _auto_ky = int(shape_of(freqs_y)[0])
             _auto_n = int(data.shape[0])
             _auto_min_rpc = float(getattr(self, "fe_confirm_undersample_rows_per_cell", 5.0))
             _auto_chunk_size = max(1, int(getattr(self, "fe_auto_prevalence_debias_chunk_size", 50_000) or 50_000))

@@ -12,6 +12,7 @@ from typing import Any, Optional
 import numpy as np
 
 from ._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -51,7 +52,7 @@ class _NullInputs:
         self.cand_bin = cand_bin
         self.cand_dev = _conditional_perm_n_precomp_cards_supplied_never(cand_bin, None)
         self.y = np.ascontiguousarray(y_bin, dtype=np.int64).ravel()
-        self.n_size = int(self.cand_dev.size) if self.cand_dev is not None else int(np.asarray(cand_bin).size)
+        self.n_size = int(self.cand_dev.size) if self.cand_dev is not None else int(size_of(cand_bin))
         self.seed = seed
         self.salt = salt
         self._host: Optional[np.ndarray] = None

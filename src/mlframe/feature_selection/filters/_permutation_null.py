@@ -46,6 +46,7 @@ from mlframe._numba_parallel_guard import parallel_kernel_entry
 
 from ._content_memo import ContentMemo
 from numba import prange
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 
 def _default_pair_maxt_max_rows() -> int:
@@ -505,7 +506,7 @@ def _validate_pair_floor_inputs(factors_data, nbins, pair_a, pair_b, classes_y, 
         raise ValueError(f"pair_a and pair_b must be 1-D and the same length, got {pa.shape} and {pb.shape}")
     if pa.size and (int(min(pa.min(), pb.min())) < 0 or int(max(pa.max(), pb.max())) >= p):
         raise ValueError(f"pair indices must lie in [0, {p}), got range [{int(min(pa.min(), pb.min()))}, {int(max(pa.max(), pb.max()))}]")
-    k_y = int(np.asarray(freqs_y).shape[0])
+    k_y = int(shape_of(freqs_y)[0])
     if y.size and (int(y.min()) < 0 or int(y.max()) >= k_y):
         raise ValueError(f"classes_y codes must lie in [0, {k_y}) to match freqs_y, got range [{int(y.min())}, {int(y.max())}]")
 
@@ -581,7 +582,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     n_pairs = int(pair_a.shape[0])
     if n < 8 or n_permutations < 1 or n_pairs < 2:
         return 0.0
-    k_y = int(np.asarray(freqs_y).shape[0])
+    k_y = int(shape_of(freqs_y)[0])
     if k_y < 2:
         return 0.0
 
@@ -714,7 +715,7 @@ def pooled_triple_permutation_null_joint_mi_floor(
     n_triples = int(triple_a.shape[0])
     if n < 8 or n_permutations < 1 or n_triples < 2:
         return 0.0
-    k_y = int(np.asarray(freqs_y).shape[0])
+    k_y = int(shape_of(freqs_y)[0])
     if k_y < 2:
         return 0.0
 

@@ -4,6 +4,7 @@ Root pytest fixtures shared across all test modules.
 
 import gc
 import os
+import shutil
 import sys
 import time
 import warnings
@@ -663,6 +664,7 @@ def _install_macos_lgb_crash_skip() -> None:
     lightgbm.basic.Dataset.construct = _construct_or_skip
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
     """Deselect fuzz/biz_transformer-marked items unless their opt-in flags are passed."""
     # Always: deselect ``fuzz``-marked items unless --run-fuzz is given. Applies
@@ -718,9 +720,21 @@ def pytest_collection_modifyitems(config, items):
     # standalone or small-slice re-run (the failure needs cross-worker contention, which
     # a 1-2 test re-run can't recreate). Grouping serializes GPU work across workers
     # without disabling xdist parallelism for the rest of the suite.
+    # MRMR / ShapProxiedFS and the biz_val suites built on them pick the GPU backend by themselves on a host that has one, without
+    # carrying the ``gpu`` marker; a launch failure under cross-worker contention then kills the worker. They join the group
+    # only when a GPU is present, so a CPU-only CI host keeps full parallelism.
+    _implicit_gpu_dirs = (
+        "feature_selection/mrmr/",
+        "feature_selection/fe/",
+        "feature_selection/biz_val/",
+        "feature_selection/shap_proxied/",
+        "feature_selection/filters/",
+    )
+    _gpu_host = shutil.which("nvidia-smi") is not None
     _gpu_group = pytest.mark.xdist_group(name="gpu")
     for item in items:
-        if "gpu" in item.keywords or "feature_selection/gpu/" in item.nodeid.replace("\\", "/"):
+        _node = item.nodeid.replace("\\", "/")
+        if "gpu" in item.keywords or "feature_selection/gpu/" in _node or (_gpu_host and any(d in _node for d in _implicit_gpu_dirs)):
             item.add_marker(_gpu_group)
 
     if not is_fast_mode():

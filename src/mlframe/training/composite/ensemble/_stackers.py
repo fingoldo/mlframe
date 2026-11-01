@@ -42,6 +42,7 @@ import logging
 from typing import Any
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,7 @@ def fit_ridge_meta_stacker(
     from sklearn.linear_model import Ridge, RidgeCV  # lazy: keep cold-import off the predict path
 
     X, y, finite = _clean_oof_matrix(oof_matrix, oof_y, n_components)
-    sw = _validate_sample_weight(sample_weight, np.asarray(oof_matrix).shape[0], finite)
+    sw = _validate_sample_weight(sample_weight, shape_of(oof_matrix)[0], finite)
     if X.shape[0] < n_components + 2:
         raise ValueError(f"fit_ridge_meta_stacker: only {X.shape[0]} finite OOF rows for {n_components} components (need >= {n_components + 2}).")
     if ridge_alpha is None:
@@ -151,7 +152,7 @@ def fit_lasso_meta_stacker(
     from sklearn.linear_model import Lasso, LassoCV  # lazy: keep cold-import off the predict path
 
     X, y, finite = _clean_oof_matrix(oof_matrix, oof_y, n_components)
-    sw = _validate_sample_weight(sample_weight, np.asarray(oof_matrix).shape[0], finite)
+    sw = _validate_sample_weight(sample_weight, shape_of(oof_matrix)[0], finite)
     if X.shape[0] < n_components + 2:
         raise ValueError(f"fit_lasso_meta_stacker: only {X.shape[0]} finite OOF rows for {n_components} components (need >= {n_components + 2}).")
     if lasso_alpha is None:
@@ -195,7 +196,7 @@ def fit_elasticnet_meta_stacker(
     from sklearn.linear_model import ElasticNet, ElasticNetCV  # lazy: keep cold-import off the predict path
 
     X, y, finite = _clean_oof_matrix(oof_matrix, oof_y, n_components)
-    sw = _validate_sample_weight(sample_weight, np.asarray(oof_matrix).shape[0], finite)
+    sw = _validate_sample_weight(sample_weight, shape_of(oof_matrix)[0], finite)
     if X.shape[0] < n_components + 2:
         raise ValueError(f"fit_elasticnet_meta_stacker: only {X.shape[0]} finite OOF rows for {n_components} components (need >= {n_components + 2}).")
     if elasticnet_alpha is None or elasticnet_l1_ratio is None:
@@ -237,7 +238,7 @@ def fit_gbm_meta_stacker(
     from sklearn.ensemble import HistGradientBoostingRegressor  # lazy
 
     X, y, finite = _clean_oof_matrix(oof_matrix, oof_y, n_components)
-    sw = _validate_sample_weight(sample_weight, np.asarray(oof_matrix).shape[0], finite)
+    sw = _validate_sample_weight(sample_weight, shape_of(oof_matrix)[0], finite)
     if X.shape[0] < max(n_components + 2, 30):
         raise ValueError(
             f"fit_gbm_meta_stacker: only {X.shape[0]} finite OOF rows; need >= {max(n_components + 2, 30)} to fit a GBM stacker without over-fitting."

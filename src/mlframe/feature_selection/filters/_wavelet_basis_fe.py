@@ -82,6 +82,7 @@ from numba import njit, prange
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 logger = logging.getLogger(__name__)
 
@@ -801,7 +802,7 @@ def _select_wavelet_legs(
     # BATCHED born-on-device path under STRICT (default OFF -> CPU below, byte-identical). The batched twin
     # scores all candidate legs' train+held-out MI in two device workloads (one cp.bincount each) instead of
     # ~2 per-leg _binned_mi calls; parity-pinned to return the SAME admitted legs (test_wavelet_batched_mi_parity).
-    if _binnedmi_gpu_enabled(n=int(np.asarray(x).size)):
+    if _binnedmi_gpu_enabled(n=int(size_of(x))):
         _legs_gpu = _try_gpu_leg_selection(x, y, lo, span, max_scale, max_legs, scale_sigma, return_arrays)
         if _legs_gpu is not None:
             return _legs_gpu

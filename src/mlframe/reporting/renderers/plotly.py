@@ -487,7 +487,7 @@ class PlotlyRenderer:
         bin_centers = p.bin_centers
         heights = None
         width0 = None
-        if bin_centers is None and len(np.asarray(p.values)) > _HIST_PREBIN_THRESHOLD:
+        if bin_centers is None and length_of(p.values) > _HIST_PREBIN_THRESHOLD:
             # Raw spec with n above the embed-hazard ceiling: bin once with numpy instead of shipping n values
             # into the HTML (37 MB / browser-freezing at 2M).
             from mlframe.reporting.charts import prebin_histogram
@@ -897,5 +897,6 @@ PlotlyRenderer._colorbar_placement = staticmethod(_colorbar_placement_impl)
 # ``_scatter`` too, for the same reason: the low-evidence split (a second, hollow trace for bins whose interval
 # is too wide to read) pushed this file back over the limit.
 from ._plotly_scatter import _scatter as _scatter_impl
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 PlotlyRenderer._scatter = _scatter_impl

@@ -24,6 +24,7 @@ import numpy as np
 from mlframe.reporting.charts._categorical_codes import ordinal_codes
 
 from mlframe.reporting.spec import FIGSIZE_SQUARE, FIGSIZE_WIDE, AnnotationPanelSpec, FigureSpec, PanelSpec, ScatterPanelSpec
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 # Bounded scatter cap: matplotlib per-point primitives scale poorly past ~5k points and the Fisher ratio has converged
 # on far fewer, so both the plot and the score run on the same seeded subsample.
@@ -182,7 +183,7 @@ def _column_names(X: Any) -> List[Any]:
     """Feature keys for ``X``: column names for a frame, integer indices for a bare ndarray."""
     if hasattr(X, "columns") and not isinstance(X, np.ndarray):
         return list(X.columns)
-    return list(range(np.asarray(X).shape[1]))
+    return list(range(shape_of(X)[1]))
 
 
 def _robust_axis_lim(values: np.ndarray) -> Optional[Tuple[float, float]]:

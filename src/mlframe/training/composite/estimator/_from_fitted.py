@@ -15,6 +15,7 @@ from ._estimator_helpers import _y_quantile_grid
 
 from ._input_extract import _y_train_clip_bounds
 from ._routing import resolve_transform as get_transform
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 # Same logger name as before the carve, so anything filtering these records by logger name keeps seeing them.
 logger = logging.getLogger("mlframe.training.composite.estimator._estimator")
@@ -31,9 +32,9 @@ def _reconstruct_t_train(
     true [-0.17, 0.18] for asinh_residual, and not even centred for ratio's [0.6, 4.8].
     """
     n = y_train.shape[0]
-    if transform.requires_base and (base_train is None or np.asarray(base_train).shape[0] != n):
+    if transform.requires_base and (base_train is None or shape_of(base_train)[0] != n):
         return None
-    if getattr(transform, "requires_groups", False) and (groups_train is None or np.asarray(groups_train).shape[0] != n):
+    if getattr(transform, "requires_groups", False) and (groups_train is None or shape_of(groups_train)[0] != n):
         return None
     from mlframe.training.composite.transforms.shared import call_transform
 

@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
 
 from ..configs import TargetTypes
+from mlframe.feature_selection.filters._lazy_host_codes import ndim_of
 
 logger = logging.getLogger("mlframe.training.core._phase_composite_discovery")
 
@@ -23,7 +23,7 @@ def _add_mix_offset_targets(target_by_type: dict, metadata: dict, inputs: dict) 
     out = dict(target_by_type)
     reg = dict(out.get(TargetTypes.REGRESSION, {}))
     for tname, values in list(reg.items()):
-        if np.asarray(values).ndim != 1:
+        if ndim_of(values) != 1:
             continue
         companion = f"{tname}__mixoff"
         if companion in reg:

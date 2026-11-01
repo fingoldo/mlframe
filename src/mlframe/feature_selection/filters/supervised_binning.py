@@ -28,6 +28,7 @@ import numpy as np
 from numba import njit
 
 from ._internals import _entropy_from_counts_njit
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 logger = logging.getLogger(__name__)
 
@@ -745,7 +746,7 @@ def apply_bin_edges(
        side='right')`` returns ``len(edges)`` (= top bin index after
        slicing) - NaN rows silently merged with the largest valid bin.
     """
-    n_codes = int(np.asarray(edges).size) - 1  # bins, not edges
+    n_codes = int(size_of(edges)) - 1  # bins, not edges
     n_codes = max(1, n_codes)
     if dtype is None:
         # Auto-pick the smallest int dtype that holds [0, n_codes].

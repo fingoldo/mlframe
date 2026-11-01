@@ -189,7 +189,6 @@ def _signature_of(X) -> tuple:
 #
 # ``MLFRAME_XGB_CACHE_DISABLE=1`` env var forces bypass (testing only).
 from collections import OrderedDict as _OrderedDict
-import os as _os
 import threading as _threading
 
 _XGB_DMATRIX_CACHE: "_OrderedDict[tuple, Any]" = _OrderedDict()
@@ -199,7 +198,9 @@ _XGB_DMATRIX_CACHE_LOCK = _threading.Lock()
 
 def _xgb_cache_disabled() -> bool:
     """True when the ``MLFRAME_XGB_CACHE_DISABLE`` env var is set, forcing every DMatrix cache lookup/store to be a no-op (diagnostics / A-B testing escape hatch)."""
-    return bool(_os.environ.get("MLFRAME_XGB_CACHE_DISABLE"))
+    from mlframe.utils.env_flags import env_flag
+
+    return env_flag("MLFRAME_XGB_CACHE_DISABLE")
 
 
 def _xgb_cache_get(key: tuple):

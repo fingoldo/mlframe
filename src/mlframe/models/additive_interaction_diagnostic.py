@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 import numpy as np
 
 from mlframe.models.lgbm_defaults import default_lgbm_params
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 
 def _drop_column(X: Any, is_frame: bool, feature_names: Sequence[str], col_idx: int) -> Any:
@@ -142,7 +143,7 @@ def additive_interaction_diagnostic(
         elif per_feature_names is not None:
             feature_names = list(per_feature_names)
         else:
-            feature_names = [f"feature_{i}" for i in range(np.asarray(X).shape[1])]
+            feature_names = [f"feature_{i}" for i in range(shape_of(X)[1])]
 
         n_features = len(feature_names)
         report: List[Dict[str, Any]] = []

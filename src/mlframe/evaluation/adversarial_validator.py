@@ -25,6 +25,7 @@ import pandas as pd
 
 from ..evaluation.adversarial_fold_selection import build_test_like_validation_fold
 from ..reporting.charts.drift import adversarial_auc
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 
 class AdversarialValidator:
@@ -155,7 +156,7 @@ class AdversarialValidator:
         elif hasattr(X_train, "columns"):
             remaining = list(X_train.columns)
         else:
-            remaining = list(self.feature_names_) if hasattr(self, "feature_names_") else [f"f{i}" for i in range(np.asarray(X_train).shape[1])]
+            remaining = list(self.feature_names_) if hasattr(self, "feature_names_") else [f"f{i}" for i in range(shape_of(X_train)[1])]
 
         kwargs: dict = {"n_splits": self.n_splits, "seed": self.seed}
         if self.max_rows_per_side is not None:

@@ -528,7 +528,7 @@ class MatplotlibRenderer:
         bin_centers = p.bin_centers
         heights = None
         width: Any = None
-        if bin_centers is None and len(np.asarray(p.values)) > _HIST_PREBIN_THRESHOLD:
+        if bin_centers is None and length_of(p.values) > _HIST_PREBIN_THRESHOLD:
             # Above the hazard ceiling, bin once with numpy instead of letting ax.hist re-scan the full n array.
             from mlframe.reporting.charts import prebin_histogram
             heights, bin_centers, width = prebin_histogram(np.asarray(p.values), p.bins, p.density)
@@ -959,5 +959,6 @@ MatplotlibRenderer._confusion_margins = _confusion_margins_impl
 
 # ``_network`` lives in ``._matplotlib_network`` for the same LOC ceiling; bound back onto the class like the two above.
 from ._matplotlib_network import _network as _network_impl
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 MatplotlibRenderer._network = _network_impl

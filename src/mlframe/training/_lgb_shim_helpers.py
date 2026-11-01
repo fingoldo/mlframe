@@ -209,7 +209,6 @@ def _build_dataset(
 #
 # ``MLFRAME_LGB_CACHE_DISABLE=1`` env var forces bypass (testing only).
 from collections import OrderedDict as _OrderedDict
-import os as _os
 import threading as _threading
 
 _LGB_DATASET_CACHE: "_OrderedDict[tuple, Any]" = _OrderedDict()
@@ -219,7 +218,9 @@ _LGB_DATASET_CACHE_LOCK = _threading.Lock()
 
 def _lgb_cache_disabled() -> bool:
     """True when the ``MLFRAME_LGB_CACHE_DISABLE`` env var is set, forcing every Dataset cache lookup/store to be a no-op (diagnostics / A-B testing escape hatch)."""
-    return bool(_os.environ.get("MLFRAME_LGB_CACHE_DISABLE"))
+    from mlframe.utils.env_flags import env_flag
+
+    return env_flag("MLFRAME_LGB_CACHE_DISABLE")
 
 
 def _lgb_cache_get(key: tuple):

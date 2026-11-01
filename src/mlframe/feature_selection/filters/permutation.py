@@ -322,6 +322,7 @@ from ._mi_prange_kernel import (  # noqa: F401 -- re-exported for existing call 
     _make_mi_prange_inputs,
     _run_mi_prange_sweep,
 )
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 
 @njit(parallel=True, nogil=True, cache=True)
@@ -669,7 +670,7 @@ def _mi_direct_try_gpu(
         # helper's own docstring), so this can only DECLINE an already-risky launch, never block a
         # healthy one.
         try:
-            _n = int(np.asarray(x).shape[0])
+            _n = int(shape_of(x)[0])
             _bytes_needed = _n * max(int(npermutations), 64) * 4 + _n * 8
             from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
             _gpu_ok = fe_gpu_has_vram_cushion(_bytes_needed)

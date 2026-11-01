@@ -28,6 +28,7 @@ from .._ksg import reset_ksg_gpu_circuit_breaker
 from mlframe.training.utils import get_pandas_view_of_polars_df
 
 from ._mrmr_class_shared import _mrmr_y_columns
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -256,7 +257,7 @@ class _MRMRFitHelpersMixin:
         # cluster only the numeric columns (categoricals -> singletons) and hand the sub-selector dtype-preserved rows.
         # An ndarray gets the same ``feature_<i>`` placeholders the classic path synthesizes: pandas' default integer labels would store
         # non-string feature_names_in_ and defeat get_feature_names_out's placeholder detection.
-        X_df = X if hasattr(X, "iloc") else pd.DataFrame(np.asarray(X), columns=[f"feature_{i}" for i in range(np.asarray(X).shape[1])])
+        X_df = X if hasattr(X, "iloc") else pd.DataFrame(np.asarray(X), columns=[f"feature_{i}" for i in range(shape_of(X)[1])])
         y_arr = (y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)).ravel()
         feature_names = list(X_df.columns)
         # Computed ONCE outside the bootstrap/complementary-pairs loop: every replicate previously

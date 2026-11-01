@@ -1397,7 +1397,7 @@ def test_selector_exposes_revalidation_n_estimators_default():
 
 @pytest.mark.slow
 @pytest.mark.timeout(1800)
-def test_biz_value_revalidation_cap_faster_recovery_preserved():
+def test_biz_value_revalidation_cap_faster_recovery_preserved(monkeypatch):
     """biz_value (iter28): on the live regime (width=1000, n_rows=5000, snr=8, 12 informatives) the
     ``revalidation_n_estimators=100`` cap must (1) speed the revalidation stage by >=30% over the
     legacy cap=None path AND (2) preserve informative recovery within 1 feature of the legacy run.
@@ -1440,14 +1440,34 @@ def test_biz_value_revalidation_cap_faster_recovery_preserved():
 
     # Run AFTER first to warm any one-shot global caches, then BEFORE, then AFTER again for the
     # headline. Mirrors the iter28 _iter28_ab.py bench discipline.
+    # The revalidation stage is timed in process CPU seconds (all pool threads summed), not wall: the stage's wall time moves 3x with whatever else runs
+    # on the box, which made the A/B flip on a loaded machine while the per-fit saving stayed intact.
+    import mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate as _reval_pkg
+
+    reval_cpu = {"s": 0.0}
+    _orig_revalidate = _reval_pkg.revalidate_top_n
+
+    def _cpu_timed_revalidate(*args, **kwargs):
+        """Run revalidate_top_n and add the CPU seconds it used to the running total."""
+        c0 = _time.process_time()
+        try:
+            return _orig_revalidate(*args, **kwargs)
+        finally:
+            reval_cpu["s"] += _time.process_time() - c0
+
+    monkeypatch.setattr(_reval_pkg, "revalidate_top_n", _cpu_timed_revalidate)
+
     def _go(cap):
-        """Build a selector at the given revalidation_n_estimators cap, fit it, and time the fit wall-clock."""
+        """Build a selector at the given revalidation_n_estimators cap, fit it, and time the fit (wall) and its revalidation stage (CPU)."""
         sel = _build(cap)
         sel._stage_timings = {}
+        reval_cpu["s"] = 0.0
         t0 = _time.perf_counter()
         sel.fit(X, y)
         wall = _time.perf_counter() - t0
-        return wall, dict(sel._stage_timings), len(informative & set(sel.selected_features_))
+        timings = dict(sel._stage_timings)
+        timings["revalidation"] = reval_cpu["s"]
+        return wall, timings, len(informative & set(sel.selected_features_))
 
     _go(100)  # warmup
     b_wall, b_t, b_rec = _go(None)
@@ -1455,8 +1475,8 @@ def test_biz_value_revalidation_cap_faster_recovery_preserved():
 
     reval_before = b_t.get("revalidation", 0.0)
     reval_after = a_t.get("revalidation", 0.0)
-    print(f"[iter28 biz_value] BEFORE: total={b_wall:.2f}s reval={reval_before:.2f}s recovery={b_rec}/{n_inf}", flush=True)
-    print(f"[iter28 biz_value] AFTER : total={a_wall:.2f}s reval={reval_after:.2f}s recovery={a_rec}/{n_inf}", flush=True)
+    print(f"[iter28 biz_value] BEFORE: total={b_wall:.2f}s reval_cpu={reval_before:.2f}s recovery={b_rec}/{n_inf}", flush=True)
+    print(f"[iter28 biz_value] AFTER : total={a_wall:.2f}s reval_cpu={reval_after:.2f}s recovery={a_rec}/{n_inf}", flush=True)
     print(f"[iter28 biz_value] e2e speedup={b_wall / max(1e-9, a_wall):.2f}x  reval speedup={reval_before / max(1e-9, reval_after):.2f}x", flush=True)
 
     # Quantitative biz-value contract: revalidation stage at least 30% faster (allows headroom over

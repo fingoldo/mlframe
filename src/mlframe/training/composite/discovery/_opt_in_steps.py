@@ -46,6 +46,7 @@ from mlframe.training.composite.transforms.shared import register_transform_if_a
 from .screening import _extract_column_array, _sample_indices
 from ._region_adaptive import fit_region_adaptive
 from ._auto_chain import discover_chains
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +157,7 @@ def _run_auto_chain(
         screen_idx, y_screen = screen_idx[_t_order], y_screen[_t_order]
     _chain_time_aware = _t_order is not None
     _g_full = getattr(self, "_group_ids_for_rerank", None)
-    _chain_groups = np.asarray(_g_full)[screen_idx] if _g_full is not None and np.asarray(_g_full).shape[0] > int(np.max(screen_idx, initial=-1)) else None
+    _chain_groups = np.asarray(_g_full)[screen_idx] if _g_full is not None and shape_of(_g_full)[0] > int(np.max(screen_idx, initial=-1)) else None
     # Build the screen-sample feature matrix ONCE (per-column pull from the Polars/pandas frame),
     # then derive each base's "all features except this base" matrix via np.delete on the in-RAM
     # matrix -- bit-identical to a per-base ``column_stack`` of ``feat_cols`` minus the base (the

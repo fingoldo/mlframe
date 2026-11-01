@@ -257,7 +257,7 @@ def basis_route_by_signal(
     best_corr = -1.0
     y_centred = yv.astype(np.float64) - float(yv.astype(np.float64).mean())  # Intentional float64: Pearson sums in double precision
     y_norm = float(np.sqrt(y_centred @ y_centred))
-    _route_no_aux = aux_for_fit is None or len(np.asarray(aux_for_fit)) == 0
+    _route_no_aux = aux_for_fit is None or length_of(aux_for_fit) == 0
     # MEMO SCOPE: all 4 candidate bases' preprocess fits run _detect_heavy_tail on the SAME x
     # (the verdict depends on x's values, not the basis), so memoise it for this routing sweep -> 4 sort-based
     # median+MAD probes collapse to 1 (byte-identical; the memo caches a deterministic boolean, id-keyed +
@@ -537,7 +537,7 @@ def _generate_univariate_basis_features_impl(
             # per-degree _evaluate_basis_column (same fit_fn(x) -> same z -> same polyeval). The rare
             # aux-pool path keeps the per-degree call (its fit concatenates the pool; left untouched).
             _z_cached = None
-            if aux_col is None or len(np.asarray(aux_col)) == 0:
+            if aux_col is None or length_of(aux_col) == 0:
                 try:
                     _z_fit, _p_fit = _POLY_BASES[chosen_basis]["fit"](x)
                     _z_cached = np.ascontiguousarray(_z_fit, dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
@@ -985,6 +985,7 @@ from ._orth_extra_basis_fe import (
     hybrid_orth_extra_basis_fe_with_recipes,
 )
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 if TYPE_CHECKING:
     from ..engineered_recipes import EngineeredRecipe
 

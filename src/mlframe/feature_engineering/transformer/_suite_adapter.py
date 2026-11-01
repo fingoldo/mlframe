@@ -23,6 +23,7 @@ except ImportError:  # pragma: no cover - sklearn always present in mlframe
     TransformerMixin = object
 
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,7 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         elif hasattr(X, "reset_index"):
             base = X.reset_index(drop=True)
         else:
-            base = pd.DataFrame(np.asarray(X), columns=self._input_columns_[: np.asarray(X).shape[1]])
+            base = pd.DataFrame(np.asarray(X), columns=self._input_columns_[: shape_of(X)[1]])
         feats_pd = feats.to_pandas()
         base = base.reset_index(drop=True)
         feats_pd.index = base.index

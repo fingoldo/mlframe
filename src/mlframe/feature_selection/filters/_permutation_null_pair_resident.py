@@ -46,6 +46,7 @@ import os
 
 import numpy as np
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
+from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 # Per-shuffle working-set budget: the largest intermediate is the (pb * n_pairs * n) int64 flat-joint-index
 # array. We tile over perms so ``pb * n_pairs * n * 8`` bytes stays well inside a 4GB card. Below ~24M cells
@@ -90,7 +91,7 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         nperm = int(n_permutations)
         if n < 8 or nperm < 1 or n_pairs < 2:
             return 0.0
-        n_classes_y = int(np.asarray(freqs_y).shape[0])
+        n_classes_y = int(shape_of(freqs_y)[0])
         if n_classes_y < 2:
             return 0.0
 
