@@ -317,19 +317,26 @@ def _triplet_device_col_specs(eng_columns, raw_cols):
     return specs
 
 
+from ._grouped_quantile_fe import _sorted_linear_quantiles
+
+
 def _quantile_codes(values, nbins: int) -> np.ndarray:
     """Quantile-bin a numeric column into integer codes (ties resolved by the bin edges, NaN mapped to its own code)."""
     v = np.asarray(values, dtype=_crit_np_dtype())
     finite = np.isfinite(v)
     codes = np.full(v.shape[0], nbins, dtype=np.int64)
     if finite.any():
-        uniq = np.unique(v[finite])
-        if uniq.size <= nbins:
+        fv = v[finite]
+        sv = np.sort(fv)  # one sort serves the distinct count, the exact levels and the quantile edges
+        first = np.empty(sv.size, dtype=bool)
+        first[0] = True
+        np.not_equal(sv[1:], sv[:-1], out=first[1:])
+        if int(first.sum()) <= nbins:
             # Few distinct values: exact codes. Quantile edges would merge a rare level into its neighbour.
-            codes[finite] = np.searchsorted(uniq, v[finite])
+            codes[finite] = np.searchsorted(sv[first], fv)
         else:
-            edges = np.unique(np.quantile(v[finite], np.linspace(0.0, 1.0, nbins + 1)[1:-1]))
-            codes[finite] = np.searchsorted(edges, v[finite], side="right")
+            edges = np.unique(_sorted_linear_quantiles(sv, np.linspace(0.0, 1.0, nbins + 1)[1:-1]))
+            codes[finite] = np.searchsorted(edges, fv, side="right")
     return codes
 
 
@@ -563,7 +570,10 @@ def _enumerate_triplet_candidates(
     n_y = int(y_arr.max()) + 1
     names = sorted(columns)
     base = nbins + 1
-    codes = np.vstack([_quantile_codes(X[c].to_numpy(dtype=_crit_np_dtype()), nbins) for c in names]).astype(np.int64)
+    from ._edge_pool import map_on_edge_pool
+
+    # Independent columns: the binning runs on the edge-jobs pool and the rows are stacked in name order.
+    codes = np.vstack(map_on_edge_pool(lambda c: _quantile_codes(X[c].to_numpy(dtype=_crit_np_dtype()), nbins), names)).astype(np.int64)
     with parallel_kernel_entry():
         out_i, out_j, out_k, out_mi = _triple_mi_kernel(codes, y_arr, base, n_y)
     order = np.lexsort((out_k, out_j, out_i, -out_mi))[: int(top_m)]
