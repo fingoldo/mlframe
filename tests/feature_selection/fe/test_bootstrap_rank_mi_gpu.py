@@ -1,0 +1,47 @@
+"""The device walk of the bootstrap rank-MI equals the host walk (to double rounding) for distinct columns and leaves tied and non-finite columns to the host."""
+
+import numpy as np
+import pytest
+
+from mlframe.feature_selection.filters import _bootstrap_rank_mi_njit as host
+
+
+def _data(n, k, n_classes=2, seed=0):
+    """Distinct columns, one with ties, one with a NaN, and the resamples."""
+    rng = np.random.default_rng(seed)
+    arr = rng.normal(size=(n, k)).astype(np.float32)
+    arr[:, 1] = np.round(arr[:, 1] * 4)
+    arr[3, 2] = np.nan
+    y = rng.integers(0, n_classes, n).astype(np.int64)
+    m = max(2, round(0.8 * n))
+    reps = [np.sort(rng.integers(0, n, m)).astype(np.int64) for _ in range(6)]
+    return arr, y, reps
+
+
+@pytest.mark.parametrize("n,k,n_classes", [(129, 5, 2), (1009, 9, 3), (6000, 12, 2), (6000, 4, 5)])
+def test_device_equals_host(monkeypatch, n, k, n_classes):
+    """The scored-column mask is identical in both modes and the MI matrix equal to double rounding."""
+    pytest.importorskip("cupy")
+    arr, y, reps = _data(n, k, n_classes)
+    monkeypatch.setenv("MLFRAME_BOOTSTRAP_RANK_DEVICE", "0")
+    host._PREP_CACHE.clear()
+    want_mi, want_ok = host.bootstrap_rank_mi(arr, y, reps, 10)
+    monkeypatch.setenv("MLFRAME_BOOTSTRAP_RANK_DEVICE", "1")
+    host._PREP_CACHE.clear()
+    try:
+        got_mi, got_ok = host.bootstrap_rank_mi(arr, y, reps, 10)
+    except Exception as exc:  # pragma: no cover - no usable device
+        pytest.skip(f"needs a usable CUDA device: {exc}")
+    np.testing.assert_array_equal(got_ok, want_ok)
+    # the same walk and the same sums; CUDA's log and numba's differ in the last bit
+    np.testing.assert_allclose(got_mi, want_mi, rtol=1e-12, atol=1e-14)
+
+
+def test_too_many_classes_stay_on_the_host(monkeypatch):
+    """More than 16 classes is outside the kernel: the device helper declines and the host path answers."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._bootstrap_rank_mi_gpu import distinct_walk_gpu
+
+    arr, y, reps = _data(2000, 4, 20)
+    prep = host._resample_tables(reps, y, arr.shape[0], 10, True)
+    assert distinct_walk_gpu(arr, prep, 10) is None

@@ -364,6 +364,22 @@ def bootstrap_rank_mi(arr: np.ndarray, y: np.ndarray, rep_rows: "list[np.ndarray
         _PREP_CACHE["latest"] = {"key": cache_key, "reps": rep_rows, "prep": prep}
     y_codes, n_classes, lens, idx, binpos = prep["y_codes"], prep["n_classes"], prep["lens"], prep["idx"], prep["binpos"]
     if arr.dtype == np.float32:
+        from ._bootstrap_rank_mi_gpu import distinct_walk_gpu, use_device_walk
+
+        if use_device_walk(n):
+            on_device = distinct_walk_gpu(arr, prep, int(n_bins))  # the fully distinct finite columns; the others stay on the host walk below
+            if on_device is not None:
+                mi_dev, done = on_device
+                if done.all():
+                    return mi_dev, done
+                rest = np.flatnonzero(~done)
+                counts_t, rowptr, poslist, cum = prep["counts_t"], prep["rowptr"], prep["poslist"], prep["cum"]
+                with parallel_kernel_entry():
+                    mi_rest, ok_rest = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr[:, rest]).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, rowptr, poslist, cum, int(n_bins))
+                mi_dev[:, rest] = mi_rest
+                done[rest] = np.asarray(ok_rest)
+                return mi_dev, done
+    if arr.dtype == np.float32:
         counts_t, rowptr, poslist, cum = prep["counts_t"], prep["rowptr"], prep["poslist"], prep["cum"]
         with parallel_kernel_entry():
             mi, ok = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, rowptr, poslist, cum, int(n_bins))
