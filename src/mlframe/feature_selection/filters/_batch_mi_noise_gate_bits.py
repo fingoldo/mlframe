@@ -108,7 +108,7 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gat
     try:
         import cupy as cp
 
-        from ._family_maxt_cuda_bits import _THREADS_V2, _get_kernel_v2, _v2_applies
+        from ._family_maxt_cuda_bits import _get_kernel_v2, _v2_applies, v2_block_width
         from ._family_maxt_null_v2_njit import xlogx_table
 
         codes = cp.asarray(d_disc)
@@ -147,9 +147,10 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gat
             mod.get_function("pack_bins")(((kg + 127) // 128, words), (128,), (codes, np.int64(n), np.int32(k_total), np.int32(lo), np.int32(kg), np.int32(words), bits, px))
             c_a = table[px].sum(axis=1)
             part = cp.empty((n_perm, kg), dtype=table.dtype)
+            width = v2_block_width(kern, (n_y - 1) * words * 8, kg)
             kern(
-                (n_perm, (kg + _THREADS_V2 - 1) // _THREADS_V2),
-                (_THREADS_V2,),
+                (n_perm, (kg + width - 1) // width),
+                (width,),
                 (bits, n_x_all[lo:hi], cls, table, c_a, px, const_b, np.int64(n), np.int32(cap), np.int32(words), np.int32(n_y), np.int32(kg), np.int32(n_perm), part),
                 shared_mem=(n_y - 1) * words * 8,
             )
