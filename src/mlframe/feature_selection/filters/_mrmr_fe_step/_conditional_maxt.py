@@ -108,6 +108,8 @@ class ConditionalPartnerGate:
         codes = np.ascontiguousarray(np.asarray(self._data[rows][:, self._cand]).T)
         codes = codes.astype(np.int64) - codes.min(axis=1, keepdims=True).astype(np.int64)
         widths = (codes.max(axis=1) + 1).astype(np.int64)
+        if int(widths.max()) <= 32767:
+            codes = codes.astype(np.int16)  # the kernel reads the matrix once per permutation; narrow codes cut that memory traffic 4x, the counts are the same integers
         y = y - y.min()
         self._prep = (rows, y, codes, widths, int(y.max()) + 1)
         self._prep_built = True
