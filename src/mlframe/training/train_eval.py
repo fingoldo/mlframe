@@ -454,9 +454,11 @@ def process_model(
         If 'model' key is missing in model_params when not loading from cache.
     """
     # Build model file path
-    fname = f"{model_file_name}.dump"
+    from mlframe.utils.safe_filename import safe_file_stem
+
+    fname = f"{safe_file_stem(model_file_name)}.dump"
     if pre_pipeline_name:
-        fname = pre_pipeline_name + " " + fname
+        fname = safe_file_stem(pre_pipeline_name) + " " + fname
     fpath = join(model_file, fname) if model_file else None
 
     # Prepare common_params with cached DataFrames if provided

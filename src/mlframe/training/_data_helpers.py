@@ -433,7 +433,9 @@ def _setup_model_info_and_paths(model, model_name, model_name_prefix, plot_file,
     # See also `_setup_model_directories` in core.py.
     if data_dir and models_subdir:
         ensure_dir_exists(join(data_dir, models_subdir))
-        model_file_name = join(data_dir, models_subdir, f"{model_name}.dump")
+        from mlframe.utils.safe_filename import safe_file_stem
+
+        model_file_name = join(data_dir, models_subdir, f"{safe_file_stem(model_name)}.dump")
     else:
         model_file_name = ""
 
