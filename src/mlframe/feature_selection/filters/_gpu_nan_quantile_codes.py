@@ -70,4 +70,26 @@ def nan_aware_quantile_codes_gpu(cand: Any, nbins: int) -> Any:
     return codes
 
 
-__all__ = ["nan_aware_quantile_codes_gpu"]
+def quantile_codes_with_nan_columns(cand: Any, nbins: int) -> Any:
+    """Codes of a resident ``(n, K)`` matrix in which only some columns hold NaN: the finite-path radix binner codes the whole matrix (its codes of the NaN-holding columns are discarded) and the few NaN-holding columns are re-coded
+    exactly by ``nan_aware_quantile_codes_gpu``. Equal to the host binner for every column. ``None`` when any value is infinite or a NaN-holding column has fewer than two numbers (the caller keeps the host path).
+
+    In an ext-val batch about 2% of the columns hold NaN (one factor with missing values times its operations), so the sort of the NaN-aware path (1 ms per 100000-row column) is paid for those columns only."""
+    import cupy as cp
+
+    from ._gpu_resident_discretize import _gpu_resident_discretize_codes
+
+    if bool(cp.isinf(cand).any()):
+        return None
+    bad = cp.flatnonzero(cp.isnan(cand).any(axis=0))
+    if int(bad.size) == 0:
+        return _gpu_resident_discretize_codes(cand, int(nbins))
+    sub = nan_aware_quantile_codes_gpu(cp.ascontiguousarray(cand[:, bad]), int(nbins))
+    if sub is None:
+        return None
+    codes = _gpu_resident_discretize_codes(cand, int(nbins))
+    codes[:, bad] = sub.astype(codes.dtype, copy=False)
+    return codes
+
+
+__all__ = ["nan_aware_quantile_codes_gpu", "quantile_codes_with_nan_columns"]

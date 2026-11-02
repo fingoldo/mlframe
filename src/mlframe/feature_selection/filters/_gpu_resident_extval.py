@@ -133,9 +133,9 @@ def gpu_materialise_extval_codes_host(
         else:
             # The host binner takes the quantile edges over the non-NaN rows of a column; the finite-path device binner takes them over all rows (NaN sorted last), which turns upper edges NaN and gives a different contingency
             # table. A NaN-aware device binner reproduces the host codes exactly (a missing external factor is the usual cause); an infinite value or a column with fewer than two numbers still goes to the host binner.
-            from ._gpu_nan_quantile_codes import nan_aware_quantile_codes_gpu
+            from ._gpu_nan_quantile_codes import quantile_codes_with_nan_columns
 
-            codes_dev = nan_aware_quantile_codes_gpu(out_dev, int(nbins))
+            codes_dev = quantile_codes_with_nan_columns(out_dev, int(nbins))
             if codes_dev is None:
                 log_throttle(logger, "extval_nonfinite_candidates", logging.INFO, "gpu_materialise_extval_codes_host: infinite or near-empty candidate columns (n=%d, K=%d); using the host binner", n, K)
                 return None

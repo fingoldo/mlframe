@@ -54,3 +54,22 @@ def test_infinite_values_and_too_few_values_are_declined():
     z[:, 1] = np.nan
     z[0, 1] = 1.0
     assert nan_aware_quantile_codes_gpu(cp.asarray(z), 10) is None
+
+
+@pytest.mark.parametrize("nbins", [5, 10])
+def test_mostly_finite_matrix_with_a_few_nan_columns_equals_the_host_binner(nbins):
+    """The hybrid (fast binner on everything, exact NaN path on the NaN-holding columns) equals the host binner column for column."""
+    from mlframe.feature_selection.filters._gpu_nan_quantile_codes import quantile_codes_with_nan_columns
+
+    rng = np.random.default_rng(12)
+    n, k = 4000, 40
+    x = rng.standard_normal((n, k))
+    x[:, 3] = np.round(x[:, 3], 1)
+    for j in (7, 8, 30):
+        x[rng.random(n) < 0.2, j] = np.nan
+    got = cp.asnumpy(quantile_codes_with_nan_columns(cp.asarray(x), nbins))
+    np.testing.assert_array_equal(got, discretize_2d_quantile_batch(x, nbins, np.int32))
+    clean = np.ascontiguousarray(x[:, :6])
+    np.testing.assert_array_equal(cp.asnumpy(quantile_codes_with_nan_columns(cp.asarray(clean), nbins)), discretize_2d_quantile_batch(clean, nbins, np.int32))
+    x[2, 5] = np.inf
+    assert quantile_codes_with_nan_columns(cp.asarray(x), nbins) is None
