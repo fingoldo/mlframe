@@ -41,9 +41,11 @@ def _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_
         # (Q7). The external-factor columns are DISTINCT memoised arrays
         # (_extval_raw_col per var) so they genuinely must be assembled into
         # a 2-D matrix for the njit kernel; there is no view to substitute.
-        _ev_pb_mat = np.empty((n_rows, len(_ev_param_bs)), dtype=np.float64)  # Intentional float64: ext-val parameter buffer keeps native float64 precision (see note at line 294)
+        # Filled as contiguous rows of the transpose and copied over once: writing each factor as a column of the C-ordered (n, E) matrix strides over every row (252 factors of 100000 rows: 264 ms against 144 ms).
+        _ev_pb_rows = np.empty((len(_ev_param_bs), n_rows), dtype=np.float64)  # Intentional float64: ext-val parameter buffer keeps native float64 precision (see note at line 294)
         for _ei, _pb_vals in enumerate(_ev_param_bs):
-            _ev_pb_mat[:, _ei] = _pb_vals
+            _ev_pb_rows[_ei] = _pb_vals
+        _ev_pb_mat = np.ascontiguousarray(_ev_pb_rows.T)
         _materialise_extval_njit(
             np.ascontiguousarray(param_a),
             _ev_pb_mat,
