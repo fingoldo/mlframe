@@ -173,7 +173,7 @@ def _qbin_into(val, nbins, qs, codes_out):
 
 @njit(cache=True, inline="always")
 def _marginal_mi_njit(xb, kx, y_codes, h_y, k_y, n):
-    """Plug-in Miller-Madow ``MI(X;Y) = H(X)+H(Y)-H(X,Y)`` minus ``(k_x+k_y-k_xy-1)/(2n)``, clamped
+    """Plug-in Miller-Madow ``MI(X;Y) = H(X)+H(Y)-H(X,Y)`` plus ``(k_x+k_y-k_xy-1)/(2n)``, clamped
     to >=0 - bit-faithful to ``marginal_mi_binned_fixed_y`` (same plug-in entropies, same bias, same
     natural log). ``xb`` are dense 0..kx-1 bin codes, ``y_codes`` dense 0..k_y-1; the joint id is
     ``xb*k_y + y`` (a bijection onto the occupied cells)."""
@@ -199,8 +199,8 @@ def _marginal_mi_njit(xb, kx, y_codes, h_y, k_y, n):
             hxy -= p * np.log(p)
             kxy += 1
     mi = hx + h_y - hxy
-    bias = (kx_occ + k_y - kxy - 1) / (2.0 * n)
-    r = mi - bias
+    correction = (kx_occ + k_y - kxy - 1) / (2.0 * n)  # Miller-Madow: the negative of the plug-in bias, so it is added
+    r = mi + correction
     return r if r > 0.0 else 0.0
 
 

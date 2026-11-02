@@ -232,8 +232,8 @@ def _gpu_marginal_mi(codes, kx, y_codes, h_y, k_y, n):
         hxy = float(-(pj * cp.log(pj)).sum())
         kxy = int((cj > 0).sum())
         mi = hx + h_y - hxy
-        bias = (kx_occ + k_y - kxy - 1) / (2.0 * n)
-        r_mi = mi - bias
+        correction = (kx_occ + k_y - kxy - 1) / (2.0 * n)  # Miller-Madow: the negative of the plug-in bias, so it is added
+        r_mi = mi + correction
         out[r] = r_mi if r_mi > 0.0 else 0.0
     return out
 
