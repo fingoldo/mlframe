@@ -953,11 +953,11 @@ def plot_model_feature_importances(
         Feature column names.
     model_name : str, optional
         Title for the plot.
-    num_factors : int, default=10
-        Maximum number of features to display. Reduced from 40 to 10 so
+    num_factors : int, default=15
+        Maximum number of features to display. Reduced from 40 so
         plots stay scannable on common feature counts; override via
         ``reporting_config.fi_top_n`` in ``train_mlframe_models_suite``.
-    figsize : tuple, default=(15, 10)
+    figsize : tuple, default=(7.5, 2.5)
         Figure size for the plot.
     positive_fi_only : bool, default=False
         If True, only show features with positive importance.

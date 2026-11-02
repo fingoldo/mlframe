@@ -140,7 +140,8 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
 
     Parameters
     ----------
-        cv : int, cross-validation generator or an iterable, default=None
+        cv : int, cross-validation generator or an iterable, default=3
+            ``None`` also means 3 folds here (not sklearn's 5), and a time axis in the data selects ``TimeSeriesSplit`` automatically.
 
     Attributes
     ----------

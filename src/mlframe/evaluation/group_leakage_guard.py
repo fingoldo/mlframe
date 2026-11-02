@@ -29,8 +29,7 @@ def assert_no_group_leakage(
     ----------
     cv_splits
         Iterable of ``(train_idx, test_idx)`` index-array pairs (e.g. from a fitted splitter's ``.split()``).
-        Consumed eagerly (materialized to a list) so a generator can still be checked without exhausting it
-        for the caller.
+        Materialized to a list, so a generator passed here is exhausted: pass ``list(...)`` if you need the splits again.
     groups
         ``(n_samples,)`` group/entity id per row, aligned to the indices used in ``cv_splits``.
     near_duplicate_features
@@ -44,18 +43,18 @@ def assert_no_group_leakage(
         Distance metric passed to ``sklearn.neighbors.NearestNeighbors`` -- ``"euclidean"`` (default) or
         ``"cosine"``. Only used when ``near_duplicate_features`` is given.
     near_duplicate_threshold
-        Cosine-similarity threshold above which a test row is flagged (only used when
+        Cosine-similarity threshold at or above which a test row is flagged (only used when
         ``near_duplicate_metric="cosine"``). Required (no default) when using the cosine metric, so callers must
         make a deliberate choice rather than inherit a silently-wrong cutoff.
     near_duplicate_max_neighbor_distance
-        Euclidean-distance threshold below which a test row is flagged (only used when
+        Euclidean-distance threshold at or below which a test row is flagged (only used when
         ``near_duplicate_metric="euclidean"``). Required (no default) for the same reason as above.
 
     Raises
     ------
     ValueError
         On the first fold (by iteration order) where a group id appears in both ``train_idx`` and
-        ``test_idx``, naming the fold index, the offending group id(s) (up to 5), and the leaked row count.
+        ``test_idx`` (all folds are checked for this first), naming the fold index, the offending group id(s) (up to 5), and the leaked row count.
         If ``near_duplicate_features`` is given and no exact group overlap is found, raised instead on the
         first fold where a test row has a near-duplicate neighbor in the train split, naming the fold index,
         the count of flagged test rows, and the closest observed distance/similarity.
@@ -76,16 +75,19 @@ def assert_no_group_leakage(
                 f"plain (non-grouped) split."
             )
 
-        if near_duplicate_features is not None:
-            _assert_no_near_duplicate_leakage(
-                fold_idx=fold_idx,
-                train_idx=train_idx,
-                test_idx=test_idx,
-                features=near_duplicate_features,
-                metric=near_duplicate_metric,
-                cosine_similarity_threshold=near_duplicate_threshold,
-                euclidean_max_distance=near_duplicate_max_neighbor_distance,
-            )
+    if near_duplicate_features is None:
+        return
+    # Second pass, after every fold passed the exact check: a near-duplicate in an early fold must not mask an exact group leak in a later one.
+    for fold_idx, (train_idx, test_idx) in enumerate(cv_splits):
+        _assert_no_near_duplicate_leakage(
+            fold_idx=fold_idx,
+            train_idx=train_idx,
+            test_idx=test_idx,
+            features=near_duplicate_features,
+            metric=near_duplicate_metric,
+            cosine_similarity_threshold=near_duplicate_threshold,
+            euclidean_max_distance=near_duplicate_max_neighbor_distance,
+        )
 
 
 def _assert_no_near_duplicate_leakage(
