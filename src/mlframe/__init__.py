@@ -396,8 +396,12 @@ def _install_gpu_runtime_lazy_trigger() -> None:
     _gd_any.is_cuda_available = _is_cuda_available
 
 
-_install_gpu_runtime_lazy_trigger()
-del _install_gpu_runtime_lazy_trigger
+# Wrap is_cuda_available when pyutilz.system.gpu_dispatch gets imported (by a GPU path or by the user), not at ``import mlframe``: importing it here
+# pulled numba through pyutilz.core (about 2.3 s) into every process, GPU or not.
+from mlframe.utils.post_import_hook import run_after_import as _run_after_import
+
+_run_after_import("pyutilz.system.gpu_dispatch", _install_gpu_runtime_lazy_trigger)
+del _run_after_import
 
 
 from mlframe.version import __version__
