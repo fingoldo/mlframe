@@ -50,6 +50,8 @@ from ._fit_outer_loop import (
     run_outer_loop_iteration,
 )
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 from ._prescreen import _apply_prescreen, _fold_universe_key, _precompute_prescreen_fold_universes  # noqa: F401
@@ -534,6 +536,9 @@ def _record_fit_provenance(self: Any, X: Any) -> None:
         logger.debug("suppressed: %s", e)
 
 
+_NUMPY_VIEW_MAX_BYTES = 2 * 2**30  # eager float64 conversion below this size, the pandas path above it
+
+
 def _numpy_view_of_numeric_X(_force_pandas, X, X_estimator, col_pos):
     """Build the numpy view of an all-numeric pandas X for estimators that prefer it."""
     if (not _force_pandas) and isinstance(X, pd.DataFrame):
@@ -544,6 +549,14 @@ def _numpy_view_of_numeric_X(_force_pandas, X, X_estimator, col_pos):
             _all_numeric = bool(len(X.columns)) and all(_is_num(X[c]) or _is_bool(X[c]) for c in X.columns)
         except Exception as e:
             logger.warning("all-numeric dtype check failed, assuming not all-numeric: %s", e)
+            _all_numeric = False
+        if _all_numeric and int(X.shape[0]) * int(X.shape[1]) * 8 > _NUMPY_VIEW_MAX_BYTES:
+            # The float64 twin lives next to X for the whole fit; above the gate the pandas path (no second copy) is used instead.
+            log_throttle(
+                logger, "rfecv_numpy_view_too_large", logging.INFO,
+                "RFECV: not building the float64 numpy view of X (%d x %d = %.1f GB, gate %.1f GB); fitting from the pandas frame",
+                int(X.shape[0]), int(X.shape[1]), int(X.shape[0]) * int(X.shape[1]) * 8 / 2**30, _NUMPY_VIEW_MAX_BYTES / 2**30,
+            )
             _all_numeric = False
         if _all_numeric:
             try:
