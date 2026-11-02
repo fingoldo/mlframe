@@ -22,12 +22,12 @@ Three read-only reports by Opus 5.5 low-effort agents: the sklearn estimator con
 | **RESOLVED** | DOC14-5 | doc_drift | Low | RFECV `cv` documented as None, signature default 3 |
 | **RESOLVED** | DOC14-6 | doc_drift | Low | `assert_no_group_leakage`: near-duplicate error masked a later exact group leak (code), generator consumption and inclusive thresholds (doc) |
 | **RESOLVED** | PAR14-1 | parallel_state | High | FE stage-concurrency and edge-pool workers got only the deadline, not the fit's scoring thread-locals |
-| **FUTURE** | PAR14-2 | parallel_state | Medium | Fleuret permutation confirmation: seeds, permutation split and early stop depend on the worker count; needs per-permutation seeds in both paths and a selection benchmark |
+| **RESOLVED** | PAR14-2 | parallel_state | Medium | Fleuret permutation confirmation depended on the worker count (per-worker seeds, cumulative in-place shuffle); now per-permutation seeds from the outer base seed with per-worker offsets, columns restored before each permutation. The per-worker `max_failed` early stop stays a soft limit |
 | **REJECTED** | PAR14-3 | parallel_state | Low | `bootstrap_metrics` serial and parallel loops use different streams; the docstring states it (`n_jobs != 1` uses per-resample seeding, independent of worker count, statistically equivalent to the serial stream, pin `n_jobs=1` for byte identity). Making the serial loop per-resample was tried and reverted: the fused bundle and the manual per-iteration reference test depend on the single stream |
 
 ## Counts
 
-20 rows. Dispositions: 15 RESOLVED, 3 FUTURE, 1 REJECTED (+ SKL14-7 counted in two rows).
+20 rows. Dispositions: 16 RESOLVED, 2 FUTURE, 1 REJECTED (SKL14-7 is counted in two rows).
 
 ## Implemented
 
@@ -39,6 +39,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the sklearn estimator con
 | SKL14-7a | Raise NotFittedError from BinaryPostCalibrator.postcalibrate_probs before fit | `tests/calibration/test_post_calibrator_not_fitted.py` |
 | SKL14-9 | Accept a RandomState or Generator as HybridSelector's random_state | `tests/feature_selection/test_hybrid_selector_seed_int.py` |
 | DOC14-1..6 | Check exact group leaks in every fold before near-duplicates, and fix docstring defaults | `tests/evaluation/test_group_leakage_guard_exact_overlap_wins.py` (DOC14-1..5 are docstring edits with no test) |
+| PAR14-2 | Seed the Fleuret permutation confirmation per permutation, not per worker | `tests/feature_selection/info_theory/test_fleuret_confidence_independent_of_worker_count.py` |
 | PAR14-1 | Publish the fit's scoring settings to the FE worker threads | `tests/feature_selection/filters/test_edge_pool_publishes_fit_context.py` |
 
 ## Not covered by this wave
