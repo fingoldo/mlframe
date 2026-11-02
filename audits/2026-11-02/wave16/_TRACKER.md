@@ -21,15 +21,15 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 | **FUTURE** | IMP16-2 | import | High | `training/_model_factories.py` imports torch (12.5 s) at module level although the neural stack is meant to be deferred |
 | **FUTURE** | IMP16-3 | import | Medium | ngboost imported eagerly in four modules (4.1 s with sympy) |
 | **RESOLVED** | IMP16-4 | import | Medium | the import-time warm-ups of the discovery correlation and collinearity kernels are removed; they compile on the first real call |
-| **FUTURE** | IMP16-5 | import | Low | `matplotlib.pyplot` and `mlframe.reporting` imported at module level in deep helpers |
+| **RESOLVED** | IMP16-5 | import | Low | the ACF/PACF kernels moved to `mlframe/utils/acf_kernels.py` and `acf_lag_selection` imports them from there, no longer through `mlframe.reporting.charts`; the other module-level `matplotlib.pyplot` imports in `calibration/quality.py`, `evaluation/reports.py`, `reporting/charts/shap_panels.py` and `boruta_shap/_io_plot.py` are untouched, and `import mlframe.feature_engineering` still loads `mlframe.reporting` through another module |
 | **FUTURE** | IMP16-6 | import | Low | `import mlframe` imports `pyutilz.system` and replaces `is_cuda_available` in it |
 | **REJECTED** | IMP16-7 | import | Low | `import mlframe.training` sets `LOKY_MAX_CPU_COUNT`; the comment in `training/__init__.py` records this single env write as a deliberate choice after the physical-core patch was made opt-in |
 | **RESOLVED** | IMP16-8 | import | Low | `callbacks/stop_file.py` imported lightgbm at module level only to test availability |
-| **FUTURE** | IMP16-9 | import | Low | `training/slicing/_slice_pareto_plot.py:184` calls `matplotlib.use("Agg", force=True)` when a plot is drawn, switching the backend for the process |
+| **RESOLVED** | IMP16-9 | import | Low | the Pareto plot is drawn on an Agg `Figure` that is not registered with pyplot, so `matplotlib.use("Agg", force=True)` is gone and the process keeps its backend |
 
 ## Counts
 
-23 rows. Dispositions: 14 RESOLVED, 8 FUTURE, 1 REJECTED.
+23 rows. Dispositions: 16 RESOLVED, 6 FUTURE, 1 REJECTED.
 
 ## Implemented
 
@@ -37,6 +37,8 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 |---|---|---|
 | MEM16-1, MEM16-6 | Stop deep-copying the whole frame in the functional adapters and ACE | `tests/feature_selection/test_selection_inputs_are_not_deep_copied.py` (checks the numeric buffer stays shared; the ACE `copy=False` change has no separate test) |
 | MEM16-2 | Reuse one shadow buffer across Boruta rounds | `tests/feature_selection/filters/test_boruta_shadow_buffer_reuse.py` (the reuse test fails without the fix) |
+| IMP16-5 | Move the ACF and PACF kernels to a neutral module | `tests/feature_engineering/test_acf_lag_selection_does_not_import_reporting.py` (checks the shared functions and the pure-numpy module; 65 ACF tests pass) |
+| IMP16-9 | Draw the Pareto plot on an Agg Figure instead of switching the matplotlib backend | `tests/training/slicing/test_pareto_plot_keeps_the_matplotlib_backend.py` (fails without the fix) |
 | IMP16-4 | Stop compiling the discovery correlation kernels at import | `tests/training/composite/test_discovery_numba_kernels_not_compiled_at_import.py` (fails without the fix); 24 discovery kernel tests pass |
 | MEM16-7 | Standardise the blocked correlation matrix in place | `tests/feature_selection/test_hybrid_corr_clusters_blocked_memory.py` (the memory test fails without the fix) |
 | MEM16-8 | Drop the up-front copy of the input matrix in compose_pair_fe | `tests/feature_selection/filters/test_compose_pair_fe_no_upfront_copy.py` (fails without the fix) |
