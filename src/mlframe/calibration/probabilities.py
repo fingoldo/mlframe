@@ -92,14 +92,14 @@ def _generate_probs_from_outcomes_kernel(
 
 
 def generate_probs_from_outcomes(
-    outcomes: np.ndarray, chunk_size: int = 20, scale: float = 0.1, nbins: int = 10, bins_std: float = 0.1, flip_percent: float = 0.6, random_state: int = 0
+    outcomes: np.ndarray, chunk_size: int = 20, scale: float = 0.1, nbins: int = 10, bins_std: float = 0.1, flip_percent: float = 0.1, random_state: int = 0
 ) -> np.ndarray:
     """Generate hypothetical, roughly-calibrated ground-truth probs from known outcomes.
 
     Our model probs will (hopefully) be calibrated, so the synthetic probs must be calibrated too, with
     some fitness, and cover a broad prob range:
 
-    0)  if flip_percent is specified, a random WITHOUT-replacement portion of data has zeroes/ones flipped
+    0)  if flip_percent is specified (above 0.5 the probs correlate NEGATIVELY with the outcomes), a random WITHOUT-replacement portion of data has zeroes/ones flipped
         (lowers ROC AUC): exactly ``floor(n*flip_percent)`` distinct observations flip.
     1) work with small random chunks/subsets of data;
     2) for every chunk compute its real freq;
@@ -122,7 +122,12 @@ def generate_probs_from_outcomes(
     bin_offsets = (rng.random(size=nbins) - 0.5) * bins_std
     # One length-n uniform draw sliced per chunk (same consumption order as the old per-chunk draws).
     noise = rng.random(size=n) if n else np.empty(0, dtype=np.float64)
-    return np.asarray(_generate_probs_from_outcomes_kernel(outcomes, indices, bin_offsets, noise, int(chunk_size), float(scale), int(nbins), float(flip_percent)))
+    # Chunks are consecutive slices of the kernel's input, so shuffle the rows first: on input ordered by target or time a chunk would otherwise be all one class.
+    row_order = rng.permutation(n)
+    shuffled = np.asarray(_generate_probs_from_outcomes_kernel(outcomes[row_order], indices, bin_offsets, noise, int(chunk_size), float(scale), int(nbins), float(flip_percent)))
+    probs = np.empty_like(shuffled)
+    probs[row_order] = shuffled
+    return probs
 
 
 from scipy.special import logit, expit
@@ -280,7 +285,7 @@ def generate_similar_probs_by_ranking(
         # Get ranks of predicted probabilities
         ranks = rankdata(predicted_probs, method="ordinal")
         # Create bins based on the ranks (grouping into approximately equal-sized bins)
-        bins = np.floor_divide(ranks * n_bins, n)
+        bins = np.floor_divide((ranks - 1) * n_bins, n)
 
         similar_probs = predicted_probs.copy()
 

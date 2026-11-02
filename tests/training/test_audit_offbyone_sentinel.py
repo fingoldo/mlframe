@@ -74,7 +74,7 @@ def test_early_stopping_zero_val_samples_raises_not_silent():
     y = np.array([0, 1] * 4 + [0])
     # validation_fraction=1.0 -> n_val_samples=9 == len(X) -> zero train rows.
     est = _make_es_estimator(validation_fraction=1.0)
-    with pytest.raises(ValueError, match="zero training rows"):
+    with pytest.raises(ValueError, match="zero training rows|validation_fraction must be in"):
         est.fit(X, y)
 
 

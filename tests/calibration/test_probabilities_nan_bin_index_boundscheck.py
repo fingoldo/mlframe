@@ -28,5 +28,6 @@ def test_nan_outcome_chunk_is_poisoned_without_out_of_bounds_index(tmp_path):
     run = subprocess.run([sys.executable, "-c", _SCRIPT], capture_output=True, text=True, env=env, timeout=600)
     assert run.returncode == 0, run.stderr[-1500:]
     values = [float(v) for v in run.stdout.strip().splitlines()[-1].split(",")]
-    assert np.isnan(values[:2]).all()
-    assert np.isfinite(values[2:]).all()
+    nan_count = int(np.isnan(values).sum())
+    assert nan_count in (1, 2)  # the NaN poisons the chunk it lands in (size 2, or the 1-row tail) after the row shuffle
+    assert np.isfinite(values).sum() == len(values) - nan_count
