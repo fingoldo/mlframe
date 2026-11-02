@@ -76,7 +76,7 @@ def test_selection_identical_to_categorise_path(monkeypatch, fixture, kwargs):
 
 
 @pytest.mark.parametrize("fixture,kwargs", [(_fixture, {}), (_fixture_with_nan, {}), (_fixture_with_nan, {"mdlp_fast_mode": False})], ids=["nan_free-default", "with_nan-default", "with_nan-fast_mode_off"])
-def test_null_matches_per_permutation_categorise_reference(monkeypatch, fixture, kwargs):
+def test_null_matches_per_permutation_categorise_reference(monkeypatch, fixture, kwargs, honest_hooks):
     """Every permutation's plain and corrected null MI from the batched kernel equals the reference recomputed from the production codes."""
     from mlframe.feature_selection.filters import _honest_mdlp_null as hmn
     from mlframe.feature_selection.filters._numba_utils_cross_module import _mi_codes
@@ -96,9 +96,9 @@ def test_null_matches_per_permutation_categorise_reference(monkeypatch, fixture,
 
     monkeypatch.setattr(hmn, "_njit_null_columns", _spy)
     X, y = fixture()
-    sel, _ = _fit(X, y, monkeypatch, disable_spec=False, kwargs=kwargs)
+    _fit(X, y, monkeypatch, disable_spec=False, kwargs=kwargs)
     assert captured, "the spec kernel must serve the null"
-    codes_fn = sel._honest_null_codes_fn
+    codes_fn = honest_hooks[-1]
     checked = 0
     for rec in captured[:1]:
         n = rec["factors_data"].shape[0]
