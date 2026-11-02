@@ -27,11 +27,11 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | **OPEN** | W17CMP-4 | Low | smearing factor and residual quantiles ignore sample weights |
 | **OPEN** | W17CMP-5 | Low | T-clip envelope differs between fit and drift refit when MAD = 0 |
 | **OPEN** | W17CMP-6 | Low | chain / quantile-normal transforms get no smearing |
-| **OPEN** | W17CAL-1 | Medium | `generate_probs_from_outcomes` default `flip_percent=0.6` reverses the signal |
-| **OPEN** | W17CAL-2 | Medium | "random chunks" in the same generator are contiguous slices |
+| **RESOLVED** | W17CAL-1 | Medium | `generate_probs_from_outcomes` default `flip_percent=0.6` reverses the signal |
+| **RESOLVED** | W17CAL-2 | Medium | "random chunks" in the same generator are contiguous slices |
 | **OPEN** | W17CAL-3 | Medium | `compare_cv_schemes` winner and significance test use different criteria |
-| **OPEN** | W17CAL-4 | Low | string labels crash the stratified resampler (`policy.py` `int(c)`) |
-| **OPEN** | W17CAL-5 | Low | `generate_similar_probs_by_ranking` has n_bins+1 bins |
+| **RESOLVED** | W17CAL-4 | Low | string labels crash the stratified resampler (`policy.py` `int(c)`) |
+| **RESOLVED** | W17CAL-5 | Low | `generate_similar_probs_by_ranking` has n_bins+1 bins |
 
 ## Not covered by this wave
 
@@ -49,3 +49,5 @@ Metric cores (`_core_auc_brier`, `_ice_metric`, `_drift`, `_fairness_metrics`), 
 | W17CMP-1 | `tests/training/composite/estimator/test_predict_quantile_is_not_smeared.py` |
 | W17CMP-2 | `tests/training/composite/test_grouped_block_stacker_numeric_invalid_row_fill.py` |
 | W17FSW-3 | `tests/feature_selection/wrappers/test_rfecv_fold_scores_keep_fold_order.py` |
+| W17CAL-1, 2, 5 | `tests/calibration/test_probability_generators_fixes.py` |
+| W17CAL-4 | `tests/calibration/test_resample_indices_accept_non_integer_class_labels.py` |
