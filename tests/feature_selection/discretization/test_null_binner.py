@@ -102,6 +102,17 @@ def test_the_honest_null_hook_returns_the_same_codes_with_and_without_the_binner
     X.loc[rng.random(n) < 0.1, "f2"] = np.nan
     y = ((X["f0"].fillna(0) + X["f1"] + 0.5 * rng.standard_normal(n)) > 0).astype(np.int64).to_numpy()
 
+    assigned_codes: list = []
+    real_setattr = MRMR.__setattr__
+
+    def _record_setattr(self, name, value):
+        """Keep the codes closure the fit assigns; set the attribute as before."""
+        if name == "_honest_null_codes_fn" and value is not None:
+            assigned_codes.append(value)
+        real_setattr(self, name, value)
+
+    monkeypatch.setattr(MRMR, "__setattr__", _record_setattr)
+
     def fit_and_codes(disable):
         """Fit under the switch; the hook's codes for three fixed permutations."""
         if disable:
@@ -110,8 +121,9 @@ def test_the_honest_null_hook_returns_the_same_codes_with_and_without_the_binner
             monkeypatch.delenv("MLFRAME_OJ_NULL_BINNER", raising=False)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            model = MRMR(verbose=0, random_seed=0, n_jobs=1, nbins_strategy="optimal_joint", fe_max_steps=0).fit(X, y)
-        fn = model._honest_null_codes_fn
+            MRMR(verbose=0, random_seed=0, n_jobs=1, nbins_strategy="optimal_joint", fe_max_steps=0).fit(X, y)
+        # The fit releases its closure once it ends (it holds a float64 copy of the frame), so the closure is taken as it is assigned.
+        fn = assigned_codes[-1]
         return [fn(np.random.default_rng(s).permutation(n)) for s in range(3)]
 
     fast, plain = fit_and_codes(False), fit_and_codes(True)
