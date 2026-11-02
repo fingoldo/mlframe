@@ -46,9 +46,9 @@ Generated from each report's `**Disposition**` line: OPEN is recorded as TODO an
 | **RESOLVED** | F05 | `pair_family_threshold_critique.md` | Discretisation of the gate and of the pair search differ |
 | **RESOLVED** | F06 | `pair_family_threshold_critique.md` | GPU residency |
 | **REJECTED** | F07 | `pair_family_threshold_critique.md` | Sharing permutations across pairs |
-| **PARTIAL** | F08 | `pair_family_threshold_critique.md` | Determinism |
+| **RESOLVED** | F08 | `pair_family_threshold_critique.md` | Determinism. **2026-11-02: RESOLVED by design.** The test is now one family null per call (`_family_flags`, `_permutation_pass_flags_with` in `_family_maxt_gate.py`) drawn from one `default_rng(seed)`; there is no per-pair null, so the result depends on the family's column set and the seed, not on the order pairs are processed in. |
 | **RESOLVED** | F09 | `pair_family_threshold_critique.md` | Analytic bound as a cheap pre-filter |
-| **PARTIAL** | F10 | `pair_family_threshold_critique.md` | Sequential stopping rule for borderline pairs |
+| **RESOLVED** | F10 | `pair_family_threshold_critique.md` | Sequential stopping rule for borderline pairs. **2026-11-02: RESOLVED.** Early reject by the median probe (`FAMILY_PROBE_BLOCK`) and early accept by a Clopper-Pearson bound on the remaining exceedances (`_passes_for_certain`, `_CERTAINTY_DELTA`) are both in `_family_maxt_gate.py`; only batches near the threshold run the full count. |
 
 
 ## Verification at HEAD (2026-11-02)
@@ -62,5 +62,5 @@ Each row was checked against the code; the evidence:
 - F05 and F06: the gate reads the codes the pair search stored (`_pairs_emit.py:119`, `tests/feature_selection/fe/test_fe_pair_family_gate_sees_real_codes.py`) and has a device path (`tests/feature_selection/gpu/test_family_gate_device_parity.py`).
 - F07 is REJECTED with the engineering critique's F08 (a shared null across pairs breaks the per-pair FWER argument).
 - F09: the analytic tail is used only with a pass margin and a density guard (`_family_maxt_gate.py:503-564`).
-- Still PARTIAL: F01 (Bonferroni across prospective pairs, not one joint family of pairs and configurations), F08 (the seed is fixed per call but not derived from the pair), F10 (reject-early on the median probe exists; the accept-after-99-null-maxima and h-exceedance stopping rules do not).
+- Still PARTIAL: F01 (Bonferroni across prospective pairs, not one joint family of pairs and configurations). F08 and F10 were closed on 2026-11-02 (see their rows).
 - Still TODO, level_strictness F04 to F08: unmeasured benchmarks and design options for the narrow-pool floor, per-family alpha, step-down maxT, a reliability predicate and end-to-end runs.
