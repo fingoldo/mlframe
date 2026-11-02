@@ -11,7 +11,7 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | **RESOLVED** | W17TRN-1 | High | a cached model file that failed to load left an unfitted estimator (fit gate tested only that the file exists) |
 | **RESOLVED** | W17TRN-2 | High | OOF folds of TTR-wrapped regressors and Pipelines were fit without `sample_weight` (`training/_oof_weight_param.py`) |
 | **RESOLVED** | W17TRN-3 | Medium | val/OOF slices of Series `sample_weight` / `group_ids` index by label |
-| **FUTURE** | W17TRN-4 | Medium | `metadata["model_schemas"]` keys collide across pre-pipelines and targets |
+| **RESOLVED** | W17TRN-4 | Medium | `metadata["model_schemas"]` keys collide across pre-pipelines and targets |
 | **RESOLVED** | W17TRN-5 | Low | `val_placement="backward"` moves split groups to the wrong side |
 | **RESOLVED** | W17TRN-6 | Low | multilabel 3-way split uses `val_size` as a fraction of all rows |
 | **RESOLVED** | W17FSW-1 | High | RFECV `must_include` and group members dropped on ndarray input (string fit-time names vs integer columns) |
@@ -24,7 +24,7 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | **RESOLVED** | W17CMP-1 | High | `predict_quantile` applied smearing, returning means instead of quantiles |
 | **RESOLVED** | W17CMP-2 | Medium | `GroupedBlockStacker` ignored a numeric `invalid_row_fill` |
 | **RESOLVED** | W17CMP-3 | Low | `_best_iteration_of` off by one for XGBoost / CatBoost |
-| **FUTURE** | W17CMP-4 | Low | smearing factor and residual quantiles ignore sample weights |
+| **PARTIAL** | W17CMP-4 | Low | the hurdle's smearing factor is now weighted (`tests/training/composite/test_hurdle_smearing_factor_is_weighted.py`); the composite estimator's `residual_quantiles` still ignores sample weights |
 | **RESOLVED** | W17CMP-5 | Low | T-clip envelope differs between fit and drift refit when MAD = 0 |
 | **FUTURE** | W17CMP-6 | Low | chain / quantile-normal transforms get no smearing |
 | **RESOLVED** | W17CAL-1 | Medium | `generate_probs_from_outcomes` default `flip_percent=0.6` reverses the signal |
@@ -65,7 +65,7 @@ Metric cores (`_core_auc_brier`, `_ice_metric`, `_drift`, `_fairness_metrics`), 
 
 ## FUTURE reasons
 
-- W17TRN-4: keying schema records by pre-pipeline and target changes what `load_mlframe_suite` reads back; needs a loader migration for existing dumps
+- W17TRN-4: resolved in wave 18 as W18TRN-1 (first record keeps the bare key, later ones are qualified; readers only iterate the records)
 - W17MRM-2: opt-in (`uaed_auto_size`, default off); the fix maps greedy rounds to features through `_predictors_log_`, which needs a parity check against the retention and rescue appends
 - W17MRM-3: opt-in (`uaed_auto_size`, default off); needs the UAED-trimmed and p>=n-capped indices recorded and honoured by operand retention, designed together with W17MRM-2
 - W17CMP-4: weighted smearing factor and weighted residual quantiles change every weighted composite's predictions; needs a measured bias comparison before the default moves
