@@ -73,10 +73,23 @@ def _densify_sparse_input(X):
     return np.asarray(X.toarray())
 
 
+def _revalidate_params(self) -> None:
+    """Run the constructor's parameter checks again on the CURRENT parameters: ``set_params`` and ``GridSearchCV`` change them after ``__init__``."""
+    from ._init_validate import validate_init_params_early, validate_init_params_late
+
+    params = self.get_params(deep=False)
+    validate_init_params_early(params)
+    self._check_stability_selection_params(params["stability_selection"], params["stability_threshold"], params["stability_n_bootstrap"], 0)
+    self._check_feature_groups_nonempty(params["feature_groups"], 0)
+    validate_init_params_late(params)
+    self._check_feature_groups_disjoint(params["feature_groups"])
+
+
 def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, sample_weight: Union[np.ndarray, pd.Series, None] = None, **fit_params) -> Any:
     """Fit RFECV: densifies a sparse ``X`` (refusing inputs whose dense form would exceed ~2 GB), applies the optional prescreen, precomputes per-fold train-only prescreen universes, then drives the recursive elimination loop to select the final feature subset."""
     # The max_runtime_mins clock covers the whole fit, including the input hashing / leakage / cardinality checks, which take minutes on wide 500k+ row frames.
     _fit_t0 = timer()
+    _revalidate_params(self)
     # No estimator configured (neither estimators= nor estimator=) is a caller error; check it FIRST,
     # before anything downstream (_init_fit_state's is_classifier(None) check, or the
     # stability_selection dispatch's sklearn.base.clone(None)) hits it as a confusing AttributeError
