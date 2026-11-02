@@ -531,7 +531,9 @@ def hybrid_cat_pair_fe(
     if not appended:
         return X, [], [], scores
     new_df = pd.DataFrame(new_cols, index=X.index)
-    X_aug = pd.concat([X, new_df], axis=1)
+    from mlframe.feature_selection._append_columns import append_columns
+
+    X_aug = append_columns(X, new_df)
     return X_aug, appended, recipes, scores
 
 # ---------------------------------------------------------------------------
