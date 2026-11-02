@@ -116,7 +116,8 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
             self._y_train_ = np.asarray(y).ravel()
         else:
             self._y_train_ = None
-        if hasattr(X, "columns"):
+        self._fit_had_columns_ = hasattr(X, "columns")
+        if self._fit_had_columns_:
             self._input_columns_ = list(X.columns)
         else:
             self._input_columns_ = [f"f{i}" for i in range(self._X_train_.shape[1])]
@@ -129,6 +130,7 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         from sklearn.utils.validation import check_is_fitted
 
         check_is_fitted(self, "_X_train_")
+        X = self._align_to_fit_columns(X)
         Xq = _to_2d_numeric(X)
         kwargs = dict(self.compute_kwargs or {})
         kwargs.setdefault("seed", self.random_state)
@@ -143,14 +145,37 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
             feats = self.compute_fn(self._X_train_, X_query=Xq, **kwargs)
         return self._assemble(X, feats)
 
+    def _align_to_fit_columns(self, X):
+        """``X`` with its columns in the order seen at fit; the train and query arrays are compared column by column, so a reordered frame would pair different features.
+
+        Raises ``ValueError`` when a named frame lacks a fit column or carries an extra one. Unnamed input is only checked for width.
+        """
+        if self._fit_had_columns_ and hasattr(X, "columns"):
+            cols = list(X.columns)
+            if cols == self._input_columns_:
+                return X
+            if set(cols) != set(self._input_columns_) or len(cols) != len(self._input_columns_):
+                missing = [c for c in self._input_columns_ if c not in cols]
+                extra = [c for c in cols if c not in self._input_columns_]
+                raise ValueError(f"{type(self).__name__}.transform: columns differ from fit (missing {missing[:5]}, extra {extra[:5]})")
+            return X.select(self._input_columns_) if isinstance(X, pl.DataFrame) else X[self._input_columns_]
+        width = shape_of(X)[1] if len(shape_of(X)) > 1 else 1
+        if width != self._X_train_.shape[1]:
+            raise ValueError(f"{type(self).__name__}.transform: got {width} columns, fit saw {self._X_train_.shape[1]}")
+        return X
+
     def _assemble(self, X, feats):
         """Concatenate raw columns + engineered feats (passthrough) or return feats only, as pandas so the
         sklearn Pipeline keeps feature names. Records the output names for ``get_feature_names_out``."""
         import pandas as pd
 
+        row_index = X.index if hasattr(X, "index") and not isinstance(X, pl.DataFrame) else None
         if not self.passthrough:
             self._output_feature_names_ = [str(c) for c in feats.columns]
-            return feats.to_pandas()
+            out = feats.to_pandas()
+            if row_index is not None:
+                out.index = row_index
+            return out
         if isinstance(X, pl.DataFrame):
             base = X.to_pandas()
         elif hasattr(X, "reset_index"):
@@ -161,6 +186,8 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         base = base.reset_index(drop=True)
         feats_pd.index = base.index
         result = pd.concat([base, feats_pd], axis=1)
+        if row_index is not None:
+            result.index = row_index
         self._output_feature_names_ = [str(c) for c in result.columns]
         return result
 
