@@ -7,10 +7,10 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | **RESOLVED** | W17MET-1 | High | `expected_reciprocal_rank` accepted labels above `max_grade` and returned ERR above 1; now raises `ValueError` |
 | **OPEN** | W17MET-2 | Medium | `inference/recursive_forecast.py` oracle must apply the same `update_features_fn` chain with true lags |
 | **OPEN** | W17MET-3 | Medium | `preprocessing/rare_count_pruning.py` numerator and Woolf SE use different smoothed counts |
-| **OPEN** | W17MET-4 | Medium | `_split_by_group` with string/object group ids |
+| **RESOLVED** | W17MET-4 | Medium | `_split_by_group` with string/object group ids |
 | **RESOLVED** | W17TRN-1 | High | a cached model file that failed to load left an unfitted estimator (fit gate tested only that the file exists) |
 | **RESOLVED** | W17TRN-2 | High | OOF folds of TTR-wrapped regressors and Pipelines were fit without `sample_weight` (`training/_oof_weight_param.py`) |
-| **OPEN** | W17TRN-3 | Medium | val/OOF slices of Series `sample_weight` / `group_ids` index by label |
+| **RESOLVED** | W17TRN-3 | Medium | val/OOF slices of Series `sample_weight` / `group_ids` index by label |
 | **OPEN** | W17TRN-4 | Medium | `metadata["model_schemas"]` keys collide across pre-pipelines and targets |
 | **OPEN** | W17TRN-5 | Low | `val_placement="backward"` moves split groups to the wrong side |
 | **OPEN** | W17TRN-6 | Low | multilabel 3-way split uses `val_size` as a fraction of all rows |
@@ -52,3 +52,5 @@ Metric cores (`_core_auc_brier`, `_ice_metric`, `_drift`, `_fairness_metrics`), 
 | W17CAL-1, 2, 5 | `tests/calibration/test_probability_generators_fixes.py` |
 | W17CAL-4 | `tests/calibration/test_resample_indices_accept_non_integer_class_labels.py` |
 | W17CAL-3 | `tests/evaluation/test_compare_cv_schemes_winner_matches_tested_quantity.py` |
+| W17MET-4 | `tests/metrics/test_ranking_extras_string_group_ids.py` |
+| W17TRN-3 | `tests/training/test_trainer_slices_series_weights_by_position.py` |
