@@ -179,7 +179,7 @@ def _pair_mm_mi_njit(code_x, code_y, target, kx, ky, kt, min_rows_per_cell):
                 pj = cnt * inv_n
                 mi += pj * np.log(pj / (pxc * (py[t] * inv_n)))
     mm = (occ_cells - 1 + occ_y - 1 - (occ - 1)) / (2.0 * n)
-    val = mi - mm
+    val = mi + mm  # mm = (Kx - 1 + Ky - 1 - (Kxy - 1)) / (2n) is the negative of the plug-in bias
     return val if val > 0.0 else 0.0
 
 

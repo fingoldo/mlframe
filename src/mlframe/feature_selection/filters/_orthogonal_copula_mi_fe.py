@@ -145,11 +145,11 @@ def _bin_mi_uniform_pair(
     pxpy = (px @ py)[mask]
     pxy_m = pxy[mask]
     mi = float(np.sum(pxy_m * (np.log(pxy_m) - np.log(pxpy))))
-    # Miller-Madow bias correction: + (Kxy - Kx - Ky + 1) / (2 * n_total).
+    # Miller-Madow bias correction: the plug-in MI is biased UP by (Kxy - Kx - Ky + 1) / (2 * n_total), so subtract it.
     kxy = int(mask.sum())
     kx = int((px > 0).sum())
     ky = int((py > 0).sum())
-    mi += (kxy - kx - ky + 1) / (2.0 * float(n_total))
+    mi -= (kxy - kx - ky + 1) / (2.0 * float(n_total))
     # Clip tiny negative residual that can arise from the Miller-Madow
     # correction overshooting on near-independent pairs.
     if mi < 0.0:
@@ -249,7 +249,7 @@ def _copula_columns_njit(cols_rows: np.ndarray, vi: np.ndarray, nb: int, out: np
                 kx += 1
             if py[a] > 0:
                 ky += 1
-        mi += (kxy - kx - ky + 1) / (2.0 * total)
+        mi -= (kxy - kx - ky + 1) / (2.0 * total)
         out[j] = mi if mi > 0.0 else 0.0
 
 

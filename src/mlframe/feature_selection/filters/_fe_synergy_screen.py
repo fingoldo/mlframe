@@ -195,7 +195,7 @@ def joint_synergy_mi(code_x: np.ndarray, code_y: np.ndarray, target_codes: np.nd
     occx = int((px > 0).sum())
     occy = int((py > 0).sum())
     mm = (occx - 1 + occy - 1 - (occ - 1)) / (2.0 * n)
-    return float(max(0.0, mi - mm))
+    return float(max(0.0, mi + mm))  # mm is the negative of the plug-in bias
 
 
 def _marginal_mm_mi(code_x: np.ndarray, target_codes: np.ndarray) -> float:
