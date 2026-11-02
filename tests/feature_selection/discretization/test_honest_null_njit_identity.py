@@ -94,11 +94,25 @@ def test_null_matches_per_permutation_categorise_reference(monkeypatch, fixture,
         ))
         return plain, corr
 
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    # The fit releases its codes closure once it ends (it holds a float64 copy of the frame), so the closure is taken as the fit sets it.
+    assigned_codes: list = []
+    real_setattr = MRMR.__setattr__
+
+    def _record_setattr(self, name, value):
+        """Keep the codes closure the fit assigns; set the attribute as before."""
+        if name == "_honest_null_codes_fn" and value is not None:
+            assigned_codes.append(value)
+        real_setattr(self, name, value)
+
     monkeypatch.setattr(hmn, "_njit_null_columns", _spy)
+    monkeypatch.setattr(MRMR, "__setattr__", _record_setattr)
     X, y = fixture()
-    sel, _ = _fit(X, y, monkeypatch, disable_spec=False, kwargs=kwargs)
+    _fit(X, y, monkeypatch, disable_spec=False, kwargs=kwargs)
     assert captured, "the spec kernel must serve the null"
-    codes_fn = sel._honest_null_codes_fn
+    assert assigned_codes, "the fit must assign the codes closure"
+    codes_fn = assigned_codes[-1]
     checked = 0
     for rec in captured[:1]:
         n = rec["factors_data"].shape[0]
