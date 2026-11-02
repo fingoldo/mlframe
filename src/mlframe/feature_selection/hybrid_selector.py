@@ -218,7 +218,7 @@ class HybridSelector:
         # absdiff/signed/ratio recover NON-product interaction signal (|a-b|, sign(a)|b|, a/(|b|+1)) a bilinear term
         # cannot linearize; the synergy gate keeps each only where it genuinely helps (madelon gains, synth unchanged).
         # Set to ("mul",) for products-only. See _TREE_OPS.
-        self.tree_rich_ops = tuple(tree_rich_ops)
+        self.tree_rich_ops = tree_rich_ops
         # mrmr_synergy_cap (default 250 - MEASURED win): the MRMR member's fe_synergy_screen_max_features. MRMR's
         # default (60) SKIPS the synergy bootstrap on frames wider than 60 cols, so on a moderate-width frame
         # (e.g. hard_synth, 220 cols) MRMR never engineers the interaction products its bootstrap would find. Raising
@@ -447,8 +447,7 @@ class HybridSelector:
                 top = [(a, b) for (a, b), _ in _pair_w_sorted if a in cols and b in cols]
                 # expand each co-occurrence pair to one candidate column per rich operator; each column carries its
                 # operand pair (so the synergy gate scores it independently) and its op (so _augment replays it).
-                _valid_ops = [o for o in self.tree_rich_ops if o in _TREE_OPS]
-                ops = _valid_ops if _valid_ops else ["mul"]  # empty/all-invalid config -> the one safe default op, not a caller-supplied-empty trap
+                ops = list(self._resolved_tree_ops()) or ["mul"]  # an empty config -> the one safe default op, not a caller-supplied-empty trap
                 pairs, names = [], []
                 for i, (a, b) in enumerate(top):
                     for op in ops:
@@ -649,6 +648,20 @@ class HybridSelector:
                 X_aug = X_aug.drop(columns=[c for c in rejected if c in X_aug.columns])
         return X_aug
 
+    def _resolved_tree_ops(self) -> tuple:
+        """``tree_rich_ops`` as a tuple of operator names: a bare string is one name (not its characters) and an unknown name raises instead of being dropped."""
+        ops = (self.tree_rich_ops,) if isinstance(self.tree_rich_ops, str) else tuple(self.tree_rich_ops)
+        unknown = [o for o in ops if o not in _TREE_OPS]
+        if unknown:
+            raise ValueError(f"HybridSelector: unknown tree_rich_ops {unknown!r}; valid names are {sorted(_TREE_OPS)!r}")
+        return ops
+
+    def _validate_params(self) -> None:
+        """Refuse settings that would silently change the selection: ``vote`` below 1 confirms every cluster, so the filter is off; unknown operator names."""
+        if isinstance(self.vote, bool) or not isinstance(self.vote, (int, np.integer)) or self.vote < 1:
+            raise ValueError(f"HybridSelector: vote must be an integer of at least 1, got {self.vote!r}")
+        self._resolved_tree_ops()
+
     # ------------------------------------------------------------------ fit / transform
     @logs_fit("HybridSelector", _selection_summary)
     @rng_hygienic_fit
@@ -659,6 +672,7 @@ class HybridSelector:
         co-occurrence products, cluster-prescreen wide frames, run the member selectors (mrmr/shap/boruta/tree) on the
         shared narrowed space, then combine their votes cluster-aware (stage 3). Populates the sklearn-style fitted
         attributes (``feature_names_in_``, ``n_features_in_``, ``selected_features_``) used by ``transform``."""
+        self._validate_params()
         # Polars frames carry their column names in a plain ``list`` (no ``.has_duplicates`` / ``.iloc`` / ``.values``), so the pandas-only glue below
         # would crash at the first ``X.columns.has_duplicates``. Bridge to an Arrow-backed pandas VIEW once at the boundary (zero-copy for numeric cols),
         # which captures the REAL polars column names. The defensive LGBM ``feature_names_in_`` setter shim guards the inner LightGBM fits against the
