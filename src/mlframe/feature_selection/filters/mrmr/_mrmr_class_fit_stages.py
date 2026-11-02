@@ -494,6 +494,12 @@ class _MRMRFitStagesMixin:
             # The permutation batches cache up to 128 MB on the host and 128 MB on the device. The device copies pin VRAM,
             # which the 4 GB card needs back between fits; a cache hit never changes a result.
             _clear_permutation_caches()
+            # Sort orders and prepared group keys are keyed by column object and hold a full-length array each; they belong to one fit.
+            from .._grouped_coerce_shared import clear_key_prep_cache
+            from .._mrmr_fit_impl._eng_dedup_batch_corr import clear_finite_sort_order_cache
+
+            clear_finite_sort_order_cache()
+            clear_key_prep_cache()
         return result
 
     def _fit_body_post_fit(self, result: Any, X: Any, y: Any, st: Any) -> Any:
