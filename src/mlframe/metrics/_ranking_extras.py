@@ -55,6 +55,9 @@ def _split_by_group(
         # which the callers' ``n_groups <= 0 -> np.nan`` guard already handles.
         return np.empty(0, dtype=np.int64), y_true, y_score
     gids = np.ascontiguousarray(group_ids)
+    if gids.dtype.kind not in "biuf":
+        # string / object ids have no np.diff; their sorted-unique codes order the groups the same way
+        gids = np.unique(gids, return_inverse=True)[1].reshape(-1)
     diffs = np.diff(gids)
     # LTR-suite convention: rows arrive pre-sorted by group_ids. A stable argsort of an already-sorted
     # array is exactly ``arange(n)``, so ``y_true[order]`` / ``y_score[order]`` are no-op copies and the
