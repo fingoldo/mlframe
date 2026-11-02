@@ -799,6 +799,7 @@ def get_fleuret_criteria_confidence(
     extra_x_shuffling: bool = True,
     dtype: type = np.int32,
     base_seed: np.uint64 = _DEFAULT_BASE_SEED,
+    perm_offset: int = 0,
     use_su: bool = False,  # Threaded from Python-level parallel_fleuret.
     use_mm: bool = False,  # N-F2: threaded from parallel_fleuret (MM redundancy consistency).
     use_jmim: bool = False,  # S-F2: threaded from parallel_fleuret (JMIM confirmation statistic).
@@ -841,6 +842,14 @@ def get_fleuret_criteria_confidence(
     else:
         selected_vars_arr = np.empty(0, dtype=np.int64)
     for _i in range(npermutations):
+        # Permutation number ``perm_offset + _i`` starts from the ORIGINAL columns with its own seed, so its draw does not depend on how the
+        # permutations are split across workers or on the permutations that ran before it in this call.
+        _lcg_state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(perm_offset + _i + 1)
+        for _sj in range(len(y)):
+            data_copy[:, y[_sj]] = _saved_y[_sj, :]
+        if extra_x_shuffling:
+            for _sj in range(len(x)):
+                data_copy[:, x[_sj]] = _saved_x[_sj, :]
 
         for idx in y:
             _lcg_state = np.uint64(_fleuret_shuffle_col_lcg(data_copy[:, idx], _lcg_state))
