@@ -199,6 +199,7 @@ def scan_engineered_duplicates(
     _eng_fully_finite: dict[str, bool] = {}
     _scan_order = sorted(_eng_cols_appended, key=cmp_to_key(partial(_strongest_first_cmp, _eng_dedup_prefer=_eng_dedup_prefer)))
     _pre_ranks = _precompute_full_ranks(X, _scan_order, _adaptive_fourier_keep)
+    _orders = _CandidateOrderPrefetch(X, _scan_order)
     for _c in _scan_order:
         if _c in _eng_drop:
             continue
@@ -247,7 +248,7 @@ def scan_engineered_duplicates(
             _row_to_kc: dict[int, str] = {}
             _collect_kept_engineered_rows(_eng_keep, _eng_row_of, _active_mask, _row_to_kc)
             _masked_corr_prefilter(_active_mask, _ranks_c, _rank_rows, _row_to_kc, _fast_kept_set, _colliding_kept)
-        _pair_collisions(_colliding_kept, _eng_keep, _fast_kept_set, _arr_c, _fin_c, _ranks_c, _eng_arrs, _eng_ranks, _eng_fully_finite)
+        _pair_collisions(_colliding_kept, _eng_keep, _fast_kept_set, _arr_c, _fin_c, _ranks_c, _eng_arrs, _eng_ranks, _eng_fully_finite, cand_order=lambda _c=_c: _orders.get(_c))
         if _colliding_kept:
             # Keep-higher-MI: the candidate displaces every colliding kept column it out-scores, and is itself dropped only if some colliding kept column wins.
             # ``_eng_dedup_prefer`` returns False when MI is unavailable, so an unscored cluster degrades exactly to the original first-appended policy (candidate dropped).
@@ -275,7 +276,46 @@ def scan_engineered_duplicates(
     return _eng_keep, _eng_drop, _eng_arrs, _eng_ranks
 
 
-def _pair_collisions(_colliding_kept, _eng_keep, _fast_kept_set, _arr_c, _fin_c, _ranks_c, _eng_arrs, _eng_ranks, _eng_fully_finite):
+class _CandidateOrderPrefetch:
+    """Finite-row sort orders of the scan's candidates, computed ``_PREFETCH`` candidates ahead on the edge-jobs pool (``np.argsort`` releases the GIL).
+
+    The masked Spearman of ``_pair_collisions`` needs the candidate's own stable sort, about 8 ms per 100000-row column, which ran serially once per candidate
+    (1.3 s of a 100000 x 100 fit). The order depends on the candidate column alone, so the next block of candidates in scan order is sorted together when the
+    first of them asks; candidates that never ask cost at most one block."""
+
+    _PREFETCH = 32
+
+    def __init__(self, X, scan_order):
+        self._X = X
+        self._names = list(scan_order)
+        self._pos = {c: i for i, c in enumerate(self._names)}
+        self._orders: dict = {}
+
+    def get(self, name):
+        """The order of candidate ``name`` (``None`` for a name outside the scan)."""
+        hit = self._orders.get(name)
+        if hit is not None:
+            return hit
+        i = self._pos.get(name)
+        if i is None:
+            return None
+        from .._edge_pool import map_on_edge_pool
+        from ._eng_dedup_batch_corr import finite_sort_order
+
+        todo = [c for c in self._names[i : i + self._PREFETCH] if c not in self._orders and c in self._X.columns]
+
+        def _one(c):
+            """The finite-row order of candidate ``c`` at the criterion dtype, as the scan builds the column."""
+            return finite_sort_order(np.ascontiguousarray(np.asarray(_column_1d(self._X, c).to_numpy(), dtype=_crit_np_dtype())), cache=False)
+
+        for c, order in zip(todo, map_on_edge_pool(_one, todo, min_items=2)):
+            self._orders[c] = order
+        if i >= self._PREFETCH:
+            self._orders.pop(self._names[i - self._PREFETCH], None)  # the scan never asks for a candidate behind it again
+        return self._orders.get(name)
+
+
+def _pair_collisions(_colliding_kept, _eng_keep, _fast_kept_set, _arr_c, _fin_c, _ranks_c, _eng_arrs, _eng_ranks, _eng_fully_finite, cand_order=None):
     """Append each kept column the candidate Spearman-collides with (|rho| >= 0.99) to ``_colliding_kept``, skipping batched ones.
 
     Pairs that are not fully finite are ranked over their jointly finite rows; they are collected and scored together by one parallel kernel (two pandas ranks per pair, one pair at a time,
@@ -324,7 +364,10 @@ def _pair_collisions(_colliding_kept, _eng_keep, _fast_kept_set, _arr_c, _fin_c,
             _orders.append(_order)
         _arr_cc = np.ascontiguousarray(_arr_c)
         _rho = np.empty(len(_masked), dtype=np.float64)  # Intentional float64: |rho| statistic vector
-        masked_abs_spearman_presorted(_arr_cc, np.ascontiguousarray(_fin_c), finite_sort_order(_arr_cc, cache=False), _others, _orders, float(_REL_TOL), _rho)
+        _order_c = cand_order() if cand_order is not None else None
+        if _order_c is None:
+            _order_c = finite_sort_order(_arr_cc, cache=False)
+        masked_abs_spearman_presorted(_arr_cc, np.ascontiguousarray(_fin_c), _order_c, _others, _orders, float(_REL_TOL), _rho)
         _masked_hit = {_kept_col for _kept_col, _r in zip(_masked, _rho) if _r >= 0.99}
     for _kept_col, _collides in _decided:
         if _collides is None:

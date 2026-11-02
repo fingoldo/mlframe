@@ -35,3 +35,19 @@ def test_pooled_orders_equal_the_serial_ones_cached_and_uncached():
     for g, c in zip(B.finite_sort_orders(mixed), mixed):
         np.testing.assert_array_equal(g, B.finite_sort_order(c, cache=False))
     B.clear_finite_sort_order_cache()
+
+
+def test_candidate_order_prefetch_equals_the_direct_sort():
+    """Every candidate's prefetched order equals ``finite_sort_order`` of its column at the criterion dtype, across several prefetch blocks."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+    from mlframe.feature_selection.filters._mrmr_fit_impl._eng_dedup_scan import _CandidateOrderPrefetch
+
+    cols = _cols(k=70, n=1500)
+    X = pd.DataFrame({f"c{i}": c for i, c in enumerate(cols)})
+    pre = _CandidateOrderPrefetch(X, list(X.columns))
+    for name in X.columns:
+        want = B.finite_sort_order(np.ascontiguousarray(X[name].to_numpy(dtype=_crit_np_dtype())), cache=False)
+        np.testing.assert_array_equal(pre.get(name), want)
+    assert pre.get("absent") is None
