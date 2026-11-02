@@ -108,9 +108,10 @@ def mi_direct_gpu_batched_pairs(
     # opt-in numbers on this host, 48KB static vs 99KB opt-in on an RTX 500 Ada).
     max_joint_size_y = int(pair_joint_sizes.max()) if len(pair_joint_sizes) else 0
     try:
+        from ._gpu_hw_launch import launch_device_id
         from pyutilz.system.gpu_dispatch import gpu_capability_summary, get_shared_mem_budget_per_block
 
-        _summary = gpu_capability_summary(0)
+        _summary = gpu_capability_summary(launch_device_id())
         if _summary is None:
             raise RuntimeError("gpu_capability_summary returned None")
         # Reserve 1/8th of the shared budget per pair (matches the

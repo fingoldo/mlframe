@@ -158,9 +158,10 @@ def _opt_in_shared_mem_budget() -> int:
     49152-byte static default if the probe is unavailable (matches ``_hist_kernel_shared_fits_budget``'s
     own fallback)."""
     try:
+        from ._gpu_hw_launch import launch_device_id
         from pyutilz.system.gpu_dispatch import gpu_capability_summary, get_shared_mem_budget_per_block
 
-        summary = gpu_capability_summary(0)
+        summary = gpu_capability_summary(launch_device_id())
         if summary is None:
             return 49152
         return int(get_shared_mem_budget_per_block(summary["cc_major"], summary["cc_minor"], allow_opt_in=True))
