@@ -141,11 +141,6 @@ except (ImportError, OSError):  # OSError covers Windows DLL load failures (WinE
     nn = None  # type: ignore[assignment]
     F = None  # type: ignore[assignment]
 
-try:
-    from ngboost import NGBClassifier, NGBRegressor
-except ImportError:
-    NGBClassifier = None
-    NGBRegressor = None
 
 from .configs import (
     ReportingConfig,

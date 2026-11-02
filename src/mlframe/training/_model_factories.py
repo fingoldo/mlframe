@@ -433,12 +433,6 @@ def _lgb_regressor_cls():
 
 
 try:
-    from ngboost import NGBClassifier, NGBRegressor
-except ImportError:  # pragma: no cover
-    NGBClassifier = NGBRegressor = None
-
-
-try:
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
