@@ -188,7 +188,7 @@ def _gate_fourier_columns(X, gate_cols, surviving_by_src, y, seed, groups, class
         _gc, _src = item
         _src_arr = _gate_col_arr(X, _src)
         if float(np.mean(~np.isfinite(_src_arr))) > 0.02:
-            return _gc
+            return str(_gc)
         _base_sibs = surviving_by_src.get(_src, [])
         _base_mat = np.column_stack([_src_arr] + [_gate_col_arr(X, _b) for _b in _base_sibs])
         _eng_arr = _gate_col_arr(X, _gc)
