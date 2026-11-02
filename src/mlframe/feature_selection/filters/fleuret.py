@@ -86,8 +86,10 @@ def get_fleuret_criteria_confidence_parallel(
     _jmim_discount_only = jmim_exponent_discount_only()
 
     gc.collect()
-    # Per-worker seed derivation: outer base_seed * Knuth multiplicative hash + worker index keeps streams independent yet aggregate is reproducible from outer base_seed.
+    # Seeding is per PERMUTATION (outer base_seed plus the permutation's global number): the workers share the base seed and each starts at its offset, so the
+    # draws are the same for any worker count.
     _worker_loads = list(distribute_permutations(npermutations=npermutations, n_workers=n_workers))
+    _offsets = np.concatenate(([0], np.cumsum(_worker_loads)[:-1])) if _worker_loads else np.zeros(0, dtype=np.int64)
     _calls = [
         delayed(parallel_fleuret)(
             data=data_copy,
@@ -108,7 +110,8 @@ def get_fleuret_criteria_confidence_parallel(
             entropy_cache=dict(entropy_cache or {}),
             extra_x_shuffling=extra_x_shuffling,
             dtype=dtype,
-            base_seed=int((int(base_seed) * 2654435761 + (_widx + 1)) & 0xFFFFFFFFFFFFFFFF),
+            base_seed=int(base_seed),
+            perm_offset=int(_offsets[_widx]),
             use_su=_use_su,
             use_mm=_use_mm,
             use_jmim=_use_jmim,
@@ -176,6 +179,7 @@ def parallel_fleuret(
     extra_x_shuffling: bool = True,
     dtype: type = np.int32,
     base_seed: int = 0,
+    perm_offset: int = 0,
     use_su: bool = False,  # Threaded from get_fleuret_criteria_confidence_parallel.
     use_mm: bool = False,  # N-F2: threaded from get_fleuret_criteria_confidence_parallel (MM redundancy consistency).
     use_jmim: bool = False,  # S-F2: threaded from get_fleuret_criteria_confidence_parallel (JMIM confirmation statistic).
@@ -216,6 +220,7 @@ def parallel_fleuret(
         extra_x_shuffling=extra_x_shuffling,
         dtype=dtype,
         base_seed=np.uint64(base_seed),
+        perm_offset=perm_offset,
         use_su=use_su,
         use_mm=use_mm,
         use_jmim=use_jmim,

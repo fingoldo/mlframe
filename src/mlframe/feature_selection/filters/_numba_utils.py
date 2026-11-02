@@ -779,6 +779,16 @@ def _fleuret_shuffle_col_lcg(col: np.ndarray, state: np.uint64) -> np.uint64:
 
 
 @njit(cache=True)
+def _restore_saved_columns(data_copy, y, x, saved_y, saved_x, extra_x_shuffling):
+    """Write the saved original values of the permuted ``y`` columns (and of ``x`` when it is shuffled too) back into ``data_copy``."""
+    for _sj in range(len(y)):
+        data_copy[:, y[_sj]] = saved_y[_sj, :]
+    if extra_x_shuffling:
+        for _sj in range(len(x)):
+            data_copy[:, x[_sj]] = saved_x[_sj, :]
+
+
+@njit(cache=True)
 def get_fleuret_criteria_confidence(
     data_copy: np.ndarray,
     factors_nbins: np.ndarray,
@@ -799,6 +809,7 @@ def get_fleuret_criteria_confidence(
     extra_x_shuffling: bool = True,
     dtype: type = np.int32,
     base_seed: np.uint64 = _DEFAULT_BASE_SEED,
+    perm_offset: int = 0,
     use_su: bool = False,  # Threaded from Python-level parallel_fleuret.
     use_mm: bool = False,  # N-F2: threaded from parallel_fleuret (MM redundancy consistency).
     use_jmim: bool = False,  # S-F2: threaded from parallel_fleuret (JMIM confirmation statistic).
@@ -841,6 +852,10 @@ def get_fleuret_criteria_confidence(
     else:
         selected_vars_arr = np.empty(0, dtype=np.int64)
     for _i in range(npermutations):
+        # Permutation number ``perm_offset + _i`` starts from the ORIGINAL columns with its own seed, so its draw does not depend on how the
+        # permutations are split across workers or on the permutations that ran before it in this call.
+        _lcg_state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(perm_offset + _i + 1)
+        _restore_saved_columns(data_copy, y, x, _saved_y, _saved_x, extra_x_shuffling)
 
         for idx in y:
             _lcg_state = np.uint64(_fleuret_shuffle_col_lcg(data_copy[:, idx], _lcg_state))
@@ -882,11 +897,7 @@ def get_fleuret_criteria_confidence(
                 break
 
     # Restore the permuted columns so an aliased ``factors_data`` is left byte-identical to entry (reached on both normal and early-break exit).
-    for _sj in range(len(y)):
-        data_copy[:, y[_sj]] = _saved_y[_sj, :]
-    if extra_x_shuffling:
-        for _sj in range(len(x)):
-            data_copy[:, x[_sj]] = _saved_x[_sj, :]
+    _restore_saved_columns(data_copy, y, x, _saved_y, _saved_x, extra_x_shuffling)
 
     return nfailed, _i + 1
 
