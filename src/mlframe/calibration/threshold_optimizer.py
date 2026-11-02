@@ -105,7 +105,7 @@ def _threshold_stability_report(
         return {"fold_thresholds": fold_thresholds, "mean": float("nan"), "std": float("nan"), "cv": float("nan"), "is_stable": False, "n_splits": n_splits, "reason": "no_valid_folds"}
 
     mean = float(np.mean(valid))
-    std = float(np.std(valid))
+    std = float(np.std(valid, ddof=1)) if valid.shape[0] > 1 else 0.0  # sample std over the few fold thresholds
     # abs(mean): a threshold_range spanning negative values can make mean < 0, which would otherwise
     # sign-flip the ratio negative and trivially pass the is_stable <= threshold check regardless of the
     # true relative spread - coefficient of variation is meant to be a non-negative dispersion measure.

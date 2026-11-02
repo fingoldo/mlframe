@@ -364,7 +364,7 @@ def _perm_null_hi(feat, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int =
             # but argsort is an O(n log n) sort run n_perm times per candidate where one O(n) scatter suffices.
             mat[perm, i] = feat_host
         vals = np.asarray(_mi_classif_batch(mat, yi, nbins=nbins), dtype=_crit_np_dtype())
-    return float(vals.mean() + z * vals.std())
+    return float(vals.mean() + z * (vals.std(ddof=1) if vals.size > 1 else 0.0))
 
 def _gate_rank_binning() -> bool:
     """Whether the conditional-gate MI uses the RANK resident binner - opt-in BYTE-MATCH only.
