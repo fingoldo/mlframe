@@ -179,12 +179,13 @@ def _render_matplotlib(
     best_iter: int, alt_picks: dict[str, int], *,
     title: str, monitor_metric_name: str, direction: str,
 ) -> None:
-    """matplotlib backend. Uses Agg to stay headless."""
-    import matplotlib
-    matplotlib.use("Agg", force=True)
-    import matplotlib.pyplot as plt
+    """matplotlib backend. Draws on an Agg-backed ``Figure`` that is not registered with pyplot, so the process-wide backend (a notebook's inline one) is untouched."""
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
 
-    fig, ax = plt.subplots(figsize=(10.0, 6.5))
+    fig = Figure(figsize=(10.0, 6.5))
+    FigureCanvasAgg(fig)
+    ax = fig.subplots()
     iters = np.arange(len(means))
     sc = ax.scatter(means, stds, c=iters, cmap="viridis", s=18, alpha=0.65, edgecolors="none", label="all iterations")
     cbar = fig.colorbar(sc, ax=ax)
@@ -223,7 +224,6 @@ def _render_matplotlib(
     # tmp suffix preserves the real file extension so matplotlib can infer the backend format.
     tmp_path = f"{path}.tmp{os.path.splitext(path)[1]}"
     fig.savefig(tmp_path, dpi=110, bbox_inches="tight")
-    plt.close(fig)
     os.replace(tmp_path, path)
 
 
