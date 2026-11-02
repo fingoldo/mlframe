@@ -117,3 +117,21 @@ def test_an_all_singleton_conditioning_support_scores_zero_without_a_launch():
     z_shared = np.concatenate([z[: n // 2], z[: n // 2]])  # duplicates: the device scores it
     cmi_mod._batched_cmi_in_chunks(codes, y, z_shared, spy)
     assert calls
+
+
+def test_column_blocks_skip_binning_when_every_row_is_its_own_conditioning_cell():
+    """The column-block scorer returns zeros without binning or uploading anything for an all-singleton support."""
+    pytest.importorskip("cupy")
+    cp = pytest.importorskip("cupy")
+    rng = np.random.default_rng(4)
+    n, k = 600, 4
+    X = rng.standard_normal((n, k))
+    y = rng.integers(0, 2, n).astype(np.int64)
+    z = rng.permutation(n).astype(np.int64)
+
+    def boom(*a, **kw):
+        """Neither the binner nor the scorer may run."""
+        raise AssertionError("the device was asked")
+
+    got = cmi_mod._binned_cmi_in_column_blocks(cp, X, 10, y, z, boom, boom)
+    assert got.shape == (k,) and not got.any()

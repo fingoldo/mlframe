@@ -439,6 +439,8 @@ def _binned_cmi_in_column_blocks(cp: Any, X_float: np.ndarray, nbins: int, y_bin
     Binning the whole candidate matrix at once converts it to a double-precision device copy plus the binner's temporaries (1920 candidates of 100000 rows: a 1.5 GB allocation against a 2.6 GB pool limit),
     so the device path failed with an out-of-memory error and the whole batch fell to the per-candidate CPU loop. A block that still does not fit is halved and retried; a single column that does not fit raises."""
     n, k = int(X_float.shape[0]), int(X_float.shape[1])
+    if _conditioning_is_all_singletons(z_joint, n):
+        return np.zeros(k, dtype=np.float64)  # Intentional float64: score output contract kept f64; no column needs binning or uploading when every row is its own conditioning cell
     per_col = max(1, n * 36)  # f32 upload + f64 copy + the binner's temporaries + int64 codes
     free = int(cp.cuda.runtime.memGetInfo()[0])
     block = int(max(1, min(k, (free // 3) // per_col)))
