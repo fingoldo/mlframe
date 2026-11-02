@@ -113,11 +113,14 @@ def select_oof_pool_ensemble(
 
     # stepwise_ensemble_selection has no NaN handling; a trial with ANY failed fold (NaN row)
     # is dropped from the selectable set up front rather than propagating NaN into every score.
-    valid_indices = [i for i, oof in enumerate(pool) if np.all(np.isfinite(oof))]
-    if not valid_indices:
+    # Rows no test fold ever covers (the warm-up block of a purged time-series split) are NaN in every trial: select and score on the covered rows only.
+    covered = np.any(np.stack([np.isfinite(oof) for oof in pool], axis=0), axis=0) if pool else np.zeros(0, dtype=bool)
+    valid_indices = [i for i, oof in enumerate(pool) if np.all(np.isfinite(np.asarray(oof)[covered]))]
+    if not valid_indices or not covered.any():
         raise ValueError("select_oof_pool_ensemble: every pooled trial has at least one NaN OOF row (no trial CV'd cleanly on all folds) -- nothing selectable.")
 
-    stacked = np.stack([pool[i] for i in valid_indices], axis=0)
+    stacked = np.stack([np.asarray(pool[i])[covered] for i in valid_indices], axis=0)
+    y_arr = y_arr[covered]
     resolved_metric = metric if metric is not None else _rmse
 
     selection = stepwise_ensemble_selection(
