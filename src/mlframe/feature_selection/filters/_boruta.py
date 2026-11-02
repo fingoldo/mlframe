@@ -166,22 +166,33 @@ def boruta_select(
     # Hoisted out of the per-iteration loop below: ``X`` never changes across rounds, so recasting it ``n_iterations``
     # times (up to a few hundred) on the non-pandas path repeated a no-op-or-copy on every round for nothing.
     X_arr = None if is_pandas_frame else np.asarray(X)
+    # One (n, 2p) buffer for the whole run: the real half is written once and each round refills only the shadow half in place, instead of building a
+    # permuted copy plus a concatenated copy of the whole frame every round. Same draws as ``rng.permuted(real, axis=0)``, so the result is unchanged.
+    # A pandas frame whose columns differ in dtype keeps the per-round concat, which preserves each real column's dtype for ``importance_fn``.
+    shadow_buf: Optional[np.ndarray] = None
+    shadow_frame = None
+    if X_arr is not None:
+        shadow_buf = np.empty((X_arr.shape[0], 2 * X_arr.shape[1]), dtype=X_arr.dtype)
+        shadow_buf[:, :n_features] = X_arr
+    elif X[cols].dtypes.nunique() == 1:
+        real_block = X[cols].to_numpy()
+        shadow_buf = np.empty((real_block.shape[0], 2 * n_features), dtype=real_block.dtype)
+        shadow_buf[:, :n_features] = real_block
+        del real_block
+        shadow_frame = pd.DataFrame(shadow_buf, columns=list(cols) + [f"{c}__shadow" for c in cols], copy=False)
 
     for it in range(n_iterations):
         rounds_run = it + 1
-        if is_pandas_frame:
-            # ``Generator.permuted(x, axis=0)`` shuffles each column INDEPENDENTLY along axis 0 in one
-            # vectorised call - bit-identical to the per-column ``rng.permutation(col)`` loop
-            # (``.apply(..., axis=0)`` dispatches one Python-level call per column under the hood; verified
-            # both consume the SAME rng draw sequence per column) without the ``n_features``-call overhead.
+        if shadow_buf is not None:
+            # ``Generator.permuted(x, axis=0)`` shuffles each column INDEPENDENTLY along axis 0 in one vectorised call (bit-identical to the
+            # per-column ``rng.permutation(col)`` loop, one Python-level call per column avoided).
+            rng.permuted(shadow_buf[:, :n_features], axis=0, out=shadow_buf[:, n_features:])
+            X_shadowed = shadow_frame if shadow_frame is not None else shadow_buf
+        else:
             real_cols = X[cols].to_numpy()
             shadow_arr = rng.permuted(real_cols, axis=0)
             shadow = pd.DataFrame(shadow_arr, columns=[f"{c}__shadow" for c in cols])
             X_shadowed = pd.concat([X[cols].reset_index(drop=True), shadow.reset_index(drop=True)], axis=1)
-        else:
-            assert X_arr is not None  # guaranteed by the `is_pandas_frame` branch that set it, above
-            shadow_arr = rng.permuted(X_arr, axis=0)
-            X_shadowed = np.concatenate([X_arr, shadow_arr], axis=1)
 
         importances = np.asarray(importance_fn(X_shadowed, y), dtype=np.float64)  # Intentional float64: importance statistic compared exactly against the shadow maximum (ties decide hits)
         real_importances = importances[:n_features]
