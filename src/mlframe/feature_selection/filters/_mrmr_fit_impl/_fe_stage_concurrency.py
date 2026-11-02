@@ -91,6 +91,7 @@ def run_stages_concurrently(estimator: Any, stages: Sequence[Callable[[Any], Any
     The estimator's attributes are merged back in stage order before returning. A stage's exception is raised after all workers ended, for the first failing stage in order.
     """
     from .._fe_device_scheduler import plan_stage_slots, stage_device_slot
+    from .._fit_context import capture_fit_context, fit_context_scope
 
     slots = plan_stage_slots(list(weights))
     if slots is None or len(slots) != len(stages):
@@ -99,10 +100,11 @@ def run_stages_concurrently(estimator: Any, stages: Sequence[Callable[[Any], Any
     base = snapshot(estimator)
     copies = [private_copy(estimator) for _ in stages]
     deadline = getattr(_deadline_state, "deadline", None)
+    context = capture_fit_context()
 
     def _run(i: int) -> Any:
-        """One stage on its copy, in its device slot, with the fit's deadline published to this worker thread."""
-        with fe_deadline_scope(deadline), stage_device_slot(slots[i], i):
+        """One stage on its copy, in its device slot, with the fit's deadline and scoring settings published to this worker thread."""
+        with fe_deadline_scope(deadline), fit_context_scope(context), stage_device_slot(slots[i], i):
             return stages[i](copies[i])
 
     with ThreadPoolExecutor(max_workers=len(stages)) as pool:

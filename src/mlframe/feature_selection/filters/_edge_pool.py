@@ -14,13 +14,15 @@ def map_on_edge_pool(fn: Callable[[Any], Any], items: Sequence[Any], *, min_item
     """``[fn(item) for item in items]``, on the edge-jobs pool when there are at least ``min_items`` items and more than one job."""
     from . import _adaptive_nbins
     from ._fe_deadline import _state as _deadline_state, fe_deadline_scope
+    from ._fit_context import capture_fit_context, fit_context_scope
 
     todo = list(items)
     deadline = getattr(_deadline_state, "deadline", None)
+    context = capture_fit_context()
 
     def _run(item: Any) -> Any:
-        """``fn(item)`` with the fit's wall-clock budget published to the worker thread."""
-        with fe_deadline_scope(deadline):
+        """``fn(item)`` with the fit's wall-clock budget and per-fit scoring settings published to the worker thread."""
+        with fe_deadline_scope(deadline), fit_context_scope(context):
             return fn(item)
 
     jobs = _adaptive_nbins._resolve_edge_jobs(None, len(todo))
