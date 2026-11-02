@@ -181,7 +181,8 @@ class CompositeHPOResult:
     with ``collect_oof_pool=True``: a list of ``(n_rows,)`` leakage-free OOF
     prediction arrays, one per trial in ``trials`` order (``NaN`` where a fold
     failed) -- a free, diverse stacking-pool harvested from hyperparameter
-    search that would otherwise be discarded. ``None`` when not collected.
+    search that would otherwise be discarded. ``None`` when not collected. A trial the Optuna pruner stopped is in neither ``trials`` nor the pool,
+    so pool positions index ``trials``, not ``study.trials``.
 
     ``pruning_stats`` is populated whenever the Optuna backend ran with a
     ``pruner`` (any value other than the default ``None``): the actual ROI of
