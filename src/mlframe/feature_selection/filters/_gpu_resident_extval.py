@@ -20,6 +20,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional, Sequence
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 import numpy as np
@@ -125,6 +127,11 @@ def gpu_materialise_extval_codes_host(
         K = n_ext * n_ops
         out_dev = _candidate_matrix(cp, pa, param_b_list, _ops, n, n_ops, resident_operand)
         if out_dev is None:
+            return None
+        if not bool(cp.isfinite(out_dev).all()):
+            # The host binner takes quantile edges over the finite rows of a column holding NaN; the device binner takes them over all rows, with NaN
+            # sorted last, which turns upper edges NaN and gives a different contingency table. Decline so the caller keeps the host path.
+            log_throttle(logger, "extval_nonfinite_candidates", logging.INFO, "gpu_materialise_extval_codes_host: non-finite candidate values (n=%d, K=%d); using the host binner", n, K)
             return None
         codes_dev = _gpu_resident_discretize_codes(out_dev, int(nbins))  # NaN/inf -> rightmost bin (searchsorted)
         codes_dev = codes_dev.astype(cp.dtype(_cd), copy=False) if codes_dev.dtype != _cd else codes_dev
