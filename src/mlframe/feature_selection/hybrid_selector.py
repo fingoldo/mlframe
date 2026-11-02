@@ -892,6 +892,10 @@ class HybridSelector:
     def transform(self, X):
         """Replay the fitted FE recipe on ``X`` (so engineered ``eng_N`` selections are reproducible on new data), then
         slice to the fitted selection. Falls back to the frame's first column if the selection is empty on this input."""
+        from sklearn.exceptions import NotFittedError
+
+        if not hasattr(self, "raw_selected_"):
+            raise NotFittedError("HybridSelector.transform called before fit.")
         # replay FE so engineered selections (eng_N) are available, then slice to the selected set
         X = _as_pandas_view(X)
         X_aug = self._augment(X)

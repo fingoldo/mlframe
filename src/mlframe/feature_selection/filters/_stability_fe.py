@@ -365,7 +365,9 @@ class StabilityFESelector(TransformerMixin, BaseEstimator):
     def transform(self, X):
         """Replay the full-data MRMR's recipes, then restrict engineered columns to those in ``stable_set_`` (stability AND full-data reproducibility both required); raw/non-engineered columns the full fit kept always pass through."""
         if not hasattr(self, "full_mrmr_"):
-            raise RuntimeError("StabilityFESelector.transform called before fit; " "no full_mrmr_ recipes are available.")
+            from sklearn.exceptions import NotFittedError
+
+            raise NotFittedError("StabilityFESelector.transform called before fit; no full_mrmr_ recipes are available.")
         out = self.full_mrmr_.transform(X)
         # Stable set may name engineered columns the full MRMR did not
         # surface (e.g. a bootstrap-only borderline candidate). Keep the
