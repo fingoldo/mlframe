@@ -250,7 +250,11 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
 
 
 def _njit_null_matrices(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, pool, n_permutations: int, seed, eval_rows=None):
-    """``(plain, corrected)`` of shape ``(n_permutations, len(pool))``: the per-column null MI, with raw columns served from the spec cache."""
+    """``(plain, corrected)`` of shape ``(n_permutations, len(pool))``: the per-column null MI, with raw columns served from the spec cache.
+
+    The cache is keyed by the seed and the evaluation rows and holds, per column, the LONGEST null computed so far: the permutations of one seed are a prefix-stable stream and a column's null does not depend on the other columns
+    of the call (both checked bit for bit), so a request for fewer permutations than a stored entry (a candidate's 3 against the pool floor's hundreds) is served as a slice.
+    """
     n_perm = int(n_permutations)
     seed_key = 0 if seed is None else int(seed)
     pool_idx = [int(c) for c in pool]
@@ -259,8 +263,8 @@ def _njit_null_matrices(spec: dict, factors_data: np.ndarray, factors_nbins, y_i
     if m <= _NULL_CACHE_MAX_COLS:
         # The evaluation rows are part of the key: the screen scores a subsample, the empty-support fallback the full data.
         eval_key = None if eval_rows is None else (len(eval_rows), hash(np.asarray(eval_rows, dtype=np.int64).tobytes()))
-        cache = spec.setdefault("_null_columns", {}).setdefault((n_perm, seed_key, eval_key), {})
-    missing = [c for c in pool_idx if cache is None or c >= m or c not in cache]
+        cache = spec.setdefault("_null_columns", {}).setdefault((seed_key, eval_key), {})
+    missing = [c for c in pool_idx if cache is None or c >= m or c not in cache or cache[c][0].shape[0] < n_perm]
     computed = {}
     if missing:
         plain_m, corr_m = _njit_null_columns(spec, factors_data, factors_nbins, y_idx, missing, n_perm, seed_key, eval_rows)
@@ -276,7 +280,7 @@ def _njit_null_matrices(spec: dict, factors_data: np.ndarray, factors_nbins, y_i
             plain[:, j], corr[:, j] = computed[c]
         else:
             assert cache is not None  # a column missing from ``computed`` is served from the cache
-            plain[:, j], corr[:, j] = cache[c]
+            plain[:, j], corr[:, j] = cache[c][0][:n_perm], cache[c][1][:n_perm]
     return plain, corr
 
 
@@ -361,7 +365,8 @@ def honest_candidate_nfailed(
         # instead of one re-binning of the whole frame per permutation.
         if int(col) >= int(spec["raw"].shape[1]):
             return None
-        plain, _corr = _njit_null_columns(spec, full_factors, factors_nbins, y_idx, [int(col)], int(n_permutations), 0 if seed is None else int(seed), eval_rows)
+        # Through the per-column cache of the spec (the floor of the pool already filled it for the same permutations and rows): a hit costs nothing, a miss computes the column exactly as before and stores it.
+        plain, _corr = _njit_null_matrices(spec, full_factors, factors_nbins, y_idx, [int(col)], int(n_permutations), seed, eval_rows)
         return int(np.count_nonzero(plain[:, 0] >= observed)), observed
     rng = np.random.default_rng(0 if seed is None else int(seed))
     base_seed = int(rng.integers(0, 2**31 - 1))

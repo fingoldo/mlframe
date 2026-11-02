@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_selection.filters import _extra_fe_families
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._extra_fe_families import (
     generate_conditional_residual_features,
 )
@@ -73,7 +74,7 @@ def test_conditional_residual_generate_bit_identical_to_add_at_reference():
     enc, _ = generate_conditional_residual_features(X, cols, n_bins=10)
 
     # Independent add.at reference replicating the pre-iter111 numerics.
-    col_vals = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in cols}
+    col_vals = {c: np.asarray(X[c].to_numpy().astype(_crit_np_dtype()), dtype=np.float64) for c in cols}  # the block reads its columns at the crit dtype
     for x_j in cols:
         xj = col_vals[x_j]
         finite = xj[np.isfinite(xj)]
@@ -97,4 +98,5 @@ def test_conditional_residual_generate_bit_identical_to_add_at_reference():
             bm = np.where(bc > 0.0, bs / np.maximum(bc, 1.0), gm)
             ref = np.where(fin, xi - bm[codes_j], 0.0)
             got = enc[f"{x_i}__cond_resid_by__{x_j}"].to_numpy()
+            ref = ref.astype(got.dtype)  # the block is stored at the crit dtype; the float64 reference rounds to it
             assert np.array_equal(got, ref), f"mismatch for ({x_i},{x_j})"

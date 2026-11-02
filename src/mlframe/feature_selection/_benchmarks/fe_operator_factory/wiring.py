@@ -68,7 +68,7 @@ def _edits(new: Operator, prev: Operator, params: "list[tuple[str, str]]", comme
         (FILTERS / "_mrmr_fit_impl/_fit_impl_stages/_engineered_dedup.py", f'    "{p.family}",\n', f'    "{p.family}",\n    "{n.family}",\n', 2),
         (FILTERS / "_mrmr_fit_impl/_fit_impl_stages/_state.py", f'    "{p.family}",\n', f'    "{p.family}",\n    "{n.family}",\n', 1),
         (FILTERS / "_mrmr_fit_impl/_fit_impl_stages/_engineered_gates.py", f"                        recipes.{p.family},\n", f"                        recipes.{p.family},\n                        recipes.{n.family},\n", 1),
-        (FILTERS / "_mrmr_fit_impl/_fit_impl_core.py", f"    recipes.{p.family} = {{}}\n", f"    recipes.{p.family} = {{}}\n    recipes.{n.family} = {{}}\n", 1),
+        (FILTERS / "_mrmr_fit_impl/_fit_impl_core_parts.py", f"    recipes.{p.family} = {{}}\n", f"    recipes.{p.family} = {{}}\n    recipes.{n.family} = {{}}\n", 1),
         (FILTERS / "_mrmr_fit_impl/_fe_stage_cascade_run.py", f"        _{p.family}_pre_recipes=recipes.{p.family},\n", f"        _{p.family}_pre_recipes=recipes.{p.family},\n        _{n.family}_pre_recipes=recipes.{n.family},\n", 1),
         (FILTERS / "_mrmr_fit_impl/_fe_stage_cascade_mid_b.py", f"from ._fe_stage_{p.family} import _stage_{p.family}\n", f"from ._fe_stage_{p.family} import _stage_{p.family}\nfrom ._fe_stage_{n.family} import _stage_{n.family}\n", 1),
         (FILTERS / "_mrmr_fit_impl/_fe_stage_cascade_mid_b.py", f"    _{p.family}_pre_recipes,\n", f"    _{p.family}_pre_recipes,\n    _{n.family}_pre_recipes,\n", 1),

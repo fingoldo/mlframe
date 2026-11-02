@@ -92,15 +92,17 @@ def _newton_probe_enabled() -> bool:
 def _held_out_probe_score(Xfull, *, tr, va, y_enc, classification, binary):
     """Fit a standardized logistic/linear probe on this fold's train rows ``tr`` of ``Xfull`` and return its score on the held-out rows ``va`` (ROC-AUC for binary, the hit rate for multiclass, R^2 for regression)."""
     from sklearn.linear_model import LogisticRegression, Ridge
-    from sklearn.preprocessing import StandardScaler
-
     from mlframe.metrics.core import fast_r2_score, fast_roc_auc
 
     from ._fe_accuracy_gate_newton import fit_logistic_ridge_newton
 
-    sc = StandardScaler()
-    Xt = sc.fit_transform(Xfull[tr])
-    Xv = sc.transform(Xfull[va])
+    # The train-fold mean and (population) standard deviation, a zero spread mapped to 1 as StandardScaler does; the scikit-learn transformer cost about half of a probe in input validation and its incremental moments.
+    Xtr = Xfull[tr]
+    mu = Xtr.mean(axis=0, dtype=np.float64)  # Intentional float64: the moment accumulators
+    sd = Xtr.std(axis=0, dtype=np.float64)  # Intentional float64: the moment accumulators
+    sd = np.where(sd > 10.0 * np.finfo(np.float64).eps * np.maximum(np.abs(mu), 1.0), sd, 1.0)
+    Xt = ((Xtr - mu) / sd).astype(Xfull.dtype, copy=False)
+    Xv = ((Xfull[va] - mu) / sd).astype(Xfull.dtype, copy=False)
     if classification:
         if binary and _newton_probe_enabled():
             # Unique optimum of a strictly convex fit: Newton reaches it at about half the scikit-learn call cost; no convergence -> the scikit-learn fit below decides.

@@ -104,6 +104,28 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
     return float(compute_mi_from_codes(xc, y_codes))
 
 
+def _cheap_mi_group_selection_device(X: pd.DataFrame, gcands: Sequence[str], y_codes: np.ndarray, nbins: int) -> dict:
+    """The strict-resident group pre-selection: the finite, non-constant candidates are scored in one device pass (``group_mi_block_gpu``), any other candidate scores 0.0 as in ``_cheap_mi_with_y``; a failed block pass keeps the per-column device loop."""
+    from ._qbin_block_gpu import group_mi_block_gpu
+
+    out: dict = {}
+    names: list = []
+    cols: list = []
+    for g in gcands:
+        cv = np.asarray(X[g].to_numpy(), dtype=_crit_np_dtype())
+        if not np.isfinite(cv).all() or float(np.min(cv)) == float(np.max(cv)):
+            out[g] = 0.0
+            continue
+        names.append(g)
+        cols.append(cv)
+    if cols:
+        mis = group_mi_block_gpu(cols, y_codes, int(nbins)) if len(cols) > 1 else None
+        if mis is None:
+            return {g: _cheap_mi_with_y(X[g].to_numpy(), y_codes, nbins) for g in gcands}
+        out.update(zip(names, (float(m) for m in mis)))
+    return {g: out[g] for g in gcands}
+
+
 def _cheap_mi_group_selection(X: pd.DataFrame, gcands: Sequence[str], y_codes: np.ndarray, nbins: int = 10) -> dict:
     """GROUP MI(qbin(g); y) pre-selection over ``gcands`` -- batched-parallel CPU path by default.
 
@@ -116,7 +138,7 @@ def _cheap_mi_group_selection(X: pd.DataFrame, gcands: Sequence[str], y_codes: n
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         if fe_gpu_strict_resident_enabled():
-            return {g: _cheap_mi_with_y(X[g].to_numpy(), y_codes, nbins) for g in gcands}
+            return _cheap_mi_group_selection_device(X, gcands, y_codes, nbins)
     except Exception as e:
         logger.debug("_cheap_mi_group_selection: GPU-strict-resident probe failed, using the batched CPU path: %s", e)
     out: dict = {}

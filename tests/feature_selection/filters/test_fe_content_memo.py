@@ -34,3 +34,21 @@ def test_hit_miss_and_isolation():
     _scorer(X, y, k=2)
     assert len(CALLS) == 4
     assert M._release_content_memos() >= 0
+
+
+def test_a_frame_with_a_categorical_or_string_column_is_still_memoised():
+    """An object-backed column has no byte view; it used to make the key fail so the call silently ran every time."""
+    CALLS.clear()
+    rng = np.random.default_rng(3)
+    X = pd.DataFrame({"a": rng.normal(size=40), "b": rng.normal(size=40)})
+    X["c"] = pd.Categorical(rng.integers(0, 3, 40))
+    X["s"] = rng.choice(["u", "v"], 40)
+    y = rng.integers(0, 2, 40)
+    a = M.content_memo()(lambda frame, yy: pd.DataFrame({"n": [len(CALLS.append(1) or frame)]}))
+    a(X, y)
+    a(X.copy(), y)
+    assert len(CALLS) == 1
+    X2 = X.copy()
+    X2["s"] = rng.choice(["u", "v", "w"], 40)
+    a(X2, y)
+    assert len(CALLS) == 2, "a changed string column must miss"

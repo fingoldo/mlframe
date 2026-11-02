@@ -187,7 +187,7 @@ def hybrid_parity_fe_with_recipes(
     scores = pd.DataFrame(rows, columns=["col", "raw_mi", "period", "parity_mi", "uplift"])
     keep = scores[scores["uplift"] >= float(min_uplift)].sort_values("parity_mi", ascending=False).head(int(top_k))
 
-    X_aug = X.copy()
+    X_aug = X.copy(deep=False)  # only new engineered names are written
     appended, recipes = [], []
     for _, r in keep.iterrows():
         name = engineered_name_modular(str(r["col"]), float(r["period"]), "parity")

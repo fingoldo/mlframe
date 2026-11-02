@@ -54,6 +54,7 @@ def test_second_call_starts_at_the_chunk_that_fitted(monkeypatch):
     """After a width has been halved to fit, the next batch of that width does not retry the whole batch."""
     cp = pytest.importorskip("cupy")
     monkeypatch.setattr(cmi_mod, "_CMI_CHUNK_START", {})
+    monkeypatch.setattr(cmi_mod, "_CMI_CHUNK_BY_SHAPE", {})
     codes = np.zeros((10, 64), dtype=np.int64)
     widths = []
 
@@ -68,4 +69,25 @@ def test_second_call_starts_at_the_chunk_that_fitted(monkeypatch):
     cmi_mod._batched_cmi_in_chunks(codes, y, None, limited)
     widths.clear()
     cmi_mod._batched_cmi_in_chunks(codes, y, None, limited)
+    assert max(widths) <= 20
+
+
+def test_a_different_width_starts_at_the_chunk_that_fitted_for_the_same_rows(monkeypatch):
+    """A batch of another width over the same rows and conditioning starts from the reduced chunk, not from the whole batch."""
+    cp = pytest.importorskip("cupy")
+    monkeypatch.setattr(cmi_mod, "_CMI_CHUNK_START", {})
+    monkeypatch.setattr(cmi_mod, "_CMI_CHUNK_BY_SHAPE", {})
+    widths = []
+
+    def limited(x, yy, zz, **kw):
+        """The device 'holds' at most 20 columns."""
+        widths.append(int(x.shape[1]))
+        if x.shape[1] > 20:
+            raise cp.cuda.memory.OutOfMemoryError(1 << 40, 1 << 30)
+        return np.zeros(x.shape[1])
+
+    y = np.zeros(10, dtype=np.int64)
+    cmi_mod._batched_cmi_in_chunks(np.zeros((10, 64), dtype=np.int64), y, None, limited)
+    widths.clear()
+    cmi_mod._batched_cmi_in_chunks(np.zeros((10, 95), dtype=np.int64), y, None, limited)
     assert max(widths) <= 20

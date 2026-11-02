@@ -372,7 +372,12 @@ def _basis_memo_key(X: pd.DataFrame, cols: Any, degrees: Any, basis: str, dedup:
         h = new_hash()
         for c in names:
             h.update(str(c).encode())
-            h.update(np.ascontiguousarray(X[c].to_numpy()).view(np.uint8).data)
+            arr = np.ascontiguousarray(X[c].to_numpy())
+            if arr.dtype == object or arr.dtype.kind not in "biufc":
+                # A categorical / string / object column has no byte view (it made the whole key fail, so a call whose ``cols`` listed one never reached the memo): hash its values.
+                h.update(np.ascontiguousarray(pd.util.hash_pandas_object(X[c], index=False).to_numpy()).view(np.uint8).data)
+            else:
+                h.update(arr.view(np.uint8).data)
         hy = None
         if y is not None:
             hy = new_hash(np.ascontiguousarray(np.asarray(y)).view(np.uint8).data).hexdigest()

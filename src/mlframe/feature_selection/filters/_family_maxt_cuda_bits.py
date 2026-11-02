@@ -83,7 +83,24 @@ extern "C" __global__ void family_null_bits_v2(const unsigned long long* __restr
 """
 
 _kernels_v2: dict = {}
-_THREADS_V2 = 128
+_THREADS_V2 = 128  # the width without device information; the launches take it from ``v2_block_width``
+
+
+def v2_block_width(kern, shared_bytes: int, columns: int) -> int:
+    """Threads per block of the v2 kernel from the device's limits: its class bitsets (``shared_bytes``, fixed per block) are shared by the block's columns, so the width that keeps the most threads resident on an SM wins
+    (256 at 100000 rows on a Pascal SM: 19 ms against 28 ms at 128, 300 permutations x 250 columns); ``MLFRAME_GPU_BLOCK_FAMILY_BITS`` overrides; ``_THREADS_V2`` without a device."""
+    import os
+
+    forced = os.environ.get("MLFRAME_GPU_BLOCK_FAMILY_BITS", "").strip()
+    if forced.isdigit() and 32 <= int(forced) <= 1024 and int(forced) % 32 == 0:
+        return int(forced)
+    from ._gpu_hw_launch import fixed_shared_block_size
+
+    try:
+        width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kern.num_regs), static_smem=int(kern.shared_size_bytes), min_width=32, max_width=1024, work_items=columns)
+    except Exception:
+        width = 0
+    return width or _THREADS_V2
 _MAX_CLASSES_V2 = 24  # registers hold ``n_y - 1`` counters per thread
 _SHARED_MARGIN = 1024
 
@@ -171,9 +188,10 @@ def _run(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray, reduce_m
         k = hi - lo
         out = cp.empty((B, k), dtype=dev.table.dtype)
         if use_v2:
+            width = v2_block_width(kern, (n_y - 1) * dev.words * 8, k)
             kern(
-                (B, (k + _THREADS_V2 - 1) // _THREADS_V2),
-                (_THREADS_V2,),
+                (B, (k + width - 1) // width),
+                (width,),
                 (
                     bits,
                     dev.n_x[lo:hi],

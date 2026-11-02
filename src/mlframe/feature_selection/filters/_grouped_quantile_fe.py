@@ -187,6 +187,7 @@ def generate_grouped_quantile_features(
     if not group_cols:
         return pd.DataFrame(index=X.index), raw_recipes
 
+    global_stats: dict[str, tuple] = {}
     for group_col in group_cols:
         g_keys = group_key_strings(X[group_col])
         cur_num_cols = [c for c in num_cols if c in X.columns and c != group_col and pd.api.types.is_numeric_dtype(X[c])]
@@ -199,14 +200,19 @@ def generate_grouped_quantile_features(
             encoded: dict[str, np.ndarray] = {}
             raw_recipes: dict[str, dict] = {}
             x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
-            finite_all = x[np.isfinite(x)]
-            global_sorted = np.sort(finite_all) if finite_all.size else np.array([], dtype=_crit_np_dtype())
-            if finite_all.size:
-                # the four quantiles are read off the sorted column (equal to np.quantile bit for bit), not from four more partitions of it
-                g25, g75, g10, g90 = _sorted_linear_quantiles(global_sorted, (0.25, 0.75, 0.10, 0.90))
-                global_iqr, global_p90p10 = float(g75 - g25), float(g90 - g10)
-            else:
-                global_iqr = global_p90p10 = 0.0
+            # The pooled sorted column and its spreads do not depend on the group column: computed once per numeric column and shared by every group column (a race between two pool threads only repeats the same computation).
+            cached = global_stats.get(num_col)
+            if cached is None:
+                finite_all = x[np.isfinite(x)]
+                global_sorted = np.sort(finite_all) if finite_all.size else np.array([], dtype=_crit_np_dtype())
+                if finite_all.size:
+                    # the four quantiles are read off the sorted column (equal to np.quantile bit for bit), not from four more partitions of it
+                    g25, g75, g10, g90 = _sorted_linear_quantiles(global_sorted, (0.25, 0.75, 0.10, 0.90))
+                    global_iqr, global_p90p10 = float(g75 - g25), float(g90 - g10)
+                else:
+                    global_iqr = global_p90p10 = 0.0
+                cached = global_stats[num_col] = (global_sorted, global_iqr, global_p90p10)
+            global_sorted, global_iqr, global_p90p10 = cached
 
             # Per-group sorted-value arrays (str-keyed) for the CDF position.
             group_sorted: dict[str, list] = {}

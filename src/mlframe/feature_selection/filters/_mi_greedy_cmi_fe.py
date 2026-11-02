@@ -294,6 +294,7 @@ _PARALLEL_CMI_MIN_CANDS = 16  # below this many candidates the pool costs more t
 
 _CMI_CHUNK_LOCK = threading.Lock()
 _CMI_CHUNK_START: dict[int, int] = {}  # candidate count -> chunk width that last fitted on the device
+_CMI_CHUNK_BY_SHAPE: dict[tuple, int] = {}  # (rows, conditioned) -> the last chunk width that had to be reduced to fit
 
 
 def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_cmi_gpu: Any) -> np.ndarray:
@@ -313,13 +314,17 @@ def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_
         scored: np.ndarray = parts[0] if len(parts) == 1 else np.concatenate(parts)
         return scored
 
+    # The chunk that fitted last time for this width, else the one that fitted last for this row count and conditioning: a failed whole-batch attempt costs an allocation sweep and a pool reclaim.
+    shape_key = (int(codes.shape[0]), z_joint is None)
     with _CMI_CHUNK_LOCK:
-        step = min(k, _CMI_CHUNK_START.get(k, k))  # the chunk that fitted last time for this width: a failed whole-batch attempt costs an allocation sweep and a pool reclaim
+        step = min(k, _CMI_CHUNK_START.get(k, _CMI_CHUNK_BY_SHAPE.get(shape_key, k)))
     while True:
         out = attempt(step)
         if out is not None:
             with _CMI_CHUNK_LOCK:
                 _CMI_CHUNK_START[k] = step
+                if step < k:
+                    _CMI_CHUNK_BY_SHAPE[shape_key] = step
             return out
         if step <= 1:
             whole: np.ndarray = batched_cmi_gpu(codes, y_bin, z_joint, codes_trusted=True)  # nothing left to halve: let the error reach the caller's CPU fallback

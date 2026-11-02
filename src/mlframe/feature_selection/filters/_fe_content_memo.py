@@ -23,7 +23,11 @@ def _digest(obj: Any, h: Any, depth: int = 0) -> None:
     """Feed ``obj`` into the hash by content (arrays, frames, series, short containers) or by repr."""
     if isinstance(obj, np.ndarray):
         h.update(str(obj.shape).encode() + str(obj.dtype).encode())
-        h.update(np.ascontiguousarray(obj).view(np.uint8).reshape(-1).data)
+        if obj.dtype == object or obj.dtype.kind not in "biufcmM":
+            # no byte view of an object / string array (the view raised and the whole call ran unmemoised): hash the values
+            h.update(np.ascontiguousarray(pd.util.hash_array(obj)).view(np.uint8).reshape(-1).data)
+        else:
+            h.update(np.ascontiguousarray(obj).view(np.uint8).reshape(-1).data)
     elif isinstance(obj, pd.DataFrame):
         h.update(("DF" + str(obj.shape) + "|".join(map(str, obj.columns))).encode())
         for c in obj.columns:
