@@ -117,14 +117,16 @@ def _carve_inner_eval_split(
 
 def _best_iteration_of(fitted) -> int | None:
     """The boosting round an early-stopped model settled on, or ``None`` when it did not early-stop or is not a booster."""
+    # XGBoost and CatBoost report the 0-based index of the best round, LightGBM the 1-based count; a tree count is index + 1 for the first two.
+    zero_based = type(fitted).__module__.split(".")[0] in ("xgboost", "catboost")
     for attr in ("best_iteration_", "best_iteration"):
         try:
             value = getattr(fitted, attr, None)
         except Exception as exc:  # best-effort: xgboost raises when the model was trained without early stopping; None is the answer then
             logger.debug("_best_iteration_of: %s", exc, exc_info=True)
             value = None
-        if isinstance(value, (int, np.integer)) and int(value) > 0:
-            return int(value)
+        if isinstance(value, (int, np.integer)) and int(value) >= (0 if zero_based else 1):
+            return int(value) + 1 if zero_based else int(value)
     getter = getattr(fitted, "get_best_iteration", None)
     if callable(getter):
         try:
