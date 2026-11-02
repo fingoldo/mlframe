@@ -116,6 +116,10 @@ def eval_candidates(Zt: np.ndarray, subsets: np.ndarray, sizes: np.ndarray, stat
     n = Zt.shape[1]
     n_even = (n + 1) // 2
     m = min(N_EDGE_SAMPLE, n_even)
+    if m == 0:
+        out_even[:] = 0.0
+        out_odd[:] = 0.0
+        return
     for b in prange(B):
         k = sizes[b]
         vals = np.empty(MAX_SUBSET)
