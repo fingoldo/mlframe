@@ -131,11 +131,13 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
     mu = M.mean(axis=0)
     sd = M.std(axis=0)
     Z = M - mu
+    del M  # only mu and sd are needed from here; M may be a private float copy of X
     # zero-variance columns -> corr undefined; np.corrcoef yields nan there (nan_to_num -> 0). Mirror that by leaving
     # their standardized column at 0, so every correlation INVOLVING them is 0 (< thr) -> they stay singletons, exactly
-    # as nan_to_num(corrcoef) produced. Non-constant columns are divided by their std as usual.
+    # as nan_to_num(corrcoef) produced. Non-constant columns are divided by their std as usual; a constant column is divided by 1, which leaves it as it
+    # is. In place: the former ``Z[:, nz] = Z[:, nz] / sd[nz]`` built two more full-size temporaries.
     nz = sd > 0
-    Z[:, nz] = Z[:, nz] / sd[nz]
+    np.divide(Z, np.where(nz, sd, 1.0).astype(Z.dtype, copy=False), out=Z)
     denom = float(n - 1) if n > 1 else 1.0
     bs = 512
     reps, members, assigned = [], {}, np.zeros(p, dtype=bool)
