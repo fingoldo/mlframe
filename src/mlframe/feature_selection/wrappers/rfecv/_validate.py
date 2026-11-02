@@ -430,8 +430,13 @@ def _screen_target_leakage(self, X, y, _suspicious):
                     from pandas.api.types import is_numeric_dtype, is_bool_dtype
 
                     _numeric_cols = [c for c in X.columns if is_numeric_dtype(X[c]) or is_bool_dtype(X[c])]
+                    _unscanned = []
                     for _c in _numeric_cols:
-                        _x_arr = np.asarray(X[_c].values, dtype=float)
+                        try:
+                            _x_arr = X[_c].to_numpy(dtype=float, na_value=np.nan)
+                        except (TypeError, ValueError):
+                            _unscanned.append(_c)
+                            continue
                         _mask = np.isfinite(_x_arr) & np.isfinite(_y_arr)
                         if _mask.sum() < 10:
                             continue
@@ -441,6 +446,8 @@ def _screen_target_leakage(self, X, y, _suspicious):
                         _corr = float(np.corrcoef(_x_arr[_mask], _y_arr[_mask])[0, 1])
                         if abs(_corr) >= float(self.leakage_corr_threshold):
                             _suspicious.append((_c, round(_corr, 4)))
+                    if _unscanned:
+                        logger.warning("RFECV leakage screen: %d numeric column(s) could not be converted to float and were not scanned: %s", len(_unscanned), _unscanned[:10])
                     # The outer try/except catches only TypeError/ValueError raised by the corr computation, NOT our intentional 'raise'
                     # action - so we collect findings here and raise OUTSIDE the try.
         except (TypeError, ValueError):
