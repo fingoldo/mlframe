@@ -44,6 +44,9 @@ def _build_default_extractor(df: Union[pl.DataFrame, pd.DataFrame, str], target_
     # Read just the target column so the dtype can be inspected without loading the
     # full frame when a parquet path was supplied.
     if isinstance(df, str):
+        available = list(pl.read_parquet_schema(df))
+        if target_name not in available:
+            raise ValueError(f"target_name '{target_name}' not found in parquet file {df}; available (first 10): {available[:10]}")
         target_values = pl.read_parquet(df, columns=[target_name])[target_name]
     else:
         if target_name not in df.columns:
