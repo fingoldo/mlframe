@@ -640,10 +640,28 @@ def _make_train_test_sp_ml_way_done(_ml_3way_done, val_size, _groups_arr, _strat
     return train_idx, val_idx
 
 
+def _move_groups_spanning_older_val_into_train(groups_arr, timestamps, train_idx, val_idx):
+    """Backward layout (val older than train): a group split between val and train keeps its rows on the NEWER side, train, not in val.
+
+    The later-wins promotion that follows assumes val is the later block; with a backward layout it would pull newer train rows into the older val window.
+    """
+    if len(train_idx) == 0 or len(val_idx) == 0:
+        return train_idx, val_idx
+    ts = np.asarray(timestamps)
+    if not np.median(ts[val_idx]) < np.median(ts[train_idx]):
+        return train_idx, val_idx
+    spanning = np.intersect1d(groups_arr[train_idx], groups_arr[val_idx])
+    if spanning.size == 0:
+        return train_idx, val_idx
+    move = np.isin(groups_arr[val_idx], spanning)
+    return np.sort(np.concatenate([train_idx, val_idx[move]])).astype(np.intp), val_idx[~move].astype(np.intp)
+
+
 def _make_train_test_sp_also_supplied(groups, timestamps, train_idx, val_idx, test_idx, df):
     """Block of make_train_test_split starting at ``if groups is not None and timestamps is not None:``."""
     if groups is not None and timestamps is not None:
         _groups_arr_post = np.asarray(groups)
+        train_idx, val_idx = _move_groups_spanning_older_val_into_train(_groups_arr_post, timestamps, train_idx, val_idx)
         train_g = set(_groups_arr_post[train_idx].tolist()) if len(train_idx) else set()
         val_g = set(_groups_arr_post[val_idx].tolist()) if len(val_idx) else set()
         test_g = set(_groups_arr_post[test_idx].tolist()) if len(test_idx) else set()
