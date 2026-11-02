@@ -537,8 +537,8 @@ def post_calibrate_model(
     try:
         model.calibrated_val_probs = meta_val_probs
         model.calibrated_test_probs = meta_test_probs
-    except (AttributeError, TypeError):
-        pass
+    except (AttributeError, TypeError) as exc:
+        logger.warning("could not attach calibrated probabilities to %s (%r); ensembling will read the raw probabilities", type(model).__name__, exc)
 
     # The full test slice gets a single "TEST fixed" report -- the historical "fixed [calib_set_size:]" / "fixed lucky
     # [:calib_set_size]" two-bucket reporting reflected the old behaviour where the calibrator was fit on the first
