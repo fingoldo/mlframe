@@ -19,9 +19,9 @@ each kept cluster contributes its highest-permutation-FI member (parsimony), or 
 Adapter protocol matches fs_selectors.py: ``fit(X, y)`` / ``transform(X)`` / ``raw_selected_`` / ``n_engineered_``.
 """
 from __future__ import annotations
+import functools
 import logging
 import os
-os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings
 from collections import defaultdict
 from typing import Any, Literal, Optional
@@ -162,6 +162,28 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
 def _selection_summary(sel):
     """Selection-summary fragment of this selector for the end-of-fit log."""
     return sel.selected_features_, int(sel.n_features_in_), f"+{sel.n_engineered_} engineered", len(sel.selected_features_) - int(sel.n_engineered_)
+
+
+def _tqdm_off_during_call(method):
+    """Run ``method`` with ``TQDM_DISABLE=1`` (the member selectors draw progress bars) and put the variable back afterwards.
+
+    Setting it at import time silenced every progress bar in the process for the rest of the session, the user's own included.
+    """
+
+    @functools.wraps(method)
+    def wrapper(*args, **kwargs):
+        """Set the variable, call, restore."""
+        previous = os.environ.get("TQDM_DISABLE")
+        os.environ["TQDM_DISABLE"] = "1"
+        try:
+            return method(*args, **kwargs)
+        finally:
+            if previous is None:
+                os.environ.pop("TQDM_DISABLE", None)
+            else:
+                os.environ["TQDM_DISABLE"] = previous
+
+    return wrapper
 
 
 class HybridSelector:
@@ -630,6 +652,7 @@ class HybridSelector:
     # ------------------------------------------------------------------ fit / transform
     @logs_fit("HybridSelector", _selection_summary)
     @rng_hygienic_fit
+    @_tqdm_off_during_call
     def fit(self, X, y):
         """Run the full hybrid pipeline: bridge to a pandas view, validate a classification target, run MRMR (stage 0,
         engineers the shared FE columns), score the augmented frame with one shared permutation-FI pass, gate/admit tree
