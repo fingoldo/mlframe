@@ -13,7 +13,7 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | **RESOLVED** | W17TRN-3 | Medium | val/OOF slices of Series `sample_weight` / `group_ids` index by label |
 | **OPEN** | W17TRN-4 | Medium | `metadata["model_schemas"]` keys collide across pre-pipelines and targets |
 | **OPEN** | W17TRN-5 | Low | `val_placement="backward"` moves split groups to the wrong side |
-| **OPEN** | W17TRN-6 | Low | multilabel 3-way split uses `val_size` as a fraction of all rows |
+| **RESOLVED** | W17TRN-6 | Low | multilabel 3-way split uses `val_size` as a fraction of all rows |
 | **RESOLVED** | W17FSW-1 | High | RFECV `must_include` and group members dropped on ndarray input (string fit-time names vs integer columns) |
 | **RESOLVED** | W17FSW-2 | Medium | RFECV `ranking_` disagrees with `support_` after pins / group expansion |
 | **RESOLVED** | W17FSW-3 | Medium | per-fold scores stored in completion order under `n_jobs > 1` |
@@ -60,3 +60,4 @@ Metric cores (`_core_auc_brier`, `_ice_metric`, `_drift`, `_fairness_metrics`), 
 | W17FSW-2 | `tests/feature_selection/wrappers/test_rfecv_must_include_on_ndarray_input.py` |
 | W17CMP-3 | `tests/training/composite/ensemble/test_best_iteration_counts_trees_for_zero_based_boosters.py` |
 | W17CMP-5 | `tests/training/composite/cache/test_drift_refit_keeps_no_t_clip_when_mad_is_zero.py` |
+| W17TRN-6 | `tests/training/test_split_3way_and_cb_plot.py::test_3way_val_size_is_a_fraction_of_the_post_test_remainder` (reframed from the whole-fraction assertion) |
