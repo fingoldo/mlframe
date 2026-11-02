@@ -6,7 +6,7 @@ Three read-only reports by Opus 5.5 low-effort agents: train/val/test leakage in
 |---|---|---|---|---|
 | **RESOLVED** | LEAK15-1 | leakage | High | `LeakageSafeEncoder(time_aware=True)` used unshuffled `KFold`, encoding every fold but the last from later rows; rows a forward-chaining splitter never holds out were left uninitialised (`feature_handling/target_encoders.py`) |
 | **RESOLVED** | LEAK15-2 | leakage | High | `target_loo` train encoding is a decreasing function of the row's own label; it now logs a warning and its docstring says it is not leakage-safe for tree models (the method itself is unchanged) |
-| **FUTURE** | LEAK15-3 | leakage | Medium | suite OOF predictions cross-validate only the final estimator on columns already selected and encoded with all train labels (`_trainer_train_and_evaluate.py`, `trainer.py`); the fix is to run OOF over `clone(Pipeline([pre_pipeline, model]))` on the untransformed frame, or to flag the OOF as not honest when a supervised step ran |
+| **PARTIAL** | LEAK15-3 | leakage | Medium | the bias is signalled, not removed: `oof_diagnostics['supervised_preprocessing_outside_folds']` is set and a warning logged when the `pre_pipeline` holds a step fitted with labels; the remaining work is to run OOF over `clone(Pipeline([pre_pipeline, model]))` on the untransformed frame, which touches the OOF loop, the ensemble chooser and the calibration consumers |
 | **RESOLVED** | LEAK15-4 | leakage | Medium | `select_oof_pool_ensemble` reported the in-sample score of its own selection as held-out; it now documents that and offers `honest_folds` (nested K-fold) giving `honest_score`. The blend `combined_oof` is still chosen with every row's label, so a stacking meta-model fitted on it stays biased |
 | **RESOLVED** | LEAK15-5 | leakage | Medium | `DirectMultiHorizonEnsemble` block-size search used shuffled K-fold over consecutive origins with overlapping targets; `time_ordered=True` now gives contiguous folds with an `n_horizons - 1` purge (default stays shuffled because row order is unknown) |
 | **RESOLVED** | LEAK15-6 | leakage | Low | stacked discovery built its `_oof_` columns without the group ids pass 1 honours (`composite/discovery/_stacked.py`) |
@@ -24,7 +24,7 @@ Three read-only reports by Opus 5.5 low-effort agents: train/val/test leakage in
 
 ## Counts
 
-17 rows. Dispositions: 15 RESOLVED, 2 FUTURE.
+17 rows. Dispositions: 15 RESOLVED, 1 PARTIAL, 1 FUTURE.
 
 ## Implemented
 
@@ -32,6 +32,7 @@ Three read-only reports by Opus 5.5 low-effort agents: train/val/test leakage in
 |---|---|---|
 | LEAK15-1 | Encode time-aware target-encoder folds from earlier rows only | `tests/training/feature_handling/test_target_encoder_time_aware_forward_chaining.py` |
 | LEAK15-2 | Warn that the leave-one-out target encoding depends on the row's own label | `tests/training/feature_handling/test_target_loo_warns_about_own_label_leak.py` |
+| LEAK15-3 (flag only) | Flag OOF diagnostics when supervised preprocessing ran outside the folds | `tests/training/test_oof_diagnostics_flag_supervised_preprocessing.py`; 8 OOF tests pass |
 | LEAK15-4 | Add a nested held-out score to the HPO pool ensemble selection | `tests/training/composite/test_oof_pool_selection_honest_score.py` |
 | LEAK15-5 | Add purged contiguous folds to the multi-horizon block-size search | `tests/training/composite/test_direct_multi_horizon_time_ordered_folds.py` |
 | LEAK15-6 | Pass the group ids to the stacked discovery's OOF predictions | `tests/training/composite/test_stacked_oof_passes_groups.py` |
