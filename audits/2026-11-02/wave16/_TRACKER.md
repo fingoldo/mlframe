@@ -22,14 +22,14 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 | **RESOLVED** | IMP16-3 | import | Medium | ngboost is imported only where an NGB model is built; the three unused module-level imports are removed (a missing ngboost now raises ImportError at the builder) |
 | **RESOLVED** | IMP16-4 | import | Medium | the import-time warm-ups of the discovery correlation and collinearity kernels are removed; they compile on the first real call |
 | **RESOLVED** | IMP16-5 | import | Low | the ACF/PACF kernels moved to `mlframe/utils/acf_kernels.py` and `acf_lag_selection` imports them from there, no longer through `mlframe.reporting.charts`; the other module-level `matplotlib.pyplot` imports in `calibration/quality.py`, `evaluation/reports.py`, `reporting/charts/shap_panels.py` and `boruta_shap/_io_plot.py` are untouched, and `import mlframe.feature_engineering` still loads `mlframe.reporting` through another module |
-| **FUTURE** | IMP16-6 | import | Low | `import mlframe` imports `pyutilz.system` and replaces `is_cuda_available` in it |
+| **RESOLVED** | IMP16-6 | import | Low | the GPU-runtime wrapper around `is_cuda_available` is installed by a post-import hook when `pyutilz.system.gpu_dispatch` is imported; `import mlframe` no longer imports `pyutilz.system` (the wrapper still replaces a function in another package once that package loads) |
 | **REJECTED** | IMP16-7 | import | Low | `import mlframe.training` sets `LOKY_MAX_CPU_COUNT`; the comment in `training/__init__.py` records this single env write as a deliberate choice after the physical-core patch was made opt-in |
 | **RESOLVED** | IMP16-8 | import | Low | `callbacks/stop_file.py` imported lightgbm at module level only to test availability |
 | **RESOLVED** | IMP16-9 | import | Low | the Pareto plot is drawn on an Agg `Figure` that is not registered with pyplot, so `matplotlib.use("Agg", force=True)` is gone and the process keeps its backend |
 
 ## Counts
 
-23 rows. Dispositions: 19 RESOLVED, 3 FUTURE, 1 REJECTED.
+23 rows. Dispositions: 20 RESOLVED, 2 FUTURE, 1 REJECTED.
 
 ## Implemented
 
@@ -37,6 +37,7 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 |---|---|---|
 | MEM16-1, MEM16-6 | Stop deep-copying the whole frame in the functional adapters and ACE | `tests/feature_selection/test_selection_inputs_are_not_deep_copied.py` (checks the numeric buffer stays shared; the ACE `copy=False` change has no separate test) |
 | MEM16-2 | Reuse one shadow buffer across Boruta rounds | `tests/feature_selection/filters/test_boruta_shadow_buffer_reuse.py` (the reuse test fails without the fix) |
+| IMP16-6 | Wrap is_cuda_available when pyutilz.system.gpu_dispatch is imported, not at import mlframe | `tests/test_gpu_runtime_trigger_is_installed_lazily.py` (the first test fails without the fix); 10 GPU opt-out and autoconfig tests pass |
 | IMP16-1 | Install the CatBoost clone patch when catboost is imported, not when mlframe.metrics is | `tests/utils/test_post_import_hook.py` (catboost-not-imported test fails without the fix); 47 clone-safety tests pass |
 | IMP16-2 | Stop importing torch when the training package is imported | `tests/training/test_torch_is_not_imported_by_training_core.py` (fails without the fix); the 5 MLP tests that import `nn` from `trainer` failed first and pass after the lazy `__getattr__` |
 | IMP16-3 | Import ngboost only where an NGB model is built | `tests/training/test_ngboost_is_imported_only_when_an_ngb_model_is_built.py` (fails without the fix); 29 NGB-related tests pass |
