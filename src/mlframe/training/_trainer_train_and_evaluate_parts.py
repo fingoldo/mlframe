@@ -46,6 +46,8 @@ from ._data_helpers import (  # noqa: F401  -- carved helpers
     _setup_eval_set, _setup_early_stopping_callback,
 )
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.training.trainer")
 
 # Split-metrics emitters carved into a sibling to keep this orchestration module under the LOC budget.
@@ -349,7 +351,25 @@ def _train_and_evaluate_nest_lightning_checkpoints_csv(model_file_name, model):
         pass
 
 
-def _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, just_evaluate, model_type_name, train_target, model, train_df, oof_random_seed, group_ids, train_idx, oof_has_time, _pre_pipeline_sample_weight, timestamps, fit_params=None):
+def _stamp_oof_honesty(diag: dict, pre_pipeline: Any) -> None:
+    """Record in ``diag`` whether a supervised step of ``pre_pipeline`` (a selector or encoder fitted with the labels) ran OUTSIDE the OOF folds.
+
+    The OOF loop cross-validates only the final estimator on columns already selected with every train label, so its scores and predictions are optimistic
+    by an amount the loop cannot measure; downstream consumers (ensemble choice, OOF calibration, conformal sets) should not treat them as honest.
+    """
+    from mlframe.training.composite.ensemble import _has_supervised_selection
+
+    flagged = bool(pre_pipeline is not None and _has_supervised_selection(pre_pipeline))
+    diag["supervised_preprocessing_outside_folds"] = flagged
+    if flagged:
+        log_throttle(
+            logger, "oof_supervised_preprocessing_outside_folds", logging.WARNING,
+            "OOF predictions come from a model fitted on features selected with all train labels (a supervised pre_pipeline step ran outside the folds); "
+            "they are optimistic and diag['supervised_preprocessing_outside_folds'] is set.",
+        )
+
+
+def _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, just_evaluate, model_type_name, train_target, model, train_df, oof_random_seed, group_ids, train_idx, oof_has_time, _pre_pipeline_sample_weight, timestamps, fit_params=None, pre_pipeline=None):
     """Block of train_and_evaluate_model starting at ``if oof_n_splits and oof_n_splits >= 2 and not just_evaluate:``."""
     from mlframe.training.trainer import _compute_oof_preds
 
@@ -372,6 +392,7 @@ def _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, just_evaluate, mod
                 has_time=bool(oof_has_time), sample_weight=_pre_pipeline_sample_weight, timestamps=_oof_train_timestamps(timestamps, train_idx),
                 fit_params=fit_params,
             )
+            _stamp_oof_honesty(_oof_diag, pre_pipeline)
             try:
                 model.oof_diagnostics = _oof_diag  # mlframe-injected bookkeeping attr on an arbitrary (object-typed) model
                 if _oof_preds is not None:
