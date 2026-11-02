@@ -720,7 +720,7 @@ def entropy_calibration_index(pit_values: np.ndarray, bins: int = 10, miller_mad
     counts, _ = np.histogram(pit_values, bins=bins, range=(0, 1), density=False)
     total = counts.sum()
     if total == 0:
-        return 0.0
+        return float("nan")  # no usable PIT values; 0.0 would read as perfect calibration
     probs = counts / total
     uniform_entropy = np.log(bins)
     observed_entropy = entropy(probs)

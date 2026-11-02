@@ -46,7 +46,7 @@ def _fast_log_loss_binary_seq(y_true: np.ndarray, y_pred: np.ndarray, eps: float
     just adds a branch. The par fusion win does not carry over; keep two passes."""
     n = len(y_true)
     if n == 0:
-        return 0.0
+        return np.nan  # an empty slice must not score as a perfect model
 
     loss_sum = 0.0
     has_class_0 = False
@@ -91,7 +91,7 @@ def _fast_log_loss_binary_par(y_true: np.ndarray, y_pred: np.ndarray, eps: float
     """
     n = len(y_true)
     if n == 0:
-        return 0.0
+        return np.nan  # an empty slice must not score as a perfect model
 
     # Fixed chunk partition instead of a bare float reduction: a bare one combines the per-thread partials in thread
     # completion order, so the same input returned a different last ulp on every call (measured on a 300k-row report:
