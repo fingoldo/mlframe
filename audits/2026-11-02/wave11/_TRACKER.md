@@ -7,12 +7,13 @@ Second pass over numba kernels (the unread part of wave 10, NJIT10-2), three rea
 | **RESOLVED** | NJ11-1a | njit_oob | High | `_wavedec_batched_njit` wrote past a scratch buffer sized to the signal when T < filter length - 1 (`wavelet_dwt.py`) |
 | **RESOLVED** | NJ11-1b | njit_oob | Medium | SU clustering kernels indexed another feature's counts with a negative bin code (`shap_proxied_fs/_shap_proxy_cluster_su.py`) |
 | **RESOLVED** | NJ11-1c | wrong_formula | High | Miller-Madow term added to plug-in MI instead of subtracted at four sites (`_orthogonal_copula_mi_fe.py` x2, `_numba_utils.py`, `_fe_synergy_screen.py`) |
+| **RESOLVED** | NJ11-1d | wrong_formula | High | the same sign error in the marginal-MI Miller-Madow term of `_mi_greedy_cmi_fe.py`, `_mi_greedy_cmi_fe_gpu.py`, `_mi_greedy_cmi_fe_steps.py` and two more sites in `_fe_synergy_screen.py`, found by grepping the formula after NJ11-1c |
 | **FUTURE** | NJ11-2 | fastmath | Low | `fastmath=True` on the polynomial optimizer dispatchers may let LLVM drop NaN/inf checks; no wrong result shown, fix is to compile them with the NaN-safe flag set and compare selections |
 | **FUTURE** | NJ11-3 | coverage | Info | files still not read in full, listed below |
 
 ## Counts
 
-5 rows: 2 High, 1 Medium, 1 Low, 1 Info. Dispositions: 3 RESOLVED, 2 FUTURE.
+6 rows: 3 High, 1 Medium, 1 Low, 1 Info. Dispositions: 4 RESOLVED, 2 FUTURE.
 
 ## Implemented
 
@@ -20,6 +21,7 @@ Second pass over numba kernels (the unread part of wave 10, NJIT10-2), three rea
 |---|---|---|
 | NJ11-1a | Size the batched DWT scratch buffers to the longest level | `tests/feature_engineering/test_wavelet_dwt_short_signal_batched.py` |
 | NJ11-1b | Shift negative bin codes before the SU kernels count them | `tests/feature_selection/shap_proxied/test_su_kernel_negative_codes.py` |
+| NJ11-1d | Add the Miller-Madow correction to marginal MI in the greedy CMI and synergy kernels | `tests/feature_selection/filters/test_greedy_cmi_marginal_mi_bias_sign.py` |
 | NJ11-1c | Subtract the Miller-Madow term from plug-in MI instead of adding it | `tests/feature_selection/filters/test_miller_madow_bias_is_subtracted.py`; `test_copula_mi_batch_yhoist_identity.py` re-framed from bit identity to 1e-12 |
 
 NJ11-1c changes the scores of the copula and synergy screens (independent columns drop from about 0.18 to about 0 nats), so selections that relied on the inflated values can move. The tests for the synergy screen, the copula kernels, the auto scorer and the MRMR synergy-redundancy case pass (58 tests); no multi-seed selection benchmark was run.
