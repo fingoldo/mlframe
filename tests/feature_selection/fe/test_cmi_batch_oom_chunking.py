@@ -91,3 +91,29 @@ def test_a_different_width_starts_at_the_chunk_that_fitted_for_the_same_rows(mon
     widths.clear()
     cmi_mod._batched_cmi_in_chunks(np.zeros((10, 95), dtype=np.int64), y, None, limited)
     assert max(widths) <= 20
+
+
+def test_an_all_singleton_conditioning_support_scores_zero_without_a_launch():
+    """With a distinct conditioning value in every row the conditional MI is 0 for every column (the kernel agrees to rounding noise), and the device is not asked."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._fe_batched_mi import batched_cmi_gpu
+
+    rng = np.random.default_rng(3)
+    n, k = 800, 5
+    codes = cp.asarray(rng.integers(0, 10, (n, k)).astype(np.int64))
+    y = rng.integers(0, 2, n).astype(np.int64)
+    z = rng.permutation(n).astype(np.int64)
+    calls = []
+
+    def spy(x, yy, zz, **kw):
+        """Fail the test if the device is asked."""
+        calls.append(1)
+        return batched_cmi_gpu(x, yy, zz, **kw)
+
+    got = cmi_mod._batched_cmi_in_chunks(codes, y, z, spy)
+    assert not calls
+    np.testing.assert_allclose(got, np.asarray(batched_cmi_gpu(codes, y, z, codes_trusted=True)), rtol=0, atol=1e-12)
+    assert not got.any()
+    z_shared = np.concatenate([z[: n // 2], z[: n // 2]])  # duplicates: the device scores it
+    cmi_mod._batched_cmi_in_chunks(codes, y, z_shared, spy)
+    assert calls

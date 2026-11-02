@@ -297,12 +297,27 @@ _CMI_CHUNK_START: dict[int, int] = {}  # candidate count -> chunk width that las
 _CMI_CHUNK_BY_SHAPE: dict[tuple, int] = {}  # (rows, conditioned) -> the last chunk width that had to be reduced to fit
 
 
+def _conditioning_is_all_singletons(z_joint: Any, n_rows: int) -> bool:
+    """Whether the conditioning support ``z_joint`` holds a distinct value in every one of the ``n_rows`` rows (``False`` for no support, a wrong length or any fault)."""
+    if z_joint is None or n_rows < 2:
+        return False
+    try:
+        z = np.asarray(z_joint.get() if hasattr(z_joint, "get") else z_joint).ravel()
+        return int(z.shape[0]) == n_rows and int(np.unique(z).size) == n_rows
+    except Exception as exc:
+        logger.debug("conditioning-support check failed (%s); scoring on the device", exc)
+        return False
+
+
 def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_cmi_gpu: Any) -> np.ndarray:
     """``batched_cmi_gpu`` over all columns of ``codes``; when the device cannot hold the whole batch's joint histograms (a wide conditioning support makes them ``K x Kx x Kyz`` cells) the
     columns are scored in chunks, halving the chunk until it fits. Every column is scored independently, so the values are the whole-batch values."""
     import cupy as cp
 
     k = int(codes.shape[1])
+    if _conditioning_is_all_singletons(z_joint, int(codes.shape[0])):
+        # every row is its own conditioning cell: each cell holds one row, so the conditional MI is exactly 0 for every column (the kernel returns rounding noise of about 1e-15 there, far below every floor the scores are compared with)
+        return np.zeros(k, dtype=np.float64)  # Intentional float64: score output contract kept f64 (exact comparison)
 
     def attempt(step: int) -> "np.ndarray | None":
         """All columns scored in chunks of ``step``; ``None`` when the device ran out of memory."""
