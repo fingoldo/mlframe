@@ -782,4 +782,7 @@ def _install_catboost_sklearn_clone_patch() -> None:
             cls.__sklearn_clone__ = _cb_sklearn_clone
 
 
-_install_catboost_sklearn_clone_patch()
+# Patch CatBoost only in processes that load it: importing catboost here cost about 3 s (it pulls IPython and xgboost) for every importer of mlframe.metrics.
+from mlframe.utils.post_import_hook import run_after_import as _run_after_import
+
+_run_after_import("catboost", _install_catboost_sklearn_clone_patch)
