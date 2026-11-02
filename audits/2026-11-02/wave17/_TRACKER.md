@@ -23,7 +23,7 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | **OPEN** | W17MRM-3 | Medium | operand retention re-grows support after the UAED trim |
 | **RESOLVED** | W17CMP-1 | High | `predict_quantile` applied smearing, returning means instead of quantiles |
 | **RESOLVED** | W17CMP-2 | Medium | `GroupedBlockStacker` ignored a numeric `invalid_row_fill` |
-| **OPEN** | W17CMP-3 | Low | `_best_iteration_of` off by one for XGBoost / CatBoost |
+| **RESOLVED** | W17CMP-3 | Low | `_best_iteration_of` off by one for XGBoost / CatBoost |
 | **OPEN** | W17CMP-4 | Low | smearing factor and residual quantiles ignore sample weights |
 | **OPEN** | W17CMP-5 | Low | T-clip envelope differs between fit and drift refit when MAD = 0 |
 | **OPEN** | W17CMP-6 | Low | chain / quantile-normal transforms get no smearing |
@@ -58,3 +58,4 @@ Metric cores (`_core_auc_brier`, `_ice_metric`, `_drift`, `_fairness_metrics`), 
 | W17MET-2 | `tests/inference/test_diagnose_error_accumulation_oracle_applies_feature_updates.py` |
 | W17FSW-4 | `tests/feature_selection/wrappers/test_rfecv_support_from_ranking_on_ndarray.py` (helper-level; the ranking key type was not confirmed end to end, the string comparison is correct for both) |
 | W17FSW-2 | `tests/feature_selection/wrappers/test_rfecv_must_include_on_ndarray_input.py` |
+| W17CMP-3 | `tests/training/composite/ensemble/test_best_iteration_counts_trees_for_zero_based_boosters.py` |
