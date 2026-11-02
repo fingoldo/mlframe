@@ -331,8 +331,13 @@ def build_binagg_oof_matrix_gpu(
         if spec["stat"] not in _sl:
             _sl.append(spec["stat"])
 
-    out_cols = []
-    for spec in col_specs:
+    from ._hermite_fe_mi import relaxed_candidate_dtype as _relaxed_dt
+
+    dt = _relaxed_dt(cp) if out_dtype is None else out_dtype
+    # The block is allocated once and each candidate column is cast and written into it as it is built: collecting the float64 columns and stacking them held about three times the block at the peak (1.8 GB of a 1.9 GB pool at 100000 rows).
+    n_out = len(col_specs)
+    block = cp.empty((n_out, n) if column_major else (n, n_out), dtype=dt) if n_out else None
+    for out_i, spec in enumerate(col_specs):
         gcol = spec["group_col"]
         acol = spec["agg_col"]
         stat = spec["stat"]
@@ -392,18 +397,14 @@ def build_binagg_oof_matrix_gpu(
             tables = _pair_fold_stat_tables(cp, codes_g, v_safe, finite_f, fold_g, nf, n_cells, _pstats)
             fold_stat_cache["tables"] = tables
         oof = _oof_column_from_table(cp, tables[stat], _row_cell_index(cp, code_cache, gcol, fold_g, codes_g, n_cells), glob)
-        out_cols.append(oof)
+        if column_major:
+            block[out_i] = oof  # the columns ARE the rows of the (K, n) block: contiguous, nothing for a consumer to transpose; the assignment casts to ``dt``
+        else:
+            block[:, out_i] = oof
 
-    from ._hermite_fe_mi import relaxed_candidate_dtype as _relaxed_dt
-
-    dt = _relaxed_dt(cp) if out_dtype is None else out_dtype
-    if not out_cols:
+    if block is None:
         return cp.empty((0, n) if column_major else (n, 0), dtype=dt)
-    if column_major:
-        # the columns ARE the rows of the (K, n) block: a plain contiguous concatenation, no strided interleave and nothing for a consumer to transpose. Each column is cast
-        # to ``out_dtype`` before the stack, so a float32 block never exists in float64 (K x n x 8 bytes) and is not cast as a whole afterwards.
-        return cp.ascontiguousarray(cp.stack([c.astype(dt, copy=False) for c in out_cols], axis=0))
-    return cp.ascontiguousarray(cp.stack(out_cols, axis=1).astype(dt, copy=False))
+    return block
 
 
 def _binagg_null_calibrated_floor(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.ndarray, _ymin: int, _ncls: int, nbins: int, floor: float) -> float:
