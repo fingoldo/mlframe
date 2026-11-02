@@ -20,7 +20,7 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 | **FUTURE** | IMP16-1 | import | High | `import mlframe.metrics` installs the CatBoost `__sklearn_clone__` patch at import, costing about 3.2 s (catboost, IPython, xgboost); consumers rely on the import to guarantee the patch, so it needs a post-import hook or explicit installs at each CatBoost construction site |
 | **FUTURE** | IMP16-2 | import | High | `training/_model_factories.py` imports torch (12.5 s) at module level although the neural stack is meant to be deferred |
 | **FUTURE** | IMP16-3 | import | Medium | ngboost imported eagerly in four modules (4.1 s with sympy) |
-| **FUTURE** | IMP16-4 | import | Medium | six `parallel=True` numba kernels compile at `import mlframe.training.core` (`_corr_numba.py`, `_collinear_numba.py`) |
+| **RESOLVED** | IMP16-4 | import | Medium | the import-time warm-ups of the discovery correlation and collinearity kernels are removed; they compile on the first real call |
 | **FUTURE** | IMP16-5 | import | Low | `matplotlib.pyplot` and `mlframe.reporting` imported at module level in deep helpers |
 | **FUTURE** | IMP16-6 | import | Low | `import mlframe` imports `pyutilz.system` and replaces `is_cuda_available` in it |
 | **REJECTED** | IMP16-7 | import | Low | `import mlframe.training` sets `LOKY_MAX_CPU_COUNT`; the comment in `training/__init__.py` records this single env write as a deliberate choice after the physical-core patch was made opt-in |
@@ -29,7 +29,7 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 
 ## Counts
 
-23 rows. Dispositions: 13 RESOLVED, 9 FUTURE, 1 REJECTED.
+23 rows. Dispositions: 14 RESOLVED, 8 FUTURE, 1 REJECTED.
 
 ## Implemented
 
@@ -37,6 +37,7 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 |---|---|---|
 | MEM16-1, MEM16-6 | Stop deep-copying the whole frame in the functional adapters and ACE | `tests/feature_selection/test_selection_inputs_are_not_deep_copied.py` (checks the numeric buffer stays shared; the ACE `copy=False` change has no separate test) |
 | MEM16-2 | Reuse one shadow buffer across Boruta rounds | `tests/feature_selection/filters/test_boruta_shadow_buffer_reuse.py` (the reuse test fails without the fix) |
+| IMP16-4 | Stop compiling the discovery correlation kernels at import | `tests/training/composite/test_discovery_numba_kernels_not_compiled_at_import.py` (fails without the fix); 24 discovery kernel tests pass |
 | MEM16-7 | Standardise the blocked correlation matrix in place | `tests/feature_selection/test_hybrid_corr_clusters_blocked_memory.py` (the memory test fails without the fix) |
 | MEM16-8 | Drop the up-front copy of the input matrix in compose_pair_fe | `tests/feature_selection/filters/test_compose_pair_fe_no_upfront_copy.py` (fails without the fix) |
 | ERR16-3 | Refuse a datetime target in the default extractor | `tests/training/test_default_extractor_rejects_datetime_target.py` |
