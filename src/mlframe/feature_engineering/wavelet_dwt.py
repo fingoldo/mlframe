@@ -259,6 +259,10 @@ if _HAS_NUMBA:
         N = signals.shape[0]
         T = signals.shape[1]
         flen = lo_filter.shape[0]
+        max_len = T
+        for lv in range(out_lengths.shape[0]):
+            if out_lengths[lv] > max_len:
+                max_len = out_lengths[lv]
         for i in numba.prange(N):
             # Two ping-pong buffers sized for the worst-case (level 0)
             # signal length. Each thread allocates its own pair so the
@@ -267,8 +271,10 @@ if _HAS_NUMBA:
             # convolution at row k may still need to read positions <k
             # (filter footprint extends behind the centre after
             # symmetric reflection).
-            buf_a = signals[i].copy()
-            buf_b = np.empty(T, dtype=np.float64)
+            # A level can emit more samples than it reads when T < flen - 1, so both buffers hold the longest level.
+            buf_a = np.empty(max_len, dtype=np.float64)
+            buf_a[:T] = signals[i]
+            buf_b = np.empty(max_len, dtype=np.float64)
             cur_len = T
             src_is_a = True
             offset = 0
