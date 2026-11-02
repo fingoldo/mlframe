@@ -631,6 +631,7 @@ def _per_feature_edges_np_asarray(X, method, y):
 _EDGES_WARMED = False  # set once a threaded call has finished: the njit kernels of the edge builders are compiled in this process
 _EDGE_POOL: Any = None
 _EDGE_POOL_WORKERS = 0
+_RETIRED_EDGE_POOLS: list[Any] = []
 _EDGE_POOL_LOCK = threading.Lock()
 
 
@@ -643,7 +644,8 @@ def _edge_pool(workers: int) -> Any:
             from concurrent.futures import ThreadPoolExecutor
 
             if _EDGE_POOL is not None:
-                _EDGE_POOL.shutdown(wait=False)
+                # A concurrent caller may hold the old pool and be about to map on it; shutting it down would make that submit raise.
+                _RETIRED_EDGE_POOLS.append(_EDGE_POOL)
             _EDGE_POOL = ThreadPoolExecutor(max_workers=int(workers), thread_name_prefix="edges")
             _EDGE_POOL_WORKERS = int(workers)
         return _EDGE_POOL
