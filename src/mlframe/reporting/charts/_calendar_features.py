@@ -45,7 +45,7 @@ def _utc_naive_datetime64(timestamps: Any) -> np.ndarray:
     tz = getattr(getattr(timestamps, "dtype", None), "tz", None)
     if tz is not None:
         index = pd.DatetimeIndex(timestamps)
-        return index.tz_convert("UTC").tz_localize(None).to_numpy()
+        return np.asarray(index.tz_convert("UTC").tz_localize(None).to_numpy())
     return np.asarray(timestamps)
 
 

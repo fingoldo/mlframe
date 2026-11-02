@@ -417,6 +417,21 @@ def _warn_suspicious_high_cardinality(X):
             )
 
 
+_UNSCANNABLE = object()
+
+
+def _leak_corr_or_none(col, y_arr):
+    """Pearson correlation of one column with ``y_arr`` over their finite rows; None when too few rows or a constant column, ``_UNSCANNABLE`` when the column cannot become float."""
+    try:
+        x_arr = col.to_numpy(dtype=float, na_value=np.nan)
+    except (TypeError, ValueError):
+        return _UNSCANNABLE
+    mask = np.isfinite(x_arr) & np.isfinite(y_arr)
+    if mask.sum() < 10 or float(np.nanstd(x_arr[mask])) < 1e-12:
+        return None
+    return float(np.corrcoef(x_arr[mask], y_arr[mask])[0, 1])
+
+
 def _screen_target_leakage(self, X, y, _suspicious):
     """Drop columns whose correlation with the target suggests leakage."""
     if self.leakage_corr_threshold is not None and isinstance(X, pd.DataFrame) and X.shape[0] >= 30:
@@ -432,19 +447,10 @@ def _screen_target_leakage(self, X, y, _suspicious):
                     _numeric_cols = [c for c in X.columns if is_numeric_dtype(X[c]) or is_bool_dtype(X[c])]
                     _unscanned = []
                     for _c in _numeric_cols:
-                        try:
-                            _x_arr = X[_c].to_numpy(dtype=float, na_value=np.nan)
-                        except (TypeError, ValueError):
+                        _corr = _leak_corr_or_none(X[_c], _y_arr)
+                        if _corr is _UNSCANNABLE:
                             _unscanned.append(_c)
-                            continue
-                        _mask = np.isfinite(_x_arr) & np.isfinite(_y_arr)
-                        if _mask.sum() < 10:
-                            continue
-                        _x_std = float(np.nanstd(_x_arr[_mask]))
-                        if _x_std < 1e-12:
-                            continue
-                        _corr = float(np.corrcoef(_x_arr[_mask], _y_arr[_mask])[0, 1])
-                        if abs(_corr) >= float(self.leakage_corr_threshold):
+                        elif _corr is not None and abs(_corr) >= float(self.leakage_corr_threshold):
                             _suspicious.append((_c, round(_corr, 4)))
                     if _unscanned:
                         logger.warning("RFECV leakage screen: %d numeric column(s) could not be converted to float and were not scanned: %s", len(_unscanned), _unscanned[:10])
