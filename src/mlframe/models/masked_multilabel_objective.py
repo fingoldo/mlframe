@@ -207,8 +207,11 @@ def compute_inverse_frequency_class_weights(y_multilabel: np.ndarray, dont_care_
         n_care = int(care_j.sum())
         if n_care == 0:
             continue
-        pos_rate = max(float(y_arr[care_j, j].mean()), 1e-6)
-        weights[j] = 1.0 / pos_rate
+        pos_rate = float(y_arr[care_j, j].mean())
+        if pos_rate <= 0.0:
+            # a label with no positives among its cared cells has nothing to up-weight: 1e6 would shrink every other label's weight to ~0 after normalising
+            continue
+        weights[j] = 1.0 / max(pos_rate, 1e-6)
     mean_weight = float(weights.mean())
     if mean_weight > 0:
         weights = weights / mean_weight

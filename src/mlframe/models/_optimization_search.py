@@ -337,10 +337,17 @@ class MBHOptimizer:
             """Sort key that tolerates mixed-type values: ``None`` last, everything else by its string form."""
             return (v is None, str(v))
 
+        def _ordered():
+            """Natural order (numbers numerically) when the values are mutually comparable, the string-key order otherwise."""
+            try:
+                return sorted(sampled_inputs)
+            except TypeError:
+                return sorted(sampled_inputs, key=_sort_key)
+
         if init_evaluate_ascending:
-            return sorted(sampled_inputs, key=_sort_key)
+            return _ordered()
         if init_evaluate_descending:
-            return sorted(sampled_inputs, key=_sort_key)[::-1]
+            return _ordered()[::-1]
         return list(sampled_inputs)
 
     def _init_surrogate_model(self, model_params: dict, quantile: float) -> None:
