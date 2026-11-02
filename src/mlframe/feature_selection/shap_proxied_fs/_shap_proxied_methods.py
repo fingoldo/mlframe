@@ -265,11 +265,15 @@ class ShapProxiedMethodsMixin:
         if not hasattr(self, "selected_features_"):
             raise NotFittedError("ShapProxiedFS.transform called before fit.")
         X = self._to_pandas(X)
-        X.columns = [str(c) for c in X.columns]
         selected = list(self.selected_features_)
-        if hasattr(X, "loc"):
-            return X.loc[:, selected]
-        return X[selected]
+        # Match the fitted string names to the frame's own labels and rename only the SELECTED copy: assigning X.columns would rename the caller's frame.
+        label_of = {str(c): c for c in X.columns}
+        missing = [n for n in selected if n not in label_of]
+        if missing:
+            raise ValueError(f"ShapProxiedFS.transform: the frame lacks {len(missing)} selected column(s) seen at fit, e.g. {missing[:5]}")
+        out = X.loc[:, [label_of[n] for n in selected]]
+        out.columns = selected
+        return out
 
     def get_support(self, indices: bool = False):
         """Boolean support mask over the original input columns (or, if ``indices=True``, the integer positions where it is True); raises ``NotFittedError`` if called before ``fit``."""
