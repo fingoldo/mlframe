@@ -30,6 +30,7 @@ _MIN_BASELINES = 15
 # Measured empty on 2026-09-08. Each is a gate whose violation class the codebase has fully drained; the
 # point of the list is that draining is the only acceptable way for one to leave it.
 ZERO_TOLERANCE_BASELINES: tuple[str, ...] = (
+    "_asarray_length_baseline.json",
     "_discovery_layout_baseline.json",
     "_docstring_baseline.json",
     "_fe_noop_copy_baseline.json",
@@ -56,6 +57,8 @@ ZERO_TOLERANCE_BASELINES: tuple[str, ...] = (
     "_stale_not_wired_docstring_baseline.json",
     "_value_bearing_asserts_baseline.json",
     "_verbose_gated_except_baseline.json",
+    "_perm_loop_invariants_baseline.json",
+    "_unlocked_module_cache_baseline.json",
 )
 
 

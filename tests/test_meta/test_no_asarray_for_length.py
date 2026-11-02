@@ -87,12 +87,15 @@ def _findings_in_source(src: str, rel: str) -> set[str]:
     return {f"{rel}::{scope}::{text}" for scope, text, line in finder.found if _MARKER not in lines[line - 1]}
 
 
+def _candidate_files() -> list[Path]:
+    """The files the gate walks: every ``.py`` under ``src/mlframe`` outside the exempt folders (its population, non-empty by construction)."""
+    return [py for py in sorted(MLFRAME_DIR.rglob("*.py")) if not any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS)]
+
+
 def _build_offending_set() -> set[str]:
     """Every hit under ``src/mlframe`` outside the exempt folders."""
     out: set[str] = set()
-    for py in sorted(MLFRAME_DIR.rglob("*.py")):
-        if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS):
-            continue
+    for py in _candidate_files():
         src = source_text(py)
         if src is None or parsed_ast(py) is None:
             continue
