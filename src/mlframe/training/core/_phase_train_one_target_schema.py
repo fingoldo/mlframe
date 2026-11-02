@@ -26,6 +26,15 @@ logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 _RECENCY_SCHEMA_NAMES: frozenset = frozenset({"recency", "recency_weights", "time_decay", "exponential_decay"})
 
 
+def _schema_store_key(model_schemas: dict, model_file_name: str, record: dict) -> str:
+    """Key for a model's schema record. The bare file name is kept for the first record; a different target or pre-pipeline training the same
+    model name gets a qualified key instead of overwriting it, so every model keeps its own schema and feature-selection report."""
+    existing = model_schemas.get(model_file_name)
+    if existing is None or (existing.get("target_name"), existing.get("pre_pipeline_name")) == (record.get("target_name"), record.get("pre_pipeline_name")):
+        return model_file_name
+    return f"{record.get('pre_pipeline_name')}/{record.get('target_name')}/{model_file_name}"
+
+
 def _drop_uniform_on_temporal_data(weight_schemas: dict, ctx: Any) -> tuple:
     """``(schemas, dropped)`` -- uniform removed when the data is temporal and a recency schema is present.
 
@@ -287,4 +296,7 @@ def _build_and_record_model_schema(
 
     _maybe_render_friend_graph(ctx, pre_pipeline, _unwrap_selector, cur_target_name, pre_pipeline_name)
 
-    metadata.setdefault("model_schemas", {})[model_file_name] = _record
+    _record["target_name"] = cur_target_name
+    _record["pre_pipeline_name"] = pre_pipeline_name
+    _model_schemas = metadata.setdefault("model_schemas", {})
+    _model_schemas[_schema_store_key(_model_schemas, model_file_name, _record)] = _record
