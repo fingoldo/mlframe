@@ -217,20 +217,3 @@ def abs_corr_all_no_copy(y: np.ndarray, X: np.ndarray, *, reference_fn: Callable
         for j in np.nonzero(borderline)[0]:
             out[j] = _safe_corr_single(y_dev, var_y, np.asarray(X_f[:, j], dtype=np.float64))
     return np.asarray(out)
-
-
-def _warm_corr_kernel() -> None:
-    """Compile the kernel at import on a tiny matrix so the first real call is hot."""
-    if not _HAS_NUMBA:
-        return
-    try:
-        warm = np.zeros((4, 2), dtype=np.float64)
-        warm[:, 0] = np.arange(4.0)
-        warm[:, 1] = np.arange(4.0)[::-1]
-        y_dev = np.arange(4.0) - 1.5
-        _abs_corr_all_kernel(warm, y_dev, float(np.dot(y_dev, y_dev)), _BORDERLINE_BAND)
-    except Exception as e:  # pragma: no cover - warming is best-effort.  # nosec B110
-        logger.debug("corr kernel warm-up failed, first real call will pay JIT cost: %s", e)
-
-
-_warm_corr_kernel()

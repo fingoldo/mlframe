@@ -400,24 +400,3 @@ def block_shuffle_gather(arr: np.ndarray, perm: np.ndarray, block_len: int) -> n
     idx = (perm[:, None] * block_len + np.arange(block_len)[None, :]).ravel()
     idx = idx[idx < m]
     return np.asarray(arr[idx])
-
-
-def _warm_collinear_kernel() -> None:
-    """Compile the kernel at import on a tiny matrix so the first real call is hot."""
-    if not _HAS_NUMBA:
-        return
-    try:
-        warm = np.zeros((4, 2), dtype=np.float64)
-        warm[:, 0] = np.arange(4.0)
-        warm[:, 1] = np.arange(4.0)
-        fin = np.isfinite(warm)
-        _keep_mask_kernel(warm, fin, 0.99, _BORDERLINE_BAND)
-        _mean, _var = _column_stats_allfinite(warm)
-        _keep_mask_kernel_allfinite(warm, _mean, _var, 0.99, _BORDERLINE_BAND)
-        _block_gather_kernel(np.arange(4, dtype=np.int64), np.arange(2, dtype=np.int64), 2)
-        _block_gather_kernel(np.arange(4, dtype=np.float32), np.arange(2, dtype=np.int64), 2)
-    except Exception as e:  # pragma: no cover - warming is best-effort.  # nosec B110
-        logger.debug("collinear kernel warm-up failed, first real call will pay JIT cost: %s", e)
-
-
-_warm_collinear_kernel()
