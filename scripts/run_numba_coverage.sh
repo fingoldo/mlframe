@@ -13,6 +13,9 @@
 
 set -euo pipefail
 
+# The --cov paths and _results/ are relative to the repository root, so run from there whatever the caller's directory is.
+cd "$(git rev-parse --show-toplevel)"
+
 export NUMBA_DISABLE_JIT=1
 export NUMBA_DISABLE_INTEL_SVML=1
 export PYTHONUNBUFFERED=1

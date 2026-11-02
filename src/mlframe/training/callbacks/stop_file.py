@@ -62,12 +62,9 @@ else:  # pragma: no cover
 # LightGBM
 # ----------------------------------------------------------------------------------------------------------------------------
 
-try:
-    import lightgbm  # noqa: F401
+import importlib.util as _importlib_util
 
-    _HAS_LIGHTGBM = True
-except ImportError:
-    _HAS_LIGHTGBM = False
+_HAS_LIGHTGBM = _importlib_util.find_spec("lightgbm") is not None  # availability only: importing lightgbm here cost 0.25 s for every consumer of training.core
 
 
 if _HAS_LIGHTGBM:

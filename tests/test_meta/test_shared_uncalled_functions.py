@@ -54,6 +54,7 @@ _PUBLIC_API = {
     "blend",  # blend is exported as pseudo_bma_blend
     "bootstrap_metric_clustered",  # single-metric form, re-exported from mlframe.evaluation.bootstrap
     "track_package",  # extension hook: a downstream package opts its numba kernels into the dependency-aware cache stamp
+    "uninstall_log_sanitizer",  # inverse of install_log_sanitizer: puts the previous logging record factory back; pinned by tests/utils/test_log_sanitize.py
     "create_mlflow_run_label",
     "get_or_create_mlflow_run",
     "embed_website_to_mlflow",  # user-facing helpers of mlframe.integrations.mlflow, each pinned by tests/integrations/test_mlflow.py

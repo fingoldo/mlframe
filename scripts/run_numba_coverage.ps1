@@ -14,6 +14,11 @@ param(
     [string]$TestSelector = ""
 )
 
+# The --cov paths and _results/ are relative to the repository root, so run from there whatever the caller's directory is.
+$repoRoot = (git rev-parse --show-toplevel)
+if ($LASTEXITCODE -ne 0) { Write-Error "not inside a git repository"; exit 2 }
+Set-Location $repoRoot
+
 $env:NUMBA_DISABLE_JIT = "1"
 $env:NUMBA_DISABLE_INTEL_SVML = "1"
 $env:PYTHONUNBUFFERED = "1"
@@ -46,7 +51,8 @@ $pytestArgs = @(
 )
 
 if ($TestSelector) {
-    $pytestArgs += $TestSelector.Split(" ")
+    # Split on whitespace but keep a double-quoted phrase together: -TestSelector '-k "lgb and not gpu"' is two arguments, not five.
+    $pytestArgs += @([regex]::Matches($TestSelector, '"[^"]*"|\S+') | ForEach-Object { $_.Value.Trim('"') })
 }
 
 Write-Host "[numba-coverage] NUMBA_DISABLE_JIT=1 active; running pytest..."

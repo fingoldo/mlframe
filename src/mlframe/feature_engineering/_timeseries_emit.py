@@ -172,7 +172,7 @@ def _emit_ewma(
     Empty raw_vals pads with zeros rather than calling ewma_numba on a zero-length array."""
     for alpha in ewma_alphas:
         if len(raw_vals) > 0:
-            row_features.extend(compute_numaggs(ewma_numba(raw_vals.astype(np.float32), alpha), **numaggs_kwds))
+            row_features.extend(compute_numaggs(ewma_numba(np.ascontiguousarray(raw_vals, dtype=np.float64), alpha), **numaggs_kwds))
         else:
             row_features.extend([0.0] * len(numaggs_names))
         if create_features_names:

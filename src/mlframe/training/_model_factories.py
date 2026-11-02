@@ -432,24 +432,7 @@ def _lgb_regressor_cls():
     return LGBMRegressor
 
 
-try:
-    from ngboost import NGBClassifier, NGBRegressor
-except ImportError:  # pragma: no cover
-    NGBClassifier = NGBRegressor = None
-
-
-try:
-    import torch
-    import torch.nn as nn
-    import torch.nn.functional as F
-except (ImportError, OSError):  # pragma: no cover
-    # OSError covers Windows DLL load failures (e.g. WinError 127 from cublas64_11.dll
-    # entry-point mismatch on boxes with shadow CUDA installs). Without OSError in
-    # the catch, an otherwise-installed-but-broken torch aborts every test that
-    # transitively imports the training trainer, not just MLP/recurrent tests.
-    torch = None  # type: ignore[assignment]
-    nn = None  # type: ignore[assignment]
-    F = None  # type: ignore[assignment]
+# torch is imported by the neural wrappers on their first use (see _get_neural_components below), not here.
 # mlframe.training.neural eagerly imports lightning + torchmetrics at
 # module-load (see neural/base.py:32-45 for the chain). On Windows that
 # takes 30-180 s cold and consistently overshoots the per-test timeout

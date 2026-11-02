@@ -3,12 +3,15 @@
 #
 # master here is pushed to by several sessions at once and the pre-push hooks take minutes, so a plain `git push` is rejected as
 # non-fast-forward more often than not. Each attempt: fetch, merge what arrived (commit the merge, retrying the hook that rewrites line
-# endings), push. A merge conflict (exit 3) or a failing pre-push hook (exit 4, findings printed) stops the loop for a human; nothing is reset,
+# endings), push. A merge conflict (exit 3), a failing pre-push hook (exit 4, findings printed) or a merge that cannot be completed (exit 5) stops the
+# loop for a human; a missing origin/<branch> exits 2; nothing is reset,
 # stashed or forced.
 #
 # Usage: scripts/sync_and_push.sh [branch] [max_attempts]      (defaults: master, 6)
 # Logs of each attempt go to ${TMPDIR:-/tmp}/sync_and_push_<attempt>_*.log
 set -u
+# git prints localized text under other locales; the retry decisions below match on the English messages.
+export LC_ALL=C
 
 branch="${1:-master}"
 max_attempts="${2:-6}"
@@ -17,21 +20,36 @@ logdir="${TMPDIR:-${TEMP:-/tmp}}"
 
 for attempt in $(seq 1 "$max_attempts"); do
   git fetch origin "$branch" -q || { echo "fetch failed on attempt $attempt"; sleep 5; continue; }
-  read -r ahead behind < <(git rev-list --left-right --count "HEAD...origin/$branch")
+  counts=$(git rev-list --left-right --count "HEAD...origin/$branch") || { echo "no origin/$branch to compare with"; exit 2; }
+  read -r ahead behind <<< "$counts"
   echo "attempt $attempt: ahead=$ahead behind=$behind"
 
   if [ "$behind" != "0" ]; then
     git merge "origin/$branch" -m "Merge origin/$branch" > "$logdir/sync_and_push_${attempt}_merge.log" 2>&1
+    merge_rc=$?
     if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
       echo "CONFLICT in:"
       git diff --name-only --diff-filter=U
       exit 3
     fi
-    if [ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ]; then
+    merge_head="$(git rev-parse --git-dir)/MERGE_HEAD"
+    if [ "$merge_rc" -ne 0 ] && [ ! -f "$merge_head" ]; then
+      echo "merge failed without a conflict (log: $logdir/sync_and_push_${attempt}_merge.log):"
+      head -20 "$logdir/sync_and_push_${attempt}_merge.log"
+      exit 5
+    fi
+    if [ -f "$merge_head" ]; then
       for commit_try in 1 2 3; do
-        git add -u 2> /dev/null
+        # Re-stage only the paths the merge already staged (a hook may have rewritten them); `git add -u` would also stage the half-finished edits of
+        # any other session sharing this working tree and push them inside the merge commit.
+        git diff --cached --name-only -z | xargs -0 -r git add -- 2> /dev/null
         git commit --no-edit > "$logdir/sync_and_push_${attempt}_commit_${commit_try}.log" 2>&1 && break
       done
+      if [ -f "$merge_head" ]; then
+        echo "could not commit the merge after 3 tries (last log: $logdir/sync_and_push_${attempt}_commit_3.log):"
+        grep -E "Failed$|error:" "$logdir/sync_and_push_${attempt}_commit_3.log" | head -20
+        exit 5
+      fi
     fi
   fi
 

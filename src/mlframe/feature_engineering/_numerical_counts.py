@@ -196,7 +196,7 @@ def _compute_ncrossings_serial(arr: np.ndarray, marks: np.ndarray, dtype=np.int3
         for i, mark in enumerate(marks):
             d = next_value - mark
             if not np.isnan(prev_ds[i]):
-                if d * prev_ds[i] < 0:
+                if (d < 0 and prev_ds[i] > 0) or (d > 0 and prev_ds[i] < 0):
                     n_crossings[i] += 1
             prev_ds[i] = d
 
@@ -220,7 +220,8 @@ def _compute_ncrossings_marks_prange(arr: np.ndarray, marks: np.ndarray) -> np.n
         for j in range(n):
             d = np.float32(arr[j] - mark)
             if not np.isnan(prev):
-                if d * prev < np.float32(0.0):
+                # sign change, not d * prev < 0: the product of two tiny differences underflows to 0 in float32 and the crossing was lost
+                if (d < np.float32(0.0) and prev > np.float32(0.0)) or (d > np.float32(0.0) and prev < np.float32(0.0)):
                     c += 1
             prev = d
         out[i] = c

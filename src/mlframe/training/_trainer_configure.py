@@ -93,13 +93,7 @@ from ._model_factories import (  # noqa: F401
     _xgb_regressor_cls as _xgb_regressor_cls_factory,
 )
 
-# Optional model backends mirrored from parent: defaults to None when the
-# library is not installed; downstream branches gate on that.
-try:
-    from ngboost import NGBClassifier, NGBRegressor
-except ImportError:
-    NGBClassifier = None
-    NGBRegressor = None
+# ngboost is imported where an NGB model is built, not here (~4 s with sympy).
 
 
 # A5#4/#16 session-level memo for ``get_training_configs``. The function is called

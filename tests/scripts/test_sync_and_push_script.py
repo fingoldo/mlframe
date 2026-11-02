@@ -128,3 +128,38 @@ def test_a_line_ending_autofix_failure_is_retried_and_the_push_then_succeeds(tmp
     assert done.returncode == 0, done.stdout + done.stderr
     assert "retrying" in done.stdout
     assert _git(tmp_path, "--git-dir", str(remote), "rev-parse", "master") == _git(mine, "rev-parse", "HEAD")
+
+
+def test_other_sessions_dirty_files_are_not_swept_into_the_merge_commit(tmp_path) -> None:
+    """A hook that fails the first merge commit makes the script retry; the retry used `git add -u`, which also staged another session's uncommitted edit."""
+    remote, mine, other = _clone_pair(tmp_path)
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    flag = tmp_path / "failed_once"
+    hook = hooks / "pre-merge-commit"
+    hook.write_text(f'#!/bin/sh\nif [ ! -f "{flag.as_posix()}" ]; then touch "{flag.as_posix()}"; exit 1; fi\nexit 0\n', encoding="utf-8")
+    hook.chmod(0o755)
+    _git(mine, "config", "core.hooksPath", str(hooks))
+    (other / "theirs.txt").write_text("t\n", encoding="utf-8")
+    _git(other, "add", "theirs.txt")
+    _git(other, "commit", "-m", "theirs")
+    _git(other, "push", "origin", "master")
+    (mine / "mine.txt").write_text("m\n", encoding="utf-8")
+    _git(mine, "add", "mine.txt")
+    _git(mine, "commit", "-m", "mine")
+    (mine / "base.txt").write_text("half-finished edit of another session\n", encoding="utf-8")
+
+    done = _run(mine)
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert flag.exists(), "the failing merge-commit hook never ran, so the retry path was not exercised"
+    pushed = subprocess.run(["git", "--git-dir", str(remote), "show", "master:base.txt"], capture_output=True, text=True, encoding="utf-8", check=True).stdout
+    assert pushed == "base\n"
+
+
+def test_a_missing_remote_branch_exits_2_without_pushing(tmp_path) -> None:
+    """A branch that does not exist on origin stops the script before any merge or push."""
+    remote, mine, _ = _clone_pair(tmp_path)
+    done = _run(mine, "no-such-branch", "1")
+    assert done.returncode != 0
+    assert "no-such-branch" not in _git(tmp_path, "--git-dir", str(remote), "branch", "--list")

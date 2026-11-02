@@ -98,8 +98,18 @@ def validate_suite_inputs(
 
     Returns the (possibly-coerced) ``df`` so callers can rebind their local in one statement.
     """
+    df = validate_suite_frame_argument(df)
+    if features_and_targets_extractor is None:
+        raise ValueError("features_and_targets_extractor is required")
+    return _validate_suite_names(df, target_name, model_name)
+
+
+def validate_suite_frame_argument(df: Any) -> Any:
+    """Check ``df`` (frame or ``.parquet`` path) and return it with a ``PathLike`` coerced to ``str``; runs before the default extractor reads it."""
     import os as _os_for_pathlike
 
+    if isinstance(df, pl.LazyFrame):
+        raise TypeError("df is a polars LazyFrame; call df.collect() first: train_mlframe_models_suite needs a materialised DataFrame or a .parquet path.")
     if isinstance(df, _os_for_pathlike.PathLike):
         df = str(df)
     if not isinstance(df, (pd.DataFrame, pl.DataFrame, str)):
@@ -110,7 +120,11 @@ def validate_suite_inputs(
     # confusing error. (A path-string df is validated after the parquet read, downstream.)
     if isinstance(df, (pd.DataFrame, pl.DataFrame)) and len(df) == 0:
         raise ValueError("df has 0 rows -- train_mlframe_models_suite needs a non-empty dataset.")
+    return df
 
+
+def _validate_suite_names(df: Any, target_name: Any, model_name: Any) -> Any:
+    """Check ``target_name`` and ``model_name`` and return ``df`` unchanged."""
     if target_name is None or not isinstance(target_name, str):
         raise TypeError(f"target_name must be a non-empty string, got {type(target_name).__name__}")
     if not target_name.strip():
@@ -119,8 +133,6 @@ def validate_suite_inputs(
         raise TypeError(f"model_name must be a non-empty string, got {type(model_name).__name__}")
     if not model_name.strip():
         raise ValueError("model_name cannot be empty or whitespace-only")
-    if features_and_targets_extractor is None:
-        raise ValueError("features_and_targets_extractor is required")
     return df
 
 

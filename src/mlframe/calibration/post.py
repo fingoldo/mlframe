@@ -186,9 +186,11 @@ class BinaryPostCalibrator(ClassifierMixin, BaseEstimator):
         self.n_features_in_ = _probs_arr.shape[1] if _probs_arr.ndim == 2 else 1
 
         calib_probs = self._transform_probs(calib_probs)
+        fitted = self._clone_calibrator()
+        self.calibrator_ = fitted
 
-        if not self._is_venn_abers(self.calibrator):
-            _fit_fn = getattr(self.calibrator, self.fit_method_name)
+        if not self._is_venn_abers(fitted):
+            _fit_fn = getattr(fitted, self.fit_method_name)
             if sample_weight is not None:
                 import inspect
                 try:
@@ -202,7 +204,7 @@ class BinaryPostCalibrator(ClassifierMixin, BaseEstimator):
                         "[calibration] BinaryPostCalibrator.fit: wrapped calibrator %r's %s() does not "
                         "accept sample_weight; fitting unweighted (weights silently ignored for this "
                         "calibrator).",
-                        type(self.calibrator).__name__, self.fit_method_name,
+                        type(fitted).__name__, self.fit_method_name,
                     )
                     _fit_fn(calib_probs, calib_target)
             else:
@@ -218,11 +220,21 @@ class BinaryPostCalibrator(ClassifierMixin, BaseEstimator):
         # Resolve transform method name ONCE at fit-time rather than mutating self inside
         # postcalibrate_probs (previously racy and surprising for re-use across calls).
         resolved_transform = self.transform_method_name
-        if not hasattr(self.calibrator, resolved_transform) and hasattr(self.calibrator, "predict"):
+        if not hasattr(fitted, resolved_transform) and hasattr(fitted, "predict"):
             resolved_transform = "predict"
         self._resolved_transform_method_name = resolved_transform
 
         return self
+
+    def _clone_calibrator(self) -> object:
+        """A private copy of the ``calibrator`` parameter to fit, so the object the caller passed in stays unfitted (``get_params`` / ``clone`` semantics)."""
+        import copy
+
+        try:
+            return copy.deepcopy(self.calibrator)
+        except Exception as exc:
+            logger.warning("[calibration] BinaryPostCalibrator: could not copy %s (%r); fitting the passed-in object in place", type(self.calibrator).__name__, exc)
+            return self.calibrator
 
     def postcalibrate_probs(self, probs: np.ndarray) -> np.ndarray:
         """Map raw probabilities through the fitted calibrator, always returning a 2D ``(n_samples, 2)`` matrix."""
@@ -231,16 +243,17 @@ class BinaryPostCalibrator(ClassifierMixin, BaseEstimator):
         if not hasattr(self, "classes_"):
             raise NotFittedError("BinaryPostCalibrator.postcalibrate_probs called before fit.")
         probs = self._transform_probs(probs)
-        if not self._is_venn_abers(self.calibrator):
+        fitted = self.calibrator_
+        if not self._is_venn_abers(fitted):
             # Use method resolved at fit-time; fall back gracefully if fit() wasn't called.
             transform_name = getattr(self, "_resolved_transform_method_name", self.transform_method_name)
-            calibrated_probs = getattr(self.calibrator, transform_name)(probs)
+            calibrated_probs = getattr(fitted, transform_name)(probs)
         else:
-            calibrated_probs = getattr(self.calibrator, "predict_proba")(p_cal=self.p_cal, y_cal=self.y_cal, p_test=probs)
+            calibrated_probs = getattr(fitted, "predict_proba")(p_cal=self.p_cal, y_cal=self.y_cal, p_test=probs)
 
         calibrated_probs = np.asarray(calibrated_probs)
         if calibrated_probs.ndim == 2 and (
-            hasattr(self.calibrator, "method") and getattr(self.calibrator, "method") in ["momentum", "variational", "mcmc"]
+            hasattr(self.calibrator_, "method") and getattr(self.calibrator_, "method") in ["momentum", "variational", "mcmc"]
         ):  # mcmc methods of netcal
             calibrated_probs = calibrated_probs.mean(axis=0)
         if calibrated_probs.ndim == 1:

@@ -796,7 +796,9 @@ def binned_numeric_agg_with_recipes(
     # The appended columns carry the crit dtype on both the pandas and the polars path (float32 by default); the cell statistics
     # are accumulated in float64 above and only the stored output is cast.
     feat_df = feat_df.astype(_crit_np_dtype(), copy=False)
-    X_aug = pd.concat([X, feat_df], axis=1)
+    from mlframe.feature_selection._append_columns import append_columns
+
+    X_aug = append_columns(X, feat_df)
     recipes = [build_binned_numeric_agg_recipe(n, raw[n]) for n in feat_df.columns]
     return X_aug, list(feat_df.columns), recipes
 

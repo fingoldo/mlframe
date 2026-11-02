@@ -16,6 +16,7 @@ stale, under a lock and a time limit.
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from typing import Callable, Mapping, Optional, Sequence
@@ -30,8 +31,11 @@ def _off(value: str) -> bool:
 
 def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, str]] = None, run: Optional[Callable[[list], int]] = None) -> int:
     """Run the pre-push kernel-tuning step; returns the exit code that decides the push."""
+    parser = argparse.ArgumentParser(description="Pre-push kernel-tuning step; configured through MLFRAME_SKIP_KERNEL_TUNING_HOOK, MLFRAME_PREPUSH_TUNE and MLFRAME_PREPUSH_TUNE_MINUTES.")
+    parser.parse_args(argv)  # no options of its own: --help prints the usage and an unknown argument is an error instead of a silent full tuning run
     env = os.environ if environ is None else environ
-    if env.get("MLFRAME_SKIP_KERNEL_TUNING_HOOK", "").strip() not in ("", "0"):
+    skip = env.get("MLFRAME_SKIP_KERNEL_TUNING_HOOK", "").strip()
+    if skip and not _off(skip):
         return 0
     if run is None:
         from mlframe.system.kernel_tuning_cache import main as run

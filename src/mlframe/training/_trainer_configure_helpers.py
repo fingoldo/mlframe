@@ -69,13 +69,7 @@ from ._model_factories import (
 from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
-# Optional model backends mirrored from parent: defaults to None when the
-# library is not installed; downstream branches gate on that.
-try:
-    from ngboost import NGBClassifier, NGBRegressor
-except ImportError:
-    NGBClassifier = None
-    NGBRegressor = None
+# ngboost is imported where an NGB model is built (see the ``ngb`` block below): importing it here cost ~4 s (sympy) for every consumer of training.core.
 
 
 logger = logging.getLogger("mlframe.training.trainer")
@@ -465,6 +459,8 @@ def _configure_training_should_create_model_ngb(_should_create_model, configs, u
                 ngb_init_kwargs["Dist"] = k_categorical(_K)
             except ImportError:
                 pass  # ngboost.distns missing -> default Dist crashes loudly downstream
+
+        from ngboost import NGBClassifier, NGBRegressor
 
         ngb_params = dict(
             model=(

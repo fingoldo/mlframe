@@ -554,7 +554,7 @@ def _tae_fit_and_oof(
             # predictions learns the residual structure of the in-sample fit, not the generalisation behaviour. OOF preds
             # produced by holding each row out via K-fold CV are the canonical replacement. Attached to the model object so
             # ``score_ensemble`` can pick them up at level-1 aggregation time without changing the public return signature.
-            _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, st.just_evaluate, st.model_type_name, st.train_target, model, train_df, oof_random_seed, st.group_ids, st.train_idx, oof_has_time, st._pre_pipeline_sample_weight, st.timestamps, st.fit_params)
+            _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, st.just_evaluate, st.model_type_name, st.train_target, model, train_df, oof_random_seed, st.group_ids, st.train_idx, oof_has_time, st._pre_pipeline_sample_weight, st.timestamps, st.fit_params, pre_pipeline=st.pre_pipeline)
     return model, train_df, model_name, False
 
 

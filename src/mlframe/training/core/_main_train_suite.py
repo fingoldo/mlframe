@@ -82,6 +82,7 @@ from ._main_train_suite_phases import (  # noqa: F401  (apply_module_global_patc
     run_distribution_analyzer_and_estimator_injection,
     run_optional_diagnostics_and_composite_discovery,
     run_recurrent_finalize_and_composite_post,
+    validate_suite_frame_argument,
     validate_suite_inputs,
     warn_on_empty_target_by_type,
 )
@@ -166,6 +167,9 @@ def train_mlframe_models_suite(
     # extractor always overrides this. Requires ``df`` already materialised as a
     # frame (paths are loaded here so the target dtype can be inspected).
     if features_and_targets_extractor is None:
+        # The default extractor reads ``df``, so its type, extension and row count are checked first (a Path, a list or a LazyFrame would otherwise
+        # fail inside the builder with an AttributeError or a "use select()" TypeError).
+        df = validate_suite_frame_argument(df)
         features_and_targets_extractor = _build_default_extractor(df, target_name)
 
     df = validate_suite_inputs(df, target_name, model_name, features_and_targets_extractor)

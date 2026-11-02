@@ -83,12 +83,15 @@ def _array_column_signals(X, y_arr: np.ndarray, p: int) -> tuple[bool, float, fl
     max_corr = 0.0
     mean_corr = 0.0
     # ndarray path - assume fully numeric.
-    X_arr = np.asarray(X, dtype=float)
+    # Keep a numeric dtype as it is (a float64 twin of a large frame for a heuristic fingerprint is pure waste) and widen one column at a time.
+    X_arr = np.asarray(X)
+    if X_arr.dtype.kind not in "fiub":
+        X_arr = X_arr.astype(float)
     has_nan = bool(np.isnan(X_arr).any())
     yfloat = y_arr.astype(float)
     corrs = []
     for j in range(p):
-        col = X_arr[:, j]
+        col = X_arr[:, j].astype(float, copy=False)
         mask = np.isfinite(col) & np.isfinite(yfloat)
         if mask.sum() < 10:
             continue

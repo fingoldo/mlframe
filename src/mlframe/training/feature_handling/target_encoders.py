@@ -39,6 +39,9 @@ Variants supported:
   * ``target_loo`` -- leave-one-out (row-wise; not k-fold). Uses
     the standard formula ``(n_c × mean_c - target_i) / (n_c - 1)``
     for row i in category c. NaN-safe at category size = 1.
+    NOT leakage-safe for tree models: within a category the train encoding is a strictly decreasing function of the row's own target, so a
+    split between the two values separates the classes perfectly on train while the held-out encoding is one value per category. Prefer the
+    k-fold methods; a warning is logged when this one is used.
   * ``woe`` -- weight of evidence ``log(P(c|y=1) / P(c|y=0))``,
     smoothed. Binary-classification-only.
 
@@ -509,15 +512,16 @@ class LeakageSafeEncoder:
         """OOF k-fold encoding. Each fold's encoding is computed on
         the OTHER folds only.
         """
-        from sklearn.model_selection import KFold
+        from sklearn.model_selection import KFold, TimeSeriesSplit
 
         n = len(cats)
-        out = np.empty(n, dtype=np.float64)
+        out = np.full(n, np.nan, dtype=np.float64)
 
         if self.cv_splitter is not None:
             kf = self.cv_splitter
         elif self.time_aware:
-            kf = KFold(n_splits=self.cv, shuffle=False)
+            # Forward chaining: a fold is encoded from EARLIER rows only. Plain KFold(shuffle=False) encodes every fold but the last from later rows.
+            kf = TimeSeriesSplit(n_splits=self.cv)
         else:
             kf = KFold(n_splits=self.cv, shuffle=True, random_state=self.random_state)
         # Per-fold encoding: dict.get() is faster than pd.Series.map() at
@@ -566,11 +570,24 @@ class LeakageSafeEncoder:
                     else:
                         out[j] = (n_c * m_c + self.smoothing * prior_t) / (n_c + self.smoothing)
 
+        never_held_out = np.isnan(out)
+        if never_held_out.any():
+            # A forward-chaining splitter never holds out its first block (no earlier rows to encode it from); np.nan would reach the model, so these
+            # rows get the global prior, the same value an unseen category gets.
+            out[never_held_out] = _compute_prior(y, self.prior, sample_weight)
+
         return out
 
     def _loo_encode(self, cats: np.ndarray, y: np.ndarray, sample_weight: np.ndarray | None = None) -> np.ndarray:
         """Row-wise leave-one-out encoding. Weighted form: cat sum-of-w*y minus this row's w_i*y_i, over
         cat sum-of-w minus w_i (effective LOO sample size in weighted units)."""
+        from mlframe.utils.log_throttle import log_throttle
+
+        log_throttle(
+            logger, "target_loo_leaks_own_label", logging.WARNING,
+            "LeakageSafeEncoder(method='target_loo'): the leave-one-out encoding of a row is a decreasing function of its own target, so tree models can "
+            "separate the classes on train and then see a single value per category at test time; use a k-fold method (target_mean, woe, ...) instead.",
+        )
         counts, sums = self._compute_per_category_sums(cats, y, sample_weight)
         prior = self._global_prior if self._global_prior is not None else _compute_prior(y, self.prior, sample_weight)
         out = np.empty(len(cats), dtype=np.float64)

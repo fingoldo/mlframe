@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from mlframe.reporting.charts import pacf_levinson, significance_band
+from mlframe.utils.acf_kernels import pacf_levinson, significance_band
 
 
 def select_significant_lags(

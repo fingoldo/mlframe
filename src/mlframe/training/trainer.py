@@ -132,20 +132,21 @@ from mlframe.feature_selection.wrappers import RFECV  # noqa: F401 -- re-exporte
 from pyutilz.pandaslib import get_df_memory_consumption  # noqa: F401 -- re-exported, see above
 from .models import create_linear_model  # noqa: F401 -- re-exported, see above
 
-try:
-    import torch
-    import torch.nn.functional as F
-    from torch import nn
-except (ImportError, OSError):  # OSError covers Windows DLL load failures (WinError 127 etc.)
-    torch = None  # type: ignore[assignment]
-    nn = None  # type: ignore[assignment]
-    F = None  # type: ignore[assignment]
+# torch is imported where the MLP regression defaults are set (it cost ~12 s for every consumer of training.core).
 
-try:
-    from ngboost import NGBClassifier, NGBRegressor
-except ImportError:
-    NGBClassifier = None
-    NGBRegressor = None
+
+def __getattr__(name: str):
+    """PEP 562 lazy ``torch`` / ``nn`` / ``F`` (the names this module used to import eagerly): resolved on first access, ``None`` when torch cannot be loaded."""
+    if name in ("torch", "nn", "F"):
+        try:
+            import torch
+            import torch.nn.functional as F
+            from torch import nn
+        except (ImportError, OSError):  # OSError covers Windows DLL load failures (WinError 127 etc.)
+            return None
+        return {"torch": torch, "nn": nn, "F": F}[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 from .configs import (
     ReportingConfig,
@@ -680,6 +681,9 @@ def _configure_mlp_params(
     # tuning -- the per-target HPT detector in the file-level TODO is
     # the right place. Keep nlayers=1 small-data tune; leave LR alone.
     if use_regression:
+        import torch
+        import torch.nn.functional as F
+
         mlp_general_params["model_params"] = mlp_general_params.get("model_params", {}).copy()
         mlp_general_params["model_params"]["loss_fn"] = F.mse_loss
         mlp_general_params["datamodule_params"] = mlp_general_params.get("datamodule_params", {}).copy()

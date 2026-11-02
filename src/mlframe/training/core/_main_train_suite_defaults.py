@@ -26,6 +26,11 @@ def _infer_target_is_classification(values: Any) -> bool:
         arr = values.to_numpy()
     else:
         arr = np.asarray(values)
+    if arr.dtype.kind in ("M", "m"):
+        raise ValueError(
+            "the target column has a datetime/timedelta dtype, which is neither a regression nor a classification target; convert it to a number "
+            "(e.g. seconds since an epoch) or pass an explicit features_and_targets_extractor."
+        )
     if arr.dtype.kind in ("O", "U", "S"):
         return True
     return _is_classification_target(arr)
@@ -44,6 +49,9 @@ def _build_default_extractor(df: Union[pl.DataFrame, pd.DataFrame, str], target_
     # Read just the target column so the dtype can be inspected without loading the
     # full frame when a parquet path was supplied.
     if isinstance(df, str):
+        available = list(pl.read_parquet_schema(df))
+        if target_name not in available:
+            raise ValueError(f"target_name '{target_name}' not found in parquet file {df}; available (first 10): {available[:10]}")
         target_values = pl.read_parquet(df, columns=[target_name])[target_name]
     else:
         if target_name not in df.columns:
