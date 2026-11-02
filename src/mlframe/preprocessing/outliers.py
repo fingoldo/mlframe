@@ -198,13 +198,21 @@ def _nanminmax_cols_serial(X: np.ndarray):
 _NANMINMAX_PARALLEL_MIN_ELEMS = 20_000
 
 
+def _as_floating(a: np.ndarray) -> np.ndarray:
+    """``a`` as an ndarray, unchanged when it is already float16/32/64 and cast to float64 otherwise (ints, bools, objects)."""
+    arr = np.asarray(a)
+    return arr if arr.dtype.kind == "f" else arr.astype(np.float64)
+
+
 def compute_naive_outlier_score(X_train: np.ndarray, X_test: np.ndarray) -> np.ndarray:
     """Percentage of features in each X_test row outside train min/max bounds.
 
     Returns a float array in [0, 1] of length len(X_test).
     """
-    X_train = np.asarray(X_train, dtype=np.float64)
-    X_test = np.asarray(X_test, dtype=np.float64)
+    # Floating inputs keep their dtype: the min/max sweep and the range comparisons are exact in float32 (float32 -> float64 is lossless), so a float64
+    # copy of two full frames would change nothing but the memory. Only non-floating inputs are cast.
+    X_train = _as_floating(X_train)
+    X_test = _as_floating(X_test)
     if X_train.ndim == 1:
         X_train = X_train.reshape(-1, 1)
     if X_test.ndim == 1:
