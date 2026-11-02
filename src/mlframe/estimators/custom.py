@@ -519,6 +519,30 @@ def inv_box_cox_plus_c(x: np.ndarray, c: float = 50.0, lmbda: float = -1, transf
     return cast(np.ndarray, transformer._box_cox_inverse_tranform(x, lmbda=lmbda) - c)
 
 
+def _winsorize_upper(target: np.ndarray, threshold: float, rel_limit: float, real_span: float, distribution: str) -> None:
+    """Squeeze the values above ``threshold`` into ``(threshold, threshold + rel_limit]`` in place."""
+    idx = np.where(target > threshold)[0]
+    if len(idx) == 0:
+        return
+    if distribution == "linear":
+        target[idx] = threshold + (target[idx] - threshold) * rel_limit / real_span
+    else:
+        ranks = np.argsort(np.argsort(target[idx]))
+        target[idx] = threshold + (ranks + 1) * rel_limit / len(ranks)
+
+
+def _winsorize_lower(target: np.ndarray, threshold: float, rel_limit: float, real_span: float, distribution: str) -> None:
+    """Squeeze the values below ``threshold`` into ``[threshold - rel_limit, threshold)`` in place."""
+    idx = np.where(target < threshold)[0]
+    if len(idx) == 0:
+        return
+    if distribution == "linear":
+        target[idx] = threshold - (threshold - target[idx]) * rel_limit / real_span
+    else:
+        ranks = np.argsort(np.argsort(target[idx])[::-1])
+        target[idx] = threshold - (ranks + 1) * rel_limit / len(ranks)
+
+
 def soft_winsorize(
     data: np.ndarray,
     abs_lower_threshold: float,
@@ -555,30 +579,9 @@ def soft_winsorize(
             f"({np.min(data)}); no data to winsorize below (zero span would divide by zero)."
         )
 
-    if inplace:
-        target = data
-    else:
-        target = data.copy()
-
-    idx = np.where(target > abs_upper_threshold)[0]
-    if len(idx) > 0:
-        if distribution == "linear":
-            target[idx] = abs_upper_threshold + (target[idx] - abs_upper_threshold) * rel_upper_limit / rel_max_real_diff
-        elif distribution == "quantile":
-            ordered = np.argsort(target[idx])
-            ranks = np.argsort(ordered)
-            target[idx] = abs_upper_threshold + (ranks + 1) * rel_upper_limit / len(ranks)
-
-    idx = np.where(target < abs_lower_threshold)[0]
-
-    if len(idx) > 0:
-        if distribution == "linear":
-            target[idx] = abs_lower_threshold - (abs_lower_threshold - target[idx]) * rel_lower_limit / rel_min_real_diff
-        elif distribution == "quantile":
-            ordered = np.argsort(target[idx])[::-1]
-            ranks = np.argsort(ordered)
-            target[idx] = abs_lower_threshold - (ranks + 1) * rel_lower_limit / len(ranks)
-
+    target = data if inplace else data.copy()
+    _winsorize_upper(target, abs_upper_threshold, rel_upper_limit, rel_max_real_diff, distribution)
+    _winsorize_lower(target, abs_lower_threshold, rel_lower_limit, rel_min_real_diff, distribution)
     return target
 
 
@@ -616,24 +619,15 @@ def clip_to_quantiles(arr: np.ndarray, quantile: float = 0.01, method: str = "wi
 
     if method == "hard":
         return np.asarray(np.clip(arr, quantile_from, quantile_to))
-    elif method == "winsor_linear":
-        return soft_winsorize(
-            data=arr,
-            abs_lower_threshold=quantile_from,
-            rel_lower_limit=quantile_from * (1 - winsor_rel_muliplier),
-            abs_upper_threshold=quantile_to,
-            rel_upper_limit=quantile_to * (1 + winsor_rel_muliplier),
-            distribution="linear",
-        )
-    elif method == "winsor_quantile":
-        return soft_winsorize(
-            data=arr,
-            abs_lower_threshold=quantile_from,
-            rel_lower_limit=quantile_from * winsor_rel_muliplier,
-            abs_upper_threshold=quantile_to,
-            rel_upper_limit=quantile_to * winsor_rel_muliplier,
-            distribution="quantile",
-        )
+    # The relative band is a magnitude: scaling by the signed quantile pushed values the wrong way for negative targets.
+    rel_upper = abs(float(quantile_to)) * winsor_rel_muliplier
+    rel_lower = abs(float(quantile_from)) * winsor_rel_muliplier
+    distribution = "linear" if method == "winsor_linear" else "quantile"
+    # A side with nothing beyond its quantile (ties at the extreme: binary or count targets) has nothing to winsorize and is skipped.
+    out = np.array(arr, copy=True)
+    _winsorize_upper(out, quantile_to, rel_upper, float(np.max(out)) - quantile_to, distribution)
+    _winsorize_lower(out, quantile_from, rel_lower, quantile_from - float(np.min(out)), distribution)
+    return out
     raise AssertionError(f"unreachable: method={method!r} already validated above")  # nosec B101 - static-analysis exhaustiveness fallback, not a security boundary
 
 
