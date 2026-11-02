@@ -39,6 +39,9 @@ Variants supported:
   * ``target_loo`` -- leave-one-out (row-wise; not k-fold). Uses
     the standard formula ``(n_c × mean_c - target_i) / (n_c - 1)``
     for row i in category c. NaN-safe at category size = 1.
+    NOT leakage-safe for tree models: within a category the train encoding is a strictly decreasing function of the row's own target, so a
+    split between the two values separates the classes perfectly on train while the held-out encoding is one value per category. Prefer the
+    k-fold methods; a warning is logged when this one is used.
   * ``woe`` -- weight of evidence ``log(P(c|y=1) / P(c|y=0))``,
     smoothed. Binary-classification-only.
 
@@ -578,6 +581,13 @@ class LeakageSafeEncoder:
     def _loo_encode(self, cats: np.ndarray, y: np.ndarray, sample_weight: np.ndarray | None = None) -> np.ndarray:
         """Row-wise leave-one-out encoding. Weighted form: cat sum-of-w*y minus this row's w_i*y_i, over
         cat sum-of-w minus w_i (effective LOO sample size in weighted units)."""
+        from mlframe.utils.log_throttle import log_throttle
+
+        log_throttle(
+            logger, "target_loo_leaks_own_label", logging.WARNING,
+            "LeakageSafeEncoder(method='target_loo'): the leave-one-out encoding of a row is a decreasing function of its own target, so tree models can "
+            "separate the classes on train and then see a single value per category at test time; use a k-fold method (target_mean, woe, ...) instead.",
+        )
         counts, sums = self._compute_per_category_sums(cats, y, sample_weight)
         prior = self._global_prior if self._global_prior is not None else _compute_prior(y, self.prior, sample_weight)
         out = np.empty(len(cats), dtype=np.float64)
