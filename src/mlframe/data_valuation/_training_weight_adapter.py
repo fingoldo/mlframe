@@ -60,7 +60,7 @@ def training_sample_weight_from_valuation(
     y_train = np.asarray(y_train)
     n_train = X_train.shape[0]
     if rng is None:
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(0)
 
     mu = X_train.mean(axis=0)
     sigma = X_train.std(axis=0)

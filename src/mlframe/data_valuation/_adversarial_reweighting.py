@@ -132,7 +132,7 @@ def dro_reweight_fit(
     from sklearn.model_selection import GroupKFold, KFold
 
     if rng is None:
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(0)
     X = np.asarray(X)
     y = np.asarray(y)
     n = X.shape[0]
