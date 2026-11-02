@@ -10,7 +10,6 @@ from __future__ import annotations
 import copy
 from timeit import default_timer as timer
 from functools import partial
-from os.path import exists
 from types import SimpleNamespace
 from typing import Any, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
@@ -296,7 +295,9 @@ def _tae_setup_model_and_targets(st: SimpleNamespace, model: object, model_name:
         models_subdir=st.models_subdir,
     )
 
+    model_before_cache = model
     model, st.pre_pipeline = _train_and_evaluate_use_cache_exists_model(st.use_cache, st.model_file_name, trusted_root, model, st.pre_pipeline)
+    st.cache_loaded = bool(st.use_cache) and model is not model_before_cache
     # Continue to training - model remains as originally passed
 
     if st.fit_params is None:
@@ -526,7 +527,7 @@ def _tae_fit_and_oof(
     from .trainer import _update_model_name_after_training
 
     if model is not None:
-        if (not st.use_cache) or (not exists(st.model_file_name)):
+        if (not st.use_cache) or (not st.cache_loaded):
             train_df = _tae_prefit_prepare(st, model, train_df, model_name, display_sample_size)
 
             if not st.just_evaluate:

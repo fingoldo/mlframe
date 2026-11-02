@@ -225,7 +225,11 @@ class GroupedBlockStacker(RegressorMixin, BaseEstimator):
                 self.submodels_[group_name] = None
 
             finite_oof = oof_col[np.isfinite(oof_col)]
-            fill_value = float(finite_oof.mean()) if finite_oof.size else (float(self.invalid_row_fill) if isinstance(self.invalid_row_fill, (int, float)) else 0.0)
+            constant_fill = float(self.invalid_row_fill) if isinstance(self.invalid_row_fill, (int, float)) and not isinstance(self.invalid_row_fill, bool) else None
+            if constant_fill is not None:
+                fill_value = constant_fill
+            else:
+                fill_value = float(finite_oof.mean()) if finite_oof.size else 0.0
             self.group_fill_values_[group_name] = fill_value
             oof_col = np.where(np.isfinite(oof_col), oof_col, fill_value)
             meta_cols[f"meta_{group_name}"] = oof_col

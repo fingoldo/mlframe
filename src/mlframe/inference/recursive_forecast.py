@@ -128,11 +128,16 @@ def diagnose_error_accumulation(
         if oracle_lag_values.shape != (n_steps, len(initial_features)):
             raise ValueError(f"diagnose_error_accumulation: oracle_lag_values shape {oracle_lag_values.shape} must be (n_steps={n_steps}, n_rows={len(initial_features)})")
         oracle_mse = np.empty(n_steps)
+        # The oracle walks the same per-step feature updates as the recursive run (advancing counters, rolling windows), fed the TRUE values instead of
+        # predictions, so the only difference between the two curves is the recursive lag itself.
+        oracle_features = initial_features.copy(deep=False)
         for step in range(n_steps):
-            oracle_features = initial_features.copy(deep=False)
+            oracle_features = oracle_features.copy(deep=False)
             oracle_features[lag_feature_name] = oracle_lag_values[step]
             oracle_pred = np.asarray(model.predict(oracle_features))
             oracle_mse[step] = np.mean((oracle_pred - true_targets[step]) ** 2)
+            if step < n_steps - 1:
+                oracle_features = update_features_fn(oracle_features, np.asarray(true_targets[step]), step)
         reference_mse = oracle_mse
 
     trustworthy_horizon = n_steps

@@ -30,6 +30,12 @@ from mlframe.feature_selection.filters._lazy_host_codes import length_of
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
+def _support_from_ranking(feature_names_in: Any, ranked: Any) -> np.ndarray:
+    """Boolean mask over the fit-time names of the ranked features; compared as strings because an ndarray fit stores ``str(i)`` names while the ranking holds integer columns."""
+    keep = {str(f) for f in ranked}
+    return np.array([str(f) in keep for f in feature_names_in])
+
+
 def _sklearn_ranking_vector(feature_names: Sequence[Any], ordered_names: Optional[Sequence[Any]], support: Any) -> np.ndarray:
     """Build sklearn's ``ranking_`` contract: an integer vector aligned to ``feature_names``, survivors at 1.
 
@@ -449,8 +455,7 @@ def _apply_pge_n_fp_control_cap(
                 )
                 if _ranking is not None and len(_ranking) > 0:
                     _capped = _cap if _cap <= len(_ranking) else len(_ranking)
-                    _keep = set(_ranking[:_capped])
-                    self.support_ = np.array([f in _keep for f in self.feature_names_in_])
+                    self.support_ = _support_from_ranking(self.feature_names_in_, _ranking[:_capped])
                     self.n_features_ = int(self.support_.sum())
                     self.consensus_ranking_ = list(_ranking)
                 else:
@@ -724,4 +729,4 @@ def _finalise_support_for_best_top_n(self, best_top_n, use_all_fi_runs, use_last
                 )
                 or []
             )
-            self.support_ = np.array([(i in self.consensus_ranking_[:best_top_n]) for i in self.feature_names_in_])
+            self.support_ = _support_from_ranking(self.feature_names_in_, self.consensus_ranking_[:best_top_n])

@@ -3508,8 +3508,14 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         _fe_auto_restore: dict = {}
         _fe_auto_restore = self._fit_body_constructor_arg_semantics_stay(X, y, _fe_auto_restore)
 
-        self._fit_body_activate_thread_locals(X, y, groups, sample_weight, st)
-        self._fit_body_apply_fit_overrides(X, st)
+        try:
+            self._fit_body_activate_thread_locals(X, y, groups, sample_weight, st)
+            self._fit_body_apply_fit_overrides(X, st)
+        except BaseException:
+            # the restoring finally below is not entered yet: put the fe_auto flags back here or the instance keeps generators nobody asked for
+            for _flag, _orig in _fe_auto_restore.items():
+                setattr(self, _flag, _orig)
+            raise
         try:
             result = self._fit_body_run_fit_impl(X, y, groups, fit_params)
             return self._fit_body_post_fit(result, X, y, st)
@@ -3523,6 +3529,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
 
     def _fit_body_constructor_arg_semantics_stay(self, X, y, _fe_auto_restore):
         """Block of _fit_body starting at ``if bool(getattr(self, "fe_auto", False)):``."""
+        self._fe_recommended_flags_ = None  # a previous fit's recommendation must not describe this one
         if bool(getattr(self, "fe_auto", False)):
             try:
                 _rec_flags = recommend_fe_flags_by_rules(X, y)

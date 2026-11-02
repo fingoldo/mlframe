@@ -12,9 +12,9 @@ import numpy as np
 # --- end imports ---
 
 
-def _fit_signature(self, y, X):
+def _fit_signature(self, y, X, groups=None):
     """Signature of this fit (shapes, X/y content hashes, column names, pre-override ctor params) for the in-object
-    same-inputs skip, plus the X and y content hashes it folds in."""
+    same-inputs skip, plus the X and y content hashes it folds in. ``groups`` joins the signature: the accuracy gate and the group-leak demotion read them."""
     from mlframe.feature_selection.filters.mrmr.shared import (
         full_y_content_hash as _full_y_content_hash,
         full_x_content_hash as _full_x_content_hash,
@@ -76,7 +76,12 @@ def _fit_signature(self, y, X):
     except Exception as exc:
         logger.debug("mrmr: ctor-params signature hash failed; using a unique sentinel (forces a cache miss): %r", exc, exc_info=True)
         _self_params_sig = object()
-    signature = (X.shape, y.shape, _y_hash_for_sig, _x_hash_for_sig, _x_cols_sig, _self_params_sig)
+    _groups_for_sig = None
+    if groups is not None:
+        from mlframe.feature_selection.filters.mrmr.shared import content_array_signature as _content_array_signature
+
+        _groups_for_sig = _content_array_signature(np.asarray(groups))
+    signature = (X.shape, y.shape, _y_hash_for_sig, _x_hash_for_sig, _x_cols_sig, _self_params_sig, _groups_for_sig)
     return _x_hash_for_sig, _y_hash_for_sig, signature
 
 
@@ -106,7 +111,7 @@ def _fit_cache_key(self, X, y, _y_hash_for_sig, groups):
         # DIFFERENT groups must NOT replay one another. Fold a groups content signature into the key (only when
         # group-aware, so the group-naive path stays byte-identical). group_aware_mi itself is already in _params_sig.
         _groups_sig = None
-        if getattr(self, "group_aware_mi", False) and groups is not None:
+        if groups is not None:
             _groups_sig = _content_array_signature(np.asarray(groups))
         if not _y_full_hash or not _x_full_hash:
             _cache_key = None

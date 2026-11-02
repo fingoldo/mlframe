@@ -289,7 +289,10 @@ def run_stacking_aware_gate(
         _seen_tags: set[str] = set()
         _saw_preds: dict[str, np.ndarray] = {}
         for i, p in enumerate(_gate_preds_for_check):
-            _p_arr = np.asarray(p).reshape(-1)
+            _p_raw = np.asarray(p)
+            if _p_raw.ndim == 2 and _p_raw.shape[1] == 2 and _p_raw.shape[0] == _saw_y.shape[0]:
+                _p_raw = _p_raw[:, 1]  # binary (N, 2) probabilities: the positive-class column, flattening would give 2N values and skip every member
+            _p_arr = _p_raw.reshape(-1)
             if _p_arr.shape[0] != _saw_y.shape[0]:
                 _ordered_tags.append("")  # placeholder: this member was skipped in the gate
                 continue

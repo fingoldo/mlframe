@@ -453,8 +453,7 @@ def _build_resample_indices(
         # the Python-level loop overhead per bootstrap resample.
         return np.asarray(rng.integers(0, n, size=(n_bootstrap, n), dtype=np.int32))
     stratify = np.asarray(stratify).ravel()
-    groups = {int(c): np.flatnonzero(stratify == c) for c in np.unique(stratify)}
-    _groups_list = list(groups.values())
+    _groups_list = [np.flatnonzero(stratify == c) for c in np.unique(stratify)]
     _class_sizes = np.array([g.shape[0] for g in _groups_list], dtype=np.int64)
     _class_offsets = np.empty(_class_sizes.shape[0] + 1, dtype=np.int64)
     _class_offsets[0] = 0

@@ -170,6 +170,7 @@ from ._data_helpers import (  # noqa: F401
     _validate_infinity_and_columns, _validate_target_values,
     _validate_trusted_path, get_function_param_names,
 )
+from ._oof_weight_param import oof_weight_fit_param
 
 # Backward-compat re-export. The live CatBoost-train Pool cache lives in
 # mlframe.training._cb_pool; previously this module had its own dead stub at this
@@ -305,8 +306,9 @@ def _compute_oof_preds(
     # own check) -- an unsupported kwarg would otherwise make cross_val_predict raise TypeError on every
     # fold and OOF silently skip entirely, which is worse than just falling back to an unweighted OOF fit.
     _cvp_params = None
-    if sample_weight is not None and "sample_weight" in get_function_param_names(estimator.fit):
-        _cvp_params = {"sample_weight": np.asarray(sample_weight)}
+    _weight_key = oof_weight_fit_param(estimator) if sample_weight is not None else None
+    if _weight_key is not None:
+        _cvp_params = {_weight_key: np.asarray(sample_weight)}
     try:
         oof = cross_val_predict(
             estimator,
@@ -346,7 +348,7 @@ def _compute_oof_preds_timeseries(
         return None, None
     y_arr = np.asarray(train_target)
     sw_arr = np.asarray(sample_weight) if sample_weight is not None else None
-    _threads_weight = sw_arr is not None and "sample_weight" in get_function_param_names(estimator.fit)
+    _weight_key = oof_weight_fit_param(estimator) if sw_arr is not None else None
 
     def _row(df, idx):
         """Frame-agnostic positional row/index subset: uses ``.iloc`` for pandas-like frames, plain indexing otherwise (numpy/polars)."""
@@ -360,8 +362,8 @@ def _compute_oof_preds_timeseries(
     try:
         for tr_idx, te_idx in tss.split(np.arange(n_rows)):
             est = _clone(estimator)
-            if sw_arr is not None and _threads_weight:
-                est.fit(_row(train_df, tr_idx), y_arr[tr_idx], sample_weight=sw_arr[tr_idx])
+            if sw_arr is not None and _weight_key is not None:
+                est.fit(_row(train_df, tr_idx), y_arr[tr_idx], **{_weight_key: sw_arr[tr_idx]})
             else:
                 est.fit(_row(train_df, tr_idx), y_arr[tr_idx])
             if method == "predict_proba":

@@ -188,6 +188,17 @@ def _dispatch_weighted(p: np.ndarray, w: np.ndarray, clip: float) -> np.ndarray:
     return np.asarray(_odds_combine_njit_weighted(p, w, clip))
 
 
+def _apply_prior_correction(combined: np.ndarray, p: np.ndarray, weight_sum: float, prior: "float | str | None", clip: float) -> np.ndarray:
+    """Subtract the ``(sum w - 1)`` extra copies of the prior logit that summing per-member posteriors counts."""
+    if prior is None or weight_sum == 1.0:
+        return combined
+    base = float(np.clip(np.nanmean(p), clip, 1.0 - clip)) if isinstance(prior, str) else float(np.clip(prior, clip, 1.0 - clip))
+    tiny = 1e-15
+    c = np.clip(np.asarray(combined, dtype=np.float64), tiny, 1.0 - tiny)
+    logit = np.log(c) - np.log1p(-c) - (weight_sum - 1.0) * (np.log(base) - np.log1p(-base))
+    return np.asarray(1.0 / (1.0 + np.exp(-logit)))
+
+
 def odds_ratio_combine(
     member_probs: np.ndarray,
     weights: np.ndarray | None = None,
@@ -195,6 +206,7 @@ def odds_ratio_combine(
     check_independence: bool = False,
     correlation_threshold: float = 0.85,
     on_correlation_violation: str = "warn",
+    prior: "float | str | None" = "auto",
 ) -> np.ndarray:
     """Combine conditionally-independent member probabilities via log-odds (logit) summation.
 
@@ -231,10 +243,17 @@ def odds_ratio_combine(
         that does not compound double-counted shared evidence the way an unbounded sum does. Ignored when
         ``check_independence=False``.
 
+    prior
+        Base rate P(y=1). Per-feature posteriors each already contain the prior, so the naive-Bayes combination is
+        ``sigmoid(sum_i w_i * logit(p_i) - (sum_i w_i - 1) * logit(prior))``; without the subtraction the prior is counted once per
+        member (three members that each say the base rate 0.1 would combine to 0.0014). ``"auto"`` (default) estimates it as the mean of
+        all member probabilities, which is the base rate for calibrated members; pass a float to use a known rate, or ``None`` to keep
+        the plain logit sum (the historical behaviour). Not applied to the equal-weight pool fallback, whose weights sum to 1.
+
     Returns
     -------
     np.ndarray
-        ``(n_samples,)`` combined probability, computed as ``sigmoid(sum_i w_i * logit(p_i))`` (or the
+        ``(n_samples,)`` combined probability, computed as ``sigmoid(sum_i w_i * logit(p_i) - (sum_i w_i - 1) * logit(prior))`` (or the
         correlation-triggered geometric-mean fallback above). This is the conditional-independence-correct
         combination rule; it is NOT the same as ``mean(p_i)`` or ``prod(p_i)`` (both of which are ad-hoc and
         do not correspond to any probabilistic combination law).
@@ -253,20 +272,24 @@ def odds_ratio_combine(
                 f"odds_ratio_combine: mean absolute residual correlation between members ({mean_abs_corr:.3f}) "
                 f"exceeds correlation_threshold ({correlation_threshold:.3f}) -> conditional-independence "
                 "assumption looks violated; log-odds summation will over-state confidence. "
-                + ("Falling back to equal-weight log opinion pool." if on_correlation_violation == "fallback" else "Proceeding with log-odds summation anyway (on_correlation_violation='warn')."),
+                + ("Falling back to the log opinion pool." if on_correlation_violation == "fallback" else "Proceeding with log-odds summation anyway (on_correlation_violation='warn')."),
                 stacklevel=2,
             )
             if on_correlation_violation == "fallback":
-                equal_weights = np.full(p.shape[1], 1.0 / p.shape[1], dtype=np.float64)
-                return _dispatch_weighted(p, equal_weights, clip)
+                pool_weights = np.full(p.shape[1], 1.0 / p.shape[1], dtype=np.float64)
+                if weights is not None:
+                    given = np.asarray(weights, dtype=np.float64)
+                    if given.shape == (p.shape[1],) and given.sum() > 0:
+                        pool_weights = given / given.sum()
+                return _dispatch_weighted(p, pool_weights, clip)
 
     if weights is not None:
         w = np.asarray(weights, dtype=np.float64)
         if w.shape != (p.shape[1],):
             raise ValueError(f"odds_ratio_combine: weights shape {w.shape} must equal (n_members,) = ({p.shape[1]},)")
-        return _dispatch_weighted(p, w, clip)
+        return _apply_prior_correction(_dispatch_weighted(p, w, clip), p, float(w.sum()), prior, clip)
 
-    return _dispatch(p, clip)
+    return _apply_prior_correction(_dispatch(p, clip), p, float(p.shape[1]), prior, clip)
 
 
 __all__ = ["odds_ratio_combine"]

@@ -55,6 +55,9 @@ def _split_by_group(
         # which the callers' ``n_groups <= 0 -> np.nan`` guard already handles.
         return np.empty(0, dtype=np.int64), y_true, y_score
     gids = np.ascontiguousarray(group_ids)
+    if gids.dtype.kind not in "biuf":
+        # string / object ids have no np.diff; their sorted-unique codes order the groups the same way
+        gids = np.unique(gids, return_inverse=True)[1].reshape(-1)
     diffs = np.diff(gids)
     # LTR-suite convention: rows arrive pre-sorted by group_ids. A stable argsort of an already-sorted
     # array is exactly ``arange(n)``, so ``y_true[order]`` / ``y_score[order]`` are no-op copies and the
@@ -276,6 +279,10 @@ def expected_reciprocal_rank(
     mg = float(max_grade) if max_grade is not None else _DEFAULT_ERR_MAX_GRADE
     if mg <= 0:
         mg = 1.0
+    finite_labels = yt[np.isfinite(yt)]
+    if finite_labels.size and float(finite_labels.max()) > mg:
+        # R = (2^rel - 1) / 2^max_grade must stay below 1: above it the stop probability exceeds 1 and ERR leaves [0, 1].
+        raise ValueError(f"expected_reciprocal_rank: a label ({float(finite_labels.max())}) is above max_grade ({mg}); pass max_grade= as the top of your grade scale.")
     if group_ids is None:
         return float(_err_per_group_kernel(yt, ys, int(k), mg))
     boundaries, yt_s, ys_s = _split_by_group(yt, ys, group_ids)

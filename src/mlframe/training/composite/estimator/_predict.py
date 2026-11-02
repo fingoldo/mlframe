@@ -106,8 +106,11 @@ def _inverse_with_fallback(
     domain_ok: np.ndarray,
     params: dict[str, Any],
     inverse_kwargs: dict[str, Any],
+    smear: bool = True,
 ) -> np.ndarray:
     """Invert ``t_hat`` on domain-valid rows; route the rest to the fallback.
+
+    ``smear=False`` skips the mean correction: a monotone inverse of a T-quantile already is the y-quantile, and smearing would turn it into a mean.
 
     Domain-violating rows get ``y_train_median`` (or NaN under
     ``fallback_predict='nan'``); a transform inverse that produces NaN/inf even
@@ -122,7 +125,7 @@ def _inverse_with_fallback(
         from ._smearing import smeared_inverse
 
         y_hat = smeared_inverse(
-            lambda t: call_transform(transform, "inverse", t, base_arr, params, **inverse_kwargs), t_hat, params.get("smearing_quantiles")
+            lambda t: call_transform(transform, "inverse", t, base_arr, params, **inverse_kwargs), t_hat, params.get("smearing_quantiles") if smear else None
         ).reshape(-1)
     else:
         y_hat = np.full_like(t_hat, fill_value=np.nan, dtype=np.float64)
@@ -624,6 +627,7 @@ def predict_quantile(
             domain_ok,
             params,
             inverse_kwargs,
+            smear=False,
         )
         # Smart fallback for deeply out-of-distribution rows, same as predict() -- runs on the
         # RAW (un-shrunk) base so a lag-as-base failsafe uses the true observed value.

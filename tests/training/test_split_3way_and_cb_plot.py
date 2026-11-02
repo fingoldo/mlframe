@@ -66,13 +66,13 @@ def test_3way_label_balance_comparable_to_two_call_path():
         assert np.abs(y[fold].mean(0) - glob).max() < 0.05
 
 
-def test_3way_sizes_match_whole_dataset_fractions():
-    """3way sizes match whole dataset fractions."""
+def test_3way_val_size_is_a_fraction_of_the_post_test_remainder():
+    """val_size is taken from what remains after the test carve, as in every other split path: 0.2 of 0.8 is 0.16 of the rows."""
     idx, y = _make_multilabel(n=10000, k=4, seed=1)
     tr, va, te = _stratified_split_3way(idx, 0.2, 0.2, y, random_state=0)
     assert abs(len(te) / len(idx) - 0.2) < 0.02
-    assert abs(len(va) / len(idx) - 0.2) < 0.02
-    assert abs(len(tr) / len(idx) - 0.6) < 0.02
+    assert abs(len(va) / len(idx) - 0.16) < 0.02
+    assert abs(len(tr) / len(idx) - 0.64) < 0.02
 
 
 def test_3way_1d_fallback_is_disjoint_and_stratified():

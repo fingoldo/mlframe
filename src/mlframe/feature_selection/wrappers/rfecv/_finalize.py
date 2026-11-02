@@ -23,6 +23,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ._stability_select import _sklearn_ranking_vector
+
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
@@ -107,6 +109,7 @@ def _finalize_fit_results(
     # feature_groups: all-or-nothing decision per group. If ANY member of group G is in support_, ALL members are added; if NONE, all
     # stay out. Resolves the "5 collinear copies" caveat at config level when the operator knows the group structure.
     _expand_support_by_feature_groups(self, verbose)
+    _refresh_ranking_after_support_edits(self)
 
     # Refresh the params slot with POST-fit values before storing: fit resolves some params in place
     # (``scoring=None -> make_scorer(...)``, ``force_parallel`` thread pinning on the wrapped estimator),
@@ -231,12 +234,37 @@ def _add_per_fold_cv_results(self: Any, checked_nfeatures: list) -> None:
             self.cv_results_[_key] = _col
 
 
+def _refresh_ranking_after_support_edits(self: Any) -> None:
+    """Rebuild ``ranking_`` once pins and group members changed ``support_``, so ``ranking_ == 1`` and ``support_`` name the same columns."""
+    support = getattr(self, "support_", None)
+    names = getattr(self, "feature_names_in_", None)
+    if support is None or names is None:
+        return
+    arr = np.asarray(support)
+    if arr.dtype != bool:
+        mask = np.zeros(len(names), dtype=bool)
+        mask[arr.astype(int)] = True
+        arr = mask
+    if len(arr) == len(names):
+        self.ranking_ = _sklearn_ranking_vector(names, getattr(self, "consensus_ranking_", None), arr)
+
+
+def _feature_position(feature_names_in: Any, column: Any) -> Any:
+    """Position of ``column`` among the fit-time names; ndarray fits store ``str(i)`` names while pins and group members are the integer columns."""
+    names = list(feature_names_in)
+    if column in names:
+        return names.index(column)
+    if str(column) in names:
+        return names.index(str(column))
+    return None
+
+
 def _glue_must_include_into_support(self: Any, must_include_resolved: Any) -> None:
     """Force the must_include columns into ``self.support_`` (bool-mask or integer-index form) and refresh ``n_features_``."""
     # Glue must_include into the final support_. The optimiser produced support_ over the search-universe complement only;
     # must_include features are always in the final selection regardless of what the optimiser picked.
     if must_include_resolved and hasattr(self, "support_"):
-        idx_must = [self.feature_names_in_.index(c) for c in must_include_resolved if c in self.feature_names_in_]
+        idx_must = [i for i in (_feature_position(self.feature_names_in_, c) for c in must_include_resolved) if i is not None]
         if len(self.support_) > 0 and isinstance(self.support_[0], (bool, np.bool_)):
             # support_ is a bool-mask aligned with feature_names_in_; set the must_include positions to True.
             support_mask = np.asarray(self.support_, dtype=bool)
@@ -266,10 +294,9 @@ def _expand_support_by_feature_groups(self, verbose):
             support_mask = np.zeros(len(self.feature_names_in_), dtype=bool)
             for i in self.support_:
                 support_mask[i] = True
-        _name_to_idx = {n: i for i, n in enumerate(self.feature_names_in_)}
         _expanded = 0
         for _members in self.feature_groups.values():
-            _idx = [_name_to_idx[m] for m in _members if m in _name_to_idx]
+            _idx = [i for i in (_feature_position(self.feature_names_in_, m) for m in _members) if i is not None]
             if not _idx:
                 continue
             _any_selected = any(support_mask[i] for i in _idx)

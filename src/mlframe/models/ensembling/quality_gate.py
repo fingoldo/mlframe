@@ -108,6 +108,19 @@ def _collapse_to_groups(arr: np.ndarray, sample_weight: Optional[np.ndarray], gr
     return arr_by_group, sw_by_group
 
 
+def _drop_rows_with_non_finite_member(arr: np.ndarray, sample_weight: Optional[np.ndarray], group_ids: Optional[np.ndarray]) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
+    """Rows where every member is finite, for the gate statistics only. Out-of-fold predictions of a time-ordered split leave the warm-up rows NaN in every
+    member, which made the cross-member median NaN there and every member's MAE/STD NaN, so the whole gate switched itself off.
+    Unchanged when every row is finite or when no row is (the caller's non-finite handling then applies)."""
+    rows_ok = np.isfinite(arr).reshape(arr.shape[0], arr.shape[1], -1).all(axis=(0, 2))
+    if rows_ok.all() or not rows_ok.any():
+        return arr, sample_weight, group_ids
+    n_rows = arr.shape[1]
+    sw = None if sample_weight is None else (np.asarray(sample_weight)[rows_ok] if np.asarray(sample_weight).shape[0] == n_rows else sample_weight)
+    gid = None if group_ids is None else (np.asarray(group_ids)[rows_ok] if np.asarray(group_ids).shape[0] == n_rows else group_ids)
+    return arr[:, rows_ok], sw, gid
+
+
 def _weighted_member_stats(
     arr: np.ndarray,
     median_preds: np.ndarray,
@@ -208,6 +221,7 @@ def compute_member_quality_gate(
         return list(range(n)), [], {"k2_disagreement": _disagreement, "filter_too_restrictive": False}
 
     arr = np.asarray(preds_list, dtype=np.float64)
+    arr, sample_weight, group_ids = _drop_rows_with_non_finite_member(arr, sample_weight, group_ids)
     arr_by_group, sw_by_group = _collapse_to_groups(arr, sample_weight, group_ids)
     # ``np.nanmedian`` over ``np.nanquantile(arr, 0.5, ...)``: the q=0.5 codepath
     # in nanquantile dispatches through ``apply_along_axis``, which iterates the

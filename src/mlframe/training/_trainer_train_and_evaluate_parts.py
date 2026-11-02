@@ -110,6 +110,13 @@ def _train_and_evaluate_cap_iter_boosters(_cap_iter_boosters, model_category, ca
     return callback_params, fit_params
 
 
+def _by_position(values, idx):
+    """``values`` rows at positional ``idx``; a pandas Series is indexed by position, not by its (possibly non-range) labels."""
+    if hasattr(values, "iloc"):
+        return values.iloc[idx]
+    return values[idx]
+
+
 def _train_and_evaluate_use_cache_exists_model(use_cache, model_file_name, trusted_root, model, pre_pipeline):
     """Block of train_and_evaluate_model starting at ``if use_cache and exists(model_file_name):``."""
     from mlframe.training.trainer import _validate_trusted_path
@@ -222,8 +229,8 @@ def _train_and_evaluate_val_df_none(val_df, val_target, control, model_category,
             if _supports_multi_eval:
                 try:
                     val_target_arr = val_target.values if hasattr(val_target, "values") else val_target
-                    _sw_val = sample_weight[val_idx] if (sample_weight is not None and val_idx is not None) else None
-                    _grp_val = group_ids[val_idx] if (group_ids is not None and val_idx is not None) else None
+                    _sw_val = _by_position(sample_weight, val_idx) if (sample_weight is not None and val_idx is not None) else None
+                    _grp_val = _by_position(group_ids, val_idx) if (group_ids is not None and val_idx is not None) else None
                     extra_eval_sets = build_slice_eval_sets(
                         val_df, val_target_arr,
                         source=getattr(_slice_cfg, "source", "random"),
@@ -281,8 +288,8 @@ def _train_and_evaluate_val_df_none(val_df, val_target, control, model_category,
         _setup_eval_set(
             model_type_name, fit_params, val_df, val_target, callback_params, model_obj, model_category,
             extra_eval_sets=extra_eval_sets,
-            sample_weight_val=sample_weight[val_idx] if (sample_weight is not None and val_idx is not None) else None,
-            group_ids_val=group_ids[val_idx] if (group_ids is not None and val_idx is not None) else None,
+            sample_weight_val=_by_position(sample_weight, val_idx) if (sample_weight is not None and val_idx is not None) else None,
+            group_ids_val=_by_position(group_ids, val_idx) if (group_ids is not None and val_idx is not None) else None,
         )
 
         # Auto-wrap models whose category isn't natively wired into ``_setup_eval_set``
@@ -388,7 +395,7 @@ def _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, just_evaluate, mod
                 is_classifier_model=_is_clf_for_oof,
                 n_splits=int(oof_n_splits),
                 random_seed=int(oof_random_seed),
-                group_ids=group_ids[train_idx] if (group_ids is not None and train_idx is not None) else None,
+                group_ids=_by_position(group_ids, train_idx) if (group_ids is not None and train_idx is not None) else None,
                 has_time=bool(oof_has_time), sample_weight=_pre_pipeline_sample_weight, timestamps=_oof_train_timestamps(timestamps, train_idx),
                 fit_params=fit_params,
             )

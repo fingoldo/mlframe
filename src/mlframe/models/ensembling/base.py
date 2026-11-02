@@ -683,13 +683,17 @@ def combine_probs(
 
 def _harmonic_mean_stacked(stacked, weights_arr):
     """Row-wise harmonic mean over the member axis; a row with any exactly-zero member is 0, as the harmonic mean is defined there."""
-    any_zero = (stacked == 0).any(axis=0)
+    if weights_arr is not None:
+        # a member with weight 0 must not zero the row or turn 0 * inf into NaN
+        w_shape = (weights_arr.shape[0],) + (1,) * (stacked.ndim - 1)
+        any_zero = ((stacked == 0) & (weights_arr.reshape(w_shape) > 0)).any(axis=0)
+    else:
+        any_zero = (stacked == 0).any(axis=0)
     with np.errstate(divide="ignore", invalid="ignore"):
         inv = 1.0 / stacked
         if weights_arr is not None:
             # Weighted harmonic mean: 1 / sum_i w_i * (1 / p_i). Weights normalised to sum=1.
-            w_shape = (weights_arr.shape[0],) + (1,) * (inv.ndim - 1)
-            combined = 1.0 / np.sum(weights_arr.reshape(w_shape) * inv, axis=0)
+            combined = 1.0 / np.sum(np.where(weights_arr.reshape(w_shape) > 0, weights_arr.reshape(w_shape) * inv, 0.0), axis=0)
         else:
             combined = len(stacked) / np.sum(inv, axis=0)
     if any_zero.any():

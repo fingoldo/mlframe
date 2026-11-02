@@ -703,7 +703,7 @@ def _fit_impl_part2(
     # identical (n_rows, n_cols) shape, replayed A's support_ verbatim. Fold the y content hash in.
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._fit_cache import _fit_signature
 
-    _x_hash_for_sig, _y_hash_for_sig, signature = _fit_signature(self, y, X)
+    _x_hash_for_sig, _y_hash_for_sig, signature = _fit_signature(self, y, X, groups)
     from ._fit_impl_stages._fit_cache import _fit_cache_key, _replay_from_fit_cache, _same_inputs_skip
 
     if _same_inputs_skip(self, signature, _x_hash_for_sig):
