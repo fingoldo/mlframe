@@ -42,6 +42,7 @@ def permuted_labels(y_raw: np.ndarray, y_codes: np.ndarray, perm_rows: Iterable[
     return out[0], out[1]
 
 
+from ._numba_utils_shuffle import bounded, next_state, seed_state
 from ._numba_utils_shared import seeded_permutation  # noqa: F401  -- hosted in _numba_utils_shared for the cross-module njit invariant
 
 
@@ -51,10 +52,11 @@ def _permuted_labels_kernel(src_raw: np.ndarray, src_codes: np.ndarray, base_see
     n = src_raw.shape[0]
     for b in prange(out_raw.shape[0]):
         # the shuffle of ``seeded_permutation(n, base_seed + b)`` (the same generator calls) on int32 indices: half the footprint of the random swaps
-        np.random.seed((base_seed + b) % 4294967295)
+        x = seed_state(base_seed + b)
         perm = np.arange(n).astype(np.int32)
         for i in range(n - 1, 0, -1):
-            j = np.random.randint(0, i + 1)
+            x = next_state(x)
+            j = bounded(x, i + 1)
             t = perm[i]
             perm[i] = perm[j]
             perm[j] = t
