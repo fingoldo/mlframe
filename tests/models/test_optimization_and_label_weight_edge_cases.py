@@ -33,3 +33,28 @@ def test_label_without_positives_keeps_the_other_weights_usable():
     y[:50, 2] = 1
     w = compute_inverse_frequency_class_weights(y, np.zeros_like(y, dtype=bool))
     assert w[1] > 0.5 and w[2] > 0.5
+
+
+def test_search_survives_nan_evaluations():
+    """An objective that returns NaN for some candidates (failed CV) must not crash the surrogate refit."""
+    from mlframe.models import optimization as opt_mod
+
+    def evalfn(x):
+        """NaN for every third candidate, a smooth score otherwise."""
+        return float("nan") if int(x) % 3 == 0 else -((float(x) - 17.0) ** 2)
+
+    best, *_ = (
+        opt_mod.optimize_finite_onedimensional_search_space(
+            eval_candidate_func=evalfn,
+            search_space=np.arange(0, 30),
+            direction=opt_mod.OptimizationDirection.Maximize,
+            init_num_samples=6,
+            max_fevals=14,
+            model_name="ETR",
+            model_params={},
+            random_state=0,
+            verbose=0,
+        ),
+        None,
+    )
+    assert best is not None
