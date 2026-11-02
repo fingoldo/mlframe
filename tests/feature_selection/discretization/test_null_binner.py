@@ -108,10 +108,24 @@ def test_the_honest_null_hook_returns_the_same_codes_with_and_without_the_binner
             monkeypatch.setenv("MLFRAME_OJ_NULL_BINNER", "0")
         else:
             monkeypatch.delenv("MLFRAME_OJ_NULL_BINNER", raising=False)
+        # fit() drops the closure when it ends (it holds a float64 copy of the frame), so it is taken when the fit installs it
+        captured: list = []
+        real_setattr = MRMR.__setattr__
+
+        def spy(self, name, value):
+            """Remember every hook the fit installs."""
+            if name == "_honest_null_codes_fn" and value is not None:
+                captured.append(value)
+            real_setattr(self, name, value)
+
+        monkeypatch.setattr(MRMR, "__setattr__", spy)
+        MRMR.clear_fit_cache()  # a cached fit would skip the installation
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            model = MRMR(verbose=0, random_seed=0, n_jobs=1, nbins_strategy="optimal_joint", fe_max_steps=0).fit(X, y)
-        fn = model._honest_null_codes_fn
+            MRMR(verbose=0, random_seed=0, n_jobs=1, nbins_strategy="optimal_joint", fe_max_steps=0).fit(X, y)
+        monkeypatch.setattr(MRMR, "__setattr__", real_setattr)
+        assert captured, "the fit installed no honest-null hook"
+        fn = captured[-1]
         return [fn(np.random.default_rng(s).permutation(n)) for s in range(3)]
 
     fast, plain = fit_and_codes(False), fit_and_codes(True)
