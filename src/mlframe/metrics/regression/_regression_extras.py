@@ -504,7 +504,8 @@ def _explained_variance_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         var_y += d_y * d_y
         var_d += d_d * d_d
     if var_y == 0.0:
-        return np.nan
+        # sklearn (force_finite=True): a constant target scores 1.0 for a residual that does not vary and 0.0 otherwise.
+        return 1.0 if var_d == 0.0 else 0.0
     return 1.0 - var_d / var_y
 
 
