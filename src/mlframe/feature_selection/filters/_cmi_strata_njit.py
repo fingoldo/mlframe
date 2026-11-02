@@ -23,16 +23,39 @@ from ._numba_utils import (  # noqa: F401 -- helpers hosted in _numba_utils_cros
 
 @njit(cache=True, parallel=True)
 def _permutation_sources_njit(order: np.ndarray, starts: np.ndarray, lens: np.ndarray, n_perm: int, seed: int) -> np.ndarray:
-    """Fisher-Yates shuffle of every stratum's positions, one draw per parallel iteration; draw ``p`` is seeded ``seed + p`` so the result does not depend on the thread schedule."""
+    """Fisher-Yates shuffle of every stratum's positions, one draw per parallel iteration; draw ``p`` is seeded ``seed + p`` so the result does not depend on the thread schedule.
+
+    The index draws come from an inline xorshift64* generator seeded through splitmix64, reduced to ``[0, i]`` by the multiply-shift of a 32-bit value (the bias is below ``i / 2**32``): numba's Mersenne ``randint`` cost about
+    five times the whole scoring of the permutations it fed."""
     n = order.shape[0]
     src = np.empty((n_perm, n), dtype=np.int32)
+    s12 = np.uint64(12)
+    s25 = np.uint64(25)
+    s27 = np.uint64(27)
+    s30 = np.uint64(30)
+    s31 = np.uint64(31)
+    s32 = np.uint64(32)
+    mult = np.uint64(2685821657736338717)
+    golden = np.uint64(0x9E3779B97F4A7C15)
+    c1 = np.uint64(0xBF58476D1CE4E5B9)
+    c2 = np.uint64(0x94D049BB133111EB)
+    one = np.uint64(1)
     for p in prange(n_perm):
-        np.random.seed((seed + p) % 4294967295)
+        z = np.uint64(seed + p) + golden
+        z = (z ^ (z >> s30)) * c1
+        z = (z ^ (z >> s27)) * c2
+        x = z ^ (z >> s31)
+        if x == np.uint64(0):
+            x = one
         work = order.copy()
         for g in range(starts.shape[0]):
             a = starts[g]
             for i in range(lens[g] - 1, 0, -1):
-                j = np.random.randint(0, i + 1)
+                x ^= x >> s12
+                x ^= x << s25
+                x ^= x >> s27
+                r = (x * mult) >> s32
+                j = np.int64((r * np.uint64(i + 1)) >> s32)
                 t = work[a + i]
                 work[a + i] = work[a + j]
                 work[a + j] = t

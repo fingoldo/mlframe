@@ -81,3 +81,17 @@ def test_small_strata_are_skipped():
     y = np.array([0, 1] * 10, dtype=np.int64)
     s = np.zeros(20, dtype=np.int64)
     assert float(stratified_cmi(x, y, s, 30)) == 0.0
+
+
+def test_shuffle_is_uniform_within_a_stratum():
+    """Every position of a stratum receives every source with frequency 1/m (within five standard errors) and the draws are valid permutations."""
+    s = np.array([0] * 6 + [1] * 5)
+    draws = 40000
+    src = permutation_sources(s, draws, np.random.default_rng(11))
+    counts = np.zeros((6, 6))
+    for row in src:
+        counts[np.arange(6), row[:6]] += 1
+    freq = counts / draws
+    se = (1 / 6 * 5 / 6 / draws) ** 0.5
+    assert np.abs(freq - 1 / 6).max() < 5 * se
+    assert all(np.array_equal(np.sort(r[:6]), np.arange(6)) and np.array_equal(np.sort(r[6:]), np.arange(6, 11)) for r in src[:500])
