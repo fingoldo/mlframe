@@ -34,7 +34,8 @@ def _free_vram_bytes() -> int | None:
         import cupy as cp
 
         return int(cp.cuda.Device().mem_info[0])
-    except Exception:  # best-effort probe: an unreadable device means "unknown", and the caller then tries the allocation
+    except Exception as exc:  # best-effort probe: an unreadable device means "unknown", and the caller then tries the allocation
+        log_throttle(logger, "radix_free_vram_probe_failed", logging.DEBUG, "free-VRAM probe failed (%s: %s); the scratch allocation is tried without a budget check.", type(exc).__name__, exc)
         return None
 
 

@@ -220,7 +220,7 @@ def masked_abs_spearman_presorted(a: np.ndarray, fin_a: np.ndarray, order_a: np.
 
 
 _ORDER_CACHE_LOCK = threading.Lock()
-_ORDER_CACHE: "dict[int, tuple]" = {}  # id(column) -> (weak reference to the column, its finite rows in ascending value order); a dead reference never matches, so a reused id cannot hitry lives
+_ORDER_CACHE: "dict[int, tuple]" = {}  # id(column) -> (weak reference to the column, its finite rows in ascending value order); a dead reference never matches a reused id
 _ORDER_CACHE_MAX = 96
 
 
@@ -229,16 +229,19 @@ def finite_sort_order(col: np.ndarray, *, cache: bool = True) -> np.ndarray:
     if cache:
         with _ORDER_CACHE_LOCK:
             hit = _ORDER_CACHE.get(id(col))
-        if hit is not None and hit[0]() is col:
-            return cast("np.ndarray", hit[1])
+            if hit is not None and hit[0]() is col:
+                return cast("np.ndarray", hit[1])
     rows = np.flatnonzero(np.isfinite(col))
     order = rows[np.argsort(col[rows], kind="mergesort")]
     if cache:
         with _ORDER_CACHE_LOCK:
+            hit = _ORDER_CACHE.get(id(col))  # another thread may have stored this column while this one sorted
+            if hit is not None and hit[0]() is col:
+                return cast("np.ndarray", hit[1])
             for dead in [k for k, v in _ORDER_CACHE.items() if v[0]() is None]:
                 _ORDER_CACHE.pop(dead, None)
             while len(_ORDER_CACHE) >= _ORDER_CACHE_MAX:
-                _ORDER_CACHE.pop(next(iter(_ORDER_CACHE)), None)
+                _ORDER_CACHE.pop(next(iter(_ORDER_CACHE)), None)  # evict-ok: a miss only recomputes the sort order
             _ORDER_CACHE[id(col)] = (weakref.ref(col), order)
     return order
 

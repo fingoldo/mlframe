@@ -15,7 +15,7 @@ from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 _KEY_PREP_LOCK = threading.Lock()
-_KEY_PREP: "dict[int, tuple]" = {}  # id(key array) -> (weak reference to the array, missing mask, present mask, codes, distinct keys); a dead reference never matchesry lives
+_KEY_PREP: "dict[int, tuple]" = {}  # id(key array) -> (weak reference to the array, missing mask, present mask, codes, distinct keys); a dead reference never matches a reused id
 _KEY_PREP_MAX = 8
 
 
@@ -23,8 +23,8 @@ def _prepared_keys(g_keys: np.ndarray) -> tuple:
     """``(missing, present, codes, uniq)`` of a key array; the families call ``broadcast_lookup`` with the SAME array for every (column, statistic) of a group, so the mask and the hash pass are done once per array."""
     with _KEY_PREP_LOCK:
         hit = _KEY_PREP.get(id(g_keys))
-    if hit is not None and hit[0]() is g_keys:
-        return hit[1:]
+        if hit is not None and hit[0]() is g_keys:
+            return hit[1:]
     missing = np.asarray(pd.isna(g_keys), dtype=bool)
     present = ~missing
     codes: np.ndarray = np.empty(0, dtype=np.intp)
@@ -32,10 +32,13 @@ def _prepared_keys(g_keys: np.ndarray) -> tuple:
     if present.any():
         codes, uniq = pd.factorize(g_keys[present])
     with _KEY_PREP_LOCK:
+        hit = _KEY_PREP.get(id(g_keys))  # another thread may have prepared this array while this one did
+        if hit is not None and hit[0]() is g_keys:
+            return hit[1:]
         for dead in [k for k, v in _KEY_PREP.items() if v[0]() is None]:
             _KEY_PREP.pop(dead, None)
         while len(_KEY_PREP) >= _KEY_PREP_MAX:
-            _KEY_PREP.pop(next(iter(_KEY_PREP)), None)
+            _KEY_PREP.pop(next(iter(_KEY_PREP)), None)  # evict-ok: a miss only re-factorizes the key array
         _KEY_PREP[id(g_keys)] = (weakref.ref(g_keys), missing, present, codes, uniq)
     return missing, present, codes, uniq
 

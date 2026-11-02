@@ -447,7 +447,9 @@ class HybridSelector:
                 top = [(a, b) for (a, b), _ in _pair_w_sorted if a in cols and b in cols]
                 # expand each co-occurrence pair to one candidate column per rich operator; each column carries its
                 # operand pair (so the synergy gate scores it independently) and its op (so _augment replays it).
-                ops = list(self._resolved_tree_ops()) or ["mul"]  # an empty config -> the one safe default op, not a caller-supplied-empty trap
+                ops = list(self._resolved_tree_ops())
+                if not ops:
+                    ops = ["mul"]  # an empty config -> the one safe default op, not a caller-supplied-empty trap
                 pairs, names = [], []
                 for i, (a, b) in enumerate(top):
                     for op in ops:

@@ -33,6 +33,7 @@ import numba
 
 from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD, _check_equal_length
 from ._regression_metrics import fast_r2_score
+from mlframe.utils.array_shape import shape_of
 # iter592: hoist the rank_correlation import out of fast_spearman_corr's
 # body. c0103_2a635557 @100k profile attributed 140 ms of
 # fast_spearman_corr's 182 ms cumtime / 10 calls (~14 ms per call avg) to
@@ -541,9 +542,6 @@ def fast_adjusted_r2_score(y_true: np.ndarray, y_pred: np.ndarray, n_predictors:
     R^2 is meaningless) and the function returns NaN. ``p <= 0`` returns plain R^2 unchanged.
     """
     r2 = fast_r2_score(y_true, y_pred)
-    # Imported here for the same reason as in _regression_corr: a module-level import closes a cycle through the feature_selection package.
-    from mlframe.feature_selection.filters._lazy_host_codes import shape_of
-
     n = int(shape_of(y_true)[0])
     p = int(n_predictors)
     if p <= 0:
