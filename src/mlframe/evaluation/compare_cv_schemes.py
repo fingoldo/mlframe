@@ -85,10 +85,13 @@ def compare_cv_schemes(
     for name, cv_splits in schemes.items():
         fold_scores = [_fit_eval(train_idx, test_idx) for train_idx, test_idx in cv_splits]
         cv_score = float(np.mean(fold_scores)) if fold_scores else float("nan")
-        scheme_scores[name] = {"cv_score": cv_score, "gap_to_ooo_time": abs(cv_score - ooo_time_score)}
         fold_gaps[name] = np.abs(np.asarray(fold_scores, dtype=np.float64) - ooo_time_score)
+        mean_fold_gap = float(np.mean(fold_gaps[name])) if fold_scores else float("nan")
+        scheme_scores[name] = {"cv_score": cv_score, "gap_to_ooo_time": abs(cv_score - ooo_time_score), "mean_fold_gap": mean_fold_gap}
 
-    best_scheme = min(scheme_scores, key=lambda n: scheme_scores[n]["gap_to_ooo_time"]) if scheme_scores else None
+    # The winner is chosen on the same quantity the paired significance test compares (per-fold |score - ooo|): a scheme whose folds over- and
+    # under-shoot can have a zero gap of the mean while every single fold is far from the out-of-order score.
+    best_scheme = min(scheme_scores, key=lambda n: scheme_scores[n]["mean_fold_gap"]) if scheme_scores else None
 
     result: dict = {"ooo_time_score": ooo_time_score, "scheme_scores": scheme_scores, "best_scheme": best_scheme}
 
