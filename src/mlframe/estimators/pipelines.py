@@ -288,6 +288,15 @@ def compute_ml_metrics(y_true: np.ndarray, y_preds: np.ndarray, scorers: Sequenc
     return metrics
 
 
+def _row_at(values, position):
+    """Row ``position`` of a pandas, polars or array-like object by POSITION (``values[i]`` would look up a label or a column)."""
+    if hasattr(values, "iloc"):
+        return np.asarray(values.iloc[position])
+    if hasattr(values, "row"):
+        return np.asarray(values.row(position))
+    return np.asarray(values)[position]
+
+
 def visualize_prediction_vs_truth(
     y_true: pd.DataFrame | pd.Series | np.ndarray,
     y_preds: pd.DataFrame | pd.Series | np.ndarray,
@@ -320,12 +329,12 @@ def visualize_prediction_vs_truth(
     for i, sample in enumerate(samples):
         sample_title = f"#{sample}"
         if sample < len(y_preds):
-            axs[i].plot(y_preds[sample], linestyle="--", marker="o", label="predicted")
+            axs[i].plot(_row_at(y_preds, sample), linestyle="--", marker="o", label="predicted")
             if isinstance(y_true, pd.DataFrame):
                 sample_title += " " + str(y_true.index.values[sample])
                 axs[i].plot(y_true.iloc[sample].values, marker="v", label="true")
             else:
-                axs[i].plot(y_true[sample], marker="v", label="true")
+                axs[i].plot(_row_at(y_true, sample), marker="v", label="true")
             axs[i].legend()
             axs[i].set_title(sample_title)
     was_shown = _show_plots_unless_agg()
