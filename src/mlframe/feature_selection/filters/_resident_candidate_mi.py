@@ -278,6 +278,27 @@ def best_existing_op_mi_resident(
         return None
 
 
+_TAU_KERNELS: dict = {}
+
+
+def _tau_grid_kernel(cp, mode: str, out_ctype: str):
+    """Fused tau-grid builder: ``mask`` writes ``(float)((c > t ? 1.0 : 0.0) * a)``, ``select`` writes ``(float)(c > t ? a : b)``, every operand read as double, so the block equals the compare / cast / multiply (or ``where``) sequence it replaces bit for bit without the two double temporaries."""
+    key = (mode, out_ctype)
+    kern = _TAU_KERNELS.get(key)
+    if kern is None:
+        decl = "float32" if out_ctype == "float" else "float64"  # cupy's name of the output type
+        if mode == "mask":
+            kern = cp.ElementwiseKernel(
+                "float64 c, float64 t, float64 a", decl + " o", f"o = ({out_ctype})((c > t ? 1.0 : 0.0) * a)", "gate_tau_mask_" + out_ctype
+            )
+        else:
+            kern = cp.ElementwiseKernel(
+                "float64 c, float64 t, float64 a, float64 b", decl + " o", f"o = ({out_ctype})(c > t ? a : b)", "gate_tau_select_" + out_ctype
+            )
+        _TAU_KERNELS[key] = kern
+    return kern
+
+
 def gate_grid_mi_resident(
     specs: Sequence[tuple], yi: np.ndarray, nbins: int,
     *, rank_binning: bool = False, y_gpu: object = None, y_min: int | None = None, n_classes: int | None = None,
@@ -325,6 +346,7 @@ def gate_grid_mi_resident(
         from ._hermite_fe_mi import relaxed_candidate_dtype
 
         _gdt = relaxed_candidate_dtype(cp)  # each block is cast once, block by block, instead of the concatenated matrix afterwards
+        out_ctype = "float" if _gdt == cp.float32 else "double"
         blocks = []  # device (k_combo, n) [column-major] or (n, k_combo) matrices, built op-for-op like the host tau-grid
         for mode, ctup, cols, taus in specs:
             taus_g = cp.asarray(np.ascontiguousarray(np.asarray(taus, dtype=np.float64)))  # (k,)  # Intentional float64: gate threshold grid; compared at full precision
@@ -334,7 +356,11 @@ def gate_grid_mi_resident(
                 cv_g = resident_operand(cv, ("gate_op", c_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
                 av_g = resident_operand(av, ("gate_op", a_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
                 # column j = (cv > taus[j]) * av ; broadcast (n,1) > (k,) -> (n,k), * (n,1)
-                blk = (cv_g[None, :] > taus_g[:, None]).astype(cp.float64) * av_g[None, :] if cm else (cv_g[:, None] > taus_g[None, :]).astype(cp.float64) * av_g[:, None]  # Intentional float64: GPU gate block; kernel contract is float64
+                if cm:
+                    blk = _tau_grid_kernel(cp, "mask", out_ctype)(cv_g[None, :], taus_g[:, None], av_g[None, :])
+                else:
+                    # Intentional float64: GPU gate block; the row-major layout feeds the rank-binning kernel at float64
+                    blk = (cv_g[:, None] > taus_g[None, :]).astype(cp.float64) * av_g[:, None]
             elif mode == "select":
                 cv, av, bv = cols
                 a_name, b_name, c_name = ctup  # select ctup = (a, b, c); operands = (cv=c, av=a, bv=b)
@@ -343,7 +369,7 @@ def gate_grid_mi_resident(
                 bv_g = resident_operand(bv, ("gate_op", b_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
                 # column j = where(cv > taus[j], av, bv)
                 if cm:
-                    blk = cp.where(cv_g[None, :] > taus_g[:, None], av_g[None, :], bv_g[None, :])
+                    blk = _tau_grid_kernel(cp, "select", out_ctype)(cv_g[None, :], taus_g[:, None], av_g[None, :], bv_g[None, :])
                 else:
                     blk = cp.where(cv_g[:, None] > taus_g[None, :], av_g[:, None], bv_g[:, None])
             else:
