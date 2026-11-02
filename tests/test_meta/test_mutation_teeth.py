@@ -31,11 +31,23 @@ BASE_REV = os.environ.get("MLFRAME_MUTATION_BASE", "HEAD~1")
 BASELINE = Baseline("mutation_survivors", directory=str(Path(__file__).resolve().parent))
 
 
+# Suites that pin a module's behaviour without naming its dotted path, because they reach it through the public class.
+# ``_mrmr_class.py`` holds the ``MRMR`` constructor, whose defaults the FE default-pinning tests assert on.
+_EXTRA_SUITES = {
+    "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py": [
+        "tests/feature_selection/fe/test_triplet_default_top_count.py",
+        "tests/feature_selection/fe/test_quadruplet_default_seed_k.py",
+        "tests/feature_selection/fe/test_cat_pair_default_top_k.py",
+    ],
+}
+
+
 def _suites_for(module: Path) -> list[Path]:
     """Repo-relative ``test_*.py`` files under ``tests/`` that import *module* by its dotted path, shortest path first.
 
     Meta-tests are excluded: they name modules to check structure, not behaviour. A suite is any other test file that names the module's dotted import path, so a module whose tests are not called
-    ``test_<stem>.py`` (most of mlframe) still gets its suites; a file that never names the module is not its suite.
+    ``test_<stem>.py`` (most of mlframe) still gets its suites; a file that never names the module is not its suite. ``_EXTRA_SUITES`` adds the suites that reach the module only through
+    its public class.
     """
     dotted = ".".join(module.with_suffix("").parts[1:])
     found = []
@@ -45,7 +57,8 @@ def _suites_for(module: Path) -> list[Path]:
         if dotted in path.read_text(encoding="utf-8", errors="replace"):
             found.append(path)
     found.sort(key=lambda p: (len(p.parts), p.as_posix()))
-    return [p.relative_to(REPO_ROOT) for p in found]
+    extra = [REPO_ROOT / p for p in _EXTRA_SUITES.get(module.as_posix(), []) if REPO_ROOT / p not in found]
+    return [p.relative_to(REPO_ROOT) for p in found + extra]
 
 
 def _changed_production_modules() -> list[Path]:
