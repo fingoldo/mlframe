@@ -18,7 +18,7 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 | **RESOLVED** | ERR16-2 | error_quality | Medium | a `.csv` path or a parquet file without the target column failed inside polars |
 | **RESOLVED** | ERR16-3 | error_quality | Low | a datetime or timedelta target column was routed to regression; the default extractor now raises a ValueError naming the dtype and the two ways out |
 | **FUTURE** | IMP16-1 | import | High | `import mlframe.metrics` installs the CatBoost `__sklearn_clone__` patch at import, costing about 3.2 s (catboost, IPython, xgboost); consumers rely on the import to guarantee the patch, so it needs a post-import hook or explicit installs at each CatBoost construction site |
-| **FUTURE** | IMP16-2 | import | High | `training/_model_factories.py` imports torch (12.5 s) at module level although the neural stack is meant to be deferred |
+| **RESOLVED** | IMP16-2 | import | High | `trainer.py` and `_model_factories.py` no longer import torch at module level; the single use site imports it locally and `trainer` serves `torch`, `nn`, `F` through a lazy module `__getattr__` for existing importers |
 | **RESOLVED** | IMP16-3 | import | Medium | ngboost is imported only where an NGB model is built; the three unused module-level imports are removed (a missing ngboost now raises ImportError at the builder) |
 | **RESOLVED** | IMP16-4 | import | Medium | the import-time warm-ups of the discovery correlation and collinearity kernels are removed; they compile on the first real call |
 | **RESOLVED** | IMP16-5 | import | Low | the ACF/PACF kernels moved to `mlframe/utils/acf_kernels.py` and `acf_lag_selection` imports them from there, no longer through `mlframe.reporting.charts`; the other module-level `matplotlib.pyplot` imports in `calibration/quality.py`, `evaluation/reports.py`, `reporting/charts/shap_panels.py` and `boruta_shap/_io_plot.py` are untouched, and `import mlframe.feature_engineering` still loads `mlframe.reporting` through another module |
@@ -29,7 +29,7 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 
 ## Counts
 
-23 rows. Dispositions: 17 RESOLVED, 5 FUTURE, 1 REJECTED.
+23 rows. Dispositions: 18 RESOLVED, 4 FUTURE, 1 REJECTED.
 
 ## Implemented
 
@@ -37,6 +37,7 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 |---|---|---|
 | MEM16-1, MEM16-6 | Stop deep-copying the whole frame in the functional adapters and ACE | `tests/feature_selection/test_selection_inputs_are_not_deep_copied.py` (checks the numeric buffer stays shared; the ACE `copy=False` change has no separate test) |
 | MEM16-2 | Reuse one shadow buffer across Boruta rounds | `tests/feature_selection/filters/test_boruta_shadow_buffer_reuse.py` (the reuse test fails without the fix) |
+| IMP16-2 | Stop importing torch when the training package is imported | `tests/training/test_torch_is_not_imported_by_training_core.py` (fails without the fix); the 5 MLP tests that import `nn` from `trainer` failed first and pass after the lazy `__getattr__` |
 | IMP16-3 | Import ngboost only where an NGB model is built | `tests/training/test_ngboost_is_imported_only_when_an_ngb_model_is_built.py` (fails without the fix); 29 NGB-related tests pass |
 | IMP16-5 | Move the ACF and PACF kernels to a neutral module | `tests/feature_engineering/test_acf_lag_selection_does_not_import_reporting.py` (checks the shared functions and the pure-numpy module; 65 ACF tests pass) |
 | IMP16-9 | Draw the Pareto plot on an Agg Figure instead of switching the matplotlib backend | `tests/training/slicing/test_pareto_plot_keeps_the_matplotlib_backend.py` (fails without the fix) |
