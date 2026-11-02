@@ -11,10 +11,8 @@ values are pure sampling noise (safe to fold into the catch-all bucket), others 
 distinctive (e.g. a defect code that is rare precisely because it only fires on a specific failure mode, and
 correlates strongly with the target whenever it does occur). Collapsing the latter destroys real signal. When
 ``target_aware=True`` (and ``y`` supplied), a rare value survives collapsing if its target statistic is
-STATISTICALLY DISTINGUISHABLE from the catch-all/rest-of-column rate -- reusing
-``reporting.charts.category_discriminability.level_woe`` (Laplace-smoothed per-level Weight-of-Evidence,
-njit-accelerated) for the rate estimate, plus a standard log-odds-ratio z-test (Woolf's method) against
-``z_threshold`` to separate real signal from small-sample noise. Only rare values that fail the significance
+STATISTICALLY DISTINGUISHABLE from the catch-all/rest-of-column rate -- a Laplace-smoothed log-odds-ratio z-test
+(Woolf's method, level vs rest) against ``z_threshold`` separates real signal from small-sample noise. Only rare values that fail the significance
 test (i.e. are NOT distinguishable from the rest) get collapsed; the rest keep their own value.
 """
 from __future__ import annotations
@@ -24,7 +22,6 @@ from typing import Dict, FrozenSet, List, Mapping, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from mlframe.reporting.charts.category_discriminability import level_woe
 
 
 def _target_aware_collapse_mask(codes: np.ndarray, uniques: np.ndarray, y_arr: np.ndarray, rare_values: pd.Index, alpha: float, z_threshold: float) -> np.ndarray:
@@ -40,8 +37,6 @@ def _target_aware_collapse_mask(codes: np.ndarray, uniques: np.ndarray, y_arr: n
     keep = codes64 >= 0
     tot = np.bincount(codes64[keep], minlength=n_levels).astype(np.float64)
     pos = np.bincount(codes64[keep], weights=y_arr[keep], minlength=n_levels)
-    base_rate = float(y_arr[keep].mean()) if keep.any() else 0.5
-    woe, _, _ = level_woe(codes64, y_arr, n_levels, base_rate=base_rate, alpha=alpha)
 
     total_pos = float(pos.sum())
     total_tot = float(tot.sum())
@@ -52,7 +47,9 @@ def _target_aware_collapse_mask(codes: np.ndarray, uniques: np.ndarray, y_arr: n
     c = rest_pos + alpha
     d = (rest_tot - rest_pos) + alpha
     se = np.sqrt(1.0 / a + 1.0 / b + 1.0 / c + 1.0 / d)
-    z = np.divide(woe, se, out=np.zeros_like(woe), where=se > 0)
+    # numerator and standard error are both from the same smoothed 2x2 table (level vs rest), so z is a proper Woolf statistic
+    log_odds_ratio = np.log(a) + np.log(d) - np.log(b) - np.log(c)
+    z = np.divide(log_odds_ratio, se, out=np.zeros_like(log_odds_ratio), where=se > 0)
 
     rare_value_set = set(rare_values)
     rare_level_mask = np.array([v in rare_value_set for v in uniques])
