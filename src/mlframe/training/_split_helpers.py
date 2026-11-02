@@ -117,10 +117,8 @@ def _stratified_split_3way(
     shuffle-splitter wraps), so the split stays a valid, leakage-free, label-balanced
     multilabel split and is deterministic for a fixed seed.
 
-    Fractions follow the suite convention: ``test_size`` and ``val_size`` are both
-    fractions of the WHOLE ``indices`` (NOT of the post-test remainder), matching the
-    cumulative semantics the two-call path produced (test over N, then val over the
-    train remainder == val_size*N rows). Train gets ``1 - test_size - val_size``.
+    Fractions follow the public ``make_train_test_split`` convention: ``test_size`` is a fraction of the whole ``indices`` and ``val_size`` a fraction of
+    what remains after the test carve, so val gets ``(1 - test_size) * val_size`` rows and train ``(1 - test_size) * (1 - val_size)``.
 
     1-D ``stratify_y`` falls back to the exact two-call ``_stratified_split`` path
     (single-label sklearn carve is already cheap; no greedy re-run to fold).
@@ -131,11 +129,9 @@ def _stratified_split_3way(
         train_idx, test_idx = _stratified_split(
             indices, test_size=test_size, stratify_y=stratify_y, random_state=random_state,
         )
-        # val_size is a fraction of the whole; rescale to the train remainder.
-        rem = max(1.0 - test_size, 1e-12)
         strat_train = stratify_y[_positions(indices, train_idx)]
         train_idx, val_idx = _stratified_split(
-            train_idx, test_size=min(val_size / rem, 1.0 - 1e-9),
+            train_idx, test_size=min(val_size, 1.0 - 1e-9),
             stratify_y=strat_train, random_state=random_state,
         )
         return train_idx, val_idx, test_idx
@@ -145,9 +141,10 @@ def _stratified_split_3way(
 
     from sklearn.utils import check_random_state
 
-    train_frac = max(1.0 - test_size - val_size, 0.0)
+    # val_size is a fraction of what is left after the test carve, like every other split path.
+    train_frac = max((1.0 - test_size) * (1.0 - val_size), 0.0)
     # Fold order [train, val, test]; r normalised so the greedy desired-counts match.
-    r = np.array([train_frac, val_size, test_size], dtype=float)
+    r = np.array([train_frac, (1.0 - test_size) * val_size, test_size], dtype=float)
     r = r / r.sum()
 
     rng = check_random_state(random_state)
