@@ -248,6 +248,9 @@ def fit_stacked(
         )
         return self
     oof_cols: dict[str, np.ndarray] = {}
+    # The OOF folds must keep a group's rows together, like every other CV in discovery (the reranker honours the same ids).
+    _g_full = getattr(self, "_group_ids_for_rerank", None)
+    _groups_train = np.asarray(_g_full)[_train_idx_arr] if _g_full is not None and np.asarray(_g_full).shape[0] > int(np.max(_train_idx_arr, initial=-1)) else None
     for spec in top_specs:
         _factory = partial(_ridge_composite_factory, spec)
         try:
@@ -257,6 +260,7 @@ def fit_stacked(
                 random_state=int(self.config.random_state),
                 time_aware=bool(time_aware),
                 cv_splitter=cv_splitter,
+                groups=_groups_train,
             )
             oof_cols[f"{_OOF_FEATURE_PREFIX}{spec.name}"] = preds
         except Exception as _oof_err:
