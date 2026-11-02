@@ -14,7 +14,6 @@ import numba
 
 from .._numba_params import NUMBA_NJIT_PARAMS, _check_equal_length
 from ..rank_correlation import spearmanr_scalar_dispatch
-from mlframe.feature_selection.filters._lazy_host_codes import size_of
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -73,6 +72,10 @@ def fast_spearman_corr(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     reduction-order) to the numpy path. On a single long series the batched paths (which parallelise across rows) buy nothing, so the within-series kernel
     is the faster default at all n -- ~1.5-2.7x over scipy across n in {5k..1M}.
     """
+    # Imported here: the feature_selection package imports estimators, which import mlframe.metrics.core, which is still initialising when this module
+    # loads, so a module-level import made any entry point that reaches mlframe.metrics first fail with a circular import.
+    from mlframe.feature_selection.filters._lazy_host_codes import size_of
+
     _check_equal_length(y_true, y_pred)
     if size_of(y_true) < 2:
         return np.nan

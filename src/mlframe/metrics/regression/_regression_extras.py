@@ -541,6 +541,9 @@ def fast_adjusted_r2_score(y_true: np.ndarray, y_pred: np.ndarray, n_predictors:
     R^2 is meaningless) and the function returns NaN. ``p <= 0`` returns plain R^2 unchanged.
     """
     r2 = fast_r2_score(y_true, y_pred)
+    # Imported here for the same reason as in _regression_corr: a module-level import closes a cycle through the feature_selection package.
+    from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+
     n = int(shape_of(y_true)[0])
     p = int(n_predictors)
     if p <= 0:
@@ -890,4 +893,3 @@ from ._regression_deviance import (  # noqa: F401
     fast_poisson_deviance,
     fast_tweedie_deviance,
 )
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
