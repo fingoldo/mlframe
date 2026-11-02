@@ -402,6 +402,11 @@ del _install_gpu_runtime_lazy_trigger
 
 from mlframe.version import __version__
 
+# Log arguments that carry data-derived names are escaped for control characters (see mlframe.utils.log_sanitize); only records from mlframe loggers are touched.
+from mlframe.utils.log_sanitize import install_log_sanitizer as _install_log_sanitizer
+
+_install_log_sanitizer()
+
 from mlframe.config import (
     THOUSANDS_SEPARATOR,
     KERAS_MODEL_TYPES,
