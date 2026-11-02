@@ -28,3 +28,14 @@ def test_integer_group_members_are_expanded_on_an_ndarray_fit():
     est.feature_groups = {"g": [1, 2]}
     _expand_support_by_feature_groups(est, verbose=0)
     assert np.asarray(est.support_, dtype=bool)[[1, 2]].all()
+
+
+def test_ranking_is_rebuilt_so_pinned_columns_have_rank_one():
+    """After a pin is added the sklearn-style ranking_ marks it 1, like support_."""
+    from mlframe.feature_selection.wrappers.rfecv._finalize import _refresh_ranking_after_support_edits
+
+    est = _fitted([True, False, False, True, False, True])
+    est.ranking_ = np.array([1, 2, 3, 2, 4, 1])
+    est.consensus_ranking_ = ["0", "5", "3", "1"]
+    _refresh_ranking_after_support_edits(est)
+    assert (est.ranking_ == 1).tolist() == est.support_.tolist()

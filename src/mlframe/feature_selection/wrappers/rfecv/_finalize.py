@@ -23,6 +23,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ._stability_select import _sklearn_ranking_vector
+
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
@@ -107,6 +109,7 @@ def _finalize_fit_results(
     # feature_groups: all-or-nothing decision per group. If ANY member of group G is in support_, ALL members are added; if NONE, all
     # stay out. Resolves the "5 collinear copies" caveat at config level when the operator knows the group structure.
     _expand_support_by_feature_groups(self, verbose)
+    _refresh_ranking_after_support_edits(self)
 
     # Refresh the params slot with POST-fit values before storing: fit resolves some params in place
     # (``scoring=None -> make_scorer(...)``, ``force_parallel`` thread pinning on the wrapped estimator),
@@ -229,6 +232,21 @@ def _add_per_fold_cv_results(self: Any, checked_nfeatures: list) -> None:
                 _arr = _pfs.get(_n, [])
                 _col.append(float(_arr[_k]) if (_arr is not None and _k < len(_arr)) else float("nan"))
             self.cv_results_[_key] = _col
+
+
+def _refresh_ranking_after_support_edits(self: Any) -> None:
+    """Rebuild ``ranking_`` once pins and group members changed ``support_``, so ``ranking_ == 1`` and ``support_`` name the same columns."""
+    support = getattr(self, "support_", None)
+    names = getattr(self, "feature_names_in_", None)
+    if support is None or names is None:
+        return
+    arr = np.asarray(support)
+    if arr.dtype != bool:
+        mask = np.zeros(len(names), dtype=bool)
+        mask[arr.astype(int)] = True
+        arr = mask
+    if len(arr) == len(names):
+        self.ranking_ = _sklearn_ranking_vector(names, getattr(self, "consensus_ranking_", None), arr)
 
 
 def _feature_position(feature_names_in: Any, column: Any) -> Any:
