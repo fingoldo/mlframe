@@ -81,8 +81,9 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
 
     def _edges_of(j: int) -> "tuple[bool, np.ndarray, np.ndarray]":
         """``(is continuous, ranked-quantile edges, fallback edges)`` of the filled column ``j``."""
-        v = raw[:, j]
-        if np.unique(v).size <= _LOW_CARD_CAP:
+        # One sort serves the distinct count and both quantile edge sets (all three are order-invariant, and the percentile selection and the unique pass are cheap on sorted input).
+        v = np.sort(raw[:, j])
+        if 1 + int(np.count_nonzero(v[1:] != v[:-1])) <= _LOW_CARD_CAP:
             return False, np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width
         # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
         return True, np.asarray(_edges_from_quantiles(v, _FALLBACK_NBINS), dtype=np.float64), np.asarray(_fallback_edges(v, "quantile", _FALLBACK_NBINS), dtype=np.float64)
