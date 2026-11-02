@@ -404,7 +404,8 @@ def _push_transformed(acc: "_WelfordAccumulator", p: np.ndarray, ensemble_method
     elif ensemble_method == "harm":
         # Harm = len / sum(1/p). Accumulator sums 1/p; finalize at end.
         with np.errstate(divide="ignore", invalid="ignore"):
-            inv = np.where(p == 0, 0.0, 1.0 / p)
+            # a zero prediction drives the harmonic mean to 0 (as in the materialised path): a huge finite 1/p keeps the Welford sums finite
+            inv = np.where(p == 0, 1e150, 1.0 / p)
         acc.push(inv)
     elif ensemble_method == "quad":
         acc.push(p * p)
