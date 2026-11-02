@@ -355,7 +355,7 @@ def _resolve_pair_prevalence_gate(
     raw_vars_pair, pair_mi, ind_elems_mi_sum, *,
     self, data, classes_y, _pair_resident, _pair_mm_bias, _pair_maxt_floor,
     _synergy_added_idx, fe_min_pair_mi_prevalence, _synergy_prev_resolved, _prevalence_debias_auto,
-    _col_codes_cache=None, single_mis=(0.0, 0.0), conditional_gate=None,
+    _col_codes_cache=None, single_mis=(0.0, 0.0), conditional_gate=None, relax_verdicts=None,
 ):
     """Pure (no side effects on ``vars_usage_counter`` / ``prospective_pairs`` / the rejection ledger)
     resolution of the prevalence + order-2 maxT gate state for ONE pair - factored out of the main loop
@@ -397,7 +397,10 @@ def _resolve_pair_prevalence_gate(
         _idx0, _idx1 = raw_vars_pair[0], raw_vars_pair[1]
         _b0 = _idx0 in _synergy_added_idx
         _b1 = _idx1 in _synergy_added_idx
-        if _b0 != _b1:  # exactly one bootstrap operand -> asymmetric
+        if _b0 != _b1 and relax_verdicts is not None and raw_vars_pair in relax_verdicts:
+            if relax_verdicts[raw_vars_pair]:  # decided by the batched pre-pass (same CMI, same null, same seed)
+                _prev_thresh = fe_min_pair_mi_prevalence
+        elif _b0 != _b1:  # exactly one bootstrap operand -> asymmetric
             _boot_idx = _idx0 if _b0 else _idx1
             _partner_idx = _idx1 if _b0 else _idx0
             try:
@@ -486,6 +489,13 @@ def _prepass_gate_and_usability_candidates(
     _conditional_gate = ConditionalPartnerGate(data, gate_kwargs["classes_y"], sorted(numeric_vars_to_consider), int(getattr(gate_kwargs["self"], "random_seed", 0) or 0))
     if sorted_pairs is None:
         sorted_pairs = sort_dict_by_value(cached_MIs)
+    from ._pair_admission_batch import batched_asymmetric_relax_verdicts
+
+    _eligible = [
+        _pk for _pk in sorted_pairs
+        if len(_pk) == 2 and _pk not in checked_pairs and _pk[0] in numeric_vars_to_consider and _pk[1] in numeric_vars_to_consider and cached_MIs[(_pk[0],)] + cached_MIs[(_pk[1],)] > 0
+    ]
+    _relax = batched_asymmetric_relax_verdicts(gate_kwargs["self"], _eligible, gate_kwargs.get("_synergy_added_idx"), data, gate_kwargs["classes_y"])
     for _pk, _pmi in sorted_pairs.items():
         if len(_pk) != 2 or _pk in checked_pairs:
             continue
@@ -495,7 +505,8 @@ def _prepass_gate_and_usability_candidates(
         if _ies <= 0:
             continue
         _gate_cache[_pk] = _resolve_pair_prevalence_gate(
-            _pk, _pmi, _ies, **gate_kwargs, _col_codes_cache=_col_codes_cache, single_mis=(cached_MIs[(_pk[0],)], cached_MIs[(_pk[1],)]), conditional_gate=_conditional_gate
+            _pk, _pmi, _ies, **gate_kwargs, _col_codes_cache=_col_codes_cache, single_mis=(cached_MIs[(_pk[0],)], cached_MIs[(_pk[1],)]), conditional_gate=_conditional_gate,
+            relax_verdicts=_relax,
         )
         if not usability_enabled or not yc_shape_ok:
             continue
@@ -713,6 +724,10 @@ def _score_prospective_pairs_part2(
             cached_operand=_cached_operand, cached_single_corr=_cached_single_corr,
         )
 
+    from ._pair_admission_batch import batched_perm_null_admissions
+
+    # the permutation-null admission verdicts of every eligible pair, one batched CMI per anchor block (``_pair_perm_null_admission`` reads them)
+    self._pair_perm_admit_cache = batched_perm_null_admissions(self, _gate_cache, cached_MIs, data, classes_y)
     for raw_vars_pair, pair_mi in _sorted_pairs.items():
         if len(raw_vars_pair) == 2:
             if raw_vars_pair in checked_pairs:
@@ -778,6 +793,7 @@ def _score_prospective_pairs_part2(
                     _gate_state, self, raw_vars_pair, cached_MIs, data, classes_y, _pair_resident, verbose, pair_mi, _usability_verdict, ind_elems_mi_sum,
                     vars_usage_counter, prospective_pairs, cols, num_fs_steps, _prevalence_failed_synergy, _pair_maxt_floor,
                 )
+    self._pair_perm_admit_cache = None  # the verdicts belong to this call only
 
 
 def _score_prospective_pairs_part1(
@@ -926,6 +942,9 @@ def _score_prospective_pairs_part1(
 def _pair_perm_null_admission(self, _passes_prevalence, _passes_maxt, raw_vars_pair, cached_MIs, data, classes_y, _pair_resident, verbose, _admit_via_perm):
     """Admit pairs that fail prevalence but pass max-T through the permutation null."""
     if (not _passes_prevalence) and _passes_maxt and bool(getattr(self, "fe_pair_perm_null_admission_enable", False)):
+        batched = getattr(self, "_pair_perm_admit_cache", None)
+        if batched and raw_vars_pair in batched:
+            return bool(batched[raw_vars_pair])
         try:
             from mlframe.feature_selection.filters._fe_cmi_redundancy_gate import _conditional_perm_null
             from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_from_binned
