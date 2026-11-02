@@ -33,3 +33,5 @@ The 20M-element bound kept the modular family's candidate coding on the host (30
 | 100000 | 8 / 16 / 32 / 64 / 128 / 335 | 8.1 / 18.3 / 34.9 / 64.5 / 148 / 404 | 9.0 / 9.1 / 14.8 / 24.4 / 47.5 / 124 |
 
 The device wins from about 1.0 to 1.3M elements (1.9x at 30000 x 64, 3.3x at 100000 x 335). Float64 blocks stay on the host: the sort-based device path is not faster there (416 ms against 378 ms at 100000 x 300). The bound is now 1.5M; `MLFRAME_QUANTILE_CODES_DEVICE=0|1` still forces a path. A per-host tuner entry would keep a faster or slower card honest: the crossover belongs in the KTC of the new-GPU machine's checklist (CUDA.md section 14).
+
+Fit-level check after the change (100000 x 100, every family, VRAM used by other processes 1.1 GB): wall 158.4 s, no OutOfMemoryError / "FE raised", same 6 selected features; sum of the top-30 family walls 78.1 s against 79.5 s before (inside the noise), `gate:fe_modular_enable` 6.7 s against 7.1 s. The coding calls of that family are a minor part of its time at this size (the baseline bootstrap and the family gate are the rest), so the fit-level gain is small; the per-call gain (1.9x to 3.3x) is the measured one.
