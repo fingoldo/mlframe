@@ -42,14 +42,18 @@ class OOFPoolSelectionResult:
     ``kept_trial_indices`` / ``dropped_trial_indices`` index into the ORIGINAL
     ``trial_oof_pool`` / ``trials`` order (not the NaN-filtered internal working set), so a
     caller can cross-reference ``result.trials[i]`` for the ``(transform, inner_params)`` of
-    any kept or dropped trial. ``score`` is the stepwise walk's held-out metric of the kept
-    blend (RMSE by default, lower is better unless ``greater_is_better=True`` was passed).
+    any kept or dropped trial. ``score`` is the stepwise walk's metric of the kept blend on the SAME rows
+    the members were chosen on (RMSE by default, lower is better unless ``greater_is_better=True`` was
+    passed): optimistic with many trials, since the selection maximises it. ``honest_score`` is the mean
+    metric over ``honest_folds`` outer folds, each selecting on the other folds' rows and scoring the blend on
+    the held-out rows; ``None`` unless ``honest_folds >= 2`` was requested.
     """
 
     kept_trial_indices: List[int]
     dropped_trial_indices: List[int]
     combined_oof: np.ndarray
     score: float
+    honest_score: Optional[float] = None
 
 
 def select_oof_pool_ensemble(
@@ -63,6 +67,8 @@ def select_oof_pool_ensemble(
     with_replacement: bool = False,
     tol: float = 0.0,
     min_models: int = 1,
+    honest_folds: int = 0,
+    random_state: int = 0,
 ) -> OOFPoolSelectionResult:
     """Run :func:`stepwise_ensemble_selection` directly over an HPO ``trial_oof_pool``.
 
@@ -82,6 +88,9 @@ def select_oof_pool_ensemble(
         (``greater_is_better=False``) to match ``optimize_composite``'s default scorer -- NOT
         ``stepwise_ensemble_selection``'s own default of ROC-AUC, which would silently score a
         regression pool with a classification metric.
+    honest_folds, random_state
+        ``honest_folds >= 2`` adds ``honest_score`` to the result: a nested K-fold estimate that selects on K-1 folds of rows and scores the blend on the
+        held-out fold, because ``score`` is measured on the rows the selection was optimised on.
 
     Returns
     -------
@@ -127,9 +136,28 @@ def select_oof_pool_ensemble(
     dropped_trial_indices = sorted(i for i in range(len(pool)) if i not in kept_trial_indices)
     combined_oof = np.mean(np.stack([pool[i] for i in kept_trial_indices], axis=0), axis=0)
 
+    honest = None
+    if int(honest_folds) >= 2:
+        honest = _nested_selection_score(stacked, y_arr, resolved_metric, int(honest_folds), int(random_state), dict(
+            greater_is_better=greater_is_better, max_picks=max_picks, max_rounds=max_rounds, with_replacement=with_replacement, tol=tol, min_models=min_models,
+        ))
+
     return OOFPoolSelectionResult(
         kept_trial_indices=kept_trial_indices,
         dropped_trial_indices=dropped_trial_indices,
         combined_oof=combined_oof,
         score=float(selection.score),
+        honest_score=honest,
     )
+
+
+def _nested_selection_score(stacked: np.ndarray, y_arr: np.ndarray, metric: Callable, folds: int, random_state: int, selection_kwargs: dict) -> float:
+    """Mean metric of the stepwise-selected blend scored on rows the selection never saw (K-fold over rows)."""
+    from sklearn.model_selection import KFold
+
+    scores = []
+    for train_rows, test_rows in KFold(n_splits=folds, shuffle=True, random_state=random_state).split(np.arange(y_arr.shape[0])):
+        picked = stepwise_ensemble_selection(stacked[:, train_rows], y_arr[train_rows], metric=metric, **selection_kwargs)
+        blend = np.mean(stacked[list(picked.kept)][:, test_rows], axis=0)
+        scores.append(float(metric(y_arr[test_rows], blend)))
+    return float(np.mean(scores))

@@ -179,6 +179,7 @@ NULL_CANARIES = {
 }
 # Functions the name/argmin heuristic matches that do not choose among candidates by a score, with the reason.
 _NOT_SELECTION = {
+    "hpo_ensembling.py::_nested_selection_score": "scores the stepwise selection on held-out rows (the selection itself is stepwise_ensemble_selection, canaried elsewhere); it chooses nothing",
     "discovery/_tiny_rerank_process.py::_cloudpickle": "imports the cloudpickle module; 'pick' is in the name, no candidate is chosen",
     "discovery/_tiny_rerank.py::_cv_selector_knobs": "reads the configured CV selector knobs into a tuple; the selector itself is the one under test elsewhere",
     "_calibration_binning.py::top_label_calibration_bins": "argmax picks the top label of each probability row, not a candidate",
