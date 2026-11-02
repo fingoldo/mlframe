@@ -182,6 +182,15 @@ def _choose_discretize_row_chunk_rows(n_cols: int, in_itemsize: int, free_bytes:
     return int(np.clip(rows, 10_000, 20_000_000))
 
 
+def _zero_all_nan_columns_host(out: np.ndarray, bin_edges: Any) -> None:
+    """Set the host code matrix ``out`` to 0 in every column whose quantile edges are NaN; the CPU path gives an all-NaN column a single bin."""
+    import cupy as cp
+
+    all_nan = np.isnan(cp.asnumpy(bin_edges[0, :]))
+    if all_nan.any():
+        out[:, all_nan] = 0
+
+
 def discretize_2d_array_cuda_row_chunked(
     arr: np.ndarray, n_bins: int = 10, method: str = "quantile", dtype: type = np.int8, quantile_subsample_rows: Optional[int] = None,
     free_bytes: Optional[int] = None,
@@ -318,9 +327,7 @@ def discretize_2d_array_cuda_row_chunked(
             out[row_start:row_end] = cp.asnumpy(chunk_out)
             del d_chunk, chunk_out
             n_chunks += 1
-        _all_nan_cols_host = np.isnan(cp.asnumpy(bin_edges[0, :]))
-        if _all_nan_cols_host.any():
-            out[:, _all_nan_cols_host] = 0  # CPU parity: an all-NaN column is a single bin
+        _zero_all_nan_columns_host(out, bin_edges)
 
     logger.debug(
         "discretize_2d_array_cuda_row_chunked: method=%s n_rows=%d n_cols=%d row_chunk_rows=%d n_chunks=%d",
