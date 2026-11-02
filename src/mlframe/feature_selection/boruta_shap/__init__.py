@@ -615,9 +615,12 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
 
         """
 
-        self.rejected_ = list(set(self.flatten_list(self.rejected_columns_)) - set(self.flatten_list(self.accepted_columns_)))
-        self.accepted_ = list(set(self.flatten_list(self.accepted_columns_)))
-        self.tentative_ = list(set(self.all_columns_) - set(self.rejected_ + self.accepted_))
+        # Ordered by all_columns_, not by set iteration: string hashing is randomised per process and the order reaches transform().
+        accepted_set = set(self.flatten_list(self.accepted_columns_))
+        rejected_set = set(self.flatten_list(self.rejected_columns_)) - accepted_set
+        self.rejected_ = [c for c in self.all_columns_ if c in rejected_set]
+        self.accepted_ = [c for c in self.all_columns_ if c in accepted_set]
+        self.tentative_ = [c for c in self.all_columns_ if c not in rejected_set and c not in accepted_set]
 
         # Empty acceptance is a defensible-but-silent outcome (single-class target -> RF fits, importances ~0, the
         # shadow gate accepts nothing; or every importance collapsed to ~0). Emit a logger warning so the caller gets
