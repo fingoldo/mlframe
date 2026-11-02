@@ -135,3 +135,16 @@ def test_column_blocks_skip_binning_when_every_row_is_its_own_conditioning_cell(
 
     got = cmi_mod._binned_cmi_in_column_blocks(cp, X, 10, y, z, boom, boom)
     assert got.shape == (k,) and not got.any()
+
+
+@pytest.mark.parametrize("p,nbins,n", [(1, 10, 3000), (3, 5, 3000), (9, 10, 3000), (30, 10, 3000), (7, 4, 50000)])
+def test_support_joint_equals_the_one_shot_renumbering(p, nbins, n):
+    """Building the conditioning joint a few columns at a time (stopping once every row is a cell) gives the same dense labels as binning and renumbering all columns at once."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint, _support_joint, quantile_bin_columns
+
+    rng = np.random.default_rng(p * 100 + nbins)
+    support = rng.standard_normal((n, p))
+    support[::11, 0] = np.round(support[::11, 0], 1)
+    want, _ = _renumber_joint(*quantile_bin_columns(support, nbins))
+    got = _support_joint(support, nbins)
+    np.testing.assert_array_equal(got, want)

@@ -462,6 +462,25 @@ def _binned_cmi_in_column_blocks(cp: Any, X_float: np.ndarray, nbins: int, y_bin
     return np.concatenate(parts) if parts else np.empty(0, dtype=np.float64)
 
 
+_SUPPORT_CHUNK = 4  # conditioning columns binned and folded into the joint at a time
+
+
+def _support_joint(support: np.ndarray, nbins: int) -> np.ndarray:
+    """Dense joint class of the quantile-binned conditioning columns of ``support`` ``(n, p)``, built a few columns at a time.
+
+    Equal to ``_renumber_joint(*quantile_bin_columns(support, nbins))``: the columns are binned independently and the dense ids are numbered by first occurrence, so folding the columns into the running joint gives the same labels.
+    Once every row is its own cell no later column can split a cell further, so the remaining columns are not even binned (100 raw columns: the joint is all-singleton after about six, which cost 570 ms to bin and join in full)."""
+    n = int(support.shape[0])
+    z: "np.ndarray | None" = None
+    for s0 in range(0, int(support.shape[1]), _SUPPORT_CHUNK):
+        bins = list(quantile_bin_columns(support[:, s0 : s0 + _SUPPORT_CHUNK], nbins))
+        z, n_cells = _renumber_joint(*(bins if z is None else [z, *bins]))
+        if n_cells >= n:
+            break
+    assert z is not None
+    return z
+
+
 def score_candidates_by_cmi(
     X_cand: pd.DataFrame,
     y: np.ndarray,
@@ -506,8 +525,7 @@ def score_candidates_by_cmi(
     if X_support is None or X_support.shape[1] == 0:
         z_joint: Optional[np.ndarray] = None
     else:
-        sup_bins = quantile_bin_columns(X_support.to_numpy(), nbins)
-        z_joint, _ = _renumber_joint(*sup_bins)
+        z_joint = _support_joint(X_support.to_numpy(), nbins)
 
     cand_cols = list(X_cand.columns)
     # BATCHED born-on-device path under STRICT (default OFF -> per-candidate CPU loop, byte-identical):
