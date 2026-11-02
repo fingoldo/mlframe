@@ -5,8 +5,8 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 | Disposition | ID | Class | Severity | Location |
 |---|---|---|---|---|
 | **RESOLVED** | MEM16-1 | memory | High | functional adapters deep-copied the whole pandas frame to ordinal-encode a few string columns (`feature_selection/functional_adapters.py`) |
-| **FUTURE** | MEM16-2 | memory | High | Boruta builds about three full frames per round (`filters/_boruta.py:177-184`); fix is one preallocated (n, 2p) buffer refilled in place |
-| **FUTURE** | MEM16-3 | memory | High | RFECV makes a float64 copy of every all-numeric pandas X (`rfecv/_fit.py:554`), 2x-8x the frame; needs a size gate or native dtype and a check which estimators need float64 |
+| **RESOLVED** | MEM16-2 | memory | High | Boruta built about three full frames per round; one (n, 2p) buffer is now refilled in place with the same permutation draws (a pandas frame with mixed column dtypes keeps the per-round concat) |
+| **RESOLVED** | MEM16-3 | memory | High | RFECV's float64 numpy view of a pandas X is built only up to 2 GiB; above it the fit reads the pandas frame and logs the choice (native-dtype fitting was not changed: the view is a documented float64 estimator-input contract) |
 | **FUTURE** | MEM16-4 | memory | Medium | `pd.concat([X, new_df], axis=1)` copies the input in `_cat_pair_fe.py:534` and `_binned_numeric_agg_fe.py:799` |
 | **FUTURE** | MEM16-5 | memory | Medium | `CorrelatedFeaturesSelector.fit` converts a polars frame with `to_pandas()`; the zero-copy Arrow view changes column dtypes and an earlier fix there was about exactly dtype preservation, so it needs a clustering-parity check first |
 | **RESOLVED** | MEM16-6 | memory | Medium | ACE forced a copy of an array it only reads (`feature_selection/ace.py`) |
@@ -29,13 +29,15 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 
 ## Counts
 
-23 rows. Dispositions: 5 RESOLVED, 17 FUTURE, 1 REJECTED.
+23 rows. Dispositions: 7 RESOLVED, 15 FUTURE, 1 REJECTED.
 
 ## Implemented
 
 | ID | Commit subject | Regression test |
 |---|---|---|
 | MEM16-1, MEM16-6 | Stop deep-copying the whole frame in the functional adapters and ACE | `tests/feature_selection/test_selection_inputs_are_not_deep_copied.py` (checks the numeric buffer stays shared; the ACE `copy=False` change has no separate test) |
+| MEM16-2 | Reuse one shadow buffer across Boruta rounds | `tests/feature_selection/filters/test_boruta_shadow_buffer_reuse.py` (the reuse test fails without the fix) |
+| MEM16-3 | Gate RFECV's float64 numpy view of a pandas X at 2 GiB | `tests/feature_selection/wrappers/test_rfecv_numpy_view_size_gate.py` |
 | ERR16-1, ERR16-2 | Validate df before the default extractor reads it in train_mlframe_models_suite | `tests/training/test_suite_default_extractor_input_errors.py` (fails without the fix) |
 | IMP16-8 | Probe for lightgbm in the stop-file callbacks instead of importing it | `tests/training/test_stop_file_callback_does_not_import_lightgbm.py` (fails without the fix) |
 
