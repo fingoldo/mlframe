@@ -111,6 +111,10 @@ def _compute_outlier_gate(
         # is a per-ROW vector so it is meaningless on this member-axis reduction (the member axis is uniformly weighted by
         # construction) -- intentionally unweighted here. ``np.median`` (dedicated C reduction) over ``np.quantile(q=0.5)`` --
         # bit-identical for the unweighted member-axis median, ~1.4x faster on the ensemble anchor shape.
+        # rows with a non-finite cell in any member make the median NaN there and every member's statistic NaN, which silently disables the gate
+        _rows_ok = np.isfinite(preds_arr).reshape(preds_arr.shape[0], preds_arr.shape[1], -1).all(axis=(0, 2))
+        if not _rows_ok.all() and _rows_ok.any():
+            preds_arr = preds_arr[:, _rows_ok]
         median_preds = np.median(preds_arr, axis=0)
         # Vectorised per-member MAE/STD over (K, N, ...); dispatched to a numba kernel for big inputs via _per_member_mae_std.
         per_member_mae, per_member_std = _per_member_mae_std(preds_arr, median_preds)
