@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ._cache_release import register_cache_releaser
+from ._numba_utils_shuffle import bounded, next_state, seed_state
 
 from mlframe.feature_selection.filters._family_columns_dedupe import unique_columns
 from mlframe._numba_parallel_guard import parallel_kernel_entry
@@ -197,11 +198,12 @@ def _fill_permutations(idx: np.ndarray, base_seed: int) -> None:
     m = idx.shape[0]
     n = idx.shape[1]
     for r in prange(m):
-        np.random.seed((base_seed + r) % 4294967295)
+        x = seed_state(base_seed + r)
         for i in range(n):
             idx[r, i] = i
         for i in range(n - 1, 0, -1):
-            j = np.random.randint(0, i + 1)
+            x = next_state(x)
+            j = bounded(x, i + 1)
             tmp = idx[r, i]
             idx[r, i] = idx[r, j]
             idx[r, j] = tmp

@@ -10,6 +10,7 @@ import math
 
 import numpy as np
 from numba import njit, prange
+from ._numba_utils_shuffle import bounded, next_state, seed_state
 
 
 @njit(nogil=True, cache=True)
@@ -160,11 +161,12 @@ def group_mean_std_count(inverse: np.ndarray, x: np.ndarray, n_groups: int):
 
 @njit(cache=True)
 def seeded_permutation(n: int, seed: int) -> np.ndarray:
-    """The Fisher-Yates shuffle of ``range(n)`` seeded ``seed`` (numba's generator): the permutation ``b`` of the stream of ``permuted_labels_seeded`` is ``seeded_permutation(n, base_seed + b)``."""
-    np.random.seed(seed % 4294967295)
+    """The Fisher-Yates shuffle of ``range(n)`` seeded ``seed``: the permutation ``b`` of the stream of ``permuted_labels_seeded`` is ``seeded_permutation(n, base_seed + b)``."""
+    x = seed_state(seed)
     perm = np.arange(n)
     for i in range(n - 1, 0, -1):
-        j = np.random.randint(0, i + 1)
+        x = next_state(x)
+        j = bounded(x, i + 1)
         t = perm[i]
         perm[i] = perm[j]
         perm[j] = t

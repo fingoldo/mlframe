@@ -652,12 +652,17 @@ def _edge_pool(workers: int) -> Any:
 
 
 def _resolve_edge_jobs(n_jobs: Any, n_miss: int) -> int:
-    """Worker-thread count for the edge computation: the physical core count when ``n_jobs`` is unset, capped at the number of columns that need computing."""
+    """Worker-thread count for the edge computation: the logical core count when ``n_jobs`` is unset (``MLFRAME_EDGE_JOBS`` overrides; the pools run GIL-free kernels, which gain 15 to 25% from the second hardware thread of a core), capped at the number of columns that need computing."""
     if n_jobs is None or int(n_jobs) <= 0:
+        import os
+
+        forced = os.environ.get("MLFRAME_EDGE_JOBS", "").strip()
+        if forced.isdigit() and int(forced) > 0:
+            return max(1, min(int(forced), max(1, n_miss)))
         try:
             import psutil
 
-            _resolved_jobs = psutil.cpu_count(logical=False) or 1
+            _resolved_jobs = psutil.cpu_count(logical=True) or 1
         except Exception as e:
             logger.warning("psutil.cpu_count(logical=False) failed, falling back to os.cpu_count(): %s", e)
             import os

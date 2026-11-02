@@ -167,7 +167,7 @@ def test_handle_missing_takes_the_median_only_of_columns_with_a_nan(monkeypatch)
     assert seen == [(100, 2)]
 
 
-def test_the_honest_null_hook_uses_the_cache_and_returns_the_codes_of_the_uncached_search(monkeypatch):
+def test_the_honest_null_hook_uses_the_cache_and_returns_the_codes_of_the_uncached_search(monkeypatch, honest_hooks):
     """A fit with ``nbins_strategy='optimal_joint'`` binds the plan cache into its honest null; the re-binned codes of a permutation equal those with ``MLFRAME_OJ_PLAN_CACHE=0``."""
     import warnings
 
@@ -185,10 +185,12 @@ def test_the_honest_null_hook_uses_the_cache_and_returns_the_codes_of_the_uncach
             monkeypatch.setenv("MLFRAME_OJ_PLAN_CACHE", "0")
         else:
             monkeypatch.delenv("MLFRAME_OJ_PLAN_CACHE", raising=False)
+        honest_hooks.clear()
+        MRMR.clear_fit_cache()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             model = MRMR(verbose=0, random_seed=0, n_jobs=1, nbins_strategy="optimal_joint", fe_max_steps=0).fit(X, y)
-        fn = model._honest_null_codes_fn
+        fn = honest_hooks[-1]
         perms = [np.random.default_rng(s).permutation(n) for s in range(3)]
         return [fn(p) for p in perms], list(model.get_feature_names_out())
 

@@ -105,7 +105,7 @@ def test_conditional_gate_perm_null_hi_is_bit_identical_to_the_argsort_form(seed
         perm = ref_rng.permutation(n_y)
         mat[:, i] = feat_host[np.argsort(perm)]
     vals = np.asarray(_mi_classif_batch(mat, yi, nbins=nbins), dtype=np.float64)
-    ref = float(vals.mean() + z * vals.std())
+    ref = float(vals.mean() + z * vals.std(ddof=1))  # the gate takes the sample std of its permutation draws
 
     # The gate's MI operand is the relaxed float32 crit dtype (``_crit_np_dtype``), so the band is float32-rounded
     # against this float64 reference. Measured over seeds 0/1/7: max relative error 5.7e-8 (abs 7.9e-10), inside

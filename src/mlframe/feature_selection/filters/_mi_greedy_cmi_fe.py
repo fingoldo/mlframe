@@ -297,12 +297,27 @@ _CMI_CHUNK_START: dict[int, int] = {}  # candidate count -> chunk width that las
 _CMI_CHUNK_BY_SHAPE: dict[tuple, int] = {}  # (rows, conditioned) -> the last chunk width that had to be reduced to fit
 
 
+def _conditioning_is_all_singletons(z_joint: Any, n_rows: int) -> bool:
+    """Whether the conditioning support ``z_joint`` holds a distinct value in every one of the ``n_rows`` rows (``False`` for no support, a wrong length or any fault)."""
+    if z_joint is None or n_rows < 2:
+        return False
+    try:
+        z = np.asarray(z_joint.get() if hasattr(z_joint, "get") else z_joint).ravel()
+        return int(z.shape[0]) == n_rows and int(np.unique(z).size) == n_rows
+    except Exception as exc:
+        logger.debug("conditioning-support check failed (%s); scoring on the device", exc)
+        return False
+
+
 def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_cmi_gpu: Any) -> np.ndarray:
     """``batched_cmi_gpu`` over all columns of ``codes``; when the device cannot hold the whole batch's joint histograms (a wide conditioning support makes them ``K x Kx x Kyz`` cells) the
     columns are scored in chunks, halving the chunk until it fits. Every column is scored independently, so the values are the whole-batch values."""
     import cupy as cp
 
     k = int(codes.shape[1])
+    if _conditioning_is_all_singletons(z_joint, int(codes.shape[0])):
+        # every row is its own conditioning cell: each cell holds one row, so the conditional MI is exactly 0 for every column (the kernel returns rounding noise of about 1e-15 there, far below every floor the scores are compared with)
+        return np.zeros(k, dtype=np.float64)  # Intentional float64: score output contract kept f64 (exact comparison)
 
     def attempt(step: int) -> "np.ndarray | None":
         """All columns scored in chunks of ``step``; ``None`` when the device ran out of memory."""
@@ -424,6 +439,8 @@ def _binned_cmi_in_column_blocks(cp: Any, X_float: np.ndarray, nbins: int, y_bin
     Binning the whole candidate matrix at once converts it to a double-precision device copy plus the binner's temporaries (1920 candidates of 100000 rows: a 1.5 GB allocation against a 2.6 GB pool limit),
     so the device path failed with an out-of-memory error and the whole batch fell to the per-candidate CPU loop. A block that still does not fit is halved and retried; a single column that does not fit raises."""
     n, k = int(X_float.shape[0]), int(X_float.shape[1])
+    if _conditioning_is_all_singletons(z_joint, n):
+        return np.zeros(k, dtype=np.float64)  # Intentional float64: score output contract kept f64; no column needs binning or uploading when every row is its own conditioning cell
     per_col = max(1, n * 36)  # f32 upload + f64 copy + the binner's temporaries + int64 codes
     free = int(cp.cuda.runtime.memGetInfo()[0])
     block = int(max(1, min(k, (free // 3) // per_col)))
@@ -443,6 +460,25 @@ def _binned_cmi_in_column_blocks(cp: Any, X_float: np.ndarray, nbins: int, y_bin
             block = max(1, block // 2)
     # Intentional float64: score output contract kept f64 (exact comparison)
     return np.concatenate(parts) if parts else np.empty(0, dtype=np.float64)
+
+
+_SUPPORT_CHUNK = 4  # conditioning columns binned and folded into the joint at a time
+
+
+def _support_joint(support: np.ndarray, nbins: int) -> np.ndarray:
+    """Dense joint class of the quantile-binned conditioning columns of ``support`` ``(n, p)``, built a few columns at a time.
+
+    Equal to ``_renumber_joint(*quantile_bin_columns(support, nbins))``: the columns are binned independently and the dense ids are numbered by first occurrence, so folding the columns into the running joint gives the same labels.
+    Once every row is its own cell no later column can split a cell further, so the remaining columns are not even binned (100 raw columns: the joint is all-singleton after about six, which cost 570 ms to bin and join in full)."""
+    n = int(support.shape[0])
+    z: "np.ndarray | None" = None
+    for s0 in range(0, int(support.shape[1]), _SUPPORT_CHUNK):
+        bins = list(quantile_bin_columns(support[:, s0 : s0 + _SUPPORT_CHUNK], nbins))
+        z, n_cells = _renumber_joint(*(bins if z is None else [z, *bins]))
+        if n_cells >= n:
+            break
+    assert z is not None
+    return z
 
 
 def score_candidates_by_cmi(
@@ -489,8 +525,7 @@ def score_candidates_by_cmi(
     if X_support is None or X_support.shape[1] == 0:
         z_joint: Optional[np.ndarray] = None
     else:
-        sup_bins = quantile_bin_columns(X_support.to_numpy(), nbins)
-        z_joint, _ = _renumber_joint(*sup_bins)
+        z_joint = _support_joint(X_support.to_numpy(), nbins)
 
     cand_cols = list(X_cand.columns)
     # BATCHED born-on-device path under STRICT (default OFF -> per-candidate CPU loop, byte-identical):

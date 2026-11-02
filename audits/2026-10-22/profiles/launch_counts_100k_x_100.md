@@ -1,0 +1,21 @@
+# Launch counts of our compiled kernels in a 100000 x 100 every-family fit (2026-11-02)
+
+Method: `D:/Temp/launch_count.py` (a Python subclass of `cupy.RawKernel` plus a counting proxy around `RawModule.get_function`, installed before mlframe imports; warm fit at 20000 x 30 first, then one counted fit at 100000 x 100; wall 145.9 s). It counts only compiled `RawKernel` / `RawModule` kernels: cupy's own elementwise kernels, ufuncs, sorts and reductions are cdef types whose `__call__` cannot be patched, and nsys exports of the whole fit fail on this host (see memory `nsys-export-disk-limits`).
+
+Result: **15,856 launches of our own kernels in the whole fit**, at roughly 10 to 30 us of launch cost each that is under 0.5 s of the 146 s wall. Our compiled kernels are NOT the launch-bound part. The 14 million events nsys recorded for the same fit are therefore cupy's built-in ops (elementwise, sort, reduction, memset, copies), which is where per-column device loops and small temporaries live.
+
+Top kernels: `radix_select_f32_v3` 1021, `radix_interp` 1021, `ent_nnz_1d` 902, `mi_hist_split_f32` 879, `mi_from_counts_col_f32` 879, `cmi_joint_entropies` 864, `periodogram_power` 760, `joint_hist_nnz2` 654, `joint_hist_nnz3` 643, `mi_hist_split` 530, `build_op_cands_cm` 480.
+
+Top callers (launches): `_hermite_fe_mi._plugin_mi_classif_batch_cuda_resident` 3024, `_hermite_fe_mi._resident_mi_candidates` 2411, `_fe_batched_mi_cmi.joint_entropy_gpu` 1804, `_mi_greedy_cmi_fe_gpu._nc` 1308, `_mi_greedy_cmi_fe_gpu._cmi_from_binned_cupy` 1047, `hermite_fe._als_fused_gpu.als_sweep_fused` 742, `_binned_numeric_agg_resident._pair_fold_stat_tables` 696.
+
+Next: find where the cupy built-in ops are issued (a `sys.setprofile` or `cupy.cuda.runtime` hook, or an nsys window of one stage with `--capture-range=cudaProfilerApi`), then replace per-column elementwise sequences (like the one batched in `_qbin_block_gpu`) by one block operation. `joint_entropy_gpu` (1804 launches) and `_nc` / `joint_nnz_gpu` (1308 plus an allocation each) are the first of our own call sites worth batching per candidate block.
+
+## Allocation counts as a proxy for cupy built-in ops (same fit, `D:/Temp/alloc_count.py`, a `cupy.cuda.memory_hook.MemoryHook` counting `malloc` by the nearest mlframe frame)
+
+101,476 device allocations in the 100000 x 100 fit (wall 142.7 s). Top sites: `build_leg_product_matrix_gpu` 13,444 (3.2 GB), `_usability_greedy_gpu_resident._cv_candidates` 4,504, `gate_grid_mi_resident` 4,052 (7.6 GB), the greedy-CMI candidate binning 3,730, `abs_corr_finite_gpu` 3,354, `_radix_select_interior_edges` 3,340, `resident_code_operand` 2,918.
+
+Check on the biggest one: `build_leg_product_matrix_gpu` evaluates one basis leg per call; 60 legs of 30000 rows cost 52 ms (0.85 ms per leg), and the batched `_gpu_evaluate_basis_matrix` takes ONE degree list for all columns (it returns columns x degrees, 3600 columns for 60 x 60), so it cannot replace the per-leg calls and was 87 ms against 52 ms. About 700 legs per fit is under a second: a high allocation count is not a high wall cost. Rank by sampled wall (`idle_frames_agg.py`), use the counts only to see which loops are per-column.
+
+## Done: `gate_grid_mi_resident` builds each tau-grid block in one fused kernel
+
+The column-major tau-grid block was three expressions (compare, cast to double, multiply by the operand, or `where`) followed by the cast to the block dtype: two double temporaries of (k, n) per spec and four launches. `_tau_grid_kernel` computes `(T)((c > t ? 1.0 : 0.0) * a)` (mask) or `(T)(c > t ? a : b)` (select) in one elementwise kernel writing the final block; the result is bit-identical including NaN, +-inf and zero operands (`test_gate_tau_grid_kernel.py`, byte comparison). 11 mask + 11 select specs of 9 taus at 100000 rows: 28 ms -> 20 ms for the whole call (same MI sum). The row-major layout used by the rank-binning kernel keeps the old expression.

@@ -91,3 +91,60 @@ def test_a_different_width_starts_at_the_chunk_that_fitted_for_the_same_rows(mon
     widths.clear()
     cmi_mod._batched_cmi_in_chunks(np.zeros((10, 95), dtype=np.int64), y, None, limited)
     assert max(widths) <= 20
+
+
+def test_an_all_singleton_conditioning_support_scores_zero_without_a_launch():
+    """With a distinct conditioning value in every row the conditional MI is 0 for every column (the kernel agrees to rounding noise), and the device is not asked."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._fe_batched_mi import batched_cmi_gpu
+
+    rng = np.random.default_rng(3)
+    n, k = 800, 5
+    codes = cp.asarray(rng.integers(0, 10, (n, k)).astype(np.int64))
+    y = rng.integers(0, 2, n).astype(np.int64)
+    z = rng.permutation(n).astype(np.int64)
+    calls = []
+
+    def spy(x, yy, zz, **kw):
+        """Fail the test if the device is asked."""
+        calls.append(1)
+        return batched_cmi_gpu(x, yy, zz, **kw)
+
+    got = cmi_mod._batched_cmi_in_chunks(codes, y, z, spy)
+    assert not calls
+    np.testing.assert_allclose(got, np.asarray(batched_cmi_gpu(codes, y, z, codes_trusted=True)), rtol=0, atol=1e-12)
+    assert not got.any()
+    z_shared = np.concatenate([z[: n // 2], z[: n // 2]])  # duplicates: the device scores it
+    cmi_mod._batched_cmi_in_chunks(codes, y, z_shared, spy)
+    assert calls
+
+
+def test_column_blocks_skip_binning_when_every_row_is_its_own_conditioning_cell():
+    """The column-block scorer returns zeros without binning or uploading anything for an all-singleton support."""
+    pytest.importorskip("cupy")
+    cp = pytest.importorskip("cupy")
+    rng = np.random.default_rng(4)
+    n, k = 600, 4
+    X = rng.standard_normal((n, k))
+    y = rng.integers(0, 2, n).astype(np.int64)
+    z = rng.permutation(n).astype(np.int64)
+
+    def boom(*a, **kw):
+        """Neither the binner nor the scorer may run."""
+        raise AssertionError("the device was asked")
+
+    got = cmi_mod._binned_cmi_in_column_blocks(cp, X, 10, y, z, boom, boom)
+    assert got.shape == (k,) and not got.any()
+
+
+@pytest.mark.parametrize("p,nbins,n", [(1, 10, 3000), (3, 5, 3000), (9, 10, 3000), (30, 10, 3000), (7, 4, 50000)])
+def test_support_joint_equals_the_one_shot_renumbering(p, nbins, n):
+    """Building the conditioning joint a few columns at a time (stopping once every row is a cell) gives the same dense labels as binning and renumbering all columns at once."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint, _support_joint, quantile_bin_columns
+
+    rng = np.random.default_rng(p * 100 + nbins)
+    support = rng.standard_normal((n, p))
+    support[::11, 0] = np.round(support[::11, 0], 1)
+    want, _ = _renumber_joint(*quantile_bin_columns(support, nbins))
+    got = _support_joint(support, nbins)
+    np.testing.assert_array_equal(got, want)

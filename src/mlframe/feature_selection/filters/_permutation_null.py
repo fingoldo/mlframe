@@ -46,6 +46,7 @@ from mlframe._numba_parallel_guard import parallel_kernel_entry
 
 from ._content_memo import ContentMemo
 from numba import prange
+from ._numba_utils_shuffle import bounded, next_state, seed_state
 from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 
@@ -151,12 +152,13 @@ def _gen_target_shuffles_par_njit(y_codes, nperm, base_seed):
     n = y_codes.shape[0]
     out = np.empty((nperm, n), dtype=y_codes.dtype)
     for k in prange(nperm):
-        np.random.seed(base_seed + k)  # per-row deterministic RNG -> result independent of thread schedule
+        x = seed_state(base_seed + k)  # per-row deterministic RNG -> result independent of thread schedule
         row = out[k]
         for i in range(n):
             row[i] = y_codes[i]
         for i in range(n - 1, 0, -1):
-            j = np.random.randint(0, i + 1)
+            x = next_state(x)
+            j = bounded(x, i + 1)
             tmp = row[i]
             row[i] = row[j]
             row[j] = tmp
