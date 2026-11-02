@@ -21,7 +21,7 @@ def seed_state(seed: int) -> np.uint64:
     x = z ^ (z >> np.uint64(31))
     if x == np.uint64(0):
         x = np.uint64(1)
-    return x
+    return np.uint64(x)
 
 
 @njit(cache=True, inline="always")
