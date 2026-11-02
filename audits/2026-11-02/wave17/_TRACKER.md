@@ -11,7 +11,7 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | **RESOLVED** | W17TRN-1 | High | a cached model file that failed to load left an unfitted estimator (fit gate tested only that the file exists) |
 | **RESOLVED** | W17TRN-2 | High | OOF folds of TTR-wrapped regressors and Pipelines were fit without `sample_weight` (`training/_oof_weight_param.py`) |
 | **RESOLVED** | W17TRN-3 | Medium | val/OOF slices of Series `sample_weight` / `group_ids` index by label |
-| **OPEN** | W17TRN-4 | Medium | `metadata["model_schemas"]` keys collide across pre-pipelines and targets |
+| **FUTURE** | W17TRN-4 | Medium | `metadata["model_schemas"]` keys collide across pre-pipelines and targets |
 | **RESOLVED** | W17TRN-5 | Low | `val_placement="backward"` moves split groups to the wrong side |
 | **RESOLVED** | W17TRN-6 | Low | multilabel 3-way split uses `val_size` as a fraction of all rows |
 | **RESOLVED** | W17FSW-1 | High | RFECV `must_include` and group members dropped on ndarray input (string fit-time names vs integer columns) |
@@ -19,14 +19,14 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | **RESOLVED** | W17FSW-3 | Medium | per-fold scores stored in completion order under `n_jobs > 1` |
 | **RESOLVED** | W17FSW-4 | Medium | final voting / p>=n cap on ndarray input compares int labels with str names |
 | **RESOLVED** | W17MRM-1 | High | MRMR same-inputs skip and shared fit cache ignored `groups` |
-| **OPEN** | W17MRM-2 | Medium | UAED elbow trim slices `support_` by greedy-round position |
-| **OPEN** | W17MRM-3 | Medium | operand retention re-grows support after the UAED trim |
+| **FUTURE** | W17MRM-2 | Medium | UAED elbow trim slices `support_` by greedy-round position |
+| **FUTURE** | W17MRM-3 | Medium | operand retention re-grows support after the UAED trim |
 | **RESOLVED** | W17CMP-1 | High | `predict_quantile` applied smearing, returning means instead of quantiles |
 | **RESOLVED** | W17CMP-2 | Medium | `GroupedBlockStacker` ignored a numeric `invalid_row_fill` |
 | **RESOLVED** | W17CMP-3 | Low | `_best_iteration_of` off by one for XGBoost / CatBoost |
-| **OPEN** | W17CMP-4 | Low | smearing factor and residual quantiles ignore sample weights |
+| **FUTURE** | W17CMP-4 | Low | smearing factor and residual quantiles ignore sample weights |
 | **RESOLVED** | W17CMP-5 | Low | T-clip envelope differs between fit and drift refit when MAD = 0 |
-| **OPEN** | W17CMP-6 | Low | chain / quantile-normal transforms get no smearing |
+| **FUTURE** | W17CMP-6 | Low | chain / quantile-normal transforms get no smearing |
 | **RESOLVED** | W17CAL-1 | Medium | `generate_probs_from_outcomes` default `flip_percent=0.6` reverses the signal |
 | **RESOLVED** | W17CAL-2 | Medium | "random chunks" in the same generator are contiguous slices |
 | **RESOLVED** | W17CAL-3 | Medium | `compare_cv_schemes` winner and significance test use different criteria |
@@ -62,3 +62,11 @@ Metric cores (`_core_auc_brier`, `_ice_metric`, `_drift`, `_fairness_metrics`), 
 | W17CMP-5 | `tests/training/composite/cache/test_drift_refit_keeps_no_t_clip_when_mad_is_zero.py` |
 | W17TRN-6 | `tests/training/test_split_3way_and_cb_plot.py::test_3way_val_size_is_a_fraction_of_the_post_test_remainder` (reframed from the whole-fraction assertion) |
 | W17TRN-5 | `tests/training/test_backward_layout_group_span_goes_to_train.py` |
+
+## FUTURE reasons
+
+- W17TRN-4: keying schema records by pre-pipeline and target changes what `load_mlframe_suite` reads back; needs a loader migration for existing dumps
+- W17MRM-2: opt-in (`uaed_auto_size`, default off); the fix maps greedy rounds to features through `_predictors_log_`, which needs a parity check against the retention and rescue appends
+- W17MRM-3: opt-in (`uaed_auto_size`, default off); needs the UAED-trimmed and p>=n-capped indices recorded and honoured by operand retention, designed together with W17MRM-2
+- W17CMP-4: weighted smearing factor and weighted residual quantiles change every weighted composite's predictions; needs a measured bias comparison before the default moves
+- W17CMP-6: adding a `curved_inverse` attribute to the chain and quantile-normal transforms changes their predictions and the discovery scoring; needs a discovery-gain comparison
