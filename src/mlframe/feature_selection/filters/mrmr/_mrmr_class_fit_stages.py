@@ -156,8 +156,9 @@ class _MRMRFitStagesMixin:
         if _stab_method != "classic":
             # A configuration error, not a data-shape problem: it must not be turned into a warning and a classic fit by the handler below.
             # The dataclass config requires >= 1 (ge=1); the flat constructor argument is held to the same bound.
-            if int(getattr(self, "stability_n_bootstrap", 50)) < 1:
-                raise ValueError(f"MRMR: stability_n_bootstrap must be at least 1, got {self.stability_n_bootstrap!r}")
+            _n_bootstrap = getattr(self, "stability_n_bootstrap", 50)
+            if int(_n_bootstrap) < 1:
+                raise ValueError(f"MRMR: stability_n_bootstrap must be at least 1, got {_n_bootstrap!r}")
             try:
                 _stab_result = self._stability_outer_fit(
                     X,

@@ -77,7 +77,7 @@ def install_log_sanitizer() -> bool:
 
     def factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
         """Build the record with the previous factory, then escape its arguments when the logger is one of ours."""
-        record = _original_factory(*args, **kwargs)
+        record: logging.LogRecord = _original_factory(*args, **kwargs)
         if record.args and record.name.startswith(_PREFIX):
             record.args = _sanitize_args(record.args)
         return record
