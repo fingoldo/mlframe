@@ -349,7 +349,6 @@ def _compute_oof_preds_timeseries(
     y_arr = np.asarray(train_target)
     sw_arr = np.asarray(sample_weight) if sample_weight is not None else None
     _weight_key = oof_weight_fit_param(estimator) if sw_arr is not None else None
-    _threads_weight = _weight_key is not None
 
     def _row(df, idx):
         """Frame-agnostic positional row/index subset: uses ``.iloc`` for pandas-like frames, plain indexing otherwise (numpy/polars)."""
@@ -363,7 +362,7 @@ def _compute_oof_preds_timeseries(
     try:
         for tr_idx, te_idx in tss.split(np.arange(n_rows)):
             est = _clone(estimator)
-            if sw_arr is not None and _threads_weight:
+            if sw_arr is not None and _weight_key is not None:
                 est.fit(_row(train_df, tr_idx), y_arr[tr_idx], **{_weight_key: sw_arr[tr_idx]})
             else:
                 est.fit(_row(train_df, tr_idx), y_arr[tr_idx])
