@@ -114,11 +114,15 @@ def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:
 
     target = fname + extension
     fd, tmp_path = tempfile.mkstemp(prefix=".embed_", suffix=".tmp", dir=os.path.dirname(os.path.abspath(target)))
+    fd_adopted = False
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd_adopted = True
             f.write(website_embed)
         os.replace(tmp_path, target)
     except BaseException:
+        if not fd_adopted:
+            os.close(fd)
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
         raise
