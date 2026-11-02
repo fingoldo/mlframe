@@ -94,7 +94,7 @@ class TestMLPGetClassifObjectiveKwargs:
 # ----------------------------------------------------------------------------
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def synthetic_3class_data():
     """600 rows × 5 features, 3 quantile-cut classes from informative scores."""
     rng = np.random.default_rng(42)
@@ -107,61 +107,48 @@ def synthetic_3class_data():
     return df, y
 
 
+@pytest.fixture(scope="module")
+def mc_suite(synthetic_3class_data):
+    """The multiclass suite trained once for the class; fast mode caps the epochs (the assertions do not read them)."""
+    from tests.conftest import is_fast_mode
+
+    df, _y = synthetic_3class_data
+    fte = SimpleFeaturesAndTargetsExtractor(
+        target_column="target",
+        regression=False,
+        target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
+    )
+    # The MLP relies on early-stopping to bound epochs; under heavy -n contention the full fit can exceed the per-test
+    # timeout. Cap epochs in fast mode -- neither assertion reads the epoch budget.
+    kwargs = {}
+    if is_fast_mode():
+        kwargs["hyperparams_config"] = {"iterations": 5}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        models, _ = train_mlframe_models_suite(
+            df=df,
+            target_name="target",
+            model_name="mc_suite",
+            features_and_targets_extractor=fte,
+            mlframe_models=["mlp"],
+            use_mlframe_ensembles=False,
+            verbose=0,
+            **kwargs,
+        )
+    return models
+
+
 class TestMLPMulticlassEndToEnd:
     """``train_mlframe_models_suite(target_type=MULTICLASS)`` with mlp."""
 
-    def test_smoke_fits_predicts_returns_3_class_probs(self, synthetic_3class_data):
+    def test_smoke_fits_predicts_returns_3_class_probs(self, mc_suite):
         """Smoke fits predicts returns 3 class probs."""
-        from tests.conftest import is_fast_mode
+        assert TargetTypes.MULTICLASS_CLASSIFICATION in mc_suite
 
-        df, _y = synthetic_3class_data
-        fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target",
-            regression=False,
-            target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
-        )
-        # The MLP relies on early-stopping to bound epochs; under heavy -n
-        # contention the full fit can exceed the per-test timeout. Cap epochs
-        # in fast mode -- the smoke assertion (suite returns a multiclass
-        # entry) is unaffected by the epoch budget.
-        kwargs = {}
-        if is_fast_mode():
-            kwargs["hyperparams_config"] = {"iterations": 5}
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            models, _ = train_mlframe_models_suite(
-                df=df,
-                target_name="target",
-                model_name="mc_smoke",
-                features_and_targets_extractor=fte,
-                mlframe_models=["mlp"],
-                use_mlframe_ensembles=False,
-                verbose=0,
-                **kwargs,
-            )
-        assert TargetTypes.MULTICLASS_CLASSIFICATION in models
-
-    def test_classes_attr_is_ndarray_not_list(self, synthetic_3class_data):
+    def test_classes_attr_is_ndarray_not_list(self, mc_suite):
         """Regression: ``model.classes_`` must be ndarray for fancy
         indexing in evaluation.py (``preds = model.classes_[preds]``)."""
-        df, _y = synthetic_3class_data
-        fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target",
-            regression=False,
-            target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            models, _ = train_mlframe_models_suite(
-                df=df,
-                target_name="target",
-                model_name="mc_classes",
-                features_and_targets_extractor=fte,
-                mlframe_models=["mlp"],
-                use_mlframe_ensembles=False,
-                verbose=0,
-            )
-        inners = _trained_inner_models(models)
+        inners = _trained_inner_models(mc_suite)
         assert inners, "the suite returned no trained model"
         for inner in inners:
             assert hasattr(inner, "classes_"), f"{type(inner).__name__} has no classes_"
@@ -186,7 +173,7 @@ def _trained_inner_models(models) -> list:
 # ----------------------------------------------------------------------------
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def synthetic_3label_data():
     """800 rows × 5 features, 3 correlated binary labels.
     Polars frame with ``pl.List(pl.Int8)`` target column for 2-D y."""
@@ -200,52 +187,41 @@ def synthetic_3label_data():
     return pdf, Y
 
 
+@pytest.fixture(scope="module")
+def ml_suite(synthetic_3label_data):
+    """The multilabel suite trained once for the class (no config overrides in either of its tests)."""
+    pdf, _Y = synthetic_3label_data
+    fte = SimpleFeaturesAndTargetsExtractor(
+        target_column="target",
+        regression=False,
+        target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        models, _ = train_mlframe_models_suite(
+            df=pdf,
+            target_name="target",
+            model_name="ml_suite",
+            features_and_targets_extractor=fte,
+            mlframe_models=["mlp"],
+            use_mlframe_ensembles=False,
+            verbose=0,
+        )
+    return models
+
+
 class TestMLPMultilabelEndToEnd:
     """``train_mlframe_models_suite(target_type=MULTILABEL)`` with mlp."""
 
-    def test_smoke_fits_with_2d_y(self, synthetic_3label_data):
+    def test_smoke_fits_with_2d_y(self, ml_suite):
         """Smoke fits with 2d y."""
-        pdf, _Y = synthetic_3label_data
-        fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target",
-            regression=False,
-            target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            models, _ = train_mlframe_models_suite(
-                df=pdf,
-                target_name="target",
-                model_name="ml_smoke",
-                features_and_targets_extractor=fte,
-                mlframe_models=["mlp"],
-                use_mlframe_ensembles=False,
-                verbose=0,
-            )
-        assert TargetTypes.MULTILABEL_CLASSIFICATION in models
+        assert TargetTypes.MULTILABEL_CLASSIFICATION in ml_suite
 
-    def test_no_multioutput_wrapper_for_native_mlp(self, synthetic_3label_data):
+    def test_no_multioutput_wrapper_for_native_mlp(self, ml_suite):
         """MLP is a native multilabel learner -- the trainer's
         ``_maybe_wrap_for_2d_target`` should NOT wrap it with
         MultiOutputClassifier."""
-        pdf, _Y = synthetic_3label_data
-        fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target",
-            regression=False,
-            target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            models, _ = train_mlframe_models_suite(
-                df=pdf,
-                target_name="target",
-                model_name="ml_no_wrap",
-                features_and_targets_extractor=fte,
-                mlframe_models=["mlp"],
-                use_mlframe_ensembles=False,
-                verbose=0,
-            )
-        inners = _trained_inner_models(models)
+        inners = _trained_inner_models(ml_suite)
         assert inners, "the suite returned no trained model"
         for inner in inners:
             cls_name = type(inner).__name__

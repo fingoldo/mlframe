@@ -1,5 +1,4 @@
 {
- "training/neural/test_mlp_multi_targets.py": 4,
  "training/ranking/test_bizvalue_ranking.py": 7,
  "training/test_all_models.py": 30,
  "training/test_biz_val_training_core.py": 4,
