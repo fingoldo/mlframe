@@ -247,7 +247,7 @@ def ace_select(
     """
     if hasattr(X, "to_numpy"):
         names = list(X.columns) if feature_names is None and hasattr(X, "columns") else feature_names
-        X_arr = X.to_numpy(dtype=_crit_np_dtype(), copy=True)
+        X_arr = X.to_numpy(dtype=_crit_np_dtype(), copy=False)  # read only below: ACE never writes into X_arr
     else:
         X_arr = np.asarray(X, dtype=_crit_np_dtype())
         names = feature_names

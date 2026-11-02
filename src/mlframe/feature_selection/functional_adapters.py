@@ -121,7 +121,7 @@ def _numeric_view_for_selection(X):
         non_numeric = [c for c in X.columns if X[c].dtype.kind not in "iufb"]
         if not non_numeric:
             return X
-        out = X.copy()
+        out = X.copy(deep=False)  # whole-column assignment below never writes into the caller's buffers, so the numeric columns stay shared
         for c in non_numeric:
             codes, _ = pd.factorize(out[c], use_na_sentinel=True)
             # Intentional float64: FE codes output contract (float64 frame returned to callers)
