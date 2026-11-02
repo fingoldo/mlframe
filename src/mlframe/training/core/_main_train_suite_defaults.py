@@ -26,6 +26,11 @@ def _infer_target_is_classification(values: Any) -> bool:
         arr = values.to_numpy()
     else:
         arr = np.asarray(values)
+    if arr.dtype.kind in ("M", "m"):
+        raise ValueError(
+            "the target column has a datetime/timedelta dtype, which is neither a regression nor a classification target; convert it to a number "
+            "(e.g. seconds since an epoch) or pass an explicit features_and_targets_extractor."
+        )
     if arr.dtype.kind in ("O", "U", "S"):
         return True
     return _is_classification_target(arr)
