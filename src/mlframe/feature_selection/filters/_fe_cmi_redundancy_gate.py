@@ -236,7 +236,9 @@ def _gate_prepare(
     # (bounded FIFO; a COPY is returned into the local so a mutating consumer cannot poison the cache).
     _yk = None
     try:
-        _yk = (y_arr.shape, str(y_arr.dtype), hash(y_arr.tobytes()))
+        from mlframe.utils.disk_cache import hash_array_content
+
+        _yk = (y_arr.shape, str(y_arr.dtype), hash_array_content(y_arr))
         with _Y_DENSE_MEMO_LOCK:
             _yhit = _Y_DENSE_MEMO.get(_yk)
     # best-effort: the memo only saves recomputation; without it the dense target is rebuilt with the same result

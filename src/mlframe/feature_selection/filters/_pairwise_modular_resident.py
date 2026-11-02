@@ -104,7 +104,7 @@ def residue_grid_mis_resident(
     (``max(nbins, k)``) is scored in one resident plug-in call (the SAME percentile-EDGE estimator the host
     ``_residue_grid_mi`` routes to under STRICT - the grid path leaves ``rank_binning`` False).
 
-    Returns a host ``(len(mods),)`` float64 array in ``mods`` order, OR ``None`` when STRICT-residency is off /
+    Returns a host ``(len(mods),)`` double array in ``mods`` order, OR ``None`` when STRICT-residency is off /
     cupy is unavailable / any cupy fault - in which case the caller takes the EXACT host ``_residue_grid_mi``
     (byte-identical default path untouched). Selection-equivalent to the host grid: the device residue ``c % k``
     has the SAME integer values as ``np.mod(c, k)``, so the percentile-edge partition - and the per-column MI -
@@ -163,10 +163,10 @@ def perm_null_residue_mis_resident(
     """Score ``MI(r; y[perm_i])`` for every permutation in ``perms`` in ONE resident plug-in call, via the
     code-reorder identity ``MI(codes_r; y[perm]) == MI(codes_r[inv_perm]; y)``.
 
-    ``r`` is the host residue ``(c mod k)`` (float64), ``perms`` a sequence of index permutations (the SAME
+    ``r`` is the host residue ``(c mod k)`` (double), ``perms`` a sequence of index permutations (the SAME
     seeded ``rng.permutation`` arrays the host loop uses, in the SAME order), ``eff_nbins`` the per-residue bin
     count (``max(nbins, k)``), ``rank_binning`` the STRICT gate-MI binner select. Returns a host ``(n_perm,)``
-    float64 array of the per-perm residue MIs, OR ``None`` when STRICT-residency is off / cupy is unavailable /
+    double array of the per-perm residue MIs, OR ``None`` when STRICT-residency is off / cupy is unavailable /
     the binner is not the rank binner / any cupy fault - in which case the caller takes the EXACT host per-perm
     ``_mi`` loop (byte-identical default path)."""
     try:

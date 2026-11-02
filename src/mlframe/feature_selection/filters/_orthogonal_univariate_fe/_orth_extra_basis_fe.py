@@ -151,6 +151,7 @@ def _chirp_axis_njit(x: np.ndarray, mean: float, std: float, lo: float, span: fl
     intermediate arrays) for one fused C loop."""
     ds = std if std > 1e-12 else 1e-12
     sp = span if span > 1e-12 else 1e-12
+    # Intentional float64: output buffer of the extra basis evaluator, kept in double so fit and replay match
     out = np.empty(x.shape[0], dtype=np.float64)
     for i in range(x.shape[0]):
         z = (x[i] - mean) / ds
@@ -506,6 +507,7 @@ def _is_int_as_cat_njit(x: np.ndarray, max_card: int) -> bool:
     int, continuous, and NaN-mixed columns); ``np.unique``'s O(n log n) full sort
     over a 1M column was the dominant cost."""
     n = x.shape[0]
+    # Intentional float64: table of distinct values indexed by the value keys, kept in double to match them
     uniq = np.empty(max_card + 1, dtype=np.float64)
     ucount = 0
     finite_count = 0

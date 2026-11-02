@@ -86,7 +86,7 @@ jobs:
 
       - name: pip-audit the locked graph
         run: |
-          python -m pip install --disable-pip-version-check "pip-audit>=2.7"
+          python -m pip install --disable-pip-version-check "pip-audit==2.10.1"
           python -m pip_audit -r locked-audit.txt --no-deps --progress-spinner off
 
   lowest-direct:

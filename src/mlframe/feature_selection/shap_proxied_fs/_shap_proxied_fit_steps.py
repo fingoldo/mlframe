@@ -485,7 +485,7 @@ class ShapProxiedFitStepsMixin:
                     trustworthy_metric=str(self.trust_guard_metric).lower(), **rv)
 
     def _fit_step5_penalty_focuses_retrain(self, candidates, report, phi, phi_var, n_features):
-        """Step 5 of fit: lines starting at ``score = np.array([c[0] for c in candidates], dtype=np.float64) # raw p``."""
+        """Step 5 of fit: lines starting at ``score = np.array([c[0] for c in candidates], dtype=np.double) # raw p``."""
         score = np.array([c[0] for c in candidates], dtype=np.float64)  # raw proxy loss  # Intentional float64: shap-proxy candidate loss statistic
         if self.use_bias_corrector and self.trust_guard and report.get("trust", {}).get("_corrector_data"):
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_calibrate import fit_proxy_corrector, subset_redundancy_many

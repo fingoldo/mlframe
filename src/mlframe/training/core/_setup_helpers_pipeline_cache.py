@@ -132,9 +132,9 @@ def _pipeline_disk_cache_path() -> str:
     if _PIPELINE_JSON_DISK_CACHE_PATH is not None:
         _parent_set("_PIPELINE_JSON_DISK_CACHE_PATH", _PIPELINE_JSON_DISK_CACHE_PATH)
         return _PIPELINE_JSON_DISK_CACHE_PATH
-    import tempfile
-    cache_dir = os.path.join(tempfile.gettempdir(), "mlframe_caches")
-    os.makedirs(cache_dir, exist_ok=True)
+    from mlframe.utils.private_temp import private_temp_dir
+
+    cache_dir = private_temp_dir("mlframe_caches")
     _PIPELINE_JSON_DISK_CACHE_PATH = os.path.join(cache_dir, "polars_ds_pipeline_roundtrip.json")
     _parent_set("_PIPELINE_JSON_DISK_CACHE_PATH", _PIPELINE_JSON_DISK_CACHE_PATH)
     return _PIPELINE_JSON_DISK_CACHE_PATH

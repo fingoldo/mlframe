@@ -73,7 +73,7 @@ _NOMINAL_MAX_CLASSES = 64  # at/below this many distinct y values, treat y as di
 
 
 def _prep_values_y(values: np.ndarray, y):
-    """Shared standardisation for the propensity scorers: contiguous float64 ``V`` (+ ``V2``), factorised/nan-clean
+    """Shared standardisation for the propensity scorers: contiguous double ``V`` (+ ``V2``), factorised/nan-clean
     float ``yf``, ``classes = unique(yf)``, and the float-target flag. Extracted so fused_propensity does not
     re-derive V/yf/classes that second_moment_propensity already computed (~15% of the fused call). Bit-identical."""
     V = np.ascontiguousarray(values, dtype=_crit_np_dtype())

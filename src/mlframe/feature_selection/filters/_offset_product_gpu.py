@@ -251,7 +251,7 @@ def _kernel(cp: Any) -> Any:
 def scan_offset_products_gpu(U: Any, tasks: np.ndarray, yr: Any, ycodes: Any, ky: int, nb: int, clips: Any) -> Optional[tuple]:
     """Score every task on the device; returns host ``(out_shift (T, 2), out_mi (T, 2, 1 + N_BASELINES))`` like the CPU scan, or ``None`` when it does not apply.
 
-    ``U``: ``(m, nu, n)`` float64 (device or host); ``tasks``: ``(T, 4)`` ints ``(col_u, col_v, unary_u, unary_v)``; ``yr``: rank-scaled target; ``ycodes``: class codes in ``[0, ky)``;
+    ``U``: ``(m, nu, n)`` double (device or host); ``tasks``: ``(T, 4)`` ints ``(col_u, col_v, unary_u, unary_v)``; ``yr``: rank-scaled target; ``ycodes``: class codes in ``[0, ky)``;
     ``clips``: ``(m, nu, 2)`` winsorisation bounds. ``None`` for a target with so many classes that the six joint histograms exceed the shared-memory budget or ``nb`` above 32."""
     import cupy as cp
 
@@ -261,10 +261,14 @@ def scan_offset_products_gpu(U: Any, tasks: np.ndarray, yr: Any, ycodes: Any, ky
     m, nu, n = (int(d) for d in Ud.shape)
     T = int(tasks.shape[0])
     td = cp.asarray(np.ascontiguousarray(tasks, dtype=np.int32))
+    # Intentional float64: device operand the offset-product kernel reads in double
     yrd = cp.ascontiguousarray(cp.asarray(yr, dtype=cp.float64))
     ycd = cp.ascontiguousarray(cp.asarray(ycodes, dtype=cp.int32))
+    # Intentional float64: device operand the offset-product kernel reads in double
     cd = cp.ascontiguousarray(cp.asarray(clips, dtype=cp.float64))
+    # Intentional float64: output buffer the offset-product kernel writes in double
     out_shift = cp.empty((T, 2), dtype=cp.float64)
+    # Intentional float64: output buffer the offset-product kernel writes in double
     out_mi = cp.empty((T, 2, _N_FEATURES), dtype=cp.float64)
     _kernel(cp)(
         (T,), (_THREADS,),
@@ -319,9 +323,12 @@ def scan_offset_products_device(
     if not set(unaries) <= DEVICE_UNARIES:
         return None
     m, nu, n = len(xs), len(unaries), len(rows)
+    # Intentional float64: device operand the offset-product kernel reads in double
     U = cp.empty((m, nu, n), dtype=cp.float64)
+    # Intentional float64: device operand the offset-product kernel reads in double
     clips = cp.empty((m, nu, 2), dtype=cp.float64)
     for ci, x in enumerate(xs):
+        # Intentional float64: device operand the offset-product kernel reads in double
         xd = cp.asarray(np.ascontiguousarray(x[rows], dtype=np.float64))
         for ui, name in enumerate(unaries):
             u = _device_unary(cp, name, xd, log_shifts[ci])

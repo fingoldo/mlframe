@@ -102,18 +102,24 @@ def _per_cat_centered_moments_njit(inverse: np.ndarray, y: np.ndarray, n_cats: i
     (mean first, then ``(y-mean)**k`` directly - no algebraic expansion, no cancellation) matches what scipy's
     own skew/kurtosis do internally, at the SAME O(n) cost (mean pass + one fused centred-power pass)."""
     n = inverse.shape[0]
+    # Intentional float64: two-pass centred moments need double precision to avoid cancellation on large offsets
     cnt = np.zeros(n_cats, dtype=np.float64)
+    # Intentional float64: two-pass centred moments need double precision to avoid cancellation on large offsets
     s1 = np.zeros(n_cats, dtype=np.float64)
     for i in range(n):
         c = inverse[i]
         cnt[c] += 1.0
         s1[c] += y[i]
+    # Intentional float64: two-pass centred moments need double precision to avoid cancellation on large offsets
     mean = np.zeros(n_cats, dtype=np.float64)
     for c in range(n_cats):
         if cnt[c] > 0.0:
             mean[c] = s1[c] / cnt[c]
+    # Intentional float64: two-pass centred moments need double precision to avoid cancellation on large offsets
     m2 = np.zeros(n_cats, dtype=np.float64)
+    # Intentional float64: two-pass centred moments need double precision to avoid cancellation on large offsets
     m3 = np.zeros(n_cats, dtype=np.float64)
+    # Intentional float64: two-pass centred moments need double precision to avoid cancellation on large offsets
     m4 = np.zeros(n_cats, dtype=np.float64)
     for i in range(n):
         c = inverse[i]
@@ -431,6 +437,7 @@ def _oof_encode_column(
     """Out-of-fold encoding of one column: for each fold, per-category statistics from the other folds are applied to that fold's rows; returns ``{stat: oof_values}``."""
     # OOF encoding: for each fold f, compute per-category statistics from rows in folds != f and apply to
     # rows in fold f.
+    # Intentional float64: target statistic and encoded values stay float64, matching the fit-time encoding exactly
     oof = {s: np.full(n, global_stats[s], dtype=np.float64) for s in stats}
     for f in range(int(n_folds)):
         test_idx = fold_test_idx[f]
@@ -448,6 +455,7 @@ def _oof_encode_column(
             # the full-data mean, so centred moments aren't additive/subtractable the way raw power sums
             # were).
             t_cnt, t_mean, t_m2, t_m3, t_m4 = _per_cat_centered_moments_njit(
+                # Intentional float64: target statistic and encoded values stay float64, matching the fit-time encoding exactly
                 np.ascontiguousarray(inverse[train_mask]), np.ascontiguousarray(y_arr[train_mask], dtype=np.float64), n_cats,
             )
             per_cat.update(_smooth_moments_from_centered(t_cnt, t_mean, t_m2, t_m3, t_m4, moment_stats, global_stats, smoothing))
@@ -527,6 +535,7 @@ def kfold_target_encode_fit(
     if bad:
         raise ValueError(f"kfold_target_encode_fit: unsupported stats {bad}; supported {TE_SUPPORTED_STATS}")
 
+    # Intentional float64: target statistic and encoded values stay float64, matching the fit-time encoding exactly
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     n = len(X)
     global_stats = _global_target_stats(y_arr, stats)
@@ -572,6 +581,7 @@ def kfold_target_encode_fit(
         full_per_cat: dict = {}
         if moment_stats:
             f_cnt, f_mean, f_m2, f_m3, f_m4 = _per_cat_centered_moments_njit(
+                # Intentional float64: target statistic and encoded values stay float64, matching the fit-time encoding exactly
                 np.ascontiguousarray(inverse), np.ascontiguousarray(y_arr, dtype=np.float64), n_cats,
             )
             full_per_cat.update(_smooth_moments_from_centered(f_cnt, f_mean, f_m2, f_m3, f_m4, moment_stats, global_stats, smoothing))
@@ -659,6 +669,7 @@ def apply_target_encoding(
         uniq, inv = np.unique(_arr, return_inverse=True)
         vals = np.array(
             [lookup.get(canonical_group_token(u), global_mean) for u in uniq],
+            # Intentional float64: target statistic and encoded values stay float64, matching the fit-time encoding exactly
             dtype=np.float64,
         )
         return vals[inv]
@@ -667,6 +678,7 @@ def apply_target_encoding(
     # unseen categories -> NaN -> global_mean, replacing the per-row Python
     # dict.get loop. Bit-identical (same key -> same value; the str-keyed lookup
     # and NaN-fill reproduce the dict.get(default) semantics exactly).
+    # Intentional float64: target statistic and encoded values stay float64, matching the fit-time encoding exactly
     out = pd.Series(cats, copy=False).map(lookup).fillna(global_mean).to_numpy(dtype=np.float64)
     return np.asarray(out)
 

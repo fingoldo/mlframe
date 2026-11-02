@@ -76,6 +76,10 @@ def tmc_shapley(
     return values, info
 
 
+# Boolean coalition masks are held a block at a time; this many bytes per block (one byte per mask cell).
+_MASK_BLOCK_BYTES = 256 * 1024 * 1024
+
+
 def data_banzhaf(
     utility_fn: Callable[[np.ndarray], float],
     n_rows: int,
@@ -98,22 +102,27 @@ def data_banzhaf(
     ``degenerate_rows`` (rows never/always sampled -- forced to ``beta=0``, guarded though unlikely at
     ``n_coalitions >= 64``).
     """
-    masks = rng.random((n_coalitions, n_rows)) < 0.5
     v = np.empty(n_coalitions, dtype=np.float64)
-    for m in range(n_coalitions):
-        idx = np.flatnonzero(masks[m])
-        v[m] = float(utility_fn(idx.astype(np.int64)))
+    sum_in = np.zeros(n_rows, dtype=np.float64)
+    n_in = np.zeros(n_rows, dtype=np.int64)
+    # Masks are drawn in row blocks from the same generator stream, so they equal one (n_coalitions, n_rows) draw while only a block is alive.
+    block = max(1, min(n_coalitions, _MASK_BLOCK_BYTES // max(n_rows, 1)))
+    for start in range(0, n_coalitions, block):
+        stop = min(start + block, n_coalitions)
+        masks = rng.random((stop - start, n_rows)) < 0.5
+        for m in range(stop - start):
+            idx = np.flatnonzero(masks[m])
+            v[start + m] = float(utility_fn(idx.astype(np.int64)))
+        sum_in += v[start:stop] @ masks
+        n_in += masks.sum(axis=0)
 
+    v_total = float(v.sum())
+    n_out = n_coalitions - n_in
+    degenerate_mask = (n_in == 0) | (n_out == 0)
+    degenerate: list[int] = np.flatnonzero(degenerate_mask).tolist()
     beta = np.zeros(n_rows, dtype=np.float64)
-    degenerate: list[int] = []
-    for j in range(n_rows):
-        in_mask = masks[:, j]
-        n_in = int(in_mask.sum())
-        n_out = n_coalitions - n_in
-        if n_in == 0 or n_out == 0:
-            degenerate.append(j)
-            continue
-        beta[j] = float(v[in_mask].mean() - v[~in_mask].mean())
+    live = ~degenerate_mask
+    beta[live] = sum_in[live] / n_in[live] - (v_total - sum_in[live]) / n_out[live]
 
     info = dict(
         n_coalitions=n_coalitions,

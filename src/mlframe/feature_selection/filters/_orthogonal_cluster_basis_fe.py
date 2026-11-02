@@ -209,6 +209,7 @@ def detect_clusters_by_correlation(
 
 def _zscore(arr: np.ndarray) -> np.ndarray:
     """Standardise (x - mean) / std with NaN-safe fill and constant guard."""
+    # Intentional float64: value construction of the cluster aggregate (the engineered column), always float64 so fit and replay match
     arr = np.asarray(arr, dtype=np.float64)
     finite = np.isfinite(arr)
     if not finite.all():
@@ -277,6 +278,7 @@ def compute_cluster_aggregate(
     if aggregator not in _VALID_AGGREGATORS:
         raise ValueError(f"compute_cluster_aggregate: unknown aggregator {aggregator!r}; " f"expected one of {_VALID_AGGREGATORS}.")
     if not members:
+        # Intentional float64: value construction of the cluster aggregate (the engineered column), always float64 so fit and replay match
         z = np.zeros(len(X), dtype=np.float64)
         empty: dict = {"member_mean": [], "member_std": [], "signs": [], "weights": None}
         return (z, empty) if return_stats else z
@@ -293,8 +295,11 @@ def compute_cluster_aggregate(
         # STORED combiner weights (or the stateless non-linear row-reducer). No
         # refit on the (possibly drifted) test distribution -> a given input row
         # maps to the same aggregate value as at fit.
+        # Intentional float64: value construction of the cluster aggregate (the engineered column), always float64 so fit and replay match
         member_mean = np.asarray(stats["member_mean"], dtype=np.float64)
+        # Intentional float64: value construction of the cluster aggregate (the engineered column), always float64 so fit and replay match
         member_std = np.asarray(stats["member_std"], dtype=np.float64)
+        # Intentional float64: value construction of the cluster aggregate (the engineered column), always float64 so fit and replay match
         signs = np.asarray(stats["signs"], dtype=np.float64)
         # Value-construction (feeds the aggregate that becomes the engineered column, not just an
         # MI score): always float64. The FIT path below must match this exactly, or a stored
@@ -302,6 +307,7 @@ def compute_cluster_aggregate(
         # reproducing the fit/replay drift bug fixed in _orthogonal_univariate_fe/__init__.py.
         cols = []
         for i, m in enumerate(members):
+            # Intentional float64: value construction of the cluster aggregate (the engineered column), always float64 so fit and replay match
             a = np.asarray(X[m].to_numpy(), dtype=np.float64)
             fill = float(member_mean[i]) if i < member_mean.size else 0.0
             cols.append(np.where(np.isfinite(a), a, fill))
@@ -309,6 +315,7 @@ def compute_cluster_aggregate(
         std_safe = np.where(member_std > 0.0, member_std, 1.0)
         Z = ((M - member_mean) / std_safe) * signs
         w = stats.get("weights")
+        # Intentional float64: value construction of the cluster aggregate (the engineered column), always float64 so fit and replay match
         out: np.ndarray = _apply_nl(Z, method) if w is None else (Z @ np.asarray(w, dtype=np.float64))
         out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
         return (out, stats) if return_stats else out
@@ -323,6 +330,7 @@ def compute_cluster_aggregate(
     # NaNs with the stored mean and stay consistent.
     cols = []
     for m in members:
+        # Intentional float64: value construction of the cluster aggregate (the engineered column), always float64 so fit and replay match
         a = np.asarray(X[m].to_numpy(), dtype=np.float64)
         finite = np.isfinite(a)
         if not finite.all():
@@ -332,6 +340,7 @@ def compute_cluster_aggregate(
     M = np.column_stack(cols)
     Z, mean, std, signs = _sa(M, 0)  # ref = first member
     weights = _dw(Z, method)
+    # Intentional float64: value construction of the cluster aggregate (the engineered column), always float64 so fit and replay match
     out = _apply_nl(Z, method) if weights is None else (Z @ np.asarray(weights, dtype=np.float64))
     out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
     if return_stats:
@@ -376,6 +385,7 @@ def _cluster_survivors(
     """Uplift gate (vs the MAX cluster-member baseline) plus the noise-aware MAD floor; returns the surviving candidates."""
     # ---- Step 4: uplift gate (vs MAX cluster-member baseline) + noise-aware
     # MAD floor + global top-K.
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     raw_baselines = np.asarray(list(raw_mi_map.values()), dtype=np.float64)
     max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
     legacy_floor = float(min_abs_mi_frac) * max_raw_baseline
@@ -495,6 +505,7 @@ def _member_baselines(X: pd.DataFrame, cleaned: dict, y_arr: np.ndarray, nbins: 
     """Baseline MI per member column (one batch call across the union of all members)."""
     # Baseline MI per member (one batch call across the union of all members).
     touched = sorted({m for members in cleaned.values() for m in members})
+    # Intentional float64: value construction of the cluster aggregate (the engineered column), always float64 so fit and replay match
     raw_mat = X[touched].to_numpy(dtype=np.float64, copy=False)
     finite = np.isfinite(raw_mat)
     if not finite.all():
@@ -610,6 +621,7 @@ def generate_cluster_basis_features(
         return pd.DataFrame(index=X.index), {}
 
     # ---- Step 3: ONE batch MI call across every candidate.
+    # Intentional float64: value construction of the cluster aggregate (the engineered column), always float64 so fit and replay match
     cand_mat = np.column_stack(cand_values).astype(np.float64, copy=False)
     eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
 
@@ -802,6 +814,7 @@ def _apply_orth_cluster_basis(recipe, X) -> np.ndarray:
     member_cols = {}
     for m in recipe.src_names:
         member_cols[str(m)] = np.asarray(
+            # Intentional float64: value construction of the cluster aggregate (the engineered column), always float64 so fit and replay match
             _extract_column(X, str(m)), dtype=np.float64,
         )
     # Build a DataFrame-like dict with stable column order matching

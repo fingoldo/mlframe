@@ -95,6 +95,9 @@ def test_load_mlframe_model_safe_default_rejects_function_payload(tmp_path):
     bundle = tmp_path / "evil.bundle"
     raw = dill.dumps(_marker_exploit_by_value(marker), byref=False, recurse=True)
     bundle.write_bytes(zstd.ZstdCompressor().compress(raw))
+    from mlframe.training.io import _write_save_meta_sidecar
+
+    _write_save_meta_sidecar(str(bundle))
     assert load_mlframe_model(str(bundle)) is None
     assert not marker.exists()
 
@@ -219,10 +222,14 @@ def test_legacy_joblib_metadata_goes_through_restricted_loader(tmp_path):
 
     bad = tmp_path / "bad.joblib"
     joblib.dump(_Evil(), str(bad))
+    from mlframe.utils.safe_pickle import write_sidecar
+
+    write_sidecar(str(bad))
     with pytest.raises(dill.UnpicklingError):
         load_metadata_file(str(bad), "joblib", "test")
     good = tmp_path / "metadata.joblib"
     joblib.dump({"k": 1}, str(good))
+    write_sidecar(str(good))
     assert load_metadata_file(str(good), "joblib", "test") == {"k": 1}
 
 
@@ -254,6 +261,9 @@ def test_load_mlframe_model_returns_none_on_oversized_stream(tmp_path, monkeypat
     monkeypatch.setenv("MLFRAME_MAX_DECOMPRESSED_BYTES", "10000")
     path = tmp_path / "big.bundle"
     path.write_bytes(zstd.ZstdCompressor().compress(pickle.dumps(np.zeros(100_000))))
+    from mlframe.training.io import _write_save_meta_sidecar
+
+    _write_save_meta_sidecar(str(path))
     assert load_mlframe_model(str(path)) is None
 
 
@@ -409,8 +419,10 @@ def test_instantiate_recommended_estimator_refuses_non_mlframe_module():
         instantiate_recommended_estimator({"module": "os", "estimator": "getcwd"})
     with pytest.raises(ValueError, match="mlframe module"):
         instantiate_recommended_estimator({"module": "mlframeevil.pkg", "estimator": "X"})
-    obj = instantiate_recommended_estimator({"module": "mlframe.training.io", "estimator": "SimpleNamespace"}, a=1)
-    assert obj.a == 1
+    with pytest.raises(ValueError, match="not an estimator class"):
+        instantiate_recommended_estimator({"module": "mlframe.training.io", "estimator": "SimpleNamespace"}, a=1)
+    obj = instantiate_recommended_estimator({"module": "mlframe.estimators.custom", "estimator": "PureRandomClassifier"}, random_state=3)
+    assert obj.random_state == 3
     assert instantiate_recommended_estimator(None) is None
 
 

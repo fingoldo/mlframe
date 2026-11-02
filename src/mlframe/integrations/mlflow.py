@@ -42,6 +42,19 @@ def _strip_userinfo(text: object) -> str:
     """Redact any ``scheme://user:password@`` userinfo from ``text`` before it is logged, so tracking-server credentials embedded in a raised exception don't leak into log files."""
     return _USERINFO_RE.sub(r"\1***@", str(text))
 
+def _scrubbed_exc_info(exc: BaseException) -> BaseException:
+    """A copy of ``exc`` with the userinfo redacted from its message, keeping the original traceback frames and dropping the chained exceptions.
+
+    Frames hold only file and line numbers, so the credentials a tracking URI carries can live only in the messages; the cause and context chain is dropped because its messages are not scrubbed.
+    """
+    clean = RuntimeError(f"{type(exc).__name__}: {_strip_userinfo(exc)}")
+    clean.__traceback__ = exc.__traceback__
+    clean.__cause__ = None
+    clean.__context__ = None
+    clean.__suppress_context__ = True
+    return clean
+
+
 ########################################################################################################################################################################################################################################
 # MLFLOW
 ########################################################################################################################################################################################################################################
@@ -130,10 +143,10 @@ def _start_run_with_retries(run_name, experiment_id, run_tags):
             run = mlflow.start_run(run_name=run_name, experiment_id=experiment_id, tags=run_tags)
         except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             nfailed += 1
-            # Log the scrubbed message only: a traceback would carry the tracking URI's credentials.
+            # The traceback is logged from a scrubbed copy: the original exception's message can carry the tracking URI's credentials.
             scrubbed = _strip_userinfo(e)
             if nfailed > 5:
-                log_throttle(logger, "mlflow_start_run_failed_after_retries", logging.ERROR, "mlflow.start_run failed after %d retries: %s", nfailed, scrubbed)
+                logger.error("mlflow.start_run failed after %d retries: %s", nfailed, scrubbed, exc_info=_scrubbed_exc_info(e))
                 return None
             if "already active" in str(e):
                 active = mlflow.active_run()

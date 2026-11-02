@@ -130,6 +130,7 @@ def batch_mi_with_noise_gate_cupy(
     cp = cupy()
 
     n, K = int(disc_2d.shape[0]), int(disc_2d.shape[1])
+    # Intentional float64: statistic vector (MI / gate verdict), exact ties decide the selection
     fe_mi = np.zeros(K, dtype=np.float64)
     if K == 0 or n == 0:
         return fe_mi
@@ -174,6 +175,7 @@ def batch_mi_with_noise_gate_cupy(
     # ---- Bit-exact CPU MI reduction from the integer counts (same as v1). Per-column
     # reduction batched into one njit call per row (bit-identical, kills dispatch overhead).
     _col_off = offsets[:K]
+    # Intentional float64: statistic vector (MI / gate verdict), exact ties decide the selection
     _all_pos = np.ones(K, dtype=np.float64)
     original_mi = _mi_columns_from_counts_cpu(np.ascontiguousarray(counts_all[0]), _col_off, nbins_arr, K_y, freqs_y, n, use_su, _all_pos)
 
@@ -484,6 +486,7 @@ def batch_mi_with_noise_gate_cuda_resident(
 
     n = int(disc_2d.shape[0])
     K = int(disc_2d.shape[1])
+    # Intentional float64: statistic vector (MI / gate verdict), exact ties decide the selection
     fe_mi = np.zeros(K, dtype=np.float64)
     if K == 0 or n == 0:
         return fe_mi
@@ -549,6 +552,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     # fresh to_device every call (see _histgate_upload).
     d_off = _histgate_upload(offsets[:K], "histgate_off", np.int64)
     d_nb = _histgate_upload(nbins_arr, "histgate_nb", np.int32)
+    # Intentional float64: device buffer the numba CUDA kernel reads or writes in double
     d_freq = _histgate_upload(freqs_y, "histgate_freq", np.float64)
     # Bit-set gate (``_batch_mi_noise_gate_bits``): the (P, K) MI matrix from popcounts of device bit sets, 7x faster than the histogram pair at 10 bins x 10 classes; the tuning cache decides.
     if not use_su:
@@ -561,7 +565,9 @@ def batch_mi_with_noise_gate_cuda_resident(
     if _fused_mi is not None:
         return _gate_from_mi(_fused_mi[0], _fused_mi[1:], nperm, min_nonzero_confidence) if nperm > 0 else _gate_from_mi(_fused_mi[0], [], 0, min_nonzero_confidence)
     d_counts = _nb_cuda.device_array(P * total_size, dtype=np.int64)
+    # Intentional float64: device buffer the numba CUDA kernel reads or writes in double
     d_ref = _nb_cuda.to_device(np.ones(K, dtype=np.float64))  # compute every (k,p); host applies the gate
+    # Intentional float64: device buffer the numba CUDA kernel reads or writes in double
     d_out = _nb_cuda.device_array((P, K), dtype=np.float64)
 
     # Shared-mem privatized hist when the per-column histogram (max nb_k * K_y int32) fits the device
@@ -630,6 +636,7 @@ def batch_mi_with_noise_gate_cuda(
 
     n = int(disc_2d.shape[0])
     K = int(disc_2d.shape[1])
+    # Intentional float64: statistic vector (MI / gate verdict), exact ties decide the selection
     fe_mi = np.zeros(K, dtype=np.float64)
     if K == 0 or n == 0:
         return fe_mi
@@ -674,6 +681,7 @@ def batch_mi_with_noise_gate_cuda(
         return _counts_from_device_y(d_y)
 
     _col_off = offsets[:K]
+    # Intentional float64: statistic vector (MI / gate verdict), exact ties decide the selection
     _all_pos = np.ones(K, dtype=np.float64)  # original-y pass: compute every column
     if d_y_all_resident is not None:
         counts_orig = _counts_from_device_y(d_y_all_resident[0])

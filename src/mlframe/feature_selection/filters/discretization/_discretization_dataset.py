@@ -44,15 +44,16 @@ def _discretize_input_dtype():
     (``arr = df[...].to_numpy(...)``) - a second full-frame copy that coexists with the caller's
     (already large) engineered float frame, and is the dominant term of the large-n FE peak (a 1M-row
     fit projects to ~21GB, OOMing a 16GB box). Quantile / MDLP edges + searchsorted do NOT need
-    float64: float32 edges differ only at ~1e-7 (far below the selection-altering ~1e-3 bar) and only
+    double: float32 edges differ only at ~1e-7 (far below the selection-altering ~1e-3 bar) and only
     for values sitting exactly on a bin edge.
 
     DEFAULT ON as of 2026-07-09 (the ~21GB->~10GB memory cut; corrective mechanisms default ON once
     validated - see ``tests/feature_selection/MRMR_FE_PERF_NOTES.md`` 2026-06-17 entry, which measured
-    selection IDENTICAL float32-vs-float64 on the canonical 60k fit). Set ``MLFRAME_DISCRETIZE_FLOAT32=0``
-    to force the legacy float64 path (e.g. bit-exact replay of a pre-2026-07-09 fit).
+    selection IDENTICAL float32-vs-double on the canonical 60k fit). Set ``MLFRAME_DISCRETIZE_FLOAT32=0``
+    to force the legacy double path (e.g. bit-exact replay of a pre-2026-07-09 fit).
     """
     if os.environ.get("MLFRAME_DISCRETIZE_FLOAT32", "").strip() in ("0", "false", "False"):
+        # Intentional float64: the legacy discretization path, selected by MLFRAME_DISCRETIZE_FLOAT32=0 for bit-exact replay
         return np.float64
     return np.float32
 

@@ -26,6 +26,14 @@ import numpy as np, pandas as pd
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
+def _distribution(distr_name: str):
+    """The ``scipy.stats`` distribution called ``distr_name``; anything that is not a distribution object (a function, a module, a private name) is refused."""
+    obj = getattr(stats, distr_name, None) if isinstance(distr_name, str) and not distr_name.startswith("_") else None
+    if not isinstance(obj, (stats.rv_continuous, stats.rv_discrete)):
+        raise ValueError(f"get_sapp_dataset: {distr_name!r} is not a scipy.stats distribution")
+    return obj
+
+
 def indicator(cond: np.ndarray) -> np.ndarray:
     """Cast a boolean condition array to 0/1 ints, for use inside `DataFrame.eval` expressions that need a step function."""
     return cond.astype(int)
@@ -53,7 +61,7 @@ def get_sapp_dataset(
 
     df = pd.DataFrame()
     for i in range(20):
-        df[f"X{i+1}"] = getattr(stats, distr_name).rvs(loc, scale, *distr_params, size=N, random_state=rng)
+        df[f"X{i+1}"] = _distribution(distr_name).rvs(loc, scale, *distr_params, size=N, random_state=rng)
 
     # Guard |X3| against zero to avoid log(-inf) contaminating target.
     _safe_abs_x3 = np.maximum(np.abs(df["X3"].values), 1e-12)
@@ -62,7 +70,7 @@ def get_sapp_dataset(
     )
 
     if add_error:
-        target = target + getattr(stats, distr_name).rvs(loc, scale, *distr_params, size=N, random_state=rng)
+        target = target + _distribution(distr_name).rvs(loc, scale, *distr_params, size=N, random_state=rng)
     if binarize:
         # Direct int cast, no float32 round-trip.
         y = (target > target.mean()).astype(np.int8)

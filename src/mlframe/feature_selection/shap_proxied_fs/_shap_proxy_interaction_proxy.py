@@ -47,7 +47,7 @@ def build_pair_table(Phi: np.ndarray, phi: np.ndarray, interaction_top_k: int) -
     """Build the PER-ROW gated interaction tensor used by the interaction proxy scorer.
 
     Returns ``(pair_rows, in_gate)`` where:
-      * ``pair_rows`` is a (P, P, n) float64 tensor with ``pair_rows[i, j] = Phi[:, i, j]`` (the per-row
+      * ``pair_rows`` is a (P, P, n) double tensor with ``pair_rows[i, j] = Phi[:, i, j]`` (the per-row
         off-diagonal interaction values) for both ``i, j`` in the top-k |phi| gate (i != j), zero
         otherwise. Symmetric in (i, j). Row-major over (i, j) so the scorer's per-pair access is a
         contiguous length-n read.

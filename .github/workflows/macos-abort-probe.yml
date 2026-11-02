@@ -172,6 +172,7 @@ jobs:
             brew tap-new local/libomp-pin
             curl -fsSL -o "$(brew --repository local/libomp-pin)/Formula/libomp.rb" \
               https://raw.githubusercontent.com/Homebrew/homebrew-core/ddbdc91ebe/Formula/lib/libomp.rb
+            echo "f0bfebe0c1d023430909f7346dd127ecd610b52b20cc044a2637d0813d2b4b02  $(brew --repository local/libomp-pin)/Formula/libomp.rb" | shasum -a 256 -c -
             brew install local/libomp-pin/libomp
           else
             brew install libomp

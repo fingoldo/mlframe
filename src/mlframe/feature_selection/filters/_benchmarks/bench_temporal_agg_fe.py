@@ -36,7 +36,7 @@ REL = "src/mlframe/feature_selection/filters/_temporal_agg_fe.py"
 def _load_baseline():
     """Load the prior (HEAD) version of the target as an isolated module."""
     src = subprocess.check_output(["git", "show", f"HEAD:{REL}"], cwd=str(REPO)).decode("utf-8")  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
-    tmp = Path(tempfile.gettempdir()) / "_temporal_agg_fe_baseline.py"
+    tmp = Path(tempfile.mkdtemp(prefix="temporal_agg_fe_baseline_")) / "_temporal_agg_fe_baseline.py"
     tmp.write_text(src, encoding="utf-8")
     spec = importlib.util.spec_from_file_location("_temporal_agg_fe_baseline", tmp)
     mod = importlib.util.module_from_spec(spec)

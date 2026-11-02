@@ -304,7 +304,7 @@ def _derive_weights(Z: np.ndarray, method: str, svd_cache: dict | None = None):
 
 
 def _continuous_cols(X, names: Sequence[str]) -> np.ndarray:
-    """Extract ``names`` columns from ``X`` as a float64 matrix with NaN/inf sanitized to 0.0, for distance/correlation-based cluster discovery."""
+    """Extract ``names`` columns from ``X`` as a double matrix with NaN/inf sanitized to 0.0, for distance/correlation-based cluster discovery."""
     from mlframe.feature_selection.filters.engineered_recipes.shared import extract_column as _extract_column
 
     # Intentional float64: fit-side and replay-side cluster columns must agree to 1e-12, so the cast stays at full precision

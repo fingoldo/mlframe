@@ -54,8 +54,8 @@ def _assert_nonneg_codes(codes: np.ndarray, what: str) -> None:
 _ARTIFACT_SCHEMA = {
     # REQUIRED keys
     "feature_names": "list[str], length=n_features_in_, ordered to match X_train.columns at MRMR.fit() time",
-    "su_to_target": "np.ndarray, shape=(n_features_in_,), dtype=float64. Symmetric Uncertainty SU(X_j, y) in [0, 1]. NaN where SU could not be computed (e.g. constant column).",
-    "mi_to_target": "np.ndarray, shape=(n_features_in_,), dtype=float64. Direct MI(X_j, y) in nats. NaN where MI was not cached during the screen (e.g. cardinality-bias-rejected features).",
+    "su_to_target": "np.ndarray, shape=(n_features_in_,), dtype=double. Symmetric Uncertainty SU(X_j, y) in [0, 1]. NaN where SU could not be computed (e.g. constant column).",
+    "mi_to_target": "np.ndarray, shape=(n_features_in_,), dtype=double. Direct MI(X_j, y) in nats. NaN where MI was not cached during the screen (e.g. cardinality-bias-rejected features).",
     "mrmr_kept_indices": "list[int], positional indices into feature_names of the MRMR-selected subset (== self.support_.tolist() for the raw columns; engineered features are not included).",
     # OPTIONAL keys
     "bins": "dict[str, np.ndarray] | None, mapping feature_name -> per-row binned values (dtype quantization_dtype). Present when retain_bins=True (default), absent or None otherwise.",

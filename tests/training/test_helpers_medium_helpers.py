@@ -253,6 +253,7 @@ def test_load_mlframe_model_corrupt_file_returns_none(tmp_path) -> None:
     surfacing the traceback to the operator's log."""
     bad = tmp_path / "garbage.zst"
     bad.write_bytes(b"definitely not a valid zstd stream")
+    io_mod._write_save_meta_sidecar(str(bad))
     result = io_mod.load_mlframe_model(str(bad), safe=True)
     assert result is None
 

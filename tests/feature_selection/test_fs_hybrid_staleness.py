@@ -165,3 +165,16 @@ def test_the_measured_paths_cover_the_code_the_atlas_is_about() -> None:
     assert "feature_selection" in joined
     assert "datasets" in joined
     assert all("\\" not in p for p in WATCHED_PATHS), "paths are stored posix-style so git accepts them on every platform"
+
+
+def test_a_manifest_sha_that_is_not_a_hex_object_name_never_reaches_git(monkeypatch):
+    """A manifest value such as ``--output=x`` or a ref with spaces is not passed to ``git rev-list``; the count is simply unknown."""
+    from mlframe.feature_selection._benchmarks.fs_hybrid import _staleness as st
+
+    calls = []
+    monkeypatch.setattr(st, "_git", lambda args, repo: calls.append(args) or "3")
+    for bad in ("--output=/tmp/x", "-n1", "abc def", "HEAD~1", "zzzzzzz"):
+        assert st.commits_since(bad, ".") is None
+    assert calls == []
+    assert st.commits_since("a1b2c3d", ".") == 3
+    assert len(calls) == 1

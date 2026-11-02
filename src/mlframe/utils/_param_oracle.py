@@ -116,8 +116,11 @@ def _host_key() -> str:
         return str(hw_fingerprint())
     except Exception as e:
         logger.debug("hw_fingerprint() failed, falling back to platform.node(): %s", e)
+        import hashlib
         import platform
-        return f"node_{platform.node() if platform.node() else 'unknown'}"
+
+        # The host name is hashed: this key is stored with every measurement row, and a store that is shared or committed must not carry the machine's name.
+        return "node_" + hashlib.sha256((platform.node() or "unknown").encode("utf-8")).hexdigest()[:16]
 
 
 def default_store_dir() -> str:

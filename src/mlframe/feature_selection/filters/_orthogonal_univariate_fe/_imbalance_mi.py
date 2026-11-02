@@ -204,6 +204,7 @@ def _class_balanced_mi_batch_njit(
     n = X_cols.shape[0]
     k = X_cols.shape[1]
     n_classes = class_w.shape[0]
+    # Intentional float64: statistic vector and histogram accumulators (MI), exact ties decide the selection
     out = np.zeros(k, dtype=np.float64)
 
     # Total reweighted mass is column-independent: W = sum_i class_w[y_i].
@@ -227,8 +228,11 @@ def _class_balanced_mi_batch_njit(
                 x_binned[sort_idx[pos]] = b
                 pos += 1
 
+        # Intentional float64: statistic vector and histogram accumulators (MI), exact ties decide the selection
         hist_xy = np.zeros((n_bins, n_classes), dtype=np.float64)
+        # Intentional float64: statistic vector and histogram accumulators (MI), exact ties decide the selection
         hist_x = np.zeros(n_bins, dtype=np.float64)
+        # Intentional float64: statistic vector and histogram accumulators (MI), exact ties decide the selection
         hist_y = np.zeros(n_classes, dtype=np.float64)
         for i in range(n):
             b = x_binned[i]

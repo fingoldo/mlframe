@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # --- imports (managed) ---
 from mlframe.training._model_cache_fingerprint import training_fingerprint_mismatch
-from mlframe.training.io import load_mlframe_model
+from mlframe.training.io import UnverifiedBundleError, load_mlframe_model
 from mlframe.training.train_eval import _composite_cache_mismatch
 from mlframe.training.train_eval import _flag_catboost_polars_fastpath
 from mlframe.training.train_eval import _validate_cached_model_schema
@@ -21,7 +21,12 @@ def _load_cached_model_into_state(use_cached_model, fpath, verbose, common_param
         assert fpath is not None  # guaranteed by the use_cached_model construction above
         if verbose:
             logger.info("Loading model from file %s", fpath)
-        loaded_model: Any = load_mlframe_model(fpath)
+        try:
+            loaded_model: Any = load_mlframe_model(fpath)
+        except UnverifiedBundleError as exc:
+            # A cache entry that cannot be verified is a miss, not an error: it is retrained below.
+            logger.warning("Cached model at %s is unverified (%s); retraining.", fpath, exc)
+            loaded_model = None
         if loaded_model is None:
             # Load returned None (e.g. _SafeUnpickler rejected an unsafe class, file corrupted, version skew). The loader logs the root cause; we fall back to
             # retraining rather than attempting to use a half-loaded artifact and tripping AttributeError downstream on loaded_model.model.

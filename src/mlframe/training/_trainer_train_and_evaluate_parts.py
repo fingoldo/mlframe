@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from mlframe.training.io import load_mlframe_model
+from mlframe.training.io import UnverifiedBundleError, load_mlframe_model
 from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
 
 # Heavy optional deps: defer failures to first actual use so `import mlframe.training` stays cheap and does not crash when a given backend is not installed.
@@ -124,7 +124,7 @@ def _train_and_evaluate_use_cache_exists_model(use_cache, model_file_name, trust
         _validate_trusted_path(model_file_name, _root)
         try:
             entry = load_mlframe_model(model_file_name)
-        except (EOFError, OSError, ModuleNotFoundError, pickle.UnpicklingError, AttributeError):
+        except (EOFError, OSError, ModuleNotFoundError, pickle.UnpicklingError, AttributeError, UnverifiedBundleError):
             # retraining is expensive; preserve traceback so the
             # operator can distinguish pickle-version mismatch / torch attribute drift /
             # disk corruption rather than re-investigating after each fallback.

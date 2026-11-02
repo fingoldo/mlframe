@@ -49,7 +49,10 @@ def _resident_upload(arr, key):
     # content hash of the (small, 1-D, int) array into the key so different contents never alias. The hash is
     # pure CPU and far cheaper than the H2D it guards; on a real greedy loop the same y/z hash identically ->
     # the cache still hits every candidate batch.
-    sig = (arr.shape, arr.dtype.str, hash(arr.tobytes()))
+    from mlframe.utils.disk_cache import hash_array_content
+
+    # A 128-bit content digest, not the 64-bit builtin hash: a collision here returns a stale device copy silently.
+    sig = (arr.shape, arr.dtype.str, hash_array_content(arr))
     with _CMI_RESIDENT_CACHE_LOCK:
         cached = _CMI_RESIDENT_CACHE.get(key)
         if cached is not None:

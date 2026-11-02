@@ -20,7 +20,7 @@ matrix is a bounded (shortlist, n_folds) result, NOT per-candidate value data).
 
 What is resident vs host control-flow (allowed by the contract):
   * RESIDENT (one bulk H2D at entry): the (n, P) candidate value matrix ``Vdev``
-    (float64) and the (n,) target ``ydev``. From them every round computes - on
+    (double) and the (n,) target ``ydev``. From them every round computes - on
     device - the selected-set design, the held-out residual, the centered |corr|
     of EVERY candidate vs that residual (the shortlist score), and for the
     shortlisted candidates the bordered (k+1)x(k+1) Gram solve per fold giving the
@@ -127,6 +127,7 @@ def usability_greedy_gpu_resident(
     try:
         from ._usability_aware_selection import _scrub, _f64
 
+        # Intentional float64: host copy of the float64 producer matrix the device kernel reads back
         y_host = _scrub(np.asarray(y_cont, dtype=np.float64))
         n = int(y_host.shape[0])
         if n < 2:
@@ -134,6 +135,7 @@ def usability_greedy_gpu_resident(
 
         P = len(pool)
         # ---- ONE bulk H2D: the (n, P) candidate value matrix + the (n,) target. Resident hereafter. ----
+        # Intentional float64: host copy of the float64 producer matrix the device kernel reads back
         Vhost = np.empty((n, P), dtype=np.float64)
         for j in range(P):
             col = _f64(pool[j].values)
@@ -158,6 +160,7 @@ def usability_greedy_gpu_resident(
         mi_max = max((c.mi for c in pool), default=1.0)
         if mi_max == 0:
             mi_max = 1.0
+        # Intentional float64: statistic vector (MI / score / fold error), exact ties decide the selection
         mi_dev = cp.asarray(np.asarray([float(c.mi) for c in pool], dtype=np.float64))
 
         # Resident per-fold train/val ROW INDICES (n,) - reused every round. Integer indices, not boolean
@@ -192,7 +195,7 @@ def _usability_greedy_gpu_step1_known_output_size(Vdev, cp, P):
     def _abscorr_batch_resident(resid_dev, rows_mask) -> np.ndarray:
         """|corr(candidate_j, resid)| for EVERY candidate over ``rows_mask`` rows, on device. Mirrors
         the per-candidate ``_abscorr`` (centered dot / sqrt(ss), std<1e-12 -> 0) batched into one GEMV.
-        Returns a host (P,) float64 score vector (a per-ROUND result, not per-candidate value data)."""
+        Returns a host (P,) double score vector (a per-ROUND result, not per-candidate value data)."""
         if rows_mask is None:
             M = Vdev
             rv = resid_dev
@@ -200,6 +203,7 @@ def _usability_greedy_gpu_step1_known_output_size(Vdev, cp, P):
             M = Vdev[rows_mask]  # (m, P) resident view-copy
             rv = resid_dev
         m = int(M.shape[0])
+        # Intentional float64: statistic vector (MI / score / fold error), exact ties decide the selection
         out = cp.zeros(P, dtype=cp.float64)
         if m == 0:
             return np.asarray(cp.asnumpy(out))
@@ -296,6 +300,7 @@ def _usability_greedy_gpu_step2_def_shortlist_sel(va_masks, tr_masks, Vdev, ydev
     def _cv_baseline() -> np.ndarray:
         """No-selection per-fold MAE: predict each val fold by its train-fold mean. Resident; returns a
         host (nf,) vector (the SAME quantity the CPU ``_cv_per_fold([])`` computes)."""
+        # Intentional float64: statistic vector (MI / score / fold error), exact ties decide the selection
         errs = np.empty(nf, dtype=np.float64)
         for fo in range(nf):
             tr, va = tr_masks[fo], va_masks[fo]
@@ -347,6 +352,7 @@ def _usability_greedy_gpu_step3_def_cv_candidates(nf, tr_masks, va_masks, ydev, 
         mind_rows = []  # resident scalar (min fold d) per candidate when Sc_tr is None; else None
         for i in cand_list:
             ci = Vdev[:, i]
+            # Intentional float64: statistic vector (MI / score / fold error), exact ties decide the selection
             errs_dev = cp.empty(nf, dtype=cp.float64)  # accumulate fold MAEs resident; ONE D2H/candidate
             singular = False
             cand_mind = None  # resident running-min cc_tr.cc_tr over folds (round-1 border)
@@ -369,11 +375,13 @@ def _usability_greedy_gpu_step3_def_cv_candidates(nf, tr_masks, va_masks, ydev, 
                     d = cp.dot(cc_tr, cc_tr)
                     bnew = cp.dot(cc_tr, yc)
                     k = int(Gs.shape[0])
+                    # Intentional float64: normal equations solved in double, as the host solve this device path mirrors
                     G = cp.empty((k + 1, k + 1), dtype=cp.float64)
                     G[:k, :k] = Gs
                     G[:k, k] = g
                     G[k, :k] = g
                     G[k, k] = d
+                    # Intentional float64: normal equations solved in double, as the host solve this device path mirrors
                     rhs = cp.empty(k + 1, dtype=cp.float64)
                     rhs[:k] = bs
                     rhs[k] = bnew

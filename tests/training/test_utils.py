@@ -105,6 +105,9 @@ class TestSaveLoadModel:
         file_path = str(tmp_path / "corrupted.zst")
         with open(file_path, "wb") as f:
             f.write(b"not a valid zstd file")
+        from mlframe.training.io import _write_save_meta_sidecar
+
+        _write_save_meta_sidecar(file_path)
 
         result = load_mlframe_model(file_path)
         assert result is None

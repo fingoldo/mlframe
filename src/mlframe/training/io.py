@@ -527,22 +527,32 @@ def _load_model_cache_clear() -> None:
         _LOAD_MODEL_CACHE.clear()
 
 
+class UnverifiedBundleError(RuntimeError):
+    """A model bundle has no recorded sha256, or its bytes do not match the one recorded; it is not unpickled.
+
+    A subclass of RuntimeError so existing handlers keep working; cache-reload sites catch it to retrain instead of failing.
+    """
+
+
 def _verify_bundle_digest(bundle_path: str) -> None:
     """Refuse a model bundle whose bytes do not match the sha256 recorded in its save sidecar (DESER-02).
 
     The sidecar is written at save time next to the bundle; a bundle without a recorded digest, or with one that no longer matches, is not
     unpickled. ``MLFRAME_ALLOW_UNVERIFIED_PICKLE`` is the explicit opt-out for a bundle that predates the digest.
     """
+    if not os.path.exists(bundle_path):
+        # Nothing to verify: the loader's own read fails and returns its documented None for a missing file.
+        return
     meta = load_save_meta_sidecar(bundle_path)
     expected = (meta or {}).get("bundle_sha256")
     if not expected:
         if env_flag(UNVERIFIED_ENV_VAR):
             logger.warning("load_mlframe_model: %r has no recorded sha256; loading because %s is set", bundle_path, UNVERIFIED_ENV_VAR)
             return
-        raise RuntimeError(f"load_mlframe_model: no sha256 recorded for {bundle_path!r}; refusing to unpickle. Set {UNVERIFIED_ENV_VAR}=1 to load it.")
+        raise UnverifiedBundleError(f"load_mlframe_model: no sha256 recorded for {bundle_path!r}; refusing to unpickle. Set {UNVERIFIED_ENV_VAR}=1 to load it.")
     actual = _bundle_sha256(bundle_path)
     if actual != expected:
-        raise RuntimeError(f"load_mlframe_model: sha256 of {bundle_path!r} does not match its save sidecar; refusing to unpickle.")
+        raise UnverifiedBundleError(f"load_mlframe_model: sha256 of {bundle_path!r} does not match its save sidecar; refusing to unpickle.")
 
 
 def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = False) -> Optional[object]:

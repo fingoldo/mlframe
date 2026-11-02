@@ -109,7 +109,7 @@ def replay_cv_results(fname: str, trusted_root: Optional[str] = None) -> dict:
     if not _verify_sidecar(fname):
         raise ValueError(f"sha256 sidecar mismatch for {fname}; refusing to load")
     # Trusts the sha256 sidecar verified just above: integrity/corruption gate, NOT authenticity (an attacker with dir write access rewrites both).
-    # The payload still goes through the restricted joblib unpickler, so a gadget in a rewritten dump cannot run (DESER-06).
+    # The payload still goes through the restricted joblib unpickler, so a gadget in a rewritten dump cannot run.
     from mlframe.training.io import safe_joblib_load
 
     cv_results = safe_joblib_load(fname)
