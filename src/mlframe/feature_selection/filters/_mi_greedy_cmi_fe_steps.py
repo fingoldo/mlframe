@@ -664,9 +664,10 @@ def _greedy_cmi_fe_constr_step1_content_hash_already(cand_names, engineered, nbi
                 # candidate this fit, so the odd-prime weight vector is built once and reused.
                 _fp_n = next(iter(cand_bins_dev.values())).size
                 _weights = _cp.arange(1, _fp_n + 1, dtype=_cp.int64) * _cp.int64(2654435761)
-                for _name in cand_names:
-                    _c = cand_bins_dev[_name].astype(_cp.int64, copy=False)
-                    st.cand_fp[_name] = int(_cp.sum((_c + 1) * _weights, dtype=_cp.int64).item())
+                # one device vector of fingerprints and one D2H read for the pool, not one ``.item()`` sync per candidate
+                _fps = _cp.stack([_cp.sum((cand_bins_dev[_name].astype(_cp.int64, copy=False) + 1) * _weights, dtype=_cp.int64) for _name in cand_names])
+                for _name, _fp in zip(cand_names, _cp.asnumpy(_fps).tolist()):
+                    st.cand_fp[_name] = int(_fp)
                 st._resident_fp_ok = True
     except Exception:
         logger.warning("resident candidate binning failed; host fingerprint fallback", exc_info=True)
