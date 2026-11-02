@@ -166,7 +166,69 @@ def _kth_smallest(a, k):
 
 
 @njit(cache=True)
+def _pairs_within(xs: np.ndarray, d: float) -> int:
+    """Number of pairs ``i < j`` of the ascending ``xs`` whose difference ``xs[j] - xs[i]`` (in the dtype of ``xs``) is at most ``d``, by one two-pointer pass.
+
+    Rounding is monotone, so the first index past the window only moves forward as ``i`` grows."""
+    m = xs.shape[0]
+    j = 0
+    total = 0
+    for i in range(m):
+        while j < m and xs[j] - xs[i] <= d:
+            j += 1
+        total += j - 1 - i
+    return total
+
+
+@njit(cache=True)
+def _kth_pair_distance(xs: np.ndarray, k: int):
+    """The ``k``-th (0-based) smallest ``xs[j] - xs[i]`` over ``i < j`` of the ascending ``xs``: the bisection finds the smallest distance ``d`` that leaves more than ``k`` pairs within it, and the largest
+    pair distance not above it is that value exactly (every distance is a value of the dtype of ``xs``, so the bisection ends between two neighbouring ones)."""
+    m = xs.shape[0]
+    if _pairs_within(xs, 0.0) > k:
+        return xs[0] - xs[0]
+    lo = 0.0
+    hi = float(xs[m - 1] - xs[0])
+    for _ in range(200):
+        mid = lo + (hi - lo) * 0.5
+        if mid <= lo or mid >= hi:
+            break
+        if _pairs_within(xs, mid) > k:
+            hi = mid
+        else:
+            lo = mid
+    best = xs[0] - xs[0]
+    j = 0
+    for i in range(m):
+        while j < m and xs[j] - xs[i] <= hi:
+            j += 1
+        if j - 1 > i:
+            diff = xs[j - 1] - xs[i]
+            if diff > best:
+                best = diff
+    return best  # in the dtype of ``xs``, like the values the quickselect returns
+
+
+@njit(cache=True)
 def _median_pairwise_distance(arr: np.ndarray) -> float:
+    """Median of ``|arr[i] - arr[j]|`` over ``i < j`` of a finite column, from its sorted copy: the rank selection by bisection on the distance (``_kth_pair_distance``) gives the values the quickselect of
+    ``_median_pairwise_distance_select`` returns, in O(m log m) instead of O(m^2)."""
+    n = arr.shape[0]
+    for t in range(n):
+        if not np.isfinite(arr[t]):
+            return _median_pairwise_distance_select(arr)
+    xs = np.sort(arr)
+    m = n * (n - 1) // 2
+    mid = m // 2
+    upper = _kth_pair_distance(xs, mid)
+    if m % 2 == 1:
+        return float(upper)
+    lower = _kth_pair_distance(xs, mid - 1)
+    return float(0.5 * (lower + upper))
+
+
+@njit(cache=True)
+def _median_pairwise_distance_select(arr: np.ndarray) -> float:
     """Median of ``|arr[i] - arr[j]|`` over ``i < j``: the same multiset the dense upper-triangle gather builds, without the n x n matrix and the index arrays.
 
     The median is selected, not sorted out: one quickselect for the middle element and, for an even count, the largest of the values left of it (all of them are at most the middle one)."""

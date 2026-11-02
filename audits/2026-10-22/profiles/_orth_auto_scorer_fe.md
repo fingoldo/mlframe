@@ -17,3 +17,9 @@ Per-scorer cost for one resample, 24000 rows x 108 float32 columns, warm, GTX 10
 About 0.95 s per resample serial, 10 resamples per call, several families call it (auto-scorer, ensemble). Ranking of device-kernel candidates: HSIC first (one block per column, the bandwidth from a block-wide sort of the 500k distances, then the `exp` sum with `lc`; exactness of the median is the contract point), then dCor and xi (both sort/rank based, `cp.argsort(axis=1)` of the block). Constraint found in the earlier stage-concurrency study: these run on pool threads (one per resample), and several threads feeding one CUDA context was the suspected cause of the illegal-address corruption, so a device version should run the resamples as one batched launch from the main thread, not from the pool.
 
 Not started; this note is the measured starting point.
+
+## Done: exact O(m log m) median pairwise distance (2026-11-02)
+
+The bandwidth of HSIC (and of the random-Fourier family) is the median of the m(m-1)/2 pairwise distances of a column. `_median_pairwise_distance` built all 500k distances of a 1000-row sample and quickselected: 6.8 ms per column. It now sorts the column and finds the k-th smallest distance by bisection on the distance with a two-pointer count (`_kth_pair_distance`); the quickselect stays as `_median_pairwise_distance_select` for non-finite columns and as the test reference. Rounding is monotone, so the two-pointer pass is valid in float32 as well, and the value is bit-identical (`test_median_pairwise_distance.py`: 10 sizes x 5 column shapes x 2 dtypes, plus the non-finite fallback).
+
+108 columns x 1000 rows: median 737 ms -> 54 ms serial; the whole `_hsic_biased_columns_njit` batch 265 ms -> 133 ms on 8 threads. What remains of HSIC is the 500k `exp` sum per column against the centred y Gram matrix, which is where a device kernel would now start.
