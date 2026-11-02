@@ -149,15 +149,37 @@ def xi_correlation_batch(X: np.ndarray, y: np.ndarray, *, random_state: int = 0)
     l_row = np.cumsum(counts[::-1])[::-1][inv].astype(np.float64)
     finite = [j for j in range(k) if np.isfinite(X[:, j]).all()]
     # the generator is advanced once per finite column in column order, as the per-column calls do; the columns are then ordered and scored in parallel blocks
-    block = max(1, min(32, (64 << 20) // (8 * max(n, 1))))
-    for s0 in range(0, len(finite), block):
-        js = finite[s0 : s0 + block]
+    block = max(1, min(12, (64 << 20) // (8 * max(n, 1))))
+    blocks = [finite[s0 : s0 + block] for s0 in range(0, len(finite), block)]
+
+    def draw(js: list) -> np.ndarray:
+        """The permutations of one block, drawn in column order from the shared generator (the shuffle releases the GIL)."""
         perms = np.empty((len(js), n), dtype=np.int64)
         for r in range(len(js)):
             perms[r] = rng.permutation(n)
-        cols = np.ascontiguousarray(X[:, js].T)
-        vals = np.empty(len(js), dtype=np.float64)  # Intentional float64: accumulator output kept f64
-        with parallel_kernel_entry():
-            _xi_columns_njit(cols, perms, r_row, l_row, vals)
-        out[js] = vals
+        return perms
+
+    # One helper thread draws the next block while the kernel scores the current one; it is the only user of the generator and blocks are drawn in order, so the stream is the serial one.
+    if len(blocks) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=1) as drawer:
+            pending = drawer.submit(draw, blocks[0])
+            for i, js in enumerate(blocks):
+                perms = pending.result()
+                if i + 1 < len(blocks):
+                    pending = drawer.submit(draw, blocks[i + 1])
+                _score_block(X, js, perms, r_row, l_row, out)
+    else:
+        for js in blocks:
+            _score_block(X, js, draw(js), r_row, l_row, out)
     return out
+
+
+def _score_block(X: np.ndarray, js: list, perms: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, out: np.ndarray) -> None:
+    """Score the columns ``js`` of ``X`` with their permutations ``perms`` into ``out[js]``."""
+    cols = np.ascontiguousarray(X[:, js].T)
+    vals = np.empty(len(js), dtype=np.float64)  # Intentional float64: accumulator output kept f64
+    with parallel_kernel_entry():
+        _xi_columns_njit(cols, perms, r_row, l_row, vals)
+    out[js] = vals
