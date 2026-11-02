@@ -265,8 +265,8 @@ def js_divergence(
     JS equals the mutual information I(L; B) between the sample-label L in {P, Q} and the bin B, so the binned
     plug-in is the same positively-biased MI plug-in: even when P and Q come from the SAME distribution (true JS=0)
     JS_hat sits clearly above 0, the bias growing as the bin count rises and the sample shrinks. ``bias_correction=
-    True`` (default) subtracts the Miller-Madow MI floor ``(K-1)/(2 N)`` (K = occupied pooled bins, N = total
-    samples np+nq) and clamps at 0; pass ``bias_correction=False`` for the legacy plug-in. The correction needs the
+    True`` (default) subtracts the expected same-distribution plug-in value ``(K-1)/8 * (1/np + 1/nq)`` (K = occupied pooled bins; equals the
+    Miller-Madow MI floor ``(K-1)/(2 N)`` for equal sample sizes) and clamps at 0; pass ``bias_correction=False`` for the legacy plug-in. The correction needs the
     raw counts + sample sizes, so it only applies on the binned path (``pre_binned=False``).
     """
     p = np.asarray(target)
@@ -289,10 +289,10 @@ def js_divergence(
     m = 0.5 * (pn + qn)
     js = 0.5 * float(_kl_kernel(pn, m, float(eps))) + 0.5 * float(_kl_kernel(qn, m, float(eps)))
     if bias_correction:
-        n_tot = np_tot + nq_tot
         k_active = float(np.count_nonzero(pc + qc))
-        if n_tot > 0 and k_active > 1.0:
-            js = max(js - (k_active - 1.0) / (2.0 * n_tot), 0.0)
+        if np_tot > 0 and nq_tot > 0 and k_active > 1.0:
+            # Expected plug-in JS of two samples from one distribution: (K-1)/8 * (1/np + 1/nq), which is (K-1)/(2N) only for equal sizes.
+            js = max(js - (k_active - 1.0) / 8.0 * (1.0 / np_tot + 1.0 / nq_tot), 0.0)
     return js
 
 
