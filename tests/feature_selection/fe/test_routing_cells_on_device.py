@@ -7,6 +7,7 @@ import pytest
 from mlframe.feature_selection.filters import _orthogonal_routing_device as D
 from mlframe.feature_selection.filters import _orthogonal_routing_fe as R
 from mlframe.feature_selection.filters._orthogonal_shared import coerce_y_classif
+from tests._cuda_require import require_cuda_device
 
 BASES = ("hermite", "legendre", "chebyshev", "laguerre")
 
@@ -22,12 +23,12 @@ def _data(n=20000, p=6):
 def test_device_cells_equal_host_cells():
     """Same cell names in the same order; MI within 1e-4 and the routing score within 1e-5 of the host values."""
     pytest.importorskip("cupy")
+    require_cuda_device()
     X, y = _data()
     ya = coerce_y_classif(y)
     cols = list(X.columns)
     got = D.routing_scores_on_device(X, cols, R.PRE_TRANSFORM_NAMES, BASES, (2, 3), ya, 10, "corr")
-    if got is None:
-        pytest.skip("needs a usable CUDA device")
+    assert got is not None, "the device path declined on a usable CUDA device"
     names, meta, mi, score = got
     host_names, host_values, host_meta = R._enumerate_routing_cells(X, cols, R.PRE_TRANSFORM_NAMES, BASES, (2, 3))
     assert names == host_names and meta == host_meta
@@ -59,14 +60,14 @@ def test_small_frames_stay_on_the_host():
 def test_cells_equal_host_across_sizes_and_criterion_dtypes(monkeypatch, n, relaxed):
     """Odd row counts around block boundaries, float32 and float64 criterion dtypes: same cell list, MI and score close to the host's."""
     pytest.importorskip("cupy")
+    require_cuda_device()
     monkeypatch.setenv("MLFRAME_BASIS_CELLS_DEVICE", "1")
     monkeypatch.setenv("MLFRAME_CRIT_DTYPE_RELAXED", relaxed)
     X, y = _data(n=n, p=3)
     ya = coerce_y_classif(y)
     cols = list(X.columns)
     got = D.routing_scores_on_device(X, cols, R.PRE_TRANSFORM_NAMES, BASES, (2, 3), ya, 10, "corr")
-    if got is None:
-        pytest.skip("needs a usable CUDA device")
+    assert got is not None, "the device path declined on a usable CUDA device"
     names, meta, mi, score = got
     host_names, host_values, host_meta = R._enumerate_routing_cells(X, cols, R.PRE_TRANSFORM_NAMES, BASES, (2, 3))
     assert names == host_names and meta == host_meta

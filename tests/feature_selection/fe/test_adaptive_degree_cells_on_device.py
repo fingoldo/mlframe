@@ -7,6 +7,7 @@ import pytest
 from mlframe.feature_selection.filters import _orthogonal_adaptive_degree_device as D
 from mlframe.feature_selection.filters import _orthogonal_adaptive_degree_fe as A
 from mlframe.feature_selection.filters._orthogonal_shared import coerce_y_classif
+from tests._cuda_require import require_cuda_device
 
 DEGREES = (1, 2, 3, 4, 5, 6)
 
@@ -26,13 +27,13 @@ def _data(n: int, p: int = 5):
 def test_cells_equal_host_cells(monkeypatch, n, relaxed):
     """Same cells in the same order, MI close to the host's, same winning (degree, basis) for every clear source."""
     pytest.importorskip("cupy")
+    require_cuda_device()
     monkeypatch.setenv("MLFRAME_BASIS_CELLS_DEVICE", "1")
     monkeypatch.setenv("MLFRAME_CRIT_DTYPE_RELAXED", relaxed)
     X, ya = _data(n)
     cols = list(X.columns)
     got = D.adaptive_degree_cells_on_device(X, cols, ya, DEGREES, "auto", 10)
-    if got is None:
-        pytest.skip("needs a usable CUDA device")
+    assert got is not None, "the device path declined on a usable CUDA device"
     names, cells, mi = got
     host_names, host_values, host_cells = A._build_degree_candidates(X, cols, ya, DEGREES, "auto", np.float32)
     assert names == host_names and cells == host_cells

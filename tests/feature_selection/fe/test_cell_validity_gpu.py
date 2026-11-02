@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from tests._cuda_require import require_cuda_device
 
 
 def _block(n: int, dtype) -> np.ndarray:
@@ -21,10 +22,8 @@ def test_validity_and_mean_match_numpy(n, dtype):
     from mlframe.feature_selection.filters._cell_validity_gpu import cell_validity_gpu
 
     block = _block(n, dtype)
-    try:
-        usable, mean = cell_validity_gpu(cp, cp.asarray(block))
-    except Exception as exc:  # pragma: no cover - no usable device
-        pytest.skip(f"needs a usable CUDA device: {exc}")
+    require_cuda_device()
+    usable, mean = cell_validity_gpu(cp, cp.asarray(block))
     want = np.isfinite(block).all(axis=0) & (block.astype(np.float64).std(axis=0) > 1e-12)
     np.testing.assert_array_equal(usable, want)
     good = want

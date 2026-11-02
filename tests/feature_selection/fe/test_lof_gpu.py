@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters._lof_fe import _lof_fit_reference, _lof_transform_host
+from tests._cuda_require import require_cuda_device
 
 
 def _setup(n, p, ref_size, k, dtype, seed=0):
@@ -24,10 +25,8 @@ def test_device_equals_host(n, p, dtype):
     from mlframe.feature_selection.filters._lof_gpu import lof_transform_gpu
 
     X, ref, lrd, kd, k_eff = _setup(n, p, min(600, n - 1), 20, dtype)
-    try:
-        got = lof_transform_gpu(X, ref, lrd, kd, k_eff)
-    except Exception as exc:  # pragma: no cover - no usable device
-        pytest.skip(f"needs a usable CUDA device: {exc}")
+    require_cuda_device()
+    got = lof_transform_gpu(X, ref, lrd, kd, k_eff)
     assert got is not None and got.dtype == dtype
     want = _lof_transform_host(X, ref, lrd, kd, k_eff)
     if dtype == np.float64:

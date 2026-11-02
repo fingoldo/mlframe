@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from tests._cuda_require import require_cuda_device
 
 
 @pytest.mark.parametrize("n,kc,B", [(997, 5, 7), (4096, 33, 64), (12000, 130, 20)])
@@ -32,13 +33,11 @@ def test_k3_equals_k2(n, kc, B):
         """Fresh output vectors."""
         return cp.empty(B * kc, dtype=cp.float64), cp.empty(B * kc, dtype=cp.int32), cp.empty(B * kc, dtype=cp.int32)
 
-    try:
-        g2, c2, i2 = outputs()
-        _get_kernel_k2(cp)(((B * kc + 127) // 128,), (128,), (d["order"], d["tie"], d["wb8"], d["tab"], d["cnt"], np.int32(n), np.int32(B), np.int32(kc), np.int32(60), np.float64(h_full), np.int32(words), g2, c2, i2))
-        g3, c3, i3 = outputs()
-        launch_k3(cp, d["order"], d["tie"], d["wb"], d["tab"], d["cnt"], n, B, kc, 60, h_full, words, g3, c3, i3)
-    except Exception as exc:  # pragma: no cover - no usable device
-        pytest.skip(f"needs a usable CUDA device: {exc}")
+    require_cuda_device()
+    g2, c2, i2 = outputs()
+    _get_kernel_k2(cp)(((B * kc + 127) // 128,), (128,), (d["order"], d["tie"], d["wb8"], d["tab"], d["cnt"], np.int32(n), np.int32(B), np.int32(kc), np.int32(60), np.float64(h_full), np.int32(words), g2, c2, i2))
+    g3, c3, i3 = outputs()
+    launch_k3(cp, d["order"], d["tie"], d["wb"], d["tab"], d["cnt"], n, B, kc, 60, h_full, words, g3, c3, i3)
     np.testing.assert_array_equal(cp.asnumpy(g2), cp.asnumpy(g3))
     np.testing.assert_array_equal(cp.asnumpy(c2), cp.asnumpy(c3))
     np.testing.assert_array_equal(cp.asnumpy(i2), cp.asnumpy(i3))

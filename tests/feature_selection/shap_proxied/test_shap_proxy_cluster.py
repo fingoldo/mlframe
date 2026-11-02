@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import build_unit_matrix, cluster_correlated_features, cluster_summary
+from tests._cuda_require import require_cublas_matmul, require_cuda_device
 
 
 def _partition(labels):
@@ -49,14 +50,9 @@ def test_clustering_recovers_known_partition_cpu():
 @pytest.mark.gpu
 def test_clustering_cpu_gpu_partition_parity():
     """Clustering cpu gpu partition parity."""
-    cp = pytest.importorskip("cupy")
-    if cp.cuda.runtime.getDeviceCount() == 0:
-        pytest.skip("no CUDA device")
-    from mlframe.utils.cublas_probe import cublas_matmul_ok
-
-    if not cublas_matmul_ok():
-        # The GPU path demotes to CPU on such a build, so a comparison would be CPU against CPU and prove nothing.
-        pytest.skip("cupy/cuBLAS matmul probe failed on this build; the GPU partition cannot be compared")
+    pytest.importorskip("cupy")
+    require_cuda_device()
+    require_cublas_matmul()
     X, *_ = _make_clustered(seed=1)
     lab_cpu = cluster_correlated_features(X, threshold=0.7, use_gpu=False)
     lab_gpu = cluster_correlated_features(X, threshold=0.7, use_gpu=True)

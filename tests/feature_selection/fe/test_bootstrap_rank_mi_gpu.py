@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters import _bootstrap_rank_mi_njit as host
+from tests._cuda_require import require_cuda_device
 
 
 def _data(n, k, n_classes=2, seed=0):
@@ -28,10 +29,8 @@ def test_device_equals_host(monkeypatch, n, k, n_classes):
     want_mi, want_ok = host.bootstrap_rank_mi(arr, y, reps, 10)
     monkeypatch.setenv("MLFRAME_BOOTSTRAP_RANK_DEVICE", "1")
     host._PREP_CACHE.clear()
-    try:
-        got_mi, got_ok = host.bootstrap_rank_mi(arr, y, reps, 10)
-    except Exception as exc:  # pragma: no cover - no usable device
-        pytest.skip(f"needs a usable CUDA device: {exc}")
+    require_cuda_device()
+    got_mi, got_ok = host.bootstrap_rank_mi(arr, y, reps, 10)
     np.testing.assert_array_equal(got_ok, want_ok)
     # the same walk and the same sums; CUDA's log and numba's differ in the last bit
     np.testing.assert_allclose(got_mi, want_mi, rtol=1e-12, atol=1e-14)
@@ -59,10 +58,8 @@ def test_small_column_blocks_and_a_device_fault_keep_the_result(monkeypatch):
     monkeypatch.setenv("MLFRAME_BOOTSTRAP_RANK_DEVICE", "1")
     monkeypatch.setattr(gpu, "_column_block", lambda cp, n: 3)
     host._PREP_CACHE.clear()
-    try:
-        got_mi, got_ok = host.bootstrap_rank_mi(arr, y, reps, 10)
-    except Exception as exc:  # pragma: no cover - no usable device
-        pytest.skip(f"needs a usable CUDA device: {exc}")
+    require_cuda_device()
+    got_mi, got_ok = host.bootstrap_rank_mi(arr, y, reps, 10)
     np.testing.assert_array_equal(got_ok, want_ok)
     np.testing.assert_allclose(got_mi, want_mi, rtol=1e-12, atol=1e-14)
 
