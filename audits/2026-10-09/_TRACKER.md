@@ -15,7 +15,7 @@ Statuses: **RESOLVED** (done; the note names the test, file or commit that pins 
 
 | Status | Report | Findings | Area |
 |---|---|---|---|
-| **OPEN** | [01_followup_proposals.md](01_followup_proposals.md) | 18 | CI, test harness and tooling follow-ups |
+| **RESOLVED** | [01_followup_proposals.md](01_followup_proposals.md) | 18 | CI, test harness and tooling follow-ups |
 
 ### `01_followup_proposals.md`
 
