@@ -35,6 +35,7 @@ from .._helpers import (
 )
 
 from mlframe.utils.log_throttle import log_throttle
+from ._fold_scores import add_fold_score
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
@@ -244,7 +245,7 @@ def _fold_slice_is_empty(
             nfold, _x_n, _y_n,
         )
         with _FOLD_STATE_LOCK:
-            scores.append(np.nan)
+            add_fold_score(scores, nfold, np.nan)
             feature_importances[f"{len(current_features)}_{nfold}"] = {}
         return True
     # Empty-TEST guard (symmetric to the empty-train guard above): the same upstream filtering can collapse the
@@ -259,7 +260,7 @@ def _fold_slice_is_empty(
             nfold, _xt_n, _yt_n,
         )
         with _FOLD_STATE_LOCK:
-            scores.append(np.nan)
+            add_fold_score(scores, nfold, np.nan)
             feature_importances[f"{len(current_features)}_{nfold}"] = {}
         return True
     return False
@@ -378,7 +379,7 @@ def _fit_score_one_estimator(
     return _score, _fi_run
 
 
-def _commit_fold_scores(est_scores: list, est_fi_runs: list, scores: list, feature_importances: dict) -> float:
+def _commit_fold_scores(est_scores: list, est_fi_runs: list, scores: list, feature_importances: dict, nfold: Any = None) -> float:
     """Aggregate the per-estimator scores into the fold score, publish it and every FI run under the fold-state lock; returns the score."""
     # Aggregate fold score via worst-case (min) across estimators given sklearn's "higher is better". Mean would let one strong estimator (e.g. RF on 2 informative features) mask the fact that another (e.g. LR) needs more features to converge; worst-case forces N to be where ALL estimators agree it's sufficient. For the singular path (len-1 list), min == mean.
     if est_scores:
@@ -387,7 +388,7 @@ def _commit_fold_scores(est_scores: list, est_fi_runs: list, scores: list, featu
     else:
         score = float("nan")
     with _FOLD_STATE_LOCK:
-        scores.append(score)
+        add_fold_score(scores, nfold, score)
         # Persist every estimator's FI run.
         feature_importances.update({_k: _fi for _k, _fi in est_fi_runs})
     return score
@@ -541,7 +542,7 @@ def _eval_fold_body(
         if _fi_run is not None:
             _est_fi_runs.append(_fi_run)
 
-    score = _commit_fold_scores(_est_scores, _est_fi_runs, scores, feature_importances)
+    score = _commit_fold_scores(_est_scores, _est_fi_runs, scores, feature_importances, nfold)
 
     if 0 not in evaluated_scores_mean:
 

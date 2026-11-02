@@ -21,6 +21,7 @@ import numpy as np
 
 from .._enums import OptimumSearch, VotesAggregation
 from .._helpers import get_next_features_subset, store_averaged_cv_scores
+from ._fold_scores import FoldOrderedScores
 from ._fit_fold import _eval_fold_body
 from ._futility_stop import check_futility_stop, record_evaluation
 from ._outer_loop_bookkeeping import runtime_budget_exhausted, update_best_and_noimprove
@@ -169,7 +170,7 @@ def run_outer_loop_iteration(
 
     # Defer the selected_features_per_nfeatures write until after we know whether this exploration's score beats the existing best at the same N. An unconditional write silently downgrades a winning subset whenever MBH revisits the same N with a worse one.
 
-    scores: list = []
+    scores: list = FoldOrderedScores()
 
     _fold_args = _materialize_fold_args(self, cv, X, y, groups)
 
