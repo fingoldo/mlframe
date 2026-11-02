@@ -10,13 +10,13 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 | **RESOLVED** | MEM16-4 | memory | Medium | the cat-pair and binned-numeric-agg stages appended columns with `pd.concat`, which copies the whole input on pandas 2; they now use `append_columns` (shallow copy plus column assignment) |
 | **FUTURE** | MEM16-5 | memory | Medium | `CorrelatedFeaturesSelector.fit` converts a polars frame with `to_pandas()`; the zero-copy Arrow view changes column dtypes and an earlier fix there was about exactly dtype preservation, so it needs a clustering-parity check first |
 | **RESOLVED** | MEM16-6 | memory | Medium | ACE forced a copy of an array it only reads (`feature_selection/ace.py`) |
-| **FUTURE** | MEM16-7 | memory | Medium | hybrid selector standardises into a second full array (`hybrid_selector.py:129-138`) |
-| **FUTURE** | MEM16-8 | memory | Medium | `compose_pair_fe` makes up to three full-size arrays (`filters/composition.py:114-129`) |
+| **RESOLVED** | MEM16-7 | memory | Medium | the blocked correlation clustering built two more full-size temporaries while standardising; it now divides in place and frees the float copy (peak 9.4 MB to under 5 MB on a 3.2 MB float32 frame) |
+| **RESOLVED** | MEM16-8 | memory | Medium | `compose_pair_fe` copied its input matrix up front although the cascade only reads it until `np.column_stack`; the copy is gone (the int-to-float64-to-crit double cast was left as it is: it keeps the returned originals exact) |
 | **RESOLVED** | MEM16-9 | memory | Low | `compute_naive_outlier_score` cast train and test to float64; floating inputs now keep their dtype (the comparison against train min/max is exact in float32) |
 | **RESOLVED** | MEM16-10 | memory | Low | the RFECV auto-tune fingerprint copied the whole array to float64; numeric arrays keep their dtype and each column is widened on its own |
 | **RESOLVED** | ERR16-1 | error_quality | High | the default-extractor path indexed `df` before it was validated: Path, list, ndarray and LazyFrame gave AttributeError or a "use select()" TypeError |
 | **RESOLVED** | ERR16-2 | error_quality | Medium | a `.csv` path or a parquet file without the target column failed inside polars |
-| **FUTURE** | ERR16-3 | error_quality | Low | a datetime target column is routed to regression by `_infer_target_is_classification`; where it first fails downstream was not traced |
+| **RESOLVED** | ERR16-3 | error_quality | Low | a datetime or timedelta target column was routed to regression; the default extractor now raises a ValueError naming the dtype and the two ways out |
 | **FUTURE** | IMP16-1 | import | High | `import mlframe.metrics` installs the CatBoost `__sklearn_clone__` patch at import, costing about 3.2 s (catboost, IPython, xgboost); consumers rely on the import to guarantee the patch, so it needs a post-import hook or explicit installs at each CatBoost construction site |
 | **FUTURE** | IMP16-2 | import | High | `training/_model_factories.py` imports torch (12.5 s) at module level although the neural stack is meant to be deferred |
 | **FUTURE** | IMP16-3 | import | Medium | ngboost imported eagerly in four modules (4.1 s with sympy) |
@@ -29,7 +29,7 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 
 ## Counts
 
-23 rows. Dispositions: 10 RESOLVED, 12 FUTURE, 1 REJECTED.
+23 rows. Dispositions: 13 RESOLVED, 9 FUTURE, 1 REJECTED.
 
 ## Implemented
 
@@ -37,6 +37,9 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 |---|---|---|
 | MEM16-1, MEM16-6 | Stop deep-copying the whole frame in the functional adapters and ACE | `tests/feature_selection/test_selection_inputs_are_not_deep_copied.py` (checks the numeric buffer stays shared; the ACE `copy=False` change has no separate test) |
 | MEM16-2 | Reuse one shadow buffer across Boruta rounds | `tests/feature_selection/filters/test_boruta_shadow_buffer_reuse.py` (the reuse test fails without the fix) |
+| MEM16-7 | Standardise the blocked correlation matrix in place | `tests/feature_selection/test_hybrid_corr_clusters_blocked_memory.py` (the memory test fails without the fix) |
+| MEM16-8 | Drop the up-front copy of the input matrix in compose_pair_fe | `tests/feature_selection/filters/test_compose_pair_fe_no_upfront_copy.py` (fails without the fix) |
+| ERR16-3 | Refuse a datetime target in the default extractor | `tests/training/test_default_extractor_rejects_datetime_target.py` |
 | MEM16-9 | Score outliers on float32 inputs without casting both frames to float64 | `tests/preprocessing/test_naive_outlier_score_keeps_float32.py` (fails without the fix) |
 | MEM16-10 | Read the auto-tune fingerprint's ndarray without a float64 copy | `tests/feature_selection/wrappers/test_auto_tune_signals_do_not_copy_the_frame.py` (fails without the fix) |
 | MEM16-4 | Append engineered columns without copying the input frame | `tests/feature_selection/test_append_columns_shares_buffers.py`; 43 tests of the two stages pass |
