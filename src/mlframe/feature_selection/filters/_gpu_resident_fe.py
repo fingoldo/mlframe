@@ -62,6 +62,7 @@ from typing import Any
 
 import logging
 import os
+import threading
 
 import numpy as np
 
@@ -469,15 +470,17 @@ _PREWARP_TRANSFORM_KERNEL = None
 _PREWARP_CODE = {"hermite": 0, "legendre": 1, "chebyshev": 1, "laguerre": 2}
 
 
+_PREWARP_KERNEL_LOCK = threading.Lock()
 _PREWARP_TRANSFORM_KERNELS: dict = {}
 
 
 def _get_prewarp_transform_kernel(cp, real_t: str = "double"):
     """Lazily compiles and caches the fused prewarp min-max/z-score/shift+clip ``RawKernel`` per buffer element type ``real_t`` (module-level; pickle-safe)."""
-    kern = _PREWARP_TRANSFORM_KERNELS.get(real_t)
-    if kern is None:
-        kern = cp.RawKernel(_PREWARP_TRANSFORM_SRC.replace("{REAL}", real_t), "prewarp_transform")
-        _PREWARP_TRANSFORM_KERNELS[real_t] = kern
+    with _PREWARP_KERNEL_LOCK:
+        kern = _PREWARP_TRANSFORM_KERNELS.get(real_t)
+        if kern is None:
+            kern = cp.RawKernel(_PREWARP_TRANSFORM_SRC.replace("{REAL}", real_t), "prewarp_transform")
+            _PREWARP_TRANSFORM_KERNELS[real_t] = kern
     return kern
 
 

@@ -41,6 +41,7 @@ contingency table so the joint stays computable even at d=8+ support cols
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Callable, Optional, Sequence, cast
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
@@ -292,6 +293,7 @@ from ._mi_greedy_cmi_fe_gpu import (
 _PARALLEL_CMI_MIN_CANDS = 16  # below this many candidates the pool costs more than it saves
 
 
+_CMI_CHUNK_LOCK = threading.Lock()
 _CMI_CHUNK_START: dict[int, int] = {}  # candidate count -> chunk width that last fitted on the device
 
 
@@ -312,11 +314,13 @@ def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_
         scored: np.ndarray = parts[0] if len(parts) == 1 else np.concatenate(parts)
         return scored
 
-    step = min(k, _CMI_CHUNK_START.get(k, k))  # the chunk that fitted last time for this width: a failed whole-batch attempt costs an allocation sweep and a pool reclaim
+    with _CMI_CHUNK_LOCK:
+        step = min(k, _CMI_CHUNK_START.get(k, k))  # the chunk that fitted last time for this width: a failed whole-batch attempt costs an allocation sweep and a pool reclaim
     while True:
         out = attempt(step)
         if out is not None:
-            _CMI_CHUNK_START[k] = step
+            with _CMI_CHUNK_LOCK:
+                _CMI_CHUNK_START[k] = step
             return out
         if step <= 1:
             whole: np.ndarray = batched_cmi_gpu(codes, y_bin, z_joint, codes_trusted=True)  # nothing left to halve: let the error reach the caller's CPU fallback

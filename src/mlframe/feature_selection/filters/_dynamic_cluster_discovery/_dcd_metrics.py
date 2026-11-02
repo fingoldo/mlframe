@@ -9,6 +9,7 @@ original, so this module imports no DCD parent symbol.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
@@ -41,6 +42,8 @@ def _is_foreign(state, factors_data, factors_nbins) -> bool:
             return True
     return False
 
+# Reentrant: a weakref.finalize callback can run on the thread that holds it while a collection happens inside the locked block.
+_SCRATCH_LOCK = threading.RLock()
 _SCRATCH_BY_STATE: "dict[int, dict]" = {}  # id(state) -> {(id(factors_data), id(factors_nbins)): (scratch state, factors_data, factors_nbins)}; dropped with the state
 _SCRATCH_PER_STATE_MAX = 4
 
@@ -53,18 +56,19 @@ def _scratch_state(state, factors_data, factors_nbins):
     The arrays are held by the entry, so the ids stay valid while it lives."""
     import weakref
 
-    per_state = _SCRATCH_BY_STATE.get(id(state))
-    if per_state is None:
-        per_state = _SCRATCH_BY_STATE[id(state)] = {}
-        weakref.finalize(state, _SCRATCH_BY_STATE.pop, id(state), None)
-    key = (id(factors_data), id(factors_nbins))
-    hit = per_state.get(key)
-    if hit is not None and hit[1] is factors_data and hit[2] is factors_nbins:
-        return hit[0]
-    scratch = _new_scratch_state(state, factors_data, factors_nbins)
-    if len(per_state) >= _SCRATCH_PER_STATE_MAX:
-        per_state.pop(next(iter(per_state)))
-    per_state[key] = (scratch, factors_data, factors_nbins)
+    with _SCRATCH_LOCK:
+        per_state = _SCRATCH_BY_STATE.get(id(state))
+        if per_state is None:
+            per_state = _SCRATCH_BY_STATE[id(state)] = {}
+            weakref.finalize(state, _SCRATCH_BY_STATE.pop, id(state), None)
+        key = (id(factors_data), id(factors_nbins))
+        hit = per_state.get(key)
+        if hit is not None and hit[1] is factors_data and hit[2] is factors_nbins:
+            return hit[0]
+        scratch = _new_scratch_state(state, factors_data, factors_nbins)
+        if len(per_state) >= _SCRATCH_PER_STATE_MAX:
+            per_state.pop(next(iter(per_state)))  # evict-ok: a miss builds a fresh scratch state for that array pair
+        per_state[key] = (scratch, factors_data, factors_nbins)
     return scratch
 
 

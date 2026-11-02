@@ -48,6 +48,7 @@ from __future__ import annotations
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 
 import logging
+import threading
 from typing import Optional, Sequence
 
 import numpy as np
@@ -100,14 +101,16 @@ def _bootstrap_rows(rng: np.random.Generator, y_arr: np.ndarray, n: int, sample_
     return idx
 
 
+_REPS_CACHE_LOCK = threading.Lock()
 _REPS_CACHE: dict = {}  # the latest resample set: (seed, rows, sample rows, resamples, y fingerprint) -> the list of row-index vectors
 
 
 def _release_reps_cache() -> int:
     """Drop the cached resample list (registered for release under memory pressure); returns the bytes freed."""
-    hit = _REPS_CACHE.get("latest")
-    freed = sum(int(r.nbytes) for r in hit[1]) if hit else 0
-    _REPS_CACHE.clear()
+    with _REPS_CACHE_LOCK:
+        hit = _REPS_CACHE.get("latest")
+        freed = sum(int(r.nbytes) for r in hit[1]) if hit else 0
+        _REPS_CACHE.clear()
     return freed
 
 
@@ -122,14 +125,16 @@ def seeded_bootstrap_rows(rng_seed: int, y_arr: np.ndarray, n: int, sample_n: in
     from mlframe.utils.disk_cache import hash_array_content
 
     key = (int(rng_seed), int(n), int(sample_n), int(n_boot), hash_array_content(np.ascontiguousarray(y_arr)))
-    hit = _REPS_CACHE.get("latest")
-    if hit is not None and hit[0] == key:
-        reps: "list[np.ndarray]" = hit[1]
-        return reps
-    rng = np.random.default_rng(int(rng_seed))
-    reps = [_bootstrap_rows(rng, y_arr, n, sample_n) for _ in range(n_boot)]
-    _REPS_CACHE.clear()
-    _REPS_CACHE["latest"] = (key, reps)
+    # One lock over the whole get-or-draw-or-replace: threads asking for the same resamples draw them once, and the same list object comes back to all of them.
+    with _REPS_CACHE_LOCK:
+        hit = _REPS_CACHE.get("latest")
+        if hit is not None and hit[0] == key:
+            reps: "list[np.ndarray]" = hit[1]
+            return reps
+        rng = np.random.default_rng(int(rng_seed))
+        reps = [_bootstrap_rows(rng, y_arr, n, sample_n) for _ in range(n_boot)]
+        _REPS_CACHE.clear()  # evict-ok: only the latest resample set is kept; a miss redraws it from the seed
+        _REPS_CACHE["latest"] = (key, reps)
     return reps
 
 
