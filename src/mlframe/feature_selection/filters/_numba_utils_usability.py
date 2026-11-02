@@ -204,7 +204,7 @@ def _marginal_mi_njit(xb, kx, y_codes, h_y, k_y, n):
     return r if r > 0.0 else 0.0
 
 
-@njit(cache=True)
+@njit(cache=True, error_model="numpy")
 def _pair_combo_mi_njit(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b):
     """SERIAL: for each combo ``(ua_arr[j], ub_arr[j], bn_arr[j])`` compute the value column, the
     ``std<=1e-9`` sentinel, and the marginal MI vs ``y_codes``. Returns the per-combo MI (or -1.0
@@ -262,7 +262,7 @@ def _pair_combo_mi_njit(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
     return out
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, error_model="numpy")
 def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b):
     """``parallel=True`` (prange over COMBOS) twin of :func:`_pair_combo_mi_njit` - BYTE-IDENTICAL
     output (each combo ``j`` reads only ``x1``/``x2`` and writes only ``out[j]``; zero cross-combo
@@ -319,7 +319,7 @@ def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, 
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, error_model="numpy")
 def _pair_combo_mi_njit_table(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b, nu_tab):
     """SERIAL unary-table twin of :func:`_pair_combo_mi_njit` - BIT-IDENTICAL output, precomputes the
     ``nu_tab`` distinct unary transforms of each operand once into a (nu_tab, n) table."""
@@ -381,7 +381,7 @@ def _pair_combo_mi_njit_table(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_
     return out
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, error_model="numpy")
 def _pair_combo_mi_njit_table_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b, nu_tab):
     """``parallel=True`` unary-table twin - BIT-IDENTICAL to :func:`_pair_combo_mi_njit_table` (the table
     precompute is parallel over the ``nu_tab`` unaries, then prange over combos; each combo writes only
