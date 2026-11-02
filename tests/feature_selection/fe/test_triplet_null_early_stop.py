@@ -60,3 +60,15 @@ def test_winners_match_the_full_null():
     got = T.score_triplet_cross_basis_by_cmi(raw, eng, y)
     assert set(got.loc[got["cmi_gain"] > 0, "engineered_col"]) == {"x0*x1*x2__tri"}
     assert (got.loc[got["engineered_col"] != "x0*x1*x2__tri", "cmi_gain"] <= 0).all()
+
+
+def test_a_precomputed_strata_layout_gives_the_same_permutations():
+    """``permutation_sources_chunk`` with the strata layout computed once equals the call that sorts the strata itself, for every chunk."""
+    import numpy as np
+
+    from mlframe.feature_selection.filters._cmi_strata_njit import permutation_sources_chunk, strata_layout
+
+    s = np.random.default_rng(1).integers(0, 7, 4000)
+    layout = strata_layout(s)
+    for first in (0, 32, 64):
+        np.testing.assert_array_equal(permutation_sources_chunk(s, first, 32, 99), permutation_sources_chunk(s, first, 32, 99, layout))

@@ -61,7 +61,7 @@ from mlframe.utils.log_throttle import log_throttle
 from .hermite_fe import basis_route_by_moments
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from ._orthogonal_shared import coerce_y_classif, parse_code_deg_with_basis
-from ._cmi_strata_njit import permutation_seed, permutation_sources_chunk, stratified_cmi, stratified_cmi_null
+from ._cmi_strata_njit import permutation_seed, permutation_sources_chunk, strata_layout, stratified_cmi, stratified_cmi_null
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch,
@@ -384,9 +384,10 @@ def _null_quantile_or_bound(x_d, y_d, s_d, strata, cmi: float, n_perm: int, quan
     need = int(np.floor((n_perm - 1) * (1.0 - quantile))) + 2
     parts: list = []
     exceed = 0
+    layout = strata_layout(strata)  # one stable sort of the strata for every chunk of the null
     for first in range(0, n_perm, _NULL_CHUNK):
         count = min(_NULL_CHUNK, n_perm - first)
-        part = stratified_cmi_null(x_d, y_d, s_d, permutation_sources_chunk(strata, first, count, seed), _MIN_STRATUM_ROWS)
+        part = stratified_cmi_null(x_d, y_d, s_d, permutation_sources_chunk(strata, first, count, seed, layout), _MIN_STRATUM_ROWS)
         parts.append(part)
         exceed += int((part >= cmi).sum())
         if exceed >= need:

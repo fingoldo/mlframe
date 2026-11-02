@@ -46,13 +46,19 @@ def permutation_seed(rng: np.random.Generator) -> int:
     return int(rng.integers(0, 2**31 - 1))
 
 
-def permutation_sources_chunk(s: np.ndarray, first: int, count: int, seed: int) -> np.ndarray:
-    """(count, n) int32 source positions of permutations ``first .. first + count - 1`` of the null seeded by ``seed``: row p permutes the positions of every stratum of ``s`` among themselves."""
+def strata_layout(s: np.ndarray) -> tuple:
+    """``(order, starts, lens)`` of the strata of ``s``: the rows in stratum order (stable), where each stratum starts and its length. Depends only on ``s``, so a null drawn in several chunks computes it once."""
     n = s.shape[0]
     order = np.argsort(s, kind="stable").astype(np.int64)
     sorted_s = s[order]
     starts = np.flatnonzero(np.r_[True, sorted_s[1:] != sorted_s[:-1]]).astype(np.int64)
     lens = np.diff(np.r_[starts, n]).astype(np.int64)
+    return order, starts, lens
+
+
+def permutation_sources_chunk(s: np.ndarray, first: int, count: int, seed: int, layout: "tuple | None" = None) -> np.ndarray:
+    """(count, n) int32 source positions of permutations ``first .. first + count - 1`` of the null seeded by ``seed``: row p permutes the positions of every stratum of ``s`` among themselves. ``layout`` is ``strata_layout(s)`` when the caller already has it."""
+    order, starts, lens = layout if layout is not None else strata_layout(s)
     return np.asarray(_permutation_sources_njit(order, starts, lens, int(count), int(seed) + int(first)))
 
 
@@ -61,4 +67,4 @@ def permutation_sources(s: np.ndarray, n_perm: int, rng: np.random.Generator) ->
     return permutation_sources_chunk(s, 0, n_perm, permutation_seed(rng))
 
 
-__all__ = ["permutation_seed", "permutation_sources_chunk", "permutation_sources", "stratified_cmi", "stratified_cmi_null"]
+__all__ = ["permutation_seed", "strata_layout", "permutation_sources_chunk", "permutation_sources", "stratified_cmi", "stratified_cmi_null"]
