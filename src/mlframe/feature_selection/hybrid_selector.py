@@ -186,6 +186,17 @@ def _tqdm_off_during_call(method):
     return wrapper
 
 
+def _seed_int(random_state) -> int:
+    """An integer seed from an int, ``None`` (0), a numpy ``RandomState`` or a ``Generator`` (``int()`` of the last two raised TypeError)."""
+    if random_state is None:
+        return 0
+    if isinstance(random_state, np.random.RandomState):
+        return int(random_state.randint(0, 2**31 - 1))
+    if isinstance(random_state, np.random.Generator):
+        return int(random_state.integers(0, 2**31 - 1))
+    return int(random_state)
+
+
 class HybridSelector:
     """Compute-once / share-many hybrid feature selector (see module docstring)."""
 
@@ -330,7 +341,7 @@ class HybridSelector:
         from mlframe.feature_selection.cv_policy import get_cv_policy, holdout_indices
 
         # The shared suite split policy: newest rows / whole groups are held out on temporal / grouped data; i.i.d. keeps the stratified shuffle.
-        _policy_split = holdout_indices(get_cv_policy(self), len(X), 0.3, random_state=int(self.random_state or 0))
+        _policy_split = holdout_indices(get_cv_policy(self), len(X), 0.3, random_state=_seed_int(self.random_state))
         if _policy_split is not None:
             _rows = (lambda a, i: a.iloc[i]) if hasattr(X, "iloc") else (lambda a, i: np.asarray(a)[i])
             _ytake = (lambda i: y.iloc[i]) if hasattr(y, "iloc") else (lambda i: np.asarray(y)[i])
@@ -755,7 +766,7 @@ class HybridSelector:
         if self.twin_corr is not None and len(selected) > 1:
             from mlframe.feature_selection._hybrid_twin_prune import prune_conditional_twins
 
-            selected = prune_conditional_twins(X_aug, y, selected, self.fi_, twin_corr=float(self.twin_corr), classification=self.classification, seed=int(self.random_state))
+            selected = prune_conditional_twins(X_aug, y, selected, self.fi_, twin_corr=float(self.twin_corr), classification=self.classification, seed=_seed_int(self.random_state))
         self.raw_selected_ = [c for c in cols if c in set(selected)] or cols[:1]  # zero-vote degenerate case -> keep one column rather than an empty selector output, not a caller-supplied-empty trap
         self.n_engineered_ = sum(1 for c in self.raw_selected_ if c in engineered)
         # sklearn-style fitted attributes (raw_selected_ may include engineered eng_N names from X_aug)
