@@ -16,7 +16,7 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | **OPEN** | W17TRN-6 | Low | multilabel 3-way split uses `val_size` as a fraction of all rows |
 | **RESOLVED** | W17FSW-1 | High | RFECV `must_include` and group members dropped on ndarray input (string fit-time names vs integer columns) |
 | **OPEN** | W17FSW-2 | Medium | RFECV `ranking_` disagrees with `support_` after pins / group expansion |
-| **OPEN** | W17FSW-3 | Medium | per-fold scores stored in completion order under `n_jobs > 1` |
+| **RESOLVED** | W17FSW-3 | Medium | per-fold scores stored in completion order under `n_jobs > 1` |
 | **OPEN** | W17FSW-4 | Medium | final voting / p>=n cap on ndarray input compares int labels with str names |
 | **RESOLVED** | W17MRM-1 | High | MRMR same-inputs skip and shared fit cache ignored `groups` |
 | **OPEN** | W17MRM-2 | Medium | UAED elbow trim slices `support_` by greedy-round position |
@@ -48,3 +48,4 @@ Metric cores (`_core_auc_brier`, `_ice_metric`, `_drift`, `_fairness_metrics`), 
 | W17MRM-1 | `tests/feature_selection/filters/test_mrmr_fit_signature_includes_groups.py` |
 | W17CMP-1 | `tests/training/composite/estimator/test_predict_quantile_is_not_smeared.py` |
 | W17CMP-2 | `tests/training/composite/test_grouped_block_stacker_numeric_invalid_row_fill.py` |
+| W17FSW-3 | `tests/feature_selection/wrappers/test_rfecv_fold_scores_keep_fold_order.py` |
