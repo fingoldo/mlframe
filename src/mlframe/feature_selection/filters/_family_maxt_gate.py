@@ -8,7 +8,7 @@ the number of permutations. Under the null the pass probability is at most alpha
 
 from __future__ import annotations
 
-import os
+from mlframe.utils.env_flags import env_int
 import threading
 from collections import OrderedDict
 
@@ -185,7 +185,7 @@ def family_null_max_njit(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray,
     return out
 
 
-_PERM_BLOCK_CACHE_BYTES = int(os.environ.get("MLFRAME_PERM_BLOCK_CACHE_MB", "1024")) * 1024 * 1024  # one full permutation stream of a 100k-row family is ~400 MB; a smaller budget makes the cyclic re-reads of it miss every time
+_PERM_BLOCK_CACHE_BYTES = env_int("MLFRAME_PERM_BLOCK_CACHE_MB", 1024, minimum=0) * 1024 * 1024  # one full permutation stream of a 100k-row family is ~400 MB; a smaller budget makes the cyclic re-reads of it miss every time
 _perm_block_cache: "OrderedDict[tuple, tuple]" = OrderedDict()
 _perm_block_cache_bytes = 0
 _perm_block_cache_lock = threading.Lock()  # move_to_end, insert and the byte-budget eviction are one read-modify-write on shared state

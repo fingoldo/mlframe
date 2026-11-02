@@ -52,7 +52,7 @@ from __future__ import annotations
 from mlframe.utils.log_throttle import log_throttle
 
 import logging
-import os
+from mlframe.utils.env_flags import env_int
 from typing import Any, Optional
 
 import numpy as np
@@ -160,7 +160,7 @@ def _upload_and_subsample(cp: Any, _vals_cols: list, n_rows: int, y_dense: np.nd
     # AND fused pairs on the SAME strided subsample (consistent scale -> the fused-vs-strong-half razor cannot
     # drift), above MLFRAME_FE_FUSION_MAX_ROWS (default 250k, 0=full-n). ``vals_dev`` stays FULL n so an ADMITTED
     # compound's ``fused_vals`` (materialised downstream) is built at full resolution.
-    _fus_max = int(os.environ.get("MLFRAME_FE_FUSION_MAX_ROWS", "250000"))
+    _fus_max = env_int("MLFRAME_FE_FUSION_MAX_ROWS", 250000)
     # Floor division gave stride==1 (no thinning) for any
     # n_rows strictly between _fus_max and 2*_fus_max, so "caps at <=_fus_max rows" was only true once
     # n_rows reached ~2*_fus_max. Ceiling division actually caps at n_rows (matches _hinge_detect's fix).

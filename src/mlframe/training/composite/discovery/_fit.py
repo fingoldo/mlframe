@@ -52,6 +52,13 @@ from ._fit_steps import (  # noqa: F401  -- carved helpers
 )
 
 
+def _lazy_prebin_floor() -> int:
+    """Smallest screen sample for which the lazy pre-bin path is chosen automatically: ``MLFRAME_DISCOVERY_LAZY_PREBIN_MIN_N`` when valid, else 50000."""
+    from mlframe.utils.env_flags import env_int
+
+    return env_int("MLFRAME_DISCOVERY_LAZY_PREBIN_MIN_N", 50000, minimum=0)
+
+
 def _screen_matrices(self, df, _usable_features_list, train_idx_screen, *, _bin_estimator, _dedup_x_remaining, _ram_state):
     """``(use_lazy_prebin, full_x_matrix, full_x_prebinned, streamed_dedup)`` for the screen sample.
 
@@ -60,14 +67,13 @@ def _screen_matrices(self, df, _usable_features_list, train_idx_screen, *, _bin_
     """
     _streamed_dedup = None
     _lazy_force = os.environ.get("MLFRAME_DISCOVERY_LAZY_PREBIN", "").strip().lower()
-    _lazy_n_floor = int(os.environ.get("MLFRAME_DISCOVERY_LAZY_PREBIN_MIN_N", "50000"))
     _lazy_eligible = _bin_estimator and _is_polars_df(df) and len(_usable_features_list) > 0
     if _lazy_force in ("0", "false", "no", "off"):
         _use_lazy_prebin = False
     elif _lazy_force in ("1", "true", "yes", "on"):
         _use_lazy_prebin = _lazy_eligible
     else:
-        _use_lazy_prebin = _lazy_eligible and train_idx_screen.size >= _lazy_n_floor
+        _use_lazy_prebin = _lazy_eligible and train_idx_screen.size >= _lazy_prebin_floor()
     _prebin_use_cache = env_flag("MLFRAME_PREBIN_CACHE", default=True)
     if _use_lazy_prebin:
         # Defer column extraction: never materialise the (n, F) float plane.

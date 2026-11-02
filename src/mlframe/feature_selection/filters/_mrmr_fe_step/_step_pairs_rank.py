@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+from mlframe.utils.env_flags import env_int
 from typing import Any, Callable, Optional, cast
 
 import numpy as np
@@ -411,7 +412,7 @@ def _resolve_pair_prevalence_gate(
                 # margin CMI/floor DECISION, selection-equivalent under a large strided subsample: cap the
                 # candidate, partner, and y TOGETHER (aligned rows) above MLFRAME_PAIR_NULL_MAX_ROWS
                 # (default 250k, 0=full-n) so the observed CMI + null decide on one consistent slice.
-                _pn_max = int(os.environ.get("MLFRAME_PAIR_NULL_MAX_ROWS", "250000"))
+                _pn_max = env_int("MLFRAME_PAIR_NULL_MAX_ROWS", 250000, minimum=0)
                 _pn_n = int(_bcodes.shape[0])
                 if _pn_max > 0 and _pn_n > _pn_max:
                     _pn_st = int(_pn_n // _pn_max)
@@ -939,7 +940,7 @@ def _pair_perm_null_admission(self, _passes_prevalence, _passes_maxt, raw_vars_p
             _y_codes = np.ascontiguousarray(classes_y, dtype=np.int64)
             # Same scoring-subsample cap as the bootstrap block above: this data-driven prevalence
             # admission's observed CMI + permutation null are a wide-margin decision, subsample-safe.
-            _pn_max2 = int(os.environ.get("MLFRAME_PAIR_NULL_MAX_ROWS", "250000"))
+            _pn_max2 = env_int("MLFRAME_PAIR_NULL_MAX_ROWS", 250000, minimum=0)
             _pn_n2 = int(_cand_codes.shape[0])
             if _pn_max2 > 0 and _pn_n2 > _pn_max2:
                 _pn_st2 = int(_pn_n2 // _pn_max2)
