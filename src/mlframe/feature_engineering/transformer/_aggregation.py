@@ -220,7 +220,9 @@ def compute_extra_aggregates(
     # over all queries at once: at n_queries up to 100k (validation-fold size, called once per head per fold) the per-query Python loop dominated this function.
     # The non-finite-logit and degenerate-sum fallbacks to a uniform 1/k row are preserved; einsum reorders the float32 reduction so weights differ by <=1 ULP.
     gathered = k_proj[topk_ids]  # (n_queries, k, head_dim)
-    logits = np.einsum("qkd,qd->qk", gathered, q_proj) / softmax_temp
+    # Same guard as the fused kernel: a temperature at or below 1e-12 means 1.0, otherwise the logits overflow and the weights degrade to uniform.
+    inv_temp = 1.0 / softmax_temp if softmax_temp > 1e-12 else 1.0
+    logits = np.einsum("qkd,qd->qk", gathered, q_proj) * inv_temp
     row_max = logits.max(axis=1, keepdims=True)
     exps = np.exp(logits - row_max)
     s = exps.sum(axis=1)
