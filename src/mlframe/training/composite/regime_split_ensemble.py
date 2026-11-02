@@ -21,6 +21,8 @@ from typing import Any, Callable, Literal, Optional
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
+from .estimator._frame_utils import _subset_rows
+
 logger = logging.getLogger(__name__)
 
 
@@ -86,7 +88,7 @@ class RegimeSplitEnsemble(RegressorMixin, BaseEstimator):
         for regime in np.unique(regimes):
             mask = regimes == regime
             model = clone(self.estimator_factory())
-            X_regime = X.loc[mask] if hasattr(X, "loc") else np.asarray(X)[mask]
+            X_regime = _subset_rows(X, mask)
             fit_kwargs = {"sample_weight": w_arr[mask]} if w_arr is not None else {}
             model.fit(X_regime, y_arr[mask], **fit_kwargs)
             self.regime_models_[regime] = model
@@ -110,13 +112,13 @@ class RegimeSplitEnsemble(RegressorMixin, BaseEstimator):
         out = np.zeros(n, dtype=np.float64)
         unseen_mask = ~np.isin(regimes, list(self.regime_models_))
         if unseen_mask.any():
-            X_unseen = X.loc[unseen_mask] if hasattr(X, "loc") else np.asarray(X)[unseen_mask]
+            X_unseen = _subset_rows(X, unseen_mask)
             out[unseen_mask] = np.asarray(self.global_model_.predict(X_unseen), dtype=np.float64)
         for regime, model in self.regime_models_.items():
             mask = regimes == regime
             if not mask.any():
                 continue
-            X_regime = X.loc[mask] if hasattr(X, "loc") else np.asarray(X)[mask]
+            X_regime = _subset_rows(X, mask)
             out[mask] = np.asarray(model.predict(X_regime), dtype=np.float64)
         return out
 
@@ -140,7 +142,7 @@ class RegimeSplitEnsemble(RegressorMixin, BaseEstimator):
         out[has_weight] = weighted_sum[has_weight] / weight_total[has_weight]
         no_weight = ~has_weight
         if no_weight.any():
-            X_fallback = X.loc[no_weight] if hasattr(X, "loc") else np.asarray(X)[no_weight]
+            X_fallback = _subset_rows(X, no_weight)
             out[no_weight] = np.asarray(self.global_model_.predict(X_fallback), dtype=np.float64)
         return out
 
