@@ -216,7 +216,7 @@ def _median_pairwise_distance(arr: np.ndarray) -> float:
     n = arr.shape[0]
     for t in range(n):
         if not np.isfinite(arr[t]):
-            return _median_pairwise_distance_select(arr)
+            return float(_median_pairwise_distance_select(arr))
     xs = np.sort(arr)
     m = n * (n - 1) // 2
     mid = m // 2

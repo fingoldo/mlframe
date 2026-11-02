@@ -6,6 +6,8 @@ numba's ``np.random.randint`` (a Mersenne Twister draw with rejection sampling) 
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 from numba import njit
 
@@ -32,7 +34,7 @@ def next_state(x: np.uint64) -> np.uint64:
 
 
 @njit(cache=True, inline="always")
-def bounded(x: np.uint64, bound: int) -> int:
+def bounded(x: np.uint64, bound: int) -> Any:
     """A value in ``[0, bound)`` from the state ``x`` (``bound`` at most 2**32)."""
     r = (x * np.uint64(2685821657736338717)) >> np.uint64(32)
     return np.int64((r * np.uint64(bound)) >> np.uint64(32))
