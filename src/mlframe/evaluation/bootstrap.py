@@ -796,7 +796,7 @@ def delong_test(
             "p_value": float("nan"),
         }
     z = diff / np.sqrt(var_diff)
-    p_value = float(2.0 * (1.0 - stats.norm.cdf(abs(z))))
+    p_value = float(2.0 * stats.norm.sf(abs(z)))
     return {
         "auc_a": auc_a,
         "auc_b": auc_b,

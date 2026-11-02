@@ -37,7 +37,7 @@ def _make_conditionally_independent_data(n: int, k: int, seed: int):
 def test_odds_ratio_combine_matches_closed_form_true_posterior():
     """Odds ratio combine matches closed form true posterior."""
     _y, member_probs, true_combined_prob = _make_conditionally_independent_data(2000, 5, seed=0)
-    combined = odds_ratio_combine(member_probs)
+    combined = odds_ratio_combine(member_probs, prior=0.5)
     assert np.allclose(combined, true_combined_prob, atol=1e-9)
 
 
@@ -73,7 +73,7 @@ def test_biz_val_odds_ratio_combine_beats_naive_mean_on_conditionally_independen
     """Odds ratio combine beats naive mean on conditionally independent members."""
     y, member_probs, true_combined_prob = _make_conditionally_independent_data(4000, 6, seed=7)
 
-    combined = odds_ratio_combine(member_probs)
+    combined = odds_ratio_combine(member_probs, prior=0.5)
     naive_mean = member_probs.mean(axis=1)
 
     ll_combined = log_loss(y, combined, labels=[0.0, 1.0])
@@ -185,7 +185,7 @@ def test_biz_val_odds_ratio_combine_independence_check_scenario_a_prefers_odds_r
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        checked = odds_ratio_combine(member_probs, check_independence=True, on_correlation_violation="fallback")
+        checked = odds_ratio_combine(member_probs, check_independence=True, on_correlation_violation="fallback", prior=0.5)
 
     ll_checked = log_loss(y, checked, labels=[0.0, 1.0])
     ll_true = log_loss(y, true_combined_prob, labels=[0.0, 1.0])
