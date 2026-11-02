@@ -93,11 +93,19 @@ def _rff_project(state: RFFState, X_arr, *, use_gpu, gpu_threshold, batch_rows, 
         try:
             from ._kernels_cupy import rff_matmul_cupy
             rff_matmul_cupy(X_std, state.W, state.b, out, state.scale, batch_rows=batch_rows)
-            if release_memory_after:
-                free_gpu_memory_pool()
         except Exception as exc:  # pragma: no cover - environment fallback
             logger.warning("rff_matmul_cupy failed (%s: %s); falling back to CPU.", type(exc).__name__, exc)
             rff_matmul_njit(X_std, state.W, state.b, out, state.scale)
+        finally:
+            # On both outcomes: a launch that failed part-way still holds its device buffers and pinned staging until they are released.
+            if release_memory_after:
+                free_gpu_memory_pool()
+                try:
+                    from ._kernels_cupy import clear_pinned_buffers
+
+                    clear_pinned_buffers()
+                except ImportError:  # pragma: no cover - cupy module unavailable: nothing was pinned
+                    pass
     else:
         rff_matmul_njit(X_std, state.W, state.b, out, state.scale)
     return out

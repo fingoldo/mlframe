@@ -172,41 +172,42 @@ def compute_row_attention(
 
     # k_scales support: when set, run the whole pipeline for each k in (k,) + k_scales, then concat the outputs side-by-side. This captures local + medium +
     # global similarity simultaneously. When k_scales is empty (default), use just the single k.
-    ks_to_run = (k, *tuple(k_scales)) if k_scales else (k,)
-    all_outputs: dict[str, np.ndarray] = {}
-    all_names: list[str] = []
+    try:
+        ks_to_run = (k, *tuple(k_scales)) if k_scales else (k,)
+        all_outputs: dict[str, np.ndarray] = {}
+        all_names: list[str] = []
 
-    for k_value in ks_to_run:
-        outputs = _attend_one_scale(
-            X_train, y_train, X_query, splitter, k_value,
-            seed=seed, n_heads=n_heads, head_dim=head_dim, softmax_temp=softmax_temp, aggregate=aggregate,
-            standardize=standardize, projection=projection, keep_key_bank_on_gpu=keep_key_bank_on_gpu,
-            ann_M=ann_M, ann_ef_construction=ann_ef_construction, ann_ef_search=ann_ef_search,
-            num_threads=num_threads, stage4_callable=stage4_callable, dtype=dtype, cache_dir=cache_dir,
-        )
-        # Tag each k-scale's output keys with the k value to keep column names unique across scales. The tag must be a PREFIX (k32_y_mean_h0) so the
-        # ``stack_outputs_to_array`` lookup pattern ``f"{agg}_h{h}"`` continues to find the right key (k32_y_mean is the aggregate, h0 is appended by the stack).
-        if len(ks_to_run) > 1:
-            outputs = {f"k{k_value}_{key}": arr for key, arr in outputs.items()}
-            agg_for_stack = tuple(f"k{k_value}_{a}" for a in aggregate)
-        else:
-            agg_for_stack = aggregate
-        matrix_k, names_k = stack_outputs_to_array(outputs, aggregate=agg_for_stack, n_heads=n_heads, head_dim=head_dim)
-        all_outputs[f"_matrix_k{k_value}"] = matrix_k
-        all_names.extend(names_k)
+        for k_value in ks_to_run:
+            outputs = _attend_one_scale(
+                X_train, y_train, X_query, splitter, k_value,
+                seed=seed, n_heads=n_heads, head_dim=head_dim, softmax_temp=softmax_temp, aggregate=aggregate,
+                standardize=standardize, projection=projection, keep_key_bank_on_gpu=keep_key_bank_on_gpu,
+                ann_M=ann_M, ann_ef_construction=ann_ef_construction, ann_ef_search=ann_ef_search,
+                num_threads=num_threads, stage4_callable=stage4_callable, dtype=dtype, cache_dir=cache_dir,
+            )
+            # Tag each k-scale's output keys with the k value to keep column names unique across scales. The tag must be a PREFIX (k32_y_mean_h0) so the
+            # ``stack_outputs_to_array`` lookup pattern ``f"{agg}_h{h}"`` continues to find the right key (k32_y_mean is the aggregate, h0 is appended by the stack).
+            if len(ks_to_run) > 1:
+                outputs = {f"k{k_value}_{key}": arr for key, arr in outputs.items()}
+                agg_for_stack = tuple(f"k{k_value}_{a}" for a in aggregate)
+            else:
+                agg_for_stack = aggregate
+            matrix_k, names_k = stack_outputs_to_array(outputs, aggregate=agg_for_stack, n_heads=n_heads, head_dim=head_dim)
+            all_outputs[f"_matrix_k{k_value}"] = matrix_k
+            all_names.extend(names_k)
 
-    # Concatenate all scales horizontally.
-    matrix = np.concatenate([all_outputs[f"_matrix_k{k}"] for k in ks_to_run], axis=1)
-    names = all_names
-    matrix, names = apply_dedupe(matrix, names, dedupe_threshold=dedupe_threshold)
-    # Rebrand column prefix per caller.
-    names = [n.replace("attn_", f"{column_prefix}_") if column_prefix != "attn" else n for n in names]
+        # Concatenate all scales horizontally.
+        matrix = np.concatenate([all_outputs[f"_matrix_k{k}"] for k in ks_to_run], axis=1)
+        names = all_names
+        matrix, names = apply_dedupe(matrix, names, dedupe_threshold=dedupe_threshold)
+        # Rebrand column prefix per caller.
+        names = [n.replace("attn_", f"{column_prefix}_") if column_prefix != "attn" else n for n in names]
 
-    if release_memory_after:
-        free_gpu_memory_pool()
-        clear_pinned_buffers()
-
-    return pl.DataFrame({n: matrix[:, i] for i, n in enumerate(names)})
+        return pl.DataFrame({n: matrix[:, i] for i, n in enumerate(names)})
+    finally:
+        if release_memory_after:
+            free_gpu_memory_pool()
+            clear_pinned_buffers()
 
 
 def build_key_bank(
