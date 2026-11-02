@@ -12,8 +12,8 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 | **RESOLVED** | MEM16-6 | memory | Medium | ACE forced a copy of an array it only reads (`feature_selection/ace.py`) |
 | **FUTURE** | MEM16-7 | memory | Medium | hybrid selector standardises into a second full array (`hybrid_selector.py:129-138`) |
 | **FUTURE** | MEM16-8 | memory | Medium | `compose_pair_fe` makes up to three full-size arrays (`filters/composition.py:114-129`) |
-| **FUTURE** | MEM16-9 | memory | Low | `compute_naive_outlier_score` casts train and test to float64 (`preprocessing/outliers.py:206`) |
-| **FUTURE** | MEM16-10 | memory | Low | RFECV auto-tune fingerprint copies X to float64 for heuristic signals (`wrappers/_auto_tune.py:86`) |
+| **RESOLVED** | MEM16-9 | memory | Low | `compute_naive_outlier_score` cast train and test to float64; floating inputs now keep their dtype (the comparison against train min/max is exact in float32) |
+| **RESOLVED** | MEM16-10 | memory | Low | the RFECV auto-tune fingerprint copied the whole array to float64; numeric arrays keep their dtype and each column is widened on its own |
 | **RESOLVED** | ERR16-1 | error_quality | High | the default-extractor path indexed `df` before it was validated: Path, list, ndarray and LazyFrame gave AttributeError or a "use select()" TypeError |
 | **RESOLVED** | ERR16-2 | error_quality | Medium | a `.csv` path or a parquet file without the target column failed inside polars |
 | **FUTURE** | ERR16-3 | error_quality | Low | a datetime target column is routed to regression by `_infer_target_is_classification`; where it first fails downstream was not traced |
@@ -29,7 +29,7 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 
 ## Counts
 
-23 rows. Dispositions: 8 RESOLVED, 14 FUTURE, 1 REJECTED.
+23 rows. Dispositions: 10 RESOLVED, 12 FUTURE, 1 REJECTED.
 
 ## Implemented
 
@@ -37,6 +37,8 @@ Three read-only reports by Opus 5.5 low-effort agents: avoidable whole-frame mem
 |---|---|---|
 | MEM16-1, MEM16-6 | Stop deep-copying the whole frame in the functional adapters and ACE | `tests/feature_selection/test_selection_inputs_are_not_deep_copied.py` (checks the numeric buffer stays shared; the ACE `copy=False` change has no separate test) |
 | MEM16-2 | Reuse one shadow buffer across Boruta rounds | `tests/feature_selection/filters/test_boruta_shadow_buffer_reuse.py` (the reuse test fails without the fix) |
+| MEM16-9 | Score outliers on float32 inputs without casting both frames to float64 | `tests/preprocessing/test_naive_outlier_score_keeps_float32.py` (fails without the fix) |
+| MEM16-10 | Read the auto-tune fingerprint's ndarray without a float64 copy | `tests/feature_selection/wrappers/test_auto_tune_signals_do_not_copy_the_frame.py` (fails without the fix) |
 | MEM16-4 | Append engineered columns without copying the input frame | `tests/feature_selection/test_append_columns_shares_buffers.py`; 43 tests of the two stages pass |
 | MEM16-3 | Gate RFECV's float64 numpy view of a pandas X at 2 GiB | `tests/feature_selection/wrappers/test_rfecv_numpy_view_size_gate.py` |
 | ERR16-1, ERR16-2 | Validate df before the default extractor reads it in train_mlframe_models_suite | `tests/training/test_suite_default_extractor_input_errors.py` (fails without the fix) |
