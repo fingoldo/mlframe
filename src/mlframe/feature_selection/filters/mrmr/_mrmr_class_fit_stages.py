@@ -496,6 +496,7 @@ class _MRMRFitStagesMixin:
             _clear_memo = getattr(getattr(self, "_honest_null_codes_fn", None), "clear_memo", None)
             if _clear_memo is not None:
                 _clear_memo()  # the memo of re-binned codes under permuted targets lives for one fit only
+            self._honest_null_codes_fn = None  # the closure holds a float64 copy of the frame; nothing reads it after fit
             # The permutation batches cache up to 128 MB on the host and 128 MB on the device. The device copies pin VRAM,
             # which the 4 GB card needs back between fits; a cache hit never changes a result.
             _clear_permutation_caches()
