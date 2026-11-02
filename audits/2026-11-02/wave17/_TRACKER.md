@@ -5,7 +5,7 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | Disposition | ID | Severity | Location |
 |---|---|---|---|
 | **RESOLVED** | W17MET-1 | High | `expected_reciprocal_rank` accepted labels above `max_grade` and returned ERR above 1; now raises `ValueError` |
-| **OPEN** | W17MET-2 | Medium | `inference/recursive_forecast.py` oracle must apply the same `update_features_fn` chain with true lags |
+| **RESOLVED** | W17MET-2 | Medium | `inference/recursive_forecast.py` oracle must apply the same `update_features_fn` chain with true lags |
 | **RESOLVED** | W17MET-3 | Medium | `preprocessing/rare_count_pruning.py` numerator and Woolf SE use different smoothed counts |
 | **RESOLVED** | W17MET-4 | Medium | `_split_by_group` with string/object group ids |
 | **RESOLVED** | W17TRN-1 | High | a cached model file that failed to load left an unfitted estimator (fit gate tested only that the file exists) |
@@ -55,3 +55,4 @@ Metric cores (`_core_auc_brier`, `_ice_metric`, `_drift`, `_fairness_metrics`), 
 | W17MET-4 | `tests/metrics/test_ranking_extras_string_group_ids.py` |
 | W17TRN-3 | `tests/training/test_trainer_slices_series_weights_by_position.py` |
 | W17MET-3 | `tests/preprocessing/test_rare_collapse_z_uses_one_smoothed_table.py` |
+| W17MET-2 | `tests/inference/test_diagnose_error_accumulation_oracle_applies_feature_updates.py` |
