@@ -56,6 +56,10 @@ class DirectMultiHorizonEnsemble(RegressorMixin, BaseEstimator):
         Number of ``KFold`` splits used to score each candidate block size under auto search.
     random_state
         Passed to ``KFold(shuffle=True, random_state=...)`` during auto search.
+    time_ordered
+        Set ``True`` when the rows are consecutive forecast origins (row ``t`` followed by ``t+1``), where ``Y[t, h]`` equals ``Y[t+1, h-1]``. The auto
+        search then uses contiguous folds and drops the ``n_horizons - 1`` training rows next to each test block, so a validation target never appears
+        as a training target. Default ``False`` keeps the shuffled folds.
     compute_block_diagnostics
         Opt-in. When ``True``, after the final fit, extracts a per-block feature-importance vector
         (``feature_importances_`` or ``coef_``, when the fitted estimator exposes one) and the cosine
@@ -89,6 +93,7 @@ class DirectMultiHorizonEnsemble(RegressorMixin, BaseEstimator):
         cv_splits: int = 3,
         random_state: Optional[int] = None,
         compute_block_diagnostics: bool = False,
+        time_ordered: bool = False,
     ) -> None:
         self.estimator_factory = estimator_factory
         self.horizon_blocks = horizon_blocks
@@ -97,6 +102,7 @@ class DirectMultiHorizonEnsemble(RegressorMixin, BaseEstimator):
         self.cv_splits = cv_splits
         self.random_state = random_state
         self.compute_block_diagnostics = compute_block_diagnostics
+        self.time_ordered = time_ordered
 
     def _validate_blocks(self, blocks: Sequence[Sequence[int]], n_horizons: int) -> None:
         """Raise ``ValueError`` unless ``blocks`` partitions ``range(n_horizons)`` exactly once each."""
@@ -139,15 +145,25 @@ class DirectMultiHorizonEnsemble(RegressorMixin, BaseEstimator):
                 out[:, block_idx] = pred
         return out
 
+    def _block_search_folds(self, n: int, n_horizons: int) -> Any:
+        """``(train_idx, test_idx)`` pairs for the block-size search: shuffled K-fold, or contiguous folds with a purge when the rows are time ordered."""
+        rows = np.arange(n)
+        if not self.time_ordered:
+            yield from KFold(n_splits=self.cv_splits, shuffle=True, random_state=self.random_state).split(rows)
+            return
+        for _, test_idx in KFold(n_splits=self.cv_splits, shuffle=False).split(rows):
+            purge = max(n_horizons - 1, 0)
+            keep = (rows < test_idx[0] - purge) | (rows > test_idx[-1] + purge)
+            yield rows[keep], test_idx
+
     def _cv_score_block_size(self, X: Any, Y_arr: np.ndarray, block_size: int) -> float:
         """Score a candidate contiguous block size via K-fold CV pooled RMSE."""
         n_horizons = Y_arr.shape[1]
         blocks = _contiguous_blocks(n_horizons, block_size)
         n = Y_arr.shape[0]
-        kf = KFold(n_splits=self.cv_splits, shuffle=True, random_state=self.random_state)
         has_iloc = hasattr(X, "iloc")
         fold_errors = []
-        for train_idx, test_idx in kf.split(np.arange(n)):
+        for train_idx, test_idx in self._block_search_folds(n, n_horizons):
             X_train = X.iloc[train_idx] if has_iloc else X[train_idx]
             X_test = X.iloc[test_idx] if has_iloc else X[test_idx]
             models = self._fit_blocks(X_train, Y_arr[train_idx], blocks)
