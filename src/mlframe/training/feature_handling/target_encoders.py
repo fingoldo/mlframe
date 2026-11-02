@@ -509,15 +509,16 @@ class LeakageSafeEncoder:
         """OOF k-fold encoding. Each fold's encoding is computed on
         the OTHER folds only.
         """
-        from sklearn.model_selection import KFold
+        from sklearn.model_selection import KFold, TimeSeriesSplit
 
         n = len(cats)
-        out = np.empty(n, dtype=np.float64)
+        out = np.full(n, np.nan, dtype=np.float64)
 
         if self.cv_splitter is not None:
             kf = self.cv_splitter
         elif self.time_aware:
-            kf = KFold(n_splits=self.cv, shuffle=False)
+            # Forward chaining: a fold is encoded from EARLIER rows only. Plain KFold(shuffle=False) encodes every fold but the last from later rows.
+            kf = TimeSeriesSplit(n_splits=self.cv)
         else:
             kf = KFold(n_splits=self.cv, shuffle=True, random_state=self.random_state)
         # Per-fold encoding: dict.get() is faster than pd.Series.map() at
@@ -565,6 +566,12 @@ class LeakageSafeEncoder:
                         out[j] = prior_t
                     else:
                         out[j] = (n_c * m_c + self.smoothing * prior_t) / (n_c + self.smoothing)
+
+        never_held_out = np.isnan(out)
+        if never_held_out.any():
+            # A forward-chaining splitter never holds out its first block (no earlier rows to encode it from); np.nan would reach the model, so these
+            # rows get the global prior, the same value an unseen category gets.
+            out[never_held_out] = _compute_prior(y, self.prior, sample_weight)
 
         return out
 
