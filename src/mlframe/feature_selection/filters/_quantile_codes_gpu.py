@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 THREADS = 256
 #: Elements (columns x rows) from which the device radix path is the default choice for float32 blocks.
-DEVICE_MIN_ELEMENTS = 20_000_000
+DEVICE_MIN_ELEMENTS = 1_500_000  # measured crossover on the GTX 1050 Ti (8 host threads): the device wins from about 1M elements at 20000 to 100000 rows (audits note), 20M was the first conservative bound
 #: Fraction of the memory the pool can still hand out that one launch may use, and the device bytes held per column row (input, sorted copy, sort workspace, codes).
 _BUDGET_FRACTION = 0.25
 _BYTES_PER_COLUMN_ROW = 20
