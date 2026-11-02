@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 import numpy as np
 
 from mlframe.training._data_helpers import get_function_param_names
 from mlframe.training._oof_round_budget import apply_round_budget, deployed_round_budget
+
+logger = logging.getLogger(__name__)
 
 
 def cap_early_stopping_clone(estimator: Any, deployed_model: Any, diag: dict) -> None:
@@ -25,8 +28,10 @@ def cap_early_stopping_clone(estimator: Any, deployed_model: Any, diag: dict) ->
             budget = deployed_round_budget(deployed_model)
             if apply_round_budget(estimator, budget):
                 diag["round_budget"] = budget
-    except (ValueError, TypeError):
-        pass
+    except (ValueError, TypeError) as exc:
+        # Early stopping may already be off with no round budget applied: the OOF models then run the full n_estimators, deeper than the deployed one.
+        diag["round_budget_error"] = repr(exc)
+        logger.warning("OOF fold policy: capping early stopping on %s failed (%r); the OOF clone may train for a different round count than the deployed model", type(estimator).__name__, exc)
 
 
 def apply_feature_roles_to_clone(estimator: Any, fit_params: Optional[dict], columns: Any) -> None:
