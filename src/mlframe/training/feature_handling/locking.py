@@ -32,11 +32,10 @@ logger = logging.getLogger(__name__)
 
 try:
     import filelock as _filelock_mod  # noqa: F401
-    from filelock import FileLock as _BaseFileLock, Timeout
+    from filelock import FileLock as _BaseFileLock
     _FILELOCK_AVAILABLE = True
 except ImportError:  # pragma: no cover -- optional dep until D phase wires cache layer
     _FILELOCK_AVAILABLE = False
-    Timeout = TimeoutError  # type: ignore[assignment, misc]
     _BaseFileLock = object  # type: ignore[assignment, misc]
 
 
