@@ -189,7 +189,7 @@ def _ks_statistic_numpy(y_true: np.ndarray, y_score: np.ndarray) -> float:
     for bit-identity regression tests against the fused default path."""
     yt = np.asarray(y_true).astype(np.int64, copy=False)
     ys = np.asarray(y_score, dtype=np.float64)
-    if yt.shape[0] == 0:
+    if yt.shape[0] == 0 or np.isnan(ys).any():
         return np.nan
     order = np.argsort(ys, kind="quicksort")
     return float(_ks_statistic_kernel(yt[order], ys[order]))
@@ -202,7 +202,7 @@ def ks_statistic(y_true: np.ndarray, y_score: np.ndarray, desc_order: Optional[n
     0 = no discrimination, 1 = perfect separation. Standard in credit
     scoring / fraud / churn.
 
-    NaN when either class is empty (no class-conditional CDF defined).
+    NaN when either class is empty (no class-conditional CDF defined) or any score is NaN.
 
     ``desc_order`` is an optional precomputed DESCENDING argsort of
     ``y_score`` (e.g. the one ``fast_aucs_per_group_optimized`` already
@@ -215,7 +215,8 @@ def ks_statistic(y_true: np.ndarray, y_score: np.ndarray, desc_order: Optional[n
     yt = np.asarray(y_true).astype(np.int64, copy=False)
     ys = np.asarray(y_score, dtype=np.float64)
     n = yt.shape[0]
-    if n == 0:
+    if n == 0 or np.isnan(ys).any():
+        # A NaN score never equals itself, so the tie-group scan in the kernels would stop advancing and spin forever.
         return np.nan
     if desc_order is not None and desc_order.shape[0] == n:
         order = desc_order[::-1]
