@@ -140,8 +140,11 @@ def _mdl_bin_edges(x: np.ndarray, y_class: np.ndarray, n_classes: int, max_bins=
         if best_idx < 0:
             return
         # MDL stop criterion
-        k = n_classes
-        delta = np.log2(3**k - 2) - (k * H_S - 2 * E_left_best * (best_idx / n) - (n - best_idx) / n * 2 * E_right_best)
+        # Fayyad-Irani (1993): delta = log2(3^k - 2) - [k*Ent(S) - k1*Ent(S1) - k2*Ent(S2)] with k, k1, k2 the classes PRESENT in S and its two parts.
+        k = int(np.count_nonzero(np.bincount(y_sorted, minlength=n_classes)))
+        k1 = int(np.count_nonzero(np.bincount(y_sorted[:best_idx], minlength=n_classes)))
+        k2 = int(np.count_nonzero(np.bincount(y_sorted[best_idx:], minlength=n_classes)))
+        delta = np.log2(3**k - 2) - (k * H_S - k1 * E_left_best - k2 * E_right_best)
         if best_gain * n < np.log2(n - 1) + delta:
             return
         edges.append(float(best_thresh))
