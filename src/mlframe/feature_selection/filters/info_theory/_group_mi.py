@@ -244,8 +244,8 @@ def group_leak_verdict(
 
     A between-group-level leak carries no within-group signal, so its group-blocked MI is indistinguishable from the
     value a within-group permutation of ``y`` produces. The null permutes ``codes_y`` inside each group (the group
-    structure is kept), and the candidate is a leak when its observed value does not exceed the ``1 - alpha`` quantile of
-    those permuted values. A genuine within-group signal lies above that quantile. ``is_leak`` is False when the
+    structure is kept), and the candidate is a leak when its add-one permutation p-value exceeds ``alpha``. A genuine within-group
+    signal beats almost all permuted values. ``is_leak`` is False when the
     observed value is nan ("cannot decide"), so an undecidable column is never demoted.
     """
     observed = group_blocked_mi(codes_x, codes_y, sort_idx, group_offsets, n_bins_x, n_bins_y, min_rows=min_rows, size_weighted=size_weighted, use_mm=True)
@@ -264,4 +264,6 @@ def group_leak_verdict(
     null = null[null == null]
     if null.size == 0:
         return observed, False
-    return observed, bool(observed <= float(np.quantile(null, 1.0 - alpha)))
+    # Add-one permutation p-value: a candidate is a leak unless fewer than alpha of the permuted values reach it.
+    p_value = (1.0 + float(np.count_nonzero(null >= observed))) / (1.0 + null.size)
+    return observed, bool(p_value > alpha)
