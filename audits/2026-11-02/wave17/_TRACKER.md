@@ -29,7 +29,7 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | **OPEN** | W17CMP-6 | Low | chain / quantile-normal transforms get no smearing |
 | **RESOLVED** | W17CAL-1 | Medium | `generate_probs_from_outcomes` default `flip_percent=0.6` reverses the signal |
 | **RESOLVED** | W17CAL-2 | Medium | "random chunks" in the same generator are contiguous slices |
-| **OPEN** | W17CAL-3 | Medium | `compare_cv_schemes` winner and significance test use different criteria |
+| **RESOLVED** | W17CAL-3 | Medium | `compare_cv_schemes` winner and significance test use different criteria |
 | **RESOLVED** | W17CAL-4 | Low | string labels crash the stratified resampler (`policy.py` `int(c)`) |
 | **RESOLVED** | W17CAL-5 | Low | `generate_similar_probs_by_ranking` has n_bins+1 bins |
 
@@ -51,3 +51,4 @@ Metric cores (`_core_auc_brier`, `_ice_metric`, `_drift`, `_fairness_metrics`), 
 | W17FSW-3 | `tests/feature_selection/wrappers/test_rfecv_fold_scores_keep_fold_order.py` |
 | W17CAL-1, 2, 5 | `tests/calibration/test_probability_generators_fixes.py` |
 | W17CAL-4 | `tests/calibration/test_resample_indices_accept_non_integer_class_labels.py` |
+| W17CAL-3 | `tests/evaluation/test_compare_cv_schemes_winner_matches_tested_quantity.py` |
