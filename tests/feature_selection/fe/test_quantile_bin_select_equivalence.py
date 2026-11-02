@@ -58,3 +58,12 @@ def test_nan_column_takes_the_reference_path():
     x = np.random.default_rng(0).standard_normal(500)
     x[::13] = np.nan
     assert np.array_equal(_quantile_bin_njit(x, 10), _quantile_bin_sorted_njit(x, 10))
+
+@pytest.mark.parametrize("n_bins", [2, 10, 12])
+def test_nan_ranks_last_like_positive_infinity(n_bins):
+    """NaN rows are binned as if they were +inf: NaN sorts last, so the non-NaN rows keep their bins and the NaN rows join the top bin."""
+    rng = np.random.default_rng(1)
+    x = rng.standard_normal(500)
+    x[::13] = np.nan
+    as_inf = np.where(np.isnan(x), np.inf, x)
+    assert np.array_equal(_quantile_bin_sorted_njit(x, n_bins), _quantile_bin_sorted_njit(as_inf, n_bins))
