@@ -93,15 +93,16 @@ def _kendall_tau_b_kernel(x: np.ndarray, y: np.ndarray) -> float:
         return np.nan
     concordant = 0
     discordant = 0
-    tx = 0  # ties only in x
-    ty = 0  # ties only in y
+    tx = 0  # pairs tied in x (joint ties included)
+    ty = 0  # pairs tied in y (joint ties included)
     for i in range(n - 1):
         for j in range(i + 1, n):
             dx = x[i] - x[j]
             dy = y[i] - y[j]
             if dx == 0.0 and dy == 0.0:
-                # tie in both - excluded from all denominators
-                pass
+                # tie in both: counts as tied in x and as tied in y (tau-b's n1 and n2 include joint ties)
+                tx += 1
+                ty += 1
             elif dx == 0.0:
                 tx += 1
             elif dy == 0.0:
@@ -189,7 +190,7 @@ def _concordance_counts_kernel(x: np.ndarray, y: np.ndarray) -> "tuple[float, fl
 
     i = 0
     while i < n:
-        j = i
+        j = i + 1
         while j < n and xs[j] == xs[i]:
             j += 1
         for k in range(i, j):
@@ -238,7 +239,8 @@ def fast_concordance_index(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     _check_equal_length(y_true, y_pred)
     y_true = np.asarray(y_true, dtype=np.float64)
     y_pred = np.asarray(y_pred, dtype=np.float64)
-    if y_true.shape[0] < 2:
+    if y_true.shape[0] < 2 or not (np.isfinite(y_true).all() and np.isfinite(y_pred).all()):
+        # A NaN never equals itself, so the tie-group scan in the kernel would stop advancing and loop forever.
         return np.nan
     concordant, discordant, tied_y = _concordance_counts_kernel(y_true, y_pred)
     comparable = concordant + discordant + tied_y
