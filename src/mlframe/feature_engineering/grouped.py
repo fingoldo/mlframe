@@ -268,7 +268,7 @@ def per_group_cum_reduce(
             return out
         for s, e in zip(starts, ends):
             seg_idx = sort_idx[s:e]
-            arange = np.arange(1, seg_idx.size + 1, dtype=output_dtype)
+            arange = np.arange(1, seg_idx.size + 1, dtype=np.int64)  # exact counts; cast to output_dtype on assignment
             if reverse:
                 arange = arange[::-1]
             out[seg_idx] = arange
@@ -276,8 +276,9 @@ def per_group_cum_reduce(
     if op not in _accum:
         raise ValueError(f"op={op!r} not in {{'sum', 'prod', 'max', 'min', 'count'}}")
     fn = _accum[op]
-    values_arr = np.ascontiguousarray(values, dtype=output_dtype)
-    out = np.empty_like(values_arr, dtype=output_dtype)
+    # Accumulate in float64 and cast only the result: a float32 running sum loses exactness past 2**24 and drifts with the row position.
+    values_arr = np.ascontiguousarray(values, dtype=np.float64)
+    out = np.empty(values_arr.shape, dtype=output_dtype)
     sort_idx, starts, ends = iter_group_segments(group_ids)
     for s, e in zip(starts, ends):
         seg_idx = sort_idx[s:e]
@@ -391,7 +392,7 @@ def per_group_rolling_reduce(
     if min_periods < 1 or min_periods > window_K:
         raise ValueError(f"min_periods must be in [1, window_K], got {min_periods}")
 
-    values_arr = np.ascontiguousarray(values, dtype=output_dtype)
+    values_arr = np.ascontiguousarray(values, dtype=np.float64)  # prefix sums in float64; only the window values are cast to output_dtype
     out = np.full(values_arr.size, fill_value, dtype=output_dtype)
     sort_idx, starts, ends = iter_group_segments(group_ids)
 
