@@ -64,3 +64,7 @@ Measured (`D:/Temp/pairs_timing.py`, 100000 x 100, every family): `_pair_perm_nu
 
 - #5, batch the per-candidate `_quantile_bin_device` calls of the CMI redundancy gate (`_bin_candidates`): one call over 6 columns, 0.02 s in the 100000 x 100 fit (`D:/Temp/bin_cand_timing.py`). Not worth a change.
 - #7, memoise the raw-column bootstrap MI of `_replicate_mi`: 10 calls, 4.50 s, 1318 columns, of which 129 were scored before in the same fit (`D:/Temp/repmi_timing.py`): a memo saves about 0.4 s. The bulk is one 749-column engineered matrix at 100000 rows (2.93 s). Forcing the device bootstrap walk on that shape in one process: host 1.75 s, device 4.21 s, identical MI, so the tuner's host choice is right and the family stays host-bound.
+
+## Done: dedup scan candidate sorts prefetched (architecture-review proposal #4, the cheap part)
+
+`scan_engineered_duplicates` 2.17 s per 100000 x 100 fit (`D:/Temp/dedup_timing.py`): `_pair_collisions` 1.29 s over 156 candidates, `_precompute_full_ranks` 0.49 s, `_masked_corr_prefilter` 0.23 s. Each candidate's own stable finite-row sort (about 8 ms) ran serially inside the loop; `_CandidateOrderPrefetch` sorts the next 32 candidates in scan order together on the edge-jobs pool when the first asks (identical orders, `test_candidate_order_prefetch_equals_the_direct_sort`). After: scan 1.87 s, `_pair_collisions` 0.99 s. The rest is the masked Spearman itself; the block-wise candidate x kept correlation of the proposal (one GEMM per block, sequential keep/drop fixup) is the remaining step, worth about 1 s at most.
