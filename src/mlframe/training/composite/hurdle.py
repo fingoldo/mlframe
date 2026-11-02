@@ -262,8 +262,11 @@ class HurdleRegressor(RegressorMixin, BaseEstimator):
                 fold.fit(_take_rows(X_ev, tr_mask), log_target[tr_mask], **kw)
                 held_out[~tr_mask] = np.asarray(fold.predict(_take_rows(X_ev, ~tr_mask)), dtype=np.float64)
             resid = log_target - held_out
-        resid = resid[np.isfinite(resid)]
-        return float(np.mean(np.exp(resid))) if resid.size else 1.0
+        finite = np.isfinite(resid)
+        if not finite.any():
+            return 1.0
+        # the regressor was fit with these weights, so the correction must average over the same weighted population
+        return float(np.average(np.exp(resid[finite]), weights=None if w_ev is None else np.asarray(w_ev, dtype=np.float64)[finite]))
 
     # --------------------------------------------------------------------------------------------- predict
     def predict_event_proba(self, X: Any) -> np.ndarray:
