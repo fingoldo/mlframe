@@ -51,8 +51,6 @@ def _merge_vars_freqs(factors_data, vars_indices, factors_nbins, dtype=np.int32)
             # H(.) only needs the pruned freqs; the final relabel array is discarded by the caller, so skip it.
             for sample_row in range(n_rows):
                 newclass = np.int64(final_classes[sample_row]) + np.int64(factors_data[sample_row, var_index]) * current_nclasses
-                if newclass >= expected_nclasses or newclass < 0:
-                    raise ValueError("_merge_vars_freqs: class id does not fit the working dtype, use a wider dtype")
                 freqs[newclass] += 1
             nzeros = 0
             for oldclass in range(expected_nclasses):
