@@ -20,7 +20,28 @@ import logging
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
+
+# Fraction of the free VRAM a scratch buffer may take before the leaner kernel is used instead.
+_SCRATCH_FREE_FRACTION = 0.5
+
+
+def _free_vram_bytes() -> int | None:
+    """Free device memory in bytes, or None when it cannot be read."""
+    try:
+        import cupy as cp
+
+        return int(cp.cuda.Device().mem_info[0])
+    except Exception:  # best-effort probe: an unreadable device means "unknown", and the caller then tries the allocation
+        return None
+
+
+def _scratch_fits(need_bytes: int) -> bool:
+    """Whether a scratch buffer of ``need_bytes`` stays within ``_SCRATCH_FREE_FRACTION`` of the free VRAM (True when the free size is unknown)."""
+    free = _free_vram_bytes()
+    return free is None or need_bytes <= free * _SCRATCH_FREE_FRACTION
 
 from ._gpu_resident_select_kernels import (
     _RADIX_INTERP_CACHE,  # noqa: F401 -- tests clear this cache through the carve-out module's namespace
@@ -162,22 +183,35 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
             if kern3 is not None:
                 try:
                     cap = max(1024, int(n) // 4)
+                    if not _scratch_fits(K * cap * 8):
+                        log_throttle(
+                            logger, "radix_v3_scratch_skipped", logging.INFO,
+                            "radix select: the compaction scratch (%.2f GiB for n=%d, K=%d) would take over %d%% of the free VRAM; using the v2 kernel.",
+                            K * cap * 8 / (1 << 30), int(n), int(K), int(_SCRATCH_FREE_FRACTION * 100),
+                        )
+                        raise MemoryError("scratch over budget")
                     cand = cp.empty((K, cap), dtype=cp.uint64)
                     kern3((K,), (threads,),
                         (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R),
                          bi, ai, cp.ascontiguousarray(w), np.int32(ne_rows),
                          cand, np.int64(cap), edges), shared_mem=shmem)
                     return edges          # (nbins-1, K) double
-                except Exception:
-                    import logging
-                    logging.getLogger(__name__).debug("v3 compaction launch failed (likely scratch OOM); v2", exc_info=True)
+                except MemoryError:
+                    pass  # over budget: already logged above, v2 follows
+                except Exception as exc:
+                    log_throttle(
+                        logger, "radix_v3_launch_failed", logging.WARNING,
+                        "radix select: the v3 compaction launch failed (%s: %s) for n=%d, K=%d; using the v2 kernel.", type(exc).__name__, exc, int(n), int(K),
+                    )
             _get_radix_select_interp_f64_kernel()((K,), (threads,),
                 (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R),
                  bi, ai, cp.ascontiguousarray(w), np.int32(ne_rows), edges), shared_mem=shmem)
             return edges                  # (nbins-1, K) double
-        except Exception:
-            import logging
-            logging.getLogger(__name__).debug("fused f64 select+interp failed; two-kernel path", exc_info=True)
+        except Exception as exc:
+            log_throttle(
+                logger, "radix_fused_interp_failed", logging.WARNING,
+                "radix select: the fused f64 select+interp failed (%s: %s) for n=%d, K=%d; using the two-kernel path.", type(exc).__name__, exc, int(n), int(K),
+            )
     osv = cp.empty((R, K), dtype=cand_gpu.dtype)
     # Lever C: dispatch the f32 path to the binary-search window-match variant where the per-host KTC selects
     # it (bit-identical order statistics, less warp divergence; base linear-scan = fallback). f64 unchanged.
@@ -252,9 +286,11 @@ def _radix_quantiles(cand_gpu, q_fracs):
                 (K,), (threads,), (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), bi, ai, w, np.int32(nq), out), shared_mem=shmem
             )
             return out
-        except Exception:
-            import logging
-            logging.getLogger(__name__).debug("fused f64 radix_quantiles failed; two-kernel path", exc_info=True)
+        except Exception as exc:
+            log_throttle(
+                logger, "radix_quantiles_fused_failed", logging.WARNING,
+                "radix quantiles: the fused f64 kernel failed (%s: %s) for n=%d, K=%d; using the two-kernel path.", type(exc).__name__, exc, int(n), int(K),
+            )
     osv = cp.empty((R, K), dtype=cand_gpu.dtype)
     ker = _get_radix_select_f32_dispatch(n) if is_f32 else _get_radix_select_kernel(is_f32)
     ker((K,), (threads,), (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
