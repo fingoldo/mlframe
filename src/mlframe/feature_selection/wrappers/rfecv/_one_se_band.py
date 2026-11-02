@@ -36,8 +36,9 @@ def fold_counts(self: Any, checked_nfeatures: "Sequence[int] | np.ndarray") -> n
 
 
 def band_half_width(std: np.ndarray, k: np.ndarray, band: str = "se") -> np.ndarray:
-    """Half-width of the tolerance band: ``std / sqrt(k)`` (standard error) or the raw across-fold ``std`` (``band='foldstd'``)."""
+    """Half-width of the tolerance band: ``std / sqrt(k - 1)`` for the ddof=0 fold std (the standard error) or the raw across-fold ``std`` (``band='foldstd'``)."""
     std = np.asarray(std, dtype=float)
     if band == "foldstd":
         return std
-    return np.asarray(std / np.sqrt(np.maximum(np.asarray(k, dtype=float), 1.0)), dtype=float)
+    # ``std`` is the population std over the k folds (ddof=0), so the sample standard error std_sample / sqrt(k) is std / sqrt(k - 1).
+    return np.asarray(std / np.sqrt(np.maximum(np.asarray(k, dtype=float) - 1.0, 1.0)), dtype=float)

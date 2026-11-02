@@ -263,7 +263,7 @@ def pareto_knee_(self, metric: str = "jaccard") -> int:
 def n_features_bootstrap_ci_(self, n_bootstrap: int = 200, ci: float = 0.9, random_state: Union[int, None] = None) -> tuple:
     """Parametric bootstrap CI on the optimal n_features_.
 
-    Draws B bootstrap replicates of the cv_results_ score curve by sampling each (mean, std) pair as Normal(mean, std), recomputes
+    Draws B bootstrap replicates of the cv_results_ score curve by sampling each size's mean score as Normal(mean, standard error), recomputes
     argmax over the non-zero N values for each replicate, returns (low_pct, n_features_, high_pct) where the percentiles bracket
     ``ci`` mass of the bootstrap distribution.
 
@@ -286,10 +286,12 @@ def n_features_bootstrap_ci_(self, n_bootstrap: int = 200, ci: float = 0.9, rand
         n = getattr(self, "n_features_", 0)
         return (n, n, n)
     nf, m, s = nfeatures[nonzero], means[nonzero], stds[nonzero]
+    # Each size's CV mean is drawn from its sampling distribution, whose spread is the standard error, not the across-fold std.
+    se = band_half_width(s, fold_counts(self, [int(n) for n in nf]), "se")
     rng = np.random.default_rng(random_state)
     choices = []
     for _ in range(int(n_bootstrap)):
-        sampled = rng.normal(loc=m, scale=np.maximum(s, 1e-12))
+        sampled = rng.normal(loc=m, scale=np.maximum(se, 1e-12))
         best_idx = int(np.argmax(sampled))
         choices.append(int(nf[best_idx]))
     choices_arr = np.asarray(choices)
