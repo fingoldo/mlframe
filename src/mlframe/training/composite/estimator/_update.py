@@ -134,9 +134,15 @@ def _apply_drift_refit(self, info: dict, helper_alpha: float, helper_beta: float
             self.fitted_params_["y_clip_low"], self.fitted_params_["y_clip_high"] = _y_train_clip_bounds(y_live)
             # The base range too: otherwise live-regime bases outside the dead train range are soft-shrunk back or sent to the fallback.
             _soft_shrink.capture_base_fit_range(self, transform, b_live)
-            env = t_train_envelope(call_transform(transform, "forward", y_live, b_live, self.fitted_params_))
-            if env is not None:  # the one envelope formula fit(), from_fitted_inner() and discovery share
-                self.fitted_params_["t_clip_low"], self.fitted_params_["t_clip_high"] = env
+            t_live = np.asarray(call_transform(transform, "forward", y_live, b_live, self.fitted_params_), dtype=np.float64).reshape(-1)
+            t_finite = t_live[np.isfinite(t_live)]
+            if t_finite.size >= 10 and float(np.median(np.abs(t_finite - np.median(t_finite)))) == 0.0:
+                # fit() applies no T-clip when MAD is 0 (a zero-inflated T): keep that after the refit instead of clamping to the observed range
+                self.fitted_params_["t_clip_low"], self.fitted_params_["t_clip_high"] = float("-inf"), float("inf")
+            else:
+                env = t_train_envelope(t_live)
+                if env is not None:  # the one envelope formula fit(), from_fitted_inner() and discovery share
+                    self.fitted_params_["t_clip_low"], self.fitted_params_["t_clip_high"] = env
     except Exception as env_err:
         logger.warning("[CompositeTargetEstimator.update] envelope refresh after drift refit failed (%s); kept the pre-drift clip bounds.", env_err)
     return alpha, beta
