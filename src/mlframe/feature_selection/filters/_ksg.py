@@ -512,7 +512,7 @@ def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5, intens: float = 1
         import cupy as cp
     except ImportError:
         logger.warning("cupy not available; falling back to CPU mixed_ksg_mi")
-        return mixed_ksg_mi(x, y, k=k)
+        return mixed_ksg_mi(x, y, k=k, intens=intens, max_input_n=max_input_n, seed=seed)
     import cupy as cp
     from sklearn.neighbors import KDTree
 
