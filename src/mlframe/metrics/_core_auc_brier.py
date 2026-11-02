@@ -211,6 +211,7 @@ def fast_roc_auc_unstable(y_true: np.ndarray, y_score: np.ndarray) -> float:
     # fast_roc_auc (below) validates this; this sibling didn't, so a mismatched length reached the @njit
     # kernel with bounds-checking off and read out-of-bounds memory instead of raising.
     _check_equal_length(y_true, y_score)
+    y_true = _binary_labels_01(y_true)
     # No ``kind=stable``: numpy default quicksort is 2-3x faster and
     # numerically identical when scores have no exact ties (the dominant
     # case for float64 model outputs).
@@ -424,7 +425,7 @@ def bootstrap_auc_distribution_parallel(y_true: np.ndarray, y_score: np.ndarray,
         y_score = y_score.to_numpy()
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
-    y_true = np.ascontiguousarray(y_true)
+    y_true = np.ascontiguousarray(_binary_labels_01(y_true))
     y_score = np.ascontiguousarray(y_score)
     n = y_score.shape[0]
 
@@ -479,7 +480,7 @@ def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray) -> Cal
         y_score = y_score.to_numpy()
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
-    y_true = np.ascontiguousarray(y_true)
+    y_true = np.ascontiguousarray(_binary_labels_01(y_true))
     y_score = np.ascontiguousarray(y_score)
     n = y_score.shape[0]
 
@@ -700,6 +701,7 @@ def fast_roc_curve(y_true: np.ndarray, y_score: np.ndarray, *, sample_weight: np
         if isinstance(sample_weight, (pd.Series, pl.Series)):
             sample_weight = sample_weight.to_numpy()
         sample_weight = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
+        _check_equal_length(y_true, sample_weight)
         weighted = True
     else:
         sample_weight = np.empty(0, dtype=np.float64)
