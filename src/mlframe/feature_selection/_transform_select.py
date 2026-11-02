@@ -18,7 +18,7 @@ def _positions(support: Any, n_in: int) -> np.ndarray:
     return arr.astype(np.int64, copy=False).ravel()
 
 
-def select_fitted_columns(X: Any, support: Any, feature_names_in: Optional[Sequence[Any]], n_features_in: int, who: str) -> Any:
+def select_fitted_columns(X: Any, support: Any, feature_names_in: "Optional[Sequence[Any] | np.ndarray]", n_features_in: int, who: str) -> Any:
     """``X`` narrowed to the fitted ``support`` (boolean mask or integer positions into the fit-time columns).
 
     A pandas or polars frame is matched by column name (compared as strings, since some selectors store ``str(name)``), so a reordered frame gives the
