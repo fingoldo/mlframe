@@ -126,7 +126,7 @@ def compose_pair_fe(
         if len(set(feature_names)) != len(feature_names):
             raise ValueError(f"compose_pair_fe: feature_names must be unique; got duplicates in {feature_names!r}")
     rounds_log = []
-    cur_X = X.copy()
+    cur_X = X  # read only until np.column_stack below allocates the grown matrix, so no up-front full copy
     cur_names = feature_names[:]
     # Columns carried over unchanged from a prior round (every original column, plus any
     # engineered column added before round r) have a fixed name + fixed data, so their
