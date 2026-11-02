@@ -439,18 +439,26 @@ def _calibration_block(model_entry: Any, target_name: str, out_dir: Optional[str
     y_arr = _safe_arr(y)
     if y_arr is None or y_arr.size < 4:
         return {"status": "skipped", "reason": "oof_target absent / too small"}
-    # Align row counts (oof_probs are typically train-aligned; truncate to common length).
-    n = min(oof_arr.shape[0], y_arr.shape[0])
+    # The two arrays must describe the same rows. Cutting both to the shorter length pairs row i of one with row i of the other even when rows were dropped from
+    # only one side (outlier removal, a split change), so the calibrator would be chosen and scored on mismatched pairs with nothing to show for it.
+    n = oof_arr.shape[0]
+    if y_arr.shape[0] != n:
+        log_throttle(
+            logger, "honest_calibration_length_mismatch", logging.WARNING,
+            "honest diagnostics: calibration for %r skipped because oof_probs has %d rows and oof_target has %d; they cannot be paired by position.",
+            target_name, n, y_arr.shape[0],
+        )
+        return {"status": "skipped", "reason": f"oof_probs has {n} rows but oof_target has {y_arr.shape[0]}; not pairable by position"}
     if n < 4:
         return {"status": "skipped", "reason": f"aligned row count {n} < 4"}
-    oof_arr = oof_arr[:n]
-    y_arr = y_arr[:n]
     if not _is_binary_classif(y_arr):
         return {"status": "skipped", "reason": "non-binary target; calibration policy is binary-only"}
     plot_path: Optional[str] = None
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
-        plot_path = join(out_dir, f"calibration_{target_name}.png")
+        from mlframe.utils.safe_filename import safe_file_stem
+
+        plot_path = join(out_dir, f"calibration_{safe_file_stem(target_name)}.png")
     try:
         from mlframe.calibration.policy import pick_best_calibrator
         out = pick_best_calibrator(
