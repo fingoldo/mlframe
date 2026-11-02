@@ -566,6 +566,14 @@ def compute_batch_aucs(
         import cupy as cp  # lazy
 
         try:
+            if yt.ndim == 2:
+                # The GPU kernels take one 1-D label vector for all score columns (they pool the positive count over a label matrix), so a
+                # per-column label matrix is scored one column at a time, as the CPU loop does.
+                rocs, prs = [], []
+                for j in range(M):
+                    rocs.append(cp.asnumpy(gpu_multiple_roc_auc_scores(yt[:, j], ys[:, j : j + 1])))
+                    prs.append(cp.asnumpy(gpu_multiple_pr_auc_scores(yt[:, j], ys[:, j : j + 1])))
+                return np.concatenate(rocs), np.concatenate(prs)
             roc = cp.asnumpy(gpu_multiple_roc_auc_scores(yt, ys))
             pr = cp.asnumpy(gpu_multiple_pr_auc_scores(yt, ys))
             return roc, pr
