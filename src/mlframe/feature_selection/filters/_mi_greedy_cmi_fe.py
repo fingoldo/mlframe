@@ -240,12 +240,11 @@ def _cmi_from_binned(
         mi_plugin = h_x + h_y - h_xy
         # Plug-in MLE entropy underestimates the true entropy by
         # ``(K-1)/(2n)`` (Miller 1955). MI = H(X) + H(Y) - H(XY)
-        # therefore OVERESTIMATES the true MI by
-        # ``((K_x-1) + (K_y-1) - (K_xy-1))/(2n)``
-        # = ``(K_x + K_y - K_xy - 1)/(2n)``. Subtract this bias from
-        # the plug-in to denoise.
-        mi_bias = (k_x + k_y - k_xy - 1) / (2.0 * n)
-        mi = max(0.0, mi_plugin - mi_bias)
+        # therefore OVERESTIMATES the true MI by ``(K_xy - K_x - K_y + 1)/(2n)``. The Miller-Madow
+        # correction ``(K_x + K_y - K_xy - 1)/(2n)`` is that bias with its sign flipped (it is negative
+        # for nearly any table), so it is ADDED to the plug-in.
+        mi_correction = (k_x + k_y - k_xy - 1) / (2.0 * n)
+        mi = max(0.0, mi_plugin + mi_correction)
         return (mi, None) if return_cards else mi
     z_i = np.ascontiguousarray(z_joint, dtype=np.int64)
     # Fused densify+entropy for the joints (labels feed only the entropy). yz is materialised DENSE once

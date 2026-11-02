@@ -88,7 +88,7 @@ def _combo_mm_mi_njit(combo_codes, cards, target, kt, n_cells):
         if py[t] > 0.0:
             occ_y += 1
     mm = (occ_x - 1 + occ_y - 1 - (occ_cells - 1)) / (2.0 * n)
-    val = mi - mm
+    val = mi + mm  # mm is the negative of the plug-in bias
     return val if val > 0.0 else 0.0
 
 
@@ -144,7 +144,7 @@ def _combo_mm_mi_cols_njit(c0, c1, c2, order, cards, target, kt, n_cells):
         if py[t] > 0.0:
             occ_y += 1
     mm = (occ_x - 1 + occ_y - 1 - (occ_cells - 1)) / (2.0 * n)
-    val = mi - mm
+    val = mi + mm  # mm is the negative of the plug-in bias
     return val if val > 0.0 else 0.0
 
 
