@@ -270,6 +270,8 @@ def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE
     reduces to ``(1/n) * sum_b |sum_y_b - sum_p_b|`` because the count_b
     cancels between the per-bin weight times the per-bin magnitude.
     """
+    if n_bins < 1:
+        raise ValueError(f"_ece_score: n_bins must be at least 1; got {n_bins!r}")
     # lead-ece-wrapper: skip the asarray/ravel/ascontiguousarray coercion when
     # the caller already passes a contiguous 1-D float64 array (the bootstrap
     # hot path always does). Guarded - any other dtype/shape/non-contiguity
@@ -712,6 +714,19 @@ def _emit_reliability_plot(
     return os.path.abspath(resolve_output_path(root, "matplotlib", fmt, multi_output=False))
 
 
+def _validate_pick_params(alpha: Any, n_bootstrap: Any, n_bins: Any, inner_cv_splits: Any) -> None:
+    """Refuse values that would make the selection meaningless: an ECE with no bins writes out of bounds in its njit kernel and scores 0 for every candidate,
+    an ``alpha`` outside (0, 1) gives an infinite, inverted or NaN interval, and fewer than one bootstrap or two inner folds leaves nothing to compare."""
+    if not float(alpha) > 0.0 or not float(alpha) < 1.0:
+        raise ValueError(f"pick_best_calibrator: alpha must be in (0, 1); got {alpha!r}")
+    if int(n_bins) < 1:
+        raise ValueError(f"pick_best_calibrator: n_bins must be at least 1; got {n_bins!r}")
+    if int(n_bootstrap) < 1:
+        raise ValueError(f"pick_best_calibrator: n_bootstrap must be at least 1; got {n_bootstrap!r}")
+    if int(inner_cv_splits) < 2:
+        raise ValueError(f"pick_best_calibrator: inner_cv_splits must be at least 2; got {inner_cv_splits!r}")
+
+
 def pick_best_calibrator(
     probs: Optional[np.ndarray],
     y: Optional[np.ndarray],
@@ -798,6 +813,7 @@ def pick_best_calibrator(
     """
     if selection not in ("inner_cv", "same_oof"):
         raise ValueError(f"pick_best_calibrator: selection must be 'inner_cv' or 'same_oof'; got {selection!r}")
+    _validate_pick_params(alpha, n_bootstrap, n_bins, inner_cv_splits)
     if selection == "same_oof":
         warn_same_oof_selection()
     oof_p_pos, oof_y_arr, n_oof = prepare_oof_inputs(oof_probs, oof_y)
