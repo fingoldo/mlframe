@@ -16,7 +16,7 @@ as they were in the inline block.
 """
 from __future__ import annotations
 
-import os
+from mlframe.utils.env_flags import env_int
 from typing import Any, Callable
 
 import numpy as np
@@ -224,7 +224,7 @@ def _materialise_and_finalise_fe_candidates_part1(
         # continuous values AND y together (same stride -> aligned rows) above MLFRAME_FE_GATE_MAX_ROWS (default
         # 250k, 0=full-n). The stored ``_cmi_cands`` arrays and ``_y_dense_g`` feed ONLY the gate; the admitted
         # candidates' full-n values are materialised downstream unchanged, so this caps scoring cost only.
-        _gate_max_rows = int(os.environ.get("MLFRAME_FE_GATE_MAX_ROWS", "250000"))
+        _gate_max_rows = env_int("MLFRAME_FE_GATE_MAX_ROWS", 250000)
         _gate_n = int(_y_dense.shape[0])
         _gate_stride = int(_gate_n // _gate_max_rows) if _gate_max_rows > 0 and _gate_n > _gate_max_rows else 1
         _y_dense_g = _y_dense[::_gate_stride] if _gate_stride > 1 else _y_dense

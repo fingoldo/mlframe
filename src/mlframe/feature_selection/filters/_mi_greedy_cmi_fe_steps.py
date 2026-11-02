@@ -432,8 +432,8 @@ def marginal_mi_binned_fixed_y(
     h_x, k_x = _entropy_from_classes(x_i)
     h_xy, k_xy = _joint_entropy_two(x_i, y_i)  # fused densify+entropy; xy labels discarded
     mi_plugin = h_x + h_y - h_xy
-    mi_bias = (k_x + k_y - k_xy - 1) / (2.0 * n)
-    return max(0.0, mi_plugin - mi_bias)
+    mi_correction = (k_x + k_y - k_xy - 1) / (2.0 * n)  # Miller-Madow: negative of the plug-in bias, so it is added
+    return max(0.0, mi_plugin + mi_correction)
 
 
 def precompute_cmi_yz_terms(

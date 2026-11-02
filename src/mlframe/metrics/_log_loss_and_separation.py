@@ -46,7 +46,7 @@ def _fast_log_loss_binary_seq(y_true: np.ndarray, y_pred: np.ndarray, eps: float
     just adds a branch. The par fusion win does not carry over; keep two passes."""
     n = len(y_true)
     if n == 0:
-        return 0.0
+        return np.nan  # an empty slice must not score as a perfect model
 
     loss_sum = 0.0
     has_class_0 = False
@@ -56,7 +56,7 @@ def _fast_log_loss_binary_seq(y_true: np.ndarray, y_pred: np.ndarray, eps: float
     # clipping whatever garbage the caller passed (previously a negative / >1
     # prob was just clipped to eps / 1-eps and the result looked valid).
     for i in range(n):
-        if y_pred[i] < 0.0 or y_pred[i] > 1.0:
+        if not (0.0 <= y_pred[i] <= 1.0):  # also true for NaN, which the two comparisons above let through into the clip
             return np.nan
 
     for i in range(n):
@@ -91,7 +91,7 @@ def _fast_log_loss_binary_par(y_true: np.ndarray, y_pred: np.ndarray, eps: float
     """
     n = len(y_true)
     if n == 0:
-        return 0.0
+        return np.nan  # an empty slice must not score as a perfect model
 
     # Fixed chunk partition instead of a bare float reduction: a bare one combines the per-thread partials in thread
     # completion order, so the same input returned a different last ulp on every call (measured on a 300k-row report:
@@ -105,7 +105,7 @@ def _fast_log_loss_binary_par(y_true: np.ndarray, y_pred: np.ndarray, eps: float
         acc = 0.0
         for i in range(c * chunk, min(c * chunk + chunk, n)):
             p = y_pred[i]
-            if p < 0.0 or p > 1.0:
+            if not (0.0 <= p <= 1.0):
                 bad += 1
                 continue
             if p < eps:

@@ -346,6 +346,31 @@ def edges(arr: np.ndarray, quantiles: Sequence[float] | np.ndarray) -> np.ndarra
     return bin_edges
 
 @njit(cache=True)
+def _percentiles_like_numpy(values: np.ndarray, quantiles: np.ndarray) -> np.ndarray:
+    """``np.percentile(values, quantiles)`` (linear method) with numpy's own lerp, evaluated in double precision.
+
+    numba's ``np.percentile`` interpolates as ``lower*(1-m) + upper*m``, which for two equal neighbours can land one ulp off their common value; numpy
+    uses ``a + (b-a)*t`` below t=0.5 and ``b - (b-a)*(1-t)`` above, which is exact for ties. A value sitting on a tied edge then went to a different
+    bin on the CPU than on the GPU, whose ``cp.percentile`` follows numpy. ``values`` must be non-empty and NaN-free.
+    """
+    col = np.sort(values)
+    n = col.shape[0]
+    out = np.empty(quantiles.shape[0], dtype=np.float64)
+    for qi in range(quantiles.shape[0]):
+        v = (quantiles[qi] / 100.0) * (n - 1)
+        lo = math.floor(v)
+        if lo >= n - 1:
+            out[qi] = col[n - 1]
+        else:
+            a = float(col[lo])
+            b = float(col[lo + 1])
+            t = v - lo
+            d = b - a
+            out[qi] = b - d * (1.0 - t) if t >= 0.5 else a + d * t
+    return out
+
+
+@njit(cache=True)
 def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform", min_value: Optional[float] = None, max_value: Optional[float] = None) -> np.ndarray:
     """Numba-jitted binning-edge calculator. Used by ``discretize_2d_array`` (itself ``@njit(parallel=True)`` and cannot dispatch to object-mode helpers).
 
@@ -382,7 +407,7 @@ def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform"
             # of NaN, deterministically and without ever calling percentile on empty input.
             return np.zeros(1, dtype=np.float64)  # Intentional float64: block edges compared at full precision against the native-dtype data
         quantiles = np.linspace(0, 100, n_bins + 1)
-        bin_edges = np.asarray(np.percentile(arr_finite, quantiles))
+        bin_edges = _percentiles_like_numpy(arr_finite, quantiles)
     else:
         # Any method other than "uniform"/"quantile" previously fell through
         # leaving ``bin_edges`` unbound -> UnboundLocalError at the return. Fail

@@ -86,10 +86,10 @@ def drop_oversized_replay_state(state: dict) -> None:
     replay = state.get("_stability_replay_state_")
     if not replay:
         return
-    import os
+    from mlframe.utils.env_flags import env_float
 
     nbytes = _replay_state_nbytes(replay)
-    max_bytes = float(os.environ.get("MLFRAME_MRMR_PICKLE_REPLAY_STATE_MAX_MB", "64")) * 2**20
+    max_bytes = env_float("MLFRAME_MRMR_PICKLE_REPLAY_STATE_MAX_MB", 64.0, minimum=0.0) * 2**20
     if nbytes > max_bytes:
         logger.warning(
             "MRMR pickling: dropping _stability_replay_state_ (%.1f MB > MLFRAME_MRMR_PICKLE_REPLAY_STATE_MAX_MB); selection_stability_report "

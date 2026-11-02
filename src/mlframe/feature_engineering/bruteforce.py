@@ -9,7 +9,6 @@ __all__ = [
 ]
 
 import logging
-import os
 import textwrap
 import threading
 import warnings
@@ -39,6 +38,13 @@ _DEFAULT_PYSR_MAXSIZE = 14
 _DEFAULT_PYSR_NITERATIONS = 2000
 # 30k rows is enough for stable symbolic-regression fitness on tabular data; larger samples dominate Julia runtime without changing the discovered expressions.
 _DEFAULT_SAMPLE_SIZE = 30_000
+
+
+def _pysr_bytes_limit() -> int:
+    """Byte budget of the frame handed to PySR: ``MLFRAME_PYSR_INPUT_BYTES_LIMIT`` when it is a positive integer, else the default."""
+    from mlframe.utils.env_flags import env_int
+
+    return env_int("MLFRAME_PYSR_INPUT_BYTES_LIMIT", _DEFAULT_PYSR_INPUT_BYTES_LIMIT, minimum=1)
 
 
 def _kfold_target_encode(
@@ -323,7 +329,7 @@ def run_pysr_feature_engineering(
     if reserved_names is None:
         reserved_names = ["im"]
 
-    _bytes_limit = int(os.environ.get("MLFRAME_PYSR_INPUT_BYTES_LIMIT", _DEFAULT_PYSR_INPUT_BYTES_LIMIT))
+    _bytes_limit = _pysr_bytes_limit()
 
     tmp_df = _sample_pysr_frame(df, sample_size, random_state, _bytes_limit)
 

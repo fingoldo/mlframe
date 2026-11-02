@@ -54,11 +54,11 @@ def _gpu_min_free_vram_mb() -> int:
     """Minimum FREE device VRAM (MB) for the FE GPU paths to default ON. Below this the (n, K) FE matrices cannot
     fit and the GPU work stalls/OOM-falls-back while the (parallelized) CPU cores idle - so default to CPU instead.
     Env-tunable ``MLFRAME_FE_GPU_MIN_FREE_VRAM_MB`` (default 1024). 0 disables the check (legacy: present-only gate)."""
-    try:
-        return int(os.environ.get("MLFRAME_FE_GPU_MIN_FREE_VRAM_MB", "1024"))
-    except (ValueError, TypeError) as _exc:
-        logger.warning("_gpu_min_free_vram_mb fell back to its default after %s", type(_exc).__name__)
-        return 1024
+    from mlframe.utils.env_flags import env_int
+
+    # ``MLFRAME_FE_GPU_MIN_FREE_MB`` is the documented knob shared with the other FE GPU gates; the longer name stays as an override for this gate.
+    shared = env_int("MLFRAME_FE_GPU_MIN_FREE_MB", 1024, minimum=0)
+    return env_int("MLFRAME_FE_GPU_MIN_FREE_VRAM_MB", shared, minimum=0)
 
 
 def _gpu_has_free_vram() -> bool:

@@ -154,6 +154,11 @@ class _MRMRFitStagesMixin:
         if _stab_method not in ("classic", "cluster", "complementary_pairs"):
             raise ValueError(f"stability_selection_method must be 'classic', 'cluster', or 'complementary_pairs'; got {_stab_method!r}.")
         if _stab_method != "classic":
+            # A configuration error, not a data-shape problem: it must not be turned into a warning and a classic fit by the handler below.
+            # The dataclass config requires >= 1 (ge=1); the flat constructor argument is held to the same bound.
+            _n_bootstrap = getattr(self, "stability_n_bootstrap", 50)
+            if int(_n_bootstrap) < 1:
+                raise ValueError(f"MRMR: stability_n_bootstrap must be at least 1, got {_n_bootstrap!r}")
             try:
                 _stab_result = self._stability_outer_fit(
                     X,
@@ -491,9 +496,16 @@ class _MRMRFitStagesMixin:
             _clear_memo = getattr(getattr(self, "_honest_null_codes_fn", None), "clear_memo", None)
             if _clear_memo is not None:
                 _clear_memo()  # the memo of re-binned codes under permuted targets lives for one fit only
+            self._honest_null_codes_fn = None  # the closure holds a float64 copy of the frame; nothing reads it after fit
             # The permutation batches cache up to 128 MB on the host and 128 MB on the device. The device copies pin VRAM,
             # which the 4 GB card needs back between fits; a cache hit never changes a result.
             _clear_permutation_caches()
+            # Sort orders and prepared group keys are keyed by column object and hold a full-length array each; they belong to one fit.
+            from .._grouped_coerce_shared import clear_key_prep_cache
+            from .._mrmr_fit_impl._eng_dedup_batch_corr import clear_finite_sort_order_cache
+
+            clear_finite_sort_order_cache()
+            clear_key_prep_cache()
         return result
 
     def _fit_body_post_fit(self, result: Any, X: Any, y: Any, st: Any) -> Any:

@@ -6,6 +6,7 @@ Leaf module: the audit facade, the change-point and the aggregate-audit siblings
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import timezone
 from typing import Any
 import numpy as np
 import pandas as pd
@@ -32,6 +33,17 @@ DEFAULT_PELT_MIN_SEGMENT_SIZE: int = 2
 """Minimum number of bins per segment in Pelt. ``2`` is the natural
 floor for change-point detection (a "segment" of one bin is just an
 outlier, not a regime). Raise to 3+ to filter out short transients."""
+
+
+def bin_ts_to_naive_utc(_t):
+    """A Timestamp or datetime as tz-naive UTC, the form ``coerce_timestamps_for_audit`` gives the timestamps it is compared with.
+
+    A stdlib datetime goes through ``astimezone(timezone.utc)``: ``astimezone(None)`` would convert to the machine's local zone and shift every segment edge by its UTC offset.
+    """
+    _tz = getattr(_t, "tz", None) or getattr(_t, "tzinfo", None)
+    if _tz is not None:
+        return _t.tz_convert("UTC").tz_localize(None) if hasattr(_t, "tz_convert") else _t.astimezone(timezone.utc).replace(tzinfo=None)
+    return _t
 
 
 @dataclass
@@ -192,30 +204,19 @@ class TemporalAuditResult:
         # this for the LHS; the RHS needs symmetric handling.
         ts = pd.Series(coerce_timestamps_for_audit(timestamps))
 
-        def _normalize_bin_ts(_t):
-            """Strip tz on a Timestamp / datetime if present so the
-            comparison against the tz-naive ``ts`` Series succeeds.
-            ``coerce_timestamps_for_audit`` has already converted any
-            tz-aware input to UTC then dropped tz; do the same here for
-            consistency."""
-            _tz = getattr(_t, "tz", None) or getattr(_t, "tzinfo", None)
-            if _tz is not None:
-                return _t.tz_convert("UTC").tz_localize(None) if hasattr(_t, "tz_convert") else _t.astimezone(None).replace(tzinfo=None)
-            return _t
-
         mask = np.zeros(len(ts), dtype=bool)
         for s in chosen_segs:
             start_idx = int(s["start_idx"])
             end_idx = int(s["end_idx"])  # exclusive into kept[]
             if start_idx >= len(kept):
                 continue
-            start_ts = _normalize_bin_ts(kept[start_idx].bin_start)
+            start_ts = bin_ts_to_naive_utc(kept[start_idx].bin_start)
             if end_idx < len(kept):
-                end_ts = _normalize_bin_ts(kept[end_idx].bin_start)
+                end_ts = bin_ts_to_naive_utc(kept[end_idx].bin_start)
             else:
                 # Tail segment — use last bin's left edge + granularity
                 # span as the (open) right edge.
-                end_ts = _normalize_bin_ts(kept[-1].bin_start) + gran_delta
+                end_ts = bin_ts_to_naive_utc(kept[-1].bin_start) + gran_delta
             seg_mask = (ts >= start_ts) & (ts < end_ts)
             mask |= seg_mask.to_numpy() if hasattr(seg_mask, "to_numpy") else np.asarray(seg_mask)
         return mask

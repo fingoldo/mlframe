@@ -29,6 +29,12 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
+def _never_stop() -> bool:
+    """Default stop flag; a module-level function so the callback pickles."""
+    return False
+
+
 class UniversalCallback:
     """Booster-agnostic training callback: time budget, periodic reporting, and early stopping.
 
@@ -138,7 +144,7 @@ class UniversalCallback:
         self.first_iteration = True
         self.iterations_since_improvement = 0
         self.metric_history: dict[str, dict[str, list[float]]] = {}
-        self.stop_flag = stop_flag if stop_flag is not None else lambda: False
+        self.stop_flag = stop_flag if stop_flag is not None else _never_stop
         # Slice-stable bookkeeping: aggregated score at every iteration, per-shard table for the
         # Pareto plot (only kept when ``slice_persist_history=True`` to keep the no-slice path's
         # memory profile unchanged).
@@ -210,6 +216,14 @@ class UniversalCallback:
                 monitor_dataset, monitor_metric, mode,
                 slice_k, slice_aggregate_mode if slice_k else None,
             )
+
+    def __getstate__(self) -> dict[str, Any]:
+        """Drop the stop closure and the live widget: a fitted booster carries this callback and must stay picklable."""
+        state = self.__dict__.copy()
+        state["stop_flag"] = _never_stop
+        state["_widget"] = None
+        state["progress_widget"] = None
+        return state
 
     @staticmethod
     def _resolve_progress_widget(spec: Any) -> Any:

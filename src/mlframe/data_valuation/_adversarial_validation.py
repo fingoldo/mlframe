@@ -49,7 +49,7 @@ def adversarial_validation(
     from sklearn.model_selection import StratifiedKFold
 
     if rng is None:
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(0)
     if model is None:
         from xgboost import XGBClassifier
 

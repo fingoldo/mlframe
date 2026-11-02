@@ -37,4 +37,4 @@ def test_regular_file_inside_root_is_still_accepted(tmp_path):
     root = tmp_path / "trusted"
     root.mkdir()
     (root / "model.pkl").write_bytes(b"x")
-    validate_trusted_path(str(root / "model.pkl"), str(root))
+    assert validate_trusted_path(str(root / "model.pkl"), str(root)) is None

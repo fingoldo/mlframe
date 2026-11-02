@@ -64,10 +64,14 @@ def merge_vars(
         values: np.ndarray = factors_data[:, var_index].astype(dtype)
         if verbose:
             print(f"var={var_index}, classes from {values.min()} to {values.max()}")
-        for sample_row, sample_class in enumerate(values):
-            newclass = final_classes[sample_row] + sample_class * current_nclasses
+        for sample_row in range(n_rows):
+            newclass = np.int64(final_classes[sample_row]) + np.int64(factors_data[sample_row, var_index]) * current_nclasses
+            if newclass >= expected_nclasses or newclass < 0:
+                raise ValueError("merge_vars: class id does not fit the working dtype, use a wider dtype")
             freqs[newclass] += 1
             final_classes[sample_row] = newclass
+            if final_classes[sample_row] != newclass:
+                raise ValueError("merge_vars: class id does not fit the working dtype, use a wider dtype")
 
         nzeros = 0
         # lookup_table holds remap targets up to ``expected_nclasses``

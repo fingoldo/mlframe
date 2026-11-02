@@ -179,7 +179,7 @@ def _pair_mm_mi_njit(code_x, code_y, target, kx, ky, kt, min_rows_per_cell):
                 pj = cnt * inv_n
                 mi += pj * np.log(pj / (pxc * (py[t] * inv_n)))
     mm = (occ_cells - 1 + occ_y - 1 - (occ - 1)) / (2.0 * n)
-    val = mi - mm
+    val = mi + mm  # mm = (Kx - 1 + Ky - 1 - (Kxy - 1)) / (2n) is the negative of the plug-in bias
     return val if val > 0.0 else 0.0
 
 
@@ -408,6 +408,13 @@ def _quantile_bin_sorted_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     contract; nothing should have depended on quicksort's specific, unspecified tie behaviour)."""
     n = x.shape[0]
     sort_idx = np.argsort(x, kind="mergesort")
+    # numba's sort puts NaN FIRST, numpy and cupy put it LAST; move the leading NaN block to the end (row order kept) so the ranks match.
+    n_nan = 0
+    for i in range(n):
+        if x[i] != x[i]:
+            n_nan += 1
+    if n_nan > 0:
+        sort_idx = np.concatenate((sort_idx[n_nan:], sort_idx[:n_nan]))
     out = np.empty(n, dtype=np.int32)
     pos = 0
     base = n // n_bins

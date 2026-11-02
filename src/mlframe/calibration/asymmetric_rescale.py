@@ -127,7 +127,7 @@ def cross_validate_asymmetric_rescale(
 
     fold_factors_arr = np.asarray(fold_factors, dtype=np.float64)
     factor_mean = float(fold_factors_arr.mean())
-    factor_std = float(fold_factors_arr.std())
+    factor_std = float(fold_factors_arr.std(ddof=1)) if fold_factors_arr.size > 1 else 0.0
     factor_cv = float(factor_std / factor_mean) if factor_mean != 0.0 else float("inf")
 
     return {

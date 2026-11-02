@@ -25,6 +25,17 @@ from sklearn.model_selection import KFold
 logger = logging.getLogger(__name__)
 
 
+def _best_index(scores: np.ndarray) -> int:
+    """Index of the highest score, skipping NaN (a metric undefined at an extreme threshold); the first index when every score is NaN."""
+    finite = ~np.isnan(scores)
+    if not finite.any():
+        logger.warning("threshold sweep: the metric was NaN at all %d thresholds", scores.shape[0])
+        return 0
+    if not finite.all():
+        logger.info("threshold sweep: the metric was NaN at %d of %d thresholds; they are skipped", int((~finite).sum()), scores.shape[0])
+    return int(np.nanargmax(scores))
+
+
 def _best_threshold_for(
     y_true: np.ndarray,
     y_proba: np.ndarray,
@@ -36,7 +47,7 @@ def _best_threshold_for(
     for i, t in enumerate(thresholds):
         y_pred = (y_proba >= t).astype(np.int64)
         scores[i] = float(metric_fn(y_true, y_pred))
-    best_idx = int(np.argmax(scores))
+    best_idx = _best_index(scores)
     return float(thresholds[best_idx]), float(scores[best_idx])
 
 
@@ -94,7 +105,7 @@ def _threshold_stability_report(
         return {"fold_thresholds": fold_thresholds, "mean": float("nan"), "std": float("nan"), "cv": float("nan"), "is_stable": False, "n_splits": n_splits, "reason": "no_valid_folds"}
 
     mean = float(np.mean(valid))
-    std = float(np.std(valid))
+    std = float(np.std(valid, ddof=1)) if valid.shape[0] > 1 else 0.0  # sample std over the few fold thresholds
     # abs(mean): a threshold_range spanning negative values can make mean < 0, which would otherwise
     # sign-flip the ratio negative and trivially pass the is_stable <= threshold check regardless of the
     # true relative spread - coefficient of variation is meant to be a non-negative dispersion measure.
@@ -187,7 +198,7 @@ def optimize_decision_threshold(
         y_pred = (y_proba >= t).astype(np.int64)
         scores[i] = float(metric_fn(y_true, y_pred))
 
-    best_idx = int(np.argmax(scores))
+    best_idx = _best_index(scores)
     result: Dict[str, Any] = {
         "best_threshold": float(thresholds[best_idx]),
         "best_score": float(scores[best_idx]),

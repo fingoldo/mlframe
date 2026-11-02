@@ -123,7 +123,7 @@ def report_regression_model_perf(
         Dictionary mapping subgroup names to boolean arrays for fairness analysis.
     subset_index : np.ndarray, optional
         Indices to subset the data for fairness analysis.
-    report_ndigits : int, default=4
+    report_ndigits : int, default=2
         Number of decimal digits for metric reporting.
     figsize : tuple, default=(15, 5)
         Figure size for plots.
@@ -143,7 +143,7 @@ def report_regression_model_perf(
         Path for saving the plot.
     plot_marker : str, default="o"
         Marker style for scatter plot.
-    plot_sample_size : int, default=500
+    plot_sample_size : int, default=5000
         Maximum number of points to plot (for performance).
     metrics : dict, optional
         Dictionary to store computed metrics (modified in-place).

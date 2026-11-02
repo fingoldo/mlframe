@@ -74,6 +74,8 @@ class EstimatorWithEarlyStopping(BaseEstimator):
             self.feature_names_in_ = np.asarray(X.columns, dtype=object)
         else:
             X = check_array(X)
+            if hasattr(self, "feature_names_in_"):
+                del self.feature_names_in_  # a refit on an ndarray must not keep the names of the previous DataFrame fit
 
         stratify = self.stratify if self.stratify is not None else self._resolve_stratify(y)
 
@@ -126,6 +128,8 @@ class EstimatorWithEarlyStopping(BaseEstimator):
             fitted_estimator.fit(X, y, **fit_params)
 
         self.fitted_estimator_ = fitted_estimator
+        if hasattr(fitted_estimator, "classes_"):
+            self.classes_ = fitted_estimator.classes_  # sklearn scorers and CalibratedClassifierCV read classes_ off the outer estimator
 
         self.n_features_in_ = X.shape[1]
 

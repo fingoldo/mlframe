@@ -54,4 +54,6 @@ def test_copula_batch_hoist_identical(seed, with_nan):
         y[rng.integers(0, n, 10)] = np.nan
     ref = _reference(X, y)
     got = _copula_mi_batch(X, y)
-    assert np.array_equal(ref, got)
+    # The bias correction subtracts a term of the same size as the plug-in MI of noise, so a last-bit difference in summation order between the two
+    # implementations is no longer absorbed by an addition; agreement to 1e-12 is the contract.
+    np.testing.assert_allclose(got, ref, rtol=0, atol=1e-12)

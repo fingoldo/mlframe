@@ -113,6 +113,21 @@ class EarlyStoppingWrapper(BaseEstimator):
             scoring = lambda _yt, _yp: -float(fast_root_mean_squared_error(_yt, _yp))  # noqa: E731
         return scoring
 
+    def _validate_params(self) -> None:
+        """Refuse settings that would return an unfitted-looking result: a zero iteration budget, an expired deadline, a patience that stops at once, a validation fraction outside (0, 1)."""
+        if self.max_iter is None:
+            raise ValueError("EarlyStoppingWrapper requires max_iter to bound the iteration / growth schedule.")
+        if int(self.max_iter) < 1:
+            raise ValueError(f"EarlyStoppingWrapper: max_iter must be at least 1, got {self.max_iter}")
+        if int(self.start_iter) < 1:
+            raise ValueError(f"EarlyStoppingWrapper: start_iter must be at least 1, got {self.start_iter}")
+        if int(self.patience) < 1:
+            raise ValueError(f"EarlyStoppingWrapper: patience must be at least 1, got {self.patience}")
+        if self.max_runtime_mins is not None and not float(self.max_runtime_mins) > 0.0:
+            raise ValueError(f"EarlyStoppingWrapper: max_runtime_mins must be positive or None, got {self.max_runtime_mins}")
+        if not 0.0 < float(self.validation_fraction) < 1.0:
+            raise ValueError(f"EarlyStoppingWrapper: validation_fraction must be in (0, 1), got {self.validation_fraction}")
+
     def _split(self, X, y):
         """Shuffle + (for classifiers) stratify a ``validation_fraction`` holdout; guard against a zero-row split.
 
@@ -332,10 +347,9 @@ class EarlyStoppingWrapper(BaseEstimator):
             self._is_regressor = False
         # Validate / build the train/val split (shuffled + stratified, see ``_split``) so a degenerate
         # validation_fraction raises the clear "zero training rows" error rather than failing later.
+        self._validate_params()
         X_train, X_val, y_train, y_val = self._split(X, y)
         scoring = self._resolve_scoring()
-        if self.max_iter is None:
-            raise ValueError("EarlyStoppingWrapper requires max_iter to bound the iteration / growth schedule.")
         deadline = self._deadline()
 
         cap = self._capability(self.estimator_)

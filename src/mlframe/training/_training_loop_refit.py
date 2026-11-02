@@ -73,7 +73,15 @@ def _discard_stale_catboost_snapshot(params: dict[str, Any]) -> None:
     path = str(snap)
     if not os.path.isabs(path):
         _train_dir = params.get("train_dir")
-        path = os.path.join(str("catboost_info" if _train_dir is None or _train_dir == "" else _train_dir), path)
+        root = str("catboost_info" if _train_dir is None or _train_dir == "" else _train_dir)
+        path = os.path.join(root, path)
+        # A relative snapshot name is CatBoost's own file inside train_dir; one that climbs out of it is not, and is left alone.
+        if os.path.commonpath([os.path.realpath(root), os.path.realpath(path)]) != os.path.realpath(root):
+            logger.warning("[loss-fallback] the CatBoost snapshot %s lies outside train_dir %s; not deleting it.", path, root)
+            return
+    if os.path.islink(path):
+        logger.warning("[loss-fallback] the CatBoost snapshot %s is a symbolic link; not deleting it.", path)
+        return
     try:
         os.remove(path)
     except FileNotFoundError:

@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any, List, Optional, Sequence
 
 import numpy as np
+import pandas as pd
 
 from mlframe.reporting.charts._drift_shared import _frame_columns
 
@@ -39,9 +40,18 @@ def _calendar_encodings(ts: np.ndarray) -> List[np.ndarray]:
     return out
 
 
+def _utc_naive_datetime64(timestamps: Any) -> np.ndarray:
+    """``timestamps`` as a datetime64 array in UTC; a tz-aware pandas Series or Index would otherwise become an object array and be skipped."""
+    tz = getattr(getattr(timestamps, "dtype", None), "tz", None)
+    if tz is not None:
+        index = pd.DatetimeIndex(timestamps)
+        return np.asarray(index.tz_convert("UTC").tz_localize(None).to_numpy())
+    return np.asarray(timestamps)
+
+
 def calendar_feature_names(frame: Any, timestamps: np.ndarray, feature_names: Optional[Sequence[str]] = None, seed: int = 0) -> List[str]:
     """Names of the columns of ``frame`` whose values are a calendar encoding of ``timestamps`` (row-aligned)."""
-    ts = np.asarray(timestamps)
+    ts = _utc_naive_datetime64(timestamps)
     if ts.size == 0 or not np.issubdtype(ts.dtype, np.datetime64):
         return []
     cols, names = _frame_columns(frame, feature_names)

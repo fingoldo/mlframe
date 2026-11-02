@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters._mi_greedy_cmi_fe import joint_cardinalities_cupy
+from tests._cuda_require import require_cuda_device
 
 
 @pytest.mark.parametrize("device", ["x", "z", "y", "xyz"])
@@ -12,10 +13,8 @@ def test_device_inputs_give_the_host_counts(device):
     rng = np.random.default_rng(0)
     n = 5000
     x, y, z = rng.integers(0, 8, n), rng.integers(0, 2, n), rng.integers(0, 6, n)
-    try:
-        expected = joint_cardinalities_cupy(x, y, z)
-    except Exception as exc:  # no usable device
-        pytest.skip(f"needs a CUDA device: {exc}")
+    require_cuda_device()
+    expected = joint_cardinalities_cupy(x, y, z)
     args = {"x": x, "y": y, "z": z}
     for name in device:
         args[name] = cp.asarray(args[name])

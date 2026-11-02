@@ -16,9 +16,9 @@ every measured size, so pinned memory is kept for sources that are page-locked f
 from __future__ import annotations
 
 import logging
-import warnings
 
 from mlframe.utils.env_flags import env_int
+from mlframe.utils.warning_filters import install_filter_once
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ def install_pinned_policy() -> None:
 
     cp.cuda.set_pinned_memory_allocator(_alloc)
     # cupy warns on every synchronous fallback; here it is the chosen path, not a degradation.
-    warnings.filterwarnings("ignore", message="Using synchronous transfer as pinned memory")
+    install_filter_once("ignore", message="Using synchronous transfer as pinned memory")
 
 
 __all__ = ["install_pinned_policy"]

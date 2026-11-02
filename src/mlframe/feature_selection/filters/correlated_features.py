@@ -511,9 +511,13 @@ class CorrelatedFeaturesSelector(TransformerMixin, BaseEstimator):
 
     def transform(self, X, y=None):
         """Subset ``X`` to the columns retained in ``support_`` (expanded cluster members or medoids-only, per ``expand``)."""
-        if hasattr(X, "iloc"):
-            return X.iloc[:, self.support_]
-        return X[:, self.support_]
+        from sklearn.exceptions import NotFittedError
+
+        from mlframe.feature_selection._transform_select import select_fitted_columns
+
+        if not hasattr(self, "support_"):
+            raise NotFittedError("CorrelatedFeaturesSelector.transform called before fit.")
+        return select_fitted_columns(X, self.support_, getattr(self, "feature_names_in_", None), self.n_features_in_, "CorrelatedFeaturesSelector")
 
     def get_support(self, indices: bool = False):
         """sklearn SelectorMixin contract over the EXPANDED wrapper selection.

@@ -103,8 +103,8 @@ def _ctpop64(typingctx, x):
 
 
 def _popcount64(x):
-    """Population count of a uint64: ``_ctpop64`` inside numba, ``int.bit_count`` when JIT is disabled (an intrinsic cannot run as Python)."""
-    return int(x).bit_count()
+    """Population count of a uint64: ``_ctpop64`` inside numba, a string count when JIT is disabled (an intrinsic cannot run as Python; ``int.bit_count`` needs Python 3.10)."""
+    return bin(int(x)).count("1")
 
 
 @overload(_popcount64)

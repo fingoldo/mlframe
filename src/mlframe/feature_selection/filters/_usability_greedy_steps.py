@@ -237,6 +237,13 @@ def _usability_greedy_step3_cheap_residual_aware(classification, n_classes, y_en
     return _shortlist
 
 
+def _force_full_refit() -> bool:
+    """Test-only switch ``_USAB_FORCE_FULL_REFIT``: true for 1/true/yes/on, false for 0/false/no/off and an empty value."""
+    from mlframe.utils.env_flags import env_flag
+
+    return env_flag("_USAB_FORCE_FULL_REFIT", False)
+
+
 def _usability_greedy_step4_consistency_across_folds(K, pool, _shortlist, st, classification, _cv_candidates_incremental, _cv_per_fold, mae_improve_rel):
     """Step 4 of usability_greedy: lines starting at ``for _ in range(min(K, len(pool))):``."""
     for _ in range(min(K, len(pool))):
@@ -244,8 +251,7 @@ def _usability_greedy_step4_consistency_across_folds(K, pool, _shortlist, st, cl
         best_i, best_mean, best_folds = -1, st.mae_cur, st.folds_cur
         # the whole shortlist is scored in one call (regression: the per-candidate refit unless the incremental solve is opted in; binary classification: one batched Newton fit per fold).
         # ``_USAB_FORCE_FULL_REFIT`` (test-only) bypasses the incremental solve to A/B the selection.
-        import os as _os
-        _force_full = bool(_os.environ.get("_USAB_FORCE_FULL_REFIT"))
+        _force_full = _force_full_refit()
         _mf_by_i = None if _force_full else _cv_candidates_incremental(st.selected, cand_idx)
         for i in cand_idx:
             mf = _mf_by_i[i] if _mf_by_i is not None else _cv_per_fold([*st.selected, i])

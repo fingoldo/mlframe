@@ -433,6 +433,15 @@ def _transform_with_persisted_stats(
     return np.asarray(fn(X_clean))
 
 
+def _warn_stats_not_attached(model: Any, exc: BaseException) -> None:
+    """Say that the train-fit NaN imputer and scaler could not be stored on ``model``; predict then fits them on the predict frame."""
+    log_throttle(
+        logger, "_predict_guards.stats_not_attached", logging.WARNING,
+        "NaN guard: could not attach the train-fit imputer and scaler to %s (%r); predict-time NaN handling will not reuse the train statistics",
+        type(model).__name__, exc,
+    )
+
+
 def _fit_persist_and_transform(
     model: Any, X: Any, fn: Callable, n_rows: int | None,
 ) -> np.ndarray:
@@ -521,8 +530,8 @@ def _fit_persist_and_transform(
             scaler.n_samples_seen_ = len(X)
             model._mlframe_nan_imputer = imputer
             model._mlframe_nan_scaler = scaler
-        except (AttributeError, TypeError):
-            pass
+        except (AttributeError, TypeError) as exc:
+            _warn_stats_not_attached(model, exc)
         # Audit D P1-5: this is a 1-hop savings, not zero-copy end-to-end. The
         # polars-side mean/std + standardisation eliminate the polars->numpy->sklearn->pandas
         # round trip on the COMPUTE side, but ``fn`` downstream is a sklearn pipeline that takes
@@ -562,8 +571,8 @@ def _fit_persist_and_transform(
     try:
         model._mlframe_nan_imputer = imputer
         model._mlframe_nan_scaler = scaler
-    except (AttributeError, TypeError):
-        pass
+    except (AttributeError, TypeError) as exc:
+        _warn_stats_not_attached(model, exc)
 
     if hasattr(X, "columns"):
         import pandas as pd
@@ -626,5 +635,5 @@ def prime_nan_guard_stats(
     try:
         model._mlframe_nan_imputer = imputer
         model._mlframe_nan_scaler = scaler
-    except (AttributeError, TypeError):
-        pass
+    except (AttributeError, TypeError) as exc:
+        _warn_stats_not_attached(model, exc)

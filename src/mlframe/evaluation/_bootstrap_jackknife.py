@@ -64,10 +64,13 @@ def _ci_from_samples(
 
     n_s = samples.shape[0]
     # z0: bias correction = inverse-normal of the fraction of resamples below the point estimate.
+    # Resamples equal to the point estimate (discrete metrics: AUC on small n, accuracy) count half, otherwise z0 is biased downward.
     n_below = int(np.count_nonzero(samples < point))
-    if n_below == 0 or n_below == n_s:
+    n_equal = int(np.count_nonzero(samples == point))
+    below_frac = (n_below + 0.5 * n_equal) / n_s
+    if below_frac <= 0.0 or below_frac >= 1.0:
         return _pct_pair(lo_pct, hi_pct)
-    z0 = stats.norm.ppf(n_below / n_s)
+    z0 = stats.norm.ppf(below_frac)
 
     # a: acceleration from the jackknife skew of the metric (Efron 1987 eq 6.6). No jackknife -> percentile.
     if jackknife is None or jackknife.shape[0] < 3:

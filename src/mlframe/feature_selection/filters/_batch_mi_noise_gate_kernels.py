@@ -195,6 +195,8 @@ def _mi_from_counts_cpu(
     denom = h_x + h_y
     if denom <= 1e-12:
         return 0.0
+    if mi_xy < 0.0:
+        mi_xy = 0.0  # last-ulp negative MI of a constant column; the CPU relevance path clamps it too
     return 2.0 * mi_xy / denom
 
 
@@ -384,7 +386,7 @@ def _cuda_su_from_counts_kernel_factory():
         if denom <= 1e-12:
             out_mi[p, k] = 0.0
         else:
-            out_mi[p, k] = 2.0 * mi / denom
+            out_mi[p, k] = 2.0 * max(mi, 0.0) / denom
 
     return _kernel_su
 

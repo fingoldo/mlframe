@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters import _gpu_host_permutations as hp
+from tests._cuda_require import require_cuda_device
 
 
 @pytest.fixture(autouse=True)
@@ -71,11 +72,7 @@ def test_host_cache_stays_within_its_budget(monkeypatch):
 def test_device_copy_is_reused_and_matches_the_host_batch():
     """The device copy of a cached host batch is uploaded once; a writable array is not cached."""
     cp = pytest.importorskip("cupy")
-    try:
-        if int(cp.cuda.runtime.getDeviceCount()) < 1:
-            pytest.skip("no cupy device")
-    except Exception:  # nosec B110 - no usable device
-        pytest.skip("no cupy device")
+    require_cuda_device()
     host = hp.host_permuted_y_batch(_target(), 3, 0, 8)
     first = hp.device_array_cached(cp, host)
     assert hp.device_array_cached(cp, host) is first
@@ -87,11 +84,7 @@ def test_device_copy_is_reused_and_matches_the_host_batch():
 def test_device_cache_stays_within_its_budget(monkeypatch):
     """Device copies are evicted oldest first once the budget is exceeded."""
     cp = pytest.importorskip("cupy")
-    try:
-        if int(cp.cuda.runtime.getDeviceCount()) < 1:
-            pytest.skip("no cupy device")
-    except Exception:  # nosec B110 - no usable device
-        pytest.skip("no cupy device")
+    require_cuda_device()
     y = _target(n=1000)
     one = hp.host_permuted_y_batch(y, 0, 0, 10).nbytes
     monkeypatch.setattr(hp, "DEVICE_PERM_CACHE_BYTES", int(2.5 * one))

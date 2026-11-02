@@ -25,7 +25,7 @@ wrapper after ``fit`` for diagnostics.
 from __future__ import annotations
 
 import logging
-import time
+from timeit import default_timer
 from typing import Any, Callable
 
 import numpy as np
@@ -331,7 +331,8 @@ class PartialFitESWrapper:
             monitor_dataset="val", monitor_metric=metric_name, mode=mode,
             max_iter=self.max_iter, verbose=0,
         )
-        cb.start_time = time.time(); cb.last_reporting_ts = time.time(); cb.iter = 0
+        # The callback measures elapsed time with timeit.default_timer, so its two timestamps must come from that clock, not from time.time().
+        cb.start_time = default_timer(); cb.last_reporting_ts = default_timer(); cb.iter = 0
         for epoch in range(self.max_iter):
             if classes is not None and epoch == 0:
                 self.estimator.partial_fit(X_tr, y_tr, classes=classes)

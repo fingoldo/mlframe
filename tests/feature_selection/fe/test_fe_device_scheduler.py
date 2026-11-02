@@ -5,6 +5,7 @@ import threading
 import pytest
 
 from mlframe.feature_selection.filters._fe_device_scheduler import DeviceSlot, plan_stage_slots, stage_device_slot
+from tests._cuda_require import require_free_vram
 
 GB = 1 << 30
 
@@ -36,6 +37,7 @@ def test_a_starved_plan_is_refused():
 def test_slot_budget_is_enforced_per_thread():
     """A thread inside a 300 MB slot cannot allocate 400 MB, while another thread with its own slot allocates 200 MB at the same time."""
     cp = pytest.importorskip("cupy")
+    require_free_vram(1 << 30)
     results = {}
     barrier = threading.Barrier(2)
 
@@ -58,12 +60,6 @@ def test_slot_budget_is_enforced_per_thread():
                 results["big"] = "refused"
             barrier.wait(timeout=60)
 
-    try:
-        free_b, _t = cp.cuda.runtime.memGetInfo()
-    except Exception as exc:  # pragma: no cover
-        pytest.skip(f"needs a usable CUDA device: {exc}")
-    if free_b < (1 << 30):
-        pytest.skip("not enough free VRAM for the test")
     threads = [threading.Thread(target=small), threading.Thread(target=big)]
     [t.start() for t in threads]
     [t.join(timeout=120) for t in threads]

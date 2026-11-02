@@ -688,7 +688,8 @@ def _post_drop_raw_floor_pick(_post_drop_set, _post_name_to_idx, data, target_in
     # raw name here (``_post_drop_set`` only ever holds raw ``feature_names_in_``
     # names, always present in the original ``cols`` prefix) - reuse it instead
     # of a fresh ``.index()`` rescan of ``cols`` per ``_dn``.
-    for _dn in _post_drop_set:
+    # Column order, so tied relevances resolve the same way in every process (string-set iteration varies with PYTHONHASHSEED).
+    for _dn in sorted(_post_drop_set, key=lambda _n: _post_name_to_idx.get(_n, len(_post_name_to_idx))):
         _bf_ci = _post_name_to_idx.get(_dn)
         if _bf_ci is None:
             continue

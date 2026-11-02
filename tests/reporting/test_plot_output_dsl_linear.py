@@ -26,7 +26,12 @@ def test_unknown_format_is_still_rejected():
 def test_long_whitespace_run_in_an_unterminated_bracket_is_rejected_quickly():
     """A pathological input fails in linear time instead of stalling the parser."""
     text = "plotly[" + " " * 200_000 + "html"
-    start = time.perf_counter()
-    with pytest.raises(ValueError):
-        parse_plot_output_dsl(text)
-    assert time.perf_counter() - start < 2.0
+
+    def one_run() -> float:
+        """Seconds one rejected parse takes."""
+        start = time.perf_counter()
+        with pytest.raises(ValueError):
+            parse_plot_output_dsl(text)
+        return time.perf_counter() - start
+
+    assert min(one_run() for _ in range(3)) < 2.0

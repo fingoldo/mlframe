@@ -12,7 +12,7 @@ before it lands.
 
 from __future__ import annotations
 
-import json
+import orjson
 from pathlib import Path
 
 import pytest
@@ -25,7 +25,7 @@ REGISTRY = Path(__file__).with_name("_fe_gpu_contract.json")
 @pytest.fixture(scope="module")
 def registry() -> dict:
     """The compliant / exempt / pending registry."""
-    return json.loads(REGISTRY.read_text(encoding="utf-8"))
+    return orjson.loads(REGISTRY.read_bytes())
 
 
 def test_every_compliant_module_meets_the_whole_contract(registry):

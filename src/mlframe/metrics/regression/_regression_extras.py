@@ -33,6 +33,7 @@ import numba
 
 from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD, _check_equal_length
 from ._regression_metrics import fast_r2_score
+from mlframe.utils.array_shape import shape_of
 # iter592: hoist the rank_correlation import out of fast_spearman_corr's
 # body. c0103_2a635557 @100k profile attributed 140 ms of
 # fast_spearman_corr's 182 ms cumtime / 10 calls (~14 ms per call avg) to
@@ -503,7 +504,8 @@ def _explained_variance_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         var_y += d_y * d_y
         var_d += d_d * d_d
     if var_y == 0.0:
-        return np.nan
+        # sklearn (force_finite=True): a constant target scores 1.0 for a residual that does not vary and 0.0 otherwise.
+        return 1.0 if var_d == 0.0 else 0.0
     return 1.0 - var_d / var_y
 
 
@@ -890,4 +892,3 @@ from ._regression_deviance import (  # noqa: F401
     fast_poisson_deviance,
     fast_tweedie_deviance,
 )
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of

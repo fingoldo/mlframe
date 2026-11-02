@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 import mlframe.feature_selection.filters._mi_greedy_cmi_fe as cmi_mod
+from tests._cuda_require import require_cuda_device
 
 
 def test_oom_retries_in_chunks_with_the_same_values(monkeypatch, caplog):
@@ -17,10 +18,8 @@ def test_oom_retries_in_chunks_with_the_same_values(monkeypatch, caplog):
     codes = rng.integers(0, 6, (n, k)).astype(np.int64)
     y = rng.integers(0, 2, n).astype(np.int64)
     z = rng.integers(0, 5, n).astype(np.int64)
-    try:
-        want = B.batched_cmi_gpu(codes, y, z, codes_trusted=True)
-    except Exception as exc:
-        pytest.skip(f"needs a CUDA device: {exc}")
+    require_cuda_device()
+    want = B.batched_cmi_gpu(codes, y, z, codes_trusted=True)
     real = B.batched_cmi_gpu
     scored = []
 

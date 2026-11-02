@@ -56,6 +56,11 @@ def _probe_child(name: str) -> subprocess.CompletedProcess[str] | None:
             [sys.executable, "-P", "-c", f"import {name}"],
             capture_output=True,
             text=True,
+            # Both ends agree on UTF-8: the child's ImportError text carries paths and names, and decoding it with the parent's legacy code page raised
+            # UnicodeDecodeError, which is neither an OSError nor a SubprocessError.
+            encoding="utf-8",
+            errors="replace",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             timeout=_PROBE_TIMEOUT_S,
         )
     except (OSError, subprocess.SubprocessError) as exc:

@@ -117,9 +117,16 @@ def _write_subset_borders(fold: _FoldBorders, fit_features: list, path: str) -> 
                 fh.write(f"{new_idx}\t{row}\n")
 
 
+def _border_scratch_dir() -> str:
+    """The per-user private directory the border files are staged in: CatBoost reads them back by name, so they must not sit in a directory others can write to."""
+    from mlframe.utils.private_temp import private_temp_dir
+
+    return private_temp_dir("mlframe_cb_borders")
+
+
 def _harvest(pool: Any, fit_features: list, fold: _FoldBorders) -> None:
     """Save the pool's quantization borders into ``fold`` through a temporary file."""
-    fd, path = tempfile.mkstemp(suffix=".borders.tsv")
+    fd, path = tempfile.mkstemp(suffix=".borders.tsv", dir=_border_scratch_dir())
     os.close(fd)
     try:
         pool.save_quantization_borders(path)
@@ -182,7 +189,7 @@ def fit_catboost_with_cached_borders(
                 snapshot = _FoldBorders()
                 snapshot.lines = {n: fold.lines[n] for n in names if n in fold.lines}
         if hit:
-            fd, path = tempfile.mkstemp(suffix=".borders.tsv")
+            fd, path = tempfile.mkstemp(suffix=".borders.tsv", dir=_border_scratch_dir())
             os.close(fd)
             try:
                 _write_subset_borders(snapshot, names, path)

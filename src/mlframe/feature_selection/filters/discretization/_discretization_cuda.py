@@ -101,7 +101,8 @@ def discretize_2d_array_cuda(
         # rare NaN-bearing case through numpy's nanpercentile on the host array already available in ``arr``
         # (this function's caller has it; ``d_arr`` is just its device upload) - the common NaN-free case
         # keeps the fully vectorised cp.percentile fast path unchanged.
-        if bool(cp.isnan(d_arr).any()):
+        # not isfinite: cp.percentile also returns NaN edges for a short column holding +inf, where numpy interpolates.
+        if not bool(cp.isfinite(d_arr).all()):
             bin_edges = cp.asarray(np.nanpercentile(arr, cp.asnumpy(qs), axis=0))
         else:
             # cp.percentile vectorises across axis=0 -> bin_edges shape: (n_bins + 1, n_cols).
@@ -120,6 +121,10 @@ def discretize_2d_array_cuda(
         else:
             for j in range(n_cols):
                 out[:, j] = cp.searchsorted(bin_edges[1:-1, j], d_arr[:, j], side="right")
+        # An all-NaN column has all-NaN edges; the CPU path gives it a single bin (code 0), so do the same here.
+        _all_nan_cols = cp.isnan(bin_edges[0, :])
+        if bool(_all_nan_cols.any()):
+            out[:, _all_nan_cols] = 0
     else:
         # method == 'uniform': vectorised arithmetic, no percentile sort,
         # no per-column dispatch. Single GPU pass. Mirrors discretize_uniform
@@ -175,6 +180,15 @@ def _choose_discretize_row_chunk_rows(n_cols: int, in_itemsize: int, free_bytes:
     per_row_bytes = max(1, n_cols * (in_itemsize + out_itemsize))  # input row + one output row of the real code width
     rows = budget // per_row_bytes
     return int(np.clip(rows, 10_000, 20_000_000))
+
+
+def _zero_all_nan_columns_host(out: np.ndarray, bin_edges: Any) -> None:
+    """Set the host code matrix ``out`` to 0 in every column whose quantile edges are NaN; the CPU path gives an all-NaN column a single bin."""
+    import cupy as cp
+
+    all_nan = np.isnan(cp.asnumpy(bin_edges[0, :]))
+    if all_nan.any():
+        out[:, all_nan] = 0
 
 
 def discretize_2d_array_cuda_row_chunked(
@@ -292,7 +306,7 @@ def discretize_2d_array_cuda_row_chunked(
         # Mirrors the B-12 fix on the non-chunked sibling -
         # cp.percentile has no nanpercentile twin, and a plain cp.percentile over a NaN-bearing subsample
         # poisons EVERY edge for that column with NaN, collapsing the whole column to one degenerate bin.
-        if bool(cp.isnan(d_sub).any()):
+        if not bool(cp.isfinite(d_sub).all()):
             bin_edges = cp.asarray(np.nanpercentile(sub_arr, cp.asnumpy(qs), axis=0))
         else:
             bin_edges = cp.percentile(d_sub, qs, axis=0)
@@ -313,6 +327,7 @@ def discretize_2d_array_cuda_row_chunked(
             out[row_start:row_end] = cp.asnumpy(chunk_out)
             del d_chunk, chunk_out
             n_chunks += 1
+        _zero_all_nan_columns_host(out, bin_edges)
 
     logger.debug(
         "discretize_2d_array_cuda_row_chunked: method=%s n_rows=%d n_cols=%d row_chunk_rows=%d n_chunks=%d",

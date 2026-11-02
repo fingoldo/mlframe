@@ -87,10 +87,10 @@ def test_eci_miller_madow_reduces_bias_vs_plugin():
     assert abs(eci_mm) <= abs(eci_plain)
 
 
-def test_eci_empty_returns_zero():
-    # total==0 short-circuit: no PIT mass -> ECI defined as 0.0 (perfect-calibration floor).
-    """Eci empty returns zero."""
-    assert entropy_calibration_index(np.array([]), bins=10) == 0.0
+def test_eci_empty_returns_nan():
+    # total==0 short-circuit: no PIT mass -> undefined (NaN, like the sibling PIT statistics), never the perfect-calibration 0.0.
+    """Eci empty returns nan."""
+    assert np.isnan(entropy_calibration_index(np.array([]), bins=10))
 
 
 def test_msd_empty_is_nan_and_known_value():

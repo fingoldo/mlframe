@@ -212,7 +212,7 @@ _MI_SPLIT_F32_KERNELS = None
 
 # FUSED VALUES->BIN->HIST->MILLER-MADOW-MI. Same one-block-per-column fused bin+joint-hist as
 # mi_from_values, but emits the Miller-Madow-corrected MARGINAL MI matching _usability_njit_pool's
-# _marginal_mi_njit / _gpu_marginal_mi: mi = H(x)+H(y)-H(x,y) - (kx_occ + k_y - kxy - 1)/(2n), clamped >=0.
+# _marginal_mi_njit / _gpu_marginal_mi: mi = H(x)+H(y)-H(x,y) + (kx_occ + k_y - kxy - 1)/(2n), clamped >=0 (Miller-Madow: the added term is the negative of the plug-in bias).
 # h_y / k_y are the shared (fit-constant) target entropy + class count, passed in (computed once). This is the
 # sync-free, batched, MM-correct kernel the resident pair-combo MI table needs (replaces the per-row
 # cp.bincount + .max() sync loop in _gpu_marginal_mi). Selection-equivalent to the njit table (plug-in
@@ -248,7 +248,7 @@ void mi_mm_from_values(const double* __restrict__ X, const double* __restrict__ 
             double px = (double)rx * inv_n; hx -= px * log(px);
             for (int yy = 0; yy < Ky; ++yy) { int nxy = sh[xx * Ky + yy]; if (nxy > 0) { double pxy = (double)nxy * inv_n; hxy -= pxy * log(pxy); } }
         }
-        double mi = hx + h_y - hxy - ((double)(kx_occ + k_y - kxy - 1)) * 0.5 * inv_n;
+        double mi = hx + h_y - hxy + ((double)(kx_occ + k_y - kxy - 1)) * 0.5 * inv_n;
         mi_out[c] = mi > 0.0 ? mi : 0.0;
     }
 }
@@ -904,8 +904,8 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
         cnt_x = _batched_marginal_counts(X, Kx)  # (K, Kx) int32
         h_x, k_x = _rows_entropy_and_k(cnt_x, inv_n)
         h_y, k_y = joint_entropy_gpu([dy], [Ky], inv_n)  # H(y): fused hist+entropy in ONE launch (same 2-launch fallback if it won't fit shared)
-        # FUSED assembly: max(h_x - h_xy + h_y - (k_x - k_xy + (k_y-1))/2n, 0) in one (K,) launch.
-        mi = _cmi_assemble(h_x, h_xy, float(h_y), k_x, k_xy, float(k_y - 1), 1.0 / (2.0 * nf))
+        # FUSED assembly: max(h_x - h_xy + h_y + (k_x - k_xy + (k_y-1))/2n, 0) in one (K,) launch (the Miller-Madow term is added, so inv2n is negated).
+        mi = _cmi_assemble(h_x, h_xy, float(h_y), k_x, k_xy, float(k_y - 1), -1.0 / (2.0 * nf))
         # return_device: keep the (K,) vector resident (caller device-argmaxes -> 2 scalars cross back, not K).
         if return_device:
             return mi

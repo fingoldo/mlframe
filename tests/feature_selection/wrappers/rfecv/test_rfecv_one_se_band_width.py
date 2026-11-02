@@ -30,9 +30,9 @@ def _pick(rule: str, k: int) -> int:
 
 
 def test_band_half_width_shrinks_by_sqrt_k():
-    """Band half width shrinks by sqrt k."""
+    """The band is the standard error of the fold mean: the ddof=0 fold std over sqrt(k - 1), i.e. the ddof=1 std over sqrt(k)."""
     std = np.array([0.03, 0.06])
-    np.testing.assert_allclose(band_half_width(std, np.array([9, 4])), [0.01, 0.03])
+    np.testing.assert_allclose(band_half_width(std, np.array([9, 4])), [0.03 / np.sqrt(8), 0.06 / np.sqrt(3)])
     np.testing.assert_allclose(band_half_width(std, np.array([9, 4]), "foldstd"), std)
 
 

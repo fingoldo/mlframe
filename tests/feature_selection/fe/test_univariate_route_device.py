@@ -8,6 +8,7 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe import generate
 from mlframe.feature_selection.filters._univariate_route_device import route_columns_on_device
 
 from ._basis_cases import DEGREES, N, _case
+from tests._cuda_require import require_cuda_device
 
 BASES = ["hermite", "legendre", "chebyshev", "laguerre", "fourier", "rbf", "sigmoid", "pade"]
 
@@ -31,24 +32,24 @@ def _frame():
 def test_device_choice_equals_host_choice_per_crafted_column(monkeypatch):
     """For the column built for each basis (each against its own target) the device pass returns that basis."""
     pytest.importorskip("cupy")
+    require_cuda_device()
     monkeypatch.setenv("MLFRAME_BASIS_CELLS_DEVICE", "1")
     for b in BASES:
         x, y, _d = _case(b)
         X = pd.DataFrame({"a": x.astype(np.float32)})
         got = route_columns_on_device(X, ["a"], y, DEGREES, True, None)
-        if not got:
-            pytest.skip("needs a usable CUDA device")
+        assert got, f"the device pass routed nothing for the {b} column on a usable CUDA device"
         assert got == {"a": b}, f"{b}: {got}"
 
 
 def test_ineligible_columns_are_left_to_the_host(monkeypatch):
     """A column with a NaN, an integer group key (auto columns) and a degenerate target are not routed on the device."""
     pytest.importorskip("cupy")
+    require_cuda_device()
     monkeypatch.setenv("MLFRAME_BASIS_CELLS_DEVICE", "1")
     X, y = _frame()
     got = route_columns_on_device(X, list(X.columns), y, (2, 3), True, None)
-    if not got:
-        pytest.skip("needs a usable CUDA device")
+    assert got, "the device pass routed nothing on a usable CUDA device"
     assert "with_nan" not in got and "key" not in got
     assert set(got) >= {f"c_{b}" for b in BASES}
     assert route_columns_on_device(X, list(X.columns), np.zeros(N), (2, 3), True, None) == {}
@@ -58,6 +59,7 @@ def test_ineligible_columns_are_left_to_the_host(monkeypatch):
 def test_generator_output_is_the_same_with_and_without_the_device_pass(monkeypatch):
     """The columns emitted (names and values) do not depend on whether the routing ran on the device."""
     pytest.importorskip("cupy")
+    require_cuda_device()
     X, y = _frame()
     monkeypatch.setenv("MLFRAME_BASIS_CELLS_DEVICE", "0")
     host = generate_univariate_basis_features(X, y=y, dedup_collinear_sources=False)

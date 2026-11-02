@@ -53,6 +53,10 @@ def _hosmer_lemeshow_kernel(
             diff = obs - E
             chi2 += diff * diff / denom_inner
             counted += 1
+        elif abs(obs - E) > 1e-9:
+            # Predicted E=0 (or E=size) yet the group disagrees: the most miscalibrated case, not a group to drop.
+            chi2 = np.inf
+            counted += 1
         start = end
     return chi2, counted
 

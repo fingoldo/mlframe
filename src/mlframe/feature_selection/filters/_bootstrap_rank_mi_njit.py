@@ -12,6 +12,7 @@ the draws by dense rank instead. The MI equals the gather-and-argsort path bit f
 from __future__ import annotations
 
 import math
+import threading
 
 import numpy as np
 from numba import njit, prange
@@ -295,14 +296,16 @@ def _bootstrap_rank_mi_generic(arr: np.ndarray, y_codes: np.ndarray, n_classes: 
     return out, ok
 
 
+_PREP_CACHE_LOCK = threading.Lock()
 _PREP_CACHE: dict = {}  # the latest resample tables, with the resample list they were built from
 
 
 def _release_prep_cache() -> int:
     """Drop the cached resample tables (registered for release under memory pressure); returns the bytes freed."""
-    hit = _PREP_CACHE.get("latest")
-    freed = sum(int(v.nbytes) for v in hit["prep"].values() if hasattr(v, "nbytes")) if hit else 0
-    _PREP_CACHE.clear()
+    with _PREP_CACHE_LOCK:
+        hit = _PREP_CACHE.get("latest")
+        freed = sum(int(v.nbytes) for v in hit["prep"].values() if hasattr(v, "nbytes")) if hit else 0
+        _PREP_CACHE.clear()
     return freed
 
 
@@ -355,13 +358,15 @@ def bootstrap_rank_mi(arr: np.ndarray, y: np.ndarray, rep_rows: "list[np.ndarray
     from mlframe.utils.disk_cache import hash_array_content
 
     cache_key = (n, n_rep, int(n_bins), str(arr.dtype), hash_array_content(np.ascontiguousarray(y_arr)))
-    hit = _PREP_CACHE.get("latest")
-    if hit is not None and hit["key"] == cache_key and hit["reps"] is rep_rows:
-        prep = hit["prep"]
-    else:
-        prep = _resample_tables(rep_rows, y_arr, n, n_bins, arr.dtype == np.float32)
-        _PREP_CACHE.clear()
-        _PREP_CACHE["latest"] = {"key": cache_key, "reps": rep_rows, "prep": prep}
+    # One lock over the whole get-or-build-or-replace: threads asking for the same tables build them once instead of twice, and none sees a half-replaced entry.
+    with _PREP_CACHE_LOCK:
+        hit = _PREP_CACHE.get("latest")
+        if hit is not None and hit["key"] == cache_key and hit["reps"] is rep_rows:
+            prep = hit["prep"]
+        else:
+            prep = _resample_tables(rep_rows, y_arr, n, n_bins, arr.dtype == np.float32)
+            _PREP_CACHE.clear()  # evict-ok: only the latest resample tables are kept; a miss rebuilds them
+            _PREP_CACHE["latest"] = {"key": cache_key, "reps": rep_rows, "prep": prep}
     y_codes, n_classes, lens, idx, binpos = prep["y_codes"], prep["n_classes"], prep["lens"], prep["idx"], prep["binpos"]
     if arr.dtype == np.float32:
         from ._bootstrap_rank_mi_gpu import distinct_walk_gpu, use_device_walk

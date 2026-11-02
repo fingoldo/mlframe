@@ -28,6 +28,7 @@ from mlframe.utils.cublas_probe import cublas_matmul_ok
 from ._utils import gpu_available_bytes, is_gpu_available
 
 logger = logging.getLogger(__name__)
+_MAX_STAGE4_K = 1024  # threads per block on every supported GPU
 
 # Module-level RawKernel placeholder. ``_ensure_kernels_inited`` populates it on first use.
 row_attention_stage4_raw_kernel: Any = None
@@ -109,10 +110,13 @@ void row_attention_stage4_fused(
     if (t >= K) return;
 
     // Stage 1: compute logit for this thread's neighbour. Each thread handles one of the K neighbours.
-    int nid = topk_ids[q * K + t];
+    // 64-bit offsets: q * head_dim and nid * head_dim pass 2^31 for tens of millions of queries or key rows.
+    const long long qK = (long long)q * K;
+    const long long qH = (long long)q * head_dim;
+    int nid = topk_ids[qK + t];
     float dot = 0.0f;
     for (int d = 0; d < head_dim; ++d) {
-        dot += q_proj[q * head_dim + d] * k_proj[nid * head_dim + d];
+        dot += q_proj[qH + d] * k_proj[(long long)nid * head_dim + d];
     }
     s_logits[t] = dot * inv_temp;
     s_y[t] = y_train[nid];
@@ -164,9 +168,9 @@ void row_attention_stage4_fused(
     for (int d = t; d < head_dim; d += K) {
         float s = 0.0f;
         for (int i = 0; i < K; ++i) {
-            s += s_logits[i] * k_proj[topk_ids[q * K + i] * head_dim + d];
+            s += s_logits[i] * k_proj[(long long)topk_ids[qK + i] * head_dim + d];
         }
-        x_mean_out[q * head_dim + d] = s;
+        x_mean_out[qH + d] = s;
     }
 }
 """
@@ -312,6 +316,9 @@ def row_attention_stage4_cupy(
     Optional ``k_proj_device`` / ``y_train_device`` lets Mode-B inference pass already-resident cupy arrays (the K-bank stays on the device across many query
     batches), bypassing the per-call H2D upload that would otherwise dominate cost for small query batches.
     """
+    if topk_ids.shape[1] > _MAX_STAGE4_K:
+        # One block of K threads per query: a launch above the hardware block limit fails, so refuse it up front with the cause.
+        raise ValueError(f"row_attention_stage4_cupy: K={topk_ids.shape[1]} exceeds the {_MAX_STAGE4_K}-thread block limit; use the njit path or a smaller top-k.")
     if not is_gpu_available():
         raise RuntimeError("row_attention_stage4_cupy called but GPU is not available; caller must dispatch via is_gpu_available().")
     _ensure_kernels_inited()

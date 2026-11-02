@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import warnings
 import os
+from mlframe.utils.env_flags import env_float
 import textwrap
 from timeit import default_timer as timer
 from typing import Any
@@ -141,7 +142,7 @@ def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_fl
     from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
 
     _signif_alpha = mrmr_null_signif_alpha()
-    _redundancy_frac = float(os.environ.get("MLFRAME_MRMR_FALLBACK_REDUNDANCY_FRAC", "0.5"))
+    _redundancy_frac = env_float("MLFRAME_MRMR_FALLBACK_REDUNDANCY_FRAC", 0.5, minimum=0.0, maximum=1.0)
     _q_dtype = getattr(self, "quantization_dtype", np.int32)
     _accepted: list = []  # input-space indices accepted into the rescue
     _accepted_cols = []  # their cols-space indices (for redundancy MI)

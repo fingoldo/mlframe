@@ -41,6 +41,7 @@ contingency table so the joint stays computable even at d=8+ support cols
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Callable, Optional, Sequence, cast
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
@@ -239,12 +240,11 @@ def _cmi_from_binned(
         mi_plugin = h_x + h_y - h_xy
         # Plug-in MLE entropy underestimates the true entropy by
         # ``(K-1)/(2n)`` (Miller 1955). MI = H(X) + H(Y) - H(XY)
-        # therefore OVERESTIMATES the true MI by
-        # ``((K_x-1) + (K_y-1) - (K_xy-1))/(2n)``
-        # = ``(K_x + K_y - K_xy - 1)/(2n)``. Subtract this bias from
-        # the plug-in to denoise.
-        mi_bias = (k_x + k_y - k_xy - 1) / (2.0 * n)
-        mi = max(0.0, mi_plugin - mi_bias)
+        # therefore OVERESTIMATES the true MI by ``(K_xy - K_x - K_y + 1)/(2n)``. The Miller-Madow
+        # correction ``(K_x + K_y - K_xy - 1)/(2n)`` is that bias with its sign flipped (it is negative
+        # for nearly any table), so it is ADDED to the plug-in.
+        mi_correction = (k_x + k_y - k_xy - 1) / (2.0 * n)
+        mi = max(0.0, mi_plugin + mi_correction)
         return (mi, None) if return_cards else mi
     z_i = np.ascontiguousarray(z_joint, dtype=np.int64)
     # Fused densify+entropy for the joints (labels feed only the entropy). yz is materialised DENSE once
@@ -292,6 +292,7 @@ from ._mi_greedy_cmi_fe_gpu import (
 _PARALLEL_CMI_MIN_CANDS = 16  # below this many candidates the pool costs more than it saves
 
 
+_CMI_CHUNK_LOCK = threading.Lock()
 _CMI_CHUNK_START: dict[int, int] = {}  # candidate count -> chunk width that last fitted on the device
 _CMI_CHUNK_BY_SHAPE: dict[tuple, int] = {}  # (rows, conditioned) -> the last chunk width that had to be reduced to fit
 
@@ -315,13 +316,15 @@ def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_
 
     # The chunk that fitted last time for this width, else the one that fitted last for this row count and conditioning: a failed whole-batch attempt costs an allocation sweep and a pool reclaim.
     shape_key = (int(codes.shape[0]), z_joint is None)
-    step = min(k, _CMI_CHUNK_START.get(k, _CMI_CHUNK_BY_SHAPE.get(shape_key, k)))
+    with _CMI_CHUNK_LOCK:
+        step = min(k, _CMI_CHUNK_START.get(k, _CMI_CHUNK_BY_SHAPE.get(shape_key, k)))
     while True:
         out = attempt(step)
         if out is not None:
-            _CMI_CHUNK_START[k] = step
-            if step < k:
-                _CMI_CHUNK_BY_SHAPE[shape_key] = step
+            with _CMI_CHUNK_LOCK:
+                _CMI_CHUNK_START[k] = step
+                if step < k:
+                    _CMI_CHUNK_BY_SHAPE[shape_key] = step
             return out
         if step <= 1:
             whole: np.ndarray = batched_cmi_gpu(codes, y_bin, z_joint, codes_trusted=True)  # nothing left to halve: let the error reach the caller's CPU fallback

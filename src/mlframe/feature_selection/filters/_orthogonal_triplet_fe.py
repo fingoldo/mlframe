@@ -342,12 +342,32 @@ def _quantile_codes(values, nbins: int) -> np.ndarray:
 
 def _stratified_cmi(x_codes: np.ndarray, y_codes: np.ndarray, s_codes: np.ndarray) -> float:
     """Plug-in I(x; y | s) summed over the strata of s, skipping strata below 30 rows."""
-    return float(stratified_cmi(*_dense_codes(x_codes, y_codes, s_codes), 30))
+    return float(stratified_cmi(*_dense_codes(x_codes, y_codes, s_codes), _MIN_STRATUM_ROWS))
 
 
 def _dense_codes(x_codes, y_codes, s_codes):
     """The three code vectors as contiguous int64 arrays with non-negative labels (labels are renumbered, which MI does not see)."""
     return tuple(np.ascontiguousarray(np.unique(np.asarray(c), return_inverse=True)[1], dtype=np.int64).ravel() for c in (x_codes, y_codes, s_codes))
+
+
+_MIN_STRATUM_ROWS = 30
+
+
+def _warn_if_no_usable_stratum(strata: np.ndarray, eng_name: str) -> None:
+    """Say so when every stratum of the strongest leg is below the row floor: the conditional MI is then exactly 0 and the candidate cannot win."""
+    counts = np.bincount(np.unique(np.asarray(strata), return_inverse=True)[1].ravel())
+    if counts.max(initial=0) < _MIN_STRATUM_ROWS:
+        log_throttle(
+            logger,
+            "triplet_cmi_no_usable_stratum",
+            logging.WARNING,
+            "triplet CMI scoring: every stratum of the strongest leg has fewer than %d rows (largest %d, n=%d), so the conditional MI is 0 and %s cannot be selected; "
+            "the sample is too small for this many bins",
+            _MIN_STRATUM_ROWS,
+            int(counts.max(initial=0)),
+            int(np.asarray(strata).shape[0]),
+            eng_name,
+        )
 
 
 _NULL_CHUNK = 32  # permutations drawn per step of the early-stopping null
@@ -366,7 +386,7 @@ def _null_quantile_or_bound(x_d, y_d, s_d, strata, cmi: float, n_perm: int, quan
     exceed = 0
     for first in range(0, n_perm, _NULL_CHUNK):
         count = min(_NULL_CHUNK, n_perm - first)
-        part = stratified_cmi_null(x_d, y_d, s_d, permutation_sources_chunk(strata, first, count, seed), 30)
+        part = stratified_cmi_null(x_d, y_d, s_d, permutation_sources_chunk(strata, first, count, seed), _MIN_STRATUM_ROWS)
         parts.append(part)
         exceed += int((part >= cmi).sum())
         if exceed >= need:
@@ -410,6 +430,7 @@ def score_triplet_cross_basis_by_cmi(
         leg_mi = {leg: _stratified_cmi(raw_codes[leg], y_codes, np.zeros_like(y_codes)) for leg in legs}
         best_leg = max(legs, key=lambda leg: (leg_mi[leg], leg))
         strata = raw_codes[best_leg]
+        _warn_if_no_usable_stratum(strata, eng_name)
         eng_codes = _quantile_codes(engineered_X[eng_name].to_numpy(dtype=_crit_np_dtype()), nbins)
         cmi = _stratified_cmi(eng_codes, y_codes, strata)
         # Random stream keyed by the candidate name, so the null does not depend on how many candidates precede it.

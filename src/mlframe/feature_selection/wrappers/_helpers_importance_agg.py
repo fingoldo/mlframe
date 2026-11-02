@@ -34,6 +34,8 @@ from typing import Union
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._enums import VotesAggregation
 
 logger = logging.getLogger(__name__)
@@ -133,8 +135,10 @@ def get_signed_linear_coef(
                 stds = np.where(stds > 1e-12, stds, 1.0)
                 if len(stds) == len(coef):
                     coef = coef * stds
-            except (TypeError, ValueError):
-                pass
+                else:
+                    log_throttle(logger, "signed_coef_std_length_mismatch", logging.WARNING, "signed coef: %d train stds for %d coefficients; the coefficients are left unscaled", len(stds), len(coef))
+            except (TypeError, ValueError) as exc:
+                log_throttle(logger, "signed_coef_std_failed", logging.WARNING, "signed coef: the train stds could not be computed (%r); the coefficients are left unscaled", exc)
     if len(coef) != len(current_features):
         return None
     return {feat: float(c) for feat, c in zip(current_features, coef)}

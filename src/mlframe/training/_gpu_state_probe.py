@@ -97,7 +97,7 @@ def _probe_smi() -> Dict[str, Any]:
     exe = _resolve_smi()
     out = subprocess.run(  # nosec B603
         [exe, "--query-gpu=index,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
-        capture_output=True, text=True, timeout=_SMI_TIMEOUT_S, check=True,
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_SMI_TIMEOUT_S, check=True,
     ).stdout
     gpus = []
     for line in out.strip().splitlines():
@@ -108,7 +108,7 @@ def _probe_smi() -> Dict[str, Any]:
     try:
         out2 = subprocess.run(  # nosec B603
             [exe, "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=_SMI_TIMEOUT_S, check=True,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_SMI_TIMEOUT_S, check=True,
         ).stdout
         for line in out2.strip().splitlines():
             parts = [p.strip() for p in line.split(",")]

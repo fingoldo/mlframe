@@ -461,7 +461,7 @@ def report_model_perf(
         Dictionary mapping subgroup names to boolean arrays for fairness analysis.
     subset_index : np.ndarray, optional
         Indices to subset the data for fairness analysis.
-    report_ndigits : int, default=4
+    report_ndigits : int, default=2
         Number of decimal digits for metric reporting.
     figsize : tuple, default=(15, 5)
         Figure size for plots.

@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Counted at threshold 15 (the mandatory gate; ruff's own max-complexity stays 25). 296 functions over it today.
 C901_THRESHOLD = 15
-C901_CEILING = 296
+C901_CEILING = 15
 
 
 def _c901_findings() -> list[str]:

@@ -2,16 +2,15 @@
 
 import numpy as np
 import pytest
+from tests._cuda_require import require_cuda_device
 
 cp = pytest.importorskip("cupy")
 
 
 def test_masked_scatter_moments_match_numpy_on_large_offset_column():
     """Per-cell count, mean and centred second moment over the masked-in rows agree with numpy to double precision."""
-    try:
-        cp.zeros(1)
-    except Exception as exc:  # no usable device
-        pytest.skip(f"no CUDA device: {exc}")
+    require_cuda_device()
+    cp.zeros(1)
     from mlframe.feature_selection.filters._binned_numeric_agg_resident import _per_cell_moments_stable_masked_scatter_gpu
 
     rng = np.random.default_rng(3)

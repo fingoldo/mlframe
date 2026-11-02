@@ -57,6 +57,12 @@ except Exception as e:  # fallback: numba CUDA not importable, the CPU kernels a
 # ---------------------------------------------------------------------
 
 
+def _band_half_width(window: int) -> int:
+    """Largest |i - j| the GPU kernels allow for a dtaidistance-style ``window``: ``window`` there is a band of ``window`` cells, a shift of at most
+    ``window - 1``, so the GPU half-width is one less (the kernels test ``abs(i - j) <= w``)."""
+    return max(int(window) - 1, 0)
+
+
 def dtw_cpu(
     x: np.ndarray,
     y: np.ndarray,
@@ -164,7 +170,7 @@ def dtw_cuda(
         raise ImportError("dtw_cuda requires numba.cuda + a CUDA-capable GPU.")
     n = len(x)
     m = len(y)
-    w = int(window)
+    w = _band_half_width(window)
     bw = 2 * w + 1
     x_d = _nb_cuda.to_device(np.ascontiguousarray(x, dtype=np.float32))
     y_d = _nb_cuda.to_device(np.ascontiguousarray(y, dtype=np.float32))
@@ -348,13 +354,13 @@ def dtw_cupy_banded(
     keeps one launch per anti-diagonal; the memory reduction is the win. Distance
     + path are bit-identical to the full-matrix ``dtw_cupy`` and the dtaidistance
     reference; this is the default cupy path (``dtw_cupy`` dispatches here)."""
-    _check_kernel_index_range((len(x) + 1) * (2 * window + 1), "banded DTW band")
+    _check_kernel_index_range((len(x) + 1) * (2 * _band_half_width(window) + 1), "banded DTW band")
     if not _HAS_CUPY:
         raise ImportError("dtw_cupy requires cupy + a CUDA-capable GPU.")
     kernel = _get_cupy_banded_kernel()
     n = len(x)
     m = len(y)
-    w = int(window)
+    w = _band_half_width(window)
     bw = 2 * w + 1
     x_d = cp.asarray(x, dtype=cp.float32)
     y_d = cp.asarray(y, dtype=cp.float32)
@@ -426,7 +432,7 @@ def dtw_cupy_full(
         kernel(
             (blocks,),
             (threads,),
-            (x_d, y_d, cost_d, np.int32(n), np.int32(m), np.int32(window), np.int32(k)),
+            (x_d, y_d, cost_d, np.int32(n), np.int32(m), np.int32(_band_half_width(window)), np.int32(k)),
         )
     cp.cuda.Stream.null.synchronize()
     cost = cp.asnumpy(cost_d)
@@ -585,6 +591,9 @@ def dtw_dispatch(
     if forced:
         raise ValueError(f"unknown backend {forced!r}; expected cpu/cuda/cupy")
     if psi > 0:
+        return dtw_cpu(x, y, window=window, psi=psi)
+    if len(x) != len(y):
+        # dtaidistance widens its band by |n - m|; the GPU kernels use a fixed |i - j| band, so unequal lengths stay on the CPU.
         return dtw_cpu(x, y, window=window, psi=psi)
     n_cells = len(x) * len(y)
     # Per-host backend (cpu/cuda/cupy) via the spec's one-call choose(), guarded

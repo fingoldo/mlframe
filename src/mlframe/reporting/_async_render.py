@@ -366,6 +366,7 @@ class ReportRenderQueue:
                 while True:
                     item = self._dispatch_q.get()
                     if item is None:
+                        self._run_leftover_launches()
                         return
                     try:
                         item()
@@ -375,6 +376,19 @@ class ReportRenderQueue:
 
             self._dispatcher = threading.Thread(target=_loop, name=f"{self.name}-dispatch", daemon=True)
             self._dispatcher.start()
+
+    def _run_leftover_launches(self) -> None:
+        """After the sentinel: launches queued behind it run now; the queue is closed, so each one settles its future as failed instead of hanging it."""
+        while True:
+            try:
+                item = self._dispatch_q.get_nowait()
+            except queue.Empty:
+                return
+            if item is not None:
+                try:
+                    item()
+                except Exception as exc:
+                    self._record_internal_failure("render queue dispatcher", exc)
 
     def warm(self) -> None:
         """Process backend: spawn workers and import the reporting stack now, so the first real task does not pay for it."""
@@ -460,7 +474,10 @@ class ReportRenderQueue:
                     remaining[0] -= 1
                     last = remaining[0] == 0
                 if last:
-                    self._dispatch_q.put(_launch)
+                    if self._closed:
+                        _launch()  # the dispatcher may already be gone; with the queue closed this only settles the future as failed
+                    else:
+                        self._dispatch_q.put(_launch)
 
             for p in preds:
                 p.add_done_callback(_one_done)

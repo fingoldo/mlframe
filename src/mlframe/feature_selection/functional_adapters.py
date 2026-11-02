@@ -170,19 +170,11 @@ class _FunctionalSelectorBase(TransformerMixin, BaseEstimator):
 
         if not hasattr(self, "support_"):
             raise NotFittedError(f"{type(self).__name__}.transform called before fit.")
-        idx = np.where(self.support_)[0]
-        if hasattr(X, "iloc"):
-            return X.iloc[:, idx]
-        if hasattr(X, "columns") and hasattr(X, "select"):
-            # polars DataFrame: np.asarray(X) below would force a homogeneous (often object) ndarray,
-            # discarding every column's native dtype - for a pl.Enum/Categorical column that silently
-            # materialises back to raw Python strings, which then reaches XGBoost's enable_categorical
-            # path as unencoded text and crashes deep in xgboost's dtype coercion. X.select(...) keeps
-            # this a real polars frame with dtypes/column names intact (found live: the XGB polars
-            # fastpath's ForwardSelectSelector output was the only thing feeding model.fit()).
-            cols = [c for c, keep in zip(X.columns, self.support_) if keep]
-            return X.select(cols)
-        return np.asarray(X)[:, self.support_]
+        from mlframe.feature_selection._transform_select import select_fitted_columns
+
+        # By name, keeping a polars frame polars: np.asarray(X) would force an (often object) ndarray and turn pl.Enum/Categorical columns into raw
+        # strings, which crashed XGBoost's enable_categorical path (the XGB polars fastpath feeds this output to model.fit()).
+        return select_fitted_columns(X, self.support_, self.feature_names_in_, self.n_features_in_, type(self).__name__)
 
     def get_support(self, indices: bool = False):
         """Return the boolean support mask, or the selected indices when ``indices=True``."""

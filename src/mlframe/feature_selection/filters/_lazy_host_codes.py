@@ -12,6 +12,8 @@ from typing import Any, cast
 
 import numpy as np
 
+from mlframe.utils.array_shape import shape_of, size_of  # noqa: F401 - moved to a low-level module; re-exported here for the existing importers
+
 # Below this many elements the copy is too small for the two range reductions to pay for themselves.
 _NARROW_MIN_ELEMENTS = 4096
 
@@ -182,22 +184,6 @@ def length_of(values: Any) -> int:
     if shape is not None and len(shape) >= 1:
         return int(shape[0])
     return int(np.asarray(values).shape[0])  # length-ok: no shape attribute means a plain sequence
-
-
-def size_of(values: Any) -> int:
-    """Element count of an array, a lazy device-backed array or any sequence, without materialising a lazy one."""
-    shape = getattr(values, "shape", None)
-    if shape is not None:
-        return int(np.prod(shape, dtype=np.int64))
-    return int(np.asarray(values).size)  # length-ok: no shape attribute means a plain sequence
-
-
-def shape_of(values: Any) -> tuple:
-    """Shape of an array, a lazy device-backed array or any sequence, without materialising a lazy one (``np.asarray(x).shape`` copies it whole)."""
-    shape = getattr(values, "shape", None)
-    if shape is not None:
-        return tuple(int(d) for d in shape)
-    return np.asarray(values).shape  # length-ok: no shape attribute means a plain sequence
 
 
 def ndim_of(values: Any) -> int:

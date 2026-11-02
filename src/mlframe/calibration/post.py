@@ -226,6 +226,10 @@ class BinaryPostCalibrator(ClassifierMixin, BaseEstimator):
 
     def postcalibrate_probs(self, probs: np.ndarray) -> np.ndarray:
         """Map raw probabilities through the fitted calibrator, always returning a 2D ``(n_samples, 2)`` matrix."""
+        from sklearn.exceptions import NotFittedError
+
+        if not hasattr(self, "classes_"):
+            raise NotFittedError("BinaryPostCalibrator.postcalibrate_probs called before fit.")
         probs = self._transform_probs(probs)
         if not self._is_venn_abers(self.calibrator):
             # Use method resolved at fit-time; fall back gracefully if fit() wasn't called.

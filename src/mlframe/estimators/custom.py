@@ -210,8 +210,10 @@ class PdOrdinalEncoder(OrdinalEncoder):
         """Ordinal-encode ``X``, returning a DataFrame with original columns if given one, else an ndarray of int32 codes."""
         if isinstance(X, pd.DataFrame):
             col_names = X.columns.tolist()
+            row_index = X.index
         else:
             col_names = None
+            row_index = None
 
         X = super().transform(X)
         # if caller overrode encoded_missing_value=np.nan,
@@ -228,7 +230,7 @@ class PdOrdinalEncoder(OrdinalEncoder):
         # ``pd.DataFrame(X).astype(np.int32)`` forced a full broadcast-copy on every call.
         X = np.asarray(X).astype(np.int32, copy=False)
         if col_names:
-            return pd.DataFrame(data=X, columns=col_names, copy=False)
+            return pd.DataFrame(data=X, columns=col_names, index=row_index, copy=False)
         else:
             return X
 
@@ -248,8 +250,10 @@ class PdKBinsDiscretizer(KBinsDiscretizer):
         """Discretize ``X`` into bins, densifying sparse onehot output and returning int32 codes (DataFrame if input was one)."""
         if isinstance(X, pd.DataFrame):
             col_names = X.columns.tolist()
+            row_index = X.index
         else:
             col_names = None
+            row_index = None
 
         X = super().transform(X)
         # KBinsDiscretizer with encode='onehot' returns sparse; densify for pandas path
@@ -259,7 +263,10 @@ class PdKBinsDiscretizer(KBinsDiscretizer):
         # named columns are needed, avoiding the broadcast-copy of the prior DataFrame path.
         X = np.asarray(X).astype(np.int32, copy=False)
         if col_names:
-            return pd.DataFrame(data=X, columns=col_names, copy=False)
+            if X.shape[1] != len(col_names):
+                # onehot output has one column per bin, not per input feature
+                col_names = list(self.get_feature_names_out(col_names))
+            return pd.DataFrame(data=X, columns=col_names, index=row_index, copy=False)
         else:
             return X
 

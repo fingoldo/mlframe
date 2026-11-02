@@ -32,11 +32,10 @@ logger = logging.getLogger(__name__)
 
 try:
     import filelock as _filelock_mod  # noqa: F401
-    from filelock import FileLock as _BaseFileLock, Timeout
+    from filelock import FileLock as _BaseFileLock
     _FILELOCK_AVAILABLE = True
 except ImportError:  # pragma: no cover -- optional dep until D phase wires cache layer
     _FILELOCK_AVAILABLE = False
-    Timeout = TimeoutError  # type: ignore[assignment, misc]
     _BaseFileLock = object  # type: ignore[assignment, misc]
 
 
@@ -50,17 +49,15 @@ class StaleLockReclaimed(UserWarning):
 
 
 class PIDAwareFileLock:
-    """Filelock with PID-tracking + stale-lock reclaim.
+    """Filelock that records the holder's PID next to the lock.
 
     Use as context manager:
 
         with PIDAwareFileLock(path, timeout=300):
             ...
 
-    On timeout, checks the PID stored in the lock file. If the
-    holder is dead (`psutil.pid_exists` returns False), removes
-    the lock and retries once with a small grace timeout. Surfaces
-    via ``StaleLockReclaimed``.
+    On timeout the caller sees ``Timeout``: a lock that is held is never taken over, because the PID in the sidecar file can lag behind the real
+    holder (a new holder writes its PID only after acquiring), and removing the lock file on that basis lets a second process in.
 
     Pin requirement: ``filelock>=3.15.0``. If the package is missing
     (it's an optional dep until phase D wires the cache layer), this
@@ -73,11 +70,9 @@ class PIDAwareFileLock:
         self,
         path: str,
         timeout: float = 300.0,
-        reclaim_grace_timeout: float = 5.0,
     ):
         self.path = path
         self.timeout = timeout
-        self.reclaim_grace_timeout = reclaim_grace_timeout
         self._lock: Optional[_BaseFileLock] = None
         self._held = False
 
@@ -92,13 +87,8 @@ class PIDAwareFileLock:
 
         self._lock = _BaseFileLock(self.path)
 
-        try:
-            self._lock.acquire(timeout=self.timeout)
-        except Timeout:
-            # The OS lock is still held, so a live process owns it. The PID in the meta file can be stale (a new holder writes its PID
-            # only after acquiring), and unlinking the lock file on that basis lets a second process take a lock the first still holds
-            # (CON2-3). The lock is never reclaimed here; the caller sees the Timeout.
-            raise
+        # A Timeout here means a live process owns the OS lock; it propagates to the caller and the lock file is left alone.
+        self._lock.acquire(timeout=self.timeout)
 
         # Write our PID alongside the exclusive lock so a future
         # contender can detect us if WE die holding it.

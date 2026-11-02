@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from tests._cuda_require import require_cuda_device
 
 
 @pytest.mark.parametrize("n", [31, 129, 8191, 8193, 50000])
@@ -17,10 +18,8 @@ def test_tiled_matches_numpy(n, dtype, m):
     block = rng.normal(size=(n, m)) + 0.3 * y[:, None] * rng.uniform(-1, 1, m)
     block[:, 5] = 2.5
     block = block.astype(dtype)
-    try:
-        got = cp.asnumpy(_gpu_batched_abs_corr(cp, cp.asarray(block), cp.asarray(y.astype(dtype))))
-    except Exception as exc:  # pragma: no cover - no usable device
-        pytest.skip(f"needs a usable CUDA device: {exc}")
+    require_cuda_device()
+    got = cp.asnumpy(_gpu_batched_abs_corr(cp, cp.asarray(block), cp.asarray(y.astype(dtype))))
     want = np.array([abs(np.corrcoef(block[:, j].astype(np.float64), y.astype(dtype).astype(np.float64))[0, 1]) if j != 5 else -1.0 for j in range(m)])
     np.testing.assert_allclose(got, want, atol=2e-5 if dtype == np.float32 else 1e-9)
 

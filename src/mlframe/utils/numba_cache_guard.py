@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import os
 import re
 from pathlib import Path
 
@@ -83,5 +84,13 @@ def invalidate_stale_numba_caches(package_dir: "str | Path") -> list[str]:
                         _unlink_quietly(stale)
                 cleared.append(name)
     cache_dir.mkdir(exist_ok=True)
-    stamp_path.write_text("\n".join(f"{name} {digest}" for name, digest in sorted(current.items())) + "\n", encoding="utf-8")
+    text = "\n".join(f"{name} {digest}" for name, digest in sorted(current.items())) + "\n"
+    # Written to a temporary name and renamed over the stamp: another process reads this file, and a crash or a second writer must not leave it truncated
+    # (a partial stamp reads as "no change" and would let a stale numba cache survive).
+    tmp_path = stamp_path.with_name(f"{stamp_path.name}.{os.getpid()}.tmp")
+    try:
+        tmp_path.write_text(text, encoding="utf-8")
+        os.replace(tmp_path, stamp_path)
+    except OSError:
+        _unlink_quietly(tmp_path)
     return cleared

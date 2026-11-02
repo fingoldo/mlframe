@@ -367,6 +367,10 @@ def _setup_su_kernel_inputs(
     bins_packed = np.empty((n_features, n_samples), dtype=np.int32, order="C")
     offset = 0
     for i, arr in enumerate(arrays):
+        if arr.size and int(arr.min()) < 0:
+            # A negative code (pandas marks a missing category -1) would index another feature's slice of the packed counts; shift the column so
+            # the missing level becomes bin 0. The shift is monotone, so entropies and mutual information are unchanged.
+            arr = arr.astype(np.int64) - int(arr.min())
         observed_max = int(arr.max()) + 1 if arr.size else 0
         if observed_max > SPARSE_CODE_RELABEL_MIN:
             nb = dense_relabel_codes(arr, bins_packed[i])

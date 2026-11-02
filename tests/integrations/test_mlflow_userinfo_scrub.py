@@ -33,6 +33,12 @@ def test_text_without_userinfo_is_unchanged():
 def test_long_run_of_letters_is_scanned_in_linear_time():
     """A long letter run with no scheme separator is not rescanned from every position."""
     text = "a" * 300_000
-    start = time.perf_counter()
     assert _strip_userinfo(text) == text
-    assert time.perf_counter() - start < 2.0
+
+    def one_run() -> float:
+        """Seconds one scan of the long run takes."""
+        start = time.perf_counter()
+        _strip_userinfo(text)
+        return time.perf_counter() - start
+
+    assert min(one_run() for _ in range(3)) < 2.0

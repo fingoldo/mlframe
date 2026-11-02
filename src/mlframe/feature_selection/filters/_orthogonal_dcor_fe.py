@@ -133,7 +133,8 @@ def _dcor_columns_kernel(xs: np.ndarray, b: np.ndarray, dcov2: np.ndarray, dvar2
             sum_r2 += (row / m) * (row / m)
         g = total / (m * m)
         dcov2[j] = cross / (m * m)
-        dvar2_x[j] = (sq - 2.0 * m * sum_r2 + m * m * g * g) / (m * m)
+        # moment-ok: every term is built from distances |xi - xq|, differences taken before any squaring, so the sums are translation-invariant and carry no offset to cancel
+        dvar2_x[j] = (sq - 2.0 * m * sum_r2 + m * m * g * g) / (m * m)  # moment-ok: see above
 
 
 def _subsample_indices(

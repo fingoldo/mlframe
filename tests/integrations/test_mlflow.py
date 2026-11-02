@@ -239,3 +239,40 @@ def test_get_or_create_mlflow_run_reraised_exception_has_scrubbed_message():
             get_or_create_mlflow_run("my_run")
     assert "supersecret" not in str(exc_info.value), f"credential leaked in re-raised exception message: {exc_info.value}"
     assert "***@" in str(exc_info.value)
+
+
+def test_embed_website_to_mlflow_refuses_a_dotdot_component(tmp_path):
+    """A name that climbs out of its directory is refused before anything is written (FSW5-1)."""
+    import pytest
+
+    inner = tmp_path / "inner"
+    inner.mkdir()
+    with pytest.raises(ValueError, match="'..'"):
+        embed_website_to_mlflow("http://x/", fname=str(inner / ".." / "escape"))
+    with pytest.raises(ValueError, match="'..'"):
+        embed_website_to_mlflow("http://x/", fname="../escape")
+    assert not (tmp_path / "escape.html").exists()
+
+
+def test_embed_website_to_mlflow_replaces_a_symlink_instead_of_following_it(tmp_path):
+    """A symlink planted at the target is replaced by the new file; the file it pointed to is left alone."""
+    import os
+
+    import pytest
+
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep", encoding="utf-8")
+    link = tmp_path / "embed.html"
+    try:
+        os.symlink(victim, link)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are not available here")
+    embed_website_to_mlflow("http://x/", fname=str(tmp_path / "embed"))
+    assert victim.read_text(encoding="utf-8") == "keep"
+    assert "iframe" in link.read_text(encoding="utf-8")
+
+
+def test_embed_website_to_mlflow_leaves_no_temp_file_behind(tmp_path):
+    """The temporary name used for the atomic write does not survive a successful call."""
+    embed_website_to_mlflow("http://x/", fname=str(tmp_path / "embed"))
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["embed.html"]

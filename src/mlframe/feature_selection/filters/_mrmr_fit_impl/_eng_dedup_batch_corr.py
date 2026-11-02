@@ -24,6 +24,8 @@ actually wins (see the same benchmark file for the after numbers).
 """
 from __future__ import annotations
 
+import threading
+import weakref
 from typing import Optional, cast
 import numba
 import numpy as np
@@ -217,23 +219,37 @@ def masked_abs_spearman_presorted(a: np.ndarray, fin_a: np.ndarray, order_a: np.
         out[k] = abs(sab / (saa * sbb) ** 0.5)
 
 
-_ORDER_CACHE: "dict[int, tuple]" = {}  # id(column) -> (the column, its finite rows in ascending value order); the column is held so its id cannot be reused while the entry lives
+_ORDER_CACHE_LOCK = threading.Lock()
+_ORDER_CACHE: "dict[int, tuple]" = {}  # id(column) -> (weak reference to the column, its finite rows in ascending value order); a dead reference never matches a reused id
 _ORDER_CACHE_MAX = 96
 
 
 def finite_sort_order(col: np.ndarray, *, cache: bool = True) -> np.ndarray:
     """The row ids of the finite values of ``col`` in ascending value order (stable), int64; cached per column object for the kept columns, which live for a whole fit."""
     if cache:
-        hit = _ORDER_CACHE.get(id(col))
-        if hit is not None and hit[0] is col:
-            return cast("np.ndarray", hit[1])
+        with _ORDER_CACHE_LOCK:
+            hit = _ORDER_CACHE.get(id(col))
+            if hit is not None and hit[0]() is col:
+                return cast("np.ndarray", hit[1])
     rows = np.flatnonzero(np.isfinite(col))
     order = rows[np.argsort(col[rows], kind="mergesort")]
     if cache:
-        if len(_ORDER_CACHE) >= _ORDER_CACHE_MAX:
-            _ORDER_CACHE.pop(next(iter(_ORDER_CACHE)))
-        _ORDER_CACHE[id(col)] = (col, order)
+        with _ORDER_CACHE_LOCK:
+            hit = _ORDER_CACHE.get(id(col))  # another thread may have stored this column while this one sorted
+            if hit is not None and hit[0]() is col:
+                return cast("np.ndarray", hit[1])
+            for dead in [k for k, v in _ORDER_CACHE.items() if v[0]() is None]:
+                _ORDER_CACHE.pop(dead, None)
+            while len(_ORDER_CACHE) >= _ORDER_CACHE_MAX:
+                _ORDER_CACHE.pop(next(iter(_ORDER_CACHE)), None)  # evict-ok: a miss only recomputes the sort order
+            _ORDER_CACHE[id(col)] = (weakref.ref(col), order)
     return order
+
+
+def clear_finite_sort_order_cache() -> None:
+    """Drop every cached sort order; called when a fit ends so the orders of its columns do not stay in memory."""
+    with _ORDER_CACHE_LOCK:
+        _ORDER_CACHE.clear()
 
 
 @numba.njit(cache=True, parallel=True, fastmath=False)

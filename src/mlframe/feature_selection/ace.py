@@ -427,15 +427,14 @@ class ACESelector(TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X):
-        """Narrow ``X`` to the accepted columns (positional slice, no full-frame copy)."""
+        """Narrow ``X`` to the accepted columns, matched by name when the frame has columns (no full-frame copy)."""
         from sklearn.exceptions import NotFittedError
 
         if not hasattr(self, "support_"):
             raise NotFittedError("ACESelector.transform called before fit.")
-        idx = np.where(self.support_)[0]
-        if hasattr(X, "iloc"):
-            return X.iloc[:, idx]
-        return np.asarray(X)[:, self.support_]
+        from mlframe.feature_selection._transform_select import select_fitted_columns
+
+        return select_fitted_columns(X, self.support_, self.feature_names_in_, self.n_features_in_, "ACESelector")
 
     def get_support(self, indices: bool = False):
         """sklearn-style accepted-feature mask; returns positional indices instead when ``indices=True``."""

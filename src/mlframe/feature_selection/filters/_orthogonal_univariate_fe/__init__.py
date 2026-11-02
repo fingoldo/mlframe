@@ -48,6 +48,7 @@ from __future__ import annotations
 from .._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 
 import logging
+import threading
 from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
@@ -332,6 +333,7 @@ def _choose_univariate_basis(x: np.ndarray, y: Optional[np.ndarray], basis: str,
         return basis
 
 
+_BASIS_MEMO_LOCK = threading.Lock()
 _BASIS_MEMO: "dict[tuple, pd.DataFrame]" = {}  # content key -> the generated columns; one fit asks for the same expansion of the same columns from many scorers
 _BASIS_MEMO_MAX_ENTRIES = 6
 _BASIS_MEMO_MAX_BYTES = 768 * 1024 * 1024
@@ -339,8 +341,9 @@ _BASIS_MEMO_MAX_BYTES = 768 * 1024 * 1024
 
 def _release_basis_memo() -> int:
     """Drop the memoised basis expansions (registered for release under memory pressure); returns the bytes freed."""
-    freed = sum(int(df.memory_usage(index=False).sum()) for df in _BASIS_MEMO.values())
-    _BASIS_MEMO.clear()
+    with _BASIS_MEMO_LOCK:
+        freed = sum(int(df.memory_usage(index=False).sum()) for df in _BASIS_MEMO.values())
+        _BASIS_MEMO.clear()
     return freed
 
 
@@ -400,9 +403,10 @@ def generate_univariate_basis_features(
     A hit returns a deep copy re-indexed to the caller's frame, so a caller that edits its result cannot corrupt the stored one."""
     key = _basis_memo_key(X, cols, degrees, basis, dedup_collinear_sources, dedup_corr_threshold, y, basis_routing)
     if key is not None:
-        hit = _BASIS_MEMO.get(key)
-        if hit is not None:
-            out = hit.copy(deep=True)
+        with _BASIS_MEMO_LOCK:
+            hit = _BASIS_MEMO.get(key)
+            out = hit.copy(deep=True) if hit is not None else None
+        if out is not None:
             out.index = X.index
             return out
     result = _generate_univariate_basis_features_impl(
@@ -411,9 +415,10 @@ def generate_univariate_basis_features(
     if key is not None and isinstance(result, pd.DataFrame):
         size = int(result.memory_usage(index=False).sum())
         if size <= _BASIS_MEMO_MAX_BYTES:
-            while _BASIS_MEMO and (len(_BASIS_MEMO) >= _BASIS_MEMO_MAX_ENTRIES or sum(int(d.memory_usage(index=False).sum()) for d in _BASIS_MEMO.values()) + size > _BASIS_MEMO_MAX_BYTES):
-                _BASIS_MEMO.pop(next(iter(_BASIS_MEMO)))
-            _BASIS_MEMO[key] = result.copy(deep=True)
+            with _BASIS_MEMO_LOCK:
+                while _BASIS_MEMO and (len(_BASIS_MEMO) >= _BASIS_MEMO_MAX_ENTRIES or sum(int(d.memory_usage(index=False).sum()) for d in _BASIS_MEMO.values()) + size > _BASIS_MEMO_MAX_BYTES):
+                    _BASIS_MEMO.pop(next(iter(_BASIS_MEMO)), None)  # evict-ok: a miss regenerates the basis columns
+                _BASIS_MEMO[key] = result.copy(deep=True)
     return result
 
 

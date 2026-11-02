@@ -31,6 +31,7 @@ broadcast would carry no generalisable signal. Refused keys emit nothing.
 from __future__ import annotations
 
 import logging
+import threading
 from itertools import combinations
 from typing import Any, Callable, Optional, Sequence
 
@@ -148,6 +149,7 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
         keys = keys + sep + p
     return np.asarray(keys, dtype=object)
 
+_GLOBAL_STAT_MEMO_LOCK = threading.Lock()
 _GLOBAL_STAT_MEMO: "dict[tuple, float]" = {}  # (column content, statistic) -> whole-column fallback; one numeric column meets every key set of a fit
 _GLOBAL_STAT_MEMO_MAX = 4096
 
@@ -162,13 +164,14 @@ def _global_value_for_stat(x: np.ndarray, stat: str, digest: "str | None" = None
     from ._agg_stat_helpers import global_value_for_stat
 
     key = (digest if digest is not None else hash_array_content(np.ascontiguousarray(x)), x.dtype.str, int(x.size), stat)
-    hit = _GLOBAL_STAT_MEMO.get(key)
-    if hit is not None:
-        return hit
-    value = global_value_for_stat(stat, x, "composite_group_agg")
-    if len(_GLOBAL_STAT_MEMO) >= _GLOBAL_STAT_MEMO_MAX:
-        _GLOBAL_STAT_MEMO.clear()
-    _GLOBAL_STAT_MEMO[key] = value
+    with _GLOBAL_STAT_MEMO_LOCK:
+        hit = _GLOBAL_STAT_MEMO.get(key)
+        if hit is not None:
+            return hit
+        value = global_value_for_stat(stat, x, "composite_group_agg")
+        if len(_GLOBAL_STAT_MEMO) >= _GLOBAL_STAT_MEMO_MAX:
+            _GLOBAL_STAT_MEMO.clear()  # evict-ok: a miss recomputes one whole-column statistic
+        _GLOBAL_STAT_MEMO[key] = value
     return value
 
 @njit(cache=True, nogil=True)

@@ -215,7 +215,7 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False, kx: int = 0
             h_x, k_x = _entc([dx], [Kx])
             h_y, k_y = _entc([dy], [ky])
             h_xy, k_xy = _entc([dx, dy], [Kx, ky])
-        mi = max(0.0, (h_x + h_y - h_xy) - (k_x + k_y - k_xy - 1) / (2.0 * n))
+        mi = max(0.0, (h_x + h_y - h_xy) + (k_x + k_y - k_xy - 1) / (2.0 * n))
         return (mi, None) if return_cards else mi
     # RESIDENT-INPUT: the CMI-redundancy gate hands a DEVICE-BORN z_support (``_renumber_joint_gpu`` of the
     # resident candidate codes) -> use it as-is so the round conditioning support never crosses H2D (the

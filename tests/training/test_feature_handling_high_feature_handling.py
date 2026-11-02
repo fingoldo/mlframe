@@ -346,7 +346,7 @@ def test_h_fh_10_held_lock_with_a_stale_pid_is_not_reclaimed() -> None:
         holder = _FL(lock_path)
         holder.acquire(timeout=1.0)
         try:
-            lock = PIDAwareFileLock(lock_path, timeout=1.0, reclaim_grace_timeout=0.5)
+            lock = PIDAwareFileLock(lock_path, timeout=1.0)
             with pytest.raises(Timeout):
                 lock.__enter__()
             assert os.path.exists(lock_path), "the lock file of a live holder was removed"

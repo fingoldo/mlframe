@@ -7,6 +7,7 @@ from mlframe.feature_selection.filters.hermite_fe._nonpoly_cells import eval_bas
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES
 
 from ._basis_cases import DEGREES, _case
+from tests._cuda_require import require_cuda_device
 
 
 def _matrix(n: int) -> np.ndarray:
@@ -24,10 +25,8 @@ def test_device_cells_equal_host_cells(basis, dtype, n):
     from mlframe.feature_selection.filters.hermite_fe._nonpoly_cells_gpu import nonpoly_block_gpu
 
     M = _matrix(n).astype(dtype)
-    try:
-        block, cells = nonpoly_block_gpu(cp, cp.asarray(M), basis, [1, 2, 3, 4, 9, 10])
-    except Exception as exc:  # pragma: no cover - no usable device
-        pytest.skip(f"needs a usable CUDA device: {exc}")
+    require_cuda_device()
+    block, cells = nonpoly_block_gpu(cp, cp.asarray(M), basis, [1, 2, 3, 4, 9, 10])
     got = cp.asnumpy(block).astype(np.float64)
     tol = 5e-6 if dtype == np.float32 else 1e-9
     for j, (c, d) in enumerate(cells):
@@ -58,8 +57,6 @@ def test_device_router_picks_the_crafted_basis(basis):
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import evaluable_bases
 
     x, y, _degree = _case(basis)
-    try:
-        chosen = _gpu_route_bases_batched(cp, cp.asarray(x.astype(np.float32))[:, None], cp.asarray(y.astype(np.float64)), list(evaluable_bases()), DEGREES, robust_axis=True)
-    except Exception as exc:  # pragma: no cover - no usable device
-        pytest.skip(f"needs a usable CUDA device: {exc}")
+    require_cuda_device()
+    chosen = _gpu_route_bases_batched(cp, cp.asarray(x.astype(np.float32))[:, None], cp.asarray(y.astype(np.float64)), list(evaluable_bases()), DEGREES, robust_axis=True)
     assert chosen == [basis]

@@ -2,17 +2,15 @@
 
 import numpy as np
 import pytest
+from tests._cuda_require import require_cuda_device
 
 
 @pytest.mark.parametrize("dtype,method", [(np.float32, "radix"), (np.float32, "sort"), (np.float64, "radix")])
 @pytest.mark.parametrize("n,k", [(997, 12), (6000, 40), (20011, 9)])
 def test_device_codes_equal_host(dtype, method, n, k):
     """Continuous, tied, few-level, binary, constant and heavy-tailed columns: equal codes and code counts."""
-    cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        pytest.skip("no CUDA device")
+    pytest.importorskip("cupy")
+    require_cuda_device()
     from mlframe.feature_selection.filters._numba_utils import quantile_codes_block
     from mlframe.feature_selection.filters._quantile_codes_gpu import quantile_codes_block_gpu
 

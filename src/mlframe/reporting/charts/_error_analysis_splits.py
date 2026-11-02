@@ -240,7 +240,7 @@ def _target_drift_verdict(
         return "Distribution-shift check: train split empty -> cannot compare drift."
     tr_mean = float(tr.mean())
     is_clf = task == "classification"
-    tr_var = float(tr.var())
+    tr_var = float(tr.var(ddof=1)) if tr.size > 1 else 0.0
     tr_std = float(np.sqrt(tr_var))
     # Regression "materiality" floor: a quarter of a ROBUST train spread. A quarter of the std let a heavy tail hide real
     # shifts: a production target whose mean fell 2.11 -> 0.26 was reported "No material drift" because a few huge values
@@ -271,7 +271,7 @@ def _target_drift_verdict(
             if se > 0 and abs(shift) > _DRIFT_Z * se:
                 flagged.append(lab)
         else:
-            se = float(np.sqrt(tr_var / tr.size + float(a.var()) / a.size))
+            se = float(np.sqrt(tr_var / tr.size + (float(a.var(ddof=1)) if a.size > 1 else 0.0) / a.size))
             if abs(shift) > max(_DRIFT_Z * se, effect_thr) > 0:
                 flagged.append(lab)
     excluded_note = f" (split(s) empty/all-NaN, excluded from drift check: {', '.join(excluded)})" if excluded else ""

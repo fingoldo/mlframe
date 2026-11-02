@@ -135,7 +135,7 @@ def winners_from_trace(trace: Sequence[tuple], mean_w: float = 1.0, std_w: float
 
 
 def _band(arr: np.ndarray, band: str) -> float:
-    """Band half-width of one N's fold scores (``std / sqrt(k)`` or raw fold std for the legacy band)."""
+    """Band half-width of one N's fold scores (the standard error of the mean fold score, or the raw fold std for the legacy band)."""
     fin = arr[np.isfinite(arr)]
     if fin.size == 0:
         return float("nan")
