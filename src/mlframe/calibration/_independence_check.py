@@ -103,10 +103,11 @@ def member_residual_correlation(member_probs: np.ndarray, clip: float = 1e-7) ->
     p_c = np.clip(p, clip, 1.0 - clip)
     logits = np.log(p_c / (1.0 - p_c))
     per_member = _member_consensus_correlations(logits)
-    per_member = np.nan_to_num(per_member, nan=0.0)  # a constant-logit member (denom~0) yields nan -> treat as 0
-
-    mean_abs = float(np.mean(np.abs(per_member)))
-    max_abs = float(np.max(np.abs(per_member)))
+    # A constant-logit member (denom~0) has no defined correlation; it is left out of the summary instead of being scored 0, which would
+    # dilute the mean and let redundant members pass the threshold.
+    finite = np.isfinite(per_member)
+    mean_abs = float(np.mean(np.abs(per_member[finite]))) if finite.any() else 0.0
+    max_abs = float(np.max(np.abs(per_member[finite]))) if finite.any() else 0.0
     return {"mean_abs_residual_correlation": mean_abs, "max_abs_residual_correlation": max_abs, "per_member_consensus_correlation": per_member}
 
 

@@ -272,12 +272,16 @@ def odds_ratio_combine(
                 f"odds_ratio_combine: mean absolute residual correlation between members ({mean_abs_corr:.3f}) "
                 f"exceeds correlation_threshold ({correlation_threshold:.3f}) -> conditional-independence "
                 "assumption looks violated; log-odds summation will over-state confidence. "
-                + ("Falling back to equal-weight log opinion pool." if on_correlation_violation == "fallback" else "Proceeding with log-odds summation anyway (on_correlation_violation='warn')."),
+                + ("Falling back to the log opinion pool." if on_correlation_violation == "fallback" else "Proceeding with log-odds summation anyway (on_correlation_violation='warn')."),
                 stacklevel=2,
             )
             if on_correlation_violation == "fallback":
-                equal_weights = np.full(p.shape[1], 1.0 / p.shape[1], dtype=np.float64)
-                return _dispatch_weighted(p, equal_weights, clip)
+                pool_weights = np.full(p.shape[1], 1.0 / p.shape[1], dtype=np.float64)
+                if weights is not None:
+                    given = np.asarray(weights, dtype=np.float64)
+                    if given.shape == (p.shape[1],) and given.sum() > 0:
+                        pool_weights = given / given.sum()
+                return _dispatch_weighted(p, pool_weights, clip)
 
     if weights is not None:
         w = np.asarray(weights, dtype=np.float64)

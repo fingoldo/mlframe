@@ -261,7 +261,9 @@ def _check_target_identity(_name: Any, _tt_np: Any, _calib_target_np: Any) -> No
             )
         # Same shape, not equal in order - check whether it's the SAME multiset of values just
         # reshuffled (the exact-equality check above is blind to row order).
-        if np.array_equal(np.sort(_tt_np, axis=None), np.sort(_calib_target_np, axis=None)):
+        # Only meaningful when the values identify rows: a binary or low-cardinality target has the same sorted vector for any two
+        # splits with the same class counts, which is a common legitimate layout, not a reshuffle.
+        if np.unique(_tt_np).size > 0.5 * _tt_np.size and np.array_equal(np.sort(_tt_np, axis=None), np.sort(_calib_target_np, axis=None)):
             raise _CalibTestOverlapError(
                 "train_postcalibrators: calib_target has the SAME multiset of values as model "
                 f"'{_name}'.test_target -- same rows, reordered. Refusing to fit calibrators on a "
