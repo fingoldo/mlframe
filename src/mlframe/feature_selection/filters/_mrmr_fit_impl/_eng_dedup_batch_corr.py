@@ -246,6 +246,18 @@ def finite_sort_order(col: np.ndarray, *, cache: bool = True) -> np.ndarray:
     return order
 
 
+def finite_sort_orders(cols: "list[np.ndarray]") -> "list[np.ndarray]":
+    """``[finite_sort_order(c) for c in cols]``, sorting the columns that are not cached yet on the edge-jobs pool (``np.argsort`` releases the GIL; the order of each column does not depend on the others)."""
+    with _ORDER_CACHE_LOCK:
+        missing = [i for i, c in enumerate(cols) if not ((hit := _ORDER_CACHE.get(id(c))) is not None and hit[0]() is c)]
+    fresh: dict = {}
+    if len(missing) >= 2:
+        from .._edge_pool import map_on_edge_pool
+
+        fresh = dict(zip(missing, map_on_edge_pool(lambda i: finite_sort_order(cols[i]), missing, min_items=2)))
+    return [fresh[i] if i in fresh else finite_sort_order(c) for i, c in enumerate(cols)]
+
+
 def clear_finite_sort_order_cache() -> None:
     """Drop every cached sort order; called when a fit ends so the orders of its columns do not stay in memory."""
     with _ORDER_CACHE_LOCK:
