@@ -12,7 +12,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the sklearn estimator con
 | **RESOLVED** | SKL14-6 | sklearn_contract | Medium | `ClassifierWithEarlyStopping` never set `classes_` and kept stale `feature_names_in_` |
 | **RESOLVED** | SKL14-7a | sklearn_contract | Medium | `BinaryPostCalibrator.predict_proba` before fit did not raise NotFittedError |
 | **RESOLVED** | SKL14-7b | sklearn_contract | Medium | `BinaryPostCalibrator.fit` trained the `calibrator` constructor parameter in place; it now fits a deep copy kept as `calibrator_` (the Venn-Abers calibration data keeps its `p_cal` / `y_cal` names, which an existing test reads) |
-| **FUTURE** | SKL14-8 | sklearn_contract | Medium | `RFECV.__init__` validates and overlays config objects onto flat kwargs; moving it into `fit` touches the whole parameter surface of a large class and needs its own pass |
+| **RESOLVED** | SKL14-8 | sklearn_contract | Medium | `RFECV` validated only in `__init__`; `fit` now re-runs the same checks on the current parameters (the constructor checks stay, and the config-overlay in `__init__` is left as it is) |
 | **RESOLVED** | SKL14-9 | sklearn_contract | Low | `HybridSelector(random_state=RandomState)` raised TypeError |
 | **RESOLVED** | SKL14-10 | sklearn_contract | Low | `StabilityFESelector.transform` before fit raised RuntimeError |
 | **RESOLVED** | DOC14-1 | doc_drift | Medium | `report_ndigits` documented as 4, code default 2 (three functions) |
@@ -27,7 +27,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the sklearn estimator con
 
 ## Counts
 
-20 rows. Dispositions: 17 RESOLVED, 1 FUTURE, 1 REJECTED (SKL14-7 is counted in two rows).
+20 rows. Dispositions: 18 RESOLVED, 0 FUTURE, 1 REJECTED (SKL14-7 is counted in two rows).
 
 ## Implemented
 
@@ -36,6 +36,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the sklearn estimator con
 | SKL14-1..4 | Select columns by name in the fitted selectors' transform and stop renaming the caller's frame | `tests/feature_selection/test_selectors_transform_by_column_name.py`, `tests/feature_selection/shap_proxied/test_shap_proxied_transform_keeps_callers_columns.py` |
 | SKL14-4, SKL14-5, SKL14-10 | Raise NotFittedError from HybridSelector and StabilityFESelector transform before fit | `tests/feature_selection/test_selectors_raise_not_fitted_error.py` |
 | SKL14-6 | Expose classes_ from the early-stopping classifier wrapper and drop stale column names on refit | `tests/estimators/test_early_stopping_classifier_exposes_classes.py` |
+| SKL14-8 | Re-validate RFECV's parameters at fit | `tests/feature_selection/wrappers/test_rfecv_set_params_is_validated_at_fit.py` |
 | SKL14-7b | Fit a private copy of the calibrator in BinaryPostCalibrator | `tests/calibration/test_post_calibrator_does_not_fit_the_passed_in_object.py` |
 | SKL14-7a | Raise NotFittedError from BinaryPostCalibrator.postcalibrate_probs before fit | `tests/calibration/test_post_calibrator_not_fitted.py` |
 | SKL14-9 | Accept a RandomState or Generator as HybridSelector's random_state | `tests/feature_selection/test_hybrid_selector_seed_int.py` |
