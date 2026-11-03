@@ -168,3 +168,6 @@ Same frame (family_scale._make(100000, 100, 0)), held-out frame _make(50000, 100
 - CPU (294.9 s): g, x4, x2, add(x0*x1__He1_He1,sin(sir__...__dir0)), x4__He3, x4__fourier3: test AUC 0.9018 (LightGBM), 0.8958 (logistic).
 - All 107 raw numeric columns, LightGBM: 0.8918.
 The selections differ (known since 2026-10-31) but the GPU one is not worse: equal under LightGBM, +0.007 under logistic regression.
+Later the same day: after the sort / joint-histogram changes 96.2 s; after `mlframe-tune-kernels ensure` filled the missing / stale entries (bootstrap tied device,
+LOF device, DTW dispatch, the two kernel-parallelism specs; the "tuning cache is cold" warning is gone) 96.8 s. Same 6 selected features, no tracebacks.
+Five clean 100k runs today: 91.5, 101.1, 98.0, 96.2, 96.8 s.
