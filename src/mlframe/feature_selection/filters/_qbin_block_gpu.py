@@ -25,14 +25,18 @@ def sync_free_qbin_codes_block(cp, xd, nbins: int):
     """Resident int64 codes ``(k, n)`` of the rows of the resident float matrix ``xd`` ``(k, n)`` (one column per row, contiguous); row ``j`` equals ``_sync_free_qbin_codes(cp, xd[j], nbins)``."""
     k, n = int(xd.shape[0]), int(xd.shape[1])
     qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
-    xs = cp.sort(xd, axis=1)
     pos = qs / 100.0 * (n - 1)
     lo = cp.floor(pos).astype(cp.int64)
     hi = cp.minimum(lo + 1, n - 1)
     frac = (pos - lo)[None, :]
-    xlo = xs[:, lo]
-    xhi = xs[:, hi]
-    del xs
+    picked = _order_statistics_rows(cp, xd, n, int(nbins))
+    if picked is not None:
+        xlo, xhi = picked
+    else:
+        xs = cp.sort(xd, axis=1)
+        xlo = xs[:, lo]
+        xhi = xs[:, hi]
+        del xs
     diff = xhi - xlo
     e = cp.where(frac >= 0.5, xhi - diff * (1 - frac), xlo + diff * frac)  # (k, nbins + 1), ascending per row
     dup = cp.zeros(e.shape, dtype=bool)
@@ -53,6 +57,40 @@ def sync_free_qbin_codes_block(cp, xd, nbins: int):
         x = xd[c0:c1].astype(kept.dtype, copy=False)
         out[c0:c1] = (kept[c0:c1, :, None] <= x[:, None, :]).sum(axis=1)
     return out
+
+
+def _order_statistics_rows(cp, xd, n: int, nbins: int):
+    """``(xs[:, lo], xs[:, hi])`` of the row-sorted ``xd`` ``(k, n)`` for the quantile positions of ``linspace(0, 100, nbins + 1)``, selected by the radix kernels
+    (the values a sort would put there, in the input dtype) instead of sorting every row; ``None`` when the select does not apply (the caller sorts).
+    The ranks are formed on the host with the device expression's formula, so no value is read back; ``MLFRAME_QBIN_BLOCK_RADIX=0`` keeps the sort."""
+    import os
+
+    if os.environ.get("MLFRAME_QBIN_BLOCK_RADIX", "1").strip() == "0" or xd.dtype not in (cp.float32, cp.float64) or not xd.flags.c_contiguous or n < 1:
+        return None
+    try:
+        from ._gpu_resident_select_kernels import _RADIX_SELECT_MAXR, _RADIX_STATIC_SHARED_BYTES, _get_radix_select_f32_dispatch, _get_radix_select_kernel, _resolve_radix_threads
+
+        pos = np.linspace(0.0, 100.0, nbins + 1) / 100.0 * (n - 1)
+        lo = np.floor(pos).astype(np.int64)
+        hi = np.minimum(lo + 1, n - 1)
+        uniq = np.unique(np.concatenate([lo, hi]))
+        R = int(uniq.size)
+        shmem = R * 256 * 4
+        limit = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
+        if R > _RADIX_SELECT_MAXR or shmem > limit - _RADIX_STATIC_SHARED_BYTES:
+            return None
+        k = int(xd.shape[0])
+        osv = cp.empty((R, k), dtype=xd.dtype)
+        is_f32 = xd.dtype == cp.float32
+        ker = _get_radix_select_f32_dispatch(n) if is_f32 else _get_radix_select_kernel(False)
+        ker((k,), (_resolve_radix_threads(n),), (xd, np.int64(n), np.int32(k), cp.asarray(uniq, dtype=cp.int64), np.int32(R), osv), shared_mem=shmem)
+        row = {int(r): i for i, r in enumerate(uniq)}
+        lo_rows = cp.asarray([row[int(v)] for v in lo], dtype=cp.int64)
+        hi_rows = cp.asarray([row[int(v)] for v in hi], dtype=cp.int64)
+        return osv[lo_rows].T, osv[hi_rows].T
+    except Exception as exc:
+        logger.debug("radix order statistics for the qbin block not used (%s: %s); sorting", type(exc).__name__, exc)
+        return None
 
 
 _COUNT_KERNELS: dict = {}

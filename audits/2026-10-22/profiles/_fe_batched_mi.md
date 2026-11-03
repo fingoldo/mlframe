@@ -29,3 +29,7 @@ Same occupied cells, entropies to round-off (test_cmi_fused_entropy_default). Fi
 `_qbin_block_gpu.sync_free_qbin_codes_block` sort 0.34 s (25 calls, 14-16 x 50000 f32), `_fe_cmi_perm_null_gpu.conditional_perm_null_gpu` argsort 0.26 s,
 `_gpu_resident_rank_bin` argsort 0.14 s (196 calls), conditional gate median 0.12 s, `_resident_mi_candidates` percentile 0.10 s.
 `_quantile_columns` now takes `_radix_quantiles` (sort as fallback): equal values (test_nonpoly_quantiles_radix), 30000 x 100 f32, 3 fractions: 23.7 -> 1.8 ms.
+`_qbin_block_gpu.sync_free_qbin_codes_block` now takes its xs[:, lo] / xs[:, hi] from the radix select (`_order_statistics_rows`: the order statistics in the
+input dtype, ranks formed on the host, the function's own float32 lerp kept, so no value changes); codes equal the sort path for 6 row shapes x 2 dtypes
+(test_qbin_block_radix). Min of 7, alternating, ms sort / radix: 16 x 50000 f32 7.5-8.3 / 2.1; 105 x 50000 42.0 / 5.1-5.3; 14 x 100000 12.7 / 2.3.
+`MLFRAME_QBIN_BLOCK_RADIX=0` keeps the sort.
