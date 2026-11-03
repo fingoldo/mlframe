@@ -424,7 +424,7 @@ def fast_cv_rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     if yt.shape[0] == 0:
         return np.nan
     mu = float(np.mean(yt))
-    if mu == 0.0:
+    if not mu > 0.0:
         return np.nan
     diff = yp - yt
     rmse = float(sqrt(np.mean(diff * diff)))
