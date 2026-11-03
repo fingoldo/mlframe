@@ -19,3 +19,9 @@ Remaining: the compare-and-count pass is about 45 ms of the 69 ms above the sort
 ## group_mi_block_gpu (the strict-resident group pre-selection of the binned-aggregate family)
 
 `_cheap_mi_group_selection` under the strict-resident path scored each candidate on its own (sort, searchsorted, bincount and three host reads per column). `group_mi_block_gpu` sorts the block once and hands every column's edges to the existing fused `binned_mi_from_values_gpu` kernel. Values equal the host `_cheap_mi_with_y` to rtol 1e-4 with the same ranking (`test_group_mi_block_matches_the_per_column_cheap_mi`); a failed pass keeps the per-column device loop.
+
+## 2026-11-03: count kernel for the codes
+
+Stage sample of binned_numeric_agg (100000 x 100): 4 samples at `sync_free_qbin_codes_block:50`, the `(kept[:, :, None] <= x[:, None, :]).sum(axis=1)` broadcast
+(a (columns, edges, rows) boolean temporary per 16 columns, then its reduction). An elementwise kernel counts the kept edges <= (double) x per value: same codes
+(test_qbin_block_gpu, 6 passed); 100 columns x 100000 rows 0.119 -> 0.078 s. A float32 edge table keeps the broadcast.

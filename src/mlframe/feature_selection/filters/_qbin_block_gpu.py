@@ -43,11 +43,39 @@ def sync_free_qbin_codes_block(cp, xd, nbins: int):
     excl = (e == emin) | dup | (has_interior & (e == emax))
     kept = cp.where(excl, cp.inf, e)
     out = cp.empty((k, n), dtype=cp.int64)
+    if kept.dtype == cp.float64 and xd.dtype in (cp.float32, cp.float64):
+        # one thread per value counts the kept edges <= x (the comparison in double precision, as the broadcast below does after its cast): the same integer,
+        # without the (columns, edges, rows) boolean temporary and its reduction
+        _count_kernel(cp)(cp.ascontiguousarray(xd), cp.ascontiguousarray(kept), np.int64(n), np.int32(kept.shape[1]), out, size=k * n)  # Intentional float64: the kept edges are double
+        return out
     for c0 in range(0, k, _COMPARE_COLUMNS):
         c1 = min(k, c0 + _COMPARE_COLUMNS)
         x = xd[c0:c1].astype(kept.dtype, copy=False)
         out[c0:c1] = (kept[c0:c1, :, None] <= x[:, None, :]).sum(axis=1)
     return out
+
+
+_COUNT_KERNELS: dict = {}
+
+
+def _count_kernel(cp):
+    """Elementwise kernel: ``out[j, i]`` = number of ``kept[j, :]`` entries ``<= (double) x[j, i]``."""
+    kern = _COUNT_KERNELS.get("k")
+    if kern is None:
+        kern = cp.ElementwiseKernel(
+            "raw X x, raw float64 kept, int64 n, int32 ne",
+            "raw int64 out",
+            """
+            const long long j = i / n;
+            const double v = (double)x[i];
+            long long c = 0;
+            for (int t = 0; t < ne; ++t) c += (kept[j * ne + t] <= v) ? 1 : 0;
+            out[i] = c;
+            """,
+            "qbin_count_kept_edges",
+        )
+        _COUNT_KERNELS["k"] = kern
+    return kern
 
 
 def _block_columns(cp, n_rows: int, n_cols: int) -> int:
