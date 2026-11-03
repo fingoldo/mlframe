@@ -6,7 +6,7 @@ Six read-only reports by Opus 5.5 low-effort agents on packages no earlier wave 
 |---|---|---|---|
 | **RESOLVED** | W20FE-1 | High | `leakage_safe_aggregate` fast path let one NaN poison every later sum / mean of an entity and counted the NaN row |
 | **RESOLVED** | W20FE-2 | High | causal step 2 of `two_step_recency_weighted_target_encode` underflowed to 0/0 = NaN for events > ~1000 half-lives before the entity's last one; now a per-step carry-forward kernel |
-| **FUTURE** | W20FE-3 | Medium | `nearest_past_join` fallback-tier sparsity check counts future right rows; needs a per-row cumulative group count |
+| **RESOLVED** | W20FE-3 | Medium | `nearest_past_join` fallback-tier sparsity check counts future right rows; needs a per-row cumulative group count |
 | **FUTURE** | W20FE-4 | Medium | `polars_dynamic_window` labels windows at their start, so a join back by label sees the following period; switching to `label="right"` changes the output keys, so it needs an explicit option |
 | **FUTURE** | W20FE-5 | Low | integer / float time columns are read as microseconds; the fix (reject or require a unit) changes the accepted inputs |
 | **RESOLVED** | W20PRE-1 | Medium-High | PELT l2 cost from raw prefix sums cancels catastrophically far from zero; the kernel centres the signal first |
@@ -52,3 +52,4 @@ The `feature_engineering/transformer/` subpackage and most other feature_enginee
 | W20INFO-3 | `tests/feature_selection/info_theory/test_fused_entropy_kernels_check_class_range.py` |
 | W20FS-2 | `tests/feature_selection/test_pre_screen_polars_counts_nan_like_pandas.py` |
 | W20INFO-2 | `tests/feature_selection/test_mixed_ksg_tie_jitter_on_large_values.py` |
+| W20FE-3 | `tests/feature_engineering/test_nearest_past_join_sparsity_counts_only_past_rows.py` |

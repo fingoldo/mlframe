@@ -57,6 +57,22 @@ def _nearest_past_join_single_tier(
         return merged
 
 
+def _historical_group_sizes(left_rows: pd.DataFrame, right_df: pd.DataFrame, on: str, tier_by_list: Sequence[str]) -> np.ndarray:
+    """Per left row, how many right rows of its ``by`` group are HISTORICAL (``right[on] <= left[on]``). Counting the whole group also counted rows from
+    after the left row, so a group with one past row and nine future ones passed the sparsity floor and the feature depended on data from its own future."""
+    n = len(left_rows)
+    if not tier_by_list:
+        return np.asarray(np.searchsorted(np.sort(right_df[on].to_numpy()), left_rows[on].to_numpy(), side="right"), dtype=np.int64)
+    right_times = {k if isinstance(k, tuple) else (k,): np.sort(g[on].to_numpy()) for k, g in right_df.groupby(list(tier_by_list))}
+    left_on = left_rows[on].to_numpy()
+    sizes = np.zeros(n, dtype=np.int64)
+    for key, positions in left_rows.reset_index(drop=True).groupby(list(tier_by_list)).indices.items():
+        times = right_times.get(key if isinstance(key, tuple) else (key,))
+        if times is not None:
+            sizes[positions] = np.searchsorted(times, left_on[positions], side="right")
+    return sizes
+
+
 def nearest_past_join(
     left_df: pd.DataFrame,
     right_df: pd.DataFrame,
@@ -163,11 +179,7 @@ def nearest_past_join(
         # a group with fewer than ``min_group_size`` historical rows counts as "too sparse" even when a
         # nearest-past value technically exists, so its rows still fall through to the next, coarser tier.
         # vectorized via merge (not a per-row dict/tuple lookup, which dominates wall time on large inputs).
-        if tier_by_list:
-            group_sizes = right_df.groupby(tier_by_list).size().rename("_group_size").reset_index()
-            row_group_sizes = left_df.loc[unresolved_idx, tier_by_list].merge(group_sizes, on=tier_by_list, how="left")["_group_size"].fillna(0).to_numpy()
-        else:
-            row_group_sizes = np.full(len(candidate), len(right_df))
+        row_group_sizes = _historical_group_sizes(left_df.loc[unresolved_idx], right_df, on, tier_by_list)
 
         sparse = row_group_sizes < min_group_size
         for new_name in attached_names:
