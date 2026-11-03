@@ -20,7 +20,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave co
 | **RESOLVED** | W23REP-3 | Low-Medium | overfit verdict and split ordering look up `"train"` / `"test"` case-sensitively |
 | **RESOLVED** | W23MET-1 | Medium | gains / lift table breaks tied scores by row order and cuts deciles at fixed positions (same class as W20REP-1; changes output) |
 | **RESOLVED** | W23MET-2 | Medium | Tweedie deviance with power > 2 accepted y = 0 and returned a negative value |
-| **FUTURE** | W23MET-3 | Low-Medium | weighted ICE class reduction counts positives unweighted |
+| **RESOLVED** | W23MET-3 | Low-Medium | the weighted ICE class reduction counted each class's positives unweighted; with `sample_weight` the class weight is now its summed row weight (`tests/metrics/test_ice_class_reduction_uses_weighted_positives.py`) |
 | **RESOLVED** | W23MET-4 | Low | ordinal cutpoints accepted labels outside `[0, n_classes)` |
 | **FUTURE** | W23MET-5 | Low | KTC region for the odds-combine dispatch can route small shapes to the GPU |
 
