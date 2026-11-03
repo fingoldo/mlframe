@@ -541,6 +541,17 @@ def compute_batch_rmse(
     return np.asarray(np.sqrt(np.mean((yt - yp) ** 2.0, axis=0, dtype=np.float64))).astype(_out_dtype, copy=False)
 
 
+def _mask_nan_score_columns(ys: np.ndarray, roc: np.ndarray, pr: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """``roc`` / ``pr`` with NaN written to every column whose scores contain a NaN."""
+    bad = np.isnan(ys).any(axis=0)
+    if bad.any():
+        roc = np.array(roc, dtype=np.float64, copy=True)
+        pr = np.array(pr, dtype=np.float64, copy=True)
+        roc[bad] = np.nan
+        pr[bad] = np.nan
+    return roc, pr
+
+
 def compute_batch_aucs(
     y_true: np.ndarray,
     y_score: np.ndarray,
@@ -548,6 +559,9 @@ def compute_batch_aucs(
     force_backend: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Both ROC AUC and PR AUC per column, auto GPU/CPU dispatch.
+
+    A score column holding any NaN yields NaN for both AUCs on either backend: the kernels would otherwise rank the NaNs as one more tie run and return a
+    finite number for a column that has no defined ranking.
 
     Returns ``(roc_aucs, pr_aucs)`` as host-side numpy arrays of shape
     ``(M,)``. NaNs are returned for label columns where ROC/PR is
@@ -573,10 +587,10 @@ def compute_batch_aucs(
                 for j in range(M):
                     rocs.append(cp.asnumpy(gpu_multiple_roc_auc_scores(yt[:, j], ys[:, j : j + 1])))
                     prs.append(cp.asnumpy(gpu_multiple_pr_auc_scores(yt[:, j], ys[:, j : j + 1])))
-                return np.concatenate(rocs), np.concatenate(prs)
+                return _mask_nan_score_columns(ys, np.concatenate(rocs), np.concatenate(prs))
             roc = cp.asnumpy(gpu_multiple_roc_auc_scores(yt, ys))
             pr = cp.asnumpy(gpu_multiple_pr_auc_scores(yt, ys))
-            return roc, pr
+            return _mask_nan_score_columns(ys, roc, pr)
         except _device_error_classes() as e:
             # See compute_batch_rmse's identical guard: force_backend='gpu' still raises, auto-dispatch
             # falls back instead of crashing the whole suite. Found live via a 2M-row fuzz-optimization
@@ -596,7 +610,7 @@ def compute_batch_aucs(
     per_column_labels = yt.ndim == 2
     for j in range(M):
         roc[j], pr[j] = _fast_aucs(yt[:, j] if per_column_labels else yt, ys[:, j])
-    return roc, pr
+    return _mask_nan_score_columns(ys, roc, pr)
 
 
 def _resolve_backend(force: Optional[str], N: int, M: int, kernel_name: str = "batch_rmse") -> bool:

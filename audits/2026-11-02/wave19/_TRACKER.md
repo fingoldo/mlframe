@@ -6,7 +6,7 @@ Six read-only reports by Opus 5.5 low-effort agents on the areas waves 17 and 18
 |---|---|---|---|
 | **RESOLVED** | W19MET-1 | High | `create_fairness_subgroups` left `cats_to_use` unassigned (UnboundLocalError, or the previous feature's bins) when rare categories cannot be merged and exclusion is off |
 | **RESOLVED** | W19MET-2 | Medium | Spearman numba kernels returned NaN for +-inf while the scipy path ranks it; they now treat only NaN as missing |
-| **FUTURE** | W19MET-3 | Medium | `gpu_multiple_roc_auc_scores` ranks NaN scores as separate tie runs and returns a finite AUC; the CPU path's NaN handling was not read, so the target behaviour (NaN column) needs confirming first |
+| **RESOLVED** | W19MET-3 | Medium | both backends of `compute_batch_aucs` returned a finite AUC for a score column holding NaN (the CPU kernel did the same, so GPU and CPU agreed on a wrong number); a column with any NaN score now gets NaN ROC and PR AUC on either backend (`tests/metrics/test_batch_aucs_nan_score_column_is_nan.py`, run on the local CUDA device) |
 | **RESOLVED** | W19MET-4 | Medium | MBE, explained variance and wMAPE wrappers dropped the float64 cast and numba subtracted unsigned inputs in uint64 (-1 became 1.8e19) |
 | **RESOLVED** | W19MET-5 | Low | Hosmer-Lemeshow silently dropped the group holding a NaN score |
 | **RESOLVED** | W19MET-6 | Low | `fast_cv_rmse` documented NaN for mean <= 0 but guarded only mean == 0 |
