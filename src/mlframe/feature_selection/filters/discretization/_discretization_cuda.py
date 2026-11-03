@@ -21,6 +21,24 @@ from ._code_dtype import _safe_code_dtype
 logger = logging.getLogger(__name__)
 
 
+def _redo_flushed_columns(arr: np.ndarray, out: np.ndarray, flat_cols: Any, n_bins: int, dtype: type) -> np.ndarray:
+    """``out`` with the columns the device saw as constant re-binned on the host when they are not.
+
+    CUDA flushes float32 subnormals to zero in casts and reductions, so a column whose values are all subnormal reads as constant on the device while the CPU kernel
+    bins it by its true range. Only columns the device called constant are checked, so the common path pays one small flag transfer.
+    """
+    if flat_cols is None or not flat_cols.any():
+        return out
+    from . import discretize_2d_array
+
+    for j in np.flatnonzero(flat_cols):
+        col = arr[:, j]
+        finite = col[np.isfinite(col)]
+        if finite.size and finite.min() != finite.max():
+            out[:, j] = discretize_2d_array(arr[:, [j]], n_bins=n_bins, method="uniform", dtype=dtype, prefer_gpu=False)[:, 0]
+    return out
+
+
 def discretize_2d_array_cuda(
     arr: np.ndarray,
     n_bins: int = 10,
@@ -90,6 +108,7 @@ def discretize_2d_array_cuda(
     # 1-element ``cp.asarray``/upload this used to pay per call is pure overhead with no different result.
     _out_cp_dtype = cp.int8 if dtype == np.int8 else np.dtype(dtype)
     out = cp.empty((n_rows, n_cols), dtype=_out_cp_dtype)
+    flat_cols = None
 
     if method == "quantile":
         qs = cp.linspace(0.0, 100.0, n_bins + 1)
@@ -134,8 +153,10 @@ def discretize_2d_array_cuda(
         # plain cp.min/cp.max propagate NaN (a single NaN anywhere in a column
         # poisons that column's min/max to NaN), unlike the CPU discretize_uniform path's NaN-aware range.
         # cp.nanmin/cp.nanmax exist (unlike cp.nanpercentile above) so this branch stays fully on-device.
-        col_min = cp.nanmin(d_arr, axis=0, keepdims=True)
-        col_max = cp.nanmax(d_arr, axis=0, keepdims=True)
+        # The range and the affine map run in float64: a float32 column spanning more than float32's maximum has an infinite float32 range, and a subnormal one a
+        # reciprocal that overflows, both of which collapsed every row to bin 0 while the CPU kernel binned them correctly.
+        col_min = cp.nanmin(d_arr, axis=0, keepdims=True).astype(cp.float64)
+        col_max = cp.nanmax(d_arr, axis=0, keepdims=True).astype(cp.float64)
         # Mirrors the CPU
         # ``discretize_uniform`` fix - canonical formula
         # ``rev_bin_width = n_bins / (max - min)`` with constant-column
@@ -151,8 +172,10 @@ def discretize_2d_array_cuda(
         # column emits a single bin honestly.
         _rng_safe = cp.where(_rng > 0, _rng, 1.0)
         rev = n_bins / _rng_safe
-        out_f = (d_arr - col_min) * rev
+        flat_cols = cp.asnumpy(_rng.ravel() <= 0) if arr.dtype == np.float32 else None
+        out_f = (d_arr.astype(cp.float64, copy=False) - col_min) * rev
         out_f = cp.where(_rng > 0, out_f, 0.0)
+        out_f = cp.nan_to_num(out_f, nan=0.0, posinf=n_bins - 1, neginf=0.0)
         out_f = cp.clip(out_f, 0, n_bins - 1)
         # an individual NaN VALUE (not just a NaN-poisoned column min/max,
         # already fixed above) still produces NaN through the affine map; cp.clip is a no-op on NaN (like
@@ -164,7 +187,7 @@ def discretize_2d_array_cuda(
         out = out_f.astype(_out_cp_dtype)
 
     # D2H the final tensor (single transfer, n_rows * n_cols bytes for int8).
-    return np.asarray(cp.asnumpy(out).astype(dtype, copy=False))
+    return _redo_flushed_columns(arr, np.asarray(cp.asnumpy(out).astype(dtype, copy=False)), flat_cols, n_bins, dtype)
 
 
 def _choose_discretize_row_chunk_rows(n_cols: int, in_itemsize: int, free_bytes: int, out_itemsize: int = 2) -> int:
@@ -263,6 +286,7 @@ def discretize_2d_array_cuda_row_chunked(
 
     out: np.ndarray = np.empty((n_rows, n_cols), dtype=dtype)
     n_chunks = 0
+    flat_cols = None
 
     if method == "uniform":
         col_min_d: Any = None
@@ -273,19 +297,21 @@ def discretize_2d_array_cuda_row_chunked(
         for row_start in range(0, n_rows, row_chunk_rows):
             row_end = min(row_start + row_chunk_rows, n_rows)
             d_chunk = cp.asarray(arr[row_start:row_end])
-            cmin = cp.nanmin(d_chunk, axis=0)
-            cmax = cp.nanmax(d_chunk, axis=0)
+            cmin = cp.nanmin(d_chunk, axis=0).astype(cp.float64)
+            cmax = cp.nanmax(d_chunk, axis=0).astype(cp.float64)
             col_min_d = cmin if col_min_d is None else cp.minimum(col_min_d, cmin)
             col_max_d = cmax if col_max_d is None else cp.maximum(col_max_d, cmax)
             del d_chunk
         _rng = col_max_d - col_min_d
+        flat_cols = cp.asnumpy(_rng <= 0) if arr.dtype == np.float32 else None
         _rng_safe = cp.where(_rng > 0, _rng, 1.0)
         rev = n_bins / _rng_safe
         for row_start in range(0, n_rows, row_chunk_rows):
             row_end = min(row_start + row_chunk_rows, n_rows)
             d_chunk = cp.asarray(arr[row_start:row_end])
-            out_f = (d_chunk - col_min_d) * rev
+            out_f = (d_chunk.astype(cp.float64, copy=False) - col_min_d) * rev
             out_f = cp.where(_rng > 0, out_f, 0.0)
+            out_f = cp.nan_to_num(out_f, nan=0.0, posinf=n_bins - 1, neginf=0.0)
             out_f = cp.clip(out_f, 0, n_bins - 1)
             # Route individual NaN VALUES to the dedicated
             # NaN bin code (n_bins), matching the CPU discretize_uniform kernel and the fixed non-chunked
@@ -337,7 +363,7 @@ def discretize_2d_array_cuda_row_chunked(
         row_chunk_rows,
         n_chunks,
     )
-    return out
+    return _redo_flushed_columns(arr, out, flat_cols, n_bins, dtype)
 
 
 _SEARCHSORTED_RIGHT_2D_SRC = r"""

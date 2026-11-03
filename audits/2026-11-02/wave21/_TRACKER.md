@@ -22,7 +22,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | **RESOLVED** | W21FS-2 | Medium | `forward_select(patience=k)` kept the `patience-1` non-significant additions that preceded the stop |
 | **RESOLVED** | W21FS-3 | Low | `plot_feature_importance(positive_fi_only=True)` still drew negative bars |
 | **RESOLVED** | W21FS-4 | Low | the FI log line's `share=` used signed sums (1100%) |
-| **FUTURE** | W21KRN-1 | Medium | GPU uniform binner emits undefined codes when the range is subnormal or infinite (CPU routes the NaN to bin 0) |
+| **RESOLVED** | W21KRN-1 | Medium | reproduced on the local GPU with float32 input (the float64 cases already matched the CPU): a column whose range exceeds float32's maximum, or a subnormal one, collapsed to bin 0 on the GPU. The range and affine map now run in float64 and non-finite outputs are mapped; CUDA flushes float32 subnormals to zero, so columns the device sees as constant are re-binned on the host when they are not (`tests/feature_selection/test_gpu_uniform_binner_float32_extreme_ranges.py`, both the one-shot and row-chunked paths) |
 | **DOC** | W21KRN-2 | Low | `_accept_split_serial` reseeds the thread's numba RNG on every draw; the batched twin does the same and the two must stay draw-for-draw identical, and numba cannot save and restore the generator state inside a kernel, so the docstring now states the side effect instead of changing the streams |
 | **RESOLVED** | W21REP-1 | Medium-High | slice finder divided supports by all rows although NaN-error rows were dropped |
 | **RESOLVED** | W21REP-2 | Medium | multiclass P/R/F1 counted unknown true labels as false positives while the confusion panels dropped them |
