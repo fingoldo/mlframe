@@ -19,9 +19,16 @@ def _pelt_l2_kernel(y: np.ndarray, min_size: int, penalty: float) -> np.ndarray:
     n = y.shape[0]
     S = np.zeros(n + 1)
     SS = np.zeros(n + 1)
+    # The cost seg_ss - seg_sum^2 / length is shift invariant, but from raw prefix sums it cancels two huge numbers when the level is far from 0;
+    # centring first keeps the sums small and the result exact.
+    centre = 0.0
     for i in range(n):
-        S[i + 1] = S[i] + y[i]
-        SS[i + 1] = SS[i] + y[i] * y[i]
+        centre += y[i]
+    centre = centre / n if n > 0 else 0.0
+    for i in range(n):
+        v = y[i] - centre
+        S[i + 1] = S[i] + v
+        SS[i + 1] = SS[i] + v * v
 
     F = np.zeros(n + 1)
     F[0] = -penalty
