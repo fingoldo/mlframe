@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from mlframe.utils.log_throttle import log_throttle
 
@@ -351,6 +352,25 @@ def _deflate_sincos(z: np.ndarray, y: np.ndarray, freq: float) -> np.ndarray:
         return y
 
 
+# The coarse sweep scores all grid frequencies with one matrix-vector product per sin / cos block (BLAS, GIL released) instead of two dot products per frequency in
+# Python; the sums differ from the per-frequency dots in the last bits, which can only move the coarse argmax that ``_refine_peak_freq`` re-localises.
+# ``MLFRAME_FOURIER_COARSE_GEMV=0`` keeps the per-frequency loop.
+_COARSE_GEMV = os.environ.get("MLFRAME_FOURIER_COARSE_GEMV", "1").strip() != "0"
+
+
+def _best_coarse_freq(mats, yc, y_ss, grid):
+    """The grid frequency of the largest coarse sin + cos power (the first one on a tie, NaN powers never win), or ``None`` when none exceeds -1."""
+    sc_m, sss, cc_m, css = mats
+    yd = np.asarray(yc, dtype=sc_m.dtype)
+    num_s = sc_m @ yd
+    num_c = cc_m @ yd
+    with np.errstate(divide="ignore", invalid="ignore"):
+        p = np.where(sss >= VARIANCE_FLOOR, (num_s * num_s) / (sss * y_ss), 0.0) + np.where(css >= VARIANCE_FLOOR, (num_c * num_c) / (css * y_ss), 0.0)
+    p = np.where(np.isnan(p), -np.inf, p)
+    gi = int(np.argmax(p))
+    return grid[gi] if p[gi] > -1.0 else None
+
+
 def _greedy_fourier_frequency_search(max_freqs, y_tr, y_va, grid, _coarse_basis, z_tr, out, z_va, _core_span, _eff_min_val_corr):
     """Greedily extract Fourier frequencies from the residual of the training split."""
     for _ in range(max(1, int(max_freqs))):
@@ -362,7 +382,10 @@ def _greedy_fourier_frequency_search(max_freqs, y_tr, y_va, grid, _coarse_basis,
             break
         best_f = None
         best_power = -1.0
-        for gi, f in enumerate(grid):
+        _mats = getattr(_coarse_basis, "matrices", None)
+        if _mats is not None and _COARSE_GEMV:
+            best_f = _best_coarse_freq(_mats, yc, y_ss, grid)
+        for gi, f in enumerate(grid if _mats is None or not _COARSE_GEMV else ()):
             sc, s_ss, cc, c_ss = _coarse_basis[gi]
             num_s = float(sc @ yc)
             num_c = float(cc @ yc)

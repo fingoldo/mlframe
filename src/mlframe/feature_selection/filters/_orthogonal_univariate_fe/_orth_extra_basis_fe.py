@@ -172,6 +172,13 @@ def _chirp_axis(x: np.ndarray, mean: float, std: float, lo: float, span: float) 
     return np.asarray(_chirp_axis_njit(x, float(mean), float(std), float(lo), float(span)))
 
 
+class _CoarseBasis(list):
+    """The per-frequency ``(sin_centered, sin_ss, cos_centered, cos_ss)`` rows, plus ``matrices`` (the ``(nf, n)`` sin / cos blocks and the SS vectors they are rows of)
+    when the njit build made them, so the greedy search scores every grid frequency with one matrix-vector product per block."""
+
+    matrices = None
+
+
 @numba.njit(parallel=True, fastmath=True, cache=True)
 def _coarse_basis_njit(z: np.ndarray, freqs: np.ndarray) -> tuple:
     """Build the per-frequency centered sin/cos coarse basis in ONE fused prange-over-freqs pass.
@@ -256,7 +263,8 @@ def _build_coarse_basis(z_tr: np.ndarray, grid: list[float]) -> list:
     _use_exact_basis = os.environ.get("MLFRAME_FOURIER_COARSE_BASIS_EXACT", "") == "1"
     if not _use_exact_basis and len(grid) > 0 and z_tr.size > 0:
         _sc_m, _cc_m, _sss, _css = _coarse_basis_njit(np.ascontiguousarray(z_tr), np.asarray(grid, dtype=_crit_np_dtype()))
-        _coarse_basis = [(_sc_m[gi], float(_sss[gi]), _cc_m[gi], float(_css[gi])) for gi in range(len(grid))]
+        _coarse_basis = _CoarseBasis((_sc_m[gi], float(_sss[gi]), _cc_m[gi], float(_css[gi])) for gi in range(len(grid)))
+        _coarse_basis.matrices = (_sc_m, _sss, _cc_m, _css)
     else:
         for f in grid:
             ang = 2.0 * np.pi * f * z_tr
