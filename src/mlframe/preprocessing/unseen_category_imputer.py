@@ -113,7 +113,7 @@ class UnseenCategoryImputer:
                 # groupby over the whole frame then reindex to reliable categories, instead of an isin() row-mask
                 # scan of size n up front -- groupby already visits every row exactly once either way.
                 cat_means = df.groupby(col, observed=True)[self.value_column].mean().reindex(reliable.index)
-                cat_means = cat_means.sort_values()
+                cat_means = cat_means.dropna().sort_values()  # a category whose value column is all-NaN has no mean to be near: NaN sorted last and hijacked large / NaN queries
                 self.nearest_categories_sorted_[col] = cat_means.index.to_numpy()
                 self.nearest_values_sorted_[col] = cat_means.to_numpy(dtype=float)
         return self
@@ -146,13 +146,18 @@ class UnseenCategoryImputer:
                 sorted_vals = self.nearest_values_sorted_[col]
                 sorted_cats = self.nearest_categories_sorted_[col]
                 query = df.loc[unreliable_mask, self.value_column].to_numpy(dtype=float)
-                idx_right = np.searchsorted(sorted_vals, query)
-                idx_left = np.clip(idx_right - 1, 0, len(sorted_vals) - 1)
-                idx_right = np.clip(idx_right, 0, len(sorted_vals) - 1)
-                left_dist = np.abs(sorted_vals[idx_left] - query)
-                right_dist = np.abs(sorted_vals[idx_right] - query)
-                nearest_idx = np.where(left_dist <= right_dist, idx_left, idx_right)
-                replacement = pd.Series(sorted_cats[nearest_idx], index=df.index[unreliable_mask])
+                if sorted_vals.size == 0:
+                    replacement = pd.Series(self.mode_[col], index=df.index[unreliable_mask])
+                else:
+                    idx_right = np.searchsorted(sorted_vals, query)
+                    idx_left = np.clip(idx_right - 1, 0, len(sorted_vals) - 1)
+                    idx_right = np.clip(idx_right, 0, len(sorted_vals) - 1)
+                    left_dist = np.abs(sorted_vals[idx_left] - query)
+                    right_dist = np.abs(sorted_vals[idx_right] - query)
+                    nearest_idx = np.where(left_dist <= right_dist, idx_left, idx_right)
+                    chosen = sorted_cats[nearest_idx].astype(object)
+                    chosen[~np.isfinite(query)] = self.mode_[col]  # a NaN value has no nearest category: fall back to the mode
+                    replacement = pd.Series(chosen, index=df.index[unreliable_mask])
                 # Whole-column rebind, matching the ``mode`` branch below. ``out`` is a SHALLOW copy, so
                 # ``out.loc[mask, col] = ...`` writes through the shared block into the CALLER's frame: after
                 # ``imp.transform(X_test)`` the caller's own ``X_test`` came back with rewritten categories, and

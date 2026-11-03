@@ -11,7 +11,7 @@ Six read-only reports by Opus 5.5 low-effort agents on packages no earlier wave 
 | **FUTURE** | W20FE-5 | Low | integer / float time columns are read as microseconds; the fix (reject or require a unit) changes the accepted inputs |
 | **RESOLVED** | W20PRE-1 | Medium-High | PELT l2 cost from raw prefix sums cancels catastrophically far from zero; the kernel centres the signal first |
 | **RESOLVED** | W20PRE-2 | Medium | `dro_reweight_fit` returned a model trained on the previous round's weights (the documented final full-data fit was missing) |
-| **FUTURE** | W20PRE-3 | Medium | `unseen_category_imputer` nearest mode maps to a NaN-mean category for large or NaN queries |
+| **RESOLVED** | W20PRE-3 | Medium | `unseen_category_imputer` nearest mode maps to a NaN-mean category for large or NaN queries |
 | **RESOLVED** | W20PRE-4 | Low-Medium | `smoothed_target_encode_column` shuffled its OOF folds with a fresh seed per call; default is now 0 |
 | **FUTURE** | W20PRE-5 | Low | cleaning helper counts the NaN key as a merged rare value and can drop a column that would be a binary indicator |
 | **RESOLVED** | W20PRE-6 | Low | `gp_smoothing` raises KeyError on a NaN entity |
@@ -54,3 +54,4 @@ The `feature_engineering/transformer/` subpackage and most other feature_enginee
 | W20INFO-2 | `tests/feature_selection/test_mixed_ksg_tie_jitter_on_large_values.py` |
 | W20FE-3 | `tests/feature_engineering/test_nearest_past_join_sparsity_counts_only_past_rows.py` |
 | W20PRE-6 | `tests/signal/test_gp_smoothing_null_entity_is_skipped.py` |
+| W20PRE-3 | `tests/preprocessing/test_unseen_category_imputer_nearest_ignores_nan_means.py` |
