@@ -203,6 +203,10 @@ _MI_FROM_VALUES_F32_SRC = (
         "const double* __restrict__ X, const double* __restrict__ edges,", "const float* __restrict__ X, const double* __restrict__ edges,"
     )
     .replace("const double* Xc = X", "const float* Xc = X")
+    # float32 edges (the caller passes each double edge rounded UP to float32): for a float32 value x, ``edge <= (double)x`` holds exactly when
+    # ``ceil_f32(edge) <= x``, so the binary search runs in float32 (double compares are 1/32 rate on the target cards) and the codes are the same
+    .replace("const float* __restrict__ X, const double* __restrict__ edges,", "const float* __restrict__ X, const float* __restrict__ edges,")
+    .replace("double v = Xc[i];", "const float v = Xc[i];")
     .replace("void mi_from_values(", "void mi_from_values_f32(")
     .replace("void mi_hist_split(", "void mi_hist_split_f32(")
     .replace("void mi_from_counts_col(", "void mi_from_counts_col_f32(")
@@ -463,6 +467,13 @@ def _get_mi_split_f32_kernels(cp):
     return _MI_SPLIT_F32_KERNELS
 
 
+def _edges_rounded_up_f32(cp: Any, edges: Any) -> Any:
+    """Each double edge as the smallest float32 not below it (NaN and +-inf kept): ``e <= (double)x`` iff ``up(e) <= x`` for every float32 ``x``."""
+    e32 = edges.astype(cp.float32)
+    low = e32.astype(cp.float64) < edges  # rounded to nearest fell below the double edge  # Intentional float64: exact comparison with the double edge
+    return cp.ascontiguousarray(cp.where(low, cp.nextafter(e32, cp.float32(cp.inf)), e32))
+
+
 def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nbins: int, ky: int, codes_trusted: bool = False, x_cm: Any = None) -> np.ndarray | None:
     """Plug-in MI(col_k; y) for an (n,K) float matrix ``x_vals`` binned by per-column ``interior_edges``
     ((nbins-1, K) cupy) in ONE fused RawKernel (bin + joint histogram + MI), replacing _searchsorted_codes
@@ -491,6 +502,8 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
             Xd = Xd[:, None]
         n, K = int(Xd.shape[0]), int(Xd.shape[1])
     E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))  # (nbins-1, K)  # Intentional float64: GPU MI edge vector; compared at full precision
+    if _is_f32:
+        E = _edges_rounded_up_f32(cp, E)  # the float32 search of the f32-X kernels gives the double comparison's codes
     yv = y_codes.astype(cp.int64, copy=False).ravel() if isinstance(y_codes, cp.ndarray) else cp.asarray(np.ascontiguousarray(y_codes).astype(np.int64).ravel())
     Ky = int(ky)
     if int(nbins) * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
