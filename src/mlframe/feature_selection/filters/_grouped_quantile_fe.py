@@ -596,6 +596,55 @@ def _bin_columns_pooled(bin_one: "Callable[[str], Any]", cols: list) -> list:
     return [bin_one(c) for c in cols]
 
 
+def _grouped_quantile_mi_device(eng_X: pd.DataFrame, eng_cols: list, y_bin: np.ndarray, n_bins: int) -> dict:
+    """``{column: MI}`` of the candidates the device batch scores exactly as the host binner: finite columns that are not low-cardinality integers. The host
+    path cuts at the deduplicated linear quantiles of the column (np.quantile + np.unique) and the device at the same order statistics without the dedup, so a
+    tied edge only relabels an empty bin: the same partition, the same plug-in MI (2026-11-03, 100k x 200: within 1e-16, same ranking; 1.86 s -> 0.011 s).
+    Low-cardinality integer columns (coded by value on the host) and columns with non-finite values stay on the host. Empty when the device is not used
+    (``MLFRAME_GROUPED_QUANTILE_MI_DEVICE=0``, no GPU, or the plug-in MI dispatcher's tuned choice is the host)."""
+    import os
+
+    if os.environ.get("MLFRAME_GROUPED_QUANTILE_MI_DEVICE", "1").strip() == "0" or not eng_cols:
+        return {}
+    try:
+        from ._gpu_policy import cuda_available_for_run
+
+        if not cuda_available_for_run():
+            return {}
+        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import lookup_mi_classif_backend
+
+        if lookup_mi_classif_backend(len(eng_X), len(eng_cols)) != "cuda":
+            return {}
+        import cupy as cp
+
+        from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
+
+        cols = []
+        for c in eng_cols:
+            a = np.asarray(eng_X[c].to_numpy(), dtype=_crit_np_dtype())
+            if not np.isfinite(a).all():
+                continue
+            if np.all(a == np.round(a)) and np.unique(a).size <= n_bins:
+                continue
+            cols.append(c)
+        if not cols:
+            return {}
+        n_cls = int(y_bin.max()) + 1 if y_bin.size else 1
+        yd = cp.asarray(np.ascontiguousarray(y_bin, dtype=np.int64))
+        out: dict = {}
+        step = max(1, (256 << 20) // max(1, len(eng_X) * 4))  # float32 columns per upload block
+        for i in range(0, len(cols), step):
+            blk = cols[i : i + step]
+            Xd = cp.asarray(np.ascontiguousarray(eng_X[blk].to_numpy(dtype=_crit_np_dtype())))
+            mi = np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(n_bins), y_min=0, n_classes=n_cls, keep_dtype=True), dtype=np.float64)  # Intentional float64: MI statistic
+            out.update({c: float(v) for c, v in zip(blk, mi)})
+            del Xd
+        return out
+    except Exception as exc:
+        logger.debug("grouped-quantile device MI not used (%s: %s); host binner", type(exc).__name__, exc)
+        return {}
+
+
 def score_grouped_quantile_by_mi_uplift(
     raw_X: pd.DataFrame,
     eng_X: pd.DataFrame,
@@ -674,7 +723,10 @@ def score_grouped_quantile_by_mi_uplift(
 
     eng_cols = list(eng_X.columns)
     # Binning and the plug-in MI of one column are independent of the other columns: both run in the pool worker, so the MI is not a serial tail behind the binning.
-    eng_mis = _bin_columns_pooled(lambda c: float(_plug_in_mi(_bin(eng_X[c].to_numpy()), y_bin)), eng_cols)
+    device_mi = _grouped_quantile_mi_device(eng_X, eng_cols, y_bin, n_bins)
+    host_cols = [c for c in eng_cols if c not in device_mi]
+    host_mi = dict(zip(host_cols, _bin_columns_pooled(lambda c: float(_plug_in_mi(_bin(eng_X[c].to_numpy()), y_bin)), host_cols))) if host_cols else {}
+    eng_mis = [device_mi[c] if c in device_mi else host_mi[c] for c in eng_cols]
 
     rows = []
     for col, mi in zip(eng_cols, eng_mis):
