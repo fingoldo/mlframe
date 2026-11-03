@@ -25,7 +25,7 @@ Six read-only reports by Opus 5.5 low-effort agents on the areas waves 17 and 18
 | **RESOLVED** | W19CMP-3 | Medium | the single-split group carve fell back to a group-blind row shuffle when the carve was degenerate; `_carve_holdout_groups` now skips groups that overshoot twice the request, logs a holdout outside [0.5x, 2x], and raises when no group-respecting split exists (`tests/training/composite/test_oof_group_carve_never_shuffles_rows.py`) |
 | **RESOLVED** | W19CMP-4 | Medium | fewer groups than OOF folds fell back to a shuffled K-fold that splits groups |
 | **RESOLVED** | W19CMP-5 | Medium | the OOF cache key hashed only 128 group labels and the mere presence of a time order |
-| **FUTURE** | W19CMP-6 | Low | the meta-stacker CV (LassoCV / ElasticNetCV alpha, GBM early stopping) ignores group and time structure of the OOF rows |
+| **PARTIAL** | W19CMP-6 | Low | the ridge / lasso / elastic-net meta-stackers take `group_ids` (GroupKFold) and `time_ordered` (forward-chaining) for their alpha search, threaded through `build_meta_stack_ensemble` (`tests/training/composite/test_meta_stacker_alpha_cv_respects_groups.py`); the callers in the suite do not pass them yet, and the GBM stacker's internal early-stopping split is unchanged |
 | **RESOLVED** | W19FHN-1 | High | the dense-only assembly refit `TruncatedSVD` per split; val/test now use `transform` of the train-fitted SVD (`AssembledMatrix.fitted_svds`) |
 | **RESOLVED** | W19FHN-2 | High (use_mixup) | mixup interpolated integer category codes before the embedding lookup |
 | **RESOLVED** | W19FHN-3 | Medium | unseen categories under WoE encoded to the prior log-odds instead of the neutral 0 |

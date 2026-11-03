@@ -51,6 +51,26 @@ logger = logging.getLogger(__name__)
 META_STACKER_KINDS = ("nnls", "ridge", "lasso", "elasticnet", "gbm")
 
 
+def _meta_cv_splits(n_rows_finite: int, finite: np.ndarray, group_ids: np.ndarray | None, time_ordered: bool) -> list | None:
+    """Explicit CV splits over the finite OOF rows for the alpha search, or None for sklearn's default shuffled-free K-fold.
+
+    ``group_ids`` (one per raw OOF row) keeps every group in a single fold; ``time_ordered`` uses forward-chaining splits over the rows in their given order.
+    Rows of one entity or one time block are correlated, so the default KFold leaks across folds and picks too small an alpha.
+    """
+    if group_ids is not None:
+        from sklearn.model_selection import GroupKFold
+
+        groups = np.asarray(group_ids)[finite]
+        n_splits = min(5, int(np.unique(groups).size))
+        if n_splits >= 2:
+            return list(GroupKFold(n_splits=n_splits).split(np.zeros(n_rows_finite), groups=groups))
+    if time_ordered and n_rows_finite >= 12:
+        from sklearn.model_selection import TimeSeriesSplit
+
+        return list(TimeSeriesSplit(n_splits=4).split(np.zeros(n_rows_finite)))
+    return None
+
+
 def _clean_oof_matrix(
     oof_matrix: np.ndarray, oof_y: np.ndarray, n_components: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -94,6 +114,8 @@ def fit_ridge_meta_stacker(
     ridge_alpha: float | None = None,
     ridge_alpha_grid: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0),
     sample_weight: np.ndarray | None = None,
+    group_ids: np.ndarray | None = None,
+    time_ordered: bool = False,
 ) -> Any:
     """Fit a Ridge meta-model on the leakage-free OOF component matrix.
 
@@ -106,6 +128,9 @@ def fit_ridge_meta_stacker(
     unconstrained problem, then a final ``Ridge(positive=True, alpha=chosen)`` is fit -- a cheap, standard two-step.
 
     Returns the fitted sklearn estimator (has ``.predict`` + ``.coef_`` + ``.intercept_``).
+
+    ``group_ids`` (one per OOF row) keeps each group inside one fold of the alpha search and ``time_ordered`` uses forward-chaining folds;
+    both default to off (sklearn's default K-fold).
     """
     from sklearn.linear_model import Ridge, RidgeCV  # lazy: keep cold-import off the predict path
 
@@ -114,7 +139,8 @@ def fit_ridge_meta_stacker(
     if X.shape[0] < n_components + 2:
         raise ValueError(f"fit_ridge_meta_stacker: only {X.shape[0]} finite OOF rows for {n_components} components (need >= {n_components + 2}).")
     if ridge_alpha is None:
-        rcv = RidgeCV(alphas=tuple(ridge_alpha_grid), fit_intercept=True)
+        _cv = _meta_cv_splits(X.shape[0], finite, group_ids, time_ordered)
+        rcv = RidgeCV(alphas=tuple(ridge_alpha_grid), fit_intercept=True, cv=_cv)
         rcv.fit(X, y, sample_weight=sw)
         chosen = float(getattr(rcv, "alpha_", ridge_alpha_grid[0]))
     else:
@@ -133,6 +159,8 @@ def fit_lasso_meta_stacker(
     lasso_alpha: float | None = None,
     lasso_alpha_grid: tuple[float, ...] = (0.001, 0.01, 0.1, 1.0),
     sample_weight: np.ndarray | None = None,
+    group_ids: np.ndarray | None = None,
+    time_ordered: bool = False,
 ) -> Any:
     """Fit a Lasso (L1) meta-model on the leakage-free OOF component matrix.
 
@@ -148,6 +176,9 @@ def fit_lasso_meta_stacker(
     final ``Lasso(positive=True, alpha=chosen)`` is fit -- the same two-step pattern as the Ridge stacker.
 
     Returns the fitted sklearn estimator (has ``.predict`` + ``.coef_`` + ``.intercept_``).
+
+    ``group_ids`` (one per OOF row) keeps each group inside one fold of the alpha search and ``time_ordered`` uses forward-chaining folds;
+    both default to off (sklearn's default K-fold).
     """
     from sklearn.linear_model import Lasso, LassoCV  # lazy: keep cold-import off the predict path
 
@@ -156,7 +187,7 @@ def fit_lasso_meta_stacker(
     if X.shape[0] < n_components + 2:
         raise ValueError(f"fit_lasso_meta_stacker: only {X.shape[0]} finite OOF rows for {n_components} components (need >= {n_components + 2}).")
     if lasso_alpha is None:
-        lcv = LassoCV(alphas=tuple(lasso_alpha_grid), fit_intercept=True)
+        lcv = LassoCV(alphas=tuple(lasso_alpha_grid), fit_intercept=True, cv=_meta_cv_splits(X.shape[0], finite, group_ids, time_ordered))
         lcv.fit(X, y, sample_weight=sw)
         chosen = float(getattr(lcv, "alpha_", lasso_alpha_grid[0]))
     else:
@@ -177,6 +208,8 @@ def fit_elasticnet_meta_stacker(
     elasticnet_l1_ratio: float | None = None,
     elasticnet_l1_ratio_grid: tuple[float, ...] = (0.1, 0.3, 0.5, 0.7, 0.9),
     sample_weight: np.ndarray | None = None,
+    group_ids: np.ndarray | None = None,
+    time_ordered: bool = False,
 ) -> Any:
     """Fit an ElasticNet (combined L1+L2) meta-model on the leakage-free OOF component matrix.
 
@@ -192,6 +225,9 @@ def fit_elasticnet_meta_stacker(
     ``ElasticNet(positive=True, alpha=chosen, l1_ratio=chosen)`` is fit -- the same two-step pattern as Ridge/Lasso.
 
     Returns the fitted sklearn estimator (has ``.predict`` + ``.coef_`` + ``.intercept_`` + ``.l1_ratio``).
+
+    ``group_ids`` (one per OOF row) keeps each group inside one fold of the alpha search and ``time_ordered`` uses forward-chaining folds;
+    both default to off (sklearn's default K-fold).
     """
     from sklearn.linear_model import ElasticNet, ElasticNetCV  # lazy: keep cold-import off the predict path
 
@@ -200,7 +236,8 @@ def fit_elasticnet_meta_stacker(
     if X.shape[0] < n_components + 2:
         raise ValueError(f"fit_elasticnet_meta_stacker: only {X.shape[0]} finite OOF rows for {n_components} components (need >= {n_components + 2}).")
     if elasticnet_alpha is None or elasticnet_l1_ratio is None:
-        ecv = ElasticNetCV(alphas=tuple(elasticnet_alpha_grid), l1_ratio=list(elasticnet_l1_ratio_grid), fit_intercept=True)
+        ecv = ElasticNetCV(alphas=tuple(elasticnet_alpha_grid), l1_ratio=list(elasticnet_l1_ratio_grid), fit_intercept=True,
+                            cv=_meta_cv_splits(X.shape[0], finite, group_ids, time_ordered))
         ecv.fit(X, y, sample_weight=sw)
         chosen_alpha = float(elasticnet_alpha) if elasticnet_alpha is not None else float(getattr(ecv, "alpha_", elasticnet_alpha_grid[0]))
         chosen_l1_ratio = float(elasticnet_l1_ratio) if elasticnet_l1_ratio is not None else float(getattr(ecv, "l1_ratio_", elasticnet_l1_ratio_grid[0]))
@@ -281,6 +318,8 @@ def build_meta_stack_ensemble(
     gbm_max_iter: int = 200,
     gbm_learning_rate: float = 0.05,
     random_state: int = 0,
+    group_ids: np.ndarray | None = None,
+    time_ordered: bool = False,
 ) -> Any:
     """Construct a :class:`CompositeCrossTargetEnsemble` whose blend is a fitted meta-model over the OOF component matrix.
 
@@ -315,6 +354,8 @@ def build_meta_stack_ensemble(
                 ridge_alpha=ridge_alpha,
                 ridge_alpha_grid=ridge_alpha_grid,
                 sample_weight=sample_weight,
+                group_ids=group_ids,
+                time_ordered=time_ordered,
             )
         elif kind == "lasso":
             meta = fit_lasso_meta_stacker(
@@ -323,6 +364,8 @@ def build_meta_stack_ensemble(
                 lasso_alpha=lasso_alpha,
                 lasso_alpha_grid=lasso_alpha_grid,
                 sample_weight=sample_weight,
+                group_ids=group_ids,
+                time_ordered=time_ordered,
             )
         elif kind == "elasticnet":
             meta = fit_elasticnet_meta_stacker(
@@ -333,6 +376,8 @@ def build_meta_stack_ensemble(
                 elasticnet_l1_ratio=elasticnet_l1_ratio,
                 elasticnet_l1_ratio_grid=elasticnet_l1_ratio_grid,
                 sample_weight=sample_weight,
+                group_ids=group_ids,
+                time_ordered=time_ordered,
             )
         else:  # gbm
             meta = fit_gbm_meta_stacker(
