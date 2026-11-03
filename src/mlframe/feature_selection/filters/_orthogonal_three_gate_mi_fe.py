@@ -340,6 +340,31 @@ def _folds_on_device(raw_arr, eng_arr, y_arr, fold_test_idx, n, nbins):
     return out
 
 
+def _kfold_inputs(raw_X: pd.DataFrame, engineered_X: pd.DataFrame, y: np.ndarray, n_folds: int) -> "tuple[np.ndarray, int]":
+    """``(class-coerced y, effective fold count)`` of :func:`score_features_by_kfold_oof_mi`; raises when the frames and ``y`` are not row-aligned."""
+    if len(raw_X) != len(engineered_X):
+        raise ValueError(
+            f"score_features_by_kfold_oof_mi: raw_X has {len(raw_X)} rows "
+            f"but engineered_X has {len(engineered_X)}; positional joint "
+            f"K-fold splitting requires aligned indices."
+        )
+    if len(raw_X) != length_of(y):
+        raise ValueError(f"score_features_by_kfold_oof_mi: raw_X has {len(raw_X)} rows " f"but y has {length_of(y)}; aligned indices required.")
+
+    y_arr = coerce_y_classif(y)
+    n = len(raw_X)
+    n_folds_eff = max(2, int(n_folds))
+    if n < 2 * n_folds_eff:
+        logger.warning(
+            "score_features_by_kfold_oof_mi: n=%d < 2 * n_folds=%d; " "falling back to n_folds=2 to retain at least one held-out " "row per fold.",
+            n,
+            n_folds_eff,
+        )
+        n_folds_eff = 2
+
+    return y_arr, n_folds_eff
+
+
 def score_features_by_kfold_oof_mi(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -377,27 +402,10 @@ def score_features_by_kfold_oof_mi(
       share positional alignment (Layer 62 pattern). The function raises
       if row counts disagree - silent coercion would hide real bugs.
     """
-    if len(raw_X) != len(engineered_X):
-        raise ValueError(
-            f"score_features_by_kfold_oof_mi: raw_X has {len(raw_X)} rows "
-            f"but engineered_X has {len(engineered_X)}; positional joint "
-            f"K-fold splitting requires aligned indices."
-        )
-    if len(raw_X) != length_of(y):
-        raise ValueError(f"score_features_by_kfold_oof_mi: raw_X has {len(raw_X)} rows " f"but y has {length_of(y)}; aligned indices required.")
-
-    y_arr = coerce_y_classif(y)
+    y_arr, n_folds_eff = _kfold_inputs(raw_X, engineered_X, y, n_folds)
     raw_cols = list(raw_X.columns)
     eng_cols = list(engineered_X.columns)
     n = len(raw_X)
-    n_folds_eff = max(2, int(n_folds))
-    if n < 2 * n_folds_eff:
-        logger.warning(
-            "score_features_by_kfold_oof_mi: n=%d < 2 * n_folds=%d; " "falling back to n_folds=2 to retain at least one held-out " "row per fold.",
-            n,
-            n_folds_eff,
-        )
-        n_folds_eff = 2
 
     src_map = {eng_name: (eng_name.split("__", 1)[0] if "__" in eng_name else eng_name) for eng_name in eng_cols}
     from ._fe_usability_signal import _crit_np_dtype

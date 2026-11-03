@@ -522,6 +522,42 @@ def _binagg_candidate_block(cp: Any, k: int, n: int, itemsize: int) -> int:
     return max(1, min(int(k), (free // 6) // max(1, int(n) * int(itemsize))))
 
 
+def _binagg_device_scores(cp: Any, raw_X: pd.DataFrame, col_specs: list, y_bin: Any, n: int, n_folds: int, random_state: int, nbins: int) -> tuple:
+    """``(per-block candidate MI list, per-permutation null maximum or None)`` of the binned-aggregate candidates, built and scored on the device in column blocks."""
+    from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
+    from ._fe_resident_operands import resident_operand
+
+    fold_ids = binagg_fold_ids(n, n_folds, random_state)
+    from ._hermite_fe_mi import relaxed_candidate_dtype
+
+    _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
+    y_gpu = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
+    _ymin = int(_yi.min()) if _yi.size else 0
+    _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
+    _dt = relaxed_candidate_dtype(cp)
+    block = _binagg_candidate_block(cp, len(col_specs), n, np.dtype(_dt).itemsize)
+    mi_parts: list = []
+    null_vec = None
+    # Candidates in column blocks when the whole (K, n) matrix would not fit the pool (1M rows): each candidate's MI depends only on its column. Family-wise
+    # calibration, identical to ``_unified_fe_gate.local_mi_gate``: the floor is raised to the 95th percentile of the per-permutation maximum MI over all the
+    # candidates (y permuted on the device; candidates binned without the target), and that maximum is the fmax of the blocks' (the same permutations in every block).
+    for s0 in range(0, len(col_specs), block):
+        mat_gpu = build_binagg_oof_matrix_gpu(cp, raw_X, col_specs[s0 : s0 + block], fold_ids, n_folds, column_major=True, out_dtype=_dt)  # (k, n)
+        if mat_gpu.shape[0] == 0:
+            continue
+        mi_parts.append(
+            np.asarray(
+                _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
+                dtype=np.float64,  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+            )
+        )
+        if len(col_specs) >= 2 and _yi.size > 0:
+            part = _binagg_null_max_vector(cp, mat_gpu, y_gpu, _yi, _ymin, _ncls, int(nbins))
+            null_vec = part if null_vec is None else np.fmax(null_vec, part)
+        del mat_gpu
+    return mi_parts, null_vec
+
+
 def local_mi_gate_binagg_resident(
     feat_df: pd.DataFrame,
     y: Any,
@@ -580,37 +616,7 @@ def local_mi_gate_binagg_resident(
     y_bin = _coerce_y_classes(y)
 
     try:
-        from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
-        from ._fe_resident_operands import resident_operand
-
-        fold_ids = binagg_fold_ids(n, n_folds, random_state)
-        from ._hermite_fe_mi import relaxed_candidate_dtype
-
-        _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
-        y_gpu = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
-        _ymin = int(_yi.min()) if _yi.size else 0
-        _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
-        _dt = relaxed_candidate_dtype(cp)
-        block = _binagg_candidate_block(cp, len(col_specs), n, np.dtype(_dt).itemsize)
-        mi_parts: list = []
-        null_vec = None
-        # Candidates in column blocks when the whole (K, n) matrix would not fit the pool (1M rows): each candidate's MI depends only on its column. Family-wise
-        # calibration, identical to ``_unified_fe_gate.local_mi_gate``: the floor is raised to the 95th percentile of the per-permutation maximum MI over all the
-        # candidates (y permuted on the device; candidates binned without the target), and that maximum is the fmax of the blocks' (the same permutations in every block).
-        for s0 in range(0, len(col_specs), block):
-            mat_gpu = build_binagg_oof_matrix_gpu(cp, raw_X, col_specs[s0 : s0 + block], fold_ids, n_folds, column_major=True, out_dtype=_dt)  # (k, n)
-            if mat_gpu.shape[0] == 0:
-                continue
-            mi_parts.append(
-                np.asarray(
-                    _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
-                    dtype=np.float64,  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-                )
-            )
-            if len(col_specs) >= 2 and _yi.size > 0:
-                part = _binagg_null_max_vector(cp, mat_gpu, y_gpu, _yi, _ymin, _ncls, int(nbins))
-                null_vec = part if null_vec is None else np.fmax(null_vec, part)
-            del mat_gpu
+        mi_parts, null_vec = _binagg_device_scores(cp, raw_X, col_specs, y_bin, n, n_folds, random_state, nbins)
         if not mi_parts:
             return []
         cand_mi = np.concatenate(mi_parts)
