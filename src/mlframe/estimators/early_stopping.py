@@ -62,6 +62,28 @@ from mlframe.utils.log_throttle import log_throttle
 _WARM_START_N_ATTRS = ("n_estimators", "max_iter")
 
 
+def _truncate_fitted_stages(model, best_stage: int) -> None:
+    """Cut the FITTED ensemble of ``model`` to its first ``best_stage`` stages.
+
+    sklearn's gradient boosting ``predict`` walks ``estimators_`` and never consults ``n_estimators`` after the fit, and HistGradientBoosting walks ``_predictors``
+    (one entry per iteration) and has no ``estimators_`` at all, so the fitted lists are what has to be sliced, not the hyperparameter; setting only the parameter left
+    the snapshot predicting with every stage it had grown and early stopping had no effect.
+    """
+    fitted = getattr(model, "estimators_", None)
+    if fitted is not None and len(fitted) > best_stage:
+        model.estimators_ = fitted[:best_stage]
+        if hasattr(model, "n_estimators_"):
+            model.n_estimators_ = best_stage
+    predictors = getattr(model, "_predictors", None)
+    if predictors is not None and len(predictors) > best_stage:
+        model._predictors = predictors[:best_stage]
+    params = model.get_params()
+    if "n_estimators" in params:
+        model.set_params(n_estimators=best_stage)
+    elif "max_iter" in params and predictors is not None:
+        model.set_params(max_iter=best_stage)
+
+
 class EarlyStoppingWrapper(BaseEstimator):
     """sklearn-compatible meta-estimator adding held-out-validation early stopping (see module docstring for the three backends)."""
 
@@ -243,8 +265,12 @@ class EarlyStoppingWrapper(BaseEstimator):
         """
         # Grow to the full budget first: staged_predict yields one prediction per existing stage, so the
         # estimator must be built with max_iter stages for the curve to span the whole search range.
-        if "n_estimators" in self.estimator_.get_params():
+        _params = self.estimator_.get_params()
+        if "n_estimators" in _params:
             self.estimator_.set_params(n_estimators=self.max_iter)
+        elif "max_iter" in _params:
+            # HistGradientBoosting* grows ``max_iter`` iterations and has no ``n_estimators``
+            self.estimator_.set_params(max_iter=self.max_iter)
         self.estimator_.fit(X_train, y_train)
         if not self._is_regressor and hasattr(self.estimator_, "staged_predict_proba"):
             classes = self.estimator_.classes_
@@ -272,15 +298,7 @@ class EarlyStoppingWrapper(BaseEstimator):
         # on reporting a plausible stop. Slicing ``estimators_`` is what the staged curve was measuring.
         if self.best_model_ is None or best_stage <= 0:
             return
-        _fitted = getattr(self.best_model_, "estimators_", None)
-        if _fitted is not None and len(_fitted) > best_stage:
-            self.best_model_.estimators_ = _fitted[:best_stage]
-            # Keep the declared budget consistent with what the model will actually evaluate, so a later
-            # ``get_params()`` / warm-start refit does not disagree with ``len(estimators_)``.
-            if hasattr(self.best_model_, "n_estimators_"):
-                self.best_model_.n_estimators_ = best_stage
-        if "n_estimators" in self.best_model_.get_params():
-            self.best_model_.set_params(n_estimators=best_stage)
+        _truncate_fitted_stages(self.best_model_, best_stage)
 
     def _fit_warm(self, X_train, y_train, X_val, y_val, scoring, n_attr, deadline):
         """Warm-start incremental: grow ``n_attr`` in batches, refit (reusing prior estimators), score, snapshot.
@@ -371,6 +389,23 @@ class EarlyStoppingWrapper(BaseEstimator):
             # Fall back to the last-fit model so predict() still works rather than raising on a None snapshot.
             self.best_model_ = copy.deepcopy(self.estimator_)
         return self
+
+    @property
+    def classes_(self):
+        """Class labels of the fitted best model (raises AttributeError before ``fit`` or for a regressor, as sklearn estimators do)."""
+        check_is_fitted(self, "best_model_")
+        return self.best_model_.classes_
+
+    def __sklearn_tags__(self):
+        """Report the wrapped model's estimator type (classifier / regressor) so sklearn utilities treat the wrapper like it."""
+        tags = super().__sklearn_tags__()
+        try:
+            from sklearn.utils import get_tags
+
+            tags.estimator_type = get_tags(self.base_model).estimator_type
+        except Exception as exc:
+            logger.debug("EarlyStoppingWrapper: no estimator type from base_model (%s: %s)", type(exc).__name__, exc)
+        return tags
 
     def predict(self, X):
         """Delegate to ``best_model_`` (the best-scoring snapshot found during ``fit``), not the final-iteration estimator."""

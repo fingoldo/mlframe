@@ -7,10 +7,10 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave co
 | **RESOLVED** | W23SHP-1 | High | LightGBM categorical (`==`) splits were read as numeric thresholds by the flat TreeSHAP extractor; such models now fall back to `shap` |
 | **RESOLVED** | W23SHP-2 | High | LightGBM `missing_type == "Zero"` routed NaN / 0.0 by the threshold instead of `default_left`; same fallback |
 | **FUTURE** | W23SHP-3 | Medium | Faith-Shap surrogate losses omit the fitted intercept `a0`, so they are shifted against the search's real losses when merged |
-| **FUTURE** | W23EST-1 | High | `EarlyStoppingWrapper` has no effect on HistGradientBoosting (no `n_estimators` / `estimators_`); needs a `_predictors` truncation or a refit at the best stage |
+| **RESOLVED** | W23EST-1 | High | `EarlyStoppingWrapper` had no effect on HistGradientBoosting: the staged backend neither raised the model's `max_iter` to the wrapper's budget nor cut `_predictors`; both are done now, through a shared `_truncate_fitted_stages` that also covers `estimators_` models (`tests/estimators/test_early_stopping_cuts_histgradientboosting.py`) |
 | **RESOLVED** | W23EST-2 | High | `additive_interaction_diagnostic` ratio additive / full inverted for negative scores; the recommendation now uses the relative deficit |
 | **RESOLVED** | W23EST-3 | Medium | multiclass was scored on class 1's probability only |
-| **FUTURE** | W23EST-4 | Medium | `EarlyStoppingWrapper` is not a classifier / regressor to sklearn and exposes no `classes_` |
+| **RESOLVED** | W23EST-4 | Medium | `EarlyStoppingWrapper` now exposes `classes_` from its best model and reports the wrapped model's estimator type through `__sklearn_tags__`, so `is_classifier` / `is_regressor` agree with the base model (same test file) |
 | **RESOLVED** | W23EST-5 | Medium | unseeded stratified / uniform dummy baselines |
 | **RESOLVED** | W23EST-6 | Low | exploration scores raise `IndexError` for a known candidate outside the search space |
 | **RESOLVED** | W23CORE-1 | High | `fit_composite_similarity` predicted multiclass targets as 0 / 1 (rounded weighted mean); now a per-class vote |
