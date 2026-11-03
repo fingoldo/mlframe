@@ -12,7 +12,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave co
 | **RESOLVED** | W23EST-3 | Medium | multiclass was scored on class 1's probability only |
 | **FUTURE** | W23EST-4 | Medium | `EarlyStoppingWrapper` is not a classifier / regressor to sklearn and exposes no `classes_` |
 | **RESOLVED** | W23EST-5 | Medium | unseeded stratified / uniform dummy baselines |
-| **FUTURE** | W23EST-6 | Low | exploration scores raise `IndexError` for a known candidate outside the search space |
+| **RESOLVED** | W23EST-6 | Low | exploration scores raise `IndexError` for a known candidate outside the search space |
 | **RESOLVED** | W23CORE-1 | High | `fit_composite_similarity` predicted multiclass targets as 0 / 1 (rounded weighted mean); now a per-class vote |
 | **RESOLVED** | W23CORE-2 | Medium | `ewma` propagated one NaN through the rest of the series; now matches pandas `ignore_na=False` for both adjust modes |
 | **RESOLVED** | W23REP-1 | Medium | split-comparison bars drew a missing classification metric as quality 0 |
@@ -40,3 +40,4 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave co
 | W23REP-2 | `tests/reporting/test_error_bias_nan_residual_does_not_hide_the_worst_bin.py` |
 | W23MET-2, 4 | `tests/metrics/test_tweedie_support_and_ordinal_label_range.py` |
 | W23REP-3 | `tests/reporting/test_split_comparison_missing_metric_is_a_gap.py::test_capitalised_split_names_give_the_same_verdict_as_lowercase` |
+| W23EST-6 | `tests/models/test_optimization_and_label_weight_edge_cases.py::test_known_candidate_outside_the_search_space_is_ignored_not_an_index_error` |
