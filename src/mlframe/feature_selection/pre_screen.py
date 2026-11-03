@@ -98,6 +98,9 @@ def compute_unsupervised_drops(
             col = train_df[col_name]
             try:
                 null_count = int(col.null_count())
+                if col.dtype.is_float():
+                    # polars keeps NaN apart from null; pandas counts both, so the two backends must agree
+                    null_count += int(col.is_nan().sum())
             except Exception as e:
                 log_throttle(logger, "pre_screen.hot_loop_warning", logging.WARNING, "null_count() failed for column %r, treating as 0: %s", col_name, e)
                 null_count = 0
@@ -128,7 +131,7 @@ def compute_unsupervised_drops(
             try:
                 # Use <= rather than == because floating-point arithmetic on constant columns can
                 # yield var ~= 1e-28 instead of exact zero (numerical floor of float64 fma).
-                if float(var_val) <= _var_cutoff:  # type: ignore[arg-type]  # polars Series.var() is typed float|timedelta|None; the is_numeric() guard above rules out timedelta at runtime
+                if not float(var_val) > _var_cutoff:  # type: ignore[arg-type]  # polars Series.var() is typed float|timedelta|None; the is_numeric() guard above rules out timedelta at runtime
                     drops.add(col_name)
             except (TypeError, ValueError):
                 pass
