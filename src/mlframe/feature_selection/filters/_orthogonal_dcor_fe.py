@@ -274,7 +274,13 @@ def _dcor_batch(
     xs_all = np.ascontiguousarray(X_arr[idx].T, dtype=np.float64)  # Intentional float64: the kernel accumulates m x m sums
     dcov2_all = np.empty(X_arr.shape[1], dtype=np.float64)  # Intentional float64: accumulator vector
     dvar2_all = np.empty(X_arr.shape[1], dtype=np.float64)  # Intentional float64: accumulator vector
-    _dcor_columns_kernel(xs_all, np.ascontiguousarray(B, dtype=np.float64), dcov2_all, dvar2_all)
+    from ._dcor_gpu import dcor_backend, dcor_columns_gpu
+
+    _dev = dcor_columns_gpu(xs_all, B) if dcor_backend(int(xs_all.shape[1]), int(xs_all.shape[0])) == "device" else None
+    if _dev is not None:
+        dcov2_all, dvar2_all = _dev
+    else:
+        _dcor_columns_kernel(xs_all, np.ascontiguousarray(B, dtype=np.float64), dcov2_all, dvar2_all)  # Intentional float64: the kernel accumulates m x m sums
     for j in range(X_arr.shape[1]):
         dvar2_x = float(dvar2_all[j])
         dcov2 = float(dcov2_all[j])
