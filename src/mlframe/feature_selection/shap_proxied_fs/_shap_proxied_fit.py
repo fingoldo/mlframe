@@ -18,6 +18,7 @@ from typing import Any, Callable, Optional
 import numpy as np
 import pandas as pd
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_holdout import split_search_and_holdout
+from mlframe.feature_selection.cv_policy import get_cv_policy
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import (
     _apply_min_selected_ratio, _resolve_adaptive_prescreen_width, _resolve_knee_prescreen_cap,
     ShapProxiedNoCandidatesError, resolve_effective_min_features, unit_importance_to_feature_map)
@@ -110,7 +111,9 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
         stratify = y if self.classification else None
         idx_all = np.arange(len(X))
         idx_search, idx_hold = split_search_and_holdout(self, idx_all, len(X), stratify)
-        idx_hold, _report_slice = split_report_slice(idx_hold, X, y, getattr(self, "report_holdout_fraction", 0.0), self.classification, int(self.random_state))
+        _policy = get_cv_policy(self)
+        _row_groups = _policy.groups if _policy is not None and _policy.kind == "grouped" else None
+        idx_hold, _report_slice = split_report_slice(idx_hold, X, y, getattr(self, "report_holdout_fraction", 0.0), self.classification, int(self.random_state), _row_groups)
         # Wide-frame split with deferred holdout materialisation. At C4 (width=20000, n_rows=10000) the original frame is 1.49 GiB, the search slice (75% rows) is 1.12 GiB, and the holdout
         # slice (25% rows) is 381 MiB; the legacy back-to-back
         # `X.iloc[idx_search].reset_index(drop=True)` + `X.iloc[idx_hold].reset_index(drop=True)`
