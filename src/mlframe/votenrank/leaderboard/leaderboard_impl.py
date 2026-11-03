@@ -270,13 +270,17 @@ class Leaderboard:
                 f"belong to exactly one group."
             )
 
-        meta_table = pd.DataFrame(index=self.table.index, columns=task_groups.keys())
+        meta_table = pd.DataFrame(np.nan, index=self.table.index, columns=list(task_groups.keys()), dtype=np.float64)
         for key, tasks in task_groups.items():
             sub_lb = Leaderboard(self.table[tasks], weights=self.weights[tasks].to_dict())
 
             func = getattr(sub_lb, f"{ranking_method}_ranking")
             ranking_params = ranking_params or {}
-            meta_table[key] = func(**ranking_params)
+            group_scores = func(**ranking_params)
+            if isinstance(group_scores, pd.Series):
+                # A ranking that omits a model (e.g. one with no data in the group) leaves it NaN rather than shifting the column.
+                group_scores = group_scores.reindex(meta_table.index)
+            meta_table[key] = np.asarray(group_scores, dtype=np.float64)
 
             if insert_nan:
                 meta_table.loc[self.table[tasks].isna().all(axis=1), key] = np.nan
