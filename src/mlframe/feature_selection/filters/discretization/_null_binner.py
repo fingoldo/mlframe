@@ -54,6 +54,10 @@ class PermutedTargetBinner:
         # a column is one contiguous run, in the float64 the edge builders convert each column to (the float32 values widen exactly, so every comparison is the same)
         # Intentional float64: the edge builders convert each column to float64; widening float32 is exact
         self._arr = np.asfortranarray(arr, dtype=np.float64)
+        if np.shares_memory(self._arr, arr):
+            self._arr = self._arr.copy(order="F")
+        # read-only: the plan cache keys the content hash of a column view by the view itself when its base cannot change (no re-hash per call)
+        self._arr.setflags(write=False)
         self._nan = {int(j): nan_mask[:, j].copy() for j in nan_cols} if nan_mask is not None else {}
         self._strategy = nbins_strategy
         self._kwargs = dict(nbins_strategy_kwargs or {})

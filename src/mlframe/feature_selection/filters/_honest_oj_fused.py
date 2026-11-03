@@ -408,6 +408,7 @@ def _floor(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, c
     try:
         return _floor_body(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, cols, n_permutations, quantile, base_seed, eval_rows)
     except _DeclineError as exc:
+        logger.debug("fused optimal_joint floor declined: %s", exc)
         return _declined(str(exc))
 
 
@@ -480,7 +481,7 @@ def _null_key(base_seed, n_permutations, n, rows) -> tuple:
     """What the pool's per-permutation MI depends on besides the binner: the permutation stream, its length, the rows count and the evaluation rows."""
     import hashlib
 
-    return int(base_seed), int(n_permutations), int(n), hashlib.blake2b(np.ascontiguousarray(rows, dtype=np.int64).tobytes(), digest_size=16).hexdigest()
+    return int(base_seed), int(n_permutations), int(n), hashlib.blake2b(np.ascontiguousarray(rows, dtype=np.int64).view(np.uint8).data, digest_size=16).hexdigest()
 
 
 def fused_column_nfailed(honest_codes_fn: Any, col: int, observed: float, n_permutations: int, base_seed: int, n: int, rows: np.ndarray) -> Optional[int]:
