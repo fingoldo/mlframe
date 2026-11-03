@@ -99,7 +99,8 @@ def dataset_diagnostics(
     y = np.asarray(y)
     n, f = X.shape
 
-    balance = float(np.mean(y)) if classification else float("nan")
+    # Share of the rarest class. mean(y) is the positive rate only for 0/1 labels: a balanced {0,1,2} target gave 1.0 (flagged imbalanced) and string labels raised.
+    balance = float(np.unique(y, return_counts=True)[1].min() / max(len(y), 1)) if classification else float("nan")
 
     # Redundancy: max |corr| over a random feature sample (cap for wide data). Rows are sampled
     # INDEPENDENTLY of ``max_rows`` (the booster cap) and FIRST so the column-sample rng draw is
@@ -224,7 +225,7 @@ def preflight(
         reasons.append(f"{d['n_features']} features exceed the exhaustive budget.")
         suggestions.append("cluster_features + pre-screen (auto)")
     if classification and np.isfinite(d["class_balance"]) and min(d["class_balance"], 1 - d["class_balance"]) < imbalance_floor:
-        reasons.append(f"imbalanced target (pos rate {d['class_balance']:.3f}).")
+        reasons.append(f"imbalanced target (rarest class share {d['class_balance']:.3f}).")
         suggestions.append("use metric='auc'")
         if rec == "run":
             rec = "caution"
