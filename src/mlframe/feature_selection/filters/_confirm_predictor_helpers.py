@@ -149,12 +149,13 @@ def fleuret_conditional_recheck(ctx: Any, X: tuple, next_best_gain: float, boots
             for key, value in parallel_entropy_cache.items():
                 entropy_cache[key] = value
         else:
+            _cd, _cnb, _cx, _cy, _csel, _cent = _compact_confidence_inputs(data_copy, factors_nbins, X, y, selected_vars, entropy_cache)
             nfailed, nchecked = get_fleuret_criteria_confidence(
-                data_copy=data_copy,
-                factors_nbins=factors_nbins,
-                x=X,
-                y=y,
-                selected_vars=selected_vars,
+                data_copy=_cd,
+                factors_nbins=_cnb,
+                x=_cx,
+                y=_cy,
+                selected_vars=_csel,
                 bootstrapped_gain=next_best_gain,
                 npermutations=full_npermutations,
                 max_failed=max_failed,
@@ -162,8 +163,8 @@ def fleuret_conditional_recheck(ctx: Any, X: tuple, next_best_gain: float, boots
                 mrmr_relevance_algo=mrmr_relevance_algo,
                 mrmr_redundancy_algo=mrmr_redundancy_algo,
                 max_veteranes_interactions_order=max_veteranes_interactions_order,
-                cached_cond_MIs=cached_cond_MIs,
-                entropy_cache=entropy_cache,
+                cached_cond_MIs=_cent[1],
+                entropy_cache=_cent[0],
                 extra_x_shuffling=extra_x_shuffling,
                 base_seed=np.uint64(_fleuret_base_seed),
             )
@@ -180,6 +181,37 @@ def fleuret_conditional_recheck(ctx: Any, X: tuple, next_best_gain: float, boots
         if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
             logger.debug("get_fleuret_criteria_confidence bootstrapped eval took %.1f sec.", timer() - eval_start)
     return bootstrapped_gain, confidence
+
+
+def _compact_confidence_inputs(data_copy: np.ndarray, factors_nbins: np.ndarray, X: Any, y: Any, selected_vars: Any, entropy_cache: Any) -> tuple:
+    """The inputs of ``get_fleuret_criteria_confidence`` on a contiguous copy holding only the columns it reads: ``X``, ``y`` and the selected variables, renumbered.
+
+    Each of the permutations computes H(XZ), H(YZ), H(Z), H(XYZ) for every selected Z from ``data_copy[:, col]``; on the row-major ``(n, p)`` matrix every one
+    of those reads strides over a whole row (194 columns of 30000 rows: one cache miss per value). The few columns are gathered once here. The confidence kernel
+    reads the conditional-MI cache never and the entropy cache only for H(Z) of an unshuffled Z, keyed by column number, so it gets private caches (seeded with the
+    caller's H(Z) entries under the new numbers): the same entropies of the same values, so the same verdict. Returns ``(data, nbins, X, y, selected, (entropy_cache,
+    cond_cache))``."""
+    import numba
+    from numba import types
+
+    xs = [int(v) for v in np.asarray(X).ravel()]
+    ys = [int(v) for v in np.asarray(y).ravel()]
+    sel = [int(v) for v in selected_vars]
+    cols = sorted(set(xs) | set(ys) | set(sel))
+    pos = {c: i for i, c in enumerate(cols)}
+    data = np.ascontiguousarray(data_copy[:, cols])
+    nb = np.ascontiguousarray(np.asarray(factors_nbins)[cols])
+    ent = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)  # Intentional float64: the kernel stores float64 entropies
+    cond = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)  # Intentional float64: same value type as the caller's cache
+    if entropy_cache is not None:
+        for c in sel:  # the H(Z) the caller already holds, renamed to the new column numbers (arr2str of a one-column Z is its number)
+            v = entropy_cache.get(str(c))
+            if v is not None:
+                ent[str(pos[c])] = v
+    x_new = type(X)(pos[c] for c in xs) if isinstance(X, tuple) else np.asarray([pos[c] for c in xs], dtype=np.asarray(X).dtype)
+    y_new = np.asarray([pos[c] for c in ys], dtype=np.asarray(y).dtype)
+    sel_new = [pos[c] for c in sel]
+    return data, nb, x_new, y_new, sel_new, (ent, cond)
 
 
 def confirm_in_gain_order(
