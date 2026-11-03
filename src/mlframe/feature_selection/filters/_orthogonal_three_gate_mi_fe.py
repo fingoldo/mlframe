@@ -240,7 +240,18 @@ def _fold_test_bins(
         test_bins[:, j] = tb
     return test_bins
 
-def _mi_from_binned_xy(x_bin: np.ndarray, y_bin: np.ndarray, *, clip_zero: bool = True) -> float:
+def _y_entropy(y_bin: np.ndarray) -> "tuple[float, int]":
+    """``(H(y), observed support)`` of a binned label array exactly as :func:`_mi_from_binned_xy` computes them, for passing as its ``y_entropy``."""
+    n = float(y_bin.size)
+    counts = np.bincount(y_bin)
+    counts = counts[counts > 0]
+    if counts.size == 0:
+        return 0.0, 0
+    p = counts.astype(np.float64) / n  # Intentional float64: probability vector for the entropy statistic
+    return float(-np.sum(p * np.log(p))), int(counts.size)
+
+
+def _mi_from_binned_xy(x_bin: np.ndarray, y_bin: np.ndarray, *, clip_zero: bool = True, y_entropy: "tuple[float, int] | None" = None) -> float:
     """Miller-Madow-corrected plug-in MI ``H(X) + H(Y) - H(X, Y)`` from
     binned int arrays.
 
@@ -279,7 +290,8 @@ def _mi_from_binned_xy(x_bin: np.ndarray, y_bin: np.ndarray, *, clip_zero: bool 
         return float(-np.sum(p * np.log(p))), int(counts.size)
 
     h_x, k_x = _h_and_k(x_bin)
-    h_y, k_y = _h_and_k(y_bin)
+    # ``y_entropy``: ``(H(y), support)`` computed once by a caller that scores many columns against the same ``y_bin`` (:func:`_y_entropy`), the same values
+    h_y, k_y = y_entropy if y_entropy is not None else _h_and_k(y_bin)
     h_xy, _ = _h_and_k(xy)
     mi_raw = h_x + h_y - h_xy
     # Use the MAXIMUM joint support (k_x * k_y) rather than the OBSERVED
@@ -403,8 +415,9 @@ def score_features_by_kfold_oof_mi(
         raw_test_bins = _fold_test_bins(
             raw_arr, train_idx, test_idx, len(raw_cols), nbins,
         )
+        y_h = _y_entropy(y_test_bin) if y_test_bin.size else None  # the fold's H(y), shared by every column below
         raw_mi_k = np.array(
-            [_mi_from_binned_xy(raw_test_bins[:, j], y_test_bin, clip_zero=False) for j in range(len(raw_cols))],
+            [_mi_from_binned_xy(raw_test_bins[:, j], y_test_bin, clip_zero=False, y_entropy=y_h) for j in range(len(raw_cols))],
             dtype=np.float64,  # Intentional float64: score statistic output contract
         )
 
@@ -413,7 +426,7 @@ def score_features_by_kfold_oof_mi(
             eng_arr, train_idx, test_idx, len(eng_cols), nbins,
         )
         eng_mi_k = np.array(
-            [_mi_from_binned_xy(eng_test_bins[:, j], y_test_bin, clip_zero=False) for j in range(len(eng_cols))],
+            [_mi_from_binned_xy(eng_test_bins[:, j], y_test_bin, clip_zero=False, y_entropy=y_h) for j in range(len(eng_cols))],
             dtype=np.float64,  # Intentional float64: score statistic output contract
         )
         return raw_mi_k, eng_mi_k
