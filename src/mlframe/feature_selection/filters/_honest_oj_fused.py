@@ -14,6 +14,7 @@ without a scored candidate in any permutation, or ``MLFRAME_HONEST_OJ_FUSED=0``.
 from __future__ import annotations
 
 import logging
+import math
 import os
 from typing import Any, Optional
 
@@ -74,6 +75,98 @@ def _winners(xb, kx, nv, vy, ky):
     return pick
 
 
+@njit(cache=True, parallel=True)
+def _px_table(xb, kx, nv):
+    """``(F, P, M, max k_x)`` bin counts of every fold cell: they do not depend on the permutation (the codes are fixed, only the target moves)."""
+    n_f, p, n_m = kx.shape
+    out = np.zeros((n_f, p, n_m, max(1, int(kx.max()))), dtype=np.float64)  # Intentional float64: count table feeding the MI statistic
+    for j in prange(p):
+        for f in range(n_f):
+            for m in range(n_m):
+                if kx[f, j, m] > 0:
+                    for i in range(nv[f]):
+                        out[f, j, m, xb[f, j, m, i]] += 1.0
+    return out
+
+
+@njit(cache=True)
+def _minority_rows(vy, nv, ky):
+    """Per fold, the rows outside the most frequent class (``(F, max nv)`` row lists, their lengths) and that class: only those rows are scattered."""
+    n_f = nv.shape[0]
+    idx = np.empty((n_f, vy.shape[1]), dtype=np.int64)
+    cnt = np.zeros(n_f, dtype=np.int64)
+    cmax = np.zeros(n_f, dtype=np.int64)
+    for f in range(n_f):
+        counts = np.zeros(max(1, ky[f]), dtype=np.int64)
+        for i in range(nv[f]):
+            counts[vy[f, i]] += 1
+        cmax[f] = np.argmax(counts)
+        for i in range(nv[f]):
+            if vy[f, i] != cmax[f]:
+                idx[f, cnt[f]] = i
+                cnt[f] += 1
+    return idx, cnt, cmax
+
+
+@njit(cache=True)
+def _mi_from_minority(xrow, vy_f, rows, n_rows, px, k_x, k_y, cmax, n):
+    """``_plug_in_mi_njit(xrow, vy_f, k_x, k_y, False)`` bit for bit: the joint counts of the majority class column are the bin counts ``px`` minus the
+    other classes' (exact integers in float64), so only the minority rows are scattered; Px, Py and the MI sum run in the same order."""
+    joint = np.zeros((k_x, k_y), dtype=np.float64)  # Intentional float64: joint-count accumulator for the MI statistic
+    for r in range(n_rows):
+        i = rows[r]
+        joint[xrow[i], vy_f[i]] += 1.0
+    for a in range(k_x):
+        s = 0.0
+        for c in range(k_y):
+            if c != cmax:
+                s += joint[a, c]
+        joint[a, cmax] = px[a] - s
+    n_f = float(n)
+    Px = np.zeros(k_x, dtype=np.float64)  # Intentional float64: marginal-count accumulator for the MI statistic
+    Py = np.zeros(k_y, dtype=np.float64)  # Intentional float64: marginal-count accumulator for the MI statistic
+    for a in range(k_x):
+        for c in range(k_y):
+            Px[a] += joint[a, c]
+            Py[c] += joint[a, c]
+    mi = 0.0
+    for a in range(k_x):
+        if Px[a] <= 0.0:
+            continue
+        for c in range(k_y):
+            v = joint[a, c]
+            if v <= 0.0 or Py[c] <= 0.0:
+                continue
+            pr = v / n_f
+            mi += pr * math.log(pr * n_f / (Px[a] * Py[c] / n_f))
+    return mi
+
+
+@njit(cache=True)
+def _winners_minority(xb, kx, nv, vy, ky, px):
+    """:func:`_winners` with every fold MI from :func:`_mi_from_minority` (same picks, same numbers, fewer scattered rows)."""
+    p, n_m = kx.shape[1], kx.shape[2]
+    idx, cnt, cmax = _minority_rows(vy, nv, ky)
+    pick = np.full(p, -1, dtype=np.int64)
+    for j in range(p):
+        best = -np.inf
+        for m in range(n_m):
+            total = 0.0
+            cells = 0
+            for f in range(kx.shape[0]):
+                k_x = kx[f, j, m]
+                if k_x == 0:
+                    continue
+                if ky[f] >= 1 and nv[f] > 0:
+                    total += _mi_from_minority(xb[f, j, m], vy[f], idx[f], cnt[f], px[f, j, m], k_x, ky[f], cmax[f], nv[f])
+                cells += 1
+            sc = total / cells if cells > 0 else -np.inf
+            if sc > best:
+                best = sc
+                pick[j] = m
+    return pick
+
+
 @njit(cache=True)
 def _permuted_codes(perm, yc, rows):
     """Permuted target codes at the evaluation rows, their class count and the number of occupied classes."""
@@ -110,6 +203,17 @@ def _fused_block(perms, y_raw, yc, rows, xb, kx, nv, val_idx, pool_dep, pool_rc,
         perm = perms[b]
         vy, ky = _fold_targets(perm, y_raw, nv, val_idx)
         pick = _winners(xb, kx, nv, vy, ky)
+        ycp, ny, ky_eff = _permuted_codes(perm, yc, rows)
+        out[b] = _pool_max(pick, ycp, ny, ky_eff, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff)
+
+
+@njit(cache=True, parallel=True)
+def _fused_block_minority(perms, y_raw, yc, rows, xb, kx, nv, val_idx, px, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, out):
+    """:func:`_fused_block` with the winners from :func:`_winners_minority` (bin counts ``px`` from :func:`_px_table`); the same ``out``."""
+    for b in prange(perms.shape[0]):
+        perm = perms[b]
+        vy, ky = _fold_targets(perm, y_raw, nv, val_idx)
+        pick = _winners_minority(xb, kx, nv, vy, ky, px)
         ycp, ny, ky_eff = _permuted_codes(perm, yc, rows)
         out[b] = _pool_max(pick, ycp, ny, ky_eff, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff)
 
@@ -310,12 +414,13 @@ def _floor_body(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_i
     pool_rc = np.ascontiguousarray(pool_codes[:, :, rows])
     pool_kxe = _occupied_bins(pool_rc)
     kx = np.asarray(packed["kx"], dtype=np.int64)
+    px = _px_table(packed["xb"], kx, nv)  # per-cell bin counts: the winners scatter only the rows outside the majority class
     nulls = np.empty(int(n_permutations), dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
     for b0 in range(0, int(n_permutations), _PERM_BLOCK):
         b1 = min(int(n_permutations), b0 + _PERM_BLOCK)
         perms = np.stack([seeded_permutation(n, base_seed + b) for b in range(b0, b1)]).astype(np.int64)
         out = np.empty(b1 - b0, dtype=np.float64)  # Intentional float64: statistic vector
-        _fused_block(perms, y_int, yc, rows, packed["xb"], kx, nv, val_idx, pool_dep, pool_rc, pool_nb, pool_kxe, float(len(rows)), out)
+        _fused_block_minority(perms, y_int, yc, rows, packed["xb"], kx, nv, val_idx, px, pool_dep, pool_rc, pool_nb, pool_kxe, float(len(rows)), out)
         if np.isneginf(out).any():
             raise _DeclineError("a column had no scored candidate count in some permutation")
         nulls[b0:b1] = out
