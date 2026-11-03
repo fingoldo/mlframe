@@ -62,6 +62,8 @@ def _group_recency_weighted_mean_sorted(v_sorted: np.ndarray, starts: np.ndarray
                 w = param**i
             else:
                 w = 1.0 / (i**param)
+            if np.isnan(v_sorted[s + pos]):
+                continue
             num += w * v_sorted[s + pos]
             den += w
         out[g] = num / den if den > 0.0 else np.nan
@@ -180,6 +182,8 @@ def _weighted_mean_or_spread(v_sorted: np.ndarray, s: int, m: int, scheme_code: 
     num = 0.0
     den = 0.0
     for pos in range(m):
+        if np.isnan(v_sorted[s + pos]):
+            continue
         w = _recency_weight(scheme_code, param, m, m - pos)
         num += w * v_sorted[s + pos]
         den += w
@@ -190,6 +194,8 @@ def _weighted_mean_or_spread(v_sorted: np.ndarray, s: int, m: int, scheme_code: 
         return np.nan
     sq = 0.0
     for pos in range(m):
+        if np.isnan(v_sorted[s + pos]):
+            continue
         w = _recency_weight(scheme_code, param, m, m - pos)
         dv = v_sorted[s + pos] - mean
         sq += w * dv * dv
@@ -232,12 +238,14 @@ def _group_recency_weighted_agg_sorted(v_sorted: np.ndarray, starts: np.ndarray,
                 else:
                     w = 1.0 / (i**param)
                 wv = w * v_sorted[s + pos]
+                if np.isnan(wv):
+                    continue
                 if agg_code == 1:
                     acc += wv
                 elif agg_code == 2:
-                    acc = wv if (pos == 0 or wv < acc) else acc
+                    acc = wv if (np.isnan(acc) or wv < acc) else acc
                 else:
-                    acc = wv if (pos == 0 or wv > acc) else acc
+                    acc = wv if (np.isnan(acc) or wv > acc) else acc
             out[g] = acc
     return out
 
@@ -283,6 +291,8 @@ def _group_recency_weighted_agg_multi_sorted(
                 num = 0.0
                 den = 0.0
                 for pos in range(m):
+                    if np.isnan(v_sorted[s + pos]):
+                        continue
                     i = m - pos
                     w = _recency_weight(scheme_code, param, m, i)
                     num += w * v_sorted[s + pos]
@@ -296,6 +306,8 @@ def _group_recency_weighted_agg_multi_sorted(
                     continue
                 sq = 0.0
                 for pos in range(m):
+                    if np.isnan(v_sorted[s + pos]):
+                        continue
                     i = m - pos
                     w = _recency_weight(scheme_code, param, m, i)
                     dv = v_sorted[s + pos] - mean
@@ -308,12 +320,14 @@ def _group_recency_weighted_agg_multi_sorted(
                     i = m - pos
                     w = _recency_weight(scheme_code, param, m, i)
                     wv = w * v_sorted[s + pos]
+                    if np.isnan(wv):
+                        continue
                     if agg_code == 1:
                         acc += wv
                     elif agg_code == 2:
-                        acc = wv if (pos == 0 or wv < acc) else acc
+                        acc = wv if (np.isnan(acc) or wv < acc) else acc
                     else:
-                        acc = wv if (pos == 0 or wv > acc) else acc
+                        acc = wv if (np.isnan(acc) or wv > acc) else acc
                 out[g, k] = acc
     return out
 

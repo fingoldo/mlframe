@@ -8,7 +8,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | **RESOLVED** | W21FE-1b | High | the seven sibling modules with zero-filled OOF outputs |
 | **RESOLVED** | W21FE-2 | High | `per_group_recency_weighted_mean` / `_agg` gave every row its entity's whole-history value, future rows included; new `causal=True` default gives each row the aggregate over rows up to itself, `causal=False` keeps the one-shot value (`tests/feature_engineering/test_recency_aggregation_causal.py`) |
 | **RESOLVED** | W21FE-3 | High | `per_group_recency_weighted_mode` / `_behavioral_stability` had the same future-row leak; same `causal` option, default True |
-| **PARTIAL** | W21FE-4 | Medium | the rolling mean / std kernels now skip NaN (`tests/test_wave21_small_fixes.py`); the group-aggregate and KDE kernels in `recency_aggregation` / `recency_density` still propagate it |
+| **PARTIAL** | W21FE-4 | Medium | the rolling mean / std kernels and now the `recency_aggregation` mean/sum/min/max/std/var kernels (single and multi-decay) skip NaN (`tests/feature_engineering/test_recency_aggregation_causal.py`); the KDE kernels in `recency_density` still propagate it |
 | **RESOLVED** | W21FE-5 | Medium | string / object group ids crashed `np.diff` in the recency rolling functions |
 | **RESOLVED** | W21FE-6 | Low | `per_group_sliding_window` raised for a group shorter than the window |
 | **RESOLVED** | W21CORE-1 | High | hard-mode logical constraints did one ordered pass, so a rule chain could end violated in either declaration order; passes now repeat to a fixpoint |

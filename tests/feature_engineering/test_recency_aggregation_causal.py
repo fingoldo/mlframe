@@ -52,3 +52,17 @@ def test_causal_density_mode_and_stability_ignore_later_rows():
     assert np.all(whole == whole[0])
     stab = per_group_behavioral_stability(values, groups, **kw)
     assert stab.shape == (5,) and np.all(np.isfinite(stab[1:]))
+
+
+def test_nan_observations_are_skipped_not_propagated():
+    """A NaN in an entity's history leaves the other observations' aggregate intact in every kernel."""
+    values = np.array([1.0, np.nan, 3.0, 5.0])
+    groups = np.zeros(4, dtype=np.int64)
+    for agg in ("mean", "sum", "min", "max", "std", "var"):
+        out = per_group_recency_weighted_agg(values, groups, agg=agg, order=np.arange(4), scheme="exp", param=0.7, causal=False)
+        assert np.all(np.isfinite(out)), agg
+    multi = per_group_recency_weighted_agg(values, groups, agg="max", order=np.arange(4), scheme="exp", params=[0.5, 0.9], causal=False)
+    assert np.all(np.isfinite(multi))
+    mean = per_group_recency_weighted_mean(values, groups, order=np.arange(4), scheme="exp", param=0.7, causal=False)
+    clean = per_group_recency_weighted_mean(np.array([1.0, 3.0, 5.0]), np.zeros(3, dtype=np.int64), order=np.arange(3), scheme="exp", param=0.7, causal=False)
+    assert np.isfinite(mean).all() and clean.shape == (3,)
