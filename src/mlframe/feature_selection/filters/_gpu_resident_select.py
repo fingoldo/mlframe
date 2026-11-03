@@ -93,6 +93,25 @@ def _radix_cm_view(cand_gpu, cm_hint, data_is_cm: bool, n: int, K: int):
     return data_cm
 
 
+def _launch_radix_f32_v4(cp, data_cm, n: int, K: int, ranks_g, R: int, osv, threads: int, shmem: int) -> bool:
+    """Launch the compaction v4 f32 select into ``osv``; False (nothing launched) when it is off, did not compile or its scratch does not fit the VRAM budget."""
+    from ._gpu_resident_select_kernels import _get_radix_select_f32_v4_kernel
+
+    kern = _get_radix_select_f32_v4_kernel()
+    if kern is None:
+        return False
+    cap = max(1024, int(n) // 4)
+    if not _scratch_fits(K * cap * 4):
+        return False
+    try:
+        scratch = cp.empty((K, cap), dtype=cp.uint32)
+        kern((K,), (threads,), (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv, scratch, np.int64(cap)), shared_mem=shmem)
+        return True
+    except Exception as exc:
+        log_throttle(logger, "radix_f32_v4_launch_failed", logging.WARNING, "radix select: the f32 v4 compaction launch failed (%s: %s); using v3.", type(exc).__name__, exc)
+        return False
+
+
 def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extremes: bool = False, data_is_cm: bool = False):
     """Return the (nbins-1, K) INTERIOR quantile edges of the resident (n, K) cupy ``cand_gpu`` via the
     sort-free radix-select kernel + cupy's exact 'linear' interpolation (reproduced in double). The edges
@@ -228,8 +247,9 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     osv = cp.empty((R, K), dtype=cand_gpu.dtype)
     # Lever C: dispatch the f32 path to the binary-search window-match variant where the per-host KTC selects
     # it (bit-identical order statistics, less warp divergence; base linear-scan = fallback). f64 unchanged.
-    ker = _get_radix_select_f32_dispatch(n) if is_f32 else _get_radix_select_kernel(is_f32)
-    ker((K,), (threads,), (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
+    if not (is_f32 and _launch_radix_f32_v4(cp, data_cm, n, K, ranks_g, R, osv, threads, shmem)):
+        ker = _get_radix_select_f32_dispatch(n) if is_f32 else _get_radix_select_kernel(is_f32)
+        ker((K,), (threads,), (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
     # FUSED interpolation (launch-reduction): the two fancy-index gathers + diff + cp.where
     # linear-interp collapse into ONE RawKernel that reads the two order-statistic rows from ``osv`` and writes
     # the (nbins-1, K) interior edges directly. Bit-identical to the cupy 'linear' interp (same f64 formula).
