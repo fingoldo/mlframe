@@ -167,6 +167,63 @@ def _bin_columns(
         ks.append(max(1, k))
     return bins, ks, names
 
+def _jmim_scores_device(eng_bins, eng_ks, y_bin, K_y: int, sel_bins, sel_ks):
+    """``(K,)`` JMIM scores on the device: for every reference ``z`` the plug-in ``I((x, z); y) = H(x, z) + H(y) - H(x, z, y)`` of all candidates from the
+    batched per-column joint entropies, clipped at 0 like ``_joint_mi_3d_njit``, and the minimum over the references (the host loop's early exit at 0 is
+    the minimum of the clipped values). Equal to the host up to summation order. OFF by default (``MLFRAME_JMIM_DEVICE=1`` turns it on): bench-attempt-rejected
+    2026-11-03, 100k rows x 40 references x 150 candidates, warm: host 2.68 s, device 2.59 s (two joint-entropy passes over every candidate per reference,
+    against the host njit kernel already parallel over the candidates). ``None`` when not used (off, no GPU, the plug-in MI dispatcher's choice is the host, or a fault)."""
+    import os
+
+    if os.environ.get("MLFRAME_JMIM_DEVICE", "0").strip() != "1" or not len(sel_bins) or not len(eng_bins):
+        return None
+    try:
+        from ._gpu_policy import cuda_available_for_run
+
+        n = int(np.asarray(y_bin).size)
+        if not cuda_available_for_run():
+            return None
+        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import lookup_mi_classif_backend
+
+        if lookup_mi_classif_backend(n, len(eng_bins)) != "cuda":
+            return None
+        import cupy as cp
+
+        from ._fe_batched_mi import _rows_entropy_and_k
+        from ._fe_batched_mi_cmi import _batched_joint_counts2, _batched_joint_entropy_and_k2
+
+        def _joint_h(Xd, b, kx, kb):
+            """Per-column joint entropy of the codes ``Xd`` with ``b`` (fused kernel or count + reduce)."""
+            r = _batched_joint_entropy_and_k2(Xd, b, kx, kb, 1.0 / n)
+            if r is None:
+                r = _rows_entropy_and_k(_batched_joint_counts2(Xd, b, kx, kb), 1.0 / n)
+            return cp.asarray(r[0], dtype=cp.float64)  # Intentional float64: entropy statistic
+
+        k = len(eng_bins)
+        kx = int(max(int(v) for v in eng_ks))
+        yd = cp.asarray(np.ascontiguousarray(y_bin, dtype=np.int64))
+        cy = np.bincount(np.asarray(y_bin, dtype=np.int64), minlength=int(K_y)).astype(np.float64)  # Intentional float64: entropy statistic
+        py = cy[cy > 0] / n
+        h_y = float(-np.sum(py * np.log(py)))
+        out = cp.full(k, cp.inf)
+        free = int(cp.cuda.Device().mem_info[0]) + int(cp.get_default_memory_pool().free_bytes())
+        block = max(1, min(k, (free // 8) // max(1, n * 8)))
+        for b0 in range(0, k, block):
+            b1 = min(k, b0 + block)
+            Xd = cp.asarray(np.ascontiguousarray(np.asarray(eng_bins[b0:b1]).T, dtype=np.int64))
+            for z, kz in zip(sel_bins, sel_ks):
+                kz = int(kz)
+                zd = cp.asarray(np.ascontiguousarray(z, dtype=np.int64))
+                h_xz = _joint_h(Xd, zd, kx, kz)
+                h_xzy = _joint_h(Xd, yd * kz + zd, kx, int(K_y) * kz)
+                out[b0:b1] = cp.minimum(out[b0:b1], cp.maximum(h_xz + h_y - h_xzy, 0.0))
+            del Xd
+        return np.asarray(cp.asnumpy(out), dtype=np.float64)  # Intentional float64: score statistic
+    except Exception as exc:
+        logger.debug("device JMIM not used (%s: %s); host loop", type(exc).__name__, exc)
+        return None
+
+
 def _jmim_min_score(x_c: np.ndarray, K_x: int, y_bin_c: np.ndarray, K_y: int, sel_bins_c: list, sel_ks_arr: list, has_support: bool) -> float:
     """JMIM score of one binned candidate: the minimum joint MI ``I((x, z); y)`` over the support members (``I(x; y)`` when there is none)."""
     if not has_support:
@@ -319,7 +376,10 @@ def score_features_by_jmim(
     from ._adaptive_nbins import _resolve_edge_jobs
 
     jobs = _resolve_edge_jobs(None, len(eng_names))
-    if jobs > 1 and len(eng_names) > 3:
+    _dev = _jmim_scores_device(eng_bins, eng_ks, y_bin_c, K_y, sel_bins_c, sel_ks_arr) if has_support else None
+    if _dev is not None:
+        scores = [float(v) for v in _dev]
+    elif jobs > 1 and len(eng_names) > 3:
         _candidate_score(0)  # compiles the kernel on this thread before the workers start
         with ThreadPoolExecutor(max_workers=jobs) as pool:
             scores = list(pool.map(_candidate_score, range(len(eng_names))))
