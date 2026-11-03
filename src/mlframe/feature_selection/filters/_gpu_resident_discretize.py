@@ -111,6 +111,69 @@ def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
     return k
 
 
+# FLOAT32-EDGE TILED BINNING (float32 candidates). For a float32 value x, ``edge <= (double)x`` holds exactly when ``up(edge) <= x``, with ``up`` the smallest
+# float32 not below the double edge (``_edges_rounded_up_f32``), so the codes equal ``bin_codes_f32``'s bit for bit with float32 compares: the double compare
+# runs at 1/32 rate on Pascal. A block owns 32 adjacent columns (threadIdx.x) and strides over rows (threadIdx.y, then the grid's y): a warp reads 32
+# consecutive values of one row (coalesced) and writes 32 consecutive codes, the tile's edges sit in shared memory, and the 64-bit ``idx % K`` is gone.
+# GTX 1050 Ti, n=30000, K=3888, nbins=10, int8 codes: 26-28 ms (bin_codes_f32) -> 11.8-12.4 ms (audits/2026-10-22/profiles/_gpu_resident_discretize.md).
+_BIN_CODES_F32E_SRC = r"""
+extern "C" __global__
+void bin_codes_f32e_OUTNAME(const float* __restrict__ cand, const float* __restrict__ edges, const long long n, const int K, const int ne,
+                            OUTTYPE* __restrict__ out) {
+    __shared__ float se[32 * 64];              // the tile's edges, se[e * 32 + tx]
+    const int tx = threadIdx.x;
+    const int col = blockIdx.x * 32 + tx;
+    for (int s = threadIdx.y * 32 + tx; s < ne * 32; s += 32 * blockDim.y) {
+        const int c = blockIdx.x * 32 + (s & 31);
+        se[s] = c < K ? edges[(long long)(s >> 5) * K + c] : 0.0f;
+    }
+    __syncthreads();
+    if (col >= K) return;
+    for (long long i = (long long)blockIdx.y * blockDim.y + threadIdx.y; i < n; i += (long long)gridDim.y * blockDim.y) {
+        const float v = cand[i * K + col];
+        int lo = 0, hi = ne;                   // upper_bound: #(edges <= v)
+        while (lo < hi) {
+            const int mid = (lo + hi) >> 1;
+            if (se[mid * 32 + tx] <= v) lo = mid + 1; else hi = mid;
+        }
+        out[i * K + col] = (OUTTYPE)lo;
+    }
+}
+"""
+_BIN_CODES_F32E_MAX_EDGES = 64  # the shared tile holds 32 x 64 float edges (8 KB); more interior edges take bin_codes_f32
+_BIN_CODES_F32E_KERNELS: dict = {}
+
+
+def _bin_codes_f32e_kernel(out_name: str):
+    """Lazily compiled float32-edge tiled binning kernel writing ``out_name`` codes, one per output type."""
+    import cupy as cp
+
+    with _BIN_CODES_KERNELS_LOCK:
+        k = _BIN_CODES_F32E_KERNELS.get(out_name)
+    if k is None:
+        sym = "bin_codes_f32e_" + out_name
+        k = cp.RawKernel(_BIN_CODES_F32E_SRC.replace("bin_codes_f32e_OUTNAME", sym).replace("OUTTYPE", _BIN_CODES_OUTTYPE.get(out_name, "int")), sym)
+        with _BIN_CODES_KERNELS_LOCK:
+            k = _BIN_CODES_F32E_KERNELS.setdefault(out_name, k)
+    return k
+
+
+def _bin_codes_f32e(cp, cand_c, edges_f64, out):
+    """``out`` codes of the float32 C-order ``cand_c`` through the float32-edge tiled kernel; False when it does not apply (the caller runs ``bin_codes_f32``)."""
+    ne = int(edges_f64.shape[0])
+    if cand_c.dtype != cp.float32 or ne > _BIN_CODES_F32E_MAX_EDGES or os.environ.get("MLFRAME_FE_BIN_CODES_F32EDGES", "1").strip() == "0":
+        return False
+    from ._fe_batched_mi import _edges_rounded_up_f32
+
+    n, K = cand_c.shape
+    edges32 = _edges_rounded_up_f32(cp, edges_f64)
+    gx = (K + 31) // 32
+    rows_per_block = 8
+    gy = max(1, min((n + rows_per_block - 1) // rows_per_block, max(1, 2048 // gx)))
+    _bin_codes_f32e_kernel(out.dtype.name)((gx, gy), (32, rows_per_block), (cand_c, edges32, np.int64(n), np.int32(K), np.int32(ne), out))
+    return True
+
+
 def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None):
     """Bin (n,K) ``cand_gpu`` against per-column ascending ``interior_edges`` (ne,K) -> int32 (n,K) codes,
     code = #(interior edges <= value) (== per-column cp.searchsorted side='right'). One fused kernel
@@ -133,6 +196,8 @@ def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None):
         # every other caller byte-identical. nbins<=255 -> int8 cannot overflow (codes in [0, nbins-1]).
         _od = cp.dtype(out_dtype) if out_dtype is not None else cp.dtype(cp.int32)
         out = cp.empty((n, K), dtype=_od)
+        if n > 0 and K > 0 and _bin_codes_f32e(cp, cand_c, edges_c, out):
+            return out
         total = n * K
         threads = 256
         blocks = (total + threads - 1) // threads

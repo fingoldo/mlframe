@@ -94,6 +94,7 @@ void mi_from_codes(const long long* __restrict__ codes,   // (n, K) row-major in
 # shared (nbins*Ky) int hist. Bin codes equal _searchsorted_codes bit-for-bit (same f64 edges, same
 # side='right') -> selection-equivalent. edges: (nbins-1, K) row-major (interior); X: (n,K) row-major.
 _MI_FROM_VALUES_SRC = r"""
+#define EDGE_CACHE 256
 extern "C" __global__
 void mi_from_values(const double* __restrict__ X, const double* __restrict__ edges,
                     const long long* __restrict__ y, const long long n, const int K,
@@ -104,12 +105,15 @@ void mi_from_values(const double* __restrict__ X, const double* __restrict__ edg
     int ne = nbins - 1, M = nbins * Ky;
     int tid = threadIdx.x, nt = blockDim.x;
     for (int s = tid; s < M; s += nt) sh[s] = 0;
+    __shared__ double se[EDGE_CACHE];   // this column's interior edges: the binary search reads them per value, strided by K in global memory
+    const bool cached = ne <= EDGE_CACHE;
+    if (cached) for (int s = tid; s < ne; s += nt) se[s] = edges[(long long)s * K + c];
     __syncthreads();
     const double* Xc = X + (long long)c * n;          // COLUMN-MAJOR (K,n): coalesced across threads (nvprof
     for (long long i = tid; i < n; i += nt) {          // 2026-07-02: row-major X[i*K+c] was gld_efficiency 28.9%)
         double v = Xc[i];
         int lo = 0, hi = ne;                          // upper_bound: count of interior edges <= v
-        while (lo < hi) { int mid = (lo + hi) >> 1; if (edges[(long long)mid * K + c] <= v) lo = mid + 1; else hi = mid; }
+        while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
         atomicAdd(&sh[lo * Ky + y[i]], 1);
     }
     __syncthreads();
@@ -146,6 +150,9 @@ void mi_hist_split(const double* __restrict__ X, const double* __restrict__ edge
     if (c >= K || seg >= S) return;
     int ne = nbins - 1, M = nbins * Ky, tid = threadIdx.x, nt = blockDim.x;
     for (int s = tid; s < M; s += nt) sh[s] = 0;
+    __shared__ double se[EDGE_CACHE];
+    const bool cached = ne <= EDGE_CACHE;
+    if (cached) for (int s = tid; s < ne; s += nt) se[s] = edges[(long long)s * K + c];
     __syncthreads();
     long long seg_len = (n + S - 1) / S, lo = (long long)seg * seg_len, hi = lo + seg_len;
     if (hi > n) hi = n;
@@ -153,7 +160,7 @@ void mi_hist_split(const double* __restrict__ X, const double* __restrict__ edge
     for (long long i = lo + tid; i < hi; i += nt) {
         double v = Xc[i];
         int a = 0, b = ne;
-        while (a < b) { int mid = (a + b) >> 1; if (edges[(long long)mid * K + c] <= v) a = mid + 1; else b = mid; }
+        while (a < b) { int mid = (a + b) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) a = mid + 1; else b = mid; }
         atomicAdd(&sh[a * Ky + y[i]], 1);
     }
     __syncthreads();
@@ -203,6 +210,11 @@ _MI_FROM_VALUES_F32_SRC = (
         "const double* __restrict__ X, const double* __restrict__ edges,", "const float* __restrict__ X, const double* __restrict__ edges,"
     )
     .replace("const double* Xc = X", "const float* Xc = X")
+    # float32 edges (the caller passes each double edge rounded UP to float32): for a float32 value x, ``edge <= (double)x`` holds exactly when
+    # ``ceil_f32(edge) <= x``, so the binary search runs in float32 (double compares are 1/32 rate on the target cards) and the codes are the same
+    .replace("const float* __restrict__ X, const double* __restrict__ edges,", "const float* __restrict__ X, const float* __restrict__ edges,")
+    .replace("double v = Xc[i];", "const float v = Xc[i];")
+    .replace("__shared__ double se[EDGE_CACHE];", "__shared__ float se[EDGE_CACHE];")
     .replace("void mi_from_values(", "void mi_from_values_f32(")
     .replace("void mi_hist_split(", "void mi_hist_split_f32(")
     .replace("void mi_from_counts_col(", "void mi_from_counts_col_f32(")
@@ -229,11 +241,14 @@ void mi_mm_from_values(const double* __restrict__ X, const double* __restrict__ 
     int ne = nbins - 1, M = nbins * Ky;
     int tid = threadIdx.x, nt = blockDim.x;
     for (int s = tid; s < M; s += nt) sh[s] = 0;
+    __shared__ double se[256];   // this column's interior edges, read per value by the search
+    const bool cached = ne <= 256;
+    if (cached) for (int s = threadIdx.x; s < ne; s += blockDim.x) se[s] = edges[(long long)s * K + c];
     __syncthreads();
     for (long long i = tid; i < n; i += nt) {
         double v = X[i * (long long)K + c];
         int lo = 0, hi = ne;                          // upper_bound == cp.searchsorted side='right'
-        while (lo < hi) { int mid = (lo + hi) >> 1; if (edges[(long long)mid * K + c] <= v) lo = mid + 1; else hi = mid; }
+        while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
         atomicAdd(&sh[lo * Ky + y[i]], 1);
     }
     __syncthreads();
@@ -463,6 +478,13 @@ def _get_mi_split_f32_kernels(cp):
     return _MI_SPLIT_F32_KERNELS
 
 
+def _edges_rounded_up_f32(cp: Any, edges: Any) -> Any:
+    """Each double edge as the smallest float32 not below it (NaN and +-inf kept): ``e <= (double)x`` iff ``up(e) <= x`` for every float32 ``x``."""
+    e32 = edges.astype(cp.float32)
+    low = e32.astype(cp.float64) < edges  # rounded to nearest fell below the double edge  # Intentional float64: exact comparison with the double edge
+    return cp.ascontiguousarray(cp.where(low, cp.nextafter(e32, cp.float32(cp.inf)), e32))
+
+
 def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nbins: int, ky: int, codes_trusted: bool = False, x_cm: Any = None) -> np.ndarray | None:
     """Plug-in MI(col_k; y) for an (n,K) float matrix ``x_vals`` binned by per-column ``interior_edges``
     ((nbins-1, K) cupy) in ONE fused RawKernel (bin + joint histogram + MI), replacing _searchsorted_codes
@@ -491,6 +513,8 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
             Xd = Xd[:, None]
         n, K = int(Xd.shape[0]), int(Xd.shape[1])
     E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))  # (nbins-1, K)  # Intentional float64: GPU MI edge vector; compared at full precision
+    if _is_f32:
+        E = _edges_rounded_up_f32(cp, E)  # the float32 search of the f32-X kernels gives the double comparison's codes
     yv = y_codes.astype(cp.int64, copy=False).ravel() if isinstance(y_codes, cp.ndarray) else cp.asarray(np.ascontiguousarray(y_codes).astype(np.int64).ravel())
     Ky = int(ky)
     if int(nbins) * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:

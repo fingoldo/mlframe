@@ -271,49 +271,25 @@ def apply_surrogate_gbm_seeder(
     # Self-routing cost gate: seed_count is not the blocker on a narrow pool (it already
     # sees every operand), so the LightGBM fit cost is not worth paying there.
     # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
-    _raw_name_set = set(getattr(self, "feature_names_in_", []))
-    _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
-    _cat_set = set(categorical_vars)
-    _raw_numeric_idx = {i for i, nm in enumerate(cols) if nm in _raw_name_set and i not in _target_idx_set and i not in _cat_set}
-    _raw_numeric_idx -= set(non_numeric_idx)
-    if self.factors_to_use is not None:
-        _raw_numeric_idx &= set(self.factors_to_use)
-    if self.factors_names_to_use is not None:
-        _raw_numeric_idx &= {cols.index(n) for n in self.factors_names_to_use if n in cols}
-    _min_feats = int(getattr(self, "fe_gbm_seeder_min_features", 30))
-    if len(_raw_numeric_idx) < _min_feats:
+    from ._gbm_seeder_prefetch import seeder_candidates, seeder_kwargs, take_prefetched
+
+    _cand = seeder_candidates(self, cols, target_indices, categorical_vars, non_numeric_idx)
+    if _cand is None:
         if verbose:
             logger.info(
-                "MRMR FE GBM seeder: %d raw numeric cols < fe_gbm_seeder_min_features=%d; "
+                "MRMR FE GBM seeder: fewer raw numeric cols than fe_gbm_seeder_min_features=%d; "
                 "skipping (seed_count already sees every operand on this narrow pool).",
-                len(_raw_numeric_idx), _min_feats,
+                int(getattr(self, "fe_gbm_seeder_min_features", 30)),
             )
         return numeric_vars_to_consider, []
 
     try:
         from ._surrogate_interaction_seeder import surrogate_gbm_interaction_seeds
 
-        # The seeder's candidate pool is ALL raw numeric columns (the operands the
-        # univariate seed_count ranks among) - the whole point is to reach the
-        # zero-marginal ones the top-N cut drops.
-        _cand = sorted(_raw_numeric_idx)
-        # The surrogate predicts the DISCRETISED ordinal target ``classes_y`` - the SAME
-        # small-cardinality representation every FE-gate MI is scored against - so the
-        # split co-occurrence is on the exact signal the pair/triple floors gate. The binned
-        # target is always a low-cardinality ordinal (a multiclass classification problem for
-        # the surrogate), whether the original task was classification or regression.
-        seeded_pairs, seeded_triples, info = surrogate_gbm_interaction_seeds(
-            data, np.ascontiguousarray(classes_y), _cand,
-            is_classification=True,
-            top_k_pairs=int(getattr(self, "fe_gbm_seeder_top_k_pairs", 12)),
-            top_k_triples=int(getattr(self, "fe_gbm_seeder_top_k_triples", 8)),
-            n_estimators=int(getattr(self, "fe_gbm_seeder_n_estimators", 150)),
-            max_depth=int(getattr(self, "fe_gbm_seeder_max_depth", 4)),
-            self_gate_margin=float(getattr(self, "fe_gbm_seeder_self_gate_margin", 0.0)),
-            self_gate_reps=int(getattr(self, "fe_gbm_seeder_self_gate_reps", 3)),
-            self_gate_min_z=float(getattr(self, "fe_gbm_seeder_self_gate_min_z", 2.0)),
-            random_seed=int(getattr(self, "random_seed", 0) or 0),
-        )
+        _kw = seeder_kwargs(self)
+        # the call started at the top of the step (``_gbm_seeder_prefetch``) when it is this very call, else run it here
+        _pre = take_prefetched(self, data, classes_y, _cand, _kw)
+        seeded_pairs, seeded_triples, info = _pre if _pre is not None else surrogate_gbm_interaction_seeds(data, np.ascontiguousarray(classes_y), _cand, **_kw)
         self.fe_gbm_seeder_info_ = {k: v for k, v in info.items() if k in ("oof_real", "oof_perm", "self_gate_z", "gated", "n_pairs", "n_triples")}
         # The seeder fit failed entirely (no surrogate) -> nothing to do. ``gated`` is the PAIR
         # self-gate; TRIPLES are emitted regardless (the order-3 floor gates them), so we do NOT

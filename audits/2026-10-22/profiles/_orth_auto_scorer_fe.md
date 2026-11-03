@@ -41,3 +41,5 @@ xi 1.30, dCor 0.98, plug-in 0.40 s. `_orthogonal_copula_mi_fe._copula_columns_ra
 of a mergesort (the MI depends only on the runs); bit-identical, 300 columns x 30000 rows 0.202 -> 0.050 s.
 `_orthogonal_tail_dependence_fe._tail_dep_columns_njit` takes the same radix order for float32 rows (`_numba_utils_shared.radix_order_f32`, now shared with the
 copula kernel): bit-identical, 300 x 30000 0.219 -> 0.046 s.
+`_ksg_cd_fast._mi_cd_column`: the per-column `np.argsort` is an 8-pass LSD radix order of the float64 keys (`_numba_utils_shared.radix_order_f64`); the k-NN
+walk reads the sorted values only, so the MI is bit-identical. 300 columns x 30000 rows: 0.459 -> 0.418 s (2 classes), 0.506 -> 0.371 s (3 classes).

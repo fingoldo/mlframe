@@ -240,3 +240,37 @@ def radix_order_f32(col: np.ndarray) -> np.ndarray:
         va, vb = vb, va
         ra, rb = rb, ra
     return ra
+
+
+@njit(cache=True)
+def radix_order_f64(col: np.ndarray) -> np.ndarray:
+    """:func:`radix_order_f32` for a float64 vector: a stable 8-pass LSD radix sort of the order-preserving uint64 keys (``-0.0`` keyed as ``+0.0``); finite input only."""
+    n = col.shape[0]
+    bits = col.view(np.uint64)
+    va = np.empty(n, dtype=np.uint64)
+    ra = np.empty(n, dtype=np.int64)
+    vb = np.empty(n, dtype=np.uint64)
+    rb = np.empty(n, dtype=np.int64)
+    sign = np.uint64(0x8000000000000000)
+    for t in range(n):
+        u = bits[t]
+        if u == sign:
+            u = np.uint64(0)
+        va[t] = ~u if (u & sign) else (u | sign)
+        ra[t] = t
+    cnt = np.empty(257, dtype=np.int64)
+    for shift in (0, 8, 16, 24, 32, 40, 48, 56):
+        cnt[:] = 0
+        for t in range(n):
+            cnt[((va[t] >> np.uint64(shift)) & np.uint64(0xFF)) + 1] += 1
+        for dgt in range(256):
+            cnt[dgt + 1] += cnt[dgt]
+        for t in range(n):
+            dgt = (va[t] >> np.uint64(shift)) & np.uint64(0xFF)
+            q = cnt[dgt]
+            cnt[dgt] = q + 1
+            vb[q] = va[t]
+            rb[q] = ra[t]
+        va, vb = vb, va
+        ra, rb = rb, ra
+    return ra

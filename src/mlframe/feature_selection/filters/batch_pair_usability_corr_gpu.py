@@ -305,25 +305,56 @@ def _cuda_kernel_factory():
     return _kernel
 
 
-_CUDA_KERNEL_WARP: Any = None
+_CUDA_KERNELS_WARP: dict = {}  # float type -> compiled warp kernel
 _WARP_SIZE = 32
 
 
-def _warp_pass_helpers():
-    """Device helpers of the warp kernel: the strided mean pass and the centred-moment pass, each warp-reduced so every lane holds the totals."""
+def _form_device(ft=np.float64):
+    """The device ``_eval_form`` of the warp kernel in the float type ``ft``."""
+    nan_ft = ft(np.nan)
+
+    @_nb_cuda.jit(device=True, inline=True)
+    def _form(form_id, x0, x1, eps):
+        """``_eval_form`` with the NaN of a near-zero divisor in ``ft`` (a float64 NaN literal would promote a float32 kernel to double)."""
+        if form_id == FORM_X0:
+            return x0
+        if form_id == FORM_X1:
+            return x1
+        if form_id == FORM_X0_SQ:
+            return x0 * x0
+        if form_id == FORM_X1_SQ:
+            return x1 * x1
+        if form_id == FORM_X0_DIV_X1:
+            return x0 / x1 if abs(x1) >= eps else nan_ft
+        if form_id == FORM_X1_DIV_X0:
+            return x1 / x0 if abs(x0) >= eps else nan_ft
+        if form_id == FORM_X0SQ_DIV_X1:
+            return (x0 * x0) / x1 if abs(x1) >= eps else nan_ft
+        if form_id == FORM_X1SQ_DIV_X0:
+            return (x1 * x1) / x0 if abs(x0) >= eps else nan_ft
+        return x0 * x1
+
+    return _form
+
+
+def _warp_pass_helpers(ft=np.float64):
+    """Device helpers of the warp kernel: the strided mean pass and the centred-moment pass, each warp-reduced so every lane holds the totals. ``ft`` is the float type
+    of the forms and the moments (``np.float64``, or ``np.float32`` on cards whose double rate is 1/32 of single)."""
+    _form = _form_device(ft)
+
     @_nb_cuda.jit(device=True)
     def _warp_mean_sums(y, operand_matrix, a_idx, b_idx, form_id, eps, n_rows, lane):
         """Strided per-lane (count, sum_y, sum_v) for one (pair, form), warp-reduced so every lane holds the totals."""
         # Pass 1: strided partial (count, sum_y, sum_v) per lane, coalesced across the warp.
         cnt = 0
-        sa: float | np.floating = 0.0
-        sv: float | np.floating = 0.0
+        sa = ft(0.0)
+        sv = ft(0.0)
         i = lane
         while i < n_rows:
-            yi = np.float64(y[i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
-            x0 = np.float64(operand_matrix[a_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
-            x1 = np.float64(operand_matrix[b_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
-            v = _eval_form(form_id, x0, x1, eps)
+            yi = ft(y[i])  # the kernel's float type: float64, or float32 on a 1/32-double card
+            x0 = ft(operand_matrix[a_idx, i])  # the kernel's float type: float64, or float32 on a 1/32-double card
+            x1 = ft(operand_matrix[b_idx, i])  # the kernel's float type: float64, or float32 on a 1/32-double card
+            v = _form(form_id, x0, x1, eps)
             finite = math.isfinite(yi) and math.isfinite(v)
             if finite:
                 cnt += 1
@@ -345,15 +376,15 @@ def _warp_pass_helpers():
     def _warp_centered_sums(y, operand_matrix, a_idx, b_idx, form_id, eps, n_rows, lane, ma, mv):
         """Strided per-lane centred (saa, svv, sav) about the warp-reduced means, warp-reduced so every lane holds the totals."""
         # Pass 2: strided partial (saa, svv, sav) per lane, same coalesced pattern.
-        saa: float | np.floating = 0.0
-        svv: float | np.floating = 0.0
-        sav: float | np.floating = 0.0
+        saa = ft(0.0)
+        svv = ft(0.0)
+        sav = ft(0.0)
         i = lane
         while i < n_rows:
-            yi = np.float64(y[i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
-            x0 = np.float64(operand_matrix[a_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
-            x1 = np.float64(operand_matrix[b_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
-            v = _eval_form(form_id, x0, x1, eps)
+            yi = ft(y[i])  # the kernel's float type: float64, or float32 on a 1/32-double card
+            x0 = ft(operand_matrix[a_idx, i])  # the kernel's float type: float64, or float32 on a 1/32-double card
+            x1 = ft(operand_matrix[b_idx, i])  # the kernel's float type: float64, or float32 on a 1/32-double card
+            v = _form(form_id, x0, x1, eps)
             finite = math.isfinite(yi) and math.isfinite(v)
             if finite:
                 da = yi - ma
@@ -373,7 +404,7 @@ def _warp_pass_helpers():
     return _warp_mean_sums, _warp_centered_sums
 
 
-def _cuda_kernel_warp_factory():
+def _cuda_kernel_warp_factory(ft=np.float64):
     """Build (once) the WARP-coalesced CUDA kernel variant: one WARP (32 threads) per
     (pair, form) instead of one THREAD. The rejected thread-per-item design has each thread do a full
     serial n_rows-length loop over its OWN (pair, form)'s operand rows; since ``pair_a``/``pair_b`` are
@@ -394,7 +425,7 @@ def _cuda_kernel_warp_factory():
     if not _CUDA_AVAIL or _nb_cuda is None:
         return None
 
-    _warp_mean_sums, _warp_centered_sums = _warp_pass_helpers()
+    _warp_mean_sums, _warp_centered_sums = _warp_pass_helpers(ft)
 
     @_nb_cuda.jit(cache=True)
     def _kernel_warp(y, operand_matrix, pair_a, pair_b, form_ids, eps, cv2, out):
@@ -419,24 +450,25 @@ def _cuda_kernel_warp_factory():
             if lane == 0:
                 out[p, f] = 0.0
             return
-        inv = 1.0 / cnt
+        inv = ft(1.0) / ft(cnt)
         ma = sa * inv
         mv = sv * inv
 
         saa, svv, sav = _warp_centered_sums(y, operand_matrix, a_idx, b_idx, form_id, eps, n_rows, lane, ma, mv)
         if lane == 0:
-            if saa <= cnt * cv2 * ma * ma or svv <= cnt * cv2 * mv * mv:
+            fc = ft(cnt)
+            if saa <= fc * cv2 * ma * ma or svv <= fc * cv2 * mv * mv:
                 out[p, f] = 0.0
                 return
-            den = (saa * svv) ** 0.5
-            if den <= 0.0:
+            den = math.sqrt(saa) * math.sqrt(svv)
+            if den <= ft(0.0):
                 out[p, f] = 0.0
                 return
             c = sav / den
             if not math.isfinite(c):
                 out[p, f] = 0.0
                 return
-            out[p, f] = -c if c < 0.0 else c
+            out[p, f] = -c if c < ft(0.0) else c
 
     return _kernel_warp
 
@@ -445,10 +477,15 @@ def batch_pair_usability_corr_cuda_warp(y: np.ndarray, operand_matrix: np.ndarra
     """WARP-coalesced CUDA backend (see :func:`_cuda_kernel_warp_factory`): one WARP per (pair, form).
     Same contract as :func:`batch_pair_usability_corr_cuda` (raises if CUDA unavailable; callers should go
     through :func:`dispatch_batch_pair_usability_corr` with ``force_backend="cuda_warp"``)."""
-    global _CUDA_KERNEL_WARP
-    if _CUDA_KERNEL_WARP is None:
-        _CUDA_KERNEL_WARP = _cuda_kernel_warp_factory()
-    if _CUDA_KERNEL_WARP is None:
+    import os
+
+    # float32 forms and moments by default: this kernel was float64-bound on a 1/32-double card (5778 pairs x 5 forms x 33334 rows: 0.74 s float64, 0.17 s
+    # float32; |corr| within 1.7e-6, the best form of every pair unchanged). MLFRAME_USABILITY_CORR_F32=0 keeps the double kernel.
+    ft = np.float64 if os.environ.get("MLFRAME_USABILITY_CORR_F32", "1").strip() == "0" else np.float32
+    kernel = _CUDA_KERNELS_WARP.get(ft)
+    if kernel is None:
+        kernel = _CUDA_KERNELS_WARP[ft] = _cuda_kernel_warp_factory(ft)
+    if kernel is None:
         raise RuntimeError("CUDA is not available for batch_pair_usability_corr_cuda_warp")
 
     from ._fe_resident_operands import resident_operand
@@ -461,14 +498,14 @@ def batch_pair_usability_corr_cuda_warp(y: np.ndarray, operand_matrix: np.ndarra
 
     n_pairs = pair_a.shape[0]
     n_forms = form_ids.shape[0]
-    out_d = _nb_cuda.device_array((n_pairs, n_forms), dtype=crit_float_dtype())
+    out_d = _nb_cuda.device_array((n_pairs, n_forms), dtype=ft)
 
     total_warps = n_pairs * n_forms
     threads_per_block = 128  # 4 warps/block
     warps_per_block = threads_per_block // _WARP_SIZE
     blocks = (total_warps + warps_per_block - 1) // warps_per_block
-    _CUDA_KERNEL_WARP[blocks, threads_per_block](y_d, operand_d, pair_a_d, pair_b_d, form_ids_d, _EPS_DENOM_FLOOR, _CV2_DEGENERATE_FLOOR, out_d)
-    return np.asarray(out_d.copy_to_host())
+    kernel[blocks, threads_per_block](y_d, operand_d, pair_a_d, pair_b_d, form_ids_d, ft(_EPS_DENOM_FLOOR), ft(_CV2_DEGENERATE_FLOOR), out_d)
+    return np.asarray(out_d.copy_to_host(), dtype=crit_float_dtype())
 
 
 def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray) -> np.ndarray:

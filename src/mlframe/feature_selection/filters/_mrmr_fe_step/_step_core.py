@@ -131,9 +131,18 @@ def _run_fe_step(self, **kwargs):
         # own docstring) on the very "repeated MRMR().fit / CV folds" scenario it exists to prevent.
         # try/finally here (the single choke point every call passes through) guarantees it always runs,
         # success or exception, without touching the impl function's own body.
+        from .._gbm_seeder_prefetch import drop_prefetched, prefetch_surrogate_seeds
+
+        # the surrogate seeder's LightGBM fits depend only on the matrix, the target codes and the raw columns: they start here, beside the screening, and the
+        # seeder inside the operand-pool build takes their result (an unused call is dropped below)
+        prefetch_surrogate_seeds(
+            self, num_fs_steps=kwargs.get("num_fs_steps", -1), data=kwargs.get("data"), cols=kwargs.get("cols", []), X=kwargs.get("X"),
+            target_indices=kwargs.get("target_indices"), categorical_vars=kwargs.get("categorical_vars", []), classes_y=kwargs.get("classes_y"),
+        )
         try:
             return _run_fe_step_impl(self, **kwargs)
         finally:
+            drop_prefetched(self)
             _free_gpu_fe_mempool()
 
 

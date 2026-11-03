@@ -42,3 +42,15 @@ def test_forced_off_returns_none(monkeypatch):
     """``MLFRAME_MODULAR_CODES_DEVICE=0`` leaves the pool to the host path."""
     monkeypatch.setenv("MLFRAME_MODULAR_CODES_DEVICE", "0")
     assert modular_family_codes_gpu(_frame(2000), ["a", "b"], (7,), 10) is None
+
+
+def test_family_size_decides_for_every_chunk(monkeypatch):
+    """A chunk below the device bound still takes the device when the whole family is above it (all chunks of one gate take one path)."""
+    import mlframe.feature_selection.filters._quantile_codes_gpu as Q
+
+    monkeypatch.delenv("MLFRAME_MODULAR_CODES_DEVICE", raising=False)
+    monkeypatch.setattr(Q, "_device_min_elements", lambda: 10_000_000)
+    X = _frame(20000)
+    small = modular_family_codes_gpu(X, ["a", "b"], (7,), 10)  # 2 x 3 x 20000 = 120000 elements alone
+    assert small is None
+    assert modular_family_codes_gpu(X, ["a", "b"], (7,), 10, family_elements=20_000_000) is not None

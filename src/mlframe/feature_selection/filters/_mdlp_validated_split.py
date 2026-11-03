@@ -124,6 +124,12 @@ def _dedupe_xy(x: np.ndarray, y_i: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
     unique ``(x, y)`` pair a first-occurrence-only sample would have produced, so this is lossless
     for the recursion's actual inputs, not a tolerance loosening.
     """
+    if x.size > 1:
+        step = x[1:] > x[:-1]
+        if step.all():
+            # x already strictly increasing (the sorted column of ``mdlp_bin_edges``): no two rows share x, so no (x, y) pair repeats and the input is
+            # returned as the full lexsort below would return it, without the sort
+            return x, y_i
     order = np.lexsort((y_i, x))
     x_s, y_s = x[order], y_i[order]
     if x_s.size <= 1:

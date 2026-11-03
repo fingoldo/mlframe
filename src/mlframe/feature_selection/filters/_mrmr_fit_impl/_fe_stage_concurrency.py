@@ -14,7 +14,7 @@ CUDA-context corruption (``cudaErrorIllegalAddress``, thousands per fit) that st
 and the process-global caches kept arrays allocated inside the slot, so the next kernel that read one hit freed memory. The slot pools now live for the whole process (``_fe_device_scheduler``); with that the
 30000 x 40 fit has no device errors and the same selection as the sequential run.
 
-Off by default (``MLFRAME_FE_STAGE_CONCURRENCY=1`` turns it on); it also needs a device plan from ``_fe_device_scheduler`` (every stage gets at least the minimum VRAM budget), else the caller runs the cascades one by one.
+On by default since 2026-11-03 (``MLFRAME_FE_STAGE_CONCURRENCY=0`` turns it off): at 100000 x 100 with every family, one process, alternating order, concurrent 118.0 / 124.4 / 143.1 s against sequential 129.4 / 171.6 s, the same six features in every run and no device errors (after the day's GPU and CPU changes the stages no longer just queue on the device, unlike the 300k-row measurement in ``_fe_stage_cascade_run``). It also needs a device plan from ``_fe_device_scheduler`` (every stage gets at least the minimum VRAM budget), else the caller runs the cascades one by one.
 """
 
 from __future__ import annotations
@@ -32,11 +32,17 @@ logger = logging.getLogger(__name__)
 
 #: Relative costs of early_b, mid_a and mid_b used to place them on devices (measured walls at 100000 x 100, every family).
 STAGE_WEIGHTS = (14.0, 34.0, 18.0)
+#: The same with early_a in front (its families - the orthogonal bases, triplets / quadruplets, the auto-scorer - measured about 25 s at 100000 x 100).
+STAGE_WEIGHTS_WITH_EARLY_A = (25.0, 14.0, 34.0, 18.0)
+#: Peak device-pool use of the stages (MB, sequential fit at 50000 x 100, every family): early_b 461, mid_a 274, mid_b 110 (early_a 486). They split a device's
+#: memory among its stages; splitting it by the walls above gave early_b, the shortest stage with the largest need, the smallest slot (out-of-memory fallbacks).
+STAGE_VRAM_WEIGHTS = (461.0, 274.0, 110.0)
+STAGE_VRAM_WEIGHTS_WITH_EARLY_A = (486.0, 461.0, 274.0, 110.0)
 
 
 def concurrency_enabled() -> bool:
-    """Whether ``MLFRAME_FE_STAGE_CONCURRENCY`` turns the concurrent cascade on."""
-    return os.environ.get("MLFRAME_FE_STAGE_CONCURRENCY", "").strip() == "1"
+    """Whether the cascades run concurrently: on by default, ``MLFRAME_FE_STAGE_CONCURRENCY=0`` runs them one by one."""
+    return os.environ.get("MLFRAME_FE_STAGE_CONCURRENCY", "1").strip() != "0"
 
 
 def private_copy(estimator: Any) -> Any:
@@ -85,15 +91,22 @@ def merge_stage_state(target: Any, base: "dict[str, Any]", stage_copies: Sequenc
         setattr(target, name, value)
 
 
-def run_stages_concurrently(estimator: Any, stages: Sequence[Callable[[Any], Any]], weights: Sequence[float] = STAGE_WEIGHTS) -> "list[Any] | None":
+def run_stages_concurrently(
+    estimator: Any, stages: Sequence[Callable[[Any], Any]], weights: Sequence[float] = STAGE_WEIGHTS, merge_count: "Callable[[list], int] | None" = None,
+    vram_weights: "Sequence[float] | None" = None,
+) -> "list[Any] | None":
     """Results of ``stages`` (each called with a private copy of ``estimator``) run together, one per device slot, or ``None`` when no plan exists (the caller then runs them in order).
 
     The estimator's attributes are merged back in stage order before returning. A stage's exception is raised after all workers ended, for the first failing stage in order.
+    ``merge_count(outcomes)`` (called with the first stage's result, the rest ``None``) may keep only the first stages' state, as a sequential run that stops after
+    them (a dominant candidate) would; the dropped stages' results come back as ``None`` and their failures are ignored, since a sequential run never ran them.
     """
     from .._fe_device_scheduler import plan_stage_slots, stage_device_slot
     from .._fit_context import capture_fit_context, fit_context_scope
 
-    slots = plan_stage_slots(list(weights))
+    if vram_weights is None:
+        vram_weights = STAGE_VRAM_WEIGHTS if len(stages) == 3 else (STAGE_VRAM_WEIGHTS_WITH_EARLY_A if len(stages) == 4 else weights)
+    slots = plan_stage_slots(list(weights), vram_weights=list(vram_weights))
     if slots is None or len(slots) != len(stages):
         logger.info("FE stage concurrency: no device plan (a stage would get too little VRAM); running the cascades one by one")
         return None
@@ -109,8 +122,17 @@ def run_stages_concurrently(estimator: Any, stages: Sequence[Callable[[Any], Any
 
     with ThreadPoolExecutor(max_workers=len(stages)) as pool:
         futures = [pool.submit(_run, i) for i in range(len(stages))]
-    outcomes: "list[Any]" = []
-    for f in futures:
-        outcomes.append(f.result())  # raises the first failure in stage order
-    merge_stage_state(estimator, base, copies)
-    return outcomes
+    errors = [f.exception() for f in futures]
+    if merge_count is None:
+        keep = len(stages)
+    else:
+        if errors[0] is not None:
+            raise errors[0]
+        # merge_count sees the first stage's result (the stages it may drop have not been looked at yet)
+        keep = max(1, min(len(stages), int(merge_count([futures[0].result()] + [None] * (len(stages) - 1)))))
+    for err in errors[:keep]:
+        if err is not None:
+            raise err  # the first failure in stage order among the kept stages; a dropped stage would not have run sequentially
+    outcomes: "list[Any]" = [f.result() for f in futures[:keep]]
+    merge_stage_state(estimator, base, copies[:keep])
+    return outcomes + [None] * (len(stages) - keep)

@@ -121,6 +121,34 @@ def _takes_cpu_rank_path(X: np.ndarray, nbins: int) -> bool:
     return _cpu_rank_path_applies(X, nbins) and be._mi_path_for(int(X.shape[0]), int(X.shape[1]), _crit_np_dtype(), False) == "resident" and bool(np.isfinite(X).all())
 
 
+def _strict_null_max_batched(
+    cp: Any, Xd: Any, y_arr: np.ndarray, permutations: "list[np.ndarray]", nbins: int, cache: dict, keep_dtype: bool = False
+) -> "np.ndarray | None":
+    """The per-permutation maxima of :func:`_null_max_strict_gpu` from one launch per block of permutations (``_null_max_perm_gpu``, the kernel of the binned
+    numeric-aggregate null): the candidates are binned once with the edges the per-permutation calls cache, and every permutation is counted from them. Same edges,
+    counts and MI; ``keep_dtype`` goes to the binning as the per-permutation calls pass it (the streamed path keeps float32). ``None`` when that path does not apply (``MLFRAME_STRICT_NULL_BATCHED=0``, too many classes, a device fault): the caller loops."""
+    import os
+
+    if os.environ.get("MLFRAME_STRICT_NULL_BATCHED", "1").strip() == "0" or not permutations:
+        return None
+    try:
+        from .._hermite_fe_mi import _resident_mi_candidates
+        from .._null_max_perm_gpu import null_max_mi_perms_gpu
+        from . import _orth_mi_backends as be
+
+        yd, y_min, n_classes = be._resident_labels(y_arr, cp)
+        state = _resident_mi_candidates(Xd, int(nbins), keep_dtype=keep_dtype, relax_binning=False, x_is_cm=False)
+        cache["state"] = state
+        x_gpu, is_cm, x_cm, interior = state
+        if x_cm is None:
+            x_cm = x_gpu if is_cm else cp.ascontiguousarray(x_gpu.T)
+        y_shift = yd.astype(cp.int64) - int(y_min) if y_min else yd.astype(cp.int64)
+        return null_max_mi_perms_gpu(cp, x_cm, interior, y_shift, np.stack([np.asarray(p) for p in permutations]), int(nbins), int(n_classes))
+    except Exception as exc:
+        logger.debug("batched STRICT null max not used (%s); one launch per permutation", exc)
+        return None
+
+
 def _null_max_strict_gpu(X: np.ndarray, y: np.ndarray, permutations: "list[np.ndarray]", nbins: int) -> "np.ndarray | None":
     """The STRICT-residency twin of ``_mi_classif_batch``: the candidate matrix is uploaded once and its bin edges are computed once (``candidate_cache``), every permutation then only
     re-bins nothing and counts. ``None`` when STRICT is off for this shape, cupy is absent or a device fault occurs, so the caller runs the repeated per-permutation calls."""
@@ -137,8 +165,11 @@ def _null_max_strict_gpu(X: np.ndarray, y: np.ndarray, permutations: "list[np.nd
         # Intentional float64: GPU f64 MI path, the same upload the per-call STRICT route makes.
         Xd = cp.asarray(np.ascontiguousarray(np.asarray(X, dtype=np.float64)))
         cache: dict = {}
-        out = np.empty(len(permutations), dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
         y_arr = np.asarray(y)
+        batched = _strict_null_max_batched(cp, Xd, y_arr, permutations, int(nbins), cache)
+        if batched is not None:
+            return batched
+        out = np.empty(len(permutations), dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
         for b, perm in enumerate(permutations):
             yd, y_min, n_classes = be._resident_labels(y_arr[perm], cp)
             mi = _plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=y_min, n_classes=n_classes, candidate_cache=cache)

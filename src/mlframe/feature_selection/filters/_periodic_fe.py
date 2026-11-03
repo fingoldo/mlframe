@@ -498,7 +498,7 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
         from ._modular_codes_gpu import modular_family_codes_gpu
 
         eng_values = None
-        on_device = modular_family_codes_gpu(X, cs, periods, nbins)
+        on_device = modular_family_codes_gpu(X, cs, periods, nbins, family_elements=len(src_cols) * 3 * len(periods_pos) * len(X))
         if on_device is not None:
             eng_names, cc, nx = on_device
         else:

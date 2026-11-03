@@ -11,6 +11,8 @@ from typing import cast
 import numpy as np
 from numba import njit, prange
 
+from ._numba_utils_shared import radix_order_f64
+
 
 @njit(cache=True)
 def _psi_table(n):
@@ -29,7 +31,7 @@ def _mi_cd_column(x, d, n_classes, n_neighbors, psi):
     counts = np.zeros(n_classes, dtype=np.int64)
     for i in range(n):
         counts[d[i]] += 1
-    order = np.argsort(x)
+    order = radix_order_f64(x)  # stable LSD radix order of the (finite, noised) column: replaces the comparison argsort
     xs = np.empty(n)
     ds = np.empty(n, dtype=np.int64)
     n_kept = 0

@@ -32,6 +32,8 @@ import numpy as np
 from .._fe_usability_signal import _crit_np_dtype
 from numba import prange
 
+from .._numba_utils_shared import radix_order_f64
+
 
 @numba.njit(cache=True, parallel=True)
 def average_ranks_many(cols, out: np.ndarray) -> None:
@@ -39,7 +41,8 @@ def average_ranks_many(cols, out: np.ndarray) -> None:
     for k in prange(len(cols)):
         c = cols[k]
         n = c.shape[0]
-        order = np.argsort(c, kind="mergesort")
+        # the ranks depend only on the tie runs, so a radix order of the (exactly widened) values gives the same ranks as the comparison sort
+        order = radix_order_f64(c.astype(np.float64))
         i = 0
         while i < n:
             e = i + 1
@@ -54,7 +57,7 @@ def average_ranks_many(cols, out: np.ndarray) -> None:
 @numba.njit(cache=True)
 def _avg_ranks_inplace(v: np.ndarray, m: int, order: np.ndarray, ranks: np.ndarray) -> None:
     """Average ranks (ties share the mean rank, as ``pandas.Series.rank(method="average")``) of the first ``m`` values of ``v`` into ``ranks``; ``order`` is scratch."""
-    order[:m] = np.argsort(v[:m], kind="mergesort")
+    order[:m] = radix_order_f64(v[:m].astype(np.float64))  # same tie runs, so the same average ranks
     i = 0
     while i < m:
         e = i + 1

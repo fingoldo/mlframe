@@ -267,6 +267,7 @@ void radix_select_f32_v3(const float* __restrict__ data, const long long n, cons
     if(tid<R){unsigned int u=prefix[tid];u=(u&0x80000000u)?(u&0x7FFFFFFFu):~u;float d;memcpy(&d,&u,4);out[tid*K+col]=d;}
 }
 """
+
 _RADIX_SELECT_F32_V3_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe)
 _RADIX_SELECT_F32_BSEARCH_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe)
 _RADIX_SELECT_F64_KERNEL = None  # module-level singletons (lazy-compiled; never on an instance -> pickle-safe)

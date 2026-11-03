@@ -22,19 +22,22 @@ logger = logging.getLogger(__name__)
 _SHARED_BUDGET_BYTES = 32 * 1024  # the permutation tables of one launch
 
 _SRC = r"""
-extern "C" __global__ void null_mi_perms(const float* __restrict__ X, const double* __restrict__ edges, const unsigned char* __restrict__ yp, const long long n,
+extern "C" __global__ void null_mi_perms(const {XT}* __restrict__ X, const double* __restrict__ edges, const unsigned char* __restrict__ yp, const long long n,
                                          const int K, const int nbins, const int Ky, const int P, const double inv_n, double* __restrict__ out) {
     extern __shared__ int sh[];                       // P tables of (nbins * Ky) counts
     const int c = blockIdx.x;
     const int ne = nbins - 1, M = nbins * Ky;
     const int tid = threadIdx.x, nt = blockDim.x;
     for (int s = tid; s < P * M; s += nt) sh[s] = 0;
+    __shared__ double se[256];   // this column's interior edges, read per value by the search
+    const bool cached = ne <= 256;
+    if (cached) for (int s = threadIdx.x; s < ne; s += blockDim.x) se[s] = edges[(long long)s * K + c];
     __syncthreads();
-    const float* Xc = X + (long long)c * n;
+    const {XT}* Xc = X + (long long)c * n;
     for (long long i = tid; i < n; i += nt) {
         const double v = Xc[i];
         int lo = 0, hi = ne;                          // upper_bound: count of interior edges <= v
-        while (lo < hi) { int mid = (lo + hi) >> 1; if (edges[(long long)mid * K + c] <= v) lo = mid + 1; else hi = mid; }
+        while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
         const int base = lo * Ky;
         for (int p = 0; p < P; ++p) atomicAdd(&sh[p * M + base + yp[(long long)p * n + i]], 1);
     }
@@ -60,7 +63,7 @@ extern "C" __global__ void null_mi_perms(const float* __restrict__ X, const doub
 }
 #define PMAX_LANE 2
 #define NBMAX 32
-extern "C" __global__ void null_mi_perms_bits(const float* __restrict__ X, const double* __restrict__ edges, const unsigned int* __restrict__ ybits, const long long n,
+extern "C" __global__ void null_mi_perms_bits(const {XT}* __restrict__ X, const double* __restrict__ edges, const unsigned int* __restrict__ ybits, const long long n,
                                               const int W, const int K, const int nbins, const int P, const double inv_n, double* __restrict__ out) {
     // Binary target: a warp bins 32 consecutive rows and keeps one ballot mask per bin; lane l counts the label-1 rows of permutation p = l, l + 32, ... in each bin
     // as popc(mask & label word). The bin totals do not depend on the permutation. Counts stay in registers and reach shared memory once per lane.
@@ -71,19 +74,22 @@ extern "C" __global__ void null_mi_perms_bits(const float* __restrict__ X, const
     const int ne = nbins - 1;
     const int tid = threadIdx.x, lane = tid & 31, warp = tid >> 5, nw = blockDim.x >> 5;
     for (int s = tid; s < P * nbins + nbins; s += blockDim.x) sh[s] = 0;
+    __shared__ double se[256];   // this column's interior edges, read per value by the search
+    const bool cached = ne <= 256;
+    if (cached) for (int s = threadIdx.x; s < ne; s += blockDim.x) se[s] = edges[(long long)s * K + c];
     __syncthreads();
     int cnt[PMAX_LANE][NBMAX];
     int tl[NBMAX];
     for (int q = 0; q < PMAX_LANE; ++q) for (int b = 0; b < nbins; ++b) cnt[q][b] = 0;
     for (int b = 0; b < nbins; ++b) tl[b] = 0;
-    const float* Xc = X + (long long)c * n;
+    const {XT}* Xc = X + (long long)c * n;
     for (int w = warp; w < W; w += nw) {
         const long long i = (long long)w * 32 + lane;
         int code = -1;
         if (i < n) {
             const double v = Xc[i];
             int lo = 0, hi = ne;                      // upper_bound: count of interior edges <= v
-            while (lo < hi) { int mid = (lo + hi) >> 1; if (edges[(long long)mid * K + c] <= v) lo = mid + 1; else hi = mid; }
+            while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
             code = lo;
         }
         unsigned int mb[NBMAX];
@@ -125,7 +131,10 @@ extern "C" __global__ void null_mi_perms_bits(const float* __restrict__ X, const
 }
 """
 
-_MODULE = RawModuleCache(_SRC)
+# ``{XT}`` is the storage type of the candidate values, one compiled module per type (CUDA.md, placeholder substitution): float32 for the binned numeric-aggregate
+# null, double where the caller uploads its matrix in float64 (the STRICT null of the local MI gate). The value is compared with the double edges as the
+# per-permutation fused kernel compares it; the MI terms and sum stay double ({ACC}: a statistic thresholded against the observed maximum).
+_MODULES_BY_X = {xt: RawModuleCache(_SRC.replace("{XT}", xt)) for xt in ("float", "double")}
 
 
 def _bits_width(kernel: Any, shared_bytes: int, n: int) -> int:
@@ -141,19 +150,20 @@ def _bits_width(kernel: Any, shared_bytes: int, n: int) -> int:
 
 
 def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, perms: np.ndarray, nbins: int, n_classes: int) -> Optional[np.ndarray]:
-    """``(P,)`` maximum over the candidates of the plug-in MI against ``y_shifted[perms[p]]``, for the float32 ``(K, n)`` C-order candidate block ``x_cm`` binned by
+    """``(P,)`` maximum over the candidates of the plug-in MI against ``y_shifted[perms[p]]``, for the float32 or float64 ``(K, n)`` C-order candidate block ``x_cm`` binned by
     ``interior`` (``(nbins - 1, K)``, the edges ``binned_mi_from_values_gpu`` uses); ``None`` when the path does not apply (the caller keeps one launch per permutation)."""
-    if x_cm.dtype != cp.float32 or not x_cm.flags.c_contiguous or int(n_classes) > 255:
+    if x_cm.dtype not in (cp.float32, cp.float64) or not x_cm.flags.c_contiguous or int(n_classes) > 255:
         return None
+    module = _MODULES_BY_X["float" if x_cm.dtype == cp.float32 else "double"]
     k, n = int(x_cm.shape[0]), int(x_cm.shape[1])
     m = int(nbins) * int(n_classes)
     per_launch = max(1, _SHARED_BUDGET_BYTES // (4 * m))
-    kernel = _MODULE.get(cp).get_function("null_mi_perms")
+    kernel = module.get(cp).get_function("null_mi_perms")
     edges = cp.ascontiguousarray(interior.astype(cp.float64, copy=False))  # Intentional float64: the edges the per-permutation kernel compares at full precision
     y8 = y_shifted.astype(cp.uint8)
     out = np.empty(len(perms), dtype=np.float64)  # Intentional float64: null maxima (statistic vector)
     if int(n_classes) == 2 and int(nbins) <= 32:
-        bits_kernel = _MODULE.get(cp).get_function("null_mi_perms_bits")
+        bits_kernel = module.get(cp).get_function("null_mi_perms_bits")
         words = (n + 31) // 32
         for p0 in range(0, len(perms), 64):  # PMAX_LANE x 32 permutations per launch
             block = perms[p0 : p0 + 64]
