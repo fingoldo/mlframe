@@ -86,9 +86,35 @@ def _optimal_joint_final_edges(plan: dict, M: int) -> np.ndarray:
     edges = plan["final"].get(M)
     if edges is None:
         x = plan["x"]
-        edges = cast(np.ndarray, _a()._edges_from_quantiles(x, M) if plan["base"] == "quantile" else _a()._edges_from_uniform(x, M))
-        plan["final"][M] = edges
+        if plan["base"] == "quantile":
+            # every candidate count of the plan from ONE percentile call (one partition of the column; each quantile is the same order-statistic
+            # interpolation as in a call of its own, so the edges equal ``_edges_from_quantiles(x, m)`` for every m)
+            ms = sorted({int(M)} | {int(m) for _k, _vm, cells in plan["folds"] for m, _xb, _kx in cells})
+            plan["final"].update(_quantile_edges_many(x, ms))
+            edges = plan["final"][M]
+        else:
+            edges = cast(np.ndarray, _a()._edges_from_uniform(x, M))
+            plan["final"][M] = edges
     return cast(np.ndarray, edges)
+
+
+def _quantile_edges_many(x: np.ndarray, ms: list) -> dict:
+    """``{m: _edges_from_quantiles(x, m)}`` for every ``m`` of ``ms`` from one ``np.percentile`` call."""
+    empty = np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
+    x = np.asarray(x, dtype=np.float64).ravel()  # Intentional float64: bin-edge computation input
+    x = x[np.isfinite(x)]
+    out = {m: empty for m in ms if m < 2 or x.size == 0}
+    todo = [m for m in ms if m not in out]
+    if not todo:
+        return out
+    grids = [np.linspace(0.0, 100.0, m + 1) for m in todo]
+    values = np.percentile(x, np.concatenate(grids))
+    o = 0
+    for m, g in zip(todo, grids):
+        full = np.unique(values[o : o + g.size])
+        o += g.size
+        out[m] = empty if full.size <= 2 else np.asarray(full[1:-1], dtype=np.float64)  # Intentional float64: bin-edge output contract
+    return out
 
 
 def edges_optimal_joint(
