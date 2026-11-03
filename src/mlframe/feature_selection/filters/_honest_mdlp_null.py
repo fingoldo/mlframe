@@ -330,8 +330,24 @@ def honest_fdr_floor(
     rng = np.random.default_rng(0 if seed is None else int(seed))
     base_seed = int(rng.integers(0, 2**31 - 1))  # the stream of the batched null: permutation b is ``seeded_permutation(n, base_seed + b)``
     nulls = np.empty(int(n_permutations), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    for b in range(int(n_permutations)):
-        nulls[b] = _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, cols, n, seeded_permutation(n, base_seed + b), eval_rows)
+
+    def one(b: int) -> float:
+        """The best null MI of permutation ``b`` (seeded ``base_seed + b``: the same value on any thread)."""
+        return float(_honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, cols, n, seeded_permutation(n, base_seed + b), eval_rows))
+
+    import os
+
+    if int(n_permutations) >= 4 and os.environ.get("MLFRAME_HONEST_FDR_POOL", "1").strip() != "0":
+        # The permutations are independent (each re-bins the pool under its own seeded target; the binner and its plan cache are lock-protected), so they
+        # run on the edge pool and fill the vector by index - the serial values. With nbins_strategy=optimal_joint the serial loop was 53 of the 121 s of a
+        # 30000-row all-families fit, one core busy.
+        nulls[0] = one(0)  # on this thread first: compiles the kernels and fills the binner's plans once
+        from ._edge_pool import map_on_edge_pool
+
+        nulls[1:] = map_on_edge_pool(one, list(range(1, int(n_permutations))), min_items=2)
+    else:
+        for b in range(int(n_permutations)):
+            nulls[b] = one(b)
     return float(np.quantile(nulls, float(quantile), method="higher"))
 
 

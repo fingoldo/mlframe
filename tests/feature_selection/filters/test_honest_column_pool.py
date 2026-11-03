@@ -42,3 +42,25 @@ def test_pool_equals_serial(monkeypatch):
     got = H.honest_candidate_nfailed(hook, factors, [3, 2], 1, 0, 40, seed=7)
     assert called == [True]
     assert got == want and want is not None
+
+
+def test_fdr_floor_pool_equals_serial(monkeypatch):
+    """The honest FDR floor with the permutations on the edge pool equals the serial floor (whole-frame re-binning hook, target-dependent codes)."""
+    rng = np.random.default_rng(1)
+    n = 3000
+    X = rng.standard_normal((n, 4))
+    y = (X[:, 0] + rng.standard_normal(n) > 0).astype(np.int64)
+
+    def codes_fn(row_perm):
+        """Every column cut at the mean over the permuted positives (target-dependent codes for the whole frame)."""
+        yp = y[np.asarray(row_perm)]
+        cuts = X[yp == 1].mean(axis=0)
+        return (X > cuts).astype(np.int64), np.full(4, 2)
+
+    factors = np.column_stack([(X > X[y == 1].mean(axis=0)).astype(np.int64), y]).astype(np.int64)
+    nb = np.array([2, 2, 2, 2, 2])
+    monkeypatch.setenv("MLFRAME_HONEST_FDR_POOL", "0")
+    want = H.honest_fdr_floor(codes_fn, factors, nb, 4, [0, 1, 2, 3], 30, 0.95, seed=3)
+    monkeypatch.setenv("MLFRAME_HONEST_FDR_POOL", "1")
+    got = H.honest_fdr_floor(codes_fn, factors, nb, 4, [0, 1, 2, 3], 30, 0.95, seed=3)
+    assert got == want
