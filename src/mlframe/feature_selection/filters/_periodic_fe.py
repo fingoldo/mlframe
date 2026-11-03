@@ -495,10 +495,17 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
     periods_pos = [float(p) for p in periods if float(p) > 0.0]
     for c0 in range(0, len(src_cols), chunk):
         cs = list(src_cols[c0 : c0 + chunk])
-        eng_names, eng_values = modular_candidate_block(X, cs, periods)
-        if not eng_names:
-            continue
-        cc, nx = _candidate_codes(eng_values, nbins)
+        from ._modular_codes_gpu import modular_family_codes_gpu
+
+        eng_values = None
+        on_device = modular_family_codes_gpu(X, cs, periods, nbins)
+        if on_device is not None:
+            eng_names, cc, nx = on_device
+        else:
+            eng_names, eng_values = modular_candidate_block(X, cs, periods)
+            if not eng_names:
+                continue
+            cc, nx = _candidate_codes(eng_values, nbins)
         codes.append(cc)
         nxs.append(nx)
         names.extend(eng_names)

@@ -250,6 +250,50 @@ def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: 
     return True
 
 
+def quantile_codes_resident_f32(cp, v_dev, n_bins: int, codes: np.ndarray, nx: np.ndarray) -> None:
+    """``quantile_codes_block_gpu`` of a RESIDENT finite float32 block ``v_dev`` ``(columns, n)`` (C-contiguous): same edges, same code kernel, codes copied into the
+    host ``codes`` / ``nx``. Only the rows that may have at most ``n_bins`` distinct values are copied to the host: a row whose order statistics already hold more
+    than ``n_bins`` distinct values has more levels, the others are checked exactly by the host kernel and, when few-valued, take its exact level codes."""
+    from ._numba_utils import quantile_codes_block
+
+    k, n = int(v_dev.shape[0]), int(v_dev.shape[1])
+    kernel = _MODULES["float"].get(cp).get_function("quantile_codes_f32")
+    i0, i1, gamma = _edge_positions(n, int(n_bins))
+    gamma_dev = cp.asarray(gamma)
+    nb1 = int(n_bins) + 1
+    w_unique = np.unique(np.concatenate([i0, i1]))
+    lo_idx, hi_idx = cp.asarray(np.searchsorted(w_unique, i0)), cp.asarray(np.searchsorted(w_unique, i1))
+    block = min(_column_block(cp, n), 256)
+    for c0 in range(0, k, block):
+        c1 = min(k, c0 + block)
+        vb = v_dev[c0:c1]
+        vals = _order_statistics_f32(cp, vb, w_unique)
+        srt = cp.sort(vals, axis=1)
+        maybe_few = np.flatnonzero(cp.asnumpy(1 + (srt[:, 1:] != srt[:, :-1]).sum(axis=1)) <= int(n_bins))
+        # Intentional float64: the edges are computed in numpy's double-precision arithmetic, as the host kernel does
+        a = vals[:, lo_idx].astype(cp.float64)
+        # Intentional float64: same double-precision edge arithmetic as the lower order statistic
+        b = vals[:, hi_idx].astype(cp.float64)
+        diff = b - a
+        edges = cp.where(gamma_dev >= 0.5, b - diff * (1.0 - gamma_dev), a + diff * gamma_dev)
+        keep = cp.ones(edges.shape, dtype=cp.uint8)
+        keep[:, 1:] = (edges[:, 1:] != edges[:, :-1]).astype(cp.uint8)
+        hi_code = cp.maximum(keep.sum(axis=1).astype(cp.int32) - 2, 0).astype(cp.int32)
+        out = cp.empty((c1 - c0, n), dtype=cp.int16)
+        kernel((min(1024, (n + THREADS - 1) // THREADS), c1 - c0), (THREADS,), (vb, cp.ascontiguousarray(edges), keep, hi_code, np.int64(n), np.int32(nb1), out))
+        codes[c0:c1] = cp.asnumpy(out)
+        nx[c0:c1] = cp.asnumpy(out.max(axis=1)).astype(np.int64) + 1
+        if maybe_few.size:
+            host_rows = cp.asnumpy(vb[cp.asarray(maybe_few)])
+            few = np.flatnonzero(_few_levels_mask(host_rows, int(n_bins)))
+            if few.size:  # few distinct values: exact level codes, as the host kernel gives them
+                sub_codes = np.empty((few.size, n), dtype=np.int16)
+                sub_nx = np.empty(few.size, dtype=np.int64)
+                quantile_codes_block(np.ascontiguousarray(host_rows[few]), int(n_bins), sub_codes, sub_nx)
+                codes[c0 + maybe_few[few]] = sub_codes
+                nx[c0 + maybe_few[few]] = sub_nx
+
+
 def _device_min_elements() -> int:
     """Elements from which the device codes are the default: ``DEVICE_MIN_ELEMENTS``, or ``STRICT_DEVICE_MIN_ELEMENTS`` under the strict-resident path, whose contract forbids a bulk device-to-host copy that a host consumer of the codes needs (the codes are copied back here)."""
     try:
@@ -278,4 +322,4 @@ def quantile_codes_block_auto(v: np.ndarray, n_bins: int, codes: np.ndarray, nx:
     host_kernel(v, n_bins, codes, nx)
 
 
-__all__ = ["quantile_codes_block_gpu", "quantile_codes_block_auto"]
+__all__ = ["quantile_codes_block_gpu", "quantile_codes_block_auto", "quantile_codes_resident_f32"]
