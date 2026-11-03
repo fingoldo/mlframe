@@ -26,7 +26,7 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | **RESOLVED** | W17CMP-3 | Low | `_best_iteration_of` off by one for XGBoost / CatBoost |
 | **RESOLVED** | W17CMP-4 | Low | the hurdle's smearing factor is weighted (`tests/training/composite/test_hurdle_smearing_factor_is_weighted.py`) and the composite estimator's residual quantiles now take the fit's sample weights (`tests/training/composite/test_smearing_quantiles_are_weighted.py`) |
 | **RESOLVED** | W17CMP-5 | Low | T-clip envelope differs between fit and drift refit when MAD = 0 |
-| **FUTURE** | W17CMP-6 | Low | chain / quantile-normal transforms get no smearing |
+| **REJECTED** | W17CMP-6 | Low | smearing for the quantile-normal and chain transforms was measured on right-skewed targets (3 seeds, y-scale RMSE without / with smearing): `quantile_normal_y` 6.86/6.86, 6.37/6.26, 5.67/5.64; `chain_linres_cbrt_qn` 6.89/6.91, 6.40/6.42, 5.80/5.81; `chain_linres_cbrt` 6.89/7.01, 6.45/6.65, 5.75/5.93. The gain is under 2% and the chains get worse, so they stay out of `SMEARED_TRANSFORMS`; runnable bench: `src/mlframe/training/composite/_benchmarks/bench_smearing_for_quantile_normal_and_chains.py` |
 | **RESOLVED** | W17CAL-1 | Medium | `generate_probs_from_outcomes` default `flip_percent=0.6` reverses the signal |
 | **RESOLVED** | W17CAL-2 | Medium | "random chunks" in the same generator are contiguous slices |
 | **RESOLVED** | W17CAL-3 | Medium | `compare_cv_schemes` winner and significance test use different criteria |
