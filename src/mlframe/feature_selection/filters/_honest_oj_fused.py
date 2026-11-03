@@ -105,9 +105,18 @@ def _fused_block(perms, y_raw, yc, rows, xb, kx, nv, val_idx, pool_dep, pool_cod
         out[b] = -np.inf if bad else res
 
 
-def _assemble_pool(binner, pool, width, dep_rows, ms, factors_data, factors_nbins, n):
+def _declined(reason: str) -> None:
+    """Log why the fused floor stepped aside (once per reason) and return ``None``: the per-permutation floor then runs, many times slower."""
+    from mlframe.utils.log_throttle import log_throttle
+
+    log_throttle(logger, "honest_oj_fused_declined:" + reason, logging.INFO, "fused optimal_joint honest floor not used: %s; the per-permutation floor runs", reason)
+    return None
+
+
+def _assemble_pool(binner, pool, width, dep_rows, ms, factors_data, factors_nbins, n, sub, free_rows):
     """``(pool_dep, pool_codes, pool_nb)``: for each pool column its re-binned column index (``-1`` for a fixed one), its code rows per candidate count in
-    the binner's code dtype (a fixed column fills candidate 0), and the bin counts."""
+    the binner's code dtype (a fixed column fills candidate 0), and the bin counts. ``pool_dep`` indexes the packed plans (``sub``); a re-binned column with
+    target-free edges (``free_rows``) is placed like a fixed one."""
     pool_dep = np.full(len(pool), -1, dtype=np.int64)
     with binner._lock:
         table, col_max = binner._table, binner._col_max
@@ -115,9 +124,13 @@ def _assemble_pool(binner, pool, width, dep_rows, ms, factors_data, factors_nbin
     pool_codes = np.zeros((len(pool), len(ms), n), dtype=code_dtype)
     pool_nb = np.zeros((len(pool), len(ms)), dtype=np.int64)
     for t, c in enumerate(pool):
-        if c < width and int(binner._out_dep[c]) >= 0:
+        if c < width and int(binner._out_dep[c]) in free_rows:
+            s = int(free_rows[int(binner._out_dep[c])])
+            pool_codes[t, 0] = table[s]
+            pool_nb[t, 0] = int(col_max[s]) + 1
+        elif c < width and int(binner._out_dep[c]) >= 0:
             j = int(binner._out_dep[c])
-            pool_dep[t] = j
+            pool_dep[t] = sub[j]
             for mi in range(len(ms)):
                 pool_codes[t, mi] = table[dep_rows[j, mi]]
                 pool_nb[t, mi] = int(col_max[dep_rows[j, mi]]) + 1
@@ -155,22 +168,50 @@ def _floor(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, c
 
     max_y = int(binner._kwargs.get("optimal_joint_max_y_classes", 64))
     if y_raw.dtype.kind not in "iub" or y_raw.size == 0 or int(y_raw.min()) < 0 or _distinct_exceeds(y_raw, max_y):
-        return None
+        return _declined("the raw target is not small non-negative integer labels")
     y_int = np.ascontiguousarray(y_raw, dtype=np.int64)
-    if binner._prescore(y_int) is None or binner._packed is None:
-        # the plans are built by a permutation's normal route: run the first permutation through the hook once (its codes are the production ones), then pack
+    from ._optimal_joint_edges import pack_plans
+
+    cache = binner._kwargs.get("optimal_joint_plan_cache")
+    if cache is None:
+        return _declined("no optimal_joint plan cache on the binner")
+    candidates = tuple(binner._kwargs.get("candidates", (4, 8, 16, 32)))
+    n_splits, seed = binner._kwargs.get("n_splits", 3), binner._kwargs.get("random_state", 0)
+    n_dep = binner._arr.shape[1]
+
+    def _plans():
+        """The cached plan of every re-binned column (``None`` where the column has none)."""
+        return [cache.get(binner._arr[:, j], candidates, n_splits, "quantile", seed) for j in range(n_dep)]
+
+    plans = _plans()
+    if any(pl is None for pl in plans):
+        # the plans are built by a permutation's normal route: run the first permutation through the hook once (its codes are the production ones)
         honest_codes_fn(seeded_permutation(int(factors_data.shape[0]), base_seed))
-        if binner._prescore(y_int) is None or binner._packed is None:
-            return None
-    packed, plans = binner._packed, binner._plans
+        plans = _plans()
+    planned = [j for j in range(n_dep) if plans[j] is not None]
+    if not planned:
+        return _declined("no column has an optimal_joint plan")
+    packed = pack_plans([plans[j] for j in planned], candidates)
+    if packed is None:
+        return _declined("the column plans do not pack (differing folds or wide codes)")
     ms = list(packed["ms"])
     n = int(factors_data.shape[0])
-    n_dep = binner._arr.shape[1]
-    # the code row of every (re-binned column, candidate count), through the binner's own edge path with the count planted as the plan's winner
-    cache = binner._kwargs["optimal_joint_plan_cache"]
     key = cache._target_key(y_int)
-    dep_rows = np.empty((n_dep, len(ms)), dtype=np.int64)
+    # a column without a plan took an early, target-free edge rule (few values / too few rows): its code row must not depend on the target. Checked on two
+    # different permutations; the row then serves every permutation like a fixed column's.
+    free_rows: dict = {}
     for j in range(n_dep):
+        if plans[j] is not None:
+            continue
+        s0 = binner._edges_slot(j, np.ascontiguousarray(y_int[seeded_permutation(n, base_seed)]))
+        s1 = binner._edges_slot(j, np.ascontiguousarray(y_int[seeded_permutation(n, base_seed + 1)]))
+        if s0 is None or s1 is None or s0 != s1:
+            return _declined("a re-binned column without a plan has target-dependent edges")
+        free_rows[j] = s0
+    sub = {j: i for i, j in enumerate(planned)}  # re-binned column -> its place among the packed plans
+    # the code row of every (planned column, candidate count), through the binner's own edge path with the count planted as the plan's winner
+    dep_rows = np.full((n_dep, len(ms)), -1, dtype=np.int64)
+    for j in planned:
         for mi, m in enumerate(ms):
             s = binner._by_count.get((j, m))
             if s is None:
@@ -185,7 +226,7 @@ def _floor(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, c
                     else:
                         best[key] = prev
                 if s is None:
-                    return None
+                    return _declined("the binner's code table is at its byte budget")
                 binner._by_count[(j, m)] = s
             dep_rows[j, mi] = s
     width = len(binner._out_names)
@@ -197,7 +238,7 @@ def _floor(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, c
     if memo is not None and memo[0] == memo_key:
         pool_dep, pool_codes, pool_nb = memo[1]
     else:
-        pool_dep, pool_codes, pool_nb = _assemble_pool(binner, pool, width, dep_rows, ms, factors_data, factors_nbins, n)
+        pool_dep, pool_codes, pool_nb = _assemble_pool(binner, pool, width, dep_rows, ms, factors_data, factors_nbins, n, sub, free_rows)
         binner._fused_pool_memo = (memo_key, (pool_dep, pool_codes, pool_nb))
     folds = packed["folds"]
     nv = np.asarray(packed["nv"], dtype=np.int64)
@@ -213,6 +254,6 @@ def _floor(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, c
         out = np.empty(b1 - b0, dtype=np.float64)  # Intentional float64: statistic vector
         _fused_block(perms, y_int, yc, rows, packed["xb"], np.asarray(packed["kx"], dtype=np.int64), nv, val_idx, pool_dep, pool_codes, pool_nb, float(len(rows)), out)
         if np.isneginf(out).any():
-            return None
+            return _declined("a column had no scored candidate count in some permutation")
         nulls[b0:b1] = out
     return float(np.quantile(nulls, float(quantile), method="higher"))
