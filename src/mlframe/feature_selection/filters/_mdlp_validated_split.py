@@ -271,6 +271,9 @@ def _split_significant(
     return (gain > threshold_gain), p_value, "permutation"
 
 
+_PERM_CHUNK = 16  # permutations per round of the early-stopping null: one round of a one-node level still fills the cores
+
+
 @njit(nogil=True, cache=True, parallel=True)
 def _mdlp_permutation_batch_njit(
     x_padded: np.ndarray,
@@ -302,33 +305,55 @@ def _mdlp_permutation_batch_njit(
     """
     n_nodes = x_padded.shape[0]
     accept = np.zeros(n_nodes, dtype=np.bool_)
-    # prange over (node, permutation) PAIRS, not nodes: the shallow BFS levels hold one or two nodes (the root
-    # level exactly one, and it is the LARGEST node), so a prange over nodes ran those levels' whole
-    # n_permutations x O(n) scans on a single thread. Each draw seeds itself (base_seed + p) exactly as before,
-    # so the null gains - and every accept decision - are bit-identical to the per-node loop.
-    null_all = np.empty((n_nodes, n_permutations), dtype=np.float64)  # Intentional float64: null-gain accumulator for the MDLP permutation test
-    for k in numba.prange(n_nodes * n_permutations):
-        node = k // n_permutations
-        p = k - node * n_permutations
-        ni = node_sizes[node]
-        x_i = x_padded[node, :ni]
-        np.random.seed(base_seeds[node] + p)
-        y_perm = y_padded[node, :ni].copy()
-        for i in range(ni - 1, 0, -1):
-            j = int(np.random.randint(0, i + 1))
-            tmp = y_perm[i]
-            y_perm[i] = y_perm[j]
-            y_perm[j] = tmp
-        _, g, _, _, _ = _mdlp_best_split_njit(x_i, y_perm, n_classes_arr[node], min_split_size)
-        null_all[node, p] = g if g > 0.0 else 0.0
-    for node in range(n_nodes):
-        gain = node_gains[node]
-        null_gains = null_all[node].copy()
-        null_gains.sort()
-        q_idx = min(math.ceil((1.0 - alpha) * n_permutations) - 1, n_permutations - 1)
-        q_idx = max(0, q_idx)
-        threshold_gain = null_gains[q_idx]
-        accept[node] = gain > threshold_gain
+    # The verdict needs only a count: with the nulls sorted, ``gain > null[q_idx]`` holds exactly when at most ``m = n_permutations - 1 - q_idx`` nulls reach the
+    # gain. The permutations run in chunks over the undecided nodes: a node is rejected once ``m + 1`` nulls reach its gain and accepted once ``q_idx + 1`` stay
+    # below it, which is the verdict of the full set (each draw seeds itself, ``base_seed + p``, so a computed draw is the same draw). A noise node is rejected
+    # after a few exceedances instead of all ``n_permutations`` scans. prange over (node, permutation) PAIRS of a chunk, not nodes: the shallow BFS levels hold
+    # one or two nodes (the root level exactly one, and it is the LARGEST node).
+    q_idx = min(math.ceil((1.0 - alpha) * n_permutations) - 1, n_permutations - 1)
+    q_idx = max(0, q_idx)
+    m_allowed = n_permutations - 1 - q_idx
+    n_reach = np.zeros(n_nodes, dtype=np.int64)
+    n_below = np.zeros(n_nodes, dtype=np.int64)
+    decided = np.zeros(n_nodes, dtype=np.bool_)
+    chunk = _PERM_CHUNK
+    p0 = 0
+    while p0 < n_permutations:
+        p1 = min(n_permutations, p0 + chunk)
+        width = p1 - p0
+        live = np.flatnonzero(~decided)
+        if live.size == 0:
+            break
+        null_chunk = np.empty((live.size, width), dtype=np.float64)  # Intentional float64: null-gain accumulator for the MDLP permutation test
+        for k in numba.prange(live.size * width):
+            li = k // width
+            p = p0 + (k - li * width)
+            node = live[li]
+            ni = node_sizes[node]
+            x_i = x_padded[node, :ni]
+            np.random.seed(base_seeds[node] + p)
+            y_perm = y_padded[node, :ni].copy()
+            for i in range(ni - 1, 0, -1):
+                j = int(np.random.randint(0, i + 1))
+                tmp = y_perm[i]
+                y_perm[i] = y_perm[j]
+                y_perm[j] = tmp
+            _, g, _, _, _ = _mdlp_best_split_njit(x_i, y_perm, n_classes_arr[node], min_split_size)
+            null_chunk[li, k - li * width] = g if g > 0.0 else 0.0
+        for li in range(live.size):
+            node = live[li]
+            gain = node_gains[node]
+            for t in range(width):
+                if null_chunk[li, t] < gain:
+                    n_below[node] += 1
+                else:
+                    n_reach[node] += 1
+            if n_reach[node] > m_allowed:
+                decided[node] = True  # rejected
+            elif n_below[node] >= q_idx + 1:
+                decided[node] = True
+                accept[node] = True
+        p0 = p1
     return accept
 
 
