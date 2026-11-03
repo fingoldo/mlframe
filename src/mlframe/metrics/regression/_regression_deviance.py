@@ -109,7 +109,7 @@ def _tweedie_deviance_general_kernel(
     for i in range(y_true.shape[0]):
         yt = y_true[i]
         yp = y_pred[i]
-        if yp <= 0.0 or yt < 0.0:
+        if yp <= 0.0 or yt < 0.0 or (p > 2.0 and yt <= 0.0):  # power > 2 needs y > 0 (as in sklearn); y = 0 gave a negative deviance
             invalid += 1
             continue
         # max(y, 0)^(2-p): yt >= 0 here, so use yt directly.
