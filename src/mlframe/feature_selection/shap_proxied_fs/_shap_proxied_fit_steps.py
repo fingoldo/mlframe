@@ -7,9 +7,24 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import _resolve_adaptive_n_anchors
 
 logger = logging.getLogger("mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit")
+
+
+def _precomputed_su_matches_search_rows(aligned: Any, n_search_rows: int) -> bool:
+    """True when the precomputed SU(X_j, y) ranking may replace the prefilter. It uses the target, so it is only honest if it was computed on exactly the
+    search rows: artifacts fitted on the full frame (``n_samples_at_fit`` larger than the search rows) saw the rows the selector later holds out."""
+    if aligned is None or "su_to_target" not in aligned:
+        return False
+    n_fit = aligned.get("n_samples_at_fit")
+    if n_fit is None or int(n_fit) == n_search_rows:
+        return True
+    log_throttle(logger, "shap_proxy.precomputed_su_skipped", logging.WARNING,
+                 "ShapProxiedFS: precomputed SU scores were computed on %s rows but the search uses %s; they saw the held-out rows, so the prefilter is recomputed on the search rows.",
+                 n_fit, n_search_rows)
+    return False
 
 
 def _collapse_intra_cluster_members(
@@ -251,7 +266,7 @@ class ShapProxiedFitStepsMixin:
                         report["shap_prefilter"]["stage1_keep_default"] = int(_default_stage1_keep(n_features))
 
             with _stage("prefilter"):
-                if _precomputed_aligned is not None and "su_to_target" in _precomputed_aligned:
+                if _precomputed_su_matches_search_rows(_precomputed_aligned, int(X_search.shape[0])):
                     # iter66: replace the booster / F-statistic prefilter with
                     # the SU(X_j, y) ranking the MRMR screen already computed.
                     # Skips the cloned-booster fit / chunked f_classif pass
