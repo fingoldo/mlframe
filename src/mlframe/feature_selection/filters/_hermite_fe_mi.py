@@ -9,6 +9,8 @@ resolves transparently.
 from __future__ import annotations
 
 import logging
+
+from mlframe.utils.log_throttle import log_throttle
 import math
 import contextlib
 import os
@@ -227,6 +229,42 @@ def relaxed_candidate_dtype(cp: ModuleType) -> Any:
         return cp.float64
 
 
+def _radix_edges_in_column_blocks(cp, X_gpu, n_bins: int):
+    """``_radix_select_interior_edges`` of the ``(n, k)`` matrix computed over column blocks sized from the memory the pool can still hand out (halved on a
+    further out-of-memory), concatenated: the same edges, since each column's edges depend only on that column. ``None`` when even one column does not fit."""
+    from ._gpu_resident_select import _radix_select_interior_edges
+
+    n, k = int(X_gpu.shape[0]), int(X_gpu.shape[1])
+    pool = cp.get_default_memory_pool()
+    try:
+        pool.free_all_blocks()
+        free = int(cp.cuda.Device().mem_info[0])
+        limit = int(pool.get_limit() or 0)
+        if limit:
+            free = min(free, max(0, limit - int(pool.used_bytes())))
+    except Exception:
+        free = 0
+    width = max(1, min(k, (free // 3) // max(1, n * X_gpu.dtype.itemsize)))  # the block, its transpose and the kernel scratch
+    parts = []
+    start = 0
+    while start < k:
+        stop = min(k, start + width)
+        try:
+            part = _radix_select_interior_edges(cp.ascontiguousarray(X_gpu[:, start:stop]), n_bins)
+        except Exception as exc:
+            if "Out of memory" in str(exc) and width > 1:
+                width = max(1, width // 2)
+                continue
+            logger.debug("column-block radix edges failed (%s); percentile path", exc)
+            return None
+        if part is None:
+            return None
+        parts.append(part)
+        start = stop
+    log_throttle(logger, "radix_edges_column_blocks", logging.INFO, "radix edges for a %d x %d matrix computed in column blocks of %d (the whole transpose did not fit the pool)", n, k, width)
+    return parts[0] if len(parts) == 1 else cp.concatenate(parts, axis=1)
+
+
 def _resident_mi_candidates(X_gpu, n_bins: int, *, keep_dtype: bool, relax_binning: bool, x_is_cm: bool):
     """The target-free part of the resident plug-in MI: the candidate matrix cast to its working dtype and its per-column interior quantile edges.
 
@@ -287,7 +325,12 @@ def _resident_mi_candidates(X_gpu, n_bins: int, *, keep_dtype: bool, relax_binni
                     x_cm = _transpose_to_cm(X_gpu) if X_gpu.flags.c_contiguous and X_gpu.dtype in (cp.float32, cp.float64) else None
                     interior = _radix_select_interior_edges(X_gpu, n_bins, cm_hint=x_cm)  # (n_bins-1, k), sort-free, == edges[1:-1]
         except Exception as e:
-            logger.warning("_radix_select_interior_edges failed, falling back to the exact percentile path: %s", e)
+            interior, x_cm = None, None
+            if not x_is_cm and "Out of memory" in str(e):
+                # the (k, n) transpose of the whole matrix does not fit the pool (1M rows): the edges are per column, so column blocks that fit give the same edges
+                interior = _radix_edges_in_column_blocks(cp, X_gpu, n_bins)
+            if interior is None:
+                logger.warning("_radix_select_interior_edges failed, falling back to the exact percentile path: %s", e)
             interior = None
     if interior is None and x_is_cm:
         X_gpu = cp.ascontiguousarray(X_gpu.T)  # the percentile fallback and the code-path MI work on the (n, k) matrix
