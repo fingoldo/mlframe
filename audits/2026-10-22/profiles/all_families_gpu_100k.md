@@ -141,3 +141,13 @@ New device kernels of the series, each with a host twin, an equivalence test and
 Method lessons recorded here because they cost time: (1) a micro-benchmark win is not a fit win until the full fit is grepped for `OutOfMemoryError` and `FE raised` (the device bootstrap walk passed its benchmark and broke the pool in the fit); (2) identical code gives 145 to 230 s on this machine, so
 two-run A/B pairs are only direction, and the stage seconds of the sampler or the call time are the instruments for a 1 to 3 s change; (3) the pool wait of a main thread in a profile means the work is in the workers: scale the pool (1, 2, 4, 8 jobs) to see whether a GIL-held section is hiding there.
 Still not parallel or device-ported: `fleuret_conditional_recheck` and `_stage_greedy_cmi` (sequential with early stop), the within-stratum permutation null of the triplet scorer (needs its own device RNG scheme), `score_candidates_by_cmi` (waits on the device).
+
+## nsys window, 50k x 100 GPU fit (2026-11-03, after the binning / radix / Fourier changes)
+`--trace=cuda --sample=none --cpuctxsw=none --delay=60 --duration=25` (after a 20000 x 30 warm-up fit), 1.6 MB report.
+GPU kernels 2.08 s in 25 s (about 8% busy); CUDA API 2.67 s: cudaMemcpyAsync 1.40 s (2669), cudaStreamSynchronize 0.51 s (2109),
+cuLaunchKernel 0.42 s (16444) + cudaLaunchKernel 0.07 s (4154), cudaMemsetAsync 0.14 s (4039).
+Top kernels: batched_joint_hist2_i32 0.445 s (15), cub DeviceMergeSort 0.281 s (405) + 0.165 s (38), ent_nnz_1d 0.184 s (840),
+null_mi_perms_bits 0.121 s (3), radix_select_interp_f64_v3 0.111 s (46), fold_cell_centred 0.097 s (352), radix_select_f32_v4 0.055 s (3).
+Reading: in this window the fit is host-bound. The main-thread waits on device queues seen by stage_sample (pair analytic gate 2.0 s,
+materialise uploads) are real, but most of the wall is host code; the remaining lever is moving host-only stages to the device, as on 2026-11-01.
+Stage sampler (same day, leaves per stage): every stage's time is spread over 0.2-1.2 s leaves; no single leaf above 1.2 s outside pool waits.
