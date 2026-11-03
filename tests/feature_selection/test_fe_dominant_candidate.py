@@ -41,9 +41,10 @@ def test_switch_off(monkeypatch):
 
 
 def test_cascade_skips_later_stages(monkeypatch):
-    """A dominant column after early_a skips early_b."""
+    """A dominant column after early_a skips early_b (the sequential cascade; the concurrent one starts every stage, see the next test)."""
     from mlframe.feature_selection.filters._mrmr_fit_impl import _fe_stage_cascade_run as R
 
+    monkeypatch.setenv("MLFRAME_FE_STAGE_CONCURRENCY", "0")
     called = []
     monkeypatch.setattr(R, "_fe_stage_cascade_early_b", lambda *a, **k: called.append(1))
     X = _frame()
@@ -64,3 +65,43 @@ def test_cascade_skips_later_stages(monkeypatch):
 
     _, raw = R._run_fe_stage_cascades(_Self(), X, y, 0, 1, y, None, None, None, _Rec())
     assert not called and list(raw) == list(X.columns)
+
+
+def test_concurrent_cascade_keeps_only_early_a_on_a_dominant_candidate(monkeypatch):
+    """Run concurrently, a dominant column from early_a returns early_a's frame only; a later stage that fails is ignored, as a sequential run never ran it."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl import _fe_stage_cascade_run as R
+    from mlframe.feature_selection.filters._mrmr_fit_impl import _fe_stage_concurrency as C
+    import mlframe.feature_selection.filters._fe_device_scheduler as DS
+
+    monkeypatch.setenv("MLFRAME_FE_STAGE_CONCURRENCY", "1")
+    monkeypatch.setenv("MLFRAME_FE_STAGE_CONCURRENCY_EARLY_A", "1")
+    monkeypatch.setattr(DS, "plan_stage_slots", lambda weights: [None] * len(weights))
+    import contextlib
+
+    monkeypatch.setattr(DS, "stage_device_slot", lambda slot, i: contextlib.nullcontext())
+    X = _frame()
+    y = (X["x1"].to_numpy() > 0).astype(int)
+    monkeypatch.setattr(R, "_fe_stage_cascade_early_a", lambda self, X, **k: (X, list(X.columns), None, None))
+
+    def _boom(*a, **k):
+        """A later stage that fails."""
+        raise RuntimeError("later stage")
+
+    for name in ("_fe_stage_cascade_early_b", "_fe_stage_cascade_mid_a", "_fe_stage_cascade_mid_b"):
+        monkeypatch.setattr(R, name, _boom)
+
+    class _Self:
+        """Estimator stub."""
+
+        degenerate_columns_ = {}
+
+    class _Rec:
+        """Recipes stub: every attribute is an empty dict."""
+
+        def __getattr__(self, name):
+            """Empty recipe dict."""
+            return {}
+
+    X_out, raw = R._run_fe_stage_cascades(_Self(), X, y, 0, 1, y, None, None, None, _Rec())
+    assert list(X_out.columns) == list(X.columns) and list(raw) == list(X.columns)
+    assert C.concurrency_enabled()

@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 #: Relative costs of early_b, mid_a and mid_b used to place them on devices (measured walls at 100000 x 100, every family).
 STAGE_WEIGHTS = (14.0, 34.0, 18.0)
+#: The same with early_a in front (its families - the orthogonal bases, triplets / quadruplets, the auto-scorer - measured about 25 s at 100000 x 100).
+STAGE_WEIGHTS_WITH_EARLY_A = (25.0, 14.0, 34.0, 18.0)
 
 
 def concurrency_enabled() -> bool:
@@ -85,10 +87,14 @@ def merge_stage_state(target: Any, base: "dict[str, Any]", stage_copies: Sequenc
         setattr(target, name, value)
 
 
-def run_stages_concurrently(estimator: Any, stages: Sequence[Callable[[Any], Any]], weights: Sequence[float] = STAGE_WEIGHTS) -> "list[Any] | None":
+def run_stages_concurrently(
+    estimator: Any, stages: Sequence[Callable[[Any], Any]], weights: Sequence[float] = STAGE_WEIGHTS, merge_count: "Callable[[list], int] | None" = None,
+) -> "list[Any] | None":
     """Results of ``stages`` (each called with a private copy of ``estimator``) run together, one per device slot, or ``None`` when no plan exists (the caller then runs them in order).
 
     The estimator's attributes are merged back in stage order before returning. A stage's exception is raised after all workers ended, for the first failing stage in order.
+    ``merge_count(outcomes)`` (called with the first stage's result, the rest ``None``) may keep only the first stages' state, as a sequential run that stops after
+    them (a dominant candidate) would; the dropped stages' results come back as ``None`` and their failures are ignored, since a sequential run never ran them.
     """
     from .._fe_device_scheduler import plan_stage_slots, stage_device_slot
     from .._fit_context import capture_fit_context, fit_context_scope
@@ -109,8 +115,17 @@ def run_stages_concurrently(estimator: Any, stages: Sequence[Callable[[Any], Any
 
     with ThreadPoolExecutor(max_workers=len(stages)) as pool:
         futures = [pool.submit(_run, i) for i in range(len(stages))]
-    outcomes: "list[Any]" = []
-    for f in futures:
-        outcomes.append(f.result())  # raises the first failure in stage order
-    merge_stage_state(estimator, base, copies)
-    return outcomes
+    errors = [f.exception() for f in futures]
+    if merge_count is None:
+        keep = len(stages)
+    else:
+        if errors[0] is not None:
+            raise errors[0]
+        # merge_count sees the first stage's result (the stages it may drop have not been looked at yet)
+        keep = max(1, min(len(stages), int(merge_count([futures[0].result()] + [None] * (len(stages) - 1)))))
+    for err in errors[:keep]:
+        if err is not None:
+            raise err  # the first failure in stage order among the kept stages; a dropped stage would not have run sequentially
+    outcomes: "list[Any]" = [f.result() for f in futures[:keep]]
+    merge_stage_state(estimator, base, copies[:keep])
+    return outcomes + [None] * (len(stages) - keep)
