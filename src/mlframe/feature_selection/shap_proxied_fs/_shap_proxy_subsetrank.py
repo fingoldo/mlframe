@@ -124,7 +124,10 @@ def brute_force_top_n_cpu_ref(
 ) -> list[tuple[float, tuple[int, ...]]]:
     """Top-N via the naive per-subset CPU scan (GPU-mirror numerics). Same contract as
     ``brute_force_top_n``; used to assert GPU/CPU bit-identity and as the OOM fallback that matches the
-    GPU kernel exactly. The faster default CPU path remains the incremental ``brute_force_top_n``."""
+    GPU kernel exactly. The faster default CPU path remains the incremental ``brute_force_top_n``.
+
+    This scan always accumulates in float64, like the GPU kernel. ``brute_force_top_n`` accumulates in the configured criterion dtype
+    (float32 by default), so the two agree to float32 rounding and may order near-tied subsets differently; only this function is bit-identical to the GPU."""
     metric_name = resolve_metric(classification, metric)
     if metric_name == "auc":
         raise ValueError("subset scan does not support metric='auc' (use brier/logloss); AUC is Python-path only.")
