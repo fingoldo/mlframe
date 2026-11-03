@@ -41,6 +41,13 @@ from ._feature_engineering_mem_budget import (
 )
 
 
+def _numba_float(vals):
+    """``vals`` with a float16 column promoted to float32 (exact: every float16 is a float32), so the numba unary / binary kernels compile; other dtypes unchanged.
+    A float16 operand column reached this rebuild in a 1M-row fit and numba raised ``NotImplementedError: float16``."""
+    arr = np.asarray(vals)
+    return arr.astype(np.float32) if arr.dtype == np.float16 else vals
+
+
 def _rebuild_full_survivor_col(
     config: tuple,
     X_full,
@@ -94,8 +101,8 @@ def _rebuild_full_survivor_col(
         # KeyError so the failure is explicit rather than silently fabricating data.
         return X_full.iloc[:, original_cols[var_idx]].values if isinstance(X_full, pd.DataFrame) else X_full[:, original_cols[var_idx]].to_numpy()
 
-    vals_a = _operand_full_vals(var_a_idx)
-    vals_b = _operand_full_vals(var_b_idx)
+    vals_a = _numba_float(_operand_full_vals(var_a_idx))
+    vals_b = _numba_float(_operand_full_vals(var_b_idx))
     # ``poly_*`` unary keys hold hermval coefficient arrays, not callables;
     # check_prospective_fe_pairs handles them via the same hermval(c=tr_func) path.
     # ``prewarp`` is the per-operand learned pseudo-unary: its fitted
