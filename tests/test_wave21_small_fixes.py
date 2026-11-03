@@ -35,3 +35,13 @@ def test_non_positive_similarity_scale_is_rejected(scale):
     est = SimilarityBlendEnsemble(LinearRegression(), LinearRegression(), similarity_scale=scale)
     with pytest.raises(ValueError, match="similarity_scale"):
         est.fit(np.zeros((4, 2)), np.zeros(4))
+
+
+def test_rolling_mean_and_std_skip_nan_values():
+    """values [1, NaN, 2, 3], window 3, one group: means 1, 1, 1.5, 2.5 (the NaN spread to rows 1-3 and gave NaN there)."""
+    values = np.array([1.0, np.nan, 2.0, 3.0])
+    groups = np.zeros(4, dtype=int)
+    mean = recency_weighted_rolling_mean(values, groups, 3, param=0.0, scheme="poly")
+    assert np.isfinite(mean).all()
+    np.testing.assert_allclose(mean, [1.0, 1.0, 1.5, 2.5])
+    assert np.isfinite(recency_weighted_rolling_std(values, groups, 3, param=0.0, scheme="poly")).all()
