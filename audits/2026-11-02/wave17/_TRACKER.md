@@ -24,7 +24,7 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | **RESOLVED** | W17CMP-1 | High | `predict_quantile` applied smearing, returning means instead of quantiles |
 | **RESOLVED** | W17CMP-2 | Medium | `GroupedBlockStacker` ignored a numeric `invalid_row_fill` |
 | **RESOLVED** | W17CMP-3 | Low | `_best_iteration_of` off by one for XGBoost / CatBoost |
-| **PARTIAL** | W17CMP-4 | Low | the hurdle's smearing factor is now weighted (`tests/training/composite/test_hurdle_smearing_factor_is_weighted.py`); the composite estimator's `residual_quantiles` still ignores sample weights |
+| **RESOLVED** | W17CMP-4 | Low | the hurdle's smearing factor is weighted (`tests/training/composite/test_hurdle_smearing_factor_is_weighted.py`) and the composite estimator's residual quantiles now take the fit's sample weights (`tests/training/composite/test_smearing_quantiles_are_weighted.py`) |
 | **RESOLVED** | W17CMP-5 | Low | T-clip envelope differs between fit and drift refit when MAD = 0 |
 | **FUTURE** | W17CMP-6 | Low | chain / quantile-normal transforms get no smearing |
 | **RESOLVED** | W17CAL-1 | Medium | `generate_probs_from_outcomes` default `flip_percent=0.6` reverses the signal |
@@ -69,4 +69,4 @@ Metric cores (`_core_auc_brier`, `_ice_metric`, `_drift`, `_fairness_metrics`), 
 - W17MRM-2: opt-in (`uaed_auto_size`, default off); the fix maps greedy rounds to features through `_predictors_log_`, which needs a parity check against the retention and rescue appends
 - W17MRM-3: opt-in (`uaed_auto_size`, default off); needs the UAED-trimmed and p>=n-capped indices recorded and honoured by operand retention, designed together with W17MRM-2
 - W17CMP-4: weighted smearing factor and weighted residual quantiles change every weighted composite's predictions; needs a measured bias comparison before the default moves
-- W17CMP-6: adding a `curved_inverse` attribute to the chain and quantile-normal transforms changes their predictions and the discovery scoring; needs a discovery-gain comparison| **RESOLVED** | W17CMP-4 | Medium | the residual quantiles behind the smearing correction ignored the fit's sample weights; `residual_quantiles` now takes `sample_weight` (weighted mid-quantiles) and the estimator passes the weights it fitted with (`tests/training/composite/test_smearing_quantiles_are_weighted.py`) |
+- W17CMP-6: adding a `curved_inverse` attribute to the chain and quantile-normal transforms changes their predictions and the discovery scoring; needs a discovery-gain comparison.
