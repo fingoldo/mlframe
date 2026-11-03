@@ -1,0 +1,25 @@
+# _honest_oj_fused_gpu: device winner pick of the fused optimal_joint honest floor
+
+Box: GTX 1050 Ti (6 SMs, 4 GB), 100k rows x 100 features, all FE families, `nbins_strategy="optimal_joint"`.
+Kernel inputs captured from a real fit: 3 folds x 166 re-binned columns x 4 candidates = 1992 cells, 33,334 validation rows per fold, binary target,
+193 pool columns over 30,000 evaluation rows. Times per 64-permutation block, same process:
+
+| route | block | winner pick |
+|---|---|---|
+| CPU `_fused_block` (numba prange) | 1.87 s | 1.93 s* |
+| CPU `_fused_block_minority` (majority class by subtraction) | 1.63-1.83 s | |
+| device, shared-atomic histograms (`oj_cell_mi`) | 0.50 s | 0.34-0.41 s (kernel 0.386 s) |
+| device, per-thread 16-bit counters (`oj_cell_mi_private`) | 1.05 s | 0.92 s (rejected: 32 KB smem/block, 1 block/SM) |
+| device, bitmask popcounts (binary target, default) | 0.275 s | 0.112 s |
+
+\* winner step alone, measured separately; the pool step is 0.17 s of the CPU block.
+
+Null maxima of every device route are bit-identical to the CPU kernel on the captured block (max diff 0.0) and in
+`tests/feature_selection/filters/test_honest_oj_minority.py` (binary/multiclass, balanced/imbalanced).
+
+Fit: optimal_joint 100k 221.0 s -> 160.8 s; permutation scoring per fit 68.0 s -> 9.4 s; floor total 80.0 s -> 21.7 s.
+Remaining: ~12 s of floor setup outside the permutation loop (plans, count slots, pool), and the CPU pool step (could use the same popcount scheme
+for a binary target, and overlap with the next block's device picks).
+
+Dispatch: `scorer_device_choice("honest_oj_winners", n_rows, cells)` (work fallback until the KTC entry is swept), VRAM guard at half the free memory
+(codes + bitmasks), `MLFRAME_HONEST_OJ_GPU=0` off switch, `MLFRAME_HONEST_OJ_GPU_BITMASK=0` forces the atomic route; any device fault -> CPU kernel.
