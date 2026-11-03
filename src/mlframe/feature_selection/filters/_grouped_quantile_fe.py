@@ -44,6 +44,7 @@ from __future__ import annotations
 
 from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
 
+import functools
 import logging
 from typing import Any, Callable, Optional, Sequence
 
@@ -188,6 +189,7 @@ def generate_grouped_quantile_features(
         return pd.DataFrame(index=X.index), raw_recipes
 
     global_stats: dict[str, tuple] = {}
+    tasks: list = []
     for group_col in group_cols:
         g_keys = group_key_strings(X[group_col])
         cur_num_cols = [c for c in num_cols if c in X.columns and c != group_col and pd.api.types.is_numeric_dtype(X[c])]
@@ -299,19 +301,23 @@ def generate_grouped_quantile_features(
             }
             return encoded, raw_recipes
 
-        from concurrent.futures import ThreadPoolExecutor
+        tasks.extend(functools.partial(_one_num_col, c) for c in cur_num_cols)
 
-        from ._adaptive_nbins import _resolve_edge_jobs
+    # Every (group, numeric) task of every group column on ONE pool, folded in the serial order: a pool per group column held only that column's few
+    # numeric tasks and ran the group columns one after another (35 % CPU in the 100k fit while the main thread waited 1.4 s).
+    from concurrent.futures import ThreadPoolExecutor
 
-        jobs = _resolve_edge_jobs(None, len(cur_num_cols))
-        if jobs > 1 and len(cur_num_cols) > 3:
-            with ThreadPoolExecutor(max_workers=jobs) as pool:
-                col_results = list(pool.map(_one_num_col, cur_num_cols))
-        else:
-            col_results = [_one_num_col(c) for c in cur_num_cols]
-        for enc_part, rec_part in col_results:
-            encoded.update(enc_part)
-            raw_recipes.update(rec_part)
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    jobs = _resolve_edge_jobs(None, len(tasks))
+    if jobs > 1 and len(tasks) > 3:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            col_results = list(pool.map(lambda t: t(), tasks))
+    else:
+        col_results = [t() for t in tasks]
+    for enc_part, rec_part in col_results:
+        encoded.update(enc_part)
+        raw_recipes.update(rec_part)
 
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes
