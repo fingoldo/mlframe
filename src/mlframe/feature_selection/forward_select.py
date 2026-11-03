@@ -211,6 +211,7 @@ def forward_select(
 
     report = ForwardSelectReport()
     non_significant_streak = 0
+    unconfirmed: list = []  # added since the last significant step; dropped again if the patience budget runs out
 
     while remaining and len(selected) < cap:
         if mask_redundant and selected:
@@ -236,7 +237,10 @@ def forward_select(
             non_significant_streak = 0 if significant else non_significant_streak + 1
             if non_significant_streak >= patience:
                 report.stopped_early = True
+                for unconfirmed_candidate in unconfirmed:
+                    selected.remove(unconfirmed_candidate)
                 break
+            unconfirmed = [] if significant else [*unconfirmed, best_candidate]
 
         selected.append(best_candidate)
         remaining.remove(best_candidate)
