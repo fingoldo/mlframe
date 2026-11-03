@@ -21,7 +21,7 @@ Six read-only reports by Opus 5.5 low-effort agents on packages no earlier wave 
 | **RESOLVED** | W20INF-4 | Medium | `collapse_predictions_by_group` lost a prediction (unweighted) or crashed (weighted) on a null group key; both now raise |
 | **FUTURE** | W20INF-5 | Low-Medium | `predict` returns `proba[:, 1]` without checking `classes_` |
 | **RESOLVED** | W20INF-6 | Low | `segment_rank_splice` ranks used an unstable argsort |
-| **FUTURE** | W20INFO-1 | Medium | `mi_miller_madow_correct` subtracts the product-form null bias `(k_x-1)(k_y-1)/(2n)`; the entropy-consistent Miller-Madow MI is `+(k_x+k_y-k_xy-1)/(2n)` and differs when joint cells are unoccupied. The product form is documented for the FE joint-prevalence gate; changing it moves selection and needs a selection-equivalence run |
+| **PARTIAL** | W20INFO-1 | Medium | `mi_miller_madow(..., entropy_consistent=True)` and `mi_miller_madow_correct(..., k_xy=...)` give the entropy-consistent correction `I_plugin + (k_x + k_y - k_xy - 1)/(2n)` (`tests/feature_selection/info_theory/test_mi_miller_madow_entropy_consistent.py`); the default stays the product form until a selection-equivalence benchmark shows the consistent form does not move selections |
 | **RESOLVED** | W20INFO-2 | Medium | `mixed_ksg_mi` jitter 1e-10 is absolute and vanishes above \|x\| ~ 1e6; scale it by the data spread or implement the tie-count rule |
 | **RESOLVED** | W20INFO-3 | Low-Medium | the fused entropy kernels skipped the class-range check `merge_vars` has |
 | **FUTURE** | W20INFO-4 | Low | `_cmi_cuda` joint-histogram launch does not check the shared-memory limit |

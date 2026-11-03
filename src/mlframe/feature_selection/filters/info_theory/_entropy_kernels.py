@@ -157,7 +157,7 @@ def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float
 
 
 @njit(cache=True)
-def mi_miller_madow_correct(mi_plugin: float, k_x: int, k_y: int, n_samples: int) -> float:
+def mi_miller_madow_correct(mi_plugin: float, k_x: int, k_y: int, n_samples: int, k_xy: int = 0) -> float:
     """Miller-Madow bias-correct a PLUG-IN mutual-information estimate.
 
     The plug-in MI ``I_hat(X;Y) = H_hat(X) + H_hat(Y) - H_hat(X,Y)`` carries a
@@ -181,7 +181,15 @@ def mi_miller_madow_correct(mi_plugin: float, k_x: int, k_y: int, n_samples: int
     information - worst at small/moderate ``n``. MM-correcting BOTH sides before the
     ratio removes that asymmetry. ``->0`` as ``n -> inf``, so large-n selection is
     byte-untouched. References: Miller (1955); Paninski (2003).
+
+    ``k_xy`` (default 0 = off) is the occupied joint bin count. When positive the entropy-consistent form is used instead: applying the
+    ``(k-1)/(2n)`` entropy correction to each term of ``H(X)+H(Y)-H(X,Y)`` gives ``I_plugin + (k_x + k_y - k_xy - 1)/(2n)``, which matches the
+    product form only when the joint is fully occupied (``k_xy = k_x*k_y``); with sparse joints it corrects far less.
     """
+    if k_xy > 0:
+        if k_x <= 1 and k_y <= 1:
+            return mi_plugin
+        return mi_plugin + (k_x + k_y - k_xy - 1) / (2.0 * n_samples)
     if k_x <= 1 or k_y <= 1:
         return mi_plugin
     return mi_plugin - (k_x - 1) * (k_y - 1) / (2.0 * n_samples)
@@ -250,8 +258,12 @@ def mi_miller_madow(
     factors_nbins: np.ndarray,
     verbose: bool = False,
     dtype: type = np.int32,
+    entropy_consistent: bool = False,
 ) -> float:
     """Miller-Madow bias-corrected mutual information ``I_mm(X; Y) = I_plugin - (k_x-1)(k_y-1)/(2n)``.
+
+    ``entropy_consistent=True`` uses ``I_plugin + (k_x + k_y - k_xy - 1)/(2n)`` instead (the correction applied to each entropy term, see
+    :func:`mi_miller_madow_correct`); the default keeps the product form.
 
     The plug-in ``I(X;Y) = H(X)+H(Y)-H(X,Y)`` carries a POSITIVE finite-sample bias dominated by the over-binned joint term, scaling with the OCCUPIED bin
     counts ``k_x``/``k_y``. This kernel computes the plug-in MI from the SAME occupied-bin frequencies and subtracts the closed-form Miller-Madow bias so a
@@ -293,7 +305,8 @@ def mi_miller_madow(
     k_x = len(freqs_x[freqs_x > 0])
     k_y = len(freqs_y[freqs_y > 0])
     n_samples = factors_data.shape[0] if factors_data.ndim > 1 else len(factors_data)
-    return float(mi_miller_madow_correct(mi_plugin, k_x, k_y, n_samples))
+    k_xy = len(freqs_xy[freqs_xy > 0]) if entropy_consistent else 0
+    return float(mi_miller_madow_correct(mi_plugin, k_x, k_y, n_samples, k_xy))
 
 
 @njit(cache=True)
