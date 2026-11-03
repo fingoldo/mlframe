@@ -27,7 +27,7 @@ def content_digest(data: Any) -> str:
         if arr.dtype == object:
             h.update("".join(map(str, arr.ravel().tolist())).encode())
         else:
-            h.update(memoryview(arr).cast("B"))
+            h.update(arr.tobytes())  # one column at a time, never the whole frame
     return h.hexdigest()
 
 
