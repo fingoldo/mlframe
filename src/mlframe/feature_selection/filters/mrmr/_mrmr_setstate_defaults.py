@@ -511,6 +511,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "stability_freq_": None,
     "stability_info_": None,
     "uaed_elbow_": None,
+    "_uaed_trimmed_raw_": frozenset(),
     "usability_feature_groups_": None,
     "_main_effects_restored_": [],
     # Fitted feature count. Every reader already falls back to 0 (``or 0`` / ``getattr(..., 0)``), so an old pickle without it

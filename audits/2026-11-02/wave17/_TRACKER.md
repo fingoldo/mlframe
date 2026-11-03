@@ -19,8 +19,8 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | **RESOLVED** | W17FSW-3 | Medium | per-fold scores stored in completion order under `n_jobs > 1` |
 | **RESOLVED** | W17FSW-4 | Medium | final voting / p>=n cap on ndarray input compares int labels with str names |
 | **RESOLVED** | W17MRM-1 | High | MRMR same-inputs skip and shared fit cache ignored `groups` |
-| **FUTURE** | W17MRM-2 | Medium | UAED elbow trim slices `support_` by greedy-round position |
-| **FUTURE** | W17MRM-3 | Medium | operand retention re-grows support after the UAED trim |
+| **RESOLVED** | W17MRM-2 | Medium | the UAED elbow trim sliced `support_` by greedy-round position; it now keeps the features of the first greedy rounds, mapped through `_predictors_log_`, whatever order `support_` is in (positional fallback when the log is unusable); the trimmed raw indices are recorded as `_uaed_trimmed_raw_` (`tests/feature_selection/filters/test_mrmr_uaed_trim_follows_greedy_rounds.py`) |
+| **RESOLVED** | W17MRM-3 | Medium | recipe-operand retention re-added raw features the UAED trim had removed; it now skips `_uaed_trimmed_raw_`, so an opted-in `uaed_auto_size` selection is not re-grown (same test file; the p>=n cap's own trimmed indices are not recorded and stay with the retention policy) |
 | **RESOLVED** | W17CMP-1 | High | `predict_quantile` applied smearing, returning means instead of quantiles |
 | **RESOLVED** | W17CMP-2 | Medium | `GroupedBlockStacker` ignored a numeric `invalid_row_fill` |
 | **RESOLVED** | W17CMP-3 | Low | `_best_iteration_of` off by one for XGBoost / CatBoost |

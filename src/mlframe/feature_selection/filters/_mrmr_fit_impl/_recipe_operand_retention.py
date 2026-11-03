@@ -31,7 +31,8 @@ def retain_recipe_operands_final(self: Any) -> list[str]:
         operands.update(str(s) for s in (getattr(rec, "src_names", None) or ()) if str(s) in index)
     support = [int(v) for v in np.asarray(self.support_).ravel()]
     have = set(support)
-    added = [nm for nm in raw_names if nm in operands and index[nm] not in have]
+    trimmed = set(getattr(self, "_uaed_trimmed_raw_", None) or ())  # the caller asked UAED to size the selection: a trimmed feature is not re-grown
+    added = [nm for nm in raw_names if nm in operands and index[nm] not in have and index[nm] not in trimmed]
     if not added:
         return []
     self.support_ = np.array([*support, *(index[nm] for nm in added)], dtype=np.int64)
