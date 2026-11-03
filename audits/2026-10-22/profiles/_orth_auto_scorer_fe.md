@@ -34,3 +34,5 @@ Warm family wall 4.57 s (in the fit 4.33 s). Thread-summed scorer time: KSG 3.41
 `_ksg_cd_fast._mi_cd_column`: the neighbour count within the k-th radius took two `np.searchsorted` over the whole sorted column per point (about 30 cache-missing steps);
 the same bounds are now found by walking out from the point's own sorted position (a few steps). Bit-identical MI; 317 columns x 30000 rows 0.68 -> 0.45 s (2 classes),
 0.60 -> 0.45 s (3 classes).
+`_orthogonal_xi_fe._xi_columns_radix_njit` (float32 columns): `lexsort((perm, col))` as a stable 4-pass LSD radix sort of the order-preserving keys started from the
+`perm` order, instead of a mergesort plus a re-sort of every tie block. Bit-identical Xi; 302 columns x 30000 rows 0.41 -> 0.28 s.
