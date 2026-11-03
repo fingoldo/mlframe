@@ -14,7 +14,7 @@ Six read-only reports by Opus 5.5 low-effort agents on packages no earlier wave 
 | **FUTURE** | W20PRE-3 | Medium | `unseen_category_imputer` nearest mode maps to a NaN-mean category for large or NaN queries |
 | **RESOLVED** | W20PRE-4 | Low-Medium | `smoothed_target_encode_column` shuffled its OOF folds with a fresh seed per call; default is now 0 |
 | **FUTURE** | W20PRE-5 | Low | cleaning helper counts the NaN key as a merged rare value and can drop a column that would be a binary indicator |
-| **FUTURE** | W20PRE-6 | Low | `gp_smoothing` raises KeyError on a NaN entity |
+| **RESOLVED** | W20PRE-6 | Low | `gp_smoothing` raises KeyError on a NaN entity |
 | **RESOLVED** | W20INF-1 | High | `Leaderboard.elect_all` built its grid from the default settings, not the caller's `use_methods` |
 | **FUTURE** | W20INF-2 | Medium | `find_weights_for_condorcet` accepts a weighted tie as feasible while `condorcet_election` needs a strict win |
 | **FUTURE** | W20INF-3 | Medium | `two_step_ranking` meta table is object dtype and can be partial |
@@ -53,3 +53,4 @@ The `feature_engineering/transformer/` subpackage and most other feature_enginee
 | W20FS-2 | `tests/feature_selection/test_pre_screen_polars_counts_nan_like_pandas.py` |
 | W20INFO-2 | `tests/feature_selection/test_mixed_ksg_tie_jitter_on_large_values.py` |
 | W20FE-3 | `tests/feature_engineering/test_nearest_past_join_sparsity_counts_only_past_rows.py` |
+| W20PRE-6 | `tests/signal/test_gp_smoothing_null_entity_is_skipped.py` |
