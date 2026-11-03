@@ -7,7 +7,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | **RESOLVED** | W22SHP-1 | High | precomputed MRMR artifacts (SU to target) computed on all rows, holdout included, replace the search-rows-only prefilter; needs a row-count / index check or recomputation on the search rows |
 | **FUTURE** | W22SHP-2 | Medium | under a grouped CV policy the report slice is split row-wise from the holdout, sharing groups with the selection holdout |
 | **RESOLVED** | W22SHP-3 | Medium | a small `report_holdout_fraction` of a small holdout crashed `train_test_split` (stratified over more classes than rows) |
-| **FUTURE** | W22SHP-4 | Medium | `per_fold_stability_select` gives NaN-fidelity folds weight 0 and no-trust folds weight 1 |
+| **RESOLVED** | W22SHP-4 | Medium | `per_fold_stability_select` gives NaN-fidelity folds weight 0 and no-trust folds weight 1 |
 | **RESOLVED** | W22SHP-5 | Low-Medium | preflight class balance used `mean(y)`; now the rarest class's share |
 | **FUTURE** | W22SHP-6 | Low | `brute_force_top_n` and `brute_force_top_n_cpu_ref` are documented bit-identical but differ in float dtype |
 | **RESOLVED** | W22SHK-1 | Medium | the SHAP disk-cache key covered only a summary of X and y, so interior row reordering hit a stale entry |
@@ -36,3 +36,4 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | W22COR-2 | `tests/core/test_ensure_no_infinity_pd_nullable_float.py` |
 | W22REP-1 | `tests/reporting/test_shap_panels_multiclass_feature_ranking.py` |
 | W22SHP-1 | `tests/feature_selection/shap_proxied/test_precomputed_su_only_when_computed_on_search_rows.py` (the slow MRMR-to-ShapProxiedFS pipeline test is left to CI) |
+| W22SHP-4 | `tests/feature_selection/shap_proxied/test_fold_vote_weights.py` |
