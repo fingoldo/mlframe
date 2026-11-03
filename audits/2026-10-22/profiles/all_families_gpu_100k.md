@@ -159,3 +159,12 @@ Run 1 logged two cupy thrust-allocator OutOfMemoryError tracebacks (365 MB again
 the fe_lof_device lookup; the fit completed. Run 2 had none, so the caller (a cupy sort / argsort that fell back) is not identified yet.
 Main-thread leaves at 100k: edge-pool wait 4.4 s (extra-basis 2.0 of it), honest-null `_continuous_accept_block` D2H 1.6 s, grouped-quantile pool wait 1.4 s,
 per-feature edges wait 1.4 s, bootstrap pool 1.2 s, pooled binning 1.2 s, pair analytic gate 1.2 s.
+
+## GPU vs CPU selection quality, 100k x 100 all families (2026-11-03)
+Same frame (family_scale._make(100000, 100, 0)), held-out frame _make(50000, 100, 1); each mode in its own process (D:/Temp/sel_quality.py), LightGBM
+(400 trees, 31 leaves) and logistic regression on the transformed selected columns:
+- GPU (111.3 s incl. transforms): x4, oofwarp(x4), add(mul(cbrt(x0),cbrt(x1)),add(x2,abs(g))), add(log(x2),x0*x1__He1_He1), opat__g_x4_x2, add(sqrt(g),sign(x4)):
+  test AUC 0.9020 (LightGBM), 0.9028 (logistic).
+- CPU (294.9 s): g, x4, x2, add(x0*x1__He1_He1,sin(sir__...__dir0)), x4__He3, x4__fourier3: test AUC 0.9018 (LightGBM), 0.8958 (logistic).
+- All 107 raw numeric columns, LightGBM: 0.8918.
+The selections differ (known since 2026-10-31) but the GPU one is not worse: equal under LightGBM, +0.007 under logistic regression.
