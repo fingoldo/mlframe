@@ -44,6 +44,7 @@ from __future__ import annotations
 
 from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
 
+import functools
 import logging
 from typing import Any, Callable, Optional, Sequence
 
@@ -188,6 +189,7 @@ def generate_grouped_quantile_features(
         return pd.DataFrame(index=X.index), raw_recipes
 
     global_stats: dict[str, tuple] = {}
+    tasks: list = []
     for group_col in group_cols:
         g_keys = group_key_strings(X[group_col])
         cur_num_cols = [c for c in num_cols if c in X.columns and c != group_col and pd.api.types.is_numeric_dtype(X[c])]
@@ -299,19 +301,23 @@ def generate_grouped_quantile_features(
             }
             return encoded, raw_recipes
 
-        from concurrent.futures import ThreadPoolExecutor
+        tasks.extend(functools.partial(_one_num_col, c) for c in cur_num_cols)
 
-        from ._adaptive_nbins import _resolve_edge_jobs
+    # Every (group, numeric) task of every group column on ONE pool, folded in the serial order: a pool per group column held only that column's few
+    # numeric tasks and ran the group columns one after another (35 % CPU in the 100k fit while the main thread waited 1.4 s).
+    from concurrent.futures import ThreadPoolExecutor
 
-        jobs = _resolve_edge_jobs(None, len(cur_num_cols))
-        if jobs > 1 and len(cur_num_cols) > 3:
-            with ThreadPoolExecutor(max_workers=jobs) as pool:
-                col_results = list(pool.map(_one_num_col, cur_num_cols))
-        else:
-            col_results = [_one_num_col(c) for c in cur_num_cols]
-        for enc_part, rec_part in col_results:
-            encoded.update(enc_part)
-            raw_recipes.update(rec_part)
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    jobs = _resolve_edge_jobs(None, len(tasks))
+    if jobs > 1 and len(tasks) > 3:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            col_results = list(pool.map(lambda t: t(), tasks))
+    else:
+        col_results = [t() for t in tasks]
+    for enc_part, rec_part in col_results:
+        encoded.update(enc_part)
+        raw_recipes.update(rec_part)
 
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes
@@ -596,6 +602,65 @@ def _bin_columns_pooled(bin_one: "Callable[[str], Any]", cols: list) -> list:
     return [bin_one(c) for c in cols]
 
 
+def _sweep_grouped_quantile() -> list:
+    """Host-vs-device sweep of the grouped-quantile scorer for its kernel-tuning entry."""
+    from ._scorer_device_dispatch import sweep_scorer, synthetic_scorer_frame
+
+    return sweep_scorer(lambda inp: score_grouped_quantile_by_mi_uplift(*inp)["mi"].to_numpy(), synthetic_scorer_frame)
+
+
+def _grouped_quantile_mi_device(eng_X: pd.DataFrame, eng_cols: list, y_bin: np.ndarray, n_bins: int) -> dict:
+    """``{column: MI}`` of the candidates the device batch scores exactly as the host binner: finite columns that are not low-cardinality integers. The host
+    path cuts at the deduplicated linear quantiles of the column (np.quantile + np.unique) and the device at the same order statistics without the dedup, so a
+    tied edge only relabels an empty bin: the same partition, the same plug-in MI (2026-11-03, 100k x 200: within 1e-16, same ranking; 1.86 s -> 0.011 s).
+    Columns with at most ``n_bins`` distinct values (the host's float32 quantile edges can merge two of them) and columns with non-finite values stay on the host. Empty when the device is not used
+    (``MLFRAME_GROUPED_QUANTILE_MI_DEVICE=0``, no GPU, or this scorer's tuned choice is the host)."""
+    import os
+
+    if os.environ.get("MLFRAME_GROUPED_QUANTILE_MI_DEVICE", "1").strip() == "0" or not eng_cols:
+        return {}
+    try:
+        from ._gpu_policy import cuda_available_for_run
+
+        if not cuda_available_for_run():
+            return {}
+        from ._scorer_device_dispatch import scorer_device_choice
+
+        if not scorer_device_choice("grouped_quantile", len(eng_X), len(eng_cols), sweep=_sweep_grouped_quantile):
+            return {}
+        import cupy as cp
+
+        from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
+
+        cols = []
+        for c in eng_cols:
+            a = np.asarray(eng_X[c].to_numpy(), dtype=_crit_np_dtype())
+            if not np.isfinite(a).all():
+                continue
+            # at most n_bins distinct values (integer or not): the host cuts at float32 quantiles, where an edge interpolated between two adjacent values can
+            # round onto the upper one and merge them; the device's double interpolation keeps them apart (a 6-valued group broadcast: MI 1.6e-5 vs 3.7e-5),
+            # so such columns stay on the host. A 2048-value prefix with more distinct values settles most columns without the full count.
+            if np.unique(a[:2048]).size <= n_bins and pd.unique(a).size <= n_bins:
+                continue
+            cols.append(c)
+        if not cols:
+            return {}
+        n_cls = int(y_bin.max()) + 1 if y_bin.size else 1
+        yd = cp.asarray(np.ascontiguousarray(y_bin, dtype=np.int64))
+        out: dict = {}
+        step = max(1, (256 << 20) // max(1, len(eng_X) * 4))  # float32 columns per upload block
+        for i in range(0, len(cols), step):
+            blk = cols[i : i + step]
+            Xd = cp.asarray(np.ascontiguousarray(eng_X[blk].to_numpy(dtype=_crit_np_dtype())))
+            mi = np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(n_bins), y_min=0, n_classes=n_cls, keep_dtype=True), dtype=np.float64)  # Intentional float64: MI statistic
+            out.update({c: float(v) for c, v in zip(blk, mi)})
+            del Xd
+        return out
+    except Exception as exc:
+        logger.debug("grouped-quantile device MI not used (%s: %s); host binner", type(exc).__name__, exc)
+        return {}
+
+
 def score_grouped_quantile_by_mi_uplift(
     raw_X: pd.DataFrame,
     eng_X: pd.DataFrame,
@@ -674,7 +739,10 @@ def score_grouped_quantile_by_mi_uplift(
 
     eng_cols = list(eng_X.columns)
     # Binning and the plug-in MI of one column are independent of the other columns: both run in the pool worker, so the MI is not a serial tail behind the binning.
-    eng_mis = _bin_columns_pooled(lambda c: float(_plug_in_mi(_bin(eng_X[c].to_numpy()), y_bin)), eng_cols)
+    device_mi = _grouped_quantile_mi_device(eng_X, eng_cols, y_bin, n_bins)
+    host_cols = [c for c in eng_cols if c not in device_mi]
+    host_mi = dict(zip(host_cols, _bin_columns_pooled(lambda c: float(_plug_in_mi(_bin(eng_X[c].to_numpy()), y_bin)), host_cols))) if host_cols else {}
+    eng_mis = [device_mi[c] if c in device_mi else host_mi[c] for c in eng_cols]
 
     rows = []
     for col, mi in zip(eng_cols, eng_mis):
@@ -697,6 +765,66 @@ def score_grouped_quantile_by_mi_uplift(
 # ---------------------------------------------------------------------------
 # End-to-end pipeline with MI uplift gate
 # ---------------------------------------------------------------------------
+
+def _grouped_quantile_block_cols(X: pd.DataFrame, group_cols, num_cols) -> "int | None":
+    """Numeric columns per block when the full grouped-quantile candidate frame (3 per group and numeric column) would take more than a quarter of the
+    available host memory (``MLFRAME_GROUPED_QUANTILE_BLOCK_COLS`` forces a size), else ``None``."""
+    import os
+
+    forced = os.environ.get("MLFRAME_GROUPED_QUANTILE_BLOCK_COLS", "").strip()
+    if forced.isdigit() and int(forced) > 0:
+        return int(forced)
+    per_num = len(X) * 3 * 4 * 3  # three float32 candidates, held as the dict, the frame block and a copy
+    try:
+        import psutil
+
+        budget = int(psutil.virtual_memory().available) // 4
+    except Exception:
+        return None
+    if len(group_cols) * len(num_cols) * per_num <= budget:
+        return None
+    return max(1, budget // max(1, per_num))
+
+
+def _hybrid_grouped_quantile_in_blocks(X, y, group_cols, num_cols, quantiles, block, *, top_k, n_bins_mi, min_mi, min_uplift):
+    """:func:`hybrid_grouped_quantile_fe` (no target-aware bins) with the candidates generated and scored block by block (group column, then numeric columns):
+    each candidate's MI and uplift depend only on it and its source, the blocks run in the one-frame candidate order and the stable sort is repeated, so the
+    scores table is the one-frame one. Only the winners' (group, numeric) pairs are generated again, for their columns and recipes."""
+    parts = []
+    for g in group_cols:
+        cur = [c for c in num_cols if c != g]
+        for i in range(0, len(cur), int(block)):
+            enc, rec = generate_grouped_quantile_features(X, [g], cur[i : i + int(block)], quantiles=quantiles)
+            if enc.empty:
+                continue
+            parts.append(score_grouped_quantile_by_mi_uplift(X, enc, y, n_bins=n_bins_mi, eng_to_source={nm: rec[nm]["num_col"] for nm in enc.columns}))
+            del enc, rec
+    if not parts:
+        return X, [], [], pd.DataFrame()
+    scores = pd.concat(parts, ignore_index=True).sort_values("mi", ascending=False, kind="mergesort").reset_index(drop=True)
+    keep = scores[(scores["mi"] >= float(min_mi)) & (scores["uplift"] >= float(min_uplift))]
+    winners = list(keep["engineered_col"].head(int(top_k)))
+    if not winners:
+        return X, [], [], scores
+    from .engineered_recipes import build_grouped_quantile_recipe
+
+    cols: dict = {}
+    recipes_by_name: dict = {}
+    for g in group_cols:
+        for num in [c for c in num_cols if c != g]:
+            names = [engineered_name_grouped_pctrank(num, g), engineered_name_grouped_iqr(num, g), engineered_name_grouped_p90p10(num, g)]
+            if not any(nm in winners for nm in names):
+                continue
+            enc, rec = generate_grouped_quantile_features(X, [g], [num], quantiles=quantiles)
+            for nm in names:
+                if nm in winners and nm in enc.columns:
+                    cols[nm] = enc[nm]
+                    recipes_by_name[nm] = rec[nm]
+    winners = [w for w in winners if w in cols]
+    X_aug = pd.concat([X, pd.DataFrame({w: cols[w] for w in winners}, index=X.index)], axis=1)
+    recipes = [build_grouped_quantile_recipe(name=w, **recipes_by_name[w]) for w in winners]
+    return X_aug, winners, recipes, scores
+
 
 def hybrid_grouped_quantile_fe(
     X: pd.DataFrame,
@@ -742,6 +870,13 @@ def hybrid_grouped_quantile_fe(
     if not num_cols:
         return X, [], [], pd.DataFrame()
 
+    _blocks = None if target_aware else _grouped_quantile_block_cols(X, group_cols, num_cols)
+    if _blocks is not None:
+        # the whole candidate frame would not fit the host budget (384 candidates x 1M rows = 1.4 GiB in one block): score in blocks, regenerate the winners
+        blocked: tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame] = _hybrid_grouped_quantile_in_blocks(
+            X, y, group_cols, num_cols, quantiles, _blocks, top_k=top_k, n_bins_mi=n_bins_mi, min_mi=min_mi, min_uplift=min_uplift
+        )
+        return blocked
     enc_df, raw_recipes = generate_grouped_quantile_features(
         X, group_cols, num_cols, quantiles=quantiles,
     )

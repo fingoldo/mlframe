@@ -200,3 +200,16 @@ def test_the_honest_null_hook_uses_the_cache_and_returns_the_codes_of_the_uncach
     assert len(cached) == len(plain) == 3
     for (c1, nb1), (c0, nb0) in zip(cached, plain):
         assert np.array_equal(c1, c0) and np.array_equal(nb1, nb0)
+
+
+def test_plans_evict_column_facts_when_the_budget_is_full():
+    """Column facts stored first must not keep a later plan out: a fact is one sort to rebuild, a plan an edge search per permutation."""
+    from mlframe.feature_selection.filters._optimal_joint_edges import OptimalJointPlanCache
+
+    rng = np.random.default_rng(0)
+    x = rng.standard_normal(4000)
+    plan = {"x": x.copy(), "folds": []}
+    cache = OptimalJointPlanCache(max_bytes=int(x.nbytes * 1.5))
+    cache.column_facts(rng.standard_normal(4000))  # fills most of the budget
+    cache.put(x, (4, 8), 3, "quantile", 0, plan)
+    assert cache.get(x, (4, 8), 3, "quantile", 0) is plan

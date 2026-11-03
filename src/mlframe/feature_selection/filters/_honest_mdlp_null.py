@@ -329,10 +329,62 @@ def honest_fdr_floor(
     cols = [int(c) for c in pool]
     rng = np.random.default_rng(0 if seed is None else int(seed))
     base_seed = int(rng.integers(0, 2**31 - 1))  # the stream of the batched null: permutation b is ``seeded_permutation(n, base_seed + b)``
+    from ._honest_oj_fused import oj_fused_floor
+
+    fused = oj_fused_floor(honest_codes_fn, factors_data, factors_nbins, y_idx, cols, int(n_permutations), float(quantile), base_seed, eval_rows)
+    if fused is not None:
+        return fused
     nulls = np.empty(int(n_permutations), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    for b in range(int(n_permutations)):
-        nulls[b] = _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, cols, n, seeded_permutation(n, base_seed + b), eval_rows)
+
+    def one(b: int) -> float:
+        """The best null MI of permutation ``b`` (seeded ``base_seed + b``: the same value on any thread)."""
+        return float(_honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, cols, n, seeded_permutation(n, base_seed + b), eval_rows))
+
+    import os
+
+    if int(n_permutations) >= 4 and os.environ.get("MLFRAME_HONEST_FDR_POOL", "1").strip() != "0":
+        # The permutations are independent (each re-bins the pool under its own seeded target; the binner and its plan cache are lock-protected), so they
+        # run on the edge pool and fill the vector by index - the serial values. With nbins_strategy=optimal_joint the serial loop was 53 of the 121 s of a
+        # 30000-row all-families fit, one core busy.
+        nulls[0] = one(0)  # on this thread first: compiles the kernels and fills the binner's plans once
+        from ._edge_pool import map_on_edge_pool
+
+        nulls[1:] = map_on_edge_pool(one, list(range(1, int(n_permutations))), min_items=2)
+    else:
+        for b in range(int(n_permutations)):
+            nulls[b] = one(b)
     return float(np.quantile(nulls, float(quantile), method="higher"))
+
+
+def _column_nfailed_pooled(column_codes: Callable, n: int, col: int, rows: np.ndarray, y_full: np.ndarray, observed: float, n_permutations: int, base_seed: int) -> "int | None":
+    """The exceedance count of the per-column loop of :func:`honest_candidate_nfailed` with the permutations on the edge-jobs pool: each permutation is
+    seeded ``base_seed + b`` and bins the column alone under its permuted target (``column_codes``; the binner's plan cache is lock-protected), so the
+    count does not depend on the order or the thread. ``None`` (the serial loop runs) when the hook cannot bin the column alone or
+    ``MLFRAME_HONEST_COLUMN_POOL=0``. At 1M-scale supervised binning (``optimal_joint``) the serial loop kept one core busy for minutes."""
+    import os
+
+    if os.environ.get("MLFRAME_HONEST_COLUMN_POOL", "1").strip() == "0" or n_permutations < 4:
+        return None
+
+    def one(b: int) -> "bool | None":
+        """Whether permutation ``b`` reaches the observed MI, ``None`` when the column cannot be binned alone."""
+        row_perm = seeded_permutation(n, base_seed + b)
+        got = column_codes(row_perm, col)
+        if got is None:
+            return None
+        x_p = np.ascontiguousarray(got[0][rows]).astype(np.int64)
+        y_p = np.ascontiguousarray(y_full[row_perm][rows]).astype(np.int64)
+        return bool(float(_mi_codes_njit(x_p, int(got[1]), y_p, int(y_p.max()) + 1)) >= observed)
+
+    first = one(0)  # on this thread first: compiles the kernels once and tells whether the column can be binned alone
+    if first is None:
+        return None
+    from ._edge_pool import map_on_edge_pool
+
+    rest = map_on_edge_pool(one, list(range(1, n_permutations)), min_items=2)
+    if any(r is None for r in rest):
+        return None
+    return int(first) + sum(int(bool(r)) for r in rest)
 
 
 def honest_candidate_nfailed(
@@ -371,6 +423,10 @@ def honest_candidate_nfailed(
     rng = np.random.default_rng(0 if seed is None else int(seed))
     base_seed = int(rng.integers(0, 2**31 - 1))
     column_codes = getattr(honest_codes_fn, "column", None)  # bins one column under a permuted target when the hook can (a candidate needs one column per permutation)
+    if column_codes is not None:
+        pooled = _column_nfailed_pooled(column_codes, n, int(col), rows, y_full, observed, int(n_permutations), base_seed)
+        if pooled is not None:
+            return pooled, observed
     nfailed = 0
     for b in range(int(n_permutations)):
         row_perm = seeded_permutation(n, base_seed + b)

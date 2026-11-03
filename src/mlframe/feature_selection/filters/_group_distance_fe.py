@@ -44,6 +44,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 """
 from __future__ import annotations
 
+import os
 import logging
 
 from mlframe.utils.log_throttle import log_throttle
@@ -54,7 +55,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 import pandas as pd
 
 try:
-    from numba import njit
+    from numba import njit, prange
     _HAVE_NUMBA = True
 except ImportError:  # numba is an optional dep; fall back to scipy below.
     _HAVE_NUMBA = False
@@ -174,6 +175,29 @@ if _HAVE_NUMBA:
                 j += 1
         return total
 
+if _HAVE_NUMBA:
+
+    @njit(cache=True, nogil=True, parallel=True)
+    def _wasserstein1_groups_kernel(vals, offsets, global_sorted, out) -> None:
+        """``out[g]`` = Wasserstein-1 between ``vals[offsets[g]:offsets[g + 1]]`` (one group's values, sorted) and ``global_sorted``, every group in parallel."""
+        for g in prange(offsets.size - 1):
+            out[g] = _wasserstein1_sorted_kernel(vals[offsets[g] : offsets[g + 1]], global_sorted)
+
+
+def _wasserstein1_all_groups(x: np.ndarray, fin_order: np.ndarray, gid: np.ndarray, n_groups: int, global_sorted: np.ndarray) -> np.ndarray:
+    """Wasserstein-1 of every group against ``global_sorted`` in one parallel call: the finite values in ascending order (``fin_order``, one argsort of the
+    column shared by every group column) are stable-sorted by group id, so each group's values come out contiguous and sorted, the same values the per-group
+    ``np.sort`` gives (the W1 integral depends only on the sorted multiset)."""
+    gsorted = gid[fin_order]
+    perm = np.argsort(gsorted, kind="stable")
+    vals = np.ascontiguousarray(x[fin_order][perm], dtype=np.float64)  # Intentional float64: KS statistic sorted operand, as the per-group path casts it
+    offsets = np.zeros(n_groups + 1, dtype=np.int64)
+    np.cumsum(np.bincount(gsorted, minlength=n_groups), out=offsets[1:])
+    out = np.zeros(n_groups, dtype=np.float64)  # Intentional float64: KS statistic
+    _wasserstein1_groups_kernel(vals, offsets, np.ascontiguousarray(global_sorted, dtype=np.float64), out)  # Intentional float64: sorted operand
+    return out
+
+
 def _wasserstein1(group_vals: np.ndarray, global_sorted: np.ndarray) -> float:
     """Wasserstein-1 (earth-mover) distance between the group's empirical
     distribution and the global one, via the integral of |CDF_group - CDF_global|.
@@ -291,6 +315,9 @@ def generate_group_distance_features(
         bin_idx = _global_bin_index(x, global_edges) if global_edges.size >= 2 else None
         return (x, global_mean, global_std, global_edges, global_hist, global_sorted, bin_idx)
 
+    _fin_order: dict = {}  # num_col -> ascending order of its finite values, shared by every group column
+    _ORDER_LOCK = __import__("threading").Lock()
+
     def _pair_columns(group_col: str, num_col: str) -> list:
         """``[(name, values, recipe)]`` of the z-distance, KL and Wasserstein columns of one (group, numeric) pair."""
         g_keys, group_rows = per_group[group_col]
@@ -298,7 +325,23 @@ def generate_group_distance_features(
         z_lookup: dict[str, float] = {}
         kl_lookup: dict[str, float] = {}
         w_lookup: dict[str, float] = {}
-        for key, rows in group_rows.items():
+        w_all = None
+        if _HAVE_NUMBA and global_sorted.size and os.environ.get("MLFRAME_GROUP_DISTANCE_W1_BATCH", "0").strip() == "1":
+            # one parallel W1 call for every group of the pair instead of a sort + merge per group. bench-attempt-rejected (2026-11-03): OFF by default; at
+            # 100k rows x 5 group x 20 numeric columns the output is identical and the wall is not (0.94-0.97 s vs 0.96 s): the pairs already run on the
+            # edge pool and the per-group sorts release the GIL, so the cores were busy. MLFRAME_GROUP_DISTANCE_W1_BATCH=1 turns it on.
+            gid = np.empty(x.size, dtype=np.int64)
+            for gi, rows in enumerate(group_rows.values()):
+                gid[rows] = gi
+            with _ORDER_LOCK:
+                order = _fin_order.get(num_col)
+            if order is None:
+                order = np.argsort(x, kind="stable")
+                order = order[np.isfinite(x[order])]
+                with _ORDER_LOCK:
+                    _fin_order[num_col] = order
+            w_all = _wasserstein1_all_groups(x, order, gid, len(group_rows), global_sorted)
+        for gi_key, (key, rows) in enumerate(group_rows.items()):
             vals = x[rows]
             fin = vals[np.isfinite(vals)]
             if fin.size >= _MIN_GROUP_SIZE:
@@ -308,7 +351,7 @@ def generate_group_distance_features(
                 else:
                     _rb = _bin_idx[rows]
                     kl_lookup[key] = _kl_from_bin_counts(np.bincount(_rb[_rb >= 0], minlength=global_edges.size - 1), global_hist)
-                w_lookup[key] = _wasserstein1(fin, global_sorted)
+                w_lookup[key] = float(w_all[gi_key]) if w_all is not None else _wasserstein1(fin, global_sorted)
             else:
                 z_lookup[key] = 0.0
                 kl_lookup[key] = 0.0

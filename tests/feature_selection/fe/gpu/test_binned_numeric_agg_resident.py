@@ -191,3 +191,26 @@ def test_per_cell_stats_gpu_skew_kurt_stable_on_large_offset_small_scale_column(
         worst["kurt"] = max(worst["kurt"], abs(got["kurt"][c] - float(kurtosis(cell_v))))
     assert worst["skew"] < 1e-6, f"GPU per-cell skew diverges {worst['skew']:.3e} from scipy on a large-offset/small-scale column"
     assert worst["kurt"] < 1e-6, f"GPU per-cell kurt diverges {worst['kurt']:.3e} from scipy on a large-offset/small-scale column"
+
+
+@pytest.mark.parametrize("block", ["1", "3", "7"])
+def test_resident_gate_blocks_equal_one_matrix(monkeypatch, block):
+    """Candidates scored in device blocks (the 1M-row path) give the one-matrix survivors in the same order, and the same calibrated floor in the rejections."""
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_RESIDENT", "1")
+    from mlframe.feature_selection.filters._binned_numeric_agg_resident import local_mi_gate_binagg_resident
+
+    X, y, _ = _make_frame(seed=13, n=6000)
+    feat_df, recipes = fit_binned_numeric_agg(X, y, group_num_cols=["g", "g2"], agg_num_cols=["aux"], stats=SUPPORTED_STATS, nbins_base=10, n_folds=5, random_state=0)
+
+    def run():
+        """Survivors and the (candidate, threshold) of every rejection."""
+        rej = []
+        keep = local_mi_gate_binagg_resident(feat_df, y, raw_X=X, recipes=recipes, n_folds=5, random_state=0, reject_sink=lambda **k: rej.append((k["candidate"], k["threshold"])))
+        return keep, rej
+
+    monkeypatch.delenv("MLFRAME_BINAGG_GATE_BLOCK", raising=False)
+    want = run()
+    monkeypatch.setenv("MLFRAME_BINAGG_GATE_BLOCK", block)
+    got = run()
+    assert want[0] is not None and got == want

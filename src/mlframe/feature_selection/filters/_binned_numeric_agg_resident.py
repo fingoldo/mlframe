@@ -431,7 +431,13 @@ def _batched_null_max(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.ndarray, _ymin:
 
 
 def _binagg_null_calibrated_floor(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.ndarray, _ymin: int, _ncls: int, nbins: int, floor: float) -> float:
-    """Raise the MI noise ``floor`` to the 95th percentile of the per-permutation maximum candidate MI.
+    """Raise the MI noise ``floor`` to the 95th percentile of the per-permutation maximum candidate MI (:func:`_binagg_null_max_vector`)."""
+    return max(float(floor), float(np.quantile(_binagg_null_max_vector(cp, mat_gpu, y_gpu, _yi, _ymin, _ncls, nbins), 0.95)))
+
+
+def _binagg_null_max_vector(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.ndarray, _ymin: int, _ncls: int, nbins: int) -> np.ndarray:
+    """The per-permutation maximum candidate MI of the ``(K, n)`` block ``mat_gpu``; the permutations come from a fresh ``default_rng(0)`` on every call, so the
+    element-wise ``fmax`` of the vectors of column blocks is the vector of the whole matrix.
 
     Family-wise calibration, identical to ``_unified_fe_gate.local_mi_gate``: y is permuted on the device and each
     permutation's maximum candidate MI is recorded (candidates are binned without the target).
@@ -442,7 +448,7 @@ def _binagg_null_calibrated_floor(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.nda
     _rng = np.random.default_rng(0)
     batched = _batched_null_max(cp, mat_gpu, y_gpu, _yi, _ymin, _ncls, nbins, np.random.default_rng(0))
     if batched is not None:
-        return max(float(floor), float(np.quantile(batched, 0.95)))
+        return np.asarray(batched, dtype=np.float64)  # Intentional float64: statistic vector (null max)
     # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     _null_max = np.empty(_LOCAL_GATE_NULL_PERMUTATIONS, dtype=np.float64)
     # The shuffles cross the bus a few per transfer (as many as fit a 32 MB host buffer), drawn in the same order as one per permutation.
@@ -472,7 +478,7 @@ def _binagg_null_calibrated_floor(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.nda
                 )
             )
         )
-    return max(float(floor), float(np.quantile(_null_max, 0.95)))
+    return _null_max
 
 
 def _binned_column_specs(cand_cols: list, recipes: dict) -> Optional[list]:
@@ -495,6 +501,25 @@ def _binned_column_specs(cand_cols: list, recipes: dict) -> Optional[list]:
             }
         )
     return col_specs
+
+
+def _binagg_candidate_block(cp: Any, k: int, n: int, itemsize: int) -> int:
+    """Candidates per device block of the binned-aggregate gate: all of them while the ``(k, n)`` matrix takes at most a sixth of what the pool can still hand out
+    (the matrix, its binned copy and the MI kernels' scratch), else fewer; ``MLFRAME_BINAGG_GATE_BLOCK`` forces a block size."""
+    import os
+
+    forced = os.environ.get("MLFRAME_BINAGG_GATE_BLOCK", "").strip()
+    if forced.isdigit() and int(forced) > 0:
+        return int(forced)
+    try:
+        pool = cp.get_default_memory_pool()
+        free = int(cp.cuda.Device().mem_info[0]) + int(pool.free_bytes())
+        limit = int(pool.get_limit() or 0)
+        if limit:
+            free = min(free, max(0, limit - int(pool.used_bytes())))
+    except Exception:
+        return max(1, int(k))
+    return max(1, min(int(k), (free // 6) // max(1, int(n) * int(itemsize))))
 
 
 def local_mi_gate_binagg_resident(
@@ -561,23 +586,36 @@ def local_mi_gate_binagg_resident(
         fold_ids = binagg_fold_ids(n, n_folds, random_state)
         from ._hermite_fe_mi import relaxed_candidate_dtype
 
-        mat_gpu = build_binagg_oof_matrix_gpu(
-            cp, raw_X, col_specs, fold_ids, n_folds, column_major=True, out_dtype=relaxed_candidate_dtype(cp)
-        )  # (K, n): no transpose, no full-width block
-        if mat_gpu.shape[0] == 0:
-            return []
         _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
         y_gpu = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
         _ymin = int(_yi.min()) if _yi.size else 0
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
-        cand_mi = np.asarray(
-            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
-            dtype=np.float64,  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-        )
-        # Family-wise calibration, identical to ``_unified_fe_gate.local_mi_gate``: the floor is raised to the 95th percentile of the
-        # per-permutation maximum MI over these candidates (y permuted on the device; candidates are binned without the target).
-        if mat_gpu.shape[0] >= 2 and _yi.size > 0:
-            floor = _binagg_null_calibrated_floor(cp, mat_gpu, y_gpu, _yi, _ymin, _ncls, int(nbins), floor)
+        _dt = relaxed_candidate_dtype(cp)
+        block = _binagg_candidate_block(cp, len(col_specs), n, np.dtype(_dt).itemsize)
+        mi_parts: list = []
+        null_vec = None
+        # Candidates in column blocks when the whole (K, n) matrix would not fit the pool (1M rows): each candidate's MI depends only on its column. Family-wise
+        # calibration, identical to ``_unified_fe_gate.local_mi_gate``: the floor is raised to the 95th percentile of the per-permutation maximum MI over all the
+        # candidates (y permuted on the device; candidates binned without the target), and that maximum is the fmax of the blocks' (the same permutations in every block).
+        for s0 in range(0, len(col_specs), block):
+            mat_gpu = build_binagg_oof_matrix_gpu(cp, raw_X, col_specs[s0 : s0 + block], fold_ids, n_folds, column_major=True, out_dtype=_dt)  # (k, n)
+            if mat_gpu.shape[0] == 0:
+                continue
+            mi_parts.append(
+                np.asarray(
+                    _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
+                    dtype=np.float64,  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+                )
+            )
+            if len(col_specs) >= 2 and _yi.size > 0:
+                part = _binagg_null_max_vector(cp, mat_gpu, y_gpu, _yi, _ymin, _ncls, int(nbins))
+                null_vec = part if null_vec is None else np.fmax(null_vec, part)
+            del mat_gpu
+        if not mi_parts:
+            return []
+        cand_mi = np.concatenate(mi_parts)
+        if null_vec is not None:
+            floor = max(float(floor), float(np.quantile(null_vec, 0.95)))
     except Exception as _exc:
         logger.debug("local_mi_gate_binagg_resident: GPU path failed (%s); host fallback", _exc)
         return None

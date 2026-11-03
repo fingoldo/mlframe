@@ -312,6 +312,34 @@ def _mi_from_binned_xy(x_bin: np.ndarray, y_bin: np.ndarray, *, clip_zero: bool 
         return max(0.0, mi_corrected)
     return mi_corrected
 
+def _folds_on_device(raw_arr, eng_arr, y_arr, fold_test_idx, n, nbins):
+    """``_one_fold`` of every fold on the device (``_kfold_oof_mi_gpu``), same ``None`` for an empty or single-class fold; ``None`` overall when the device
+    is not used or any fold fails there (the host pool then runs every fold)."""
+    from ._kfold_oof_mi_gpu import fold_mi_device, kfold_oof_mi_device_enabled
+
+    if not kfold_oof_mi_device_enabled(n, raw_arr.shape[1] + eng_arr.shape[1]):
+        return None
+    out: "list[tuple[np.ndarray, np.ndarray] | None]" = []
+    for test_idx in fold_test_idx:
+        if test_idx.size == 0:
+            out.append(None)
+            continue
+        y_test = y_arr[test_idx]
+        if np.unique(y_test).size < 2:
+            out.append(None)
+            continue
+        _, y_test_bin = np.unique(y_test, return_inverse=True)
+        train_mask = np.ones(n, dtype=bool)
+        train_mask[test_idx] = False
+        train_idx = np.where(train_mask)[0]
+        r = fold_mi_device(raw_arr, train_idx, test_idx, y_test_bin.astype(np.int64), nbins)
+        e = fold_mi_device(eng_arr, train_idx, test_idx, y_test_bin.astype(np.int64), nbins)
+        if r is None or e is None:
+            return None
+        out.append((r, e))
+    return out
+
+
 def score_features_by_kfold_oof_mi(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -453,7 +481,10 @@ def score_features_by_kfold_oof_mi(
     except Exception as exc:
         logger.debug("fold pool memory bound unavailable (%s); two folds at most", exc)
         jobs = min(jobs, 2)
-    if jobs > 1 and len(fold_test_idx) > 1:
+    fold_results = _folds_on_device(raw_arr, eng_arr, y_arr, fold_test_idx, n, nbins)
+    if fold_results is not None:
+        pass
+    elif jobs > 1 and len(fold_test_idx) > 1:
         with ThreadPoolExecutor(max_workers=jobs) as pool:
             fold_results = list(pool.map(_run, fold_test_idx))
     else:

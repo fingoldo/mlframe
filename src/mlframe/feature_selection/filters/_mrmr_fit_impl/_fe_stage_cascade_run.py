@@ -40,7 +40,7 @@ def _run_four_stages_together(self, stages, after_early_a, _y_np, _X_step_input,
         dominant["X"], dominant["raw"] = X_a, _raw
         return 1 if dominant_candidate(X_a, _y_np) is not None else 4
 
-    outs = run_stages_concurrently(self, stages, STAGE_WEIGHTS_WITH_EARLY_A, merge_count=_keep)
+    outs = run_stages_concurrently(self, stages, STAGE_WEIGHTS_WITH_EARLY_A, merge_count=_keep, n_rows=len(_X_step_input))
     if outs is not None:
         X, raw = dominant["X"], dominant["raw"]
         close_lap()
@@ -146,7 +146,7 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
         return X, _raw_input_cols_pre_fe
     if concurrency_enabled():
         # no device plan for four stages: the three later cascades together, as before
-        outs = run_stages_concurrently(self, [_stage_early_b, _stage_mid_a, _stage_mid_b])
+        outs = run_stages_concurrently(self, [_stage_early_b, _stage_mid_a, _stage_mid_b], n_rows=len(_X_step_input))
         if outs is not None:
             for out in outs:
                 X = _fe_merge_new_columns(X, out, _X_step_input)

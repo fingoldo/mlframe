@@ -335,9 +335,16 @@ class OptimalJointPlanCache:
 
     def put(self, x: np.ndarray, candidates: tuple, n_splits: int, base: str, random_state: int, plan: dict) -> None:
         """Store ``plan`` unless it would exceed the byte budget."""
-        size = int(plan["x"].nbytes) + sum(xb.nbytes + vm.nbytes for _k, vm, cells in plan["folds"] for _m, xb, _kx in cells)
+        # each fold's validation mask is ONE array shared by the fold's cells: counted once per fold (it used to be counted once per cell, four times the real
+        # size with the default candidates, which filled the budget at 100k rows and left the later columns' plans uncached - rebuilt on every permutation)
+        size = int(plan["x"].nbytes) + sum(int(vm.nbytes) + sum(int(xb.nbytes) for _m, xb, _kx in cells) for _k, vm, cells in plan["folds"])
         key = self._key(x, candidates, n_splits, base, random_state)
         with self._lock:
+            # a plan saves a whole edge search per permutation, a column fact one sort: facts make room for plans (at 100k rows the facts stored first left
+            # 5 of 107 plans uncached, which also kept the fused honest floor from running)
+            while key not in self._plans and self._bytes + size > self._max_bytes and self._facts:
+                _f, (fin, uq, ct) = self._facts.popitem()
+                self._bytes -= int(fin.nbytes + uq.nbytes + ct.nbytes)
             if key not in self._plans and self._bytes + size <= self._max_bytes:
                 self._plans[key] = plan
                 self._bytes += size

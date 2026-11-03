@@ -262,7 +262,10 @@ def ensure_fe_gpu_pool_limit() -> bool:
             # The device is rarely empty: the display and other applications already hold part of it (0.75 GB of 4 GB here). A cap taken from the TOTAL then lets the pool grow until the
             # device shows less free memory than the cushion, and every later dispatch is declined (observed: 634 MiB free against a 1024 MiB cushion, the rest of the fit on the CPU). The pool is
             # still empty when this runs, so the memory free NOW is what it can have while the cushion stays satisfiable.
-            if free0_b > 0:
+            # The cap from the memory free at the first dispatch (``MLFRAME_FE_GPU_POOL_CAP_FROM_FREE=1``) is off by default since 2026-11-03: whatever held the device at that
+            # instant fixed the cap for the whole fit (735 MB of a 4 GB card in one 500000-row fit, 13 out-of-memory fallbacks to the host), and the cushion check above
+            # already releases the pool's cached free blocks before it declines a dispatch, which is what the snapshot cap was guarding against.
+            if free0_b > 0 and os.environ.get("MLFRAME_FE_GPU_POOL_CAP_FROM_FREE", "0").strip() == "1":
                 room_frac = (int(free0_b) - _cushion_bytes(total_b)) / total_b
                 if room_frac >= 0.1:
                     frac = min(frac, room_frac)
