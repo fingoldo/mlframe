@@ -252,6 +252,15 @@ def _median_pairwise_distance_select(arr: np.ndarray) -> float:
 
 
 @njit(cache=True, parallel=True)
+def hsic_column_sigmas(xs_rows: np.ndarray) -> np.ndarray:
+    """The median pairwise distance of every row of ``xs_rows``: the bandwidths ``_hsic_biased_columns_njit`` computes inside its loop, for the device kernel."""
+    out = np.empty(xs_rows.shape[0])
+    for j in prange(xs_rows.shape[0]):
+        out[j] = _median_pairwise_distance(xs_rows[j])
+    return out
+
+
+@njit(cache=True, parallel=True)
 def _hsic_biased_columns_njit(xs_rows: np.ndarray, lc: np.ndarray, denom: float, out: np.ndarray) -> None:
     """``out[j]`` = biased HSIC of row ``j`` of ``xs_rows`` ``(k, m)`` against the y-side CENTRED Gram matrix ``lc`` ``(m, m)``.
 
@@ -513,6 +522,14 @@ def _hsic_batch(
         denom = float((n - 1) * (n - 1))
         # One parallel kernel over the columns (no x-side centring: ``Lc`` is centred), in double precision.
         xs_rows = np.ascontiguousarray(X_arr[idx].T, dtype=np.float64)  # Intentional float64: Gram sums in double precision
+        from ._hsic_gpu import hsic_backend, hsic_biased_columns_gpu
+
+        if hsic_backend(int(xs_rows.shape[1]), int(xs_rows.shape[0])) == "device":
+            with parallel_kernel_entry():
+                sig = hsic_column_sigmas(xs_rows)
+            dev = hsic_biased_columns_gpu(xs_rows, Lc, sig, denom)
+            if dev is not None:
+                return dev
         with parallel_kernel_entry():
             _hsic_biased_columns_njit(xs_rows, np.ascontiguousarray(Lc, dtype=np.float64), denom, out)  # Intentional float64: Gram sums in double precision
         return out
