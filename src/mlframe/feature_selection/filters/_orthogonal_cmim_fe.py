@@ -334,6 +334,54 @@ def _reference_support_bins(raw_X: pd.DataFrame, engineered_X: pd.DataFrame, cur
 
 
 @content_memo()
+def _cmim_scores_device(eng_bins, y_bin, sel_bins, support_names, eng_sources, n_bins: int):
+    """``(K,)`` CMIM scores of the binned candidates on the device: for every reference column one ``batched_cmi_gpu`` call scores all candidates (the
+    Miller-Madow CMI of ``_cmi_from_binned``, clipped at 0), and each candidate takes the minimum over the references of a different source, as
+    ``_cmim_score_cached`` does (it returns 0 as soon as a clipped value is 0). 2026-11-03, 40 references x 150 candidates: within 3e-15 of the host;
+    30000 rows 0.40 -> 0.13 s, 100000 rows 1.34 -> 0.32 s. Candidates with no reference of another source are scored by the caller (marginal MI).
+    ``None`` when the device is not used (no GPU, ``MLFRAME_CMIM_DEVICE=0``, the plug-in MI dispatcher's choice is the host, or a device fault)."""
+    import os
+
+    if os.environ.get("MLFRAME_CMIM_DEVICE", "1").strip() == "0" or not len(sel_bins) or not len(eng_bins):
+        return None
+    try:
+        from ._gpu_policy import cuda_available_for_run
+
+        n = int(np.asarray(y_bin).size)
+        if not cuda_available_for_run():
+            return None
+        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import lookup_mi_classif_backend
+
+        if lookup_mi_classif_backend(n, len(eng_bins)) != "cuda":
+            return None
+        import cupy as cp
+
+        from ._fe_batched_mi import batched_cmi_gpu
+
+        k = len(eng_bins)
+        yd = cp.asarray(np.ascontiguousarray(y_bin, dtype=np.int64))
+        ky = int(np.asarray(y_bin).max()) + 1 if n else 1
+        zs = [cp.asarray(np.ascontiguousarray(z, dtype=np.int64)) for z in sel_bins]
+        allowed = np.array([[support_names[j] != eng_sources[i] for i in range(k)] for j in range(len(sel_bins))], dtype=bool)  # (S, K)
+        out = np.full(k, np.inf)
+        free = int(cp.cuda.Device().mem_info[0]) + int(cp.get_default_memory_pool().free_bytes())
+        block = max(1, min(k, (free // 8) // max(1, n * 8)))  # int64 codes of a candidate block, a fraction of what the device can hand out
+        for b0 in range(0, k, block):
+            b1 = min(k, b0 + block)
+            Xd = cp.asarray(np.ascontiguousarray(np.asarray(eng_bins[b0:b1]).T, dtype=np.int64))  # (n, block)
+            for j, zd in enumerate(zs):
+                mask = allowed[j, b0:b1]
+                if not mask.any():
+                    continue
+                cmi = np.asarray(batched_cmi_gpu(Xd, yd, zd, kx=int(n_bins), ky=ky), dtype=np.float64)  # Intentional float64: CMI statistic
+                out[b0:b1] = np.where(mask, np.minimum(out[b0:b1], cmi), out[b0:b1])
+            del Xd
+        return np.maximum(out, 0.0)
+    except Exception as exc:
+        logger.debug("device CMIM not used (%s: %s); host loop", type(exc).__name__, exc)
+        return None
+
+
 def score_features_by_cmim(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -438,8 +486,10 @@ def score_features_by_cmim(
 
     rows: list[dict] = []
     eng_bins = quantile_bin_columns(engineered_X.to_numpy(dtype=_crit_np_dtype()), int(n_bins))  # every candidate column binned at once (not one device round trip per column)
+    eng_sources = [eng_name.split("__", 1)[0] if "__" in eng_name else eng_name for eng_name in engineered_X.columns]
+    device_scores = _cmim_scores_device(eng_bins, y_bin, sel_bins, support_col_names, eng_sources, int(n_bins))
     for eng_idx, eng_name in enumerate(engineered_X.columns):
-        source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+        source = eng_sources[eng_idx]
         baseline = float(raw_mi_map.get(source, 0.0))
         cand_bin = eng_bins[eng_idx]
         # Fleuret 2004 CMIM: min over support of CMI(cand; y | X_j).
@@ -452,6 +502,8 @@ def score_features_by_cmim(
         cache_filtered = filtered_by_source[source]
         if not cache_filtered:
             score = float(_cmi_from_binned(cand_bin, y_bin, None))
+        elif device_scores is not None:
+            score = float(device_scores[eng_idx])
         else:
             score = _cmim_score_cached(cand_bin, y_bin, cache_filtered, n_rows)
         uplift = relative_uplift(score, baseline)
