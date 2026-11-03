@@ -9,8 +9,9 @@ Three read-only reports by Opus 5.5 low-effort agents on areas no earlier wave r
 | **RESOLVED** | W24REN-3 | renderer | Low | plotly scatter: one NaN in x or y gave the perfect-fit diagonal NaN endpoints |
 | **RESOLVED** | W24REN-4 | renderer | Low | plotly network: NaN edge weights sent every edge to an invalid bin, so no edge line was drawn |
 | **RESOLVED** | W24REN-5 | renderer | Low | matplotlib network: a panel with no nodes raised on the empty extent reduction |
-| **RESOLVED** | W24SHP-1 | search | High | `beam_search` grew the size-1 seed beam for `max_card - min_card` layers, so with `min_features=4, max_features=6` it stopped at size 3 and returned only subsets below the minimum (and single features when min = max); it now grows `max_card - 1` layers and filters the result to sizes >= `min_card` (`tests/feature_selection/shap_proxied/test_beam_search_respects_min_and_max_card.py`) |
-| **FUTURE** | W24SHP-2 | binning | High | `_su_bin`: a NaN in a continuous column gives all-NaN quantile edges, then one bin per row |
+| **RESOLVED** | W24SHP-2 | `tests/feature_selection/shap_proxied/test_su_bin_nan_column_keeps_its_bins.py` |
+| W24SHP-1 | search | High | `beam_search` grew the size-1 seed beam for `max_card - min_card` layers, so with `min_features=4, max_features=6` it stopped at size 3 and returned only subsets below the minimum (and single features when min = max); it now grows `max_card - 1` layers and filters the result to sizes >= `min_card` (`tests/feature_selection/shap_proxied/test_beam_search_respects_min_and_max_card.py`) |
+| **RESOLVED** | W24SHP-2 | binning | High | `_su_bin` on a continuous column with a NaN got all-NaN quantile edges and fell to the rank-dense branch, one bin per distinct value (a 50k-row pair would allocate a ~2.5e9-cell joint); the finite rows are binned on their own and the missing rows share one extra bin (`tests/feature_selection/shap_proxied/test_su_bin_nan_column_keeps_its_bins.py`) |
 | **FUTURE** | W24SHP-3 | leakage | Medium | sparse-interaction candidates are scored in-sample and ranked against out-of-fold scores |
 | **FUTURE** | W24SHP-4 | api | Medium | `residual_passes=2` is accepted but runs one pass |
 | **FUTURE** | W24SHP-5 | memory | Medium | the interaction pair table is allocated P x P x n instead of top-k |

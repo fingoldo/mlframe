@@ -334,6 +334,15 @@ def _su_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
     n = col.shape[0]
     if n == 0:
         return np.zeros(0, dtype=np.int64)
+    finite = np.isfinite(col)
+    if not finite.all():
+        # A NaN makes every quantile edge NaN, which sent the column to the rank-dense branch below with one bin per distinct value. Bin the finite rows on their
+        # own and give the missing rows one extra bin of their own.
+        ids = np.zeros(n, dtype=np.int64)
+        if finite.any():
+            ids[finite] = _su_bin(col[finite], n_bins)
+        ids[~finite] = int(ids[finite].max()) + 1 if finite.any() else 0
+        return ids
     try:
         edges = np.unique(np.quantile(col, np.linspace(0.0, 1.0, n_bins + 1)))
     except Exception as e:
