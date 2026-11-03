@@ -65,6 +65,8 @@ from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 import logging
 from typing import Optional, Sequence
 
+from typing import Any
+
 import numpy as np
 
 from mlframe.utils.env_flags import env_int
@@ -365,6 +367,74 @@ def _kfold_inputs(raw_X: pd.DataFrame, engineered_X: pd.DataFrame, y: np.ndarray
     return y_arr, n_folds_eff
 
 
+def _kfold_one_fold(test_idx: np.ndarray, n: int, y_arr: np.ndarray, raw_arr: np.ndarray, eng_arr: np.ndarray, n_raw: int, n_eng: int, nbins: int) -> Any:
+    """``(raw MI, engineered MI)`` of one held-out fold of :func:`score_features_by_kfold_oof_mi`, or ``None`` when the fold is empty or single-class;
+    the folds only read the shared arrays."""
+    if test_idx.size == 0:
+        return None
+    train_mask = np.ones(n, dtype=bool)
+    train_mask[test_idx] = False
+    train_idx = np.where(train_mask)[0]
+    # Guard against degenerate single-class folds (rare-imbalance
+    # frames). Skip the fold contribution to MI when y_test has < 2
+    # classes - can't compute joint entropy meaningfully.
+    y_test = y_arr[test_idx]
+    if np.unique(y_test).size < 2:
+        return None
+    # Bin y_test as a dense renumbering of classes (consistent with
+    # _quantile_bin's int output for the support).
+    _, y_test_bin = np.unique(y_test, return_inverse=True)
+    y_test_bin = y_test_bin.astype(np.int64)
+
+    # Raw columns. NOTE: clip_zero=False per fold - clipping each
+    # fold to >=0 before averaging would inject a positive bias
+    # whenever the true MI is zero (E[max(0, noisy)] > 0). We clip
+    # the K-fold AVERAGE below, which is the correct unbiased OOF
+    # estimator.
+    #
+    # CPX12b: bin every column for this fold via a single,
+    # train-row-only quantile partition shared across COLUMNS (gated on
+    # per-fold train size - see _OOF_BATCH_BINNING_MAX_TRAIN_ROWS). The edges
+    # are still fitted on TRAIN rows only (leakage-free K-fold OOF) and the
+    # output is bit-identical to the prior per-column _bin_with_train_edges
+    # loop; only the quantile partition is shared. Above the threshold the
+    # batched quantile loses cache locality, so we keep the scalar fallback.
+    raw_test_bins = _fold_test_bins(
+        raw_arr, train_idx, test_idx, n_raw, nbins,
+    )
+    y_h = _y_entropy(y_test_bin) if y_test_bin.size else None  # the fold's H(y), shared by every column below
+    raw_mi_k = np.array(
+        [_mi_from_binned_xy(raw_test_bins[:, j], y_test_bin, clip_zero=False, y_entropy=y_h) for j in range(n_raw)],
+        dtype=np.float64,  # Intentional float64: score statistic output contract
+    )
+
+    # Engineered columns (same per-fold non-clipping rule).
+    eng_test_bins = _fold_test_bins(
+        eng_arr, train_idx, test_idx, n_eng, nbins,
+    )
+    eng_mi_k = np.array(
+        [_mi_from_binned_xy(eng_test_bins[:, j], y_test_bin, clip_zero=False, y_entropy=y_h) for j in range(n_eng)],
+        dtype=np.float64,  # Intentional float64: score statistic output contract
+    )
+    return raw_mi_k, eng_mi_k
+
+
+def _kfold_fold_jobs(n: int, n_cols: int, itemsize: int, n_folds: int) -> int:
+    """Folds of :func:`score_features_by_kfold_oof_mi` in flight: each copies the train rows of every column (about twice over while it bins), so they are
+    bounded by 40% of the available memory."""
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    jobs = _resolve_edge_jobs(None, n_folds)
+    try:
+        import psutil
+
+        per_fold = int(0.8 * n) * n_cols * itemsize * 2
+        return max(1, min(jobs, int(0.4 * psutil.virtual_memory().available // max(1, per_fold))))
+    except Exception as exc:  # best-effort: only the number of folds in flight changes, never a score
+        logger.debug("fold pool memory bound unavailable (%s); two folds at most", exc)
+        return min(jobs, 2)
+
+
 def score_features_by_kfold_oof_mi(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -417,78 +487,18 @@ def score_features_by_kfold_oof_mi(
     raw_fold_mis: list[np.ndarray] = []
     eng_fold_mis: list[np.ndarray] = []
 
-    def _one_fold(test_idx):
-        """``(raw MI, engineered MI)`` of one held-out fold, or ``None`` when the fold is empty or single-class; the folds only read the shared arrays."""
-        if test_idx.size == 0:
-            return None
-        train_mask = np.ones(n, dtype=bool)
-        train_mask[test_idx] = False
-        train_idx = np.where(train_mask)[0]
-        # Guard against degenerate single-class folds (rare-imbalance
-        # frames). Skip the fold contribution to MI when y_test has < 2
-        # classes - can't compute joint entropy meaningfully.
-        y_test = y_arr[test_idx]
-        if np.unique(y_test).size < 2:
-            return None
-        # Bin y_test as a dense renumbering of classes (consistent with
-        # _quantile_bin's int output for the support).
-        _, y_test_bin = np.unique(y_test, return_inverse=True)
-        y_test_bin = y_test_bin.astype(np.int64)
-
-        # Raw columns. NOTE: clip_zero=False per fold - clipping each
-        # fold to >=0 before averaging would inject a positive bias
-        # whenever the true MI is zero (E[max(0, noisy)] > 0). We clip
-        # the K-fold AVERAGE below, which is the correct unbiased OOF
-        # estimator.
-        #
-        # CPX12b: bin every column for this fold via a single,
-        # train-row-only quantile partition shared across COLUMNS (gated on
-        # per-fold train size - see _OOF_BATCH_BINNING_MAX_TRAIN_ROWS). The edges
-        # are still fitted on TRAIN rows only (leakage-free K-fold OOF) and the
-        # output is bit-identical to the prior per-column _bin_with_train_edges
-        # loop; only the quantile partition is shared. Above the threshold the
-        # batched quantile loses cache locality, so we keep the scalar fallback.
-        raw_test_bins = _fold_test_bins(
-            raw_arr, train_idx, test_idx, len(raw_cols), nbins,
-        )
-        y_h = _y_entropy(y_test_bin) if y_test_bin.size else None  # the fold's H(y), shared by every column below
-        raw_mi_k = np.array(
-            [_mi_from_binned_xy(raw_test_bins[:, j], y_test_bin, clip_zero=False, y_entropy=y_h) for j in range(len(raw_cols))],
-            dtype=np.float64,  # Intentional float64: score statistic output contract
-        )
-
-        # Engineered columns (same per-fold non-clipping rule).
-        eng_test_bins = _fold_test_bins(
-            eng_arr, train_idx, test_idx, len(eng_cols), nbins,
-        )
-        eng_mi_k = np.array(
-            [_mi_from_binned_xy(eng_test_bins[:, j], y_test_bin, clip_zero=False, y_entropy=y_h) for j in range(len(eng_cols))],
-            dtype=np.float64,  # Intentional float64: score statistic output contract
-        )
-        return raw_mi_k, eng_mi_k
-
     from concurrent.futures import ThreadPoolExecutor
 
-    from ._adaptive_nbins import _resolve_edge_jobs
     from ._fe_deadline import _state as _deadline_state, fe_deadline_scope
 
     deadline = getattr(_deadline_state, "deadline", None)
 
     def _run(test_idx):
-        """``_one_fold`` with the fit's wall-clock budget published to the worker thread."""
+        """``_kfold_one_fold`` with the fit's wall-clock budget published to the worker thread."""
         with fe_deadline_scope(deadline):
-            return _one_fold(test_idx)
+            return _kfold_one_fold(test_idx, n, y_arr, raw_arr, eng_arr, len(raw_cols), len(eng_cols), nbins)
 
-    # Each fold copies the train rows of every column (about twice over while it bins): the folds in flight are bounded by 40% of the available memory; the results are folded in fold order.
-    jobs = _resolve_edge_jobs(None, len(fold_test_idx))
-    try:
-        import psutil
-
-        per_fold = int(0.8 * n) * (len(raw_cols) + len(eng_cols)) * int(raw_arr.dtype.itemsize) * 2
-        jobs = max(1, min(jobs, int(0.4 * psutil.virtual_memory().available // max(1, per_fold))))
-    except Exception as exc:
-        logger.debug("fold pool memory bound unavailable (%s); two folds at most", exc)
-        jobs = min(jobs, 2)
+    jobs = _kfold_fold_jobs(n, len(raw_cols) + len(eng_cols), int(raw_arr.dtype.itemsize), len(fold_test_idx))
     fold_results = _folds_on_device(raw_arr, eng_arr, y_arr, fold_test_idx, n, nbins)
     if fold_results is not None:
         pass
