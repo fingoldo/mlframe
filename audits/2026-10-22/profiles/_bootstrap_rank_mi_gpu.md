@@ -35,3 +35,10 @@ With the device walk as the default, the 100000 x 100 every-family fit printed `
 with the walk forced to the host there were none. Causes and fixes: (1) a block of 256 columns holds several hundred MB at 100000 rows, so the block is now bounded by what the pool can still hand out (`_column_block`, 30%, 8 to 256 columns);
 (2) the pool was full of cached blocks of other sizes that do not merge into a large contiguous request, so the unused cache is released before and after the walk (`_release_pool_cache`); (3) any device fault in the walk now returns to the host walk.
 After the fixes the full fit prints no OutOfMemoryError and no family raises. Lesson for every new kernel: a full-fit run must be grepped for OutOfMemoryError / `FE raised`, not only timed.
+
+## Re-measure (2026-11-03): the host walk wins again; the tuning cache is right
+Quiet machine, same shape as the 2026-11-01 re-measure (105 float32 columns, 10 resamples of 80%), host / device alternating in one process, warm runs:
+30000 rows host 0.045-0.050 s / device 0.112-0.116 s; 100000 rows host 0.231-0.296 s / device 0.544-0.577 s; MI identical. `mlframe-tune-kernels refresh
+fe_bootstrap_rank_device` (quiet) again records `host` for every size. The 11-01 "device wins" numbers do not reproduce; the fallback constant
+`DEVICE_WALK_FALLBACK_ROWS` only matters on a machine without a tuning entry. In the 50k all-families fit the host walk scores 522 columns in 0.50 s
+(9 calls) and the tied device kernel 782 columns in 1.29 s (10 calls).
