@@ -406,8 +406,9 @@ def hybrid_numeric_decompose_fe(
     keep = list(winners["engineered_col"])
     if keep and eng_builders is not None:
         eng = pd.DataFrame({name: eng_builders[name]() for name in keep}, index=X.index)
-    X_aug = pd.concat([X, eng[keep]], axis=1) if keep else X.copy(deep=False)
-    return X_aug, scores
+    if not keep or eng is None:
+        return X.copy(deep=False), scores
+    return pd.concat([X, eng[keep]], axis=1), scores
 
 
 def _decompose_block_columns(X: pd.DataFrame, cols, per_source: int) -> "int | None":
