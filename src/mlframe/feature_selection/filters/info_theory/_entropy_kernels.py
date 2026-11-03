@@ -22,6 +22,13 @@ def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
 
 
 @njit(cache=True)
+def _check_class_in_range(newclass, expected_nclasses):
+    """Raise when a joint class id falls outside the frequency array sized from the declared bin counts."""
+    if newclass >= expected_nclasses or newclass < 0:
+        raise ValueError("fused entropy kernel: class id out of range for the declared number of bins")
+
+
+@njit(cache=True)
 def _merge_vars_freqs(factors_data, vars_indices, factors_nbins, dtype=np.int32) -> np.ndarray:
     """Normalized NONZERO joint-class frequencies of ``vars_indices`` - BIT-IDENTICAL to
     ``merge_vars(factors_data, vars_indices, None, factors_nbins, dtype)[1]`` but WITHOUT allocating a
@@ -51,8 +58,7 @@ def _merge_vars_freqs(factors_data, vars_indices, factors_nbins, dtype=np.int32)
             # H(.) only needs the pruned freqs; the final relabel array is discarded by the caller, so skip it.
             for sample_row in range(n_rows):
                 newclass = np.int64(final_classes[sample_row]) + np.int64(factors_data[sample_row, var_index]) * current_nclasses
-                if newclass >= expected_nclasses or newclass < 0:
-                    raise ValueError("_merge_vars_freqs: class id out of range for the declared number of bins")
+                _check_class_in_range(newclass, expected_nclasses)
                 freqs[newclass] += 1
             nzeros = 0
             for oldclass in range(expected_nclasses):

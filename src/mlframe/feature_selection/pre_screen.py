@@ -51,6 +51,18 @@ def _summ_pre_screen(res, b):
 
 
 @logs_selection("pre_screen", _summ_pre_screen, what="dropped")
+def _polars_missing_count(col: Any, col_name: str) -> int:
+    """Missing values of a polars column: nulls plus float NaN (polars keeps them apart, pandas counts both, so the two backends must agree)."""
+    try:
+        count = int(col.null_count())
+        if col.dtype.is_float():
+            count += int(col.is_nan().sum())
+        return count
+    except Exception as e:
+        log_throttle(logger, "pre_screen.hot_loop_warning", logging.WARNING, "null_count() failed for column %r, treating as 0: %s", col_name, e)
+        return 0
+
+
 def compute_unsupervised_drops(
     train_df: Any,
     variance_threshold: float = 0.0,
@@ -96,14 +108,7 @@ def compute_unsupervised_drops(
             if col_name in protected:
                 continue
             col = train_df[col_name]
-            try:
-                null_count = int(col.null_count())
-                if col.dtype.is_float():
-                    # polars keeps NaN apart from null; pandas counts both, so the two backends must agree
-                    null_count += int(col.is_nan().sum())
-            except Exception as e:
-                log_throttle(logger, "pre_screen.hot_loop_warning", logging.WARNING, "null_count() failed for column %r, treating as 0: %s", col_name, e)
-                null_count = 0
+            null_count = _polars_missing_count(col, col_name)
             if null_count > null_cutoff:
                 drops.add(col_name)
                 continue
