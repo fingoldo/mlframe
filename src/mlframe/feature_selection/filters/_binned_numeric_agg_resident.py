@@ -408,6 +408,28 @@ def build_binagg_oof_matrix_gpu(
     return block
 
 
+def _batched_null_max(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.ndarray, _ymin: int, _ncls: int, nbins: int, rng: Any) -> "Optional[np.ndarray]":
+    """The per-permutation maxima of :func:`_binagg_null_calibrated_floor` with every permutation scored in one launch per block (``_null_max_perm_gpu``): the same
+    permutations in the same order, the same candidate edges, equal MI. ``None`` when that path does not apply or fails (the caller loops one launch per permutation)."""
+    import os
+
+    if os.environ.get("MLFRAME_BINAGG_NULL_BATCHED", "1").strip() == "0":
+        return None
+    try:
+        from ._hermite_fe_mi import _resident_mi_candidates, _shifted_y_cached
+        from ._null_max_perm_gpu import null_max_mi_perms_gpu
+        from ._unified_fe_gate import _LOCAL_GATE_NULL_PERMUTATIONS
+
+        perms = np.stack([rng.permutation(_yi.size) for _ in range(_LOCAL_GATE_NULL_PERMUTATIONS)])
+        _x, _is_cm, x_cm, interior = _resident_mi_candidates(mat_gpu, int(nbins), keep_dtype=True, relax_binning=True, x_is_cm=True)
+        y0 = y_gpu.astype(cp.int64)
+        y_shift = _shifted_y_cached(y0, int(_ymin)) if _ymin else y0
+        return null_max_mi_perms_gpu(cp, x_cm, interior, y_shift, perms, int(nbins), int(_ncls))
+    except Exception as exc:
+        logger.debug("batched binagg null failed (%s); one launch per permutation", exc)
+        return None
+
+
 def _binagg_null_calibrated_floor(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.ndarray, _ymin: int, _ncls: int, nbins: int, floor: float) -> float:
     """Raise the MI noise ``floor`` to the 95th percentile of the per-permutation maximum candidate MI.
 
@@ -418,6 +440,9 @@ def _binagg_null_calibrated_floor(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.nda
     from ._unified_fe_gate import _LOCAL_GATE_NULL_PERMUTATIONS
 
     _rng = np.random.default_rng(0)
+    batched = _batched_null_max(cp, mat_gpu, y_gpu, _yi, _ymin, _ncls, nbins, np.random.default_rng(0))
+    if batched is not None:
+        return max(float(floor), float(np.quantile(batched, 0.95)))
     # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     _null_max = np.empty(_LOCAL_GATE_NULL_PERMUTATIONS, dtype=np.float64)
     # The shuffles cross the bus a few per transfer (as many as fit a 32 MB host buffer), drawn in the same order as one per permutation.
