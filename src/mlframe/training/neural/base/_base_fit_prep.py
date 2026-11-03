@@ -75,6 +75,8 @@ class _FitPrepMixin:
         self._cat_cols_ = None
         self._cat_cardinalities_ = None
         self._n_cat_features_ = 0
+        # The network reads positions, not names: remember the column order it was trained on so predict can restore it.
+        self._input_columns_ = list(X.columns) if hasattr(X, "columns") else None
 
         if not getattr(self, "use_learnable_cat_embeddings", True):
             return X, eval_set
@@ -135,6 +137,10 @@ class _FitPrepMixin:
         code_maps = getattr(self, "_cat_code_maps_", None)
         if not hasattr(X, "columns"):
             return X
+        _fit_order = getattr(self, "_input_columns_", None)
+        if _fit_order is not None and list(X.columns) != _fit_order and set(_fit_order) <= set(X.columns):
+            # a frame with the same columns in another order would silently permute the numeric block; extra columns keep their relative order at the end
+            X = X[_fit_order + [c for c in X.columns if c not in set(_fit_order)]]
         encoded_cols: dict = {}
         _cat_cols = getattr(self, "_cat_cols_", None) or []
         _cat_cardinalities = getattr(self, "_cat_cardinalities_", None)
