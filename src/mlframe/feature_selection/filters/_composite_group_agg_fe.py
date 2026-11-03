@@ -33,7 +33,8 @@ from __future__ import annotations
 import logging
 import threading
 from itertools import combinations
-from typing import Any, Callable, Optional, Sequence
+from collections.abc import Iterator, Mapping
+from typing import Any, Callable, Optional, Sequence, cast
 
 import numpy as np
 from numba import njit
@@ -188,12 +189,13 @@ def _composite_residuals_kernel(x: np.ndarray, inverse: np.ndarray, mean_u: np.n
 
 def _composite_residuals(x: np.ndarray, uniq: np.ndarray, inverse: np.ndarray, lookup_mean: dict, lookup_std: dict, global_mean: float, global_std: float) -> "tuple[np.ndarray, np.ndarray]":
     """``(z-within-group, ratio-to-group-mean)`` columns of ``x`` in ``x``'s dtype, from the per-group mean / std tables (the replacement of non-finite values and the near-zero-mean rule are applied to the distinct groups)."""
+    direct = isinstance(lookup_mean, _ArrayLookup) and isinstance(lookup_std, _ArrayLookup) and len(lookup_mean.labels) == len(uniq)
     mean_u = np.nan_to_num(
-        np.array([lookup_mean.get(str(k), global_mean) for k in uniq], dtype=np.float64),  # Intentional float64: group statistics from the f64 recipe lookup
+        lookup_mean.values if direct else np.array([lookup_mean.get(str(k), global_mean) for k in uniq], dtype=np.float64),  # Intentional float64: group statistics from the f64 recipe lookup
         nan=global_mean, posinf=global_mean, neginf=global_mean,
     )
     std_u = np.nan_to_num(
-        np.array([lookup_std.get(str(k), global_std) for k in uniq], dtype=np.float64),  # Intentional float64: group statistics from the f64 recipe lookup
+        lookup_std.values if direct else np.array([lookup_std.get(str(k), global_std) for k in uniq], dtype=np.float64),  # Intentional float64: group statistics from the f64 recipe lookup
         nan=global_std, posinf=global_std, neginf=global_std,
     )
     std_u = np.where(std_u > 0.0, std_u, 1.0)
@@ -247,6 +249,10 @@ def _broadcast_lookup(
     keys = np.asarray(keys, dtype=object)
     if uniq is None or inverse is None:
         uniq, inverse = _unique_inverse(keys)
+    if uniq is not None and inverse is not None and isinstance(lookup, _ArrayLookup) and len(lookup.labels) == len(uniq):
+        # one value per group code already: the per-key string lookup gives exactly these values (distinct labels, every key present)
+        uniq_vals = np.nan_to_num(lookup.values, nan=global_value, posinf=global_value, neginf=global_value)
+        return np.asarray(uniq_vals[inverse], dtype=out_dtype)
     if uniq is not None and inverse is not None:
         uniq_vals = np.array(
             [lookup.get(str(_k), global_value) for _k in uniq],
@@ -289,12 +295,47 @@ def _group_lookup(series: pd.Series, label: Callable[[Any], str], zero_nonfinite
     return dict(zip(map(label, series.index.tolist()), values.tolist()))
 
 
-def _array_lookup(labels: list, values: np.ndarray, zero_nonfinite: bool) -> dict:
+class _ArrayLookup(Mapping):
+    """``{labels[code]: value}`` of a per-group-code array, built only when something reads it as a mapping (the recipes of the winners); the broadcasts and
+    residuals read ``values`` directly. Used only when the labels are distinct, so the mapping and the array agree for every group."""
+
+    __slots__ = ("_dict", "labels", "values")
+
+    def __init__(self, labels: list, values: np.ndarray) -> None:
+        self.labels = labels
+        self.values = values
+        self._dict: "dict | None" = None
+
+    def _mapping(self) -> dict:
+        """The dict, built on first use."""
+        if self._dict is None:
+            self._dict = dict(zip(self.labels, self.values.tolist()))
+        return self._dict
+
+    def __getitem__(self, key: Any) -> float:
+        return cast(float, self._mapping()[key])
+
+    def __iter__(self) -> Iterator:
+        return iter(self._mapping())
+
+    def __len__(self) -> int:
+        return len(self.labels)
+
+
+def _array_lookup(labels: list, values: np.ndarray, zero_nonfinite: bool, distinct: bool = False) -> "dict | _ArrayLookup":
     """:func:`_group_lookup` for a per-group-code array: ``{labels[code]: value}``."""
     vals = np.asarray(values, dtype=np.float64)  # float32 -> float64 is exact  # Intentional float64: float32 -> float64 is exact
     if zero_nonfinite:
         vals = np.where(np.isfinite(vals), vals, 0.0)
+    if distinct:
+        return _ArrayLookup(labels, vals)
     return dict(zip(labels, vals.tolist()))
+
+
+def _key_labels(key_uniq: Any) -> "tuple[list, bool]":
+    """The key string of every group code and whether they are distinct (two keys of different types can print alike, and then the string-keyed lookup merges them)."""
+    labels = [str(u) for u in key_uniq]
+    return labels, len(set(labels)) == len(labels)
 
 
 def _emit_num_col_features(
@@ -307,6 +348,7 @@ def _emit_num_col_features(
     stats: Sequence[str],
     encoded: dict,
     raw_recipes: dict,
+    key_labels_info: "tuple[list, bool] | None" = None,
 ) -> None:
     """Compute one numeric column's per-composite-group broadcasts plus its z-within-group and ratio residuals into ``encoded`` / ``raw_recipes``."""
     x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
@@ -315,16 +357,18 @@ def _emit_num_col_features(
     label: Callable[[Any], str]
     kernel = key_uniq is not None and key_inverse is not None and x.dtype in (np.float32, np.float64)  # Intentional float64: dtype identity check, not a compute dtype
     grouped = None
+    distinct = False
     if key_uniq is not None and key_inverse is not None:
-        key_labels = [str(u) for u in key_uniq]  # the key string of group code c is key_labels[c]
+        # the key string of group code c is key_labels[c]; built once per key set by the caller when it can
+        key_labels, distinct = key_labels_info if key_labels_info is not None else _key_labels(key_uniq)
         label = key_labels.__getitem__
     else:
         label = str
     if kernel:
         # mean / std / count over the group codes in one pass, bit-equal to the pandas groupby of the other branch (see ``_group_stats_njit``)
         mean_arr, std_arr, count_arr = group_mean_std_count(np.ascontiguousarray(key_inverse, dtype=np.int64), np.ascontiguousarray(x), len(key_labels))
-        lookup_mean = _array_lookup(key_labels, mean_arr, zero_nonfinite=False)
-        lookup_std = _array_lookup(key_labels, std_arr, zero_nonfinite=True)
+        lookup_mean = _array_lookup(key_labels, mean_arr, zero_nonfinite=False, distinct=distinct)
+        lookup_std = _array_lookup(key_labels, std_arr, zero_nonfinite=True, distinct=distinct)
     else:
         if key_uniq is not None and key_inverse is not None:
             tmp = pd.DataFrame({"_g": np.asarray(key_inverse), "_v": x}, index=X.index)
@@ -345,7 +389,7 @@ def _emit_num_col_features(
         # mean / std are already materialised above for the z / ratio residuals; reuse them instead of running the groupby a second time
         if kernel and stat in ("mean", "std", "count"):
             agg_values = {"mean": mean_arr, "std": std_arr, "count": count_arr}[stat]
-            lookup = _array_lookup(key_labels, agg_values, zero_nonfinite=True)
+            lookup = _array_lookup(key_labels, agg_values, zero_nonfinite=True, distinct=distinct)
         else:
             if grouped is None:  # a statistic the kernel does not cover (min / max / median / skew / nunique)
                 tmp = pd.DataFrame({"_g": np.asarray(key_inverse), "_v": x}, index=X.index)
@@ -517,7 +561,8 @@ def generate_composite_group_agg_features(
         # replicating pandas' NaN-skipping mean/Welford-based std exactly (not just mathematically) needs the
         # same empirical bit-identity verification as the K-fold subtraction rewrite, and this file's num_cols
         # loop is uncapped (unlike the capped max_pairs paths that make that verification cheap to scope).
-        tasks.extend((num_col, keys, key_uniq, key_inverse, group_cols) for num_col in cur_num_cols)
+        labels_info = _key_labels(key_uniq) if key_uniq is not None and key_inverse is not None else None
+        tasks.extend((num_col, keys, key_uniq, key_inverse, group_cols, labels_info) for num_col in cur_num_cols)
 
     # Every (key set, numeric column) task writes its own columns into private dicts, so the tasks run on the edge-jobs pool and are folded in task order (the serial result).
     from concurrent.futures import ThreadPoolExecutor
@@ -529,11 +574,11 @@ def generate_composite_group_agg_features(
 
     def _run(task):
         """One task into private dicts, with the fit's wall-clock budget published to the worker thread."""
-        num_col, keys, key_uniq, key_inverse, group_cols = task
+        num_col, keys, key_uniq, key_inverse, group_cols, labels_info = task
         enc: dict[str, np.ndarray] = {}
         rec: dict[str, dict] = {}
         with fe_deadline_scope(deadline):
-            _emit_num_col_features(X, num_col, keys, key_uniq, key_inverse, group_cols, stats, enc, rec)
+            _emit_num_col_features(X, num_col, keys, key_uniq, key_inverse, group_cols, stats, enc, rec, labels_info)
         return enc, rec
 
     jobs = _resolve_edge_jobs(None, len(tasks))
