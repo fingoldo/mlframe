@@ -27,8 +27,8 @@ Six read-only reports by Opus 5.5 low-effort agents on packages no earlier wave 
 | **FUTURE** | W20INFO-4 | Low | `_cmi_cuda` joint-histogram launch does not check the shared-memory limit |
 | **PARTIAL** | W20FS-1 | Medium | `select_features_noise_floor(rerank='permutation')` re-ranks features per shuffled y (opt-in, `tests/feature_selection/wrappers/test_noise_floor_reranks_per_permutation.py`); the default stays `'none'` because the re-ranked null falls with N and the plateau rule then keeps all 43 features on the 3-informative/40-noise control (n_perm 3 and 30), so a different stop rule has to come before any default flip |
 | **RESOLVED** | W20FS-2 | Medium | polars `null_count()` ignores NaN, so an all-NaN float column survived the pre-screen that pandas drops |
-| **FUTURE** | W20FS-3 | Low-Medium | knockoffs: NaNs imputed in the knockoff but not in the real slot |
-| **FUTURE** | W20FS-4 | Low | knockoffs and swap coins share one seed |
+| **RESOLVED** | W20FS-3 | Low-Medium | knockoffs imputed NaNs in the knockoff slot but left them in the real slot, which identified the real column; both slots are now mean-imputed (`tests/feature_selection/wrappers/test_knockoff_seeds_and_nan_slots.py`) |
+| **RESOLVED** | W20FS-4 | Low | knockoffs and swap coins shared one seed; they now draw from two children of one `SeedSequence` (`tests/feature_selection/wrappers/test_knockoff_seeds_and_nan_slots.py`) |
 | **RESOLVED** | W20REP-1 | High | decile gain / lift table breaks tied scores by row order; the fix (split tie groups across deciles proportionally) changes the table for every user with quantised scores |
 | **RESOLVED** | W20REP-2 | Medium | risk-coverage curve breaks confidence ties by row order |
 | **RESOLVED** | W20REP-3 | Medium | multiclass risk-coverage compared the argmax column index with the raw label value; labels now map to columns through their sorted order (labels already 0..K-1 keep their meaning), string labels work and an unmatchable label set raises (`tests/reporting/test_risk_coverage_multiclass_raw_labels.py`) |

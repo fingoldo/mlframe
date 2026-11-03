@@ -247,7 +247,12 @@ def knockoff_importance(
     if current_features is None:
         current_features = list(X.columns) if is_df else list(range(p))
 
-    X_tilde = make_gaussian_knockoffs(X_arr, random_state=random_state)
+    # Independent streams for the knockoff noise and the swap coins: one shared seed made the coins a function of the knockoff draws' first values.
+    knockoff_seed, swap_seed = np.random.SeedSequence(random_state).spawn(2)
+    X_tilde = make_gaussian_knockoffs(X_arr, random_state=int(knockoff_seed.generate_state(1)[0]))
+    if np.isnan(X_arr.astype(np.float64, copy=False)).any():
+        # The knockoff is built from mean-imputed values, so a NaN left in the real slot would tell the model which slot is real.
+        X_arr = np.where(np.isnan(X_arr.astype(np.float64, copy=False)), np.nanmean(X_arr.astype(np.float64, copy=False), axis=0), X_arr)
 
     # Flip-sign antisymmetry (Barber-Candes 2015, eq. for the swap statistic). The importance-difference W_j = imp(X_j) - imp(X_tilde_j)
     # only yields a valid FDR guarantee if W is ANTISYMMETRIC under swapping a null feature with its knockoff: swapping must flip the sign
@@ -256,7 +261,7 @@ def knockoff_importance(
     # negative reference set and gives no real control. We restore antisymmetry by drawing an independent fair coin per feature that
     # decides which of the two adjacent columns carries the REAL value and which carries the knockoff; the model cannot tell them apart,
     # so under the null the sign of (imp at real-slot - imp at knockoff-slot) is symmetric -> W is sign-symmetric as the theory requires.
-    swap_rng = np.random.default_rng(random_state)
+    swap_rng = np.random.default_rng(swap_seed)
     swapped = swap_rng.random(p) < 0.5  # True -> real and knockoff columns are swapped for this feature
     # Column 2*i holds the value placed first, 2*i+1 the value placed second; ``swapped[i]`` records whether first==knockoff.
     cols = []
