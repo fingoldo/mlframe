@@ -138,8 +138,8 @@ if _HAS_NB_CUDA:
         if b < 0 or b >= bw:
             return
         c_diag = band[i - 1, b]
-        c_up = band[i - 1, b + 1] if b + 1 < bw else np.float32(1e18)
-        c_left = band[i, b - 1] if b > 0 else np.float32(1e18)
+        c_up = band[i - 1, b + 1] if b + 1 < bw else np.float64(1e18)
+        c_left = band[i, b - 1] if b > 0 else np.float64(1e18)
         d = x[i - 1] - y[j - 1]
         best = c_diag if c_diag <= c_up else c_up
         if c_left < best:
@@ -172,10 +172,10 @@ def dtw_cuda(
     m = len(y)
     w = _band_half_width(window)
     bw = 2 * w + 1
-    x_d = _nb_cuda.to_device(np.ascontiguousarray(x, dtype=np.float32))
-    y_d = _nb_cuda.to_device(np.ascontiguousarray(y, dtype=np.float32))
-    band_h = np.full((n + 1, bw), np.float32(1e18), dtype=np.float32)
-    band_h[0, w] = np.float32(0.0)  # cost[0,0] -> band[0, w]
+    x_d = _nb_cuda.to_device(np.ascontiguousarray(x, dtype=np.float64))
+    y_d = _nb_cuda.to_device(np.ascontiguousarray(y, dtype=np.float64))
+    band_h = np.full((n + 1, bw), np.float64(1e18), dtype=np.float64)
+    band_h[0, w] = np.float64(0.0)  # cost[0,0] -> band[0, w]
     band_d = _nb_cuda.to_device(band_h)
     threads = 256
     for k in range(1, n + m + 1):
@@ -190,7 +190,7 @@ def dtw_cuda(
         )
     _nb_cuda.synchronize()
     band = band_d.copy_to_host()
-    distance = float(np.sqrt(np.float32(_band_endpoint(band, n, m, w))))
+    distance = float(np.sqrt(_band_endpoint(band, n, m, w)))
     path = _backtrace_band(band, n, m, w)
     return distance, path
 
@@ -202,8 +202,8 @@ def dtw_cuda(
 
 _CUPY_KERNEL_SRC = r"""
 extern "C" __global__
-void dtw_diagonal(const float* __restrict__ x, const float* __restrict__ y,
-                  float* cost, int n, int m, int w, int k) {
+void dtw_diagonal(const double* __restrict__ x, const double* __restrict__ y,
+                  double* cost, int n, int m, int w, int k) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int i_min = max(1, k - m);
     int i_max = min(n, k - 1);
@@ -213,15 +213,15 @@ void dtw_diagonal(const float* __restrict__ x, const float* __restrict__ y,
     int j = k - i;
     int stride = m + 1;
     if (abs(i - j) > w) {
-        cost[i * stride + j] = 1e18f;
+        cost[i * stride + j] = 1e18;
         return;
     }
-    float d = x[i - 1] - y[j - 1];
-    float d2 = d * d;
-    float c_diag = cost[(i - 1) * stride + (j - 1)];
-    float c_up   = cost[(i - 1) * stride + j];
-    float c_left = cost[i * stride + (j - 1)];
-    float best = (c_diag <= c_up) ? c_diag : c_up;
+    double d = x[i - 1] - y[j - 1];
+    double d2 = d * d;
+    double c_diag = cost[(i - 1) * stride + (j - 1)];
+    double c_up   = cost[(i - 1) * stride + j];
+    double c_left = cost[i * stride + (j - 1)];
+    double best = (c_diag <= c_up) ? c_diag : c_up;
     if (c_left < best) best = c_left;
     cost[i * stride + j] = d2 + best;
 }
@@ -239,8 +239,8 @@ void dtw_diagonal(const float* __restrict__ x, const float* __restrict__ y,
 # out-of-band sentinel, single final sqrt -- only the cost-buffer indexing changes.
 _CUPY_BANDED_KERNEL_SRC = r"""
 extern "C" __global__
-void dtw_banded_diagonal(const float* __restrict__ x, const float* __restrict__ y,
-                         float* band, int n, int m, int w, int bw, int k) {
+void dtw_banded_diagonal(const double* __restrict__ x, const double* __restrict__ y,
+                         double* band, int n, int m, int w, int bw, int k) {
     // band stride bw = 2*w+1; band[i*bw + b] holds cost[i][ i - w + b ].
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int i_min = max(1, k - m);
@@ -251,11 +251,11 @@ void dtw_banded_diagonal(const float* __restrict__ x, const float* __restrict__ 
     int j = k - i;
     int b = j - i + w;                 // band column for (i,j)
     if (b < 0 || b >= bw) return;      // outside the live band -> never reachable
-    float c_diag = band[(i - 1) * bw + b];                        // cost[i-1][j-1]
-    float c_up   = (b + 1 < bw) ? band[(i - 1) * bw + (b + 1)] : 1e18f; // cost[i-1][j]
-    float c_left = (b > 0) ? band[i * bw + (b - 1)] : 1e18f;      // cost[i][j-1]
-    float d = x[i - 1] - y[j - 1];
-    float best = (c_diag <= c_up) ? c_diag : c_up;
+    double c_diag = band[(i - 1) * bw + b];                        // cost[i-1][j-1]
+    double c_up   = (b + 1 < bw) ? band[(i - 1) * bw + (b + 1)] : 1e18; // cost[i-1][j]
+    double c_left = (b > 0) ? band[i * bw + (b - 1)] : 1e18;      // cost[i][j-1]
+    double d = x[i - 1] - y[j - 1];
+    double best = (c_diag <= c_up) ? c_diag : c_up;
     if (c_left < best) best = c_left;
     band[i * bw + b] = d * d + best;
 }
@@ -304,7 +304,7 @@ def _backtrace_band(
     """Banded-coordinate backtrace. ``band[i, j - i + w]`` mirrors ``cost[i, j]``;
     out-of-band neighbours read as the 1e18 sentinel so the path policy
     (diag<=up<=left) is bit-identical to the full-matrix ``_backtrace_path``."""
-    INF = np.float32(1e18)
+    INF = np.float64(1e18)
 
     def C(i: int, j: int) -> float:
         """Banded-coordinate cost lookup at (i, j), returning the out-of-band sentinel when the offset falls outside the stored band width."""
@@ -362,11 +362,11 @@ def dtw_cupy_banded(
     m = len(y)
     w = _band_half_width(window)
     bw = 2 * w + 1
-    x_d = cp.asarray(x, dtype=cp.float32)
-    y_d = cp.asarray(y, dtype=cp.float32)
-    band_d = cp.full((n + 1, bw), cp.float32(1e18))
+    x_d = cp.asarray(x, dtype=cp.float64)
+    y_d = cp.asarray(y, dtype=cp.float64)
+    band_d = cp.full((n + 1, bw), cp.float64(1e18))
     # cost[0,0] = 0 lives at band[0, 0 - 0 + w] = band[0, w].
-    band_d[0, w] = cp.float32(0.0)
+    band_d[0, w] = cp.float64(0.0)
     threads = 256
     for k in range(1, n + m + 1):
         i_min = max(1, k - m)
@@ -382,7 +382,7 @@ def dtw_cupy_banded(
         )
     cp.cuda.Stream.null.synchronize()
     band = cp.asnumpy(band_d)
-    distance = float(np.sqrt(np.float32(_band_endpoint(band, n, m, w))))
+    distance = float(np.sqrt(_band_endpoint(band, n, m, w)))
     path = _backtrace_band(band, n, m, w)
     return distance, path
 
@@ -417,10 +417,10 @@ def dtw_cupy_full(
     kernel = _get_cupy_kernel()
     n = len(x)
     m = len(y)
-    x_d = cp.asarray(x, dtype=cp.float32)
-    y_d = cp.asarray(y, dtype=cp.float32)
-    cost_d = cp.full((n + 1, m + 1), cp.float32(1e18))
-    cost_d[0, 0] = cp.float32(0.0)
+    x_d = cp.asarray(x, dtype=cp.float64)
+    y_d = cp.asarray(y, dtype=cp.float64)
+    cost_d = cp.full((n + 1, m + 1), cp.float64(1e18))
+    cost_d[0, 0] = cp.float64(0.0)
     threads = 256
     for k in range(1, n + m + 1):
         i_min = max(1, k - m)
@@ -520,8 +520,8 @@ def _make_dtw_inputs(n_cells: int):
 def _run_dtw_sweep() -> list:
     """Benchmark cpu/cuda/cupy DTW across an n_cells grid -> backend_choice
     regions (fastest equivalent backend per band). GPU variants are included
-    only when available on this host. float32 GPU vs CPU diagonal sweeps agree
-    to a small relative tolerance, so equiv_rtol is loosened from the default."""
+    only when available on this host. GPU (float64) and CPU diagonal sweeps agree
+    to rounding, so equiv_rtol stays loosened from the default."""
     from pyutilz.dev.benchmarking import sweep_backend_crossover
 
     W = 200
