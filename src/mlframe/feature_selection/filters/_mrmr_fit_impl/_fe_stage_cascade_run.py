@@ -6,6 +6,8 @@ bench-attempt-rejected: running early_b, mid_a and mid_b in threads (each on a c
 _benchmarks/bench_fe_stage_threads.py at 300k rows on the single-GPU dev box. The three stages' wall rose from 0.7 s each to 1.0-1.7 s each (they queue on the same device), the cascade
 went from 2.92 s to 2.5 s and the whole fit from 8.7 s to 8.9 s (no gain). The stages also share list attributes of the estimator that are appended in stage order (hybrid_orth_features_),
 which a threaded run would have to merge back deterministically. Revisit on a multi-GPU host or once the stages are CPU-bound.
+Revisited 2026-11-03 at 100000 x 100 with every family (after that day's GPU and CPU changes): concurrent 118.0 / 124.4 / 143.1 s against sequential
+129.4 / 171.6 s, same selection, no device errors; the concurrent cascade (``_fe_stage_concurrency``) is now the default.
 """
 
 from __future__ import annotations

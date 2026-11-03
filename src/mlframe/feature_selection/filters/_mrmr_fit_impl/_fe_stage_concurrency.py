@@ -14,7 +14,7 @@ CUDA-context corruption (``cudaErrorIllegalAddress``, thousands per fit) that st
 and the process-global caches kept arrays allocated inside the slot, so the next kernel that read one hit freed memory. The slot pools now live for the whole process (``_fe_device_scheduler``); with that the
 30000 x 40 fit has no device errors and the same selection as the sequential run.
 
-Off by default (``MLFRAME_FE_STAGE_CONCURRENCY=1`` turns it on); it also needs a device plan from ``_fe_device_scheduler`` (every stage gets at least the minimum VRAM budget), else the caller runs the cascades one by one.
+On by default since 2026-11-03 (``MLFRAME_FE_STAGE_CONCURRENCY=0`` turns it off): at 100000 x 100 with every family, one process, alternating order, concurrent 118.0 / 124.4 / 143.1 s against sequential 129.4 / 171.6 s, the same six features in every run and no device errors (after the day's GPU and CPU changes the stages no longer just queue on the device, unlike the 300k-row measurement in ``_fe_stage_cascade_run``). It also needs a device plan from ``_fe_device_scheduler`` (every stage gets at least the minimum VRAM budget), else the caller runs the cascades one by one.
 """
 
 from __future__ import annotations
@@ -35,8 +35,8 @@ STAGE_WEIGHTS = (14.0, 34.0, 18.0)
 
 
 def concurrency_enabled() -> bool:
-    """Whether ``MLFRAME_FE_STAGE_CONCURRENCY`` turns the concurrent cascade on."""
-    return os.environ.get("MLFRAME_FE_STAGE_CONCURRENCY", "").strip() == "1"
+    """Whether the cascades run concurrently: on by default, ``MLFRAME_FE_STAGE_CONCURRENCY=0`` runs them one by one."""
+    return os.environ.get("MLFRAME_FE_STAGE_CONCURRENCY", "1").strip() != "0"
 
 
 def private_copy(estimator: Any) -> Any:
