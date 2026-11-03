@@ -142,11 +142,11 @@ def _empty_outputs(n_rows: int, n_heads: int, head_dim: int, aggregate: tuple[st
     outputs: dict[str, np.ndarray] = {}
     for h in range(n_heads):
         if "y_mean" in aggregate:
-            outputs[f"y_mean_h{h}"] = np.zeros(n_rows, dtype=dtype)
+            outputs[f"y_mean_h{h}"] = np.full(n_rows, np.nan, dtype=dtype)
         if "y_std" in aggregate:
-            outputs[f"y_std_h{h}"] = np.zeros(n_rows, dtype=dtype)
+            outputs[f"y_std_h{h}"] = np.full(n_rows, np.nan, dtype=dtype)
         if "x_mean" in aggregate:
-            outputs[f"x_mean_h{h}"] = np.zeros((n_rows, head_dim), dtype=dtype)
+            outputs[f"x_mean_h{h}"] = np.full((n_rows, head_dim), np.nan, dtype=dtype)
     return outputs
 
 

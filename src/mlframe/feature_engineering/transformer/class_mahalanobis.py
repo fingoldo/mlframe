@@ -136,9 +136,9 @@ def compute_class_mahalanobis_features(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out_pos: np.ndarray = np.zeros(n_train, dtype=dtype)
-    out_neg: np.ndarray = np.zeros(n_train, dtype=dtype)
-    out_gap: np.ndarray = np.zeros(n_train, dtype=dtype)
+    out_pos: np.ndarray = np.full(n_train, np.nan, dtype=dtype)
+    out_neg: np.ndarray = np.full(n_train, np.nan, dtype=dtype)
+    out_gap: np.ndarray = np.full(n_train, np.nan, dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         X_tr = X_train_f[train_idx]

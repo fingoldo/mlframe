@@ -103,8 +103,8 @@ def compute_aux_mlp_features(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out_f1: np.ndarray = np.zeros(n_train, dtype=dtype)
-    out_f2: np.ndarray = np.zeros(n_train, dtype=dtype)
+    out_f1: np.ndarray = np.full(n_train, np.nan, dtype=dtype)
+    out_f2: np.ndarray = np.full(n_train, np.nan, dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         model, scaler = _fit_aux_mlp(X_train_f[train_idx], y_train_f[train_idx], task=task, seed=int(seed) + fold_idx * 17, hidden_size=hidden_size, max_iter=max_iter)
