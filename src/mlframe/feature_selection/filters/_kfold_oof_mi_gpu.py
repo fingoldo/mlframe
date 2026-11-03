@@ -17,8 +17,16 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _sweep_kfold() -> list:
+    """Host-vs-device sweep of the k-fold OOF MI scorer for its kernel-tuning entry."""
+    from ._orthogonal_three_gate_mi_fe import score_features_by_kfold_oof_mi
+    from ._scorer_device_dispatch import sweep_scorer, synthetic_scorer_frame
+
+    return sweep_scorer(lambda inp: score_features_by_kfold_oof_mi(*inp)["engineered_mi_oof"].to_numpy(), synthetic_scorer_frame)
+
+
 def kfold_oof_mi_device_enabled(n_rows: int, n_cols: int) -> bool:
-    """Whether the folds run on the device: a usable GPU, ``MLFRAME_KFOLD_OOF_MI_DEVICE`` not ``0`` and the plug-in MI dispatcher's tuned choice for this size."""
+    """Whether the folds run on the device: a usable GPU, ``MLFRAME_KFOLD_OOF_MI_DEVICE`` not ``0`` and this scorer's own tuned choice for this size."""
     if os.environ.get("MLFRAME_KFOLD_OOF_MI_DEVICE", "1").strip() == "0":
         return False
     try:
@@ -26,9 +34,9 @@ def kfold_oof_mi_device_enabled(n_rows: int, n_cols: int) -> bool:
 
         if not cuda_available_for_run():
             return False
-        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import lookup_mi_classif_backend
+        from ._scorer_device_dispatch import scorer_device_choice
 
-        return bool(lookup_mi_classif_backend(int(n_rows), int(n_cols)) == "cuda")
+        return scorer_device_choice("kfold_oof_mi", int(n_rows), int(n_cols), sweep=_sweep_kfold)
     except Exception as exc:
         logger.debug("k-fold OOF MI device check failed (%s); host", exc)
         return False

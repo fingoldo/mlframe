@@ -334,12 +334,19 @@ def _reference_support_bins(raw_X: pd.DataFrame, engineered_X: pd.DataFrame, cur
 
 
 @content_memo()
+def _sweep_cmim() -> list:
+    """Host-vs-device sweep of this scorer for its kernel-tuning entry."""
+    from ._scorer_device_dispatch import sweep_scorer, synthetic_scorer_frame
+
+    return sweep_scorer(lambda inp: score_features_by_cmim(*inp)["engineered_mi"].to_numpy(), synthetic_scorer_frame)
+
+
 def _cmim_scores_device(eng_bins, y_bin, sel_bins, support_names, eng_sources, n_bins: int):
     """``(K,)`` CMIM scores of the binned candidates on the device: for every reference column one ``batched_cmi_gpu`` call scores all candidates (the
     Miller-Madow CMI of ``_cmi_from_binned``, clipped at 0), and each candidate takes the minimum over the references of a different source, as
     ``_cmim_score_cached`` does (it returns 0 as soon as a clipped value is 0). 2026-11-03, 40 references x 150 candidates: within 3e-15 of the host;
     30000 rows 0.40 -> 0.13 s, 100000 rows 1.34 -> 0.32 s. Candidates with no reference of another source are scored by the caller (marginal MI).
-    ``None`` when the device is not used (no GPU, ``MLFRAME_CMIM_DEVICE=0``, the plug-in MI dispatcher's choice is the host, or a device fault)."""
+    ``None`` when the device is not used (no GPU, ``MLFRAME_CMIM_DEVICE=0``, this scorer's tuned choice is the host, or a device fault)."""
     import os
 
     if os.environ.get("MLFRAME_CMIM_DEVICE", "1").strip() == "0" or not len(sel_bins) or not len(eng_bins):
@@ -350,9 +357,9 @@ def _cmim_scores_device(eng_bins, y_bin, sel_bins, support_names, eng_sources, n
         n = int(np.asarray(y_bin).size)
         if not cuda_available_for_run():
             return None
-        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import lookup_mi_classif_backend
+        from ._scorer_device_dispatch import scorer_device_choice
 
-        if lookup_mi_classif_backend(n, len(eng_bins)) != "cuda":
+        if not scorer_device_choice("cmim", n, len(eng_bins), sweep=_sweep_cmim):
             return None
         import cupy as cp
 

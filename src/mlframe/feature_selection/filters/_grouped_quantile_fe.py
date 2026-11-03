@@ -596,12 +596,19 @@ def _bin_columns_pooled(bin_one: "Callable[[str], Any]", cols: list) -> list:
     return [bin_one(c) for c in cols]
 
 
+def _sweep_grouped_quantile() -> list:
+    """Host-vs-device sweep of the grouped-quantile scorer for its kernel-tuning entry."""
+    from ._scorer_device_dispatch import sweep_scorer, synthetic_scorer_frame
+
+    return sweep_scorer(lambda inp: score_grouped_quantile_by_mi_uplift(*inp)["mi"].to_numpy(), synthetic_scorer_frame)
+
+
 def _grouped_quantile_mi_device(eng_X: pd.DataFrame, eng_cols: list, y_bin: np.ndarray, n_bins: int) -> dict:
     """``{column: MI}`` of the candidates the device batch scores exactly as the host binner: finite columns that are not low-cardinality integers. The host
     path cuts at the deduplicated linear quantiles of the column (np.quantile + np.unique) and the device at the same order statistics without the dedup, so a
     tied edge only relabels an empty bin: the same partition, the same plug-in MI (2026-11-03, 100k x 200: within 1e-16, same ranking; 1.86 s -> 0.011 s).
     Low-cardinality integer columns (coded by value on the host) and columns with non-finite values stay on the host. Empty when the device is not used
-    (``MLFRAME_GROUPED_QUANTILE_MI_DEVICE=0``, no GPU, or the plug-in MI dispatcher's tuned choice is the host)."""
+    (``MLFRAME_GROUPED_QUANTILE_MI_DEVICE=0``, no GPU, or this scorer's tuned choice is the host)."""
     import os
 
     if os.environ.get("MLFRAME_GROUPED_QUANTILE_MI_DEVICE", "1").strip() == "0" or not eng_cols:
@@ -611,9 +618,9 @@ def _grouped_quantile_mi_device(eng_X: pd.DataFrame, eng_cols: list, y_bin: np.n
 
         if not cuda_available_for_run():
             return {}
-        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import lookup_mi_classif_backend
+        from ._scorer_device_dispatch import scorer_device_choice
 
-        if lookup_mi_classif_backend(len(eng_X), len(eng_cols)) != "cuda":
+        if not scorer_device_choice("grouped_quantile", len(eng_X), len(eng_cols), sweep=_sweep_grouped_quantile):
             return {}
         import cupy as cp
 

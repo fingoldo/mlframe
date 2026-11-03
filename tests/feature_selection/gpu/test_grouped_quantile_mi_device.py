@@ -26,7 +26,12 @@ def test_device_scores_equal_host(monkeypatch):
     monkeypatch.setenv("MLFRAME_GROUPED_QUANTILE_MI_DEVICE", "0")
     want = score_grouped_quantile_by_mi_uplift(X, enc, y, eng_to_source=src)
     monkeypatch.setenv("MLFRAME_GROUPED_QUANTILE_MI_DEVICE", "1")
-    got = score_grouped_quantile_by_mi_uplift(X, enc, y, eng_to_source=src)
+    from mlframe.feature_selection.filters import _grouped_quantile_fe as G
+    from mlframe.feature_selection.filters._scorer_device_dispatch import forced_backend
+
+    with forced_backend("device"):
+        assert G._grouped_quantile_mi_device(enc, list(enc.columns), np.asarray(y, dtype=np.int64), 10), "the device path must score the columns"
+        got = score_grouped_quantile_by_mi_uplift(X, enc, y, eng_to_source=src)
     assert list(got["engineered_col"]) == list(want["engineered_col"])
     np.testing.assert_allclose(got["mi"].to_numpy(), want["mi"].to_numpy(), rtol=0, atol=1e-12)
     pd.testing.assert_frame_equal(got.drop(columns=["mi", "uplift"]), want.drop(columns=["mi", "uplift"]))

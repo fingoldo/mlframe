@@ -27,12 +27,14 @@ def test_device_equals_host(monkeypatch):
     monkeypatch.setenv("MLFRAME_CMIM_DEVICE", "0")
     want = M.score_features_by_cmim(raw, eng, y)
     monkeypatch.setenv("MLFRAME_CMIM_DEVICE", "1")
-    monkeypatch.setattr("mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch.lookup_mi_classif_backend", lambda *a, **k: "cuda")
+    from mlframe.feature_selection.filters._scorer_device_dispatch import forced_backend
+
     called = []
     real = M._cmim_scores_device
-    monkeypatch.setattr(M, "_cmim_scores_device", lambda *a, **k: called.append(1) or real(*a, **k))
-    got = M.score_features_by_cmim(raw, eng, y)
-    assert called and real(np.zeros((1, 10), dtype=np.int64), np.zeros(10, dtype=np.int64), [np.zeros(10, dtype=np.int64)], ["a"], ["b"], 10) is not None
+    monkeypatch.setattr(M, "_cmim_scores_device", lambda *a, **k: (lambda r: called.append(r is not None) or r)(real(*a, **k)))
+    with forced_backend("device"):
+        got = M.score_features_by_cmim(raw, eng, y)
+    assert called == [True]
     assert list(got["engineered_col"]) == list(want["engineered_col"])
     np.testing.assert_allclose(got["engineered_mi"].to_numpy(), want["engineered_mi"].to_numpy(), rtol=1e-9, atol=1e-12)
     assert (want["engineered_mi"] > 0).sum() >= 2
