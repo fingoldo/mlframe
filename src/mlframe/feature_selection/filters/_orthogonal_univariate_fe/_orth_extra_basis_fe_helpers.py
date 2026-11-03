@@ -352,6 +352,38 @@ def _deflate_sincos(z: np.ndarray, y: np.ndarray, freq: float) -> np.ndarray:
         return y
 
 
+# Stable sort orders of the columns this detector ranks twice (the adaptive-column relevance score and the held-out smoothness gate sort the same column):
+# a content-keyed cache returns the first order for the second request. Bounded by bytes; an evicted entry is simply sorted again.
+# bench-attempt-rejected (2026-11-03): OFF by default. Captured 30000 x 108 fit call, warm, alternating: 2.61 s off vs 2.64 / 2.65 s on, same output; hashing the
+# column content costs about what the second argsort saves. ``MLFRAME_EXTRA_BASIS_ORDER_CACHE=1`` turns it on.
+_ORDER_CACHE: "dict[tuple, np.ndarray]" = {}
+_ORDER_CACHE_BYTES = [0]
+_ORDER_CACHE_MAX_BYTES = 64 << 20
+_ORDER_CACHE_LOCK = __import__("threading").Lock()
+
+
+def cached_stable_argsort(x: np.ndarray) -> np.ndarray:
+    """``np.argsort(x, kind="stable")`` of a 1-D array, shared between callers that sort the same content when ``MLFRAME_EXTRA_BASIS_ORDER_CACHE=1`` (off by default)."""
+    if os.environ.get("MLFRAME_EXTRA_BASIS_ORDER_CACHE", "0").strip() != "1" or x.ndim != 1:
+        return np.argsort(x, kind="stable")
+    from mlframe.utils.disk_cache import hash_array_content
+
+    key = (x.size, str(x.dtype), hash_array_content(np.ascontiguousarray(x)))
+    with _ORDER_CACHE_LOCK:
+        hit = _ORDER_CACHE.get(key)
+    if hit is not None:
+        return hit
+    order = np.argsort(x, kind="stable")
+    order.setflags(write=False)
+    with _ORDER_CACHE_LOCK:
+        while _ORDER_CACHE and _ORDER_CACHE_BYTES[0] + order.nbytes > _ORDER_CACHE_MAX_BYTES:
+            _ORDER_CACHE_BYTES[0] -= _ORDER_CACHE.pop(next(iter(_ORDER_CACHE))).nbytes  # evict-ok: oldest first; an evicted order is sorted again
+        if key not in _ORDER_CACHE and order.nbytes <= _ORDER_CACHE_MAX_BYTES:
+            _ORDER_CACHE[key] = order
+            _ORDER_CACHE_BYTES[0] += order.nbytes
+    return order
+
+
 # The coarse sweep scores all grid frequencies with one matrix-vector product per sin / cos block (BLAS, GIL released) instead of two dot products per frequency in
 # Python; the sums differ from the per-frequency dots in the last bits, which can only move the coarse argmax that ``_refine_peak_freq`` re-localises.
 # ``MLFRAME_FOURIER_COARSE_GEMV=0`` keeps the per-frequency loop.
