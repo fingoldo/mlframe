@@ -87,18 +87,18 @@ def _build_fold_projections(
 
 
 def _allocate_oof_outputs(n_train, n_heads, head_dim, aggregate, dtype) -> dict[str, np.ndarray]:
-    """Return zeroed per-head output arrays sized to the full train set, keyed ``{aggregate}_h{head}``."""
+    """Return per-head output arrays sized to the full train set, keyed ``{aggregate}_h{head}``, NaN until a fold fills them (a row no fold validates on, such as the first block of a ``TimeSeriesSplit``, must not read as a real 0.0)."""
     outputs: dict[str, np.ndarray] = {}
     for h in range(n_heads):
         if "y_mean" in aggregate:
-            outputs[f"y_mean_h{h}"] = np.zeros(n_train, dtype=dtype)
+            outputs[f"y_mean_h{h}"] = np.full(n_train, np.nan, dtype=dtype)
         if "y_std" in aggregate:
-            outputs[f"y_std_h{h}"] = np.zeros(n_train, dtype=dtype)
+            outputs[f"y_std_h{h}"] = np.full(n_train, np.nan, dtype=dtype)
         if "x_mean" in aggregate:
-            outputs[f"x_mean_h{h}"] = np.zeros((n_train, head_dim), dtype=dtype)
+            outputs[f"x_mean_h{h}"] = np.full((n_train, head_dim), np.nan, dtype=dtype)
         for ex in _EXTRA_AGGS:
             if ex in aggregate:
-                outputs[f"{ex}_h{h}"] = np.zeros(n_train, dtype=dtype)
+                outputs[f"{ex}_h{h}"] = np.full(n_train, np.nan, dtype=dtype)
     return outputs
 
 
@@ -129,8 +129,8 @@ def kfold_attention_loop(
         ``y_std_h{h}``   - (n_train,)
         ``x_mean_h{h}``  - (n_train, head_dim)
 
-    Each row is filled exactly once (in the fold where it appears in ``val_idx``). The splitter must cover every row at least once in ``val_idx`` (KFold and
-    TimeSeriesSplit both satisfy this); shuffled splitters with overlap would over-write earlier folds' outputs harmlessly (last fold wins) but indicate caller
+    Each row is filled exactly once (in the fold where it appears in ``val_idx``). A row no fold validates on (the first block of a ``TimeSeriesSplit``) stays NaN, not 0.0, so the model
+    sees it as missing in training exactly as it will never see a real zero at inference; shuffled splitters with overlap would over-write earlier folds' outputs harmlessly (last fold wins) but indicate caller
     confusion.
 
     ``stage4_callable`` is injected so the same loop body works on GPU (cupy fused RawKernel) or CPU (njit fallback) without branching here. The signature
