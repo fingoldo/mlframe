@@ -19,6 +19,8 @@ from .settings import (
     PRETTY_NAMES,
 )
 
+# Weighted win margin a Condorcet winner must reach over every rival; 0 would accept a weighted tie, which ``condorcet_election`` does not count as a win.
+_CONDORCET_STRICT_MARGIN = 1e-6
 
 class Leaderboard:
     """Model x task score table plus per-task weights; ranks/elects models via the methods mixed in from ``_rules``/``_cw``.
@@ -310,7 +312,7 @@ class Leaderboard:
             else:
                 edge_list.append((model, winner_model))
 
-        return self._find_weights_for_majority_graph(edge_list, restrictions=restrictions)
+        return self._find_weights_for_majority_graph(edge_list, restrictions=restrictions, margin=_CONDORCET_STRICT_MARGIN)
 
     def split_models_by_feasibility(self, restrictions: Optional[Dict[str, List]] = None):
         """Partition all models into "feasible" (some task-weighting makes them the Condorcet winner) vs "infeasible", per :func:`find_weights_for_condorcet`."""

@@ -16,7 +16,7 @@ Six read-only reports by Opus 5.5 low-effort agents on packages no earlier wave 
 | **FUTURE** | W20PRE-5 | Low | cleaning helper counts the NaN key as a merged rare value and can drop a column that would be a binary indicator |
 | **RESOLVED** | W20PRE-6 | Low | `gp_smoothing` raises KeyError on a NaN entity |
 | **RESOLVED** | W20INF-1 | High | `Leaderboard.elect_all` built its grid from the default settings, not the caller's `use_methods` |
-| **FUTURE** | W20INF-2 | Medium | `find_weights_for_condorcet` accepts a weighted tie as feasible while `condorcet_election` needs a strict win |
+| **RESOLVED** | W20INF-2 | Medium | `find_weights_for_condorcet` accepted a weighted tie as feasible while `condorcet_election` needs a strict win; it now demands a 1e-6 weighted margin over every rival (`tests/votenrank/test_condorcet_weights_require_a_strict_win.py`) |
 | **FUTURE** | W20INF-3 | Medium | `two_step_ranking` meta table is object dtype and can be partial |
 | **RESOLVED** | W20INF-4 | Medium | `collapse_predictions_by_group` lost a prediction (unweighted) or crashed (weighted) on a null group key; both now raise |
 | **RESOLVED** | W20INF-5 | Low-Medium | `get_models_raw_predictions` returned `proba[:, 1]` as the positive class without looking at `classes_`; a binary model whose second class is not label 1 now logs a throttled warning naming the class the column belongs to (`tests/inference/test_raw_predictions_warn_when_positive_column_is_not_label_one.py`) |
