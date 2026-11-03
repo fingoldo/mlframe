@@ -29,7 +29,7 @@ _PERM_BLOCK = 64  # permutations drawn on the host and scored per kernel launch
 
 
 @njit(cache=True, parallel=True)
-def _fused_block(perms, y_raw, yc, rows, xb, kx, nv, val_idx, pool_dep, pool_codes, pool_nb, n_eff, out):
+def _fused_block(perms, y_raw, yc, rows, xb, kx, nv, val_idx, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, out):
     """``out[b]`` = the pool's largest corrected MI under permutation ``perms[b]``, ``-inf`` when a column had no scored candidate (the caller declines)."""
     n_f, p, n_m = kx.shape
     n_pool = pool_dep.shape[0]
@@ -85,7 +85,6 @@ def _fused_block(perms, y_raw, yc, rows, xb, kx, nv, val_idx, pool_dep, pool_cod
                 ky_eff += 1.0
         res = 0.0
         bad = False
-        x = np.empty(rows.shape[0], dtype=np.int64)
         for t in range(n_pool):
             j = pool_dep[t]
             m = 0
@@ -94,11 +93,8 @@ def _fused_block(perms, y_raw, yc, rows, xb, kx, nv, val_idx, pool_dep, pool_cod
                 if m < 0:
                     bad = True
                     break
-            for i in range(rows.shape[0]):
-                x[i] = pool_codes[t, m, rows[i]]
-            kxp = pool_nb[t, m]
-            mi = _mi_codes_njit(x, kxp, ycp, ny)
-            kx_eff = float(_n_unique_codes(x))
+            mi = _mi_codes_njit(pool_rc[t, m], pool_nb[t, m], ycp, ny)
+            kx_eff = pool_kxe[t, m]
             corr = mi - (kx_eff - 1.0) * (ky_eff - 1.0) / (2.0 * n_eff)
             if corr > res:
                 res = corr
@@ -111,6 +107,17 @@ def _declined(reason: str) -> None:
 
     log_throttle(logger, "honest_oj_fused_declined:" + reason, logging.INFO, "fused optimal_joint honest floor not used: %s; the per-permutation floor runs", reason)
     return None
+
+
+@njit(cache=True, parallel=True)
+def _occupied_bins(pool_rc):
+    """``(n_pool, n_counts)`` float number of distinct codes of every pool code row."""
+    n_pool, n_m = pool_rc.shape[0], pool_rc.shape[1]
+    out = np.zeros((n_pool, n_m), dtype=np.float64)  # Intentional float64: Miller-Madow support term
+    for t in prange(n_pool):
+        for m in range(n_m):
+            out[t, m] = float(_n_unique_codes(pool_rc[t, m]))
+    return out
 
 
 def _assemble_pool(binner, pool, width, dep_rows, ms, factors_data, factors_nbins, n, sub, free_rows):
@@ -247,12 +254,15 @@ def _floor(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, c
         idx = np.flatnonzero(vm)
         val_idx[f, : idx.size] = idx
     yc = np.ascontiguousarray(factors_data[:, int(y_idx)]).astype(np.int64)
+    # the pool's codes at the evaluation rows and their occupied-bin counts do not depend on the permutation: built once here, not per permutation in the kernel
+    pool_rc = np.ascontiguousarray(pool_codes[:, :, rows])
+    pool_kxe = _occupied_bins(pool_rc)
     nulls = np.empty(int(n_permutations), dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
     for b0 in range(0, int(n_permutations), _PERM_BLOCK):
         b1 = min(int(n_permutations), b0 + _PERM_BLOCK)
         perms = np.stack([seeded_permutation(n, base_seed + b) for b in range(b0, b1)]).astype(np.int64)
         out = np.empty(b1 - b0, dtype=np.float64)  # Intentional float64: statistic vector
-        _fused_block(perms, y_int, yc, rows, packed["xb"], np.asarray(packed["kx"], dtype=np.int64), nv, val_idx, pool_dep, pool_codes, pool_nb, float(len(rows)), out)
+        _fused_block(perms, y_int, yc, rows, packed["xb"], np.asarray(packed["kx"], dtype=np.int64), nv, val_idx, pool_dep, pool_rc, pool_nb, pool_kxe, float(len(rows)), out)
         if np.isneginf(out).any():
             return _declined("a column had no scored candidate count in some permutation")
         nulls[b0:b1] = out
