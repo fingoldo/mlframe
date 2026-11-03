@@ -33,3 +33,9 @@ Same occupied cells, entropies to round-off (test_cmi_fused_entropy_default). Fi
 input dtype, ranks formed on the host, the function's own float32 lerp kept, so no value changes); codes equal the sort path for 6 row shapes x 2 dtypes
 (test_qbin_block_radix). Min of 7, alternating, ms sort / radix: 16 x 50000 f32 7.5-8.3 / 2.1; 105 x 50000 42.0 / 5.1-5.3; 14 x 100000 12.7 / 2.3.
 `MLFRAME_QBIN_BLOCK_RADIX=0` keeps the sort.
+Many-bin resident MI edges: `_radix_select_interior_edges` returns None above ~23 bins (2 (n_bins - 1) order statistics x 1 KB of shared histograms > 48 KB),
+which sent `_resident_mi_candidates` to cp.percentile's full merge sort (90 single-column calls in the 50k fit). `radix_quantiles_grouped` selects the
+fractions in groups of 16 (each order statistic is independent): equal to cp.percentile for 24-100 bins, float32 / float64, k = 1 and 7 (test_radix_quantiles_grouped).
+Conditional gate: the per-column cp.median in the prune loop is replaced by one `radix_column_medians` call for the gate matrix (the two middle order statistics,
+combined as cp.median does: (a + b) / 2 in the input dtype). `_radix_quantiles(.., [0.5])` was NOT equal for float64 (its lerp b - (b - a) / 2 rounds differently;
+4 columns of 560); the order-statistic route is equal in value and dtype for n = 1..30000 at four scales (test_radix_column_medians).

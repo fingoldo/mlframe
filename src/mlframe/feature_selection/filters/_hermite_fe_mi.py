@@ -293,6 +293,12 @@ def _resident_mi_candidates(X_gpu, n_bins: int, *, keep_dtype: bool, relax_binni
         X_gpu = cp.ascontiguousarray(X_gpu.T)  # the percentile fallback and the code-path MI work on the (n, k) matrix
         x_is_cm = False
         x_cm = None
+    if interior is None and k >= 1 and int(X_gpu.shape[0]) > 0:
+        # many bins: the single radix launch has more order statistics than its shared histograms hold, so the interior quantiles are selected in groups
+        # (each order statistic is independent of the others) instead of cp.percentile's full sort; the fractions are formed as cp.percentile forms them
+        from ._gpu_resident_select import radix_quantiles_grouped
+
+        interior = radix_quantiles_grouped(X_gpu, np.linspace(0.0, 100.0, n_bins + 1)[1:-1] / 100.0)
     if interior is None:
         qs = cp.linspace(0.0, 100.0, n_bins + 1)
         if k == 1:

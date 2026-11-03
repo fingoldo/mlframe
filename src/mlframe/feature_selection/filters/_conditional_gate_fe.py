@@ -602,11 +602,21 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
     except Exception as _gate_dev_exc:
         logger.warning("gate resident-matrix assembly failed (%s); host prune path used.", _gate_dev_exc)
         _gate_dev = None
+    _gate_meds = None
+    if _gate_dev is not None:
+        # every column's median from one radix select of the two middle order statistics, combined as cp.median combines them; None -> per-column cp.median
+        try:
+            from ._gpu_resident_select import radix_column_medians
+
+            _gate_meds = radix_column_medians(_gate_dev[1])
+        except Exception as _gm_exc:
+            logger.debug("batched gate medians not used (%s); per-column cp.median", _gm_exc)
+            _gate_meds = None
     for gi in range(len(cols)):
         if _gate_dev is not None:
             _cp, _mat_dev, _yi_dev, _probe_dev = _gate_dev
             _cvd = _mat_dev[:, gi]
-            _hi = _cvd > _cp.median(_cvd)
+            _hi = _cvd > (_gate_meds[gi] if _gate_meds is not None else _cp.median(_cvd))
             # Integer row indices (not boolean masks): cp.where syncs once to size each index, but then the four
             # regime gathers (_probe_dev / _yi_dev for hi + lo) are known-size integer gathers with NO sync, and
             # the degenerate-split check reads .size (host shape, free) instead of a separate int(_hi.sum()) D2H.
