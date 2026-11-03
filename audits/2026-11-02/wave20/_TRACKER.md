@@ -7,8 +7,8 @@ Six read-only reports by Opus 5.5 low-effort agents on packages no earlier wave 
 | **RESOLVED** | W20FE-1 | High | `leakage_safe_aggregate` fast path let one NaN poison every later sum / mean of an entity and counted the NaN row |
 | **RESOLVED** | W20FE-2 | High | causal step 2 of `two_step_recency_weighted_target_encode` underflowed to 0/0 = NaN for events > ~1000 half-lives before the entity's last one; now a per-step carry-forward kernel |
 | **RESOLVED** | W20FE-3 | Medium | `nearest_past_join` fallback-tier sparsity check counts future right rows; needs a per-row cumulative group count |
-| **FUTURE** | W20FE-4 | Medium | `polars_dynamic_window` labels windows at their start, so a join back by label sees the following period; switching to `label="right"` changes the output keys, so it needs an explicit option |
-| **FUTURE** | W20FE-5 | Low | integer / float time columns are read as microseconds; the fix (reject or require a unit) changes the accepted inputs |
+| **RESOLVED** | W20FE-4 | Medium | `polars_dynamic_window` labels windows at their start, so a join back by label sees the following period; switching to `label="right"` changes the output keys, so it needs an explicit option |
+| **RESOLVED** | W20FE-5 | Low | integer / float time columns are read as microseconds; the fix (reject or require a unit) changes the accepted inputs |
 | **RESOLVED** | W20PRE-1 | Medium-High | PELT l2 cost from raw prefix sums cancels catastrophically far from zero; the kernel centres the signal first |
 | **RESOLVED** | W20PRE-2 | Medium | `dro_reweight_fit` returned a model trained on the previous round's weights (the documented final full-data fit was missing) |
 | **RESOLVED** | W20PRE-3 | Medium | `unseen_category_imputer` nearest mode maps to a NaN-mean category for large or NaN queries |
@@ -57,3 +57,4 @@ The `feature_engineering/transformer/` subpackage and most other feature_enginee
 | W20PRE-3 | `tests/preprocessing/test_unseen_category_imputer_nearest_ignores_nan_means.py` |
 | W20REP-1 | `tests/reporting/test_decile_table_tied_scores.py` (decision of 2026-11-03: tied scores are averaged, no opt-out) |
 | W20REP-2 | `tests/reporting/test_risk_coverage_tied_confidence.py` (decision of 2026-11-03: tied blocks are averaged) |
+| W20FE-4, W20FE-5 | `tests/feature_engineering/test_polars_dynamic_window_label_and_time_unit.py` (decision of 2026-11-03: `label="right"` default, numeric time needs `time_unit`) |
