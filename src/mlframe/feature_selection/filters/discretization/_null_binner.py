@@ -150,12 +150,19 @@ class PermutedTargetBinner:
             slot = self._slots.get(key)
             if slot is not None:
                 return slot
-            col = self._arr[:, j]
-            codes = np.searchsorted(edges, col, side="right") if edges.size else np.zeros(col.shape[0], dtype=np.int64)
-            nan = self._nan.get(j)
-            if nan is not None:
-                codes[nan] = nan_code
-            slot = self._add_row(codes, int(codes.max()))
+        # the codes are computed outside the lock (a 100k-row searchsorted held it for milliseconds and serialised the threads binning other columns);
+        # a thread that lost the race finds the slot under the lock below and drops its own codes
+        col = self._arr[:, j]
+        codes = np.searchsorted(edges, col, side="right") if edges.size else np.zeros(col.shape[0], dtype=np.int64)
+        nan = self._nan.get(j)
+        if nan is not None:
+            codes[nan] = nan_code
+        top = int(codes.max())
+        with self._lock:
+            slot = self._slots.get(key)
+            if slot is not None:
+                return slot
+            slot = self._add_row(codes, top)
             if slot is not None:
                 self._slots[key] = slot
             return slot
