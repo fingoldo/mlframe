@@ -132,6 +132,10 @@ extern "C" __global__ void null_mi_perms_bits(const float* __restrict__ X, const
 """
 
 _MODULE = RawModuleCache(_SRC)
+# the same kernels reading double-precision candidates (the STRICT null of the local MI gate uploads its matrix as float64): the value is compared with the double edges
+# without a conversion, as the per-permutation fused kernel compares it
+_SRC_F64 = _SRC.replace("const float* __restrict__ X", "const double* __restrict__ X").replace("const float* Xc", "const double* Xc")
+_MODULE_F64 = RawModuleCache(_SRC_F64)
 
 
 def _bits_width(kernel: Any, shared_bytes: int, n: int) -> int:
@@ -149,17 +153,18 @@ def _bits_width(kernel: Any, shared_bytes: int, n: int) -> int:
 def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, perms: np.ndarray, nbins: int, n_classes: int) -> Optional[np.ndarray]:
     """``(P,)`` maximum over the candidates of the plug-in MI against ``y_shifted[perms[p]]``, for the float32 ``(K, n)`` C-order candidate block ``x_cm`` binned by
     ``interior`` (``(nbins - 1, K)``, the edges ``binned_mi_from_values_gpu`` uses); ``None`` when the path does not apply (the caller keeps one launch per permutation)."""
-    if x_cm.dtype != cp.float32 or not x_cm.flags.c_contiguous or int(n_classes) > 255:
+    if x_cm.dtype not in (cp.float32, cp.float64) or not x_cm.flags.c_contiguous or int(n_classes) > 255:
         return None
+    module = _MODULE if x_cm.dtype == cp.float32 else _MODULE_F64
     k, n = int(x_cm.shape[0]), int(x_cm.shape[1])
     m = int(nbins) * int(n_classes)
     per_launch = max(1, _SHARED_BUDGET_BYTES // (4 * m))
-    kernel = _MODULE.get(cp).get_function("null_mi_perms")
+    kernel = module.get(cp).get_function("null_mi_perms")
     edges = cp.ascontiguousarray(interior.astype(cp.float64, copy=False))  # Intentional float64: the edges the per-permutation kernel compares at full precision
     y8 = y_shifted.astype(cp.uint8)
     out = np.empty(len(perms), dtype=np.float64)  # Intentional float64: null maxima (statistic vector)
     if int(n_classes) == 2 and int(nbins) <= 32:
-        bits_kernel = _MODULE.get(cp).get_function("null_mi_perms_bits")
+        bits_kernel = module.get(cp).get_function("null_mi_perms_bits")
         words = (n + 31) // 32
         for p0 in range(0, len(perms), 64):  # PMAX_LANE x 32 permutations per launch
             block = perms[p0 : p0 + 64]
