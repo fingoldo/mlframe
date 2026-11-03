@@ -541,12 +541,13 @@ class LeakageSafeEncoder:
             if self.method == "woe":
                 wp, wn = self._compute_woe_per_category(cats_train, y_train, sw_train)
                 for j, c in zip(val_idx, cats_val):
-                    p = wp.get(c, prior_t)
-                    q = wn.get(c, 1.0 - prior_t)
-                    # Same Laplace-cushion clip _encode_per_row's woe branch already uses: the
-                    # unseen-category fallback (prior_t / 1-prior_t) can be exactly 0.0 or 1.0 when this
-                    # fold's training rows happen to contain no positives or no negatives (realistic with
-                    # small `cv` on an imbalanced target) -- np.log(0) is -inf and poisons the OOF column.
+                    p = wp.get(c)
+                    q = wn.get(c)
+                    if p is None or q is None:  # unseen in this fold's training rows: no evidence (see _encode_per_row)
+                        out[j] = 0.0
+                        continue
+                    # Same Laplace-cushion clip as _encode_per_row: a category with zero positives or zero negatives in this fold gives p or q of exactly 0.0,
+                    # and np.log(0) is -inf, which would poison the OOF column.
                     p_safe = float(min(max(p, 1e-12), 1.0 - 1e-12))
                     q_safe = float(min(max(q, 1e-12), 1.0 - 1e-12))
                     out[j] = float(np.log(p_safe) - np.log(q_safe))
@@ -649,14 +650,9 @@ class LeakageSafeEncoder:
         assert self._global_prior is not None, "_encode_per_row: fit() must populate _global_prior before transform"
         prior = self._global_prior
         if self.method == "woe":
-            # Unseen-category fallback uses the prior log-odds, not 0. ``0.0`` was misread as "no evidence"
-            # but for imbalanced binary problems the true neutral (no information) is log(prior_pos/prior_neg);
-            # a 99/1 split gives prior_logodds = log(99) ~= 4.6, so a 0.0 baseline was wildly biased toward
-            # the minority class for every test-time unseen string. ``_global_prior`` is the smoothed positive
-            # rate; convert to log-odds with the same Laplace cushion the kfold path uses.
-            _p = self._global_prior if self._global_prior is not None else 0.5
-            _p = float(min(max(_p, 1e-12), 1.0 - 1e-12))
-            unseen_logodds = float(np.log(_p) - np.log(1.0 - _p))
+            # WoE is log(P(c|y=1)/P(c|y=0)), a ratio of class-conditional shares: an unseen category carries no evidence, so 0 is neutral.
+            # The prior log-odds (about -4.6 at a 1% positive rate) is a different quantity and reads as strong evidence for the negative class.
+            unseen_logodds = 0.0
             # With smoothing=0 a category that has zero positives OR zero negatives in train yields
             # p==0 or q==0; np.log(0)=-inf and the subtraction becomes nan. Clip with the same Laplace
             # cushion the kfold path uses so caller-visible features stay finite.
