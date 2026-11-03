@@ -107,7 +107,7 @@ def _sweep_gated_singletons_and_pairs(_loss, in_gate, min_card, max_card) -> Non
     if min_card <= 1:
         for j in gated:
             _loss((j,))
-    if max_card >= 2:
+    if min_card <= 2 <= max_card:
         for a in range(len(gated)):
             for b in range(a + 1, len(gated)):
                 _loss(tuple(sorted((gated[a], gated[b]))))
@@ -191,6 +191,6 @@ def interaction_proxy_top_n(
     _sweep_gated_singletons_and_pairs(_loss, in_gate, min_card, max_card)
     _greedy_forward_interaction_search(_loss, P, max_card)
 
-    items = [(v, k) for k, v in cache.items() if k and np.isfinite(v)]
+    items = [(v, k) for k, v in cache.items() if k and np.isfinite(v) and min_card <= len(k) <= max_card]  # the greedy pass caches every size from 1
     items.sort(key=lambda t: t[0])
     return items[:top_n]

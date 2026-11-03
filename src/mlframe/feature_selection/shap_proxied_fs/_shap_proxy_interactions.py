@@ -285,7 +285,7 @@ def interaction_top_n(
         best = cl
         remaining.discard(cand)
 
-    items = [(v, k) for k, v in cache.items() if np.isfinite(v)]
+    items = [(v, k) for k, v in cache.items() if np.isfinite(v) and min_card <= len(k) <= max_card]  # the greedy pass caches every size from 1
     items.sort(key=lambda t: t[0])
     return items[:top_n]
 
