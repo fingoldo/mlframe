@@ -23,11 +23,35 @@ logger = logging.getLogger(__name__)
 _TOKEN = re.compile(r"[^A-Za-z0-9_.]+")
 
 
-def _raw_leaves(name: str, raw_name_set: "set[str]") -> "list[str]":
-    """The distinct raw column names that appear as tokens of the engineered column name, in order of appearance."""
+def _special_raw_names(raw_name_set: "set[str]") -> "list[str]":
+    """Raw names holding a character outside the token alphabet (spaces, hyphens, ...), longest first; the token split cannot see them."""
+    return sorted((n for n in raw_name_set if _TOKEN.search(n)), key=len, reverse=True)
+
+
+def _raw_leaves(name: str, raw_name_set: "set[str]", special: "list[str] | None" = None) -> "list[str]":
+    """The distinct raw column names that appear in the engineered column name, in order of appearance.
+
+    Names made of token characters are found by splitting; names with other characters (``special``, see :func:`_special_raw_names`) are matched as whole substrings
+    bounded by non-name characters and blanked out first, so a column called ``my col`` is a leaf and is not mistaken for ``my`` and ``col``.
+    """
+    text = str(name)
+    found: "list[tuple[int, str]]" = []
+    for raw in special or ():
+        start = text.find(raw)
+        while start != -1:
+            end = start + len(raw)
+            before_ok = start == 0 or not (text[start - 1].isalnum() or text[start - 1] in "_.")
+            after_ok = end == len(text) or not (text[end].isalnum() or text[end] in "_.")
+            if before_ok and after_ok:
+                found.append((start, raw))
+                text = text[:start] + "\x00" * len(raw) + text[end:]
+            start = text.find(raw, end)
+    for match in re.finditer(r"[A-Za-z0-9_.]+", text):
+        if match.group() in raw_name_set:
+            found.append((match.start(), match.group()))
     out: "list[str]" = []
-    for token in _TOKEN.split(str(name)):
-        if token in raw_name_set and token not in out:
+    for _pos, token in sorted(found):
+        if token not in out:
             out.append(token)
     return out
 
@@ -87,9 +111,10 @@ def filter_inert_leaf_block(
     # A leaf is any named pool column: the input columns, and the missingness indicators built from them (``is_missing__x``), which are not inputs.
     raw_names = set(getattr(self, "feature_names_in_", [])) | set(name_to_idx)
     seed = int(getattr(self, "random_seed", 0) or 0)
+    special = _special_raw_names(raw_names)
     keep_positions = []
     for pos, (_config, j) in enumerate(this_pair_features):
-        leaves = _raw_leaves(new_cols[j], raw_names)
+        leaves = _raw_leaves(new_cols[j], raw_names, special)
         if len(leaves) >= 2:
             try:
                 # A device-backed block keeps its column on the device: it is binned there and only the narrow codes cross to the host, instead of the float64 column.
