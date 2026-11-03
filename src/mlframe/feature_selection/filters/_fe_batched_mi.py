@@ -241,11 +241,14 @@ void mi_mm_from_values(const double* __restrict__ X, const double* __restrict__ 
     int ne = nbins - 1, M = nbins * Ky;
     int tid = threadIdx.x, nt = blockDim.x;
     for (int s = tid; s < M; s += nt) sh[s] = 0;
+    __shared__ double se[256];   // this column's interior edges, read per value by the search
+    const bool cached = ne <= 256;
+    if (cached) for (int s = threadIdx.x; s < ne; s += blockDim.x) se[s] = edges[(long long)s * K + c];
     __syncthreads();
     for (long long i = tid; i < n; i += nt) {
         double v = X[i * (long long)K + c];
         int lo = 0, hi = ne;                          // upper_bound == cp.searchsorted side='right'
-        while (lo < hi) { int mid = (lo + hi) >> 1; if (edges[(long long)mid * K + c] <= v) lo = mid + 1; else hi = mid; }
+        while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
         atomicAdd(&sh[lo * Ky + y[i]], 1);
     }
     __syncthreads();

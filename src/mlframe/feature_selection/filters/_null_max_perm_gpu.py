@@ -29,12 +29,15 @@ extern "C" __global__ void null_mi_perms(const float* __restrict__ X, const doub
     const int ne = nbins - 1, M = nbins * Ky;
     const int tid = threadIdx.x, nt = blockDim.x;
     for (int s = tid; s < P * M; s += nt) sh[s] = 0;
+    __shared__ double se[256];   // this column's interior edges, read per value by the search
+    const bool cached = ne <= 256;
+    if (cached) for (int s = threadIdx.x; s < ne; s += blockDim.x) se[s] = edges[(long long)s * K + c];
     __syncthreads();
     const float* Xc = X + (long long)c * n;
     for (long long i = tid; i < n; i += nt) {
         const double v = Xc[i];
         int lo = 0, hi = ne;                          // upper_bound: count of interior edges <= v
-        while (lo < hi) { int mid = (lo + hi) >> 1; if (edges[(long long)mid * K + c] <= v) lo = mid + 1; else hi = mid; }
+        while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
         const int base = lo * Ky;
         for (int p = 0; p < P; ++p) atomicAdd(&sh[p * M + base + yp[(long long)p * n + i]], 1);
     }
@@ -71,6 +74,9 @@ extern "C" __global__ void null_mi_perms_bits(const float* __restrict__ X, const
     const int ne = nbins - 1;
     const int tid = threadIdx.x, lane = tid & 31, warp = tid >> 5, nw = blockDim.x >> 5;
     for (int s = tid; s < P * nbins + nbins; s += blockDim.x) sh[s] = 0;
+    __shared__ double se[256];   // this column's interior edges, read per value by the search
+    const bool cached = ne <= 256;
+    if (cached) for (int s = threadIdx.x; s < ne; s += blockDim.x) se[s] = edges[(long long)s * K + c];
     __syncthreads();
     int cnt[PMAX_LANE][NBMAX];
     int tl[NBMAX];
@@ -83,7 +89,7 @@ extern "C" __global__ void null_mi_perms_bits(const float* __restrict__ X, const
         if (i < n) {
             const double v = Xc[i];
             int lo = 0, hi = ne;                      // upper_bound: count of interior edges <= v
-            while (lo < hi) { int mid = (lo + hi) >> 1; if (edges[(long long)mid * K + c] <= v) lo = mid + 1; else hi = mid; }
+            while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
             code = lo;
         }
         unsigned int mb[NBMAX];
