@@ -95,7 +95,7 @@ def _radix_cm_view(cand_gpu, cm_hint, data_is_cm: bool, n: int, K: int):
 
 def _launch_radix_f32_v4(cp, data_cm, n: int, K: int, ranks_g, R: int, osv, threads: int, shmem: int) -> bool:
     """Launch the compaction v4 f32 select into ``osv``; False (nothing launched) when it is off, did not compile or its scratch does not fit the VRAM budget."""
-    from ._gpu_resident_select_kernels import _get_radix_select_f32_v4_kernel
+    from ._gpu_resident_select_f32_compact import _get_radix_select_f32_v4_kernel
 
     kern = _get_radix_select_f32_v4_kernel()
     if kern is None:

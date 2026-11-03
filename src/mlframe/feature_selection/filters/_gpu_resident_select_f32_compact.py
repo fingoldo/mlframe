@@ -1,0 +1,102 @@
+"""Float32 radix select with candidate compaction (v4): the source and lazy getter, a sibling of ``_gpu_resident_select_kernels`` (which holds v1-v3)."""
+
+from __future__ import annotations
+
+import logging
+import os
+
+from mlframe.utils.log_throttle import log_throttle
+
+# V4 = v3 + CANDIDATE COMPACTION (the f64 v3 idea on 32-bit keys). After bytes 3-2 fix the top 16 bits, only elements whose 16-bit prefix is an active
+# window can still move a rank; the byte-1 full scan appends their keys to a per-column scratch (K, cap) buffer and the byte-0 pass scans only that.
+# Histograms are order-independent sums over the same element sets -> bit-identical order statistics. A column whose candidates overflow ``cap``
+# keeps full scans (exact). Compacting at byte 2 (8-bit prefix: sign + 7 exponent bits) is not tried: real columns fill 1-2 such buckets
+# (the f64 record above). Off switch MLFRAME_RADIX_F32_V4=0.
+_RADIX_SELECT_F32_V4_SRC = r"""
+#define MAXR 64
+extern "C" __global__
+void radix_select_f32_v4(const float* __restrict__ data, const long long n, const int K,
+                      const long long* __restrict__ ranks, const int R, float* __restrict__ out,
+                      unsigned int* __restrict__ cand, const long long cap){
+    int col=blockIdx.x, tid=threadIdx.x, nt=blockDim.x;
+    extern __shared__ unsigned int sh[];
+    __shared__ unsigned int prefix[MAXR];
+    __shared__ unsigned long long below[MAXR];
+    __shared__ unsigned int wpref[MAXR];
+    __shared__ int rank2w[MAXR];
+    __shared__ unsigned int wsort[MAXR];   // wpref sorted ascending (distinct active window prefixes)
+    __shared__ int wsort2w[MAXR];          // sorted position -> ORIGINAL window index (into wpref / sh)
+    __shared__ int W;
+    __shared__ unsigned long long scount;
+    __shared__ int have_cand;    // the candidate buffer holds every element the remaining passes can count
+    __shared__ int overflowed;
+    if(tid<R){prefix[tid]=0u;below[tid]=0ULL;}
+    if(tid==0){scount=0ULL;have_cand=0;overflowed=0;}
+    __syncthreads();
+    for(int byte=3;byte>=0;--byte){
+        int shift=byte*8;
+        unsigned int hmask=(byte==3)?0u:(0xFFFFFFFFu<<((byte+1)*8));
+        if(tid==0){int w=0;for(int r=0;r<R;++r){unsigned int p=prefix[r]&hmask;int f=-1;
+            for(int q=0;q<w;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w]=p;rank2w[r]=w;w++;}else rank2w[r]=f;} W=w;
+            for(int q=0;q<w;++q){wsort[q]=wpref[q];wsort2w[q]=q;}
+            for(int a=1;a<w;++a){unsigned int kv=wsort[a];int kw=wsort2w[a];int b=a-1;
+                while(b>=0&&wsort[b]>kv){wsort[b+1]=wsort[b];wsort2w[b+1]=wsort2w[b];--b;}
+                wsort[b+1]=kv;wsort2w[b+1]=kw;}}
+        __syncthreads();
+        int Wl=W;
+        for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
+        __syncthreads();
+        const int compact=(!have_cand)&&(cap>0)&&(byte==1);
+        if(!have_cand){
+            for(long long i=tid;i<n;i+=nt){
+                float d=data[(long long)col*n+i];unsigned int u;memcpy(&u,&d,4);  // COLUMN-MAJOR: coalesced
+                u=(u&0x80000000u)?~u:(u|0x80000000u);
+                unsigned int pm=u&hmask;
+                int lo=0,hi=Wl;
+                while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}
+                if(lo<Wl&&wsort[lo]==pm){int win=wsort2w[lo];
+                    int dig=(int)((u>>shift)&0xFFu);atomicAdd(&sh[win*256+dig],1u);
+                    if(compact){unsigned long long slot=atomicAdd(&scount,1ULL);
+                        if(slot<(unsigned long long)cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
+            }
+        } else {
+            long long m=(long long)scount;
+            for(long long i=tid;i<m;i+=nt){
+                unsigned int u=cand[(long long)col*cap+i];
+                unsigned int pm=u&hmask;
+                int lo=0,hi=Wl;
+                while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}
+                if(lo<Wl&&wsort[lo]==pm){int win=wsort2w[lo];
+                    int dig=(int)((u>>shift)&0xFFu);atomicAdd(&sh[win*256+dig],1u);}
+            }
+        }
+        __syncthreads();
+        if(tid==0&&compact&&!overflowed)have_cand=1;
+        __syncthreads();
+        // PARALLEL per-rank cumulative scan + prefix advance: thread r owns rank r (disjoint below/prefix
+        // slots, own window histogram slice) -> identical result to the serial tid==0 loop, R-way parallel.
+        if(tid<R){int w=rank2w[tid];unsigned long long acc=below[tid];int chosen=0;long long want=ranks[tid];
+            for(int b=0;b<256;++b){unsigned long long c=sh[w*256+b];if(acc+c>(unsigned long long)want){chosen=b;break;}acc+=c;}
+            below[tid]=acc;prefix[tid]=(prefix[tid]&hmask)|((unsigned int)chosen<<shift);}
+        __syncthreads();
+    }
+    if(tid<R){unsigned int u=prefix[tid];u=(u&0x80000000u)?(u&0x7FFFFFFFu):~u;float d;memcpy(&d,&u,4);out[tid*K+col]=d;}
+}
+"""
+_RADIX_SELECT_F32_V4_KERNEL = None
+
+
+def _get_radix_select_f32_v4_kernel():
+    """The compaction v4 f32 radix select (``None`` when ``MLFRAME_RADIX_F32_V4=0`` or it does not compile); bit-identical order statistics to v3."""
+    global _RADIX_SELECT_F32_V4_KERNEL
+    import cupy as cp
+
+    if os.environ.get("MLFRAME_RADIX_F32_V4", "1").strip().lower() not in ("1", "true", "on", "yes"):
+        return None
+    if _RADIX_SELECT_F32_V4_KERNEL is None:
+        try:
+            _RADIX_SELECT_F32_V4_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_V4_SRC, "radix_select_f32_v4")
+        except Exception:
+            log_throttle(logging.getLogger(__name__), "gpu_select.f32_v4_compile", logging.WARNING, "f32 v4 compaction kernel compile failed; v3", exc_info=True)
+            _RADIX_SELECT_F32_V4_KERNEL = False
+    return _RADIX_SELECT_F32_V4_KERNEL or None
