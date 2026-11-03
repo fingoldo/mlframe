@@ -225,6 +225,62 @@ def _coarse_basis_njit(z: np.ndarray, freqs: np.ndarray) -> tuple:
     return sc, cc, sss, css
 
 
+@numba.njit(parallel=True, fastmath=True, cache=True)
+def _coarse_basis_recur_njit(z: np.ndarray, step: float, nf: int) -> tuple:
+    """``_coarse_basis_njit`` for the uniform grid ``(k + 1) * step``, k < nf: one sin / cos per row, the higher multiples by the Chebyshev recurrence
+    ``s_{k+1} = 2 cos(t) s_k - s_{k-1}`` (and the same for cos). The values differ from the direct sin / cos in the last bits (the error grows about
+    linearly in k); the means and sums of squares are then formed per frequency in the same row order as ``_coarse_basis_njit``."""
+    n = z.shape[0]
+    sc = np.empty((nf, n))
+    cc = np.empty((nf, n))
+    sss = np.empty(nf)
+    css = np.empty(nf)
+    for i in prange(n):
+        t = 2.0 * np.pi * step * z[i]
+        s1 = np.sin(t)
+        c1 = np.cos(t)
+        two_c = 2.0 * c1
+        s_prev, c_prev = 0.0, 1.0
+        s_cur, c_cur = s1, c1
+        for k in range(nf):
+            sc[k, i] = s_cur
+            cc[k, i] = c_cur
+            s_next = two_c * s_cur - s_prev
+            c_next = two_c * c_cur - c_prev
+            s_prev, c_prev = s_cur, c_cur
+            s_cur, c_cur = s_next, c_next
+    for fi in prange(nf):
+        smean = 0.0
+        cmean = 0.0
+        for i in range(n):
+            smean += sc[fi, i]
+            cmean += cc[fi, i]
+        smean /= n
+        cmean /= n
+        s_ss = 0.0
+        c_ss = 0.0
+        for i in range(n):
+            sv = sc[fi, i] - smean
+            cv = cc[fi, i] - cmean
+            sc[fi, i] = sv
+            cc[fi, i] = cv
+            s_ss += sv * sv
+            c_ss += cv * cv
+        sss[fi] = s_ss
+        css[fi] = c_ss
+    return sc, cc, sss, css
+
+
+def _uniform_grid_step(grid) -> float:
+    """``step`` when ``grid`` is exactly ``(k + 1) * step`` for k = 0.., else 0 (the recurrence build applies only then; ``MLFRAME_FOURIER_COARSE_RECUR=0`` turns it off)."""
+    if len(grid) < 2 or os.environ.get("MLFRAME_FOURIER_COARSE_RECUR", "1").strip() == "0":
+        return 0.0
+    step = float(grid[0])
+    if step <= 0.0 or any(float(g) != (k + 1) * step for k, g in enumerate(grid)):
+        return 0.0
+    return step
+
+
 # Parallel path wins from ~n>=4k (thread spawn amortised by the per-element transcendental work); below it the
 # serial numpy ufunc path is faster (see the bench-rejection note in _power_centered).
 # Fixed contiguous-block count for the parallel periodogram reduction. Process- AND thread-count-STABLE:
@@ -262,7 +318,11 @@ def _build_coarse_basis(z_tr: np.ndarray, grid: list[float]) -> list:
     _coarse_basis = _CoarseBasis()  # (sin_centered, sin_ss, cos_centered, cos_ss) per grid freq
     _use_exact_basis = os.environ.get("MLFRAME_FOURIER_COARSE_BASIS_EXACT", "") == "1"
     if not _use_exact_basis and len(grid) > 0 and z_tr.size > 0:
-        _sc_m, _cc_m, _sss, _css = _coarse_basis_njit(np.ascontiguousarray(z_tr), np.asarray(grid, dtype=_crit_np_dtype()))
+        _step = _uniform_grid_step(grid)
+        if _step > 0.0:
+            _sc_m, _cc_m, _sss, _css = _coarse_basis_recur_njit(np.ascontiguousarray(z_tr), _step, len(grid))
+        else:
+            _sc_m, _cc_m, _sss, _css = _coarse_basis_njit(np.ascontiguousarray(z_tr), np.asarray(grid, dtype=_crit_np_dtype()))
         _coarse_basis = _CoarseBasis((_sc_m[gi], float(_sss[gi]), _cc_m[gi], float(_css[gi])) for gi in range(len(grid)))
         _coarse_basis.matrices = (_sc_m, _sss, _cc_m, _css)
     else:

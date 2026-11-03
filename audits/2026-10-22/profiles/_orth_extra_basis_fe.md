@@ -16,3 +16,9 @@ Serial cProfile of the captured call: `_greedy_fourier_frequency_search` 1.20 s 
 Change: the coarse sweep scores every grid frequency with one BLAS matrix-vector product per sin / cos block (`_best_coarse_freq`, first max on a tie,
 NaN never wins). Captured call, warm, alternating: 4.26 -> 3.46 s; emitted columns, values and metadata identical (test_fourier_coarse_gemv).
 `MLFRAME_FOURIER_COARSE_GEMV=0` keeps the per-frequency loop. Next here: the coarse basis build (1.19 s) and the per-column argsorts.
+
+## Coarse basis by the Chebyshev recurrence (2026-11-03)
+The coarse grids are uniform (0.5 k: 32 frequencies linear, 48 chirp), so `_coarse_basis_recur_njit` takes one sin / cos per row and the higher multiples by
+`s_{k+1} = 2 cos(t) s_k - s_{k-1}`, parallel over rows; means and sums of squares are formed per frequency in the old row order. Basis agrees with the direct
+build to 1e-9 (48 frequencies, z in [-4, 4]); captured 30000 x 108 fit call: emitted columns, values and metadata identical. Warm, alternating: 3.02-3.06 -> 2.54 s
+(with the matrix-vector sweep above: 4.26 s -> 2.54 s for the call). Non-uniform grids keep `_coarse_basis_njit`; `MLFRAME_FOURIER_COARSE_RECUR=0` turns it off.
