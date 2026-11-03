@@ -642,7 +642,9 @@ def sparse_interaction_candidates(
         # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
         prod = X_proxy[col_a].values.astype(np.float64) * X_proxy[col_b].values.astype(np.float64)
         # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
-        aug[nm] = np.nan_to_num(prod, nan=0.0, posinf=float(np.finfo(np.float64).max), neginf=float(np.finfo(np.float64).min))
+        # Clipped to the float32 range: XGBoost / LightGBM cast features to float32, where float64's max (or any product above float32's) is inf again.
+        _f32_max = float(np.finfo(np.float32).max)
+        aug[nm] = np.clip(np.nan_to_num(prod, nan=0.0, posinf=_f32_max, neginf=-_f32_max), -_f32_max, _f32_max)
         product_to_operands[n_base + len(prod_names)] = (col_to_idx[col_a], col_to_idx[col_b])
         prod_names.append(nm)
 
