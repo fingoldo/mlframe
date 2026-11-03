@@ -68,6 +68,7 @@ from ._orthogonal_univariate_fe import generate_univariate_basis_features
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
+from ._numba_utils_shared import radix_order_f32
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -200,6 +201,7 @@ def copula_mi(
     v = _rank_to_uniform(y_arr)
     return _bin_mi_uniform_pair(u, v, n_bins=int(n_bins))
 
+
 @njit(cache=True)
 def _copula_mi_from_order(col: np.ndarray, order: np.ndarray, vi: np.ndarray, nb: int) -> float:
     """Miller-Madow copula MI of ``col`` against the y bins ``vi`` from an order that sorts ``col`` (equal values adjacent; their order among themselves does not
@@ -264,36 +266,9 @@ def _copula_columns_radix_njit(cols_rows: np.ndarray, vi: np.ndarray, nb: int, o
     """:func:`_copula_columns_njit` for float32 rows: the order comes from a 4-pass LSD radix sort of the order-preserving uint32 key of each value (``-0.0`` keyed as
     ``+0.0``, which compare equal), not a comparison sort. Equal values end up adjacent as there, and the MI depends only on the tie runs, so the value is the same."""
     kk = cols_rows.shape[0]
-    n = cols_rows.shape[1]
     for j in prange(kk):
         col = cols_rows[j]
-        bits = col.view(np.uint32)
-        va = np.empty(n, dtype=np.uint32)
-        ra = np.empty(n, dtype=np.int64)
-        vb = np.empty(n, dtype=np.uint32)
-        rb = np.empty(n, dtype=np.int64)
-        for t in range(n):
-            u = bits[t]
-            if u == np.uint32(0x80000000):
-                u = np.uint32(0)
-            va[t] = ~u if (u & np.uint32(0x80000000)) else (u | np.uint32(0x80000000))
-            ra[t] = t
-        cnt = np.empty(257, dtype=np.int64)
-        for shift in (0, 8, 16, 24):
-            cnt[:] = 0
-            for t in range(n):
-                cnt[((va[t] >> np.uint32(shift)) & np.uint32(0xFF)) + 1] += 1
-            for dgt in range(256):
-                cnt[dgt + 1] += cnt[dgt]
-            for t in range(n):
-                dgt = (va[t] >> np.uint32(shift)) & np.uint32(0xFF)
-                q = cnt[dgt]
-                cnt[dgt] = q + 1
-                vb[q] = va[t]
-                rb[q] = ra[t]
-            va, vb = vb, va
-            ra, rb = rb, ra
-        out[j] = _copula_mi_from_order(col, ra, vi, nb)
+        out[j] = _copula_mi_from_order(col, radix_order_f32(col), vi, nb)
 
 
 def _copula_mi_batch(
