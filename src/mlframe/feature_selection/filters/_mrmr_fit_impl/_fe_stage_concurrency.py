@@ -91,9 +91,30 @@ def merge_stage_state(target: Any, base: "dict[str, Any]", stage_copies: Sequenc
         setattr(target, name, value)
 
 
+#: Rows of the fit the stage peaks above were measured at; the peaks grow about linearly with the rows.
+STAGE_VRAM_MEASURED_ROWS = 50_000
+
+
+def _stages_fit_device(vram_weights: "Sequence[float]", n_rows: int) -> bool:
+    """Whether the stages' peak pool use, scaled from the 50000-row measurement to ``n_rows``, fits the device memory the fit can still use (free device memory
+    plus the default pool's cached blocks). Concurrent stages each get a slice of it; at 500000 rows the scaled peaks (8.4 GB) far exceed a 4 GB card, and the
+    slots' out-of-memory errors sent stages to the host paths, so the cascades run one by one there and each stage has the whole card."""
+    need = sum(float(w) for w in vram_weights) * (1 << 20) * max(1.0, float(n_rows) / STAGE_VRAM_MEASURED_ROWS)
+    try:
+        import cupy as cp
+
+        avail = int(cp.cuda.Device().mem_info[0]) + int(cp.get_default_memory_pool().free_bytes())
+    except Exception:
+        return True
+    if need > avail:
+        logger.info("FE stage concurrency: the stages' scaled peak VRAM (%.1f GB at %d rows) exceeds the %.1f GB available; running the cascades one by one", need / 2**30, n_rows, avail / 2**30)
+        return False
+    return True
+
+
 def run_stages_concurrently(
     estimator: Any, stages: Sequence[Callable[[Any], Any]], weights: Sequence[float] = STAGE_WEIGHTS, merge_count: "Callable[[list], int] | None" = None,
-    vram_weights: "Sequence[float] | None" = None,
+    vram_weights: "Sequence[float] | None" = None, n_rows: "int | None" = None,
 ) -> "list[Any] | None":
     """Results of ``stages`` (each called with a private copy of ``estimator``) run together, one per device slot, or ``None`` when no plan exists (the caller then runs them in order).
 
@@ -106,6 +127,8 @@ def run_stages_concurrently(
 
     if vram_weights is None:
         vram_weights = STAGE_VRAM_WEIGHTS if len(stages) == 3 else (STAGE_VRAM_WEIGHTS_WITH_EARLY_A if len(stages) == 4 else weights)
+    if n_rows is not None and not _stages_fit_device(vram_weights, int(n_rows)):
+        return None
     slots = plan_stage_slots(list(weights), vram_weights=list(vram_weights))
     if slots is None or len(slots) != len(stages):
         logger.info("FE stage concurrency: no device plan (a stage would get too little VRAM); running the cascades one by one")

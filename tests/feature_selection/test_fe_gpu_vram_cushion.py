@@ -207,8 +207,14 @@ def test_ensure_pool_limit_idempotent(monkeypatch, vram):
     assert vram.ensure_fe_gpu_pool_limit() is False  # second call is a no-op
     assert vram.ensure_fe_gpu_pool_limit() is False
     assert len(calls) == 1
-    # 3 GB of 4 GB free at install: the cap leaves the 1 GB cushion free, (3 - 1) / 4 = 0.5 (the requested 0.6 would not)
-    assert calls[0][0] is None and calls[0][1] == pytest.approx(0.5)
+    # the requested 0.6 (the cushion check releases the pool's cached blocks before it declines, so the free memory at install no longer caps the pool)
+    assert calls[0][0] is None and calls[0][1] == pytest.approx(0.6)
+    # the former cap from the free memory at install stays available: 3 GB of 4 GB free leaves (3 - 1) / 4 = 0.5 with the 1 GB cushion
+    calls.clear()
+    vram._reset_fe_gpu_pool_limit_flag()
+    monkeypatch.setenv("MLFRAME_FE_GPU_POOL_CAP_FROM_FREE", "1")
+    assert vram.ensure_fe_gpu_pool_limit() is True
+    assert calls[0][1] == pytest.approx(0.5)
 
 
 @pytest.mark.gpu
@@ -301,7 +307,13 @@ def test_pool_cap_unaffected_on_large_card(monkeypatch, vram):
     monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _FakePool())
     _patch_meminfo(monkeypatch, free_b=8 * GB, total_b=16 * GB)
     assert vram.ensure_fe_gpu_pool_limit() is True
-    # 8 GB of 16 GB free at install: (8 - 1) / 16 = 0.4375 keeps the cushion free; the requested 0.6 would not
+    # the requested 0.6 whatever was free at install (half of the card here)
+    assert calls == [pytest.approx(0.6)]
+    # with the former cap from the free memory: (8 - 1) / 16 = 0.4375
+    calls.clear()
+    vram._reset_fe_gpu_pool_limit_flag()
+    monkeypatch.setenv("MLFRAME_FE_GPU_POOL_CAP_FROM_FREE", "1")
+    assert vram.ensure_fe_gpu_pool_limit() is True
     assert calls == [pytest.approx(0.4375)]
 
 
