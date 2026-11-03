@@ -275,7 +275,7 @@ def _grouped_bar_panel(
         for _, key, higher in headline:
             raw = m.get(key, float("nan"))
             if not np.isfinite(raw):
-                row.append(0.0)
+                row.append(float("nan"))  # a missing metric is a gap, not a zero-quality bar
                 continue
             if higher:
                 q = raw
@@ -340,6 +340,12 @@ def _delta_table_panel(
     return AnnotationPanelSpec(text="\n".join(lines), title="Cross-split deltas + overfit verdict", fontsize=10, monospace=True)
 
 
+def _canonical_split_names(per_split: Mapping[str, Any]) -> Dict[str, Any]:
+    """``per_split`` keyed by lower-case stripped names. The ordering, the train/test pair of the overfit verdict and the delta transitions all look splits up
+    as "train" / "val" / "test", so "Train" / "Test" silently fell back to insertion order and could flip the sign of the AUC gap."""
+    return {str(k).strip().lower(): v for k, v in per_split.items()}
+
+
 def overfit_verdict(
     *,
     task: str,
@@ -354,7 +360,7 @@ def overfit_verdict(
     (precomputed). Raises when fewer than two non-degenerate splits are available.
     """
     per_metrics: Dict[str, Dict[str, float]] = {}
-    for name, entry in per_split.items():
+    for name, entry in _canonical_split_names(per_split).items():
         m, _ = _metrics_for_split(task, entry, threshold, subsample, seed)
         if m is not None:
             per_metrics[name] = m
@@ -399,6 +405,7 @@ def compose_split_comparison_figure(
         ann = AnnotationPanelSpec(text="compose_split_comparison_figure: no splits supplied", title="Split comparison")
         return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
 
+    per_split = _canonical_split_names(per_split)
     per_metrics: Dict[str, Dict[str, float]] = {}
     degenerate: List[Tuple[str, str]] = []
     for name in _order_splits(list(per_split.keys())):

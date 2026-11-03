@@ -176,6 +176,13 @@ def _count_within_eps(arr_1d: np.ndarray, eps: np.ndarray) -> np.ndarray:
     return np.asarray(counts.astype(np.int64))
 
 
+def _jitter_ties(v: np.ndarray, intens: float, rng: np.random.Generator) -> np.ndarray:
+    """``v`` centred, with tie-breaking noise of relative size ``intens`` (MI is invariant to the shift)."""
+    centred = np.asarray(v, dtype=np.float64) - float(np.mean(v))
+    spread = float(np.std(centred))
+    return centred + intens * (spread if spread > 0.0 else 1.0) * rng.standard_normal(centred.shape[0])
+
+
 def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5, use_gpu: bool = False, intens: float = 1e-10, max_input_n: int = 50000, seed: int = 0) -> float:
     """Mixed-KSG mutual information estimator (Gao et al. NeurIPS 2017).
 
@@ -234,10 +241,12 @@ def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5, use_gpu: bool = False
         n = int(max_input_n)
     # Tie-breaking noise: only on column(s) with ties to keep the continuous
     # path bit-for-bit identical to pre-fix.
+    # Centred and scaled to the column's own spread first: an absolute 1e-10 vanishes next to values above ~1e6 (float64 spacing there is larger), which
+    # left the ties in place and blew the estimate up (MI of x = y = 1e8 + {0,1,2} came out 11.9 nats instead of ln 3).
     if np.unique(x).size < n:
-        x = x + intens * rng.standard_normal(n)
+        x = _jitter_ties(x, intens, rng)
     if np.unique(y).size < n:
-        y = y + intens * rng.standard_normal(n)
+        y = _jitter_ties(y, intens, rng)
     # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     xy = np.column_stack([x, y]).astype(np.float64)
     eps = _query_knn_chebyshev(xy, k=k)

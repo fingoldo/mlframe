@@ -96,9 +96,19 @@ def compute_candidates_exploration_scores(search_space: Sequence, known_candidat
     # LEFTMOST matching index in O(log n) -- unlike a {value: index} dict (the prior approach), which silently
     # collapses duplicate values to their LAST occurrence's index and gave wrong distances for earlier duplicates.
 
-    lo = None
+    # A known value that is not a point of the search space (outside it, or between two points) has no index to measure from: searchsorted
+    # then pointed past the end (IndexError) or at the wrong neighbour. Only exact members take part.
+    space = np.asarray(search_space)
+    positions = []
     for i in sorted(known_candidates):
-        r = int(np.searchsorted(search_space, i, side="left"))
+        r = int(np.searchsorted(space, i, side="left"))
+        if r < len(space) and space[r] == i:
+            positions.append(r)
+    if not positions:
+        return distances
+
+    lo = None
+    for r in positions:
         if lo is None:
             distances[:r] = np.abs(search_space[0:r] - search_space[r])
         else:

@@ -58,3 +58,12 @@ def test_search_survives_nan_evaluations():
         None,
     )
     assert best is not None
+
+
+def test_known_candidate_outside_the_search_space_is_ignored_not_an_index_error():
+    """search_space [1, 2, 3] with a known value 5: searchsorted returned 3 and search_space[3] raised IndexError."""
+    from mlframe.models._optimization_shared import compute_candidates_exploration_scores
+
+    space = np.array([1, 2, 3])
+    np.testing.assert_array_equal(compute_candidates_exploration_scores(space, [5]), np.zeros(3))
+    np.testing.assert_array_equal(compute_candidates_exploration_scores(space, [2, 5]), compute_candidates_exploration_scores(space, [2]))

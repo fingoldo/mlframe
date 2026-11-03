@@ -211,13 +211,14 @@ def _error_bias_panel(col: np.ndarray, name: str, *, masks: Dict[str, np.ndarray
     # Per-segment signed-residual bias: bin this feature's values, take the mean residual (y_true - y_pred) in each
     # bin. The segment with the largest |mean residual| is the model's worst-bias slice for this feature; its sign
     # tells direction (> 0 UNDER-predict, < 0 OVER-predict). Aggregated O(n) via two bincounts, no per-row Python.
-    bin_idx = np.clip(np.digitize(col[finite], edges[1:-1]), 0, len(centers) - 1)
+    usable = finite & np.isfinite(resid_signed)  # one NaN / inf residual would make its whole bin's mean NaN and drop the bin from the worst-segment search
+    bin_idx = np.clip(np.digitize(col[usable], edges[1:-1]), 0, len(centers) - 1)
     nbin = len(centers)
     cnt = np.bincount(bin_idx, minlength=nbin).astype(np.float64)
-    ssum = np.bincount(bin_idx, weights=resid_signed[finite], minlength=nbin)
+    ssum = np.bincount(bin_idx, weights=resid_signed[usable], minlength=nbin)
     # A segment must hold enough rows for its mean residual to mean something: the tail bins of a heavy feature held a
     # handful of rows and won "worst segment" on noise (a production chart named hourly_budget_mid in [476, 501]).
-    min_rows = max(30, int(0.005 * finite.sum()))
+    min_rows = max(30, int(0.005 * usable.sum()))
     with np.errstate(invalid="ignore", divide="ignore"):
         seg_bias = np.where(cnt >= min_rows, ssum / np.where(cnt > 0, cnt, 1.0), np.nan)
     worst_b = int(np.nanargmax(np.where(np.isfinite(seg_bias), np.abs(seg_bias), -np.inf))) if np.isfinite(seg_bias).any() else -1

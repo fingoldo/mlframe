@@ -54,7 +54,8 @@ def get_best_dummy_score(
         raise TypeError(f"get_best_dummy_score: estimator must be a sklearn classifier or regressor, " f"got {type(estimator).__name__}")
 
     for strategy in strategies.split():
-        model = dummy_model_type(strategy=strategy)
+        # the stochastic classifier strategies (stratified / uniform) get a fixed seed: the baseline anchor must not change between identical runs
+        model = dummy_model_type(strategy=strategy, **({"random_state": 0} if dummy_model_type is DummyClassifier else {}))
         if train_sample_weight is not None:
             model.fit(X=X_train, y=y_train, sample_weight=train_sample_weight)
         else:

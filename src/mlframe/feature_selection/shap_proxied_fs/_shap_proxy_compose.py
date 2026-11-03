@@ -39,6 +39,17 @@ def proposal_generator(
     return [(c["proxy_loss"], tuple(c["features"])) for c in cands]
 
 
+def fold_vote_weights(fidelities: list, weight_by_fidelity: bool) -> list:
+    """Per-fold vote weights. A fold whose trust fidelity is not finite (too few anchors to rank) gets the mean weight of the finite folds, not 0, so it
+    is neither silenced nor allowed to dominate; negative fidelity counts as 0; when every weight is 0 the vote falls back to one fold, one vote."""
+    if not weight_by_fidelity or not fidelities:
+        return [1.0] * len(fidelities)
+    finite = [max(f, 0.0) for f in fidelities if np.isfinite(f)]
+    neutral = float(np.mean(finite)) if finite else 1.0
+    weights = [max(f, 0.0) if np.isfinite(f) else neutral for f in fidelities]
+    return weights if sum(weights) > 0 else [1.0] * len(fidelities)
+
+
 def per_fold_stability_select(
     X: pd.DataFrame | np.ndarray, y: np.ndarray | pd.Series, *, classification: bool = True, n_folds: int = 5, vote_threshold: float = 0.5,
     weight_by_fidelity: bool = True, random_state: int = 0, **shap_kwargs
@@ -61,21 +72,23 @@ def per_fold_stability_select(
     splitter = StratifiedKFold(n_folds, shuffle=True, random_state=random_state) if classification else KFold(n_folds, shuffle=True, random_state=random_state)
     split = splitter.split(X, y) if classification else splitter.split(X)
 
-    weighted: defaultdict = defaultdict(float)
-    total_w = 0.0
-    per_fold = []
+    selected_by_fold: list = []
+    fidelities: list = []
     for fold, (tr, _) in enumerate(split):
         sel = ShapProxiedFS(classification=classification, random_state=random_state + fold, verbose=False, **shap_kwargs)
         sel.fit(X.iloc[tr].reset_index(drop=True), y[tr])
-        fidelity = float(sel.shap_proxy_report_.get("trust", {}).get("spearman", 1.0) or 0.0)
-        w = max(fidelity, 0.0) if weight_by_fidelity else 1.0
-        w = w if np.isfinite(w) else 0.0
-        total_w += w
-        for f in sel.selected_features_:
-            weighted[str(f)] += w
-        per_fold.append(dict(fold=fold, selected=list(map(str, sel.selected_features_)), fidelity=fidelity))
+        fidelities.append(float(sel.shap_proxy_report_.get("trust", {}).get("spearman", 1.0) or 0.0))
+        selected_by_fold.append([str(f) for f in sel.selected_features_])
 
-    total_w = total_w if total_w != 0 else 1.0
+    weights = fold_vote_weights(fidelities, weight_by_fidelity)
+    weighted: defaultdict = defaultdict(float)
+    per_fold = []
+    for fold, (chosen, w) in enumerate(zip(selected_by_fold, weights)):
+        for f in chosen:
+            weighted[f] += w
+        per_fold.append(dict(fold=fold, selected=list(chosen), fidelity=fidelities[fold]))
+
+    total_w = float(sum(weights)) or 1.0
     frequency = {f: v / total_w for f, v in weighted.items()}
     ensemble = sorted([f for f, fr in frequency.items() if fr >= vote_threshold])
     return dict(frequency=frequency, ensemble=ensemble, per_fold=per_fold, n_folds=n_folds)

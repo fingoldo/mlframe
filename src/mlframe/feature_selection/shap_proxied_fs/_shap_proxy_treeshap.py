@@ -581,6 +581,22 @@ def is_supported_xgboost(estimator: Any) -> bool:
     return True
 
 
+def _lightgbm_has_unmodelled_splits(model_dump: dict) -> bool:
+    """True when any split is one the flat-tensor kernels do not reproduce: a categorical ``==`` split (its threshold is a category list, not a number)
+    or ``missing_type == "Zero"`` (lightgbm sends both NaN and exact 0.0 down ``default_left``). Such models fall back to the ``shap`` library."""
+    for tree in model_dump.get("tree_info", []):
+        stack = [tree["tree_structure"]]
+        while stack:
+            node = stack.pop()
+            if "leaf_value" in node:
+                continue
+            if str(node.get("decision_type", "<=")) != "<=" or str(node.get("missing_type", "None")) == "Zero":
+                return True
+            stack.append(node["left_child"])
+            stack.append(node["right_child"])
+    return False
+
+
 def is_supported_lightgbm(estimator: Any) -> bool:
     """True for a fitted lightgbm regressor / binary classifier we can extract a booster from.
 
@@ -599,6 +615,8 @@ def is_supported_lightgbm(estimator: Any) -> bool:
     try:
         md = booster.dump_model()
         if int(md.get("num_tree_per_iteration", 1)) > 1 or int(md.get("num_class", 1)) > 1:
+            return False
+        if _lightgbm_has_unmodelled_splits(md):
             return False
     except Exception as e:
         log_throttle(logger, "_shap_proxy_treeshap.is_supported_lightgbm", logging.WARNING, "is_supported_lightgbm: dump_model() failed, estimator is not eligible for the fast TreeSHAP path: %s", e)

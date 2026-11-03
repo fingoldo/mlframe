@@ -200,7 +200,7 @@ def compute_gp_smoothed_features(
         ``{prefix}_mean_t{i}`` / ``{prefix}_std_t{i}`` for each query time.
     """
     query_arr = np.asarray(query_times, dtype=np.float64)
-    entities = pd.unique(df[entity_col])
+    entities = pd.unique(df[entity_col].dropna())  # groupby below drops null keys; a NaN entity here raised KeyError
 
     # A per-entity boolean-mask filter (df[df[entity_col] == entity]) rescans the FULL frame for every one
     # of n_entities entities -- O(n_entities * n_rows). A single groupby call is O(n_rows) (hash-based),

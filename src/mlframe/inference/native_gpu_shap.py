@@ -55,6 +55,25 @@ def native_gpu_shap_available(model_stub: Any) -> bool:
     return "cuda" in device or "gpu" in device
 
 
+def native_contrib_kwargs(model_stub: Any) -> Tuple[dict, dict]:
+    """``(DMatrix kwargs, predict kwargs)`` that make the booster's contributions describe the SAME model ``model_stub.predict`` serves: its ``missing``
+    sentinel, categorical support, and the trees up to ``best_iteration`` when early stopping fired (otherwise the contributions sum to the full-tree margin)."""
+    matrix_kwargs: dict = {}
+    missing = getattr(model_stub, "missing", None)
+    if missing is not None and not (isinstance(missing, float) and np.isnan(missing)):
+        matrix_kwargs["missing"] = missing
+    if getattr(model_stub, "enable_categorical", False):
+        matrix_kwargs["enable_categorical"] = True
+    predict_kwargs: dict = {}
+    try:
+        best = getattr(model_stub, "best_iteration", None)
+    except AttributeError:  # xgboost raises when the model was trained without early stopping
+        best = None
+    if best is not None:
+        predict_kwargs["iteration_range"] = (0, int(best) + 1)
+    return matrix_kwargs, predict_kwargs
+
+
 def native_xgboost_gpu_shap_contribs(model_stub: Any, X: Any) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     """Compute ``(shap_values, base_values)`` via XGBoost's native GPU contribution path.
 
@@ -68,11 +87,12 @@ def native_xgboost_gpu_shap_contribs(model_stub: Any, X: Any) -> Optional[Tuple[
     import xgboost as xgb
 
     booster = model_stub.get_booster()
-    dmatrix = xgb.DMatrix(X)
-    contribs = np.asarray(booster.predict(dmatrix, pred_contribs=True))
+    matrix_kwargs, predict_kwargs = native_contrib_kwargs(model_stub)
+    dmatrix = xgb.DMatrix(X, **matrix_kwargs)
+    contribs = np.asarray(booster.predict(dmatrix, pred_contribs=True, **predict_kwargs))
     if contribs.ndim == 2:  # binary/regression: (n, n_features + 1)
         return contribs[:, :-1], contribs[:, -1]
     return contribs[:, :, :-1], contribs[:, :, -1]  # multiclass: (n, n_classes, n_features + 1)
 
 
-__all__ = ["native_gpu_shap_available", "native_xgboost_gpu_shap_contribs"]
+__all__ = ["native_gpu_shap_available", "native_contrib_kwargs", "native_xgboost_gpu_shap_contribs"]
