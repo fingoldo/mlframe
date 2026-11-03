@@ -148,7 +148,10 @@ def compute_risk_coverage(
 
     # Descending confidence sort; cumulative mean of loss over the most-confident prefix gives risk at each coverage.
     order = np.argsort(conf, kind="stable")[::-1]
-    loss_sorted = loss[order]
+    # Rows with the same confidence cannot be ranked against each other: each block takes its mean loss, so the curve does not depend on input row order
+    # (binary confidence |p - 0.5| * 2 ties constantly, and misclassified rows placed last made the curve pessimistic or optimistic at will).
+    _, tie_block, tie_counts = np.unique(conf[order], return_inverse=True, return_counts=True)
+    loss_sorted = (np.bincount(tie_block, weights=loss[order]) / tie_counts)[tie_block]
     counts = np.arange(1, n + 1, dtype=np.float64)
     running_risk = np.cumsum(loss_sorted) / counts
     coverage = counts / n

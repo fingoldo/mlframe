@@ -30,7 +30,7 @@ Six read-only reports by Opus 5.5 low-effort agents on packages no earlier wave 
 | **FUTURE** | W20FS-3 | Low-Medium | knockoffs: NaNs imputed in the knockoff but not in the real slot |
 | **FUTURE** | W20FS-4 | Low | knockoffs and swap coins share one seed |
 | **RESOLVED** | W20REP-1 | High | decile gain / lift table breaks tied scores by row order; the fix (split tie groups across deciles proportionally) changes the table for every user with quantised scores |
-| **FUTURE** | W20REP-2 | Medium | risk-coverage curve breaks confidence ties by row order |
+| **RESOLVED** | W20REP-2 | Medium | risk-coverage curve breaks confidence ties by row order |
 | **FUTURE** | W20REP-3 | Medium | multiclass risk-coverage compares the argmax column index with raw labels |
 | **FUTURE** | W20REP-4 | Low | decile caption says 10% when fewer bins are built |
 | **FUTURE** | W20REP-5 | Low | `flatten_classification_report` assumes every key is a dict |
@@ -56,3 +56,4 @@ The `feature_engineering/transformer/` subpackage and most other feature_enginee
 | W20PRE-6 | `tests/signal/test_gp_smoothing_null_entity_is_skipped.py` |
 | W20PRE-3 | `tests/preprocessing/test_unseen_category_imputer_nearest_ignores_nan_means.py` |
 | W20REP-1 | `tests/reporting/test_decile_table_tied_scores.py` (decision of 2026-11-03: tied scores are averaged, no opt-out) |
+| W20REP-2 | `tests/reporting/test_risk_coverage_tied_confidence.py` (decision of 2026-11-03: tied blocks are averaged) |
