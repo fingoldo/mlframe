@@ -18,6 +18,14 @@ from mlframe.models.lgbm_defaults import default_lgbm_params
 from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 
+def _additive_deficit_exceeds(full_score: float, additive_score: float, threshold: float) -> bool:
+    """True when the additive model trails the full one by more than ``threshold`` of ``|full_score|``. The plain ratio additive / full inverts for negative
+    scores (-RMSE: additive -2, full -1 gave 2.0, i.e. "no interaction signal" for a model twice as bad); the relative deficit keeps its direction."""
+    if full_score == 0 or not np.isfinite(full_score) or not np.isfinite(additive_score):
+        return False
+    return bool((full_score - additive_score) / abs(full_score) > threshold)
+
+
 def _drop_column(X: Any, is_frame: bool, feature_names: Sequence[str], col_idx: int) -> Any:
     """Return ``X`` with the ``col_idx``-th feature removed, preserving frame-ness for LightGBM."""
     if is_frame:
@@ -113,7 +121,8 @@ def additive_interaction_diagnostic(
             model = lgb.LGBMRegressor(**params) if objective == "regression" else lgb.LGBMClassifier(**params)
             model.fit(X_train, y_train)
             if hasattr(model, "predict_proba") and objective != "regression":
-                pred = np.asarray(model.predict_proba(X_test))[:, 1]
+                proba = np.asarray(model.predict_proba(X_test))
+                pred = proba[:, 1] if proba.shape[1] == 2 else proba  # >2 classes: the metric gets the full matrix, not class 1 alone
             else:
                 pred = np.asarray(model.predict(X_test))
             fold_scores.append(float(metric_fn(y_test, pred)))
@@ -134,7 +143,7 @@ def additive_interaction_diagnostic(
         "full_model_cv_score": full_score,
         "additive_model_cv_score": additive_score,
         "additive_signal_ratio": ratio,
-        "recommend_interaction_engineering": (not np.isnan(ratio)) and ratio < 0.9,
+        "recommend_interaction_engineering": _additive_deficit_exceeds(full_score, additive_score, 0.1),
     }
 
     if per_feature_report:
