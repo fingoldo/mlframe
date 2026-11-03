@@ -250,8 +250,11 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         _mixup_active = self.hparams.use_mixup and self.training and features.shape[0] >= 2
         if _mixup_active:
             from .._mixup import mixup_batch
+            from .._categorical_embeddings import CategoricalEmbedding
+
+            _n_cat = next((m.n_cat for m in self.network.modules() if isinstance(m, CategoricalEmbedding)), 0)
             features, _y_a, _y_b, _lam = mixup_batch(
-                features, labels, alpha=self.hparams.mixup_alpha,
+                features, labels, alpha=self.hparams.mixup_alpha, n_cat_prefix=_n_cat,
             )
 
         raw_predictions = self(features)
