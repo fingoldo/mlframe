@@ -140,6 +140,15 @@ def recency_weighted_rolling_mean(
     return out
 
 
+@njit(cache=True)
+def _positional_weight(scheme_code: int, m: int, pos: int, param: float) -> float:
+    """Weight of window position ``pos`` (0 = oldest of ``m``) under the poly (code 0) or power scheme; the exp scheme multiplies a running weight instead."""
+    i = m - pos
+    if scheme_code == 0:
+        return ((m - i + 1) / m) ** param
+    return 1.0 / (i**param)
+
+
 @njit(fastmath=False, cache=True)
 def _rolling_recency_weighted_std_sorted(v_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, window: int, scheme_code: int, param: float) -> np.ndarray:
     """Per-row recency-weighted (population) std over a trailing ``window``, same group-sorted contract as
@@ -167,11 +176,7 @@ def _rolling_recency_weighted_std_sorted(v_sorted: np.ndarray, starts: np.ndarra
                         den += w
             else:
                 for pos in range(m):
-                    i = m - pos
-                    if scheme_code == 0:
-                        w = ((m - i + 1) / m) ** param
-                    else:
-                        w = 1.0 / (i**param)
+                    w = _positional_weight(scheme_code, m, pos, param)
                     x = v_sorted[row - m + 1 + pos]
                     if x == x:  # NaN values are skipped (numerator and denominator alike), like the sibling modules do
                         num += w * x
@@ -191,11 +196,7 @@ def _rolling_recency_weighted_std_sorted(v_sorted: np.ndarray, starts: np.ndarra
                         var_num += w * diff * diff
             else:
                 for pos in range(m):
-                    i = m - pos
-                    if scheme_code == 0:
-                        w = ((m - i + 1) / m) ** param
-                    else:
-                        w = 1.0 / (i**param)
+                    w = _positional_weight(scheme_code, m, pos, param)
                     x = v_sorted[row - m + 1 + pos]
                     if x == x:
                         diff = x - wmean
