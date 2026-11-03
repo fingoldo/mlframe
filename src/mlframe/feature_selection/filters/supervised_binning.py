@@ -24,6 +24,8 @@ from __future__ import annotations
 import logging
 import math
 
+import threading
+
 import numpy as np
 from numba import njit
 
@@ -33,7 +35,32 @@ from mlframe.feature_selection.filters._lazy_host_codes import size_of
 logger = logging.getLogger(__name__)
 
 
+_ENCODE_MEMO_LOCK = threading.Lock()
+_ENCODE_MEMO: "dict" = {}  # the last encoded target: {"key": (content hash, shape, dtype, settings), "out": (labels, depth)}
+
+
 def _encode_mdlp_target(y, max_y_classes, fast_mode, y_pseudo_classes, max_depth):
+    """:func:`_encode_mdlp_target_uncached`, remembered for the last target object: the edge pool calls it once per column with the same ``y`` (a sort and a
+    quantile of the whole target per column, 0.63 thread-s of a 0.40 s 30-column binning at 100000 rows). The memo is keyed on the target's content and hands
+    out a copy of the labels, so a caller cannot change the remembered ones; object targets (strings, categories) are encoded each time."""
+    arr = np.asarray(y)
+    if arr.dtype.kind in ("O", "U", "S"):
+        return _encode_mdlp_target_uncached(y, max_y_classes, fast_mode, y_pseudo_classes, max_depth)
+    from mlframe.utils.disk_cache import hash_array_content
+
+    # keyed on the target's content (a hash of its bytes, ~0.1 ms at 100000 rows), so a target shuffled in place between calls is a different key
+    key = (hash_array_content(np.ascontiguousarray(arr)), arr.shape, arr.dtype.str, int(max_y_classes), bool(fast_mode), int(y_pseudo_classes), int(max_depth))
+    with _ENCODE_MEMO_LOCK:
+        if _ENCODE_MEMO.get("key") == key:
+            labels, depth = _ENCODE_MEMO["out"]
+            return labels.copy(), depth
+    labels, depth = _encode_mdlp_target_uncached(y, max_y_classes, fast_mode, y_pseudo_classes, max_depth)
+    with _ENCODE_MEMO_LOCK:
+        _ENCODE_MEMO.update(key=key, out=(np.asarray(labels).copy(), depth))
+    return labels, depth
+
+
+def _encode_mdlp_target_uncached(y, max_y_classes, fast_mode, y_pseudo_classes, max_depth):
     """Encode the MDLP target into integer class labels (factorize for non-numeric, quantile pseudo-classes above the cap); returns the labels and the possibly capped depth."""
     _y_arr = np.asarray(y).ravel()
     if _y_arr.dtype.kind in ("O", "U", "S") or _y_arr.dtype.name in (

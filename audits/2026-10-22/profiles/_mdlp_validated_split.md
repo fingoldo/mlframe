@@ -17,3 +17,5 @@ scan. Switching `_mdlp_permutation_batch_njit`, `_permutation_null_gain_njit` an
 different draws: one test column got 58 edges instead of 60, and of two 20000 x 30 all-family fits one selected the same features and the other a different set
 (2 features against 5). Reverted. The MDLP-binned selection is sensitive to which permutations are drawn on this data; a faster shuffle that keeps the
 selection needs the same draws (the Mersenne Twister stream with numba's rejection sampling), not a different generator.
+Kept: `supervised_binning._encode_mdlp_target` remembers the last encoded target by content (hash of the bytes, shape, dtype, settings); the edge pool
+encoded the same y once per column (0.63 thread-s of a 0.40 s 30-column binning at 100000 rows). 30 columns: 0.423 -> 0.345 s, identical edges.
