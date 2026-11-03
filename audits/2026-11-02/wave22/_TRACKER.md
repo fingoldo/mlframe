@@ -16,7 +16,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | **RESOLVED** | W22COR-1 | High | `topk_by_partition` negated unsigned (wraps), bool (raises) and list inputs |
 | **RESOLVED** | W22COR-2 | High | `ensure_no_infinity_pd` crashed on nullable Float64 with NA and inf and dropped the extension dtype |
 | **RESOLVED** | W22COR-3 | Medium | `native_gpu_shap` builds `xgb.DMatrix(X)` without the model's `missing`, `enable_categorical` or `best_iteration`, so contributions sum to the full-tree margin |
-| **FUTURE** | W22COR-4 | Low | `polars_to_pandas` docstring promises dtype safety but nullable int columns with nulls become float64 |
+| **DOC** | W22COR-4 | Low | the polars-to-pandas view keeps dtypes only for columns without nulls (integers with nulls become float64, booleans with nulls nullable Int8, as pyarrow converts); the `get_pandas_view_of_polars_df` notes now say so and `tests/training/test_polars_pandas_view_null_column_dtypes.py` pins the outcome; keeping the integer dtype would need pandas nullable extension types, which the zero-copy path deliberately avoids |
 | **RESOLVED** | W22REP-1 | Medium | multiclass SHAP panels ranked by the last class only |
 | **RESOLVED** | W22REP-2 | Low | the leaderboard tie warning compared the top-two gap with an absolute 5e-3; it is now 0.5% of the largest score magnitude, so RMSE-scale and 1e-4-scale metrics tie sensibly (`tests/reporting/test_leaderboard_tie_threshold_scales_with_the_metric.py`) |
 

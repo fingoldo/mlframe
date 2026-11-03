@@ -568,6 +568,8 @@ def get_pandas_view_of_polars_df(
 
     Notes:
         - Numeric, boolean, string columns: zero-copy Arrow view.
+        - Dtype is kept only for columns without nulls: an integer column holding nulls becomes ``float64`` (nulls -> NaN) and a boolean
+          column holding nulls becomes a nullable ``Int8``, as pyarrow's pandas conversion does.
         - Categorical (dictionary) columns: preserved as ``pd.Categorical``
           (integer codes + categories dict). Polars emits dict arrays with
           uint32 indices, which pyarrow's ``to_pandas`` refuses; we rebuild
