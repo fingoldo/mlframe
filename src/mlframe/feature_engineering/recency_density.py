@@ -223,7 +223,7 @@ def per_group_recency_weighted_mode(
         starts, ends = _prefix_bounds(starts, ends)
     modes, _ = _dispatch_kde(v_sorted, starts, ends, SCHEMES.index(scheme), float(param), float(bandwidth), int(n_grid), 0.0)
     if causal and broadcast:
-        return _scatter_per_row(modes, sort_idx, n)
+        return np.asarray(_scatter_per_row(modes, sort_idx, n))
     return np.asarray(_scatter(modes, sort_idx, starts, ends, n, broadcast))
 
 
@@ -256,5 +256,5 @@ def per_group_behavioral_stability(
         starts, ends = _prefix_bounds(starts, ends)
     _, peaks = _dispatch_kde(v_sorted, starts, ends, SCHEMES.index(scheme), float(param), -1.0, int(n_grid), float(stability_span_frac))
     if causal and broadcast:
-        return _scatter_per_row(peaks, sort_idx, n)
+        return np.asarray(_scatter_per_row(peaks, sort_idx, n))
     return np.asarray(_scatter(peaks, sort_idx, starts, ends, n, broadcast))

@@ -414,7 +414,7 @@ def per_group_recency_weighted_agg(
         )
         out = np.empty_like(per_row)
         out[sort_idx] = per_row
-        return out
+        return np.asarray(out)
 
     if multi:
         per_group = _group_recency_weighted_agg_multi_sorted(v_sorted, starts, ends, scheme_code, params_arr, agg_code)
