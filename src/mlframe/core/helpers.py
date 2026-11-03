@@ -292,9 +292,11 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
             # tree splits on; replacing it with a plausible number is a silent corruption, and it only happened
             # in columns that happened to contain an infinity, so two otherwise identical frames could disagree.
             # This is the same masked form the ndarray sibling above uses and whose contract this one mirrors.
-            values = df[col].to_numpy(copy=True)
-            np.putmask(values, np.isinf(values), nans_filler)
-            df[col] = values
+            # Series.mask keeps the column's own dtype: a nullable Float64 column stays Float64, and its pd.NA no longer turns the array into object
+            # dtype that np.isinf rejects.
+            series = df[col]
+            inf_mask = np.isinf(series.to_numpy(dtype=np.float64, na_value=np.nan))
+            df[col] = series.mask(inf_mask, nans_filler)
         if verbose:
             logger.warning("Some factors (%s) contained infinity: %s", f"{len(inf_cols):_}", ", ".join(inf_cols))
     return df
