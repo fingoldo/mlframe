@@ -355,7 +355,9 @@ def _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, v
                 to_be_merged = col_unique_values[col_unique_values * nunique * max_rarevals_imbalance < st.nrows]
                 nan_vals_already_in_index = col_unique_values.index.isna().astype(int).sum()
                 nmerged = len(to_be_merged)
-                if nmerged >= (nunique - nan_vals_already_in_index):
+                # A NaN key is already the merge target, so it is neither a rare value to merge nor evidence the column is constant.
+                nmerged_non_nan = int((~to_be_merged.index.isna()).sum())
+                if nmerged_non_nan >= (nunique - nan_vals_already_in_index):
                     st.constant_features.add(col)
                     if verbose:
                         logger.info(

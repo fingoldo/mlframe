@@ -13,7 +13,7 @@ Six read-only reports by Opus 5.5 low-effort agents on packages no earlier wave 
 | **RESOLVED** | W20PRE-2 | Medium | `dro_reweight_fit` returned a model trained on the previous round's weights (the documented final full-data fit was missing) |
 | **RESOLVED** | W20PRE-3 | Medium | `unseen_category_imputer` nearest mode maps to a NaN-mean category for large or NaN queries |
 | **RESOLVED** | W20PRE-4 | Low-Medium | `smoothed_target_encode_column` shuffled its OOF folds with a fresh seed per call; default is now 0 |
-| **FUTURE** | W20PRE-5 | Low | cleaning helper counts the NaN key as a merged rare value and can drop a column that would be a binary indicator |
+| **RESOLVED** | W20PRE-5 | Low | the cleaning helper counted the NaN key among the rare values, so a column of one real value plus a lone NaN was flagged constant and dropped; the NaN key no longer counts toward the all-rare test (`tests/preprocessing/test_cleaning_nan_key_is_not_a_rare_value.py`; with the NaN key excluded, no column can be entirely rare, since the counts sum to the row count) |
 | **RESOLVED** | W20PRE-6 | Low | `gp_smoothing` raises KeyError on a NaN entity |
 | **RESOLVED** | W20INF-1 | High | `Leaderboard.elect_all` built its grid from the default settings, not the caller's `use_methods` |
 | **RESOLVED** | W20INF-2 | Medium | `find_weights_for_condorcet` accepted a weighted tie as feasible while `condorcet_election` needs a strict win; it now demands a 1e-6 weighted margin over every rival (`tests/votenrank/test_condorcet_weights_require_a_strict_win.py`) |
