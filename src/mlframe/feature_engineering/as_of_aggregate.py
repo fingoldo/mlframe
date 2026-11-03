@@ -90,9 +90,13 @@ def leakage_safe_aggregate(
             slow_fns = [fn for fn in fns if fn not in _FAST_AGGS]
 
             if fast_fns:
-                cumsum = np.concatenate([[0.0], np.cumsum(sorted_col.astype(np.float64))])
+                values = sorted_col.astype(np.float64)
+                valid = ~np.isnan(values)
+                # NaN history values are skipped like pandas does: one NaN must not poison every later sum / mean of the entity, and count is of non-NaN values
+                cumsum = np.concatenate([[0.0], np.cumsum(np.where(valid, values, 0.0))])
+                cumcount = np.concatenate([[0], np.cumsum(valid)])
                 col_sum = cumsum[n_eligible]
-                col_count = n_eligible
+                col_count = cumcount[n_eligible]
                 has_history = n_eligible > 0
                 if "sum" in fast_fns:
                     out_cols[f"{col}_sum"][row_positions] = np.where(has_history, col_sum, np.nan)
@@ -100,7 +104,7 @@ def leakage_safe_aggregate(
                     out_cols[f"{col}_count"][row_positions] = np.where(has_history, col_count, np.nan)
                 if "mean" in fast_fns:
                     with np.errstate(invalid="ignore", divide="ignore"):
-                        out_cols[f"{col}_mean"][row_positions] = np.where(has_history, col_sum / np.where(col_count == 0, 1, col_count), np.nan)
+                        out_cols[f"{col}_mean"][row_positions] = np.where(col_count > 0, col_sum / np.where(col_count == 0, 1, col_count), np.nan)
 
             if slow_fns:
                 for _i, (pos, n) in enumerate(zip(row_positions, n_eligible)):
