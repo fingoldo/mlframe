@@ -21,14 +21,16 @@ def split_report_slice(idx_hold: np.ndarray, X: Any, y: Any, fraction: float, cl
     The report rows are materialised here (full width, a small share of the rows) because the fit releases the full frame
     right after the split.
     """
-    if not fraction or fraction <= 0.0 or len(idx_hold) < 20:
+    if not fraction or fraction <= 0.0 or fraction >= 1.0 or len(idx_hold) < 20:
         return idx_hold, None
     from sklearn.model_selection import train_test_split
 
     y_arr = np.asarray(y)
     y_hold = y_arr[idx_hold]
     _, counts = np.unique(y_hold, return_counts=True)
-    stratify = y_hold if classification and counts.size > 1 and counts.min() >= 2 else None
+    n_rep = int(np.ceil(float(fraction) * len(idx_hold)))
+    # a stratified split needs at least one row per class on both sides: a tiny fraction of a small holdout cannot give that and used to raise
+    stratify = y_hold if classification and counts.size > 1 and counts.min() >= 2 and n_rep >= counts.size and len(idx_hold) - n_rep >= counts.size else None
     keep, rep = train_test_split(idx_hold, test_size=float(fraction), random_state=int(random_state), shuffle=True, stratify=stratify)
     X_report = X.iloc[rep].reset_index(drop=True) if hasattr(X, "iloc") else np.asarray(X)[rep]
     return np.asarray(keep), (X_report, y_arr[rep])
