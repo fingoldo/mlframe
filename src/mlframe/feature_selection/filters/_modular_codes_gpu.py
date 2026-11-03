@@ -82,7 +82,7 @@ def _sources_per_block(cp, n_rows: int, per_source: int) -> int:
     return int(max(1, (_BUDGET_FRACTION * room) // per))
 
 
-def modular_family_codes_gpu(X: pd.DataFrame, cols: Sequence[str], periods: Sequence[float], n_bins: int) -> "Optional[tuple[list[str], np.ndarray, np.ndarray]]":
+def modular_family_codes_gpu(X: pd.DataFrame, cols: Sequence[str], periods: Sequence[float], n_bins: int, family_elements: Optional[int] = None) -> "Optional[tuple[list[str], np.ndarray, np.ndarray]]":
     """``(names, codes, nx)`` of the modular candidates of ``cols`` (``modular_candidate_block`` names and order; ``family_codes_of_rows`` codes of its rows), or
     ``None`` when the device path does not apply or fails (the caller then builds the pool on the host)."""
     from ._periodic_fe import _numeric_cols, engineered_name_modular
@@ -91,7 +91,9 @@ def modular_family_codes_gpu(X: pd.DataFrame, cols: Sequence[str], periods: Sequ
     periods = tuple(float(p) for p in periods if float(p) > 0.0)
     n = len(X)
     per_source = 3 * len(periods)
-    if not cols or not periods or n < 2 or not _use_device(len(cols) * per_source * n):
+    # ``family_elements``: the candidate count of the whole gate (every chunk of source columns) times the rows, so all chunks of one family take the same path;
+    # judged per chunk, the last, smaller chunk fell below the strict-resident bound and took the host pool while the others ran here
+    if not cols or not periods or n < 2 or not _use_device(int(family_elements) if family_elements is not None else len(cols) * per_source * n):
         return None
     try:
         import cupy as cp
