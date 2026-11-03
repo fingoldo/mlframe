@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Optional, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -676,7 +676,7 @@ def _replay_recipes_single_pass(recipes: list, _X_for_recipes: Any, _col_cache: 
     return engineered_cols
 
 
-def _replay_recipes_chained(recipes: list, _X_for_recipes: pd.DataFrame, _col_cache: dict, _basis_cache: dict) -> list:
+def _replay_recipes_chained(recipes: list, _X_for_recipes: pd.DataFrame, _col_cache: dict, _basis_cache: dict, raw_names: Optional[Sequence] = None) -> list:
     """Replay ``recipes`` on a pandas frame with dependency-aware multi-pass chaining; returns the engineered columns in recipe order."""
     # Lazy import keeps import-time cost off MRMR users who never engage FE.
     from .engineered_recipes import apply_recipe
@@ -768,6 +768,14 @@ def _replay_recipes_chained(recipes: list, _X_for_recipes: pd.DataFrame, _col_ca
                 # and must fail loudly and name the column. Chained-capable kinds (modular / numeric_decompose / numeric_rounding /
                 # orth_spline / cross families) may reference an engineered intermediate that fit-time pruning dropped its producer for;
                 # that source is unreconstructable at transform, so emit a NaN column rather than crash.
+                _raw_known = {str(n) for n in raw_names} if raw_names is not None else set()
+                _raw_missing = [m for m in _missing if str(m) in _raw_known]
+                if _raw_missing:
+                    # A raw input column the recipe reads is gone from X: a zero column here would feed the downstream model garbage silently.
+                    raise KeyError(
+                        f"MRMR.transform: recipe {r.name!r} (kind={r.kind}) reads input column(s) {_raw_missing} that are absent from X; "
+                        f"pass the full fit-time columns, not only the selected ones."
+                    )
                 if r.kind in _RAW_SEED_ONLY_RECIPE_KINDS:
                     raise KeyError(
                         f"MRMR.transform: recipe {r.name!r} (kind={r.kind}) references "
@@ -903,7 +911,7 @@ def _append_engineered(self, base_out, X, recipes):
     # Falls back transparently to the legacy single-pass behaviour for recipes whose
     # src_names point only at raw input columns.
     if isinstance(_X_for_recipes, pd.DataFrame):
-        engineered_cols = _replay_recipes_chained(recipes, _X_for_recipes, _col_cache, _basis_cache)
+        engineered_cols = _replay_recipes_chained(recipes, _X_for_recipes, _col_cache, _basis_cache, getattr(self, "feature_names_in_", None))
     else:
         engineered_cols = _replay_recipes_single_pass(recipes, _X_for_recipes, _col_cache, _basis_cache)
     return _assemble_engineered_output(base_out, engineered_cols, recipes)
