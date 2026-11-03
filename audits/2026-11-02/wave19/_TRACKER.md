@@ -16,7 +16,7 @@ Six read-only reports by Opus 5.5 low-effort agents on the areas waves 17 and 18
 | **RESOLVED** | W19EST-4 | Medium | a label without positives got class weight 1e6 and shrank every other label's weight to ~0 |
 | **RESOLVED** | W19EST-5 | Medium | `init_evaluate_ascending/descending` ordered numeric candidates by their string form (9 before 100) |
 | **RESOLVED** | W19EST-6 | Medium | a NaN evaluation reached the surrogate refit and crashed it |
-| **FUTURE** | W19EST-7 | Low | `rf_outlier_measure` casts `y` to int64, merging float labels 0.2 / 0.7 and rejecting strings; fix is `np.unique(return_inverse=True)` |
+| **RESOLVED** | W19EST-7 | Low | `rf_outlier_measure` cast `y` to int64, merging float labels 0.2 / 0.7 and rejecting strings; classes now come from `np.unique(return_inverse=True)` (`tests/models/test_rf_outlier_measure_class_labels.py`) |
 | **RESOLVED** | W19EVA-1 | High | the temporal leak scan broke rank ties by row order, so a constant column correlated 0.87 with a time-ordered split and was flagged |
 | **RESOLVED** | W19EVA-2 | Medium | NaNs ranked last in the leak scan; `correlation` now uses each column's finite rows and the report gains `missing_correlation` (the missingness indicator against the split label), either crossing the threshold sets `flagged` (`tests/evaluation/test_leak_scan_missingness_is_separate.py`) |
 | **RESOLVED** | W19EVA-3 | Medium | `_stratified_class_book` keyed classes by `int(label)` (fractional labels merged, strings raised) |

@@ -126,9 +126,13 @@ def rf_outlier_measure(proximity: np.ndarray, y: np.ndarray | None = None) -> np
     """
     prox = np.asarray(proximity, dtype=np.float64)
     n = prox.shape[0]
-    yy = np.zeros(n, dtype=np.int64) if y is None else np.ascontiguousarray(y).astype(np.int64).ravel()
-    if yy.shape[0] != n:
-        raise ValueError("rf_outlier_measure: y length must match the proximity matrix size.")
+    if y is None:
+        yy = np.zeros(n, dtype=np.int64)
+    else:
+        y_flat = np.asarray(y).ravel()
+        if y_flat.shape[0] != n:
+            raise ValueError("rf_outlier_measure: y length must match the proximity matrix size.")
+        yy = np.unique(y_flat, return_inverse=True)[1].astype(np.int64).ravel()
 
     raw = np.empty(n, dtype=np.float64)
     p2 = prox * prox
