@@ -254,6 +254,16 @@ def _stamp_surviving_members(res: dict, members) -> None:
 _WEIGHT_FIT_SOURCES = frozenset({"oof", "calib"})
 
 
+def _record_weights_not_applied(res: dict, gate_source_split: Optional[str]) -> None:
+    """Stamp the stacking gate result and warn that fitted blend weights were withheld because their source split is not out-of-fold."""
+    res["_stacking_gate"]["applied_to_blend"] = False
+    res["_stacking_gate"]["weights_skipped_reason"] = f"gate source {gate_source_split!r} is not out-of-fold"
+    logger.warning(
+        "[ensemble] blend weights not applied: gate source split=%s is not oof/calib, so a weight fit on it would be biased; using the uniform blend.",
+        gate_source_split,
+    )
+
+
 def run_stacking_aware_gate(
     enable_stacking_aware_gate: bool,
     _gate_preds_for_check: Optional[Sequence[np.ndarray]],
@@ -343,12 +353,7 @@ def run_stacking_aware_gate(
             # for the observational report).
             _weights_trustworthy = gate_source_split is None or gate_source_split in _WEIGHT_FIT_SOURCES
             if (use_nnls_weights or use_caruana_weights) and _saw_survivors and not _weights_trustworthy:
-                res["_stacking_gate"]["applied_to_blend"] = False
-                res["_stacking_gate"]["weights_skipped_reason"] = f"gate source {gate_source_split!r} is not out-of-fold"
-                logger.warning(
-                    "[ensemble] blend weights not applied: gate source split=%s is not oof/calib, so a weight fit on it would be biased; using the uniform blend.",
-                    gate_source_split,
-                )
+                _record_weights_not_applied(res, gate_source_split)
             elif (use_nnls_weights or use_caruana_weights) and _saw_survivors:
                 _w_aligned = np.zeros(len(level_models_and_predictions), dtype=np.float64)
                 _surv_set = set(_saw_survivors)

@@ -262,6 +262,24 @@ def _recency_weight(scheme_code, param, m, i):
 
 
 @njit(fastmath=False, cache=True)
+def _weighted_sum_or_extreme(v_sorted: np.ndarray, s: int, m: int, scheme_code: int, param: float, agg_code: int) -> float:
+    """Sum (``agg_code`` 1), min (2) or max (3) of the recency-weighted values of the group ``v_sorted[s:s+m]``, skipping NaN."""
+    acc = 0.0 if agg_code == 1 else np.nan
+    for pos in range(m):
+        w = _recency_weight(scheme_code, param, m, m - pos)
+        wv = w * v_sorted[s + pos]
+        if np.isnan(wv):
+            continue
+        if agg_code == 1:
+            acc += wv
+        elif agg_code == 2:
+            acc = wv if (np.isnan(acc) or wv < acc) else acc
+        else:
+            acc = wv if (np.isnan(acc) or wv > acc) else acc
+    return acc
+
+
+@njit(fastmath=False, cache=True)
 def _group_recency_weighted_agg_multi_sorted(
     v_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, scheme_code: int, params: np.ndarray, agg_code: int
 ) -> np.ndarray:
@@ -315,20 +333,7 @@ def _group_recency_weighted_agg_multi_sorted(
                 var = sq / den
                 out[g, k] = np.sqrt(var) if agg_code == 4 else var
             else:
-                acc = 0.0 if agg_code == 1 else np.nan
-                for pos in range(m):
-                    i = m - pos
-                    w = _recency_weight(scheme_code, param, m, i)
-                    wv = w * v_sorted[s + pos]
-                    if np.isnan(wv):
-                        continue
-                    if agg_code == 1:
-                        acc += wv
-                    elif agg_code == 2:
-                        acc = wv if (np.isnan(acc) or wv < acc) else acc
-                    else:
-                        acc = wv if (np.isnan(acc) or wv > acc) else acc
-                out[g, k] = acc
+                out[g, k] = _weighted_sum_or_extreme(v_sorted, s, m, scheme_code, param, agg_code)
     return out
 
 
