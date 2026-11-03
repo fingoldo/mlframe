@@ -264,6 +264,25 @@ def _record_weights_not_applied(res: dict, gate_source_split: Optional[str]) -> 
     )
 
 
+def _align_and_record_weights(res, ordered_tags, survivors, weights, n_members, member_tags, weight_method, verbose) -> Optional[np.ndarray]:
+    """Length-``n_members`` normalised weight vector for the surviving members (zero elsewhere), recorded in ``res["_stacking_gate"]``; None when all weights vanish."""
+    w_aligned = np.zeros(n_members, dtype=np.float64)
+    surv_set = set(survivors)
+    for i, tag in enumerate(ordered_tags):
+        if tag and tag in surv_set:
+            w_aligned[i] = float(weights.get(tag, 0.0))
+    wsum = float(w_aligned.sum())
+    if wsum <= 0.0:
+        res["_stacking_gate"]["applied_to_blend"] = False
+        return None
+    w_aligned = w_aligned / wsum
+    res["_stacking_gate"]["aligned_weights"] = w_aligned.tolist()
+    res["_stacking_gate"]["applied_to_blend"] = True
+    if verbose:
+        logger.info("[ensemble] %s weights applied to blend: %s", weight_method, {member_tags[i]: float(w_aligned[i]) for i in range(n_members)})
+    return w_aligned
+
+
 def run_stacking_aware_gate(
     enable_stacking_aware_gate: bool,
     _gate_preds_for_check: Optional[Sequence[np.ndarray]],
@@ -355,25 +374,9 @@ def run_stacking_aware_gate(
             if (use_nnls_weights or use_caruana_weights) and _saw_survivors and not _weights_trustworthy:
                 _record_weights_not_applied(res, gate_source_split)
             elif (use_nnls_weights or use_caruana_weights) and _saw_survivors:
-                _w_aligned = np.zeros(len(level_models_and_predictions), dtype=np.float64)
-                _surv_set = set(_saw_survivors)
-                for i, _tag in enumerate(_ordered_tags):
-                    if _tag and _tag in _surv_set:
-                        _w_aligned[i] = float(_saw_weights.get(_tag, 0.0))
-                _wsum = float(_w_aligned.sum())
-                if _wsum > 0.0:
-                    _w_aligned = _w_aligned / _wsum
-                    _nnls_weights_for_blend = _w_aligned
-                    res["_stacking_gate"]["aligned_weights"] = _w_aligned.tolist()
-                    res["_stacking_gate"]["applied_to_blend"] = True
-                    if verbose:
-                        logger.info(
-                            "[ensemble] %s weights applied to blend: %s",
-                            _weight_method,
-                            {_ensemble_member_tags[i]: float(_w_aligned[i]) for i in range(len(_w_aligned))},
-                        )
-                else:
-                    res["_stacking_gate"]["applied_to_blend"] = False
+                _nnls_weights_for_blend = _align_and_record_weights(
+                    res, _ordered_tags, _saw_survivors, _saw_weights, len(level_models_and_predictions), _ensemble_member_tags, _weight_method, verbose
+                )
             else:
                 res["_stacking_gate"]["applied_to_blend"] = False
     except Exception as _saw_err:  # pragma: no cover -- defensive
