@@ -179,3 +179,44 @@ The copies themselves cost ~0.2 s of GPU time; the API seconds are the host bloc
 Upper bound of removing every sync: ~2.4 s of the 25 s window (~10%), less in practice since the host does real work between them. The rest of the
 wall is host code (Python, numpy, pandas, numba CPU kernels) spread over every family at <= ~1.5 s per item (stage_sample). Further large cuts need
 host-side work moved or removed, not faster kernels.
+
+## Utilization baseline, 100k x 100 all families GPU (2026-11-03, stage_sample5: pynvml + psutil every 0.2 s, samples attributed to the main-thread stage)
+WALL 101.1 s. GPU busy mean 18.5%, median 4%, < 10% busy 61% of the fit, memory peak 2.73 GB. CPU (8 logical) mean 44.8%, median 39.4%, < 50% for 67% of the fit.
+Per stage (seconds, GPU %, CPU %):
+      10.6s gpu   5.6% cpu  55.2%  _fit_body_run_fit_impl
+       4.0s gpu  24.8% cpu  44.9%  _stage_binned_numeric_agg
+       3.8s gpu  15.0% cpu  37.4%  score_prospective_pairs
+       3.4s gpu  63.2% cpu  41.5%  honest_null_columns_device
+       3.4s gpu   4.2% cpu  35.3%  screen_predictors
+       3.2s gpu  32.8% cpu  56.5%  score_features_by_bootstrap_mi
+       2.6s gpu  58.6% cpu  33.3%  _emit_pair_features_step2_read_here_once_part1
+       2.6s gpu  23.8% cpu  51.7%  generate_extra_basis_features
+       2.4s gpu  27.4% cpu  50.4%  hybrid_modular_fe
+       1.8s gpu  10.0% cpu  70.8%  score_features_by_auto_scorer_uplift
+       1.8s gpu   9.8% cpu  45.1%  generate_univariate_basis_features
+       1.8s gpu   6.1% cpu  37.1%  generate_wavelet_features
+       1.8s gpu   1.8% cpu  77.4%  score_grouped_quantile_by_mi_uplift
+       1.6s gpu  42.9% cpu  30.7%  hybrid_conditional_gate_fe_with_recipes
+       1.6s gpu  18.9% cpu  33.3%  hybrid_orth_mi_fe
+       1.6s gpu   1.8% cpu  61.7%  propose_gradient_interaction_pairs
+       1.4s gpu  12.6% cpu  36.0%  hybrid_orth_mi_three_gate_fe
+       1.4s gpu   1.4% cpu  55.6%  _gate_engineered_accuracy
+       1.4s gpu   1.1% cpu  47.8%  generate_grouped_quantile_features
+       1.2s gpu  26.8% cpu  38.4%  score_quadruplet_cross_basis_by_mi_uplift
+       1.2s gpu  25.8% cpu  44.7%  hybrid_row_argmax_fe_with_recipes
+       1.2s gpu   3.8% cpu  66.8%  score_triplet_cross_basis_by_cmi
+       1.2s gpu   2.5% cpu  53.6%  score_features_by_cmim
+       1.2s gpu   2.0% cpu  52.4%  generate_composite_group_agg_features
+       1.2s gpu   1.8% cpu  77.7%  generate_group_distance_features
+       1.0s gpu  73.8% cpu  41.3%  compute_pair_mis_and_floor
+       1.0s gpu  19.2% cpu  28.4%  generate_hinge_features
+       1.0s gpu  15.0% cpu  26.0%  generate_quadruplet_cross_basis_features
+       1.0s gpu  13.4% cpu  24.7%  hybrid_parity_fe_with_recipes
+       1.0s gpu   7.2% cpu  49.1%  score_features_by_ensemble_uplift
+       1.0s gpu   3.2% cpu  21.6%  generate_conditional_quantile_rank_features
+       1.0s gpu   2.6% cpu  39.0%  score_features_by_jmim
+       1.0s gpu   1.8% cpu  64.6%  score_features_by_kfold_oof_mi
+       1.0s gpu   1.8% cpu  46.0%  _fe_stage_cascade_early_a_part1
+Reading: the pair / triple arithmetic stages are already GPU-heavy (compute_pair_mis 74%, honest null 63%, pair emit 59%); the idle stretches are host-only
+families and glue (fit body 10.6 s at 6%, screen_predictors 3.4 s at 4%, grouped-quantile / group-distance / composite-agg / CMIM / JMIM / k-fold OOF MI / LightGBM
+gradient pairs / accuracy gate at 1-4%). A fused all-families pair kernel raises the busy part; the 0% part needs those families on the device.
