@@ -91,6 +91,8 @@ from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 import logging
 from typing import Optional, Sequence
 
+from typing import Any
+
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
@@ -270,6 +272,16 @@ def _jmim_reference_bins(raw_X: pd.DataFrame, engineered_X: pd.DataFrame, curren
     return sel_bins, sel_ks
 
 
+def _jmim_check_aligned(raw_X: pd.DataFrame, engineered_X: pd.DataFrame, y: Any) -> None:
+    """Raise unless ``raw_X``, ``engineered_X`` and ``y`` share their row count (:func:`score_features_by_jmim` aligns them by position)."""
+    if len(raw_X) != len(engineered_X):
+        raise ValueError(
+            f"score_features_by_jmim: raw_X has {len(raw_X)} rows but " f"engineered_X has {len(engineered_X)}; positional row " f"alignment required."
+        )
+    if len(raw_X) != length_of(y):
+        raise ValueError(f"score_features_by_jmim: raw_X has {len(raw_X)} rows but " f"y has {length_of(y)}; positional row alignment " f"required.")
+
+
 def score_features_by_jmim(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -320,18 +332,9 @@ def score_features_by_jmim(
     VALUES are JMIM (not marginal MI) but the ranking semantics are
     identical (higher = better).
     """
-    if len(raw_X) != len(engineered_X):
-        raise ValueError(
-            f"score_features_by_jmim: raw_X has {len(raw_X)} rows but " f"engineered_X has {len(engineered_X)}; positional row " f"alignment required."
-        )
-    if len(raw_X) != length_of(y):
-        raise ValueError(f"score_features_by_jmim: raw_X has {len(raw_X)} rows but " f"y has {length_of(y)}; positional row alignment " f"required.")
-    empty_cols = [
-        "engineered_col", "source_col",
-        "baseline_mi", "engineered_mi", "uplift",
-    ]
+    _jmim_check_aligned(raw_X, engineered_X, y)
     if engineered_X.empty:
-        return pd.DataFrame(columns=empty_cols)
+        return pd.DataFrame(columns=["engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift"])
 
     # Per-source baseline marginal MI - used to populate the ``uplift``
     # column so the JMIM ranking is comparable across columns with very
