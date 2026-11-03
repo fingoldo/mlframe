@@ -171,3 +171,11 @@ The selections differ (known since 2026-10-31) but the GPU one is not worse: equ
 Later the same day: after the sort / joint-histogram changes 96.2 s; after `mlframe-tune-kernels ensure` filled the missing / stale entries (bootstrap tied device,
 LOF device, DTW dispatch, the two kernel-parallelism specs; the "tuning cache is cold" warning is gone) 96.8 s. Same 6 selected features, no tracebacks.
 Five clean 100k runs today: 91.5, 101.1, 98.0, 96.2, 96.8 s.
+
+## Where the 100k GPU fit's time is now (nsys window, 25 s at 70 s, 2026-11-03)
+GPU kernels 2.80 s (~11% busy). Copies by size (GPU time): H2D 1-32 MB 53 copies 478 MB 102 ms, H2D >= 32 MB 5 copies 230 MB 53 ms, D2H < 1 MB 217 copies 24 ms,
+H2D < 1 MB 458 copies 22 ms, D2H < 4 KB 1666 copies (scalar reads) 1.4 ms. CUDA API: cudaMemcpyAsync 1.68 s, cudaStreamSynchronize 0.75 s, launches 0.52 s.
+The copies themselves cost ~0.2 s of GPU time; the API seconds are the host blocking on queued work at ~67 scalar reads / s plus explicit syncs.
+Upper bound of removing every sync: ~2.4 s of the 25 s window (~10%), less in practice since the host does real work between them. The rest of the
+wall is host code (Python, numpy, pandas, numba CPU kernels) spread over every family at <= ~1.5 s per item (stage_sample). Further large cuts need
+host-side work moved or removed, not faster kernels.
