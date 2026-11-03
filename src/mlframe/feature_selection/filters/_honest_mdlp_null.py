@@ -422,6 +422,12 @@ def honest_candidate_nfailed(
         return int(np.count_nonzero(plain[:, 0] >= observed)), observed
     rng = np.random.default_rng(0 if seed is None else int(seed))
     base_seed = int(rng.integers(0, 2**31 - 1))
+    from ._honest_oj_fused import fused_column_nfailed
+
+    # optimal_joint / cv: the fused floor already scored every pool column under these permutations and rows; a pool column's count is a lookup
+    kept = fused_column_nfailed(honest_codes_fn, int(col), observed, int(n_permutations), base_seed, n, rows)
+    if kept is not None:
+        return kept, observed
     column_codes = getattr(honest_codes_fn, "column", None)  # bins one column under a permuted target when the hook can (a candidate needs one column per permutation)
     if column_codes is not None:
         pooled = _column_nfailed_pooled(column_codes, n, int(col), rows, y_full, observed, int(n_permutations), base_seed)

@@ -35,3 +35,10 @@ reuses the bitmask popcounts for a binary target code: 0.05 s per block. Null ma
 optimal_joint 100k fit 146.9 s (floor total 12.4 s, permutation scoring 5.8 s). The host/device choice now has its own KTC sweep
 (`_sweep_winners`, entry `fe_scorer_device_honest_oj_winners`): one 64-permutation block, 30k rows x 300 cells: host 0.063 s,
 device 0.016 s, same picks.
+
+## 2026-11-04: candidate null from the floor
+
+`honest_candidate_nfailed` re-binned each candidate column under its 99 permutations (0.13-0.15 s per call at 30k; 14.2 s per
+100k fit). Its stream is the head of the floor stream (same `base_seed`), so the fused floor keeps the device pool step plain MI
+(999 x pool) and a pool column count is a lookup (0.001 s). 24/24 calls at 30k equal the pooled path, including `None` for
+engineered columns past the binner outputs. CPU-floor runs keep no matrix; candidates then take the pooled path.

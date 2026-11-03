@@ -380,7 +380,8 @@ def _val_index(packed):
 
 
 def _score_block(dev, dev_pool, perms, y_int, yc, rows, xb, kx, nv, val_idx, px, pool_args):
-    """Null maxima of one block of permutations: the winners on the device when ``dev`` is set (the pool on the CPU), else the CPU kernel."""
+    """``(null maxima, plain MI (B, pool) or None)`` of one block of permutations: the winners on the device when ``dev`` is set and the pool there too when
+    ``dev_pool`` is (which also returns every pool column's MI), else the CPU kernels."""
     out = np.empty(perms.shape[0], dtype=np.float64)  # Intentional float64: statistic vector
     picks = None
     if dev is not None:
@@ -390,7 +391,7 @@ def _score_block(dev, dev_pool, perms, y_int, yc, rows, xb, kx, nv, val_idx, px,
             logger.debug("device winners failed (%s: %s); CPU kernel", type(exc).__name__, exc)
     if picks is not None and dev_pool is not None:
         try:
-            return dev_pool.maxima(perms, picks, pool_args[-1])
+            return dev_pool.maxima(perms, picks, pool_args[-1]), dev_pool.last_mi
         except Exception as exc:
             logger.debug("device pool failed (%s: %s); CPU pool", type(exc).__name__, exc)
     if picks is not None:
@@ -399,7 +400,7 @@ def _score_block(dev, dev_pool, perms, y_int, yc, rows, xb, kx, nv, val_idx, px,
         _pool_block(perms, picks, yc, rows, *pool_args, out)
     else:
         _fused_block_minority(perms, y_int, yc, rows, xb, kx, nv, val_idx, px, *pool_args, out)
-    return out
+    return out, None
 
 
 def _floor(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, cols, n_permutations, quantile, base_seed, eval_rows):
@@ -461,11 +462,40 @@ def _floor_body(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_i
     dev_pool = device_pool(dev, pool_dep, pool_rc, pool_nb, pool_kxe, yc, rows)
     pool_args = (pool_dep, pool_rc, pool_nb, pool_kxe, float(len(rows)))
     nulls = np.empty(int(n_permutations), dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
+    mi_blocks: "list | None" = []
     for b0 in range(0, int(n_permutations), _PERM_BLOCK):
         b1 = min(int(n_permutations), b0 + _PERM_BLOCK)
         perms = _perm_block(n, base_seed, b0, b1)
-        out = _score_block(dev, dev_pool, perms, y_int, yc, rows, packed["xb"], kx, nv, val_idx, px, pool_args)
+        out, mi = _score_block(dev, dev_pool, perms, y_int, yc, rows, packed["xb"], kx, nv, val_idx, px, pool_args)
         if np.isneginf(out).any():
             raise _DeclineError("a column had no scored candidate count in some permutation")
         nulls[b0:b1] = out
+        mi_blocks = None if (mi_blocks is None or mi is None) else [*mi_blocks, mi]
+    if mi_blocks:
+        binner._fused_null_mi = (_null_key(base_seed, n_permutations, n, rows), {int(c): t for t, c in enumerate(cols)}, np.concatenate(mi_blocks))
     return float(np.quantile(nulls, float(quantile), method="higher"))
+
+
+def _null_key(base_seed, n_permutations, n, rows) -> tuple:
+    """What the pool's per-permutation MI depends on besides the binner: the permutation stream, its length, the rows count and the evaluation rows."""
+    import hashlib
+
+    return int(base_seed), int(n_permutations), int(n), hashlib.blake2b(np.ascontiguousarray(rows, dtype=np.int64).tobytes(), digest_size=16).hexdigest()
+
+
+def fused_column_nfailed(honest_codes_fn: Any, col: int, observed: float, n_permutations: int, base_seed: int, n: int, rows: np.ndarray) -> Optional[int]:
+    """``honest_candidate_nfailed``'s exceedance count of pool column ``col`` from the per-permutation MI the fused floor kept (same permutations, rows and
+    codes: the column's winning code row under each permuted target; the candidate's shorter run is the head of the floor's stream), or ``None`` when the
+    floor kept none for this stream and rows or the column is not in its pool."""
+    binner = getattr(honest_codes_fn, "binner", None)
+    kept = getattr(binner, "_fused_null_mi", None)
+    if kept is None:
+        return None
+    k_seed, k_perms, k_n, k_rows = kept[0]
+    # permutation b of a stream is seeded ``base_seed + b``: a shorter run of the same stream is the floor's first ``n_permutations``
+    if (k_seed, k_n) != (int(base_seed), int(n)) or int(n_permutations) > k_perms or k_rows != _null_key(base_seed, n_permutations, n, rows)[3]:
+        return None
+    t = kept[1].get(int(col))
+    if t is None or int(col) >= len(binner._out_names):
+        return None  # an engineered column appended after binning: the honest codes do not cover it (the caller's contract is ``None``)
+    return int(np.count_nonzero(kept[2][: int(n_permutations), t] >= observed))

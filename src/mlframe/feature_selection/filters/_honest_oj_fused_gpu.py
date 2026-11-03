@@ -472,6 +472,7 @@ class DevicePool:
         res = cp.maximum(corr.max(axis=1), 0.0)
         out = np.asarray(cp.asnumpy(res), dtype=np.float64)  # Intentional float64: statistic vector
         out[bad] = -np.inf
+        self.last_mi = np.asarray(cp.asnumpy(sel), dtype=np.float64)  # Intentional float64: (B, T) plain MI of the block, kept for the candidates' null
         return out
 
 
