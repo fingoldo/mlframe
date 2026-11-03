@@ -158,7 +158,7 @@ def binary_decile_table_figure(
     cells.append(total_row)
 
     caption = (
-        "Rows sorted by score, decile 1 = top-scored 10%. response = positive rate in that decile; "
+        f"Rows sorted by score, decile 1 = top-scored {100 / eff_deciles:g}%. response = positive rate in that decile; "
         "cum gain = share of all positives captured by deciles 1..d; lift = that capture rate vs. overall "
         "prevalence (1.00 = random); cum KS = |cum.%positives - cum.%negatives| through decile d."
     )

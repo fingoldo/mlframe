@@ -74,6 +74,9 @@ def flatten_classification_report(cr: dict, separate_metrics: Sequence[str] = ("
         if metric in cr:
             res[source + metric] = cr.pop(metric)
     for class_or_avg, metrics_dict in cr.items():
+        if not isinstance(metrics_dict, dict):
+            res[source + str(class_or_avg)] = metrics_dict
+            continue
         prefix = class_or_avg if class_or_avg in ("macro avg", "weighted avg") else "class " + str(class_or_avg)
         for metric, value in metrics_dict.items():
             res[source + prefix + "_" + metric] = value
