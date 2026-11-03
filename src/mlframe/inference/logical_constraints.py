@@ -197,7 +197,7 @@ def apply_logical_constraints(
 def _apply_hard_pass(out: np.ndarray, rules: Sequence, n_labels: int) -> np.ndarray:
     """One ordered pass of the hard swap over every rule, on the fastest available backend."""
     if not _NUMBA_AVAILABLE:
-        return _apply_numpy(out, rules)  # type: ignore[arg-type]
+        return _apply_numpy(out, rules)
 
     rules_arr = np.asarray(rules, dtype=np.int64)
     n = out.shape[0]
