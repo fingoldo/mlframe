@@ -125,7 +125,7 @@ def recency_weighted_rolling_mean(
     sorted_groups = group_ids[sort_idx]
     sorted_values = values[sort_idx]
 
-    change_points = np.flatnonzero(np.diff(sorted_groups)) + 1
+    change_points = np.flatnonzero(sorted_groups[1:] != sorted_groups[:-1]) + 1
     starts = np.concatenate(([0], change_points))
     ends = np.concatenate((change_points, [n]))
 
@@ -244,7 +244,7 @@ def recency_weighted_rolling_std(
     sorted_groups = group_ids[sort_idx]
     sorted_values = values[sort_idx]
 
-    change_points = np.flatnonzero(np.diff(sorted_groups)) + 1
+    change_points = np.flatnonzero(sorted_groups[1:] != sorted_groups[:-1]) + 1
     starts = np.concatenate(([0], change_points))
     ends = np.concatenate((change_points, [n]))
 
