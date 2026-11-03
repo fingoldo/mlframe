@@ -36,3 +36,6 @@ the same bounds are now found by walking out from the point's own sorted positio
 0.60 -> 0.45 s (3 classes).
 `_orthogonal_xi_fe._xi_columns_radix_njit` (float32 columns): `lexsort((perm, col))` as a stable 4-pass LSD radix sort of the order-preserving keys started from the
 `perm` order, instead of a mergesort plus a re-sort of every tie block. Bit-identical Xi; 302 columns x 30000 rows 0.41 -> 0.28 s.
+Per-scorer split after the KSG / xi changes (warm, thread-summed, 30000-row subsample, 5 resamples): KSG 2.16, copula 1.79, tail dependence 1.65, HSIC 1.54,
+xi 1.30, dCor 0.98, plug-in 0.40 s. `_orthogonal_copula_mi_fe._copula_columns_radix_njit` (float32 rows): the tie runs from a 4-pass LSD radix sort instead
+of a mergesort (the MI depends only on the runs); bit-identical, 300 columns x 30000 rows 0.202 -> 0.050 s.
