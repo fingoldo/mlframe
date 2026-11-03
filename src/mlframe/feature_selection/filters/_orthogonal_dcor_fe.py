@@ -190,7 +190,8 @@ def distance_correlation(
         Seed for the deterministic subsample. Ignored when
         ``n <= n_sample``.
     """
-    x_arr = np.asarray(x, dtype=_crit_np_dtype()).ravel()
+    # Intentional float64: both sides are read in double, as the distance matrices are built: rounding only x to float32 made dCor(x, y) != dCor(y, x)
+    x_arr = np.asarray(x, dtype=np.float64).ravel()
     # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     if x_arr.shape[0] != y_arr.shape[0]:
