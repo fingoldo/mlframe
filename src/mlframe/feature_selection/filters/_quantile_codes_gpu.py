@@ -39,8 +39,13 @@ _SRC = r"""
 extern "C" __global__ void quantile_codes_{TAG}(const {REAL}* __restrict__ V, const double* __restrict__ EDGES, const unsigned char* __restrict__ KEEP,
                                                const int* __restrict__ HI_CODE, const long long n, const int nb1, short* __restrict__ codes) {
     const int col = blockIdx.y;
-    const double* e = EDGES + (long long)col * nb1;
-    const unsigned char* kp = KEEP + (long long)col * nb1;
+    __shared__ double se[256];          // this column's edges and keep flags, read for every value: one load per block instead of a global read per value
+    __shared__ unsigned char sk[256];
+    const bool cached = nb1 <= 256;
+    if (cached) for (int b = threadIdx.x; b < nb1; b += blockDim.x) { se[b] = EDGES[(long long)col * nb1 + b]; sk[b] = KEEP[(long long)col * nb1 + b]; }
+    __syncthreads();
+    const double* e = cached ? se : EDGES + (long long)col * nb1;
+    const unsigned char* kp = cached ? sk : KEEP + (long long)col * nb1;
     const int hi_code = HI_CODE[col];
     const {REAL}* v = V + (long long)col * n;
     short* out = codes + (long long)col * n;
