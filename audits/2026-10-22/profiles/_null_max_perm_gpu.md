@@ -24,6 +24,7 @@ MDLP null, the pair pooled floor (device RNG) and the CMI null cannot share it w
 ## Streamed null (`_streamed_gpu_mi.null_max_streamed`) on the shared kernel (2026-11-03)
 Each column block now goes through `null_max_mi_perms_gpu` (keep_dtype=True), one launch per block of permutations instead of one per permutation;
 `MLFRAME_STRICT_NULL_BATCHED=0` or a non-applicable case keeps the per-permutation launches. Bit-identical (float32/float64, 2 and 3 classes).
-100k x 60 float32, two blocks, alternating in-process runs: 20 permutations 0.076 s both ways; 200 permutations 0.64-0.99 s (loop) vs 0.63-0.76 s (batched),
-within the noise. The counting work dominates, not launches. Kept for the architecture: three of the null implementations now share one kernel.
+100k x 60 float32, two blocks, 4 alternating in-process runs each: 20 permutations 0.074-0.091 s (loop) vs 0.055-0.060 s (batched);
+200 permutations 0.60-0.66 s vs 0.36-0.41 s. (A first measurement that showed no difference had imported the main checkout instead of this tree.)
+Kept for the architecture: three of the null implementations now share one kernel.
 The candidate storage type is the `{XT}` placeholder of that kernel (`_MODULES_BY_X`, one module per type, CUDA.md); MI terms and sum stay double.
