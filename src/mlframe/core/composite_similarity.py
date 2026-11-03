@@ -79,6 +79,14 @@ if _HAS_NUMBA:
     _knn_loo_predict_impl = numba.njit(cache=True, nogil=True)(_knn_loo_predict_impl)
 
 
+def _loo_class_vote(S: np.ndarray, y: np.ndarray, k: int) -> np.ndarray:
+    """Leave-one-out kNN class prediction by weighted vote per class. The weighted MEAN of the labels, rounded at 0.5, is only a vote for {0, 1}: for
+    {0, 1, 2} it predicts 0 or 1 whatever the neighbours are (a 0/2 mix even lands on class 1)."""
+    classes = np.unique(y)
+    shares = np.stack([_knn_loo_predict_impl(S, (y == c).astype(np.float64), k, False) for c in classes], axis=1)
+    return np.asarray(classes[np.argmax(shares, axis=1)])
+
+
 @dataclass
 class CompositeSimilarityResult:
     """Result of :func:`fit_composite_similarity`."""
@@ -164,10 +172,12 @@ def fit_composite_similarity(
     grid = np.array([0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0] if grid is None else grid, dtype=np.float64)
     sign = 1.0 if greater_is_better else -1.0
 
+    binary_labels = bool(np.all(np.isin(np.unique(yy), (0.0, 1.0))))
+
     def score(w):
         """Sign-adjusted LOO-kNN metric for a candidate per-block weight vector ``w`` (combine the blocks, run leave-one-out kNN prediction, score against ``yy``); the coordinate-descent loop below maximizes this."""
         S = combine_block_similarities(sims, w, deformation)
-        pred = _knn_loo_predict_impl(S, yy, k, classification)
+        pred = _loo_class_vote(S, yy, k) if (classification and not binary_labels) else _knn_loo_predict_impl(S, yy, k, classification)
         return sign * metric(yy, pred)
 
     K = len(sims)
