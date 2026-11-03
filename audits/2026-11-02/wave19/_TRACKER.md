@@ -30,7 +30,7 @@ Six read-only reports by Opus 5.5 low-effort agents on the areas waves 17 and 18
 | **RESOLVED** | W19FHN-2 | High (use_mixup) | mixup interpolated integer category codes before the embedding lookup |
 | **RESOLVED** | W19FHN-3 | Medium | unseen categories under WoE encoded to the prior log-odds instead of the neutral 0 |
 | **RESOLVED** | W19FHN-4 | Medium | the neural estimator did not restore the fit-time column order at predict |
-| **FUTURE** | W19FHN-5 | Low | the text-encoder cache key fingerprints five rows plus `id(train_df)`; hashing the whole column costs a pass over the text |
+| **RESOLVED** | W19FHN-5 | Low | the text-encoder cache token fingerprinted five sampled rows; it now hashes every row of the column (polars `hash`, pandas `hash_pandas_object`, 8 bytes per row transient) so frames differing only in interior rows no longer share a cached encoder (`tests/training/feature_handling/test_text_column_token_sees_every_row.py`) |
 | **RESOLVED** | W19MRM-1 | High | the chained recipe replay emitted a zero column for a missing raw input column instead of raising |
 | **RESOLVED** | W19MRM-2 | Medium | the `smart_log` anchor was computed in float32 and replay shifts the float64 operand |
 | **FUTURE** | W19MRM-3 | Low | `_validate_inputs` runs the RAM-footprint guard before a polars LazyFrame is collected |
