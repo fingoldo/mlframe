@@ -157,7 +157,7 @@ def cv_curve(estimator_factory: Callable, X: Any, y: Any, ranking: Sequence, n_g
         else:
             yy = y_arr
         yy = pd.Series(yy, index=X.index) if is_df else yy
-        ranking_p = _rerank_by_model(estimator_factory, X, yy, ranking, rerank_rows, base_seed + p) if permute and rerank_rows else ranking
+        ranking_p = _rerank_by_model(estimator_factory, X, yy, ranking, rerank_rows, base_seed + p) if permute and rerank_rows is not None else ranking
         row = []
         for n in n_grid:
             cols = list(ranking_p[:n])

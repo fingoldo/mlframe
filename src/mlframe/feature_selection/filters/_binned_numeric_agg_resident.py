@@ -517,7 +517,8 @@ def _binagg_candidate_block(cp: Any, k: int, n: int, itemsize: int) -> int:
         limit = int(pool.get_limit() or 0)
         if limit:
             free = min(free, max(0, limit - int(pool.used_bytes())))
-    except Exception:
+    except Exception as exc:
+        logger.debug("binned-aggregate gate block: device memory unreadable (%r); one block of every candidate", exc)
         return max(1, int(k))
     return max(1, min(int(k), (free // 6) // max(1, int(n) * int(itemsize))))
 

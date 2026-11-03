@@ -425,7 +425,8 @@ def _decompose_block_columns(X: pd.DataFrame, cols, per_source: int) -> "int | N
         import psutil
 
         budget = int(psutil.virtual_memory().available) // 4
-    except Exception:
+    except Exception as exc:
+        logger.debug("numeric decompose blocks: available RAM unreadable (%r); one block", exc)
         return None
     if n_src * per_col <= budget:
         return None

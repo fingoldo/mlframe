@@ -779,7 +779,8 @@ def _grouped_quantile_block_cols(X: pd.DataFrame, group_cols, num_cols) -> "int 
         import psutil
 
         budget = int(psutil.virtual_memory().available) // 4
-    except Exception:
+    except Exception as exc:
+        logger.debug("grouped quantile blocks: available RAM unreadable (%r); one block", exc)
         return None
     if len(group_cols) * len(num_cols) * per_num <= budget:
         return None

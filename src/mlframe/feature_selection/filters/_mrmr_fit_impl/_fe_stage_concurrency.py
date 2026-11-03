@@ -104,7 +104,8 @@ def _stages_fit_device(vram_weights: "Sequence[float]", n_rows: int) -> bool:
         import cupy as cp
 
         avail = int(cp.cuda.Device().mem_info[0]) + int(cp.get_default_memory_pool().free_bytes())
-    except Exception:
+    except Exception as exc:
+        logger.debug("stage concurrency: device memory unreadable (%r); stages run concurrently", exc)
         return True
     if need > avail:
         logger.info("FE stage concurrency: the stages' scaled peak VRAM (%.1f GB at %d rows) exceeds the %.1f GB available; running the cascades one by one", need / 2**30, n_rows, avail / 2**30)
