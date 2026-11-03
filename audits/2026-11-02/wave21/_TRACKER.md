@@ -18,7 +18,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | **RESOLVED** | W21CORE-5 | Low | `explainability` scored `oos_ts_max_size + 1` rows |
 | **RESOLVED** | W21CORE-6 | Low | `inference/_ktc_dispatch` cache key omits `n_rules` |
 | **RESOLVED** | W21CORE-7 | Low | `similarity_scale` was never validated |
-| **FUTURE** | W21FS-1 | Medium | `discover_structure` p-values are conditional on the searched modulus / threshold / op; the null needs the same search per permutation |
+| **PARTIAL** | W21FS-1 | Medium | the modular relation's p-value now re-runs the fine modulus search (`escalate_modulus`) under every permuted y, so the null is the best MI over the searched moduli (`tests/feature_selection/test_structure_discovery_modulus_search_pvalue.py`); the coarse modulus scan, the lattice operator / pair search and the gate threshold search still use the fixed-column null, since each needs its detector re-run per permutation |
 | **RESOLVED** | W21FS-2 | Medium | `forward_select(patience=k)` kept the `patience-1` non-significant additions that preceded the stop |
 | **RESOLVED** | W21FS-3 | Low | `plot_feature_importance(positive_fi_only=True)` still drew negative bars |
 | **RESOLVED** | W21FS-4 | Low | the FI log line's `share=` used signed sums (1100%) |
