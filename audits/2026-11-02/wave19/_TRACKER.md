@@ -18,7 +18,7 @@ Six read-only reports by Opus 5.5 low-effort agents on the areas waves 17 and 18
 | **RESOLVED** | W19EST-6 | Medium | a NaN evaluation reached the surrogate refit and crashed it |
 | **FUTURE** | W19EST-7 | Low | `rf_outlier_measure` casts `y` to int64, merging float labels 0.2 / 0.7 and rejecting strings; fix is `np.unique(return_inverse=True)` |
 | **RESOLVED** | W19EVA-1 | High | the temporal leak scan broke rank ties by row order, so a constant column correlated 0.87 with a time-ordered split and was flagged |
-| **FUTURE** | W19EVA-2 | Medium | NaNs rank last in the leak scan, so the correlation of a column whose missing values sit in one split mixes missingness with value order; the fix (correlate on rows where both are finite, report missingness separately) changes the report schema |
+| **RESOLVED** | W19EVA-2 | Medium | NaNs ranked last in the leak scan; `correlation` now uses each column's finite rows and the report gains `missing_correlation` (the missingness indicator against the split label), either crossing the threshold sets `flagged` (`tests/evaluation/test_leak_scan_missingness_is_separate.py`) |
 | **RESOLVED** | W19EVA-3 | Medium | `_stratified_class_book` keyed classes by `int(label)` (fractional labels merged, strings raised) |
 | **RESOLVED** | W19CMP-1 | High | `fit_stacked_on_residual` dropped every spec with a NaN OOF row, so pass 2 never ran on temporal data |
 | **RESOLVED** | W19CMP-2 | High | the same function built its OOF folds without group ids |
