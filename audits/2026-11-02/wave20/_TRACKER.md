@@ -29,7 +29,7 @@ Six read-only reports by Opus 5.5 low-effort agents on packages no earlier wave 
 | **RESOLVED** | W20FS-2 | Medium | polars `null_count()` ignores NaN, so an all-NaN float column survived the pre-screen that pandas drops |
 | **FUTURE** | W20FS-3 | Low-Medium | knockoffs: NaNs imputed in the knockoff but not in the real slot |
 | **FUTURE** | W20FS-4 | Low | knockoffs and swap coins share one seed |
-| **FUTURE** | W20REP-1 | High | decile gain / lift table breaks tied scores by row order; the fix (split tie groups across deciles proportionally) changes the table for every user with quantised scores |
+| **RESOLVED** | W20REP-1 | High | decile gain / lift table breaks tied scores by row order; the fix (split tie groups across deciles proportionally) changes the table for every user with quantised scores |
 | **FUTURE** | W20REP-2 | Medium | risk-coverage curve breaks confidence ties by row order |
 | **FUTURE** | W20REP-3 | Medium | multiclass risk-coverage compares the argmax column index with raw labels |
 | **FUTURE** | W20REP-4 | Low | decile caption says 10% when fewer bins are built |
@@ -55,3 +55,4 @@ The `feature_engineering/transformer/` subpackage and most other feature_enginee
 | W20FE-3 | `tests/feature_engineering/test_nearest_past_join_sparsity_counts_only_past_rows.py` |
 | W20PRE-6 | `tests/signal/test_gp_smoothing_null_entity_is_skipped.py` |
 | W20PRE-3 | `tests/preprocessing/test_unseen_category_imputer_nearest_ignores_nan_means.py` |
+| W20REP-1 | `tests/reporting/test_decile_table_tied_scores.py` (decision of 2026-11-03: tied scores are averaged, no opt-out) |
