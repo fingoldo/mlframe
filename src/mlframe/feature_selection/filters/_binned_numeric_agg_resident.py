@@ -397,6 +397,7 @@ def build_binagg_oof_matrix_gpu(
             tables = _pair_fold_stat_tables(cp, codes_g, v_safe, finite_f, fold_g, nf, n_cells, _pstats)
             fold_stat_cache["tables"] = tables
         oof = _oof_column_from_table(cp, tables[stat], _row_cell_index(cp, code_cache, gcol, fold_g, codes_g, n_cells), glob)
+        assert block is not None  # allocated before the first column is written
         if column_major:
             block[out_i] = oof  # the columns ARE the rows of the (K, n) block: contiguous, nothing for a consumer to transpose; the assignment casts to ``dt``
         else:

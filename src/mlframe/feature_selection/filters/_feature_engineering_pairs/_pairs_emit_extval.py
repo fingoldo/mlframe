@@ -7,7 +7,7 @@ Carved out of ``_pairs_emit`` (module size limit); the parent re-exports both na
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 import logging
 import threading
 
@@ -41,7 +41,7 @@ def _packed_factor_matrix(factors: Sequence[np.ndarray], n_rows: int) -> np.ndar
     with _PACKED_FACTORS_LOCK:
         cached = _PACKED_FACTORS
     if cached is not None and cached[1].shape == (n_rows, len(factors)) and len(cached[0]) == len(factors) and all(a is b for a, b in zip(cached[0], factors)):
-        return cached[1]
+        return cast(np.ndarray, cached[1])
     rows = np.empty((len(factors), n_rows), dtype=np.float64)  # Intentional float64: ext-val parameter buffer keeps native float64 precision (see note at line 294)
     for i, values in enumerate(factors):
         rows[i] = values
