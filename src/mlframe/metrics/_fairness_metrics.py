@@ -127,6 +127,9 @@ def create_fairness_subgroups(
                 if exclude_terminal_lowpop_cats:
                     cats_to_use = val_cnts[val_cnts >= min_pop_cat_thresh].index.values.tolist()
                     logger.info("For feature %s, had to exclude %s bins %s, %s records.", feature_name, f"{len(cats):_}", ",".join(map(str, cats)), f"{rarecats.sum():_}")
+                else:
+                    # neither merging nor excluding was requested or possible: every bin stays, rare ones included
+                    cats_to_use = val_cnts.index.values.tolist()
         else:
             cats_to_use = val_cnts.index.values.tolist()
 
