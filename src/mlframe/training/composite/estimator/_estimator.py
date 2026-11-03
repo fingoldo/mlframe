@@ -615,7 +615,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         self.estimator_ = estimator
         from ._smearing import SMEARED_TRANSFORMS, residual_quantiles
 
-        _smear_q = residual_quantiles(estimator, X_valid, t_train) if self.transform_name in SMEARED_TRANSFORMS and getattr(self, "smearing", True) else None
+        _smear_q = residual_quantiles(estimator, X_valid, t_train, sample_weight=sample_weight) if self.transform_name in SMEARED_TRANSFORMS and getattr(self, "smearing", True) else None
         self.fitted_params_ = {
             **transform_params,
             "y_clip_low": y_clip_low,
