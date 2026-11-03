@@ -511,7 +511,7 @@ def per_group_sliding_window(
     sort_idx, starts, ends = iter_group_segments(group_ids)
     for s, e in zip(starts, ends):
         seg_len = int(e - s)
-        if seg_len < min_group_size:
+        if seg_len < max(min_group_size, window_K):
             continue
         sort_idx_seg = sort_idx[s:e]
         seg = values_arr[sort_idx_seg]

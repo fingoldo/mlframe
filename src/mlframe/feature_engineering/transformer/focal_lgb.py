@@ -99,8 +99,8 @@ def compute_focal_lgb_features(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out_proba: np.ndarray = np.zeros(n_train, dtype=dtype)
-    out_logit: np.ndarray = np.zeros(n_train, dtype=dtype)
+    out_proba: np.ndarray = np.full(n_train, np.nan, dtype=dtype)
+    out_logit: np.ndarray = np.full(n_train, np.nan, dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         X_tr = X_train_f[train_idx]

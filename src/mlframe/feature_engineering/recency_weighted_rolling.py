@@ -59,8 +59,10 @@ def _rolling_recency_weighted_mean_sorted(v_sorted: np.ndarray, starts: np.ndarr
                 w = 1.0  # running weight; multiplied by ``param`` each step instead of recomputing param**i
                 for j in range(1, m + 1):  # j = recency index, 1 (newest) -> m (oldest)
                     w *= param
-                    num += w * v_sorted[row - j + 1]
-                    den += w
+                    x = v_sorted[row - j + 1]
+                    if x == x:  # NaN values are skipped (numerator and denominator alike), like the sibling modules do
+                        num += w * x
+                        den += w
             else:
                 for pos in range(m):
                     i = m - pos  # 1-based recency index within THIS window, oldest (i=m) -> newest (i=1)
@@ -68,8 +70,10 @@ def _rolling_recency_weighted_mean_sorted(v_sorted: np.ndarray, starts: np.ndarr
                         w = ((m - i + 1) / m) ** param
                     else:
                         w = 1.0 / (i**param)
-                    num += w * v_sorted[row - m + 1 + pos]
-                    den += w
+                    x = v_sorted[row - m + 1 + pos]
+                    if x == x:  # NaN values are skipped (numerator and denominator alike), like the sibling modules do
+                        num += w * x
+                        den += w
             out[row] = num / den if den > 0.0 else np.nan
     return out
 
@@ -125,7 +129,7 @@ def recency_weighted_rolling_mean(
     sorted_groups = group_ids[sort_idx]
     sorted_values = values[sort_idx]
 
-    change_points = np.flatnonzero(np.diff(sorted_groups)) + 1
+    change_points = np.flatnonzero(sorted_groups[1:] != sorted_groups[:-1]) + 1
     starts = np.concatenate(([0], change_points))
     ends = np.concatenate((change_points, [n]))
 
@@ -134,6 +138,15 @@ def recency_weighted_rolling_mean(
     out = np.empty(n, dtype=np.float64)
     out[sort_idx] = sorted_out
     return out
+
+
+@njit(cache=True)
+def _positional_weight(scheme_code: int, m: int, pos: int, param: float) -> float:
+    """Weight of window position ``pos`` (0 = oldest of ``m``) under the poly (code 0) or power scheme; the exp scheme multiplies a running weight instead."""
+    i = m - pos
+    if scheme_code == 0:
+        return float(((m - i + 1) / m) ** param)
+    return float(1.0 / (i**param))
 
 
 @njit(fastmath=False, cache=True)
@@ -157,17 +170,17 @@ def _rolling_recency_weighted_std_sorted(v_sorted: np.ndarray, starts: np.ndarra
                 w = 1.0
                 for j in range(1, m + 1):
                     w *= param
-                    num += w * v_sorted[row - j + 1]
-                    den += w
+                    x = v_sorted[row - j + 1]
+                    if x == x:  # NaN values are skipped (numerator and denominator alike), like the sibling modules do
+                        num += w * x
+                        den += w
             else:
                 for pos in range(m):
-                    i = m - pos
-                    if scheme_code == 0:
-                        w = ((m - i + 1) / m) ** param
-                    else:
-                        w = 1.0 / (i**param)
-                    num += w * v_sorted[row - m + 1 + pos]
-                    den += w
+                    w = _positional_weight(scheme_code, m, pos, param)
+                    x = v_sorted[row - m + 1 + pos]
+                    if x == x:  # NaN values are skipped (numerator and denominator alike), like the sibling modules do
+                        num += w * x
+                        den += w
             if den <= 0.0:
                 out[row] = np.nan
                 continue
@@ -177,17 +190,17 @@ def _rolling_recency_weighted_std_sorted(v_sorted: np.ndarray, starts: np.ndarra
                 w = 1.0
                 for j in range(1, m + 1):
                     w *= param
-                    diff = v_sorted[row - j + 1] - wmean
-                    var_num += w * diff * diff
+                    x = v_sorted[row - j + 1]
+                    if x == x:
+                        diff = x - wmean
+                        var_num += w * diff * diff
             else:
                 for pos in range(m):
-                    i = m - pos
-                    if scheme_code == 0:
-                        w = ((m - i + 1) / m) ** param
-                    else:
-                        w = 1.0 / (i**param)
-                    diff = v_sorted[row - m + 1 + pos] - wmean
-                    var_num += w * diff * diff
+                    w = _positional_weight(scheme_code, m, pos, param)
+                    x = v_sorted[row - m + 1 + pos]
+                    if x == x:
+                        diff = x - wmean
+                        var_num += w * diff * diff
             var = var_num / den
             out[row] = np.sqrt(var) if var > 0.0 else 0.0
     return out
@@ -244,7 +257,7 @@ def recency_weighted_rolling_std(
     sorted_groups = group_ids[sort_idx]
     sorted_values = values[sort_idx]
 
-    change_points = np.flatnonzero(np.diff(sorted_groups)) + 1
+    change_points = np.flatnonzero(sorted_groups[1:] != sorted_groups[:-1]) + 1
     starts = np.concatenate(([0], change_points))
     ends = np.concatenate((change_points, [n]))
 

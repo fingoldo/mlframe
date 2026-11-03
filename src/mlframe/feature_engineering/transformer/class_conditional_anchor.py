@@ -174,9 +174,9 @@ def compute_class_conditional_anchor_attention(
     n_anch_pos = min(n_anchors_per_class, max(2, min_n_pos_per_fold // 2))
     n_anch_neg = min(n_anchors_per_class, max(2, min_n_neg_per_fold // 2))
 
-    out_pos: np.ndarray = np.zeros((n_train, n_anch_pos), dtype=dtype)
-    out_neg: np.ndarray = np.zeros((n_train, n_anch_neg), dtype=dtype)
-    out_mass: np.ndarray = np.zeros(n_train, dtype=dtype)
+    out_pos: np.ndarray = np.full((n_train, n_anch_pos), np.nan, dtype=dtype)
+    out_neg: np.ndarray = np.full((n_train, n_anch_neg), np.nan, dtype=dtype)
+    out_mass: np.ndarray = np.full(n_train, np.nan, dtype=dtype)
 
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         X_tr = X_train_f[train_idx]

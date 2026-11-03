@@ -240,9 +240,9 @@ def compute_anchor_attention(
     n_train = X_train_f.shape[0]
     out_cols: dict[str, np.ndarray] = {}
     for a in range(n_anchors):
-        out_cols[f"{column_prefix}_sim_a{a}"] = np.zeros(n_train, dtype=dtype)
+        out_cols[f"{column_prefix}_sim_a{a}"] = np.full(n_train, np.nan, dtype=dtype)
     for agg in aggregate:
-        out_cols[f"{column_prefix}_{agg}_soft"] = np.zeros(n_train, dtype=dtype)
+        out_cols[f"{column_prefix}_{agg}_soft"] = np.full(n_train, np.nan, dtype=dtype)
 
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):

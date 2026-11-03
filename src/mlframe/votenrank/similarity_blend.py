@@ -82,8 +82,14 @@ class SimilarityBlendEnsemble(RegressorMixin, BaseEstimator):
         self.similarity_scale = similarity_scale
         self.region_estimators = region_estimators
 
+    def _check_similarity_scale(self) -> None:
+        """exp(-d / scale) is NaN at d = 0 for scale 0 and exceeds 1 for a negative scale: require a positive finite scale."""
+        if not (np.isfinite(self.similarity_scale) and self.similarity_scale > 0):
+            raise ValueError(f"similarity_scale must be a positive finite number, got {self.similarity_scale!r}")
+
     def fit(self, X: Any, y: Any, sample_weight: Optional[np.ndarray] = None) -> "SimilarityBlendEnsemble":
         """Fit both the in-distribution and out-of-distribution estimators and embed the training rows."""
+        self._check_similarity_scale()
         y_arr = np.asarray(y, dtype=np.float64)
         self.in_dist_model_ = clone(self.in_dist_estimator)
         self.out_dist_model_ = clone(self.out_dist_estimator)
@@ -120,6 +126,7 @@ class SimilarityBlendEnsemble(RegressorMixin, BaseEstimator):
         one per region, cloned and fit independently here -- mirroring ``fit``'s in/out-of-distribution split
         but generalized to N caller-defined regions instead of exactly 2.
         """
+        self._check_similarity_scale()
         if self.region_estimators is None:
             raise ValueError("region_estimators must be set in __init__ to use fit_multi_region (N-specialist mode)")
         if len(region_X) != len(self.region_estimators) or len(region_y) != len(self.region_estimators):

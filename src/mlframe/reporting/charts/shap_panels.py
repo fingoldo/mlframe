@@ -346,10 +346,15 @@ def _shap_values_2d(sv: Any) -> np.ndarray:
     """
     values = getattr(sv, "values", sv)
     if isinstance(values, list):
-        values = values[-1] if len(values) > 1 else values[0]
+        values = np.stack([np.asarray(v, dtype=np.float64) for v in values], axis=-1) if len(values) > 1 else values[0]
     values = np.asarray(values, dtype=np.float64)
     if values.ndim == 3:
-        values = values[:, :, -1]
+        if values.shape[2] <= 2:
+            return values[:, :, -1]
+        # More than two classes: the last class alone ranks a feature that only separates the other classes at ~0. Each feature takes the
+        # class it moves most (largest mean |SHAP|), keeping the sign of that class's values.
+        best_class = np.abs(values).mean(axis=0).argmax(axis=1)
+        return values[:, np.arange(values.shape[1]), best_class]
     return values
 
 

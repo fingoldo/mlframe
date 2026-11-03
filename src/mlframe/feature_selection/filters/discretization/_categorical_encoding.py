@@ -140,4 +140,5 @@ def _native_kbins_quantile(vals: np.ndarray, n_bins: int) -> np.ndarray:
     # Inner edges only (drop both extremes, like sklearn's KBinsDiscretizer does internally).
     inner = bin_edges[1:-1]
     codes = np.searchsorted(inner, flat, side="right").astype(_crit_np_dtype())
+    codes[np.isnan(flat)] = -1  # searchsorted sends NaN past every edge, i.e. into the top real bin; -1 is the missing code the other encoders use
     return codes.reshape(vals.shape if vals.ndim == 2 else (-1, 1))

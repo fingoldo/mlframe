@@ -155,9 +155,9 @@ def apply_logical_constraints(
     -------
     np.ndarray
         A copy of ``preds`` with, for every violating row and rule, the child/parent columns swapped (hard)
-        or blended (soft). Rules are applied in order; a later rule can re-touch a row/column adjusted by an
-        earlier rule (this is intentional — declare rules in dependency order for a rule chain, e.g.
-        tier3->tier2 before tier2->tier1).
+        or blended (soft). Rules are applied in order and the pass is repeated until nothing changes, so a
+        chain such as tier3->tier2, tier2->tier1 ends consistent whatever order it is declared in (a single
+        pass can leave it violated: the later swap undoes the earlier one).
 
     Notes
     -----
@@ -182,8 +182,22 @@ def apply_logical_constraints(
 
     if not rules:
         return out
+    # One ordered pass can leave a chain violated (a later swap undoes an earlier one): repeat to a fixpoint. Each pass is a bubble step, so a
+    # consistent rule set settles within len(rules) + 1 passes; a cyclic one is reported instead of looping.
+    current = out
+    for _ in range(len(rules) + 1):
+        before = current.copy()
+        current = _apply_hard_pass(current, rules, n_labels)
+        if np.array_equal(before, current):
+            return current
+    log_throttle(logger, "logical_constraints.no_fixpoint", logging.WARNING, "apply_logical_constraints: rules %s did not reach a consistent state (cyclic implications?)", list(rules))
+    return current
+
+
+def _apply_hard_pass(out: np.ndarray, rules: Sequence, n_labels: int) -> np.ndarray:
+    """One ordered pass of the hard swap over every rule, on the fastest available backend."""
     if not _NUMBA_AVAILABLE:
-        return _apply_numpy(out, rules)  # type: ignore[arg-type]
+        return _apply_numpy(out, rules)
 
     rules_arr = np.asarray(rules, dtype=np.int64)
     n = out.shape[0]

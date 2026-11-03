@@ -78,8 +78,9 @@ def _format_top_fi_for_log(
         return f"[FI top-{top_n}] {kind}: (no features)"
     items = [f"{str(name)[:40]}={fi:+.4g}" for name, fi in zip(head.index, head["fi"].values)]
     total_n = len(sorted_df)
-    sum_top = float(head["fi"].sum())
-    sum_all = float(sorted_df["fi"].sum())
+    # magnitudes: signed coefficients cancel in a plain sum and gave shares like 1100%
+    sum_top = float(head["fi"].abs().sum())
+    sum_all = float(sorted_df["fi"].abs().sum())
     share = (sum_top / sum_all * 100.0) if sum_all > 0 else 0.0
     parts = [f"[FI top-{len(items)}] {kind}:"]
     line = parts[-1]
@@ -356,7 +357,13 @@ def plot_feature_importance(
         fig_top = plt.figure(figsize=figsize)
         figs.append(fig_top)
         ax = plt.gca()  # visible=True
-        _abs_order, _picked_fi, _picked_cols, _picked_std = _pick_fi_bars(feature_importances, columns_eff, n, max_zero_fi_to_plot, importances_std)
+        _fi_arg, _cols_arg, _std_arg = feature_importances, columns_eff, importances_std
+        if positive_fi_only:
+            # the returned frame already drops non-positive importances; the chart must not draw them either
+            _keep = np.asarray(feature_importances) > 0.0
+            _fi_arg, _cols_arg = feature_importances[_keep], np.asarray(columns_eff)[_keep]
+            _std_arg = importances_std[_keep] if importances_std is not None else None
+        _abs_order, _picked_fi, _picked_cols, _picked_std = _pick_fi_bars(_fi_arg, _cols_arg, n, max_zero_fi_to_plot, _std_arg)
         _draw_fi_bars(ax, _abs_order, _picked_fi, _picked_cols, _picked_std, kind, importance_label)
         _emit_fi_figures(figs, fig_top, plot_file, show_plots)
 

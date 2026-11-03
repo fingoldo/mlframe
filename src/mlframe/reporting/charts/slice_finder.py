@@ -282,7 +282,7 @@ def find_weak_slices(
         err = err[finite]
         row_mask = finite  # applied per column inside _bin_matrix; a whole-matrix copy here doubles peak memory
     err = np.ascontiguousarray(err)  # hoisted out of the per-combo loop; the njit reduction kernels need it C-contig.
-    n, p = mat.shape
+    n, p = int(err.shape[0]), mat.shape[1]  # n counts the rows actually scored: NaN-error rows are out of the support floor and fractions
     global_error = float(err.mean()) if err.size else float("nan")
     min_support = max(1, int(np.ceil(min_support_fraction * max(n, 1))))
 

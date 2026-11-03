@@ -14,6 +14,23 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger("mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain")
 
 
+def content_digest(data: Any) -> str:
+    """Digest of every value of ``data`` (frame columns hashed one at a time so no whole-frame copy is made). The array-summary key
+    covers only the shape, the first and last rows and per-column sums, so rows reordered inside the middle produced the same key."""
+    import hashlib
+
+    h = hashlib.blake2b(digest_size=16)
+    columns = [data.iloc[:, j].to_numpy() for j in range(data.shape[1])] if hasattr(data, "iloc") and getattr(data, "ndim", 1) == 2 else [np.asarray(data)]
+    for col in columns:
+        arr = np.ascontiguousarray(col)
+        h.update(str(arr.dtype).encode())
+        if arr.dtype == object:
+            h.update("".join(map(str, arr.ravel().tolist())).encode())
+        else:
+            h.update(arr.tobytes())  # one column at a time, never the whole frame
+    return h.hexdigest()
+
+
 def _compute_shap_matri_out_fold_true_splitter(out_of_fold: bool, n_models: int, rng: np.random.Generator, n_splits: int) -> None:
     """Block of compute_shap_matrix starting at ``if not out_of_fold:``."""
     if not out_of_fold:
@@ -70,8 +87,8 @@ def _open_shap_disk_cache(
                 _rng_state = rng.bit_generator.state
             except AttributeError:
                 _rng_state = repr(rng)
-            _x_key = hash_array_summary(X.values if hasattr(X, "values") else np.asarray(X))
-            _y_key = hash_array_summary(np.asarray(y))
+            _x_key = hash_array_summary(X.values if hasattr(X, "values") else np.asarray(X)) + ":" + content_digest(X)
+            _y_key = hash_array_summary(np.asarray(y)) + ":" + content_digest(y)
             _state_key = hash_object({
                 "params": _params,
                 "rng": _rng_state,

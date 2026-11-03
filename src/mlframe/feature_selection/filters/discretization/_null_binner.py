@@ -111,6 +111,8 @@ class PermutedTargetBinner:
         if slot < 0:
             j = int(self._out_dep[out_index])
             edges = per_feature_edges(self._arr[:, j : j + 1], y=np.asarray(y).ravel(), method=self._strategy, cache_dir=None, **self._kwargs)[0]
+            if edges.size + 1 > np.iinfo(self._dtype).max:
+                return None  # same guard as _edges_slot: a narrow dtype would wrap the over-range codes silently
             s = self._slot(j, np.asarray(edges), int(edges.size) + 1)
             if s is None:
                 return None
