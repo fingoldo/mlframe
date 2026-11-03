@@ -23,6 +23,7 @@ from numba import njit, prange
 
 from ._adaptive_nbins import _plug_in_mi_njit
 from ._numba_utils_cross_module import _mi_codes_njit, _n_unique_codes
+from ._numba_utils_shared import seeded_permutation
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +228,15 @@ def _declined(reason: str) -> None:
 
 
 @njit(cache=True, parallel=True)
+def _perm_block(n, base_seed, b0, b1):
+    """``(b1 - b0, n)`` permutations ``seeded_permutation(n, base_seed + b)`` for ``b`` in ``[b0, b1)``, drawn in parallel (the same streams)."""
+    out = np.empty((b1 - b0, n), dtype=np.int64)
+    for i in prange(b1 - b0):
+        out[i] = seeded_permutation(n, base_seed + b0 + i)
+    return out
+
+
+@njit(cache=True, parallel=True)
 def _occupied_bins(pool_rc):
     """``(n_pool, n_counts)`` float number of distinct codes of every pool code row."""
     n_pool, n_m = pool_rc.shape[0], pool_rc.shape[1]
@@ -398,7 +408,6 @@ def _floor(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, c
 def _floor_body(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, cols, n_permutations, quantile, base_seed, eval_rows):
     """:func:`_floor`, raising :class:`_DeclineError` where the fused path does not apply."""
     from ._adaptive_nbins import _distinct_exceeds
-    from ._honest_mdlp_null import seeded_permutation
     from ._optimal_joint_edges import pack_plans
 
     max_y = int(binner._kwargs.get("optimal_joint_max_y_classes", 64))
@@ -421,9 +430,17 @@ def _floor_body(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_i
     free_rows = _free_rows(binner, plans, y_int, n, base_seed)
     sub = {j: i for i, j in enumerate(planned)}  # re-binned column -> its place among the packed plans
     dep_rows = np.full((len(plans), len(ms)), -1, dtype=np.int64)
-    for j in planned:
-        for mi, m in enumerate(ms):
-            dep_rows[j, mi] = _count_slot(binner, plans[j], j, m, key, y_int)
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    def _column_slots(j):
+        """The code-table slots of column ``j`` under every candidate count (columns are independent: own plan, own table rows under the binner's lock)."""
+        return j, [_count_slot(binner, plans[j], j, m, key, y_int) for m in ms]
+
+    with ThreadPoolExecutor(max_workers=_resolve_edge_jobs(None, len(planned))) as pool_ex:
+        for j, slots in pool_ex.map(_column_slots, planned):
+            dep_rows[j] = slots
     rows = np.arange(n, dtype=np.int64) if eval_rows is None else np.asarray(eval_rows, dtype=np.int64)
     pool_dep, pool_codes, pool_nb = _pool_arrays(binner, cols, dep_rows, ms, factors_data, factors_nbins, n, sub, free_rows)
     nv, val_idx = _val_index(packed)
@@ -440,7 +457,7 @@ def _floor_body(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_i
     nulls = np.empty(int(n_permutations), dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
     for b0 in range(0, int(n_permutations), _PERM_BLOCK):
         b1 = min(int(n_permutations), b0 + _PERM_BLOCK)
-        perms = np.stack([seeded_permutation(n, base_seed + b) for b in range(b0, b1)]).astype(np.int64)
+        perms = _perm_block(n, base_seed, b0, b1)
         out = _score_block(dev, perms, y_int, yc, rows, packed["xb"], kx, nv, val_idx, px, pool_args)
         if np.isneginf(out).any():
             raise _DeclineError("a column had no scored candidate count in some permutation")
