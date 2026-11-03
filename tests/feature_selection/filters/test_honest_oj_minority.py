@@ -69,3 +69,25 @@ def test_device_winners_equal_cpu_kernel(monkeypatch, k_y, pos, bitmask):
     assert picks is not None
     G._pool_block(perms, picks, yc, rows, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, o2)
     np.testing.assert_allclose(o1, o2, rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize("pos", [0.5, 0.08])
+def test_device_pool_equals_cpu_pool(pos):
+    """The device pool step (bitmask popcounts, binary target) gives the CPU pool's null maxima up to the device log's last ulp."""
+    cp = pytest.importorskip("cupy")
+    try:
+        cp.zeros(1)
+    except Exception:
+        pytest.skip("no usable CUDA device")
+    from mlframe.feature_selection.filters import _honest_oj_fused_gpu as G
+
+    a = _inputs(np.random.default_rng(11), k_y=2, pos=pos)
+    perms, y, yc, rows, xb, kx, nv, val_idx, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff = a
+    px = F._px_table(xb, kx, nv)
+    dw = G.DeviceWinners(cp, xb, kx, nv, val_idx, y, px)
+    picks = dw.picks(perms)
+    o1 = np.empty(perms.shape[0])
+    G._pool_block(perms, picks, yc, rows, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, o1)
+    dp = G.device_pool(dw, pool_dep, pool_rc, pool_nb, pool_kxe, yc, rows)
+    assert dp is not None
+    np.testing.assert_allclose(dp.maxima(perms, picks, n_eff), o1, rtol=0, atol=1e-15)

@@ -379,7 +379,7 @@ def _val_index(packed):
     return nv, val_idx
 
 
-def _score_block(dev, perms, y_int, yc, rows, xb, kx, nv, val_idx, px, pool_args):
+def _score_block(dev, dev_pool, perms, y_int, yc, rows, xb, kx, nv, val_idx, px, pool_args):
     """Null maxima of one block of permutations: the winners on the device when ``dev`` is set (the pool on the CPU), else the CPU kernel."""
     out = np.empty(perms.shape[0], dtype=np.float64)  # Intentional float64: statistic vector
     picks = None
@@ -388,6 +388,11 @@ def _score_block(dev, perms, y_int, yc, rows, xb, kx, nv, val_idx, px, pool_args
             picks = dev.picks(perms)
         except Exception as exc:
             logger.debug("device winners failed (%s: %s); CPU kernel", type(exc).__name__, exc)
+    if picks is not None and dev_pool is not None:
+        try:
+            return dev_pool.maxima(perms, picks, pool_args[-1])
+        except Exception as exc:
+            logger.debug("device pool failed (%s: %s); CPU pool", type(exc).__name__, exc)
     if picks is not None:
         from ._honest_oj_fused_gpu import _pool_block
 
@@ -450,15 +455,16 @@ def _floor_body(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_i
     pool_kxe = _occupied_bins(pool_rc)
     kx = np.asarray(packed["kx"], dtype=np.int64)
     px = _px_table(packed["xb"], kx, nv)  # per-cell bin counts: the winners scatter only the rows outside the majority class
-    from ._honest_oj_fused_gpu import device_winners
+    from ._honest_oj_fused_gpu import device_pool, device_winners
 
     dev = device_winners(packed["xb"], kx, nv, val_idx, y_int, px, n)
+    dev_pool = device_pool(dev, pool_dep, pool_rc, pool_nb, pool_kxe, yc, rows)
     pool_args = (pool_dep, pool_rc, pool_nb, pool_kxe, float(len(rows)))
     nulls = np.empty(int(n_permutations), dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
     for b0 in range(0, int(n_permutations), _PERM_BLOCK):
         b1 = min(int(n_permutations), b0 + _PERM_BLOCK)
         perms = _perm_block(n, base_seed, b0, b1)
-        out = _score_block(dev, perms, y_int, yc, rows, packed["xb"], kx, nv, val_idx, px, pool_args)
+        out = _score_block(dev, dev_pool, perms, y_int, yc, rows, packed["xb"], kx, nv, val_idx, px, pool_args)
         if np.isneginf(out).any():
             raise _DeclineError("a column had no scored candidate count in some permutation")
         nulls[b0:b1] = out

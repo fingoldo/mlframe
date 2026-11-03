@@ -23,3 +23,9 @@ for a binary target, and overlap with the next block's device picks).
 
 Dispatch: `scorer_device_choice("honest_oj_winners", n_rows, cells)` (work fallback until the KTC entry is swept), VRAM guard at half the free memory
 (codes + bitmasks), `MLFRAME_HONEST_OJ_GPU=0` off switch, `MLFRAME_HONEST_OJ_GPU_BITMASK=0` forces the atomic route; any device fault -> CPU kernel.
+
+## 2026-11-03: pool step on the device
+
+The CPU pool step (largest corrected MI of 193 pool columns over 30,000 rows) was 0.146 s per 64-permutation block. `DevicePool`
+reuses the bitmask popcounts for a binary target code: 0.05 s per block. Null maxima match the CPU pool to 1.1e-18 (device `log`);
+30k floors unchanged (0.0006034131614497845). `MLFRAME_HONEST_OJ_GPU_POOL=0` keeps the pool on the CPU.

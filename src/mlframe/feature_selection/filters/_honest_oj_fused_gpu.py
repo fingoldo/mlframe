@@ -198,6 +198,28 @@ extern "C" __global__ void oj_mi_from_ones(const int* __restrict__ c1, const int
     }
     out[g] = cell_mi(hist, (int)nv[f], k_x, k_y);
 }
+// pool MI of every (permutation, pool column, candidate count) cell, the loops of _mi_codes_njit with integer counts: ones from the popcounts,
+// zeros = fixed bin count - ones; py = (rows - ones total, ones total) of the permutation
+extern "C" __global__ void oj_pool_mi(const int* __restrict__ c1, const int* __restrict__ px, const long long* __restrict__ kx, const int* __restrict__ ones,
+                                      int B, int C, int KXMAX, long long n, double* __restrict__ out)
+{
+    const long long g = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (g >= (long long)B * C) return;
+    const int c = (int)(g % C), b = (int)(g / C);
+    const int k_x = (int)kx[c];
+    if (k_x == 0) { out[g] = 0.0; return; }
+    const long long py1 = ones[b], py0 = n - py1;
+    double mi = 0.0;
+    for (int a = 0; a < k_x; ++a) {
+        const long long all = px[(long long)c * KXMAX + a];
+        if (all == 0) continue;
+        const long long n1 = c1[g * KXMAX + a];
+        const long long n0 = all - n1;
+        if (n0 != 0) mi += ((double)n0 / (double)n) * log((double)(n0 * n) / (double)(all * py0));
+        if (n1 != 0) mi += ((double)n1 / (double)n) * log((double)(n1 * n) / (double)(all * py1));
+    }
+    out[g] = mi;
+}
 """
 _MAX_BINS = 64  # the kernels' per-thread marginal arrays; wider codes or targets stay on the CPU
 _cache: dict = {}
@@ -337,4 +359,89 @@ def device_winners(xb: np.ndarray, kx: np.ndarray, nv: np.ndarray, val_idx: np.n
         return DeviceWinners(cp, xb, kx, nv, val_idx, y_raw, px)
     except Exception as exc:
         logger.debug("honest optimal_joint device winners unavailable (%s: %s); CPU", type(exc).__name__, exc)
+        return None
+
+
+class DevicePool:
+    """The pool codes at the evaluation rows as per-bin bitmasks on the device; :meth:`maxima` is ``_pool_max`` of a block for a binary target."""
+
+    def __init__(self, cp: Any, pool_dep: np.ndarray, pool_rc: np.ndarray, pool_nb: np.ndarray, pool_kxe: np.ndarray, yc: np.ndarray, rows: np.ndarray) -> None:
+        self.cp = cp
+        n_pool, n_m, r = (int(v) for v in pool_rc.shape)
+        self.T, self.M, self.R = n_pool, n_m, r
+        self.C = n_pool * n_m
+        kx = np.ascontiguousarray(pool_nb, dtype=np.int64).copy()
+        kx[pool_dep < 0, 1:] = 0  # a fixed column has candidate 0 only
+        self.kx_h = kx.ravel()
+        self.kxmax = max(1, int(self.kx_h.max()))
+        self.NW = (r + 31) // 32
+        off = np.zeros(self.C, dtype=np.int64)
+        off[1:] = np.cumsum(self.kx_h)[:-1]
+        self.off, self.kx = cp.asarray(off), cp.asarray(self.kx_h)
+        xb = cp.asarray(np.ascontiguousarray(pool_rc.reshape(self.C, r), dtype=np.int8))
+        self.nv = cp.asarray(np.array([r], dtype=np.int64))
+        self.masks = cp.zeros((int(self.kx_h.sum()) * self.NW,), dtype=cp.uint32)
+        args = (xb, self.off, self.kx, self.nv, np.int32(self.C), np.int32(self.C), np.int32(r), np.int32(self.NW), self.masks)
+        _kernel(cp, "oj_build_masks")(((self.C * r + 255) // 256,), (256,), args)
+        px = np.zeros((self.C, self.kxmax), dtype=np.int32)
+        flat = pool_rc.reshape(self.C, r)
+        for c in range(self.C):
+            if self.kx_h[c] > 0:
+                px[c] = np.bincount(flat[c], minlength=self.kxmax)[: self.kxmax]
+        self.px = cp.asarray(px)
+        self.dep = pool_dep
+        self.kxe = cp.asarray(np.ascontiguousarray(pool_kxe, dtype=np.float64))  # Intentional float64: Miller-Madow support term
+        self.yc = cp.asarray(np.ascontiguousarray(yc, dtype=np.int32))
+        self.rows = cp.asarray(np.ascontiguousarray(rows, dtype=np.int64))
+
+    def maxima(self, perms: np.ndarray, picks: np.ndarray, n_eff: float) -> np.ndarray:
+        """``_pool_max`` of every permutation of the block (``-inf`` where a re-binned column has no winner)."""
+        cp = self.cp
+        b_n = int(perms.shape[0])
+        pg = cp.asarray(perms.astype(np.int32, copy=False))
+        vy = cp.ascontiguousarray(self.yc[pg[:, self.rows]])  # (B, R)
+        ones = vy.sum(axis=1).astype(cp.int32)
+        n_y = b_n * self.NW
+        ybits = cp.empty((n_y,), dtype=cp.uint32)
+        _kernel(cp, "oj_build_ybits")(((n_y + 255) // 256,), (256,), (vy, self.nv, np.int32(b_n), np.int32(1), np.int32(self.R), np.int32(self.NW), ybits))
+        c1 = cp.zeros((b_n * self.C * self.kxmax,), dtype=cp.int32)
+        args = (self.masks, ybits, self.off, self.kx, np.int32(b_n), np.int32(self.C), np.int32(1), np.int32(self.C), np.int32(self.NW), np.int32(self.kxmax), c1)
+        _kernel(cp, "oj_count_ones")((self.C, (b_n + 7) // 8), (128,), args)
+        mi = cp.empty((b_n, self.T, self.M), dtype=cp.float64)  # Intentional float64: MI statistic
+        n_o = b_n * self.C
+        _kernel(cp, "oj_pool_mi")(((n_o + 127) // 128,), (128,), (c1, self.px, self.kx, ones, np.int32(b_n), np.int32(self.C), np.int32(self.kxmax), np.int64(self.R), mi))
+        # the candidate of every pool column under every permutation: the column's winner, 0 for a fixed column
+        dep = self.dep
+        m_idx = np.zeros((b_n, self.T), dtype=np.int64)
+        has = dep >= 0
+        m_idx[:, has] = picks[:, dep[has]]
+        bad = (m_idx < 0).any(axis=1)
+        m_g = cp.asarray(np.maximum(m_idx, 0))
+        sel = cp.take_along_axis(mi, m_g[:, :, None], axis=2)[:, :, 0]
+        kxe = self.kxe[cp.arange(self.T)[None, :], m_g]
+        ky_eff = ((ones > 0).astype(cp.float64) + (ones < self.R).astype(cp.float64))[:, None]
+        corr = sel - (kxe - 1.0) * (ky_eff - 1.0) / (2.0 * float(n_eff))
+        res = cp.maximum(corr.max(axis=1), 0.0)
+        out = np.asarray(cp.asnumpy(res), dtype=np.float64)  # Intentional float64: statistic vector
+        out[bad] = -np.inf
+        return out
+
+
+def device_pool(dev: Optional[DeviceWinners], pool_dep: np.ndarray, pool_rc: np.ndarray, pool_nb: np.ndarray, pool_kxe: np.ndarray, yc: np.ndarray,
+                rows: np.ndarray) -> Optional[DevicePool]:
+    """A :class:`DevicePool` when the winners run on the device, the target codes are binary and the pool codes fit the bitmask kernels, else ``None``."""
+    if dev is None or os.environ.get("MLFRAME_HONEST_OJ_GPU_POOL", "1").strip() == "0":
+        return None
+    try:
+        y_at = np.asarray(yc)[np.asarray(rows)]
+        if y_at.size == 0 or int(y_at.min()) < 0 or int(y_at.max()) > 1 or int(np.max(pool_nb)) > 127:
+            return None
+        cp = dev.cp
+        need = int(pool_rc.size) + int(np.sum(pool_nb)) * ((int(pool_rc.shape[-1]) + 31) // 32) * 4
+        free, _total = cp.cuda.runtime.memGetInfo()
+        if need > 0.5 * free:
+            return None
+        return DevicePool(cp, pool_dep, pool_rc, pool_nb, pool_kxe, yc, rows)
+    except Exception as exc:
+        logger.debug("honest optimal_joint device pool unavailable (%s: %s); CPU", type(exc).__name__, exc)
         return None
