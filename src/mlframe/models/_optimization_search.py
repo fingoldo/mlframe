@@ -606,6 +606,29 @@ class MBHOptimizer:
             self.expected_fitness = expected_fitness
         return expected_fitness
 
+    def _track_best_and_worst(self, next_candidate, next_evaluation) -> None:
+        """Update the best / worst evaluation bookkeeping and the no-improvement streak for one submitted evaluation."""
+        if self.direction == OptimizationDirection.Maximize:
+            if next_evaluation > self.best_evaluation:
+                self.best_evaluation = next_evaluation
+                self.best_candidate = next_candidate
+                self.n_noimproving_iters = 0
+            else:
+                self.n_noimproving_iters += 1
+            if next_evaluation < self.worst_evaluation:
+                self.worst_evaluation = next_evaluation
+                self.worst_candidate = next_candidate
+        elif self.direction == OptimizationDirection.Minimize:
+            if next_evaluation < self.best_evaluation:
+                self.best_evaluation = next_evaluation
+                self.best_candidate = next_candidate
+                self.n_noimproving_iters = 0
+            else:
+                self.n_noimproving_iters += 1
+            if next_evaluation > self.worst_evaluation:
+                self.worst_evaluation = next_evaluation
+                self.worst_candidate = next_candidate
+
     def submit_evaluations(self, candidates: Sequence, evaluations: Sequence, durations: Sequence):
         """Record a batch of (candidate, evaluation, duration) results, update best/worst tracking, and append to the known-candidates history.
 
@@ -623,26 +646,7 @@ class MBHOptimizer:
 
             self.nsteps += 1
 
-            if self.direction == OptimizationDirection.Maximize:
-                if next_evaluation > self.best_evaluation:
-                    self.best_evaluation = next_evaluation
-                    self.best_candidate = next_candidate
-                    self.n_noimproving_iters = 0
-                else:
-                    self.n_noimproving_iters += 1
-                if next_evaluation < self.worst_evaluation:
-                    self.worst_evaluation = next_evaluation
-                    self.worst_candidate = next_candidate
-            elif self.direction == OptimizationDirection.Minimize:
-                if next_evaluation < self.best_evaluation:
-                    self.best_evaluation = next_evaluation
-                    self.best_candidate = next_candidate
-                    self.n_noimproving_iters = 0
-                else:
-                    self.n_noimproving_iters += 1
-                if next_evaluation > self.worst_evaluation:
-                    self.worst_evaluation = next_evaluation
-                    self.worst_candidate = next_candidate
+            self._track_best_and_worst(next_candidate, next_evaluation)
 
             if self.verbose and self.n_noimproving_iters == 0:
                 logger.info("Next optimum found at point (%s): %s", self.best_candidate, f"{self.best_evaluation:_.6f}")
