@@ -277,6 +277,40 @@ def generate_modular_features(
     return pd.DataFrame(out, index=X.index)
 
 
+def modular_candidate_block(X: pd.DataFrame, num_cols: Sequence[str], periods: Sequence[float]) -> "tuple[list[str], np.ndarray]":
+    """``(names, values)``: the candidates of :func:`generate_modular_features` (same names, same order, same values at the fit's float dtype) as one ``(K, n)``
+    C-contiguous matrix, one row per candidate, the layout the family test codes. Filling the rows directly skips the DataFrame of the candidates and the
+    transpose the coder would make of it (about 0.7 s of a 1500-candidate pool at 100000 rows)."""
+    import os
+
+    cols = _numeric_cols(X, num_cols)
+    periods = tuple(float(p) for p in periods if float(p) > 0.0)
+    n = len(X)
+    out_dtype = np.dtype(_crit_np_dtype())
+    if os.environ.get("MLFRAME_MODULAR_DROP_COPIES", "0").strip().lower() in ("1", "true", "on", "yes"):
+        eng = generate_modular_features(X, num_cols=cols, periods=periods)  # the copy check drops rows, so the generator decides the pool
+        return [str(c) for c in eng.columns], np.ascontiguousarray(eng.to_numpy(dtype=out_dtype).T)
+    per_col = 3 * len(periods)
+    values = np.empty((len(cols) * per_col, n), dtype=out_dtype)
+    names: list = []
+    for c in cols:
+        for p in periods:
+            names.extend(engineered_name_modular(c, p, op) for op in ("mod", "sin", "cos"))
+
+    def _one_column(j: int) -> None:
+        """Rows of source column ``j``: mod, sin, cos per period, in the generator's emission order."""
+        # Intentional float64: input of the residue v - p*floor(v/p); a float32 timestamp (~1.6e9) has resolution 128, so mod 7 would be noise.
+        arr = np.ascontiguousarray(X[cols[j]].to_numpy(), dtype=np.float64)
+        for i, p in enumerate(periods):
+            r0 = j * per_col + 3 * i
+            _modular_all_ops_into(arr, p, values[r0], values[r0 + 1], values[r0 + 2])
+
+    from ._edge_pool import map_on_edge_pool
+
+    list(map_on_edge_pool(_one_column, list(range(len(cols)))))
+    return names, values
+
+
 def _parse_modular_name(name: str):
     """``"{src}__modsin_24"`` -> ('sin', src, 24.0). Returns None on a name that
     does not match the modular convention. The op fragment must be matched
@@ -447,7 +481,8 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
     (``baseline_lcb_by_bootstrap_mi``), so it is computed without scoring any candidate. Survivors are regenerated and scored with the same seeded resamples, so a survivor's scores equal the
     score-first pipeline's up to the all-distinct tie guard of the resample gather, which looks at the matrix being scored.
     """
-    from ._family_maxt_gate import _family_codes, family_maxt_pass_codes
+    from ._family_maxt_gate import family_codes_of_rows as _candidate_codes
+    from ._family_maxt_gate import family_maxt_pass_codes
 
     if not any(float(p) > 0.0 for p in periods):
         return X.copy(deep=False), pd.DataFrame()
@@ -460,19 +495,19 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
     periods_pos = [float(p) for p in periods if float(p) > 0.0]
     for c0 in range(0, len(src_cols), chunk):
         cs = list(src_cols[c0 : c0 + chunk])
-        eng = generate_modular_features(X, num_cols=cs, periods=periods)
-        if eng.empty:
+        eng_names, eng_values = modular_candidate_block(X, cs, periods)
+        if not eng_names:
             continue
-        cc, nx = _family_codes(eng, nbins)
+        cc, nx = _candidate_codes(eng_values, nbins)
         codes.append(cc)
         nxs.append(nx)
-        names.extend(str(c) for c in eng.columns)
+        names.extend(eng_names)
         for c in cs:
             for p in periods_pos:
                 for op in ("mod", "sin", "cos"):
                     source_of[engineered_name_modular(c, p, op)] = str(c)
         kept_sources.extend(cs)
-        del eng
+        del eng_values
     if not names or not kept_sources:
         return X.copy(deep=False), pd.DataFrame()
     # The raw baseline depends on the column and the seeded resamples only, so it is scored in blocks of source columns of its own (not one block per candidate chunk, which can be a single column
