@@ -113,9 +113,9 @@ def choose_logical_constraints_backend(n: int, n_labels: int, n_rules: int, *, f
     try:
         result = cache.get_or_tune(
             _KERNEL_NAME,
-            dims={"n_samples": n, "n_labels": n_labels},
+            dims={"n_samples": n, "n_labels": n_labels, "n_rules": n_rules},  # run time grows with the rule count, so it is part of the shape
             tuner=_make_tuner(n, n_labels, n_rules),
-            axes=["n_samples", "n_labels"],
+            axes=["n_samples", "n_labels", "n_rules"],
             fallback={"backend_choice": fallback},
             async_sweep=True,
         )
