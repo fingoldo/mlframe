@@ -44,7 +44,7 @@ def _blend_numpy(ensemble: np.ndarray, aux: np.ndarray, conf: np.ndarray, thresh
 
 if _NUMBA_AVAILABLE:
 
-    @njit(cache=True, fastmath=True)
+    @njit(cache=True)
     def _blend_njit(ensemble: np.ndarray, aux: np.ndarray, conf: np.ndarray, threshold: float, gated_w: float, default_w: float) -> np.ndarray:
         """Sequential numba njit confidence-gated blend of ensemble/aux predictions."""
         n = ensemble.shape[0]
@@ -54,7 +54,7 @@ if _NUMBA_AVAILABLE:
             out[i] = (1.0 - w) * ensemble[i] + w * aux[i]
         return out
 
-    @njit(cache=True, fastmath=True, parallel=True)
+    @njit(cache=True, parallel=True)
     def _blend_njit_parallel(ensemble: np.ndarray, aux: np.ndarray, conf: np.ndarray, threshold: float, gated_w: float, default_w: float) -> np.ndarray:
         """Parallel numba njit confidence-gated blend of ensemble/aux predictions."""
         n = ensemble.shape[0]
