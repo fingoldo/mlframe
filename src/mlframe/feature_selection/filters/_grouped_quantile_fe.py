@@ -698,6 +698,66 @@ def score_grouped_quantile_by_mi_uplift(
 # End-to-end pipeline with MI uplift gate
 # ---------------------------------------------------------------------------
 
+def _grouped_quantile_block_cols(X: pd.DataFrame, group_cols, num_cols) -> "int | None":
+    """Numeric columns per block when the full grouped-quantile candidate frame (3 per group and numeric column) would take more than a quarter of the
+    available host memory (``MLFRAME_GROUPED_QUANTILE_BLOCK_COLS`` forces a size), else ``None``."""
+    import os
+
+    forced = os.environ.get("MLFRAME_GROUPED_QUANTILE_BLOCK_COLS", "").strip()
+    if forced.isdigit() and int(forced) > 0:
+        return int(forced)
+    per_num = len(X) * 3 * 4 * 3  # three float32 candidates, held as the dict, the frame block and a copy
+    try:
+        import psutil
+
+        budget = int(psutil.virtual_memory().available) // 4
+    except Exception:
+        return None
+    if len(group_cols) * len(num_cols) * per_num <= budget:
+        return None
+    return max(1, budget // max(1, per_num))
+
+
+def _hybrid_grouped_quantile_in_blocks(X, y, group_cols, num_cols, quantiles, block, *, top_k, n_bins_mi, min_mi, min_uplift):
+    """:func:`hybrid_grouped_quantile_fe` (no target-aware bins) with the candidates generated and scored block by block (group column, then numeric columns):
+    each candidate's MI and uplift depend only on it and its source, the blocks run in the one-frame candidate order and the stable sort is repeated, so the
+    scores table is the one-frame one. Only the winners' (group, numeric) pairs are generated again, for their columns and recipes."""
+    parts = []
+    for g in group_cols:
+        cur = [c for c in num_cols if c != g]
+        for i in range(0, len(cur), int(block)):
+            enc, rec = generate_grouped_quantile_features(X, [g], cur[i : i + int(block)], quantiles=quantiles)
+            if enc.empty:
+                continue
+            parts.append(score_grouped_quantile_by_mi_uplift(X, enc, y, n_bins=n_bins_mi, eng_to_source={nm: rec[nm]["num_col"] for nm in enc.columns}))
+            del enc, rec
+    if not parts:
+        return X, [], [], pd.DataFrame()
+    scores = pd.concat(parts, ignore_index=True).sort_values("mi", ascending=False, kind="mergesort").reset_index(drop=True)
+    keep = scores[(scores["mi"] >= float(min_mi)) & (scores["uplift"] >= float(min_uplift))]
+    winners = list(keep["engineered_col"].head(int(top_k)))
+    if not winners:
+        return X, [], [], scores
+    from .engineered_recipes import build_grouped_quantile_recipe
+
+    cols: dict = {}
+    recipes_by_name: dict = {}
+    for g in group_cols:
+        for num in [c for c in num_cols if c != g]:
+            names = [engineered_name_grouped_pctrank(num, g), engineered_name_grouped_iqr(num, g), engineered_name_grouped_p90p10(num, g)]
+            if not any(nm in winners for nm in names):
+                continue
+            enc, rec = generate_grouped_quantile_features(X, [g], [num], quantiles=quantiles)
+            for nm in names:
+                if nm in winners and nm in enc.columns:
+                    cols[nm] = enc[nm]
+                    recipes_by_name[nm] = rec[nm]
+    winners = [w for w in winners if w in cols]
+    X_aug = pd.concat([X, pd.DataFrame({w: cols[w] for w in winners}, index=X.index)], axis=1)
+    recipes = [build_grouped_quantile_recipe(name=w, **recipes_by_name[w]) for w in winners]
+    return X_aug, winners, recipes, scores
+
+
 def hybrid_grouped_quantile_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -742,6 +802,13 @@ def hybrid_grouped_quantile_fe(
     if not num_cols:
         return X, [], [], pd.DataFrame()
 
+    _blocks = None if target_aware else _grouped_quantile_block_cols(X, group_cols, num_cols)
+    if _blocks is not None:
+        # the whole candidate frame would not fit the host budget (384 candidates x 1M rows = 1.4 GiB in one block): score in blocks, regenerate the winners
+        blocked: tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame] = _hybrid_grouped_quantile_in_blocks(
+            X, y, group_cols, num_cols, quantiles, _blocks, top_k=top_k, n_bins_mi=n_bins_mi, min_mi=min_mi, min_uplift=min_uplift
+        )
+        return blocked
     enc_df, raw_recipes = generate_grouped_quantile_features(
         X, group_cols, num_cols, quantiles=quantiles,
     )
