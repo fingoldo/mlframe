@@ -27,3 +27,10 @@ The bandwidth of HSIC (and of the random-Fourier family) is the median of the m(
 ## Done: xi batch draws the next block's permutations while the kernel scores the current one
 
 `xi_correlation_batch` drew one `rng.permutation(n)` per column (52 ms of 141 ms for 108 columns x 24000 rows) before each parallel kernel call. The draws must stay one generator in column order, but the shuffle releases the GIL, so a single helper thread now draws block i+1 while the kernel scores block i (the helper is the only user of the generator and blocks are drawn in order: the stream, hence every value, is unchanged; `test_xi_batch_stream.py` compares with a serial per-column draw). Block size 32 -> 12 columns so there is more than one block to overlap: 151 ms -> 114 ms (block 12), 118 ms (block 16), 130 ms (block 32), same process settings, values identical.
+
+## 2026-11-03: auto-scorer bootstrap at 100000 x 100 (30000-row decision subsample, 5 resamples, 317 columns)
+
+Warm family wall 4.57 s (in the fit 4.33 s). Thread-summed scorer time: KSG 3.41 s (10 calls, entered one thread at a time through `parallel_kernel_entry`), xi 2.46 s.
+`_ksg_cd_fast._mi_cd_column`: the neighbour count within the k-th radius took two `np.searchsorted` over the whole sorted column per point (about 30 cache-missing steps);
+the same bounds are now found by walking out from the point's own sorted position (a few steps). Bit-identical MI; 317 columns x 30000 rows 0.68 -> 0.45 s (2 classes),
+0.60 -> 0.45 s (3 classes).
