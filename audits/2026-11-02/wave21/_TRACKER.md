@@ -6,8 +6,8 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 |---|---|---|---|
 | **RESOLVED** | W21FE-1 | High | transformer OOF buffers were zero-filled, so the first block of a `TimeSeriesSplit` read as a real 0.0; now NaN (the same zero-init pattern sits in `adaptive_bandwidth`, `anchor_attention`, `aux_mlp`, `class_conditional_anchor`, `class_mahalanobis`, `focal_lgb`, `ks_shift`: not traced, listed as FUTURE below) |
 | **RESOLVED** | W21FE-1b | High | the seven sibling modules with zero-filled OOF outputs |
-| **FUTURE** | W21FE-2 | High | `per_group_recency_weighted_mean` / `_agg` give every row its entity's whole-history value, future rows included; needs a `causal` option (default True would change existing outputs) |
-| **FUTURE** | W21FE-3 | High | `per_group_recency_weighted_mode` / `_behavioral_stability` have the same future-row leak |
+| **RESOLVED** | W21FE-2 | High | `per_group_recency_weighted_mean` / `_agg` gave every row its entity's whole-history value, future rows included; new `causal=True` default gives each row the aggregate over rows up to itself, `causal=False` keeps the one-shot value (`tests/feature_engineering/test_recency_aggregation_causal.py`) |
+| **RESOLVED** | W21FE-3 | High | `per_group_recency_weighted_mode` / `_behavioral_stability` had the same future-row leak; same `causal` option, default True |
 | **PARTIAL** | W21FE-4 | Medium | the rolling mean / std kernels now skip NaN (`tests/test_wave21_small_fixes.py`); the group-aggregate and KDE kernels in `recency_aggregation` / `recency_density` still propagate it |
 | **RESOLVED** | W21FE-5 | Medium | string / object group ids crashed `np.diff` in the recency rolling functions |
 | **RESOLVED** | W21FE-6 | Low | `per_group_sliding_window` raised for a group shorter than the window |

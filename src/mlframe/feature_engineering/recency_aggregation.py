@@ -68,6 +68,14 @@ def _group_recency_weighted_mean_sorted(v_sorted: np.ndarray, starts: np.ndarray
     return out
 
 
+def _prefix_bounds(starts: np.ndarray, ends: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Per-row prefix windows: row ``k`` of group ``[s, e)`` aggregates ``[s, s + k + 1)``, so no row sees later observations."""
+    lengths = ends - starts
+    p_starts = np.repeat(starts, lengths)
+    offsets = np.arange(int(lengths.sum()), dtype=np.int64) - np.repeat(np.cumsum(lengths) - lengths, lengths)
+    return p_starts, p_starts + offsets + 1
+
+
 def per_group_recency_weighted_mean(
     values: np.ndarray,
     group_ids: np.ndarray,
@@ -77,6 +85,7 @@ def per_group_recency_weighted_mean(
     param: float = 1.0,
     broadcast: bool = True,
     fill_value: float = np.nan,
+    causal: bool = True,
 ) -> np.ndarray:
     """Recency-weighted per-entity mean of ``values``.
 
@@ -99,6 +108,10 @@ def per_group_recency_weighted_mean(
         length ``n``). If False, returns one value per unique entity in first-appearance order.
     fill_value : float
         Value used for empty groups (only reachable via broadcast=False bookkeeping; empty groups don't occur otherwise).
+    causal : bool
+        With ``broadcast=True`` (default True) each row gets the aggregate over its entity's rows up to and including itself,
+        so a training row never sees later observations. False broadcasts the whole-history value to every row (one-shot per entity).
+        Ignored when ``broadcast=False``.
 
     Returns
     -------
@@ -134,6 +147,11 @@ def per_group_recency_weighted_mean(
     ends = np.concatenate((bnd.astype(np.int64), np.array([n], dtype=np.int64)))
 
     scheme_code = SCHEMES.index(scheme)
+    if causal and broadcast:
+        p_starts, p_ends = _prefix_bounds(starts, ends)
+        out = np.empty(n, dtype=np.float64)
+        out[sort_idx] = _group_recency_weighted_mean_sorted(v_sorted, p_starts, p_ends, scheme_code, param)
+        return out
     per_group = _group_recency_weighted_mean_sorted(v_sorted, starts, ends, scheme_code, param)
 
     if not broadcast:
@@ -311,6 +329,7 @@ def per_group_recency_weighted_agg(
     params: Sequence[float] | None = None,
     broadcast: bool = True,
     fill_value: float = np.nan,
+    causal: bool = True,
 ) -> np.ndarray:
     """Recency-weighted per-entity aggregation of ``values`` (mean/sum/min/max/std/var).
 
@@ -327,7 +346,7 @@ def per_group_recency_weighted_agg(
 
     Parameters
     ----------
-    values, group_ids, order, scheme, param, broadcast, fill_value
+    values, group_ids, order, scheme, param, broadcast, fill_value, causal
         See :func:`per_group_recency_weighted_mean`.
     agg : {'mean', 'sum', 'min', 'max', 'std', 'var'}
         Aggregation applied to the weighted values (std/var use raw values weighted around the recency-weighted
@@ -385,6 +404,17 @@ def per_group_recency_weighted_agg(
 
     scheme_code = SCHEMES.index(scheme)
     agg_code = AGGS.index(agg)
+
+    if causal and broadcast:
+        starts, ends = _prefix_bounds(starts, ends)
+        per_row = (
+            _group_recency_weighted_agg_multi_sorted(v_sorted, starts, ends, scheme_code, params_arr, agg_code)
+            if multi
+            else _group_recency_weighted_agg_sorted(v_sorted, starts, ends, scheme_code, param, agg_code)
+        )
+        out = np.empty_like(per_row)
+        out[sort_idx] = per_row
+        return out
 
     if multi:
         per_group = _group_recency_weighted_agg_multi_sorted(v_sorted, starts, ends, scheme_code, params_arr, agg_code)
