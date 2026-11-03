@@ -23,11 +23,13 @@ def test_fused_floor_equals_per_permutation(monkeypatch, strategy):
 
     def wrapped(hook, fd, fnb, yidx, pool, nperm, q, seed, eval_rows=None):
         """Both floors for the same call."""
-        monkeypatch.setenv("MLFRAME_HONEST_OJ_FUSED", "0")
-        want = orig(hook, fd, fnb, yidx, pool, nperm, q, seed, eval_rows)
+        # the fused floor first, as production calls it (before any permutation has built the plans), then the per-permutation floor
         monkeypatch.setenv("MLFRAME_HONEST_OJ_FUSED", "1")
         rng = np.random.default_rng(0 if seed is None else int(seed))
         direct = FU.oj_fused_floor(hook, fd, fnb, yidx, [int(c) for c in pool], int(nperm), float(q), int(rng.integers(0, 2**31 - 1)), eval_rows)
+        monkeypatch.setenv("MLFRAME_HONEST_OJ_FUSED", "0")
+        want = orig(hook, fd, fnb, yidx, pool, nperm, q, seed, eval_rows)
+        monkeypatch.setenv("MLFRAME_HONEST_OJ_FUSED", "1")
         seen.append((want, direct))
         return want
 

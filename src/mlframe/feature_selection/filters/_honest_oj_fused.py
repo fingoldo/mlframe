@@ -141,14 +141,14 @@ def oj_fused_floor(honest_codes_fn: Any, factors_data: np.ndarray, factors_nbins
     if binner is None or y_raw is None or str(binner._strategy).lower() not in ("optimal_joint", "cv"):
         return None
     try:
-        floor: Optional[float] = _floor(binner, np.asarray(y_raw), factors_data, factors_nbins, y_idx, cols, n_permutations, quantile, base_seed, eval_rows)
+        floor: Optional[float] = _floor(honest_codes_fn, binner, np.asarray(y_raw), factors_data, factors_nbins, y_idx, cols, n_permutations, quantile, base_seed, eval_rows)
         return floor
     except Exception as exc:
         logger.debug("fused optimal_joint honest floor not used (%s: %s); per-permutation path", type(exc).__name__, exc)
         return None
 
 
-def _floor(binner, y_raw, factors_data, factors_nbins, y_idx, cols, n_permutations, quantile, base_seed, eval_rows):
+def _floor(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, cols, n_permutations, quantile, base_seed, eval_rows):
     """Body of :func:`oj_fused_floor`."""
     from ._adaptive_nbins import _distinct_exceeds
     from ._honest_mdlp_null import seeded_permutation
@@ -157,8 +157,11 @@ def _floor(binner, y_raw, factors_data, factors_nbins, y_idx, cols, n_permutatio
     if y_raw.dtype.kind not in "iub" or y_raw.size == 0 or int(y_raw.min()) < 0 or _distinct_exceeds(y_raw, max_y):
         return None
     y_int = np.ascontiguousarray(y_raw, dtype=np.int64)
-    if binner._prescore(y_int) is None or binner._packed is None:  # caches the plans and packs them (the first permutation's own route); None: not all cached
-        return None
+    if binner._prescore(y_int) is None or binner._packed is None:
+        # the plans are built by a permutation's normal route: run the first permutation through the hook once (its codes are the production ones), then pack
+        honest_codes_fn(seeded_permutation(int(factors_data.shape[0]), base_seed))
+        if binner._prescore(y_int) is None or binner._packed is None:
+            return None
     packed, plans = binner._packed, binner._plans
     ms = list(packed["ms"])
     n = int(factors_data.shape[0])
