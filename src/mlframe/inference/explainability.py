@@ -27,6 +27,15 @@ from mlframe.calibration.quality import make_custom_calibration_plot as show_cus
 from mlframe.metrics.core import format_classification_report
 
 
+def _stack_oof_rows(rows: list) -> np.ndarray:
+    """Stack per-row OOF values into one array; rows no fold tested on (``None``, e.g. the first block of a ``TimeSeriesSplit``) become NaN of the same shape."""
+    template = next((np.asarray(r, dtype=np.float64) for r in rows if r is not None), None)
+    if template is None:
+        return np.full(len(rows), np.nan)
+    nan_row = np.full(template.shape, np.nan)
+    return np.stack([nan_row if r is None else np.asarray(r, dtype=np.float64) for r in rows])
+
+
 def _hard_labels_from_probs(probs: np.ndarray, nclasses: int) -> np.ndarray:
     """Hard class labels: positive-class column thresholded at 0.5 for binary, argmax otherwise (full-width ints, so >127 classes never wrap)."""
     if nclasses == 2:
@@ -240,8 +249,8 @@ def compute_shap_on_cv(
     if do_ts_oos:
         _report_ts_oos(all_probs, all_true_values, show_classification_report, display_labels)
     if shap_oof and not catboost_native_feature_importance:
-        out_values = np.array(oof_shap)
-        out_base_values = np.array(oof_base)
+        out_values = _stack_oof_rows(oof_shap)
+        out_base_values = _stack_oof_rows(oof_base)
     else:
         out_values = np.array(values)
         out_base_values = np.array(base_values)
