@@ -200,6 +200,7 @@ def null_max_streamed(
     The kernels and the ``keep_dtype`` setting are those of :func:`mi_classif_streamed`, so the maxima equal the repeated calls'. Raises when no CUDA device is usable."""
     import cupy as cp
     from .._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
+    from ._orth_mi_null_max import _strict_null_max_batched
 
     devices = _devices(max_devices)
     plan = plan_streamed_mi(n_rows, devices, _host_free_bytes(), dtype)
@@ -231,6 +232,12 @@ def null_max_streamed(
                 np.copyto(host, block)
                 dev_block = cp.asarray(host)
             cache: dict = {}
+            # one launch per block of permutations; the per-permutation launches below stay as the fallback (and with MLFRAME_STRICT_NULL_BATCHED=0)
+            batched = _strict_null_max_batched(cp, dev_block, y64, permutations, int(nbins), cache, keep_dtype=True)
+            if batched is not None:
+                out = np.fmax(out, batched)
+                del dev_block, cache
+                continue
             for b in range(len(perm_labels)):
                 dev_y = resident_perms[d][b] if d in resident_perms else cp.asarray(perm_labels[b])
                 mi = _plugin_mi_classif_batch_cuda_resident(dev_block, dev_y, int(nbins), y_min=y_min, n_classes=n_classes, keep_dtype=True, candidate_cache=cache)

@@ -121,10 +121,12 @@ def _takes_cpu_rank_path(X: np.ndarray, nbins: int) -> bool:
     return _cpu_rank_path_applies(X, nbins) and be._mi_path_for(int(X.shape[0]), int(X.shape[1]), _crit_np_dtype(), False) == "resident" and bool(np.isfinite(X).all())
 
 
-def _strict_null_max_batched(cp: Any, Xd: Any, y_arr: np.ndarray, permutations: "list[np.ndarray]", nbins: int, cache: dict) -> "np.ndarray | None":
+def _strict_null_max_batched(
+    cp: Any, Xd: Any, y_arr: np.ndarray, permutations: "list[np.ndarray]", nbins: int, cache: dict, keep_dtype: bool = False
+) -> "np.ndarray | None":
     """The per-permutation maxima of :func:`_null_max_strict_gpu` from one launch per block of permutations (``_null_max_perm_gpu``, the kernel of the binned
     numeric-aggregate null): the candidates are binned once with the edges the per-permutation calls cache, and every permutation is counted from them. Same edges,
-    counts and MI. ``None`` when that path does not apply (``MLFRAME_STRICT_NULL_BATCHED=0``, too many classes, a device fault): the caller loops."""
+    counts and MI; ``keep_dtype`` goes to the binning as the per-permutation calls pass it (the streamed path keeps float32). ``None`` when that path does not apply (``MLFRAME_STRICT_NULL_BATCHED=0``, too many classes, a device fault): the caller loops."""
     import os
 
     if os.environ.get("MLFRAME_STRICT_NULL_BATCHED", "1").strip() == "0" or not permutations:
@@ -135,7 +137,7 @@ def _strict_null_max_batched(cp: Any, Xd: Any, y_arr: np.ndarray, permutations: 
         from . import _orth_mi_backends as be
 
         yd, y_min, n_classes = be._resident_labels(y_arr, cp)
-        state = _resident_mi_candidates(Xd, int(nbins), keep_dtype=False, relax_binning=False, x_is_cm=False)
+        state = _resident_mi_candidates(Xd, int(nbins), keep_dtype=keep_dtype, relax_binning=False, x_is_cm=False)
         cache["state"] = state
         x_gpu, is_cm, x_cm, interior = state
         if x_cm is None:

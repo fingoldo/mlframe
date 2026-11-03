@@ -21,7 +21,9 @@ launch per permutation. The kernels now also come in a float64-candidate instant
 (2 classes), 0.115 -> 0.031 s (3 classes). Remaining candidates: the family max-T gate (integer codes, xlogx-table MI) needs a codes-input variant; the honest
 MDLP null, the pair pooled floor (device RNG) and the CMI null cannot share it without changing their draws.
 
-## Streamed null (`_streamed_gpu_mi.null_max_streamed`): tried, not adopted (2026-11-03)
-Routing each block through `null_max_mi_perms_gpu` (keep_dtype=True) was bit-identical to the per-permutation loop (float32/float64, 2 and 3 classes),
-but 100k x 60 float32, 20 permutations, two blocks: 0.076 s both ways over 6 alternating in-process runs. The block upload and edge select dominate;
-the per-permutation resident MI launches are already short. Left as is.
+## Streamed null (`_streamed_gpu_mi.null_max_streamed`) on the shared kernel (2026-11-03)
+Each column block now goes through `null_max_mi_perms_gpu` (keep_dtype=True), one launch per block of permutations instead of one per permutation;
+`MLFRAME_STRICT_NULL_BATCHED=0` or a non-applicable case keeps the per-permutation launches. Bit-identical (float32/float64, 2 and 3 classes).
+100k x 60 float32, two blocks, alternating in-process runs: 20 permutations 0.076 s both ways; 200 permutations 0.64-0.99 s (loop) vs 0.63-0.76 s (batched),
+within the noise. The counting work dominates, not launches. Kept for the architecture: three of the null implementations now share one kernel.
+The candidate storage type is the `{XT}` placeholder of that kernel (`_MODULES_BY_X`, one module per type, CUDA.md); MI terms and sum stay double.
