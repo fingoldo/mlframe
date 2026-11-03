@@ -39,3 +39,6 @@ fractions in groups of 16 (each order statistic is independent): equal to cp.per
 Conditional gate: the per-column cp.median in the prune loop is replaced by one `radix_column_medians` call for the gate matrix (the two middle order statistics,
 combined as cp.median does: (a + b) / 2 in the input dtype). `_radix_quantiles(.., [0.5])` was NOT equal for float64 (its lerp b - (b - a) / 2 rounds differently;
 4 columns of 560); the order-statistic route is equal in value and dtype for n = 1..30000 at four scales (test_radix_column_medians).
+Conditional-CMI permutation null: the within-stratum `cp.argsort(keys, axis=0)` of the int32 shuffle keys (cub segmented merge sort, 0.26 s in the 50k fit)
+becomes one 1-D argsort of (column << 32 | key) from 300000 elements: equal orders, ties included (test_perm_null_composite_argsort); 50000 x 25 11.4 -> 7.0 ms,
+100000 x 25 23.0 -> 13.2 ms; smaller inputs keep the axis-0 sort (16667 x 8: 1.2 vs 1.35 ms). `MLFRAME_PERM_NULL_COMPOSITE_ARGSORT=0` keeps it everywhere.
