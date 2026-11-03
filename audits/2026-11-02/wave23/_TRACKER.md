@@ -22,7 +22,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave co
 | **RESOLVED** | W23MET-2 | Medium | Tweedie deviance with power > 2 accepted y = 0 and returned a negative value |
 | **RESOLVED** | W23MET-3 | Low-Medium | the weighted ICE class reduction counted each class's positives unweighted; with `sample_weight` the class weight is now its summed row weight (`tests/metrics/test_ice_class_reduction_uses_weighted_positives.py`) |
 | **RESOLVED** | W23MET-4 | Low | ordinal cutpoints accepted labels outside `[0, n_classes)` |
-| **FUTURE** | W23MET-5 | Low | KTC region for the odds-combine dispatch can route small shapes to the GPU |
+| **RESOLVED** | W23MET-5 | Low | the tuned odds-combine region was bounded only from above (`n_samples_max`), so a GPU win measured at 100k rows applied to every smaller shape; the region now also carries `n_samples_min` (a quarter of the measured rows) and the cache key moved to `_v3` so earlier open-ended entries are not reused (`tests/calibration/test_odds_combine_ktc_region_excludes_much_smaller_shapes.py`) |
 
 ## Not covered by this wave
 

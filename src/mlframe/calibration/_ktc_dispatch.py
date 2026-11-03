@@ -46,8 +46,11 @@ logger = logging.getLogger(__name__)
 _ENV_KEY = "MLFRAME_ODDS_COMBINE_BACKEND"
 _VALID_BACKENDS = ("njit_single", "njit_parallel", "cupy")
 # Bumped when the tuner's measured workload changed: entries persisted before the cupy timing included its
-# H2D/D2H transfers are not comparable with the ones after, so they must not be reused.
-_KERNEL_NAME = "calibration_odds_ratio_combine_v2"
+# H2D/D2H transfers are not comparable with the ones after, so they must not be reused. v3: measured regions also carry a lower bound on the row count.
+_KERNEL_NAME = "calibration_odds_ratio_combine_v3"
+
+
+_REGION_MIN_FRACTION_DENOM = 4
 
 
 def _get_cache() -> Any:
@@ -126,11 +129,17 @@ def _make_tuner(n: int, k: int) -> Callable[[], list[dict]]:
         if not timings:
             return [{"backend_choice": "njit_single", "n_samples_max": n, "n_members_max": k}]
         winner = min(timings, key=lambda k_: timings[k_])
-        # Region bounded at exactly the measured (n, k): only queries at this-or-smaller shape reuse this
-        # measurement; a genuinely different (larger) shape misses and triggers its own tune, building up a
-        # per-shape-bucket table over time. Coarser than a full multi-point grid sweep (see
-        # ``joint_hist_batched``), but a real per-call measurement beats a hardcoded guess.
-        return [{"backend_choice": winner, "n_samples_max": n, "n_members_max": k, **{f"wall_ms_{k_}": v for k_, v in timings.items()}}]
+        # Region bounded to the measured shape from both sides: at most (n, k), and at least a quarter of the measured rows. The winner at 100k rows says nothing about a
+        # 100-row call (a GPU win there would send tiny calls through a launch that costs more than the whole njit pass); such a query misses and triggers its own tune.
+        return [
+            {
+                "backend_choice": winner,
+                "n_samples_max": n,
+                "n_samples_min": max(1, n // _REGION_MIN_FRACTION_DENOM),
+                "n_members_max": k,
+                **{f"wall_ms_{k_}": v for k_, v in timings.items()},
+            }
+        ]
 
     return _tuner
 
