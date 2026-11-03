@@ -105,6 +105,32 @@ def _fused_block(perms, y_raw, yc, rows, xb, kx, nv, val_idx, pool_dep, pool_cod
         out[b] = -np.inf if bad else res
 
 
+def _assemble_pool(binner, pool, width, dep_rows, ms, factors_data, factors_nbins, n):
+    """``(pool_dep, pool_codes, pool_nb)``: for each pool column its re-binned column index (``-1`` for a fixed one), its code rows per candidate count in
+    the binner's code dtype (a fixed column fills candidate 0), and the bin counts."""
+    pool_dep = np.full(len(pool), -1, dtype=np.int64)
+    with binner._lock:
+        table, col_max = binner._table, binner._col_max
+    code_dtype = np.promote_types(table.dtype, np.asarray(factors_data).dtype) if any(c >= width for c in pool) else table.dtype
+    pool_codes = np.zeros((len(pool), len(ms), n), dtype=code_dtype)
+    pool_nb = np.zeros((len(pool), len(ms)), dtype=np.int64)
+    for t, c in enumerate(pool):
+        if c < width and int(binner._out_dep[c]) >= 0:
+            j = int(binner._out_dep[c])
+            pool_dep[t] = j
+            for mi in range(len(ms)):
+                pool_codes[t, mi] = table[dep_rows[j, mi]]
+                pool_nb[t, mi] = int(col_max[dep_rows[j, mi]]) + 1
+        elif c < width:
+            s = int(binner._out_fixed[c])
+            pool_codes[t, 0] = table[s]
+            pool_nb[t, 0] = int(col_max[s]) + 1
+        else:
+            pool_codes[t, 0] = np.asarray(factors_data[:, c])
+            pool_nb[t, 0] = int(factors_nbins[c])
+    return pool_dep, pool_codes, pool_nb
+
+
 def oj_fused_floor(honest_codes_fn: Any, factors_data: np.ndarray, factors_nbins: np.ndarray, y_idx: int, cols: list, n_permutations: int, quantile: float, base_seed: int,
                    eval_rows: Optional[np.ndarray]) -> Optional[float]:
     """The honest FDR floor of :func:`honest_fdr_floor` from the fused kernel, or ``None`` when it does not apply (see the module docstring)."""
@@ -162,25 +188,14 @@ def _floor(binner, y_raw, factors_data, factors_nbins, y_idx, cols, n_permutatio
     width = len(binner._out_names)
     pool = [int(c) for c in cols]
     rows = np.arange(n, dtype=np.int64) if eval_rows is None else np.asarray(eval_rows, dtype=np.int64)
-    pool_dep = np.full(len(pool), -1, dtype=np.int64)
-    pool_codes = np.zeros((len(pool), len(ms), n), dtype=np.int64)
-    pool_nb = np.zeros((len(pool), len(ms)), dtype=np.int64)
-    with binner._lock:
-        table, col_max = binner._table, binner._col_max
-    for t, c in enumerate(pool):
-        if c < width and int(binner._out_dep[c]) >= 0:
-            j = int(binner._out_dep[c])
-            pool_dep[t] = j
-            for mi in range(len(ms)):
-                pool_codes[t, mi] = table[dep_rows[j, mi]]
-                pool_nb[t, mi] = int(col_max[dep_rows[j, mi]]) + 1
-        elif c < width:
-            s = int(binner._out_fixed[c])
-            pool_codes[t, 0] = table[s]
-            pool_nb[t, 0] = int(col_max[s]) + 1
-        else:
-            pool_codes[t, 0] = np.asarray(factors_data[:, c], dtype=np.int64)
-            pool_nb[t, 0] = int(factors_nbins[c])
+    # the pool's code rows, assembled once per (pool, rows count) and kept on the binner: the floor runs twice per fit over the same pool
+    memo_key = (tuple(pool), n)
+    memo = getattr(binner, "_fused_pool_memo", None)
+    if memo is not None and memo[0] == memo_key:
+        pool_dep, pool_codes, pool_nb = memo[1]
+    else:
+        pool_dep, pool_codes, pool_nb = _assemble_pool(binner, pool, width, dep_rows, ms, factors_data, factors_nbins, n)
+        binner._fused_pool_memo = (memo_key, (pool_dep, pool_codes, pool_nb))
     folds = packed["folds"]
     nv = np.asarray(packed["nv"], dtype=np.int64)
     val_idx = np.zeros((len(folds), int(nv.max())), dtype=np.int64)
