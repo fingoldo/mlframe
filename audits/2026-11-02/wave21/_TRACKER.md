@@ -14,7 +14,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | **RESOLVED** | W21CORE-1 | High | hard-mode logical constraints did one ordered pass, so a rule chain could end violated in either declaration order; passes now repeat to a fixpoint |
 | **FUTURE** | W21CORE-2 | Medium | `shapley_blend` with `coalition_blend="rank_mean"` learns weights on ranks but blends raw predictions |
 | **FUTURE** | W21CORE-3 | Medium | `confidence_gated_blend` njit kernels use `fastmath`, so NaN confidence gates differently than the numpy path |
-| **FUTURE** | W21CORE-4 | Medium | `explainability` OOF SHAP leaves `None` rows for never-tested samples |
+| **RESOLVED** | W21CORE-4 | Medium | `explainability` OOF SHAP leaves `None` rows for never-tested samples |
 | **RESOLVED** | W21CORE-5 | Low | `explainability` scored `oos_ts_max_size + 1` rows |
 | **FUTURE** | W21CORE-6 | Low | `inference/_ktc_dispatch` cache key omits `n_rules` |
 | **RESOLVED** | W21CORE-7 | Low | `similarity_scale` was never validated |
@@ -45,3 +45,4 @@ Most of `shap_proxied_fs/` (about 35 modules), `boruta_shap/__init__`, `wrappers
 | W21FS-3, 4 | `tests/feature_selection/test_importance_signed_values_share_and_positive_only_chart.py` |
 | W21REP-1, 2 | `tests/reporting/test_slice_finder_and_multiclass_known_rows.py` |
 | W21FE-1b | `tests/feature_engineering/test_transformer_siblings_leave_uncovered_rows_nan.py` (ks_shift end to end; the other six use the same one-line change, their existing suites pass) |
+| W21CORE-4 | `tests/inference/test_explainability_oof_rows_without_a_fold_are_nan.py` |
