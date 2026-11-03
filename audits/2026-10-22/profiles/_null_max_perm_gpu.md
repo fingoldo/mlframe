@@ -20,3 +20,8 @@ launch per permutation. The kernels now also come in a float64-candidate instant
 (`_strict_null_max_batched`, `MLFRAME_STRICT_NULL_BATCHED=0` keeps the loop): 40 columns x 100000 rows x 39 permutations, bit-identical maxima, 0.208 -> 0.047 s
 (2 classes), 0.115 -> 0.031 s (3 classes). Remaining candidates: the family max-T gate (integer codes, xlogx-table MI) needs a codes-input variant; the honest
 MDLP null, the pair pooled floor (device RNG) and the CMI null cannot share it without changing their draws.
+
+## Streamed null (`_streamed_gpu_mi.null_max_streamed`): tried, not adopted (2026-11-03)
+Routing each block through `null_max_mi_perms_gpu` (keep_dtype=True) was bit-identical to the per-permutation loop (float32/float64, 2 and 3 classes),
+but 100k x 60 float32, 20 permutations, two blocks: 0.076 s both ways over 6 alternating in-process runs. The block upload and edge select dominate;
+the per-permutation resident MI launches are already short. Left as is.
