@@ -151,3 +151,11 @@ null_mi_perms_bits 0.121 s (3), radix_select_interp_f64_v3 0.111 s (46), fold_ce
 Reading: in this window the fit is host-bound. The main-thread waits on device queues seen by stage_sample (pair analytic gate 2.0 s,
 materialise uploads) are real, but most of the wall is host code; the remaining lever is moving host-only stages to the device, as on 2026-11-01.
 Stage sampler (same day, leaves per stage): every stage's time is spread over 0.2-1.2 s leaves; no single leaf above 1.2 s outside pool waits.
+
+## 100k x 100 all families, GPU, 2026-11-03 (after the binning / radix / Fourier / HSIC / dCor changes)
+Two clean runs (no cProfile), same code: stage_sample 91.5 s; plain fit with mlframe DEBUG memory/fallback filter 101.1 s (2026-11-01: 237-272 s).
+Selected (run 2): x4, oofwarp(x4), add(mul(cbrt(x0),cbrt(x1)),add(x2,abs(g))), add(log(x2),x0*x1__He1_He1), opat__g_x4_x2, add(sqrt(g),sign(x4)).
+Run 1 logged two cupy thrust-allocator OutOfMemoryError tracebacks (365 MB against the 1.97 GB pool cap, "Exception ignored in cupy_malloc") right after
+the fe_lof_device lookup; the fit completed. Run 2 had none, so the caller (a cupy sort / argsort that fell back) is not identified yet.
+Main-thread leaves at 100k: edge-pool wait 4.4 s (extra-basis 2.0 of it), honest-null `_continuous_accept_block` D2H 1.6 s, grouped-quantile pool wait 1.4 s,
+per-feature edges wait 1.4 s, bootstrap pool 1.2 s, pooled binning 1.2 s, pair analytic gate 1.2 s.
