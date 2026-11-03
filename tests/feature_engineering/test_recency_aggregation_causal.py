@@ -66,3 +66,20 @@ def test_nan_observations_are_skipped_not_propagated():
     mean = per_group_recency_weighted_mean(values, groups, order=np.arange(4), scheme="exp", param=0.7, causal=False)
     clean = per_group_recency_weighted_mean(np.array([1.0, 3.0, 5.0]), np.zeros(3, dtype=np.int64), order=np.arange(3), scheme="exp", param=0.7, causal=False)
     assert np.isfinite(mean).all() and clean.shape == (3,)
+
+
+def test_density_kernels_skip_nan_observations():
+    """A NaN in an entity's history leaves the mode and stability score finite and equal to those of the finite values alone."""
+    from mlframe.feature_engineering.recency_density import per_group_behavioral_stability, per_group_recency_weighted_mode
+
+    gappy = np.array([1.0, np.nan, 1.1, 0.9, np.nan, 1.0])
+    clean = np.array([1.0, 1.1, 0.9, 1.0])
+    kw = dict(scheme="exp", param=0.8, causal=False)
+    g6, g4 = np.zeros(6, dtype=np.int64), np.zeros(4, dtype=np.int64)
+    mode_g = per_group_recency_weighted_mode(gappy, g6, order=np.arange(6), **kw)
+    mode_c = per_group_recency_weighted_mode(clean, g4, order=np.arange(4), **kw)
+    stab_g = per_group_behavioral_stability(gappy, g6, order=np.arange(6), **kw)
+    stab_c = per_group_behavioral_stability(clean, g4, order=np.arange(4), **kw)
+    assert np.all(np.isfinite(mode_g)) and np.all(np.isfinite(stab_g))
+    np.testing.assert_allclose(mode_g[0], mode_c[0])
+    np.testing.assert_allclose(stab_g[0], stab_c[0])
