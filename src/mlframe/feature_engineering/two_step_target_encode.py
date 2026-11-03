@@ -13,6 +13,7 @@ from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
+from numba import njit
 
 
 def two_step_recency_weighted_target_encode(
@@ -103,23 +104,41 @@ def two_step_recency_weighted_target_encode(
         weight_sum = weight.groupby(df["entity"]).transform("sum")
         return np.asarray((weighted_sum / weight_sum).to_numpy(), dtype=np.float64)
 
-    # Expanding-window (causal) step 2: row i's aggregate must only see events of its own entity with
-    # time <= its own time. 0.5**((t_i - t_j) / hl) factors as A_i * B_j (A_i = 0.5**(t_i/hl), B_j =
-    # 0.5**(-t_j/hl)) so A_i cancels out of the weighted_sum/weight_sum ratio -- letting a single per-entity
-    # expanding cumsum (in causal order) stand in for an O(n^2) "recompute weights vs. row i" loop. B_j is
-    # referenced to the entity's own max time (same convention as the non-causal branch) purely to keep the
-    # exponent <= 0 and avoid overflow; the reference constant cancels in the ratio the same way A_i does.
+    # Expanding-window (causal) step 2: row i's aggregate must only see events of its own entity with time <= its own time. The decayed sums
+    # satisfy S_i = S_prev * 0.5**((t_i - t_prev) / hl) + enc_i (same for the weight sum), so one pass in causal order carries them forward.
+    # Re-basing at every event keeps each exponent <= 0: a fixed per-entity reference time underflowed to 0/0 for events more than ~1000
+    # half-lives before the entity's last one.
     sort_idx = np.argsort(np.asarray(causal_order), kind="mergesort")
     inverse_idx = np.argsort(sort_idx, kind="mergesort")
+    codes, _uniques = pd.factorize(df["entity"].to_numpy(), use_na_sentinel=False)
+    causal_sorted = _causal_decayed_means(
+        np.asarray(codes[sort_idx], dtype=np.int64), df["time"].to_numpy()[sort_idx], df["enc"].to_numpy(dtype=np.float64)[sort_idx], float(decay_half_life), len(_uniques)
+    )
+    return np.asarray(causal_sorted[inverse_idx], dtype=np.float64)
 
-    sorted_df = df.iloc[sort_idx]
-    b_weight = 0.5 ** ((entity_max_time.iloc[sort_idx].to_numpy() - sorted_df["time"].to_numpy()) / decay_half_life)
-    grouped = sorted_df["enc"].to_numpy() * b_weight
-    weighted_cumsum = pd.Series(grouped, index=sorted_df.index).groupby(sorted_df["entity"]).cumsum()
-    weight_cumsum = pd.Series(b_weight, index=sorted_df.index).groupby(sorted_df["entity"]).cumsum()
 
-    causal_encoding_sorted = (weighted_cumsum / weight_cumsum).to_numpy()
-    return np.asarray(causal_encoding_sorted[inverse_idx], dtype=np.float64)
+@njit(cache=True)
+def _causal_decayed_means(codes: np.ndarray, times: np.ndarray, enc: np.ndarray, half_life: float, n_entities: int) -> np.ndarray:
+    """Per row, the recency-weighted mean of its entity's events so far (rows already in causal order), carried forward with one decay per step."""
+    n = codes.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    s = np.zeros(n_entities)
+    w = np.zeros(n_entities)
+    last_t = np.zeros(n_entities)
+    seen = np.zeros(n_entities, dtype=np.bool_)
+    for i in range(n):
+        c = codes[i]
+        if seen[c]:
+            decay = 0.5 ** ((times[i] - last_t[c]) / half_life)
+            s[c] = s[c] * decay + enc[i]
+            w[c] = w[c] * decay + 1.0
+        else:
+            s[c] = enc[i]
+            w[c] = 1.0
+            seen[c] = True
+        last_t[c] = times[i]
+        out[i] = s[c] / w[c]
+    return out
 
 
 __all__ = ["two_step_recency_weighted_target_encode"]
