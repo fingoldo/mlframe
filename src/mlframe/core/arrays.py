@@ -310,6 +310,9 @@ def topk_by_partition(arr: np.ndarray, k: int, axis: int | None = None, ascendin
     """
     # Copy rather than mutate caller's array; flip sign for descending.
     if not ascending:
+        arr = np.asarray(arr)
+        if arr.dtype.kind in "ub":
+            arr = arr.astype(np.int64)  # negating an unsigned array wraps around (1 -> 255) and a bool array raises
         arr = -arr
     else:
         # No copy: after this point `arr` is only ever READ (ravel, argpartition, take, take_along_axis), so the
