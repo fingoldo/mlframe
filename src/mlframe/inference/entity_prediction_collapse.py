@@ -90,6 +90,9 @@ def collapse_predictions_by_group(
         raise ValueError(f"collapse_predictions_by_group: unsupported stat {stat!r}, expected 'mean' or 'quantile'")
 
     predictions_arr = np.asarray(predictions, dtype=np.float64)
+    if pd.isna(pd.Series(group)).any():
+        # the unweighted groupby drops a null key (its prediction came back NaN) while the weighted bincount crashed on its -1 code: refuse in both
+        raise ValueError("collapse_predictions_by_group: group contains null keys; fill or drop them before collapsing")
 
     if weights is None:
         df = pd.DataFrame({"prediction": predictions_arr, "group": group})
