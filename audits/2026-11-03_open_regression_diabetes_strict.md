@@ -26,3 +26,7 @@ Next: compare the confirmation statistic for those candidates against the June 1
   gated only on `fe_target_mix_enable`, so engineered pair/triplet searches ran under fe_max_steps=0. Not the cause of the collapse (the main screen had
   already returned 2 features); the selection is unchanged by the fix.
 - Next: compare the binned codes / gain of bp given (s5, bmi) between `689a02770` and today.
+- Root difference found: the MDLP feature binning the screen receives changed. `factors_nbins` of (age, sex, bmi, bp, s1, s2, s3, s4, s5, s6, target):
+  `689a02770` [5, 2, 2, 2, 5, 5, 2, 5, 4, 2, 10]; today [5, 2, 3, 2, 2, 2, 2, 5, 3, 2, 10] (s1 and s2 collapse 5 -> 2 bins, s5 4 -> 3, bmi 2 -> 3).
+  With s1/s2 at 2 bins and the conditioning set finer, every remaining candidate's gain given {s5, bmi} falls under the strict confirmation.
+- Next: find which MDLP change since 2026-08-11 merges s1 / s2 into 2 bins on diabetes (n=442) and whether that is the intended stricter split validation.
