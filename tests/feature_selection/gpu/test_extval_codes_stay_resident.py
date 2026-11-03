@@ -28,7 +28,9 @@ def test_deferred_extval_codes_skip_the_host_copy_and_fill_on_demand_identically
     eager = gpu_materialise_extval_codes_host(a, bs, _OPS, 10)
     with residency_audit() as rep:
         out = gpu_materialise_extval_codes_host(a, bs, _OPS, 10, defer_host_fill=True)
-    assert not rep.d2h
+    # no bulk copy of the (n, K) codes; the only read is the one-byte finiteness flag that keeps a candidate holding NaN on the host binner
+    assert not rep.bulk_d2h
+    assert rep.scalar_d2h_bytes <= 8
     try:
         dev = gfe.take_resident_codes(out)
         assert dev is not None

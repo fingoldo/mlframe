@@ -12,6 +12,8 @@ from __future__ import annotations
 import functools
 import threading
 import numpy as np
+from typing import Any
+from ._fe_resident_operands import _content_hash_memoized
 from ._mi_greedy_cmi_fe_steps import (  # noqa: F401  -- carved helpers
     logger,
     _qbin_float_dtype,
@@ -253,6 +255,16 @@ _YZ_CARD_CACHE: dict = {}  # (y,z)-identity -> (k_z, k_yz, ky, kz); invariant ac
 # Same joblib-threading race class as _CARD_MAX_CACHE_LOCK: covers the whole get-or-compute-or-evict sequence.
 _YZ_CARD_CACHE_LOCK = threading.Lock()
 
+def _host_key_array(cp: Any, v: Any) -> "tuple[np.ndarray, bool]":
+    """``(host array, stable)`` of ``v`` for the content key: ``stable`` is True when ``v`` is a host array that is already 1-D and C-contiguous (returned as the SAME object, so an identity-keyed hash memo can hit)."""
+    if isinstance(v, cp.ndarray):
+        return np.ascontiguousarray(cp.asnumpy(v).ravel()), False
+    a = np.asarray(v)
+    if a.ndim == 1 and a.flags.c_contiguous:
+        return a, True
+    return np.ascontiguousarray(a.ravel()), False
+
+
 def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tuple[int, int, int, int]:
     """Occupied-cell counts (k_z, k_xz, k_yz, k_xyz) for the analytic CMI-null df, via device cp.unique.
     Only the cardinalities (number of distinct joint codes) are needed -> cp.unique(...).size on the
@@ -294,9 +306,14 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
     # stale card); key on full O(n) content hashes instead (cheap CPU vs the H2D .max()+nnz it guards). Same
     # cardinalities on the happy path -> df / selection unchanged.
     # y / z may be device arrays (the resident support): the content key needs host bytes, and ``np.asarray`` on a cupy array raises
-    ya = np.ascontiguousarray((cp.asnumpy(y) if isinstance(y, cp.ndarray) else np.asarray(y)).ravel())
-    za = np.ascontiguousarray((cp.asnumpy(z) if isinstance(z, cp.ndarray) else np.asarray(z)).ravel())
-    yzkey = (int(ya.size), ya.dtype.str, hash(ya.tobytes()), int(za.size), za.dtype.str, hash(za.tobytes()))
+    ya, y_stable = _host_key_array(cp, y)
+    za, z_stable = _host_key_array(cp, z)
+    # A host array that is already 1-D and contiguous is the same object across the calls of a round, so its content hash is memoised on its identity (0.004 ms) instead of hashing a fresh ``tobytes()`` copy of both arrays per call (0.45 ms,
+    # most of the cost of a per-pair null at 100000 rows); an array taken from the device is new on every call and keeps the byte hash.
+    yzkey = (
+        int(ya.size), ya.dtype.str, _content_hash_memoized(ya) if y_stable else hash(ya.tobytes()),
+        int(za.size), za.dtype.str, _content_hash_memoized(za) if z_stable else hash(za.tobytes()),
+    )
     with _YZ_CARD_CACHE_LOCK:
         _cached = _YZ_CARD_CACHE.get(yzkey)
         if _cached is not None:

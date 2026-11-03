@@ -21,3 +21,19 @@ Per 256-column block: host-to-device 26 ms, order statistics 37 ms (the three hi
 
 Back to back in two processes: device quantile codes off 171.4 s, on 154.7 s; no OutOfMemoryError and no family raised in either. The call-level gain (about 1.2 s per `_family_codes` call, 2.4x on the call) cannot explain 17 s, so most of the gap is run-to-run noise;
 the same code also produced a 228.8 s outlier in the run before. Do not read the wall difference as the gain of this change; the instrument for it is the call time and the stage seconds in the sampler.
+
+## Crossover re-measured (2026-11-02): device from about 1M elements, `DEVICE_MIN_ELEMENTS` 20M -> 1.5M
+
+The 20M-element bound kept the modular family's candidate coding on the host (30000-row subsample x 335 columns = 10M elements): `quantile_codes_block_auto` was the top sampled frame of `hybrid_modular_fe` (15 samples, about 2.7 s per fit, GPU 1%). Same-process sweep, float32, host kernel on 8 threads against the radix device path (codes and counts equal in every row; best of 3):
+
+| rows | columns | host ms | device ms |
+|---|---|---|---|
+| 20000 | 32 / 64 / 128 / 335 | 5.9 / 12.8 / 25.8 / 69.3 | 7.6 / 10.1 / 18.2 / 46.3 |
+| 30000 | 16 / 32 / 64 / 128 / 335 | 4.3 / 9.6 / 23.8 / 43.3 / 111 | 6.4 / 7.8 / 12.1 / 21.8 / 56.8 |
+| 100000 | 8 / 16 / 32 / 64 / 128 / 335 | 8.1 / 18.3 / 34.9 / 64.5 / 148 / 404 | 9.0 / 9.1 / 14.8 / 24.4 / 47.5 / 124 |
+
+The device wins from about 1.0 to 1.3M elements (1.9x at 30000 x 64, 3.3x at 100000 x 335). Float64 blocks stay on the host: the sort-based device path is not faster there (416 ms against 378 ms at 100000 x 300). The bound is now 1.5M; `MLFRAME_QUANTILE_CODES_DEVICE=0|1` still forces a path. A per-host tuner entry would keep a faster or slower card honest: the crossover belongs in the KTC of the new-GPU machine's checklist (CUDA.md section 14).
+
+Fit-level check after the change (100000 x 100, every family, VRAM used by other processes 1.1 GB): wall 158.4 s, no OutOfMemoryError / "FE raised", same 6 selected features; sum of the top-30 family walls 78.1 s against 79.5 s before (inside the noise), `gate:fe_modular_enable` 6.7 s against 7.1 s. The coding calls of that family are a minor part of its time at this size (the baseline bootstrap and the family gate are the rest), so the fit-level gain is small; the per-call gain (1.9x to 3.3x) is the measured one.
+
+Correction (2026-11-03): the lower bound broke `tests/feature_selection/gpu/test_cmi_residency_traffic.py` (strict-resident pair search: "unexpected (n, K)-scale bulk D2H [4500000]"): the device path copies the int16 codes back to the host for the host family gate, a bulk device-to-host copy the strict-resident contract forbids, and the fit-level gain under strict was within noise. The bound is now `STRICT_DEVICE_MIN_ELEMENTS` (20M, the old value) under the strict-resident path and `DEVICE_MIN_ELEMENTS` (1.5M) elsewhere. Found by running the CMI / residency test subset before pushing and bisecting against the pushed tip and upstream.

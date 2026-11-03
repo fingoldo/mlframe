@@ -7,12 +7,14 @@ Carved out of ``_pairs_emit`` (module size limit); the parent re-exports both na
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence, cast
 import logging
+import threading
 
 import numpy as np
 
 from mlframe.utils.env_flags import env_int
+from .._cache_release import register_cache_releaser
 from ._pairs_code_bins import code_table_bins
 from mlframe.utils.log_throttle import log_throttle
 
@@ -24,6 +26,42 @@ logger = logging.getLogger(__name__)
 # the null-MI table floor alone (see ``_pairs_emit._apply_pair_family_floor``); the exact test stays for every family that fits.
 # TODO(KTC): a measured crossover per machine; 400 million cells keeps the first 256-permutation block near 1e11 histogram updates.
 _FAMILY_EXACT_MAX_CELLS = env_int("MLFRAME_PAIR_FAMILY_EXACT_MAX_MCELLS", 400, minimum=0) * 1_000_000
+
+
+_PACKED_FACTORS: "tuple | None" = None  # (the factor arrays, the packed matrix) of the last call; the arrays are held so their identity stays valid
+_PACKED_FACTORS_LOCK = threading.Lock()
+
+
+def _packed_factor_matrix(factors: Sequence[np.ndarray], n_rows: int) -> np.ndarray:
+    """``(n_rows, E)`` C-contiguous float64 matrix whose column ``e`` is ``factors[e]``.
+
+    The factors of consecutive pairs are the same memoised arrays (24 calls of a 100000 x 100 fit used 5 distinct sets of 106, each set called back to back), so the last matrix is reused when every factor is the identical object. Filling goes through
+    contiguous rows of the transpose and one copy: writing each factor as a column of the C-ordered matrix strides over every row (252 factors of 100000 rows: 264 ms against 144 ms)."""
+    global _PACKED_FACTORS
+    with _PACKED_FACTORS_LOCK:
+        cached = _PACKED_FACTORS
+    if cached is not None and cached[1].shape == (n_rows, len(factors)) and len(cached[0]) == len(factors) and all(a is b for a, b in zip(cached[0], factors)):
+        return cast(np.ndarray, cached[1])
+    rows = np.empty((len(factors), n_rows), dtype=np.float64)  # Intentional float64: ext-val parameter buffer keeps native float64 precision (see note at line 294)
+    for i, values in enumerate(factors):
+        rows[i] = values
+    packed = np.ascontiguousarray(rows.T)
+    del rows
+    with _PACKED_FACTORS_LOCK:
+        _PACKED_FACTORS = (tuple(factors), packed)
+    return packed
+
+
+def _release_packed_factors() -> int:
+    """Drop the cached packed matrix (registered for release under memory pressure); returns the bytes freed."""
+    global _PACKED_FACTORS
+    with _PACKED_FACTORS_LOCK:
+        freed = int(_PACKED_FACTORS[1].nbytes) if _PACKED_FACTORS is not None else 0
+        _PACKED_FACTORS = None
+    return freed
+
+
+register_cache_releaser(_release_packed_factors)
 
 
 def _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_K, n_rows, _materialise_extval_njit):
@@ -41,9 +79,7 @@ def _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_
         # (Q7). The external-factor columns are DISTINCT memoised arrays
         # (_extval_raw_col per var) so they genuinely must be assembled into
         # a 2-D matrix for the njit kernel; there is no view to substitute.
-        _ev_pb_mat = np.empty((n_rows, len(_ev_param_bs)), dtype=np.float64)  # Intentional float64: ext-val parameter buffer keeps native float64 precision (see note at line 294)
-        for _ei, _pb_vals in enumerate(_ev_param_bs):
-            _ev_pb_mat[:, _ei] = _pb_vals
+        _ev_pb_mat = _packed_factor_matrix(_ev_param_bs, n_rows)
         _materialise_extval_njit(
             np.ascontiguousarray(param_a),
             _ev_pb_mat,

@@ -128,12 +128,17 @@ def gpu_materialise_extval_codes_host(
         out_dev = _candidate_matrix(cp, pa, param_b_list, _ops, n, n_ops, resident_operand)
         if out_dev is None:
             return None
-        if not bool(cp.isfinite(out_dev).all()):
-            # The host binner takes quantile edges over the finite rows of a column holding NaN; the device binner takes them over all rows, with NaN
-            # sorted last, which turns upper edges NaN and gives a different contingency table. Decline so the caller keeps the host path.
-            log_throttle(logger, "extval_nonfinite_candidates", logging.INFO, "gpu_materialise_extval_codes_host: non-finite candidate values (n=%d, K=%d); using the host binner", n, K)
-            return None
-        codes_dev = _gpu_resident_discretize_codes(out_dev, int(nbins))  # NaN/inf -> rightmost bin (searchsorted)
+        if bool(cp.isfinite(out_dev).all()):
+            codes_dev = _gpu_resident_discretize_codes(out_dev, int(nbins))
+        else:
+            # The host binner takes the quantile edges over the non-NaN rows of a column; the finite-path device binner takes them over all rows (NaN sorted last), which turns upper edges NaN and gives a different contingency
+            # table. A NaN-aware device binner reproduces the host codes exactly (a missing external factor is the usual cause); an infinite value or a column with fewer than two numbers still goes to the host binner.
+            from ._gpu_nan_quantile_codes import quantile_codes_with_nan_columns
+
+            codes_dev = quantile_codes_with_nan_columns(out_dev, int(nbins))
+            if codes_dev is None:
+                log_throttle(logger, "extval_nonfinite_candidates", logging.INFO, "gpu_materialise_extval_codes_host: infinite or near-empty candidate columns (n=%d, K=%d); using the host binner", n, K)
+                return None
         codes_dev = codes_dev.astype(cp.dtype(_cd), copy=False) if codes_dev.dtype != _cd else codes_dev
         if defer_host_fill and fe_gpu_resident_codes_enabled() and fe_gpu_defer_host_codes_enabled():
             # The codes stay RESIDENT: the noise gate consumes the device copy in place (take_resident_codes) and never reads the host array, so the

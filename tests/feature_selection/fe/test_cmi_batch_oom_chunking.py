@@ -148,3 +148,20 @@ def test_support_joint_equals_the_one_shot_renumbering(p, nbins, n):
     want, _ = _renumber_joint(*quantile_bin_columns(support, nbins))
     got = _support_joint(support, nbins)
     np.testing.assert_array_equal(got, want)
+
+
+def test_candidate_rows_equal_the_column_by_column_fill():
+    """The block conversion returns the same C-contiguous rows as filling them one column at a time, for a subset, a reorder and mixed dtypes."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _candidate_rows
+
+    rng = np.random.default_rng(6)
+    X = pd.DataFrame({"a": rng.standard_normal(300).astype(np.float32), "b": rng.standard_normal(300), "c": rng.integers(0, 5, 300)})
+    for names in (["a", "b", "c"], ["c", "a"], ["b"]):
+        want = np.empty((len(names), 300), dtype=np.float32)
+        for r, c in enumerate(names):
+            want[r] = X[c].to_numpy()
+        got = _candidate_rows(X, names, np.float32)
+        assert got.flags.c_contiguous
+        np.testing.assert_array_equal(got, want)

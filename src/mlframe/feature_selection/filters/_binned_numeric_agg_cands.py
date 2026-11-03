@@ -10,6 +10,8 @@ gate uses), bins them there and hands resident codes to the CMI scorers; the hos
 from __future__ import annotations
 
 import logging
+
+from mlframe.utils.log_throttle import log_throttle
 from typing import Any, Optional, Sequence
 
 import pandas as pd
@@ -99,6 +101,19 @@ class DeviceOofCandidates:
         return self._chunk_codes[i - self._chunk_start].copy()
 
 
+def _release_device_caches() -> None:
+    """Drop the fit-constant resident operand caches and the memory pool's cached blocks (both refill on demand)."""
+    try:
+        import cupy as cp
+
+        from ._fe_resident_operands import clear_fe_resident_operands
+
+        clear_fe_resident_operands()
+        cp.get_default_memory_pool().free_all_blocks()
+    except Exception as exc:
+        logger.debug("releasing the device caches failed: %s", exc)
+
+
 def device_born_candidates(fit_fn: Any, X: pd.DataFrame, y: Any, gsel: Sequence[str], asel: Sequence[str], stats: Sequence[str], nbins_base: int, n_folds: int, random_state: int, precap_pairs: Any, cap_names: Any, redundancy_gate: bool, reject_sink: Any) -> tuple:
     """Device-born candidate selection for the binned-aggregate family: fit RECIPES-ONLY (no host out-of-fold loop), run the Tier-1 MI gate on the device from those
     recipes, then hand back either a lazy device source for the redundancy gate or, when that is unavailable or switched off, the host columns of the survivors.
@@ -113,16 +128,23 @@ def device_born_candidates(fit_fn: Any, X: pd.DataFrame, y: Any, gsel: Sequence[
     if not cand_names:
         return "empty", raw, None, None
     survivor_list = None
-    try:
-        from ._binned_numeric_agg_resident import local_mi_gate_binagg_resident
+    for attempt in (0, 1):
+        try:
+            from ._binned_numeric_agg_resident import local_mi_gate_binagg_resident
 
-        survivor_list = local_mi_gate_binagg_resident(
-            None, y, raw_X=X, recipes={nm: raw[nm] for nm in cand_names}, n_folds=n_folds, random_state=random_state, reject_sink=reject_sink,
-            cand_cols=cand_names, n_rows=len(X),
-        )
-    except Exception as e:
-        logger.debug("device candidate-survivor pass failed, falling back to the host path: %s", e)
+            survivor_list = local_mi_gate_binagg_resident(
+                None, y, raw_X=X, recipes={nm: raw[nm] for nm in cand_names}, n_folds=n_folds, random_state=random_state, reject_sink=reject_sink,
+                cand_cols=cand_names, n_rows=len(X),
+            )
+        except Exception as e:
+            logger.debug("device candidate-survivor pass failed: %s", e)
+        if survivor_list is not None or attempt == 1:
+            break
+        # The pass declined (typically the device pool ran out of room on a card shared with the display): hand the fit-constant resident caches and the pool's cached blocks back and try once more
+        # before the exact host path, which costs about ten times as much (70 s against 6 s at 100000 x 100).
+        _release_device_caches()
     if survivor_list is None:
+        log_throttle(logger, "binagg_device_gate_declined", logging.WARNING, "binned-aggregate device gate declined twice; scoring the candidates on the host (about ten times slower)")
         return "unavailable", None, None, None
     keep = set(survivor_list)
     survivors = [c for c in cand_names if c in keep]  # capped order, filtered to survivors

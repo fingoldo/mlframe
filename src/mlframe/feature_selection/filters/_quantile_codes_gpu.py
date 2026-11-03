@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 
 THREADS = 256
 #: Elements (columns x rows) from which the device radix path is the default choice for float32 blocks.
-DEVICE_MIN_ELEMENTS = 20_000_000
+STRICT_DEVICE_MIN_ELEMENTS = 20_000_000  # the strict-resident path keeps its bulk device-to-host traffic out of this coding unless the block is large (tests/feature_selection/gpu/test_cmi_residency_traffic.py)
+DEVICE_MIN_ELEMENTS = 1_500_000  # measured crossover on the GTX 1050 Ti (8 host threads): the device wins from about 1M elements at 20000 to 100000 rows (audits note), 20M was the first conservative bound
 #: Fraction of the memory the pool can still hand out that one launch may use, and the device bytes held per column row (input, sorted copy, sort workspace, codes).
 _BUDGET_FRACTION = 0.25
 _BYTES_PER_COLUMN_ROW = 20
@@ -249,13 +250,25 @@ def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: 
     return True
 
 
+def _device_min_elements() -> int:
+    """Elements from which the device codes are the default: ``DEVICE_MIN_ELEMENTS``, or ``STRICT_DEVICE_MIN_ELEMENTS`` under the strict-resident path, whose contract forbids a bulk device-to-host copy that a host consumer of the codes needs (the codes are copied back here)."""
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+
+        if fe_gpu_strict_resident_enabled():
+            return STRICT_DEVICE_MIN_ELEMENTS
+    except Exception as exc:
+        logger.debug("strict-resident probe failed (%s); using the default bound", exc)
+    return DEVICE_MIN_ELEMENTS
+
+
 def quantile_codes_block_auto(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray, host_kernel=None) -> None:
     """``quantile_codes_block`` on the device when the block is a large float32 one and the device is usable, else ``host_kernel`` (default: the njit kernel); any device fault returns to the host kernel."""
     if host_kernel is None:
         from ._numba_utils import quantile_codes_block as host_kernel
 
     forced = os.environ.get("MLFRAME_QUANTILE_CODES_DEVICE", "").strip()
-    use_device = (forced == "1") if forced in ("0", "1") else (v.dtype == np.float32 and int(v.shape[0]) * int(v.shape[1]) >= DEVICE_MIN_ELEMENTS)
+    use_device = (forced == "1") if forced in ("0", "1") else (v.dtype == np.float32 and int(v.shape[0]) * int(v.shape[1]) >= _device_min_elements())
     if use_device:
         try:
             if quantile_codes_block_gpu(v, n_bins, codes, nx):

@@ -108,11 +108,12 @@ def _derive_max_joint_bins(max_y_bins: int) -> int:
     that joint cardinality). Falls back to 128 (cc 6.x safe) on probe failure.
     """
     try:
+        from ._gpu_hw_launch import launch_device_id
         from pyutilz.system.gpu_dispatch import (
             gpu_capability_summary,
             get_shared_mem_budget_per_block,
         )
-        summary = gpu_capability_summary(0) if _CUDA_AVAIL else None
+        summary = gpu_capability_summary(launch_device_id()) if _CUDA_AVAIL else None
         if summary is None:
             return 128
         budget = get_shared_mem_budget_per_block(

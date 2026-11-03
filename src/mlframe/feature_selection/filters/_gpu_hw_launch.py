@@ -49,6 +49,12 @@ def _current_device_id() -> "int | None":
         return None
 
 
+def launch_device_id() -> int:
+    """Id of the current CUDA device (the one the next launch runs on), 0 when it cannot be read: what a capability query must be asked about instead of a hard-coded device 0."""
+    dev = _current_device_id()
+    return 0 if dev is None else int(dev)
+
+
 def device_props() -> dict:
     """Launch-relevant properties of the CURRENT device (cached per device id). Empty dict if cupy/CUDA is unavailable - callers
     treat an empty dict as 'no HW info' and fall back to their historical default / KTC sweep."""
