@@ -33,6 +33,7 @@ _KEPT_KERNEL_VERSIONS = {"_pair_mi_best_per_first", "_pair_mi_best_per_first_v1"
 #: Documented public API: users call these, nothing inside the package has to. Each is exported (``__all__`` or a package
 #: re-export) and covered by tests of its own.
 _PUBLIC_API = {
+    "soft_winsorize",  # public estimators.custom utility (documented example); clip_to_quantiles uses its per-side helpers directly
     "ewma",
     "trimmed_mean",
     "overlap",

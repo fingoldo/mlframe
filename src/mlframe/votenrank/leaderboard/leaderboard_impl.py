@@ -171,7 +171,7 @@ class Leaderboard:
         for method in methods_to_choose:
             func = getattr(self, f"{method}_election")
             if method in settings_dict:
-                params = ParameterGrid(METHODS_SETTINGS[method])
+                params = ParameterGrid(settings_dict[method])
                 for some_params in params:
                     election_result = func(**some_params)
                     result.append((f"Method: {method}, Params: {some_params}", election_result, len(election_result)))
