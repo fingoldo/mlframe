@@ -140,6 +140,8 @@ def _pr_f1_panel(y_true, y_proba, classes, *, y_pred=None) -> BarPanelSpec:
     yt = np.asarray(y_true)
     yp = _resolve_pred(y_pred, y_proba)
     # sklearn raises "Found empty input array" on n==0; an all-zeros P/R/F1 bar is the honest empty-data reading.
+    known = yt >= 0  # a true label outside ``classes`` was mapped to -1; the confusion panels drop it, so the P/R/F1 bars must too
+    yt, yp = yt[known], np.asarray(yp)[known]
     if yt.size == 0:
         precision = recall = f1 = np.zeros(K, dtype=np.float64)
     else:
