@@ -176,7 +176,7 @@ class _CoarseBasis(list):
     """The per-frequency ``(sin_centered, sin_ss, cos_centered, cos_ss)`` rows, plus ``matrices`` (the ``(nf, n)`` sin / cos blocks and the SS vectors they are rows of)
     when the njit build made them, so the greedy search scores every grid frequency with one matrix-vector product per block."""
 
-    matrices = None
+    matrices: "Optional[tuple]" = None
 
 
 @numba.njit(parallel=True, fastmath=True, cache=True)
@@ -259,7 +259,7 @@ def _build_coarse_basis(z_tr: np.ndarray, grid: list[float]) -> list:
     # sin/cos SS by ~1e-13 (single-ULP, sequential-vs-pairwise sum) which only perturbs the coarse-sweep ``best_f``
     # argmax that ``_refine_peak_freq`` re-localises - end-to-end MRMR scene selection is byte-identical. Set
     # ``MLFRAME_FOURIER_COARSE_BASIS_EXACT=1`` to force the exact numpy build.
-    _coarse_basis = []  # (sin_centered, sin_ss, cos_centered, cos_ss) per grid freq
+    _coarse_basis = _CoarseBasis()  # (sin_centered, sin_ss, cos_centered, cos_ss) per grid freq
     _use_exact_basis = os.environ.get("MLFRAME_FOURIER_COARSE_BASIS_EXACT", "") == "1"
     if not _use_exact_basis and len(grid) > 0 and z_tr.size > 0:
         _sc_m, _cc_m, _sss, _css = _coarse_basis_njit(np.ascontiguousarray(z_tr), np.asarray(grid, dtype=_crit_np_dtype()))

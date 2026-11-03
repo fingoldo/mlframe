@@ -309,9 +309,8 @@ _CUDA_KERNELS_WARP: dict = {}  # float type -> compiled warp kernel
 _WARP_SIZE = 32
 
 
-def _warp_pass_helpers(ft=np.float64):
-    """Device helpers of the warp kernel: the strided mean pass and the centred-moment pass, each warp-reduced so every lane holds the totals. ``ft`` is the float type
-    of the forms and the moments (``np.float64``, or ``np.float32`` on cards whose double rate is 1/32 of single)."""
+def _form_device(ft=np.float64):
+    """The device ``_eval_form`` of the warp kernel in the float type ``ft``."""
     nan_ft = ft(np.nan)
 
     @_nb_cuda.jit(device=True, inline=True)
@@ -334,6 +333,14 @@ def _warp_pass_helpers(ft=np.float64):
         if form_id == FORM_X1SQ_DIV_X0:
             return (x1 * x1) / x0 if abs(x0) >= eps else nan_ft
         return x0 * x1
+
+    return _form
+
+
+def _warp_pass_helpers(ft=np.float64):
+    """Device helpers of the warp kernel: the strided mean pass and the centred-moment pass, each warp-reduced so every lane holds the totals. ``ft`` is the float type
+    of the forms and the moments (``np.float64``, or ``np.float32`` on cards whose double rate is 1/32 of single)."""
+    _form = _form_device(ft)
 
     @_nb_cuda.jit(device=True)
     def _warp_mean_sums(y, operand_matrix, a_idx, b_idx, form_id, eps, n_rows, lane):

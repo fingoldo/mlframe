@@ -25,6 +25,33 @@ from .._fe_dominant_candidate import dominant_candidate
 from .._fe_frame_ops import fe_drop_columns
 
 
+def _run_four_stages_together(self, stages, after_early_a, _y_np, _X_step_input, close_lap):
+    """The opt-in four-cascade run (``MLFRAME_FE_STAGE_CONCURRENCY_EARLY_A=1``): ``(frame, raw input columns)``, or ``None`` when the concurrent run did not happen
+    (the caller then runs early_a first)."""
+    # all four cascades are independent (same step input, disjoint recipes): run them together, each on a copy of the estimator in a device slot of its own, and fold
+    # in the fixed order. A dominant candidate from early_a stops a sequential run after it, so only early_a's state is kept then.
+    # Opt-in: at 30000 x 40 it gives the same selection and the same wall as early_a first (44.4 vs 44.5 s warm); at 100000 x 100 it could not be measured on the
+    # dev box (four stages' buffers ran the host out of pinned memory), so the default keeps early_a ahead of the three concurrent cascades.
+    dominant: dict = {}
+
+    def _keep(outcomes: list) -> int:
+        """1 when early_a's frame already has a dominant candidate (the sequential path returns there), else every stage."""
+        X_a, _raw = after_early_a(outcomes[0])
+        dominant["X"], dominant["raw"] = X_a, _raw
+        return 1 if dominant_candidate(X_a, _y_np) is not None else 4
+
+    outs = run_stages_concurrently(self, stages, STAGE_WEIGHTS_WITH_EARLY_A, merge_count=_keep)
+    if outs is not None:
+        X, raw = dominant["X"], dominant["raw"]
+        close_lap()
+        for out in outs[1:]:
+            if out is not None:
+                X = _fe_merge_new_columns(X, out, _X_step_input)
+        close_lap()
+        return X, raw
+    return None
+
+
 def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_on, _fe_budget_ok, _fit_entry_nan_mask, recipes):
     """Run early_a, early_b, mid_a and mid_b on the same step-input frame; return the merged frame and the raw input columns recorded before FE."""
     # A constant or all-NaN input column carries no signal, and as an operand it only dilutes the candidate pools (the orth triplet seeds, the pair budget): the stages read the step input without
@@ -109,27 +136,9 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
         )
 
     if concurrency_enabled() and os.environ.get("MLFRAME_FE_STAGE_CONCURRENCY_EARLY_A", "0").strip() == "1":
-        # all four cascades are independent (same step input, disjoint recipes): run them together, each on a copy of the estimator in a device slot of its own, and fold
-        # in the fixed order. A dominant candidate from early_a stops a sequential run after it, so only early_a's state is kept then.
-        # Opt-in: at 30000 x 40 it gives the same selection and the same wall as early_a first (44.4 vs 44.5 s warm); at 100000 x 100 it could not be measured on the
-        # dev box (four stages' buffers ran the host out of pinned memory), so the default keeps early_a ahead of the three concurrent cascades.
-        dominant: dict = {}
-
-        def _keep(outcomes: list) -> int:
-            """1 when early_a's frame already has a dominant candidate (the sequential path returns there), else every stage."""
-            X_a, _raw = _after_early_a(outcomes[0])
-            dominant["X"], dominant["raw"] = X_a, _raw
-            return 1 if dominant_candidate(X_a, _y_np) is not None else 4
-
-        outs = run_stages_concurrently(self, [_stage_early_a, _stage_early_b, _stage_mid_a, _stage_mid_b], STAGE_WEIGHTS_WITH_EARLY_A, merge_count=_keep)
-        if outs is not None:
-            X, _raw_input_cols_pre_fe = dominant["X"], dominant["raw"]
-            _close_lap()
-            for out in outs[1:]:
-                if out is not None:
-                    X = _fe_merge_new_columns(X, out, _X_step_input)
-            _close_lap()
-            return X, _raw_input_cols_pre_fe
+        together = _run_four_stages_together(self, [_stage_early_a, _stage_early_b, _stage_mid_a, _stage_mid_b], _after_early_a, _y_np, _X_step_input, _close_lap)
+        if together is not None:
+            return together
     X, _raw_input_cols_pre_fe = _after_early_a(_stage_early_a(self))
     _close_lap()
     # One column that already carries nearly all of y leaves nothing for the remaining families to add.
