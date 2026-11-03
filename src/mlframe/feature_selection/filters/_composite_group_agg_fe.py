@@ -553,12 +553,8 @@ def generate_composite_group_agg_features(
             continue
 
         cur_num_cols = [c for c in num_cols if c in X.columns and c not in set(group_cols) and pd.api.types.is_numeric_dtype(X[c])]
-        # FUTURE (perf): this still rebuilds a temp frame + re-hashes "_g" (already known via key_uniq/key_inverse
-        # above) for every num_col. A bincount-style mean/std accumulation keyed by key_inverse would skip the
-        # pandas groupby entirely, mirroring _binned_numeric_agg_fe's njit raw-moment kernel - deferred because
-        # replicating pandas' NaN-skipping mean/Welford-based std exactly (not just mathematically) needs the
-        # same empirical bit-identity verification as the K-fold subtraction rewrite, and this file's num_cols
-        # loop is uncapped (unlike the capped max_pairs paths that make that verification cheap to scope).
+        # mean / std / count come from ``group_mean_std_count`` over ``key_inverse`` (no pandas groupby); the groupby only runs for the statistics that kernel
+        # does not cover (min / max / median / skew / nunique), see ``_emit_num_col_features``.
         labels_info = _key_labels(key_uniq) if key_uniq is not None and key_inverse is not None else None
         tasks.extend((num_col, keys, key_uniq, key_inverse, group_cols, labels_info) for num_col in cur_num_cols)
 
