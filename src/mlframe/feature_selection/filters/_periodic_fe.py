@@ -486,13 +486,16 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
 
     if not any(float(p) > 0.0 for p in periods):
         return X.copy(deep=False), pd.DataFrame()
-    codes: list = []
     nxs: list = []
     names: list = []
     base_parts: list = []
     kept_sources: list = []
     source_of: dict = {}
     periods_pos = [float(p) for p in periods if float(p) > 0.0]
+    # the codes of every chunk go into one matrix sized up front (at most 3 candidates per source and period), filled in place: collecting the chunks and
+    # concatenating them held the codes twice (2 x 3 GB for 1605 candidates at 1M rows)
+    cols_buf = None
+    filled = 0
     for c0 in range(0, len(src_cols), chunk):
         cs = list(src_cols[c0 : c0 + chunk])
         from ._modular_codes_gpu import modular_family_codes_gpu
@@ -506,7 +509,16 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
             if not eng_names:
                 continue
             cc, nx = _candidate_codes(eng_values, nbins)
-        codes.append(cc)
+        if cols_buf is None:
+            # the codes are bin indices below nbins, so int8 holds them exactly up to 127 bins (half the int16 bytes: 1.6 GB instead of 3.2 GB at 1M rows);
+            # the family test's kernels give the same flags on int8 codes (host and device, checked 2026-11-03)
+            buf_dtype = np.int8 if int(nbins) <= 127 else np.promote_types(cc.dtype, np.int16)
+            cols_buf = np.empty((len(src_cols) * 3 * len(periods_pos), cc.shape[1]), dtype=buf_dtype)
+        elif np.promote_types(cols_buf.dtype, cc.dtype) != cols_buf.dtype and cols_buf.dtype != np.int8:
+            cols_buf = cols_buf.astype(np.promote_types(cols_buf.dtype, cc.dtype))
+        cols_buf[filled : filled + cc.shape[0]] = cc
+        filled += cc.shape[0]
+        del cc
         nxs.append(nx)
         names.extend(eng_names)
         for c in cs:
@@ -524,8 +536,9 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
         base_parts.append(pd.DataFrame({"baseline_mi_lcb": baseline_lcb_by_bootstrap_mi(X[block], y, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins)}))
     base = pd.concat(base_parts, ignore_index=True)
     noise_floor = _modular_noise_floor(base)
-    cols_all = codes[0] if len(codes) == 1 else np.concatenate(codes, axis=0)
-    del codes
+    if cols_buf is None:
+        return X.copy(deep=False), base
+    cols_all = cols_buf[:filled]  # a view of the filled rows
     fam_ok = family_maxt_pass_codes(cols_all, np.concatenate(nxs), y, seed=seed)
     ok_names = [n for n, ok in zip(names, fam_ok) if ok]
     if not ok_names:
