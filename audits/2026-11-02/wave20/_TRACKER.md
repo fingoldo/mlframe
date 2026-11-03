@@ -19,7 +19,7 @@ Six read-only reports by Opus 5.5 low-effort agents on packages no earlier wave 
 | **FUTURE** | W20INF-2 | Medium | `find_weights_for_condorcet` accepts a weighted tie as feasible while `condorcet_election` needs a strict win |
 | **FUTURE** | W20INF-3 | Medium | `two_step_ranking` meta table is object dtype and can be partial |
 | **RESOLVED** | W20INF-4 | Medium | `collapse_predictions_by_group` lost a prediction (unweighted) or crashed (weighted) on a null group key; both now raise |
-| **FUTURE** | W20INF-5 | Low-Medium | `predict` returns `proba[:, 1]` without checking `classes_` |
+| **RESOLVED** | W20INF-5 | Low-Medium | `get_models_raw_predictions` returned `proba[:, 1]` as the positive class without looking at `classes_`; a binary model whose second class is not label 1 now logs a throttled warning naming the class the column belongs to (`tests/inference/test_raw_predictions_warn_when_positive_column_is_not_label_one.py`) |
 | **RESOLVED** | W20INF-6 | Low | `segment_rank_splice` ranks used an unstable argsort |
 | **PARTIAL** | W20INFO-1 | Medium | `mi_miller_madow(..., entropy_consistent=True)` and `mi_miller_madow_correct(..., k_xy=...)` give the entropy-consistent correction `I_plugin + (k_x + k_y - k_xy - 1)/(2n)` (`tests/feature_selection/info_theory/test_mi_miller_madow_entropy_consistent.py`); the default stays the product form until a selection-equivalence benchmark shows the consistent form does not move selections |
 | **RESOLVED** | W20INFO-2 | Medium | `mixed_ksg_mi` jitter 1e-10 is absolute and vanishes above \|x\| ~ 1e6; scale it by the data spread or implement the tie-count rule |

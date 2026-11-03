@@ -260,6 +260,19 @@ def read_trained_models(
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
+def _warn_if_positive_column_is_not_label_one(model_name: Any, model: Any) -> None:
+    """Warn when the second ``predict_proba`` column is not the class labelled 1, since callers read it as the positive-class probability."""
+    classes = getattr(model, "classes_", None)
+    if classes is None or len(classes) != 2:
+        return
+    if classes[1] not in (1, True):
+        log_throttle(
+            logger, f"raw_predictions_positive_column_{model_name}", logging.WARNING,
+            "get_models_raw_predictions: model %r has classes_=%s, so the returned column is the probability of %r, not of label 1.",
+            model_name, list(classes), classes[1],
+        )
+
+
 def get_models_raw_predictions(
     trained_models: dict,
     X: pd.DataFrame,
@@ -323,6 +336,8 @@ def get_models_raw_predictions(
             # Binary -> positive-class column; multiclass -> full matrix. Shape guard so a degenerate
             # single-column proba does not crash on the [:, 1] index.
             prediction = proba[:, 1] if proba.ndim == 2 and proba.shape[1] == 2 else proba
+            if prediction is not proba:
+                _warn_if_positive_column_is_not_label_one(model_name, model)
         else:
             prediction = model.predict(X)
 
