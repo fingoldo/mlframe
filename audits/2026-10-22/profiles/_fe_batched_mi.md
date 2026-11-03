@@ -22,3 +22,10 @@ Global-scratch twin (`batched_joint_entropy2_g`, same day): over the shared-memo
 slice; used while SMs x M x 4 bytes fit L2. n=30000, K=930, Kx=10, min of 5, count+reduce / global (blocks 6, 12, 24, 48, 96) ms: M=15000 77.9 / 24.0, 30.8,
 61.2, 66.6, 68.5; M=30000 79.6 / 47.8, 59.2, 72.0, 82.2, 81.6; M=100000 86.1 / 125.4, 119.8, 105.7, 112.2, 111.0 (slices over L2: count+reduce kept).
 Same occupied cells, entropies to round-off (test_cmi_fused_entropy_default). Fit check 50000 x 100, both fused paths off / on: same 9 features; warm 84.8 vs 76.3 s.
+
+## cupy sorts in the GPU fit (2026-11-03)
+50k x 100 all-families fit with cp.sort / argsort / unique / lexsort / percentile / quantile / median wrapped and synchronised (diagnostic; method calls
+`ndarray.argsort` are not seen): about 1.9 s in total. Largest: hermite `_nonpoly_cells_gpu._quantile_columns` sort 0.41 s (24 calls, 30000 x 100 f32),
+`_qbin_block_gpu.sync_free_qbin_codes_block` sort 0.34 s (25 calls, 14-16 x 50000 f32), `_fe_cmi_perm_null_gpu.conditional_perm_null_gpu` argsort 0.26 s,
+`_gpu_resident_rank_bin` argsort 0.14 s (196 calls), conditional gate median 0.12 s, `_resident_mi_candidates` percentile 0.10 s.
+`_quantile_columns` now takes `_radix_quantiles` (sort as fallback): equal values (test_nonpoly_quantiles_radix), 30000 x 100 f32, 3 fractions: 23.7 -> 1.8 ms.
