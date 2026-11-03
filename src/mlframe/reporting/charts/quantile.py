@@ -191,13 +191,14 @@ def _interval_band_panel(y_true, preds_NK, alphas) -> PanelSpec:
     hi_col = K - 1
     median_col = min(range(K), key=lambda j: abs(a_arr[j] - 0.5))
 
-    n = len(y)
+    finite_idx = np.flatnonzero(_finite_rows(y, P))
+    n = len(finite_idx)
     cap = 1000
     if n > cap:
         rng = np.random.default_rng(0)
-        idx = rng.choice(n, size=cap, replace=False)
+        idx = finite_idx[rng.choice(n, size=cap, replace=False)]
     else:
-        idx = np.arange(n)
+        idx = finite_idx
     P_sub = P[idx]
     y_sub = y[idx]
     order = np.argsort(P_sub[:, median_col])

@@ -28,7 +28,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | **RESOLVED** | W21REP-2 | Medium | multiclass P/R/F1 counted unknown true labels as false positives while the confusion panels dropped them |
 | **FUTURE** | W21REP-3 | Medium | slice-finder "simultaneous" intervals use a Sidak count of only the degraded cells |
 | **FUTURE** | W21REP-4 | Low-Medium | multilabel Hamming histogram bins are not integer aligned |
-| **FUTURE** | W21REP-5 | Low | quantile prediction-interval band draws non-finite rows |
+| **RESOLVED** | W21REP-5 | Low | the quantile prediction-interval band subsampled all rows, so non-finite ones reached the line and band; it now draws from the finite rows only (`tests/reporting/test_interval_band_drops_non_finite_rows.py`) |
 
 ## Not covered by this wave
 
