@@ -31,7 +31,7 @@ Six read-only reports by Opus 5.5 low-effort agents on packages no earlier wave 
 | **FUTURE** | W20FS-4 | Low | knockoffs and swap coins share one seed |
 | **RESOLVED** | W20REP-1 | High | decile gain / lift table breaks tied scores by row order; the fix (split tie groups across deciles proportionally) changes the table for every user with quantised scores |
 | **RESOLVED** | W20REP-2 | Medium | risk-coverage curve breaks confidence ties by row order |
-| **FUTURE** | W20REP-3 | Medium | multiclass risk-coverage compares the argmax column index with raw labels |
+| **RESOLVED** | W20REP-3 | Medium | multiclass risk-coverage compared the argmax column index with the raw label value; labels now map to columns through their sorted order (labels already 0..K-1 keep their meaning), string labels work and an unmatchable label set raises (`tests/reporting/test_risk_coverage_multiclass_raw_labels.py`) |
 | **RESOLVED** | W20REP-4 | Low | the decile caption said the top decile is 10% when fewer bins were built; it now states 100/bins percent (`tests/reporting/test_decile_caption_matches_bins.py`) |
 | **RESOLVED** | W20REP-5 | Low | `flatten_classification_report` assumed every key held a dict; a top-level scalar is now kept under its own name (`tests/integrations/test_flatten_classification_report_scalars.py`) |
 
