@@ -25,7 +25,7 @@ Six read-only reports by Opus 5.5 low-effort agents on packages no earlier wave 
 | **RESOLVED** | W20INFO-2 | Medium | `mixed_ksg_mi` jitter 1e-10 is absolute and vanishes above \|x\| ~ 1e6; scale it by the data spread or implement the tie-count rule |
 | **RESOLVED** | W20INFO-3 | Low-Medium | the fused entropy kernels skipped the class-range check `merge_vars` has |
 | **FUTURE** | W20INFO-4 | Low | `_cmi_cuda` joint-histogram launch does not check the shared-memory limit |
-| **FUTURE** | W20FS-1 | Medium-High | `select_features_noise_floor` ranks and scores on the same rows and does not redo the ranking per permutation |
+| **PARTIAL** | W20FS-1 | Medium | `select_features_noise_floor(rerank='permutation')` re-ranks features per shuffled y (opt-in, `tests/feature_selection/wrappers/test_noise_floor_reranks_per_permutation.py`); the default stays `'none'` because the re-ranked null falls with N and the plateau rule then keeps all 43 features on the 3-informative/40-noise control (n_perm 3 and 30), so a different stop rule has to come before any default flip |
 | **RESOLVED** | W20FS-2 | Medium | polars `null_count()` ignores NaN, so an all-NaN float column survived the pre-screen that pandas drops |
 | **FUTURE** | W20FS-3 | Low-Medium | knockoffs: NaNs imputed in the knockoff but not in the real slot |
 | **FUTURE** | W20FS-4 | Low | knockoffs and swap coins share one seed |
