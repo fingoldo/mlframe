@@ -172,6 +172,8 @@ def _attach_column_hook(codes_fn: Any, binner: Any, y_raw: np.ndarray, n_cols: i
         return binner.column(y_raw[np.asarray(row_perm, dtype=np.int64)], int(col))
 
     codes_fn.column = _honest_null_column
+    codes_fn.binner = binner  # the fused optimal_joint / cv floor (``_honest_oj_fused``) reads the binner's plans and code rows directly
+    codes_fn.y_raw = y_raw
 
 
 def _make_null_binner(self: Any, nbins_strategy: Any, x_for_cat: Any, cols: Any, dependent: set, fixed_codes: Any, strategy_for_categorize: Any, strategy_kwargs: Any) -> Any:

@@ -14,3 +14,13 @@ threads (floor 37.0 s, noise).
 Next (the real fix): a fused numba null for optimal_joint / cv like the mdlp spec route - per permutation, pick the candidate bin count of every pool
 column from its cached plan (`_oj_pick_candidates` on the packed plans), re-code the pool with the winners' edges, and take the corrected-MI maximum,
 all inside one prange-over-permutations kernel; the Python binner then runs once per fit instead of once per permutation.
+
+## Fused kernel (`_honest_oj_fused.py`), 2026-11-03
+Code rows of every (re-binned column, candidate count) built once through the binner's own `_edges_slot` (the count planted as the plan's winner), then one
+prange-over-permutations kernel per block of 64 host-drawn permutations: fold targets, winner per column (the `_oj_pick_candidates` loop calling the same
+`_plug_in_mi_njit`), code lookup, the corrected-MI maximum. Same floor as the per-permutation path: 3000 x 10 fit 0.005560508526380476 on all three
+paths; 30000 x 100 fit, both floor calls 0.0006034131614497845 (test_honest_oj_fused checks every floor call of a small fit).
+Time per floor call, 30000 x 100 (999 permutations, 85 pool columns): pooled per-permutation 18.7 / 22.2 s -> fused 14.6 / 13.8 s. What remains is the
+statistic itself (per permutation 85 x 4 x 3 fold MIs over 10k rows and 85 MIs over 30k rows), now inside numba.
+Declines (per-permutation path) for a continuous / wide / negative raw target, uncached plans, a column without a scored candidate;
+MLFRAME_HONEST_OJ_FUSED=0 turns it off.

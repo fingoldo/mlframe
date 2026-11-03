@@ -329,6 +329,11 @@ def honest_fdr_floor(
     cols = [int(c) for c in pool]
     rng = np.random.default_rng(0 if seed is None else int(seed))
     base_seed = int(rng.integers(0, 2**31 - 1))  # the stream of the batched null: permutation b is ``seeded_permutation(n, base_seed + b)``
+    from ._honest_oj_fused import oj_fused_floor
+
+    fused = oj_fused_floor(honest_codes_fn, factors_data, factors_nbins, y_idx, cols, int(n_permutations), float(quantile), base_seed, eval_rows)
+    if fused is not None:
+        return fused
     nulls = np.empty(int(n_permutations), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
 
     def one(b: int) -> float:
