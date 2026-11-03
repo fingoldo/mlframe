@@ -32,10 +32,23 @@ def _ewma_numba(x: np.ndarray, alpha: float) -> np.ndarray:
     out = np.empty(n, dtype=np.float64)
     if n == 0:
         return out
-    out[0] = x[0]
     one_minus = 1.0 - alpha
-    for i in range(1, n):
-        out[i] = alpha * x[i] + one_minus * out[i - 1]
+    # pandas ignore_na=False: a NaN carries the running value forward and still ages the old weight, so one missing value does not blank the rest of the series.
+    old_wt = 1.0
+    y = np.nan
+    have = False
+    for i in range(n):
+        xi = x[i]
+        if have:
+            old_wt *= one_minus
+        if xi == xi:
+            if have:
+                y = (old_wt * y + alpha * xi) / (old_wt + alpha)
+            else:
+                y = xi
+                have = True
+            old_wt = 1.0
+        out[i] = y if have else np.nan
     return out
 
 
@@ -51,9 +64,13 @@ def _ewma_numba_adjust(x: np.ndarray, alpha: float) -> np.ndarray:
     denom = 0.0
     # Scale factor (1 - alpha) applied per step to both numerator and denominator.
     for i in range(n):
-        numer = numer * one_minus + x[i]
-        denom = denom * one_minus + 1.0
-        out[i] = numer / denom
+        numer = numer * one_minus
+        denom = denom * one_minus
+        xi = x[i]
+        if xi == xi:  # NaN values add no weight but still age the history (pandas ignore_na=False)
+            numer += xi
+            denom += 1.0
+        out[i] = numer / denom if denom > 0.0 else np.nan
     return out
 
 
