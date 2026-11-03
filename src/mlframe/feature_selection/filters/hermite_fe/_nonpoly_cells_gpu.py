@@ -74,6 +74,16 @@ def _module_for(M: Any) -> Any:
 def _quantile_columns(cp: Any, M: Any, fractions: "list[float]") -> Any:
     """``(len(fractions), K)`` linear-interpolation quantiles of every column of the finite ``(n, K)`` matrix ``M``, from one column sort (numpy's ``quantile`` formula)."""
     n = int(M.shape[0])
+    # the order statistics by the sort-free radix select (same values, same linear interpolation); the column sort stays the fallback
+    from .._gpu_resident_select import _radix_quantiles
+
+    if n > 0 and M.ndim == 2 and M.shape[1] > 0:
+        try:
+            radix = _radix_quantiles(M, list(fractions))
+        except Exception:
+            radix = None
+        if radix is not None:
+            return radix
     srt = cp.sort(M, axis=0)
     out = []
     for q in fractions:

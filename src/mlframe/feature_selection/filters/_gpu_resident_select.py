@@ -336,6 +336,62 @@ def _radix_quantiles(cand_gpu, q_fracs):
     return out  # (len(q_fracs), K) double
 
 
+def radix_order_statistics(cand_gpu, ranks):
+    """``(len(ranks), K)`` order statistics (0-based ranks, values in the input dtype) of every column of the finite ``(n, K)`` cupy matrix: the values a column
+    sort puts at those ranks, from the sort-free radix select. ``None`` when the select does not apply (too many ranks for the shared histograms, another dtype)."""
+    import cupy as cp
+
+    from ._gpu_resident_select_kernels import _get_radix_select_f32_dispatch, _get_radix_select_kernel, _resolve_radix_threads
+
+    if cand_gpu.ndim != 2 or cand_gpu.dtype not in (cp.float32, cp.float64):
+        return None
+    n, K = int(cand_gpu.shape[0]), int(cand_gpu.shape[1])
+    uniq = np.unique(np.asarray(ranks, dtype=np.int64))
+    R = int(uniq.size)
+    if n < 1 or K < 1 or R < 1 or int(uniq[0]) < 0 or int(uniq[-1]) >= n or R > _RADIX_SELECT_MAXR:
+        return None
+    shmem = R * 256 * 4
+    if shmem > int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024)) - _RADIX_STATIC_SHARED_BYTES:
+        return None
+    data_cm = _transpose_to_cm(cp.ascontiguousarray(cand_gpu))
+    osv = cp.empty((R, K), dtype=cand_gpu.dtype)
+    ker = _get_radix_select_f32_dispatch(n) if cand_gpu.dtype == cp.float32 else _get_radix_select_kernel(False)
+    ker((K,), (_resolve_radix_threads(n),), (data_cm, np.int64(n), np.int32(K), cp.asarray(uniq, dtype=cp.int64), np.int32(R), osv), shared_mem=shmem)
+    row = {int(r): i for i, r in enumerate(uniq)}
+    return osv[cp.asarray([row[int(r)] for r in np.asarray(ranks, dtype=np.int64)], dtype=cp.int64)]
+
+
+def radix_column_medians(cand_gpu):
+    """``cp.median`` of every column of the finite ``(n, K)`` matrix, in its dtype: the two middle order statistics from the radix select and their mean as
+    ``cp.median`` forms it (``(a + b) / 2`` in the input dtype). ``None`` when the select does not apply."""
+    n = int(cand_gpu.shape[0])
+    st = radix_order_statistics(cand_gpu, [(n - 1) // 2, n // 2])
+    if st is None:
+        return None
+    return (st[0] + st[1]) / cand_gpu.dtype.type(2)
+
+
+def radix_quantiles_grouped(cand_gpu, q_fracs, group: int = 16):
+    """:func:`_radix_quantiles` for more fractions than one radix launch holds: the fractions in groups of ``group`` (each order statistic is selected
+    independently, so the stacked groups equal one launch over all of them, and ``cp.percentile``). ``None`` when a group is inapplicable or ``MLFRAME_RADIX_GROUPED=0``."""
+    import os
+
+    import cupy as cp
+
+    if os.environ.get("MLFRAME_RADIX_GROUPED", "1").strip() == "0":
+        return None
+    fr = np.asarray(q_fracs, dtype=np.float64)  # Intentional float64: quantile fractions, as cp.percentile forms them
+    if fr.size == 0:
+        return None
+    parts = []
+    for s in range(0, int(fr.size), int(group)):
+        part = _radix_quantiles(cand_gpu, fr[s : s + int(group)])
+        if part is None:
+            return None
+        parts.append(part)
+    return parts[0] if len(parts) == 1 else cp.concatenate(parts, axis=0)
+
+
 # --- Carve re-exports (sibling pattern): the kernel-source / lazy-getter / KTC-dispatch block ->
 # _gpu_resident_select_kernels.py, the fused-binning / resident-discretize block ->
 # _gpu_resident_discretize.py, the materialise / operand-table / host-fast-path block ->

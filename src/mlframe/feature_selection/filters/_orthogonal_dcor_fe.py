@@ -190,7 +190,8 @@ def distance_correlation(
         Seed for the deterministic subsample. Ignored when
         ``n <= n_sample``.
     """
-    x_arr = np.asarray(x, dtype=_crit_np_dtype()).ravel()
+    # Intentional float64: both sides are read in double, as the distance matrices are built: rounding only x to float32 made dCor(x, y) != dCor(y, x)
+    x_arr = np.asarray(x, dtype=np.float64).ravel()
     # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     if x_arr.shape[0] != y_arr.shape[0]:
@@ -273,7 +274,13 @@ def _dcor_batch(
     xs_all = np.ascontiguousarray(X_arr[idx].T, dtype=np.float64)  # Intentional float64: the kernel accumulates m x m sums
     dcov2_all = np.empty(X_arr.shape[1], dtype=np.float64)  # Intentional float64: accumulator vector
     dvar2_all = np.empty(X_arr.shape[1], dtype=np.float64)  # Intentional float64: accumulator vector
-    _dcor_columns_kernel(xs_all, np.ascontiguousarray(B, dtype=np.float64), dcov2_all, dvar2_all)
+    from ._dcor_gpu import dcor_backend, dcor_columns_gpu
+
+    _dev = dcor_columns_gpu(xs_all, B) if dcor_backend(int(xs_all.shape[1]), int(xs_all.shape[0])) == "device" else None
+    if _dev is not None:
+        dcov2_all, dvar2_all = _dev
+    else:
+        _dcor_columns_kernel(xs_all, np.ascontiguousarray(B, dtype=np.float64), dcov2_all, dvar2_all)  # Intentional float64: the kernel accumulates m x m sums
     for j in range(X_arr.shape[1]):
         dvar2_x = float(dvar2_all[j])
         dcov2 = float(dcov2_all[j])

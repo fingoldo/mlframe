@@ -472,27 +472,19 @@ def _gate_first_enabled() -> bool:
     return os.environ.get("MLFRAME_MODULAR_GATE_FIRST", "1").strip().lower() in ("1", "true", "on", "yes")
 
 
-def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb):
-    """:func:`hybrid_modular_fe` with the family-wise permutation test BEFORE the bootstrap scoring.
-
-    A candidate is kept only if it clears the bootstrap gate AND the family test, and the family test needs only the candidate's own quantile codes. Running it first leaves the bootstrap
-    (10 resamples x raw + candidate MI over every column, about a quarter of a 253-column fit) to the few candidates that pass it; on a frame without a periodic column that is none.
-    The noise floor of the bootstrap gate is anchored on the raw baseline MI of every source column, which depends on the column and the seeded resamples only
-    (``baseline_lcb_by_bootstrap_mi``), so it is computed without scoring any candidate. Survivors are regenerated and scored with the same seeded resamples, so a survivor's scores equal the
-    score-first pipeline's up to the all-distinct tie guard of the resample gather, which looks at the matrix being scored.
-    """
+def _collect_family_codes(X, src_cols, chunk, periods, nbins):
+    """The family-gate codes of every modular candidate, chunk by chunk of source columns: ``(codes buffer, filled rows, nx parts, names, sources, source_of)``."""
     from ._family_maxt_gate import family_codes_of_rows as _candidate_codes
-    from ._family_maxt_gate import family_maxt_pass_codes
 
-    if not any(float(p) > 0.0 for p in periods):
-        return X.copy(deep=False), pd.DataFrame()
-    codes: list = []
     nxs: list = []
     names: list = []
-    base_parts: list = []
     kept_sources: list = []
     source_of: dict = {}
     periods_pos = [float(p) for p in periods if float(p) > 0.0]
+    # the codes of every chunk go into one matrix sized up front (at most 3 candidates per source and period), filled in place: collecting the chunks and
+    # concatenating them held the codes twice (2 x 3 GB for 1605 candidates at 1M rows)
+    cols_buf = None
+    filled = 0
     for c0 in range(0, len(src_cols), chunk):
         cs = list(src_cols[c0 : c0 + chunk])
         from ._modular_codes_gpu import modular_family_codes_gpu
@@ -506,7 +498,16 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
             if not eng_names:
                 continue
             cc, nx = _candidate_codes(eng_values, nbins)
-        codes.append(cc)
+        if cols_buf is None:
+            # the codes are bin indices below nbins, so int8 holds them exactly up to 127 bins (half the int16 bytes: 1.6 GB instead of 3.2 GB at 1M rows);
+            # the family test's kernels give the same flags on int8 codes (host and device, checked 2026-11-03)
+            buf_dtype = np.int8 if int(nbins) <= 127 else np.promote_types(cc.dtype, np.int16)
+            cols_buf = np.empty((len(src_cols) * 3 * len(periods_pos), cc.shape[1]), dtype=buf_dtype)
+        elif np.promote_types(cols_buf.dtype, cc.dtype) != cols_buf.dtype and cols_buf.dtype != np.int8:
+            cols_buf = cols_buf.astype(np.promote_types(cols_buf.dtype, cc.dtype))
+        cols_buf[filled : filled + cc.shape[0]] = cc
+        filled += cc.shape[0]
+        del cc
         nxs.append(nx)
         names.extend(eng_names)
         for c in cs:
@@ -515,6 +516,24 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
                     source_of[engineered_name_modular(c, p, op)] = str(c)
         kept_sources.extend(cs)
         del eng_values
+    return cols_buf, filled, nxs, names, kept_sources, source_of
+
+
+def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb):
+    """:func:`hybrid_modular_fe` with the family-wise permutation test BEFORE the bootstrap scoring.
+
+    A candidate is kept only if it clears the bootstrap gate AND the family test, and the family test needs only the candidate's own quantile codes. Running it first leaves the bootstrap
+    (10 resamples x raw + candidate MI over every column, about a quarter of a 253-column fit) to the few candidates that pass it; on a frame without a periodic column that is none.
+    The noise floor of the bootstrap gate is anchored on the raw baseline MI of every source column, which depends on the column and the seeded resamples only
+    (``baseline_lcb_by_bootstrap_mi``), so it is computed without scoring any candidate. Survivors are regenerated and scored with the same seeded resamples, so a survivor's scores equal the
+    score-first pipeline's up to the all-distinct tie guard of the resample gather, which looks at the matrix being scored.
+    """
+    from ._family_maxt_gate import family_maxt_pass_codes
+
+    if not any(float(p) > 0.0 for p in periods):
+        return X.copy(deep=False), pd.DataFrame()
+    cols_buf, filled, nxs, names, kept_sources, source_of = _collect_family_codes(X, src_cols, chunk, periods, nbins)
+    base_parts: list = []
     if not names or not kept_sources:
         return X.copy(deep=False), pd.DataFrame()
     # The raw baseline depends on the column and the seeded resamples only, so it is scored in blocks of source columns of its own (not one block per candidate chunk, which can be a single column
@@ -524,8 +543,9 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
         base_parts.append(pd.DataFrame({"baseline_mi_lcb": baseline_lcb_by_bootstrap_mi(X[block], y, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins)}))
     base = pd.concat(base_parts, ignore_index=True)
     noise_floor = _modular_noise_floor(base)
-    cols_all = codes[0] if len(codes) == 1 else np.concatenate(codes, axis=0)
-    del codes
+    if cols_buf is None:
+        return X.copy(deep=False), base
+    cols_all = cols_buf[:filled]  # a view of the filled rows
     fam_ok = family_maxt_pass_codes(cols_all, np.concatenate(nxs), y, seed=seed)
     ok_names = [n for n, ok in zip(names, fam_ok) if ok]
     if not ok_names:

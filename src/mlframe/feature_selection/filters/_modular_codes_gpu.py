@@ -57,6 +57,10 @@ _MODULE = RawModuleCache(_SRC)
 
 def _use_device(n_elements: int) -> bool:
     """Whether the device path runs: forced by ``MLFRAME_MODULAR_CODES_DEVICE``, else a float32 fit, the default copy policy and a large enough pool."""
+    from ._gpu_policy import gpu_globally_disabled
+
+    if gpu_globally_disabled():
+        return False  # a run without a GPU (MLFRAME_DISABLE_GPU=1, CUDA_VISIBLE_DEVICES=-1 / "") never tries the device
     forced = os.environ.get("MLFRAME_MODULAR_CODES_DEVICE", "").strip()
     if forced in ("0", "1"):
         return forced == "1"

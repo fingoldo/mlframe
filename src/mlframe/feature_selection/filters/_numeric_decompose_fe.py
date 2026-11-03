@@ -50,6 +50,7 @@ by construction):
 NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_numeric_decompose_enable=True``.
 """
+
 from __future__ import annotations
 
 from typing import cast
@@ -63,6 +64,7 @@ import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -70,6 +72,7 @@ try:
     from numba import njit
 except ImportError:  # pragma: no cover - numba is a hard dep in practice
     from mlframe._numba_fallback import njit
+
 
 @njit(cache=True, nogil=True)
 def _digit_extract_njit(arr: np.ndarray, scale: float) -> np.ndarray:
@@ -87,6 +90,7 @@ def _digit_extract_njit(arr: np.ndarray, scale: float) -> np.ndarray:
             f = math.floor(v)
             out[i] = f - 10.0 * math.floor(f / 10.0)  # floor-mod 10
     return out
+
 
 logger = logging.getLogger(__name__)
 
@@ -109,18 +113,22 @@ __all__ = [
 ROUNDING_PREFIX = "round"
 DIGIT_PREFIX = "digit"
 
+
 def _fmt_precision(precision: float) -> str:
     """Stable, name-safe token for a precision (``0.01`` -> ``"0p01"``)."""
     s = repr(float(precision))
     return s.replace("-", "m").replace(".", "p")
 
+
 def engineered_name_rounding(col: str, precision: float) -> str:
     """Canonical engineered column name for a rounding feature."""
     return f"{col}__{ROUNDING_PREFIX}_{_fmt_precision(precision)}"
 
+
 def engineered_name_digit(col: str, digit_position: int) -> str:
     """Canonical engineered column name for a digit-extraction feature."""
     return f"{col}__{DIGIT_PREFIX}_{int(digit_position)}"
+
 
 def apply_rounding(x: np.ndarray, precision: float) -> np.ndarray:
     """``round(x / precision) * precision`` NaN-preserving;
@@ -131,6 +139,7 @@ def apply_rounding(x: np.ndarray, precision: float) -> np.ndarray:
         raise ValueError(f"rounding precision must be > 0; got {p!r}")
     arr = np.asarray(x, dtype=_crit_np_dtype())
     return cast("np.ndarray", np.round(arr / p) * p)
+
 
 def apply_digit_extract(x: np.ndarray, digit_position: int) -> np.ndarray:
     """``floor(x * 10^k) mod 10`` - the ``k``-th decimal digit (k=0 -> the
@@ -149,10 +158,12 @@ def apply_digit_extract(x: np.ndarray, digit_position: int) -> np.ndarray:
     # numpy mul->floor->mod->nan_to_num 4-pass.
     return np.asarray(_digit_extract_njit(arr, 10.0**k))
 
+
 def _numeric_cols(X: pd.DataFrame, cols: Optional[Sequence[str]]) -> list[str]:
     """Filter ``cols`` (or all of ``X``'s columns when None) down to those present in ``X`` with a numeric dtype."""
     candidates = list(cols) if cols is not None else list(X.columns)
     return [c for c in candidates if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
+
 
 def generate_rounding_features(
     X: pd.DataFrame,
@@ -178,6 +189,7 @@ def generate_rounding_features(
         out.update(emitted)
     return pd.DataFrame(out, index=X.index)
 
+
 def generate_digit_features(
     X: pd.DataFrame,
     num_cols: Optional[Sequence[str]] = None,
@@ -199,6 +211,7 @@ def generate_digit_features(
     for emitted in map_on_edge_pool(_one_column, cols):
         out.update(emitted)
     return pd.DataFrame(out, index=X.index)
+
 
 def score_decompose_by_bootstrap_mi(
     raw_X: pd.DataFrame,
@@ -227,10 +240,15 @@ def score_decompose_by_bootstrap_mi(
     from ._orthogonal_bootstrap_mi_fe import score_features_by_bootstrap_mi
 
     return score_features_by_bootstrap_mi(
-        raw_X, eng_X, y,
-        n_boot=n_boot, sample_fraction=sample_fraction,
-        seed=seed, nbins=nbins,
+        raw_X,
+        eng_X,
+        y,
+        n_boot=n_boot,
+        sample_fraction=sample_fraction,
+        seed=seed,
+        nbins=nbins,
     )
+
 
 def _parse_engineered_name(name: str):
     """``"{src}__round_0p1"`` -> ('numeric_rounding', src, 0.1);
@@ -265,6 +283,7 @@ def _parse_engineered_name(name: str):
         return ("digit_extract", src, int(tok))
     return None
 
+
 def hybrid_numeric_decompose_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -296,24 +315,46 @@ def hybrid_numeric_decompose_fe(
     Returns ``(X_augmented, scores)`` where ``scores`` is the full L62 ranking
     (survivors + rejects).
     """
-    rounding = generate_rounding_features(X, num_cols=cols, precisions=precisions)
-    digits = generate_digit_features(X, num_cols=cols, digit_positions=digit_positions)
-    eng = pd.concat([rounding, digits], axis=1) if (not rounding.empty or not digits.empty) else pd.DataFrame(index=X.index)
+    block_cols = _decompose_block_columns(X, cols, len(precisions) + len(digit_positions))
+    eng_builders = None
+    if block_cols is not None:
+        # the whole candidate frame would not fit the host budget (1M rows x 750 candidates = 2.8 GB): score it in blocks of source columns, rebuild the winners
+        scores, eng_builders = _decompose_scores_in_blocks(
+            X, y, cols, precisions, digit_positions, block_cols, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins
+        )
+        eng = pd.DataFrame(index=X.index) if scores is None else None
+    else:
+        rounding = generate_rounding_features(X, num_cols=cols, precisions=precisions)
+        digits = generate_digit_features(X, num_cols=cols, digit_positions=digit_positions)
+        eng = pd.concat([rounding, digits], axis=1) if (not rounding.empty or not digits.empty) else pd.DataFrame(index=X.index)
 
     empty_cols = [
-        "engineered_col", "source_col",
-        "baseline_mi_mean", "baseline_mi_std", "baseline_mi_lcb",
-        "engineered_mi_mean", "engineered_mi_std", "engineered_mi_lcb",
-        "uplift_mean", "uplift_std", "uplift_lcb",
+        "engineered_col",
+        "source_col",
+        "baseline_mi_mean",
+        "baseline_mi_std",
+        "baseline_mi_lcb",
+        "engineered_mi_mean",
+        "engineered_mi_std",
+        "engineered_mi_lcb",
+        "uplift_mean",
+        "uplift_std",
+        "uplift_lcb",
     ]
-    if eng.empty:
+    if eng is not None and eng.empty:
         return X, pd.DataFrame(columns=empty_cols)
 
-    raw_X = X[_numeric_cols(X, cols)]
-    scores = score_decompose_by_bootstrap_mi(
-        raw_X, eng, y,
-        n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins,
-    )
+    if eng_builders is None:
+        raw_X = X[_numeric_cols(X, cols)]
+        scores = score_decompose_by_bootstrap_mi(
+            raw_X,
+            eng,
+            y,
+            n_boot=n_boot,
+            sample_fraction=sample_fraction,
+            seed=seed,
+            nbins=nbins,
+        )
     if scores.empty:
         return X, scores
 
@@ -363,8 +404,63 @@ def hybrid_numeric_decompose_fe(
     # "strongest genuine signal first" cut for the top-K.
     winners = qualified.sort_values("engineered_mi_lcb", ascending=False).head(int(top_k))
     keep = list(winners["engineered_col"])
-    X_aug = pd.concat([X, eng[keep]], axis=1) if keep else X.copy(deep=False)
-    return X_aug, scores
+    if keep and eng_builders is not None:
+        eng = pd.DataFrame({name: eng_builders[name]() for name in keep}, index=X.index)
+    if not keep or eng is None:
+        return X.copy(deep=False), scores
+    return pd.concat([X, eng[keep]], axis=1), scores
+
+
+def _decompose_block_columns(X: pd.DataFrame, cols, per_source: int) -> "int | None":
+    """Source columns per block when the full candidate frame would take more than a quarter of the available host memory (``MLFRAME_NUMERIC_DECOMPOSE_BLOCK_COLS``
+    forces a block size), else ``None`` (one frame, as before)."""
+    import os
+
+    forced = os.environ.get("MLFRAME_NUMERIC_DECOMPOSE_BLOCK_COLS", "").strip()
+    if forced.isdigit() and int(forced) > 0:
+        return int(forced)
+    n_src = len(_numeric_cols(X, cols))
+    per_col = len(X) * max(1, per_source) * 4 * 3  # float32 candidates, held as the frame, its array copy and the concat
+    try:
+        import psutil
+
+        budget = int(psutil.virtual_memory().available) // 4
+    except Exception:
+        return None
+    if n_src * per_col <= budget:
+        return None
+    return max(1, budget // max(1, per_col))
+
+
+def _decompose_scores_in_blocks(X, y, cols, precisions, digit_positions, block_cols: int, *, n_boot, sample_fraction, seed, nbins):
+    """``(scores, builders)`` of the rounding + digit candidates scored block by block of source columns: each candidate's bootstrap statistics depend only on it, its
+    source, ``y`` and the seeded resamples, so the rows are the one-frame ones; they are put back in the one-frame candidate order and sorted the same way.
+    ``builders[name]()`` rebuilds a candidate column (the generators' own expression). ``(None, {})`` when there is no candidate."""
+    num = _numeric_cols(X, cols)
+    frames = []
+    for i in range(0, len(num), int(block_cols)):
+        sub = num[i : i + int(block_cols)]
+        rounding = generate_rounding_features(X, num_cols=sub, precisions=precisions)
+        digits = generate_digit_features(X, num_cols=sub, digit_positions=digit_positions)
+        if rounding.empty and digits.empty:
+            continue
+        eng = pd.concat([rounding, digits], axis=1)
+        frames.append(score_decompose_by_bootstrap_mi(X[sub], eng, y, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins))
+        del eng, rounding, digits
+    builders: dict = {}
+    for c in num:
+        for p in precisions:
+            builders[engineered_name_rounding(c, p)] = lambda c=c, p=p: apply_rounding(X[c].to_numpy(), p)
+    for c in num:
+        for k in digit_positions:
+            builders[engineered_name_digit(c, k)] = lambda c=c, k=k: apply_digit_extract(X[c].to_numpy(), k)
+    if not frames:
+        return None, builders
+    allrows = pd.concat(frames, ignore_index=True).set_index("engineered_col", drop=False)
+    order = [name for name in builders if name in allrows.index]
+    scores = allrows.loc[order].reset_index(drop=True).sort_values("uplift_lcb", ascending=False).reset_index(drop=True)
+    return scores, builders
+
 
 def hybrid_numeric_decompose_fe_with_recipes(
     X: pd.DataFrame,
@@ -394,10 +490,17 @@ def hybrid_numeric_decompose_fe_with_recipes(
     )
 
     X_aug, scores = hybrid_numeric_decompose_fe(
-        X, y,
-        cols=cols, precisions=precisions, digit_positions=digit_positions,
-        top_k=top_k, n_boot=n_boot, sample_fraction=sample_fraction,
-        seed=seed, nbins=nbins, min_uplift_lcb=min_uplift_lcb,
+        X,
+        y,
+        cols=cols,
+        precisions=precisions,
+        digit_positions=digit_positions,
+        top_k=top_k,
+        n_boot=n_boot,
+        sample_fraction=sample_fraction,
+        seed=seed,
+        nbins=nbins,
+        min_uplift_lcb=min_uplift_lcb,
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
     recipes = []
@@ -414,17 +517,29 @@ def hybrid_numeric_decompose_fe_with_recipes(
             continue
         kind, src, param = parsed
         if kind == "numeric_rounding":
-            recipes.append(build_numeric_rounding_recipe(
-                name=name, src_name=src, precision=float(param),
-            ))
+            recipes.append(
+                build_numeric_rounding_recipe(
+                    name=name,
+                    src_name=src,
+                    precision=float(param),
+                )
+            )
         else:  # digit_extract
-            recipes.append(build_digit_extract_recipe(
-                name=name, src_name=src, digit_position=int(param),
-            ))
+            recipes.append(
+                build_digit_extract_recipe(
+                    name=name,
+                    src_name=src,
+                    digit_position=int(param),
+                )
+            )
     return X_aug, appended, recipes, scores
 
+
 def build_numeric_rounding_recipe(
-    *, name: str, src_name: str, precision: float,
+    *,
+    name: str,
+    src_name: str,
+    precision: float,
 ) -> EngineeredRecipe:
     """Frozen recipe for ``round(X[src_name] / precision) * precision``. Replay
     is pure arithmetic on the source column - no y reference, no fitted state,
@@ -441,8 +556,12 @@ def build_numeric_rounding_recipe(
         extra={"precision": p},
     )
 
+
 def build_digit_extract_recipe(
-    *, name: str, src_name: str, digit_position: int,
+    *,
+    name: str,
+    src_name: str,
+    digit_position: int,
 ) -> EngineeredRecipe:
     """Frozen recipe for ``floor(X[src_name] * 10^k) mod 10`` (the k-th decimal
     digit). Replay is pure arithmetic on the source column - no y reference."""

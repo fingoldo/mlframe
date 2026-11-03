@@ -156,6 +156,21 @@ def _stratum_layout(cp: Any, z_i: Any, order: Optional[np.ndarray], z_rank: Opti
     return z_for_cmi, order_d, z_rank_d
 
 
+# The column argsort of the int32 shuffle keys as ONE 1-D radix argsort of (column << 32 | key): same orders (cupy's axis-0 argsort is stable, the composite keys
+# order ties by row too), from 300000 elements on (2026-11-03, GTX 1050 Ti, min of 7: 50000 x 25 11.4 -> 7.0 ms, 100000 x 25 23.0 -> 13.2 ms; 16667 x 8 1.2 vs 1.35 ms).
+_COMPOSITE_ARGSORT_MIN = 300_000
+
+
+def _column_argsort(cp, keys):
+    """``cp.argsort(keys, axis=0)`` of a C-order ``(n, p)`` int32 key matrix; ``MLFRAME_PERM_NULL_COMPOSITE_ARGSORT=0`` keeps the axis-0 sort."""
+    n, p = int(keys.shape[0]), int(keys.shape[1])
+    if keys.dtype != cp.int32 or n * p < _COMPOSITE_ARGSORT_MIN or os.environ.get("MLFRAME_PERM_NULL_COMPOSITE_ARGSORT", "1").strip() == "0":
+        return cp.argsort(keys, axis=0)
+    col = cp.arange(p, dtype=cp.int64)
+    order = cp.argsort(((col[:, None] << 32) | keys.T.astype(cp.int64)).ravel())
+    return (order.reshape(p, n) - (col * n)[:, None]).T
+
+
 def conditional_perm_null_gpu(
     x: np.ndarray,
     y_i: np.ndarray,
@@ -258,7 +273,7 @@ def conditional_perm_null_gpu(
         keys = _zr32 | rs.randint(0, 1 << _rand_bits, size=(n, nperm), dtype=cp.int32)
     else:
         keys = z_rank_d + rs.random_sample(size=(n, nperm))  # exact f64 fallback (huge stratum counts)
-    within = cp.argsort(keys, axis=0)  # (n, nperm) within-stratum orders (no overlap)
+    within = _column_argsort(cp, keys)  # (n, nperm) within-stratum orders (no overlap)
 
     # SPARSE sort/run-length CMI (design-agent + nsys): at the raw-redundancy gate the conditioning
     # support is near-continuous (Kz ~ 1e5 -> Kx*Kyz multi-million), so the dense (chunk, Kx*Kyz) joint of the

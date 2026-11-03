@@ -141,3 +141,41 @@ New device kernels of the series, each with a host twin, an equivalence test and
 Method lessons recorded here because they cost time: (1) a micro-benchmark win is not a fit win until the full fit is grepped for `OutOfMemoryError` and `FE raised` (the device bootstrap walk passed its benchmark and broke the pool in the fit); (2) identical code gives 145 to 230 s on this machine, so
 two-run A/B pairs are only direction, and the stage seconds of the sampler or the call time are the instruments for a 1 to 3 s change; (3) the pool wait of a main thread in a profile means the work is in the workers: scale the pool (1, 2, 4, 8 jobs) to see whether a GIL-held section is hiding there.
 Still not parallel or device-ported: `fleuret_conditional_recheck` and `_stage_greedy_cmi` (sequential with early stop), the within-stratum permutation null of the triplet scorer (needs its own device RNG scheme), `score_candidates_by_cmi` (waits on the device).
+
+## nsys window, 50k x 100 GPU fit (2026-11-03, after the binning / radix / Fourier changes)
+`--trace=cuda --sample=none --cpuctxsw=none --delay=60 --duration=25` (after a 20000 x 30 warm-up fit), 1.6 MB report.
+GPU kernels 2.08 s in 25 s (about 8% busy); CUDA API 2.67 s: cudaMemcpyAsync 1.40 s (2669), cudaStreamSynchronize 0.51 s (2109),
+cuLaunchKernel 0.42 s (16444) + cudaLaunchKernel 0.07 s (4154), cudaMemsetAsync 0.14 s (4039).
+Top kernels: batched_joint_hist2_i32 0.445 s (15), cub DeviceMergeSort 0.281 s (405) + 0.165 s (38), ent_nnz_1d 0.184 s (840),
+null_mi_perms_bits 0.121 s (3), radix_select_interp_f64_v3 0.111 s (46), fold_cell_centred 0.097 s (352), radix_select_f32_v4 0.055 s (3).
+Reading: in this window the fit is host-bound. The main-thread waits on device queues seen by stage_sample (pair analytic gate 2.0 s,
+materialise uploads) are real, but most of the wall is host code; the remaining lever is moving host-only stages to the device, as on 2026-11-01.
+Stage sampler (same day, leaves per stage): every stage's time is spread over 0.2-1.2 s leaves; no single leaf above 1.2 s outside pool waits.
+
+## 100k x 100 all families, GPU, 2026-11-03 (after the binning / radix / Fourier / HSIC / dCor changes)
+Two clean runs (no cProfile), same code: stage_sample 91.5 s; plain fit with mlframe DEBUG memory/fallback filter 101.1 s (2026-11-01: 237-272 s).
+Selected (run 2): x4, oofwarp(x4), add(mul(cbrt(x0),cbrt(x1)),add(x2,abs(g))), add(log(x2),x0*x1__He1_He1), opat__g_x4_x2, add(sqrt(g),sign(x4)).
+Run 1 logged two cupy thrust-allocator OutOfMemoryError tracebacks (365 MB against the 1.97 GB pool cap, "Exception ignored in cupy_malloc") right after
+the fe_lof_device lookup; the fit completed. Run 2 had none, so the caller (a cupy sort / argsort that fell back) is not identified yet.
+Main-thread leaves at 100k: edge-pool wait 4.4 s (extra-basis 2.0 of it), honest-null `_continuous_accept_block` D2H 1.6 s, grouped-quantile pool wait 1.4 s,
+per-feature edges wait 1.4 s, bootstrap pool 1.2 s, pooled binning 1.2 s, pair analytic gate 1.2 s.
+
+## GPU vs CPU selection quality, 100k x 100 all families (2026-11-03)
+Same frame (family_scale._make(100000, 100, 0)), held-out frame _make(50000, 100, 1); each mode in its own process (D:/Temp/sel_quality.py), LightGBM
+(400 trees, 31 leaves) and logistic regression on the transformed selected columns:
+- GPU (111.3 s incl. transforms): x4, oofwarp(x4), add(mul(cbrt(x0),cbrt(x1)),add(x2,abs(g))), add(log(x2),x0*x1__He1_He1), opat__g_x4_x2, add(sqrt(g),sign(x4)):
+  test AUC 0.9020 (LightGBM), 0.9028 (logistic).
+- CPU (294.9 s): g, x4, x2, add(x0*x1__He1_He1,sin(sir__...__dir0)), x4__He3, x4__fourier3: test AUC 0.9018 (LightGBM), 0.8958 (logistic).
+- All 107 raw numeric columns, LightGBM: 0.8918.
+The selections differ (known since 2026-10-31) but the GPU one is not worse: equal under LightGBM, +0.007 under logistic regression.
+Later the same day: after the sort / joint-histogram changes 96.2 s; after `mlframe-tune-kernels ensure` filled the missing / stale entries (bootstrap tied device,
+LOF device, DTW dispatch, the two kernel-parallelism specs; the "tuning cache is cold" warning is gone) 96.8 s. Same 6 selected features, no tracebacks.
+Five clean 100k runs today: 91.5, 101.1, 98.0, 96.2, 96.8 s.
+
+## Where the 100k GPU fit's time is now (nsys window, 25 s at 70 s, 2026-11-03)
+GPU kernels 2.80 s (~11% busy). Copies by size (GPU time): H2D 1-32 MB 53 copies 478 MB 102 ms, H2D >= 32 MB 5 copies 230 MB 53 ms, D2H < 1 MB 217 copies 24 ms,
+H2D < 1 MB 458 copies 22 ms, D2H < 4 KB 1666 copies (scalar reads) 1.4 ms. CUDA API: cudaMemcpyAsync 1.68 s, cudaStreamSynchronize 0.75 s, launches 0.52 s.
+The copies themselves cost ~0.2 s of GPU time; the API seconds are the host blocking on queued work at ~67 scalar reads / s plus explicit syncs.
+Upper bound of removing every sync: ~2.4 s of the 25 s window (~10%), less in practice since the host does real work between them. The rest of the
+wall is host code (Python, numpy, pandas, numba CPU kernels) spread over every family at <= ~1.5 s per item (stage_sample). Further large cuts need
+host-side work moved or removed, not faster kernels.

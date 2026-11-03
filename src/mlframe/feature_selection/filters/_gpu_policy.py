@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 def gpu_globally_disabled() -> bool:
-    """True when this run must avoid the GPU: ``MLFRAME_DISABLE_GPU=1`` or ``CUDA_VISIBLE_DEVICES=""``.
+    """True when this run must avoid the GPU: ``MLFRAME_DISABLE_GPU=1``, or a ``CUDA_VISIBLE_DEVICES`` that exposes no device (empty, or a list whose first
+    entry is not a device index or UUID, such as the usual ``-1``: CUDA stops at the first invalid entry).
 
     The single source of truth every GPU dispatch consults (alongside per-kernel size/availability
     gates) so a CPU-only or weak-GPU run can force the CPU path; see the module docstring for why
@@ -30,9 +31,10 @@ def gpu_globally_disabled() -> bool:
     if os.environ.get("MLFRAME_DISABLE_GPU", "").strip() == "1":
         return True
     cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
-    if cvd is not None and cvd.strip() == "":
-        return True
-    return False
+    if cvd is None:
+        return False
+    first = cvd.strip().split(",")[0].strip()
+    return not (first.isdigit() or first.upper().startswith(("GPU-", "MIG-")))
 
 
 def cuda_available_for_run() -> bool:

@@ -169,6 +169,10 @@ _MODULE = RawModuleCache(_SRC)
 def use_device_tied(n_rows: int) -> bool:
     """Whether ``n_rows`` rows take the device counting sort: ``MLFRAME_BOOTSTRAP_RANK_TIED_DEVICE=0|1`` forces a path, else the per-host tuner (fallback: the device
     from ``DEVICE_TIED_MIN_ROWS`` rows)."""
+    from ._gpu_policy import gpu_globally_disabled
+
+    if gpu_globally_disabled():
+        return False  # a run without a GPU (MLFRAME_DISABLE_GPU=1, CUDA_VISIBLE_DEVICES=-1 / "") never tries the device
     forced = os.environ.get("MLFRAME_BOOTSTRAP_RANK_TIED_DEVICE", "").strip()
     if forced in ("0", "1"):
         return forced == "1"

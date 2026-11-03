@@ -237,7 +237,9 @@ def _adaptive_cols_by_relevance(X, cols, y, max_adaptive_cols):
         x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
         if not np.isfinite(x).all():
             continue
-        order = np.argsort(x, kind="stable")
+        from ._orth_extra_basis_fe_helpers import cached_stable_argsort
+
+        order = cached_stable_argsort(x)  # shared with the held-out smoothness gate, which sorts the same column
         rank = np.empty(len(x), dtype=np.int64)
         rank[order] = np.arange(len(x))  # the inverse permutation is the rank vector (what a second argsort would return), in O(n)
         bins = np.minimum(rank * 64 // len(x), 63)
