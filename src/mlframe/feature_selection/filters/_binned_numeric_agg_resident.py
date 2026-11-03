@@ -522,6 +522,41 @@ def _binagg_candidate_block(cp: Any, k: int, n: int, itemsize: int) -> int:
     return max(1, min(int(k), (free // 6) // max(1, int(n) * int(itemsize))))
 
 
+def _binagg_candidates(feat_df: Any, cand_cols: Optional[list], n_rows: Optional[int]) -> tuple[list, int]:
+    """Numeric candidate columns and the row count: from ``feat_df`` when supplied, else from the caller's ``cand_cols`` / ``n_rows`` (the recipes-only path)."""
+    if feat_df is not None:
+        if not isinstance(feat_df, pd.DataFrame) or feat_df.shape[1] == 0:
+            return [], 0
+        return [c for c in feat_df.columns if pd.api.types.is_numeric_dtype(feat_df[c])], len(feat_df)
+    return list(cand_cols or []), int(n_rows) if n_rows is not None else 0
+
+
+def _report_floor_rejects(reject_sink: Optional[Callable[..., None]], cand_cols: list, cand_mi: np.ndarray, floor: float) -> None:
+    """Tell ``reject_sink`` about every candidate whose MI is non-finite or below the floor."""
+    if reject_sink is None:
+        return
+    for j, col in enumerate(cand_cols):
+        _mi = cand_mi[j]
+        if np.isfinite(_mi) and _mi >= floor:
+            continue
+        try:
+            reject_sink(
+                gate="marginal_uplift_floor",
+                candidate=str(col),
+                operands=None,
+                operator="unified_local_mi_gate",
+                observed=float(_mi),
+                threshold=float(floor),
+                reason=(
+                    "unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor"
+                    if np.isfinite(_mi)
+                    else "unified local-MI gate: MI could not be computed (non-finite), candidate dropped"
+                ),
+            )
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed: %s", e)
+
+
 def local_mi_gate_binagg_resident(
     feat_df: pd.DataFrame,
     y: Any,
@@ -559,14 +594,7 @@ def local_mi_gate_binagg_resident(
     # gate WITHOUT materialising the host OOF feat_df - it fits recipes-only, gates from those recipes here, then
     # builds the OOF for the FEW survivors. When a ``feat_df`` is supplied (the host callers) both are derived
     # from it exactly as before.
-    if feat_df is not None:
-        if not isinstance(feat_df, pd.DataFrame) or feat_df.shape[1] == 0:
-            return []
-        cand_cols = [c for c in feat_df.columns if pd.api.types.is_numeric_dtype(feat_df[c])]
-        n = len(feat_df)
-    else:
-        cand_cols = list(cand_cols or [])
-        n = int(n_rows) if n_rows is not None else 0
+    cand_cols, n = _binagg_candidates(feat_df, cand_cols, n_rows)
     if not cand_cols or n <= 0:
         return []
     col_specs = _binned_column_specs(cand_cols, recipes)
@@ -622,27 +650,7 @@ def local_mi_gate_binagg_resident(
 
     # Keep/rank IDENTICAL to local_mi_gate: floor -> survivors -> sort by MI desc -> top_k.
     scored = [(col, float(cand_mi[j])) for j, col in enumerate(cand_cols) if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor]
-    if reject_sink is not None:
-        for j, col in enumerate(cand_cols):
-            _mi = cand_mi[j]
-            if not np.isfinite(_mi) or _mi < floor:
-                try:
-                    reject_sink(
-                        gate="marginal_uplift_floor",
-                        candidate=str(col),
-                        operands=None,
-                        operator="unified_local_mi_gate",
-                        observed=float(_mi),
-                        threshold=float(floor),
-                        reason=(
-                            "unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor"
-                            if np.isfinite(_mi)
-                            else "unified local-MI gate: MI could not be computed (non-finite), candidate dropped"
-                        ),
-                    )
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
-                    pass
+    _report_floor_rejects(reject_sink, cand_cols, cand_mi, floor)
     scored.sort(key=lambda t: t[1], reverse=True)
     if top_k is not None and int(top_k) > 0:
         scored = scored[: int(top_k)]

@@ -252,6 +252,31 @@ def _wasserstein_quantile_approx(group_vals, global_sorted) -> float:
     qglob = np.quantile(global_sorted, u)
     return float(np.mean(np.abs(qg - qglob)))
 
+def _global_column_stats(X: pd.DataFrame, num_col: str) -> tuple:
+    """The column's global mean / std / histogram / sorted values and the global-histogram bin of every row (they depend on the column only)."""
+    x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
+    finite_all = x[np.isfinite(x)]
+    if finite_all.size == 0:
+        global_mean = 0.0
+        global_std = 1.0
+        global_edges = np.array([0.0, 1.0], dtype=np.float64)  # Intentional float64: empty global-edge vector keeps the float64 contract
+        global_hist = np.array([1.0], dtype=np.float64)  # Intentional float64: global histogram statistic
+        global_sorted = np.array([], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+    else:
+        global_mean = float(np.mean(finite_all))
+        _std = float(np.std(finite_all))
+        global_std = _std if _std > 0.0 else 1.0
+        lo, hi = float(finite_all.min()), float(finite_all.max())
+        if hi <= lo:
+            hi = lo + 1.0
+        global_edges = np.linspace(lo, hi, _DIST_NBINS + 1)
+        global_hist, _ = np.histogram(finite_all, bins=global_edges)
+        global_hist = global_hist.astype(np.float64)  # Intentional float64: global histogram statistic
+        global_sorted = np.sort(finite_all)
+    bin_idx = _global_bin_index(x, global_edges) if global_edges.size >= 2 else None
+    return (x, global_mean, global_std, global_edges, global_hist, global_sorted, bin_idx)
+
+
 def generate_group_distance_features(
     X: pd.DataFrame,
     group_cols: Sequence[str],
@@ -290,30 +315,6 @@ def generate_group_distance_features(
     from concurrent.futures import ThreadPoolExecutor
 
     from ._adaptive_nbins import _resolve_edge_jobs
-
-    def _global_stats(num_col: str) -> tuple:
-        """The column's global mean / std / histogram / sorted values and the global-histogram bin of every row (they depend on the column only)."""
-        x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
-        finite_all = x[np.isfinite(x)]
-        if finite_all.size == 0:
-            global_mean = 0.0
-            global_std = 1.0
-            global_edges = np.array([0.0, 1.0], dtype=np.float64)  # Intentional float64: empty global-edge vector keeps the float64 contract
-            global_hist = np.array([1.0], dtype=np.float64)  # Intentional float64: global histogram statistic
-            global_sorted = np.array([], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
-        else:
-            global_mean = float(np.mean(finite_all))
-            _std = float(np.std(finite_all))
-            global_std = _std if _std > 0.0 else 1.0
-            lo, hi = float(finite_all.min()), float(finite_all.max())
-            if hi <= lo:
-                hi = lo + 1.0
-            global_edges = np.linspace(lo, hi, _DIST_NBINS + 1)
-            global_hist, _ = np.histogram(finite_all, bins=global_edges)
-            global_hist = global_hist.astype(np.float64)  # Intentional float64: global histogram statistic
-            global_sorted = np.sort(finite_all)
-        bin_idx = _global_bin_index(x, global_edges) if global_edges.size >= 2 else None
-        return (x, global_mean, global_std, global_edges, global_hist, global_sorted, bin_idx)
 
     _fin_order: dict = {}  # num_col -> ascending order of its finite values, shared by every group column
     _ORDER_LOCK = __import__("threading").Lock()
@@ -376,10 +377,10 @@ def generate_group_distance_features(
     jobs = _resolve_edge_jobs(None, len(pairs))
     if jobs > 1 and len(pairs) > 3:
         with ThreadPoolExecutor(max_workers=jobs) as pool:
-            _global = dict(zip(unique_cols, pool.map(_global_stats, unique_cols)))
+            _global = dict(zip(unique_cols, pool.map(lambda c: _global_column_stats(X, c), unique_cols)))
             results = list(pool.map(lambda gp: _pair_columns(*gp), pairs))
     else:
-        _global = {c: _global_stats(c) for c in unique_cols}
+        _global = {c: _global_column_stats(X, c) for c in unique_cols}
         results = [_pair_columns(g, c) for g, c in pairs]
     for found in results:
         for name, values, recipe in found:
