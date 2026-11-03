@@ -123,6 +123,57 @@ def _xi_columns_njit(cols: np.ndarray, perms: np.ndarray, r_row: np.ndarray, l_r
         out[j] = 1.0 - float(n) * sdiff / den if den > 0.0 else 0.0
 
 
+@njit(cache=True, parallel=True)
+def _xi_columns_radix_njit(cols: np.ndarray, perms: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, out: np.ndarray) -> None:
+    """:func:`_xi_columns_njit` for float32 columns, same order and same values: ``np.lexsort((perm, col))`` is a stable sort by the column of the rows already ordered by
+    ``perm``. The rows start in ``perm`` order (the inverse permutation, O(n)) and a stable LSD radix sort (4 passes of 8 bits) of the order-preserving uint32 key of each
+    value orders them, ties left in ``perm`` order: no comparison sort and no per-tie-block re-sort (``-0.0`` keys as ``+0.0``, as the float comparison treats them)."""
+    kk = cols.shape[0]
+    n = cols.shape[1]
+    for j in prange(kk):
+        bits = cols[j].view(np.uint32)
+        perm = perms[j]
+        va = np.empty(n, dtype=np.uint32)
+        ra = np.empty(n, dtype=np.int64)
+        vb = np.empty(n, dtype=np.uint32)
+        rb = np.empty(n, dtype=np.int64)
+        for i in range(n):
+            ra[perm[i]] = i  # the row of rank i in perm order
+        for t in range(n):
+            u = bits[ra[t]]
+            if u == np.uint32(0x80000000):
+                u = np.uint32(0)
+            va[t] = ~u if (u & np.uint32(0x80000000)) else (u | np.uint32(0x80000000))
+        cnt = np.empty(257, dtype=np.int64)
+        for shift in (0, 8, 16, 24):
+            cnt[:] = 0
+            for t in range(n):
+                cnt[((va[t] >> np.uint32(shift)) & np.uint32(0xFF)) + 1] += 1
+            for dgt in range(256):
+                cnt[dgt + 1] += cnt[dgt]
+            for t in range(n):
+                dgt = (va[t] >> np.uint32(shift)) & np.uint32(0xFF)
+                q = cnt[dgt]
+                cnt[dgt] = q + 1
+                vb[q] = va[t]
+                rb[q] = ra[t]
+            va, vb = vb, va
+            ra, rb = rb, ra
+        order = ra
+        sdiff = 0.0
+        den = 0.0
+        prev = r_row[order[0]]
+        den += l_row[order[0]] * (n - l_row[order[0]])
+        for q in range(1, n):
+            cur = r_row[order[q]]
+            sdiff += abs(cur - prev)
+            prev = cur
+            lq = l_row[order[q]]
+            den += lq * (n - lq)
+        den = 2.0 * den
+        out[j] = 1.0 - float(n) * sdiff / den if den > 0.0 else 0.0
+
+
 def xi_correlation_batch(X: np.ndarray, y: np.ndarray, *, random_state: int = 0) -> np.ndarray:
     """Vectorized ``xi_correlation`` for every column of ``X`` (shape ``(n, K)``) against the same
     ``y`` - avoids re-deriving ``y``'s own rank array K times (the walk depends only on the
@@ -180,6 +231,7 @@ def _score_block(X: np.ndarray, js: list, perms: np.ndarray, r_row: np.ndarray, 
     """Score the columns ``js`` of ``X`` with their permutations ``perms`` into ``out[js]``."""
     cols = np.ascontiguousarray(X[:, js].T)
     vals = np.empty(len(js), dtype=np.float64)  # Intentional float64: accumulator output kept f64
+    kernel = _xi_columns_radix_njit if cols.dtype == np.float32 else _xi_columns_njit
     with parallel_kernel_entry():
-        _xi_columns_njit(cols, perms, r_row, l_row, vals)
+        kernel(cols, perms, r_row, l_row, vals)
     out[js] = vals

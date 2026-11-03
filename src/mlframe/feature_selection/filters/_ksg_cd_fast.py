@@ -76,8 +76,16 @@ def _mi_cd_column(x, d, n_classes, n_neighbors, psi):
                 r = dh
                 hi += 1
         # Points strictly closer than the k-th neighbour (sklearn queries radius nextafter(r, 0)); the searchsorted bounds can round onto the neighbour itself, so trim by exact distance.
-        lo_m = np.searchsorted(xk, v - r, side="left")
-        hi_m = np.searchsorted(xk, v + r, side="right")
+        # The bounds are those of ``searchsorted(xk, v - r, "left")`` / ``searchsorted(xk, v + r, "right")``, found by walking out from the point's own sorted position ``j``
+        # (``xk[j] == v`` lies inside both): the radius spans a few neighbours, so the walk takes a few steps where each binary search took about 15 cache-missing ones.
+        lo_key = v - r
+        hi_key = v + r
+        lo_m = j
+        while lo_m > 0 and xk[lo_m - 1] >= lo_key:
+            lo_m -= 1
+        hi_m = j + 1
+        while hi_m < n_kept and xk[hi_m] <= hi_key:
+            hi_m += 1
         while lo_m < hi_m and v - xk[lo_m] >= r:
             lo_m += 1
         while hi_m > lo_m and xk[hi_m - 1] - v >= r:

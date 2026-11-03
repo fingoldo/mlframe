@@ -68,6 +68,7 @@ from ._orthogonal_univariate_fe import generate_univariate_basis_features
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
+from ._numba_utils_shared import radix_order_f32
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -200,6 +201,54 @@ def copula_mi(
     v = _rank_to_uniform(y_arr)
     return _bin_mi_uniform_pair(u, v, n_bins=int(n_bins))
 
+
+@njit(cache=True)
+def _copula_mi_from_order(col: np.ndarray, order: np.ndarray, vi: np.ndarray, nb: int) -> float:
+    """Miller-Madow copula MI of ``col`` against the y bins ``vi`` from an order that sorts ``col`` (equal values adjacent; their order among themselves does not
+    matter, every one of them gets the mean rank of the run): the tie runs give the average-rule ranks, binned into ``nb`` equal-width bins."""
+    n = col.shape[0]
+    joint = np.zeros((nb, nb), dtype=np.int64)
+    i = 0
+    while i < n:
+        e = i + 1
+        while e < n and col[order[e]] == col[order[i]]:
+            e += 1
+        u = 0.5 * (i + 1 + e) / (n + 1.0)  # mean of the 1-based ranks i + 1 .. e
+        ub = int(np.floor(u * nb))
+        if ub > nb - 1:
+            ub = nb - 1
+        for q in range(i, e):
+            joint[ub, vi[order[q]]] += 1
+        i = e
+    px = np.zeros(nb)
+    py = np.zeros(nb)
+    total = float(n)
+    for a in range(nb):
+        for b in range(nb):
+            c = joint[a, b]
+            if c > 0:
+                px[a] += c
+                py[b] += c
+    mi = 0.0
+    kxy = 0
+    for a in range(nb):
+        for b in range(nb):
+            c = joint[a, b]
+            if c > 0:
+                pxy = c / total
+                mi += pxy * (math.log(pxy) - math.log(px[a] / total * (py[b] / total)))
+                kxy += 1
+    kx = 0
+    ky = 0
+    for a in range(nb):
+        if px[a] > 0:
+            kx += 1
+        if py[a] > 0:
+            ky += 1
+    mi -= (kxy - kx - ky + 1) / (2.0 * total)
+    return mi if mi > 0.0 else 0.0
+
+
 @njit(cache=True, parallel=True)
 def _copula_columns_njit(cols_rows: np.ndarray, vi: np.ndarray, nb: int, out: np.ndarray) -> None:
     """``out[j]`` = Miller-Madow copula MI of the all-finite row ``j`` of ``cols_rows`` ``(k, n)`` against the y bins ``vi`` (equal-width bins of the y ranks).
@@ -207,50 +256,19 @@ def _copula_columns_njit(cols_rows: np.ndarray, vi: np.ndarray, nb: int, out: np
     The column is rank-transformed with the average rule for ties (``scipy.stats.rankdata``), normalised by ``n + 1``, binned into ``nb`` equal-width bins and the joint table of the two bin
     codes gives the plug-in MI with the Miller-Madow correction, as ``_bin_mi_uniform_pair`` computes it; one parallel task per column."""
     kk = cols_rows.shape[0]
-    n = cols_rows.shape[1]
     for j in prange(kk):
         col = cols_rows[j]
-        order = np.argsort(col, kind="mergesort")
-        joint = np.zeros((nb, nb), dtype=np.int64)
-        i = 0
-        while i < n:
-            e = i + 1
-            while e < n and col[order[e]] == col[order[i]]:
-                e += 1
-            u = 0.5 * (i + 1 + e) / (n + 1.0)  # mean of the 1-based ranks i + 1 .. e
-            ub = int(np.floor(u * nb))
-            if ub > nb - 1:
-                ub = nb - 1
-            for q in range(i, e):
-                joint[ub, vi[order[q]]] += 1
-            i = e
-        px = np.zeros(nb)
-        py = np.zeros(nb)
-        total = float(n)
-        for a in range(nb):
-            for b in range(nb):
-                c = joint[a, b]
-                if c > 0:
-                    px[a] += c
-                    py[b] += c
-        mi = 0.0
-        kxy = 0
-        for a in range(nb):
-            for b in range(nb):
-                c = joint[a, b]
-                if c > 0:
-                    pxy = c / total
-                    mi += pxy * (math.log(pxy) - math.log(px[a] / total * (py[b] / total)))
-                    kxy += 1
-        kx = 0
-        ky = 0
-        for a in range(nb):
-            if px[a] > 0:
-                kx += 1
-            if py[a] > 0:
-                ky += 1
-        mi -= (kxy - kx - ky + 1) / (2.0 * total)
-        out[j] = mi if mi > 0.0 else 0.0
+        out[j] = _copula_mi_from_order(col, np.argsort(col, kind="mergesort"), vi, nb)
+
+
+@njit(cache=True, parallel=True)
+def _copula_columns_radix_njit(cols_rows: np.ndarray, vi: np.ndarray, nb: int, out: np.ndarray) -> None:
+    """:func:`_copula_columns_njit` for float32 rows: the order comes from a 4-pass LSD radix sort of the order-preserving uint32 key of each value (``-0.0`` keyed as
+    ``+0.0``, which compare equal), not a comparison sort. Equal values end up adjacent as there, and the MI depends only on the tie runs, so the value is the same."""
+    kk = cols_rows.shape[0]
+    for j in prange(kk):
+        col = cols_rows[j]
+        out[j] = _copula_mi_from_order(col, radix_order_f32(col), vi, nb)
 
 
 def _copula_mi_batch(
@@ -299,7 +317,7 @@ def _copula_mi_batch(
             rows = np.ascontiguousarray(X_arr[:, cols_idx].T)
             vals = np.empty(len(cols_idx), dtype=np.float64)  # Intentional float64: statistic output kept f64
             with parallel_kernel_entry():
-                _copula_columns_njit(rows, vi_fast, nb_fast, vals)
+                (_copula_columns_radix_njit if rows.dtype == np.float32 else _copula_columns_njit)(rows, vi_fast, nb_fast, vals)
             out[cols_idx] = vals
             done[cols_idx] = True
     for j in range(X_arr.shape[1]):

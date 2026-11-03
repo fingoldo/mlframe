@@ -154,6 +154,11 @@ def _fit_surrogate_and_oof(
     # bench-attempt-rejected (2026-11-01, 21000 rows x 100 ordinal features, 300 rounds, depth 3, 4C/8T host): LightGBM variants with predictions equal to the baseline. force_col_wise 0.93 s, num_threads=4 0.92 s,
     #   num_threads=6 0.73 s, max_bin=16 0.67 s against 0.66 s for the baseline (row-wise histograms, all 8 threads). The baseline is the fastest exact form; the fits are CPU-only, so on the GPU fit the 10 of them
     #   stay a ~10 s serial block.
+    # bench-attempt-rejected (2026-11-03, same host + GTX 1050 Ti, 30000 x 100 ordinal, the 10 fits of one seeder call, predictions compared): running the
+    #   independent fits concurrently from Python threads (LightGBM releases the GIL) with the threads split between them: 2 x 4 threads 13.6 s, 4 x 2 29.8 s,
+    #   8 x 1 39.1 s against 8.7 s serial with 8 threads (predictions equal; the OpenMP pools oversubscribe the cores). The OpenCL GPU learner (device_type="gpu",
+    #   21000 x 100, 300 rounds): single precision 1.02 s (predictions off by 9e-7), gpu_use_dp 1.38 s (predictions equal) against 0.85 s on the CPU. This LightGBM
+    #   build has no CUDA learner.
     try:
         ds = lgb.Dataset(Xtr, label=ytr, free_raw_data=False)
         booster = lgb.train(params, ds, num_boost_round=int(n_estimators))

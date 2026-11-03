@@ -206,38 +206,31 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
     install_pinned_policy()
     import numpy as np
 
-    host = np.asarray(arr)
-    if dtype is not None:
-        host = host.astype(dtype, copy=False)
-    if contiguous:
-        host = np.ascontiguousarray(host)
+    src = np.asarray(arr)
+    target = np.dtype(dtype) if dtype is not None else src.dtype
 
     if _disabled():
-        return cp.asarray(host)
+        host = src.astype(target, copy=False)
+        return cp.asarray(np.ascontiguousarray(host) if contiguous else host)
 
-    # The cache key used to be PURELY
-    # content-based (shape + dtype + content hash), with no device component at all. multi_gpu_fe_batch_mi
-    # (the heterogeneous multi-GPU FE-batcher) spins up one ThreadPoolExecutor worker per physical CUDA
-    # device, each calling resident_operand with the SAME y_codes content but a DIFFERENT active
-    # cp.cuda.Device context. The first device's cache entry (a cupy array physically resident on THAT
-    # device) would be handed back verbatim to every other device's thread on a content-hash hit -
-    # passing a device-N array into a kernel while device-M (N != M) is the active context is a cupy
-    # ValueError for the overwhelming majority of ops (no peer access enabled anywhere in this codebase).
-    # Folding the active device id into the key makes each physical device keep its OWN resident copy of
-    # the same content, closing the cross-device aliasing gap while leaving the single-GPU case
-    # (the overwhelming majority of fits) byte-identical (device id is a constant 0 there).
+    # The key is the content of the array the caller passed, with its dtype and the target dtype: the conversion is a pure function of those, so equal keys
+    # give equal device bytes. Hashing the caller's array (not the converted copy) lets ``_content_hash_memoized`` serve a fit-constant column passed again by
+    # identity; a float32 column asked for as float64 used to be copied and hashed in full on every call. The copy and the upload happen only on a miss.
     device_id = int(cp.cuda.Device().id)
-    # Content signature is the WHOLE key: shape + dtype distinguish dtype/length variants; the content hash
-    # deduplicates identical operands across roles and guards against a different-values alias.
-    # _content_hash_memoized skips the O(n) recompute when the SAME array object (e.g. a fit-constant
-    # y/z passed unchanged across every role) was already hashed this fit - see its own docstring.
-    sig = (device_id, host.shape, host.dtype.str, _content_hash_memoized(host))
+    sig = (device_id, src.shape, target.str, src.dtype.str, bool(contiguous), _content_hash_memoized(src))
     with _FE_RESIDENT_OPERANDS_LOCK:
         g = _FE_RESIDENT_OPERANDS.get(sig)
         if g is not None:
             _FE_RESIDENT_OPERANDS.move_to_end(sig)  # LRU: this content is hot
             return g
-        g = cp.asarray(host)
+    host = src.astype(target, copy=False)
+    if contiguous:
+        host = np.ascontiguousarray(host)
+    g = cp.asarray(host)
+    with _FE_RESIDENT_OPERANDS_LOCK:
+        hit = _FE_RESIDENT_OPERANDS.get(sig)
+        if hit is not None:  # another thread uploaded the same content meanwhile
+            return hit
         _FE_RESIDENT_OPERANDS[sig] = g
         if len(_FE_RESIDENT_OPERANDS) > _MAX_ENTRIES:
             # evict-ok: a miss re-uploads the operand

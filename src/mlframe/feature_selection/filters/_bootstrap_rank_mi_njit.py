@@ -267,6 +267,36 @@ def _bootstrap_rank_mi_f32(
 
 
 @njit(cache=True, fastmath=True, parallel=True)
+def dense_ranks_f32(bits: np.ndarray):
+    """``(rk (k, n) int32, n_levels (k,), ok (k,))``: the dense rank of every row of each column of the float32 matrix given as raw ``uint32`` bits ``(n, k)`` (the ranks
+    ``_bootstrap_rank_mi_f32`` feeds its counting sort), the number of distinct values and whether the column is finite (a non-finite column keeps ``ok`` False)."""
+    n, k = bits.shape
+    rk_all = np.zeros((k, n), dtype=np.int32)
+    n_levels = np.zeros(k, dtype=np.int64)
+    ok = np.zeros(k, dtype=np.bool_)
+    n_tiles = (k + _TILE - 1) // _TILE
+    for tile in prange(n_tiles):
+        j0 = tile * _TILE
+        width = min(_TILE, k - j0)
+        tb = np.empty((width, n), dtype=np.uint32)
+        for i in range(n):
+            for t in range(width):
+                tb[t, i] = bits[i, j0 + t]
+        keys = np.empty(n, dtype=np.uint32)
+        va = np.empty(n, dtype=np.uint32)
+        vb = np.empty(n, dtype=np.uint32)
+        ra = np.empty(n, dtype=np.int32)
+        rb = np.empty(n, dtype=np.int32)
+        for t in range(width):
+            if not _float32_sort_keys(tb[t], keys):
+                continue
+            ok[j0 + t] = True
+            _radix_sort_pairs(keys, va, ra, vb, rb)
+            n_levels[j0 + t] = _rank_blocks(va, ra, rk_all[j0 + t]) + 1
+    return rk_all, n_levels, ok
+
+
+@njit(cache=True, fastmath=True, parallel=True)
 def _bootstrap_rank_mi_generic(arr: np.ndarray, y_codes: np.ndarray, n_classes: int, idx: np.ndarray, lens: np.ndarray, binpos: np.ndarray, n_bins: int):
     """:func:`_bootstrap_rank_mi_f32` for any float dtype: the dense ranks come from a stable argsort of the column, every column takes the counting sort of the draws."""
     n, k = arr.shape
@@ -345,7 +375,21 @@ def _resample_tables(rep_rows: "list[np.ndarray]", y_arr: np.ndarray, n: int, n_
     return prep
 
 
-def bootstrap_rank_mi(arr: np.ndarray, y: np.ndarray, rep_rows: "list[np.ndarray]", n_bins: int) -> "tuple[np.ndarray, np.ndarray]":
+def _tied_on_device(arr: np.ndarray, prep: dict, n_bins: int, n_rep: int) -> "tuple[np.ndarray, np.ndarray, np.ndarray] | None":
+    """``(mi, done, ok)``: the columns of the float32 ``arr`` with repeated values and a level count the device table holds, scored by the device counting sort
+    (``_bootstrap_rank_mi_tied_gpu``) from host dense ranks computed block by block beside it; ``done`` marks them, ``ok`` the finite columns. ``None`` when no column
+    qualifies or the device fails."""
+    from ._bootstrap_rank_mi_tied_gpu import tied_replicate_mi_stream
+
+    def _ranks(bits_block: np.ndarray):
+        """Host dense ranks of one block of columns."""
+        with parallel_kernel_entry():
+            return dense_ranks_f32(bits_block)
+
+    return tied_replicate_mi_stream(np.ascontiguousarray(arr).view(np.uint32), prep, n_bins, _ranks)
+
+
+def bootstrap_rank_mi(arr: np.ndarray, y: np.ndarray, rep_rows: "list[np.ndarray]", n_bins: int, try_tied_device: bool = True) -> "tuple[np.ndarray, np.ndarray]":
     """Rank-binned plug-in MI of every column of ``arr`` ``(n, k)`` against the class labels ``y`` on every resample in ``rep_rows`` (row-index vectors with repeats, in draw order).
 
     Returns ``(mi (len(rep_rows), k), ok (k,))``: the MI equals ``_mi_classif_batch(arr[idx], y[idx], nbins=n_bins)`` for each resample ``idx`` and each column with ``ok`` True. A column with a
@@ -367,6 +411,19 @@ def bootstrap_rank_mi(arr: np.ndarray, y: np.ndarray, rep_rows: "list[np.ndarray
             prep = _resample_tables(rep_rows, y_arr, n, n_bins, arr.dtype == np.float32)
             _PREP_CACHE.clear()  # evict-ok: only the latest resample tables are kept; a miss rebuilds them
             _PREP_CACHE["latest"] = {"key": cache_key, "reps": rep_rows, "prep": prep}
+    if try_tied_device and arr.dtype == np.float32 and arr.shape[1] > 0:
+        from ._bootstrap_rank_mi_tied_gpu import use_device_tied
+
+        if use_device_tied(n):
+            tied = _tied_on_device(arr, prep, int(n_bins), n_rep)
+            if tied is not None:
+                mi_t, done_t, ok_t = tied
+                rest = np.flatnonzero(ok_t & ~done_t)
+                if rest.size:
+                    mi_r, ok_r = bootstrap_rank_mi(np.ascontiguousarray(arr[:, rest]), y, rep_rows, n_bins, try_tied_device=False)
+                    mi_t[:, rest] = mi_r
+                    ok_t[rest] = ok_r
+                return mi_t, ok_t
     y_codes, n_classes, lens, idx, binpos = prep["y_codes"], prep["n_classes"], prep["lens"], prep["idx"], prep["binpos"]
     if arr.dtype == np.float32:
         from ._bootstrap_rank_mi_gpu import distinct_walk_gpu, use_device_walk

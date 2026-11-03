@@ -111,7 +111,9 @@ def _replayable_from_input(recipe, X, raw_cols, parents):
 def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_only, parents) -> dict:
     """Engineered candidates of the feature-base target mix (``_target_mix_fe``), added to ``pool``; returns their recipes (attached only if the rescue admits them). Empty when the mix is off."""
     self.fe_target_mix_provenance_ = []
-    if not getattr(self, "fe_target_mix_enable", False):
+    # The mix is a feature-engineering family (a child MRMR fit with one FE step), so ``fe_max_steps=0`` turns it off like every family behind ``_fe_family_on``:
+    # gated on the flag alone, the child ran engineered pair / triplet searches under "no feature engineering".
+    if not getattr(self, "fe_target_mix_enable", False) or int(getattr(self, "fe_max_steps", 0) or 0) <= 0:
         return {}
     from ..engineered_recipes.shared import apply_recipe
     from .._target_mix_fe import second_pass_recipes

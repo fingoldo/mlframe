@@ -360,14 +360,6 @@ def pair_search_audit():
     return names, cnt, rep, n
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "known gap: one pair-search dispatch re-uploads host codes. Routing the ChunkCodes wrapper to its resident device codes "
-        "(lookup by the wrapped host buffer) fixes the stash miss but the full pipeline then stops returning from the GPU MI kernel "
-        "launch on this card; not reproduced in isolation (single, sequential, threaded replays all pass). See the commit log."
-    ),
-)
 # the full pair search stalls in a GPU kernel on the 4 GB card; runs in the gpu job, not the CPU shards
 @pytest.mark.slow
 def test_pair_search_residency_codes_resident_into_mi_gate(pair_search_audit):

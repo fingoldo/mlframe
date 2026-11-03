@@ -185,3 +185,58 @@ def _presort_columns(raw_cont: np.ndarray):
         for i in range(n):
             order[j, i] = o[i]
     return order
+
+
+_GATHER_ROW_TILE = 512
+
+
+@njit(cache=True)
+def gather_columns_to_rows(views, out: np.ndarray) -> None:
+    """``out[j] = views[j]`` for a typed list of equal-length 1-D arrays (any strides), copied in tiles of rows.
+
+    The columns of a pandas frame built from a C-ordered ``(n, p)`` array are strided views 4p bytes apart; copying them one at a time reads a cache line per
+    value. Walking a tile of rows across every column reads the neighbouring columns of each line together (108 columns x 100000 rows: 0.025 s against 0.14 s
+    for ``np.stack``)."""
+    k = len(views)
+    n = out.shape[1]
+    for i0 in range(0, n, _GATHER_ROW_TILE):
+        i1 = min(n, i0 + _GATHER_ROW_TILE)
+        for j in range(k):
+            v = views[j]
+            for i in range(i0, i1):
+                out[j, i] = v[i]
+
+
+@njit(cache=True)
+def radix_order_f32(col: np.ndarray) -> np.ndarray:
+    """An order that sorts the float32 vector ``col`` ascending (equal values adjacent; stable), from a 4-pass LSD radix sort of the order-preserving uint32 key
+    of each value (``-0.0`` keyed as ``+0.0``, which compare equal). NaN is not handled: the callers pass finite values. Replaces a comparison argsort where only
+    the order and the tie runs matter."""
+    n = col.shape[0]
+    bits = col.view(np.uint32)
+    va = np.empty(n, dtype=np.uint32)
+    ra = np.empty(n, dtype=np.int64)
+    vb = np.empty(n, dtype=np.uint32)
+    rb = np.empty(n, dtype=np.int64)
+    for t in range(n):
+        u = bits[t]
+        if u == np.uint32(0x80000000):
+            u = np.uint32(0)
+        va[t] = ~u if (u & np.uint32(0x80000000)) else (u | np.uint32(0x80000000))
+        ra[t] = t
+    cnt = np.empty(257, dtype=np.int64)
+    for shift in (0, 8, 16, 24):
+        cnt[:] = 0
+        for t in range(n):
+            cnt[((va[t] >> np.uint32(shift)) & np.uint32(0xFF)) + 1] += 1
+        for dgt in range(256):
+            cnt[dgt + 1] += cnt[dgt]
+        for t in range(n):
+            dgt = (va[t] >> np.uint32(shift)) & np.uint32(0xFF)
+            q = cnt[dgt]
+            cnt[dgt] = q + 1
+            vb[q] = va[t]
+            rb[q] = ra[t]
+        va, vb = vb, va
+        ra, rb = rb, ra
+    return ra

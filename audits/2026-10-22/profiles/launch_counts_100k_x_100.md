@@ -68,3 +68,13 @@ Measured (`D:/Temp/pairs_timing.py`, 100000 x 100, every family): `_pair_perm_nu
 ## Done: dedup scan candidate sorts prefetched (architecture-review proposal #4, the cheap part)
 
 `scan_engineered_duplicates` 2.17 s per 100000 x 100 fit (`D:/Temp/dedup_timing.py`): `_pair_collisions` 1.29 s over 156 candidates, `_precompute_full_ranks` 0.49 s, `_masked_corr_prefilter` 0.23 s. Each candidate's own stable finite-row sort (about 8 ms) ran serially inside the loop; `_CandidateOrderPrefetch` sorts the next 32 candidates in scan order together on the edge-jobs pool when the first asks (identical orders, `test_candidate_order_prefetch_equals_the_direct_sort`). After: scan 1.87 s, `_pair_collisions` 0.99 s. The rest is the masked Spearman itself; the block-wise candidate x kept correlation of the proposal (one GEMM per block, sequential keep/drop fixup) is the remaining step, worth about 1 s at most.
+
+## 2026-11-03: fit after the day's changes
+
+`gpu_walls.py 100000 100` with nothing else running: wall 113.7 s (earlier runs today 120.1 / 136.9 / 139.5 s; single walls on this host vary widely), same six
+selected features, no out-of-memory or "FE raised" lines. Top family walls: binned_numeric_agg 4.91, modular 4.09 (6.09 this morning), auto-scorer 3.88 (4.33),
+numeric_decompose 2.97 (3.90), univariate_fourier 2.81, grouped_quantile 2.78, composite_group_agg 2.66.
+
+Not changed, measured: `batch_pair_usability_corr_cuda_warp` (1.25 s, two calls of 5778 / 3561 pairs x 5 forms on (108, 33334) float32 operands) is float64-bound
+on the GTX 1050 Ti (1.9e9 form evaluations in 0.79 s, about 48 GFLOPS of a ~66 GFLOPS fp64 peak; reads are coalesced: the operands are (k, n)). Only a float32
+form evaluation would speed it up, which changes the correlations that feed the prevalence relaxation; left as is.

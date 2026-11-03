@@ -215,7 +215,7 @@ def generate_grouped_quantile_features(
             global_sorted, global_iqr, global_p90p10 = cached
 
             # Per-group sorted-value arrays (str-keyed) for the CDF position.
-            group_sorted: dict[str, list] = {}
+            group_sorted: dict[str, np.ndarray] = {}
             iqr_lookup: dict[str, float] = {}
             p90p10_lookup: dict[str, float] = {}
             pct_out = np.empty(x.shape, dtype=_crit_np_dtype())
@@ -238,7 +238,7 @@ def generate_grouped_quantile_features(
                     sv = global_sorted
                     group_iqr = global_iqr
                     group_p90p10 = global_p90p10
-                group_sorted[str(gv)] = sv.tolist()
+                group_sorted[str(gv)] = sv  # an array: only the winners' recipes convert it (build_grouped_quantile_recipe); a list per group of every candidate held the GIL
                 iqr_lookup[str(gv)] = group_iqr
                 p90p10_lookup[str(gv)] = group_p90p10
                 # Fit ranks each train value within a sorted set that INCLUDES itself, whereas replay ranks a test
@@ -256,7 +256,7 @@ def generate_grouped_quantile_features(
                 "num_col": num_col,
                 "op": "pct_rank",
                 "group_sorted": group_sorted,
-                "global_sorted": global_sorted.tolist(),
+                "global_sorted": global_sorted,
                 "iqr_lookup": iqr_lookup,
                 "p90p10_lookup": p90p10_lookup,
                 "global_iqr": global_iqr,

@@ -448,6 +448,28 @@ def _family_codes(X, n_bins: int):
     return cols, nx
 
 
+def family_codes_of_rows(values: np.ndarray, n_bins: int):
+    """:func:`_family_codes` of candidates already held as the rows of a ``(K, n)`` matrix at the fit's float dtype (same codes, same counts): the blocks are
+    coded in place, without the per-block copy and transpose a DataFrame needs. A non-finite value takes the column median, as there (on a copy of that row)."""
+    n_cols, n_rows = values.shape
+    cols = np.empty((n_cols, n_rows), dtype=np.int16)
+    nx = np.empty(n_cols, dtype=np.int64)
+    block = max(1, min(n_cols, (128 << 20) // (4 * max(n_rows, 1))))
+    for j0 in range(0, n_cols, block):
+        j1 = min(j0 + block, n_cols)
+        v = values[j0:j1]
+        bad_rows = np.flatnonzero(~np.isfinite(v).all(axis=1))
+        if v.dtype != np.dtype(_crit_np_dtype()) or not v.flags.c_contiguous or bad_rows.size:
+            v = np.ascontiguousarray(v, dtype=_crit_np_dtype()).copy()
+            for jj in bad_rows:
+                col = v[jj]
+                bad = ~np.isfinite(col)
+                col[bad] = np.median(col[~bad]) if (~bad).any() else 0.0
+        with parallel_kernel_entry():
+            quantile_codes_block_auto(v, int(n_bins), cols[j0:j1], nx[j0:j1], host_kernel=quantile_codes_block)
+    return cols, nx
+
+
 def family_maxt_pass(candidates: "ArrayLike | pd.DataFrame", y: "ArrayLike", n_bins: int = 10, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> np.ndarray:
     """Boolean mask over the candidate columns: True where the exact family-wise permutation test passes at ``alpha``.
 

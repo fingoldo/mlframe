@@ -34,16 +34,18 @@ from numba import njit, prange
 
 from ._fe_usability_signal import _crit_np_dtype
 from ._orthogonal_copula_mi_fe import _rank_to_uniform
+from ._numba_utils_shared import radix_order_f32
 
 __all__ = ["tail_dependence_score"]
 
 
 @njit(cache=True, parallel=True)
-def _tail_dep_columns_njit(cols_rows: np.ndarray, v: np.ndarray, q: float, out: np.ndarray) -> None:
+def _tail_dep_columns_njit(cols_rows: np.ndarray, v: np.ndarray, q: float, out: np.ndarray, use_radix: bool = False) -> None:
     """``out[j]`` = ``max(upper, lower)`` floored tail-dependence of row ``j`` of ``cols_rows`` ``(k, n)`` against the rank-uniformised target ``v``.
 
     The column is rank-transformed once (average ranks for ties, divided by ``n + 1``) and both tails are read from the same ranks: the co-exceedance rate past the ``q`` quantile (upper) and
-    below ``1 - q`` (lower), each minus its closed-form shuffle expectation ``P(u in tail) * P(v in tail) / (1 - q)``, clamped at 0. One parallel task per column."""
+    below ``1 - q`` (lower), each minus its closed-form shuffle expectation ``P(u in tail) * P(v in tail) / (1 - q)``, clamped at 0. One parallel task per column.
+    """
     kk = cols_rows.shape[0]
     n = cols_rows.shape[1]
     hi = q
@@ -58,7 +60,8 @@ def _tail_dep_columns_njit(cols_rows: np.ndarray, v: np.ndarray, q: float, out: 
             n_v_lo += 1
     for j in prange(kk):
         col = cols_rows[j]
-        order = np.argsort(col, kind="mergesort")
+        # float32 rows take the radix order: the statistic depends only on the tie runs and the rows of each run, not on their order inside it
+        order = radix_order_f32(col) if use_radix else np.argsort(col, kind="mergesort")
         n_u_hi = 0
         n_u_lo = 0
         both_hi = 0
@@ -99,7 +102,10 @@ def tail_dependence_columns(cols_rows: np.ndarray, y: np.ndarray, *, q: float = 
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
     with parallel_kernel_entry():
-        _tail_dep_columns_njit(np.ascontiguousarray(cols_rows), np.ascontiguousarray(v, dtype=np.float64), float(q), out)  # Intentional float64: ranks in double precision
+        rows = np.ascontiguousarray(cols_rows)
+        _tail_dep_columns_njit(
+            rows, np.ascontiguousarray(v, dtype=np.float64), float(q), out, rows.dtype == np.float32
+        )  # Intentional float64: ranks in double precision
     return out
 
 

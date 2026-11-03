@@ -53,6 +53,23 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..engineered_recipes import EngineeredRecipe
 
+def _std_vs(v: np.ndarray, thr: float) -> float:
+    """A stand-in for ``float(np.std(v))`` that compares with ``thr`` exactly as the std does, at the cost of one min / max pass in the common case.
+
+    For n values ``std >= range / sqrt(2 n)``, so when that bound clears ``2 * thr`` the std surely exceeds ``thr`` and a large value is returned; otherwise,
+    and for a non-finite range, the std itself (a zero range is not shortcut: ``np.std`` of a constant float32 column carries a rounding residue, 9.5e-7 for 100
+    values of 3.3, which the callers' threshold sees). The sin / cos / power legs of a real column have a range near 2, so the std is rarely computed."""
+    n = v.size
+    if n == 0:
+        return float(np.std(v))
+    rng = float(np.max(v)) - float(np.min(v))
+    if not np.isfinite(rng):  # an infinite value gives a NaN std, a NaN value a NaN range: the std decides
+        return float(np.std(v))
+    if rng / np.sqrt(2.0 * n) > 2.0 * thr:
+        return float("inf")
+    return float(np.std(v))
+
+
 def _adaptive_fe_ok_for_col(x, col, y_adapt, y_adapt_prep, fourier_adaptive, fourier_chirp, adaptive_allowed) -> bool:
     """Whether the adaptive Fourier/chirp detector may run on one column: the raw column must not already be a strong smooth predictor of y, and it must be within the column cap."""
     if y_adapt is None or not (fourier_adaptive or fourier_chirp):
@@ -75,7 +92,7 @@ def _emit_spline_legs(x, col, spline_knots, out_cols, meta) -> None:
             # Skip near-constant columns - the boundary cubic
             # B-splines occasionally collapse to ~0 on quantile-
             # placed knots when ties pile at the edge.
-            if float(np.std(vals)) <= 1e-12:
+            if _std_vs(vals, 1e-12) <= 1e-12:
                 continue
             name = f"{col}__sp{i}"
             out_cols[name] = vals
@@ -237,7 +254,7 @@ def _emit_chirp_fourier_legs(x, col, y_adapt, adaptive_fe_ok, fourier_chirp, chi
         _c_mean, _c_std, _c_lo, _c_span = _fit_chirp_warp_for_col(x)
         if _c_span > 1e-12 and _c_std > 1e-12:
             u_axis = _chirp_axis(x, _c_mean, _c_std, _c_lo, _c_span)
-            if np.all(np.isfinite(u_axis)) and float(np.std(u_axis)) > 1e-12:
+            if np.all(np.isfinite(u_axis)) and _std_vs(u_axis, 1e-12) > 1e-12:
                 _chirp_freqs = _detect_fourier_freqs_for_col(
                     u_axis, y_adapt,
                     f_grid=chirp_f_grid,
@@ -249,7 +266,7 @@ def _emit_chirp_fourier_legs(x, col, y_adapt, adaptive_fe_ok, fourier_chirp, chi
                     ang_c = 2.0 * np.pi * _cf * u_axis
                     sc_vals = np.sin(ang_c)
                     cc_vals = np.cos(ang_c)
-                    if float(np.std(sc_vals)) > 1e-12:
+                    if _std_vs(sc_vals, 1e-12) > 1e-12:
                         name_qs = f"{col}__qsin{_cf:g}"
                         out_cols[name_qs] = sc_vals
                         meta[name_qs] = {
@@ -260,7 +277,7 @@ def _emit_chirp_fourier_legs(x, col, y_adapt, adaptive_fe_ok, fourier_chirp, chi
                             "lo": float(_c_lo), "span": float(_c_span),
                             "power": 1, "adaptive": True,
                         }
-                    if float(np.std(cc_vals)) > 1e-12:
+                    if _std_vs(cc_vals, 1e-12) > 1e-12:
                         name_qc = f"{col}__qcos{_cf:g}"
                         out_cols[name_qc] = cc_vals
                         meta[name_qc] = {
@@ -286,7 +303,7 @@ def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_
             for pwr in fourier_powers:
                 _p = int(pwr)
                 _xp = x if _p == 1 else np.power(x, _p)
-                if not np.all(np.isfinite(_xp)) or float(np.std(_xp)) <= 1e-12:
+                if not np.all(np.isfinite(_xp)) or _std_vs(_xp, 1e-12) <= 1e-12:
                     continue
                 lo_f, span_f = _fit_fourier_for_col(_xp)
                 z = (_xp - lo_f) / max(span_f, 1e-12)
@@ -330,7 +347,7 @@ def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_
                     ang = 2.0 * np.pi * freq * z
                     s_vals = np.sin(ang)
                     c_vals = np.cos(ang)
-                    if float(np.std(s_vals)) > 1e-12:
+                    if _std_vs(s_vals, 1e-12) > 1e-12:
                         name_s = f"{col}__{_pfx}sin{freq:g}"
                         out_cols[name_s] = s_vals
                         meta[name_s] = {
@@ -339,7 +356,7 @@ def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_
                             "lo": float(lo_f), "span": float(span_f),
                             "power": _p, "adaptive": _is_adaptive,
                         }
-                    if float(np.std(c_vals)) > 1e-12:
+                    if _std_vs(c_vals, 1e-12) > 1e-12:
                         name_c = f"{col}__{_pfx}cos{freq:g}"
                         out_cols[name_c] = c_vals
                         meta[name_c] = {
@@ -390,7 +407,7 @@ def _wavelet_extra_basis(extra_bases, y, x, col, out_cols, meta):
                     _w_z = np.clip((x - _w_lo) / _w_span, 0.0, 1.0)
                     for _wj, _wk in _w_legs:
                         _w_leg = _dyadic_haar_leg(_w_z, _wj, _wk)
-                        if float(np.std(_w_leg)) <= 1e-12:
+                        if _std_vs(_w_leg, 1e-12) <= 1e-12:
                             continue
                         name = f"{col}__haar_j{_wj}k{_wk}"
                         out_cols[name] = _w_leg
