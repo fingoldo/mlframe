@@ -187,17 +187,15 @@ def _composite_residuals_kernel(x: np.ndarray, inverse: np.ndarray, mean_u: np.n
         r_out[i] = q if np.isfinite(q) else 1.0
 
 
-def _composite_residuals(x: np.ndarray, uniq: np.ndarray, inverse: np.ndarray, lookup_mean: dict, lookup_std: dict, global_mean: float, global_std: float) -> "tuple[np.ndarray, np.ndarray]":
+def _composite_residuals(x: np.ndarray, uniq: np.ndarray, inverse: np.ndarray, lookup_mean: Mapping, lookup_std: Mapping, global_mean: float, global_std: float) -> "tuple[np.ndarray, np.ndarray]":
     """``(z-within-group, ratio-to-group-mean)`` columns of ``x`` in ``x``'s dtype, from the per-group mean / std tables (the replacement of non-finite values and the near-zero-mean rule are applied to the distinct groups)."""
-    direct = isinstance(lookup_mean, _ArrayLookup) and isinstance(lookup_std, _ArrayLookup) and len(lookup_mean.labels) == len(uniq)
-    mean_u = np.nan_to_num(
-        lookup_mean.values if direct else np.array([lookup_mean.get(str(k), global_mean) for k in uniq], dtype=np.float64),  # Intentional float64: group statistics from the f64 recipe lookup
-        nan=global_mean, posinf=global_mean, neginf=global_mean,
-    )
-    std_u = np.nan_to_num(
-        lookup_std.values if direct else np.array([lookup_std.get(str(k), global_std) for k in uniq], dtype=np.float64),  # Intentional float64: group statistics from the f64 recipe lookup
-        nan=global_std, posinf=global_std, neginf=global_std,
-    )
+    if isinstance(lookup_mean, _ArrayLookup) and isinstance(lookup_std, _ArrayLookup) and len(lookup_mean.labels) == len(uniq):
+        mean_raw, std_raw = lookup_mean.arr, lookup_std.arr  # one value per group code already
+    else:
+        mean_raw = np.array([lookup_mean.get(str(k), global_mean) for k in uniq], dtype=np.float64)  # Intentional float64: group statistics from the f64 recipe lookup
+        std_raw = np.array([lookup_std.get(str(k), global_std) for k in uniq], dtype=np.float64)  # Intentional float64: group statistics from the f64 recipe lookup
+    mean_u = np.nan_to_num(mean_raw, nan=global_mean, posinf=global_mean, neginf=global_mean)
+    std_u = np.nan_to_num(std_raw, nan=global_std, posinf=global_std, neginf=global_std)
     std_u = np.where(std_u > 0.0, std_u, 1.0)
     denom_u = _ratio_denominator(mean_u, global_mean, global_std)
     z = np.empty(x.shape[0], dtype=x.dtype)
@@ -236,7 +234,7 @@ def _unique_inverse(keys: np.ndarray):
         return None, None
 
 def _broadcast_lookup(
-    keys: np.ndarray, lookup: dict, global_value: float,
+    keys: np.ndarray, lookup: Mapping, global_value: float,
     # Intentional float64: output dtype of the composite aggregates, matches the stored recipe values
     *, uniq=None, inverse=None, out_dtype=np.float64,
 ) -> np.ndarray:
@@ -251,7 +249,7 @@ def _broadcast_lookup(
         uniq, inverse = _unique_inverse(keys)
     if uniq is not None and inverse is not None and isinstance(lookup, _ArrayLookup) and len(lookup.labels) == len(uniq):
         # one value per group code already: the per-key string lookup gives exactly these values (distinct labels, every key present)
-        uniq_vals = np.nan_to_num(lookup.values, nan=global_value, posinf=global_value, neginf=global_value)
+        uniq_vals = np.nan_to_num(lookup.arr, nan=global_value, posinf=global_value, neginf=global_value)
         return np.asarray(uniq_vals[inverse], dtype=out_dtype)
     if uniq is not None and inverse is not None:
         uniq_vals = np.array(
@@ -297,19 +295,19 @@ def _group_lookup(series: pd.Series, label: Callable[[Any], str], zero_nonfinite
 
 class _ArrayLookup(Mapping):
     """``{labels[code]: value}`` of a per-group-code array, built only when something reads it as a mapping (the recipes of the winners); the broadcasts and
-    residuals read ``values`` directly. Used only when the labels are distinct, so the mapping and the array agree for every group."""
+    residuals read ``arr`` directly. Used only when the labels are distinct, so the mapping and the array agree for every group."""
 
-    __slots__ = ("_dict", "labels", "values")
+    __slots__ = ("_dict", "arr", "labels")
 
     def __init__(self, labels: list, values: np.ndarray) -> None:
         self.labels = labels
-        self.values = values
+        self.arr = values
         self._dict: "dict | None" = None
 
     def _mapping(self) -> dict:
         """The dict, built on first use."""
         if self._dict is None:
-            self._dict = dict(zip(self.labels, self.values.tolist()))
+            self._dict = dict(zip(self.labels, self.arr.tolist()))
         return self._dict
 
     def __getitem__(self, key: Any) -> float:

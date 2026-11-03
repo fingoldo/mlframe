@@ -45,3 +45,11 @@ def test_labels_that_print_alike_are_not_distinct():
     """1 and "1" are different keys with the same string: the array path must not be taken for them."""
     _labels, distinct = cga._key_labels(np.array([1, "1", 2], dtype=object))
     assert not distinct
+
+
+def test_array_lookup_is_a_full_mapping():
+    """The lazy lookup answers the Mapping API (``values()`` included, which an attribute of that name used to shadow) like the dict it stands for."""
+    lk = cga._ArrayLookup(["a", "b", "c"], np.array([1.0, 2.5, -3.0]))
+    want = {"a": 1.0, "b": 2.5, "c": -3.0}
+    assert dict(lk.items()) == want and list(lk.values()) == list(want.values()) and list(lk.keys()) == list(want)
+    assert lk["b"] == 2.5 and lk.get("z", 7.0) == 7.0 and len(lk) == 3
