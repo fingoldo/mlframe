@@ -31,7 +31,7 @@ def smoothed_target_encode_column(
     smoothing: float = 10.0,
     oof: bool = True,
     n_splits: int = 5,
-    random_state: Optional[int] = None,
+    random_state: Optional[int] = 0,
 ) -> tuple[pd.Series, pd.Series]:
     """James-Stein-style shrinkage target encoding: per-category mean pulled toward the global mean by
     ``smoothing`` pseudo-observations, so low-count levels don't overfit to a handful of target rows.

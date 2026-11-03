@@ -86,7 +86,8 @@ def hosmer_lemeshow_test(
     yt = np.asarray(y_true).astype(np.int64, copy=False)
     ys = np.asarray(y_score, dtype=np.float64)
     n = yt.shape[0]
-    if n == 0 or n_groups < 2:
+    if n == 0 or n_groups < 2 or np.isnan(ys).any():
+        # a NaN score sorts into the last group, makes its expected count NaN and the group is then silently skipped: a finite H on fewer groups
         return np.nan, np.nan, 0
     order = np.argsort(ys, kind="quicksort")
     chi2, counted = _hosmer_lemeshow_kernel(yt[order], ys[order], int(n_groups))

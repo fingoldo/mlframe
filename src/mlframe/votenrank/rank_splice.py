@@ -72,7 +72,7 @@ def segment_rank_splice(
         """0-based ordinal ranks via single argsort + scatter (bit-identical to argsort(argsort(v)),
         ~1.7-1.9x faster -- the second sort was pure waste, the inverse permutation of the first argsort
         IS the rank vector)."""
-        order = np.argsort(v)
+        order = np.argsort(v, kind="stable")  # stable: ties keep row order instead of a platform-dependent scramble
         r = np.empty(v.size, dtype=order.dtype)
         r[order] = np.arange(v.size)
         return r

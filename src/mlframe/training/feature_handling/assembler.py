@@ -30,7 +30,7 @@ for SHAP / feature-importance attribution downstream.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -132,6 +132,7 @@ class AssembledMatrix:
     dense_block: Optional[np.ndarray]
     feature_names: List[str]
     routing_applied: List[str]  # human-readable trace for debugging
+    fitted_svds: Dict[str, Any] = field(default_factory=dict)  # "{column}__{method}" -> the TruncatedSVD fitted on this assembly (train); val/test reuse it
 
     @property
     def is_two_track(self) -> bool:
@@ -244,20 +245,27 @@ def _assemble_two_track(
 
 def _assemble_single_track_dense(
     sparse_blocks, dense_blocks, embedding_blocks, numeric_block, numeric_feature_names, model_kind,
-    svd_default_dim, svd_trigger_ncols, per_handler_svd_dim, routing_trace: List[str],
+    svd_default_dim, svd_trigger_ncols, per_handler_svd_dim, routing_trace: List[str], fitted_svds: Optional[Dict[str, Any]] = None,
 ) -> AssembledMatrix:
     """Dense-only model: sparse blocks are SVD-reduced or densified, then everything is concatenated."""
     dense_parts = []
     all_names = []
+    new_svds: Dict[str, Any] = {}
 
     for b in sparse_blocks:
         per_key = per_handler_svd_dim.get(f"{b.column}__{b.method}") if per_handler_svd_dim else None
         svd_dim = per_key if per_key is not None else svd_default_dim
         if should_apply_svd(model_kind, b.n_features, svd_trigger_ncols):
-            reduced, _svd = _apply_svd(
-                b.data.tocsr(), svd_dim,
-                column=b.column, model_kind=model_kind,
-            )
+            svd_key = f"{b.column}__{b.method}"
+            if fitted_svds is not None and svd_key in fitted_svds:
+                # val/test project onto the basis fitted on train; refitting per split gives each split its own arbitrary directions and signs
+                reduced = fitted_svds[svd_key].transform(b.data.tocsr()).astype(np.float32)
+            else:
+                reduced, _svd = _apply_svd(
+                    b.data.tocsr(), svd_dim,
+                    column=b.column, model_kind=model_kind,
+                )
+                new_svds[svd_key] = _svd
             dense_parts.append(reduced)
             # Renamed: <prefix>__svd<dim>__<i>
             prefix = b.name_prefix()
@@ -299,6 +307,7 @@ def _assemble_single_track_dense(
         dense_block=dense_mat,
         feature_names=all_names,
         routing_applied=routing_trace,
+        fitted_svds=new_svds,
     )
 
 
@@ -311,6 +320,7 @@ def assemble_for_model(
     svd_default_dim: int = 256,
     svd_trigger_ncols: int = DEFAULT_SVD_TRIGGER_NCOLS,
     per_handler_svd_dim: Optional[Dict[str, int]] = None,
+    fitted_svds: Optional[Dict[str, Any]] = None,
 ) -> AssembledMatrix:
     """Concatenate handler outputs for a specific model.
 
@@ -333,6 +343,9 @@ def assemble_for_model(
 
     ``per_handler_svd_dim`` maps ``"{column}__{method}"`` to a custom
     SVD dim, overriding ``svd_default_dim``.
+
+    ``fitted_svds`` is the ``AssembledMatrix.fitted_svds`` of the train assembly: when given, a sparse block it covers is projected with that
+    fitted SVD (``transform``) instead of being decomposed again, so val/test land in the train basis.
     """
     _validate_block_overlap(blocks)
 
@@ -348,7 +361,7 @@ def assemble_for_model(
     # is_dense_only(model_kind) OR unknown model -> safest path.
     return _assemble_single_track_dense(
         sparse_blocks, dense_blocks, embedding_blocks, numeric_block, numeric_feature_names, model_kind,
-        svd_default_dim, svd_trigger_ncols, per_handler_svd_dim, routing_trace,
+        svd_default_dim, svd_trigger_ncols, per_handler_svd_dim, routing_trace, fitted_svds,
     )
 
 

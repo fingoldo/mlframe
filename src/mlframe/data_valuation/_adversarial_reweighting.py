@@ -153,8 +153,6 @@ def dro_reweight_fit(
 
     model = None
     for _round in range(n_rounds):
-        model = fit_fn(X, y, w)
-
         # OOF losses for the adversary -- refit per fold so the adversary never sees in-sample loss.
         oof_pred = np.empty(n, dtype=np.float64)
         for tr_idx, val_idx in fold_splits:
@@ -170,6 +168,9 @@ def dro_reweight_fit(
         w_next = (1.0 - step_mix) * w + step_mix * w_raw
         converged = bool(np.max(np.abs(w_next - w)) < 1e-3)
         w = w_next
+
+    # the model returned must be the one trained on the weights returned, not on the previous round's
+    model = fit_fn(X, y, w)
 
     info = dict(
         worst_case_loss_history=worst_case_history,

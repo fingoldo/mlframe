@@ -288,7 +288,7 @@ class TestSpearmanScalarKernel:
         x_nan[n // 2] = np.nan
         assert np.isnan(rc._spearmanr_scalar_njit(x_nan, y))
         y_nan = y.copy()
-        y_nan[-1] = np.inf
+        y_nan[-1] = np.nan  # inf is an ordinary extreme for ranks (see test_spearman_infinite_values_rank_like_scipy)
         assert np.isnan(rc._spearmanr_scalar_njit(x, y_nan))
         assert np.isfinite(rc._spearmanr_scalar_njit(x, y))
 

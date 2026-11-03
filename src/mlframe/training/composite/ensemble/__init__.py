@@ -397,16 +397,26 @@ def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_trai
 from ._oof_external import _compute_oof_with_external_holdout  # re-exported; carved to keep this module under 1000 lines
 
 
+def _full_array_digest(a: np.ndarray) -> int:
+    """Content digest of a whole array (string / object arrays through their repr), for cache keys that must tell two different arrays apart."""
+    import hashlib
+
+    arr = np.ascontiguousarray(a) if a.dtype != object else np.asarray(a.astype(str))
+    return int.from_bytes(hashlib.blake2b(arr.tobytes() if arr.dtype.kind != "U" else "".join(arr.ravel().tolist()).encode(), digest_size=8).digest(), "little")
+
+
 def _oof_full_cache_key(cache_key, kfold, random_state, holdout_frac, time_ordering, external_holdout_X, external_holdout_y, group_ids) -> tuple:
     """The OOF cache key: every argument that changes the returned matrix, so two calls differing only in holdout_frac /
     time-mode / external-holdout identity / group_ids cannot serve each other a stale entry."""
     if group_ids is not None:
         g = np.asarray(group_ids)
-        group_fp = (g.shape[0], hash((tuple(g[:64].tolist()), tuple(g[-64:].tolist()))))
+        group_fp = (g.shape[0], _full_array_digest(g))
     else:
         group_fp = (0, 0)
+    # the time order decides which rows each fold sees, so its content (not just its presence) is part of the key
+    time_fp = _full_array_digest(np.asarray(time_ordering)) if time_ordering is not None else 0
     return (
-        cache_key, int(kfold), int(random_state), round(float(holdout_frac), 6), int(time_ordering is not None),
+        cache_key, int(kfold), int(random_state), round(float(holdout_frac), 6), time_fp,
         int(external_holdout_X is not None), (len(external_holdout_y) if external_holdout_y is not None else -1), group_fp,
     )
 
@@ -422,10 +432,12 @@ def _outer_oof_split(n_train: int, kfold: int, random_state: int, component_spec
         return TimeSeriesSplit(n_splits=kfold).split(idx)
     if group_ids is not None:
         g = np.asarray(group_ids)
-        if g.shape[0] == n_train and np.unique(g).size >= kfold:
+        n_groups = np.unique(g).size if g.shape[0] == n_train else 0
+        if n_groups >= 2:
             from sklearn.model_selection import GroupKFold
 
-            return GroupKFold(n_splits=kfold).split(idx, groups=g)
+            # fewer groups than folds still must not split a group: use as many folds as there are groups
+            return GroupKFold(n_splits=min(kfold, n_groups)).split(idx, groups=g)
     return _plain_oof_splitter(kfold, random_state, component_specs).split(idx)
 
 

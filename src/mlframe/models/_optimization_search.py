@@ -337,10 +337,17 @@ class MBHOptimizer:
             """Sort key that tolerates mixed-type values: ``None`` last, everything else by its string form."""
             return (v is None, str(v))
 
+        def _ordered() -> list:
+            """Natural order (numbers numerically) when the values are mutually comparable, the string-key order otherwise."""
+            try:
+                return list(sorted(sampled_inputs))
+            except TypeError:
+                return list(sorted(sampled_inputs, key=_sort_key))
+
         if init_evaluate_ascending:
-            return sorted(sampled_inputs, key=_sort_key)
+            return _ordered()
         if init_evaluate_descending:
-            return sorted(sampled_inputs, key=_sort_key)[::-1]
+            return _ordered()[::-1]
         return list(sampled_inputs)
 
     def _init_surrogate_model(self, model_params: dict, quantile: float) -> None:
@@ -599,6 +606,29 @@ class MBHOptimizer:
             self.expected_fitness = expected_fitness
         return expected_fitness
 
+    def _track_best_and_worst(self, next_candidate, next_evaluation) -> None:
+        """Update the best / worst evaluation bookkeeping and the no-improvement streak for one submitted evaluation."""
+        if self.direction == OptimizationDirection.Maximize:
+            if next_evaluation > self.best_evaluation:
+                self.best_evaluation = next_evaluation
+                self.best_candidate = next_candidate
+                self.n_noimproving_iters = 0
+            else:
+                self.n_noimproving_iters += 1
+            if next_evaluation < self.worst_evaluation:
+                self.worst_evaluation = next_evaluation
+                self.worst_candidate = next_candidate
+        elif self.direction == OptimizationDirection.Minimize:
+            if next_evaluation < self.best_evaluation:
+                self.best_evaluation = next_evaluation
+                self.best_candidate = next_candidate
+                self.n_noimproving_iters = 0
+            else:
+                self.n_noimproving_iters += 1
+            if next_evaluation > self.worst_evaluation:
+                self.worst_evaluation = next_evaluation
+                self.worst_candidate = next_candidate
+
     def submit_evaluations(self, candidates: Sequence, evaluations: Sequence, durations: Sequence):
         """Record a batch of (candidate, evaluation, duration) results, update best/worst tracking, and append to the known-candidates history.
 
@@ -616,32 +646,17 @@ class MBHOptimizer:
 
             self.nsteps += 1
 
-            if self.direction == OptimizationDirection.Maximize:
-                if next_evaluation > self.best_evaluation:
-                    self.best_evaluation = next_evaluation
-                    self.best_candidate = next_candidate
-                    self.n_noimproving_iters = 0
-                else:
-                    self.n_noimproving_iters += 1
-                if next_evaluation < self.worst_evaluation:
-                    self.worst_evaluation = next_evaluation
-                    self.worst_candidate = next_candidate
-            elif self.direction == OptimizationDirection.Minimize:
-                if next_evaluation < self.best_evaluation:
-                    self.best_evaluation = next_evaluation
-                    self.best_candidate = next_candidate
-                    self.n_noimproving_iters = 0
-                else:
-                    self.n_noimproving_iters += 1
-                if next_evaluation > self.worst_evaluation:
-                    self.worst_evaluation = next_evaluation
-                    self.worst_candidate = next_candidate
+            self._track_best_and_worst(next_candidate, next_evaluation)
 
             if self.verbose and self.n_noimproving_iters == 0:
                 logger.info("Next optimum found at point (%s): %s", self.best_candidate, f"{self.best_evaluation:_.6f}")
 
-            new_candidates_batch.append(next_candidate)
-            new_evaluations_batch.append(next_evaluation)
+            if np.isfinite(next_evaluation):
+                new_candidates_batch.append(next_candidate)
+                new_evaluations_batch.append(next_evaluation)
+            else:
+                # a failed evaluation (NaN/inf) must not reach the surrogate refit: CatBoost and ExtraTrees raise on a non-finite target
+                logger.warning("Optimizer: candidate %r returned a non-finite evaluation (%s); it is recorded but excluded from the surrogate's training data.", next_candidate, next_evaluation)
 
             if next_candidate in self.pre_seeded_candidates:
                 self.pre_seeded_candidates.remove(next_candidate)

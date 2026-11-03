@@ -101,7 +101,7 @@ if _HAS_NUMBA:
         n = x.shape[0]
         # Quick NaN check.
         for i in range(n):
-            if not np.isfinite(x[i]):
+            if x[i] != x[i]:
                 return False
         order = np.argsort(x)
         i = 0
@@ -137,7 +137,7 @@ if _HAS_NUMBA:
         # `+=` on a scalar IS a recognized reduction pattern, so count instead of flag.
         n_bad = 0
         for i in prange(n):
-            if not (np.isfinite(x[i]) and np.isfinite(y[i])):
+            if x[i] != x[i] or y[i] != y[i]:
                 n_bad += 1
         if n_bad > 0:
             return np.nan

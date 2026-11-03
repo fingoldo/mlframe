@@ -43,8 +43,7 @@ def _stratified_class_book(stratify: Optional[np.ndarray], n: int, fn_name: str)
     stratify = np.asarray(stratify).ravel()
     if stratify.shape[0] != n:
         raise ValueError(f"{fn_name}: stratify length {stratify.shape[0]} must match y_true length {n}")
-    groups = {int(c): np.flatnonzero(stratify == c) for c in np.unique(stratify)}
-    _groups_list = list(groups.values())
+    _groups_list = [np.flatnonzero(stratify == c) for c in np.unique(stratify)]
     _class_sizes = np.array([g.shape[0] for g in _groups_list], dtype=np.int64)
     _total_n = int(_class_sizes.sum())
     _class_offsets = np.empty(_class_sizes.shape[0] + 1, dtype=np.int64)

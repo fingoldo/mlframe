@@ -425,6 +425,7 @@ def feature_handling_apply(
             numeric_block=numeric_block_val,
             numeric_feature_names=numeric_feature_names,
             svd_default_dim=256,
+            fitted_svds=train_asm.fitted_svds,
         ) if val_df is not None else None
     )
     test_asm = (
@@ -433,6 +434,7 @@ def feature_handling_apply(
             numeric_block=numeric_block_test,
             numeric_feature_names=numeric_feature_names,
             svd_default_dim=256,
+            fitted_svds=train_asm.fitted_svds,
         ) if test_df is not None else None
     )
 

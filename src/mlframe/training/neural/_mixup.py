@@ -58,8 +58,12 @@ def mixup_batch(
     x: torch.Tensor,
     y: torch.Tensor,
     alpha: float,
+    n_cat_prefix: int = 0,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]:
     """Compute a Mixup-perturbed batch.
+
+    ``n_cat_prefix`` leading columns hold integer category codes (the layout the embedding layer reads). Interpolating codes produces a code of a
+    third, unrelated category, so those columns are taken whole from the row that carries the larger mixing weight.
 
     Args:
         x: Feature tensor of shape (N, ...).
@@ -67,6 +71,7 @@ def mixup_batch(
         alpha: Beta-distribution concentration parameter. Higher alpha
             means stronger mixing. Common range: 0.1-0.4 for tabular.
             Must be > 0.
+        n_cat_prefix: Number of leading columns holding integer category codes, kept whole instead of interpolated.
 
     Returns:
         x_mixed: lam * x + (1-lam) * x[idx]
@@ -98,6 +103,8 @@ def mixup_batch(
 
     idx = torch.randperm(x.shape[0], device=x.device)
     x_mixed = lam * x + (1.0 - lam) * x[idx]
+    if n_cat_prefix > 0:
+        x_mixed[:, :n_cat_prefix] = x[:, :n_cat_prefix] if lam >= 0.5 else x[idx, :n_cat_prefix]
     y_a = y
     y_b = y[idx]
     return x_mixed, y_a, y_b, lam
@@ -109,6 +116,7 @@ def mixup_sequence_batch(
     y: torch.Tensor,
     alpha: float,
     aux_features: torch.Tensor | None = None,
+    aux_n_cat_prefix: int = 0,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor, float]:
     """F-70 (2026-05-31): Mixup over a padded sequence batch + optional
     aux features + labels.
@@ -122,6 +130,7 @@ def mixup_sequence_batch(
         aux_features: optional (B, A) aux tensor mixed with the SAME
             (idx, lam) draw so the per-sample identity is preserved
             across modalities
+        aux_n_cat_prefix: number of leading ``aux_features`` columns holding integer category codes, kept whole instead of interpolated
 
     Returns:
         sequences_mixed: lam * sequences + (1-lam) * sequences[idx]
@@ -158,4 +167,6 @@ def mixup_sequence_batch(
     aux_mixed = None
     if aux_features is not None:
         aux_mixed = lam * aux_features + (1.0 - lam) * aux_features[idx]
+        if aux_n_cat_prefix > 0:
+            aux_mixed[:, :aux_n_cat_prefix] = aux_features[:, :aux_n_cat_prefix] if lam >= 0.5 else aux_features[idx, :aux_n_cat_prefix]
     return sequences_mixed, lengths_mixed, aux_mixed, y_a, y_b, lam

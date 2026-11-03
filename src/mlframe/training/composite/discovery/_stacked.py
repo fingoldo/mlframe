@@ -386,6 +386,9 @@ def fit_stacked_on_residual(
         _ranked_capped = ranked[: max(1, _cap)]
 
     oof_preds_per_spec: list[np.ndarray] = []
+    # Same group-integrity rule as fit_stacked: the OOF folds must not split a group, or the residual is partly leaked away.
+    _g_full = getattr(self, "_group_ids_for_rerank", None)
+    _groups_train = np.asarray(_g_full)[_train_idx_arr] if _g_full is not None and np.asarray(_g_full).shape[0] > int(np.max(_train_idx_arr, initial=-1)) else None
     for spec in _ranked_capped:
         _factory = partial(_ridge_composite_factory, spec)
         try:
@@ -395,8 +398,10 @@ def fit_stacked_on_residual(
                 random_state=int(self.config.random_state),
                 time_aware=bool(time_aware),
                 cv_splitter=cv_splitter,
+                groups=_groups_train,
             )
-            if np.all(np.isfinite(_oof)):
+            # a forward-chaining split never tests its first block, so those rows are NaN; a spec is usable when it predicts any row
+            if np.isfinite(_oof).any():
                 oof_preds_per_spec.append(_oof)
         except Exception as _oof_err:
             log_throttle(
@@ -416,6 +421,14 @@ def fit_stacked_on_residual(
         pass1_pred = oof_preds_per_spec[0]
     else:  # "mean" (default)
         pass1_pred = np.mean(np.stack(oof_preds_per_spec, axis=0), axis=0)
+
+    # Pass 2 trains on the rows the OOF predicted; the never-tested warm-up block has no residual and is left out of its train set.
+    _resid_ok = np.isfinite(pass1_pred)
+    if not _resid_ok.all():
+        _train_idx_arr = _train_idx_arr[_resid_ok]
+        train_idx = _train_idx_arr
+        pass1_pred = pass1_pred[_resid_ok]
+        y_train = y_train[_resid_ok]
 
     y_residual_train = y_train.astype(np.float64) - pass1_pred.astype(np.float64)
     _residual_col = f"__y_residual__{target_col}"

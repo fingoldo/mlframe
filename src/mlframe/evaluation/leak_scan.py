@@ -18,25 +18,13 @@ from scipy.stats import rankdata
 
 
 def _rank_columns(x: np.ndarray) -> np.ndarray:
-    """Vectorised per-column rank (0-indexed, ties broken by original order) via one argsort + a scatter.
+    """Per-column tie-averaged rank (0-indexed) of every column of an ``(n, k)`` matrix, in one vectorised ``rankdata`` call.
 
-    Applied along axis 0 so every column of an ``(n, k)`` matrix is ranked independently in one pass. Ties
-    are NOT averaged (unlike ``scipy.stats.rankdata``) — acceptable for a screening diagnostic on
-    continuous/near-continuous id/date-like columns, and avoids an O(k) Python loop over per-column
-    ``scipy.stats.rankdata`` calls.
-
-    Uses a SINGLE ``argsort`` + ``put_along_axis`` scatter rather than the textbook "argsort of argsort"
-    rank trick (two full ``O(n log n)`` sorts). Profiled (``_benchmarks/bench_leak_scan.py``, n=100k,
-    cols=200): argsort was 59s of a 68s total scan — the second argsort call is pure waste, since the
-    inverse permutation of one argsort already IS the rank vector. ~1.9x faster, bit-identical ranks
-    (same argsort tie-breaking on both paths since only one argsort call now exists).
+    Ties MUST be averaged: breaking them by row order made a constant column (or a large block of equal values such as the 0.0 that replaces
+    non-finite derived features) rank exactly like the row position, which correlates with a time-ordered split label and flagged an
+    information-free column as the top leak suspect.
     """
-    n = x.shape[0]
-    order = np.argsort(x, axis=0)
-    ranks = np.empty_like(order)
-    row_ids = np.broadcast_to(np.arange(n)[:, None], order.shape)
-    np.put_along_axis(ranks, order, row_ids, axis=0)
-    return ranks.astype(np.float64)
+    return np.asarray(rankdata(x, axis=0, method="average") - 1.0, dtype=np.float64)
 
 
 def _spearman_against(x_mat: np.ndarray, y: np.ndarray) -> np.ndarray:

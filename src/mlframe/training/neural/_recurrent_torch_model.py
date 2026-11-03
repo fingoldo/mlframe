@@ -471,6 +471,7 @@ class RecurrentTorchModel(L.LightningModule):
                     batch["sequences"], batch["lengths"], batch["labels"],
                     alpha=_alpha,
                     aux_features=batch.get("aux_features"),
+                    aux_n_cat_prefix=self._aux_n_cat(),
                 )
                 batch["sequences"] = seq_mixed
                 batch["lengths"] = lens_mixed
@@ -480,7 +481,7 @@ class RecurrentTorchModel(L.LightningModule):
             elif batch.get("aux_features") is not None:
                 # F-69 FEATURES_ONLY path
                 aux_mixed, _y_a, _y_b, _lam = mixup_batch(
-                    batch["aux_features"], batch["labels"], alpha=_alpha,
+                    batch["aux_features"], batch["labels"], alpha=_alpha, n_cat_prefix=self._aux_n_cat(),
                 )
                 batch["aux_features"] = aux_mixed
                 _mixup_active = True
@@ -588,6 +589,10 @@ class RecurrentTorchModel(L.LightningModule):
         if self.task_type == "multilabel":
             return torch.sigmoid(logits)
         return torch.softmax(logits, dim=1)
+
+    def _aux_n_cat(self) -> int:
+        """Leading aux columns that hold integer category codes (0 without learnable categorical embeddings)."""
+        return 0 if self.aux_cat_embedding is None else int(self.aux_cat_embedding.n_cat)
 
     def _forward_batch(self, batch: dict) -> torch.Tensor:
         """Helper to forward a batch dict."""
