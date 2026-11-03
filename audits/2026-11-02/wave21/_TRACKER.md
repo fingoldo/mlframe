@@ -23,7 +23,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | **RESOLVED** | W21FS-3 | Low | `plot_feature_importance(positive_fi_only=True)` still drew negative bars |
 | **RESOLVED** | W21FS-4 | Low | the FI log line's `share=` used signed sums (1100%) |
 | **FUTURE** | W21KRN-1 | Medium | GPU uniform binner emits undefined codes when the range is subnormal or infinite (CPU routes the NaN to bin 0) |
-| **FUTURE** | W21KRN-2 | Low | `_accept_split_serial` reseeds the thread's numba RNG as a side effect |
+| **DOC** | W21KRN-2 | Low | `_accept_split_serial` reseeds the thread's numba RNG on every draw; the batched twin does the same and the two must stay draw-for-draw identical, and numba cannot save and restore the generator state inside a kernel, so the docstring now states the side effect instead of changing the streams |
 | **RESOLVED** | W21REP-1 | Medium-High | slice finder divided supports by all rows although NaN-error rows were dropped |
 | **RESOLVED** | W21REP-2 | Medium | multiclass P/R/F1 counted unknown true labels as false positives while the confusion panels dropped them |
 | **RESOLVED** | W21REP-3 | Medium | the slice-finder Sidak count used only the degraded cells; it now counts every cell above the support floor, since all of them were screened (`tests/reporting/test_slice_finder_family_counts_all_screened_cells.py`) |
