@@ -337,12 +337,12 @@ class MBHOptimizer:
             """Sort key that tolerates mixed-type values: ``None`` last, everything else by its string form."""
             return (v is None, str(v))
 
-        def _ordered():
+        def _ordered() -> list:
             """Natural order (numbers numerically) when the values are mutually comparable, the string-key order otherwise."""
             try:
-                return sorted(sampled_inputs)
+                return list(sorted(sampled_inputs))
             except TypeError:
-                return sorted(sampled_inputs, key=_sort_key)
+                return list(sorted(sampled_inputs, key=_sort_key))
 
         if init_evaluate_ascending:
             return _ordered()

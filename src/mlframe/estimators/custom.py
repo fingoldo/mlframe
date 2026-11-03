@@ -628,7 +628,6 @@ def clip_to_quantiles(arr: np.ndarray, quantile: float = 0.01, method: str = "wi
     _winsorize_upper(out, quantile_to, rel_upper, float(np.max(out)) - quantile_to, distribution)
     _winsorize_lower(out, quantile_from, rel_lower, quantile_from - float(np.min(out)), distribution)
     return out
-    raise AssertionError(f"unreachable: method={method!r} already validated above")  # nosec B101 - static-analysis exhaustiveness fallback, not a security boundary
 
 
 def clip_to_quantiles_winsor_quantile(arr: np.ndarray) -> np.ndarray:
