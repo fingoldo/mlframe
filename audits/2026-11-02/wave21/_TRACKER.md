@@ -5,7 +5,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | Disposition | ID | Severity | Location |
 |---|---|---|---|
 | **RESOLVED** | W21FE-1 | High | transformer OOF buffers were zero-filled, so the first block of a `TimeSeriesSplit` read as a real 0.0; now NaN (the same zero-init pattern sits in `adaptive_bandwidth`, `anchor_attention`, `aux_mlp`, `class_conditional_anchor`, `class_mahalanobis`, `focal_lgb`, `ks_shift`: not traced, listed as FUTURE below) |
-| **FUTURE** | W21FE-1b | High | the seven sibling modules with zero-filled OOF outputs |
+| **RESOLVED** | W21FE-1b | High | the seven sibling modules with zero-filled OOF outputs |
 | **FUTURE** | W21FE-2 | High | `per_group_recency_weighted_mean` / `_agg` give every row its entity's whole-history value, future rows included; needs a `causal` option (default True would change existing outputs) |
 | **FUTURE** | W21FE-3 | High | `per_group_recency_weighted_mode` / `_behavioral_stability` have the same future-row leak |
 | **FUTURE** | W21FE-4 | Medium | one NaN poisons whole windows / entities in the recency kernels; siblings skip non-finite values |
@@ -44,3 +44,4 @@ Most of `shap_proxied_fs/` (about 35 modules), `boruta_shap/__init__`, `wrappers
 | W21FS-2 | `tests/feature_selection/test_forward_select_patience_drops_unconfirmed_additions.py` |
 | W21FS-3, 4 | `tests/feature_selection/test_importance_signed_values_share_and_positive_only_chart.py` |
 | W21REP-1, 2 | `tests/reporting/test_slice_finder_and_multiclass_known_rows.py` |
+| W21FE-1b | `tests/feature_engineering/test_transformer_siblings_leave_uncovered_rows_nan.py` (ks_shift end to end; the other six use the same one-line change, their existing suites pass) |
