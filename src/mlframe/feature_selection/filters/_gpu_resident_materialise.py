@@ -569,13 +569,15 @@ def gpu_materialise_discretize_codes_host(
             out_cand[:, _psl] = _phv
             _db_pending = None
 
+    # The (a, b, op) index vectors go up once per call: a per-block upload is a synchronous copy that waits for the previous block's queued kernels.
+    a_dev, b_dev, ops_dev = cp.asarray(a_cols), cp.asarray(b_cols), cp.asarray(op_codes)
     for start in range(0, K, k_chunk):
         stop = min(start + k_chunk, K)
         # return_cm: capture the materialise kernel's pre-transpose (K, n) cm buffer so the binning step's
         # radix-select edges reuse it (launch-fusion: skip the rm->cm transpose that inverts materialise's
         # cm->rm). cand_cm is None on the row-major fallback -> discretize transposes as before (bit-identical).
         cand, cand_cm = _fe_materialise_block_gpu(
-            tv_gpu, a_cols[start:stop], b_cols[start:stop], op_codes[start:stop], return_cm=True
+            tv_gpu, a_dev[start:stop], b_dev[start:stop], ops_dev[start:stop], return_cm=True
         )  # resident (n, blk) float32 - bit-equal to _materialise_chunk_njit
         if out_cand is not None:
             # Float candidate D2H for the downstream survivor/usability reads. Stage through a PERSISTENT
