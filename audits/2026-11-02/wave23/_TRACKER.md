@@ -18,9 +18,9 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave co
 | **RESOLVED** | W23REP-1 | Medium | split-comparison bars drew a missing classification metric as quality 0 |
 | **RESOLVED** | W23REP-2 | Medium | one non-finite residual removed its bin from the worst-bias segment search |
 | **RESOLVED** | W23REP-3 | Low-Medium | overfit verdict and split ordering look up `"train"` / `"test"` case-sensitively |
-| **FUTURE** | W23MET-1 | Medium | gains / lift table breaks tied scores by row order and cuts deciles at fixed positions (same class as W20REP-1; changes output) |
+| **RESOLVED** | W23MET-1 | Medium | gains / lift table breaks tied scores by row order and cuts deciles at fixed positions (same class as W20REP-1; changes output) |
 | **RESOLVED** | W23MET-2 | Medium | Tweedie deviance with power > 2 accepted y = 0 and returned a negative value |
-| **FUTURE** | W23MET-3 | Low-Medium | weighted ICE class reduction counts positives unweighted |
+| **RESOLVED** | W23MET-3 | Low-Medium | the weighted ICE class reduction counted each class's positives unweighted; with `sample_weight` the class weight is now its summed row weight (`tests/metrics/test_ice_class_reduction_uses_weighted_positives.py`) |
 | **RESOLVED** | W23MET-4 | Low | ordinal cutpoints accepted labels outside `[0, n_classes)` |
 | **FUTURE** | W23MET-5 | Low | KTC region for the odds-combine dispatch can route small shapes to the GPU |
 
@@ -41,3 +41,4 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave co
 | W23MET-2, 4 | `tests/metrics/test_tweedie_support_and_ordinal_label_range.py` |
 | W23REP-3 | `tests/reporting/test_split_comparison_missing_metric_is_a_gap.py::test_capitalised_split_names_give_the_same_verdict_as_lowercase` |
 | W23EST-6 | `tests/models/test_optimization_and_label_weight_edge_cases.py::test_known_candidate_outside_the_search_space_is_ignored_not_an_index_error` |
+| W23MET-1 | `tests/metrics/test_gains_lift_tied_scores.py` (decision of 2026-11-03: tied scores are averaged, no opt-out) |

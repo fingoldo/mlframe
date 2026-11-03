@@ -15,17 +15,27 @@ from typing import Any, Optional, Tuple
 import numpy as np
 
 
-def split_report_slice(idx_hold: np.ndarray, X: Any, y: Any, fraction: float, classification: bool, random_state: int) -> Tuple[np.ndarray, Optional[tuple]]:
+def split_report_slice(
+    idx_hold: np.ndarray, X: Any, y: Any, fraction: float, classification: bool, random_state: int, groups: Any = None
+) -> Tuple[np.ndarray, Optional[tuple]]:
     """``(selection_holdout_idx, (X_report, y_report))``; the slice is None when ``fraction`` is 0 or the holdout is too small.
 
     The report rows are materialised here (full width, a small share of the rows) because the fit releases the full frame
-    right after the split.
+    right after the split. ``groups`` (a label per row of the FULL frame) makes the slice group-disjoint from the rest of the holdout, as the holdout
+    itself is group-disjoint from the search rows: a row-wise split put one group on both sides and the reported figure was still optimistic.
     """
     if not fraction or fraction <= 0.0 or fraction >= 1.0 or len(idx_hold) < 20:
         return idx_hold, None
-    from sklearn.model_selection import train_test_split
+    from sklearn.model_selection import GroupShuffleSplit, train_test_split
 
     y_arr = np.asarray(y)
+    if groups is not None:
+        hold_groups = np.asarray(groups)[idx_hold]
+        if np.unique(hold_groups).size >= 2:
+            keep_pos, rep_pos = next(GroupShuffleSplit(n_splits=1, test_size=float(fraction), random_state=int(random_state)).split(idx_hold, groups=hold_groups))
+            keep, rep = idx_hold[keep_pos], idx_hold[rep_pos]
+            X_report = X.iloc[rep].reset_index(drop=True) if hasattr(X, "iloc") else np.asarray(X)[rep]
+            return np.asarray(keep), (X_report, y_arr[rep])
     y_hold = y_arr[idx_hold]
     _, counts = np.unique(y_hold, return_counts=True)
     n_rep = int(np.ceil(float(fraction) * len(idx_hold)))

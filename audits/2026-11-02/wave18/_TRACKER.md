@@ -17,7 +17,7 @@ Six read-only reports by Opus 5.5 low-effort agents on the areas wave 17 left un
 | **RESOLVED** | W18MOD-3 | Medium | one NaN cell in one member disabled the outlier gate in `ensemble_probabilistic_predictions` |
 | **RESOLVED** | W18MOD-4 | Medium | a weight-0 member predicting exactly 0 zeroed the weighted harmonic blend |
 | **RESOLVED** | W18MOD-5 | Medium | the streaming harmonic mean gave 1.0 where the materialised path gives 0 |
-| **FUTURE** | W18MOD-6 | Low | without OOF or a calibration slice the blend weights are fitted on the early-stopping val split and scored on it; the fix is to fit weights only on `oof`/`calib` sources and blend uniformly otherwise, which changes the default blend for every suite without OOF and needs a measured comparison |
+| **RESOLVED** | W18MOD-6 | Low | blend weights are now applied only when the gate source is `oof` or `calib`; on val/test/train the fit is recorded in `res["_stacking_gate"]` with `weights_skipped_reason` and the blend stays uniform (`tests/models/ensembling/test_stacking_weights_need_oof_source.py`) |
 | **RESOLVED** | W18CMP-1 | High | `select_oof_pool_ensemble` always raised for time-ordered HPO (the first block is never tested, NaN in every trial) |
 | **DOC** | W18CMP-2 | Medium | pruned Optuna trials are absent from `trials` and the OOF pool, so pool positions are not `study.trials` numbers; both lists stay aligned with each other, the docstring now says so |
 | **RESOLVED** | W18TRN-1 | High | `metadata["model_schemas"]` was keyed by model file name alone; a second target or pre-pipeline overwrote the first record (also closes W17TRN-4) |

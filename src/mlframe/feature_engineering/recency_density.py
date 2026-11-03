@@ -28,6 +28,7 @@ import numpy as np
 from numba import njit, prange
 
 from mlframe.core.recency_weights import SCHEMES
+from mlframe.feature_engineering.recency_aggregation import _prefix_bounds
 from mlframe.utils.env_flags import env_int
 
 logger = logging.getLogger(__name__)
@@ -185,6 +186,13 @@ def _scatter(per_group, sort_idx, starts, ends, n, broadcast):
     return out
 
 
+def _scatter_per_row(per_row, sort_idx, n):
+    """Undo the group sort for a result that already has one value per sorted row."""
+    out = np.empty(n, dtype=np.float64)
+    out[sort_idx] = per_row
+    return out
+
+
 def per_group_recency_weighted_mode(
     values: np.ndarray,
     group_ids: np.ndarray,
@@ -195,10 +203,12 @@ def per_group_recency_weighted_mode(
     bandwidth: float = -1.0,
     n_grid: int = 64,
     broadcast: bool = True,
+    causal: bool = True,
 ) -> np.ndarray:
     """Per-entity mode of the recency-weighted Gaussian Parzen density of ``values``.
 
     ``bandwidth <= 0`` picks a per-group Silverman rule. Returns shape ``(n,)`` if broadcast else one per entity.
+    With ``broadcast`` and ``causal`` (default) each row gets the mode of its entity's rows up to and including itself; ``causal=False`` broadcasts the whole-history mode.
     """
     if scheme not in SCHEMES:
         raise ValueError(f"scheme must be one of {SCHEMES}, got {scheme!r}.")
@@ -209,7 +219,11 @@ def per_group_recency_weighted_mode(
     v_sorted, sort_idx, starts, ends, n = _sort_into_groups(values, group_ids, order)
     if n == 0:
         return np.empty(0, dtype=np.float64)
+    if causal and broadcast:
+        starts, ends = _prefix_bounds(starts, ends)
     modes, _ = _dispatch_kde(v_sorted, starts, ends, SCHEMES.index(scheme), float(param), float(bandwidth), int(n_grid), 0.0)
+    if causal and broadcast:
+        return np.asarray(_scatter_per_row(modes, sort_idx, n))
     return np.asarray(_scatter(modes, sort_idx, starts, ends, n, broadcast))
 
 
@@ -223,8 +237,12 @@ def per_group_behavioral_stability(
     stability_span_frac: float = 0.15,
     n_grid: int = 64,
     broadcast: bool = True,
+    causal: bool = True,
 ) -> np.ndarray:
-    """Per-entity behavioral-stability score = peak height of the recency-weighted density (higher = more predictable)."""
+    """Per-entity behavioral-stability score = peak height of the recency-weighted density (higher = more predictable).
+
+    With ``broadcast`` and ``causal`` (default) each row gets the score over its entity's rows up to and including itself; ``causal=False`` broadcasts the whole-history score.
+    """
     if scheme not in SCHEMES:
         raise ValueError(f"scheme must be one of {SCHEMES}, got {scheme!r}.")
     if n_grid < 2:
@@ -234,5 +252,9 @@ def per_group_behavioral_stability(
     v_sorted, sort_idx, starts, ends, n = _sort_into_groups(values, group_ids, order)
     if n == 0:
         return np.empty(0, dtype=np.float64)
+    if causal and broadcast:
+        starts, ends = _prefix_bounds(starts, ends)
     _, peaks = _dispatch_kde(v_sorted, starts, ends, SCHEMES.index(scheme), float(param), -1.0, int(n_grid), float(stability_span_frac))
+    if causal and broadcast:
+        return np.asarray(_scatter_per_row(peaks, sort_idx, n))
     return np.asarray(_scatter(peaks, sort_idx, starts, ends, n, broadcast))

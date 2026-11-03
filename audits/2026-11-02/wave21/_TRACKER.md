@@ -6,14 +6,14 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 |---|---|---|---|
 | **RESOLVED** | W21FE-1 | High | transformer OOF buffers were zero-filled, so the first block of a `TimeSeriesSplit` read as a real 0.0; now NaN (the same zero-init pattern sits in `adaptive_bandwidth`, `anchor_attention`, `aux_mlp`, `class_conditional_anchor`, `class_mahalanobis`, `focal_lgb`, `ks_shift`: not traced, listed as FUTURE below) |
 | **RESOLVED** | W21FE-1b | High | the seven sibling modules with zero-filled OOF outputs |
-| **FUTURE** | W21FE-2 | High | `per_group_recency_weighted_mean` / `_agg` give every row its entity's whole-history value, future rows included; needs a `causal` option (default True would change existing outputs) |
-| **FUTURE** | W21FE-3 | High | `per_group_recency_weighted_mode` / `_behavioral_stability` have the same future-row leak |
-| **PARTIAL** | W21FE-4 | Medium | the rolling mean / std kernels now skip NaN (`tests/test_wave21_small_fixes.py`); the group-aggregate and KDE kernels in `recency_aggregation` / `recency_density` still propagate it |
+| **RESOLVED** | W21FE-2 | High | `per_group_recency_weighted_mean` / `_agg` gave every row its entity's whole-history value, future rows included; new `causal=True` default gives each row the aggregate over rows up to itself, `causal=False` keeps the one-shot value (`tests/feature_engineering/test_recency_aggregation_causal.py`) |
+| **RESOLVED** | W21FE-3 | High | `per_group_recency_weighted_mode` / `_behavioral_stability` had the same future-row leak; same `causal` option, default True |
+| **PARTIAL** | W21FE-4 | Medium | the rolling mean / std kernels and now the `recency_aggregation` mean/sum/min/max/std/var kernels (single and multi-decay) skip NaN (`tests/feature_engineering/test_recency_aggregation_causal.py`); the KDE kernels in `recency_density` still propagate it |
 | **RESOLVED** | W21FE-5 | Medium | string / object group ids crashed `np.diff` in the recency rolling functions |
 | **RESOLVED** | W21FE-6 | Low | `per_group_sliding_window` raised for a group shorter than the window |
 | **RESOLVED** | W21CORE-1 | High | hard-mode logical constraints did one ordered pass, so a rule chain could end violated in either declaration order; passes now repeat to a fixpoint |
-| **FUTURE** | W21CORE-2 | Medium | `shapley_blend` with `coalition_blend="rank_mean"` learns weights on ranks but blends raw predictions |
-| **FUTURE** | W21CORE-3 | Medium | `confidence_gated_blend` njit kernels use `fastmath`, so NaN confidence gates differently than the numpy path |
+| **RESOLVED** | W21CORE-2 | Medium | `shapley_blend(coalition_blend='rank_mean')` learned weights on ranks but blended raw predictions; it now blends the per-row ranks (`tests/votenrank/test_shapley_blend_rank_mean_blends_ranks.py`) |
+| **RESOLVED** | W21CORE-3 | Medium | `fastmath` removed from the `confidence_gated_blend` njit kernels, which assume no NaN; a divergence from the numpy path was not reproducible on this CPU, so the parity test over NaN / inf confidences and NaN inputs pins the behaviour rather than failing on the old code (`tests/votenrank/test_confidence_gated_blend_nan_confidence_parity.py`) |
 | **RESOLVED** | W21CORE-4 | Medium | `explainability` OOF SHAP leaves `None` rows for never-tested samples |
 | **RESOLVED** | W21CORE-5 | Low | `explainability` scored `oos_ts_max_size + 1` rows |
 | **RESOLVED** | W21CORE-6 | Low | `inference/_ktc_dispatch` cache key omits `n_rules` |
@@ -27,8 +27,8 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | **RESOLVED** | W21REP-1 | Medium-High | slice finder divided supports by all rows although NaN-error rows were dropped |
 | **RESOLVED** | W21REP-2 | Medium | multiclass P/R/F1 counted unknown true labels as false positives while the confusion panels dropped them |
 | **FUTURE** | W21REP-3 | Medium | slice-finder "simultaneous" intervals use a Sidak count of only the degraded cells |
-| **FUTURE** | W21REP-4 | Low-Medium | multilabel Hamming histogram bins are not integer aligned |
-| **FUTURE** | W21REP-5 | Low | quantile prediction-interval band draws non-finite rows |
+| **RESOLVED** | W21REP-4 | Low-Medium | multilabel Hamming histogram bins were equal-width over [min, max] and straddled the integer distances; it now draws one unit-wide bin per integer 0..L (`tests/reporting/test_multilabel_hamming_bins_are_integer_aligned.py`) |
+| **RESOLVED** | W21REP-5 | Low | the quantile prediction-interval band subsampled all rows, so non-finite ones reached the line and band; it now draws from the finite rows only (`tests/reporting/test_interval_band_drops_non_finite_rows.py`) |
 
 ## Not covered by this wave
 

@@ -200,6 +200,20 @@ def select_features_fdr(W: dict, q: float = 0.1) -> list:
     return [n for n, _ in selected]
 
 
+def _knockoffs_and_swap_seed(X_arr: np.ndarray, random_state: int | None) -> tuple[np.ndarray, np.ndarray, Any]:
+    """Mean-imputed ``X_arr``, its Gaussian knockoffs, and the seed stream for the swap coins.
+
+    The knockoff noise and the swap coins draw from two children of one ``SeedSequence``: a shared seed made the coins a function of the knockoff draws.
+    NaNs are imputed in the real columns too, since the knockoff is built from mean-imputed values and a NaN left in the real slot would reveal which slot is real.
+    """
+    knockoff_seed, swap_seed = np.random.SeedSequence(random_state).spawn(2)
+    X_tilde = make_gaussian_knockoffs(X_arr, random_state=int(knockoff_seed.generate_state(1)[0]))
+    X_f = X_arr.astype(np.float64, copy=False)
+    if np.isnan(X_f).any():
+        X_arr = np.where(np.isnan(X_f), np.nanmean(X_f, axis=0), X_arr)
+    return X_arr, X_tilde, swap_seed
+
+
 def knockoff_importance(
     model_factory: Callable[[], Any], X: Any, y: Any, current_features: list[Any] | None = None, random_state: int | None = None,
     importance_getter: str = "auto", w_statistic: str = "auto"
@@ -247,7 +261,7 @@ def knockoff_importance(
     if current_features is None:
         current_features = list(X.columns) if is_df else list(range(p))
 
-    X_tilde = make_gaussian_knockoffs(X_arr, random_state=random_state)
+    X_arr, X_tilde, swap_seed = _knockoffs_and_swap_seed(X_arr, random_state)
 
     # Flip-sign antisymmetry (Barber-Candes 2015, eq. for the swap statistic). The importance-difference W_j = imp(X_j) - imp(X_tilde_j)
     # only yields a valid FDR guarantee if W is ANTISYMMETRIC under swapping a null feature with its knockoff: swapping must flip the sign
@@ -256,7 +270,7 @@ def knockoff_importance(
     # negative reference set and gives no real control. We restore antisymmetry by drawing an independent fair coin per feature that
     # decides which of the two adjacent columns carries the REAL value and which carries the knockoff; the model cannot tell them apart,
     # so under the null the sign of (imp at real-slot - imp at knockoff-slot) is symmetric -> W is sign-symmetric as the theory requires.
-    swap_rng = np.random.default_rng(random_state)
+    swap_rng = np.random.default_rng(swap_seed)
     swapped = swap_rng.random(p) < 0.5  # True -> real and knockoff columns are swapped for this feature
     # Column 2*i holds the value placed first, 2*i+1 the value placed second; ``swapped[i]`` records whether first==knockoff.
     cols = []

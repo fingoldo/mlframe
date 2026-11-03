@@ -218,7 +218,7 @@ def _leaderboard_panel(
     bar_colors = tuple(_MODEL_COLORS[names.index(names[i]) % len(_MODEL_COLORS)] for i in order_list)
     if len(bar_vals) >= 2:
         gap = abs(float(bar_vals[0]) - float(bar_vals[1]))
-        if gap < _LEADERBOARD_TIE_EPS:
+        if gap < _leaderboard_tie_eps(bar_vals):
             title += f"\nTop two differ by {gap:.4g} on this metric -- too close to call a winner without a paired " "interval; treat them as tied."
     return BarPanelSpec(
         categories=cats,
@@ -235,6 +235,14 @@ def _leaderboard_panel(
 # Two models whose headline metric differs by less than this are not distinguishable by eye on a bar chart and are
 # rarely distinguishable statistically either; the leaderboard says so rather than implying an ordering.
 _LEADERBOARD_TIE_EPS: float = 5e-3
+
+
+def _leaderboard_tie_eps(vals: np.ndarray) -> float:
+    """Tie threshold for a leaderboard: ``_LEADERBOARD_TIE_EPS`` of the largest score magnitude.
+
+    An absolute threshold is meaningless on RMSE-like metrics measured in thousands (nothing ever ties) or in 1e-4 units (everything ties).
+    """
+    return _LEADERBOARD_TIE_EPS * float(np.max(np.abs(vals)))
 
 
 def _spearman_corr_matrix(scores: np.ndarray) -> np.ndarray:

@@ -353,13 +353,15 @@ def _jaccard_dist_panel(y_true, y_proba, labels) -> HistogramPanelSpec:
 
 def _hamming_dist_panel(y_true, y_proba, labels) -> HistogramPanelSpec:
     """Per-row Hamming distance distribution."""
-    from ._sampling import prebin_histogram
-
     y_pred = (y_proba >= _COOCCURRENCE_THRESHOLD).astype(np.int8)
     hamming = (y_true != y_pred).sum(axis=1).astype(np.float64)
     mean = float(hamming.mean()) if hamming.size else 0.0
     n_bins = int(y_true.shape[1]) + 1
-    heights, centers, width = prebin_histogram(hamming, n_bins, True)
+    # One unit-wide bin centred on each integer distance 0..L; equal-width bins over [min, max] straddle the integers when max < L.
+    counts = np.bincount(hamming.astype(np.int64), minlength=n_bins)[:n_bins].astype(np.float64) if hamming.size else None
+    heights = counts / counts.sum() if counts is not None and counts.sum() > 0 else None
+    centers = np.arange(n_bins, dtype=np.float64) if heights is not None else None
+    width = 1.0 if heights is not None else None
     return HistogramPanelSpec(
         values=cast(np.ndarray, heights) if centers is not None else hamming,
         bins=n_bins,

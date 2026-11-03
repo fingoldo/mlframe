@@ -35,3 +35,17 @@ def test_normal_fraction_still_stratifies():
     idx, X, y = _data(40)
     _keep, rep = split_report_slice(idx, X, y, 0.25, True, 0)
     assert rep is not None and set(rep[1].tolist()) == {0, 1}
+
+
+def test_grouped_report_slice_shares_no_group_with_the_rest_of_the_holdout():
+    """With group labels the slice is carved by whole groups, so the reported figure is not scored on groups the selection holdout also saw."""
+    rng = np.random.default_rng(0)
+    n = 200
+    X = pd.DataFrame(rng.normal(size=(n, 2)), columns=["a", "b"])
+    y = np.tile([0, 1], n // 2)
+    groups = np.repeat(np.arange(40), 5)
+    idx = np.arange(n)
+    keep, rep = split_report_slice(idx, X, y, 0.25, True, 0, groups)
+    assert rep is not None
+    rep_rows = np.setdiff1d(idx, keep)
+    assert not set(groups[keep]) & set(groups[rep_rows])

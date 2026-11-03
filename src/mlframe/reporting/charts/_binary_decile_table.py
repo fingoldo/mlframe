@@ -19,6 +19,15 @@ from ._binary_shared import _finite_binary
 logger = logging.getLogger(__name__)
 
 
+def _tie_averaged_labels(y_sorted: np.ndarray, scores_sorted: np.ndarray) -> np.ndarray:
+    """Labels of the score-sorted rows with every block of EQUAL scores replaced by its mean label. Rows with the same score cannot be told apart, so a decile
+    boundary falling inside a block must take its share of the block's positives, not whichever rows happened to come first in the input: a constant score over
+    label-sorted rows read as lift 10 in the top decile instead of 1."""
+    _, inverse, counts = np.unique(scores_sorted, return_inverse=True, return_counts=True)
+    block_mean = np.bincount(inverse, weights=y_sorted) / counts
+    return np.asarray(block_mean[inverse], dtype=np.float64)
+
+
 def binary_decile_table(y_true: np.ndarray, y_score: np.ndarray, *, n_deciles: int = 10) -> Dict[str, np.ndarray]:
     """Per-decile gains/lift/KS table for a binary scorer (score-sorted, decile 1 = highest scores).
 
@@ -48,22 +57,22 @@ def binary_decile_table(y_true: np.ndarray, y_score: np.ndarray, *, n_deciles: i
     if n == 0:
         return out
     order = np.argsort(ys, kind="stable")[::-1]
-    y_desc = yt[order].astype(np.int64)
+    y_desc = _tie_averaged_labels(yt[order].astype(np.float64), ys[order])
     # Split the score-sorted rows into ~equal deciles via integer boundaries (handles n not divisible by n_deciles).
     bounds = (np.arange(n_deciles + 1) * n / n_deciles).round().astype(np.int64)
-    n_pos_total = int(y_desc.sum())
+    n_pos_total = round(float(y_desc.sum()))
     n_neg_total = n - n_pos_total
     prevalence = n_pos_total / n if n else 0.0
-    cum_pos = 0
-    cum_neg = 0
+    cum_pos = 0.0
+    cum_neg = 0.0
     cum_count = 0
     for d in range(n_deciles):
         lo, hi = bounds[d], bounds[d + 1]
         seg = y_desc[lo:hi]
         cnt = len(seg)
-        pos = int(seg.sum())
+        pos = float(seg.sum())  # fractional when a block of tied scores straddles the decile boundary
         out["count"][d] = cnt
-        out["positives"][d] = pos
+        out["positives"][d] = round(pos)
         if cnt > 0:
             out["response_rate"][d] = pos / cnt
         cum_pos += pos
@@ -149,7 +158,7 @@ def binary_decile_table_figure(
     cells.append(total_row)
 
     caption = (
-        "Rows sorted by score, decile 1 = top-scored 10%. response = positive rate in that decile; "
+        f"Rows sorted by score, decile 1 = top-scored {100 / eff_deciles:g}%. response = positive rate in that decile; "
         "cum gain = share of all positives captured by deciles 1..d; lift = that capture rate vs. overall "
         "prevalence (1.00 = random); cum KS = |cum.%positives - cum.%negatives| through decile d."
     )

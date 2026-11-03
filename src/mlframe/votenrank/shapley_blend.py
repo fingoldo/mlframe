@@ -212,7 +212,7 @@ def shapley_blend(
     (``prune_below=0.0`` keeps every strictly-positive-value member -- the pruning comparison is a
     strict ``>``, so a member with an exact-zero clipped weight, including any originally-negative
     Shapley value, is pruned too). ``blended`` is the weighted mean of
-    survivors (``renormalize=True`` rescales survivor weights to sum to 1).
+    survivors (of their per-row ranks when ``coalition_blend='rank_mean'``, the scale the weights were learned on) (``renormalize=True`` rescales survivor weights to sum to 1).
 
     Degenerate case (every raw Shapley value <= 0, so every clipped weight is 0): falls back to the
     single best-valued model with weight 1.0 rather than reporting it as "selected" while silently
@@ -253,10 +253,16 @@ def shapley_blend(
     elif renormalize and survivor_weights.sum() > 0:
         survivor_weights = survivor_weights / survivor_weights.sum()
 
+    blend_space = preds
+    if kwargs.get("coalition_blend", "mean") == "rank_mean":
+        # The weights were learned on rank-averaged coalitions, so they are applied to the same rank scale.
+        from scipy.stats import rankdata
+
+        blend_space = np.stack([rankdata(row) / preds.shape[1] for row in preds], axis=0)
     ensemble_pred = np.zeros(preds.shape[1], dtype=np.float64)
     for m in range(n_models):
         if survivor_weights[m] > 0:
-            ensemble_pred = ensemble_pred + survivor_weights[m] * preds[m]
+            ensemble_pred = ensemble_pred + survivor_weights[m] * blend_space[m]
     score = float(score_fn(y, ensemble_pred))
 
     selected_indices = [i for i in range(n_models) if keep_mask[i]]

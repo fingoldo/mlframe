@@ -28,7 +28,27 @@ def _rank_columns(x: np.ndarray) -> np.ndarray:
 
 
 def _spearman_against(x_mat: np.ndarray, y: np.ndarray) -> np.ndarray:
-    """Vectorised Spearman-style rank correlation of every column of ``x_mat`` against ``y``."""
+    """Spearman rank correlation of every column of ``x_mat`` against ``y``, each column over the rows where it is finite.
+
+    Columns without missing values go through one vectorised pass; a column with NaN is correlated on its own finite rows, so a column whose
+    missing values sit in one split is not scored on the rank NaNs would take.
+    """
+    finite = np.isfinite(x_mat)
+    with_gaps = np.flatnonzero(~finite.all(axis=0))
+    out = _spearman_dense(x_mat, y)
+    for j in with_gaps:
+        rows = finite[:, j]
+        out[j] = _spearman_dense(x_mat[rows][:, [j]], y[rows])[0] if rows.sum() > 2 else 0.0
+    return out
+
+
+def _missing_correlation(x_mat: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Spearman correlation of each column's missingness indicator with ``y`` (0 for a column with no gaps)."""
+    return _spearman_dense((~np.isfinite(x_mat)).astype(np.float64), y)
+
+
+def _spearman_dense(x_mat: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Vectorised Spearman-style rank correlation of every column of ``x_mat`` against ``y``, assuming no NaN."""
     ranks_x = _rank_columns(x_mat)
     # y (split_labels) is documented as possibly "a binary train=0/test=1 indicator" or a small ordinal
     # fold-id set -- maximal tie density. _rank_columns' ordinal (non-averaged, tie-broken-by-row-order)
@@ -132,13 +152,15 @@ def scan_temporal_leak(
     Returns
     -------
     pd.DataFrame
-        One row per scanned column: ``{"column", "correlation", "flagged"}`` (plus ``"derived"`` when
-        ``scan_derived=True``), sorted by ``|correlation|`` descending (most leak-suspicious first).
+        One row per scanned column: ``{"column", "correlation", "missing_correlation", "flagged"}`` (plus ``"derived"`` when
+        ``scan_derived=True``), sorted by ``|correlation|`` descending (most leak-suspicious first). ``correlation`` uses only the rows where the
+        column is finite; ``missing_correlation`` is the correlation of the column's missingness with the split label, and either one
+        crossing ``threshold`` sets ``flagged``.
     """
     if columns is None:
         columns = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
     if not columns:
-        empty_cols = ["column", "correlation", "flagged", "derived"] if scan_derived else ["column", "correlation", "flagged"]
+        empty_cols = ["column", "correlation", "missing_correlation", "flagged", "derived"] if scan_derived else ["column", "correlation", "missing_correlation", "flagged"]
         return pd.DataFrame(columns=empty_cols)
 
     y = np.asarray(split_labels, dtype=np.float64).ravel()
@@ -149,16 +171,18 @@ def scan_temporal_leak(
     x_mat = X[columns].to_numpy(dtype=np.float64)
     corr = _spearman_against(x_mat, y)
 
-    result = pd.DataFrame({"column": columns, "correlation": corr})
+    result = pd.DataFrame({"column": columns, "correlation": corr, "missing_correlation": _missing_correlation(x_mat, y)})
     if scan_derived:
         result["derived"] = False
         derived_mat, derived_names = _build_derived_matrix(X, columns, derived_ops, max_derived_features)
         if derived_names:
             derived_corr = _spearman_against(derived_mat, y)
-            derived_result = pd.DataFrame({"column": derived_names, "correlation": derived_corr, "derived": True})
+            derived_result = pd.DataFrame(
+                {"column": derived_names, "correlation": derived_corr, "missing_correlation": _missing_correlation(derived_mat, y), "derived": True}
+            )
             result = pd.concat([result, derived_result], ignore_index=True)
 
-    result["flagged"] = result["correlation"].abs() >= threshold
+    result["flagged"] = (result["correlation"].abs() >= threshold) | (result["missing_correlation"].abs() >= threshold)
     return result.reindex(result["correlation"].abs().sort_values(ascending=False).index).reset_index(drop=True)
 
 

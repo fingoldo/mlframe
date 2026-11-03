@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 
 from mlframe.metrics import trapezoid
 from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec
@@ -79,6 +80,22 @@ def _multiclass_confidence(proba: np.ndarray) -> np.ndarray:
     return np.asarray(proba.max(axis=1))
 
 
+def _label_column_index(yt: np.ndarray, n_classes: int) -> np.ndarray:
+    """Column index of each label in an (n, K) proba matrix whose columns follow the sorted class labels (the sklearn ``classes_`` order).
+
+    Labels already equal to ``0..K-1`` are their own column index; any other label set of exactly K distinct values (e.g. 3/5/7 or strings)
+    is mapped through its sorted order. A label set that is neither raises, since the columns cannot be matched to labels.
+    """
+    classes, inverse = np.unique(yt, return_inverse=True)
+    if classes.size <= n_classes and np.issubdtype(classes.dtype, np.integer) and classes.min() >= 0 and classes.max() < n_classes:
+        return np.asarray(yt, dtype=np.int64)
+    if classes.size != n_classes:
+        raise ValueError(
+            f"risk-coverage: y_true has {classes.size} distinct labels but y_score has {n_classes} columns, so the columns cannot be matched to labels"
+        )
+    return np.asarray(inverse, dtype=np.int64).reshape(-1)
+
+
 def _prepare_classification(y_true, y_score, *, task: Task) -> Tuple[np.ndarray, np.ndarray]:
     """Return (confidence, correct) finite-only arrays; correct is 1.0 where the argmax/threshold prediction is right.
 
@@ -89,12 +106,13 @@ def _prepare_classification(y_true, y_score, *, task: Task) -> Tuple[np.ndarray,
     ys = np.asarray(y_score, dtype=np.float64)
     if task == "multiclass" or ys.ndim == 2:
         proba = ys if ys.ndim == 2 else ys.reshape(-1, 1)
-        finite = np.isfinite(proba).all(axis=1) & np.isfinite(yt.astype(np.float64))
+        label_ok = ~pd.isna(yt)
+        finite = np.isfinite(proba).all(axis=1) & label_ok
         proba = proba[finite]
         yt = yt[finite]
         conf = _multiclass_confidence(proba)
         pred = proba.argmax(axis=1)
-        correct = (pred == yt.astype(pred.dtype)).astype(np.float64)
+        correct = (pred == _label_column_index(yt, proba.shape[1])).astype(np.float64)
         return conf, correct
     ys = ys.ravel()
     yt_f = yt.astype(np.float64)
@@ -148,7 +166,10 @@ def compute_risk_coverage(
 
     # Descending confidence sort; cumulative mean of loss over the most-confident prefix gives risk at each coverage.
     order = np.argsort(conf, kind="stable")[::-1]
-    loss_sorted = loss[order]
+    # Rows with the same confidence cannot be ranked against each other: each block takes its mean loss, so the curve does not depend on input row order
+    # (binary confidence |p - 0.5| * 2 ties constantly, and misclassified rows placed last made the curve pessimistic or optimistic at will).
+    _, tie_block, tie_counts = np.unique(conf[order], return_inverse=True, return_counts=True)
+    loss_sorted = (np.bincount(tie_block, weights=loss[order]) / tie_counts)[tie_block]
     counts = np.arange(1, n + 1, dtype=np.float64)
     running_risk = np.cumsum(loss_sorted) / counts
     coverage = counts / n

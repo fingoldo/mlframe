@@ -9,7 +9,7 @@ faster source for a caller building its own rolling features on big panel data.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Dict, Literal, Optional, Sequence, Union
 
 import pandas as pd
 
@@ -17,13 +17,30 @@ if TYPE_CHECKING:
     import polars as pl
 
 
-def _prepare_lazy_frame(df: pd.DataFrame, time_col: str, value_cols: Sequence[str], group_col: Optional[str]) -> "pl.LazyFrame":
-    """Convert the needed pandas columns to a polars LazyFrame with time_col coerced to Datetime."""
+def _prepare_lazy_frame(
+    df: pd.DataFrame, time_col: str, value_cols: Sequence[str], group_col: Optional[str], time_unit: Optional[Literal["ns", "us", "ms", "s", "d"]] = None
+) -> "pl.LazyFrame":
+    """Convert the needed pandas columns to a polars LazyFrame with time_col coerced to Datetime.
+
+    A numeric time column (an integer day index, epoch seconds) has no unit of its own: it is converted with ``time_unit`` (``"s"``, ``"ms"``, ``"us"``,
+    ``"ns"``, ``"d"``) or rejected. ``cast(pl.Datetime)`` read it as microseconds, which put a 0..365 day index inside the first millisecond after the
+    epoch and collapsed every row into one window.
+    """
     import polars as pl
 
     pl_df = pl.from_pandas(df[[time_col, *value_cols] + ([group_col] if group_col else [])])
-    if pl_df.schema[time_col] not in (pl.Datetime, pl.Date):
-        pl_df = pl_df.with_columns(pl.col(time_col).str.to_datetime() if pl_df.schema[time_col] == pl.Utf8 else pl.col(time_col).cast(pl.Datetime))
+    dtype = pl_df.schema[time_col]
+    if dtype not in (pl.Datetime, pl.Date):
+        if dtype == pl.Utf8:
+            pl_df = pl_df.with_columns(pl.col(time_col).str.to_datetime())
+        elif dtype.is_numeric():
+            if time_unit is None:
+                raise ValueError(
+                    f"polars_dynamic_window_aggregate: time column {time_col!r} is numeric ({dtype}); pass time_unit ('s', 'ms', 'us', 'ns' or 'd') so its values can be read as epoch offsets"
+                )
+            pl_df = pl_df.with_columns(pl.from_epoch(pl.col(time_col), time_unit=time_unit).alias(time_col))
+        else:
+            pl_df = pl_df.with_columns(pl.col(time_col).cast(pl.Datetime))
     return pl_df.sort(time_col).lazy()
 
 
@@ -36,6 +53,8 @@ def polars_dynamic_window_aggregate(
     group_col: Optional[str] = None,
     agg_funcs: Sequence[str] = ("mean",),
     periods: Optional[Sequence[str]] = None,
+    label: Literal["left", "right", "datapoint"] = "right",
+    time_unit: Optional[Literal["ns", "us", "ms", "s", "d"]] = None,
 ) -> Union[pd.DataFrame, Dict[str, pd.DataFrame]]:
     """Fixed-width rolling-window aggregates via polars ``group_by_dynamic``, optionally per entity group.
 
@@ -67,6 +86,13 @@ def polars_dynamic_window_aggregate(
         naive per-window loop calling this function would. When given, ``period`` is ignored and the return
         value is a ``dict`` mapping each period string to its result frame, instead of a single frame.
 
+    label
+        Which window boundary labels the row in ``time_col``: ``"right"`` (default, the exclusive END of the window) or ``"left"`` (its start). With the
+        default, joining the result back onto events by ``time_col`` only attaches features computed from rows BEFORE that time; ``"left"`` labels a
+        window ``[t, t + period)`` with ``t``, so such a join would attach the following period (leakage).
+    time_unit
+        Unit of a numeric ``time_col`` (``"s"``, ``"ms"``, ``"us"``, ``"ns"``, ``"d"``); required for numeric time columns, ignored for datetimes.
+
     Returns
     -------
     pd.DataFrame
@@ -79,22 +105,22 @@ def polars_dynamic_window_aggregate(
     agg_exprs = [getattr(pl.col(col), fn)().alias(f"{col}_{fn}") for col in value_cols for fn in agg_funcs]
 
     if periods is not None:
-        lazy_src = _prepare_lazy_frame(df, time_col, value_cols, group_col)
+        lazy_src = _prepare_lazy_frame(df, time_col, value_cols, group_col, time_unit)
         lazy_queries = []
         for p in periods:
             if group_col is not None:
-                lazy_queries.append(lazy_src.group_by_dynamic(time_col, every=every, period=p, group_by=group_col, closed="left").agg(agg_exprs))
+                lazy_queries.append(lazy_src.group_by_dynamic(time_col, every=every, period=p, group_by=group_col, closed="left", label=label).agg(agg_exprs))
             else:
-                lazy_queries.append(lazy_src.group_by_dynamic(time_col, every=every, period=p, closed="left").agg(agg_exprs))
+                lazy_queries.append(lazy_src.group_by_dynamic(time_col, every=every, period=p, closed="left", label=label).agg(agg_exprs))
         collected = pl.collect_all(lazy_queries)
         return {p: res.to_pandas() for p, res in zip(periods, collected)}
 
-    pl_df = _prepare_lazy_frame(df, time_col, value_cols, group_col).collect()
+    pl_df = _prepare_lazy_frame(df, time_col, value_cols, group_col, time_unit).collect()
 
     if group_col is not None:
-        result = pl_df.group_by_dynamic(time_col, every=every, period=period, group_by=group_col, closed="left").agg(agg_exprs)
+        result = pl_df.group_by_dynamic(time_col, every=every, period=period, group_by=group_col, closed="left", label=label).agg(agg_exprs)
     else:
-        result = pl_df.group_by_dynamic(time_col, every=every, period=period, closed="left").agg(agg_exprs)
+        result = pl_df.group_by_dynamic(time_col, every=every, period=period, closed="left", label=label).agg(agg_exprs)
 
     return result.to_pandas()
 

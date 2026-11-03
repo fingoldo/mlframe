@@ -27,6 +27,17 @@ import numpy as np
 __all__ = ["cumulative_gains_curve", "lift_curve", "gains_table", "exploss"]
 
 
+def _tie_averaged(positive_sorted: np.ndarray, scores_sorted: np.ndarray) -> np.ndarray:
+    """Positive indicator of the score-sorted rows with each block of EQUAL scores replaced by its mean. Rows with the same score cannot be told apart, so
+    the stable sort's row-order tie break must not decide how many positives land in the top fraction: a constant score over label-sorted rows read as lift 5-10
+    at the first point instead of 1."""
+    y = np.asarray(positive_sorted, dtype=np.float64)
+    if y.size == 0:
+        return y
+    _, inverse, counts = np.unique(scores_sorted, return_inverse=True, return_counts=True)
+    return np.asarray((np.bincount(inverse, weights=y) / counts)[inverse], dtype=np.float64)
+
+
 def _sorted_cumulative(y_true: np.ndarray, y_score: np.ndarray):
     """Sort ``y_true`` by descending ``y_score`` and return the cumulative sum of the sorted labels (shared by gains/lift/gains-table)."""
     yt = np.ascontiguousarray(y_true, dtype=np.float64)
@@ -35,7 +46,7 @@ def _sorted_cumulative(y_true: np.ndarray, y_score: np.ndarray):
         raise ValueError("y_true and y_score length mismatch.")
     n = yt.shape[0]
     order = np.argsort(-ys, kind="stable")
-    pos_sorted = (yt[order] > 0.5).astype(np.float64)
+    pos_sorted = _tie_averaged(yt[order] > 0.5, ys[order])
     cum_pos = np.cumsum(pos_sorted)
     total_pos = cum_pos[-1] if n else 0.0
     return n, cum_pos, total_pos
@@ -87,7 +98,7 @@ def gains_table(y_true: np.ndarray, y_score: np.ndarray, *, n_bins: int = 10) ->
     if n == 0:
         raise ValueError("gains_table: empty input.")
     order = np.argsort(-ys, kind="stable")
-    pos_sorted = (yt[order] > 0.5).astype(np.float64)
+    pos_sorted = _tie_averaged(yt[order] > 0.5, ys[order])
     total_pos = pos_sorted.sum()
     # near-equal contiguous bins over the score-sorted population
     edges = np.linspace(0, n, n_bins + 1).astype(np.int64)

@@ -31,6 +31,7 @@ from ..post_shim import PrePipelinePredictShim, subset_to_fit_columns
 from ..transforms import UnknownTransformError, get_transform
 from mlframe.training.composite.transforms.shared import call_transform
 from ._oof_split import (
+    _carve_holdout_groups,
     _align_fit_sw,
     _carve_inner_eval_split,
     _disable_early_stopping,
@@ -788,21 +789,9 @@ def _oof_holdout_predic_use_time_split(use_time_split, n_train, n_holdout, _time
         rng = np.random.default_rng(random_state)
         shuffled_groups = rng.permutation(uniq[np.argsort(first_idx)])
         counts = {gid: int((_group_holdout == gid).sum()) for gid in uniq}
-        cumulative, hold_groups = 0, []
-        for gid in shuffled_groups:
-            hold_groups.append(gid)
-            cumulative += counts[gid]
-            if cumulative >= n_holdout:
-                break
-        hold_mask = np.isin(_group_holdout, hold_groups)
-        if hold_mask.all() or not hold_mask.any():  # degenerate carve (all/none) -> fall back to row permutation
-            rng = np.random.default_rng(random_state)
-            perm = rng.permutation(n_train)
-            holdout_idx = np.sort(perm[:n_holdout])
-            train_idx = np.sort(perm[n_holdout:])
-        else:
-            holdout_idx = np.nonzero(hold_mask)[0]
-            train_idx = np.nonzero(~hold_mask)[0]
+        hold_mask = _carve_holdout_groups(_group_holdout, shuffled_groups, counts, n_holdout)
+        holdout_idx = np.nonzero(hold_mask)[0]
+        train_idx = np.nonzero(~hold_mask)[0]
     else:
         rng = np.random.default_rng(random_state)
         perm = rng.permutation(n_train)

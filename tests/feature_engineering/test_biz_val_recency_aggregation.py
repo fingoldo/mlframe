@@ -55,7 +55,7 @@ def test_biz_val_recency_weighted_beats_flat_mean_on_drift():
 def test_biz_val_identity_param_equals_flat_mean():
     """poly delta=0 must reproduce the plain unweighted per-entity mean (bit-close)."""
     values, groups, order, _ = _make_drifting_panel(n_entities=50, hist=8, seed=3)
-    weighted = per_group_recency_weighted_mean(values, groups, order=order, scheme="poly", param=0.0, broadcast=True)
+    weighted = per_group_recency_weighted_mean(values, groups, order=order, scheme="poly", param=0.0, broadcast=True, causal=False)
     # Plain per-group mean via bincount.
     _, inv = np.unique(groups, return_inverse=True)
     sums = np.bincount(inv, weights=values)

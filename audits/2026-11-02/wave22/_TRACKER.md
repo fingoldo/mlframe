@@ -5,7 +5,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | Disposition | ID | Severity | Location |
 |---|---|---|---|
 | **RESOLVED** | W22SHP-1 | High | precomputed MRMR artifacts (SU to target) computed on all rows, holdout included, replace the search-rows-only prefilter; needs a row-count / index check or recomputation on the search rows |
-| **FUTURE** | W22SHP-2 | Medium | under a grouped CV policy the report slice is split row-wise from the holdout, sharing groups with the selection holdout |
+| **RESOLVED** | W22SHP-2 | Medium | under a grouped CV policy the report slice is split row-wise from the holdout, sharing groups with the selection holdout |
 | **RESOLVED** | W22SHP-3 | Medium | a small `report_holdout_fraction` of a small holdout crashed `train_test_split` (stratified over more classes than rows) |
 | **RESOLVED** | W22SHP-4 | Medium | `per_fold_stability_select` gives NaN-fidelity folds weight 0 and no-trust folds weight 1 |
 | **RESOLVED** | W22SHP-5 | Low-Medium | preflight class balance used `mean(y)`; now the rarest class's share |
@@ -16,9 +16,9 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | **RESOLVED** | W22COR-1 | High | `topk_by_partition` negated unsigned (wraps), bool (raises) and list inputs |
 | **RESOLVED** | W22COR-2 | High | `ensure_no_infinity_pd` crashed on nullable Float64 with NA and inf and dropped the extension dtype |
 | **RESOLVED** | W22COR-3 | Medium | `native_gpu_shap` builds `xgb.DMatrix(X)` without the model's `missing`, `enable_categorical` or `best_iteration`, so contributions sum to the full-tree margin |
-| **FUTURE** | W22COR-4 | Low | `polars_to_pandas` docstring promises dtype safety but nullable int columns with nulls become float64 |
+| **DOC** | W22COR-4 | Low | the polars-to-pandas view keeps dtypes only for columns without nulls (integers with nulls become float64, booleans with nulls nullable Int8, as pyarrow converts); the `get_pandas_view_of_polars_df` notes now say so and `tests/training/test_polars_pandas_view_null_column_dtypes.py` pins the outcome; keeping the integer dtype would need pandas nullable extension types, which the zero-copy path deliberately avoids |
 | **RESOLVED** | W22REP-1 | Medium | multiclass SHAP panels ranked by the last class only |
-| **FUTURE** | W22REP-2 | Low | leaderboard tie warning uses an absolute 5e-3 threshold |
+| **RESOLVED** | W22REP-2 | Low | the leaderboard tie warning compared the top-two gap with an absolute 5e-3; it is now 0.5% of the largest score magnitude, so RMSE-scale and 1e-4-scale metrics tie sensibly (`tests/reporting/test_leaderboard_tie_threshold_scales_with_the_metric.py`) |
 
 ## Not covered by this wave
 
@@ -38,3 +38,4 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | W22SHP-1 | `tests/feature_selection/shap_proxied/test_precomputed_su_only_when_computed_on_search_rows.py` (the slow MRMR-to-ShapProxiedFS pipeline test is left to CI) |
 | W22SHP-4 | `tests/feature_selection/shap_proxied/test_fold_vote_weights.py` |
 | W22COR-3 | `tests/inference/test_native_gpu_shap_matches_the_served_model.py` (kwargs helper; the CUDA call itself needs a GPU and is covered by CI where one exists) |
+| W22SHP-2 | `tests/feature_selection/shap_proxied/test_report_slice_small_fraction.py::test_grouped_report_slice_shares_no_group_with_the_rest_of_the_holdout` |

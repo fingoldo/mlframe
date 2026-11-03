@@ -437,6 +437,7 @@ def score_ensemble(
         _ensemble_member_tags=gate.member_tags,
         stacking_gate_min_weight=stacking_gate_min_weight,
         use_nnls_weights=use_nnls_weights, use_caruana_weights=use_caruana_weights, res=res, verbose=verbose,
+        gate_source_split=gate.source_split,
     )
 
     run_ensembling_levels(

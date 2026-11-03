@@ -99,7 +99,7 @@ def _weighted_multiclass_error(probs, y_true, labels, multilabel, w, *, method, 
         _y_true_NK, _y_pred_NK, _desc_idx_NK, _bin_idx_NK, w, nbins, bool(use_weighted_calibration), float(mae_weight), float(std_weight),
         float(brier_loss_weight), float(roc_auc_weight), float(pr_auc_weight), float(min_roc_auc), float(roc_auc_penalty), float(coverage_weight),
     )
-    return _reduce_per_class(ice_per_class, _class_ids, _y_true_NK, weight_by_class_npositives, return_per_class)
+    return _reduce_per_class(ice_per_class, _class_ids, _y_true_NK, weight_by_class_npositives, return_per_class, sample_weight=w)
 
 
 def _stack_class_columns(probs, y_true, labels, multilabel: bool, _class_ids):
@@ -148,17 +148,22 @@ def _stack_class_columns(probs, y_true, labels, multilabel: bool, _class_ids):
     return _y_pred_NK, _y_true_NK
 
 
-def _reduce_per_class(ice_per_class, _class_ids, _y_true_NK, weight_by_class_npositives: bool, return_per_class: bool) -> float | tuple[float, dict]:
-    """Combine per-class ICE into the metric (optionally positive-count weighted) and return it the way the caller asked."""
+def _reduce_per_class(
+    ice_per_class, _class_ids, _y_true_NK, weight_by_class_npositives: bool, return_per_class: bool, sample_weight: Optional[np.ndarray] = None
+) -> float | tuple[float, dict]:
+    """Combine per-class ICE into the metric (optionally positive-count weighted) and return it the way the caller asked.
+
+    With ``sample_weight`` the class weight is the summed row weight of its positives, matching the weighted per-class ICE.
+    """
     total_error = 0.0
-    weights_sum = 0
+    weights_sum = 0.0
     # Reduce with per-class weights
     _ice_by_class = {}
     for _k, _cid in enumerate(_class_ids):
         _ice_val = float(ice_per_class[_k])
         _ice_by_class[_cid] = _ice_val
         if weight_by_class_npositives:
-            weight = int(_y_true_NK[:, _k].sum())
+            weight = float(_y_true_NK[:, _k].sum()) if sample_weight is None else float(sample_weight[_y_true_NK[:, _k] > 0].sum())
         else:
             weight = 1
         total_error += _ice_val * weight

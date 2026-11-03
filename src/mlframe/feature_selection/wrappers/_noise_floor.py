@@ -114,9 +114,32 @@ def _isnan_mask(arr: np.ndarray) -> np.ndarray:
     return np.zeros(a.shape, dtype=bool)
 
 
+def _rerank_by_model(estimator_factory: Callable, X: Any, y: Any, ranking: Sequence, max_rows: int, seed: int) -> list:
+    """The features of ``ranking`` re-ordered most-important-first by a fresh model fitted on ``y`` (feature_importances_ or |coef_|)."""
+    is_df = hasattr(X, "columns")
+    n = len(X)
+    rows = np.sort(np.random.default_rng(seed).choice(n, size=min(n, int(max_rows)), replace=False))
+    cols = list(ranking)
+    Xs = X[cols].iloc[rows] if is_df else X[rows][:, cols]
+    ys = y.iloc[rows] if hasattr(y, "iloc") else np.asarray(y)[rows]
+    model = estimator_factory().fit(Xs, ys)
+    if hasattr(model, "feature_importances_"):
+        imp = np.asarray(model.feature_importances_, dtype=np.float64)
+    else:
+        imp = np.abs(np.asarray(model.coef_, dtype=np.float64)).reshape(-1, len(cols)).sum(axis=0)
+    return [cols[i] for i in np.argsort(-imp, kind="stable")]
+
+
+_RERANK_MAX_ROWS = 20_000
+
+
 def cv_curve(estimator_factory: Callable, X: Any, y: Any, ranking: Sequence, n_grid: Sequence[int], cv: Any,
-             permute: bool = False, n_perm: int = 1, base_seed: int = 100, scoring: str = "roc_auc") -> Any:
+             permute: bool = False, n_perm: int = 1, base_seed: int = 100, scoring: str = "roc_auc",
+             rerank_rows: Optional[int] = None) -> Any:
     """Per-N CV score (``scoring``) on the top-N features by ``ranking``. If permute, average over n_perm shuffles of y.
+
+    ``rerank_rows``: when set and ``permute``, every shuffle re-ranks the features of ``ranking`` with a model fitted on the shuffled y
+    (on at most ``rerank_rows`` random rows), so the null curve pays the same selection-on-the-labels optimism the real ranking did.
 
     estimator_factory() must return a FRESH unfitted estimator (a fresh model per N keeps the curve honest). Returns
     the real curve (permute=False) or (mean_curve, all_perm_curves) (permute=True).
@@ -134,9 +157,10 @@ def cv_curve(estimator_factory: Callable, X: Any, y: Any, ranking: Sequence, n_g
         else:
             yy = y_arr
         yy = pd.Series(yy, index=X.index) if is_df else yy
+        ranking_p = _rerank_by_model(estimator_factory, X, yy, ranking, rerank_rows, base_seed + p) if permute and rerank_rows else ranking
         row = []
         for n in n_grid:
-            cols = list(ranking[:n])
+            cols = list(ranking_p[:n])
             Xn = X[cols] if is_df else X[:, cols]
             row.append(float(np.mean(cross_val_score(estimator_factory(), Xn, yy, cv=cv, scoring=scoring, n_jobs=1))))
         curves.append(row)
@@ -146,7 +170,7 @@ def cv_curve(estimator_factory: Callable, X: Any, y: Any, ranking: Sequence, n_g
 
 def select_features_noise_floor(estimator_factory: Callable, X: pd.DataFrame | np.ndarray, y: Any, ranking: Sequence,
                                 n_grid: Optional[Sequence[int]] = None, cv: Any = 3, n_perm: int = 50,
-                                pct: float = 95.0, random_state: int = 0) -> dict[str, Any]:
+                                pct: float = 95.0, random_state: int = 0, rerank: str = "none") -> dict[str, Any]:
     """Post-hoc permuted-y noise-floor cut of an over-selected feature RANKING. Returns the top-N* features.
 
     Parameters
@@ -162,6 +186,11 @@ def select_features_noise_floor(estimator_factory: Callable, X: pd.DataFrame | n
         the ``pct`` percentile is an interior order statistic (>=ceil(100/(100-pct)), e.g. >=20 at pct=95) - a tiny
         n_perm makes the envelope a high-variance sample maximum and the floor seed-unstable / anti-conservative.
     pct : noise-envelope percentile.
+    rerank : ``"none"`` (default) reuses the real ranking for every shuffle. ``"permutation"`` re-ranks the features with a model fitted on each
+        shuffled y (on at most 20,000 rows) so the null curve carries the same selection-on-the-labels optimism as the real ranking. Opt-in:
+        the re-ranked null starts high and falls as noise features are added, and the plateau rule then reads the real curve's smaller decline
+        as signal (on a 3-informative / 40-noise control it keeps all 43 features where the fixed null keeps 3), so it needs a different stop
+        rule before it can be the default.
 
     Returns
     -------
@@ -186,9 +215,13 @@ def select_features_noise_floor(estimator_factory: Callable, X: pd.DataFrame | n
             splitter = StratifiedKFold(n_splits=cv, shuffle=True, random_state=random_state)
     else:
         splitter = cv
+    if rerank not in ("permutation", "none"):
+        raise ValueError(f"select_features_noise_floor: rerank must be 'permutation' or 'none', got {rerank!r}")
+    do_rerank = rerank == "permutation"
     real_curve = cv_curve(estimator_factory, X, y, ranking, n_grid, splitter, permute=False, scoring=scoring)
     perm_mean, perm_curves = cv_curve(estimator_factory, X, y, ranking, n_grid, splitter,
-                                      permute=True, n_perm=n_perm, base_seed=100 + random_state, scoring=scoring)
+                                      permute=True, n_perm=n_perm, base_seed=100 + random_state, scoring=scoring,
+                                      rerank_rows=_RERANK_MAX_ROWS if do_rerank else None)
     n_star, _, _, _ = noise_floor_plateau(n_grid, real_curve, perm_curves, pct=pct)
     # The envelope at each grid point is the ``pct`` percentile of ``n_perm`` permuted incremental gains. With a tiny
     # n_perm the percentile is a high-variance extreme order statistic (n_perm=3 makes the 95th pct literally the MAX of

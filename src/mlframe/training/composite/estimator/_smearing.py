@@ -27,8 +27,19 @@ N_SMEAR_QUANTILES = 32
 _MAX_RESIDUAL_ROWS = 50_000
 
 
-def residual_quantiles(estimator: Any, X: Any, t_train: np.ndarray, seed: int = 0) -> Optional[np.ndarray]:
-    """``N_SMEAR_QUANTILES`` mid-quantiles of ``t_train - estimator.predict(X)`` on a bounded row sample, or None."""
+def _weighted_mid_quantiles(r: np.ndarray, w: np.ndarray) -> np.ndarray:
+    """``N_SMEAR_QUANTILES`` mid-quantiles of ``r`` where each residual counts ``w`` times (the fit's sample weights)."""
+    order = np.argsort(r, kind="stable")
+    r_s, cum = r[order], np.cumsum(w[order])
+    mid = (cum - 0.5 * w[order]) / cum[-1]
+    return cast(np.ndarray, np.interp((np.arange(N_SMEAR_QUANTILES) + 0.5) / N_SMEAR_QUANTILES, mid, r_s))
+
+
+def residual_quantiles(estimator: Any, X: Any, t_train: np.ndarray, seed: int = 0, sample_weight: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
+    """``N_SMEAR_QUANTILES`` mid-quantiles of ``t_train - estimator.predict(X)`` on a bounded row sample, or None.
+
+    With ``sample_weight`` (aligned with ``t_train``) the quantiles are weighted, so the smearing matches the weighted objective the inner model was fitted on.
+    """
     n = int(t_train.shape[0])
     if n < N_SMEAR_QUANTILES * 4:
         return None
@@ -47,9 +58,15 @@ def residual_quantiles(estimator: Any, X: Any, t_train: np.ndarray, seed: int = 
         )
         return None
     r = np.asarray(t_train, dtype=np.float64)[idx] - pred
-    r = r[np.isfinite(r)]
+    keep = np.isfinite(r)
+    w = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64).reshape(-1)[idx]
+    if w is not None:
+        keep &= np.isfinite(w) & (w > 0)
+    r = r[keep]
     if r.size < N_SMEAR_QUANTILES * 4:
         return None
+    if w is not None:
+        return _weighted_mid_quantiles(r, w[keep])
     return cast(Optional[np.ndarray], np.quantile(r, (np.arange(N_SMEAR_QUANTILES) + 0.5) / N_SMEAR_QUANTILES))
 
 

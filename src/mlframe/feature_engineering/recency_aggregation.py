@@ -62,10 +62,20 @@ def _group_recency_weighted_mean_sorted(v_sorted: np.ndarray, starts: np.ndarray
                 w = param**i
             else:
                 w = 1.0 / (i**param)
+            if np.isnan(v_sorted[s + pos]):
+                continue
             num += w * v_sorted[s + pos]
             den += w
         out[g] = num / den if den > 0.0 else np.nan
     return out
+
+
+def _prefix_bounds(starts: np.ndarray, ends: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Per-row prefix windows: row ``k`` of group ``[s, e)`` aggregates ``[s, s + k + 1)``, so no row sees later observations."""
+    lengths = ends - starts
+    p_starts = np.repeat(starts, lengths)
+    offsets = np.arange(int(lengths.sum()), dtype=np.int64) - np.repeat(np.cumsum(lengths) - lengths, lengths)
+    return p_starts, p_starts + offsets + 1
 
 
 def per_group_recency_weighted_mean(
@@ -77,6 +87,7 @@ def per_group_recency_weighted_mean(
     param: float = 1.0,
     broadcast: bool = True,
     fill_value: float = np.nan,
+    causal: bool = True,
 ) -> np.ndarray:
     """Recency-weighted per-entity mean of ``values``.
 
@@ -99,6 +110,10 @@ def per_group_recency_weighted_mean(
         length ``n``). If False, returns one value per unique entity in first-appearance order.
     fill_value : float
         Value used for empty groups (only reachable via broadcast=False bookkeeping; empty groups don't occur otherwise).
+    causal : bool
+        With ``broadcast=True`` (default True) each row gets the aggregate over its entity's rows up to and including itself,
+        so a training row never sees later observations. False broadcasts the whole-history value to every row (one-shot per entity).
+        Ignored when ``broadcast=False``.
 
     Returns
     -------
@@ -134,6 +149,11 @@ def per_group_recency_weighted_mean(
     ends = np.concatenate((bnd.astype(np.int64), np.array([n], dtype=np.int64)))
 
     scheme_code = SCHEMES.index(scheme)
+    if causal and broadcast:
+        p_starts, p_ends = _prefix_bounds(starts, ends)
+        out = np.empty(n, dtype=np.float64)
+        out[sort_idx] = _group_recency_weighted_mean_sorted(v_sorted, p_starts, p_ends, scheme_code, param)
+        return out
     per_group = _group_recency_weighted_mean_sorted(v_sorted, starts, ends, scheme_code, param)
 
     if not broadcast:
@@ -162,6 +182,8 @@ def _weighted_mean_or_spread(v_sorted: np.ndarray, s: int, m: int, scheme_code: 
     num = 0.0
     den = 0.0
     for pos in range(m):
+        if np.isnan(v_sorted[s + pos]):
+            continue
         w = _recency_weight(scheme_code, param, m, m - pos)
         num += w * v_sorted[s + pos]
         den += w
@@ -172,6 +194,8 @@ def _weighted_mean_or_spread(v_sorted: np.ndarray, s: int, m: int, scheme_code: 
         return np.nan
     sq = 0.0
     for pos in range(m):
+        if np.isnan(v_sorted[s + pos]):
+            continue
         w = _recency_weight(scheme_code, param, m, m - pos)
         dv = v_sorted[s + pos] - mean
         sq += w * dv * dv
@@ -214,12 +238,14 @@ def _group_recency_weighted_agg_sorted(v_sorted: np.ndarray, starts: np.ndarray,
                 else:
                     w = 1.0 / (i**param)
                 wv = w * v_sorted[s + pos]
+                if np.isnan(wv):
+                    continue
                 if agg_code == 1:
                     acc += wv
                 elif agg_code == 2:
-                    acc = wv if (pos == 0 or wv < acc) else acc
+                    acc = wv if (np.isnan(acc) or wv < acc) else acc
                 else:
-                    acc = wv if (pos == 0 or wv > acc) else acc
+                    acc = wv if (np.isnan(acc) or wv > acc) else acc
             out[g] = acc
     return out
 
@@ -233,6 +259,24 @@ def _recency_weight(scheme_code, param, m, i):
         return param**i
     else:
         return 1.0 / (i**param)
+
+
+@njit(fastmath=False, cache=True)
+def _weighted_sum_or_extreme(v_sorted: np.ndarray, s: int, m: int, scheme_code: int, param: float, agg_code: int) -> float:
+    """Sum (``agg_code`` 1), min (2) or max (3) of the recency-weighted values of the group ``v_sorted[s:s+m]``, skipping NaN."""
+    acc = 0.0 if agg_code == 1 else np.nan
+    for pos in range(m):
+        w = _recency_weight(scheme_code, param, m, m - pos)
+        wv = w * v_sorted[s + pos]
+        if np.isnan(wv):
+            continue
+        if agg_code == 1:
+            acc += wv
+        elif agg_code == 2:
+            acc = wv if (np.isnan(acc) or wv < acc) else acc
+        else:
+            acc = wv if (np.isnan(acc) or wv > acc) else acc
+    return acc
 
 
 @njit(fastmath=False, cache=True)
@@ -265,6 +309,8 @@ def _group_recency_weighted_agg_multi_sorted(
                 num = 0.0
                 den = 0.0
                 for pos in range(m):
+                    if np.isnan(v_sorted[s + pos]):
+                        continue
                     i = m - pos
                     w = _recency_weight(scheme_code, param, m, i)
                     num += w * v_sorted[s + pos]
@@ -278,6 +324,8 @@ def _group_recency_weighted_agg_multi_sorted(
                     continue
                 sq = 0.0
                 for pos in range(m):
+                    if np.isnan(v_sorted[s + pos]):
+                        continue
                     i = m - pos
                     w = _recency_weight(scheme_code, param, m, i)
                     dv = v_sorted[s + pos] - mean
@@ -285,18 +333,7 @@ def _group_recency_weighted_agg_multi_sorted(
                 var = sq / den
                 out[g, k] = np.sqrt(var) if agg_code == 4 else var
             else:
-                acc = 0.0 if agg_code == 1 else np.nan
-                for pos in range(m):
-                    i = m - pos
-                    w = _recency_weight(scheme_code, param, m, i)
-                    wv = w * v_sorted[s + pos]
-                    if agg_code == 1:
-                        acc += wv
-                    elif agg_code == 2:
-                        acc = wv if (pos == 0 or wv < acc) else acc
-                    else:
-                        acc = wv if (pos == 0 or wv > acc) else acc
-                out[g, k] = acc
+                out[g, k] = _weighted_sum_or_extreme(v_sorted, s, m, scheme_code, param, agg_code)
     return out
 
 
@@ -311,6 +348,7 @@ def per_group_recency_weighted_agg(
     params: Sequence[float] | None = None,
     broadcast: bool = True,
     fill_value: float = np.nan,
+    causal: bool = True,
 ) -> np.ndarray:
     """Recency-weighted per-entity aggregation of ``values`` (mean/sum/min/max/std/var).
 
@@ -327,7 +365,7 @@ def per_group_recency_weighted_agg(
 
     Parameters
     ----------
-    values, group_ids, order, scheme, param, broadcast, fill_value
+    values, group_ids, order, scheme, param, broadcast, fill_value, causal
         See :func:`per_group_recency_weighted_mean`.
     agg : {'mean', 'sum', 'min', 'max', 'std', 'var'}
         Aggregation applied to the weighted values (std/var use raw values weighted around the recency-weighted
@@ -385,6 +423,17 @@ def per_group_recency_weighted_agg(
 
     scheme_code = SCHEMES.index(scheme)
     agg_code = AGGS.index(agg)
+
+    if causal and broadcast:
+        starts, ends = _prefix_bounds(starts, ends)
+        per_row = (
+            _group_recency_weighted_agg_multi_sorted(v_sorted, starts, ends, scheme_code, params_arr, agg_code)
+            if multi
+            else _group_recency_weighted_agg_sorted(v_sorted, starts, ends, scheme_code, param, agg_code)
+        )
+        out = np.empty_like(per_row)
+        out[sort_idx] = per_row
+        return np.asarray(out)
 
     if multi:
         per_group = _group_recency_weighted_agg_multi_sorted(v_sorted, starts, ends, scheme_code, params_arr, agg_code)

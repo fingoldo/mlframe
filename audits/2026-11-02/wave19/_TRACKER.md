@@ -16,13 +16,13 @@ Six read-only reports by Opus 5.5 low-effort agents on the areas waves 17 and 18
 | **RESOLVED** | W19EST-4 | Medium | a label without positives got class weight 1e6 and shrank every other label's weight to ~0 |
 | **RESOLVED** | W19EST-5 | Medium | `init_evaluate_ascending/descending` ordered numeric candidates by their string form (9 before 100) |
 | **RESOLVED** | W19EST-6 | Medium | a NaN evaluation reached the surrogate refit and crashed it |
-| **FUTURE** | W19EST-7 | Low | `rf_outlier_measure` casts `y` to int64, merging float labels 0.2 / 0.7 and rejecting strings; fix is `np.unique(return_inverse=True)` |
+| **RESOLVED** | W19EST-7 | Low | `rf_outlier_measure` cast `y` to int64, merging float labels 0.2 / 0.7 and rejecting strings; classes now come from `np.unique(return_inverse=True)` (`tests/models/test_rf_outlier_measure_class_labels.py`) |
 | **RESOLVED** | W19EVA-1 | High | the temporal leak scan broke rank ties by row order, so a constant column correlated 0.87 with a time-ordered split and was flagged |
-| **FUTURE** | W19EVA-2 | Medium | NaNs rank last in the leak scan, so the correlation of a column whose missing values sit in one split mixes missingness with value order; the fix (correlate on rows where both are finite, report missingness separately) changes the report schema |
+| **RESOLVED** | W19EVA-2 | Medium | NaNs ranked last in the leak scan; `correlation` now uses each column's finite rows and the report gains `missing_correlation` (the missingness indicator against the split label), either crossing the threshold sets `flagged` (`tests/evaluation/test_leak_scan_missingness_is_separate.py`) |
 | **RESOLVED** | W19EVA-3 | Medium | `_stratified_class_book` keyed classes by `int(label)` (fractional labels merged, strings raised) |
 | **RESOLVED** | W19CMP-1 | High | `fit_stacked_on_residual` dropped every spec with a NaN OOF row, so pass 2 never ran on temporal data |
 | **RESOLVED** | W19CMP-2 | High | the same function built its OOF folds without group ids |
-| **FUTURE** | W19CMP-3 | Medium | the single-split group carve falls back to a group-blind row shuffle when degenerate; needs a decision on the minimum acceptable holdout share |
+| **RESOLVED** | W19CMP-3 | Medium | the single-split group carve fell back to a group-blind row shuffle when the carve was degenerate; `_carve_holdout_groups` now skips groups that overshoot twice the request, logs a holdout outside [0.5x, 2x], and raises when no group-respecting split exists (`tests/training/composite/test_oof_group_carve_never_shuffles_rows.py`) |
 | **RESOLVED** | W19CMP-4 | Medium | fewer groups than OOF folds fell back to a shuffled K-fold that splits groups |
 | **RESOLVED** | W19CMP-5 | Medium | the OOF cache key hashed only 128 group labels and the mere presence of a time order |
 | **FUTURE** | W19CMP-6 | Low | the meta-stacker CV (LassoCV / ElasticNetCV alpha, GBM early stopping) ignores group and time structure of the OOF rows |
