@@ -42,3 +42,16 @@ def test_default_dispatch(monkeypatch):
     monkeypatch.setenv("MLFRAME_FE_GPU_FUSE_CMI_ENTROPY", "0")
     assert C._batched_joint_entropy_and_k2(X, large, 10, 400, 1 / 3000) is None
     assert _FUSED_ENTROPY_MIN_M > 40
+
+
+@pytest.mark.parametrize("kb,blocks", [(1500, 6), (3000, 6), (1500, 1), (700, 13)])
+def test_global_scratch_kernel_matches(kb, blocks):
+    """Joints over the shared-memory limit through the global-scratch kernel: same occupied cells, entropies to round-off, any block count."""
+    rng = np.random.default_rng(2)
+    n, k, kx = 5003, 23, 10
+    X = cp.asarray(rng.integers(0, kx, (n, k)).astype(np.int64))
+    b = cp.asarray(rng.integers(0, kb, n).astype(np.int64))
+    want_h, want_k = _rows_entropy_and_k(C._batched_joint_counts2(X, b, kx, kb), 1.0 / n)
+    h, kk = C.batched_joint_entropy_global(X, b, kx, kb, 1.0 / n, blocks)
+    assert cp.array_equal(kk, want_k.astype(cp.int64))
+    assert float(cp.max(cp.abs(h - want_h) / cp.abs(want_h))) <= 1e-14

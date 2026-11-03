@@ -18,3 +18,7 @@ sweep, `_fe_cmi_fused_backend.py`); `1` / `0` force it. Same occupied cells; ent
 so the old "bit-identical" note was wrong. Fit check 50000 x 100 all families, one process, fit cache cleared, off/auto alternating: same 9 selected
 features (twice each); warm walls 85.4 s (off) vs 77.4 / 77.1 s (auto).
 Left: joints over the shared-memory limit (M > ~12000 cells) still take count+reduce at ~80 ms; a global-scratch per-block twin is the next step there.
+Global-scratch twin (`batched_joint_entropy2_g`, same day): over the shared-memory limit, one block per SM walks the columns with its histogram in a global
+slice; used while SMs x M x 4 bytes fit L2. n=30000, K=930, Kx=10, min of 5, count+reduce / global (blocks 6, 12, 24, 48, 96) ms: M=15000 77.9 / 24.0, 30.8,
+61.2, 66.6, 68.5; M=30000 79.6 / 47.8, 59.2, 72.0, 82.2, 81.6; M=100000 86.1 / 125.4, 119.8, 105.7, 112.2, 111.0 (slices over L2: count+reduce kept).
+Same occupied cells, entropies to round-off (test_cmi_fused_entropy_default). Fit check 50000 x 100, both fused paths off / on: same 9 features; warm 84.8 vs 76.3 s.
