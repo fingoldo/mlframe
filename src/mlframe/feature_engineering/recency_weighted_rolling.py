@@ -145,8 +145,8 @@ def _positional_weight(scheme_code: int, m: int, pos: int, param: float) -> floa
     """Weight of window position ``pos`` (0 = oldest of ``m``) under the poly (code 0) or power scheme; the exp scheme multiplies a running weight instead."""
     i = m - pos
     if scheme_code == 0:
-        return ((m - i + 1) / m) ** param
-    return 1.0 / (i**param)
+        return float(((m - i + 1) / m) ** param)
+    return float(1.0 / (i**param))
 
 
 @njit(fastmath=False, cache=True)

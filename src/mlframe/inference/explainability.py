@@ -27,8 +27,9 @@ from mlframe.calibration.quality import make_custom_calibration_plot as show_cus
 from mlframe.metrics.core import format_classification_report
 
 
-def _stack_oof_rows(rows: list) -> np.ndarray:
+def _stack_oof_rows(rows: Optional[list]) -> np.ndarray:
     """Stack per-row OOF values into one array; rows no fold tested on (``None``, e.g. the first block of a ``TimeSeriesSplit``) become NaN of the same shape."""
+    rows = rows or []
     template = next((np.asarray(r, dtype=np.float64) for r in rows if r is not None), None)
     if template is None:
         return np.full(len(rows), np.nan)
