@@ -29,3 +29,9 @@ Dispatch: `scorer_device_choice("honest_oj_winners", n_rows, cells)` (work fallb
 The CPU pool step (largest corrected MI of 193 pool columns over 30,000 rows) was 0.146 s per 64-permutation block. `DevicePool`
 reuses the bitmask popcounts for a binary target code: 0.05 s per block. Null maxima match the CPU pool to 1.1e-18 (device `log`);
 30k floors unchanged (0.0006034131614497845). `MLFRAME_HONEST_OJ_GPU_POOL=0` keeps the pool on the CPU.
+
+## 2026-11-03: fit after the device pool; KTC sweep
+
+optimal_joint 100k fit 146.9 s (floor total 12.4 s, permutation scoring 5.8 s). The host/device choice now has its own KTC sweep
+(`_sweep_winners`, entry `fe_scorer_device_honest_oj_winners`): one 64-permutation block, 30k rows x 300 cells: host 0.063 s,
+device 0.016 s, same picks.

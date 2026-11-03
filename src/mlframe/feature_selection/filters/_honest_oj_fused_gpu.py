@@ -335,6 +335,54 @@ class DeviceWinners:
         return np.asarray(cp.asnumpy(pick), dtype=np.int64)
 
 
+def _synthetic_winner_inputs(dims: dict, seed: int = 0) -> tuple:
+    """Packed-plan inputs of the winner pick for the sweep: 3 folds over ``n_rows`` rows, ``n_cols`` cells as (column, 4 candidates), binary target,
+    one 64-permutation block."""
+    rng = np.random.default_rng(seed)
+    n, cells = int(dims["n_rows"]), int(dims["n_cols"])
+    n_f, n_m = 3, 4
+    p = max(1, cells // (n_f * n_m))
+    y = rng.integers(0, 2, size=n).astype(np.int64)
+    fold = rng.permutation(n) % n_f
+    nv = np.array([(fold == f).sum() for f in range(n_f)], dtype=np.int64)
+    val_idx = np.zeros((n_f, int(nv.max())), dtype=np.int64)
+    for f in range(n_f):
+        val_idx[f, : nv[f]] = np.flatnonzero(fold == f)
+    kx = np.tile(np.array([4, 8, 16, 32], dtype=np.int64), (n_f, p, 1))
+    xb = (rng.random((n_f, p, n_m, int(nv.max()))) * kx[..., None]).astype(np.int8)
+    perms = np.stack([rng.permutation(n) for _ in range(64)]).astype(np.int64)
+    return xb, kx, nv, val_idx, y, perms
+
+
+def _sweep_winners() -> list:
+    """Host-vs-device sweep of one winner-pick block for the ``honest_oj_winners`` kernel-tuning entry."""
+    from ._honest_oj_fused import _fold_targets, _px_table, _winners_minority
+    from ._scorer_device_dispatch import _FORCED, sweep_scorer
+
+    @njit(cache=True, parallel=True)
+    def _host_picks(perms, y, nv, val_idx, xb, kx, px, out):
+        """CPU winner pick of every permutation of the block."""
+        for b in prange(perms.shape[0]):
+            vy, ky = _fold_targets(perms[b], y, nv, val_idx)
+            out[b] = _winners_minority(xb, kx, nv, vy, ky, px)
+
+    def run(inp: Any) -> np.ndarray:
+        """The winner pick of the block with the forced backend."""
+        xb, kx, nv, val_idx, y, perms = inp
+        px = _px_table(xb, kx, nv)
+        if _FORCED.get() == "device":
+            import cupy as cp
+
+            picks = DeviceWinners(cp, xb, kx, nv, val_idx, y, px).picks(perms)
+            if picks is not None:
+                return picks
+        out = np.empty((perms.shape[0], kx.shape[1]), dtype=np.int64)
+        _host_picks(perms, y, nv, val_idx, xb, kx, px, out)
+        return out
+
+    return sweep_scorer(run, _synthetic_winner_inputs)
+
+
 def device_winners(xb: np.ndarray, kx: np.ndarray, nv: np.ndarray, val_idx: np.ndarray, y_raw: np.ndarray, px: np.ndarray, n_rows: int) -> Optional[DeviceWinners]:
     """A :class:`DeviceWinners` when the device path applies (see the module docstring), else ``None``."""
     if os.environ.get("MLFRAME_HONEST_OJ_GPU", "1").strip() == "0":
@@ -346,7 +394,7 @@ def device_winners(xb: np.ndarray, kx: np.ndarray, nv: np.ndarray, val_idx: np.n
             return None
         from ._scorer_device_dispatch import scorer_device_choice
 
-        if not scorer_device_choice("honest_oj_winners", int(n_rows), int(np.prod(kx.shape))):
+        if not scorer_device_choice("honest_oj_winners", int(n_rows), int(np.prod(kx.shape)), sweep=_sweep_winners):
             return None
         import cupy as cp
 
