@@ -30,3 +30,9 @@ Next: compare the confirmation statistic for those candidates against the June 1
   `689a02770` [5, 2, 2, 2, 5, 5, 2, 5, 4, 2, 10]; today [5, 2, 3, 2, 2, 2, 2, 5, 3, 2, 10] (s1 and s2 collapse 5 -> 2 bins, s5 4 -> 3, bmi 2 -> 3).
   With s1/s2 at 2 bins and the conditioning set finer, every remaining candidate's gain given {s5, bmi} falls under the strict confirmation.
 - Next: find which MDLP change since 2026-08-11 merges s1 / s2 into 2 bins on diabetes (n=442) and whether that is the intended stricter split validation.
+- Where the bins come from today: the supervised MDLP builder (`fayyad_irani`) returns 0-2 edges for nearly every diabetes feature at n=442; the collapse
+  fallback then fills some columns. The MDLP commits since 2026-08-11 that make split acceptance stricter, all deliberate statistical-rigour changes:
+  `677ebe01c` (2026-10-09, continuous target -> 16 pseudo-classes in the validated search), `7d000241c` (2026-10-09, 15 permutation draws instead of 30),
+  `4b00c4c7c` (2026-10-15, honest supervised null for mdlp / mdlp_validated).
+- Decision needed (not taken here): either the strict-path diabetes expectation (>= 5 features) is re-derived under the honest MDLP null, or the small-n MDLP
+  null is revisited. This session's speed commits do not change it (bins and verdicts verified equal where touched).
