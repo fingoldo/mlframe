@@ -24,3 +24,10 @@ Time per floor call, 30000 x 100 (999 permutations, 85 pool columns): pooled per
 statistic itself (per permutation 85 x 4 x 3 fold MIs over 10k rows and 85 MIs over 30k rows), now inside numba.
 Declines (per-permutation path) for a continuous / wide / negative raw target, uncached plans, a column without a scored candidate;
 MLFRAME_HONEST_OJ_FUSED=0 turns it off.
+
+## 2026-11-03: fused floor declined at 100k (plan-cache budget)
+
+At 100k rows x 107 re-binned columns the default `OptimalJointPlanCache` (512 MB) stored the column facts first and refused 5 plans
+(382 MB in use, the next plans did not fit), so `oj_fused_floor` declined and the per-permutation floor ran. Fix (dd229eeae): `put`
+evicts column facts (one sort to rebuild) to make room for a plan; the fused floor reads plans from the cache and places columns with
+target-free edges like fixed ones. 30k check unchanged: fused 13.8-14.6 s vs pooled 18.7-22.2 s, identical floor 0.0006034131614497845.
