@@ -448,11 +448,14 @@ def _get_batched_joint_entropy_kernel(cp):
 
 def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
     """Fused per-column joint entropy+nnz of (n,K) codes ``X`` with (n,) code ``b`` -> (h (K,) f64, k (K,) int64).
-    ONE launch (block/column, shared hist + tree-reduce). BIT-IDENTICAL to
-    ``_rows_entropy_and_k(_batched_joint_counts2(X,b,Kx,Kb).astype(f64), inv_n)``. Returns None when the per-
+    ONE launch (block/column, shared hist + tree-reduce). Same occupied cells as
+    ``_rows_entropy_and_k(_batched_joint_counts2(X,b,Kx,Kb).astype(f64), inv_n)`` and entropies within a few ULP (another summation order; relative <= 4.4e-16 measured). Returns None when the per-
     column hist won't fit shared memory (caller uses the unfused two-launch path) or on any kernel error.
 
-    DISABLED by default (bench-attempt-rejected, see below); set MLFRAME_FE_GPU_FUSE_CMI_ENTROPY=1 to opt in."""
+    Default ``auto``: the fused kernel runs where it is faster, for joints of at least ``_FUSED_ENTROPY_MIN_M`` cells (per-host kernel-tuning cache over (n, M));
+    ``MLFRAME_FE_GPU_FUSE_CMI_ENTROPY=1`` / ``0`` forces it on / off. 2026-11-03 (n=30000, K=930, Kx=10, GTX 1050 Ti, min of 5): unfused / fused ms at M=40 3.6 / 21.8,
+    M=400 36.6 / 22.9, M=1000 59.9 / 21.7, M=4000 73.3 / 11.5, M=10000 78.7 / 15.8. The large joints of the conditional CMI (60-78 ms per unfused launch in
+    the 100k fit) are the ones the June measurement below called rare."""
     # bench-attempt-rejected (2026-06-27): count+reduce -> 1 fused launch. nsys: removed ~18-36 cuLaunchKernel/
     # fit (total launch APIs 159->135 across the combined A/B). BIT-IDENTICAL (h/k maxdiff 0; full batched_cmi
     # + return_cards maxdiff 0). REJECTED on GPU KERNEL TIME: the one-block-per-column shared-hist kernel runs at
@@ -466,11 +469,16 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
     # large-M case + as a documented bench artifact; default OFF.
     import cupy as cp
 
-    if os.environ.get("MLFRAME_FE_GPU_FUSE_CMI_ENTROPY", "0").strip() not in ("1", "true", "True", "yes", "on"):
+    _mode = os.environ.get("MLFRAME_FE_GPU_FUSE_CMI_ENTROPY", "auto").strip().lower()
+    if _mode in ("0", "false", "no", "off"):
         return None
     try:
         n, K = int(X.shape[0]), int(X.shape[1])
         M = int(Kx) * int(Kb)
+        from ._fe_cmi_fused_backend import fused_entropy_backend
+
+        if _mode not in ("1", "true", "yes", "on") and fused_entropy_backend(n, M) != "fused":
+            return None
         ker = _get_batched_joint_entropy_kernel(cp)
         assert _BATCHED_JOINT_ENTROPY_SH_LIMIT is not None  # populated by _get_batched_joint_entropy_kernel above
         # shared = M uint32 hist + 2*256 f64 reduction scratch (the sh_h/sh_k arrays are static, not counted here);

@@ -7,3 +7,14 @@ per warp (8 copies of the 20-cell binary table, merged before the MI) 0.0165 s, 
 Kept: the column's interior edges in shared memory (up to 256; more falls back to global reads) for the single-launch and split kernels; the binary search read
 them per value, strided by K in global memory. 1000 x 100000: float32 0.0205 -> 0.0114 s, float64 0.0193 -> 0.0165 s; 16 columns 0.0011 -> 0.0014 s (the
 narrow split launch pays the shared fill per block). Same MI in every case.
+
+## Conditional CMI: fused joint entropy by default for large joints (2026-11-03)
+Where found: nsys window of the 100k x 100 GPU fit, batched_joint_hist2_i32 0.451 s over 13 launches; the launches of ~28M elements took 3.5 ms (small joints)
+to 60-78 ms (joints of 1000+ cells: random global atomics over a (K, Kx*Kyz) count buffer far larger than L2, then a separate reduce).
+Bench (n=30000, K=930, Kx=10, min of 5), count+reduce / fused ms: M=40 3.6 / 21.8, 400 36.6 / 22.9, 1000 59.9 / 21.7, 4000 73.3 / 11.5, 10000 78.7 / 15.8,
+30000 81.9 / - (over shared memory). The June rejection measured only M <= 1000 joints of the marginal path.
+Change: `MLFRAME_FE_GPU_FUSE_CMI_ENTROPY` defaults to `auto`: fused from `_FUSED_ENTROPY_MIN_M` = 300 cells (KTC `cmi_fused_entropy_backend` over (n, m), async
+sweep, `_fe_cmi_fused_backend.py`); `1` / `0` force it. Same occupied cells; entropies differ by a few ULP (relative <= 4.4e-16: another summation order),
+so the old "bit-identical" note was wrong. Fit check 50000 x 100 all families, one process, fit cache cleared, off/auto alternating: same 9 selected
+features (twice each); warm walls 85.4 s (off) vs 77.4 / 77.1 s (auto).
+Left: joints over the shared-memory limit (M > ~12000 cells) still take count+reduce at ~80 ms; a global-scratch per-block twin is the next step there.
