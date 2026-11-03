@@ -275,7 +275,7 @@ def _grouped_bar_panel(
         for _, key, higher in headline:
             raw = m.get(key, float("nan"))
             if not np.isfinite(raw):
-                row.append(0.0)
+                row.append(float("nan"))  # a missing metric is a gap, not a zero-quality bar
                 continue
             if higher:
                 q = raw
