@@ -34,6 +34,10 @@ logger = logging.getLogger(__name__)
 STAGE_WEIGHTS = (14.0, 34.0, 18.0)
 #: The same with early_a in front (its families - the orthogonal bases, triplets / quadruplets, the auto-scorer - measured about 25 s at 100000 x 100).
 STAGE_WEIGHTS_WITH_EARLY_A = (25.0, 14.0, 34.0, 18.0)
+#: Peak device-pool use of the stages (MB, sequential fit at 50000 x 100, every family): early_b 461, mid_a 274, mid_b 110 (early_a 486). They split a device's
+#: memory among its stages; splitting it by the walls above gave early_b, the shortest stage with the largest need, the smallest slot (out-of-memory fallbacks).
+STAGE_VRAM_WEIGHTS = (461.0, 274.0, 110.0)
+STAGE_VRAM_WEIGHTS_WITH_EARLY_A = (486.0, 461.0, 274.0, 110.0)
 
 
 def concurrency_enabled() -> bool:
@@ -89,6 +93,7 @@ def merge_stage_state(target: Any, base: "dict[str, Any]", stage_copies: Sequenc
 
 def run_stages_concurrently(
     estimator: Any, stages: Sequence[Callable[[Any], Any]], weights: Sequence[float] = STAGE_WEIGHTS, merge_count: "Callable[[list], int] | None" = None,
+    vram_weights: "Sequence[float] | None" = None,
 ) -> "list[Any] | None":
     """Results of ``stages`` (each called with a private copy of ``estimator``) run together, one per device slot, or ``None`` when no plan exists (the caller then runs them in order).
 
@@ -99,7 +104,9 @@ def run_stages_concurrently(
     from .._fe_device_scheduler import plan_stage_slots, stage_device_slot
     from .._fit_context import capture_fit_context, fit_context_scope
 
-    slots = plan_stage_slots(list(weights))
+    if vram_weights is None:
+        vram_weights = STAGE_VRAM_WEIGHTS if len(stages) == 3 else (STAGE_VRAM_WEIGHTS_WITH_EARLY_A if len(stages) == 4 else weights)
+    slots = plan_stage_slots(list(weights), vram_weights=list(vram_weights))
     if slots is None or len(slots) != len(stages):
         logger.info("FE stage concurrency: no device plan (a stage would get too little VRAM); running the cascades one by one")
         return None

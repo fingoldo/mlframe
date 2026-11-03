@@ -51,11 +51,17 @@ def plan_stage_slots(
     cushion_bytes: int = 1 << 30,
     min_budget_bytes: int = MIN_STAGE_BUDGET_BYTES,
     facts: "Sequence[tuple[int, int, int]] | None" = None,
+    vram_weights: "Sequence[float] | None" = None,
 ) -> "list[DeviceSlot] | None":
     """One :class:`DeviceSlot` per stage (same order as ``weights``), or ``None`` when some stage would get less than ``min_budget_bytes``.
 
-    ``weights`` are the relative costs of the stages (their measured walls, say). ``facts`` overrides the probe with ``[(device id, free bytes, SM count)]``, for tests and for hosts that probed already.
+    ``weights`` are the relative costs of the stages (their measured walls, say): they place the stages on devices. ``vram_weights`` (default: ``weights``) split each
+    device's memory among its stages: a stage's memory need is not its wall (at 50000 x 100 the shortest cascade, early_b, peaked highest), and budgets by wall
+    sent it into out-of-memory fallbacks. ``facts`` overrides the probe with ``[(device id, free bytes, SM count)]``, for tests and for hosts that probed already.
     """
+    mem_w = list(weights) if vram_weights is None else list(vram_weights)
+    if len(mem_w) != len(weights):
+        raise ValueError("vram_weights must have one entry per stage")
     if not weights:
         return []
     if facts is None:
@@ -82,9 +88,9 @@ def plan_stage_slots(
         group = placed[d]
         if not group:
             continue
-        total_w = sum(max(float(weights[i]), 1e-9) for i in group)
+        total_w = sum(max(float(mem_w[i]), 1e-9) for i in group)
         for i in group:
-            budget = int(usable * max(float(weights[i]), 1e-9) / total_w)
+            budget = int(usable * max(float(mem_w[i]), 1e-9) / total_w)
             if budget < min_budget_bytes:
                 return None
             slots[i] = DeviceSlot(device_id=d, budget_bytes=budget)
