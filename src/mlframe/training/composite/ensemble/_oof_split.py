@@ -161,3 +161,29 @@ def _disable_early_stopping(estimator, fitted_source=None) -> None:
     if best is not None and "n_estimators" in params:
         updates["n_estimators"] = best
     set_params(**updates)
+
+
+def _carve_holdout_groups(group_arr, shuffled_groups, counts, n_holdout):
+    """Boolean holdout mask made of whole groups taken in shuffled order, closest to ``n_holdout`` rows without a group-blind fallback.
+
+    A group that would push the holdout past twice the requested size is skipped; a holdout under half the request or an empty side
+    is logged, and an empty side raises since no group-respecting split exists.
+    """
+    cumulative, hold_groups = 0, []
+    for gid in shuffled_groups:
+        if cumulative + counts[gid] > 2 * n_holdout and cumulative > 0:
+            continue
+        hold_groups.append(gid)
+        cumulative += counts[gid]
+        if cumulative >= n_holdout:
+            break
+    hold_mask = np.isin(group_arr, hold_groups)
+    n_hold = int(hold_mask.sum())
+    if n_hold == 0 or n_hold == hold_mask.shape[0]:
+        raise ValueError(
+            f"cannot carve a group-respecting holdout of ~{n_holdout} rows from {len(counts)} groups (largest group has {max(counts.values())} rows); "
+            "pass a smaller holdout fraction or merge the dominant group"
+        )
+    if not (0.5 * n_holdout <= n_hold <= 2 * n_holdout):
+        logger.warning("[composite] group-respecting holdout has %d rows against the requested %d; the groups are too coarse for the requested share.", n_hold, n_holdout)
+    return hold_mask

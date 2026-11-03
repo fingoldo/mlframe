@@ -22,7 +22,7 @@ Six read-only reports by Opus 5.5 low-effort agents on the areas waves 17 and 18
 | **RESOLVED** | W19EVA-3 | Medium | `_stratified_class_book` keyed classes by `int(label)` (fractional labels merged, strings raised) |
 | **RESOLVED** | W19CMP-1 | High | `fit_stacked_on_residual` dropped every spec with a NaN OOF row, so pass 2 never ran on temporal data |
 | **RESOLVED** | W19CMP-2 | High | the same function built its OOF folds without group ids |
-| **FUTURE** | W19CMP-3 | Medium | the single-split group carve falls back to a group-blind row shuffle when degenerate; needs a decision on the minimum acceptable holdout share |
+| **RESOLVED** | W19CMP-3 | Medium | the single-split group carve fell back to a group-blind row shuffle when the carve was degenerate; `_carve_holdout_groups` now skips groups that overshoot twice the request, logs a holdout outside [0.5x, 2x], and raises when no group-respecting split exists (`tests/training/composite/test_oof_group_carve_never_shuffles_rows.py`) |
 | **RESOLVED** | W19CMP-4 | Medium | fewer groups than OOF folds fell back to a shuffled K-fold that splits groups |
 | **RESOLVED** | W19CMP-5 | Medium | the OOF cache key hashed only 128 group labels and the mere presence of a time order |
 | **FUTURE** | W19CMP-6 | Low | the meta-stacker CV (LassoCV / ElasticNetCV alpha, GBM early stopping) ignores group and time structure of the OOF rows |
