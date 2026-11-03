@@ -302,6 +302,11 @@ def _wmape_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return num / denom
 
 
+def _signed_safe(a: np.ndarray) -> np.ndarray:
+    """Unsigned (and bool) arrays as float64: numba subtracts uint operands in uint64, so ``pred - true`` wraps around to ~1.8e19 instead of going negative."""
+    return a.astype(np.float64) if a.dtype.kind in "ub" else a
+
+
 def fast_wmape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Weighted MAPE. Avoids the y=0 epsilon-blowup problem of MAPE by
     aggregating numerator/denominator separately. The standard in
@@ -318,8 +323,8 @@ def fast_wmape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     per-element mixed-dtype widening overhead surpasses the alloc saving
     at large n; saw 0.95x on int64+float64 @100k."""
     _check_equal_length(y_true, y_pred)
-    yt = np.ascontiguousarray(y_true)
-    yp = np.ascontiguousarray(y_pred)
+    yt = _signed_safe(np.ascontiguousarray(y_true))
+    yp = _signed_safe(np.ascontiguousarray(y_pred))
     if yt.shape[0] == 0:
         return np.nan
     return float(_wmape_kernel(yt, yp))
@@ -400,8 +405,8 @@ def fast_mean_bias_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     float64+float64 1.02x (no harm), float64+float32 1.88x. Bit-equiv
     across all dtype pairs."""
     _check_equal_length(y_true, y_pred)
-    yt = np.ascontiguousarray(y_true)
-    yp = np.ascontiguousarray(y_pred)
+    yt = _signed_safe(np.ascontiguousarray(y_true))
+    yp = _signed_safe(np.ascontiguousarray(y_pred))
     if yt.shape[0] == 0:
         return np.nan
     return float(_mean_bias_error_kernel(yt, yp))
@@ -522,8 +527,8 @@ def fast_explained_variance(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     saw 0.91x on float64+float64 @100k). The huber wrapper keeps its
     upfront cast."""
     _check_equal_length(y_true, y_pred)
-    yt = np.ascontiguousarray(y_true)
-    yp = np.ascontiguousarray(y_pred)
+    yt = _signed_safe(np.ascontiguousarray(y_true))
+    yp = _signed_safe(np.ascontiguousarray(y_pred))
     return float(_explained_variance_kernel(yt, yp))
 
 
