@@ -12,7 +12,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | **RESOLVED** | W21FE-5 | Medium | string / object group ids crashed `np.diff` in the recency rolling functions |
 | **RESOLVED** | W21FE-6 | Low | `per_group_sliding_window` raised for a group shorter than the window |
 | **RESOLVED** | W21CORE-1 | High | hard-mode logical constraints did one ordered pass, so a rule chain could end violated in either declaration order; passes now repeat to a fixpoint |
-| **FUTURE** | W21CORE-2 | Medium | `shapley_blend` with `coalition_blend="rank_mean"` learns weights on ranks but blends raw predictions |
+| **RESOLVED** | W21CORE-2 | Medium | `shapley_blend(coalition_blend='rank_mean')` learned weights on ranks but blended raw predictions; it now blends the per-row ranks (`tests/votenrank/test_shapley_blend_rank_mean_blends_ranks.py`) |
 | **RESOLVED** | W21CORE-3 | Medium | `fastmath` removed from the `confidence_gated_blend` njit kernels, which assume no NaN; a divergence from the numpy path was not reproducible on this CPU, so the parity test over NaN / inf confidences and NaN inputs pins the behaviour rather than failing on the old code (`tests/votenrank/test_confidence_gated_blend_nan_confidence_parity.py`) |
 | **RESOLVED** | W21CORE-4 | Medium | `explainability` OOF SHAP leaves `None` rows for never-tested samples |
 | **RESOLVED** | W21CORE-5 | Low | `explainability` scored `oos_ts_max_size + 1` rows |
