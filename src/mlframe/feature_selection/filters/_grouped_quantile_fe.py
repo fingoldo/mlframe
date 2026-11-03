@@ -607,7 +607,7 @@ def _grouped_quantile_mi_device(eng_X: pd.DataFrame, eng_cols: list, y_bin: np.n
     """``{column: MI}`` of the candidates the device batch scores exactly as the host binner: finite columns that are not low-cardinality integers. The host
     path cuts at the deduplicated linear quantiles of the column (np.quantile + np.unique) and the device at the same order statistics without the dedup, so a
     tied edge only relabels an empty bin: the same partition, the same plug-in MI (2026-11-03, 100k x 200: within 1e-16, same ranking; 1.86 s -> 0.011 s).
-    Low-cardinality integer columns (coded by value on the host) and columns with non-finite values stay on the host. Empty when the device is not used
+    Columns with at most ``n_bins`` distinct values (the host's float32 quantile edges can merge two of them) and columns with non-finite values stay on the host. Empty when the device is not used
     (``MLFRAME_GROUPED_QUANTILE_MI_DEVICE=0``, no GPU, or this scorer's tuned choice is the host)."""
     import os
 
@@ -631,7 +631,10 @@ def _grouped_quantile_mi_device(eng_X: pd.DataFrame, eng_cols: list, y_bin: np.n
             a = np.asarray(eng_X[c].to_numpy(), dtype=_crit_np_dtype())
             if not np.isfinite(a).all():
                 continue
-            if np.all(a == np.round(a)) and np.unique(a).size <= n_bins:
+            # at most n_bins distinct values (integer or not): the host cuts at float32 quantiles, where an edge interpolated between two adjacent values can
+            # round onto the upper one and merge them; the device's double interpolation keeps them apart (a 6-valued group broadcast: MI 1.6e-5 vs 3.7e-5),
+            # so such columns stay on the host. A 2048-value prefix with more distinct values settles most columns without the full count.
+            if np.unique(a[:2048]).size <= n_bins and pd.unique(a).size <= n_bins:
                 continue
             cols.append(c)
         if not cols:
