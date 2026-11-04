@@ -6,10 +6,10 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 |---|---|---|---|---|
 | **RESOLVED** | W28NN-1 | loss | Medium | the flat module's weighted multilabel loss summed B x K entries and divided by the sum of the B weights, so it was K times the unweighted mean; it now averages over the K labels |
 | **RESOLVED** | W28NN-2 | precision | Medium | the recurrent module's zero-weight guard `1e-12` rounds to 0 in float16, so an all-zero-weight batch gave 0 / 0 = nan; the weighted mean is now taken in float32 (`_weighted_mean`) |
-| **FUTURE** | W28RC-1 | replay | High | `_orth_basis_recipes.py:141-154,607-643`: NaN source values are filled with the mean of the batch being transformed instead of a frozen fit-time value |
+| **FUTURE** | W28RC-1 | replay | High | `_orth_basis_recipes.py:141-154,607-643`: NaN source values are filled with the mean of the batch being transformed instead of a frozen fit-time value; reason: the fit-time fill and the `tanh` std must be stored in the recipe and captured at about ten generator call sites that build `preprocess_params` (`_orthogonal_adaptive_arity_fe`, `_orthogonal_adaptive_degree_fe`, `_orthogonal_bootstrap_mi_fe`, ...); replay reads them when present and keeps the batch statistic for old pickles. One change for W28RC-1 and W28RC-2 |
 | **FUTURE** | W28RC-2 | replay | High | `_orth_basis_recipes.py:82-84`: the `tanh` pre-transform std is recomputed from the replay batch and never stored in the recipe |
-| **FUTURE** | W28GP-1 | precision | Medium | `_pairs_abs_corr_gpu.py:28,34-39`: the target is reduced in float32 on the device, so a target with a large offset collapses to constant and the GPU returns 0.0 where the CPU twin returns the true |r| |
-| **FUTURE** | W28GP-2 | precision | Medium | `_pairs_abs_corr_gpu.py:84-94`: both operands are cast to float32 before centring, with the same collapse at large offsets |
+| **RESOLVED** | W28GP-1 | precision | Medium | `_pairs_abs_corr_gpu.py:28,34-39`: the target is reduced in float32 on the device, so a target with a large offset collapses to constant and the GPU returns 0.0 where the CPU twin returns the true |r; the target, the mask and the row count are float64 on the device (GPU returned 0.0 where the true |r| is 0.96) |
+| **RESOLVED** | W28GP-2 | precision | Medium | `_pairs_abs_corr_gpu.py:84-94`: both operands are cast to float32 before centring, with the same collapse at large offsets; both operands are float64 on the device (resident key renamed `zerofill_operand_f64` so a cached float32 copy is not reused) |
 | **FUTURE** | W28DC-1 | cache | Medium | `_dcd_metrics.py:37-39`: `_is_foreign` treats any same-shape array sharing memory with the state matrix as the state's own, so another column view reuses the cached SU/VI/entropy |
 | **FUTURE** | W28CT-1 | scale | Low | `composite/transforms/simple.py:321,331,452,468`: the eps floor `sign(base + 1e-300) * eps` is 0 when `base == -1e-300` |
 | **FUTURE** | W28CT-2 | ties | Low | `composite/transforms/unary.py:531-535`: tied knots map every tied y to the last duplicate position instead of the middle of the tie block |
@@ -69,3 +69,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | W28TA-3 | `tests/feature_engineering/transformer/test_predictive_info_delta_bins_are_out_of_fold.py` |
 | W28TA-12 | `tests/feature_engineering/transformer/test_pairwise_kl_sigmas_use_out_of_fold_residuals.py` |
 | W28TA-13 | `tests/feature_engineering/transformer/test_variance_baseline_sigma_uses_out_of_fold_residuals.py` |
+| W28GP-1, 2 | `tests/feature_selection/fe/test_pairs_abs_corr_gpu_keeps_float64_precision.py` |
