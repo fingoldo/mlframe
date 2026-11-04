@@ -63,7 +63,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 
 | ID | Regression test |
 |---|---|
-| W28NN-1, 2 | `tests/training/test_neural_weighted_loss_reductions.py` |
+| W28NN-1, 2 | `tests/training/neural/test_neural_weighted_loss_reductions.py` |
 | W28TA-21 | `tests/feature_engineering/transformer/test_single_class_fold_does_not_crash_the_aux_mlp.py` |
 | W28TA-22 | `tests/feature_engineering/transformer/test_oof_rows_no_fold_validates_stay_nan.py` |
 | W28TA-3 | `tests/feature_engineering/transformer/test_predictive_info_delta_bins_are_out_of_fold.py` |

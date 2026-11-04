@@ -27,7 +27,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural base/flat modu
 
 | ID | Regression test |
 |---|---|
-| W29NB-1 | `tests/training/test_neural_refit_relearns_the_class_labels.py` |
+| W29NB-1 | `tests/training/neural/test_neural_refit_relearns_the_class_labels.py` |
 | W29NR-2 | `tests/training/neural/test_mlp_ranker_restores_the_best_epoch_weights.py` |
 | W29PX-2 | `tests/feature_selection/fe/test_fe_extval_factor_subset_is_drawn_once_per_pair.py` |
 | W29PX-1 | `tests/feature_selection/fe/test_fe_pair_chunk_where_every_transform_fails_keeps_the_entry_shape.py` |
