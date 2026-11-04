@@ -25,6 +25,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from ._baseline_oof import fit_baseline_predict_oof
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -161,7 +162,7 @@ def compute_adversarial_flip_features(
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1)
             model.fit(Xt_s, y_t)
             pred_orig = np.asarray(model.predict(Xq_s)).astype(np.float32)
-            train_pred = np.asarray(model.predict(Xt_s)).astype(np.float32)
+            train_pred = fit_baseline_predict_oof(Xt_s, y_t, "regression", fold_seed, caller="adversarial_flip")
             train_resid_decile = float(np.quantile(np.abs(y_t - train_pred), 0.10))
             orig_class = None  # for regression we compare pred-shift magnitude
 

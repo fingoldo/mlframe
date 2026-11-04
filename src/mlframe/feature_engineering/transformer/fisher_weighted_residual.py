@@ -86,6 +86,8 @@ def _finite_difference_grad_norm(model, X: np.ndarray, is_binary: bool, eps: flo
         # again allocated a second one, so the transient peak was twice what `_MAX_STACK_ELEMS` budgets:
         # 1.02 GB rather than 512 MB at the cap, before `predict_proba`'s own (d*n, n_classes) output.
         stack = np.broadcast_to(X, (d, n, d)).reshape(d * n, d)
+        if not stack.flags.writeable:  # n == 1: the reshape of the broadcast stays a read-only view
+            stack = stack.copy()
         block_starts = np.arange(d) * n
         for j in range(d):
             stack[block_starts[j] : block_starts[j] + n, j] += eps
@@ -177,10 +179,10 @@ def compute_fisher_weighted_residual_features(
                                        random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
             p_query = np.asarray(model.predict_proba(Xq_s))[:, 1].astype(np.float32)
             is_binary = True
-            # Residual proxy: -log p(y|x) per train row, from OOF predictions (see _oof_train_predictions).
+            # Band thresholds come from the same label-free quantity the query rows are banded on: the entropy of the (out-of-fold) prediction.
             p_train_oof = _oof_train_predictions(Xt_s, y_t, is_binary, fold_seed)
             p_train_c = np.clip(p_train_oof, 1e-6, 1 - 1e-6)
-            resid_train = (-y_t * np.log(p_train_c) - (1 - y_t) * np.log(1 - p_train_c)).astype(np.float32)
+            resid_train = (-p_train_c * np.log(p_train_c) - (1 - p_train_c) * np.log(1 - p_train_c)).astype(np.float32)
             # Query "residual proxy": entropy of prediction (uncertainty).
             p_query_c = np.clip(p_query, 1e-6, 1 - 1e-6)
             resid_query = (-p_query_c * np.log(p_query_c) - (1 - p_query_c) * np.log(1 - p_query_c)).astype(np.float32)
@@ -188,9 +190,9 @@ def compute_fisher_weighted_residual_features(
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
             p_query = np.asarray(model.predict(Xq_s)).astype(np.float32)
             is_binary = False
-            # Residual proxy from OOF predictions (see _oof_train_predictions).
+            # Same quantity as the query proxy below, taken on out-of-fold predictions so the band thresholds describe the rows they are applied to.
             p_train_oof = _oof_train_predictions(Xt_s, y_t, is_binary, fold_seed)
-            resid_train = np.abs(y_t - p_train_oof).astype(np.float32)
+            resid_train = np.abs(p_train_oof - float(np.median(y_t))).astype(np.float32)
             # Query residual proxy: prediction variance proxy = |p_query - train_y_median|
             resid_query = np.abs(p_query - float(np.median(y_t))).astype(np.float32)
 
