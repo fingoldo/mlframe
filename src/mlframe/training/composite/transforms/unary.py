@@ -529,9 +529,13 @@ def quantile_normal_y_fit(y: np.ndarray, n_quantiles: int = 1000) -> Dict[str, A
     # Equi-spaced ranks 1..n_quantiles taken from the sorted sample.
     n_knots = int(min(n_quantiles, n))
     idx = np.linspace(0, n - 1, n_knots).astype(np.int64)
-    knots_y = sorted_y[idx]
-    # Smith's plotting position (i - 0.5) / n is unbiased for the median rank of order statistics under continuous F; matches sklearn QuantileTransformer convention.
-    knots_q = (idx + 0.5) / n
+    # One knot per distinct value, at the mid-rank of its tie block. Duplicate knots made np.interp map every tied y to the plotting position of the LAST
+    # duplicate (a mass point of 90% zeros read as the 0.90 quantile instead of 0.45).
+    knots_y = np.unique(sorted_y[idx])
+    first = np.searchsorted(sorted_y, knots_y, side="left")
+    last = np.searchsorted(sorted_y, knots_y, side="right") - 1
+    # Smith's plotting position (i + 0.5) / n, averaged over the tie block (i from ``first`` to ``last``); matches sklearn QuantileTransformer convention.
+    knots_q = (first + last + 1) / (2.0 * n)
     return {"knots_y": knots_y, "knots_q": knots_q}
 
 
