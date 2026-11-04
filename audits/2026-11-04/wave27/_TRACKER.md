@@ -5,7 +5,7 @@ Three read-only reports by Opus 5.5 low-effort agents on code no earlier wave re
 | Disposition | ID | Class | Severity | Location |
 |---|---|---|---|---|
 | **RESOLVED** | W27KB-1 | cache | High | the key-bank cache fingerprint left out `y_train`, so the same X with another target loaded a bank holding the first target y and supervised projections; `_key_bank_fingerprint` now hashes `y_train` (optional argument, the legacy key is unchanged without it) and `build_key_bank` passes it |
-| **FUTURE** | W27KB-2 | backend | Medium | `knn_search` honours `metric` on the hnswlib path only; the sklearn fallback is always Euclidean, and the hnswlib branch takes a sqrt of non-squared distances for the non-`l2` spaces |
+| **RESOLVED** | W27KB-2 | backend | Medium | `knn_search` honours `metric` on the hnswlib path only; the sklearn fallback is always Euclidean, and the hnswlib branch takes a sqrt of non-squared distances for the non-`l2` spaces; the exact backend honours `l2`, `cosine` and `ip` (a blocked inner-product search for `ip`), and the hnswlib branch takes the sqrt for `l2` only |
 | **FUTURE** | W27KB-3 | nan | Medium | the numba kernels compile with `fastmath=True`, which may fold the `isfinite` guards the CUDA kernels evaluate; `kfold_attention_loop` does not validate its input |
 | **FUTURE** | W27KB-4 | leakage | Medium | `_oof.kfold_attention_loop` splits with `splitter.split(X_train)` and never passes groups or labels, so a group-aware splitter raises and the default shuffled KFold leaks within a group |
 | **FUTURE** | W27KB-5 | leakage | Medium | the inner baseline folds of `_baseline_oof` / `_residual_oof` are shuffled and group-blind, so duplicates of a row sit in the training folds of its own baseline |
@@ -50,3 +50,4 @@ Three read-only reports by Opus 5.5 low-effort agents on code no earlier wave re
 | W27PR-2 | `tests/feature_selection/fe/test_fe_per_pair_path_feeds_the_pair_family_gate.py` |
 | W27PR-7 | `tests/feature_selection/fe/test_fe_pair_family_gate_rejection_is_recorded.py` |
 | W27PR-9 | `tests/feature_selection/fe/test_fe_pair_progress_bar_shows_the_running_best.py` |
+| W27KB-2 | `tests/feature_engineering/transformer/test_knn_search_honours_the_metric_on_the_exact_backend.py` |
