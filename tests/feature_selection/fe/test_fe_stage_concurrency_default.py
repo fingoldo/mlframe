@@ -52,3 +52,26 @@ def test_concurrency_declines_when_the_scaled_peaks_do_not_fit(monkeypatch):
     ran = []
     assert C.run_stages_concurrently(object(), [lambda e: ran.append(1)] * 3, n_rows=500_000) is None
     assert not ran
+
+
+def test_merge_handles_array_attributes():
+    """A weighted fit keeps numpy arrays on the estimator (``==`` on them returns an array): merging must not raise, must keep an unchanged array,
+    take a changed one, and append new items of a list holding arrays."""
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fe_stage_concurrency import merge_stage_state, snapshot
+
+    w = np.arange(5.0)
+    target = SimpleNamespace(w=w, codes={"a": np.ones(3)}, recs=[np.zeros(2)], tag="x")
+    base = snapshot(target)
+    stage = SimpleNamespace(w=w.copy(), codes={"a": np.ones(3), "b": np.full(2, 7.0)}, recs=[np.zeros(2), np.ones(2)], tag="x", new=np.ones(1))
+    merge_stage_state(target, base, [stage])
+    assert target.w is w  # equal values: the target keeps its own array
+    assert set(target.codes) == {"a", "b"} and np.array_equal(target.codes["b"], np.full(2, 7.0))
+    assert len(target.recs) == 2 and np.array_equal(target.recs[1], np.ones(2))
+    assert np.array_equal(target.new, np.ones(1))
+    changed = SimpleNamespace(w=np.arange(5.0) + 1, codes=target.codes, recs=target.recs, tag="x", new=target.new)
+    merge_stage_state(target, snapshot(target), [changed])
+    assert np.array_equal(target.w, np.arange(5.0) + 1)
