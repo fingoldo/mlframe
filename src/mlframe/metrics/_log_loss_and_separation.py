@@ -138,8 +138,16 @@ def fast_log_loss_binary(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e
     N=100k rows the parallel kernel is selected (~4.8x faster than
     seq at N=10M, 8-thread runtime).
 
-    Returns np.nan if only one class is present in y_true.
+    Returns np.nan if only one class is present in y_true, or if y_true holds NaN. Two labels outside {0, 1} are mapped with the larger as positive (as in
+    ``fast_roc_auc`` and sklearn); the kernels score every label other than 1 as a negative.
     """
+    y_true = np.asarray(y_true)
+    if y_true.dtype.kind == "f" and np.isnan(y_true).any():
+        return float("nan")  # a missing label has no loss; scoring it as a negative would charge -log(1 - p)
+    if y_true.dtype.kind != "b" and y_true.size and (y_true.min() < 0 or y_true.max() > 1):
+        from ._auc_labels import _binary_labels_01
+
+        y_true = _binary_labels_01(y_true)
     if len(y_true) >= _PARALLEL_REDUCTION_THRESHOLD:
         return float(_fast_log_loss_binary_par(y_true, y_pred, eps))
     return float(_fast_log_loss_binary_seq(y_true, y_pred, eps))

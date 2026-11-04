@@ -6,7 +6,7 @@ Three read-only reports by Opus 5.5 low-effort agents on large packages (metrics
 |---|---|---|---|---|
 | **RESOLVED** | W31ME-1 | labels | High | `metrics/_auc_labels.py:16-17`: `_binary_labels_01` maps any label set outside [0,1] to `y == 1`, so labels {1,2} give 1 - AUC (sklearn uses the larger label as positive); {0,2} become all zeros; two distinct labels outside [0, 1] now take the larger as positive (the helper's docstring claimed this was sklearn's convention); any other label set keeps `== 1` |
 | **FUTURE** | W31ME-2 | nan | Medium | `metrics/_core_auc_brier.py:176,594,762-778`: NaN scores sort last, the descending reversal puts them first, so NaN is ranked highest and the AUC is finite but wrong |
-| **FUTURE** | W31ME-3 | labels | Medium | `metrics/_log_loss_and_separation.py:115-119`: any `y_true` other than 1 (2, -1, NaN) is scored as a negative |
+| **RESOLVED** | W31ME-3 | labels | Medium | `metrics/_log_loss_and_separation.py:115-119`: any `y_true` other than 1 (2, -1, NaN) is scored as a negative; `fast_log_loss_binary` (and `fast_log_loss` through it) returns NaN when `y_true` holds NaN and maps two labels outside {0, 1} with the larger as positive |
 | **RESOLVED** | W31ME-4 | empty | Low | `metrics/calibration/_calibration_metrics.py:133,212,285`: empty input returns 1.0 (ECE, debiased ECE, Brier decompositions) where NaN is correct; the four kernels (plug-in and debiased ECE, both Brier decompositions, the fused one) return NaN in every field on empty input; five older tests that pinned the 1.0 sentinel are reframed |
 | **RESOLVED** | W31PP-1 | asymmetry | Medium | `preprocessing/missing_indicator_pairing.py:60,85`: fit skips columns without NaN, so NaN in such a column at apply time gets no fill and no indicator; an explicit `columns` list is learned in full (auto-discovery still keeps only the columns with a NaN in the fit frame, as documented) |
 | **DOC** | W31PP-2 | mutation | Medium | `preprocessing/transforms.py:166-266`: `prepare_df_for_catboost` rewrites the caller's pandas columns and grows the caller's `cat_features` list; in-place mutation is the documented design (never copy frames that can be 100+ GB) and `cat_features` is an out-parameter callers rely on; the contract is now written in the docstring |
@@ -31,3 +31,4 @@ Three read-only reports by Opus 5.5 low-effort agents on large packages (metrics
 | W31UT-1 | `tests/utils/test_disk_cache_array_key_sees_middle_rows_of_bool_and_string_arrays.py` |
 | W31PP-1 | `tests/preprocessing/test_missing_indicator_explicit_columns_are_learned_even_without_train_nans.py` |
 | W31ME-4 | `tests/metrics/classification/test_calibration_kernels_return_nan_on_empty_input.py` |
+| W31ME-3 | `tests/metrics/test_log_loss_label_handling.py` |
