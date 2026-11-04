@@ -11,7 +11,7 @@ import numpy as np
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 from ._pairs_abs_corr_gpu import abs_corr_or_none
-from ._pairs_chunk_codes import code_column
+from ._pairs_chunk_codes import ChunkCodes, code_column
 from ._pairs_code_bins import scrub_nonfinite
 from ._pairs_chunks import _compute_one_fe_chunk
 from ._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
@@ -413,6 +413,8 @@ def _score_one_pair_step3_step1_pair_phase_produced(
                 _fe_mi_arr, _disc_2d, final_transformed_vals, st.i, quantization_nbins, _code_dtype, discretize_2d_quantile_batch, serial_main_thread
             )
 
+            # The per-pair family gate reads every configuration's bins; keep the codes this pair was scored on (None when a GPU pair-MI path scored it without host codes).
+            st._chunk_codes = None if _disc_2d is None else ChunkCodes.capture(_disc_2d)
             # Phase 3: BATCHED MI + permutation noise-gate across ALL K candidate
             # columns in ONE kernel call. Bit-identical to the per-candidate
             # ``mi_direct`` loop on the default FE path (parallelism='outer',

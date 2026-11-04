@@ -5,6 +5,7 @@ import pandas as pd
 
 import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_emit as emit
 import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_emit_extval as extval
+import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_score as pair_score
 
 
 def _frame(n=3000, seed=0):
@@ -33,6 +34,8 @@ def _fit_calls(monkeypatch, max_cells):
     monkeypatch.setattr(emit, "_apply_pair_family_gate", exact)
     monkeypatch.setattr(emit, "_apply_pair_family_floor", floor)
     monkeypatch.setattr(extval, "_FAMILY_EXACT_MAX_CELLS", max_cells)
+    # The pair-level gate has no cell budget and also calls the exact test; switch it off so the counts are the validation family's alone.
+    monkeypatch.setattr(pair_score, "apply_pair_family_gate_from_state", lambda *args, **kwargs: False)
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y = _frame()
