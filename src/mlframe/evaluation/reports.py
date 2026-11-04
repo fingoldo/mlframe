@@ -409,8 +409,17 @@ def _evaluate_estimator_block(val_size, est, X_test, y_test, shuffle, stratify, 
         # Just a classifier with early stopping... Need to get early stopping set for it...
         # ----------------------------------------------------------------------------------------------------------------------------
 
-        if type(val_size) is float:
-            X_test_test, X_test_val, y_test_test, y_test_val = train_test_split(X_test, y_test, test_size=val_size, shuffle=shuffle, stratify=stratify)
+        if type(val_size) is float and groups is not None and np.unique(np.asarray(groups)).size >= 2:
+            # keep each group whole: a row-wise split puts one group on both sides and the early-stopping set then leaks
+            from sklearn.model_selection import GroupShuffleSplit
+
+            _tr, _va = next(GroupShuffleSplit(n_splits=1, test_size=val_size).split(X_test, groups=np.asarray(groups)))
+            X_test_test = X_test.iloc[_tr, :] if hasattr(X_test, "iloc") else X_test[_tr]
+            X_test_val = X_test.iloc[_va, :] if hasattr(X_test, "iloc") else X_test[_va]
+            y_test_test = y_test.iloc[_tr] if hasattr(y_test, "iloc") else y_test[_tr]
+            y_test_val = y_test.iloc[_va] if hasattr(y_test, "iloc") else y_test[_va]
+        elif type(val_size) is float:
+            X_test_test, X_test_val, y_test_test, y_test_val = train_test_split(X_test, y_test, test_size=val_size, shuffle=shuffle, stratify=stratify)  # group-blind-ok: no groups, or a single group that cannot be split
         else:
             _split = train_test_split_from_generator(gen=val_size, X=X_test, groups=groups)
             if _split is None:

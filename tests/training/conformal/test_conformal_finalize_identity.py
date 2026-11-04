@@ -8,6 +8,7 @@ real artifacts, not a from-memory rewrite (per CLAUDE.md A/B methodology rule 4)
 
 import importlib.util
 import shutil
+import os
 import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 import types
@@ -20,11 +21,14 @@ REL = "src/mlframe/training/_conformal_finalize.py"
 REPO = Path(__file__).resolve().parents[3]
 
 
+_GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}  # a hook's GIT_DIR/GIT_INDEX_FILE must not steer the child git
+
+
 def _load_old_module() -> types.ModuleType:
     """Load old module."""
     if shutil.which("git") is None:  # pragma: no cover - env without git
         pytest.skip("cannot load OLD baseline via git show: git is not installed")
-    shown = subprocess.run(["git", "show", f"HEAD:{REL}"], cwd=REPO, text=True, capture_output=True, check=False)  # nosec B603 B607 -- fixed local argv (git + literal args), no shell, no untrusted input
+    shown = subprocess.run(["git", "show", f"HEAD:{REL}"], cwd=REPO, text=True, capture_output=True, check=False, env=_GIT_ENV)  # nosec B603 B607 -- fixed local argv (git + literal args), no shell, no untrusted input
     if shown.returncode != 0:  # pragma: no cover - checkout without HEAD or without the file at HEAD
         pytest.skip(f"cannot load OLD baseline via git show: {shown.stderr.strip()}")
     src = shown.stdout

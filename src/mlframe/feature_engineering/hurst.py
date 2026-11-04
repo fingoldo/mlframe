@@ -182,7 +182,7 @@ def compute_hurst_exponent(
 # =============================================================================
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)  # fastmath-nan-ok: callers pass finite windows, the rolling wrappers zero non-finite values (module docstring)
 def _hurst_rs_single(x: np.ndarray) -> float:
     """R/S statistic on a single window. Same definition as
     ``compute_hurst_rs`` but inlined for the rolling-kernel hot path
@@ -224,7 +224,7 @@ def _rolling_hurst_kernel(
         out[i] = _hurst_rs_single(arr[i - K + 1 : i + 1])
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)  # fastmath-nan-ok: callers pass finite windows, the rolling wrappers zero non-finite values (module docstring)
 def dfa_alpha(x: np.ndarray) -> float:
     """Detrended Fluctuation Analysis alpha exponent on one window.
 
@@ -291,7 +291,7 @@ def _rolling_dfa_kernel(arr: np.ndarray, K: int, out: np.ndarray) -> None:
         out[i] = dfa_alpha(arr[i - K + 1 : i + 1])
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)  # fastmath-nan-ok: callers pass finite windows, the rolling wrappers zero non-finite values (module docstring)
 def higuchi_fd(x: np.ndarray, kmax: int = 8) -> float:
     """Higuchi fractal dimension on one window.
 
@@ -486,7 +486,7 @@ def multi_scale_hurst(
     return (h_s, h_m, h_l, c_s, c_m, c_l)
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)  # fastmath-nan-ok: callers pass finite windows, the rolling wrappers zero non-finite values (module docstring)
 def dfa_alpha2_quadratic(x: np.ndarray) -> float:
     """DFA-2 (quadratic detrending) alpha exponent on one window.
 
@@ -630,7 +630,7 @@ def _mfdfa_fq_column(var_per_seg, q_values, m, F_qs, ks):
         F_qs[kq, ks] = max(mean_pow, _LOG_FLOOR) ** (1.0 / q)
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)  # fastmath-nan-ok: callers pass finite windows, the rolling wrappers zero non-finite values (module docstring)
 def _mfdfa_hurst_slope(row, log_s):
     """Slope of log F_q against log s for one q, or NaN when fewer than two scales are usable."""
     # Fit H(q) = slope of log F_q(s) vs log s over the finite, positive scales.
@@ -659,7 +659,7 @@ def _mfdfa_hurst_slope(row, log_s):
     return np.nan
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)  # fastmath-nan-ok: callers pass finite windows, the rolling wrappers zero non-finite values (module docstring)
 def multifractal_dfa(
     x: np.ndarray,
     q_values: np.ndarray,

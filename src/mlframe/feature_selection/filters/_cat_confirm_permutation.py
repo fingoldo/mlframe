@@ -821,6 +821,7 @@ def _finalize_permutation_confirmation(
     return selected_idx[kept_mask], corrected_conf
 
 
+# unwired-ok: single_merge_cache is a caller-supplied memo shared across calls; only tests inject one
 def _confirm_pairs_via_permutation(
     factors_data: np.ndarray,
     pairs_a: np.ndarray,

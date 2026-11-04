@@ -58,7 +58,7 @@ def _reporting_field_default(field_name: str):
 
 
 def _maybe_display(obj):
-    """Display ``obj`` in Jupyter; no-op in scripts/CI.
+    """Display ``obj`` in Jupyter; no-op in a plain script or on a CI runner.
 
     ``UnicodeEncodeError`` guard: outside Jupyter, IPython's ``display``
     falls back to printing ``repr(obj)`` to stdout. On a Windows console

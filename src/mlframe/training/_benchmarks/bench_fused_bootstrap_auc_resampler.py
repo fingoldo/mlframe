@@ -93,7 +93,7 @@ def main(reps: int = 1000) -> dict:
         p = 1.0 / (1.0 + np.exp(-(1.2 * y + rng.normal(0, 1, n))))
         asc = np.argsort(p)
         base_rank = np.empty(n, dtype=np.int64)
-        base_rank[asc] = np.arange(n, dtype=np.int64)
+        base_rank[asc] = np.arange(n, dtype=np.int64)  # ordinal-rank-ok: the benchmark permutes rows by their ordinal position
         y_by_rank = np.empty(n, dtype=np.int64)
         y_by_rank[base_rank] = y
 

@@ -697,13 +697,10 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
     x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
     if x.size != va.size or not np.all(np.isfinite(x)) or float(np.std(x)) < 1e-12:
         return 0.0
-    # single argsort + scatter (cProfile-driven: this rank computation was the dominant cost of
-    # the whole function, 34ms/call @ n=99401) instead of a double argsort - same ranks (verified bit-
-    # identical), ~1.7x faster (32.5ms -> 19.0ms @ n=99401): argsort once for the sort order, then scatter
-    # 0..n-1 into that order's positions, instead of sorting the sort-order array a second time.
-    _order = np.argsort(x, kind="stable")
-    ranks = np.empty(x.size, dtype=_crit_np_dtype())
-    ranks[_order] = np.arange(x.size, dtype=_crit_np_dtype())
+    # average ranks (0-based): tied feature values share one rank instead of being ordered by row position
+    from scipy.stats import rankdata
+
+    ranks = (rankdata(x, method="average") - 1.0).astype(_crit_np_dtype(), copy=False)
     n = x.size
     zx = (ranks / max(n - 1, 1)) * 2.0 - 1.0
     try:

@@ -187,6 +187,7 @@ def _kernel_already_current(existing: dict, kernel_name: str, code_version: Opti
     return entry.get("code_version") == code_version
 
 
+# unwired-ok: discover_fn and tune_fn are test seams of the benchmark generator
 def generate_defaults(
     *,
     package: str = "mlframe",

@@ -107,7 +107,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--configs", default="C3,C3_hard")
     ap.add_argument("--scale", default="full", choices=list(SCALES))
-    ap.add_argument("--n_jobs", type=int, default=-1, help="Selector n_jobs; set to 1 for serial when CPU is busy with other work.")
+    ap.add_argument("--n-jobs", "--n_jobs", type=int, default=-1, help="Selector n_jobs; set to 1 for serial when CPU is busy with other work.")
     ap.add_argument("--out_file", default=None)
     args = ap.parse_args(argv)
 

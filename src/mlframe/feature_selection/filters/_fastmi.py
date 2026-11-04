@@ -50,11 +50,10 @@ def _rank_to_uniform(x: np.ndarray) -> np.ndarray:
     """Empirical CDF transform: rank(x) / (N + 1) -> uniforms in (0, 1)."""
     x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
     n = x.size
-    order = np.argsort(x, kind="mergesort")
-    # Intentional float64: integer ranks exceed exact float32 range beyond 2**24 rows
-    ranks = np.empty(n, dtype=np.float64)
-    # Intentional float64: integer ranks exceed exact float32 range beyond 2**24 rows
-    ranks[order] = np.arange(1, n + 1, dtype=np.float64)
+    from scipy.stats import rankdata
+
+    # Average ranks: tied values share one uniform instead of being split by input order. Intentional float64: ranks exceed exact float32 range beyond 2**24 rows.
+    ranks = rankdata(x, method="average").astype(np.float64, copy=False)
     return ranks / (n + 1.0)
 
 

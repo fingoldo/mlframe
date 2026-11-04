@@ -9,7 +9,7 @@ def qbin(x, k=10):
     """Equal-frequency bin codes in ``[0, k)`` from the stable rank of ``x``."""
     n = len(x)
     r = np.empty(n, np.int64)
-    r[np.argsort(x, kind="stable")] = np.arange(n)
+    r[np.argsort(x, kind="stable")] = np.arange(n)  # ordinal-rank-ok: equal-frequency bins need distinct ordinal ranks
     return np.minimum((r * k) // n, k - 1)
 
 

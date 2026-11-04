@@ -194,6 +194,7 @@ def linear_usability_keeps(X, srcs, cands: dict, y_cls, cell_ids, level: float, 
         return set()
     prep, cells_s, n_cells = state["prep"], state["cells_s"], state["n_cells"]
     names, gains, means = [], [], []
+    cell_counts = np.maximum(np.bincount(cells_s, minlength=n_cells), 1)
     for name, codes in cands.items():
         cand = _standardised(_to_host(codes)[state["rows"]])
         if not cand.any():
@@ -205,7 +206,7 @@ def linear_usability_keeps(X, srcs, cands: dict, y_cls, cell_ids, level: float, 
             continue
         names.append(name)
         gains.append(gain)
-        means.append(np.bincount(cells_s, weights=cand_s, minlength=n_cells) / np.maximum(np.bincount(cells_s, minlength=n_cells), 1))
+        means.append(np.bincount(cells_s, weights=cand_s, minlength=n_cells) / cell_counts)
     if not names:
         return set()
     total = int(min(_MAX_DRAWS, max(_MIN_DRAWS, math.ceil(2.0 / level)))) if level > 0 else _MAX_DRAWS

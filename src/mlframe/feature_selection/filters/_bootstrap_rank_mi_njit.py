@@ -296,7 +296,10 @@ def dense_ranks_f32(bits: np.ndarray):
     return rk_all, n_levels, ok
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+_NAN_SAFE_FASTMATH = {"nsz", "arcp", "contract", "afn", "reassoc"}  # no nnan/ninf: this kernel returns or tests NaN/inf
+
+
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, parallel=True)
 def _bootstrap_rank_mi_generic(arr: np.ndarray, y_codes: np.ndarray, n_classes: int, idx: np.ndarray, lens: np.ndarray, binpos: np.ndarray, n_bins: int):
     """:func:`_bootstrap_rank_mi_f32` for any float dtype: the dense ranks come from a stable argsort of the column, every column takes the counting sort of the draws."""
     n, k = arr.shape

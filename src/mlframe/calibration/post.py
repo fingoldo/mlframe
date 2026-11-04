@@ -525,7 +525,7 @@ def _fit_and_predict_calibrator(
                 fold_clf.fit(calib_probs_np[train_idx], calib_target_np[train_idx], sample_weight=fold_sw)
                 fold_pred = np.asarray(fold_clf.postcalibrate_probs(calib_probs_np[held_idx]))
                 if oof_calibrated is None:
-                    oof_calibrated = np.empty((calib_target_np.shape[0], *fold_pred.shape[1:]), dtype=fold_pred.dtype)
+                    oof_calibrated = np.full((calib_target_np.shape[0], *fold_pred.shape[1:]), np.nan, dtype=np.result_type(fold_pred.dtype, np.float32))
                 oof_calibrated[held_idx] = fold_pred
             calibrated_probs = oof_calibrated
             fitting_time = timer() - start

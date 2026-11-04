@@ -14,6 +14,7 @@ out of ``git add`` and this gate keeps it out of the index.
 
 from __future__ import annotations
 
+import os
 import subprocess  # nosec B404 - runs git against this repo, no external input
 import sys
 from pathlib import Path
@@ -27,6 +28,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT_SUFFIXES = {".html", ".png", ".svg", ".pdf", ".jpg", ".jpeg", ".gif", ".webp"}
 
 
+_GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}  # a hook's GIT_DIR/GIT_INDEX_FILE must not steer the child git
+
+
 def _tracked_root_files() -> list[str]:
     """Every file git tracks directly at the repository root."""
     proc = subprocess.run(  # nosec B603 - fixed argv, no shell
@@ -34,6 +38,7 @@ def _tracked_root_files() -> list[str]:
         capture_output=True,
         text=True,
         cwd=str(REPO_ROOT),
+        env=_GIT_ENV,
     )
     if proc.returncode != 0:
         pytest.skip(f"git unavailable or not a checkout: {proc.stderr.strip()[:200]}")
@@ -74,6 +79,7 @@ def test_any_stray_chart_artifact_in_the_root_is_at_least_unstageable():
         capture_output=True,
         text=True,
         cwd=str(REPO_ROOT),
+        env=_GIT_ENV,
     )
     ignored = set(proc.stdout.split())
     stageable = sorted(n for n in stray if n not in ignored)

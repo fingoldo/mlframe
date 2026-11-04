@@ -31,7 +31,10 @@ ORDER_STAT_N_MIN = {"median": 8, "trimmed_mean": 12, "q10": 20, "q90": 20, "iqr"
 _TRIM_FRAC = 0.10  # symmetric fraction cut from each tail for trimmed_mean (scipy.stats.trim_mean convention).
 
 
-@numba.njit(cache=True, fastmath=True)
+_NAN_SAFE_FASTMATH = {"nsz", "arcp", "contract", "afn", "reassoc"}  # no nnan/ninf: this kernel returns or tests NaN/inf
+
+
+@numba.njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
 def _segment_order_stats(
     y_sorted: np.ndarray, starts: np.ndarray, counts: np.ndarray,
     w_median: bool, w_trim: bool, w_q10: bool, w_q90: bool, w_iqr: bool, w_min: bool, w_max: bool,

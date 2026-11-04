@@ -8,6 +8,7 @@ confidence on the day it stops being true as on the day it was measured.
 from __future__ import annotations
 
 import orjson
+import os
 import subprocess  # nosec B404 - builds a throwaway git repository for the test; fixed argument lists only
 from pathlib import Path
 from typing import Any, List
@@ -16,10 +17,12 @@ import pytest
 
 from mlframe.feature_selection._benchmarks.fs_hybrid._staleness import STALE_COMMITS, WARN_COMMITS, WATCHED_PATHS, assess, commits_since, format_staleness
 
+_GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}  # a hook's GIT_DIR/GIT_INDEX_FILE must not steer the child git
+
 
 def _run(args: List[str], cwd: Path) -> None:
     """Run one git command in the scratch repository."""
-    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True, timeout=60)  # nosec B603 B607 - fixed argument list, no shell
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True, timeout=60, env=_GIT_ENV)  # nosec B603 B607 - fixed argument list, no shell
 
 
 @pytest.fixture()
@@ -39,7 +42,7 @@ def repo(tmp_path: Path) -> Any:
 
 def _head(root: Path) -> str:
     """Return the repository's current HEAD sha."""
-    out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True, timeout=60)  # nosec B603 B607 - fixed argument list, no shell
+    out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True, timeout=60, env=_GIT_ENV)  # nosec B603 B607 - fixed argument list, no shell
     return out.stdout.strip()
 
 
