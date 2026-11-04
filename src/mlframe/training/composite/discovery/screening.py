@@ -377,8 +377,9 @@ def _prebin_one_column(
     col_finite = np.isfinite(col)
     if col_finite.sum() < 5 * nbins:
         return np.full(col.shape[0], -1, dtype=code_dtype)
-    # nanquantile drops NaN but not inf; on an all-finite column np.quantile is bit-identical and faster, so take it in the common case.
-    cut = np.quantile(col, q_edges) if col_finite.all() else np.nanquantile(col, q_edges)
+    # Cut points come from the finite values only: nanquantile drops NaN but not inf, and a column with many +-inf rows then got inf / NaN edges that sent all its
+    # finite rows into a few bins. On an all-finite column the plain quantile is bit-identical to the old path and faster.
+    cut = np.quantile(col, q_edges) if col_finite.all() else np.quantile(col[col_finite], q_edges)
     col_idx = np.full(col.shape[0], -1, dtype=code_dtype)
     col_idx[col_finite] = np.searchsorted(
         cut, col[col_finite], side="right",
