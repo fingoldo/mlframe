@@ -406,3 +406,13 @@ class BoundSplitter:
     def split(self, X: Any, y: Any = None, groups: Any = None) -> Any:
         """Split ``X`` with the bound ``groups`` and ``y`` unless the caller passes its own."""
         return self.splitter.split(X, self.y if y is None else y, self.groups if groups is None else groups)
+
+
+def positive_class_proba(model: Any, X: Any) -> np.ndarray:
+    """Probability of class 1 from a fitted classifier, also when it was fitted on a single class (``predict_proba`` then has one column: 1.0 or 0.0 for every row)."""
+    proba = np.asarray(model.predict_proba(X))
+    classes = np.asarray(model.classes_).ravel()
+    if classes.size >= 2 and proba.shape[1] >= 2:
+        return np.asarray(proba[:, 1])
+    # sklearn's MLPClassifier fitted on one class still returns a second column, with a meaningless probability for a class it never saw.
+    return np.full(proba.shape[0], 1.0 if float(classes[0]) > 0.5 else 0.0, dtype=proba.dtype)

@@ -1,6 +1,6 @@
 # Wave 28 audit 2026-11-04 -- tracker
 
-Three read-only reports by Opus 5.5 low-effort agents: the neural training package (about 6 of 60 modules read), the dynamic cluster discovery / recipe / composite-transform modules, and the transformer modules from `l` to `z` (report pending). The agents could not write files, so the reports are their returned text, condensed; each finding was re-checked on HEAD before it was fixed. Dispositions: RESOLVED, FUTURE, DOC, REJECTED.
+Three read-only reports by Opus 5.5 low-effort agents: the neural training package (about 6 of 60 modules read), the dynamic cluster discovery / recipe / composite-transform modules, and the transformer modules from `l` to `z` (about 40 findings, none reproduced by the agent). The agents could not write files, so the reports are their returned text, condensed; each finding was re-checked on HEAD before it was fixed. Dispositions: RESOLVED, FUTURE, DOC, REJECTED.
 
 | Disposition | ID | Class | Severity | Location |
 |---|---|---|---|---|
@@ -13,6 +13,46 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **FUTURE** | W28DC-1 | cache | Medium | `_dcd_metrics.py:37-39`: `_is_foreign` treats any same-shape array sharing memory with the state matrix as the state's own, so another column view reuses the cached SU/VI/entropy |
 | **FUTURE** | W28CT-1 | scale | Low | `composite/transforms/simple.py:321,331,452,468`: the eps floor `sign(base + 1e-300) * eps` is 0 when `base == -1e-300` |
 | **FUTURE** | W28CT-2 | ties | Low | `composite/transforms/unary.py:531-535`: tied knots map every tied y to the last duplicate position instead of the middle of the tie block |
+| **FUTURE** | W28TA-1 | metric | High | local_linear.py:107: neighbours come from a cosine index on median-centred data, so the local OLS is not local |
+| **FUTURE** | W28TA-2 | fit | High | local_curvature.py:87-112: the quadratic design has more columns than k rows for d >= 8, lstsq interpolates exactly, resid_quad ~ 0 |
+| **FUTURE** | W28TA-3 | leakage | High | predictive_info_delta.py:110-119: H(y|bin) built from in-sample predictions, query rows use held-out ones |
+| **FUTURE** | W28TA-4 | replay | High | row_attention.py:202: apply_dedupe runs separately on the Mode A and Mode B outputs so their column sets can differ |
+| **FUTURE** | W28TA-5 | replay | High | spectral_attention.py:120-121: the Nystrom bandwidth is recomputed from the query batch instead of reusing the training graph sigma |
+| **FUTURE** | W28TA-6 | replay | Medium | residual_attention.py:106,136: Mode A applies dedupe_threshold, Mode B hard-codes None |
+| **FUTURE** | W28TA-7 | replay | Medium | local_classifier.py:162: the bandwidth is the median k-th distance over the query batch |
+| **FUTURE** | W28TA-8 | replay | Medium | mdl_binning_pairwise.py:226: n_unique_combos counted over the query batch |
+| **FUTURE** | W28TA-9 | replay | Medium | performer_attention.py:65,121-122: the global-max shift is per batch and does not cancel |
+| **FUTURE** | W28TA-10 | precision | Medium | performer_attention.py:61-66,114: float32 underflow hidden by the 1e-9 floor fallback (y_est = 0) |
+| **FUTURE** | W28TA-11 | leakage | Medium | nn_oof_target_mean.py:68-96,143-144: kNN index built on in-sample baseline predictions, queries use out-of-sample ones |
+| **FUTURE** | W28TA-12 | leakage | Medium | pairwise_kl_divergence.py:80-82: baseline sigma is the in-sample residual std |
+| **FUTURE** | W28TA-13 | leakage | Medium | variance_baseline.py:79-85: mu_train is in-sample |
+| **FUTURE** | W28TA-14 | leakage | Medium | target_kmeans_codebook.py:405,409: train rows clustered on in-sample predictions, queries on held-out ones |
+| **FUTURE** | W28TA-15 | scale | Medium | target_kmeans_codebook.py:420,428: cluster_size is a fold-sized count in Mode A and a full-data count in Mode B |
+| **FUTURE** | W28TA-16 | scale | Medium | local_lift.py:50: max(y_global_mean, 1e-9) breaks for a zero or negative mean |
+| **FUTURE** | W28TA-17 | ties | Medium | residual_stratified_distance.py:190-192: abs_r < median is empty when half or more of the residuals tie at the median |
+| **FUTURE** | W28TA-18 | crash | Medium | stacked_attention.py:92-115: layer-0 NaN rows rejected by validate_numeric_input at layer 1 under TimeSeriesSplit |
+| **FUTURE** | W28TA-19 | leakage | Medium | stacked_attention.py:115, stacked_qnn.py:225: layer 2 reuses the splitter on layer-1 out-of-fold features |
+| **FUTURE** | W28TA-20 | replay | Medium | row_attention.py:239: validate_projection_dims called without allow_overcomplete in Mode B |
+| **RESOLVED** | W28TA-21 | crash | Medium | predict_proba(...)[:, 1] raises on a single-class training fold in twelve modules (multi_baseline_hard_row, aux_mlp, multi_aux_ensemble, nn_oof_target_mean, pairwise_kl_divergence, sign_residual_baseline, variance_baseline, target_kmeans_codebook, tree_path_boolean, trust_score_oof, _baseline_oof); the LightGBM baselines do not crash on a single-class fold (checked: `fit_baseline_predict_oof` returns finite values); the crash was real for sklearn's `MLPClassifier`, which returns a second column with a meaningless probability for a class it never saw; `positive_class_proba` handles it and `aux_mlp` uses it |
+| **RESOLVED** | W28TA-22 | nan | Medium | Mode A output allocated with np.zeros so rows no fold validates read 0 in ten modules (sign_residual_baseline, signed_residual_band, smote_distance, spectral_attention, target_kmeans_codebook, target_quantile, tree_path_boolean, trust_score_oof, variance_baseline, y_quintile_baseline_knn); all ten allocate the Mode A output with NaN |
+| **FUTURE** | W28TA-23 | crash | Low | spectral_attention.py:89,106,204: too few eigenvectors and NearestNeighbors failure on a small fold |
+| **FUTURE** | W28TA-24 | scale | Low | spectral_attention.py:136: eigenvalues clamped at 1e-6 give embeddings of size ~1e6 |
+| **FUTURE** | W28TA-25 | crash | Low | target_kmeans_codebook.py:416: n_clusters_eff never capped at n |
+| **FUTURE** | W28TA-26 | validation | Low | row_attention.py:53, _oof.py:186: k checked against n_train, not the fold size; k_scales not validated |
+| **FUTURE** | W28TA-27 | precision | Low | target_quantile.py:78-80, y_quintile_baseline_knn.py:251-253: the +1e-9 tie-break is below one ULP for |y| > 1e7 |
+| **FUTURE** | W28TA-28 | ties | Low | multi_baseline_hard_row.py:169-175: rows with all-negative z-scores tie at 0 |
+| **FUTURE** | W28TA-29 | ties | Low | multi_temp_cbhr.py:79-81: q1 == q4 picks the same anchors on both sides |
+| **FUTURE** | W28TA-30 | weights | Low | multi_temp_residual_band.py:106-111: empty bands keep softmax weight |
+| **FUTURE** | W28TA-31 | convention | Low | lda_projection, mixup_boundary, multiscale_smote, smote_distance, per_class_spectral: all-zero output when a class has fewer than 2 rows |
+| **FUTURE** | W28TA-32 | validation | Low | per_class_spectral.py:88-102: y is not checked to be binary |
+| **FUTURE** | W28TA-33 | naming | Low | column named after the requested k, not the clamped k (nn_oof_target_mean, neighbor_aggregate_features, multiscale_rate, persistence_diagram) |
+| **FUTURE** | W28TA-34 | labels | Low | focal_lgb.py:37, multi_aux_ensemble.py:57: {-1, 1} labels not remapped for the focal objective |
+| **FUTURE** | W28TA-35 | naming | Low | multi_temperature.py:78: temperatures 0.301 and 0.304 format to the same column name |
+| **FUTURE** | W28TA-36 | precision | Low | per_column_rff.py:129-137: always float32, ignores dtype=float64 |
+| **FUTURE** | W28TA-37 | leakage | Low | pseudo_smote.py:68: filter threshold is a quantile of in-sample predictions |
+| **FUTURE** | W28TA-38 | doc | Low | persistence_diagram.py: y is never used although the docstring promises a joint X/y metric |
+| **FUTURE** | W28TA-39 | leakage | Low | trust_score_oof.py:410,417: in-sample correctness mask, already stated in the module docstring |
+| **FUTURE** | W28TA-40 | unverified | Low | quantile_spread_fan.py:78-86: negative-row weights ~3e-9 at gamma=5 may make the q90 fit degenerate (plausible, not verified) |
 
 ## Not covered by this wave
 
@@ -24,3 +64,5 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | ID | Regression test |
 |---|---|
 | W28NN-1, 2 | `tests/training/test_neural_weighted_loss_reductions.py` |
+| W28TA-21 | `tests/feature_engineering/transformer/test_single_class_fold_does_not_crash_the_aux_mlp.py` |
+| W28TA-22 | `tests/feature_engineering/transformer/test_oof_rows_no_fold_validates_stay_nan.py` |

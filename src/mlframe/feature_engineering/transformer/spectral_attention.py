@@ -195,7 +195,7 @@ def compute_spectral_attention(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out: np.ndarray = np.zeros((n_train, n_eigvecs), dtype=dtype)
+    out: np.ndarray = np.full((n_train, n_eigvecs), np.nan, dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         X_tr = X_train_f[train_idx]
