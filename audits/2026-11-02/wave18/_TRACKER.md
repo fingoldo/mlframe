@@ -23,7 +23,7 @@ Six read-only reports by Opus 5.5 low-effort agents on the areas wave 17 left un
 | **RESOLVED** | W18TRN-1 | High | `metadata["model_schemas"]` was keyed by model file name alone; a second target or pre-pipeline overwrote the first record (also closes W17TRN-4) |
 | **RESOLVED** | W18MRM-1 | Medium | a failing fit-setup step left fe_auto's temporary `fe_*_enable` flags switched on |
 | **RESOLVED** | W18MRM-2 | Low | `_fe_recommended_flags_` survived into later fits |
-| **FUTURE** | W18MRM-3 | Low | the inert-leaf filter parses operand names from the engineered feature name; a column name with characters outside `[A-Za-z0-9_.]` skips the check; the agent did not confirm the digit-name case; the fix carries operand indices from the recipe |
+| **RESOLVED** | W18MRM-3 | Low | the inert-leaf filter split engineered names on non-token characters, so raw columns named with spaces or hyphens were never leaves and the check was skipped; those names are now matched as whole bounded substrings first (`tests/feature_selection/fe/test_inert_leaf_sees_columns_with_special_characters.py`); carrying operand indices from the recipe was not needed for the fix |
 
 ## Not covered by this wave
 

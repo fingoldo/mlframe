@@ -408,7 +408,11 @@ class CorrelatedFeaturesSelector(TransformerMixin, BaseEstimator):
                 # EVERY column object-dtype - including genuinely numeric ones - so ``_numeric_codes_frame`` then
                 # factorized those numeric columns by appearance order, destroying their ordering and silently
                 # diverging the correlation/SU clustering, medoids, and ``support_`` from the identical pandas fit.
-                X = X.to_pandas()
+                # The Arrow-backed view keeps the numeric columns zero-copy (``to_pandas()`` consolidates blocks into a second copy of the frame); dtypes and the
+                # correlation / SU clustering are the same as ``to_pandas()``'s.
+                from mlframe.training.utils import get_pandas_view_of_polars_df
+
+                X = get_pandas_view_of_polars_df(X)
         except ImportError:
             pass
         is_df = isinstance(X, pd.DataFrame)

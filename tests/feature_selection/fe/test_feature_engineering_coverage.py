@@ -619,7 +619,8 @@ class TestCheckProspectiveFePairs:
         # the pair should appear with at least one recommended feature.
         assert (0, 1) in res
         this_pair_features, _transformed_vals, _new_cols, _new_nbins, _messages = res[(0, 1)]
-        assert isinstance(this_pair_features, set)
+        # A list in buffer-column order: the MRMR FE step indexes the survivors by position and reads each entry's column index.
+        assert isinstance(this_pair_features, list)
 
     @pytest.mark.fast
     def test_non_numeric_column_leaked_into_pool_does_not_crash_external_validation(self):

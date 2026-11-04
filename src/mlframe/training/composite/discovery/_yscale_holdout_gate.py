@@ -37,6 +37,7 @@ import logging
 from typing import Any, Sequence
 
 import numpy as np
+import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
 
@@ -58,11 +59,11 @@ def _carve_group_disjoint(sample_idx: np.ndarray, groups_sample: np.ndarray, hol
     Whole groups go to one side or the other -- mirroring the production group-aware split so the
     eval rows come from groups the tiny model never trained on (the regime where the inverse blows up).
     """
-    uniq = np.unique(groups_sample)
-    perm = rng.permutation(uniq.size)
-    n_eval_groups = max(1, round(uniq.size * holdout_frac))
-    eval_groups = set(uniq[perm[:n_eval_groups]].tolist())
-    eval_mask = np.array([g in eval_groups for g in groups_sample], dtype=bool)
+    # Missing group ids form ONE group of their own (``np.unique`` kept every NaN separate and ``nan in set`` is always False, so those rows could never be held out).
+    codes, uniq = pd.factorize(np.asarray(groups_sample), use_na_sentinel=False)
+    perm = rng.permutation(len(uniq))
+    n_eval_groups = max(1, round(len(uniq) * holdout_frac))
+    eval_mask = np.isin(codes, perm[:n_eval_groups])
     return sample_idx[~eval_mask], sample_idx[eval_mask]
 
 
@@ -111,6 +112,25 @@ def _inverse_base_sensitivity(spec, base_train: np.ndarray) -> float | None:
             return abs(float(bp.get("alpha", 1.0)))
         return 1.0  # diff / additive-residual-family bivariate re-injects base with unit sensitivity
     return None
+
+
+def _between_group_variance_ratio(values: np.ndarray, inverse: np.ndarray, n_groups: int) -> float:
+    """Share of the variance of ``values`` that lies between groups, adjusted for the number of groups (adjusted eta squared, in [0, 1]).
+
+    The plain between / total ratio of group means is ~1 for ANY column when the groups are tiny (a one-row group's mean is its own value), so a base with no group
+    structure looked like a per-group level. Comparing the within-group mean square (SSW / (n - k)) with the total one (SST / (n - 1)) removes that bias: it is ~0 for
+    an i.i.d. column however fine the grouping, and approaches the plain ratio when the groups are large.
+    """
+    n = values.shape[0]
+    if n <= n_groups or n < 2:
+        return 0.0
+    sst = float(np.sum((values - values.mean()) ** 2))
+    if sst <= 0.0:
+        return 0.0
+    gsum = np.bincount(inverse, weights=values, minlength=n_groups)
+    gcnt = np.bincount(inverse, minlength=n_groups).astype(np.float64)
+    ssw = float(np.sum((values - (gsum / np.maximum(gcnt, 1.0))[inverse]) ** 2))
+    return float(min(1.0, max(0.0, 1.0 - (ssw / (n - n_groups)) / (sst / (n - 1)))))
 
 
 def apply_structural_fragility_gate(
@@ -204,13 +224,7 @@ def apply_structural_fragility_gate(
         if uniq.size < 3:
             survivors.append(spec)
             continue
-        gsum = np.zeros(uniq.size, dtype=np.float64)
-        gcnt = np.zeros(uniq.size, dtype=np.float64)
-        np.add.at(gsum, inv, b)
-        np.add.at(gcnt, inv, 1.0)
-        gmean = gsum / np.maximum(gcnt, 1.0)
-        between_var = float(np.var(gmean))
-        ratio = between_var / total_var
+        ratio = _between_group_variance_ratio(b, inv, uniq.size)
         # SCALE-INVARIANT predicate: a base whose variance is dominated by BETWEEN-group (well) level
         # differences is a per-group LEVEL -- on unseen groups it takes out-of-range values and a
         # base-additive inverse (s>=s_min, already checked) re-injects them, collapsing y. The absolute
@@ -515,6 +529,9 @@ def apply_yscale_holdout_gate(
     x_fit = self._build_feature_matrix(df, feats, fit_idx)
     x_eval = self._build_feature_matrix(_eval_df, feats, eval_idx)
     y_eval_std = float(np.std(y_eval))
+    # The forward pass over the fit rows needs their group labels. On the val-split path ``_fit_groups`` is None on purpose (the params were fit on train, so the
+    # fold-local refit is skipped), but a grouped transform still cannot be forwarded without labels: read them from the training frame.
+    _fit_labels = _fit_groups if _fit_groups is not None else _val_group_labels(self, df, fit_idx)
 
     n_estimators = int(getattr(cfg, "tiny_model_n_estimators", 60))
     num_leaves = int(getattr(cfg, "tiny_model_num_leaves", 15))
@@ -571,7 +588,7 @@ def apply_yscale_holdout_gate(
             candidates.append(fold)
         try:
             scored = [_reconstruct_on_eval(transform, spec.transform_name, p, v, y_fit, base_fit, base_eval,
-                                           x_fit, x_eval, _tiny, _fit_groups, _eval_groups) for p, v in candidates]
+                                           x_fit, x_eval, _tiny, _fit_labels, _eval_groups) for p, v in candidates]
         except Exception as exc:
             logger.debug("y-scale gate: fit/inverse raised for spec %s: %s: %s", getattr(spec, "name", spec), type(exc).__name__, exc)
             _gate_error_reject(self, spec, rejected, RejectStage.YSCALE_HOLDOUT, f"fit/inverse raised {type(exc).__name__}: {exc}")

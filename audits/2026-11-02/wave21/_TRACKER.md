@@ -8,7 +8,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | **RESOLVED** | W21FE-1b | High | the seven sibling modules with zero-filled OOF outputs |
 | **RESOLVED** | W21FE-2 | High | `per_group_recency_weighted_mean` / `_agg` gave every row its entity's whole-history value, future rows included; new `causal=True` default gives each row the aggregate over rows up to itself, `causal=False` keeps the one-shot value (`tests/feature_engineering/test_recency_aggregation_causal.py`) |
 | **RESOLVED** | W21FE-3 | High | `per_group_recency_weighted_mode` / `_behavioral_stability` had the same future-row leak; same `causal` option, default True |
-| **PARTIAL** | W21FE-4 | Medium | the rolling mean / std kernels and now the `recency_aggregation` mean/sum/min/max/std/var kernels (single and multi-decay) skip NaN (`tests/feature_engineering/test_recency_aggregation_causal.py`); the KDE kernels in `recency_density` still propagate it |
+| **RESOLVED** | W21FE-4 | Medium | the rolling mean / std kernels, the `recency_aggregation` kernels and now the `recency_density` KDE mode / stability kernels skip NaN observations (a group with a gap is compacted to its finite values; `tests/feature_engineering/test_recency_aggregation_causal.py`)  |
 | **RESOLVED** | W21FE-5 | Medium | string / object group ids crashed `np.diff` in the recency rolling functions |
 | **RESOLVED** | W21FE-6 | Low | `per_group_sliding_window` raised for a group shorter than the window |
 | **RESOLVED** | W21CORE-1 | High | hard-mode logical constraints did one ordered pass, so a rule chain could end violated in either declaration order; passes now repeat to a fixpoint |
@@ -18,15 +18,15 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | **RESOLVED** | W21CORE-5 | Low | `explainability` scored `oos_ts_max_size + 1` rows |
 | **RESOLVED** | W21CORE-6 | Low | `inference/_ktc_dispatch` cache key omits `n_rules` |
 | **RESOLVED** | W21CORE-7 | Low | `similarity_scale` was never validated |
-| **FUTURE** | W21FS-1 | Medium | `discover_structure` p-values are conditional on the searched modulus / threshold / op; the null needs the same search per permutation |
+| **PARTIAL** | W21FS-1 | Medium | the modular relation's p-value now re-runs the fine modulus search (`escalate_modulus`) under every permuted y, so the null is the best MI over the searched moduli (`tests/feature_selection/test_structure_discovery_modulus_search_pvalue.py`); the coarse modulus scan, the lattice operator / pair search and the gate threshold search still use the fixed-column null, since each needs its detector re-run per permutation |
 | **RESOLVED** | W21FS-2 | Medium | `forward_select(patience=k)` kept the `patience-1` non-significant additions that preceded the stop |
 | **RESOLVED** | W21FS-3 | Low | `plot_feature_importance(positive_fi_only=True)` still drew negative bars |
 | **RESOLVED** | W21FS-4 | Low | the FI log line's `share=` used signed sums (1100%) |
-| **FUTURE** | W21KRN-1 | Medium | GPU uniform binner emits undefined codes when the range is subnormal or infinite (CPU routes the NaN to bin 0) |
-| **FUTURE** | W21KRN-2 | Low | `_accept_split_serial` reseeds the thread's numba RNG as a side effect |
+| **RESOLVED** | W21KRN-1 | Medium | reproduced on the local GPU with float32 input (the float64 cases already matched the CPU): a column whose range exceeds float32's maximum, or a subnormal one, collapsed to bin 0 on the GPU. The range and affine map now run in float64 and non-finite outputs are mapped; CUDA flushes float32 subnormals to zero, so columns the device sees as constant are re-binned on the host when they are not (`tests/feature_selection/test_gpu_uniform_binner_float32_extreme_ranges.py`, both the one-shot and row-chunked paths) |
+| **DOC** | W21KRN-2 | Low | `_accept_split_serial` reseeds the thread's numba RNG on every draw; the batched twin does the same and the two must stay draw-for-draw identical, and numba cannot save and restore the generator state inside a kernel, so the docstring now states the side effect instead of changing the streams |
 | **RESOLVED** | W21REP-1 | Medium-High | slice finder divided supports by all rows although NaN-error rows were dropped |
 | **RESOLVED** | W21REP-2 | Medium | multiclass P/R/F1 counted unknown true labels as false positives while the confusion panels dropped them |
-| **FUTURE** | W21REP-3 | Medium | slice-finder "simultaneous" intervals use a Sidak count of only the degraded cells |
+| **RESOLVED** | W21REP-3 | Medium | the slice-finder Sidak count used only the degraded cells; it now counts every cell above the support floor, since all of them were screened (`tests/reporting/test_slice_finder_family_counts_all_screened_cells.py`) |
 | **RESOLVED** | W21REP-4 | Low-Medium | multilabel Hamming histogram bins were equal-width over [min, max] and straddled the integer distances; it now draws one unit-wide bin per integer 0..L (`tests/reporting/test_multilabel_hamming_bins_are_integer_aligned.py`) |
 | **RESOLVED** | W21REP-5 | Low | the quantile prediction-interval band subsampled all rows, so non-finite ones reached the line and band; it now draws from the finite rows only (`tests/reporting/test_interval_band_drops_non_finite_rows.py`) |
 

@@ -92,15 +92,15 @@ def gate_error_reject(self, spec: Any, rejected: list, stage: str, reason: str, 
     )
 
 
-def spec_inverse(transform: Any, base: Any, params: Any) -> Callable[[np.ndarray], np.ndarray]:
-    """``t -> transform.inverse(t, base, params)`` as float64, bound now (not late-bound to a loop's current spec)."""
+def spec_inverse(transform: Any, base: Any, params: Any, groups: Any = None) -> Callable[[np.ndarray], np.ndarray]:
+    """``t -> transform.inverse(t, base, params)`` as float64, bound now (not late-bound to a loop's current spec). ``groups`` are the group labels of the rows being inverted, required by a grouped transform."""
     import functools
 
-    return functools.partial(_apply_inverse, transform, base, params)
+    return functools.partial(_apply_inverse, transform, base, params, groups)
 
 
-def _apply_inverse(transform: Any, base: Any, params: Any, t: Any):
-    """Invert one transformed prediction with a spec's own transform, base and fitted params."""
+def _apply_inverse(transform: Any, base: Any, params: Any, groups: Any, t: Any):
+    """Invert one transformed prediction with a spec's own transform, base, fitted params and (for a grouped transform) group labels."""
     import numpy as np
 
-    return np.asarray(call_transform(transform, "inverse", t, base, params), dtype=np.float64)
+    return np.asarray(call_transform(transform, "inverse", t, base, params, groups=groups), dtype=np.float64)

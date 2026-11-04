@@ -74,7 +74,7 @@ def _kde_bandwidth(v_sorted, s, e, mean, span, bandwidth, h_span_frac):
 
 
 @njit(fastmath=False, cache=True, inline="always")
-def _kde_one_group(v_sorted, s, e, scheme_code, param, bandwidth, n_grid, h_span_frac):
+def _kde_one_group_finite(v_sorted, s, e, scheme_code, param, bandwidth, n_grid, h_span_frac):
     """Recency-weighted Gaussian-KDE mode + peak height for a single contiguous, oldest-first group ``v_sorted[s:e]``.
 
     Bandwidth selection (in priority order): ``h_span_frac > 0`` -> ``h = h_span_frac * (max-min)`` (scale-relative,
@@ -122,6 +122,21 @@ def _kde_one_group(v_sorted, s, e, scheme_code, param, bandwidth, n_grid, h_span
             best_d = dens
             best_x = x
     return best_x, best_d
+
+
+@njit(fastmath=False, cache=True, inline="always")
+def _kde_one_group(v_sorted, s, e, scheme_code, param, bandwidth, n_grid, h_span_frac):
+    """KDE mode + peak of one group, skipping NaN observations (a group with a gap is compacted to its finite values first; weights then follow the compacted order)."""
+    has_nan = False
+    for k in range(s, e):
+        if np.isnan(v_sorted[k]):
+            has_nan = True
+            break
+    if not has_nan:
+        return _kde_one_group_finite(v_sorted, s, e, scheme_code, param, bandwidth, n_grid, h_span_frac)
+    seg = v_sorted[s:e]
+    finite = seg[~np.isnan(seg)]
+    return _kde_one_group_finite(finite, 0, finite.shape[0], scheme_code, param, bandwidth, n_grid, h_span_frac)
 
 
 @njit(fastmath=False, cache=True)

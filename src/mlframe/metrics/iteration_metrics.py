@@ -86,7 +86,8 @@ def _binary_metrics(y_true: np.ndarray, y_score: np.ndarray, nbins: int) -> dict
     n = yt.shape[0]
     if n == 0:
         return out
-    finite = np.isfinite(ys)
+    # A NaN label cast to int64 becomes INT_MIN and would enter every kernel as a real class, so rows with a non-finite label go with the non-finite scores.
+    finite = np.isfinite(ys) & np.isfinite(np.asarray(yt, dtype=np.float64))
     if not finite.all():
         # Drop non-finite score rows so the kernels (which assume [0,1] probabilities) don't propagate NaN
         # into every metric. A round with all-NaN scores degrades to the all-NaN dict above.
@@ -138,26 +139,25 @@ def _multiclass_metrics(y_true: np.ndarray, y_score: np.ndarray, n_classes: Opti
     from .classification import matthews_corrcoef_multiclass
 
     out = _nan_dict(_MULTICLASS_METRIC_KEYS)
-    yt = _as_1d(y_true).astype(np.int64, copy=False)
+    yt_f = np.asarray(_as_1d(y_true), dtype=np.float64)
     ys = np.asarray(y_score, dtype=np.float64)
-    n = yt.shape[0]
+    n = yt_f.shape[0]
     if n == 0 or ys.ndim != 2:
         return out
-    k = ys.shape[1] if n_classes is None else int(n_classes)
-    finite = np.isfinite(ys).all(axis=1)
-    if not finite.all():
-        yt = yt[finite]
-        ys = ys[finite]
-        n = yt.shape[0]
-        if n == 0:
-            return out
+    k = ys.shape[1]
+    if n_classes is not None and int(n_classes) != k:
+        # The kernels read argmax columns as class codes 0..k-1, so the class count has to be the column count.
+        from mlframe.utils.log_throttle import log_throttle
 
-    eps = 1e-15
-    row_sum = ys.sum(axis=1, keepdims=True)
-    probs = np.where(row_sum > 0, ys / np.where(row_sum == 0, 1.0, row_sum), ys)
-    clipped = np.clip(probs, eps, 1.0)
-    valid = (yt >= 0) & (yt < k)
-    n_invalid = n - int(valid.sum())
+        log_throttle(
+            logger, "iteration_metrics_multiclass_k_mismatch", logging.WARNING,
+            "_multiclass_metrics: n_classes=%s but y_score has %d columns; using %d, the number of columns the predictions are argmaxed over.", n_classes, k, k,
+        )
+    # Every metric is computed on ONE row set: finite scores and an integer label inside [0, k). Rows with a NaN or out-of-range label used to be dropped from log-loss
+    # only (a NaN label cast to int64 is INT_MIN) while the other metrics kept them.
+    label_ok = np.isfinite(yt_f) & (yt_f >= 0) & (yt_f < k) & (yt_f == np.floor(yt_f))
+    keep = np.isfinite(ys).all(axis=1) & label_ok
+    n_invalid = int((np.isfinite(ys).all(axis=1) & ~label_ok).sum())
     if n_invalid > 0:
         key = (n_invalid, n)
         if key not in _MULTICLASS_LOGLOSS_OOB_WARN_SEEN:
@@ -165,13 +165,21 @@ def _multiclass_metrics(y_true: np.ndarray, y_score: np.ndarray, n_classes: Opti
             import warnings
 
             warnings.warn(
-                f"_multiclass_metrics: {n_invalid} of {n} y_true labels are out of range [0, {k}); " f"dropped from the log_loss computation.",
+                f"_multiclass_metrics: {n_invalid} of {n} y_true labels are out of range [0, {k}) or not integers; " f"dropped from every metric.",
                 RuntimeWarning,
                 stacklevel=2,
             )
-    if valid.any():
-        ll = -np.log(clipped[np.arange(n)[valid], yt[valid]]).mean()
-        out["log_loss"] = float(ll)
+    yt = yt_f[keep].astype(np.int64)
+    ys = ys[keep]
+    n = yt.shape[0]
+    if n == 0:
+        return out
+
+    eps = 1e-15
+    row_sum = ys.sum(axis=1, keepdims=True)
+    probs = np.where(row_sum > 0, ys / np.where(row_sum == 0, 1.0, row_sum), ys)
+    clipped = np.clip(probs, eps, 1.0)
+    out["log_loss"] = float(-np.log(clipped[np.arange(n), yt]).mean())
 
     y_pred = np.argmax(ys, axis=1).astype(np.int64)
     _hits, _misses, accuracy, bal_acc, _supports, _precisions, _recalls, _f1s, macro, weighted = fast_classification_report(yt, y_pred, nclasses=k)

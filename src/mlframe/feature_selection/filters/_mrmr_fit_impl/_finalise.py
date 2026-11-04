@@ -411,8 +411,27 @@ def _rescue_empty_topk(self, _topk, n_engineered_out, _raw_mi, _rescue_allowed_i
     return _topk
 
 
+def _uaed_kept_raw_indices(self, support: np.ndarray, keep: int) -> np.ndarray:
+    """Raw support kept by the UAED elbow: the features of the first ``keep`` greedy rounds, in ``support`` order.
+
+    The gain trace is in greedy-round order, but ``support_`` is not always (retention, rescue and the p>=n cap reorder or append), so slicing ``support[:keep]`` can drop
+    a strong feature and keep a weak one. Rounds map to features through ``_predictors_log_``; without a usable log the positional slice is the fallback.
+    """
+    log = getattr(self, "_predictors_log_", None) or ()
+    try:
+        rounds = [tuple(int(i) for i in entry["indices"]) for entry in log]
+    except (KeyError, TypeError, ValueError):
+        rounds = []
+    n_raw = int(getattr(self, "n_features_in_", 0) or 0)
+    if len(rounds) < keep or not rounds or any(len(r) != 1 for r in rounds[:keep]) or (n_raw and any(r[0] >= n_raw for r in rounds[:keep])):
+        return np.asarray(support[:keep])
+    kept = {r[0] for r in rounds[:keep]}
+    return np.asarray([v for v in support if int(v) in kept], dtype=support.dtype)
+
+
 def _apply_uaed_elbow_trim(self):
     """UAED post-fit elbow trim: trims raw support and engineered recipes in lockstep to the elbow of the combined gain trace (best-effort, never breaks fit)."""
+    self._uaed_trimmed_raw_ = frozenset()  # reset every fit; set below only when the elbow actually trims raw features
     if getattr(self, "uaed_auto_size", False):
         try:
             from .._cmi_perm_stop import uaed_elbow
@@ -438,11 +457,12 @@ def _apply_uaed_elbow_trim(self):
                     # claimed (a hard support/output desync). Trim raw support AND engineered recipes in LOCKSTEP so
                     # the retained feature count is exactly elbow+1 in both the state and the transform output.
                     _sup = np.asarray(self.support_)
-                    _uaed_recipes = list(getattr(self, "_engineered_recipes_", []) or [])
+                    _uaed_recipes = list(getattr(self, "_engineered_recipes_", None) or [])
                     _uaed_keep = elbow + 1  # combined features to retain
-                    _uaed_raw_keep = min(_uaed_keep, _sup.size)
-                    _uaed_eng_keep = max(0, _uaed_keep - _sup.size)  # <= len(_uaed_recipes): gains was zero-extended to n_features_
-                    self.support_ = _sup[:_uaed_raw_keep]
+                    _kept_raw = _uaed_kept_raw_indices(self, _sup, _uaed_keep)
+                    _uaed_eng_keep = max(0, _uaed_keep - _kept_raw.size)  # <= len(_uaed_recipes): gains was zero-extended to n_features_
+                    self._uaed_trimmed_raw_ = frozenset(int(v) for v in _sup) - frozenset(int(v) for v in _kept_raw)
+                    self.support_ = _kept_raw
                     if _uaed_recipes and _uaed_eng_keep < len(_uaed_recipes):
                         self._engineered_recipes_ = _uaed_recipes[:_uaed_eng_keep]
                     self.n_features_ = int(self.support_.size) + min(_uaed_eng_keep, len(_uaed_recipes))

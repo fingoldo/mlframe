@@ -8,7 +8,7 @@ Second pass over numba kernels (the unread part of wave 10, NJIT10-2), three rea
 | **RESOLVED** | NJ11-1b | njit_oob | Medium | SU clustering kernels indexed another feature's counts with a negative bin code (`shap_proxied_fs/_shap_proxy_cluster_su.py`) |
 | **RESOLVED** | NJ11-1c | wrong_formula | High | Miller-Madow term added to plug-in MI instead of subtracted at four sites (`_orthogonal_copula_mi_fe.py` x2, `_numba_utils.py`, `_fe_synergy_screen.py`) |
 | **RESOLVED** | NJ11-1d | wrong_formula | High | the same sign error in the marginal-MI Miller-Madow term of `_mi_greedy_cmi_fe.py`, `_mi_greedy_cmi_fe_gpu.py`, `_mi_greedy_cmi_fe_steps.py` and two more sites in `_fe_synergy_screen.py`, found by grepping the formula after NJ11-1c |
-| **FUTURE** | NJ11-2 | fastmath | Low | `fastmath=True` on the polynomial optimizer dispatchers may let LLVM drop NaN/inf checks; no wrong result shown, fix is to compile them with the NaN-safe flag set and compare selections |
+| **RESOLVED** | NJ11-2 | Low | every kernel of `_numba_polynom_optimizer` that was compiled with the full `fastmath=True` set (which asserts no NaN / inf) now uses the module's NaN-safe flag set (`nsz`, `arcp`, `contract`, `afn`, `reassoc`), as the two finiteness gates already did; the polynomial-evaluation and MI kernels imported from other modules keep their own flags; the bf-dispatch parity, finite-gate and survivor-commit-order tests pass unchanged (`tests/feature_selection/filters/test_numba_polynom_kernels_keep_nan_visible.py`) |
 | **FUTURE** | NJ11-3 | coverage | Info | files still not read in full, listed below |
 
 ## Counts

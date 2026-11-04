@@ -226,7 +226,7 @@ def _early_raw_baseline(
 def _multiseed_early_stop_threshold(self, raw_baseline: float, honest_oof_will_run: bool, use_wilcoxon: bool) -> float:
     """Sequential multiseed early-stop threshold, ``inf`` (no early stop) unless it is provably sound.
 
-    Sound only when (a) the flag is on, (b) a finite raw baseline was measured, and (c) honest-OOF selection will NOT later override the threshold
+    Sound only when (a) the flag is on, (b) a finite raw baseline was measured, (c) the consensus is `union` (best family; under `borda` the cross-family mean would carry the inflated value of a stopped family), and (d) honest-OOF selection will NOT later override the threshold
     with a different (possibly higher) value -- honest-OOF's reconstruction RMSE is only known AFTER candidates are scored, so the raw-baseline
     threshold could be unsafely tight if honest-OOF ends up more lenient. Candidates then run all seeds.
     """
@@ -234,6 +234,7 @@ def _multiseed_early_stop_threshold(self, raw_baseline: float, honest_oof_will_r
         bool(getattr(self.config, "enable_multiseed_early_stop", True))
         and math.isfinite(raw_baseline)
         and not honest_oof_will_run
+        and getattr(self.config, "tiny_consensus", "union") == "union"  # a family stopped early reports an inflated median; only the min across families ignores it, a mean (borda) does not
         and not use_wilcoxon  # Wilcoxon needs the FULL per-seed sample for the paired test power count; skip early-stop rather than prove that interaction safe too.
     ):
         return raw_baseline * float(getattr(self.config, "raw_baseline_tolerance", 1.02))

@@ -197,10 +197,8 @@ def run_residual_pass(
     residual = compute_residual_target(phi, base, y_phi, classification=self.classification)
     residual_std_before = float(np.std(residual))
 
-    # "Hard residual": drop the top residual_exclude_top pass-1 columns from pass-2's X entirely, so
-    # pass 2 must explain the residual WITHOUT the strong features at all (never just soft-discount
-    # them via low proxy loss). Index MAP (not positional assumption): phi2's column j corresponds to
-    # proxy column kept_proxy_idx[j] - required because pass-2 X can be a column subset.
+    # "Hard residual": drop the top residual_exclude_top pass-1 columns from every pass's X entirely, so a pass must explain the residual WITHOUT the strong features at all
+    # (never just soft-discount them via low proxy loss). Index MAP (not positional assumption): a pass's phi column j corresponds to proxy column kept_proxy_idx[j].
     excluded: set = set()
     if self.residual_exclude_top > 0 and n_proxy > 1:
         n_excl = min(int(self.residual_exclude_top), n_proxy - 1)
@@ -220,52 +218,27 @@ def run_residual_pass(
         )
         return rescue_proxy_idx, blend_importance, protected_working_cols
 
-    # Pass 2 runs on the SAME already-narrowed X_proxy (post-prefilter, possibly post-cluster), never
-    # the raw frame - memory discipline at C4-scale widths where phi2 is another significant (n, f)
-    # float64 matrix.
+    # Passes run on the SAME already-narrowed X_proxy (post-prefilter, possibly post-cluster), never the raw frame - memory discipline at C4-scale widths where each phi2 is
+    # another significant (n, f) float64 matrix. Each later pass explains what the previous pass left unexplained.
     X_pass2 = X_proxy.iloc[:, kept_proxy_idx] if kept_proxy_idx.size < n_proxy else X_proxy
-
     model_template_regression = _residual_regression_template(self)
-    phi2, base2, _y2, per_fold_phi_mean2 = _residual_pass2_shap(self, model_template_regression, X_pass2, residual, _stage)
-
-    importance2 = np.abs(phi2).mean(axis=0)
-    residual_pred = np.asarray(base2, dtype=np.float64) + phi2.sum(axis=1)  # Intentional float64: SHAP residual statistic compared at full precision against the honest loss
-    residual_std_after = float(np.std(residual[: residual_pred.shape[0]] - residual_pred)) if residual_pred.shape[0] == residual.shape[0] else float("nan")
-
-    # Cross-fold rank-CONSISTENCY gate (not a magnitude floor). A magnitude-only floor
-    # (``median(bottom half) * safety_factor``, the same rule ``noise_floor_rescue_keep_set`` uses
-    # for phi1) was tried and REJECTED here: measured on the p=3000 mixed-strength biz_val fixture,
-    # the TRUE weak feature is phi2's rank-1 column by OOF mean|phi2| yet its magnitude still sits
-    # below a 4x floor (the residual's own sampling noise is too large relative to a weight=0.25
-    # signal for any fixed multiplier to cleanly separate them) - so a magnitude floor either killed
-    # all recall (tight) or let noise columns leak into the protected set (loose), and an ungated
-    # search-pool alternative let the search stage itself pick spurious noise independent of
-    # protection (measured: 6->8 selected, 2 noise columns, with NO protection involved at all).
-    #
-    # The fix used here needs no extra model fits (reuses ``per_fold_phi_mean2``, already computed
-    # by the SAME OOF folds pass 2 already pays for): a genuinely-informative column should rank
-    # near the top consistently across INDEPENDENT folds, while a noise column's rank is a one-fold
-    # sampling fluke that does not replicate. Require a column's per-fold rank to clear a generous
-    # per-fold pool (``3 * top_k``) in EVERY fold (``n_splits`` independent estimates) before it is
-    # eligible for rescue - a much better-calibrated signal-vs-noise separator than the column's
-    # single aggregate OOF magnitude.
-    top_k = int(self.residual_top_k) if self.residual_top_k is not None else int(self.brute_force_max_features)
-    top_k = min(top_k, importance2.shape[0])
-    consistent, fold_pool = fold_rank_consistency(per_fold_phi_mean2, top_k)
-    magnitude_floor = gate_by_residual_magnitude(consistent, importance2)
-    eligible_local = np.nonzero(consistent)[0]
-
-    order_eligible = eligible_local[np.argsort(-importance2[eligible_local])]
-    top_local = order_eligible[:top_k]
-    rescue_proxy_idx = {int(kept_proxy_idx[i]) for i in top_local}
-    pass2_top_pairs = [
-        (_proxy_idx_to_names([int(kept_proxy_idx[i])], unit_to_members, working_cols, X_cols), float(importance2[i])) for i in np.argsort(-importance2)[:10]
-    ]
+    gated_total = np.zeros(kept_proxy_idx.size, dtype=np.float64)
+    passes_run: list = []
+    residual_std_after = residual_std_before
+    for _round in range(n_passes):
+        found = _residual_round(self, model_template_regression, X_pass2, residual, kept_proxy_idx, unit_to_members, working_cols, X_cols, _stage)
+        rescue_proxy_idx |= found["rescue"]
+        gated_total += found["gated_importance"]
+        passes_run.append(found["report"])
+        residual_std_after = found["residual_std_after"]
+        if found["residual_next"] is None:
+            break
+        residual = found["residual_next"]
+    last = passes_run[-1]
 
     if str(self.residual_merge).lower() == "blend":
         blend_importance = importance1.copy()
-        gated_importance2 = np.where(consistent, importance2, 0.0)
-        blend_importance[kept_proxy_idx] = blend_importance[kept_proxy_idx] + float(self.residual_lambda) * gated_importance2
+        blend_importance[kept_proxy_idx] = blend_importance[kept_proxy_idx] + float(self.residual_lambda) * gated_total
     else:  # "rescue" (default)
         if unit_to_members is not None:
             for u in rescue_proxy_idx:
@@ -275,17 +248,62 @@ def run_residual_pass(
 
     report["residual_pass"] = dict(
         n_passes=n_passes,
+        n_passes_run=len(passes_run),
         merge=str(self.residual_merge),
         lambda_=float(self.residual_lambda),
         rescued=_proxy_idx_to_names(rescue_proxy_idx, unit_to_members, working_cols, X_cols),
         excluded_top=_proxy_idx_to_names(excluded, unit_to_members, working_cols, X_cols),
-        pass2_top_importance=pass2_top_pairs,
+        pass2_top_importance=last["top_importance"],
         residual_std_before=residual_std_before,
         residual_std_after=residual_std_after,
-        n_fold_consistent=int(eligible_local.size),
-        pass2_magnitude_floor=magnitude_floor,
-        fold_pool=int(fold_pool),
+        n_fold_consistent=last["n_fold_consistent"],
+        pass2_magnitude_floor=last["magnitude_floor"],
+        fold_pool=last["fold_pool"],
         n_protected=len(protected_working_cols),
     )
-    del phi2  # memory discipline: another (n, f) double matrix, freed once the rescue/blend vector is extracted
     return rescue_proxy_idx, blend_importance, protected_working_cols
+
+
+def _residual_round(
+    self: Any, model_template: Any, X_pass: pd.DataFrame, residual: np.ndarray, kept_proxy_idx: np.ndarray,
+    unit_to_members: Optional[dict], working_cols: np.ndarray, X_cols: np.ndarray, _stage: Callable,
+) -> dict:
+    """One residual SHAP pass: fit OOF SHAP on ``residual``, gate the columns by cross-fold rank consistency and report what it rescued.
+
+    Returns ``rescue`` (proxy column indices), ``gated_importance`` (mean|phi| per kept column, zero where the consistency gate failed), ``residual_next`` (what this
+    pass still leaves unexplained, or ``None`` when its rows do not line up with ``residual``), ``residual_std_after`` and a ``report`` dict.
+    """
+    phi2, base2, _y2, per_fold_phi_mean2 = _residual_pass2_shap(self, model_template, X_pass, residual, _stage)
+
+    importance2 = np.abs(phi2).mean(axis=0)
+    residual_pred = np.asarray(base2, dtype=np.float64) + phi2.sum(axis=1)  # Intentional float64: SHAP residual statistic compared at full precision against the honest loss
+    residual_next: Optional[np.ndarray] = None
+    residual_std_after = float("nan")
+    if residual_pred.shape[0] == residual.shape[0]:
+        residual_next = residual - residual_pred
+        residual_std_after = float(np.std(residual_next))
+
+    # Cross-fold rank-CONSISTENCY gate (not a magnitude floor). A magnitude-only floor (``median(bottom half) * safety_factor``, the rule ``noise_floor_rescue_keep_set``
+    # uses for phi1) was tried and REJECTED here: measured on the p=3000 mixed-strength biz_val fixture the TRUE weak feature is phi2's rank-1 column by OOF mean|phi2| yet
+    # its magnitude still sits below a 4x floor, so a magnitude floor either killed all recall (tight) or let noise columns leak into the protected set (loose). The gate
+    # reuses ``per_fold_phi_mean2``, already computed by the folds the pass pays for: a genuinely-informative column ranks near the top consistently across independent
+    # folds, a noise column's rank is a one-fold fluke. A column must clear a generous per-fold pool (``3 * top_k``) in EVERY fold before it is eligible for rescue.
+    top_k = int(self.residual_top_k) if self.residual_top_k is not None else int(self.brute_force_max_features)
+    top_k = min(top_k, importance2.shape[0])
+    consistent, fold_pool = fold_rank_consistency(per_fold_phi_mean2, top_k)
+    magnitude_floor = gate_by_residual_magnitude(consistent, importance2)
+    eligible_local = np.nonzero(consistent)[0]
+
+    order_eligible = eligible_local[np.argsort(-importance2[eligible_local])]
+    top_local = order_eligible[:top_k]
+    rescue = {int(kept_proxy_idx[i]) for i in top_local}
+    top_pairs = [(_proxy_idx_to_names([int(kept_proxy_idx[i])], unit_to_members, working_cols, X_cols), float(importance2[i])) for i in np.argsort(-importance2)[:10]]
+    out = dict(
+        rescue=rescue,
+        gated_importance=np.where(consistent, importance2, 0.0),
+        residual_next=residual_next,
+        residual_std_after=residual_std_after,
+        report=dict(top_importance=top_pairs, n_fold_consistent=int(eligible_local.size), magnitude_floor=magnitude_floor, fold_pool=int(fold_pool)),
+    )
+    del phi2  # memory discipline: another (n, f) double matrix, freed once the rescue / blend vector is extracted
+    return out

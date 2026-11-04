@@ -52,7 +52,9 @@ def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
     node_y = np.asarray(p.node_y, dtype=float)
     e_src = np.asarray(p.edge_src, dtype=np.int64)
     e_dst = np.asarray(p.edge_dst, dtype=np.int64)
-    weights = np.asarray(p.edge_weight, dtype=float)
+    from mlframe.reporting.renderers._matplotlib_network import _finite_edge_weights
+
+    weights = _finite_edge_weights(p.edge_weight)
 
     if e_src.size:
         wmin, wmax = float(weights.min()), float(weights.max())

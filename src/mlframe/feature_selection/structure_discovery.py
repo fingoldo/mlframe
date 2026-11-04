@@ -168,6 +168,19 @@ def _column_perm_pvalue(feat_col, yb, nbins: int, n_perm: int, seed: int) -> flo
     return _canonical_perm_pvalue(ge, int(n_perm))
 
 
+def _modulus_search_pvalue(X, y, hit, best_mi: float, nbins: int, n_perm: int, seed: int) -> float:
+    """Permutation p-value of a modular hit that accounts for the modulus search: each permuted y re-runs :func:`escalate_modulus` and the null is the best MI over
+    the searched moduli, so a fine modulus picked out of ~15 candidates is not credited as if it were the only one tried. ``nan`` when disabled."""
+    if int(n_perm) <= 0 or not np.isfinite(best_mi):
+        return float("nan")
+    from mlframe.feature_selection.filters.shared import escalate_modulus, perm_pvalue as _canonical_perm_pvalue
+
+    rng = np.random.default_rng(int(seed))
+    y_arr = np.asarray(y)
+    ge = sum(1 for _ in range(int(n_perm)) if escalate_modulus(X, rng.permutation(y_arr), hit, nbins=nbins)[1] >= best_mi)
+    return _canonical_perm_pvalue(ge, int(n_perm))
+
+
 def _fmt_p(p: float, n_perm: int) -> str:
     """``p<lo`` at the permutation-resolution floor, else ``p=value``; empty string when significance is off (nan)."""
     if not np.isfinite(p):
@@ -191,7 +204,7 @@ def _modular_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
     attaching a deeper permutation p-value. Returns ``[]`` when the integer-column budget (``max_int_cols``) is
     exceeded or there are no integer columns."""
     from mlframe.feature_selection.filters import eligible_integer_columns
-    from mlframe.feature_selection.filters.shared import cheap_modular_scan, escalate_modulus, apply_pairwise_modular
+    from mlframe.feature_selection.filters.shared import cheap_modular_scan, escalate_modulus
 
     int_cols = eligible_integer_columns(X, names_ok)
     if len(int_cols) > int(max_int_cols) or len(int_cols) < 1:
@@ -204,7 +217,7 @@ def _modular_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
         kind = _modular_kind(h.op, best_m)
         lift = _lift(best_mi, h.baseline_mi)
         cols = tuple(str(c) for c in h.cols)
-        pval = _column_perm_pvalue(apply_pairwise_modular(X, h.op, h.cols, best_m), y, nbins, n_perm, seed)
+        pval = _modulus_search_pvalue(X, y, h, best_mi, nbins, n_perm, seed)
         opdesc = {"self": cols[0], "sum": " + ".join(cols), "diff": " - ".join(cols),
                   "prod": " * ".join(cols), "sum3": " + ".join(cols)}.get(h.op, " ? ".join(cols))
         desc = f"y depends on ({opdesc}) mod {best_m}  [{kind}, MI {best_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]"

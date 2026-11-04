@@ -22,6 +22,15 @@ from ._shared_helpers import _TITLE_REF_WIDTH_IN, network_label_indices, non_col
 logger = logging.getLogger("mlframe.reporting.renderers.matplotlib")
 
 
+def _finite_edge_weights(edge_weight) -> np.ndarray:
+    """Edge weights as floats with every NaN / inf replaced by the smallest finite weight (0 when none is finite), so the width and colour scales stay defined."""
+    w = np.asarray(edge_weight, dtype=float)
+    finite = np.isfinite(w)
+    if finite.all():
+        return w
+    return np.where(finite, w, float(w[finite].min()) if finite.any() else 0.0)
+
+
 def _network(self, ax, p: NetworkPanelSpec, fig) -> None:
     """Render a node-link network panel: edges as a single ``LineCollection`` (one draw call for O(E) edges, width+color both encoding weight), per-edge arrows for directed edges, then nodes on top with labels and an optional node-color legend."""
     from .matplotlib import _measured_axis_in, _place_legend, _set_panel_title  # the parent binds this function at its import
@@ -34,7 +43,9 @@ def _network(self, ax, p: NetworkPanelSpec, fig) -> None:
     nx_pos = np.column_stack([np.asarray(p.node_x, dtype=float), np.asarray(p.node_y, dtype=float)])
     e_src = np.asarray(p.edge_src, dtype=np.int64)
     e_dst = np.asarray(p.edge_dst, dtype=np.int64)
-    weights = np.asarray(p.edge_weight, dtype=float)
+    weights = _finite_edge_weights(p.edge_weight)
+    if nx_pos.shape[0] == 0:
+        return  # nothing to draw; the label and extent maths below reduce over the nodes
 
     # Edges as a single LineCollection: O(E) artists collapse to one draw
     # call, so thousands of edges stay cheap. Width + color both encode MI.

@@ -210,6 +210,7 @@ def _validate_inputs(self, X, y):
                 stacklevel=3,
             )
             X = X.collect()
+            _check_fit_footprint(X)  # the lazy frame had no row count before this point, so the RAM guard above could not see it
         if hasattr(_pl, "Expr") and isinstance(X, _pl.Expr):
             raise ValueError("MRMR.fit cannot accept polars Expr; materialise via .select(...) first")
         if isinstance(X, _pl.DataFrame):

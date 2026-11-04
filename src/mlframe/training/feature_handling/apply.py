@@ -640,22 +640,17 @@ def _text_column_content_token(train_df: Any, column: str) -> int:
     fallback path)."""
     try:
         import polars as pl
+        # Every row feeds the token: a five-row sample let two frames that differ only in interior rows share one cached encoder.
         if isinstance(train_df, pl.DataFrame):
             ser = train_df[column]
-            n = ser.len()
-            sample_idx = [0, n // 4, n // 2, 3 * n // 4, max(0, n - 1)] if n else []
-            sampled = [str(ser[i]) for i in sample_idx]
-            buf = ("|".join(sampled) + f"|{n}|{column}").encode("utf-8", errors="replace")
+            row_hashes = ser.hash(seed=0).to_numpy()
         else:
             import pandas as pd
-            if isinstance(train_df, pd.DataFrame):
-                ser = train_df[column]
-                n = len(ser)
-                sample_idx = [0, n // 4, n // 2, 3 * n // 4, max(0, n - 1)] if n else []
-                sampled = [str(ser.iloc[i]) if i < n else "" for i in sample_idx]
-                buf = ("|".join(sampled) + f"|{n}|{column}").encode("utf-8", errors="replace")
-            else:
+
+            if not isinstance(train_df, pd.DataFrame):
                 return 0
+            row_hashes = pd.util.hash_pandas_object(train_df[column], index=False).to_numpy()
+        buf = row_hashes.tobytes() + f"|{len(row_hashes)}|{column}".encode("utf-8", errors="replace")
         digest = hashlib.blake2b(buf, digest_size=8).digest()
         return int.from_bytes(digest, "big") & ((1 << 63) - 1)
     except Exception as _e:

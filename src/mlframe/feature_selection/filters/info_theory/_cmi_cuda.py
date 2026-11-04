@@ -407,6 +407,11 @@ def conditional_mi_batched_cuda(
     else:
         p, n = int(Xc_g.shape[0]), int(Xc_g.shape[1])
     joint_size = int(nbins_x) * int(nbins_y) * int(nbins_z)
+    if not _cmi_cuda_shmem_fits(joint_size, int(nbins_x), int(nbins_y), int(nbins_z)):
+        raise ValueError(
+            f"conditional_mi_batched_cuda: a ({nbins_x}, {nbins_y}, {nbins_z}) joint histogram needs more shared memory than a block has "
+            f"({joint_size * 4} bytes for the histogram kernel); use the host path or coarser bins"
+        )
 
     # OOB SCREEN (FIX2): the joint-hist kernel uses raw codes DIRECTLY as a flat shared-mem
     # offset (``cell = cz + cx*nbz + cy*(nbx*nbz)``) sized from nbins_* (= factors_nbins.max()). A -1

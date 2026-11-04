@@ -6,7 +6,7 @@ Six read-only reports by Opus 5.5 low-effort agents on the areas waves 17 and 18
 |---|---|---|---|
 | **RESOLVED** | W19MET-1 | High | `create_fairness_subgroups` left `cats_to_use` unassigned (UnboundLocalError, or the previous feature's bins) when rare categories cannot be merged and exclusion is off |
 | **RESOLVED** | W19MET-2 | Medium | Spearman numba kernels returned NaN for +-inf while the scipy path ranks it; they now treat only NaN as missing |
-| **FUTURE** | W19MET-3 | Medium | `gpu_multiple_roc_auc_scores` ranks NaN scores as separate tie runs and returns a finite AUC; the CPU path's NaN handling was not read, so the target behaviour (NaN column) needs confirming first |
+| **RESOLVED** | W19MET-3 | Medium | both backends of `compute_batch_aucs` returned a finite AUC for a score column holding NaN (the CPU kernel did the same, so GPU and CPU agreed on a wrong number); a column with any NaN score now gets NaN ROC and PR AUC on either backend (`tests/metrics/test_batch_aucs_nan_score_column_is_nan.py`, run on the local CUDA device) |
 | **RESOLVED** | W19MET-4 | Medium | MBE, explained variance and wMAPE wrappers dropped the float64 cast and numba subtracted unsigned inputs in uint64 (-1 became 1.8e19) |
 | **RESOLVED** | W19MET-5 | Low | Hosmer-Lemeshow silently dropped the group holding a NaN score |
 | **RESOLVED** | W19MET-6 | Low | `fast_cv_rmse` documented NaN for mean <= 0 but guarded only mean == 0 |
@@ -25,15 +25,15 @@ Six read-only reports by Opus 5.5 low-effort agents on the areas waves 17 and 18
 | **RESOLVED** | W19CMP-3 | Medium | the single-split group carve fell back to a group-blind row shuffle when the carve was degenerate; `_carve_holdout_groups` now skips groups that overshoot twice the request, logs a holdout outside [0.5x, 2x], and raises when no group-respecting split exists (`tests/training/composite/test_oof_group_carve_never_shuffles_rows.py`) |
 | **RESOLVED** | W19CMP-4 | Medium | fewer groups than OOF folds fell back to a shuffled K-fold that splits groups |
 | **RESOLVED** | W19CMP-5 | Medium | the OOF cache key hashed only 128 group labels and the mere presence of a time order |
-| **FUTURE** | W19CMP-6 | Low | the meta-stacker CV (LassoCV / ElasticNetCV alpha, GBM early stopping) ignores group and time structure of the OOF rows |
+| **RESOLVED** | W19CMP-6 | Low | the ridge / lasso / elastic-net meta-stackers take `group_ids` (GroupKFold) and `time_ordered` (forward-chaining) for their alpha search, threaded through `build_meta_stack_ensemble`; the only in-repo callers are benchmarks, so there is no suite call site to wire (`tests/training/composite/test_meta_stacker_alpha_cv_respects_groups.py`); the GBM stacker's internal early-stopping split is unchanged |
 | **RESOLVED** | W19FHN-1 | High | the dense-only assembly refit `TruncatedSVD` per split; val/test now use `transform` of the train-fitted SVD (`AssembledMatrix.fitted_svds`) |
 | **RESOLVED** | W19FHN-2 | High (use_mixup) | mixup interpolated integer category codes before the embedding lookup |
 | **RESOLVED** | W19FHN-3 | Medium | unseen categories under WoE encoded to the prior log-odds instead of the neutral 0 |
 | **RESOLVED** | W19FHN-4 | Medium | the neural estimator did not restore the fit-time column order at predict |
-| **FUTURE** | W19FHN-5 | Low | the text-encoder cache key fingerprints five rows plus `id(train_df)`; hashing the whole column costs a pass over the text |
+| **RESOLVED** | W19FHN-5 | Low | the text-encoder cache token fingerprinted five sampled rows; it now hashes every row of the column (polars `hash`, pandas `hash_pandas_object`, 8 bytes per row transient) so frames differing only in interior rows no longer share a cached encoder (`tests/training/feature_handling/test_text_column_token_sees_every_row.py`) |
 | **RESOLVED** | W19MRM-1 | High | the chained recipe replay emitted a zero column for a missing raw input column instead of raising |
 | **RESOLVED** | W19MRM-2 | Medium | the `smart_log` anchor was computed in float32 and replay shifts the float64 operand |
-| **FUTURE** | W19MRM-3 | Low | `_validate_inputs` runs the RAM-footprint guard before a polars LazyFrame is collected |
+| **RESOLVED** | W19MRM-3 | Low | the RAM-footprint guard ran before a LazyFrame was collected and so saw no row count; it now runs again on the collected frame (`tests/feature_selection/filters/test_mrmr_footprint_guard_sees_collected_lazyframe.py`) |
 
 ## Not covered by this wave
 

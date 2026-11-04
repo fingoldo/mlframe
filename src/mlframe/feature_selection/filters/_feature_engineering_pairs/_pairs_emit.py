@@ -842,7 +842,7 @@ def _emit_pair_features_step3_pair_features_part1(
     # downstream never constructs a recipe for a dropped column.
     _kept_configs = []  # list[(config, j)] that survived the guard
     _kept_cols_vals = []  # list[np.ndarray] aligned with _kept_configs
-    _kept_names = []
+    _kept_names: list = []
 
     # ``this_pair_features`` is a SET of ``(config, j)`` tuples whose ``config`` holds
     # transformation-NAME strings, so a bare ``enumerate(set)`` iterates in PYTHONHASHSEED-
@@ -856,7 +856,7 @@ def _emit_pair_features_step3_pair_features_part1(
         this_pair_features,
         key=lambda _cj: _cached_name(_cj[0]),
     )
-    for _idx, (config, j) in enumerate(_ordered_pair_features):
+    for _idx, (config, _j_old) in enumerate(_ordered_pair_features):
         new_feature_name = _cached_name(config)
         _transformations_pair, _bin_func_name, i = config
 
@@ -925,12 +925,14 @@ def _emit_pair_features_step3_pair_features_part1(
                     messages.append(f"{new_feature_name} dropped at materialisation: dead column " f"(std={_col_std:.2e}, non-constant guard).")
                 continue
             _kept_cols_vals.append(_col_arr)
-        _kept_configs.append((config, j))
+        # ``j`` is the column's place in the dense buffer built below (name order), not the sparse pre-compaction index: every multi-emit form used to carry j=0, so
+        # the downstream filters read column 0 for all of them.
+        _kept_configs.append((config, len(_kept_names)))
         _kept_names.append(new_feature_name)
 
     # Rebuild the survivor set / buffers from ONLY the kept columns so
     # the recipe builder and the downstream dense consumer stay aligned.
-    this_pair_features = set(_kept_configs)
+    this_pair_features = list(_kept_configs)  # a list in buffer-column order: consumers index it by position, which a set cannot do
     st.new_cols = list(_kept_names)
     if fe_max_steps >= 1 and _kept_cols_vals:
         # float buffer: holds RAW engineered values (discretised to

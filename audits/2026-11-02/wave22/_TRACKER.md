@@ -9,7 +9,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave re
 | **RESOLVED** | W22SHP-3 | Medium | a small `report_holdout_fraction` of a small holdout crashed `train_test_split` (stratified over more classes than rows) |
 | **RESOLVED** | W22SHP-4 | Medium | `per_fold_stability_select` gives NaN-fidelity folds weight 0 and no-trust folds weight 1 |
 | **RESOLVED** | W22SHP-5 | Low-Medium | preflight class balance used `mean(y)`; now the rarest class's share |
-| **FUTURE** | W22SHP-6 | Low | `brute_force_top_n` and `brute_force_top_n_cpu_ref` are documented bit-identical but differ in float dtype |
+| **DOC** | W22SHP-6 | Low | `brute_force_top_n` accumulates in the configured criterion dtype (float32 by default) while `brute_force_top_n_cpu_ref` is float64 like the GPU kernel; the reference's docstring now says only it is bit-identical to the GPU and that the two agree to float rounding (`tests/feature_selection/shap_proxied/test_brute_force_cpu_ref_agrees_with_default_to_float_rounding.py`) |
 | **RESOLVED** | W22SHK-1 | Medium | the SHAP disk-cache key covered only a summary of X and y, so interior row reordering hit a stale entry |
 | **RESOLVED** | W22KRN-1 | Medium | `PermutedTargetBinner.column` skipped the dtype-range guard its sibling paths have |
 | **RESOLVED** | W22KRN-2 | Medium | `_native_kbins_quantile` put NaN into the top real bin; now code -1 |

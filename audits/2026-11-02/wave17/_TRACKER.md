@@ -19,14 +19,14 @@ Six read-only package-by-package correctness reports by Opus 5.5 low-effort agen
 | **RESOLVED** | W17FSW-3 | Medium | per-fold scores stored in completion order under `n_jobs > 1` |
 | **RESOLVED** | W17FSW-4 | Medium | final voting / p>=n cap on ndarray input compares int labels with str names |
 | **RESOLVED** | W17MRM-1 | High | MRMR same-inputs skip and shared fit cache ignored `groups` |
-| **FUTURE** | W17MRM-2 | Medium | UAED elbow trim slices `support_` by greedy-round position |
-| **FUTURE** | W17MRM-3 | Medium | operand retention re-grows support after the UAED trim |
+| **RESOLVED** | W17MRM-2 | Medium | the UAED elbow trim sliced `support_` by greedy-round position; it now keeps the features of the first greedy rounds, mapped through `_predictors_log_`, whatever order `support_` is in (positional fallback when the log is unusable); the trimmed raw indices are recorded as `_uaed_trimmed_raw_` (`tests/feature_selection/filters/test_mrmr_uaed_trim_follows_greedy_rounds.py`) |
+| **RESOLVED** | W17MRM-3 | Medium | recipe-operand retention re-added raw features the UAED trim had removed; it now skips `_uaed_trimmed_raw_`, so an opted-in `uaed_auto_size` selection is not re-grown (same test file; the p>=n cap's own trimmed indices are not recorded and stay with the retention policy) |
 | **RESOLVED** | W17CMP-1 | High | `predict_quantile` applied smearing, returning means instead of quantiles |
 | **RESOLVED** | W17CMP-2 | Medium | `GroupedBlockStacker` ignored a numeric `invalid_row_fill` |
 | **RESOLVED** | W17CMP-3 | Low | `_best_iteration_of` off by one for XGBoost / CatBoost |
 | **RESOLVED** | W17CMP-4 | Low | the hurdle's smearing factor is weighted (`tests/training/composite/test_hurdle_smearing_factor_is_weighted.py`) and the composite estimator's residual quantiles now take the fit's sample weights (`tests/training/composite/test_smearing_quantiles_are_weighted.py`) |
 | **RESOLVED** | W17CMP-5 | Low | T-clip envelope differs between fit and drift refit when MAD = 0 |
-| **FUTURE** | W17CMP-6 | Low | chain / quantile-normal transforms get no smearing |
+| **REJECTED** | W17CMP-6 | Low | smearing for the quantile-normal and chain transforms was measured on right-skewed targets (3 seeds, y-scale RMSE without / with smearing): `quantile_normal_y` 6.86/6.86, 6.37/6.26, 5.67/5.64; `chain_linres_cbrt_qn` 6.89/6.91, 6.40/6.42, 5.80/5.81; `chain_linres_cbrt` 6.89/7.01, 6.45/6.65, 5.75/5.93. The gain is under 2% and the chains get worse, so they stay out of `SMEARED_TRANSFORMS`; runnable bench: `src/mlframe/training/composite/_benchmarks/bench_smearing_for_quantile_normal_and_chains.py` |
 | **RESOLVED** | W17CAL-1 | Medium | `generate_probs_from_outcomes` default `flip_percent=0.6` reverses the signal |
 | **RESOLVED** | W17CAL-2 | Medium | "random chunks" in the same generator are contiguous slices |
 | **RESOLVED** | W17CAL-3 | Medium | `compare_cv_schemes` winner and significance test use different criteria |

@@ -285,7 +285,7 @@ def interaction_top_n(
         best = cl
         remaining.discard(cand)
 
-    items = [(v, k) for k, v in cache.items() if np.isfinite(v)]
+    items = [(v, k) for k, v in cache.items() if np.isfinite(v) and min_card <= len(k) <= max_card]  # the greedy pass caches every size from 1
     items.sort(key=lambda t: t[0])
     return items[:top_n]
 
@@ -334,6 +334,15 @@ def _su_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
     n = col.shape[0]
     if n == 0:
         return np.zeros(0, dtype=np.int64)
+    finite = np.isfinite(col)
+    if not finite.all():
+        # A NaN makes every quantile edge NaN, which sent the column to the rank-dense branch below with one bin per distinct value. Bin the finite rows on their
+        # own and give the missing rows one extra bin of their own.
+        ids = np.zeros(n, dtype=np.int64)
+        if finite.any():
+            ids[finite] = _su_bin(col[finite], n_bins)
+        ids[~finite] = int(ids[finite].max()) + 1 if finite.any() else 0
+        return ids
     try:
         edges = np.unique(np.quantile(col, np.linspace(0.0, 1.0, n_bins + 1)))
     except Exception as e:
@@ -633,7 +642,9 @@ def sparse_interaction_candidates(
         # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
         prod = X_proxy[col_a].values.astype(np.float64) * X_proxy[col_b].values.astype(np.float64)
         # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
-        aug[nm] = np.nan_to_num(prod, nan=0.0, posinf=float(np.finfo(np.float64).max), neginf=float(np.finfo(np.float64).min))
+        # Clipped to the float32 range: XGBoost / LightGBM cast features to float32, where float64's max (or any product above float32's) is inf again.
+        _f32_max = float(np.finfo(np.float32).max)
+        aug[nm] = np.clip(np.nan_to_num(prod, nan=0.0, posinf=_f32_max, neginf=-_f32_max), -_f32_max, _f32_max)
         product_to_operands[n_base + len(prod_names)] = (col_to_idx[col_a], col_to_idx[col_b])
         prod_names.append(nm)
 

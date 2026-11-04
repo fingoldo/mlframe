@@ -173,11 +173,12 @@ def faith_interaction_top_n(
 
     def _v_hat(members: set) -> float:
         """Surrogate order-2 Faith-Shap value of the coalition ``members`` (closed form, no proxy loss call)."""
-        val = float(np.sum(a_lin[list(members)])) if members else 0.0
+        # a0 is the fitted intercept of the game ``v = -loss``; leaving it out shifts every surrogate loss away from the real losses it is merged with.
+        val = float(info["a0"]) + (float(np.sum(a_lin[list(members)])) if members else 0.0)
         for i, j in candidate_pairs:
             if i in members and j in members:
                 val += a_pair[(i, j)]
-        return val
+        return float(val)
 
     seeds: list[set] = []
     for i, j in candidate_pairs:

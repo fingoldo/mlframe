@@ -75,8 +75,11 @@ def fast_binary_confusion_metrics_block(
     fnr = fn / (fn + tp) if (fn + tp) > 0 else 0.0
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
     npv = tn / (tn + fn) if (tn + fn) > 0 else 0.0
-    balanced_accuracy = 0.5 * (tpr + tnr)
-    g_mean = sqrt(tpr * tnr)
+    # Recalls are averaged over the classes that are PRESENT in y_true (sklearn's balanced accuracy does the same): with one class absent its recall is undefined, not
+    # 0, and counting it as 0 halved the balanced accuracy and zeroed the G-mean of a perfect classifier.
+    present_recalls = [r for r, support in ((tpr, tp + fn), (tnr, tn + fp)) if support > 0]
+    balanced_accuracy = float(np.mean(present_recalls)) if present_recalls else np.nan
+    g_mean = float(np.prod(present_recalls) ** (1.0 / len(present_recalls))) if present_recalls else np.nan
 
     # MCC
     mcc_num = float(tp) * tn - float(fp) * fn
@@ -84,7 +87,9 @@ def fast_binary_confusion_metrics_block(
     d2 = tp + fn
     d3 = tn + fp
     d4 = tn + fn
-    if d1 == 0 or d2 == 0 or d3 == 0 or d4 == 0:
+    if n == 0:
+        mcc = np.nan
+    elif d1 == 0 or d2 == 0 or d3 == 0 or d4 == 0:
         mcc = 0.0
     else:
         mcc = mcc_num / sqrt(float(d1) * d2 * d3 * d4)
@@ -110,7 +115,7 @@ def fast_binary_confusion_metrics_block(
     f0_5 = _fb(0.5)
     f2 = _fb(2.0)
 
-    return {
+    out = {
         "accuracy": float(accuracy),
         "balanced_accuracy": float(balanced_accuracy),
         "MCC": float(mcc),
@@ -130,6 +135,10 @@ def fast_binary_confusion_metrics_block(
         "_TN": int(tn),
         "_FN": int(fn),
     }
+    if n == 0:
+        # no rows: every rate is undefined, not a measured 0.0 that reads as the worst possible skill
+        out.update({key: float("nan") for key in out if not key.startswith("_")})
+    return out
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)

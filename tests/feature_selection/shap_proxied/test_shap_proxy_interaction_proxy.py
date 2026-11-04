@@ -70,16 +70,33 @@ def test_build_pair_table_gate_and_symmetry():
     phi[:, :3] *= 10.0
     Phi = rng.normal(size=(n, P, P))
     Phi = 0.5 * (Phi + np.transpose(Phi, (0, 2, 1)))  # symmetric per row
-    pair_rows, in_gate = build_pair_table(Phi, phi, interaction_top_k=3)
+    pair_block, in_gate, gate_pos = build_pair_table(Phi, phi, interaction_top_k=3)
     assert in_gate.sum() == 3
     assert in_gate[0] and in_gate[1] and in_gate[2]
+    assert pair_block.shape == (3, 3, n)
+
+    def pair_row(i, j):
+        """Per-row interaction values of features i and j; zero unless both are gated and distinct."""
+        if gate_pos[i] < 0 or gate_pos[j] < 0 or i == j:
+            return np.zeros(n)
+        return pair_block[gate_pos[i], gate_pos[j]]
+
     # gated pair carries per-row values; non-gated pair is zeroed (the top-k gate)
-    assert np.allclose(pair_rows[0, 1], Phi[:, 0, 1])
-    assert np.allclose(pair_rows[0, 1], pair_rows[1, 0])  # symmetric
-    assert np.allclose(pair_rows[3, 4], 0.0)  # both non-gated -> zero
-    assert np.allclose(pair_rows[0, 5], 0.0)  # one non-gated -> zero
+    assert np.allclose(pair_row(0, 1), Phi[:, 0, 1])
+    assert np.allclose(pair_row(0, 1), pair_row(1, 0))  # symmetric
+    assert np.allclose(pair_row(3, 4), 0.0)  # both non-gated -> zero
+    assert np.allclose(pair_row(0, 5), 0.0)  # one non-gated -> zero
     # diagonal never set
-    assert np.allclose(pair_rows[0, 0], 0.0)
+    assert np.allclose(pair_block[0, 0], 0.0)
+
+
+def test_pair_table_memory_is_bounded_by_the_gate_not_the_feature_count():
+    """With 200 features and a gate of 5 the table is k x k x n, not P x P x n."""
+    rng = np.random.default_rng(1)
+    n, P = 300, 200
+    Phi = rng.normal(size=(n, P, P)).astype(np.float32)
+    pair_block, _gate, _pos = build_pair_table(Phi, rng.normal(size=(n, P)), interaction_top_k=5)
+    assert pair_block.nbytes * 100 < n * P * P * 4
 
 
 def test_interaction_proxy_per_row_not_collapsed():
@@ -87,12 +104,12 @@ def test_interaction_proxy_per_row_not_collapsed():
     swing. A scalar-mean collapse would erase the signal -> this guards that regression."""
     X, y = _two_xor_pairs(seed=0)
     phi, _base, _y_phi, Phi = _shap_and_tensor(X, y, 0)
-    pair_rows, in_gate = build_pair_table(Phi, phi, interaction_top_k=30)
+    pair_block, in_gate, gate_pos = build_pair_table(Phi, phi, interaction_top_k=30)
     # pick the two operands of the first XOR pair by name
     names = list(X.columns)
     ia, ib = names.index("xa0"), names.index("xb0")
     assert in_gate[ia] and in_gate[ib]
-    per_row = 2.0 * pair_rows[ia, ib]
+    per_row = 2.0 * pair_block[gate_pos[ia], gate_pos[ib]]
     assert np.abs(per_row).mean() > 5 * np.abs(per_row.mean())  # per-row swing dwarfs its mean
 
 

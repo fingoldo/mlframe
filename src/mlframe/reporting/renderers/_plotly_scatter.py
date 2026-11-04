@@ -58,8 +58,9 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
     n = len(x)
 
     # Per-point size / color arrays must follow the SAME row subset as x/y when downsampling.
-    size_arr = p.point_size if isinstance(p.point_size, np.ndarray) else None
-    color_arr = p.point_color if isinstance(p.point_color, np.ndarray) else None
+    # A per-point list or tuple is treated like an ndarray: left as is, it would skip the downsample reorder (colours land on the wrong points) or reach ``float()``.
+    size_arr = np.asarray(p.point_size, dtype=float) if isinstance(p.point_size, (np.ndarray, list, tuple)) else None
+    color_arr = np.asarray(p.point_color) if isinstance(p.point_color, (np.ndarray, list, tuple)) else None
 
     idx = None  # the downsample selection, so per-point spec arrays can follow the same rows
     if n > _SCATTER_MAX_POINTS:
@@ -383,8 +384,9 @@ def _scatter_perfect_fit_line(p, n, x, y, fig, go, row, col):
     if p.perfect_fit_line and n > 0:
         # Span the y=x line over the UNION of both axes so it stays the true diagonal even when prediction
         # collapse (constant y) makes the y-range a single point; scaleanchor squares the panel so y=x is 45deg.
-        lo = float(min(np.min(x), np.min(y)))
-        hi = float(max(np.max(x), np.max(y)))
+        lo, hi = float(min(np.nanmin(x), np.nanmin(y))), float(max(np.nanmax(x), np.nanmax(y)))
+        if not (np.isfinite(lo) and np.isfinite(hi)):
+            return
         fig.add_trace(
             go.Scatter(x=[lo, hi], y=[lo, hi], mode="lines", line=dict(color=PERFECT_FIT_LINE, dash="dash"), name="Perfect fit", showlegend=True),
             row=row,

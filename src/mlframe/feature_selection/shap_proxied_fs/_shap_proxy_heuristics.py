@@ -283,7 +283,7 @@ def _prep(phi, base, y, classification, metric):
 def beam_search(phi: np.ndarray, base: np.ndarray, y: np.ndarray, *, classification: bool, metric: str | None = None, beam_width: int = 8, min_card: int = 1, max_card: int | None = None, top_n: int = 30) -> list[tuple[float, tuple[int, ...]]]:
     """Deterministic forward beam search: the default, trusted heuristic.
 
-    Seeds the beam with the ``beam_width`` best single features, then for ``min_card`` steps grows
+    Seeds the beam with the ``beam_width`` best single features, then for ``max_card - 1`` steps grows
     every kept subset by one feature at a time. At each layer, every (parent, candidate-add) pair
     is scored via the incremental ``loss_from_parent`` (one O(n) margin update per child, reusing
     each parent's cached margin), duplicate children reached from different parents keep whichever
@@ -313,7 +313,8 @@ def beam_search(phi: np.ndarray, base: np.ndarray, y: np.ndarray, *, classificat
         seeded.append((loss, (j,), margin))
     seeded.sort(key=lambda t: t[0])
     beam = [(key, margin) for _, key, margin in seeded[:beam_width]]
-    for _ in range(min_card, max_card):
+    # The seed beam holds size-1 subsets, so growing to ``max_card`` takes ``max_card - 1`` layers whatever ``min_card`` is; ``min_card`` only filters the result below.
+    for _ in range(1, max_card):
         # ``expanded`` maps sorted-key -> loss; we evaluate each (parent, new_j) by single
         # O(n) vector add over the cached parent margin instead of recomputing the full sum.
         expanded: dict[tuple[int, ...], tuple[float, np.ndarray]] = {}
@@ -331,7 +332,7 @@ def beam_search(phi: np.ndarray, base: np.ndarray, y: np.ndarray, *, classificat
             break
         ranked = sorted(expanded.items(), key=lambda t: t[1][0])[:beam_width]
         beam = [(key, val[1]) for key, val in ranked]
-    return ev.top_n(top_n)
+    return [(loss, key) for loss, key in ev.top_n(len(ev.cache)) if len(key) >= min_card][:top_n]
 
 
 def greedy_forward(phi: np.ndarray, base: np.ndarray, y: np.ndarray, *, classification: bool, metric: str | None = None, max_card: int | None = None, top_n: int = 30) -> list[tuple[float, tuple[int, ...]]]:

@@ -6,11 +6,11 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave co
 |---|---|---|---|
 | **RESOLVED** | W23SHP-1 | High | LightGBM categorical (`==`) splits were read as numeric thresholds by the flat TreeSHAP extractor; such models now fall back to `shap` |
 | **RESOLVED** | W23SHP-2 | High | LightGBM `missing_type == "Zero"` routed NaN / 0.0 by the threshold instead of `default_left`; same fallback |
-| **FUTURE** | W23SHP-3 | Medium | Faith-Shap surrogate losses omit the fitted intercept `a0`, so they are shifted against the search's real losses when merged |
-| **FUTURE** | W23EST-1 | High | `EarlyStoppingWrapper` has no effect on HistGradientBoosting (no `n_estimators` / `estimators_`); needs a `_predictors` truncation or a refit at the best stage |
+| **RESOLVED** | W23SHP-3 | Medium | the Faith-Shap surrogate value omitted the fitted intercept `a0`, so its losses were shifted against the real losses they merge with (a0 = -4.6 on the test bed: surrogate -1.6 against a real 3.0); `a0` is part of the value now (`tests/feature_selection/shap_proxied/test_faith_surrogate_losses_include_the_intercept.py`) |
+| **RESOLVED** | W23EST-1 | High | `EarlyStoppingWrapper` had no effect on HistGradientBoosting: the staged backend neither raised the model's `max_iter` to the wrapper's budget nor cut `_predictors`; both are done now, through a shared `_truncate_fitted_stages` that also covers `estimators_` models (`tests/estimators/test_early_stopping_cuts_histgradientboosting.py`) |
 | **RESOLVED** | W23EST-2 | High | `additive_interaction_diagnostic` ratio additive / full inverted for negative scores; the recommendation now uses the relative deficit |
 | **RESOLVED** | W23EST-3 | Medium | multiclass was scored on class 1's probability only |
-| **FUTURE** | W23EST-4 | Medium | `EarlyStoppingWrapper` is not a classifier / regressor to sklearn and exposes no `classes_` |
+| **RESOLVED** | W23EST-4 | Medium | `EarlyStoppingWrapper` now exposes `classes_` from its best model and reports the wrapped model's estimator type through `__sklearn_tags__`, so `is_classifier` / `is_regressor` agree with the base model (same test file) |
 | **RESOLVED** | W23EST-5 | Medium | unseeded stratified / uniform dummy baselines |
 | **RESOLVED** | W23EST-6 | Low | exploration scores raise `IndexError` for a known candidate outside the search space |
 | **RESOLVED** | W23CORE-1 | High | `fit_composite_similarity` predicted multiclass targets as 0 / 1 (rounded weighted mean); now a per-class vote |
@@ -22,7 +22,7 @@ Five read-only reports by Opus 5.5 low-effort agents on areas no earlier wave co
 | **RESOLVED** | W23MET-2 | Medium | Tweedie deviance with power > 2 accepted y = 0 and returned a negative value |
 | **RESOLVED** | W23MET-3 | Low-Medium | the weighted ICE class reduction counted each class's positives unweighted; with `sample_weight` the class weight is now its summed row weight (`tests/metrics/test_ice_class_reduction_uses_weighted_positives.py`) |
 | **RESOLVED** | W23MET-4 | Low | ordinal cutpoints accepted labels outside `[0, n_classes)` |
-| **FUTURE** | W23MET-5 | Low | KTC region for the odds-combine dispatch can route small shapes to the GPU |
+| **RESOLVED** | W23MET-5 | Low | the tuned odds-combine region was bounded only from above (`n_samples_max`), so a GPU win measured at 100k rows applied to every smaller shape; the region now also carries `n_samples_min` (a quarter of the measured rows) and the cache key moved to `_v3` so earlier open-ended entries are not reused (`tests/calibration/test_odds_combine_ktc_region_excludes_much_smaller_shapes.py`) |
 
 ## Not covered by this wave
 

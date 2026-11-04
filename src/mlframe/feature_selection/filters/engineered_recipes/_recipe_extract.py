@@ -135,13 +135,15 @@ def _codes_from_cat_map(vals: np.ndarray, cat_code_map: dict, n_bins: int, recip
     _nan_code = cat_code_map.get(_NAN_CODE_KEY)
     out = np.empty(len(vals), dtype=np.int64)
     for _i, _v in enumerate(vals):
-        if _v is None or (isinstance(_v, float) and _v != _v):
+        if _v is None or (pd is not None and _v is pd.NA) or (isinstance(_v, float) and _v != _v):  # pd.NA is what a pandas string / boolean column holds for a missing cell
             if _nan_code is not None:
                 out[_i] = _nan_code
                 continue
             _code = None  # NaN unseen at fit -> unknown_strategy below
         else:
             _code = cat_code_map.get(str(_v))
+            if _code is None and isinstance(_v, (float, np.floating)) and float(_v).is_integer():
+                _code = cat_code_map.get(str(int(_v)))  # an integer category that arrived as float (a NaN elsewhere promoted the column)
         if _code is None:
             if unknown_strategy == "raise":
                 raise ValueError(
@@ -194,7 +196,9 @@ def _coerce_to_int_with_nan_handling(
     # transform reproduces the EXACT codes (category-order for Categorical,
     # first-appearance order for object via pd.factorize). Numeric columns skip
     # this branch (cat_code_map is empty / None for them).
-    if cat_code_map and not (np.issubdtype(vals.dtype, np.floating) or np.issubdtype(vals.dtype, np.integer)):
+    # The map exists only for Categorical / object / string / bool sources (``build_category_code_map`` returns {} for numeric ones), so a non-empty map means the
+    # fit used category codes even when ``to_numpy()`` hands back the category VALUES as an integer or float array (a Categorical of ints): those values are not codes.
+    if cat_code_map:
         return _codes_from_cat_map(vals, cat_code_map, n_bins, recipe_name, col_name, unknown_strategy)
     if np.issubdtype(vals.dtype, np.floating):
         nan_mask = np.isnan(vals)

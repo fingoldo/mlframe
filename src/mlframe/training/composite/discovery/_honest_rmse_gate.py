@@ -280,12 +280,20 @@ def _spec_holdout_prediction(self: Any, spec: Any, transform: Any, params: dict,
     """Honest y-scale prediction of ``spec`` on the eval rows: the cached one, else a fit on the rows where its forward transform is valid."""
     y_hat = cached_honest_prediction(self, fit_idx, eval_idx, spec.name, valid)
     if y_hat is None:
-        t_fit = np.asarray(call_transform(transform, "forward", y_fit[valid], base_fit_v, params), dtype=np.float64)
+        # A grouped transform cannot be forwarded or inverted without group labels; they come from the discovery's row-aligned group ids.
+        g_fit = g_eval = None
+        if getattr(transform, "requires_groups", False):
+            g_all = getattr(self, "_group_ids_for_rerank", None)
+            if g_all is None:
+                raise ValueError(f"grouped transform {spec.transform_name!r} needs group ids, none are available on this discovery")
+            g_all = np.asarray(g_all)
+            g_fit, g_eval = g_all[fit_idx][valid], g_all[eval_idx]
+        t_fit = np.asarray(call_transform(transform, "forward", y_fit[valid], base_fit_v, params, groups=g_fit), dtype=np.float64)
         t_hat = _fit_predict_masked(fit_predict, t_fit, valid)
         # Score the spec the way the trained composite will predict: with smearing for the curved unary inverses,
         # so a log/cbrt target is judged on the conditional mean of y, not on the (lower) geometric mean.
         _q = last_residual_q["q"] if spec.transform_name in SMEARED_TRANSFORMS else None
-        y_hat = smeared_inverse(spec_inverse(transform, base_eval, params), t_hat, _q)
+        y_hat = smeared_inverse(spec_inverse(transform, base_eval, params, g_eval), t_hat, _q)
     return y_hat
 
 

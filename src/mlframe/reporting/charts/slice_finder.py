@@ -312,7 +312,7 @@ def find_weak_slices(
     order = np.argsort(rec_score, kind="stable")[::-1][:top_k]
     # Per-slice 95% interval on the mean error, from that slice's own rows. Only the DISPLAYED slices are measured
     # (top_k of them), so this is a handful of masked reductions, not a pass over every candidate.
-    n_candidates = int(rec_score.size)
+    n_candidates = max(int(cand.n_screened), int(rec_score.size))
     # Sidak: a per-slice level of 1 - (1 - 0.05)**(1/m) gives a 95% SIMULTANEOUS family, so an interval that
     # excludes the global error means the slice survives the multiple comparison rather than merely being the
     # luckiest of m draws. Slightly tighter than Bonferroni for the same guarantee.
@@ -408,8 +408,10 @@ class _Candidates:
         mean_parts: List[np.ndarray],
         support_parts: List[np.ndarray],
         score_parts: List[np.ndarray],
+        n_screened: int = 0,
     ) -> None:
         # Concatenate the per-combo stat parts and keep the block table.
+        self.n_screened = int(n_screened)  # every cell above the support floor, degraded or not: the family the simultaneous interval corrects over
         self.blocks = blocks
         self.score = np.concatenate(score_parts) if score_parts else np.empty(0, dtype=np.float64)
         self.mean = np.concatenate(mean_parts) if mean_parts else np.empty(0, dtype=np.float64)
@@ -457,6 +459,7 @@ def _collect_candidates(
     support_parts: List[np.ndarray] = []
     score_parts: List[np.ndarray] = []
     _n_rows = 0
+    n_screened = 0
     for combo in combos:
         _cached = pair_agg.get(combo)
         if _cached is not None:
@@ -464,6 +467,7 @@ def _collect_candidates(
         else:
             sums, counts, strides = _aggregate_combo(codes, err, combo, [nbins_per[f] for f in combo])
         valid = counts >= min_support
+        n_screened += int(valid.sum())
         if not valid.any():
             continue
         means = np.where(counts > 0, sums / np.where(counts > 0, counts, 1.0), 0.0)
@@ -489,7 +493,7 @@ def _collect_candidates(
         support_parts.append(counts[cell_ids])
         score_parts.append(scores[cell_ids])
         _n_rows += int(cell_ids.size)
-    return _Candidates(rec_blocks, rec_offsets, mean_parts, support_parts, score_parts)
+    return _Candidates(rec_blocks, rec_offsets, mean_parts, support_parts, score_parts, n_screened)
 
 
 def _bounds_label(cand: _Candidates, names: Sequence[str], all_edges: List[np.ndarray], i: int) -> str:

@@ -43,20 +43,19 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import (
 _DEFAULT_INTERACTION_TOP_K = 30
 
 
-def build_pair_table(Phi: np.ndarray, phi: np.ndarray, interaction_top_k: int) -> tuple[np.ndarray, np.ndarray]:
-    """Build the PER-ROW gated interaction tensor used by the interaction proxy scorer.
+def build_pair_table(Phi: np.ndarray, phi: np.ndarray, interaction_top_k: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Build the PER-ROW gated interaction table used by the interaction proxy scorer.
 
-    Returns ``(pair_rows, in_gate)`` where:
-      * ``pair_rows`` is a (P, P, n) double tensor with ``pair_rows[i, j] = Phi[:, i, j]`` (the per-row
-        off-diagonal interaction values) for both ``i, j`` in the top-k |phi| gate (i != j), zero
-        otherwise. Symmetric in (i, j). Row-major over (i, j) so the scorer's per-pair access is a
-        contiguous length-n read.
+    Returns ``(pair_block, in_gate, gate_pos)`` where:
+      * ``pair_block`` is a (k, k, n) tensor over the top-k |phi| gate (sorted by feature index) with ``pair_block[a, b] = Phi[:, gi[a], gi[b]]``
+        (the per-row off-diagonal interaction values) for ``a != b``; the diagonal is zero. Symmetric. Row-major over (a, b) so the scorer's per-pair access is
+        a contiguous length-n read.
       * ``in_gate`` is a (P,) bool mask of the gated features.
+      * ``gate_pos`` is a (P,) int64 map from a feature index to its position in ``pair_block`` (-1 outside the gate).
 
-    The interaction term MUST stay PER-ROW: for an XOR pair the row mean of ``Phi_ij`` is ~0 (the sign
-    of the interaction flips with the operand quadrant), so collapsing to a scalar would erase exactly
-    the signal this proxy exists to capture. Memory is O(k^2 * n) (k=interaction_top_k, not P), the
-    whole point of the gate - a full (P, P, n) tensor would be prohibitive on wide proxies.
+    The interaction term MUST stay PER-ROW: for an XOR pair the row mean of ``Phi_ij`` is ~0 (the sign of the interaction flips with the operand quadrant), so
+    collapsing to a scalar would erase exactly the signal this proxy exists to capture. Memory is O(k^2 * n) (k=interaction_top_k, not P): a full (P, P, n) copy
+    would double the size of ``Phi`` itself and exhaust memory on wide proxies.
     """
     n, P, _ = Phi.shape
     imp = np.abs(phi).mean(axis=0)
@@ -64,29 +63,34 @@ def build_pair_table(Phi: np.ndarray, phi: np.ndarray, interaction_top_k: int) -
     gate_idx = np.argsort(-imp)[:k]
     in_gate = np.zeros(P, dtype=bool)
     in_gate[gate_idx] = True
-    pair_rows = np.zeros((P, P, n), dtype=_crit_np_dtype())
+    gi = np.sort(gate_idx)
+    gate_pos = np.full(P, -1, dtype=np.int64)
+    gate_pos[gi] = np.arange(gi.size)
     if k >= 2:
-        gi = np.sort(gate_idx)
-        block = np.ascontiguousarray(np.transpose(Phi[:, gi][:, :, gi], (1, 2, 0)))  # (k, k, n)
-        for a in range(k):
-            for b in range(k):
-                if a != b:
-                    pair_rows[gi[a], gi[b]] = block[a, b]
-    return pair_rows, in_gate
+        pair_block = np.ascontiguousarray(np.transpose(Phi[:, gi][:, :, gi], (1, 2, 0)), dtype=_crit_np_dtype())  # (k, k, n)
+        pair_block[np.arange(k), np.arange(k)] = 0.0
+    else:
+        pair_block = np.zeros((k, k, n), dtype=_crit_np_dtype())
+    return pair_block, in_gate, gate_pos
 
 
 @njit(cache=True)
-def _interaction_extra(idx: np.ndarray, pair_rows: np.ndarray, out: np.ndarray) -> None:
+def _interaction_extra(idx: np.ndarray, pair_block: np.ndarray, gate_pos: np.ndarray, out: np.ndarray) -> None:
     """Accumulate ``2 * sum_{i<j in idx} Phi[:, i, j]`` into ``out`` (per-row interaction shift).
 
-    ``pair_rows`` is zero for non-gated features, so iterating only over the subset's own indices
-    already realises the top-k gate (a non-gated member contributes 0 to every pair)."""
+    Only pairs whose two members are both inside the top-k gate contribute (``gate_pos`` is -1 outside it)."""
     n = out.shape[0]
     r = idx.shape[0]
     for a in range(r):
         ia = idx[a]
+        pa = gate_pos[ia]
+        if pa < 0:
+            continue
         for b in range(a + 1, r):
-            row = pair_rows[ia, idx[b]]
+            pb = gate_pos[idx[b]]
+            if pb < 0:
+                continue
+            row = pair_block[pa, pb]
             for t in range(n):
                 out[t] += 2.0 * row[t]
 
@@ -107,7 +111,7 @@ def _sweep_gated_singletons_and_pairs(_loss, in_gate, min_card, max_card) -> Non
     if min_card <= 1:
         for j in gated:
             _loss((j,))
-    if max_card >= 2:
+    if min_card <= 2 <= max_card:
         for a in range(len(gated)):
             for b in range(a + 1, len(gated)):
                 _loss(tuple(sorted((gated[a], gated[b]))))
@@ -163,7 +167,7 @@ def interaction_proxy_top_n(
     _n, P = phi.shape
     max_card = P if max_card is None else min(max_card, P)
     phi_T = np.ascontiguousarray(phi.T)
-    pair_rows, in_gate = build_pair_table(Phi, phi, interaction_top_k)
+    pair_block, in_gate, gate_pos = build_pair_table(Phi, phi, interaction_top_k)
     cache: dict[tuple[int, ...], float] = {}
 
     def _loss(key: tuple[int, ...]) -> float:
@@ -175,7 +179,7 @@ def interaction_proxy_top_n(
             return v
         idx = np.asarray(key, dtype=np.int64)
         margin = base + phi_T[idx].sum(axis=0)
-        _interaction_extra(idx, pair_rows, margin)
+        _interaction_extra(idx, pair_block, gate_pos, margin)
         if metric == "auc":
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import proxy_loss
             v = proxy_loss(margin, y, "auc")
@@ -191,6 +195,6 @@ def interaction_proxy_top_n(
     _sweep_gated_singletons_and_pairs(_loss, in_gate, min_card, max_card)
     _greedy_forward_interaction_search(_loss, P, max_card)
 
-    items = [(v, k) for k, v in cache.items() if k and np.isfinite(v)]
+    items = [(v, k) for k, v in cache.items() if k and np.isfinite(v) and min_card <= len(k) <= max_card]  # the greedy pass caches every size from 1
     items.sort(key=lambda t: t[0])
     return items[:top_n]
