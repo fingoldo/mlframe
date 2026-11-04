@@ -1,0 +1,7 @@
+{
+  "_comment": "Accepted pre-existing violations for mutation_survivors. Managed by py_ci_shared.baseline_ratchet; regenerate with the refresh command. Hand-edit only to write a note saying why an entry is kept.",
+  "accepted": {
+    "src/mlframe/feature_selection/filters/_numba_utils.py::cabf1f90b16b::logic: True becomes False": "Equivalent: the cache=True flag on the _quantile_bin_sorted_njit decorator only controls whether numba persists the compiled kernel; cache=False computes identical output.",
+    "src/mlframe/feature_selection/filters/_numba_utils.py::e7cc85fbfd2e::logic: True becomes False": "Equivalent: the cache=True flag on the decorator above _restore_saved_columns only controls on-disk compilation caching; cache=False computes identical output."
+  }
+}
