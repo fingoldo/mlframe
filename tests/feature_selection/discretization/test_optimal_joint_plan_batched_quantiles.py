@@ -39,3 +39,15 @@ def test_batched_fold_edges_give_the_per_candidate_bins():
         for ref_cells, got_cells in zip(ref, got):
             assert [m for m, _ in ref_cells] == [m for m, _b, _k in got_cells]
             assert all(np.array_equal(a, b) for (_m, a), (_m2, b, _k) in zip(ref_cells, got_cells))
+
+
+def test_fold_masks_are_shared_and_read_only():
+    """Columns of one length share one set of fold masks (drawn once), and the shared masks cannot be written through."""
+    import pytest
+
+    rng = np.random.default_rng(3)
+    a = _optimal_joint_plan(rng.normal(size=500), (4, 8), 3, "quantile", 0)["folds"]
+    b = _optimal_joint_plan(rng.normal(size=500), (4, 8), 3, "quantile", 0)["folds"]
+    assert all(fa[1] is fb[1] for fa, fb in zip(a, b))
+    with pytest.raises(ValueError):
+        a[0][1][0] = not a[0][1][0]

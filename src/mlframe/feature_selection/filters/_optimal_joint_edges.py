@@ -21,23 +21,46 @@ def _a() -> Any:
     return _adaptive_nbins
 
 
+_FOLD_MASKS: "dict[tuple, list]" = {}
+_FOLD_MASKS_LOCK = threading.Lock()
+_FOLD_MASKS_MAX = 8
+
+
+def _fold_masks(n: int, n_splits: int, random_state: int) -> list:
+    """``[(k, train mask, validation mask, training rows)]`` of the folds with at least 4 validation rows. They depend only on ``(n, n_splits, random_state)``:
+    every column of a frame shares them, and drawing the permutation of the rows for each column cost 2.8 s of worker time in a warm 100k optimal_joint fit."""
+    key = (n, n_splits, random_state)
+    with _FOLD_MASKS_LOCK:
+        hit = _FOLD_MASKS.get(key)
+    if hit is not None:
+        return hit
+    fold_idx = np.random.default_rng(random_state).permutation(n) % n_splits
+    out = []
+    for k in range(n_splits):
+        train_mask = fold_idx != k
+        val_mask = ~train_mask
+        if val_mask.sum() < 4:
+            continue  # val-fold-too-small check does not depend on M -> applies to every M for this k
+        train_mask.setflags(write=False)
+        val_mask.setflags(write=False)
+        out.append((k, train_mask, val_mask, int(train_mask.sum())))
+    with _FOLD_MASKS_LOCK:
+        if len(_FOLD_MASKS) >= _FOLD_MASKS_MAX:
+            _FOLD_MASKS.pop(next(iter(_FOLD_MASKS)))
+        _FOLD_MASKS[key] = out
+    return out
+
+
 def _optimal_joint_plan(x: np.ndarray, candidates: tuple, n_splits: int, base: str, random_state: int) -> dict:
     """The part of :func:`edges_optimal_joint` that does not depend on the target: the fold split, and for every fold and candidate bin count the train-fold edges and the bins of the validation values.
 
     The fold of a row depends only on the number of rows, the edges only on the training values, so a null that permutes the target reuses one plan for every permutation. The bins are stored in
     the narrowest integer type that holds them (at most ``max(candidates) + 1`` distinct codes)."""
     n = x.size
-    rng = np.random.default_rng(random_state)
-    fold_idx = rng.permutation(n) % n_splits
     folds = []
-    for k in range(n_splits):
-        train_mask = fold_idx != k
-        val_mask = ~train_mask
-        if val_mask.sum() < 4:
-            continue  # val-fold-too-small check does not depend on M -> applies to every M for this k
+    for k, train_mask, val_mask, n_train in _fold_masks(n, int(n_splits), int(random_state)):
         train_x = x[train_mask]
         val_x = x[val_mask]
-        n_train = int(train_mask.sum())
         cells = []
         # every candidate's quantile edges from one np.percentile call over the fold, instead of one partition of the fold per candidate
         fold_edges = _quantile_edges_many(train_x, [M for M in candidates if M >= 2 and n_train >= M]) if base == "quantile" else None
