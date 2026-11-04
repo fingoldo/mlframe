@@ -113,6 +113,25 @@ def _inverse_base_sensitivity(spec, base_train: np.ndarray) -> float | None:
     return None
 
 
+def _between_group_variance_ratio(values: np.ndarray, inverse: np.ndarray, n_groups: int) -> float:
+    """Share of the variance of ``values`` that lies between groups, adjusted for the number of groups (adjusted eta squared, in [0, 1]).
+
+    The plain between / total ratio of group means is ~1 for ANY column when the groups are tiny (a one-row group's mean is its own value), so a base with no group
+    structure looked like a per-group level. Comparing the within-group mean square (SSW / (n - k)) with the total one (SST / (n - 1)) removes that bias: it is ~0 for
+    an i.i.d. column however fine the grouping, and approaches the plain ratio when the groups are large.
+    """
+    n = values.shape[0]
+    if n <= n_groups or n < 2:
+        return 0.0
+    sst = float(np.sum((values - values.mean()) ** 2))
+    if sst <= 0.0:
+        return 0.0
+    gsum = np.bincount(inverse, weights=values, minlength=n_groups)
+    gcnt = np.bincount(inverse, minlength=n_groups).astype(np.float64)
+    ssw = float(np.sum((values - (gsum / np.maximum(gcnt, 1.0))[inverse]) ** 2))
+    return float(min(1.0, max(0.0, 1.0 - (ssw / (n - n_groups)) / (sst / (n - 1)))))
+
+
 def apply_structural_fragility_gate(
     self,
     df: Any,
@@ -204,13 +223,7 @@ def apply_structural_fragility_gate(
         if uniq.size < 3:
             survivors.append(spec)
             continue
-        gsum = np.zeros(uniq.size, dtype=np.float64)
-        gcnt = np.zeros(uniq.size, dtype=np.float64)
-        np.add.at(gsum, inv, b)
-        np.add.at(gcnt, inv, 1.0)
-        gmean = gsum / np.maximum(gcnt, 1.0)
-        between_var = float(np.var(gmean))
-        ratio = between_var / total_var
+        ratio = _between_group_variance_ratio(b, inv, uniq.size)
         # SCALE-INVARIANT predicate: a base whose variance is dominated by BETWEEN-group (well) level
         # differences is a per-group LEVEL -- on unseen groups it takes out-of-range values and a
         # base-additive inverse (s>=s_min, already checked) re-injects them, collapsing y. The absolute
