@@ -15,5 +15,5 @@ def new_content_hasher() -> Any:
         import xxhash
 
         return xxhash.xxh3_128()
-    except ImportError:
+    except ImportError:  # best-effort: blake2b is an equally strong 128-bit hash, only slower
         return hashlib.blake2b(digest_size=16)

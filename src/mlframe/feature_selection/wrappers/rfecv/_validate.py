@@ -424,7 +424,7 @@ def _leak_corr_or_none(col, y_arr):
     """Pearson correlation of one column with ``y_arr`` over their finite rows; None when too few rows or a constant column, ``_UNSCANNABLE`` when the column cannot become float."""
     try:
         x_arr = col.to_numpy(dtype=float, na_value=np.nan)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # best-effort: a non-numeric column is reported as unscannable, not scored
         return _UNSCANNABLE
     mask = np.isfinite(x_arr) & np.isfinite(y_arr)
     if mask.sum() < 10 or float(np.nanstd(x_arr[mask])) < 1e-12:

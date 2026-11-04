@@ -341,7 +341,7 @@ class MBHOptimizer:
             """Natural order (numbers numerically) when the values are mutually comparable, the string-key order otherwise."""
             try:
                 return list(sorted(sampled_inputs))
-            except TypeError:
+            except TypeError:  # best-effort: mixed-type values sort by the documented string key
                 return list(sorted(sampled_inputs, key=_sort_key))
 
         if init_evaluate_ascending:

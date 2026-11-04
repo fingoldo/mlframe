@@ -142,7 +142,7 @@ def __getattr__(name: str):
             import torch
             import torch.nn.functional as F
             from torch import nn
-        except (ImportError, OSError):  # OSError covers Windows DLL load failures (WinError 127 etc.)
+        except (ImportError, OSError):  # best-effort: None is the documented value without torch; OSError covers Windows DLL load failures (WinError 127 etc.)
             return None
         return {"torch": torch, "nn": nn, "F": F}[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

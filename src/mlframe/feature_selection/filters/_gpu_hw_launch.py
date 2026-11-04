@@ -45,7 +45,7 @@ def _current_device_id() -> "int | None":
         import cupy as cp
 
         return int(cp.cuda.Device().id)
-    except Exception:
+    except Exception:  # best-effort: no cupy / CUDA is the documented None
         return None
 
 
