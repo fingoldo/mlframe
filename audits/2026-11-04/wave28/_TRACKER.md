@@ -10,7 +10,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **FUTURE** | W28RC-2 | replay | High | `_orth_basis_recipes.py:82-84`: the `tanh` pre-transform std is recomputed from the replay batch and never stored in the recipe |
 | **RESOLVED** | W28GP-1 | precision | Medium | `_pairs_abs_corr_gpu.py:28,34-39`: the target is reduced in float32 on the device, so a target with a large offset collapses to constant and the GPU returns 0.0 where the CPU twin returns the true |r; the target, the mask and the row count are float64 on the device (GPU returned 0.0 where the true |r| is 0.96) |
 | **RESOLVED** | W28GP-2 | precision | Medium | `_pairs_abs_corr_gpu.py:84-94`: both operands are cast to float32 before centring, with the same collapse at large offsets; both operands are float64 on the device (resident key renamed `zerofill_operand_f64` so a cached float32 copy is not reused) |
-| **FUTURE** | W28DC-1 | cache | Medium | `_dcd_metrics.py:37-39`: `_is_foreign` treats any same-shape array sharing memory with the state matrix as the state's own, so another column view reuses the cached SU/VI/entropy |
+| **RESOLVED** | W28DC-1 | cache | Medium | `_dcd_metrics.py:37-39`: `_is_foreign` treats any same-shape array sharing memory with the state matrix as the state's own, so another column view reuses the cached SU/VI/entropy; `_same_view` compares shape, strides and the first-element address, so another block or a reversed view of the same buffer is scored on its own data |
 | **FUTURE** | W28CT-1 | scale | Low | `composite/transforms/simple.py:321,331,452,468`: the eps floor `sign(base + 1e-300) * eps` is 0 when `base == -1e-300` |
 | **FUTURE** | W28CT-2 | ties | Low | `composite/transforms/unary.py:531-535`: tied knots map every tied y to the last duplicate position instead of the middle of the tie block |
 | **FUTURE** | W28TA-1 | metric | High | local_linear.py:107: neighbours come from a cosine index on median-centred data, so the local OLS is not local |
@@ -70,3 +70,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | W28TA-12 | `tests/feature_engineering/transformer/test_pairwise_kl_sigmas_use_out_of_fold_residuals.py` |
 | W28TA-13 | `tests/feature_engineering/transformer/test_variance_baseline_sigma_uses_out_of_fold_residuals.py` |
 | W28GP-1, 2 | `tests/feature_selection/fe/test_pairs_abs_corr_gpu_keeps_float64_precision.py` |
+| W28DC-1 | `tests/feature_selection/clustering/test_dcd_foreign_view_of_the_same_buffer_is_scored_on_its_own_data.py` |
