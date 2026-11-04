@@ -172,6 +172,7 @@ class MBHOptimizer:
 
         known_candidates = self._init_known_data(known_candidates, known_evaluations)
         self._init_search_state(suggestions_cache_max_age_sec)
+        self._seed_best_from_known()
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Let's establish initial dataset to fit our surrogate self.model
@@ -268,6 +269,13 @@ class MBHOptimizer:
         self.known_candidates = known_candidates
         self.known_evaluations = known_evaluations
         return cast(np.ndarray, known_candidates)
+
+    def _seed_best_from_known(self) -> None:
+        """Let the finite warm-start evaluations count toward the best / worst (known points are never re-evaluated, so the true optimum could otherwise never be returned)."""
+        for candidate, evaluation in zip(self.known_candidates.tolist(), self.known_evaluations.tolist()):
+            if np.isfinite(evaluation):
+                self._track_best_and_worst(candidate, float(evaluation))
+        self.n_noimproving_iters = 0
 
     def _init_search_state(self, suggestions_cache_max_age_sec: int) -> None:
         """Best / worst bookkeeping and the counters, caches and placeholders the suggestion loop updates."""
@@ -646,7 +654,11 @@ class MBHOptimizer:
 
             self.nsteps += 1
 
-            self._track_best_and_worst(next_candidate, next_evaluation)
+            if np.isfinite(next_evaluation):
+                self._track_best_and_worst(next_candidate, next_evaluation)
+            else:
+                # A failed evaluation (NaN/inf) is a non-improving step; recording it as best or worst would scale the exploration distances by an infinite range.
+                self.n_noimproving_iters += 1
 
             if self.verbose and self.n_noimproving_iters == 0:
                 logger.info("Next optimum found at point (%s): %s", self.best_candidate, f"{self.best_evaluation:_.6f}")

@@ -7,8 +7,8 @@ Three read-only reports by Opus 5.5 low-effort agents (models optimization and e
 | **RESOLVED** | W33EN-1 | nan | High | `models/ensembling/quality_gate.py:224,111-121`: rows where any member is non-finite are dropped before the member statistics, so a member that is NaN on a few rows passes the gate and the blend is NaN there; only rows where EVERY member is non-finite (the warm-up rows) are dropped for the statistics; a member that is NaN on some rows keeps those rows, gets NaN MAE/STD and is excluded by `_exclude_if_non_finite` |
 | **RESOLVED** | W33EN-2 | gate | Medium | `models/ensembling/quality_gate.py:253-264`: a median peer MAE of 0 makes the relative threshold 0, which switches the relative check off, so a catastrophic outlier is kept; the relative thresholds are floored at 1e-12 when enabled, so peers that agree exactly no longer switch the check off |
 | **RESOLVED** | W33EN-3 | nan | Medium | `models/ensembling/float_aggregation.py:40-48`: a NaN member makes the robust flavour return a silent 0.0; the robust flavour is NaN-aware (nanmedian/nanmean); an all-NaN column stays NaN |
-| **FUTURE** | W33OP-1 | search | Medium | `models/_optimization_search.py:649,654`: best/worst tracking runs before the finite check, so a failed (infinite) evaluation poisons the search state |
-| **FUTURE** | W33OP-2 | search | Medium | `models/_optimization_search.py:254-270`, `optimization.py:198`: warm-start evaluations never count toward the returned best |
+| **RESOLVED** | W33OP-1 | search | Medium | `models/_optimization_search.py:649,654`: best/worst tracking runs before the finite check, so a failed (infinite) evaluation poisons the search state; only finite evaluations reach the best/worst tracking; a failed one counts as a non-improving step |
+| **RESOLVED** | W33OP-2 | search | Medium | `models/_optimization_search.py:254-270`, `optimization.py:198`: warm-start evaluations never count toward the returned best; finite warm-start evaluations seed the best / worst at construction (this also removes the earlier `NOT_READY` with known data but no best) |
 | **FUTURE** | W33OP-3 | splits | Medium | `models/selection.py:73-78` (`GroupTimeSeriesSplit.split`): a pandas Series of groups is indexed by label, not position |
 | **RESOLVED** | W33EN-4 | metric | Medium | `models/ensembling/selection.py:151` (`_score_blend`): the default AUC metric is silently wrong for a non-binary 1-D target; a 1-D blend over a target with more than two values raises a ValueError asking for an explicit metric instead of casting labels to int |
 | **FUTURE** | W33DA-1 | missingness | High | `data/datasets/_missing.py:77-78`: MAR and MNAR masks keep `ordering >= cut`, so ties at the cut hide far more than the requested rate |
@@ -30,3 +30,4 @@ Three read-only reports by Opus 5.5 low-effort agents (models optimization and e
 |---|---|
 | W33EN-1, 2 | `tests/models/ensembling/test_quality_gate_nan_member_and_zero_median.py` |
 | W33EN-3, 4 | `tests/models/ensembling/test_float_aggregation_and_default_metric_edge_cases.py` |
+| W33OP-1, 2 | `tests/models/test_optimizer_warm_start_and_failed_evaluations.py` |
