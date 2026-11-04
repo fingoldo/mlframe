@@ -103,19 +103,25 @@ class PositionalEncoding(nn.Module):
             raise ValueError(f"PositionalEncoding requires d_model >= 2 (got {d_model}); " "sinusoidal encoding needs sin+cos channel pair.")
         self.dropout = nn.Dropout(p=dropout)
 
-        # Precompute sin/cos positional encodings (Vaswani et al., 2017)
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * (-np.log(10000.0) / d_model))
+        self.d_model = d_model
+        self.register_buffer("pe", self._sinusoid_table(max_len, d_model).unsqueeze(0))  # (1, max_len, d_model)
 
-        pe = torch.zeros(max_len, d_model)
+    @staticmethod
+    def _sinusoid_table(length: int, d_model: int) -> torch.Tensor:
+        """Sin/cos positional encodings for positions ``0..length-1`` (Vaswani et al., 2017), shape ``(length, d_model)``."""
+        position = torch.arange(length).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-np.log(10000.0) / d_model))
+        pe = torch.zeros(length, d_model)
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term[: d_model // 2])
-
-        self.register_buffer("pe", pe.unsqueeze(0))  # (1, max_len, d_model)
+        return pe
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Add positional encoding to input. x: (batch, seq_len, d_model)"""
-        x = x + self.pe[:, : x.size(1), :]
+        if x.size(1) > self.pe.size(1):  # a sequence longer than the precomputed table: extend it on the fly instead of failing on the shape mismatch
+            x = x + self._sinusoid_table(x.size(1), self.d_model).to(device=x.device, dtype=x.dtype).unsqueeze(0)
+        else:
+            x = x + self.pe[:, : x.size(1), :]
         return cast(torch.Tensor, self.dropout(x))
 
 

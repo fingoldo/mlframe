@@ -10,7 +10,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural base/flat modu
 | **FUTURE** | W29NR-1 | optimizer | High | `_sam_optimizer.py:206-213`: `SAM.step(closure)` assumes Lightning ran the closure first; under 32-true it perturbs with the previous batch's gradient, under 16-mixed it raises (depends on Lightning behaviour, not verified) |
 | **RESOLVED** | W29NR-2 | restore | High | `ranker.py:839-870`: `MLPRanker.fit` adds `EarlyStopping` but never reloads the best weights, so `predict` uses the last epoch's; `_BestWeightsCallback` snapshots the weights of the lowest `val_loss` epoch and reloads them at train end (added whenever early stopping is on) |
 | **FUTURE** | W29NR-3 | restore | Medium | `_lookahead_optimizer.py:221-245` with `_recurrent_torch_model.py:708-723`: the best-checkpoint reload overwrites the slow weights `on_train_end` installed |
-| **FUTURE** | W29NR-4 | crash | Medium | `_recurrent_arch.py:141`: positional encoding `max_len=5000` raises for padded sequence length >= 5000 (the CLS token adds one) |
+| **RESOLVED** | W29NR-4 | crash | Medium | `_recurrent_arch.py:141`: positional encoding `max_len=5000` raises for padded sequence length >= 5000 (the CLS token adds one); the table is extended on the fly with the same formula for longer sequences |
 | **FUTURE** | W29NR-5 | nan | Medium | `tabular_1dcnn.py:158-250`: no NaN check or imputation, one NaN cell makes every weight and prediction NaN without an error |
 | **RESOLVED** | W29NR-6 | crash | Low | `_recurrent_data.py:302-311`: the stratified sampler branch does not exclude 2-D (multilabel) labels; the stratified-sampler branch requires 1-D labels (one-line guard mirroring the wrapper's own copy; no separate regression test: no existing fixture builds the data module with 2-D labels) |
 | **RESOLVED** | W29NR-7 | ties | Low | `fixed_sparse_linear.py:44-45`: the 1e-9 jitter is below float32 resolution for importances near 1, so `random_state` does not break ties; ties are broken by a seeded random permutation and a stable sort |
@@ -32,3 +32,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural base/flat modu
 | W29PX-2 | `tests/feature_selection/fe/test_fe_extval_factor_subset_is_drawn_once_per_pair.py` |
 | W29PX-1 | `tests/feature_selection/fe/test_fe_pair_chunk_where_every_transform_fails_keeps_the_entry_shape.py` |
 | W29NR-7 | `tests/training/neural/test_fixed_sparse_linear_tie_break_follows_the_seed.py` |
+| W29NR-4 | `tests/training/neural/test_positional_encoding_handles_sequences_past_max_len.py` |
