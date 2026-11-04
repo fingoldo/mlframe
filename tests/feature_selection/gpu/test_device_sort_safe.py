@@ -96,3 +96,22 @@ def test_sort_room_reserved_against_a_concurrent_allocation():
     for t in threads:
         t.join()
     assert outcomes and all(o is True or o == "oom" for o in outcomes)
+
+
+@pytest.mark.parametrize("dtype", ["float32", "float64"])
+def test_need_estimate_covers_axis0_matrix_sort(dtype):
+    """The reserved room covers the measured pool high-water of an axis-0 argsort of a column matrix (float32 needed more than the old estimate gave)."""
+    _require_device()
+    from mlframe.feature_selection.filters._device_sort_safe import _sort_need_bytes
+
+    pool = cp.cuda.MemoryPool()
+    with cp.cuda.using_allocator(pool.malloc):
+        a = cp.random.random((20000, 16)).astype(dtype)
+        base = pool.total_bytes()
+        idx = cp.argsort(a, axis=0)
+        cp.cuda.Device().synchronize()
+        peak = pool.total_bytes() - base
+        need = _sort_need_bytes(a)
+        del a, idx
+    pool.free_all_blocks()
+    assert need >= peak

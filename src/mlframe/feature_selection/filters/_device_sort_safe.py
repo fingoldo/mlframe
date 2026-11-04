@@ -13,13 +13,16 @@ import contextlib
 import threading
 from typing import Any, Iterator, Optional
 
-#: Bytes a thrust sort of ``a`` along an axis needs beyond ``a``: a copy of the values, int64 indices, int64 segment keys and cub's scratch.
+#: Bytes a thrust sort of ``a`` along an axis needs beyond ``a``: a copy of the values, int64 indices, int64 segment keys, the int64 result and cub's scratch.
+#: Measured peaks (pool high-water, result included): 40 B per element for an axis-0 argsort of (100000, 40) in float64 and in float32 alike, 24 B for a 1-D
+#: float64 argsort; the estimate covers the largest (a float32 matrix under the old 2 x nbytes + 24 B estimate got 32 B and thrust aborted the fit).
 _INDEX_BYTES = 8
+_SCRATCH_MARGIN = 1 << 20
 
 
 def _sort_need_bytes(a: Any) -> int:
     """Upper estimate of the device memory a sort or argsort of ``a`` allocates."""
-    return 2 * int(a.nbytes) + 3 * int(a.size) * _INDEX_BYTES
+    return 2 * int(a.nbytes) + 4 * int(a.size) * _INDEX_BYTES + _SCRATCH_MARGIN
 
 
 def _current_pool(cp: Any) -> Optional[Any]:
