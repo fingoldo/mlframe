@@ -261,7 +261,9 @@ def _degenerate_calibration_report() -> "CalibrationReport":
     On a rare-event target whose split happens to be single-class (no positives, or no negatives)
     the ranking AUC is genuinely undefined; the 0.5 pin is a neutral placeholder, NOT a measured
     score -- treat a 0.5 from this path as "AUC not computable on this split", not as a real
-    random-ranking result.
+    random-ranking result. The same holds for every other number here: Brier, calibration MAE / std, ECE, reliability and
+    log-loss of 1.0 are worst-case placeholders, not measurements. They are kept numeric because report consumers (plots,
+    threshold search, string builders) expect finite floats; the empty ``metrics_string`` is what marks the report as degenerate.
     """
     return CalibrationReport(
         1.0, 1.0, 1.0, 0.0,            # brier, cal_mae, cal_std, cal_cov
