@@ -161,6 +161,7 @@ class TorchDataset(Dataset):
         device: Optional[str] = None,
         batch_size: int = 0,
         share_memory: bool = True,
+        row_shuffle_seed: Optional[int] = None,
     ):
         # forward to torch Dataset base for forward-compat
         # (currently a no-op; reserves the hook for future torch state).
@@ -170,6 +171,11 @@ class TorchDataset(Dataset):
         self.device = device
         self.batch_size = batch_size
         self._share_memory = share_memory
+        # With ``row_shuffle_seed`` set (internal-batch training mode) an index is ``epoch * num_batches + batch`` and the rows of batch ``batch`` are slice ``batch`` of
+        # a permutation drawn from ``(seed, epoch)``: batch membership changes every epoch. Stateless (the permutation is recomputed from the index), so DataLoader
+        # workers need no sync.
+        self._row_shuffle_seed = row_shuffle_seed
+        self._epoch_perms: dict = {}
 
         # Eager-convert features to torch.Tensor in __init__ to avoid per-batch isinstance + .to(dtype, device) chain (~38us/call) in __getitem__.
         # Memory-safety: eager conversion copies the underlying buffer. For HUGE frames (100GB+) this would OOM; threshold on byte-size and fall back
@@ -233,8 +239,23 @@ class TorchDataset(Dataset):
             raise TypeError(f"Unsupported data type for extraction: {type(data)}")
         return subset.to(dtype=self.features_dtype, device=self.device)
 
+    def _epoch_perm(self, epoch: int) -> torch.Tensor:
+        """Row permutation of ``epoch``, cached for the last two epochs (prefetching can touch the next one early)."""
+        perm = self._epoch_perms.get(epoch)
+        if perm is None:
+            gen = torch.Generator().manual_seed(int(self._row_shuffle_seed) + int(epoch))  # type: ignore[arg-type]
+            perm = torch.randperm(self.dataset_length, generator=gen)
+            for old in [e for e in self._epoch_perms if e < epoch - 1]:
+                del self._epoch_perms[old]
+            self._epoch_perms[epoch] = perm
+        return perm
+
     def __getitem__(self, idx):
-        if self.batch_size > 0:
+        if self.batch_size > 0 and self._row_shuffle_seed is not None:
+            epoch, batch = divmod(int(idx), self.num_batches)
+            rows = self._epoch_perm(epoch)[batch * self.batch_size : min((batch + 1) * self.batch_size, self.dataset_length)]
+            indices = rows if isinstance(self.features, torch.Tensor) else rows.numpy()
+        elif self.batch_size > 0:
             start = idx * self.batch_size
             end = min((idx + 1) * self.batch_size, self.dataset_length)
             indices = slice(start, end)
@@ -246,14 +267,14 @@ class TorchDataset(Dataset):
         if self.labels is None:
             return x
 
-        y = self.labels[indices]
+        y = self.labels[torch.as_tensor(indices) if not isinstance(indices, (slice, int)) else indices]
 
         # Squeeze single-sample dimension only in sample mode
         if self.batch_size == 0 and x.ndim == 2 and x.shape[0] == 1:
             x = x.squeeze(0)
 
         if self.sample_weight is not None:
-            w = self.sample_weight[indices]
+            w = self.sample_weight[torch.as_tensor(indices) if not isinstance(indices, (slice, int)) else indices]
             return x, y, w
 
         return x, y
@@ -290,6 +311,26 @@ class TorchDataset(Dataset):
             return [(x_batch[i], y_batch[i]) for i in range(x_batch.shape[0])]
         w_batch = self.sample_weight[idx_list]
         return [(x_batch[i], y_batch[i], w_batch[i]) for i in range(x_batch.shape[0])]
+
+
+class EpochBatchSampler(torch.utils.data.Sampler):
+    """Yield ``epoch * num_batches + batch`` for the batches of one epoch in random order, advancing the epoch on every iteration (see ``TorchDataset``)."""
+
+    def __init__(self, num_batches: int, seed: int) -> None:
+        super().__init__()
+        self.num_batches = int(num_batches)
+        self.seed = int(seed)
+        self.epoch = 0
+
+    def __len__(self) -> int:
+        return self.num_batches
+
+    def __iter__(self):
+        epoch = self.epoch
+        self.epoch += 1
+        gen = torch.Generator().manual_seed(self.seed + 7919 * epoch)
+        for batch in torch.randperm(self.num_batches, generator=gen).tolist():
+            yield epoch * self.num_batches + batch
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -594,6 +635,7 @@ class TorchDataModule(LightningDataModule):
         # IMPORTANT: Set batch_size=None since TorchDataset handles batching internally when its own batch_size parameter > 0
         dl_params["batch_size"] = None
 
+        row_shuffle_seed = int(torch.initial_seed() % (2**31)) if (shuffle and batch_size > 0) else None
         dataset = TorchDataset(
             features=features,
             labels=labels,
@@ -602,7 +644,12 @@ class TorchDataModule(LightningDataModule):
             labels_dtype=self.labels_dtype,
             batch_size=batch_size,
             device=device,
+            row_shuffle_seed=row_shuffle_seed,
         )
+        if row_shuffle_seed is not None:
+            # Internal batching shuffled only the ORDER of fixed contiguous batches; the dataset now re-draws which rows share a batch every epoch.
+            dl_params["shuffle"] = False
+            dl_params["sampler"] = EpochBatchSampler(dataset.num_batches, row_shuffle_seed)
 
         return DataLoader(dataset, **dl_params)
 
