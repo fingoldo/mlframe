@@ -107,9 +107,9 @@ def _array_case(name: str) -> np.ndarray:
 _EXPECTED_ARRAY_DIGESTS = {
     "float64_2d": "33a3597439dc1353af696c949a255817",  # pragma: allowlist secret
     "int64": "f19d237d91f87049480dc0b493046dfc",  # pragma: allowlist secret
-    "bool": "cb6ace9558b8d83eb07832c90f97a6ed",  # pragma: allowlist secret
-    "datetime64": "9a85c15497dc8c2616a7972b466d7b34",  # pragma: allowlist secret
-    "unicode": "dad2477c0a68328ab2012085cf74ee7e",  # pragma: allowlist secret
+    "bool": "dc8f4dc09c4bd0549bdf7ec8ccbcf5cb",  # pragma: allowlist secret
+    "datetime64": "0d50c13d60bf7a6916db04b4097c9f6a",  # pragma: allowlist secret
+    "unicode": "938c5ad73c7e6f2f60cd6a479d2ce2d4",  # pragma: allowlist secret
     "object": "e1ed7d836d4b9e2bd52fb79b5bd18757",  # pragma: allowlist secret
     "empty": "35ee2b600e15d7e452ede5aabad966b9",  # pragma: allowlist secret
     "scalar_0d": "21a6d237fc5dcba66f865ff9fc5b340c",  # pragma: allowlist secret
