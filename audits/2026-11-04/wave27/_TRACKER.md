@@ -20,12 +20,12 @@ Three read-only reports by Opus 5.5 low-effort agents on code no earlier wave re
 | **RESOLVED** | W27FW-2 | scale | Medium | `fisher_weighted_residual` bands the query rows on a different quantity (prediction entropy, abs(p - median y)) than the train thresholds were computed from (cross-entropy, abs(y - p)); the train band thresholds now use the same label-free quantity as the query rows (prediction entropy; abs distance to the median target) on out-of-fold predictions |
 | **RESOLVED** | W27AF-1 | leakage | Medium | `adversarial_flip` takes the regression flip threshold from the in-sample train residual decile, which is biased low; the threshold is the decile of out-of-fold residuals |
 | **FUTURE** | W27AF-2 | convention | Low | class_distance / active_virtual / adasyn return zero distances for a class with fewer than 2 rows, the inverse of the 1e6 far sentinel used elsewhere |
-| **FUTURE** | W27PR-1 | precision | High | the pair operand table is float32, so pairs are scored on float32 values while the emitted column is rebuilt in the original dtype (epoch-second operands lose the difference) |
+| **FUTURE** | W27PR-1 | precision | High | the pair operand table is float32, so pairs are scored on float32 values while the emitted column is rebuilt in the original dtype (epoch-second operands lose the difference); reason: float64 operands double the (n x unique keys) table, which the memory-aware dispatch and the GPU buffers are sized for; the fix is to keep float32 storage but build the subtraction-type binary operands from float64 originals, to be designed together with the footprint estimate |
 | **FUTURE** | W27PR-2 | gate | Medium | the family-wise gate is skipped on the per-pair batched path because `var_pairs_codes` is only filled on the chunk path |
 | **FUTURE** | W27PR-3 | gate | Medium | the Bonferroni divisor is `0.001 / len(prospective_pairs)` per call, so the threshold depends on how pairs were split across calls |
-| **FUTURE** | W27PR-4 | crash | Medium | verbose mode formats a `None` correlation after a `_config_corr` exception and aborts the pair search |
-| **FUTURE** | W27PR-5 | gate | Medium | a demoted prewarp winner is promoted again at its uncapped MI because `best_prewarp_mi` is not capped with `var_pairs_perf` |
-| **FUTURE** | W27PR-6 | ledger | Low | joint-gate rejections are all labelled `operand_uplift_floor` because `ratio_ok` is never passed |
+| **RESOLVED** | W27PR-4 | crash | Medium | verbose mode formats a `None` correlation after a `_config_corr` exception and aborts the pair search; the verbose messages format an unmeasured correlation as n/a |
+| **FUTURE** | W27PR-5 | gate | Medium | a demoted prewarp winner is promoted again at its uncapped MI because `best_prewarp_mi` is not capped with `var_pairs_perf`; reason: the demotion runs after the prewarp-uplift acceptance in the same pass, so the re-promotion path the report names was not reproduced on HEAD; a reproducing fixture is needed before a change |
+| **RESOLVED** | W27PR-6 | ledger | Low | joint-gate rejections are all labelled `operand_uplift_floor` because `ratio_ok` is never passed; `ratio_ok` defaults to the comparison of the gate ratio with the prevalence floor, so a pair under the floor is attributed to `engineered_mi_prevalence` |
 | **FUTURE** | W27PR-7 | ledger | Low | pairs rejected by the family gate leave no rejection record |
 | **FUTURE** | W27PR-8 | debias | Low | on the RAM-fallback recompute path the Miller-Madow debias falls back to the nominal bin count |
 | **FUTURE** | W27PR-9 | log | Low | the progress bar best field shows the pair own best, not the running maximum |
@@ -45,3 +45,4 @@ Three read-only reports by Opus 5.5 low-effort agents on code no earlier wave re
 | W27IB-1 | `tests/feature_engineering/transformer/test_ib_baseline_codes_train_predictions_are_out_of_fold.py` |
 | W27FW-1, 2 | `tests/feature_engineering/transformer/test_fisher_weighted_residual_bands_and_single_row.py` |
 | W27AF-1 | `tests/feature_engineering/transformer/test_adversarial_flip_threshold_uses_out_of_fold_residuals.py` |
+| W27PR-4, 6 | `tests/feature_selection/mrmr/test_pairs_demotion_message_survives_an_unmeasured_correlation.py` |

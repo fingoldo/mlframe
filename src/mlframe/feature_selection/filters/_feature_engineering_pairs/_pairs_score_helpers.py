@@ -41,6 +41,11 @@ _DEGENERATE_PAIR_SINGLE_OPERAND_CORR: float = 0.999
 logger = logging.getLogger(__name__)
 
 
+def _fmt_corr(corr) -> str:
+    """Format a |corr| for the verbose message; ``None`` is a correlation that could not be measured."""
+    return "n/a" if corr is None else f"{corr:.3f}"
+
+
 def _should_demote_prewarp(pw_corr, clean_corr) -> bool:
     """Whether a prewarp-form winner is demoted to its MI-equivalent clean form, from the two forms' |corr| with continuous y.
 
@@ -282,8 +287,8 @@ def _score_one_pair_monotone_equivalent_warp_scores(_pw_corr, _clean_corr, best_
                 var_pairs_perf[_cfg] = _pw_cap
         if verbose:
             messages.append(
-                f"clean-form demotion: prewarp winner |corr(y)|={_pw_corr:.3f} did not beat "
-                f"the best clean library form |corr(y)|={_clean_corr:.3f} by >= 5% (MI-equivalent "
+                f"clean-form demotion: prewarp winner |corr(y)|={_fmt_corr(_pw_corr)} did not beat "
+                f"the best clean library form |corr(y)|={_fmt_corr(_clean_corr)} by >= 5% (MI-equivalent "
                 f"monotone re-expression); demoting to the clean form and capping prewarp-form "
                 f"MI at the clean form's so it cannot out-rank it on the primary key."
             )
@@ -418,11 +423,13 @@ def _score_one_pair_side(_tp2, vars_transformations, transformed_vars, _abs_corr
     return _max_single_op_corr
 
 
-def _score_one_pair_all_values_were_already(_passes_joint_gate, _prewarp_accept, _marginal_uplift_accept, _usability_accept, fe_min_engineered_mi_prevalence, num_fs_steps, best_config, raw_vars_pair, cols, _gate_ratio, rejection_records, rejection_ledger_out, ratio_ok=True):
+def _score_one_pair_all_values_were_already(_passes_joint_gate, _prewarp_accept, _marginal_uplift_accept, _usability_accept, fe_min_engineered_mi_prevalence, num_fs_steps, best_config, raw_vars_pair, cols, _gate_ratio, rejection_records, rejection_ledger_out, ratio_ok=None):
     """Block of _score_one_pair starting at ``if not (_passes_joint_gate or _prewarp_accept or _marginal_uplift_acce``."""
     if not (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept):
         try:
             _rej_thr = float(fe_min_engineered_mi_prevalence) * (1.0 if num_fs_steps < 1 else 1.025)
+            if ratio_ok is None:  # the pair missed the prevalence floor itself, or cleared it and then lost to the larger operand
+                ratio_ok = float(_gate_ratio) > _rej_thr
             _rej_op = None
             if best_config is not None:
                 try:
