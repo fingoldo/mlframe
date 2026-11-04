@@ -120,6 +120,9 @@ def compute_multi_temp_residual_band_features(
 
         sq = _squared_dists(Xq_s, band_centroids)  # (n_q, n_total)
         scores = -sq
+        empty_bands = np.array([not bool(mask.any()) for mask in masks])
+        if empty_bands.any() and not empty_bands.all():
+            scores[:, empty_bands] = -np.inf  # an empty band stands for no rows: it gets no softmax weight (its global-centroid placeholder is only a filler)
         n_q = Xq_s.shape[0]
         out_blocks = np.zeros((n_q, n_temps * features_per_temp), dtype=np.float32)
         for ti, t in enumerate(temps_list):

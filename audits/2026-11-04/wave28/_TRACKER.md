@@ -42,7 +42,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **RESOLVED** | W28TA-27 | precision | Low | target_quantile.py:78-80, y_quintile_baseline_knn.py:251-253: the +1e-9 tie-break is below one ULP for |y| > 1e7; `strictly_increasing_edges` raises a tied edge by 1e-9 or one float64 step, whichever is larger, in both modules |
 | **RESOLVED** | W28TA-28 | ties | Low | multi_baseline_hard_row.py:169-175: rows with all-negative z-scores tie at 0; the max-z accumulator starts at -inf instead of 0 (no separate test: the effect is the order among rows that are all easy, which no output column exposes) |
 | **RESOLVED** | W28TA-29 | ties | Low | multi_temp_cbhr.py:79-81: q1 == q4 picks the same anchors on both sides; the three hard-row transformers take their regression tails from `quantile_tail_masks`, so the sides are disjoint and an empty low tail is reported as such |
-| **FUTURE** | W28TA-30 | weights | Low | multi_temp_residual_band.py:106-111: empty bands keep softmax weight |
+| **RESOLVED** | W28TA-30 | weights | Low | multi_temp_residual_band.py:106-111: empty bands keep softmax weight; empty bands get -inf score (zero softmax weight) when at least one band holds rows |
 | **FUTURE** | W28TA-31 | convention | Low | lda_projection, mixup_boundary, multiscale_smote, smote_distance, per_class_spectral: all-zero output when a class has fewer than 2 rows |
 | **RESOLVED** | W28TA-32 | validation | Low | per_class_spectral.py:88-102: y is not checked to be binary; a target outside {0, 1} raises a ValueError naming the binary requirement |
 | **DOC** | W28TA-33 | naming | Low | column named after the requested k, not the clamped k (nn_oof_target_mean, neighbor_aggregate_features, multiscale_rate, persistence_diagram); the column carries the REQUESTED k by design, so column names are stable across folds and datasets of different sizes; the values use the clamped k |
@@ -90,3 +90,5 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | W28TA-32 | `tests/feature_engineering/transformer/test_per_class_spectral_rejects_a_non_binary_target.py` |
 | W28TA-4, 6 | `tests/feature_engineering/transformer/test_row_attention_keep_columns_pins_the_mode_b_columns.py` |
 | W28RC-1, 2 | `tests/feature_selection/fe/test_orth_recipe_replay_uses_the_frozen_fit_statistics.py` |
+| W28TA-29 | `tests/feature_engineering/transformer/test_hard_row_anchor_sides_stay_disjoint_on_tied_targets.py` |
+| W28TA-30 | `tests/feature_engineering/transformer/test_multi_temp_residual_band_empty_bands_get_no_weight.py` |
