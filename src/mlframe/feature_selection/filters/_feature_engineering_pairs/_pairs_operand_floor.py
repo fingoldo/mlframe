@@ -52,6 +52,18 @@ def operand_uplift_null_bar(codes_a: np.ndarray | None, codes_b: np.ndarray | No
     return max(1.0, float(np.quantile(null, quantile)))
 
 
+def operand_uplift_null_bar_for_pair(raw_vars_pair, operand_marginal_mi, operand_discretized, codes_y: np.ndarray, floor: float, **kwargs) -> float:
+    """``operand_uplift_null_bar`` for a raw pair, permuting the operand with the SMALLER marginal MI whichever slot it sits in.
+
+    The null asks what a noise partner reaches next to the stronger operand; permuting the stronger one instead destroys the signal the bar is measured against, so the
+    bar collapsed to 1.0 and a degraded copy of the strong operand passed whenever it was listed second.
+    """
+    first, second = raw_vars_pair[0], raw_vars_pair[1]
+    if operand_marginal_mi(first) < operand_marginal_mi(second):
+        first, second = second, first  # ``first`` is now the stronger operand, kept intact; ``second`` is permuted
+    return operand_uplift_null_bar(operand_discretized(first), operand_discretized(second), codes_y, floor, **kwargs)
+
+
 def _beats_the_larger_operand(best_mi: float, operand_marginal_mi, raw_vars_pair, messages, pair_mi: float = 0.0, uplift_bar: float = 1.0) -> bool:
     """Whether the engineered MI clears *uplift_bar* over the larger operand's own MI.
 

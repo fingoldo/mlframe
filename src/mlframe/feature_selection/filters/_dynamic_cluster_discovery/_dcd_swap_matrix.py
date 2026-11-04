@@ -8,6 +8,15 @@ import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 
+def _is_numeric_dtype(dtype: Any) -> bool:
+    """Integer / unsigned / float dtype, for a numpy or pandas dtype (``kind``) and a polars one (``is_numeric``; booleans are not)."""
+    kind = getattr(dtype, "kind", None)
+    if kind is not None:
+        return str(kind) in "iuf"
+    is_numeric = getattr(dtype, "is_numeric", None)
+    return bool(is_numeric()) if callable(is_numeric) else False
+
+
 def _resolve_member_matrix(X_raw: Any, members: list, member_names: list) -> Optional[tuple]:
     """The matrix of the cluster members' raw columns with its surviving ``members`` / ``member_names``, or ``None`` when fewer than two
     usable columns remain (the swap is then declined)."""
@@ -20,12 +29,14 @@ def _resolve_member_matrix(X_raw: Any, members: list, member_names: list) -> Opt
         # broad except caught but degraded to declining the WHOLE swap even when 2+ numeric
         # members remained. Narrow to numeric-castable columns first so the swap still runs on
         # those (same "need >=2 columns" contract as the finite-value filter just below).
-        keep = [i for i in keep if X_raw[member_names[i]].dtype.kind in "iuf"]
+        keep = [i for i in keep if _is_numeric_dtype(X_raw[member_names[i]].dtype)]
         if len(keep) < 2:
             return None
         members = [members[i] for i in keep]
         member_names = [member_names[i] for i in keep]
-        M = X_raw[member_names].to_numpy(dtype=_crit_np_dtype(), copy=True)
+        sub = X_raw[member_names]
+        # a polars frame's ``to_numpy`` takes no dtype / copy arguments
+        M = sub.to_numpy(dtype=_crit_np_dtype(), copy=True) if hasattr(sub, "iloc") else np.array(sub.to_numpy(), dtype=_crit_np_dtype())
     else:
         arr = np.asarray(X_raw)
         if arr.ndim != 2 or arr.shape[1] < max(members) + 1:

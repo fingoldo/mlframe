@@ -7,7 +7,7 @@ import logging
 
 import numpy as np
 
-from ._pairs_operand_floor import _beats_the_larger_operand, operand_uplift_null_bar
+from ._pairs_operand_floor import _beats_the_larger_operand, operand_uplift_null_bar_for_pair
 from ._pairs_abs_corr_gpu import candidate_abs_corr
 from ._pairs_score_helpers import (
     logger,
@@ -127,9 +127,7 @@ def _score_one_pair_step4_iteration_serialization_point(
     _uplift_bar = 1.0
     if st._passes_joint_gate:
         _floor = max(_operand_marginal_mi(raw_vars_pair[0]), _operand_marginal_mi(raw_vars_pair[1]))
-        _uplift_bar = operand_uplift_null_bar(
-            _operand_discretized(raw_vars_pair[0]), _operand_discretized(raw_vars_pair[1]), np.asarray(classes_y).ravel(), float(_floor)
-        )
+        _uplift_bar = operand_uplift_null_bar_for_pair(raw_vars_pair, _operand_marginal_mi, _operand_discretized, np.asarray(classes_y).ravel(), float(_floor))
     st._passes_joint_gate = st._passes_joint_gate and _beats_the_larger_operand(
         st.best_mi, _operand_marginal_mi, raw_vars_pair, st.messages if verbose else None, pair_mi, _uplift_bar
     )
