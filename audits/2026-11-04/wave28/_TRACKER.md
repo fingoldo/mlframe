@@ -15,7 +15,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **FUTURE** | W28CT-2 | ties | Low | `composite/transforms/unary.py:531-535`: tied knots map every tied y to the last duplicate position instead of the middle of the tie block |
 | **FUTURE** | W28TA-1 | metric | High | local_linear.py:107: neighbours come from a cosine index on median-centred data, so the local OLS is not local |
 | **FUTURE** | W28TA-2 | fit | High | local_curvature.py:87-112: the quadratic design has more columns than k rows for d >= 8, lstsq interpolates exactly, resid_quad ~ 0 |
-| **FUTURE** | W28TA-3 | leakage | High | predictive_info_delta.py:110-119: H(y|bin) built from in-sample predictions, query rows use held-out ones |
+| **RESOLVED** | W28TA-3 | leakage | High | predictive_info_delta.py:110-119: H(y|bin) built from in-sample predictions, query rows use held-out ones; the bins are built from inner-KFold out-of-fold predictions (`fit_baseline_predict_oof`); mean abs delta on a noise target at n=300, d=20 was 0.40 and is 0.011 |
 | **FUTURE** | W28TA-4 | replay | High | row_attention.py:202: apply_dedupe runs separately on the Mode A and Mode B outputs so their column sets can differ |
 | **FUTURE** | W28TA-5 | replay | High | spectral_attention.py:120-121: the Nystrom bandwidth is recomputed from the query batch instead of reusing the training graph sigma |
 | **FUTURE** | W28TA-6 | replay | Medium | residual_attention.py:106,136: Mode A applies dedupe_threshold, Mode B hard-codes None |
@@ -66,3 +66,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | W28NN-1, 2 | `tests/training/test_neural_weighted_loss_reductions.py` |
 | W28TA-21 | `tests/feature_engineering/transformer/test_single_class_fold_does_not_crash_the_aux_mlp.py` |
 | W28TA-22 | `tests/feature_engineering/transformer/test_oof_rows_no_fold_validates_stay_nan.py` |
+| W28TA-3 | `tests/feature_engineering/transformer/test_predictive_info_delta_bins_are_out_of_fold.py` |
