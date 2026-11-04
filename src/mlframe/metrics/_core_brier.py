@@ -131,6 +131,12 @@ def fast_brier_score_loss(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     # that dominated wall time (~80% at n=1M). nan on invalid probs, unchanged.
     if len(y_true) == 0:
         return float(np.nan)
+    y_true = np.asarray(y_true)
+    if y_true.dtype.kind != "b" and (y_true.min() < 0 or y_true.max() > 1):
+        # Two labels outside {0, 1} are mapped with the larger as positive (sklearn); the kernels square ``y - p`` for whatever label they get.
+        from ._auc_labels import _binary_labels_01
+
+        y_true = _binary_labels_01(y_true)
     if len(y_true) >= _PARALLEL_REDUCTION_THRESHOLD:
         return float(_fast_brier_checked_par(y_true, y_prob))
     return float(_fast_brier_checked_seq(y_true, y_prob))

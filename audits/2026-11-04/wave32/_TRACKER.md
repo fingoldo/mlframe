@@ -6,10 +6,10 @@ Three read-only reports by Opus 5.5 low-effort agents (metrics regression/classi
 |---|---|---|---|---|
 | **RESOLVED** | W32ME-1 | nan | Medium | `metrics/quantile.py:104-114` (`_fast_coverage`): a NaN in `y_true`, `q_lo` or `q_hi` counts as a missed interval instead of giving NaN; the njit coverage kernel returns NaN on the first NaN input row |
 | **RESOLVED** | W32ME-2 | nan | Medium | `metrics/quantile.py:127-134` (`_fast_winkler`): NaN `y` drops the penalty and contributes only the width, so the score is finite and optimistic; the Winkler kernel returns NaN on the first NaN input row (fastmath is off in these kernels, so the test is safe) |
-| **FUTURE** | W32ME-3 | labels | Medium | `metrics/_core_brier.py:59-136`: `y_true` is never checked to be in {0, 1}; label 2 gives a plausible Brier score |
-| **FUTURE** | W32ME-4 | zero_division | Low | `metrics/_core_precision_mape.py:20-39` (`fast_precision`): the `zero_division` argument is accepted and ignored |
-| **FUTURE** | W32ME-5 | zero_division | Low | `metrics/_core_precision_mape.py:99-126` (`fast_classification_report`): empty denominators are hard-set to 0.0 so the later `nan_to_num(..., nan=zero_division)` never acts |
-| **FUTURE** | W32ME-6 | empty | Low | `metrics/_core_precision_mape.py:82,94`: empty input gives accuracy 0.0 and balanced accuracy 0.0 instead of NaN |
+| **RESOLVED** | W32ME-3 | labels | Medium | `metrics/_core_brier.py:59-136`: `y_true` is never checked to be in {0, 1}; label 2 gives a plausible Brier score; `fast_brier_score_loss` maps two labels outside {0, 1} with the larger as positive (NaN labels already propagated) |
+| **RESOLVED** | W32ME-4 | zero_division | Low | `metrics/_core_precision_mape.py:20-39` (`fast_precision`): the `zero_division` argument is accepted and ignored; an unpredicted class takes the caller's `zero_division` value |
+| **RESOLVED** | W32ME-5 | zero_division | Low | `metrics/_core_precision_mape.py:99-126` (`fast_classification_report`): empty denominators are hard-set to 0.0 so the later `nan_to_num(..., nan=zero_division)` never acts; precision, recall and F1 take `zero_division` on empty denominators (F1 only when the class is neither labeled nor predicted), so the later `nan_to_num` is no longer a no-op |
+| **RESOLVED** | W32ME-6 | empty | Low | `metrics/_core_precision_mape.py:82,94`: empty input gives accuracy 0.0 and balanced accuracy 0.0 instead of NaN; accuracy and balanced accuracy are NaN when no in-range label exists; the older sentinel-dependent report tests still pass |
 | **FUTURE** | W32MO-1 | leakage | Medium | `models/tuning_rules.py:533-556`: CatBoost early-stops on `X_test` and then scores `X_test` as the estimator's expected score, replacing the CV mean |
 | **FUTURE** | W32MO-2 | scale | Low | `core/robust_location.py:65`: with MAD = 0 the scale falls back to 1.0 in absolute units, so the M-estimator is unit-dependent |
 | **RESOLVED** | W32DA-1 | calibration | High | `data/datasets/generator.py:199-230` with `_noise.py:106`: a prior-valued noise rate is redrawn from the shared knob RNG on every `probability_at` call, so calibration, recorded AUC, true probabilities and labels come from different laws; the noise rate is resolved once per target (before the bisection) and passed as a pinned copy of the spec; with the old code a 0.75 calibration target recorded achieved AUC 0.722 against a shipped-probability ceiling of 0.649 |
@@ -30,3 +30,5 @@ Three read-only reports by Opus 5.5 low-effort agents (metrics regression/classi
 | W32DA-3, 4 | `tests/preprocessing/test_temporal_drift_augment_label_handling.py` |
 | W32DA-1, 2 | `tests/data/test_datasets_prior_noise_rate_is_drawn_once.py` |
 | W32ME-1, 2 | `tests/metrics/test_quantile_interval_metrics_nan_inputs.py` |
+| W32ME-3 | `tests/metrics/test_brier_label_handling.py` |
+| W32ME-4, 5, 6 | `tests/metrics/test_classification_report_zero_division_and_empty.py` |
