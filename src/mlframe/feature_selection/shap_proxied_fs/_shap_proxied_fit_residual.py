@@ -277,9 +277,11 @@ def _residual_round(
 
     importance2 = np.abs(phi2).mean(axis=0)
     residual_pred = np.asarray(base2, dtype=np.float64) + phi2.sum(axis=1)  # Intentional float64: SHAP residual statistic compared at full precision against the honest loss
-    aligned = residual_pred.shape[0] == residual.shape[0]
-    residual_next = residual - residual_pred if aligned else None
-    residual_std_after = float(np.std(residual_next)) if aligned else float("nan")
+    residual_next: Optional[np.ndarray] = None
+    residual_std_after = float("nan")
+    if residual_pred.shape[0] == residual.shape[0]:
+        residual_next = residual - residual_pred
+        residual_std_after = float(np.std(residual_next))
 
     # Cross-fold rank-CONSISTENCY gate (not a magnitude floor). A magnitude-only floor (``median(bottom half) * safety_factor``, the rule ``noise_floor_rescue_keep_set``
     # uses for phi1) was tried and REJECTED here: measured on the p=3000 mixed-strength biz_val fixture the TRUE weak feature is phi2's rank-1 column by OOF mean|phi2| yet
