@@ -148,6 +148,10 @@ def _score_blend(
             aucs = [fast_roc_auc((labels == c).astype(np.int64), np.ascontiguousarray(blend[:, k], dtype=np.float64)) for k, c in enumerate(classes)]
             finite = [a for a in aucs if np.isfinite(a)]
             return float(np.mean(finite)) if finite else float("nan")
+        if classes.size > 2:
+            # A 1-D blend over a target with more than two values (multiclass labels or a regression target): the default AUC has no meaning, and casting the labels
+            # to int fed the kernel something that is not 0/1. Ask for an explicit metric instead of optimising a garbage score.
+            raise ValueError(f"the default AUC metric needs a binary target (or a K-column blend for K classes); got {classes.size} distinct target values and a 1-D blend - pass metric=")
         binary = (labels == classes[-1]).astype(np.int64) if classes.size == 2 else labels.astype(np.int64)
         return float(fast_roc_auc(binary, score.astype(np.float64)))
     return float(metric(y, blend))
