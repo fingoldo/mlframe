@@ -21,7 +21,7 @@ class _Buffer:
 
 
 def test_zero_mad_residual_leaves_the_t_clip_open():
-    """A degenerate T (MAD 0) must reopen the clip, as fit() leaves it, not keep the stale bounds or clamp to the observed range."""
+    """A constant T (MAD 0) must reopen the clip, as fit() leaves it, not keep the stale bounds or clamp to the observed range."""
     rng = np.random.default_rng(0)
     base = rng.normal(size=200) + 5.0
     y = base.copy()  # y == base exactly: the refit's T is identically zero, MAD 0
