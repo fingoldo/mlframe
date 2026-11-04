@@ -713,6 +713,7 @@ def _pp_reduce_pair_results(_poly_pair_results: list, _n_pairs_to_eval: int, ver
                     float(best_res.baseline_mi), float(best_res.uplift),
                 )
         except Exception as _inj_err:
+            logger.debug("polynom_pair_fe.py: suppressed %r", _inj_err)
             _pp_log_injection_failure(verbose, raw_vars_pair, _inj_err)
     if _new_data_cols:
         # ONE reallocation for all survivors instead of one per survivor (see the loop-entry comment).

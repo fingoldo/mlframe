@@ -388,6 +388,7 @@ class ReportRenderQueue:
                 try:
                     item()
                 except Exception as exc:
+                    logger.debug("_async_render.py: suppressed %r", exc)
                     self._record_internal_failure("render queue dispatcher", exc)
 
     def warm(self) -> None:

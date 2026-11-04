@@ -8,6 +8,7 @@ one. The store is bounded by entries and bytes and is dropped under memory press
 from __future__ import annotations
 
 import functools
+import logging
 from ._content_hasher import new_content_hasher
 from typing import Any, Callable
 
@@ -15,6 +16,8 @@ import numpy as np
 import pandas as pd
 
 from ._cache_release import register_cache_releaser
+
+logger = logging.getLogger(__name__)
 
 _STORES: "list[dict]" = []
 
@@ -61,7 +64,8 @@ def content_memo(max_entries: int = 4, max_bytes: int = 256 * 1024 * 1024) -> Ca
                 _digest(args, h)
                 _digest(kwargs, h)
                 key = h.hexdigest()
-            except Exception:  # best-effort: an unhashable input skips the memo; fn computes the same result
+            except Exception as _silent_exc:
+                logger.debug("_fe_content_memo.py: suppressed %r", _silent_exc)
                 return fn(*args, **kwargs)
             hit = store.get(key)
             if hit is not None:

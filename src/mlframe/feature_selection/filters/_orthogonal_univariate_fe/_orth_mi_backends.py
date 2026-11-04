@@ -217,6 +217,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                     mis_dense = plugin_mi_classif_batch_dispatch(X_dense, y_i64, nbins)
                     mis[dense_cols] = mis_dense
             except Exception as e:
+                logger.debug("_orth_mi_backends.py: suppressed %r", e)
                 # If the batch path fails for any reason (cupy import error,
                 # kernel tuning miss, etc.), fall back to sklearn for the
                 # affected slice rather than poisoning the whole call.

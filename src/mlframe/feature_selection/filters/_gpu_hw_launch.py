@@ -45,7 +45,8 @@ def _current_device_id() -> "int | None":
         import cupy as cp
 
         return int(cp.cuda.Device().id)
-    except Exception:  # best-effort: no cupy / CUDA is the documented None
+    except Exception as _silent_exc:
+        logger.debug("_gpu_hw_launch.py: suppressed %r", _silent_exc)
         return None
 
 
