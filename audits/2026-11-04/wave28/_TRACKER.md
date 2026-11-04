@@ -26,8 +26,8 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **RESOLVED** | W28TA-11 | leakage | Medium | nn_oof_target_mean.py:68-96,143-144: kNN index built on in-sample baseline predictions, queries use out-of-sample ones; the three members now come from `ib_baseline_codes._fit_3baselines_two` (same settings, out-of-fold train side); the logging-consistency test lists that function instead of the removed copy |
 | **RESOLVED** | W28TA-12 | leakage | Medium | pairwise_kl_divergence.py:80-82: baseline sigma is the in-sample residual std; the regression sigmas come from inner-KFold(3) out-of-fold residuals of the same three members; on a noise target the deeper booster's sigma was 0.50 and is near 1 |
 | **RESOLVED** | W28TA-13 | leakage | Medium | variance_baseline.py:79-85: mu_train is in-sample; mu_train is out-of-fold; the mean predicted sigma^2 on a noise target was 0.47 and is 1.18 (true 1) |
-| **FUTURE** | W28TA-14 | leakage | Medium | target_kmeans_codebook.py:405,409: train rows clustered on in-sample predictions, queries on held-out ones |
-| **FUTURE** | W28TA-15 | scale | Medium | target_kmeans_codebook.py:420,428: cluster_size is a fold-sized count in Mode A and a full-data count in Mode B |
+| **RESOLVED** | W28TA-14 | leakage | Medium | target_kmeans_codebook.py:405,409: train rows clustered on in-sample predictions, queries on held-out ones; the clustering coordinate is the out-of-fold baseline prediction |
+| **RESOLVED** | W28TA-15 | scale | Medium | target_kmeans_codebook.py:420,428: cluster_size is a fold-sized count in Mode A and a full-data count in Mode B; `cluster_size` is the share of the train rows in the cluster (was a count, so the column changes scale: a downstream consumer reading counts sees values in [0, 1]) |
 | **RESOLVED** | W28TA-16 | scale | Medium | local_lift.py:50: max(y_global_mean, 1e-9) breaks for a zero or negative mean; a global mean below 1e-9 in magnitude is floored with its sign kept |
 | **RESOLVED** | W28TA-17 | ties | Medium | residual_stratified_distance.py:190-192: abs_r < median is empty when half or more of the residuals tie at the median; the easy band is the lower half by a stable rank, so tied residuals no longer empty it (constant target: log-ratio -16 before) |
 | **FUTURE** | W28TA-18 | crash | Medium | stacked_attention.py:92-115: layer-0 NaN rows rejected by validate_numeric_input at layer 1 under TimeSeriesSplit |
@@ -79,3 +79,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | W28TA-1 | `tests/feature_engineering/transformer/test_local_linear_neighbours_are_nearest_not_same_direction.py` |
 | W28TA-5 | `tests/feature_engineering/transformer/test_spectral_attention_embedding_does_not_depend_on_the_query_batch.py` |
 | W28TA-11 | `tests/feature_engineering/transformer/test_nn_oof_target_mean_train_embedding_is_out_of_fold.py` |
+| W28TA-14, 15 | `tests/feature_engineering/transformer/test_target_kmeans_codebook_uses_out_of_fold_baseline_and_shares.py` |
