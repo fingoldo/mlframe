@@ -16,6 +16,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from ._baseline_oof import fit_baseline_predict_oof
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ def compute_predictive_info_delta_features(
         if task == "binary":
             model = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
                                        random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            p_train = np.asarray(model.predict_proba(Xt_s))[:, 1].astype(np.float32)
+            p_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed)  # out-of-fold, like the query predictions the bins are applied to
             p_query = np.asarray(model.predict_proba(Xq_s))[:, 1].astype(np.float32)
             # H(y) marginal: Bernoulli entropy of class prior.
             p_mean = float(y_t.mean())
@@ -115,7 +116,7 @@ def compute_predictive_info_delta_features(
             H_y = float(-p_mean_c * np.log(p_mean_c) - (1 - p_mean_c) * np.log(1 - p_mean_c))
         else:
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            p_train = np.asarray(model.predict(Xt_s)).astype(np.float32)
+            p_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed)  # out-of-fold, like the query predictions the bins are applied to
             p_query = np.asarray(model.predict(Xq_s)).astype(np.float32)
             # H(y) marginal: 0.5 * log(2π e σ²) for Gaussian — use just log(σ²) per row scaling.
             H_y = float(np.log(np.var(y_t) + 1e-9))

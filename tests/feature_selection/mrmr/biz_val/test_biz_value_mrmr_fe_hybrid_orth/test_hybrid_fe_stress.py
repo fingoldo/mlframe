@@ -528,15 +528,21 @@ class TestRecipeCorruptionSurvival:
         # Find a mi_greedy_transform recipe.
         target_idx = None
         for i, r in enumerate(recipes):
-            if r.kind == "mi_greedy_transform":
+            # The ratio is engineered by the pair family (``unary_binary``) as often as by mi_greedy; each kind has its own transform-name field.
+            if r.kind in ("mi_greedy_transform", "unary_binary"):
                 target_idx = i
                 break
-        assert target_idx is not None, f"seed={seed}: fixture must produce a mi_greedy_transform recipe ({[r.name for r in recipes]}); strengthen it rather than skipping"
+        assert target_idx is not None, f"seed={seed}: fixture must produce a transform-bearing recipe ({[r.name for r in recipes]}); strengthen it rather than skipping"
         original = recipes[target_idx]
-        corrupted = _replace_recipe_extra(
-            original,
-            extra_updates={"transform": "this_is_not_a_real_transform_xyz"},
-        )
+        if original.kind == "unary_binary":
+            import dataclasses
+
+            corrupted = dataclasses.replace(original, unary_names=("this_is_not_a_real_transform_xyz", original.unary_names[1]))
+        else:
+            corrupted = _replace_recipe_extra(
+                original,
+                extra_updates={"transform": "this_is_not_a_real_transform_xyz"},
+            )
         recipes[target_idx] = corrupted
         # Replay MUST raise (silent fallback would be a bug). The error
         # message must identify the bad transform name so a user can act.
@@ -559,10 +565,11 @@ class TestRecipeCorruptionSurvival:
         recipes = m_rt._engineered_recipes_
         target_idx = None
         for i, r in enumerate(recipes):
-            if r.kind == "mi_greedy_transform":
+            # The ratio is now engineered as a plain ``unary_binary`` recipe by the pair family as often as by mi_greedy; the source-column lookup under test is shared.
+            if r.kind in ("mi_greedy_transform", "unary_binary"):
                 target_idx = i
                 break
-        assert target_idx is not None, f"seed={seed}: fixture must produce a mi_greedy_transform recipe; strengthen it rather than skipping"
+        assert target_idx is not None, f"seed={seed}: fixture must produce a column-sourced recipe ({[r.name for r in recipes]}); strengthen it rather than skipping"
         original = recipes[target_idx]
         # Replace src_names with a column NOT in X (and not in
         # feature_names_in_ either).
@@ -574,6 +581,13 @@ class TestRecipeCorruptionSurvival:
         # an explicit fallback that returns a documented sentinel column;
         # the current MI-greedy replay does NOT, so any silent success
         # implies the column lookup returned a phantom value -- a bug.
+        if original.kind == "unary_binary":
+            # The pair-family replay has a documented safe path: unresolved sources give a neutral all-zero column plus a loud warning. What must never
+            # happen is the original-looking values.
+            true_out = np.asarray(_pickle_ratio_mi_greedy_fit(seed)[2].transform(X), dtype=np.float64)
+            out = np.asarray(m_rt.transform(X), dtype=np.float64)
+            assert out.shape == true_out.shape and not np.allclose(out, true_out, equal_nan=True), f"seed={seed}: a recipe with missing sources silently reproduced the original values"
+            return
         with pytest.raises((KeyError, ValueError, TypeError, IndexError, AttributeError)) as exc_info:
             m_rt.transform(X)
         msg = str(exc_info.value)

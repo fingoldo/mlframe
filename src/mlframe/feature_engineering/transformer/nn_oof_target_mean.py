@@ -50,51 +50,15 @@ _DEFAULT_K_VALUES: tuple[int, ...] = (50, 200, 500)
 def _fit_3baselines_predict_two(
     Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Fit 3 baselines on (Xt, y_t), predict on BOTH Xt and Xq.
+    """Fit 3 baselines on (Xt, y_t); score Xq with them and Xt out-of-fold.
 
     Returns (train_embedding, query_embedding) shape (n_train, 3) and (n_query, 3).
     """
-    try:
-        import lightgbm as lgb
-    except ImportError as exc:
-        raise ImportError("nn_oof_target_mean requires lightgbm") from exc
-    from sklearn.linear_model import Ridge, LogisticRegression
+    # Same three members and settings as ib_baseline_codes; its train-side predictions are inner-KFold out-of-fold, so the neighbour index is built on the same
+    # kind of prediction the query rows get (an in-sample prediction sits closer to y and clusters the train rows away from the queries).
+    from .ib_baseline_codes import _fit_3baselines_two
 
-    train_emb = np.zeros((Xt.shape[0], 3), dtype=np.float32)
-    query_emb = np.zeros((Xq.shape[0], 3), dtype=np.float32)
-    if task == "binary":
-        m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
-        m1.fit(Xt, y_t.astype(np.int32))
-        train_emb[:, 0] = np.asarray(m1.predict_proba(Xt))[:, 1].astype(np.float32)
-        query_emb[:, 0] = np.asarray(m1.predict_proba(Xq))[:, 1].astype(np.float32)
-        m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
-        m2.fit(Xt, y_t.astype(np.int32))
-        train_emb[:, 1] = np.asarray(m2.predict_proba(Xt))[:, 1].astype(np.float32)
-        query_emb[:, 1] = np.asarray(m2.predict_proba(Xq))[:, 1].astype(np.float32)
-        try:
-            m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(seed) + 2)
-            m3.fit(Xt, y_t.astype(np.int32))
-            train_emb[:, 2] = m3.predict_proba(Xt)[:, 1].astype(np.float32)
-            query_emb[:, 2] = m3.predict_proba(Xq)[:, 1].astype(np.float32)
-        except Exception as e:
-            logger.info("nn_oof_target_mean: LogisticRegression member fit/predict failed (%s); falling back to constant class prior.", e)
-            prior = float(y_t.mean())
-            train_emb[:, 2] = prior
-            query_emb[:, 2] = prior
-    else:
-        m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
-        m1.fit(Xt, y_t)
-        train_emb[:, 0] = np.asarray(m1.predict(Xt)).astype(np.float32)
-        query_emb[:, 0] = np.asarray(m1.predict(Xq)).astype(np.float32)
-        m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
-        m2.fit(Xt, y_t)
-        train_emb[:, 1] = np.asarray(m2.predict(Xt)).astype(np.float32)
-        query_emb[:, 1] = np.asarray(m2.predict(Xq)).astype(np.float32)
-        m3 = Ridge(alpha=1.0, random_state=int(seed) + 2)
-        m3.fit(Xt, y_t)
-        train_emb[:, 2] = m3.predict(Xt).astype(np.float32)
-        query_emb[:, 2] = m3.predict(Xq).astype(np.float32)
-    return train_emb, query_emb
+    return _fit_3baselines_two(Xt, y_t, Xq, task, seed)
 
 
 def compute_nn_oof_target_mean_features(

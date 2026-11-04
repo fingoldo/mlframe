@@ -35,7 +35,7 @@ import numpy as np
 import polars as pl
 
 from ._smote_kernels_shared import smote_synthesize_minority_rowloop as _smote_synthesize_intra
-from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice, pos_loggap_columns
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice, pos_loggap_columns, far_pos_loggap_columns
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,7 @@ def compute_active_virtual_features(
             Xq_s = Xq
         Xt_pos, Xt_neg = class_or_quantile_slice(Xt_s, y_t, task, q_high)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
-            return np.zeros((Xq_s.shape[0], 2 * len(_K_SCALES)), dtype=np.float32)
+            return far_pos_loggap_columns(Xq_s.shape[0], len(_K_SCALES))
         # Generate large initial pool — oversample=20x to ensure enough boundary virtuals after filtering.
         n_pool = max(200, int(Xt_pos.shape[0] * oversample))
         raw_virtuals = _smote_synthesize_intra(Xt_pos, n_synthetic=n_pool, k_neighbors=k_smote, seed=fold_seed)

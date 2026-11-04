@@ -67,7 +67,10 @@ def compute_multi_temperature_attention(
         raise ValueError("temperatures must be a non-empty tuple of positive floats.")
 
     pieces: list[pl.DataFrame] = []
-    for temp in temperatures:
+    labels = [f"{float(t):.2f}" for t in temperatures]
+    if len(set(labels)) != len(labels):  # 0.301 and 0.304 both format to 0.30 and would give duplicate column names
+        labels = [f"{float(t):.6g}" for t in temperatures]
+    for temp, label in zip(temperatures, labels):
         if temp <= 0:
             raise ValueError(f"All temperatures must be positive; got {temp}.")
         piece = compute_row_attention(
@@ -75,7 +78,7 @@ def compute_multi_temperature_attention(
             seed=seed, n_heads=n_heads, head_dim=head_dim, k=k,
             softmax_temp=float(temp), aggregate=aggregate, projection=projection,
             gpu_stage4=False, dedupe_threshold=None,
-            column_prefix=f"{column_prefix}_T{temp:.2f}".replace(".", "p"),
+            column_prefix=f"{column_prefix}_T{label}".replace(".", "p"),
         )
         pieces.append(piece)
         logger.info("multi_temperature: temp=%.2f done, output shape %s", temp, piece.shape)

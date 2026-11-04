@@ -23,6 +23,16 @@ from .._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
+def _same_view(a, b) -> bool:
+    """Whether ``a`` and ``b`` are the same array view: same shape, strides and first element. Sharing memory is not enough: another column block or a reversed view of one buffer shares it too."""
+    if getattr(a, "shape", None) != getattr(b, "shape", None):
+        return False
+    try:
+        return bool(a.strides == b.strides and a.__array_interface__["data"][0] == b.__array_interface__["data"][0])
+    except (AttributeError, KeyError):
+        return bool(np.may_share_memory(a, b))
+
+
 def _is_foreign(state, factors_data, factors_nbins) -> bool:
     """Whether the caller passed a factors matrix or bin counts that describe different data from the state's own.
 
@@ -31,11 +41,11 @@ def _is_foreign(state, factors_data, factors_nbins) -> bool:
     scratch copy. Not an identity test: the state stores ``np.asarray(factors_nbins)``, a new object whenever the caller passed a
     list or another dtype, and every DCD hot-path call hands the ORIGINAL arrays back in. Identity sent each of those
     through the uncached scratch path and doubled the fit time. The matrix counts as the state's own when it is the
-    same buffer; the bin counts, a handful of ints, are compared by value.
+    same view of the same buffer; the bin counts, a handful of ints, are compared by value.
     """
     own_fd, own_fn = state.factors_data, state.factors_nbins
     if factors_data is not None and factors_data is not own_fd:
-        if own_fd is None or getattr(factors_data, "shape", None) != getattr(own_fd, "shape", None) or not np.may_share_memory(factors_data, own_fd):
+        if own_fd is None or not _same_view(factors_data, own_fd):
             return True
     if factors_nbins is not None and factors_nbins is not own_fn:
         if own_fn is None or not np.array_equal(np.asarray(factors_nbins), np.asarray(own_fn)):

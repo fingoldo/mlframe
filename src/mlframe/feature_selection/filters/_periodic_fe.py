@@ -500,7 +500,7 @@ def _collect_family_codes(X, src_cols, chunk, periods, nbins):
             cc, nx = _candidate_codes(eng_values, nbins)
         if cols_buf is None:
             # the codes are bin indices below nbins, so int8 holds them exactly up to 127 bins (half the int16 bytes: 1.6 GB instead of 3.2 GB at 1M rows);
-            # the family test's kernels give the same flags on int8 codes (host and device, checked 2026-11-03)
+            # the family test's kernels give the same flags on int8 codes (host and device)
             buf_dtype = np.int8 if int(nbins) <= 127 else np.promote_types(cc.dtype, np.int16)
             cols_buf = np.empty((len(src_cols) * 3 * len(periods_pos), cc.shape[1]), dtype=buf_dtype)
         elif np.promote_types(cols_buf.dtype, cc.dtype) != cols_buf.dtype and cols_buf.dtype != np.int8:

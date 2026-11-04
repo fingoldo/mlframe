@@ -337,6 +337,8 @@ def hamming_loss(y_true: ArrayLike, y_pred: ArrayLike) -> float:
     Same return-value semantics as ``sklearn.metrics.hamming_loss``.
     """
     yt, yp = _validate_multilabel_pair(y_true, y_pred)
+    if yt.shape[0] == 0:
+        return float("nan")  # no samples: the kernels would divide by zero; an empty slice has no score
     # Separately benchmarked/tuned element-count gate (N*K), not the row-count _PARALLEL_MULTILABEL_THRESHOLD
     # subset_accuracy/jaccard_score_multilabel share below.
     if yt.shape[0] * yt.shape[1] > 1_000_000:
@@ -353,6 +355,8 @@ def subset_accuracy(y_true: ArrayLike, y_pred: ArrayLike) -> float:
     (~5.6x speedup at 1M rows on an 8-thread runtime).
     """
     yt, yp = _validate_multilabel_pair(y_true, y_pred)
+    if yt.shape[0] == 0:
+        return float("nan")  # no samples: the kernels would divide by zero; an empty slice has no score
     if yt.shape[0] >= _PARALLEL_MULTILABEL_THRESHOLD:
         return float(_fast_subset_accuracy_par(yt, yp))
     return float(_fast_subset_accuracy_seq(yt, yp))
@@ -381,6 +385,8 @@ def jaccard_score_multilabel(y_true: ArrayLike, y_pred: ArrayLike, *, force_elem
     equivalence between the two paths.
     """
     yt, yp = _validate_multilabel_pair(y_true, y_pred)
+    if yt.shape[0] == 0:
+        return float("nan")  # no samples: the kernels would divide by zero; an empty slice has no score
     K = yt.shape[1]
     if not force_elementwise and _can_use_bitmap_jaccard(K):
         yt_packed = _pack_for_bitmap(yt)

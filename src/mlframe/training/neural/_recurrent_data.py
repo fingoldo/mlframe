@@ -299,7 +299,7 @@ class RecurrentDataModule(LightningDataModule):
 
         # Stratified weighted sampling for imbalanced classification data;
         # sampler is mutually exclusive with shuffle=True in PyTorch DataLoader, hence shuffle=False when sampler is set.
-        if self.use_stratified_sampler and not self.is_regression:
+        if self.use_stratified_sampler and not self.is_regression and dataset.labels.dim() == 1:  # 2-D (multilabel) labels have no single class to stratify on
             labels = dataset.labels.numpy()
             # np.bincount requires non-negative contiguous integer labels and
             # returns length max+1 with zeros for any missing label in [0, max].

@@ -11,6 +11,8 @@ from __future__ import annotations
 from typing import cast
 from typing import TYPE_CHECKING, Any, Optional
 
+from types import MappingProxyType
+
 import numpy as np
 from numba import njit, prange
 
@@ -54,7 +56,7 @@ if TYPE_CHECKING:
 # * orth_pair_cross : {basis_i: str, basis_j: str, deg_a: int, deg_b: int}
 
 
-def _apply_orth_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
+def _apply_orth_pre_transform(x: np.ndarray, pre_transform: str, sd: Optional[float] = None) -> np.ndarray:
     """Layer 58 per-column pre-transform: optionally reshape the
     raw column BEFORE the basis-domain preprocess kicks in. Supported values:
 
@@ -66,9 +68,8 @@ def _apply_orth_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
                         well with Chebyshev/Legendre on otherwise-unbounded
                         inputs.
 
-    Replay invariant: stateless given x + pre_transform name. The std for
-    ``tanh`` is computed on-the-fly from the SAME column so train/test parity
-    holds (z-score in the basis preprocess already does the same). Unknown
+    Replay invariant: stateless given x + pre_transform name + the frozen fit-time std (``sd``, written by ``freeze_orth_fit_stats``). Recipes without a frozen
+    std fall back to the std of the replayed batch, which differs from the fit-time one on any row slice. Unknown
     values fall back to identity with a logger warning rather than raising.
     """
     # Intentional float64: fit/replay bit-identity contract, the recipe evaluator runs in float64 as the fit did
@@ -80,7 +81,8 @@ def _apply_orth_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
     if pre_transform == "sqrt_abs":
         return np.asarray(np.sign(x) * np.sqrt(np.abs(x)))
     if pre_transform == "tanh":
-        sd = float(np.std(x))
+        if sd is None:  # legacy recipes (no frozen std): the replay batch's own std
+            sd = float(np.std(x))
         return cast("np.ndarray", np.tanh(x / sd) if sd > 1e-12 else np.tanh(x))
     # Unknown - warn and fall back to identity. Avoids raising at replay
     # time on pickles produced by older clients that introduced bespoke
@@ -101,6 +103,8 @@ def _eval_orth_basis_column(
     *,
     pre_transform: str = "raw",
     preprocess_params: Optional[dict] = None,
+    nan_fill: Optional[float] = None,
+    pre_sd: Optional[float] = None,
 ) -> np.ndarray:
     """Preprocess x to the basis domain (z-score for hermite, min-max for
     legendre/chebyshev, shift for laguerre), then evaluate the single basis
@@ -139,11 +143,11 @@ def _eval_orth_basis_column(
     x = np.asarray(x, dtype=np.float64)
     finite_mask = np.isfinite(x)
     if not finite_mask.all():
-        fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
+        fill = nan_fill if nan_fill is not None else (float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0)
         x = np.where(finite_mask, x, fill)
     # Layer 58: optional pre-transform before basis preprocess. Identity
     # when ``pre_transform='raw'`` (default) - legacy bit-exact path.
-    x = _apply_orth_pre_transform(x, pre_transform)
+    x = _apply_orth_pre_transform(x, pre_transform, sd=pre_sd)
     # The pre-transform can produce non-finite values for pathological inputs
     # (e.g. log(0) when caller passed a value at the floor); guard with one
     # more NaN-safe fill so the basis preprocess (z-score / min-max) doesn't
@@ -167,7 +171,7 @@ def _eval_orth_basis_column(
 
 
 def _basis_cache_key(
-    name: str, basis: str, degree: int, pre_transform: str, preprocess_params: Optional[dict],
+    name: str, basis: str, degree: int, pre_transform: str, preprocess_params: Optional[dict], nan_fill: Optional[float] = None, pre_sd: Optional[float] = None,
 ) -> tuple:
     """Cache key for one hub-operand basis evaluation, scoped to ONE ``transform()`` call's ``basis_cache``.
 
@@ -177,7 +181,7 @@ def _basis_cache_key(
     ``preprocess_params`` is a small flat float dict (z-score mean/std or min-max lo/hi), so hashing its sorted
     items is cheap relative to the ``polyeval_dispatch`` work it lets us skip."""
     pp_key = None if not preprocess_params else tuple(sorted(preprocess_params.items()))
-    return (name, basis, degree, pre_transform, pp_key)
+    return (name, basis, degree, pre_transform, pp_key, nan_fill, pre_sd)
 
 
 def _apply_orth_univariate(
@@ -212,7 +216,7 @@ def _apply_orth_univariate(
     # recipe was built with them) make replay byte-exact on any row-slice.
     preprocess_params = recipe.extra.get("preprocess_params")
     if basis_cache is not None:
-        _key = _basis_cache_key(src_name, basis, degree, pre_transform, preprocess_params)
+        _key = _basis_cache_key(src_name, basis, degree, pre_transform, preprocess_params, recipe.extra.get("nan_fill"), recipe.extra.get("pre_sd"))
         _cached = basis_cache.get(_key)
         if _cached is not None:
             return _cached
@@ -220,6 +224,7 @@ def _apply_orth_univariate(
     out = _eval_orth_basis_column(
         vals, basis, degree, pre_transform=pre_transform,
         preprocess_params=preprocess_params,
+        nan_fill=recipe.extra.get("nan_fill"), pre_sd=recipe.extra.get("pre_sd"),
     )
     if basis_cache is not None:
         basis_cache[_key] = out
@@ -605,7 +610,9 @@ def _apply_orth_spline(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, n
     vals = np.asarray(_extract_column(X, name, col_cache=col_cache), dtype=np.float64)
     finite = np.isfinite(vals)
     if not finite.all():
-        fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
+        fill = recipe.extra.get("nan_fill")
+        if fill is None:
+            fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
         vals = np.where(finite, vals, fill)
     span = max(hi - lo, 1e-12)
     z = np.clip((vals - lo) / span, 0.0, 1.0)
@@ -639,7 +646,9 @@ def _apply_orth_fourier(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
     vals = np.asarray(_extract_column(X, name, col_cache=col_cache), dtype=np.float64)
     finite = np.isfinite(vals)
     if not finite.all():
-        fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
+        fill = recipe.extra.get("nan_fill")
+        if fill is None:
+            fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
         vals = np.where(finite, vals, fill)
     # A replay row's magnitude can exceed anything the fit-time optimiser screened (fit-time only rejects
     # a whole column when the FIT sample overflows); ``power`` != 1 or an extreme z-score can overflow to
@@ -745,3 +754,33 @@ def build_orth_fourier_recipe(
             "std": (None if std is None else float(std)),
         },
     )
+
+
+def freeze_orth_fit_stats(recipes: Any, X: Any) -> int:
+    """Write the fit-time NaN fill (and the ``tanh`` std) of every raw-source ``orth_univariate`` / ``orth_spline`` / ``orth_fourier`` recipe into its ``extra``.
+
+    Replay fills NaN with the mean of the batch being transformed and recomputes the ``tanh`` std per batch, so a row's value depended on the other rows in its batch
+    even though the basis parameters were frozen. Call this once after fit, with the fit X, so replay reads the fit-time values instead. Recipes whose source is
+    not a column of ``X`` (nested engineered operands) are left on the batch statistic. Returns the number of recipes updated.
+    """
+    from . import _extract_column
+
+    n_done = 0
+    for rec in recipes or ():
+        if getattr(rec, "kind", None) not in ("orth_univariate", "orth_spline", "orth_fourier") or len(rec.src_names) != 1:
+            continue
+        if "nan_fill" in rec.extra:
+            continue
+        try:
+            col = np.asarray(_extract_column(X, rec.src_names[0]), dtype=np.float64)
+        except (KeyError, ValueError, TypeError):
+            continue
+        finite = np.isfinite(col)
+        fill = float(np.nanmean(col[finite])) if finite.any() else 0.0
+        frozen = {"nan_fill": fill}  # also when the fit column had no NaN: a NaN seen only at transform time is filled with the fit mean
+        if rec.kind == "orth_univariate" and str(rec.extra.get("pre_transform", "raw")) == "tanh":
+            frozen["pre_sd"] = float(np.std(np.where(finite, col, fill)))
+        # The recipe is a frozen dataclass whose ``extra`` is a read-only mapping: swap the mapping, keeping the recipe object (other fit state refers to it).
+        object.__setattr__(rec, "extra", MappingProxyType({**rec.extra, **frozen}))
+        n_done += 1
+    return n_done

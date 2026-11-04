@@ -54,7 +54,7 @@ def _fit_aux_lgb(X: np.ndarray, y: np.ndarray, *, task: str, seed: int, focal: b
     """
     import lightgbm as lgb
     if focal and task == "binary":
-        train_data = lgb.Dataset(X, label=y)
+        train_data = lgb.Dataset(X, label=(np.asarray(y) > 0.5).astype(np.float32))  # focal gradient assumes 0/1 labels
         params = dict(
             objective=_focal_obj(gamma=2.0),
             learning_rate=0.05, max_depth=max_depth, num_leaves=min(2 ** max_depth, 63),

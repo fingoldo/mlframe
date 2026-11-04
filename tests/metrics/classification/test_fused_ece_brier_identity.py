@@ -52,7 +52,7 @@ def test_fused_empty_input_sentinels():
     fused = compute_ece_brier_full_and_debiased(e, e, 10)
     assert list(zip(sep, fused)), "the loop below must iterate at least once"
     for a, b in zip(sep, fused):
-        assert a == b
+        assert (a == b) or (np.isnan(a) and np.isnan(b))  # an empty slice is NaN in every field
 
 
 def test_fused_extremes_and_boundary_probs():

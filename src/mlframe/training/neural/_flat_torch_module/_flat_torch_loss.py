@@ -122,6 +122,8 @@ class _LossMixin(_LossBase):
             else:
                 sample_weight_b = sample_weight
             raw = (loss_unreduced * sample_weight_b).sum()
+            if loss_unreduced.dim() == 2:  # per-label losses: the weighted mean averages over the K labels as the unweighted reduction does
+                raw = raw / loss_unreduced.shape[1]
         # Safe divide avoids the prior ``if weight_sum > 0`` Python branch (a
         # forced GPU->CPU sync ~30 us per call) without losing the all-zero-
         # weight semantic: when weight_sum is 0, raw is also 0 (sum(loss * 0)),

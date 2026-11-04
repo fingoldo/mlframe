@@ -35,7 +35,7 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, quantile_tail_masks
 
 logger = logging.getLogger(__name__)
 
@@ -114,9 +114,8 @@ def compute_density_ratio_features(
         if task == "binary":
             pos = y_sub > 0.5
             return X_sub[pos], X_sub[~pos]
-        y_lo = np.quantile(y_sub, q_low)
-        y_hi = np.quantile(y_sub, q_high)
-        return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
+        hi, lo = quantile_tail_masks(y_sub, q_low, q_high)
+        return X_sub[hi], X_sub[lo]
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> np.ndarray:
         """Per-query log-density-ratio between the positive and negative KDEs, at each Silverman-scaled bandwidth multiplier."""

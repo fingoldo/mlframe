@@ -27,7 +27,7 @@ import polars as pl
 
 from ._hard_row_shared import topk_within_subset
 from ._squared_dists_shared import squared_dists as _squared_dists
-from ._utils import require_seed, validate_numeric_input, softmax
+from ._utils import quantile_tail_masks, require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +76,9 @@ def _select_hard_anchors(abs_residuals: np.ndarray, y_t: np.ndarray, task: str, 
         pos_mask_idx = np.where(y_t > 0.5)[0]
         neg_mask_idx = np.where(y_t <= 0.5)[0]
     else:
-        q1, q4 = np.quantile(y_t, [0.2, 0.8])
-        pos_mask_idx = np.where(y_t >= q4)[0]
-        neg_mask_idx = np.where(y_t <= q1)[0]
+        pos_mask, neg_mask = quantile_tail_masks(y_t, 0.2, 0.8)  # disjoint even when ties make the two quantiles coincide
+        pos_mask_idx = np.where(pos_mask)[0]
+        neg_mask_idx = np.where(neg_mask)[0]
 
     pos_top = _topk_within_subset(abs_residuals, pos_mask_idx, n_hard_per_side)
     neg_top = _topk_within_subset(abs_residuals, neg_mask_idx, n_hard_per_side)

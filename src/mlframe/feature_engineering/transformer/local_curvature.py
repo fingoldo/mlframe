@@ -97,6 +97,16 @@ def compute_local_curvature_features(
         iu, ju = np.triu_indices(d)
         diag_mask = iu == ju
         ones_col = np.ones((k_eff, 1), dtype=np.float32)
+        n_quad_cols = 1 + d + d * (d + 1) // 2
+        quad_identifiable = k_eff >= n_quad_cols + 2
+        if not quad_identifiable:
+            # With fewer neighbours than quadratic coefficients lstsq interpolates the neighbourhood exactly: the residual is ~0 and the Hessian is arbitrary.
+            log_throttle(
+                logger, "local_curvature.underdetermined", logging.WARNING,
+                "local_curvature: %d neighbours cannot identify the %d quadratic coefficients of d=%d; curvature columns are NaN (raise k_neighbors or reduce d)",
+                int(k_eff), int(n_quad_cols), int(d),
+            )
+            out[:] = np.nan
         for q in range(n_q):
             nbr_X = Xt_s[idx[q]]  # (k_eff, d)
             nbr_y = y_t[idx[q]].astype(np.float32)
@@ -107,6 +117,9 @@ def compute_local_curvature_features(
                 coef_lin, _, _, _ = np.linalg.lstsq(A_lin, nbr_y, rcond=None)
                 pred_lin = A_lin @ coef_lin
                 resid_lin = float(np.sum((nbr_y - pred_lin) ** 2))
+                if not quad_identifiable:
+                    out[q, 3] = float(coef_lin[0]) if k_eff >= d + 2 else np.nan
+                    continue
                 # Quadratic basis: [linear basis, dx_i * dx_j for i <= j]
                 A_quad = quad_design_matrix(A_lin, dx, iu, ju)  # (k_eff, 1 + d + d*(d+1)/2)
                 coef_quad, _, _, _ = np.linalg.lstsq(A_quad, nbr_y, rcond=None)

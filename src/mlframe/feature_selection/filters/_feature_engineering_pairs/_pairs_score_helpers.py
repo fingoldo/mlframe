@@ -41,6 +41,11 @@ _DEGENERATE_PAIR_SINGLE_OPERAND_CORR: float = 0.999
 logger = logging.getLogger(__name__)
 
 
+def _fmt_corr(corr) -> str:
+    """Format a |corr| for the verbose message; ``None`` is a correlation that could not be measured."""
+    return "n/a" if corr is None else f"{corr:.3f}"
+
+
 def _should_demote_prewarp(pw_corr, clean_corr) -> bool:
     """Whether a prewarp-form winner is demoted to its MI-equivalent clean form, from the two forms' |corr| with continuous y.
 
@@ -109,9 +114,8 @@ def _score_one_pair_gpu_fused_done(_gpu_fused_done, combs, vars_transformations,
                         _stage[_staged] = bin_func(param_a, param_b)
                     except Exception:
                         # The transform raised AFTER (or instead of) writing its staged row; the slot is not counted, so the next candidate overwrites it and the failed column is never scored,
-                        # nor recorded as a candidate. The buffer column ``i`` it would have taken is set to NaN as before.
+                        # nor recorded as a candidate; only columns below ``i`` are ever read, so the column ``i`` it would have taken needs no write.
                         log_throttle(logger, "pairs_score_transform_final_failed", logging.ERROR, "Error when performing %s", bin_func, exc_info=True)
-                        final_transformed_vals[:, i] = np.nan
                     else:
                         # DEFER the NaN/inf scrub to ONE vectorised pass over the packed
                         # buffer slice [:, :i] below (was a per-column ``nan_to_num`` here:
@@ -282,8 +286,8 @@ def _score_one_pair_monotone_equivalent_warp_scores(_pw_corr, _clean_corr, best_
                 var_pairs_perf[_cfg] = _pw_cap
         if verbose:
             messages.append(
-                f"clean-form demotion: prewarp winner |corr(y)|={_pw_corr:.3f} did not beat "
-                f"the best clean library form |corr(y)|={_clean_corr:.3f} by >= 5% (MI-equivalent "
+                f"clean-form demotion: prewarp winner |corr(y)|={_fmt_corr(_pw_corr)} did not beat "
+                f"the best clean library form |corr(y)|={_fmt_corr(_clean_corr)} by >= 5% (MI-equivalent "
                 f"monotone re-expression); demoting to the clean form and capping prewarp-form "
                 f"MI at the clean form's so it cannot out-rank it on the primary key."
             )
@@ -418,11 +422,30 @@ def _score_one_pair_side(_tp2, vars_transformations, transformed_vars, _abs_corr
     return _max_single_op_corr
 
 
-def _score_one_pair_all_values_were_already(_passes_joint_gate, _prewarp_accept, _marginal_uplift_accept, _usability_accept, fe_min_engineered_mi_prevalence, num_fs_steps, best_config, raw_vars_pair, cols, _gate_ratio, rejection_records, rejection_ledger_out, ratio_ok=True):
+def record_family_gate_rejection(best_config, best_mi, raw_vars_pair, cols, rejection_records, rejection_ledger_out) -> None:
+    """Add the ledger record of a pair whose winner the family-wise gate rejected (the winner's MI was already computed; the family maximum is random, so no threshold)."""
+    rec = {
+        "gate": "pair_family_maxt",
+        "candidate": str(raw_vars_pair),
+        "operands": tuple(raw_vars_pair),
+        "operand_names": "(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
+        "operator": None if best_config is None else best_config[1],
+        "observed": float(best_mi),
+        "threshold": float("nan"),
+        "reason": "winner_below_family_maximum",
+    }
+    rejection_records.append(rec)
+    if rejection_ledger_out is not None:
+        rejection_ledger_out.append(rec)
+
+
+def _score_one_pair_all_values_were_already(_passes_joint_gate, _prewarp_accept, _marginal_uplift_accept, _usability_accept, fe_min_engineered_mi_prevalence, num_fs_steps, best_config, raw_vars_pair, cols, _gate_ratio, rejection_records, rejection_ledger_out, ratio_ok=None):
     """Block of _score_one_pair starting at ``if not (_passes_joint_gate or _prewarp_accept or _marginal_uplift_acce``."""
     if not (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept):
         try:
             _rej_thr = float(fe_min_engineered_mi_prevalence) * (1.0 if num_fs_steps < 1 else 1.025)
+            if ratio_ok is None:  # the pair missed the prevalence floor itself, or cleared it and then lost to the larger operand
+                ratio_ok = float(_gate_ratio) > _rej_thr
             _rej_op = None
             if best_config is not None:
                 try:

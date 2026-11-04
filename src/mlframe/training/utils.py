@@ -546,7 +546,7 @@ def _log_slow_bridge(_elapsed, log_threshold_seconds, _shape_str, _rss_before_gb
             )
 
 
-# get_pandas_view_of_polars_df, tried but reverted (2026-04-19):
+# get_pandas_view_of_polars_df, tried but reverted:
 # A ``shared_dict_cache`` parameter was added to share the ``categories``
 # pyarrow Array across sliced train/val/test calls, under the assumption
 # that slicing a Polars DataFrame preserves the source frame's full
@@ -555,7 +555,7 @@ def _log_slow_bridge(_elapsed, log_threshold_seconds, _shape_str, _rss_before_gb
 # present in that slice, so train/val/test each carry **different**
 # dictionaries (different sets of unique values, different order,
 # different length). The cache's safety check correctly bypassed every
-# cross-call reuse -- net speedup was zero. See the 2026-04-19 CHANGELOG
+# cross-call reuse -- net speedup was zero. See the CHANGELOG
 # entry for the full investigation. If production-grade dict sharing is
 # ever needed, the right primitive is ``pl.Enum`` on the source column
 # (fixed domain preserved across slices), not a post-hoc Arrow-level

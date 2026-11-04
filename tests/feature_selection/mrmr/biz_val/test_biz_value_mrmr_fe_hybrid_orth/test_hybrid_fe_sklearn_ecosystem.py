@@ -440,7 +440,9 @@ class TestCrossValWithHybridFE:
         recipe_a = _recipe_for(np.arange(0, half))
         recipe_b = _recipe_for(np.arange(half, n_split))
         assert recipe_a != recipe_b, f"both slices produced the same recipe {recipe_a}, so the builder is not reading its training slice"
-        assert any(name.startswith("c1__") for name in recipe_a), f"the c1-signal slice should engineer a c1 feature, got {recipe_a}"
+        # The c1 signal may now be engineered by the out-of-fold warp family (``oofwarp(c1)``) instead of a ``c1__*`` basis column: the contract is that the
+        # slice with the c1 signal engineers a feature OF c1.
+        assert any("c1" in name for name in recipe_a), f"the c1-signal slice should engineer a c1 feature, got {recipe_a}"
         assert any(name.startswith("c2__") for name in recipe_b), f"the c2-signal slice should engineer a c2 feature, got {recipe_b}"
 
     def test_no_y_leakage_across_folds(self):

@@ -47,7 +47,8 @@ def _local_lift_and_pr_auc(y_neighbors: np.ndarray, dists: np.ndarray, y_global_
     # Local mean of y.
     local_mean = y_neighbors.mean(axis=1)
     # Lift: ratio to global; safe-guarded for zero global mean.
-    lift = local_mean / max(y_global_mean, 1e-9)
+    denom = y_global_mean if abs(y_global_mean) > 1e-9 else 1e-9  # keeps the sign of a negative mean; max(mean, 1e-9) turned it into a 1e-9 divisor
+    lift = local_mean / denom
 
     # Local top-1 y (closest neighbour's target).
     top1 = y_neighbors[:, 0]

@@ -70,6 +70,7 @@ FE_GATE_LABELS = (
     "cmi_redundancy",  # gate 3: S5 conditional-MI redundancy gate
     "stability_vote",  # gate 4: cross-fold stability quorum vote
     "operand_uplift_floor",  # gate: engineered MI must beat the larger operand by its permutation-null uplift bar
+    "pair_family_maxt",  # pair winner that does not clear the family-wise permutation maximum over all of the pair's configurations
     "binagg_source_redundancy",  # binned-numeric-agg candidate dropped as redundant with its own source column
     "fast_search_cross_group_overmaterialization",  # fast-search cross-group candidate over the materialisation budget
     "gate_composite_overmaterialization",  # gate composite over the materialisation budget

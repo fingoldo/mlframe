@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -184,7 +186,7 @@ def confidence_gated_blend(
         return np.asarray((1.0 - weight) * ensemble_pred + weight * auxiliary_pred, dtype=np.float64)
 
     n = ensemble_pred.shape[0]
-    if n < _DISPATCH_MIN_N:
+    if n < _DISPATCH_MIN_N or ensemble_pred.ndim != 1:  # the compiled kernels write a 1-D output; the numpy path blends any shape
         return _blend_numpy(ensemble_pred, auxiliary_pred, auxiliary_confidence, confidence_threshold, gated_weight, default_weight)
 
     env_backend = os.environ.get("MLFRAME_CONFIDENCE_BLEND_BACKEND", "").strip().lower()
@@ -207,7 +209,7 @@ def confidence_gated_blend(
         try:
             return _blend_cupy(ensemble_pred, auxiliary_pred, auxiliary_confidence, confidence_threshold, gated_weight, default_weight)
         except Exception as exc:  # GPU unavailable/failed -> fall through to numpy.
-            logger.debug("confidence_gated_blend: cupy backend unavailable/failed (%s); falling back to numpy.", exc)
+            log_throttle(logger, "confidence_gated_blend.cupy_fallback", logging.WARNING, "confidence_gated_blend: cupy backend unavailable/failed (%s); falling back to numpy.", exc)
     return _blend_numpy(ensemble_pred, auxiliary_pred, auxiliary_confidence, confidence_threshold, gated_weight, default_weight)
 
 

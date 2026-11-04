@@ -146,19 +146,37 @@ def knn_search(
             labels, sq_dists = idx.knn_query(np.ascontiguousarray(X_query, dtype=np.float32), k=k_request)
         except Exception as exc:
             logger.warning("[_knn_helper] hnswlib knn_query failed (%s); falling back to sklearn.", exc)
-            return _sklearn_fallback(X_subset, X_query, k_request)
-        # hnswlib's 'l2' space returns SQUARED L2; take sqrt for sklearn-compat Euclidean.
-        dists = np.sqrt(np.maximum(sq_dists, 0.0, dtype=np.float32)).astype(np.float32)
-        return dists, labels.astype(np.int64)
+            return _sklearn_fallback(X_subset, X_query, k_request, metric)
+        # hnswlib's 'l2' space returns SQUARED L2 (sqrt for sklearn-compat Euclidean); 'cosine' and 'ip' already return 1 - similarity.
+        dists = np.maximum(sq_dists, 0.0, dtype=np.float32) if metric != "l2" else np.sqrt(np.maximum(sq_dists, 0.0, dtype=np.float32))
+        return dists.astype(np.float32), labels.astype(np.int64)
 
-    return _sklearn_fallback(X_subset, X_query, k_request)
+    return _sklearn_fallback(X_subset, X_query, k_request, metric)
 
 
-def _sklearn_fallback(X_subset: np.ndarray, X_query: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray]:
-    """Exact k-NN via sklearn, used both as the default backend below the hnsw crossover and as the
+def _inner_product_knn(X_subset: np.ndarray, X_query: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray]:
+    """Exact k-NN under hnswlib's 'ip' distance (``1 - <x, q>``), in query blocks so the similarity matrix stays small."""
+    xs = np.ascontiguousarray(X_subset, dtype=np.float32)
+    dists = np.empty((X_query.shape[0], k), dtype=np.float32)
+    ids = np.empty((X_query.shape[0], k), dtype=np.int64)
+    block = max(1, 2**24 // max(1, xs.shape[0]))
+    for lo in range(0, X_query.shape[0], block):
+        d = 1.0 - np.asarray(X_query[lo : lo + block], dtype=np.float32) @ xs.T
+        top = np.argpartition(d, k - 1, axis=1)[:, :k]
+        order = np.take_along_axis(d, top, axis=1).argsort(axis=1)
+        top = np.take_along_axis(top, order, axis=1)
+        ids[lo : lo + block] = top
+        dists[lo : lo + block] = np.take_along_axis(d, top, axis=1)
+    return dists, ids
+
+
+def _sklearn_fallback(X_subset: np.ndarray, X_query: np.ndarray, k: int, metric: str = "l2") -> Tuple[np.ndarray, np.ndarray]:
+    """Exact k-NN honouring ``metric`` ('l2', 'cosine' or 'ip', as the hnswlib spaces), used both as the default backend below the hnsw crossover and as the
     error-recovery path when hnswlib is unavailable or its approximate query raises."""
+    if metric == "ip":
+        return _inner_product_knn(X_subset, X_query, k)
     from sklearn.neighbors import NearestNeighbors
-    nn = NearestNeighbors(n_neighbors=k, algorithm="auto", n_jobs=-1).fit(X_subset)
+    nn = NearestNeighbors(n_neighbors=k, algorithm="auto", n_jobs=-1, metric="cosine" if metric == "cosine" else "euclidean").fit(X_subset)
     dists, ids = nn.kneighbors(X_query)
     return dists.astype(np.float32, copy=False), ids.astype(np.int64, copy=False)
 

@@ -454,6 +454,35 @@ class _SamplerSetEpochCallback(_L_MODULE.Callback):  # type: ignore[name-defined
             self._sampler.set_epoch(trainer.current_epoch)
 
 
+class _BestWeightsCallback(_L_MODULE.Callback):  # type: ignore[name-defined]  # dynamic Lightning base class, see _SamplerSetEpochCallback
+    """Keep the weights of the epoch with the lowest ``val_loss`` and reload them when training ends.
+
+    ``EarlyStopping`` only stops; without this ``predict`` used the weights of the last epoch, ``patience`` epochs past the best one.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.best_value = float("inf")
+        self.best_state: dict | None = None
+
+    def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        """Snapshot the module weights (CPU copies) whenever ``val_loss`` improves; skips Lightning's pre-training sanity pass."""
+        if getattr(trainer, "sanity_checking", False):
+            return
+        value = trainer.callback_metrics.get("val_loss")
+        if value is None:
+            return
+        value = float(value)
+        if value < self.best_value:
+            self.best_value = value
+            self.best_state = {k: v.detach().cpu().clone() for k, v in pl_module.state_dict().items()}
+
+    def on_train_end(self, trainer, pl_module) -> None:
+        """Load the best snapshot back into the module (no-op when validation never ran)."""
+        if self.best_state is not None:
+            pl_module.load_state_dict(self.best_state)
+
+
 # ----------------------------------------------------------------------------------
 # sklearn-shaped wrapper
 # ----------------------------------------------------------------------------------
@@ -837,6 +866,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
 
         callbacks: list = [_SamplerSetEpochCallback(train_sampler)]
         if self.early_stopping_patience is not None and val_loader is not None and _EarlyStopping is not None:
+            callbacks.append(_BestWeightsCallback())
             callbacks.append(
                 _EarlyStopping(
                     monitor="val_loss", patience=self.early_stopping_patience,

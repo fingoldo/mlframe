@@ -27,7 +27,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import positive_class_proba, require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ def _predict_aux_mlp(model, scaler, X: np.ndarray, task: str) -> tuple[np.ndarra
     """Score ``X`` with the fitted MLP; for binary tasks returns (clipped probability, logit), for regression returns (prediction, zeros) so the caller always gets a uniform 2-column output shape."""
     X_s = scaler.transform(X)
     if task == "binary":
-        proba = model.predict_proba(X_s)[:, 1].astype(np.float32)
+        proba = positive_class_proba(model, X_s).astype(np.float32)
         proba_clipped = np.clip(proba, 1e-6, 1.0 - 1e-6)
         logit = np.log(proba_clipped / (1.0 - proba_clipped)).astype(np.float32)
         return proba, logit

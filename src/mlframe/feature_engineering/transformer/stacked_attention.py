@@ -97,6 +97,12 @@ def compute_stacked_row_attention(
             allow_overcomplete=True, dtype=dtype,
         ).to_numpy().astype(dtype, copy=False)
         layer_outputs_train.append(out_train)
+        if layer + 1 < n_layers and np.isnan(out_train).any():
+            raise ValueError(
+                f"stacked_attention: layer {layer + 1} left {int(np.isnan(out_train).any(axis=1).sum())} rows without an out-of-fold value (the splitter never validates them, "
+                "e.g. the first block of a TimeSeriesSplit), so they cannot feed layer "
+                f"{layer + 2}; use n_layers=1 or a splitter that validates every row."
+            )
 
         if X_query is not None:
             # Mode B for X_query (single-pass with full layer-current_X_train bank).

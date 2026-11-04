@@ -1,3 +1,6 @@
+import logging
+
+logger = logging.getLogger(__name__)
 """Does smearing help the quantile-normal and chain transforms on the y scale? RMSE with and without smearing on right-skewed targets (3 seeds).
 
 Result 2026-11-04: quantile_normal_y 6.86/6.86, 6.37/6.26, 5.67/5.64; chain_linres_cbrt_qn 6.89/6.91, 6.40/6.42, 5.80/5.81; chain_linres_cbrt
@@ -22,6 +25,7 @@ def run(name, smear, seed):
     return float(np.sqrt(np.mean((p-y[te])**2)))
 for name in ("quantile_normal_y","chain_linres_cbrt_qn","chain_linres_cbrt"):
     try:
-        r=[(run(name,False,s),run(name,True,s)) for s in range(3)]
-        print(name, [(round(a,2),round(b,2)) for a,b in r])
-    except Exception as e: print(name,"ERR",repr(e)[:150])
+        r = [(run(name, False, s), run(name, True, s)) for s in range(3)]
+        print(name, [(round(a, 2), round(b, 2)) for a, b in r])
+    except Exception as e:
+        logger.warning("%s failed: %r", name, e)

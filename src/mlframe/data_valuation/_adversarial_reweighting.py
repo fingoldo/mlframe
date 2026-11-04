@@ -154,11 +154,14 @@ def dro_reweight_fit(
     model = None
     for _round in range(n_rounds):
         # OOF losses for the adversary -- refit per fold so the adversary never sees in-sample loss.
-        oof_pred = np.empty(n, dtype=np.float64)
+        oof_pred: Optional[np.ndarray] = None  # (n,) for regression and binary classification, (n, k) for k > 2 classes (``loss_fn`` then receives the probability matrix)
         for tr_idx, val_idx in fold_splits:
             fold_model = fit_fn(X[tr_idx], y[tr_idx], w[tr_idx])
             pred = _predict_for_loss(fold_model, X[val_idx])
+            if oof_pred is None:
+                oof_pred = np.empty((n, *pred.shape[1:]), dtype=np.float64)
             oof_pred[val_idx] = pred
+        assert oof_pred is not None  # fold_splits is never empty
         losses = np.asarray(loss_fn(y, oof_pred), dtype=np.float64)
 
         worst_case_history.append(float(np.mean(w * losses)))

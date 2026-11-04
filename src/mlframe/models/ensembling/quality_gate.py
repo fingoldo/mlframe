@@ -109,15 +109,17 @@ def _collapse_to_groups(arr: np.ndarray, sample_weight: Optional[np.ndarray], gr
 
 
 def _drop_rows_with_non_finite_member(arr: np.ndarray, sample_weight: Optional[np.ndarray], group_ids: Optional[np.ndarray]) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
-    """Rows where every member is finite, for the gate statistics only. Out-of-fold predictions of a time-ordered split leave the warm-up rows NaN in every
-    member, which made the cross-member median NaN there and every member's MAE/STD NaN, so the whole gate switched itself off.
+    """Rows where at least one member is finite, for the gate statistics only. Out-of-fold predictions of a time-ordered split leave the warm-up rows NaN in EVERY
+    member, which made the cross-member median NaN there and every member's MAE/STD NaN, so the whole gate switched itself off. A row where only SOME members are
+    non-finite stays: dropping it would hide a member that is NaN on a few rows (its statistics would come out finite and the blend NaN there), whereas kept, that
+    member's MAE/STD is NaN and ``_exclude_if_non_finite`` excludes it.
     Unchanged when every row is finite or when no row is (the caller's non-finite handling then applies)."""
-    rows_ok = np.isfinite(arr).reshape(arr.shape[0], arr.shape[1], -1).all(axis=(0, 2))
+    rows_ok = np.isfinite(arr).reshape(arr.shape[0], arr.shape[1], -1).any(axis=(0, 2))
     if rows_ok.all() or not rows_ok.any():
         return arr, sample_weight, group_ids
     n_rows = arr.shape[1]
-    sw = None if sample_weight is None else (np.asarray(sample_weight)[rows_ok] if np.asarray(sample_weight).shape[0] == n_rows else sample_weight)
-    gid = None if group_ids is None else (np.asarray(group_ids)[rows_ok] if np.asarray(group_ids).shape[0] == n_rows else group_ids)
+    sw = None if sample_weight is None else (np.asarray(sample_weight)[rows_ok] if np.shape(sample_weight)[0] == n_rows else sample_weight)
+    gid = None if group_ids is None else (np.asarray(group_ids)[rows_ok] if np.shape(group_ids)[0] == n_rows else group_ids)
     return arr[:, rows_ok], sw, gid
 
 
@@ -250,8 +252,10 @@ def compute_member_quality_gate(
     # gate silently keeps every member. Disable the relative gate explicitly when no finite statistic exists.
     median_mae = float(np.nanmedian(per_member_mae)) if np.isfinite(per_member_mae).any() else float("nan")
     median_std = float(np.nanmedian(per_member_std)) if np.isfinite(per_member_std).any() else float("nan")
-    rel_mae_threshold = max_mae_relative * median_mae if (max_mae_relative > 0 and np.isfinite(median_mae)) else 0.0
-    rel_std_threshold = max_std_relative * median_std if (max_std_relative > 0 and np.isfinite(median_std)) else 0.0
+    # A median of 0 (more than half of the peers sit exactly on the cross-member median) must not switch the relative check off: floor the threshold at a tiny positive
+    # value so a member that is off by a large amount against peers that all agree is still excluded.
+    rel_mae_threshold = max(max_mae_relative * median_mae, 1e-12) if (max_mae_relative > 0 and np.isfinite(median_mae)) else 0.0
+    rel_std_threshold = max(max_std_relative * median_std, 1e-12) if (max_std_relative > 0 and np.isfinite(median_std)) else 0.0
 
     kept: list = []
     excluded: list = []

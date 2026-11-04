@@ -11,7 +11,7 @@ All ``logger.*`` and ``print`` output here is ASCII-only by project rule; cp1251
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 from mlframe.utils.env_flags import env_int
@@ -325,9 +325,18 @@ def class_or_quantile_slice(X_sub: np.ndarray, y_sub: np.ndarray, task: str, q_h
     if task == "binary":
         pos = y_sub > 0.5
         return X_sub[pos], X_sub[~pos]
-    y_hi = np.quantile(y_sub, q_high)
-    y_lo = np.quantile(y_sub, 1.0 - q_high)
-    return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
+    hi, lo = quantile_tail_masks(y_sub, 1.0 - q_high, q_high)
+    return X_sub[hi], X_sub[lo]
+
+
+def quantile_tail_masks(y: np.ndarray, q_low: float, q_high: float) -> tuple:
+    """Boolean masks of the top (``y >= q_high`` quantile) and bottom (``y <= q_low`` quantile) tails of ``y``, disjoint even when ties make the two quantiles coincide.
+
+    With a heavily tied target both quantiles can equal the same value; the rows at that value then belong to the top tail only, so a row is never in both clouds.
+    """
+    hi = y >= np.quantile(y, q_high)
+    lo = (y <= np.quantile(y, q_low)) & ~hi
+    return hi, lo
 
 
 def softmax(scores: np.ndarray, temp: float) -> np.ndarray:
@@ -358,3 +367,61 @@ def require_seed(seed: object) -> int:
     if seed_int < 0 or seed_int >= 2**32:
         raise ValueError(f"seed must be in [0, 2**32); got {seed_int}.")
     return seed_int
+
+
+FAR_DISTANCE = 1e6
+
+
+def far_pos_loggap_columns(n_query: int, n_scales: int) -> np.ndarray:
+    """``(n_query, 2 * n_scales)`` features for a fold whose class bank is too small for a kNN query: the "very far" distance sentinel, then a zero log-gap ("no signal"), never a 0.0 that reads as "on the positive manifold"."""
+    return np.asarray(np.concatenate([np.full((n_query, n_scales), FAR_DISTANCE), np.zeros((n_query, n_scales))], axis=1).astype(np.float32))
+
+
+class BoundSplitter:
+    """A splitter with its ``groups`` (and ``y``) closed over, so it satisfies the ``splitter.split(X)`` call every transformer in this package makes.
+
+    ``GroupKFold`` and friends raise on ``split(X)`` without groups, and a shuffled ``KFold`` ignores them and leaks a group across the train/validation boundary;
+    wrap the group-aware splitter once and hand the wrapper to any transformer's ``splitter=``.
+
+    Parameters
+    ----------
+    splitter
+        The wrapped splitter (``GroupKFold``, ``StratifiedKFold``, ...).
+    groups
+        Group labels passed on every ``split`` call.
+    y
+        Target (or stratification labels) passed on every ``split`` call.
+    """
+
+    def __init__(self, splitter: Any, groups: Any = None, y: Any = None) -> None:
+        self.splitter = splitter
+        self.groups = groups
+        self.y = y
+
+    @property
+    def n_splits(self) -> Any:
+        """The wrapped splitter's fold count (``None`` when it does not expose one)."""
+        return getattr(self.splitter, "n_splits", None)
+
+    def split(self, X: Any, y: Any = None, groups: Any = None) -> Any:
+        """Split ``X`` with the bound ``groups`` and ``y`` unless the caller passes its own."""
+        return self.splitter.split(X, self.y if y is None else y, self.groups if groups is None else groups)
+
+
+def positive_class_proba(model: Any, X: Any) -> np.ndarray:
+    """Probability of class 1 from a fitted classifier, also when it was fitted on a single class (``predict_proba`` then has one column: 1.0 or 0.0 for every row)."""
+    proba = np.asarray(model.predict_proba(X))
+    classes = np.asarray(model.classes_).ravel()
+    if classes.size >= 2 and proba.shape[1] >= 2:
+        return np.asarray(proba[:, 1])
+    # sklearn's MLPClassifier fitted on one class still returns a second column, with a meaningless probability for a class it never saw.
+    return np.full(proba.shape[0], 1.0 if float(classes[0]) > 0.5 else 0.0, dtype=proba.dtype)
+
+
+def strictly_increasing_edges(edges: np.ndarray) -> np.ndarray:
+    """``edges`` with each non-increasing entry raised just above its predecessor: by 1e-9, or by one float64 step where that is below the spacing (|edge| above about 1e7)."""
+    out = np.array(edges, dtype=np.float64)
+    for i in range(1, len(out)):
+        if out[i] <= out[i - 1]:
+            out[i] = max(out[i - 1] + 1e-9, np.nextafter(out[i - 1], np.inf))
+    return out

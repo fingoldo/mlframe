@@ -516,6 +516,9 @@ class _MRMRFitStagesMixin:
             from .._mrmr_sis_apply import _remap_sis_fit_to_input_space
 
             _remap_sis_fit_to_input_space(self, *st._sis_input_space_info)
+        from ..engineered_recipes import freeze_orth_fit_stats
+
+        freeze_orth_fit_stats(getattr(self, "_engineered_recipes_", None), X)  # replay must not refit the NaN fill or the tanh std from each transform batch
         self._fit_body_step1_anything_below_reads(X)
         # Stash X-fingerprint -> identity-bool in cross-target cache so a SUBSEQUENT fit (different y, same X) can early-skip the FE pipeline.
         self._fit_body_stash_fingerprint_identity_bool(st._identity_skip, st._x_fp, X, y, st._cache_dict)

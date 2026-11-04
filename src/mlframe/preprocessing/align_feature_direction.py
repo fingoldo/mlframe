@@ -99,7 +99,9 @@ def batch_univariate_auc(X: np.ndarray, y_arr: np.ndarray) -> np.ndarray:
     Computing ranks for the whole matrix in one vectorized ``np.argsort(axis=0)`` pass, instead of one
     sklearn call per column, replaces N heavyweight Python-level calls with a single C-level batch op.
     """
-    is_pos = y_arr == 1
+    y_arr = np.asarray(y_arr)
+    classes = np.unique(y_arr)
+    is_pos = y_arr == (classes[-1] if classes.size == 2 else 1)  # the larger of two labels is positive (as in sklearn); 1 stays the positive label otherwise
     n_pos = int(is_pos.sum())
     n_neg = len(y_arr) - n_pos
     if n_pos == 0 or n_neg == 0:

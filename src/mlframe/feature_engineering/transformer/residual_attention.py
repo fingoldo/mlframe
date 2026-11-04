@@ -21,7 +21,7 @@ Reference: stacking (Wolpert 1992); gradient boosting + residual learning (Fried
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Sequence
 
 import numpy as np
 import polars as pl
@@ -53,6 +53,7 @@ def compute_residual_attention(
     column_prefix: str = "resid",
     dedupe_threshold: float | None = None,
     dtype: type = np.float32,
+    keep_columns: Sequence[str] | None = None,
 ) -> pl.DataFrame:
     """Residual row-attention: fits auxiliary LGB, takes OOF residuals, runs row-attention with residuals as target.
 
@@ -100,10 +101,11 @@ def compute_residual_attention(
             X_train, y_train, task=task, make_aux=_make_aux, aux_n_splits=aux_n_splits, seed=seed,
         )
         logger.info("residual_attention: aux LGB OOF residuals: mean=%.4f, std=%.4f, abs_mean=%.4f", residual_train.mean(), residual_train.std(), np.abs(residual_train).mean())
+        # Mode B never dedupes (a query batch cannot rediscover Mode A's subset); pass the Mode A frame's columns as ``keep_columns`` to match it.
         return compute_row_attention(
             X_train=X_train, y_train=residual_train, X_query=X_query, splitter=splitter,
             seed=seed, n_heads=n_heads, head_dim=head_dim, k=k, aggregate=aggregate, projection=projection,
-            gpu_stage4=False, dedupe_threshold=None, column_prefix=column_prefix,
+            gpu_stage4=False, dedupe_threshold=None, column_prefix=column_prefix, keep_columns=keep_columns,
         )
 
     # Mode A: nest the aux OOF inside the caller's outer splitter. For each outer fold f, the residual bank attended by f's val rows is built from an aux OOF
@@ -133,5 +135,11 @@ def compute_residual_attention(
     for frame, val_idx in zip(fold_frames, fold_val_idx):
         matrix[val_idx] = frame.select(names).to_numpy().astype(dtype, copy=False)
 
-    matrix, names = apply_dedupe(matrix, list(names), dedupe_threshold=dedupe_threshold)
+    if keep_columns is None:
+        matrix, names = apply_dedupe(matrix, list(names), dedupe_threshold=dedupe_threshold)
+    else:
+        missing = [c for c in keep_columns if c not in names]
+        if missing:
+            raise ValueError(f"keep_columns names columns this call does not produce: {missing[:5]}")
+        matrix, names = matrix[:, [list(names).index(c) for c in keep_columns]], list(keep_columns)
     return pl.DataFrame({n: matrix[:, i] for i, n in enumerate(names)})

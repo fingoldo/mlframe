@@ -3,7 +3,7 @@
 Iter 86 mechanism. Geometric agent's #4 ranked. Topology of local residual field.
 
 For each query: take K=30 nearest train rows, compute Vietoris-Rips filtration via gudhi.RipsComplex
-on (X-distance, y-difference) joint metric, extract H0 persistence pairs (connected components).
+on the X-distance metric (the target is not used; ``y_train`` is accepted for API symmetry), extract H0 persistence pairs (connected components).
 Emit max persistence (longest-lived bar), number of significant bars (above threshold), Wasserstein-style
 total persistence.
 

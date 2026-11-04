@@ -190,6 +190,9 @@ def generate(spec: DatasetSpec, target_name: Optional[str] = None) -> GeneratedD
     unit_score = link_score(target.link, link_inputs, n, knob_rng=knob_rng, scale_override=1.0)
 
     prevalence = resolve_knob(target.prevalence, knob_rng)
+    # A prior-valued corruption rate is drawn ONCE: re-resolving it inside ``probability_at`` redrew it on every bisection step (so the calibration, the recorded
+    # AUC and the labels came from different laws) and made the number of knob-stream draws depend on how many steps the bisection took.
+    resolved_noise = target.noise.model_copy(update={"rate": resolve_knob(target.noise.rate, knob_rng)}) if target.noise.kind != "none" else target.noise
     corruption_rng = stream_for(spec.root_seed, spec.name, "corruption", target.name)
     drivers = _variance_drivers(target)
     used_drivers: Dict[str, float] = {}
@@ -210,7 +213,7 @@ def generate(spec: DatasetSpec, target_name: Optional[str] = None) -> GeneratedD
         if drivers:
             candidate, used_drivers = apply_heteroscedasticity(candidate, drivers, columns, stream_for(spec.root_seed, spec.name, "hetero", target.name))
         shifted, shift_seen = shift_to_prevalence(candidate, float(prevalence), target.link.kind)
-        corrupted, caveat_seen = apply_corruption(shifted, target.noise, columns, corruption_rng, knob_rng=knob_rng)
+        corrupted, caveat_seen = apply_corruption(shifted, resolved_noise, columns, corruption_rng, knob_rng=knob_rng)
         return corrupted
 
     if target.kind != "binary":

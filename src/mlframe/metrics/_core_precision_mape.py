@@ -36,6 +36,8 @@ def fast_precision(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, ze
     for c in range(nclasses):
         if allpreds[c] > 0:
             precisions[c] = hits[c] / allpreds[c]
+        else:
+            precisions[c] = float(zero_division)  # a class nobody predicted has an undefined precision: the caller's zero_division value
     return float(precisions[-1])
 
 
@@ -79,7 +81,7 @@ def fast_classification_report(
     # length under-reports accuracy proportionally to the OOB fraction -- the same fix already applied
     # to weighted_averages below; support_total is shared by both.
     support_total = supports.sum()
-    accuracy = hits.sum() / support_total if support_total > 0 else 0.0
+    accuracy = hits.sum() / support_total if support_total > 0 else np.nan  # no in-range labels: no accuracy to report (0.0 read as a real worst score)
 
     # Balanced accuracy: classes absent from y_true (supports==0) are EXCLUDED from
     # the mean rather than contributing zero_division. sklearn.metrics.balanced_accuracy_score
@@ -91,18 +93,19 @@ def fast_classification_report(
             per_class_recall[c] = hits[c] / supports[c] if supports[c] > 0 else 0.0
         balanced_accuracy = per_class_recall[present_mask].mean()
     else:
-        balanced_accuracy = 0.0
+        balanced_accuracy = np.nan
 
     recalls = np.zeros(nclasses, dtype=np.float64)
     precisions = np.zeros(nclasses, dtype=np.float64)
     f1s = np.zeros(nclasses, dtype=np.float64)
     for c in range(nclasses):
-        if supports[c] > 0:
-            recalls[c] = hits[c] / supports[c]
-        if allpreds[c] > 0:
-            precisions[c] = hits[c] / allpreds[c]
+        # Empty denominators take the caller's zero_division value (sklearn semantics); F1 is ill-defined only when the class is neither labeled nor predicted.
+        recalls[c] = hits[c] / supports[c] if supports[c] > 0 else float(zero_division)
+        precisions[c] = hits[c] / allpreds[c] if allpreds[c] > 0 else float(zero_division)
         pr_denom = precisions[c] + recalls[c]
-        if pr_denom > 0:
+        if supports[c] == 0 and allpreds[c] == 0:
+            f1s[c] = float(zero_division)
+        elif pr_denom > 0:
             f1s[c] = 2.0 * (precisions[c] * recalls[c]) / pr_denom
 
     # Weighted averages must divide by support_total (computed above alongside accuracy), NOT len(y_true):

@@ -34,7 +34,7 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, pos_loggap_columns
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, pos_loggap_columns, far_pos_loggap_columns
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +130,7 @@ def compute_adasyn_smote_features(
             Xq_s = Xq
         Xt_pos, Xt_neg, y_binary = _slice_and_binarize(Xt_s, y_t)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
-            return np.zeros((Xq_s.shape[0], 2 * len(_K_SCALES)), dtype=np.float32)
+            return far_pos_loggap_columns(Xq_s.shape[0], len(_K_SCALES))
         n_synthetic = max(50, int(Xt_pos.shape[0] * oversample))
         X_synth_pos = _adasyn_synthesize(Xt_pos, Xt_s, y_binary, n_synthetic=n_synthetic, k_smote=k_smote, k_global=k_global, seed=fold_seed)
         X_virtual_pos = np.concatenate([Xt_pos, X_synth_pos], axis=0)

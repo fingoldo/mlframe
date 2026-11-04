@@ -60,6 +60,7 @@ from ._pairs_score_helpers import (  # noqa: F401  -- carved helpers
     _score_one_pair_fe_mi_best_mi,
     _score_one_pair_iteration_serialization_point_under,
     _score_one_pair_monotone_equivalent_warp_scores,
+    record_family_gate_rejection,
     _score_one_pair_mi_threshold_ratio_fix,
     _score_one_pair_uplift_fires_prewarp_config,
     _score_one_pair_warp_spec_round_trip,
@@ -224,6 +225,7 @@ def _score_one_pair(
         fe_min_engineered_mi_prevalence, num_fs_steps, cols, rejection_records, rejection_ledger_out,
     )
     if _any_accept and apply_pair_family_gate_from_state(st, classes_y, quantization_nbins, pair_family_alpha):
+        record_family_gate_rejection(st.best_config, st.best_mi, raw_vars_pair, cols, rejection_records, rejection_ledger_out)
         st._passes_joint_gate = st._prewarp_accept = st._marginal_uplift_accept = st._usability_accept = False
 
     if st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept:  # Best transformation is good enough

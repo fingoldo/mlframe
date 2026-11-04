@@ -30,7 +30,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 def test_no_xdist_flag_does_not_crash_with_plugin_validation_error():
     """Collecting under ``-p no:xdist`` must succeed, not crash at plugin validation."""
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q", str(Path(__file__).resolve()), "-p", "no:xdist", "--no-cov"],
+        [
+            sys.executable, "-m", "pytest", "--collect-only", "-q", str(Path(__file__).resolve()), "-p", "no:xdist", "--no-cov",
+            # The project addopts carry ``--dist loadgroup``, an xdist-only option: with xdist disabled it is an unknown argument, so the run
+            # never reaches collection. The regression under test is the plugin-validation crash, so the addopts are restated without it.
+            "-o", "addopts=-ra -s --strict-markers --strict-config --timeout=900 --ignore=legacy --ignore=benchmarks --ignore=profiling -p no:anyio -p no:asyncio",
+        ],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional, Sequence, Union
 
 import numpy as np
 import polars as pl
@@ -66,7 +66,7 @@ def _validate_row_attention_inputs(X_train, y_train, X_query, *, k, metric, soft
 def _attend_one_scale(
     X_train, y_train, X_query, splitter, k_value, *,
     seed, n_heads, head_dim, softmax_temp, aggregate, standardize, projection, keep_key_bank_on_gpu,
-    ann_M, ann_ef_construction, ann_ef_search, num_threads, stage4_callable, dtype, cache_dir,
+    ann_M, ann_ef_construction, ann_ef_search, num_threads, stage4_callable, dtype, cache_dir, allow_overcomplete=False,
 ) -> dict:
     """Run one k-scale of the pipeline: OOF over ``splitter`` in Mode A, key-bank attend in Mode B; return the per-head output arrays."""
     if X_query is None:
@@ -82,7 +82,7 @@ def _attend_one_scale(
         bank = build_key_bank(
             X_train=X_train, y_train=y_train, seed=seed, n_heads=n_heads, head_dim=head_dim,
             standardize=standardize, ann_M=ann_M, ann_ef_construction=ann_ef_construction,
-            num_threads=num_threads, dtype=dtype, cache_dir=cache_dir, projection=projection,
+            num_threads=num_threads, dtype=dtype, cache_dir=cache_dir, projection=projection, allow_overcomplete=allow_overcomplete,
         )
         if keep_key_bank_on_gpu and is_gpu_available():
             bank.to_device()
@@ -135,6 +135,7 @@ def compute_row_attention(
     dedupe_threshold: float | None = 0.99,
     allow_overcomplete: bool = False,
     column_prefix: str = "attn",
+    keep_columns: Sequence[str] | None = None,
 ) -> pl.DataFrame:
     """Multi-head softmax-weighted kNN-target-encoding over random-subspace projections.
 
@@ -143,6 +144,10 @@ def compute_row_attention(
         2. CPU: project X via per-head random Gaussian matrices to (n_heads, N, head_dim).
         3. CPU: per-head hnswlib build + top-k query.
         4. GPU (or CPU fallback): fused gather + softmax + weighted-sum-V producing per-head y_mean / y_std / x_mean.
+
+    ``keep_columns``: with ``dedupe_threshold`` set, the dedupe keeps a data-dependent subset of the columns, so a Mode B call can disagree with Mode A (and with
+    another Mode B batch). Pass the column names of the Mode A frame as ``keep_columns`` to Mode B (and the same list to later batches) to get exactly those columns,
+    in that order, with no dedupe.
 
     Mode A vs Mode B:
         - ``X_query is None``  -> OOF on X_train via ``splitter``.   Each train row attends only to non-self training rows in its fold's complement.
@@ -183,7 +188,7 @@ def compute_row_attention(
                 seed=seed, n_heads=n_heads, head_dim=head_dim, softmax_temp=softmax_temp, aggregate=aggregate,
                 standardize=standardize, projection=projection, keep_key_bank_on_gpu=keep_key_bank_on_gpu,
                 ann_M=ann_M, ann_ef_construction=ann_ef_construction, ann_ef_search=ann_ef_search,
-                num_threads=num_threads, stage4_callable=stage4_callable, dtype=dtype, cache_dir=cache_dir,
+                num_threads=num_threads, stage4_callable=stage4_callable, dtype=dtype, cache_dir=cache_dir, allow_overcomplete=allow_overcomplete,
             )
             # Tag each k-scale's output keys with the k value to keep column names unique across scales. The tag must be a PREFIX (k32_y_mean_h0) so the
             # ``stack_outputs_to_array`` lookup pattern ``f"{agg}_h{h}"`` continues to find the right key (k32_y_mean is the aggregate, h0 is appended by the stack).
@@ -199,9 +204,17 @@ def compute_row_attention(
         # Concatenate all scales horizontally.
         matrix = np.concatenate([all_outputs[f"_matrix_k{k}"] for k in ks_to_run], axis=1)
         names = all_names
-        matrix, names = apply_dedupe(matrix, names, dedupe_threshold=dedupe_threshold)
+        if keep_columns is None:
+            matrix, names = apply_dedupe(matrix, names, dedupe_threshold=dedupe_threshold)
         # Rebrand column prefix per caller.
         names = [n.replace("attn_", f"{column_prefix}_") if column_prefix != "attn" else n for n in names]
+        if keep_columns is not None:
+            # The dedupe keeps a data-dependent subset, so Mode B cannot rediscover Mode A's columns from its own batch: take exactly the Mode A frame's columns.
+            missing = [c for c in keep_columns if c not in names]
+            if missing:
+                raise ValueError(f"keep_columns names columns this call does not produce: {missing[:5]}")
+            order = [names.index(c) for c in keep_columns]
+            matrix, names = matrix[:, order], list(keep_columns)
 
         return pl.DataFrame({n: matrix[:, i] for i, n in enumerate(names)})
     finally:
@@ -224,6 +237,7 @@ def build_key_bank(
     num_threads: int | None = None,
     dtype: type = np.float32,
     cache_dir: Path | None = None,
+    allow_overcomplete: bool = False,
 ) -> KeyBank:
     """Build (and optionally cache to disk) the projected K-bank + per-head hnswlib indices for the FULL X_train.
 
@@ -236,13 +250,13 @@ def build_key_bank(
     """
     seed = require_seed(seed)
     validate_numeric_input(X_train, name="X_train", allow_fp16=True)
-    validate_projection_dims(X_train.shape[1], head_dim)
+    validate_projection_dims(X_train.shape[1], head_dim, allow_overcomplete=allow_overcomplete)
 
     if cache_dir is not None:
         fp = _key_bank_fingerprint(
             X_train=X_train, seed=seed, n_heads=n_heads, head_dim=head_dim,
             metric="cosine", standardize=standardize, ann_M=ann_M, ann_ef_construction=ann_ef_construction,
-            projection=projection, dtype=dtype,
+            projection=projection, dtype=dtype, y_train=y_train,
         )
         cached = try_load_key_bank(cache_dir, fp)
         if cached is not None:

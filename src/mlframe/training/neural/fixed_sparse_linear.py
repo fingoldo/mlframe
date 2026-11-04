@@ -41,8 +41,10 @@ def _build_importance_mask(
 
     # Break ties among equal-importance entries deterministically-but-reproducibly via a tiny random jitter,
     # so a caller passing e.g. a coarse/binned importance signal doesn't get an arbitrary (argsort-order) bias.
-    jitter = torch.rand(in_features, generator=generator) * 1e-9
-    order = torch.argsort(importance + jitter, descending=True)
+    # A 1e-9 additive jitter is below float32 resolution for importances near 1 and left ties to argsort order, so ties are broken by a seeded random
+    # permutation and a STABLE sort instead.
+    perm = torch.randperm(in_features, generator=generator)
+    order = perm[torch.argsort(importance[perm], descending=True, stable=True)]
     keep_idx = order[:n_keep]
 
     mask = torch.zeros(out_features, in_features, dtype=torch.float32)

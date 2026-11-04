@@ -196,18 +196,20 @@ class SAM(Optimizer):
         original params, once at the perturbed params).
 
         Lightning's automatic optimization passes a closure that wraps
-        training_step -- so this is the right entry point for the
-        Lightning integration.
+        training_step and does not run it first -- so this is the right
+        entry point for the Lightning integration.
         """
         if closure is None:
             raise RuntimeError(
                 "SAM.step() requires a closure that re-runs loss + backward; " "got closure=None. Use first_step() / second_step() for " "explicit control."
             )
-        # First pass: closure was already called (Lightning's contract).
-        # Use the existing grads for the ascent perturbation.
+        # First pass at the original weights. Lightning does NOT call the closure before ``step`` (a torch optimizer's ``step(closure)`` calls it itself), so
+        # without this call the ascent perturbation used the previous batch's gradient, or was skipped on the first step when no gradient existed.
+        with torch.enable_grad():
+            loss = closure()
         self.first_step(zero_grad=True)
         # Second pass: rerun forward + backward at perturbed weights.
         with torch.enable_grad():
-            loss = closure()
+            closure()
         self.second_step(zero_grad=False)
         return loss

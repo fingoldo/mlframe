@@ -84,6 +84,8 @@ def compute_per_class_spectral_attention(
 
     X_train_f = np.asarray(X_train, dtype=np.float32)
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
+    if not np.isin(y_train_f, (0.0, 1.0)).all():
+        raise ValueError("per_class_spectral: y_train must be binary {0, 1}; a continuous target would be split at 0.5 into two meaningless classes.")
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> np.ndarray:
         """Build separate positive-class and negative-class kNN graphs from ``Xt`` and embed each query row into both spectral bases, concatenating the two ``n_eigvecs_per_class``-wide embeddings into one query-row feature block."""

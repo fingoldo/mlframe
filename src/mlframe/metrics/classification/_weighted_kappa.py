@@ -80,7 +80,8 @@ def weighted_kappa(y_true: np.ndarray, y_pred: np.ndarray, *, weights: str = "qu
     num = float((W * obs).sum())
     den = float((W * E).sum())
     if den == 0.0:
-        return 0.0
+        # Both raters used one class: no disagreement is possible, so they agree perfectly (num is 0 here); the docstring promises 1.0 for the single-class case.
+        return 1.0 if num == 0.0 else 0.0
     return 1.0 - num / den
 
 

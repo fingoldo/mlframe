@@ -141,7 +141,7 @@ def test_brier_rel_debiased_tracks_real_miscalibration():
 def test_brier_decomp_debiased_empty_input_degenerate():
     """Brier decomp debiased empty input degenerate."""
     rel, res, unc, binned = compute_brier_decomposition_debiased(np.empty(0), np.empty(0), 10)
-    assert (rel, res, unc, binned) == (1.0, 0.0, 0.0, 1.0)
+    assert all(np.isnan(v) for v in (rel, res, unc, binned))  # an empty slice has no decomposition: NaN, not a worst-case-looking number
 
 
 def test_brier_decomp_debiased_single_bin_span_zero():

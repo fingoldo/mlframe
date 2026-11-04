@@ -10,6 +10,7 @@ thresholds (a column sort and the linear interpolation numpy's ``quantile`` uses
 from __future__ import annotations
 
 import math
+import logging
 from typing import Any
 
 import numpy as np
@@ -18,6 +19,8 @@ from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
 
 from ._nonpoly_cells import MAX_CENTRE_DEGREE, NONPOLY_BASES
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
+
+logger = logging.getLogger(__name__)
 
 _KIND = {"fourier": 0, "rbf": 1, "sigmoid": 2, "pade": 3}
 
@@ -81,7 +84,8 @@ def _quantile_columns(cp: Any, M: Any, fractions: "list[float]") -> Any:
     if n > 0 and M.ndim == 2 and M.shape[1] > 0:
         try:
             radix = _radix_quantiles(M, list(fractions))
-        except Exception:
+        except Exception as _silent_exc:
+            logger.debug("_nonpoly_cells_gpu.py: suppressed %r", _silent_exc)
             radix = None
         if radix is not None:
             return radix

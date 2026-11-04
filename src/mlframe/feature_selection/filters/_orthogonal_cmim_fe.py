@@ -354,7 +354,7 @@ def _cmim_scores_device(eng_bins, y_bin, sel_bins, support_names, eng_sources, n
     try:
         from ._gpu_policy import cuda_available_for_run
 
-        n = int(np.asarray(y_bin).size)
+        n = int(np.size(y_bin))
         if not cuda_available_for_run():
             return None
         from ._scorer_device_dispatch import scorer_device_choice

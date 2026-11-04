@@ -66,4 +66,12 @@ def test_nan_ranks_last_like_positive_infinity(n_bins):
     x = rng.standard_normal(500)
     x[::13] = np.nan
     as_inf = np.where(np.isnan(x), np.inf, x)
-    assert np.array_equal(_quantile_bin_sorted_njit(x, n_bins), _quantile_bin_sorted_njit(as_inf, n_bins))
+    order = np.argsort(as_inf, kind="stable")
+    base, rem = divmod(len(x), n_bins)
+    expected = np.empty(len(x), dtype=np.int32)
+    pos = 0
+    for b in range(n_bins):
+        size = base + (1 if b < rem else 0)
+        expected[order[pos : pos + size]] = b
+        pos += size
+    assert np.array_equal(_quantile_bin_sorted_njit(x, n_bins), expected)

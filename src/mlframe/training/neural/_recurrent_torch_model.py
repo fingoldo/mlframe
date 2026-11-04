@@ -115,6 +115,12 @@ _MONITOR_MAX_KEYS: frozenset[str] = frozenset({
 
 
 
+def _weighted_mean(losses: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+    """Weighted mean ``sum(l * w) / sum(w)`` in float32, so a float16 batch of zero weights gives 0 rather than nan."""
+    w = weights.float()
+    return (losses.float() * w).sum() / w.sum().clamp(min=1e-12)
+
+
 class RecurrentTorchModel(L.LightningModule):
     """
     PyTorch Lightning module for sequence classification/regression.
@@ -620,13 +626,12 @@ class RecurrentTorchModel(L.LightningModule):
         # ``N`` (or ``N*K`` for multilabel); with ``weights=[10, 0, 0]``
         # and ``losses=[1, 1, 1]`` that produced 10/3 ≈ 3.33 instead of
         # the only-non-zero-weight sample's 1.0.
-        _w_eps = torch.tensor(1e-12, dtype=logits.dtype, device=logits.device)
+        # The weights are summed and divided in float32: a 1e-12 floor rounds to 0 in float16, which turns an all-zero-weight batch into 0 / 0 = nan.
         if self.is_regression:
             preds = logits.squeeze(-1)
             if sample_weights is not None:
                 losses = self._loss_fn_unreduced(preds, labels)
-                w_sum = sample_weights.sum().clamp(min=_w_eps)
-                return cast(torch.Tensor, (losses * sample_weights).sum() / w_sum)
+                return _weighted_mean(losses, sample_weights)
             return cast(torch.Tensor, self._loss_fn_mean(preds, labels))
         elif self.task_type == "multilabel":
             # BCEWithLogitsLoss expects float labels (same dtype as logits).
@@ -636,14 +641,12 @@ class RecurrentTorchModel(L.LightningModule):
                 # losses shape: (N, K); broadcast sample_weights (N,) -> (N, 1).
                 # Per-label mean across K, then weighted mean across N.
                 per_sample = losses.mean(dim=-1)
-                w_sum = sample_weights.sum().clamp(min=_w_eps)
-                return cast(torch.Tensor, (per_sample * sample_weights).sum() / w_sum)
+                return _weighted_mean(per_sample, sample_weights)
             return cast(torch.Tensor, self._loss_fn_mean(logits, labels_f))
         else:
             if sample_weights is not None:
                 losses = self._loss_fn_unreduced(logits, labels)
-                w_sum = sample_weights.sum().clamp(min=_w_eps)
-                return cast(torch.Tensor, (losses * sample_weights).sum() / w_sum)
+                return _weighted_mean(losses, sample_weights)
             return cast(torch.Tensor, self._loss_fn_mean(logits, labels))
 
     def configure_optimizers(self):

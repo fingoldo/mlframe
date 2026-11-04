@@ -85,9 +85,9 @@ def test_quadterm_and_hessian_construction_bit_identical(d, k):
 
 @pytest.mark.parametrize("seed,d", [(1, 5), (2, 8), (7, 12)])
 def test_full_features_bit_identical_to_reference(seed, d):
-    """End-to-end feature output is reproducible and finite.
+    """End-to-end feature output is reproducible.
 
-    d=5 -> overdetermined quad fit; d=12 -> underdetermined (min-norm lstsq).
+    d=5 -> overdetermined quad fit; d=8 and d=12 -> underdetermined, where the curvature columns are NaN by design (they were arbitrary min-norm numbers).
     Both regimes must emit identical features on a repeat call (the broadcast
     construction introduced no randomness / order-dependence).
     """
@@ -97,6 +97,7 @@ def test_full_features_bit_identical_to_reference(seed, d):
     Xq = rng.standard_normal((800, d)).astype(np.float32)
     a = compute_local_curvature_features(Xt, yt, Xq, seed=seed).to_numpy()
     b = compute_local_curvature_features(Xt, yt, Xq, seed=seed).to_numpy()
-    assert np.array_equal(a, b)
-    assert np.isfinite(a).all()
+    assert np.array_equal(a, b, equal_nan=True)
+    identifiable = 1 + d + d * (d + 1) // 2 + 2 <= 40  # the default k_neighbors
+    assert np.isfinite(a).all() if identifiable else np.isfinite(a[:, 3]).all()
     assert a.shape == (800, 5)

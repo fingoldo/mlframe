@@ -30,6 +30,9 @@ from __future__ import annotations
 import contextlib
 import functools
 import threading
+import logging
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["parallel_kernel_entry"]
 
@@ -67,7 +70,8 @@ def _layer_allows_concurrent_entry() -> bool:
 
         _probe(np.ones(8))
         return str(numba.threading_layer()) == "tbb"
-    except Exception:  # best-effort: an unprobeable layer is treated as not concurrent-safe, the conservative answer
+    except Exception as _silent_exc:
+        logger.debug("_numba_parallel_guard.py: suppressed %r", _silent_exc)
         return False
 
 

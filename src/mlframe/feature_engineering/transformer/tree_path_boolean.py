@@ -136,7 +136,7 @@ def compute_tree_path_boolean_features(
     if splitter is None:
         raise ValueError("Mode A requires splitter.")
     n_train = X_train_f.shape[0]
-    out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
+    out: np.ndarray = np.full((n_train, n_features_out), np.nan, dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
         out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100).astype(dtype, copy=False)
         logger.info("tree_path_boolean: fold %d done", fold_idx + 1)

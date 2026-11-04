@@ -131,7 +131,7 @@ def _check_prospective_fe_pairs_part5(
     # so far across ALL pairs in this FE step + the feature that produced it. Both are
     # already computed per pair (``best_mi`` / ``best_config``) - display-only, no extra
     # MI work. Starts blank so the no-candidate / NaN edge case renders gracefully.
-    _sweep_best_mi = -1.0
+    _sweep_best_mi = {"mi": -1.0, "name": None}  # running best of the sweep, updated in place by the progress bar
     _sweep_best_name = None
 
     # PER-CALL HOISTS (env-var gate + op-code table + MI tie-band): all three are invariant across

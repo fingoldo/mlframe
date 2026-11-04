@@ -21,6 +21,8 @@ protection, so the production resolver keeps ``flavour="mean"`` and robustness i
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 FloatEnsembleFlavour = ("robust", "mean", "median")
@@ -37,15 +39,18 @@ def robust_float_ensemble(stacked: np.ndarray, *, mad_factor: float = DEFAULT_MA
     """
     if stacked.shape[0] < 3:
         return np.asarray(stacked.mean(axis=0))
-    med = np.median(stacked, axis=0)
-    abs_dev = np.abs(stacked - med)
-    scaled_mad = 1.4826 * np.median(abs_dev, axis=0)
+    # NaN-aware: a NaN member used to make the column median NaN, every comparison False, and the keep-count fallback divided a masked sum of 0.0 by K -> a silent 0.0.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN columns warn; they return NaN below
+        med = np.nanmedian(stacked, axis=0)
+        abs_dev = np.abs(stacked - med)
+        scaled_mad = 1.4826 * np.nanmedian(abs_dev, axis=0)
+        fallback = np.nanmean(stacked, axis=0)
     thresh = np.where(scaled_mad > 0, mad_factor * scaled_mad, np.inf)
     keep = abs_dev <= thresh
     keep_counts = keep.sum(axis=0)
-    keep_counts = np.where(keep_counts == 0, stacked.shape[0], keep_counts)
     masked_sum = np.where(keep, stacked, 0.0).sum(axis=0)
-    return np.asarray(masked_sum / keep_counts)
+    return np.asarray(np.where(keep_counts > 0, masked_sum / np.maximum(keep_counts, 1), fallback))
 
 
 def combine_float_predictions(stacked: np.ndarray, *, flavour: str = "mean", mad_factor: float = DEFAULT_MAD_FACTOR) -> np.ndarray:

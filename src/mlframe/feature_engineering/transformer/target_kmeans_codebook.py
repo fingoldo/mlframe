@@ -12,6 +12,7 @@ import logging
 from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
+from ._baseline_oof import fit_baseline_predict_oof
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -58,18 +59,18 @@ def compute_target_kmeans_codebook_features(
         # Get baseline ŷ to augment X
         if task == "binary":
             m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            y_hat_train = np.asarray(m.predict_proba(Xt_s))[:, 1].astype(np.float32)
+            y_hat_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed)  # out-of-fold, like the query predictions the clusters are applied to
             y_hat_query = np.asarray(m.predict_proba(Xq_s))[:, 1].astype(np.float32)
         else:
             m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            y_hat_train = np.asarray(m.predict(Xt_s)).astype(np.float32)
+            y_hat_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed)
             y_hat_query = np.asarray(m.predict(Xq_s)).astype(np.float32)
         # Joint [X, ŷ] space — ŷ gets weight = sqrt(d) to balance scale
         d = Xt_s.shape[1]
         weight = np.sqrt(d)
         Xt_aug = np.column_stack([Xt_s, y_hat_train[:, None] * weight]).astype(np.float32)
         Xq_aug = np.column_stack([Xq_s, y_hat_query[:, None] * weight]).astype(np.float32)
-        n_clusters_eff = min(n_clusters, Xt_aug.shape[0] // 4 if Xt_aug.shape[0] >= 80 else 4)
+        n_clusters_eff = max(1, min(n_clusters, Xt_aug.shape[0] // 4 if Xt_aug.shape[0] >= 80 else 4, Xt_aug.shape[0]))
         km = MiniBatchKMeans(n_clusters=n_clusters_eff, random_state=int(fold_seed), n_init=4, max_iter=100, batch_size=256).fit(Xt_aug)
         train_labels = km.labels_
         cluster_y_mean = np.zeros(n_clusters_eff, dtype=np.float32)
@@ -78,7 +79,7 @@ def compute_target_kmeans_codebook_features(
             mask = train_labels == c
             if mask.sum() > 0:
                 cluster_y_mean[c] = float(y_t[mask].mean())
-                cluster_size[c] = float(mask.sum())
+                cluster_size[c] = float(mask.mean())  # a share of the train rows: a raw count is fold-sized in Mode A and full-sized in Mode B
         query_labels = km.predict(Xq_aug)
         agg_y = cluster_y_mean[query_labels].astype(np.float32)
         agg_size = cluster_size[query_labels].astype(np.float32)
@@ -106,7 +107,7 @@ def compute_target_kmeans_codebook_features(
     if splitter is None:
         raise ValueError("Mode A requires splitter.")
     n_train = X_train_f.shape[0]
-    out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
+    out: np.ndarray = np.full((n_train, n_features_out), np.nan, dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
         out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100).astype(dtype, copy=False)
         logger.info("target_kmeans_codebook: fold %d done", fold_idx + 1)

@@ -43,7 +43,7 @@ from mlframe.feature_selection.filters._device_sort_safe import device_percentil
 # upcasts the value to the edges' dtype). Comparing in the value's f32 instead would 1-off at boundaries
 # (a downcast of the f64 edge loses precision) - the bug that broke bit-identity on the first cut.
 #
-# bench-attempt-rejected (2026-06-27): nsys re-profile (iter 2) made bin_codes_f32 the #3 GPU kernel (171ms/
+# bench-attempt-rejected: nsys re-profile (iter 2) made bin_codes_f32 the #3 GPU kernel (171ms/
 # 12 inst); nvprof showed gld_efficiency=51.7% (the divergent f64 edge reads drag the f32 cand read down)
 # while gst=100%, achieved_occupancy=0.92, DRAM ~38GB/s (40% of the card's ~96GB/s). Two BIT-IDENTICAL
 # (maxdiff 0) alternatives to lift gld, both SLOWER at the production shape (n=100k, K=583, nbins=10, GTX
@@ -116,7 +116,7 @@ def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
 # float32 not below the double edge (``_edges_rounded_up_f32``), so the codes equal ``bin_codes_f32``'s bit for bit with float32 compares: the double compare
 # runs at 1/32 rate on Pascal. A block owns 32 adjacent columns (threadIdx.x) and strides over rows (threadIdx.y, then the grid's y): a warp reads 32
 # consecutive values of one row (coalesced) and writes 32 consecutive codes, the tile's edges sit in shared memory, and the 64-bit ``idx % K`` is gone.
-# GTX 1050 Ti, n=30000, K=3888, nbins=10, int8 codes: 26-28 ms (bin_codes_f32) -> 11.8-12.4 ms (audits/2026-10-22/profiles/_gpu_resident_discretize.md).
+# GTX 1050 Ti, n=30000, K=3888, nbins=10, int8 codes: 26-28 ms (bin_codes_f32) -> 11.8-12.4 ms.
 _BIN_CODES_F32E_SRC = r"""
 extern "C" __global__
 void bin_codes_f32e_OUTNAME(const float* __restrict__ cand, const float* __restrict__ edges, const long long n, const int K, const int ne,

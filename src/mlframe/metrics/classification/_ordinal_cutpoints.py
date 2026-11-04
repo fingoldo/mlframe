@@ -103,6 +103,8 @@ def optimal_ordinal_cutpoints(
     yp = np.ascontiguousarray(y_pred, dtype=np.float64)
     if yt.shape[0] != yp.shape[0]:
         raise ValueError("optimal_ordinal_cutpoints: y_true and y_pred length mismatch.")
+    if yt.shape[0] == 0:
+        raise ValueError("optimal_ordinal_cutpoints: y_true is empty; there is nothing to place cutpoints on.")
     if yt.size and (yt.min() < 0 or yt.max() >= n_classes):
         raise ValueError(f"optimal_ordinal_cutpoints: y_true labels must lie in [0, {n_classes - 1}], got range [{int(yt.min())}, {int(yt.max())}].")
 

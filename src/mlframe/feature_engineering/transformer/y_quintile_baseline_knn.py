@@ -41,7 +41,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, strictly_increasing_edges, validate_numeric_input
 
 logger = logging.getLogger(__name__)
 
@@ -127,9 +127,7 @@ def compute_y_quintile_baseline_knn_features(
             # Make edges strictly increasing in case of ties (discrete/heavily-repeated regression
             # target): a non-increasing edge pair otherwise produces a fully-empty stratum that silently
             # degrades to (mean=0, std=0) features -- mirrors target_quantile.py's same guard.
-            for i in range(1, len(strata_edges)):
-                if strata_edges[i] <= strata_edges[i - 1]:
-                    strata_edges[i] = strata_edges[i - 1] + 1e-9
+            strata_edges = strictly_increasing_edges(strata_edges)
             y_for_strata = y_t
 
         feats = np.zeros((Xq.shape[0], _N_STRATA * 2), dtype=np.float32)
@@ -172,7 +170,7 @@ def compute_y_quintile_baseline_knn_features(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out: np.ndarray = np.zeros((n_train, n_features), dtype=dtype)
+    out: np.ndarray = np.full((n_train, n_features), np.nan, dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)

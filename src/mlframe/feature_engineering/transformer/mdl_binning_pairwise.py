@@ -223,7 +223,7 @@ def compute_mdl_binning_pairwise_features(
             pos_clipped = np.clip(pos, 0, uniq_combo.shape[0] - 1)
             matched = uniq_combo[pos_clipped] == query_combo
             combo_count_per_query = np.where(matched, uniq_counts[pos_clipped], 0).astype(np.float32)
-            unique_combos = float(np.unique(query_combo).shape[0])
+            unique_combos = float(uniq_combo.shape[0])  # distinct combos in TRAIN: the query batch size must not change the feature
         else:
             combo_count_per_query = np.zeros(Xq.shape[0], dtype=np.float32)
             unique_combos = 1.0

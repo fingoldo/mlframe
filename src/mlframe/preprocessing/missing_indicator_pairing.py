@@ -42,8 +42,9 @@ def fit_missing_indicator_imputation(
     values from its OWN distribution, a train/serve statistic mismatch (and, if a frame spans train+val/test,
     direct look-ahead leakage into train's fill values).
 
-    Columns with zero missing values in ``df`` are skipped (nothing to learn), matching
-    ``impute_with_missing_indicator``'s own skip behavior.
+    With ``columns=None`` only the columns that have a missing value in ``df`` are learned (matching
+    ``impute_with_missing_indicator``'s skip behavior). An explicit ``columns`` list is learned in full, so a column
+    that happens to be complete in the fit frame still gets its fill value (and indicator) when a later frame has NaN.
 
     Parameters mirror :func:`impute_with_missing_indicator` (minus ``indicator_suffix``, an apply-time
     concern only).
@@ -82,8 +83,8 @@ def fit_missing_indicator_imputation(
 
     columns_state: Dict[str, Dict[str, Any]] = {}
     for col in cols:
-        if not df[col].isna().any():
-            continue
+        if columns is None and not df[col].isna().any():
+            continue  # auto-discovered columns are exactly those with a missing value in the fit frame; an EXPLICIT column list is learned in full
         if col in fill_values:
             columns_state[col] = {"kind": "explicit", "value": fill_values[col]}
             continue
