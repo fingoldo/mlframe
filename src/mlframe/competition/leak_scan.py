@@ -152,7 +152,7 @@ def sort_by_density_leak_scan(
         block = mask_int[i + 1 : j_hi]  # (w, n_cols)
         block_popcount = row_popcount[i + 1 : j_hi]
         best_overlap_block = np.zeros(block.shape[0], dtype=float)
-        for shift in range(-max_col_shift, max_col_shift + 1):
+        for shift in range(-min(max_col_shift, n_cols - 1), min(max_col_shift, n_cols - 1) + 1):  # a shift of n_cols or more leaves no columns to compare
             if shift >= 0:
                 a_seg = mask_int[i, : n_cols - shift]
                 b_block_seg = block[:, shift:]
