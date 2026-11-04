@@ -17,6 +17,7 @@ def test_shared_matrix_equals_fresh_gate_per_strong_operand():
     """Observed CMIs, the null floor and the clears() verdicts are equal for a reused gate and for a fresh gate per strong operand."""
     data, y = _data()
     cand = list(range(data.shape[1]))
+    assert len(cand) > 5  # every strong column below has weak partners to compare
     shared = ConditionalPartnerGate(data, y, cand, seed=3)
     for strong in (0, 2, 5):
         fresh = ConditionalPartnerGate(data, y, cand, seed=3)

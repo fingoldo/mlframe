@@ -71,6 +71,7 @@ def test_generator_output_is_the_same_with_and_without_the_device_pass(monkeypat
     chosen_host = {c.split("__")[0]: c.split("__")[1].rstrip("0123456789") for c in host.columns}
     chosen_dev = {c.split("__")[0]: c.split("__")[1].rstrip("0123456789") for c in dev.columns}
     # the columns with a clear winner agree; a near-tie noise column may differ (device rounding)
+    assert BASES
     for b in BASES:
         assert chosen_host[f"c_{b}"] == chosen_dev[f"c_{b}"]
     assert set(host.columns) >= {c for c in dev.columns if c.split("__")[0].startswith("c_")}

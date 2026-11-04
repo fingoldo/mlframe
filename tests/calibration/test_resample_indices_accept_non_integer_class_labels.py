@@ -20,5 +20,6 @@ def test_float_labels_keep_both_classes():
     """Labels 0.2 and 0.7 used to collapse into one integer key and lose a class."""
     y = np.array([0.2] * 25 + [0.7] * 15)
     idx = _build_resample_indices(40, 4, y, 0)
+    assert len(idx) == 4
     for row in idx:
         assert (y[row] == 0.7).sum() == 15
