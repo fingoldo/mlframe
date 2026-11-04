@@ -152,4 +152,6 @@ class Transform:
         """A zero sample weight drops the row from an order-free fit (see ``_zero_weight``)."""
         from ._zero_weight import with_zero_weight_drop
 
-        object.__setattr__(self, "fit", with_zero_weight_drop(self.fit, recurrent=self.recurrent))
+        # An out-of-fold transform recognises its training batch by a fingerprint of the exact rows its fit saw, so the fit must see every row the forward will later
+        # receive: dropping the zero-weight rows made the fingerprint miss, and the forward fell back to the in-sample (leaking) encoding.
+        object.__setattr__(self, "fit", with_zero_weight_drop(self.fit, recurrent=self.recurrent or self.oof_train_forward))
