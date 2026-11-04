@@ -37,6 +37,7 @@ import logging
 from typing import Any, Sequence
 
 import numpy as np
+import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
 
@@ -58,11 +59,11 @@ def _carve_group_disjoint(sample_idx: np.ndarray, groups_sample: np.ndarray, hol
     Whole groups go to one side or the other -- mirroring the production group-aware split so the
     eval rows come from groups the tiny model never trained on (the regime where the inverse blows up).
     """
-    uniq = np.unique(groups_sample)
-    perm = rng.permutation(uniq.size)
-    n_eval_groups = max(1, round(uniq.size * holdout_frac))
-    eval_groups = set(uniq[perm[:n_eval_groups]].tolist())
-    eval_mask = np.array([g in eval_groups for g in groups_sample], dtype=bool)
+    # Missing group ids form ONE group of their own (``np.unique`` kept every NaN separate and ``nan in set`` is always False, so those rows could never be held out).
+    codes, uniq = pd.factorize(np.asarray(groups_sample), use_na_sentinel=False)
+    perm = rng.permutation(len(uniq))
+    n_eval_groups = max(1, round(len(uniq) * holdout_frac))
+    eval_mask = np.isin(codes, perm[:n_eval_groups])
     return sample_idx[~eval_mask], sample_idx[eval_mask]
 
 

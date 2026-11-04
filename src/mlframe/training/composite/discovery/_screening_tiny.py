@@ -347,6 +347,21 @@ def _aggregate_raw_y_folds(
     return mean_rmse, per_bin_mean
 
 
+def _split_is_seed_invariant(kwargs: dict) -> bool:
+    """Whether the tiny screen's CV split ignores ``random_state`` (so seed repeats would be exact duplicates).
+
+    A time-aware split is; a group split is only when there are at least ``cv_folds`` distinct groups. With fewer, ``_resolve_tiny_cv_groups`` falls back to a shuffled KFold
+    that DOES depend on the seed, and collapsing the repeats to one threw away the median-of-seeds noise reduction (and the paired Wilcoxon sample) on exactly the frames
+    that need it.
+    """
+    if kwargs.get("time_aware", False):
+        return True
+    groups = kwargs.get("groups", None)
+    if groups is None:
+        return False
+    return int(np.unique(np.asarray(groups)).size) >= int(kwargs.get("cv_folds", 3))
+
+
 def _resolve_tiny_cv_groups(groups, y_train, finite_mask, cv_folds, cv_splitter, time_aware, groups_clean):
     """Resolve the group labels of the tiny screen."""
     if groups is not None:
@@ -464,7 +479,7 @@ def _tiny_cv_rmse_y_scale_multiseed(
     # (per_seed length 1) -- this avoids N identical fits on the dominant rerank
     # phase AND avoids pseudo-replicating a single measurement into a falsely-
     # powered Wilcoxon (the gate then correctly skips on n=1).
-    _seed_invariant = bool(kwargs.get("time_aware", False) or (kwargs.get("groups", None) is not None))
+    _seed_invariant = _split_is_seed_invariant(kwargs)
     _effective_repeats = 1 if _seed_invariant else n_seed_repeats
     if _effective_repeats <= 1:
         return _single_seed_cv_rmse(_tiny_cv_rmse_y_scale, *args, kwargs=kwargs, base_random_state=base_random_state, return_per_seed=return_per_seed)
@@ -556,7 +571,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
     iteration's raw baseline) can opt in without a signature change."""
     # Seed-invariant splitters (TimeSeriesSplit / GroupKFold) collapse to one
     # honest measurement -- see _tiny_cv_rmse_y_scale_multiseed.
-    _seed_invariant = bool(kwargs.get("time_aware", False) or (kwargs.get("groups", None) is not None))
+    _seed_invariant = _split_is_seed_invariant(kwargs)
     _effective_repeats = 1 if _seed_invariant else n_seed_repeats
     if _effective_repeats <= 1:
         return _single_seed_cv_rmse(_tiny_cv_rmse_raw_y, *args, kwargs=kwargs, base_random_state=base_random_state, return_per_seed=return_per_seed)
