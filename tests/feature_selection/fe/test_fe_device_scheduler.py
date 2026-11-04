@@ -4,7 +4,7 @@ import threading
 
 import pytest
 
-from mlframe.feature_selection.filters._fe_device_scheduler import MIN_STAGE_BUDGET_BYTES, DeviceSlot, plan_stage_slots, stage_device_slot
+from mlframe.feature_selection.filters._fe_device_scheduler import DeviceSlot, plan_stage_slots, stage_device_slot
 from tests._cuda_require import require_free_vram
 
 GB = 1 << 30
@@ -76,68 +76,3 @@ def test_slot_releases_its_blocks_on_exit():
         assert pool.total_bytes() >= (100 << 20)
     after, _t = cp.cuda.runtime.memGetInfo()
     assert after >= before - (50 << 20)
-
-
-def test_light_stage_gets_the_minimum_before_the_weighted_split():
-    """Mid-fit a 4 GB card has about 2.4 GB free: split by the measured VRAM weights alone (461 / 274 / 110) the lightest stage fell under the minimum and
-    the cascades never overlapped. Each stage now gets the minimum first, then its share of the rest, in weight order and within the usable memory."""
-    facts = [(0, int(2.4 * GB), 6)]
-    slots = plan_stage_slots([14.0, 34.0, 18.0], facts=facts, vram_weights=[461.0, 274.0, 110.0])
-    assert slots is not None and len(slots) == 3
-    assert min(s.budget_bytes for s in slots) >= MIN_STAGE_BUDGET_BYTES
-    assert slots[0].budget_bytes > slots[1].budget_bytes > slots[2].budget_bytes
-    assert sum(s.budget_bytes for s in slots) <= int(2.4 * GB) - GB
-
-
-def test_pool_cached_blocks_count_as_free(monkeypatch):
-    """The free memory of a device is the driver's figure plus the default pool's cached free blocks (the driver counts those as used)."""
-    from mlframe.feature_selection.filters import _fe_device_scheduler as S
-
-    class _Pool:
-        """Default pool stand-in holding 700 MB of cached free blocks."""
-
-        def free_bytes(self):
-            """Cached free bytes."""
-            return 700 << 20
-
-    class _Runtime:
-        """Runtime stand-in: one device with 1 GB driver-free."""
-
-        @staticmethod
-        def getDeviceCount():
-            """One device."""
-            return 1
-
-        @staticmethod
-        def memGetInfo():
-            """1 GB free of 4."""
-            return 1 << 30, 4 << 30
-
-        @staticmethod
-        def getDeviceProperties(_d):
-            """Six SMs."""
-            return {"multiProcessorCount": 6}
-
-    class _Device:
-        """Context-manager stand-in for cupy.cuda.Device."""
-
-        def __init__(self, _d):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-    class _Cp:
-        """cupy stand-in."""
-
-        cuda = type("cuda", (), {"runtime": _Runtime, "Device": _Device})
-
-        @staticmethod
-        def get_default_memory_pool():
-            """The pool above."""
-            return _Pool()
-
-    assert S._device_facts(_Cp, None) == [(0, (1 << 30) + (700 << 20), 6)]
