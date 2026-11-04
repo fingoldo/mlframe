@@ -4,7 +4,7 @@ Three read-only reports by Opus 5.5 low-effort agents on large packages (metrics
 
 | Disposition | ID | Class | Severity | Location |
 |---|---|---|---|---|
-| **FUTURE** | W31ME-1 | labels | High | `metrics/_auc_labels.py:16-17`: `_binary_labels_01` maps any label set outside [0,1] to `y == 1`, so labels {1,2} give 1 - AUC (sklearn uses the larger label as positive); {0,2} become all zeros |
+| **RESOLVED** | W31ME-1 | labels | High | `metrics/_auc_labels.py:16-17`: `_binary_labels_01` maps any label set outside [0,1] to `y == 1`, so labels {1,2} give 1 - AUC (sklearn uses the larger label as positive); {0,2} become all zeros; two distinct labels outside [0, 1] now take the larger as positive (the helper's docstring claimed this was sklearn's convention); any other label set keeps `== 1` |
 | **FUTURE** | W31ME-2 | nan | Medium | `metrics/_core_auc_brier.py:176,594,762-778`: NaN scores sort last, the descending reversal puts them first, so NaN is ranked highest and the AUC is finite but wrong |
 | **FUTURE** | W31ME-3 | labels | Medium | `metrics/_log_loss_and_separation.py:115-119`: any `y_true` other than 1 (2, -1, NaN) is scored as a negative |
 | **FUTURE** | W31ME-4 | empty | Low | `metrics/calibration/_calibration_metrics.py:133,212,285`: empty input returns 1.0 (ECE, debiased ECE, Brier decompositions) where NaN is correct |
@@ -22,3 +22,9 @@ Three read-only reports by Opus 5.5 low-effort agents on large packages (metrics
 - metrics: all of `regression/`, `classification/` (except labels/log-loss parts above), `_fairness_metrics.py`, `quantile.py`, `_multilabel_*`, `_drift.py`, `_ranking_extras.py`, `core.py`, `iteration_metrics.py`, `rank_correlation.py`, `_core_brier.py`, `_gpu_metrics.py`, `ranking.py` after line 260.
 - preprocessing: `cleaning.py`, `_cleaning_helpers.py`, `auto_transform_select.py`, `align_feature_direction.py`, `gaussian_power_transform_search.py`, `temporal_drift_augment.py`, `outlier_detector_zoo.py`, `outlier_policy.py`; data: all of `data/`; data_valuation: all but two modules.
 - models/ (49 files), core/ (19), most of utils/, most of votenrank/ and competition/.
+
+## Implemented
+
+| ID | Regression test |
+|---|---|
+| W31ME-1 | `tests/metrics/test_auc_labels_use_the_larger_label_as_positive.py` |
