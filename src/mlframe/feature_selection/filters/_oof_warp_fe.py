@@ -123,17 +123,10 @@ def warp_candidates(
             )
         return found
 
-    from concurrent.futures import ThreadPoolExecutor
-
-    from ._adaptive_nbins import _resolve_edge_jobs
+    from ._edge_pool import map_on_edge_pool
 
     # The columns are independent (own fit, own scores, one seed for all): scanned on the edge-jobs pool and folded in column order, so the result is the serial one.
-    jobs = _resolve_edge_jobs(None, len(cols))
-    if jobs > 1 and len(cols) > 3:
-        with ThreadPoolExecutor(max_workers=jobs) as pool:
-            per_column = list(pool.map(_one_column, cols))
-    else:
-        per_column = [_one_column(c) for c in cols]
+    per_column = map_on_edge_pool(_one_column, list(cols), min_items=4)
     out = [cand for found in per_column for cand in found]
     return out
 

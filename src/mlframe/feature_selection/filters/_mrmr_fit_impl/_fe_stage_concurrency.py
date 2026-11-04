@@ -171,7 +171,9 @@ def run_stages_concurrently(
         with fe_deadline_scope(deadline), fit_context_scope(context), stage_device_slot(slots[i], i):
             return stages[i](copies[i])
 
-    with ThreadPoolExecutor(max_workers=len(stages)) as pool:
+    from .._edge_pool import concurrent_stages
+
+    with concurrent_stages(len(stages)), ThreadPoolExecutor(max_workers=len(stages)) as pool:
         futures = [pool.submit(_run, i) for i in range(len(stages))]
     errors = [f.exception() for f in futures]
     if merge_count is None:
