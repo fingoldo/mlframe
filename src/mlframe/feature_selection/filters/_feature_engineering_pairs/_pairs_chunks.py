@@ -318,7 +318,7 @@ def _compute_one_fe_chunk_part2(
     if col == 0:
         for raw_vars_pair in chunk_pairs:
             candidates, local_times = chunk_records[raw_vars_pair]
-            out[raw_vars_pair] = (candidates, None, local_times)
+            out[raw_vars_pair] = (candidates, None, local_times, None)
         return True, (out)
 
     # ONE vectorised NaN/inf scrub over every materialised chunk column [:, :col]
