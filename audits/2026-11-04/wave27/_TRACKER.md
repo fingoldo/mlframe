@@ -9,7 +9,7 @@ Three read-only reports by Opus 5.5 low-effort agents on code no earlier wave re
 | **FUTURE** | W27KB-3 | nan | Medium | the numba kernels compile with `fastmath=True`, which may fold the `isfinite` guards the CUDA kernels evaluate; `kfold_attention_loop` does not validate its input |
 | **RESOLVED** | W27KB-4 | leakage | Medium | `_oof.kfold_attention_loop` splits with `splitter.split(X_train)` and never passes groups or labels, so a group-aware splitter raises and the default shuffled KFold leaks within a group; every transformer calls `splitter.split(X)` only, so the fix is a shared `BoundSplitter(splitter, groups, y)` that closes over the group labels; a group-aware splitter wrapped in it drives the OOF loop without an API change in 60 modules |
 | **FUTURE** | W27KB-5 | leakage | Medium | the inner baseline folds of `_baseline_oof` / `_residual_oof` are shuffled and group-blind, so duplicates of a row sit in the training folds of its own baseline; reason: the inner baseline folds of `fit_baseline_predict_oof` see only `Xt`; passing the group labels needs a `groups` argument threaded through the eight callers sharing that function, to be done together with the outer loop wiring |
-| **FUTURE** | W27KB-6 | stats | Low | `class_or_quantile_slice` overlaps the positive and negative regression clouds when the two quantiles coincide on tied targets |
+| **RESOLVED** | W27KB-6 | stats | Low | `class_or_quantile_slice` overlaps the positive and negative regression clouds when the two quantiles coincide on tied targets; the three regression slicers share `quantile_tail_masks`, whose bottom tail excludes rows already in the top tail |
 | **FUTURE** | W27KB-7 | smote | Low | the SMOTE neighbour kernels drop the first neighbour as "self", which is wrong with exact duplicate rows |
 | **FUTURE** | W27KB-8 | smote | Low | empty-minority SMOTE returns a 1-column array and an `n_min == 1` minority returns one row instead of `n_synthetic` |
 | **DOC** | W27KB-9 | smote | Low | `_bgmm_sample` raises on an empty minority; unreachable: both callers return the far sentinel before the fit when the positive bank has fewer than two rows |
@@ -52,3 +52,4 @@ Three read-only reports by Opus 5.5 low-effort agents on code no earlier wave re
 | W27PR-9 | `tests/feature_selection/fe/test_fe_pair_progress_bar_shows_the_running_best.py` |
 | W27KB-2 | `tests/feature_engineering/transformer/test_knn_search_honours_the_metric_on_the_exact_backend.py` |
 | W27KB-4 | `tests/feature_engineering/transformer/test_bound_splitter_makes_group_splitters_usable.py` |
+| W27KB-6 | `tests/feature_engineering/transformer/test_regression_tail_clouds_never_share_a_row.py` |

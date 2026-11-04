@@ -325,9 +325,18 @@ def class_or_quantile_slice(X_sub: np.ndarray, y_sub: np.ndarray, task: str, q_h
     if task == "binary":
         pos = y_sub > 0.5
         return X_sub[pos], X_sub[~pos]
-    y_hi = np.quantile(y_sub, q_high)
-    y_lo = np.quantile(y_sub, 1.0 - q_high)
-    return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
+    hi, lo = quantile_tail_masks(y_sub, 1.0 - q_high, q_high)
+    return X_sub[hi], X_sub[lo]
+
+
+def quantile_tail_masks(y: np.ndarray, q_low: float, q_high: float) -> tuple:
+    """Boolean masks of the top (``y >= q_high`` quantile) and bottom (``y <= q_low`` quantile) tails of ``y``, disjoint even when ties make the two quantiles coincide.
+
+    With a heavily tied target both quantiles can equal the same value; the rows at that value then belong to the top tail only, so a row is never in both clouds.
+    """
+    hi = y >= np.quantile(y, q_high)
+    lo = (y <= np.quantile(y, q_low)) & ~hi
+    return hi, lo
 
 
 def softmax(scores: np.ndarray, temp: float) -> np.ndarray:

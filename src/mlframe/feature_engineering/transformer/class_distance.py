@@ -40,7 +40,7 @@ import numpy as np
 import polars as pl
 
 from ._intel_patch import try_patch_sklearn
-from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, FAR_DISTANCE
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, FAR_DISTANCE, quantile_tail_masks
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +74,8 @@ def _binary_class_slices(X: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.n
 
 def _quantile_slices(X: np.ndarray, y: np.ndarray, q_low: float = 0.2, q_high: float = 0.8) -> Tuple[np.ndarray, np.ndarray]:
     """Slice X by regression-y quantile bounds. Returns (X_high_quantile, X_low_quantile)."""
-    y_lo = np.quantile(y, q_low)
-    y_hi = np.quantile(y, q_high)
-    return X[y >= y_hi], X[y <= y_lo]
+    hi, lo = quantile_tail_masks(y, q_low, q_high)
+    return X[hi], X[lo]
 
 
 def _validate_class_distance_inputs(X_train: np.ndarray, X_query: Optional[np.ndarray], task: str) -> None:
