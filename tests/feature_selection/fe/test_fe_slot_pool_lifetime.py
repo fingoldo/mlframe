@@ -20,3 +20,16 @@ def test_array_from_a_slot_survives_the_slot():
     got = float(cached[-1])
     del reuse
     assert got == 999_999 * 2.0
+
+
+def test_reentered_slot_budget_is_on_top_of_held_arrays():
+    """A slot entered again while its pool still holds an earlier fit's cached array gets its full budget as new room."""
+    require_cuda_device()
+    slot = DeviceSlot(device_id=0, budget_bytes=64 << 20)
+    with stage_device_slot(slot, key=8):
+        held = cp.ones(6 << 20)  # 48 MiB that outlive the slot, as cached device columns do
+    with stage_device_slot(slot, key=8) as pool:
+        fresh = cp.ones(6 << 20)  # needs 48 MiB more: over a 64 MiB limit that counted the held array, within one on top of it
+        assert pool.get_limit() >= pool.used_bytes()
+    del fresh
+    assert float(held[0]) == 1.0

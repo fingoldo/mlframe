@@ -118,7 +118,9 @@ def _slot_pool(slot: DeviceSlot, key: int) -> Any:
         if pool is None:
             pool = cp.cuda.MemoryPool()
             _SLOT_POOLS[(slot.device_id, key)] = pool
-    pool.set_limit(size=int(slot.budget_bytes))
+    # the budget is new room: the planner measured device free memory, which already excludes the arrays this persistent pool still holds from earlier fits
+    # (the process caches keep device columns); a limit of the budget alone sat below the held bytes and sent every allocation into the OOM fallbacks
+    pool.set_limit(size=int(pool.used_bytes()) + int(slot.budget_bytes))
     return pool
 
 
