@@ -242,7 +242,7 @@ def build_key_bank(
         fp = _key_bank_fingerprint(
             X_train=X_train, seed=seed, n_heads=n_heads, head_dim=head_dim,
             metric="cosine", standardize=standardize, ann_M=ann_M, ann_ef_construction=ann_ef_construction,
-            projection=projection, dtype=dtype,
+            projection=projection, dtype=dtype, y_train=y_train,
         )
         cached = try_load_key_bank(cache_dir, fp)
         if cached is not None:

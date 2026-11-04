@@ -104,6 +104,7 @@ def _key_bank_fingerprint(
     ann_ef_construction: int,
     projection: str,
     dtype: Any,
+    y_train: Any = None,
 ) -> str:
     """Produce a deterministic content-addressed cache key for the (projections, k_proj, ann_indices) artefacts.
 
@@ -111,6 +112,8 @@ def _key_bank_fingerprint(
         - X_train's buffer          (the actual data, in C order; bytes hashing avoids casting issues)
         - X_train.dtype, X_train.shape
         - seed, n_heads, head_dim, metric, standardize, ann_M, ann_ef_construction, projection, dtype
+        - y_train's buffer, when given: the cached bank stores ``y_train`` and, for the supervised projections (pls / importance / shap / nca), projections fitted on it, so the same
+          X with another target is a different bank
 
     Bytes-level hashing of large X is the right call for correctness despite the cost (~3 GB/s sha256 on modern CPUs ~= 1-3 s for 10M, d=64). The alternative
     (hash a downsampled fingerprint) silently collides on data that differs only outside the sample - the kind of bug that surfaces only when somebody adds new
@@ -145,6 +148,11 @@ def _key_bank_fingerprint(
     h.update(str(projection).encode())
     h.update(b"|build_dtype|")
     h.update(str(np.dtype(dtype)).encode())
+    if y_train is not None:
+        y_arr = np.ascontiguousarray(y_train)
+        h.update(b"|y_train|")
+        h.update(str(y_arr.dtype).encode())
+        h.update(array_buffer(y_arr))
     return h.hexdigest()
 
 
