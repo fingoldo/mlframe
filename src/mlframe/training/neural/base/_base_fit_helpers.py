@@ -101,7 +101,7 @@ class _FitCommonHelpersMixin:
                 # so the index space stays stable across partial_fit calls.
                 self._label_encoder = _LabelEncoder().fit(np.asarray(classes))
                 self.classes_ = self._label_encoder.classes_
-            elif not hasattr(self, "_label_encoder") or self._label_encoder is None:
+            elif not is_partial_fit or not hasattr(self, "_label_encoder") or self._label_encoder is None:  # a full fit re-learns the classes; only partial_fit continues
                 _y_for_le = y.values if isinstance(y, pd.Series) else np.asarray(y)
                 if _y_for_le.ndim == 2 and _y_for_le.shape[1] == 1:
                     _y_for_le = _y_for_le.ravel()
