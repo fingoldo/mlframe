@@ -15,7 +15,7 @@ Three read-only reports by Opus 5.5 low-effort agents on areas no earlier wave r
 | **RESOLVED** | W25CMP-5 | binning | Low | `_prebin_one_column` took `nanquantile` over a column that still held +-inf, so a column with many infinities got inf / NaN cut points and its finite rows collapsed into a few bins; the cut points now come from the finite values (`tests/training/composite/test_prebin_column_with_infinite_values.py`) |
 | **RESOLVED** | W25REC-1 | replay | High | factorize replay of a pandas Categorical with integer categories skipped the code map (its `to_numpy()` is an integer array of category VALUES) and clipped those values to the top bin, a constant feature at transform time; a non-empty map is now always used, with an integer-valued float falling back to the integer spelling |
 | **RESOLVED** | W25REC-2 | replay | Medium | `pd.NA` was not recognised as missing at replay of a string-dtype column, so it went to the sentinel bin instead of the NaN code |
-| **FUTURE** | W25REC-3 | emit | Medium | multi-emit survivors are recorded as `(cfg, 0)` and returned as a set, so downstream filters test column 0 and can raise `TypeError` |
+| **RESOLVED** | W25REC-3 | emit | Medium | `_emit_pair_features_step3_pair_features_part1` recorded every multi-emit survivor with the stale index j=0 and returned a set, so the inert-leaf and replayability filters read column 0 for all of them and `this_pair_features[pos]` raised `TypeError`; the survivors are now a list in buffer-column order whose j is the dense buffer column (`tests/feature_selection/fe/test_pair_emit_survivors_carry_their_buffer_column.py`; `test_runs_end_to_end_pandas` now expects the list) |
 
 ## Not covered by this wave
 
@@ -29,4 +29,5 @@ Three read-only reports by Opus 5.5 low-effort agents on areas no earlier wave r
 |---|---|
 | W25NUM-1..3 | `tests/feature_engineering/test_numerical_counts_nan_and_mode_fixes.py` |
 | W25CMP-5 | `tests/training/composite/test_prebin_column_with_infinite_values.py` |
+| W25REC-3 | `tests/feature_selection/fe/test_pair_emit_survivors_carry_their_buffer_column.py` |
 | W25REC-1, 2 | `tests/feature_selection/fe/test_factorize_replay_of_integer_categoricals.py` |
