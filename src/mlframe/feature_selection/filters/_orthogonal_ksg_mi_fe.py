@@ -403,7 +403,7 @@ def hybrid_orth_mi_ksg_fe_with_recipes(
         # same preprocess params the fit path used, it does not refit on any transform-time slice.
         _pp = None
         try:
-            _col_full = np.asarray(X[src].values, dtype=_crit_np_dtype())
+            _col_full = np.asarray(X[src].values, dtype=np.float64)  # Intentional float64: the params the replay applies must be the ones the fit-time values used (float64 basis axis)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging,

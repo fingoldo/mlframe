@@ -352,7 +352,7 @@ def hybrid_orth_mi_elasticnet_fe_with_recipes(
         # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
-            _col_full = np.asarray(X[src].to_numpy(), dtype=_crit_np_dtype())
+            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)  # Intentional float64: the params the replay applies must be the ones the fit-time values used (float64 basis axis)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as e:
             log_throttle(logger, "orthogonal_elasticnet_fe.hot_loop_warning", logging.WARNING, "basis-params recompute failed for %s: %s", src, e)

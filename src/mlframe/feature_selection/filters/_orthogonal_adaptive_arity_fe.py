@@ -658,7 +658,7 @@ def _adaptive_recipe_for_name(name: str, X: pd.DataFrame, _route_basis: Callable
         # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
-            _col_full = np.asarray(X[legs[0]].to_numpy(), dtype=_crit_np_dtype())
+            _col_full = np.asarray(X[legs[0]].to_numpy(), dtype=np.float64)  # Intentional float64: the params the replay applies must be the ones the fit-time values used (float64 basis axis)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging.
@@ -823,7 +823,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
             return _pp_cache[_key]
         _pp = None
         try:
-            _col_full = np.asarray(X[leg_name].to_numpy(), dtype=_crit_np_dtype())
+            _col_full = np.asarray(X[leg_name].to_numpy(), dtype=np.float64)  # Intentional float64: the params the replay applies must be the ones the fit-time values used (float64 basis axis)
             _, _pp = _evaluate_basis_column(_col_full, str(basis), int(deg), return_params=True)
         except Exception as exc:
             logger.warning("adaptive-arity: failed to freeze preprocess_params for leg %r (refit-at-replay fallback): %r", leg_name, exc)
