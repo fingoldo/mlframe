@@ -16,9 +16,9 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **FUTURE** | W28TA-1 | metric | High | local_linear.py:107: neighbours come from a cosine index on median-centred data, so the local OLS is not local |
 | **FUTURE** | W28TA-2 | fit | High | local_curvature.py:87-112: the quadratic design has more columns than k rows for d >= 8, lstsq interpolates exactly, resid_quad ~ 0 |
 | **RESOLVED** | W28TA-3 | leakage | High | predictive_info_delta.py:110-119: H(y|bin) built from in-sample predictions, query rows use held-out ones; the bins are built from inner-KFold out-of-fold predictions (`fit_baseline_predict_oof`); mean abs delta on a noise target at n=300, d=20 was 0.40 and is 0.011 |
-| **FUTURE** | W28TA-4 | replay | High | row_attention.py:202: apply_dedupe runs separately on the Mode A and Mode B outputs so their column sets can differ |
+| **FUTURE** | W28TA-4 | replay | High | row_attention.py:202: apply_dedupe runs separately on the Mode A and Mode B outputs so their column sets can differ; reason: the dedupe keeps a data-dependent column subset, so Mode A and each Mode B batch can disagree; the fix is an additive `keep_columns` argument (names taken from the Mode A frame) that selects exactly those columns and skips the per-batch dedupe, to be wired through `compute_row_attention` and its wrappers together |
 | **FUTURE** | W28TA-5 | replay | High | spectral_attention.py:120-121: the Nystrom bandwidth is recomputed from the query batch instead of reusing the training graph sigma |
-| **FUTURE** | W28TA-6 | replay | Medium | residual_attention.py:106,136: Mode A applies dedupe_threshold, Mode B hard-codes None |
+| **FUTURE** | W28TA-6 | replay | Medium | residual_attention.py:106,136: Mode A applies dedupe_threshold, Mode B hard-codes None; reason: `residual_attention` applies its dedupe in the shared tail of both modes, so the report's "hard-coded None" is not the cause; the batch-dependent subset is the same defect as W28TA-4 and gets the same `keep_columns` fix |
 | **FUTURE** | W28TA-7 | replay | Medium | local_classifier.py:162: the bandwidth is the median k-th distance over the query batch |
 | **FUTURE** | W28TA-8 | replay | Medium | mdl_binning_pairwise.py:226: n_unique_combos counted over the query batch |
 | **FUTURE** | W28TA-9 | replay | Medium | performer_attention.py:65,121-122: the global-max shift is per batch and does not cancel |
@@ -32,7 +32,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **FUTURE** | W28TA-17 | ties | Medium | residual_stratified_distance.py:190-192: abs_r < median is empty when half or more of the residuals tie at the median |
 | **FUTURE** | W28TA-18 | crash | Medium | stacked_attention.py:92-115: layer-0 NaN rows rejected by validate_numeric_input at layer 1 under TimeSeriesSplit |
 | **FUTURE** | W28TA-19 | leakage | Medium | stacked_attention.py:115, stacked_qnn.py:225: layer 2 reuses the splitter on layer-1 out-of-fold features |
-| **FUTURE** | W28TA-20 | replay | Medium | row_attention.py:239: validate_projection_dims called without allow_overcomplete in Mode B |
+| **RESOLVED** | W28TA-20 | replay | Medium | row_attention.py:239: validate_projection_dims called without allow_overcomplete in Mode B; `build_key_bank` takes `allow_overcomplete` and the Mode B path forwards it |
 | **RESOLVED** | W28TA-21 | crash | Medium | predict_proba(...)[:, 1] raises on a single-class training fold in twelve modules (multi_baseline_hard_row, aux_mlp, multi_aux_ensemble, nn_oof_target_mean, pairwise_kl_divergence, sign_residual_baseline, variance_baseline, target_kmeans_codebook, tree_path_boolean, trust_score_oof, _baseline_oof); the LightGBM baselines do not crash on a single-class fold (checked: `fit_baseline_predict_oof` returns finite values); the crash was real for sklearn's `MLPClassifier`, which returns a second column with a meaningless probability for a class it never saw; `positive_class_proba` handles it and `aux_mlp` uses it |
 | **RESOLVED** | W28TA-22 | nan | Medium | Mode A output allocated with np.zeros so rows no fold validates read 0 in ten modules (sign_residual_baseline, signed_residual_band, smote_distance, spectral_attention, target_kmeans_codebook, target_quantile, tree_path_boolean, trust_score_oof, variance_baseline, y_quintile_baseline_knn); all ten allocate the Mode A output with NaN |
 | **FUTURE** | W28TA-23 | crash | Low | spectral_attention.py:89,106,204: too few eigenvectors and NearestNeighbors failure on a small fold |
@@ -71,3 +71,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | W28TA-13 | `tests/feature_engineering/transformer/test_variance_baseline_sigma_uses_out_of_fold_residuals.py` |
 | W28GP-1, 2 | `tests/feature_selection/fe/test_pairs_abs_corr_gpu_keeps_float64_precision.py` |
 | W28DC-1 | `tests/feature_selection/clustering/test_dcd_foreign_view_of_the_same_buffer_is_scored_on_its_own_data.py` |
+| W28TA-20 | `tests/feature_engineering/transformer/test_row_attention_mode_b_accepts_overcomplete_heads.py` |
