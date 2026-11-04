@@ -134,6 +134,7 @@ def compute_nunique_modes_quantiles_numpy(
 
     # NaN is neither a value nor a mode here: the quantiles below skip it (nanquantile), so the distinct count, the modes and the crossings must too.
     finite_arr = arr[~np.isnan(arr)] if np.issubdtype(arr.dtype, np.floating) else arr
+    res: tuple
     if return_unsorted_stats and finite_arr.size == 0:
         res = (0, np.nan, np.nan, np.nan, np.nan)
     elif return_unsorted_stats:
@@ -171,7 +172,7 @@ def compute_nunique_modes_quantiles_numpy(
 
         nuniques = len(vals)
 
-        res: tuple = (nuniques, modes_min, modes_max, modes_mean, modes_qty)
+        res = (nuniques, modes_min, modes_max, modes_mean, modes_qty)
     else:
         res = ()
 

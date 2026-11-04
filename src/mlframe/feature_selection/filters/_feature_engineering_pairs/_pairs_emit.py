@@ -842,7 +842,7 @@ def _emit_pair_features_step3_pair_features_part1(
     # downstream never constructs a recipe for a dropped column.
     _kept_configs = []  # list[(config, j)] that survived the guard
     _kept_cols_vals = []  # list[np.ndarray] aligned with _kept_configs
-    _kept_names = []
+    _kept_names: list = []
 
     # ``this_pair_features`` is a SET of ``(config, j)`` tuples whose ``config`` holds
     # transformation-NAME strings, so a bare ``enumerate(set)`` iterates in PYTHONHASHSEED-
