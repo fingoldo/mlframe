@@ -28,8 +28,8 @@ Three read-only reports by Opus 5.5 low-effort agents on code no earlier wave re
 | **RESOLVED** | W27PR-6 | ledger | Low | joint-gate rejections are all labelled `operand_uplift_floor` because `ratio_ok` is never passed; `ratio_ok` defaults to the comparison of the gate ratio with the prevalence floor, so a pair under the floor is attributed to `engineered_mi_prevalence` |
 | **RESOLVED** | W27PR-7 | ledger | Low | pairs rejected by the family gate leave no rejection record; a rejected pair now writes a `pair_family_maxt` record (new registered gate label) to the pair list and the side channel |
 | **FUTURE** | W27PR-8 | debias | Low | on the RAM-fallback recompute path the Miller-Madow debias falls back to the nominal bin count |
-| **FUTURE** | W27PR-9 | log | Low | the progress bar best field shows the pair own best, not the running maximum |
-| **FUTURE** | W27PR-10 | dead | Low | dead NaN write on the per-pair materialise failure path |
+| **RESOLVED** | W27PR-9 | log | Low | the progress bar best field shows the pair own best, not the running maximum; the running best lives in a dict shared by all pairs of the sweep |
+| **RESOLVED** | W27PR-10 | dead | Low | dead NaN write on the per-pair materialise failure path; the write is removed (only columns below `i` are read; behaviour-identical, no separate test) |
 
 ## Not covered by this wave
 
@@ -49,3 +49,4 @@ Three read-only reports by Opus 5.5 low-effort agents on code no earlier wave re
 | W27AF-2 | `tests/feature_engineering/transformer/test_degenerate_class_bank_reports_far_not_zero_distance.py` |
 | W27PR-2 | `tests/feature_selection/fe/test_fe_per_pair_path_feeds_the_pair_family_gate.py` |
 | W27PR-7 | `tests/feature_selection/fe/test_fe_pair_family_gate_rejection_is_recorded.py` |
+| W27PR-9 | `tests/feature_selection/fe/test_fe_pair_progress_bar_shows_the_running_best.py` |

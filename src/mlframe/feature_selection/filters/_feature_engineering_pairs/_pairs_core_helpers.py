@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
 
 import logging
 import os
@@ -374,7 +373,6 @@ def _check_prospective__pair_res_entry_none(_pair_res_entry, res, raw_vars_pair,
 
 def _check_prospective__no_config_nan_edge(verbose, best_mi, best_config, _sweep_best_mi, cols, raw_vars_pair, pair_pbar):
     """Block of check_prospective_fe_pairs starting at ``if verbose:``."""
-    _sweep_best_name: Any = None
     from mlframe.feature_selection.filters.feature_engineering import (
         get_new_feature_name,
     )
@@ -382,13 +380,13 @@ def _check_prospective__no_config_nan_edge(verbose, best_mi, best_config, _sweep
     if verbose:
         try:
             _bm = float(best_mi)
-            if best_config is not None and np.isfinite(_bm) and _bm > _sweep_best_mi:
-                _sweep_best_mi = _bm
-                _sweep_best_name = get_new_feature_name(fe_tuple=best_config, cols_names=cols)
+            if best_config is not None and np.isfinite(_bm) and _bm > _sweep_best_mi["mi"]:
+                _sweep_best_mi["mi"] = _bm
+                _sweep_best_mi["name"] = get_new_feature_name(fe_tuple=best_config, cols_names=cols)
             _cur_pair = f"{cols[raw_vars_pair[0]]},{cols[raw_vars_pair[1]]}"
             _pf = {"pair": _short_fe_name(_cur_pair, 22)}
-            if _sweep_best_name is not None:
-                _pf["best"] = f"{_short_fe_name(_sweep_best_name)}={_sweep_best_mi:.4f}"
+            if _sweep_best_mi["name"] is not None:
+                _pf["best"] = f"{_short_fe_name(_sweep_best_mi['name'])}={_sweep_best_mi['mi']:.4f}"
             pair_pbar.set_postfix(_pf, refresh=False)
         except (TypeError, ValueError, IndexError):
             pass

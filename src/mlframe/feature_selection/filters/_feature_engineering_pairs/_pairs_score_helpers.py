@@ -114,9 +114,8 @@ def _score_one_pair_gpu_fused_done(_gpu_fused_done, combs, vars_transformations,
                         _stage[_staged] = bin_func(param_a, param_b)
                     except Exception:
                         # The transform raised AFTER (or instead of) writing its staged row; the slot is not counted, so the next candidate overwrites it and the failed column is never scored,
-                        # nor recorded as a candidate. The buffer column ``i`` it would have taken is set to NaN as before.
+                        # nor recorded as a candidate; only columns below ``i`` are ever read, so the column ``i`` it would have taken needs no write.
                         log_throttle(logger, "pairs_score_transform_final_failed", logging.ERROR, "Error when performing %s", bin_func, exc_info=True)
-                        final_transformed_vals[:, i] = np.nan
                     else:
                         # DEFER the NaN/inf scrub to ONE vectorised pass over the packed
                         # buffer slice [:, :i] below (was a per-column ``nan_to_num`` here:
