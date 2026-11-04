@@ -25,6 +25,14 @@ from sklearn.preprocessing import LabelEncoder
 from torch import nn
 
 
+def _finite_float32(X: np.ndarray) -> np.ndarray:
+    """``X`` as float32, refusing NaN or inf: one non-finite cell turns the full-batch loss, every weight and every prediction into NaN without an error."""
+    arr = np.asarray(X, dtype=np.float32)
+    if not np.isfinite(arr).all():
+        raise ValueError("Tabular1DCNN: X contains NaN or inf; impute upstream (the network does not mask missing values).")
+    return arr
+
+
 def correlation_order_features(X: np.ndarray) -> List[int]:
     """Greedily chain feature indices so adjacent positions in the returned order are highly correlated.
 
@@ -155,7 +163,7 @@ class Tabular1DCNNRegressor(RegressorMixin, BaseEstimator):
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "Tabular1DCNNRegressor":
         """Correlation-order features, then train the 1D-CNN regressor with full-batch Adam/MSE."""
-        X_arr = np.asarray(X, dtype=np.float32)
+        X_arr = _finite_float32(X)
         y_arr = np.asarray(y, dtype=np.float32).reshape(-1)
 
         self.feature_order_ = correlation_order_features(X_arr)
@@ -181,7 +189,7 @@ class Tabular1DCNNRegressor(RegressorMixin, BaseEstimator):
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict continuous targets for X (applies the fitted feature order first)."""
-        X_arr = np.asarray(X, dtype=np.float32)[:, self.feature_order_]
+        X_arr = _finite_float32(X)[:, self.feature_order_]
         self.model_.eval()
         with torch.no_grad():
             preds = self.model_(torch.from_numpy(X_arr))
@@ -219,7 +227,7 @@ class Tabular1DCNNClassifier(ClassifierMixin, BaseEstimator):
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "Tabular1DCNNClassifier":
         """Correlation-order features, then train the 1D-CNN classifier with full-batch Adam/cross-entropy."""
-        X_arr = np.asarray(X, dtype=np.float32)
+        X_arr = _finite_float32(X)
 
         self.label_encoder_ = LabelEncoder()
         y_enc = self.label_encoder_.fit_transform(np.asarray(y).reshape(-1))
@@ -253,7 +261,7 @@ class Tabular1DCNNClassifier(ClassifierMixin, BaseEstimator):
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         """Per-class probabilities for X (applies the fitted feature order first)."""
-        X_arr = np.asarray(X, dtype=np.float32)[:, self.feature_order_]
+        X_arr = _finite_float32(X)[:, self.feature_order_]
         self.model_.eval()
         with torch.no_grad():
             logits = self.model_(torch.from_numpy(X_arr))
