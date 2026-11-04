@@ -28,7 +28,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **RESOLVED** | W28TA-13 | leakage | Medium | variance_baseline.py:79-85: mu_train is in-sample; mu_train is out-of-fold; the mean predicted sigma^2 on a noise target was 0.47 and is 1.18 (true 1) |
 | **FUTURE** | W28TA-14 | leakage | Medium | target_kmeans_codebook.py:405,409: train rows clustered on in-sample predictions, queries on held-out ones |
 | **FUTURE** | W28TA-15 | scale | Medium | target_kmeans_codebook.py:420,428: cluster_size is a fold-sized count in Mode A and a full-data count in Mode B |
-| **FUTURE** | W28TA-16 | scale | Medium | local_lift.py:50: max(y_global_mean, 1e-9) breaks for a zero or negative mean |
+| **RESOLVED** | W28TA-16 | scale | Medium | local_lift.py:50: max(y_global_mean, 1e-9) breaks for a zero or negative mean; a global mean below 1e-9 in magnitude is floored with its sign kept |
 | **FUTURE** | W28TA-17 | ties | Medium | residual_stratified_distance.py:190-192: abs_r < median is empty when half or more of the residuals tie at the median |
 | **FUTURE** | W28TA-18 | crash | Medium | stacked_attention.py:92-115: layer-0 NaN rows rejected by validate_numeric_input at layer 1 under TimeSeriesSplit |
 | **FUTURE** | W28TA-19 | leakage | Medium | stacked_attention.py:115, stacked_qnn.py:225: layer 2 reuses the splitter on layer-1 out-of-fold features |
@@ -37,7 +37,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **RESOLVED** | W28TA-22 | nan | Medium | Mode A output allocated with np.zeros so rows no fold validates read 0 in ten modules (sign_residual_baseline, signed_residual_band, smote_distance, spectral_attention, target_kmeans_codebook, target_quantile, tree_path_boolean, trust_score_oof, variance_baseline, y_quintile_baseline_knn); all ten allocate the Mode A output with NaN |
 | **FUTURE** | W28TA-23 | crash | Low | spectral_attention.py:89,106,204: too few eigenvectors and NearestNeighbors failure on a small fold |
 | **FUTURE** | W28TA-24 | scale | Low | spectral_attention.py:136: eigenvalues clamped at 1e-6 give embeddings of size ~1e6 |
-| **FUTURE** | W28TA-25 | crash | Low | target_kmeans_codebook.py:416: n_clusters_eff never capped at n |
+| **RESOLVED** | W28TA-25 | crash | Low | target_kmeans_codebook.py:416: n_clusters_eff never capped at n; the cluster count is capped at the row count |
 | **FUTURE** | W28TA-26 | validation | Low | row_attention.py:53, _oof.py:186: k checked against n_train, not the fold size; k_scales not validated |
 | **FUTURE** | W28TA-27 | precision | Low | target_quantile.py:78-80, y_quintile_baseline_knn.py:251-253: the +1e-9 tie-break is below one ULP for |y| > 1e7 |
 | **FUTURE** | W28TA-28 | ties | Low | multi_baseline_hard_row.py:169-175: rows with all-negative z-scores tie at 0 |
@@ -47,7 +47,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **FUTURE** | W28TA-32 | validation | Low | per_class_spectral.py:88-102: y is not checked to be binary |
 | **FUTURE** | W28TA-33 | naming | Low | column named after the requested k, not the clamped k (nn_oof_target_mean, neighbor_aggregate_features, multiscale_rate, persistence_diagram) |
 | **FUTURE** | W28TA-34 | labels | Low | focal_lgb.py:37, multi_aux_ensemble.py:57: {-1, 1} labels not remapped for the focal objective |
-| **FUTURE** | W28TA-35 | naming | Low | multi_temperature.py:78: temperatures 0.301 and 0.304 format to the same column name |
+| **RESOLVED** | W28TA-35 | naming | Low | multi_temperature.py:78: temperatures 0.301 and 0.304 format to the same column name; labels fall back to six significant digits when the two-decimal labels collide (existing names unchanged) |
 | **FUTURE** | W28TA-36 | precision | Low | per_column_rff.py:129-137: always float32, ignores dtype=float64 |
 | **FUTURE** | W28TA-37 | leakage | Low | pseudo_smote.py:68: filter threshold is a quantile of in-sample predictions |
 | **FUTURE** | W28TA-38 | doc | Low | persistence_diagram.py: y is never used although the docstring promises a joint X/y metric |
@@ -73,3 +73,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | W28DC-1 | `tests/feature_selection/clustering/test_dcd_foreign_view_of_the_same_buffer_is_scored_on_its_own_data.py` |
 | W28TA-20 | `tests/feature_engineering/transformer/test_row_attention_mode_b_accepts_overcomplete_heads.py` |
 | W28TA-7, 8 | `tests/feature_engineering/transformer/test_query_features_do_not_depend_on_the_rest_of_the_batch.py` |
+| W28TA-16, 25, 35 | `tests/feature_engineering/transformer/test_small_edge_cases_lift_clusters_and_temperature_names.py` |

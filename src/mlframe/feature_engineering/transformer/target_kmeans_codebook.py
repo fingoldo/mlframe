@@ -69,7 +69,7 @@ def compute_target_kmeans_codebook_features(
         weight = np.sqrt(d)
         Xt_aug = np.column_stack([Xt_s, y_hat_train[:, None] * weight]).astype(np.float32)
         Xq_aug = np.column_stack([Xq_s, y_hat_query[:, None] * weight]).astype(np.float32)
-        n_clusters_eff = min(n_clusters, Xt_aug.shape[0] // 4 if Xt_aug.shape[0] >= 80 else 4)
+        n_clusters_eff = max(1, min(n_clusters, Xt_aug.shape[0] // 4 if Xt_aug.shape[0] >= 80 else 4, Xt_aug.shape[0]))
         km = MiniBatchKMeans(n_clusters=n_clusters_eff, random_state=int(fold_seed), n_init=4, max_iter=100, batch_size=256).fit(Xt_aug)
         train_labels = km.labels_
         cluster_y_mean = np.zeros(n_clusters_eff, dtype=np.float32)
