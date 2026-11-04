@@ -47,3 +47,18 @@ def test_fit_end_release_returns_cached_slot_blocks():
     assert pool.total_bytes() > 0
     release_fit_scoped_caches()
     assert pool.total_bytes() == 0
+
+
+def test_fit_end_release_drops_resident_codes_handoff():
+    """A resident-codes handoff entry left after a fit is dropped by the fit-end release, so its device codes do not outlive the fit."""
+    require_cuda_device()
+    import numpy as np
+
+    from mlframe.feature_selection.filters import _gpu_resident_fe  # noqa: F401  (the releaser lives here; a fit always imports it)
+    from mlframe.feature_selection.filters import _gpu_resident_shared as shared
+    from mlframe.feature_selection.filters._fit_scoped_release import release_fit_scoped_caches
+
+    host = np.zeros((4, 3), dtype=np.int8)
+    shared._RESIDENT_CODES_HANDOFF[id(host)] = (cp.zeros((4, 3), dtype=cp.int8), host.shape, host.dtype, None)
+    release_fit_scoped_caches()
+    assert id(host) not in shared._RESIDENT_CODES_HANDOFF

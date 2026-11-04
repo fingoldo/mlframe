@@ -15,6 +15,9 @@ _RELEASERS = (
     (f"{_PKG}._joblib_safe", "release_fit_constant_memmaps"),
     (f"{_PKG}.info_theory._cmi_resident_cache", "clear_cmi_resident_cache"),
     (f"{_PKG}.info_theory._cmi_resident_cache", "clear_cmi_xc_resident_cache"),
+    # the codes handoff and its deferred host fill still held 226 + 55 MB of device codes after a warm 100k fit, the FE operand caches 18 MB
+    (f"{_PKG}._gpu_resident_fe", "clear_resident_codes_handoff"),
+    (f"{_PKG}._fe_resident_operands", "clear_fe_resident_operands"),
 )
 
 
