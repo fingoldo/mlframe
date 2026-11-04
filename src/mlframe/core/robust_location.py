@@ -62,7 +62,12 @@ def _mad_scale(x: np.ndarray) -> float:
     for i in range(n):
         dev[i] = abs(x[i] - med)
     mad = _median_sorted(dev) * 1.4826
-    return mad if mad > 1e-12 else 1.0
+    if mad > 1e-12:
+        return float(mad)
+    # More than half of the values tie at the median (MAD = 0): fall back to the mean absolute deviation (x1.2533 for the normal std), which scales with the data.
+    # A constant 1.0 made the estimate depend on the units of x; only a column of identical values keeps the unit scale.
+    mean_ad = float(np.sum(dev)) / n * 1.2533
+    return mean_ad if mean_ad > 1e-12 else 1.0
 
 
 @njit(fastmath=False, cache=True)

@@ -550,10 +550,12 @@ def justify_estimator(
                 else:
                     if np.isfinite(refit_score):
                         logger.info(
-                            "Refit eval-set %s=%s (CV gate mean was %s); using the refit score as expected_score.",
+                            "Refit eval-set %s=%s (CV gate mean was %s); using the lower of the two as expected_score.",
                             scoring, refit_score, mean_score,
                         )
-                        mean_score = refit_score
+                        # The refit stopped (and kept its best iteration) on this very X_test, so its score there is optimistic; the CV mean is out-of-sample. Report the
+                        # lower of the two so the cached quality never exceeds what the unbiased estimate supports.
+                        mean_score = min(mean_score, refit_score)
             else:
                 est.fit(X, y)
         # `refit=False` returns `est` UNFITTED, which is what the docstring promises. Returning None here made a
