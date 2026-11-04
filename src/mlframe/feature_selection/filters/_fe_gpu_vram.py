@@ -113,7 +113,8 @@ def _own_pool_free_bytes() -> int:
         import cupy as cp
 
         return int(cp.get_default_memory_pool().free_bytes())
-    except Exception:
+    except Exception as exc:
+        logger.debug("cupy pool free bytes unreadable (%r); 0", exc)
         return 0
 
 

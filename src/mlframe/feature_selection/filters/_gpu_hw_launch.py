@@ -45,7 +45,7 @@ def _current_device_id() -> "int | None":
         import cupy as cp
 
         return int(cp.cuda.Device().id)
-    except Exception:
+    except Exception:  # best-effort: no cupy / CUDA is the documented None
         return None
 
 
@@ -220,8 +220,8 @@ def fixed_shared_block_size(
     if not props:
         return 0
     warp = props["warp"]
-    lo = max(warp, int(min_width or warp))
-    hi = min(props["max_threads_per_block"], int(max_width or props["max_threads_per_block"]))
+    lo = max(warp, int(min_width) if min_width is not None else warp)
+    hi = min(props["max_threads_per_block"], int(max_width) if max_width is not None else props["max_threads_per_block"])
     if work_items is not None and int(work_items) > 0:
         hi = min(hi, ((int(work_items) + warp - 1) // warp) * warp)
     if hi < lo:

@@ -523,6 +523,17 @@ _PAIR_FLOOR_MEMO = ContentMemo(max_entries=4)  # K per-shuffle maxima of a pool,
 _PAIR_FLOOR_MEMO_MIN_WORK = 50_000_000  # pairs x shuffles x rows from which hashing the inputs to catch a repeat is worth it
 
 
+def _sequential_label_shuffles(classes_y: np.ndarray, k: int, random_seed: Any) -> np.ndarray:
+    """``(k, n)`` labels after each of ``k`` SEQUENTIAL in-place shuffles from ``default_rng(random_seed)`` (the per-shuffle loop's permutations)."""
+    rng = np.random.default_rng(random_seed)
+    y_perm = np.ascontiguousarray(classes_y).astype(np.int64).copy()
+    y_perms = np.empty((k, y_perm.shape[0]), dtype=np.int64)
+    for i in range(k):
+        rng.shuffle(y_perm)
+        y_perms[i] = y_perm
+    return y_perms
+
+
 def pooled_pair_permutation_null_joint_mi_floor(
     factors_data: np.ndarray,
     nbins: np.ndarray,
@@ -647,12 +658,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
         remembered = _PAIR_FLOOR_MEMO.get(memo_key)
         if remembered is not None:
             return float(np.quantile(remembered, float(quantile)))
-    rng = np.random.default_rng(random_seed)
-    y_perm = np.ascontiguousarray(classes_y).astype(np.int64).copy()
-    y_perms = np.empty((K, y_perm.shape[0]), dtype=np.int64)
-    for k in range(K):
-        rng.shuffle(y_perm)  # SAME sequential in-place shuffles as the per-shuffle loop -> identical permutations
-        y_perms[k] = y_perm
+    y_perms = _sequential_label_shuffles(classes_y, K, random_seed)
     # One device launch replays all K shuffles for every pair when the host's tuning-cache entry prefers it (and the shape fits); the shuffles above are the same host draws either way.
     from ._pair_mi_perm_cuda import DeviceKernelDeclinedError, floor_backend_choice, pair_mi_perm_matrix_cuda
 

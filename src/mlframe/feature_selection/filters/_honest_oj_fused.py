@@ -14,6 +14,7 @@ without a scored candidate in any permutation, or ``MLFRAME_HONEST_OJ_FUSED=0``.
 from __future__ import annotations
 
 import logging
+import math
 import os
 from typing import Any, Optional
 
@@ -22,6 +23,7 @@ from numba import njit, prange
 
 from ._adaptive_nbins import _plug_in_mi_njit
 from ._numba_utils_cross_module import _mi_codes_njit, _n_unique_codes
+from ._numba_utils_shared import seeded_permutation
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +31,9 @@ _PERM_BLOCK = 64  # permutations drawn on the host and scored per kernel launch
 
 
 @njit(cache=True)
-def _fold_targets(perm, y_raw, val_idx, nv):
-    """Validation-fold targets of the permuted raw target and each fold's class count."""
-    n_f = val_idx.shape[0]
+def _fold_targets(perm, y_raw, nv, val_idx):
+    """Fold targets ``y_raw[perm[val rows]]`` of one permutation and their class counts ``K = max + 1``."""
+    n_f = nv.shape[0]
     vy = np.zeros((n_f, val_idx.shape[1]), dtype=np.int64)
     ky = np.zeros(n_f, dtype=np.int64)
     for f in range(n_f):
@@ -39,68 +41,159 @@ def _fold_targets(perm, y_raw, val_idx, nv):
         for i in range(nv[f]):
             v = y_raw[perm[val_idx[f, i]]]
             vy[f, i] = v
-            if v > top:
-                top = v
+            top = max(top, v)
         ky[f] = top + 1 if nv[f] > 0 else 0
     return vy, ky
 
 
 @njit(cache=True)
-def _pick_winners(xb, kx, nv, vy, ky):
-    """For each re-binned column the candidate count with the best fold-mean plug-in MI (``-1`` when no fold scored one)."""
-    n_f, p, n_m = kx.shape
+def _mean_fold_mi(xb, kx, nv, vy, ky, j, m):
+    """Mean fold MI of candidate ``m`` of column ``j`` (``-inf`` when no fold scored it)."""
+    total = 0.0
+    cells = 0
+    for f in range(kx.shape[0]):
+        k_x = kx[f, j, m]
+        if k_x == 0:
+            continue
+        if ky[f] >= 1:
+            total += _plug_in_mi_njit(xb[f, j, m, : nv[f]], vy[f, : nv[f]], k_x, ky[f], False)
+        cells += 1
+    return total / cells if cells > 0 else -np.inf
+
+
+@njit(cache=True)
+def _winners(xb, kx, nv, vy, ky):
+    """Winning candidate index of every re-binned column (``-1`` when none was scored): the loop of ``_oj_pick_candidates``."""
+    p, n_m = kx.shape[1], kx.shape[2]
     pick = np.full(p, -1, dtype=np.int64)
     for j in range(p):
         best = -np.inf
-        best_m = -1
+        for m in range(n_m):
+            sc = _mean_fold_mi(xb, kx, nv, vy, ky, j, m)
+            if sc > best:
+                best = sc
+                pick[j] = m
+    return pick
+
+
+@njit(cache=True, parallel=True)
+def _px_table(xb, kx, nv):
+    """``(F, P, M, max k_x)`` bin counts of every fold cell: they do not depend on the permutation (the codes are fixed, only the target moves)."""
+    n_f, p, n_m = kx.shape
+    out = np.zeros((n_f, p, n_m, max(1, int(kx.max()))), dtype=np.float64)  # Intentional float64: count table feeding the MI statistic
+    for j in prange(p):
+        for f in range(n_f):
+            for m in range(n_m):
+                if kx[f, j, m] > 0:
+                    for i in range(nv[f]):
+                        out[f, j, m, xb[f, j, m, i]] += 1.0
+    return out
+
+
+@njit(cache=True)
+def _minority_rows(vy, nv, ky):
+    """Per fold, the rows outside the most frequent class (``(F, max nv)`` row lists, their lengths) and that class: only those rows are scattered."""
+    n_f = nv.shape[0]
+    idx = np.empty((n_f, vy.shape[1]), dtype=np.int64)
+    cnt = np.zeros(n_f, dtype=np.int64)
+    cmax = np.zeros(n_f, dtype=np.int64)
+    for f in range(n_f):
+        counts = np.zeros(max(1, ky[f]), dtype=np.int64)
+        for i in range(nv[f]):
+            counts[vy[f, i]] += 1
+        cmax[f] = np.argmax(counts)
+        for i in range(nv[f]):
+            if vy[f, i] != cmax[f]:
+                idx[f, cnt[f]] = i
+                cnt[f] += 1
+    return idx, cnt, cmax
+
+
+@njit(cache=True)
+def _mi_from_minority(xrow, vy_f, rows, n_rows, px, k_x, k_y, cmax, n):
+    """``_plug_in_mi_njit(xrow, vy_f, k_x, k_y, False)`` bit for bit: the joint counts of the majority class column are the bin counts ``px`` minus the
+    other classes' (exact integers in float64), so only the minority rows are scattered; Px, Py and the MI sum run in the same order."""
+    joint = np.zeros((k_x, k_y), dtype=np.float64)  # Intentional float64: joint-count accumulator for the MI statistic
+    for r in range(n_rows):
+        i = rows[r]
+        joint[xrow[i], vy_f[i]] += 1.0
+    for a in range(k_x):
+        s = 0.0
+        for c in range(k_y):
+            if c != cmax:
+                s += joint[a, c]
+        joint[a, cmax] = px[a] - s
+    n_f = float(n)
+    Px = np.zeros(k_x, dtype=np.float64)  # Intentional float64: marginal-count accumulator for the MI statistic
+    Py = np.zeros(k_y, dtype=np.float64)  # Intentional float64: marginal-count accumulator for the MI statistic
+    for a in range(k_x):
+        for c in range(k_y):
+            Px[a] += joint[a, c]
+            Py[c] += joint[a, c]
+    mi = 0.0
+    for a in range(k_x):
+        if Px[a] <= 0.0:
+            continue
+        for c in range(k_y):
+            v = joint[a, c]
+            if v <= 0.0 or Py[c] <= 0.0:
+                continue
+            pr = v / n_f
+            mi += pr * math.log(pr * n_f / (Px[a] * Py[c] / n_f))
+    return mi
+
+
+@njit(cache=True)
+def _winners_minority(xb, kx, nv, vy, ky, px):
+    """:func:`_winners` with every fold MI from :func:`_mi_from_minority` (same picks, same numbers, fewer scattered rows)."""
+    p, n_m = kx.shape[1], kx.shape[2]
+    idx, cnt, cmax = _minority_rows(vy, nv, ky)
+    pick = np.full(p, -1, dtype=np.int64)
+    for j in range(p):
+        best = -np.inf
         for m in range(n_m):
             total = 0.0
             cells = 0
-            for f in range(n_f):
+            for f in range(kx.shape[0]):
                 k_x = kx[f, j, m]
                 if k_x == 0:
                     continue
-                mi = 0.0
-                if ky[f] >= 1:
-                    mi = _plug_in_mi_njit(xb[f, j, m, : nv[f]], vy[f, : nv[f]], k_x, ky[f], False)
-                total += mi
+                if ky[f] >= 1 and nv[f] > 0:
+                    total += _mi_from_minority(xb[f, j, m], vy[f], idx[f], cnt[f], px[f, j, m], k_x, ky[f], cmax[f], nv[f])
                 cells += 1
-            if cells > 0 and total / cells > best:
-                best = total / cells
-                best_m = m
-        pick[j] = best_m
+            sc = total / cells if cells > 0 else -np.inf
+            if sc > best:
+                best = sc
+                pick[j] = m
     return pick
 
 
 @njit(cache=True)
-def _pool_max_corrected(perm, yc, rows, pick, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff):
-    """The pool's largest Miller-Madow corrected MI against the permuted target at the evaluation rows, ``-inf`` when a column had no winner."""
+def _permuted_codes(perm, yc, rows):
+    """Permuted target codes at the evaluation rows, their class count and the number of occupied classes."""
     ycp = np.empty(rows.shape[0], dtype=np.int64)
     ny = 0
     for i in range(rows.shape[0]):
-        v = yc[perm[rows[i]]]
-        ycp[i] = v
-        if v + 1 > ny:
-            ny = v + 1
+        ycp[i] = yc[perm[rows[i]]]
+        ny = max(ny, ycp[i] + 1)
     counts = np.zeros(ny, dtype=np.int64)
     for i in range(rows.shape[0]):
         counts[ycp[i]] += 1
-    ky_eff = 0.0
-    for c in range(ny):
-        if counts[c] > 0:
-            ky_eff += 1.0
+    return ycp, ny, float((counts > 0).sum())
+
+
+@njit(cache=True)
+def _pool_max(pick, ycp, ny, ky_eff, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff):
+    """The pool's largest Miller-Madow corrected MI (``corrected_mi_best``'s formula), ``-inf`` when a column has no winner."""
     res = 0.0
     for t in range(pool_dep.shape[0]):
-        j = pool_dep[t]
         m = 0
-        if j >= 0:
-            m = pick[j]
+        if pool_dep[t] >= 0:
+            m = pick[pool_dep[t]]
             if m < 0:
                 return -np.inf
         mi = _mi_codes_njit(pool_rc[t, m], pool_nb[t, m], ycp, ny)
-        corr = mi - (pool_kxe[t, m] - 1.0) * (ky_eff - 1.0) / (2.0 * n_eff)
-        if corr > res:
-            res = corr
+        res = max(res, mi - (pool_kxe[t, m] - 1.0) * (ky_eff - 1.0) / (2.0 * n_eff))
     return res
 
 
@@ -109,9 +202,21 @@ def _fused_block(perms, y_raw, yc, rows, xb, kx, nv, val_idx, pool_dep, pool_rc,
     """``out[b]`` = the pool's largest corrected MI under permutation ``perms[b]``, ``-inf`` when a column had no scored candidate (the caller declines)."""
     for b in prange(perms.shape[0]):
         perm = perms[b]
-        vy, ky = _fold_targets(perm, y_raw, val_idx, nv)
-        pick = _pick_winners(xb, kx, nv, vy, ky)
-        out[b] = _pool_max_corrected(perm, yc, rows, pick, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff)
+        vy, ky = _fold_targets(perm, y_raw, nv, val_idx)
+        pick = _winners(xb, kx, nv, vy, ky)
+        ycp, ny, ky_eff = _permuted_codes(perm, yc, rows)
+        out[b] = _pool_max(pick, ycp, ny, ky_eff, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff)
+
+
+@njit(cache=True, parallel=True)
+def _fused_block_minority(perms, y_raw, yc, rows, xb, kx, nv, val_idx, px, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, out):
+    """:func:`_fused_block` with the winners from :func:`_winners_minority` (bin counts ``px`` from :func:`_px_table`); the same ``out``."""
+    for b in prange(perms.shape[0]):
+        perm = perms[b]
+        vy, ky = _fold_targets(perm, y_raw, nv, val_idx)
+        pick = _winners_minority(xb, kx, nv, vy, ky, px)
+        ycp, ny, ky_eff = _permuted_codes(perm, yc, rows)
+        out[b] = _pool_max(pick, ycp, ny, ky_eff, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff)
 
 
 def _declined(reason: str) -> None:
@@ -120,6 +225,15 @@ def _declined(reason: str) -> None:
 
     log_throttle(logger, "honest_oj_fused_declined:" + reason, logging.INFO, "fused optimal_joint honest floor not used: %s; the per-permutation floor runs", reason)
     return None
+
+
+@njit(cache=True, parallel=True)
+def _perm_block(n, base_seed, b0, b1):
+    """``(b1 - b0, n)`` permutations ``seeded_permutation(n, base_seed + b)`` for ``b`` in ``[b0, b1)``, drawn in parallel (the same streams)."""
+    out = np.empty((b1 - b0, n), dtype=np.int64)
+    for i in prange(b1 - b0):
+        out[i] = seeded_permutation(n, base_seed + b0 + i)
+    return out
 
 
 @njit(cache=True, parallel=True)
@@ -181,129 +295,208 @@ def oj_fused_floor(honest_codes_fn: Any, factors_data: np.ndarray, factors_nbins
         return None
 
 
-def _target_free_rows(binner, plans, y_int, n_dep, n, base_seed):
-    """``{column: code slot}`` for re-binned columns without a plan, or ``None`` when one of them has target-dependent edges.
+class _DeclineError(Exception):
+    """The fused floor does not apply; the message is the reason logged by :func:`_declined`."""
 
-    A column without a plan took an early, target-free edge rule (few values / too few rows): its code row must not depend on the target. Checked on two
-    different permutations; the row then serves every permutation like a fixed column's.
-    """
+
+def _cached_plans(honest_codes_fn, binner, cache, n, base_seed):
+    """The cached plan of every re-binned column (``None`` where the column has none), building them through one permutation's normal route if needed."""
     from ._honest_mdlp_null import seeded_permutation
 
-    free_rows: dict = {}
-    for j in range(n_dep):
+    candidates = tuple(binner._kwargs.get("candidates", (4, 8, 16, 32)))
+    n_splits, seed = binner._kwargs.get("n_splits", 3), binner._kwargs.get("random_state", 0)
+
+    def _plans():
+        """The cached plans now."""
+        return [cache.get(binner._arr[:, j], candidates, n_splits, "quantile", seed) for j in range(binner._arr.shape[1])]
+
+    plans = _plans()
+    if any(pl is None for pl in plans):
+        # the plans are built by a permutation's normal route: run the first permutation through the hook once (its codes are the production ones)
+        honest_codes_fn(seeded_permutation(n, base_seed))
+        plans = _plans()
+    return plans, candidates
+
+
+def _free_rows(binner, plans, y_int, n, base_seed):
+    """Code-table slot of every re-binned column without a plan. Such a column took an early, target-free edge rule (few values / too few rows): its row
+    must not depend on the target, checked on two different permutations; the row then serves every permutation like a fixed column's."""
+    from ._honest_mdlp_null import seeded_permutation
+
+    out: dict = {}
+    for j in range(len(plans)):
         if plans[j] is not None:
             continue
         s0 = binner._edges_slot(j, np.ascontiguousarray(y_int[seeded_permutation(n, base_seed)]))
         s1 = binner._edges_slot(j, np.ascontiguousarray(y_int[seeded_permutation(n, base_seed + 1)]))
         if s0 is None or s1 is None or s0 != s1:
-            return None
-        free_rows[j] = s0
-    return free_rows
+            raise _DeclineError("a re-binned column without a plan has target-dependent edges")
+        out[j] = s0
+    return out
 
 
-def _candidate_code_rows(binner, plans, planned, ms, key, y_int, n_dep):
-    """Code-table slot of every (planned column, candidate count), through the binner's own edge path with the count planted as the plan's winner; ``None`` at the byte budget."""
-    dep_rows = np.full((n_dep, len(ms)), -1, dtype=np.int64)
-    for j in planned:
-        for mi, m in enumerate(ms):
-            s = binner._by_count.get((j, m))
-            if s is None:
-                best = plans[j].setdefault("best", {})
-                prev = best.get(key)
-                best[key] = m
-                try:
-                    s = binner._edges_slot(j, y_int)
-                finally:
-                    if prev is None:
-                        best.pop(key, None)
-                    else:
-                        best[key] = prev
-                if s is None:
-                    return None
-                binner._by_count[(j, m)] = s
-            dep_rows[j, mi] = s
-    return dep_rows
+def _count_slot(binner, plan, j, m, key, y_int):
+    """Code-table slot of column ``j`` binned with ``m`` bins, through the binner's own edge path with ``m`` planted as the plan's winner."""
+    s = binner._by_count.get((j, m))
+    if s is not None:
+        return s
+    best = plan.setdefault("best", {})
+    prev = best.get(key)
+    best[key] = m
+    try:
+        s = binner._edges_slot(j, y_int)
+    finally:
+        if prev is None:
+            best.pop(key, None)
+        else:
+            best[key] = prev
+    if s is None:
+        raise _DeclineError("the binner's code table is at its byte budget")
+    binner._by_count[(j, m)] = s
+    return s
 
 
-def _fold_validation_index(folds, nv):
-    """``(n_folds, max_nv)`` row indices of each fold's validation mask, zero padded."""
+def _pool_arrays(binner, cols, dep_rows, ms, factors_data, factors_nbins, n, sub, free_rows):
+    """``(pool_dep, pool_codes, pool_nb)``, assembled once per (pool, rows count) and kept on the binner: the floor runs twice per fit over the same pool."""
+    pool = [int(c) for c in cols]
+    memo_key = (tuple(pool), n)
+    memo = getattr(binner, "_fused_pool_memo", None)
+    if memo is not None and memo[0] == memo_key:
+        return memo[1]
+    arrays = _assemble_pool(binner, pool, len(binner._out_names), dep_rows, ms, factors_data, factors_nbins, n, sub, free_rows)
+    binner._fused_pool_memo = (memo_key, arrays)
+    return arrays
+
+
+def _val_index(packed):
+    """``(nv, val_idx)``: validation rows count and indices of every fold."""
+    folds = packed["folds"]
+    nv = np.asarray(packed["nv"], dtype=np.int64)
     val_idx = np.zeros((len(folds), int(nv.max())), dtype=np.int64)
     for f, (_k, vm) in enumerate(folds):
         idx = np.flatnonzero(vm)
         val_idx[f, : idx.size] = idx
-    return val_idx
+    return nv, val_idx
+
+
+def _score_block(dev, dev_pool, perms, y_int, yc, rows, xb, kx, nv, val_idx, px, pool_args):
+    """``(null maxima, plain MI (B, pool) or None)`` of one block of permutations: the winners on the device when ``dev`` is set and the pool there too when
+    ``dev_pool`` is (which also returns every pool column's MI), else the CPU kernels."""
+    out = np.empty(perms.shape[0], dtype=np.float64)  # Intentional float64: statistic vector
+    picks = None
+    if dev is not None:
+        try:
+            picks = dev.picks(perms)
+        except Exception as exc:
+            logger.debug("device winners failed (%s: %s); CPU kernel", type(exc).__name__, exc)
+    if picks is not None and dev_pool is not None:
+        try:
+            return dev_pool.maxima(perms, picks, pool_args[-1]), dev_pool.last_mi
+        except Exception as exc:
+            logger.debug("device pool failed (%s: %s); CPU pool", type(exc).__name__, exc)
+    if picks is not None:
+        from ._honest_oj_fused_gpu import _pool_block
+
+        _pool_block(perms, picks, yc, rows, *pool_args, out)
+    else:
+        _fused_block_minority(perms, y_int, yc, rows, xb, kx, nv, val_idx, px, *pool_args, out)
+    return out, None
 
 
 def _floor(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, cols, n_permutations, quantile, base_seed, eval_rows):
     """Body of :func:`oj_fused_floor`."""
+    try:
+        return _floor_body(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, cols, n_permutations, quantile, base_seed, eval_rows)
+    except _DeclineError as exc:
+        logger.debug("fused optimal_joint floor declined: %s", exc)
+        return _declined(str(exc))
+
+
+def _floor_body(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, cols, n_permutations, quantile, base_seed, eval_rows):
+    """:func:`_floor`, raising :class:`_DeclineError` where the fused path does not apply."""
     from ._adaptive_nbins import _distinct_exceeds
-    from ._honest_mdlp_null import seeded_permutation
+    from ._optimal_joint_edges import pack_plans
 
     max_y = int(binner._kwargs.get("optimal_joint_max_y_classes", 64))
     if y_raw.dtype.kind not in "iub" or y_raw.size == 0 or int(y_raw.min()) < 0 or _distinct_exceeds(y_raw, max_y):
-        return _declined("the raw target is not small non-negative integer labels")
+        raise _DeclineError("the raw target is not small non-negative integer labels")
     y_int = np.ascontiguousarray(y_raw, dtype=np.int64)
-    from ._optimal_joint_edges import pack_plans
-
     cache = binner._kwargs.get("optimal_joint_plan_cache")
     if cache is None:
-        return _declined("no optimal_joint plan cache on the binner")
-    candidates = tuple(binner._kwargs.get("candidates", (4, 8, 16, 32)))
-    n_splits, seed = binner._kwargs.get("n_splits", 3), binner._kwargs.get("random_state", 0)
-    n_dep = binner._arr.shape[1]
-
-    def _plans():
-        """The cached plan of every re-binned column (``None`` where the column has none)."""
-        return [cache.get(binner._arr[:, j], candidates, n_splits, "quantile", seed) for j in range(n_dep)]
-
-    plans = _plans()
-    if any(pl is None for pl in plans):
-        # the plans are built by a permutation's normal route: run the first permutation through the hook once (its codes are the production ones)
-        honest_codes_fn(seeded_permutation(int(factors_data.shape[0]), base_seed))
-        plans = _plans()
-    planned = [j for j in range(n_dep) if plans[j] is not None]
+        raise _DeclineError("no optimal_joint plan cache on the binner")
+    n = int(factors_data.shape[0])
+    plans, candidates = _cached_plans(honest_codes_fn, binner, cache, n, base_seed)
+    planned = [j for j in range(len(plans)) if plans[j] is not None]
     if not planned:
-        return _declined("no column has an optimal_joint plan")
+        raise _DeclineError("no column has an optimal_joint plan")
     packed = pack_plans([plans[j] for j in planned], candidates)
     if packed is None:
-        return _declined("the column plans do not pack (differing folds or wide codes)")
+        raise _DeclineError("the column plans do not pack (differing folds or wide codes)")
     ms = list(packed["ms"])
-    n = int(factors_data.shape[0])
     key = cache._target_key(y_int)
-    # a column without a plan took an early, target-free edge rule (few values / too few rows): its code row must not depend on the target. Checked on two
-    # different permutations; the row then serves every permutation like a fixed column's.
-    free_rows = _target_free_rows(binner, plans, y_int, n_dep, n, base_seed)
-    if free_rows is None:
-        return _declined("a re-binned column without a plan has target-dependent edges")
+    free_rows = _free_rows(binner, plans, y_int, n, base_seed)
     sub = {j: i for i, j in enumerate(planned)}  # re-binned column -> its place among the packed plans
-    # the code row of every (planned column, candidate count), through the binner's own edge path with the count planted as the plan's winner
-    dep_rows = _candidate_code_rows(binner, plans, planned, ms, key, y_int, n_dep)
-    if dep_rows is None:
-        return _declined("the binner's code table is at its byte budget")
-    width = len(binner._out_names)
-    pool = [int(c) for c in cols]
+    dep_rows = np.full((len(plans), len(ms)), -1, dtype=np.int64)
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    def _column_slots(j):
+        """The code-table slots of column ``j`` under every candidate count (columns are independent: own plan, own table rows under the binner's lock)."""
+        return j, [_count_slot(binner, plans[j], j, m, key, y_int) for m in ms]
+
+    with ThreadPoolExecutor(max_workers=_resolve_edge_jobs(None, len(planned))) as pool_ex:
+        for j, slots in pool_ex.map(_column_slots, planned):
+            dep_rows[j] = slots
     rows = np.arange(n, dtype=np.int64) if eval_rows is None else np.asarray(eval_rows, dtype=np.int64)
-    # the pool's code rows, assembled once per (pool, rows count) and kept on the binner: the floor runs twice per fit over the same pool
-    memo_key = (tuple(pool), n)
-    memo = getattr(binner, "_fused_pool_memo", None)
-    if memo is not None and memo[0] == memo_key:
-        pool_dep, pool_codes, pool_nb = memo[1]
-    else:
-        pool_dep, pool_codes, pool_nb = _assemble_pool(binner, pool, width, dep_rows, ms, factors_data, factors_nbins, n, sub, free_rows)
-        binner._fused_pool_memo = (memo_key, (pool_dep, pool_codes, pool_nb))
-    nv = np.asarray(packed["nv"], dtype=np.int64)
-    val_idx = _fold_validation_index(packed["folds"], nv)
+    pool_dep, pool_codes, pool_nb = _pool_arrays(binner, cols, dep_rows, ms, factors_data, factors_nbins, n, sub, free_rows)
+    nv, val_idx = _val_index(packed)
     yc = np.ascontiguousarray(factors_data[:, int(y_idx)]).astype(np.int64)
     # the pool's codes at the evaluation rows and their occupied-bin counts do not depend on the permutation: built once here, not per permutation in the kernel
     pool_rc = np.ascontiguousarray(pool_codes[:, :, rows])
     pool_kxe = _occupied_bins(pool_rc)
+    kx = np.asarray(packed["kx"], dtype=np.int64)
+    px = _px_table(packed["xb"], kx, nv)  # per-cell bin counts: the winners scatter only the rows outside the majority class
+    from ._honest_oj_fused_gpu import device_pool, device_winners
+
+    dev = device_winners(packed["xb"], kx, nv, val_idx, y_int, px, n)
+    dev_pool = device_pool(dev, pool_dep, pool_rc, pool_nb, pool_kxe, yc, rows)
+    pool_args = (pool_dep, pool_rc, pool_nb, pool_kxe, float(len(rows)))
     nulls = np.empty(int(n_permutations), dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
+    mi_blocks: "list | None" = []
     for b0 in range(0, int(n_permutations), _PERM_BLOCK):
         b1 = min(int(n_permutations), b0 + _PERM_BLOCK)
-        perms = np.stack([seeded_permutation(n, base_seed + b) for b in range(b0, b1)]).astype(np.int64)
-        out = np.empty(b1 - b0, dtype=np.float64)  # Intentional float64: statistic vector
-        _fused_block(perms, y_int, yc, rows, packed["xb"], np.asarray(packed["kx"], dtype=np.int64), nv, val_idx, pool_dep, pool_rc, pool_nb, pool_kxe, float(len(rows)), out)
+        perms = _perm_block(n, base_seed, b0, b1)
+        out, mi = _score_block(dev, dev_pool, perms, y_int, yc, rows, packed["xb"], kx, nv, val_idx, px, pool_args)
         if np.isneginf(out).any():
-            return _declined("a column had no scored candidate count in some permutation")
+            raise _DeclineError("a column had no scored candidate count in some permutation")
         nulls[b0:b1] = out
+        mi_blocks = None if (mi_blocks is None or mi is None) else [*mi_blocks, mi]
+    if mi_blocks:
+        binner._fused_null_mi = (_null_key(base_seed, n_permutations, n, rows), {int(c): t for t, c in enumerate(cols)}, np.concatenate(mi_blocks))
     return float(np.quantile(nulls, float(quantile), method="higher"))
+
+
+def _null_key(base_seed, n_permutations, n, rows) -> tuple:
+    """What the pool's per-permutation MI depends on besides the binner: the permutation stream, its length, the rows count and the evaluation rows."""
+    import hashlib
+
+    return int(base_seed), int(n_permutations), int(n), hashlib.blake2b(np.ascontiguousarray(rows, dtype=np.int64).view(np.uint8).data, digest_size=16).hexdigest()
+
+
+def fused_column_nfailed(honest_codes_fn: Any, col: int, observed: float, n_permutations: int, base_seed: int, n: int, rows: np.ndarray) -> Optional[int]:
+    """``honest_candidate_nfailed``'s exceedance count of pool column ``col`` from the per-permutation MI the fused floor kept (same permutations, rows and
+    codes: the column's winning code row under each permuted target; the candidate's shorter run is the head of the floor's stream), or ``None`` when the
+    floor kept none for this stream and rows or the column is not in its pool."""
+    binner = getattr(honest_codes_fn, "binner", None)
+    kept = getattr(binner, "_fused_null_mi", None)
+    if binner is None or kept is None:
+        return None
+    k_seed, k_perms, k_n, k_rows = kept[0]
+    # permutation b of a stream is seeded ``base_seed + b``: a shorter run of the same stream is the floor's first ``n_permutations``
+    if (k_seed, k_n) != (int(base_seed), int(n)) or int(n_permutations) > k_perms or k_rows != _null_key(base_seed, n_permutations, n, rows)[3]:
+        return None
+    t = kept[1].get(int(col))
+    if t is None or int(col) >= len(binner._out_names):
+        return None  # an engineered column appended after binning: the honest codes do not cover it (the caller's contract is ``None``)
+    return int(np.count_nonzero(kept[2][: int(n_permutations), t] >= observed))

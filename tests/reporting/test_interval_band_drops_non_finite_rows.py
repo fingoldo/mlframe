@@ -19,5 +19,6 @@ def test_nan_rows_are_not_drawn():
     assert len(spec.x) == n - 50
     lo, hi = spec.band
     assert np.all(np.isfinite(lo)) and np.all(np.isfinite(hi))
+    assert len(spec.y) > 0
     for series in spec.y:
         assert np.all(np.isfinite(np.asarray(series, dtype=np.float64)))

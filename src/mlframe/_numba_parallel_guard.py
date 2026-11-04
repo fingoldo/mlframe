@@ -67,7 +67,7 @@ def _layer_allows_concurrent_entry() -> bool:
 
         _probe(np.ones(8))
         return str(numba.threading_layer()) == "tbb"
-    except Exception:
+    except Exception:  # best-effort: an unprobeable layer is treated as not concurrent-safe, the conservative answer
         return False
 
 

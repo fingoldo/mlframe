@@ -61,7 +61,7 @@ def content_memo(max_entries: int = 4, max_bytes: int = 256 * 1024 * 1024) -> Ca
                 _digest(args, h)
                 _digest(kwargs, h)
                 key = h.hexdigest()
-            except Exception:
+            except Exception:  # best-effort: an unhashable input skips the memo; fn computes the same result
                 return fn(*args, **kwargs)
             hit = store.get(key)
             if hit is not None:

@@ -213,3 +213,18 @@ def test_plans_evict_column_facts_when_the_budget_is_full():
     cache.column_facts(rng.standard_normal(4000))  # fills most of the budget
     cache.put(x, (4, 8), 3, "quantile", 0, plan)
     assert cache.get(x, (4, 8), 3, "quantile", 0) is plan
+
+
+@pytest.mark.parametrize("seed", range(10))
+def test_final_edges_of_all_counts_from_one_percentile_call(seed):
+    """``_quantile_edges_many`` equals ``_edges_from_quantiles`` per count, on ties, zero runs, NaN and inf."""
+    from mlframe.feature_selection.filters._optimal_joint_edges import _quantile_edges_many
+
+    rng = np.random.default_rng(seed)
+    x = np.concatenate([rng.standard_normal(20000), np.zeros(seed * 2000), [np.nan, np.inf, -np.inf]])
+    if seed % 3 == 0:
+        x = np.round(x, 1)
+    ms = [1, 2, 4, 8, 16, 32]
+    many = _quantile_edges_many(x, ms)
+    for m in ms:
+        assert np.array_equal(many[m], A._edges_from_quantiles(x, m))

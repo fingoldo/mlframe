@@ -241,7 +241,6 @@ def _compute_per_scorer_rank_table(
     # the full-frame batch (per-column quantile is independent; verified 0.0
     # diff). Non-separable scorers (ksg/dcor/hsic carry a per-call random_state
     # subsample) stay per-column via _call.
-    from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     _BATCHABLE = {"plug_in", "copula", "xi", "ksg", "dcor", "hsic", "tail_dep"}
     _batch_scorers = [s for s in scorers if s in _BATCHABLE]
@@ -689,7 +688,7 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
             continue
         _pp = None
         try:
-            _col_full = np.asarray(X[src].to_numpy(), dtype=_crit_np_dtype())
+            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)  # Intentional float64: the params the replay applies must be the ones the fit-time values used (float64 basis axis)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as e:
             log_throttle(logger, "orthogonal_scorer_auto_fe.hot_loop_warning", logging.WARNING, "basis-params recompute failed for %s: %s", src, e)

@@ -251,7 +251,7 @@ def _radix_edges_in_column_blocks(cp, X_gpu, n_bins: int):
         stop = min(k, start + width)
         try:
             part = _radix_select_interior_edges(cp.ascontiguousarray(X_gpu[:, start:stop]), n_bins)
-        except Exception as exc:
+        except Exception as exc:  # best-effort: the percentile path computes the same edges
             if "Out of memory" in str(exc) and width > 1:
                 width = max(1, width // 2)
                 continue

@@ -86,9 +86,35 @@ def _optimal_joint_final_edges(plan: dict, M: int) -> np.ndarray:
     edges = plan["final"].get(M)
     if edges is None:
         x = plan["x"]
-        edges = cast(np.ndarray, _a()._edges_from_quantiles(x, M) if plan["base"] == "quantile" else _a()._edges_from_uniform(x, M))
-        plan["final"][M] = edges
+        if plan["base"] == "quantile":
+            # every candidate count of the plan from ONE percentile call (one partition of the column; each quantile is the same order-statistic
+            # interpolation as in a call of its own, so the edges equal ``_edges_from_quantiles(x, m)`` for every m)
+            ms = sorted({int(M)} | {int(m) for _k, _vm, cells in plan["folds"] for m, _xb, _kx in cells})
+            plan["final"].update(_quantile_edges_many(x, ms))
+            edges = plan["final"][M]
+        else:
+            edges = cast(np.ndarray, _a()._edges_from_uniform(x, M))
+            plan["final"][M] = edges
     return cast(np.ndarray, edges)
+
+
+def _quantile_edges_many(x: np.ndarray, ms: list) -> dict:
+    """``{m: _edges_from_quantiles(x, m)}`` for every ``m`` of ``ms`` from one ``np.percentile`` call."""
+    empty = np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
+    x = np.asarray(x, dtype=np.float64).ravel()  # Intentional float64: bin-edge computation input
+    x = x[np.isfinite(x)]
+    out = {m: empty for m in ms if m < 2 or x.size == 0}
+    todo = [m for m in ms if m not in out]
+    if not todo:
+        return out
+    grids = [np.linspace(0.0, 100.0, m + 1) for m in todo]
+    values = np.percentile(x, np.concatenate(grids))
+    o = 0
+    for m, g in zip(todo, grids):
+        full = np.unique(values[o : o + g.size])
+        o += g.size
+        out[m] = empty if full.size <= 2 else np.asarray(full[1:-1], dtype=np.float64)  # Intentional float64: bin-edge output contract
+    return out
 
 
 def edges_optimal_joint(
@@ -226,8 +252,20 @@ def prescore_best_m(packed: dict, plans: "list[dict]", y: np.ndarray, y_key: str
     return winners
 
 
+_VIEW_KEYS = 50000  # content hashes of views of read-only arrays kept per cache
 _MEMO_ENTRIES = 20000  # collapse refinements kept per cache: columns x the few edge sets each can take
 _FOLD_TARGET_MEMO = 48  # binned validation targets kept per cache: a few permutations of a few fold shapes
+
+
+def _view_key(arr: np.ndarray) -> "tuple[Optional[tuple], Any]":
+    """``(key, root)`` identifying a view of a READ-ONLY array by its root, position, shape, strides and dtype (the content behind it cannot change, and
+    the cache keeps the root alive so its id is not reused), or ``(None, None)`` for any other array."""
+    root = arr
+    while isinstance(root.base, np.ndarray):
+        root = root.base
+    if root is arr or root.flags.writeable or arr.flags.writeable:
+        return None, None
+    return (id(root), arr.__array_interface__["data"][0], arr.shape, arr.strides, arr.dtype.str), root
 
 
 class OptimalJointPlanCache:
@@ -243,6 +281,7 @@ class OptimalJointPlanCache:
     def __init__(self, max_bytes: int = 512 * 1024 * 1024) -> None:
         self._plans: dict = {}
         self._local = threading.local()  # last (array, key) hashed by this thread: one call hashes the same column for the plan and for the column facts, and the same target for every fold
+        self._views: "dict[tuple, tuple]" = {}  # (read-only base id, data pointer, shape, strides, dtype) of a view -> (base, content hash)
         self._facts: "dict[str, tuple]" = {}  # column hash -> (finite values, their unique values, the counts): the column facts the edge builders read
         self._memo: "dict[tuple, Any]" = {}  # small results that depend on a column and a few edge sets (the collapse refinement)
         self._targets: "dict[tuple, tuple]" = {}  # (target hash, folds, class cap) -> (binned validation target, classes): the target side of a fold, shared by every column with those folds
@@ -257,8 +296,19 @@ class OptimalJointPlanCache:
         last = getattr(self._local, "last", None)
         if last is not None and last[0] is arr:
             return cast(str, last[1])
+        vk, root = _view_key(arr)
+        if vk is not None:
+            with self._lock:
+                hit = self._views.get(vk)
+            if hit is not None and hit[0] is root:
+                self._local.last = (arr, hit[1])
+                return cast(str, hit[1])
         key = hash_array_content(arr)
         self._local.last = (arr, key)
+        if vk is not None:
+            with self._lock:
+                if len(self._views) < _VIEW_KEYS:
+                    self._views[vk] = (root, key)
         return key
 
     def _key(self, x: np.ndarray, candidates: tuple, n_splits: int, base: str, random_state: int) -> tuple:

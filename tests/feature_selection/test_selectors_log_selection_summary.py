@@ -459,3 +459,25 @@ def test_mrmr_tree_rescued_final_summary_matches_rescued_support(data, caplog):
     lines = [s for s in _summaries(caplog) if s[0] == "MRMR"]
     assert lines, "MRMRTreeRescued must emit the MRMR summary"
     assert lines[-1][1] == int(np.asarray(sel.support_).size), lines[-1][3]
+
+
+def test_every_logs_selection_label_names_the_function_it_decorates():
+    """A helper inserted between ``@logs_selection(label, ...)`` and its selector silently moved the summary onto the helper (pre_screen,
+    boruta_select): the selector then logged nothing. Each label must sit on the public selector it names (or on its recorded alias)."""
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "src" / "mlframe"
+    found = []
+    for path in root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            for dec in node.decorator_list:
+                if isinstance(dec, ast.Call) and getattr(dec.func, "id", None) == "logs_selection" and dec.args and isinstance(dec.args[0], ast.Constant):
+                    found.append((str(path.relative_to(root)), dec.args[0].value, node.name))
+    assert found
+    aliases = {"pre_screen": "compute_unsupervised_drops"}  # the selector's public label differs from its function name
+    wrong = [f for f in found if f[2].startswith("_") or f[2] != aliases.get(f[1], f[1])]
+    assert not wrong, f"@logs_selection labels on the wrong function (file, label, function): {wrong}"

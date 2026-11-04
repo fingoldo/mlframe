@@ -52,7 +52,6 @@ import threading
 from typing import Optional, Sequence
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift_array
 import pandas as pd
@@ -486,7 +485,7 @@ def hybrid_orth_mi_bootstrap_fe_with_recipes(
         # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
-            _col_full = np.asarray(X[src].to_numpy(), dtype=_crit_np_dtype())
+            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)  # Intentional float64: the params the replay applies must be the ones the fit-time values used (float64 basis axis)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging,

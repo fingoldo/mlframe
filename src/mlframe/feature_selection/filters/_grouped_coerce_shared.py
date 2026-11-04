@@ -39,7 +39,7 @@ def _prepared_keys(g_keys: np.ndarray) -> tuple:
             _KEY_PREP.pop(dead, None)
         while len(_KEY_PREP) >= _KEY_PREP_MAX:
             _KEY_PREP.pop(next(iter(_KEY_PREP)), None)  # evict-ok: a miss only re-factorizes the key array
-        _KEY_PREP[id(g_keys)] = (weakref.ref(g_keys), missing, present, codes, uniq)
+        _KEY_PREP.setdefault(id(g_keys), (weakref.ref(g_keys), missing, present, codes, uniq))
     return missing, present, codes, uniq
 
 

@@ -45,7 +45,9 @@ def _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool) -
 
     FE builds a joint feature of a pair from its own unary / binary vocabulary and may build nothing for a pair whose interaction is weak in rank space; a table has no vocabulary to miss. Returns the
     recipe of each added candidate (attached only if the rescue admits it). Empty when the cell operator is off."""
-    if not getattr(self, "fe_oof_cell2d_enable", False):
+    # the cell tables are engineered features, so ``fe_max_steps=0`` turns them off like the target mix below: gated on the flag alone, a fit
+    # with "no feature engineering" emitted oofcell(a,b) columns
+    if not getattr(self, "fe_oof_cell2d_enable", False) or int(getattr(self, "fe_max_steps", 0) or 0) <= 0:
         return {}
     from .._oof_cell2d_fe import MAX_PAIRS, build_oof_cell2d_recipe, fit_oof_cell2d
     from .._pair_residual_screen import pair_interaction_screen

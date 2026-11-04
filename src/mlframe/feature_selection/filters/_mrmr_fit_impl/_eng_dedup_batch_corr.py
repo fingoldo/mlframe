@@ -245,7 +245,7 @@ def finite_sort_order(col: np.ndarray, *, cache: bool = True) -> np.ndarray:
                 _ORDER_CACHE.pop(dead, None)
             while len(_ORDER_CACHE) >= _ORDER_CACHE_MAX:
                 _ORDER_CACHE.pop(next(iter(_ORDER_CACHE)), None)  # evict-ok: a miss only recomputes the sort order
-            _ORDER_CACHE[id(col)] = (weakref.ref(col), order)
+            _ORDER_CACHE.setdefault(id(col), (weakref.ref(col), order))
     return order
 
 

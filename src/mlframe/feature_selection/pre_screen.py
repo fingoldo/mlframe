@@ -50,7 +50,6 @@ def _summ_pre_screen(res, b):
     return res, int(df.shape[1]) if hasattr(df, "shape") and len(df.shape) == 2 else len(res), "constant / near-all-null columns"
 
 
-@logs_selection("pre_screen", _summ_pre_screen, what="dropped")
 def _polars_missing_count(col: Any, col_name: str) -> int:
     """Missing values of a polars column: nulls plus float NaN (polars keeps them apart, pandas counts both, so the two backends must agree)."""
     try:
@@ -63,6 +62,7 @@ def _polars_missing_count(col: Any, col_name: str) -> int:
         return 0
 
 
+@logs_selection("pre_screen", _summ_pre_screen, what="dropped")
 def compute_unsupervised_drops(
     train_df: Any,
     variance_threshold: float = 0.0,

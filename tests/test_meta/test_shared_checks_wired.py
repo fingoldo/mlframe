@@ -502,6 +502,17 @@ _CHECK_THEN_ACT_EXEMPT: dict[tuple[str, str], str] = {
         "string coding of a column is a pure function of its content. Measured only 1.18x on 4 threads (GIL-bound), kept as an exemption "
         "by explicit owner choice to keep even that."
     ),
+    ("filters/_mi_greedy_cmi_fe.py", "_batched_cmi_in_chunks"): (
+        "not a cache: the chunk width that fitted last is a hint for the next call; the newest width is meant to win, and a stale hint only costs one "
+        "failed allocation attempt (the chunk loop then halves)."
+    ),
+    ("filters/discretization/_null_binner.py", "_slot"): (
+        "code column of (column, edges) is a pure function of both; re-checked under the lock before the insert. Encoding outside the lock: "
+        "100k optimal_joint honest floor 12.4 s -> 10.9 s (slot building thread time 15.0 s -> 11.1 s)."
+    ),
+    ("filters/_optimal_joint_edges.py", "content_key"): (
+        "content hash of a view of a read-only array is a pure function of the view; a concurrent miss hashes the column twice (0.77 ms at 100k rows)."
+    ),
     ("filters/discretization/_null_binner.py", "codes"): (
         "per-(column, bin count) edge slot is a pure function of the column and count. Measured 0.62x under 4 threads (8 permutations, 200k rows): outer threads only add contention over the nested per-feature threading, so holding the lock across compute would cost nothing here."
     ),
@@ -775,6 +786,9 @@ _DOC_PARITY_IGNORED = {
     "--metrics",  # nvprof
     "--events",  # nvprof
     # CUDA.md: flags and metric names of nvprof / Nsight Compute / Nsight Systems, and the example kernel pattern name in its guide
+    "--maxrregcount",  # nvcc register cap (CUDA.md section 14, measured with no gain)
+    "occupancy_aware_block_size",  # pyutilz GPU helpers CUDA.md section 14 records as unused here
+    "optimal_threads_per_block",
     "--csv",  # ncu export
     "--print-gpu-trace",  # nvprof
     "--kernel-name",  # ncu filter

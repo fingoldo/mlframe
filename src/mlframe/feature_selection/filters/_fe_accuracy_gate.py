@@ -239,7 +239,7 @@ def measure_feature_uplift(
             if len(_BASELINE_CV_MEMO) > _BASELINE_CV_MEMO_MAXSIZE:
                 # evict-ok: memo; a miss recomputes the value
                 _BASELINE_CV_MEMO.pop(next(iter(_BASELINE_CV_MEMO)))
-            _BASELINE_CV_MEMO[_bkey] = _base_scores
+            _BASELINE_CV_MEMO.setdefault(_bkey, _base_scores)  # a thread that missed together with this one may have stored the same list first
     return float(np.mean(deltas))
 
 

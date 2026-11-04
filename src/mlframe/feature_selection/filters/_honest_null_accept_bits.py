@@ -197,7 +197,7 @@ def _block_width(kernel, shared_bytes: int, n: int) -> int:
 
     try:
         width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kernel.num_regs), static_smem=int(kernel.shared_size_bytes), min_width=64, max_width=1024, work_items=n)
-    except Exception as exc:
+    except Exception as exc:  # best-effort: only the launch width changes, never a result
         logger.debug("honest-null accept block width: device limits unavailable (%s)", exc)
         width = 0
     return width or THREADS

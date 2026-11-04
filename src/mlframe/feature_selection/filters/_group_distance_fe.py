@@ -44,6 +44,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 """
 from __future__ import annotations
 
+import functools
 import os
 import logging
 
@@ -252,7 +253,7 @@ def _wasserstein_quantile_approx(group_vals, global_sorted) -> float:
     qglob = np.quantile(global_sorted, u)
     return float(np.mean(np.abs(qg - qglob)))
 
-def _global_column_stats(X: pd.DataFrame, num_col: str) -> tuple:
+def _group_distance_global_stats(X: pd.DataFrame, num_col: str) -> tuple:
     """The column's global mean / std / histogram / sorted values and the global-histogram bin of every row (they depend on the column only)."""
     x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
     finite_all = x[np.isfinite(x)]
@@ -316,6 +317,8 @@ def generate_group_distance_features(
 
     from ._adaptive_nbins import _resolve_edge_jobs
 
+    _global_stats = functools.partial(_group_distance_global_stats, X)
+
     _fin_order: dict = {}  # num_col -> ascending order of its finite values, shared by every group column
     _ORDER_LOCK = __import__("threading").Lock()
 
@@ -377,10 +380,10 @@ def generate_group_distance_features(
     jobs = _resolve_edge_jobs(None, len(pairs))
     if jobs > 1 and len(pairs) > 3:
         with ThreadPoolExecutor(max_workers=jobs) as pool:
-            _global = dict(zip(unique_cols, pool.map(lambda c: _global_column_stats(X, c), unique_cols)))
+            _global = dict(zip(unique_cols, pool.map(_global_stats, unique_cols)))
             results = list(pool.map(lambda gp: _pair_columns(*gp), pairs))
     else:
-        _global = {c: _global_column_stats(X, c) for c in unique_cols}
+        _global = {c: _global_stats(c) for c in unique_cols}
         results = [_pair_columns(g, c) for g, c in pairs]
     for found in results:
         for name, values, recipe in found:

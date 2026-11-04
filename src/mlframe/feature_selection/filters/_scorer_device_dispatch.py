@@ -45,7 +45,8 @@ def scorer_device_choice(name: str, n_rows: int, n_cols: int, sweep: "Callable[[
 
         if not cuda_available_for_run():
             return False
-    except Exception:
+    except Exception as exc:
+        logger.debug("scorer %s: GPU availability check failed (%r); host", name, exc)
         return False
     fallback = "device" if int(n_rows) * int(n_cols) >= _DEVICE_MIN_WORK else "host"
     if sweep is None:

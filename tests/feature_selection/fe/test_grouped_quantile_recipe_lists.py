@@ -22,10 +22,11 @@ def test_winner_recipes_hold_float_lists_of_the_group_values():
     """Each stored per-group list is the sorted finite values of that group, as Python floats; replay reproduces the fitted column on the training rows' groups."""
     X, y = _frame()
     _X_aug, winners, recipes, _scores = hybrid_grouped_quantile_fe(X, y, group_cols=["g"], num_cols=["x", "z"], top_k=4, random_state=0)
-    assert winners
+    assert winners and recipes
     for rec in recipes:
         extra = rec.extra
         assert isinstance(extra["global_sorted"], list) and all(type(v) is float for v in extra["global_sorted"])
+        assert extra["op"] != "pct_rank" or extra["group_sorted"]
         for vals in extra["group_sorted"].values():
             assert isinstance(vals, list) and all(type(v) is float for v in vals)
         if extra["op"] == "pct_rank":

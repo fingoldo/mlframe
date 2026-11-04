@@ -162,6 +162,23 @@ def _pct_rank_in_sorted(sorted_vals: np.ndarray, x: np.ndarray) -> np.ndarray:
     rank: np.ndarray = (lo + hi) / (2.0 * m)
     return rank
 
+def _quantile_recipe(group_col: str, num_col: str, op: str, group_sorted: Any, global_sorted: Any, iqr_lookup: dict, p90p10_lookup: dict, global_iqr: float,
+                     global_p90p10: float, quantiles: Any) -> dict:
+    """The replay recipe of one grouped-quantile column (``op``: ``pct_rank``, ``iqr`` or ``p90p10``) for :func:`apply_grouped_quantile`."""
+    return {
+        "group_col": group_col,
+        "num_col": num_col,
+        "op": op,
+        "group_sorted": group_sorted,
+        "global_sorted": global_sorted,
+        "iqr_lookup": iqr_lookup,
+        "p90p10_lookup": p90p10_lookup,
+        "global_iqr": global_iqr,
+        "global_p90p10": global_p90p10,
+        "quantiles": list(quantiles),
+    }
+
+
 def generate_grouped_quantile_features(
     X: pd.DataFrame,
     group_cols: Sequence[str],
@@ -253,52 +270,19 @@ def generate_grouped_quantile_features(
 
             pct_name = engineered_name_grouped_pctrank(num_col, group_col)
             encoded[pct_name] = pct_out
-            raw_recipes[pct_name] = {
-                "group_col": group_col,
-                "num_col": num_col,
-                "op": "pct_rank",
-                "group_sorted": group_sorted,
-                "global_sorted": global_sorted,
-                "iqr_lookup": iqr_lookup,
-                "p90p10_lookup": p90p10_lookup,
-                "global_iqr": global_iqr,
-                "global_p90p10": global_p90p10,
-                "quantiles": list(quantiles),
-            }
+            raw_recipes[pct_name] = _quantile_recipe(group_col, num_col, "pct_rank", group_sorted, global_sorted, iqr_lookup, p90p10_lookup, global_iqr, global_p90p10, quantiles)
 
             # IQR spread broadcast.
             iqr_out = _broadcast_lookup(g_keys, iqr_lookup, global_iqr)
             iqr_name = engineered_name_grouped_iqr(num_col, group_col)
             encoded[iqr_name] = iqr_out
-            raw_recipes[iqr_name] = {
-                "group_col": group_col,
-                "num_col": num_col,
-                "op": "iqr",
-                "group_sorted": {},
-                "global_sorted": [],
-                "iqr_lookup": iqr_lookup,
-                "p90p10_lookup": p90p10_lookup,
-                "global_iqr": global_iqr,
-                "global_p90p10": global_p90p10,
-                "quantiles": list(quantiles),
-            }
+            raw_recipes[iqr_name] = _quantile_recipe(group_col, num_col, "iqr", {}, [], iqr_lookup, p90p10_lookup, global_iqr, global_p90p10, quantiles)
 
             # p90 - p10 spread broadcast.
             p_out = _broadcast_lookup(g_keys, p90p10_lookup, global_p90p10)
             p_name = engineered_name_grouped_p90p10(num_col, group_col)
             encoded[p_name] = p_out
-            raw_recipes[p_name] = {
-                "group_col": group_col,
-                "num_col": num_col,
-                "op": "p90p10",
-                "group_sorted": {},
-                "global_sorted": [],
-                "iqr_lookup": iqr_lookup,
-                "p90p10_lookup": p90p10_lookup,
-                "global_iqr": global_iqr,
-                "global_p90p10": global_p90p10,
-                "quantiles": list(quantiles),
-            }
+            raw_recipes[p_name] = _quantile_recipe(group_col, num_col, "p90p10", {}, [], iqr_lookup, p90p10_lookup, global_iqr, global_p90p10, quantiles)
             return encoded, raw_recipes
 
         tasks.extend(functools.partial(_one_num_col, c) for c in cur_num_cols)
@@ -779,7 +763,8 @@ def _grouped_quantile_block_cols(X: pd.DataFrame, group_cols, num_cols) -> "int 
         import psutil
 
         budget = int(psutil.virtual_memory().available) // 4
-    except Exception:
+    except Exception as exc:
+        logger.debug("grouped quantile blocks: available RAM unreadable (%r); one block", exc)
         return None
     if len(group_cols) * len(num_cols) * per_num <= budget:
         return None

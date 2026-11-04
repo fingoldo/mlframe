@@ -503,10 +503,11 @@ class TestNanInfHandling:
         # silently skipped or becomes a noise-floor column that doesn't
         # displace the true signal. (2026-06-03: marker reframed from the
         # specific x1__He2 to any x1__* basis feature; adaptive Fourier now
-        # recovers the binarised quadratic via sin/cos pairs.)
+        # recovers the binarised quadratic via sin/cos pairs; 2026-11-04: or the out-of-fold warp of x1, oofwarp(x1), which now wins the
+        # quadratic on some seeds - the contract is that x1 still gets its engineered feature, not which family builds it.)
         assert any(
-            str(c).startswith("x1__") for c in sup
-        ), f"D all-NaN seed={seed}: an x1__* basis feature must still appear despite an all-NaN nuisance column; got {sup}"
+            str(c).startswith("x1__") or str(c) == "oofwarp(x1)" for c in sup
+        ), f"D all-NaN seed={seed}: an engineered x1 feature (x1__* or oofwarp(x1)) must still appear despite an all-NaN nuisance column; got {sup}"
         # And no engineered column derived from the perturb source
         # ('perturb__...') should make the cut, because all-NaN gives
         # zero MI.

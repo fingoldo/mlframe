@@ -83,6 +83,30 @@ def _resolve_feature_layout(X: Any, feature_names: Optional[Sequence[str]]) -> t
     return cols, n_features, names, is_pandas_frame
 
 
+def _final_decisions(hit_counts: np.ndarray, rounds_run: int, resolved: list, resolve_tentative: bool, alpha: float) -> List[str]:
+    """Per-feature ``confirmed`` / ``rejected`` / ``tentative`` of :func:`boruta_select` after the last round."""
+    from scipy.stats import binomtest
+
+    decisions: List[str] = []
+    for j, count in enumerate(hit_counts):
+        if resolve_tentative:
+            # Any feature not resolved by the corrected per-round rule above stays "tentative" - unlike the
+            # single-shot mode, this never falls back to an UNcorrected end-of-run test, so it does not
+            # reintroduce the family-wise error-rate inflation (n_features simultaneous alpha=0.05 tests) that
+            # the correction across rounds AND features exists to control.
+            resolved_j = resolved[j]
+            decisions.append(resolved_j if resolved_j is not None else "tentative")
+            continue
+        result = binomtest(int(count), rounds_run, p=0.5, alternative="two-sided")
+        if result.pvalue < alpha and count / rounds_run > 0.5:
+            decisions.append("confirmed")
+        elif result.pvalue < alpha and count / rounds_run < 0.5:
+            decisions.append("rejected")
+        else:
+            decisions.append("tentative")
+    return decisions
+
+
 @logs_selection("boruta_select", _summ_boruta)
 def boruta_select(
     X: Any,
@@ -145,7 +169,6 @@ def boruta_select(
         per feature), ``feature_names`` (list), ``n_rounds_run`` (int, equals ``n_iterations`` unless
         ``convergence_rounds`` triggered an early stop).
     """
-    from scipy.stats import binomtest
 
     import pandas as pd
 
@@ -214,23 +237,7 @@ def boruta_select(
                     break
 
     win_rate = hit_counts / rounds_run
-    decisions: List[str] = []
-    for j, count in enumerate(hit_counts):
-        if resolve_tentative:
-            # Any feature not resolved by the corrected per-round rule above stays "tentative" - unlike the
-            # single-shot mode, this never falls back to an UNcorrected end-of-run test, so it does not
-            # reintroduce the family-wise error-rate inflation (n_features simultaneous alpha=0.05 tests) that
-            # the correction across rounds AND features exists to control.
-            resolved_j = resolved[j]
-            decisions.append(resolved_j if resolved_j is not None else "tentative")
-            continue
-        result = binomtest(int(count), rounds_run, p=0.5, alternative="two-sided")
-        if result.pvalue < alpha and count / rounds_run > 0.5:
-            decisions.append("confirmed")
-        elif result.pvalue < alpha and count / rounds_run < 0.5:
-            decisions.append("rejected")
-        else:
-            decisions.append("tentative")
+    decisions = _final_decisions(hit_counts, rounds_run, resolved, resolve_tentative, alpha)
 
     return {
         "hit_counts": hit_counts,

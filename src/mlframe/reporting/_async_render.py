@@ -382,7 +382,7 @@ class ReportRenderQueue:
         while True:
             try:
                 item = self._dispatch_q.get_nowait()
-            except queue.Empty:
+            except queue.Empty:  # best-effort: an empty queue ends the drain, nothing is left to settle
                 return
             if item is not None:
                 try:

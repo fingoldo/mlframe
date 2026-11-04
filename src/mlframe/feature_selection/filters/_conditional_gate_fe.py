@@ -609,7 +609,7 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
             from ._gpu_resident_select import radix_column_medians
 
             _gate_meds = radix_column_medians(_gate_dev[1])
-        except Exception as _gm_exc:
+        except Exception as _gm_exc:  # best-effort: the per-column cp.median gives the same medians
             logger.debug("batched gate medians not used (%s); per-column cp.median", _gm_exc)
             _gate_meds = None
     for gi in range(len(cols)):

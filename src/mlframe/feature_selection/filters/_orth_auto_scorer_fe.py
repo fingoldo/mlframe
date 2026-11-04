@@ -724,7 +724,7 @@ def hybrid_orth_mi_auto_scorer_fe_with_recipes(
         # the fit-time z-score/min-max axis instead of silently refitting it.
         _pp = None
         try:
-            _col_full = np.asarray(X[src].to_numpy(), dtype=_crit_np_dtype())
+            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)  # Intentional float64: the params the replay applies must be the ones the fit-time values used (float64 basis axis)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             log_throttle(logger, "orth_auto_scorer_fe.hot_loop_warning", logging.WARNING, "failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)

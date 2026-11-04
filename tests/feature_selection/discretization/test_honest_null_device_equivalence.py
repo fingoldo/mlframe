@@ -95,5 +95,6 @@ def test_device_pipeline_matches_the_host_kernel_with_nan_rows(n_classes):
     host = honest_null_columns_bycol(*args, nan_cont)
     dev = honest_null_columns_device(*args, nan_cont)
     assert dev is not None
+    assert len(host) == len(dev) > 0
     for a, b in zip(host, dev):
         assert np.allclose(a, b, rtol=0, atol=1e-12)

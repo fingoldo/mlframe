@@ -119,7 +119,7 @@ def hsic_backend(m: int, k: int) -> str:
 
         if cp.cuda.runtime.getDeviceCount() < 1:
             return "cpu"
-    except Exception:
+    except Exception:  # best-effort: no usable device means the CPU twin, which computes the same statistic
         return "cpu"
     fallback = "device" if int(k) * int(m) * int(m) >= _HSIC_DEVICE_MIN_WORK else "cpu"
     try:

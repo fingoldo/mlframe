@@ -517,44 +517,46 @@ def _binagg_candidate_block(cp: Any, k: int, n: int, itemsize: int) -> int:
         limit = int(pool.get_limit() or 0)
         if limit:
             free = min(free, max(0, limit - int(pool.used_bytes())))
-    except Exception:
+    except Exception as exc:
+        logger.debug("binned-aggregate gate block: device memory unreadable (%r); one block of every candidate", exc)
         return max(1, int(k))
     return max(1, min(int(k), (free // 6) // max(1, int(n) * int(itemsize))))
 
 
-def _binagg_candidates(feat_df: Any, cand_cols: Optional[list], n_rows: Optional[int]) -> tuple[list, int]:
-    """Numeric candidate columns and the row count: from ``feat_df`` when supplied, else from the caller's ``cand_cols`` / ``n_rows`` (the recipes-only path)."""
-    if feat_df is not None:
-        if not isinstance(feat_df, pd.DataFrame) or feat_df.shape[1] == 0:
-            return [], 0
-        return [c for c in feat_df.columns if pd.api.types.is_numeric_dtype(feat_df[c])], len(feat_df)
-    return list(cand_cols or []), int(n_rows) if n_rows is not None else 0
+def _binagg_device_scores(cp: Any, raw_X: pd.DataFrame, col_specs: list, y_bin: Any, n: int, n_folds: int, random_state: int, nbins: int) -> tuple:
+    """``(per-block candidate MI list, per-permutation null maximum or None)`` of the binned-aggregate candidates, built and scored on the device in column blocks."""
+    from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
+    from ._fe_resident_operands import resident_operand
 
+    fold_ids = binagg_fold_ids(n, n_folds, random_state)
+    from ._hermite_fe_mi import relaxed_candidate_dtype
 
-def _report_floor_rejects(reject_sink: Optional[Callable[..., None]], cand_cols: list, cand_mi: np.ndarray, floor: float) -> None:
-    """Tell ``reject_sink`` about every candidate whose MI is non-finite or below the floor."""
-    if reject_sink is None:
-        return
-    for j, col in enumerate(cand_cols):
-        _mi = cand_mi[j]
-        if np.isfinite(_mi) and _mi >= floor:
+    _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
+    y_gpu = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
+    _ymin = int(_yi.min()) if _yi.size else 0
+    _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
+    _dt = relaxed_candidate_dtype(cp)
+    block = _binagg_candidate_block(cp, len(col_specs), n, np.dtype(_dt).itemsize)
+    mi_parts: list = []
+    null_vec = None
+    # Candidates in column blocks when the whole (K, n) matrix would not fit the pool (1M rows): each candidate's MI depends only on its column. Family-wise
+    # calibration, identical to ``_unified_fe_gate.local_mi_gate``: the floor is raised to the 95th percentile of the per-permutation maximum MI over all the
+    # candidates (y permuted on the device; candidates binned without the target), and that maximum is the fmax of the blocks' (the same permutations in every block).
+    for s0 in range(0, len(col_specs), block):
+        mat_gpu = build_binagg_oof_matrix_gpu(cp, raw_X, col_specs[s0 : s0 + block], fold_ids, n_folds, column_major=True, out_dtype=_dt)  # (k, n)
+        if mat_gpu.shape[0] == 0:
             continue
-        try:
-            reject_sink(
-                gate="marginal_uplift_floor",
-                candidate=str(col),
-                operands=None,
-                operator="unified_local_mi_gate",
-                observed=float(_mi),
-                threshold=float(floor),
-                reason=(
-                    "unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor"
-                    if np.isfinite(_mi)
-                    else "unified local-MI gate: MI could not be computed (non-finite), candidate dropped"
-                ),
+        mi_parts.append(
+            np.asarray(
+                _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
+                dtype=np.float64,  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
             )
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
+        )
+        if len(col_specs) >= 2 and _yi.size > 0:
+            part = _binagg_null_max_vector(cp, mat_gpu, y_gpu, _yi, _ymin, _ncls, int(nbins))
+            null_vec = part if null_vec is None else np.fmax(null_vec, part)
+        del mat_gpu
+    return mi_parts, null_vec
 
 
 def local_mi_gate_binagg_resident(
@@ -594,7 +596,14 @@ def local_mi_gate_binagg_resident(
     # gate WITHOUT materialising the host OOF feat_df - it fits recipes-only, gates from those recipes here, then
     # builds the OOF for the FEW survivors. When a ``feat_df`` is supplied (the host callers) both are derived
     # from it exactly as before.
-    cand_cols, n = _binagg_candidates(feat_df, cand_cols, n_rows)
+    if feat_df is not None:
+        if not isinstance(feat_df, pd.DataFrame) or feat_df.shape[1] == 0:
+            return []
+        cand_cols = [c for c in feat_df.columns if pd.api.types.is_numeric_dtype(feat_df[c])]
+        n = len(feat_df)
+    else:
+        cand_cols = list(cand_cols or [])
+        n = int(n_rows) if n_rows is not None else 0
     if not cand_cols or n <= 0:
         return []
     col_specs = _binned_column_specs(cand_cols, recipes)
@@ -608,37 +617,7 @@ def local_mi_gate_binagg_resident(
     y_bin = _coerce_y_classes(y)
 
     try:
-        from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
-        from ._fe_resident_operands import resident_operand
-
-        fold_ids = binagg_fold_ids(n, n_folds, random_state)
-        from ._hermite_fe_mi import relaxed_candidate_dtype
-
-        _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
-        y_gpu = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
-        _ymin = int(_yi.min()) if _yi.size else 0
-        _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
-        _dt = relaxed_candidate_dtype(cp)
-        block = _binagg_candidate_block(cp, len(col_specs), n, np.dtype(_dt).itemsize)
-        mi_parts: list = []
-        null_vec = None
-        # Candidates in column blocks when the whole (K, n) matrix would not fit the pool (1M rows): each candidate's MI depends only on its column. Family-wise
-        # calibration, identical to ``_unified_fe_gate.local_mi_gate``: the floor is raised to the 95th percentile of the per-permutation maximum MI over all the
-        # candidates (y permuted on the device; candidates binned without the target), and that maximum is the fmax of the blocks' (the same permutations in every block).
-        for s0 in range(0, len(col_specs), block):
-            mat_gpu = build_binagg_oof_matrix_gpu(cp, raw_X, col_specs[s0 : s0 + block], fold_ids, n_folds, column_major=True, out_dtype=_dt)  # (k, n)
-            if mat_gpu.shape[0] == 0:
-                continue
-            mi_parts.append(
-                np.asarray(
-                    _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
-                    dtype=np.float64,  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-                )
-            )
-            if len(col_specs) >= 2 and _yi.size > 0:
-                part = _binagg_null_max_vector(cp, mat_gpu, y_gpu, _yi, _ymin, _ncls, int(nbins))
-                null_vec = part if null_vec is None else np.fmax(null_vec, part)
-            del mat_gpu
+        mi_parts, null_vec = _binagg_device_scores(cp, raw_X, col_specs, y_bin, n, n_folds, random_state, nbins)
         if not mi_parts:
             return []
         cand_mi = np.concatenate(mi_parts)
@@ -650,7 +629,27 @@ def local_mi_gate_binagg_resident(
 
     # Keep/rank IDENTICAL to local_mi_gate: floor -> survivors -> sort by MI desc -> top_k.
     scored = [(col, float(cand_mi[j])) for j, col in enumerate(cand_cols) if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor]
-    _report_floor_rejects(reject_sink, cand_cols, cand_mi, floor)
+    if reject_sink is not None:
+        for j, col in enumerate(cand_cols):
+            _mi = cand_mi[j]
+            if not np.isfinite(_mi) or _mi < floor:
+                try:
+                    reject_sink(
+                        gate="marginal_uplift_floor",
+                        candidate=str(col),
+                        operands=None,
+                        operator="unified_local_mi_gate",
+                        observed=float(_mi),
+                        threshold=float(floor),
+                        reason=(
+                            "unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor"
+                            if np.isfinite(_mi)
+                            else "unified local-MI gate: MI could not be computed (non-finite), candidate dropped"
+                        ),
+                    )
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed: %s", e)
+                    pass
     scored.sort(key=lambda t: t[1], reverse=True)
     if top_k is not None and int(top_k) > 0:
         scored = scored[: int(top_k)]

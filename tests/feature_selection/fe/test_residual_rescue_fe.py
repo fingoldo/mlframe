@@ -123,6 +123,7 @@ class _Stub:
     def __init__(self, policy="drop", cell=True):
         self.redundancy_policy = policy
         self.fe_oof_cell2d_enable = cell
+        self.fe_max_steps = 1  # the MRMR default; at 0 the stage builds no cell tables (no feature engineering)
         self.fe_residual_rescue_operand_min_linear_gain = 0.001
 
 
