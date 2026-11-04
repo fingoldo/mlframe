@@ -382,7 +382,7 @@ def _plugin_mi_regression_njit(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -
     return mi
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True)  # no fastmath: fastmath folds the NaN test below to False, so the NaN keying would silently disappear
 def _quantile_bin_sorted_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Quantile-bin a 1-D continuous array into n_bins equi-frequency bins. Returns int32 bin indices in [0, n_bins).
 
@@ -407,14 +407,8 @@ def _quantile_bin_sorted_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     one sort step, accepted for a correctness fix (this function was never a documented-arbitrary-tie-order
     contract; nothing should have depended on quicksort's specific, unspecified tie behaviour)."""
     n = x.shape[0]
-    sort_idx = np.argsort(x, kind="mergesort")
-    # numba's sort puts NaN FIRST, numpy and cupy put it LAST; move the leading NaN block to the end (row order kept) so the ranks match.
-    n_nan = 0
-    for i in range(n):
-        if x[i] != x[i]:
-            n_nan += 1
-    if n_nan > 0:
-        sort_idx = np.concatenate((sort_idx[n_nan:], sort_idx[:n_nan]))
+    # NaN is keyed as +inf so it sorts last, as in numpy and cupy; the stable sort keeps NaN rows in row order.
+    sort_idx = np.argsort(np.where(np.isnan(x), np.inf, x), kind="mergesort")
     out = np.empty(n, dtype=np.int32)
     pos = 0
     base = n // n_bins
