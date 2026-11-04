@@ -33,25 +33,37 @@ def _fallback_edges(finite: np.ndarray, base: str, n_bins: int) -> np.ndarray:
 
 
 @overload
-def refine_near_collapsed_supervised_edges(edges: np.ndarray, finite: np.ndarray, base: str, fallback_nbins: int) -> np.ndarray:
+def refine_near_collapsed_supervised_edges(
+    edges: np.ndarray, finite: np.ndarray, base: str, fallback_nbins: int, uniq: Optional[np.ndarray] = None, uniq_counts: Optional[np.ndarray] = None,
+) -> np.ndarray:
     """Typing overload: an edge array in, an edge array out."""
 
 
 @overload
-def refine_near_collapsed_supervised_edges(edges: None, finite: np.ndarray, base: str, fallback_nbins: int) -> None:
+def refine_near_collapsed_supervised_edges(
+    edges: None, finite: np.ndarray, base: str, fallback_nbins: int, uniq: Optional[np.ndarray] = None, uniq_counts: Optional[np.ndarray] = None,
+) -> None:
     """Typing overload: no edges in, no edges out."""
 
 
-def refine_near_collapsed_supervised_edges(edges: Optional[np.ndarray], finite: np.ndarray, base: str, fallback_nbins: int) -> Optional[np.ndarray]:
+def refine_near_collapsed_supervised_edges(
+    edges: Optional[np.ndarray], finite: np.ndarray, base: str, fallback_nbins: int, uniq: Optional[np.ndarray] = None, uniq_counts: Optional[np.ndarray] = None,
+) -> Optional[np.ndarray]:
     """Return ``edges`` unchanged unless one bin dominates (see module docstring), else ``edges`` united with the
-    unsupervised fallback edges. ``finite`` is the column's finite values; ``edges`` are inner cuts."""
+    unsupervised fallback edges. ``finite`` is the column's finite values; ``edges`` are inner cuts. ``uniq`` / ``uniq_counts`` (the sorted distinct finite
+    values and their counts, when the caller has them) give the per-bin counts from a search of the few edges instead of one of every row."""
     if edges is None or not hasattr(edges, "size") or edges.size == 0 or finite.size == 0 or fallback_nbins < 2:
         return edges
     # Edges are thresholds that rows are compared against, so they stay float64: a float32 cut can move the boundary rows and lose
     # the supervised cut's exact value.
     # Intentional float64: edge vector at the production binning width
     inner = np.asarray(edges, dtype=np.float64)
-    counts = np.bincount(np.searchsorted(inner, finite, side="right"), minlength=inner.size + 1)
+    if uniq is not None and uniq_counts is not None and uniq.size and int(uniq_counts.sum()) == finite.size:
+        # bin b holds the values v with inner[b - 1] <= v < inner[b]: in the sorted distinct values those are the ranks between the left insertion points of the two edges
+        cum = np.concatenate(([0], np.cumsum(uniq_counts)))
+        counts = np.diff(cum[np.concatenate(([0], np.searchsorted(uniq, inner, side="left"), [uniq.size]))])
+    else:
+        counts = np.bincount(np.searchsorted(inner, finite, side="right"), minlength=inner.size + 1)
     if counts.max() <= (1.0 - 1.0 / (2.0 * fallback_nbins)) * finite.size:
         return edges
     # Intentional float64: edge vector at the production binning width
