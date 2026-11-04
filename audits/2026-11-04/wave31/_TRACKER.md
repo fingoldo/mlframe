@@ -13,8 +13,8 @@ Three read-only reports by Opus 5.5 low-effort agents on large packages (metrics
 | **DOC** | W31PP-3 | dtype | Medium | `preprocessing/transforms.py:184-197`: polars nullable Int/Boolean columns are cast to Float only when the frame has a null, so train and test dtypes differ; the widening exists only to clear nulls and CatBoost converts every numeric column to float32 internally; recorded in the docstring |
 | **FUTURE** | W31PP-4 | crash | Low | `data_valuation/_adversarial_reweighting.py:157-188`: a 3-class `predict_proba` is written into a 1-D buffer |
 | **RESOLVED** | W31UT-1 | cache | High | `utils/disk_cache.py:168-184`: `hash_array_summary` adds sums only for numeric dtypes, so bool and fixed-width string arrays differing in the middle rows get the same key; bool arrays add per-column sum/min/max over their 0/1 values, fixed-width string, bytes and datetime arrays hash the whole buffer |
-| **FUTURE** | W31UT-2 | backend | Medium | `votenrank/confidence_gated_blend.py:157,47-65,202-205`: the numba kernels allocate 1-D output but the shape check accepts 2-D input that the numpy path blends |
-| **FUTURE** | W31UT-3 | logging | Low | `votenrank/confidence_gated_blend.py:206-211`: a forced cupy backend failure falls back to numpy with a DEBUG log only |
+| **RESOLVED** | W31UT-2 | backend | Medium | `votenrank/confidence_gated_blend.py:157,47-65,202-205`: the numba kernels allocate 1-D output but the shape check accepts 2-D input that the numpy path blends; input that is not 1-D goes to the numpy path, which blends any shape |
+| **RESOLVED** | W31UT-3 | logging | Low | `votenrank/confidence_gated_blend.py:206-211`: a forced cupy backend failure falls back to numpy with a DEBUG log only; a failed forced cupy backend is logged at WARNING through `log_throttle` |
 | **RESOLVED** | W31UT-4 | edge | Low | `competition/leak_scan.py:155-162`: `max_col_shift >= n_cols` gives a negative slice stop and a matmul shape error; the shift range is clamped to `n_cols - 1` |
 
 ## Not covered by this wave
@@ -34,3 +34,4 @@ Three read-only reports by Opus 5.5 low-effort agents on large packages (metrics
 | W31ME-3 | `tests/metrics/test_log_loss_label_handling.py` |
 | W31ME-2 | `tests/metrics/test_auc_nan_scores_give_nan.py` |
 | W31UT-4 | `tests/competition/test_leak_scan_shift_larger_than_the_frame_width.py` |
+| W31UT-2, 3 | `tests/votenrank/test_confidence_gated_blend_2d_and_forced_backend_logging.py` |
