@@ -49,6 +49,7 @@ import os
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # thrust aborts the process on a short pool
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -65,7 +66,7 @@ def _floor_mean_from_nulls_dev(cp, nulls_dev, quantile: float) -> tuple[float, f
     m = int(nulls_dev.size)
     if m == 0:
         return 0.0, 0.0
-    vs = cp.sort(nulls_dev.ravel())
+    vs = device_sort(nulls_dev.ravel())
     pos = float(quantile) * (m - 1)
     lo = int(np.floor(pos))
     hi = min(lo + 1, m - 1)
@@ -139,7 +140,7 @@ def _stratum_layout(cp: Any, z_i: Any, order: Optional[np.ndarray], z_rank: Opti
     """Support codes, stratum order and dense stratum rank on the device (derived on-device for a device-born ``z_i``); returns ``(z_for_cmi, order_d, z_rank_d)``."""
     if isinstance(z_i, cp.ndarray):
         z_for_cmi = z_i.astype(cp.int64, copy=False).ravel()
-        order_d = cp.argsort(z_for_cmi)  # stratum grouping on device (ties broken by sort)
+        order_d = device_argsort(z_for_cmi)  # stratum grouping on device (ties broken by sort)
         _sorted_z = z_for_cmi[order_d]
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         z_rank_1d = cp.zeros(n, dtype=cp.float64)
@@ -165,9 +166,9 @@ def _column_argsort(cp, keys):
     """``cp.argsort(keys, axis=0)`` of a C-order ``(n, p)`` int32 key matrix; ``MLFRAME_PERM_NULL_COMPOSITE_ARGSORT=0`` keeps the axis-0 sort."""
     n, p = int(keys.shape[0]), int(keys.shape[1])
     if keys.dtype != cp.int32 or n * p < _COMPOSITE_ARGSORT_MIN or os.environ.get("MLFRAME_PERM_NULL_COMPOSITE_ARGSORT", "1").strip() == "0":
-        return cp.argsort(keys, axis=0)
+        return device_argsort(keys, axis=0)
     col = cp.arange(p, dtype=cp.int64)
-    order = cp.argsort(((col[:, None] << 32) | keys.T.astype(cp.int64)).ravel())
+    order = device_argsort(((col[:, None] << 32) | keys.T.astype(cp.int64)).ravel())
     return (order.reshape(p, n) - (col * n)[:, None]).T
 
 
@@ -236,7 +237,7 @@ def conditional_perm_null_gpu(
         # non-uniform but valid permutation (this is a NULL estimate; selection-equivalent, same bar as the
         # device-RNG stream itself).
         keys = rs.randint(0, np.iinfo(np.int32).max, size=(n, nperm), dtype=cp.int32)
-        perm = cp.argsort(keys, axis=0)  # (n, nperm) free permutations
+        perm = device_argsort(keys, axis=0)  # (n, nperm) free permutations
         Xp_d = dx[perm]  # (n, nperm) shuffled candidate columns
         nulls_dev = batched_cmi_gpu(Xp_d, y_h, None, return_device=True)  # null CMI vector stays RESIDENT
         return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
@@ -304,7 +305,7 @@ def _sparse_batched_entropy_k(cp, keys2d, inv_n: float):
     ``(h[nperm] f64, k[nperm] i64)`` device vectors. Same occupied-cell definition as the dense bincount
     path -> identical partition counts; only the fp summation order differs (~1e-15)."""
     n = int(keys2d.shape[0])
-    S = cp.sort(keys2d, axis=0)
+    S = device_sort(keys2d, axis=0)
     b = cp.empty(S.shape, dtype=cp.bool_)
     b[0, :] = True
     b[1:, :] = S[1:, :] != S[:-1, :]  # run starts

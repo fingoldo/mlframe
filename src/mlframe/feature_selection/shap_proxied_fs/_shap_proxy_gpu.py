@@ -23,6 +23,7 @@ from mlframe.feature_selection.filters._fe_gpu_batch._devices import assert_kern
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import METRIC_CODES, resolve_metric
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import generate_combinations, _merge_topn
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import _cuda_demote_errors
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +154,7 @@ def brute_force_top_n_gpu(
         out_d[~cp.isfinite(out_d)] = cp.inf
         k = min(top_n, C)
         sel = cp.argpartition(out_d, k - 1)[:k]
-        sel = sel[cp.argsort(out_d[sel])]
+        sel = sel[device_argsort(out_d[sel])]
         sel_host = cp.asnumpy(sel)
         loss_host = cp.asnumpy(out_d[sel])
         for pos, ci in enumerate(sel_host):

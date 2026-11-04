@@ -14,6 +14,7 @@ import logging
 from typing import Any
 
 import numpy as np
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ def nan_aware_quantile_codes_gpu(cand: Any, nbins: int) -> Any:
         valid = n - nan.sum(axis=1)
         if bool(cp.any(cp.isinf(xb))) or int(valid.min()) < 2:
             return None
-        xs = cp.sort(xb, axis=1)
+        xs = device_sort(xb, axis=1)
         pos = (valid - 1)[:, None].astype(cp.float64) * qs[None, :]  # (kb, n_edges)
         lo = cp.floor(pos).astype(cp.int64)
         gamma = pos - lo

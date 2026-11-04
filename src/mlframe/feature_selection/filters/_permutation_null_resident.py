@@ -27,6 +27,7 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -176,7 +177,7 @@ def gen_target_shuffles_cupy(y_codes: np.ndarray, nperm: int, dtype: type, rando
         # too strict and rejects marginal true candidates), but it makes the GPU floor a different estimator from
         # the CPU Fisher-Yates one, which the docstring's "statistically equivalent" claim does not cover.
         keys = _rng.random((nperm, n), dtype=cp.float64)  # Intentional float64: plug-in entropy terms accumulated in f64 # (nperm, n) i.i.d. sort keys, on device
-        order = cp.argsort(keys, axis=1)  # per-row permutation indices
+        order = device_argsort(keys, axis=1)  # per-row permutation indices
         del keys
         out = d_y[order]  # (nperm, n) gathered shuffles, on device
         del order

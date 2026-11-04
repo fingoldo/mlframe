@@ -55,6 +55,7 @@ from ._mi_greedy_cmi_fe_binning import (  # noqa: F401  -- carved helpers
     _FAC_ARRAY_CAP,
     _factorize_dense_njit,
 )
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 
 @njit(cache=True, parallel=True)
@@ -242,7 +243,7 @@ def _dense_renumber_device(cp, keys):
     (so the caller can broadcast it into ``joint + c*k`` with no host read; read it once at the very end)."""
     if keys.size == 0:
         return keys.astype(cp.int64, copy=False), cp.asarray(1, dtype=cp.int64)
-    order = cp.argsort(keys, kind="stable")
+    order = device_argsort(keys, kind="stable")
     ks = keys[order]
     is_new = cp.empty(ks.shape, dtype=cp.bool_)
     is_new[0] = True

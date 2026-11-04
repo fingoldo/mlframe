@@ -13,6 +13,7 @@ import logging
 from typing import Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ def sync_free_qbin_codes_block(cp, xd, nbins: int):
     if picked is not None:
         xlo, xhi = picked
     else:
-        xs = cp.sort(xd, axis=1)
+        xs = device_sort(xd, axis=1)
         xlo = xs[:, lo]
         xhi = xs[:, hi]
         del xs
@@ -191,7 +192,7 @@ def group_mi_block_gpu(columns: Sequence[np.ndarray], y_codes: np.ndarray, nbins
         if k == 0 or n < 2 or int(nbins) < 2:
             return None
         xd = cp.asarray(np.stack([np.ascontiguousarray(c) for c in columns], axis=0), dtype=crit_float_dtype())  # (k, n), one contiguous row per column
-        xs = cp.sort(xd, axis=1)
+        xs = device_sort(xd, axis=1)
         pos = cp.asarray(np.linspace(0.0, 1.0, int(nbins) + 1)[1:-1]) * (n - 1)
         lo = cp.floor(pos).astype(cp.int64)
         hi = cp.minimum(lo + 1, n - 1)

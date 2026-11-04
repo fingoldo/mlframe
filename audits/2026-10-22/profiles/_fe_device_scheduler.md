@@ -19,8 +19,11 @@ through thrust, and a thrust temporary allocation that exceeds the slot pool's h
 reaching the Python out-of-memory fallbacks every stage has. Two standalone 100k fits earlier the same day stopped silently the same way. Slot
 pool OOM (cupy `OutOfMemoryError` at 253 MB against 627-683 MB limits) also showed up repeatedly in the canonical tests.
 
-## Needed before re-enabling
+## Fixed and re-enabled
 
-GPU sorts that run under a slot budget must not be able to abort: check the pool headroom for the sort's temporaries before calling
-`argsort`/`sort` (and take the host path when it is short), or run the stages' sorts outside the hard limit. Then re-apply the planner change
-and rerun the MRMR FE tests with xdist.
+The abort is a property of every cupy sort under a pool with a hard limit, not of concurrency alone (the default pool has one under
+`ensure_fe_gpu_pool_limit` too). `_device_sort_safe.device_argsort` / `device_sort` check the room of the pool behind the current allocator
+(slot pool or default pool) against the sort's temporaries (2 x data + 3 x elements x 8 bytes), release its cached free blocks if short, and
+raise cupy's `OutOfMemoryError` in Python when still short, which every GPU path already catches to take its host twin
+(`tests/feature_selection/gpu/test_device_sort_safe.py`). All 33 `cp.argsort` / `cp.sort` calls in the library go through them. The planner
+change is re-applied on top.

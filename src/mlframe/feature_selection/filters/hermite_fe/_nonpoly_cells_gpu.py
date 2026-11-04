@@ -17,6 +17,7 @@ import numpy as np
 from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
 
 from ._nonpoly_cells import MAX_CENTRE_DEGREE, NONPOLY_BASES
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 _KIND = {"fourier": 0, "rbf": 1, "sigmoid": 2, "pade": 3}
 
@@ -84,7 +85,7 @@ def _quantile_columns(cp: Any, M: Any, fractions: "list[float]") -> Any:
             radix = None
         if radix is not None:
             return radix
-    srt = cp.sort(M, axis=0)
+    srt = device_sort(M, axis=0)
     out = []
     for q in fractions:
         v = q * (n - 1)
