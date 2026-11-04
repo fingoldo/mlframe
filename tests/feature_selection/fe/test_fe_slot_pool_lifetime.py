@@ -33,3 +33,17 @@ def test_reentered_slot_budget_is_on_top_of_held_arrays():
         assert pool.get_limit() >= pool.used_bytes()
     del fresh
     assert float(held[0]) == 1.0
+
+
+def test_fit_end_release_returns_cached_slot_blocks():
+    """Blocks freed after their slot ended stay cached in the persistent slot pool until the fit-end release returns them to the device."""
+    require_cuda_device()
+    from mlframe.feature_selection.filters._fit_scoped_release import release_fit_scoped_caches
+
+    slot = DeviceSlot(device_id=0, budget_bytes=128 << 20)
+    with stage_device_slot(slot, key=9) as pool:
+        outlives = cp.ones(4 << 20)  # a cached device column: still alive when the slot frees its blocks
+    del outlives
+    assert pool.total_bytes() > 0
+    release_fit_scoped_caches()
+    assert pool.total_bytes() == 0
