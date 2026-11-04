@@ -136,9 +136,10 @@ def test_wrapper_multilabel_bce_with_sample_weights():
     out = MLPTorchModel._compute_weighted_loss(stub, pred, labels, sw)
     assert out.shape == ()
     assert torch.isfinite(out).item()
-    # Sanity: weighted loss equals manual (loss * weights.unsqueeze(1)).sum() / weights.sum()
+    # Sanity: weighted loss equals the manual weighted mean
     loss_un = torch.nn.functional.binary_cross_entropy_with_logits(pred, labels, reduction="none")
-    expected = (loss_un * sw.view(-1, 1)).sum() / sw.sum()
+    # The weighted mean averages over the K labels as the unweighted mean reduction does (it used to be K times larger).
+    expected = (loss_un * sw.view(-1, 1)).sum() / sw.sum() / pred.shape[1]
     assert torch.allclose(out, expected, atol=1e-5)
 
 

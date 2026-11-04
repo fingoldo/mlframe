@@ -120,30 +120,25 @@ def test_sam_step_without_closure_raises():
 
 
 def test_sam_step_with_closure_runs_two_passes():
-    """SAM.step(closure) calls the closure once (Lightning's contract:
-    the first forward+backward already ran; closure re-runs at perturbed
-    weights). The base optimizer steps once, using the perturbed
-    gradient.
+    """SAM.step(closure) calls the closure twice: Lightning does not run it before ``step``, so SAM runs it at the original weights (ascent gradient) and
+    again at the perturbed weights. The base optimizer steps once, using the perturbed gradient.
     """
     torch.manual_seed(0)
     p = torch.nn.Parameter(torch.tensor([0.0, 0.0]))
     base = torch.optim.SGD([p], lr=1.0)
     sam = SAM(base, rho=0.1)
 
-    # First forward+backward simulated: set grad before calling step.
-    p.grad = torch.tensor([1.0, 0.0])
     counter = {"calls": 0}
 
     def closure():
         """Closure."""
         counter["calls"] += 1
-        # Simulate the perturbed-weight forward+backward: produce a
-        # different gradient at the perturbed point.
-        p.grad = torch.tensor([0.5, 1.5])
+        # First call (original weights): the ascent gradient; second call (perturbed weights): a different gradient.
+        p.grad = torch.tensor([1.0, 0.0]) if counter["calls"] == 1 else torch.tensor([0.5, 1.5])
         return torch.tensor(0.0)
 
     sam.step(closure)
-    assert counter["calls"] == 1, "SAM.step should call closure once"
+    assert counter["calls"] == 2, "SAM.step should call closure twice"
     # After step: original p (0, 0) restored, then SGD step using the
     # second grad (0.5, 1.5) -> p = -1.0 * (0.5, 1.5) = (-0.5, -1.5).
     torch.testing.assert_close(p.data, torch.tensor([-0.5, -1.5]), atol=1e-6, rtol=0.0)
