@@ -18,7 +18,7 @@ import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
 
-# bench-attempt-rejected (2026-06-28): fit-amortised reuse of the joint-histogram atomicAdd count buffers in
+# bench-attempt-rejected: fit-amortised reuse of the joint-histogram atomicAdd count buffers in
 # joint_counts_gpu (227 calls/fit, ~22M int64) and _batched_joint_counts2 (15 calls, up to ~320M int64) - one
 # grow-to-max int64 buffer per site, .fill(0) the live [:M] slice instead of cp.zeros (alloc+memset) - to kill
 # the 669 cp.zeros that cProfile reported as the #1 tottime (~29-34s) on the GPU-strict-resident F2 1M/200k fit.
@@ -366,7 +366,7 @@ def _batched_joint_counts2(X, b, Kx, Kb):
     import cupy as cp
 
     n, K = int(X.shape[0]), int(X.shape[1])
-    # bench-attempt-rejected (2026-06-28): fit-amortised reuse buffer here grows to ~2.5GB (up to 320M int64 at
+    # bench-attempt-rejected: fit-amortised reuse buffer here grows to ~2.5GB (up to 320M int64 at
     # 1M rows) and stays pinned all fit -> on a 4GB GTX 1050 Ti it starves the resident mempool and REGRESSES
     # wall (~122s -> ~132s). The .fill(0) of 2.5GB also costs ~the same as cp.zeros' memset, so the only saving
     # was the (warm-pool-cheap) malloc. Keep cp.zeros so this large buffer is returned to the pool after use.
@@ -401,7 +401,7 @@ def _batched_marginal_counts(X, Kx):
 # (x,z) and (x,y*z) joints (4 launches + 2 large f64 intermediates / fit). This kernel runs ONE BLOCK PER
 # COLUMN: build that column's (Kx*Kb) histogram in SHARED uint, then fused shared tree-reduce -> (h_k, k_k).
 # Counts are identical (same flat key (col,x,b)->x*Kb+b): the same nnz, and entropies within a few ULP of the count-then-reduce path (the cells are summed in
-# another order; relative <= 4.4e-16 measured 2026-11-03). Over the shared-memory limit ``batched_joint_entropy2_g`` keeps the same loop and reduction with each
+# another order; relative <= 4.4e-16 measured). Over the shared-memory limit ``batched_joint_entropy2_g`` keeps the same loop and reduction with each
 # block's histogram in a global scratch slice (G x M instead of the K x M count buffer), reused column after column so it stays in L2.
 _BATCHED_JOINT_ENTROPY_SRC = r"""
 extern "C" __global__
@@ -497,7 +497,7 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
     ``MLFRAME_FE_GPU_FUSE_CMI_ENTROPY=1`` / ``0`` forces it on / off. 2026-11-03 (n=30000, K=930, Kx=10, GTX 1050 Ti, min of 5): unfused / fused ms at M=40 3.6 / 21.8,
     M=400 36.6 / 22.9, M=1000 59.9 / 21.7, M=4000 73.3 / 11.5, M=10000 78.7 / 15.8. The large joints of the conditional CMI (60-78 ms per unfused launch in
     the 100k fit) are the ones the June measurement below called rare."""
-    # bench-attempt-rejected (2026-06-27): count+reduce -> 1 fused launch. nsys: removed ~18-36 cuLaunchKernel/
+    # bench-attempt-rejected: count+reduce -> 1 fused launch. nsys: removed ~18-36 cuLaunchKernel/
     # fit (total launch APIs 159->135 across the combined A/B). BIT-IDENTICAL (h/k maxdiff 0; full batched_cmi
     # + return_cards maxdiff 0). REJECTED on GPU KERNEL TIME: the one-block-per-column shared-hist kernel runs at
     # a near-CONSTANT ~36ms (n=100k, K=384, GTX 1050 Ti) regardless of M - it serializes n shared-mem atomicAdds
@@ -527,7 +527,7 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
         if M <= 0:
             return None
         if M * 4 + 4096 > int(_BATCHED_JOINT_ENTROPY_SH_LIMIT):
-            # over shared memory: one block per SM with its histogram in global scratch, while all the slices fit L2 together (2026-11-03, n=30000, K=930:
+            # over shared memory: one block per SM with its histogram in global scratch, while all the slices fit L2 together (n=30000, K=930:
             # M=15000 77.9 -> 24.0 ms, M=30000 79.6 -> 47.8 ms; M=100000 (2.4 MB of slices) 86.1 -> 125.4 ms, so count+reduce keeps those)
             attrs = cp.cuda.Device().attributes
             sms, l2 = int(attrs.get("MultiProcessorCount", 1)), int(attrs.get("L2CacheSize", 0))
@@ -820,7 +820,7 @@ def cmi_joint_entropies_gpu(dx: Any, dy: Any, dz: Any, Kx: int, ky: int, kz: int
         return None
 
 
-# bench-attempt-rejected (2026-06-26): a two-block fused (x,z)+(x,y,z) kernel for the FIXED-yz greedy CMI path
+# bench-attempt-rejected: a two-block fused (x,z)+(x,y,z) kernel for the FIXED-yz greedy CMI path
 # (cmi_from_binned_fixed_yz_cupy, where H(z)/H(y,z) are precomputed so only xz/xyz remain) was BIT-IDENTICAL
 # to the two separate joint_entropy_gpu calls on random codes (10/10 A/B) yet FLIPPED the full-MRMR selection
 # on test_gpu_cpu_mi_selection_equivalence[reg_two_pairs] and [adv_wide_p60] - a real divergence the random

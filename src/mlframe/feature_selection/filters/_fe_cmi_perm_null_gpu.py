@@ -157,7 +157,7 @@ def _stratum_layout(cp: Any, z_i: Any, order: Optional[np.ndarray], z_rank: Opti
 
 
 # The column argsort of the int32 shuffle keys as ONE 1-D radix argsort of (column << 32 | key): same orders (cupy's axis-0 argsort is stable, the composite keys
-# order ties by row too), from 300000 elements on (2026-11-03, GTX 1050 Ti, min of 7: 50000 x 25 11.4 -> 7.0 ms, 100000 x 25 23.0 -> 13.2 ms; 16667 x 8 1.2 vs 1.35 ms).
+# order ties by row too), from 300000 elements on (GTX 1050 Ti, min of 7: 50000 x 25 11.4 -> 7.0 ms, 100000 x 25 23.0 -> 13.2 ms; 16667 x 8 1.2 vs 1.35 ms).
 _COMPOSITE_ARGSORT_MIN = 300_000
 
 

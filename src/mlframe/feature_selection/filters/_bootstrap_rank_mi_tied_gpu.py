@@ -185,7 +185,7 @@ def use_device_tied(n_rows: int) -> bool:
         return _fallback_choice(int(n_rows)) == "device"
 
 
-#: Rows from which the device counting sort is the fallback choice. Measured 2026-11-03 on the GTX 1050 Ti (856 rounding / digit / raw columns, 10 resamples of 80%):
+#: Rows from which the device counting sort is the fallback choice. Measured on the GTX 1050 Ti (856 rounding / digit / raw columns, 10 resamples of 80%):
 #: 100000 rows host 2.98 s, device 1.75 s.
 DEVICE_TIED_MIN_ROWS = 30_000
 _SWEEP_ROWS = [5_000, 30_000, 100_000]
