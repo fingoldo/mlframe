@@ -17,6 +17,7 @@ from typing import Any, Optional
 import numpy as np
 
 from ._code_dtype import _safe_code_dtype
+from mlframe.feature_selection.filters._device_sort_safe import device_percentile  # thrust aborts the process on a short pool
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +126,7 @@ def discretize_2d_array_cuda(
             bin_edges = cp.asarray(np.nanpercentile(arr, cp.asnumpy(qs), axis=0))
         else:
             # cp.percentile vectorises across axis=0 -> bin_edges shape: (n_bins + 1, n_cols).
-            bin_edges = cp.percentile(d_arr, qs, axis=0)
+            bin_edges = device_percentile(d_arr, qs, axis=0)
         # cp.searchsorted is 1-D; loop per column. Each call is fully on-device
         # so the loop is dispatch-overhead only (~30 us per launch). For
         # n_cols=30 the total dispatch is ~1 ms vs ~50 ms compute. For
@@ -335,7 +336,7 @@ def discretize_2d_array_cuda_row_chunked(
         if not bool(cp.isfinite(d_sub).all()):
             bin_edges = cp.asarray(np.nanpercentile(sub_arr, cp.asnumpy(qs), axis=0))
         else:
-            bin_edges = cp.percentile(d_sub, qs, axis=0)
+            bin_edges = device_percentile(d_sub, qs, axis=0)
         del d_sub
         # Cut points are derived from ``bin_edges`` ONCE here (fit-constant across every row-chunk below)
         # instead of being re-transposed inside ``_discretize_quantile_rawkernel`` on every chunk call -

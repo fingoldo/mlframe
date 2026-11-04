@@ -41,3 +41,19 @@ def test_enough_room_sorts_like_cupy():
     a = cp.asarray(np.random.default_rng(1).random((50, 300)).astype(np.float32))
     assert bool(cp.all(device_argsort(a, axis=1) == cp.argsort(a, axis=1)))
     assert bool(cp.all(device_sort(a, axis=0) == cp.sort(a, axis=0)))
+
+
+def test_full_device_raises_out_of_memory_even_with_pool_room(monkeypatch):
+    """The device itself short (other processes or pools hold it) while the sort's own pool has no limit: the helper raises OutOfMemoryError
+    (thrust aborts on a failing device allocation as on a pool limit). The device's free memory is faked: filling the real device raced the other
+    workers of a parallel test run, which allocate and free on the same card."""
+    _require_device()
+    from mlframe.feature_selection.filters._device_sort_safe import device_argsort
+
+    a = cp.asarray(np.random.default_rng(2).random((400, 5000)).astype(np.float64))  # 16 MB; its sort needs about 240 MB
+    total = int(cp.cuda.runtime.memGetInfo()[1])
+    monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", lambda: (64 << 20, total))  # 64 MB free on the device
+    pool = cp.cuda.MemoryPool()  # no limit: only the device can be short
+    with cp.cuda.using_allocator(pool.malloc):
+        with pytest.raises(cp.cuda.memory.OutOfMemoryError):
+            device_argsort(a, axis=1)

@@ -171,6 +171,7 @@ _MIN_ROWS_FOR_CMI = 500
 # tunable (``MLFRAME_CMI_ANALYTIC_NULL_MIN_N``); a future kernel_tuning_cache sweep can refine per host.
 import os as _os
 from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.feature_selection.filters._device_sort_safe import device_unique  # thrust aborts the process on a short pool
 
 # COST GUARD: the greedy gate is O(K^2) in the candidate count K -
 # every still-remaining candidate is re-scored against the admitted support in
@@ -728,7 +729,7 @@ def _device_partition_key(codes_dev) -> bytes:
     found without copying every candidate's codes to the host. Equal partitions give equal keys; a collision needs both independent 64-bit sums to agree."""
     import cupy as cp
 
-    _, inv = cp.unique(codes_dev, return_inverse=True)
+    _, inv = device_unique(codes_dev, return_inverse=True)
     inv = inv.astype(cp.uint64).ravel()
     n = int(inv.shape[0])
     w = _fingerprint_weights(n)

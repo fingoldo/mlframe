@@ -38,6 +38,7 @@ except ImportError:
 
 # The plug-in MI kernels moved to _numba_utils (cross-module @njit invariant); re-imported here for the in-file dispatchers.
 from ._numba_utils import _plugin_mi_classif_njit, _plugin_mi_regression_njit  # noqa: F401 -- used by plugin_mi_classif_dispatch and re-exported
+from mlframe.feature_selection.filters._device_sort_safe import device_percentile  # thrust aborts the process on a short pool
 
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
@@ -347,9 +348,9 @@ def _resident_mi_candidates(X_gpu, n_bins: int, *, keep_dtype: bool, relax_binni
         if k == 1:
             # CUPY BUG GUARD: cp.percentile(X, axis=0) returns WRONG edges for a single-column
             # (n, 1) array; ravel to 1D where cp.percentile is correct, then restore shape.
-            edges = cp.percentile(X_gpu.ravel(), qs).reshape(-1, 1)  # (n_bins+1, 1)
+            edges = device_percentile(X_gpu.ravel(), qs).reshape(-1, 1)  # (n_bins+1, 1)
         else:
-            edges = cp.percentile(X_gpu, qs, axis=0)  # (n_bins+1, k) per-column quantile edges
+            edges = device_percentile(X_gpu, qs, axis=0)  # (n_bins+1, k) per-column quantile edges
         interior = edges[1:-1]
     return X_gpu, x_is_cm, x_cm, interior
 

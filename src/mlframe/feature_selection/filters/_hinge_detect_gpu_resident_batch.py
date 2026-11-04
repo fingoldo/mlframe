@@ -43,6 +43,7 @@ import numpy as np
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
 from ._fe_gpu_batch._devices import crit_float_dtype
 from ._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._device_sort_safe import device_quantile  # thrust aborts the process on a short pool
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ def _batched_precheck_gpu(cp, X_batch, yg, precheck_qs, precheck_min_sse_drop: f
 
     # Intentional float64: precheck quantile thresholds compared exactly (f64)
     qs = np.asarray(precheck_qs, dtype=np.float64)
-    cuts = cp.quantile(X_batch, cp.asarray(qs), axis=0)  # (C, K) - per-column cut positions
+    cuts = device_quantile(X_batch, cp.asarray(qs), axis=0)  # (C, K) - per-column cut positions
     best_drop = cp.zeros(K, dtype=crit_float_dtype())
     for c_idx in range(cuts.shape[0]):
         cut_k = cuts[c_idx]  # (K,)

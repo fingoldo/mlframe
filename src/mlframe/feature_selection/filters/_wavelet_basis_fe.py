@@ -83,6 +83,7 @@ from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than
 from mlframe.feature_selection.filters._lazy_host_codes import size_of
+from mlframe.feature_selection.filters._device_sort_safe import device_quantile, device_unique  # thrust aborts the process on a short pool
 
 logger = logging.getLogger(__name__)
 
@@ -407,9 +408,9 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
             pass
-        return cp.quantile(v, cp.linspace(0.0, 1.0, nbins + 1)[1:-1])
+        return device_quantile(v, cp.linspace(0.0, 1.0, nbins + 1)[1:-1])
 
-    uf = cp.unique(df)
+    uf = device_unique(df)
     if int(uf.size) <= nbins:
         fb = cp.searchsorted(uf, df)
     else:
@@ -418,7 +419,7 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
         yb = resident_operand(np.asarray(y_codes).ravel(), "wavelet_y_codes")
     else:
         dy = resident_operand(np.asarray(y).ravel(), "wavelet_y") if not isinstance(y, cp.ndarray) else y.ravel()
-        uy = cp.unique(dy)
+        uy = device_unique(dy)
         if int(uy.size) <= 20:
             yb = cp.searchsorted(uy, dy)
         else:

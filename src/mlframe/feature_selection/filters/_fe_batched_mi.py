@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 # The device-code range guard lives in a sibling (file-size carve only); re-exported because the parent is
 # its only caller and the kernels below reference it by this name.
 from ._fe_batched_mi_guards import _assert_codes_in_range
+from mlframe.feature_selection.filters._device_sort_safe import device_percentile  # thrust aborts the process on a short pool
 
 # FUSED MI-FROM-CODES RawKernel (launch-reduction rewrite). ONE launch computes plug-in
 # MI(col_k; y) for EVERY column of an (n,K) int code matrix, replacing the cupy chain bincount + reshape
@@ -803,7 +804,7 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
         edges_all = None
     if edges_all is None:
         qs = cp.linspace(0.0, 100.0, nbins + 1)
-        edges_all = cp.percentile(Xd, qs, axis=0)  # (nbins+1, K) - one batched device sort
+        edges_all = device_percentile(Xd, qs, axis=0)  # (nbins+1, K) - one batched device sort
     # Vectorized per-column coding (replaces a K-iteration Python loop of cp.unique + cp.searchsorted +
     # per-column copy - ~3 kernel launches PER COLUMN, 617 columns = ~1850 launches per call on the
     # wellbore-100k trace). The searchsorted-on-deduped-interior-edges semantics reduce to counting, per

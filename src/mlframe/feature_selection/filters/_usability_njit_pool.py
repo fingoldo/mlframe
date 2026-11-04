@@ -73,6 +73,7 @@ from ._usability_njit_pool_codes import (  # noqa: F401  re-export: the op-code 
     njit_binary_codes_or_none,
     njit_unary_codes_or_none,
 )
+from mlframe.feature_selection.filters._device_sort_safe import device_unique  # thrust aborts the process on a short pool
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 # Near-constant when std is within this factor of machine epsilon of the combo's largest |value|.
@@ -189,7 +190,7 @@ def _gpu_quantile_bin_codes(V, qs):
     for r in range(m):
         qr = q[r]
         # np.unique on an ascending vector == adjacent dedup.
-        edges = cp.unique(qr)  # ascending, deduped
+        edges = device_unique(qr)  # ascending, deduped
         me = int(edges.shape[0])
         if me <= 1:
             kx[r] = 1
