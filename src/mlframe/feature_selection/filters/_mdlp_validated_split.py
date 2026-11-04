@@ -90,6 +90,8 @@ import numpy as np
 import numba
 from numba import njit
 
+from ._numba_utils_shuffle import bounded, next_state, seed_state
+
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 
 logger = logging.getLogger(__name__)
@@ -174,12 +176,12 @@ def _permutation_null_gain_njit(x_sorted: np.ndarray, y_compact: np.ndarray, n_c
     n = y_compact.shape[0]
     null_gains = np.empty(n_permutations, dtype=np.float64)  # Intentional float64: null-gain accumulator for the MDLP permutation test
     for p in numba.prange(n_permutations):
-        np.random.seed(seed + p)
+        rs = seed_state(seed + p)
         y_perm = y_compact.copy()
-        # Fisher-Yates on a scratch copy - np.random.shuffle is not always njit-supported across numba
-        # versions for arbitrary dtypes, so implement it directly (int64 labels only).
+        # Fisher-Yates on a scratch copy, drawn from the xorshift stream of ``_numba_utils_shuffle`` (the batch twin below draws the same one)
         for i in range(n - 1, 0, -1):
-            j = int(np.random.randint(0, i + 1))
+            rs = next_state(rs)
+            j = bounded(rs, i + 1)
             tmp = y_perm[i]
             y_perm[i] = y_perm[j]
             y_perm[j] = tmp
@@ -337,10 +339,11 @@ def _mdlp_permutation_batch_njit(
             node = live[li]
             ni = node_sizes[node]
             x_i = x_padded[node, :ni]
-            np.random.seed(base_seeds[node] + p)
+            rs = seed_state(base_seeds[node] + p)
             y_perm = y_padded[node, :ni].copy()
             for i in range(ni - 1, 0, -1):
-                j = int(np.random.randint(0, i + 1))
+                rs = next_state(rs)
+                j = bounded(rs, i + 1)
                 tmp = y_perm[i]
                 y_perm[i] = y_perm[j]
                 y_perm[j] = tmp

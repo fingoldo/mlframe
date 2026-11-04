@@ -11,3 +11,11 @@ Device design, not built yet:
 - Blocker: the permutations come from numba's Mersenne generator through `validated_seed`, and the serial / batch twins must stay identical. A device
   version either reproduces that stream on the device or moves both twins to the counter-based `_numba_utils_shuffle` stream (as the honest null did on
   2026-11-02); the second changes the edges, so it needs a selection-level check against the current path, not equality.
+
+## 2026-11-04: xorshift draws for the permutation null
+
+`_permutation_null_gain_njit` and its batch twin `_mdlp_permutation_batch_njit` re-seeded numba's Mersenne Twister per permutation (`np.random.seed(s)`
+initialises a 624-word state) and drew every Fisher-Yates index with `randint`. Both now draw from the `_numba_utils_shuffle` xorshift stream with the same
+seeds (`seed + p`, `base_seeds[node] + p`), so the twins stay equal to each other. 12 `mdlp_bin_edges` calls at 100k rows (binary and 3-class targets):
+0.296 -> 0.254 s, best of 3. The permutations differ from the Mersenne ones (valid and uniform), so the edges on significant columns move slightly
+(29 -> 32 and 20 -> 23 edges on the two informative columns of the bench; the noise columns keep 2).
