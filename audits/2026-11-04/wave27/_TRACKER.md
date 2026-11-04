@@ -15,7 +15,7 @@ Three read-only reports by Opus 5.5 low-effort agents on code no earlier wave re
 | **FUTURE** | W27KB-9 | smote | Low | `_bgmm_sample` raises on an empty minority |
 | **RESOLVED** | W27KS-1 | stats | High | `ks_shift` Wasserstein-1 used the right-endpoint CDF on each interval and ignored all mass outside the neighbours range (local [0,1] vs global [0.5] gave 0, true 0.5); the kernel now integrates the piecewise-constant CDFs exactly (prefix sums of the centred global sample, split where F_g crosses the local level, tails outside the global range included) and matches `scipy.stats.wasserstein_distance` |
 | **RESOLVED** | W27KS-2 | stats | Medium | `ks_shift` KS distance only checked the right limit of each local sample, underestimating the sup by up to 1/k; both limits are checked and the value matches `scipy.stats.ks_2samp` |
-| **FUTURE** | W27IB-1 | leakage | High | `ib_baseline_codes` fits each baseline on the train rows and predicts the same rows, so its median cut-points and per-code target statistics come from overfit predictions while queries are coded from out-of-sample ones |
+| **RESOLVED** | W27IB-1 | leakage | High | `ib_baseline_codes` fits each baseline on the train rows and predicts the same rows, so its median cut-points and per-code target statistics come from overfit predictions while queries are coded from out-of-sample ones |; the train-side predictions are now inner-KFold(3) out-of-fold (query predictions still come from the full-train fit), a single-class inner fold falls back to the prior |
 | **FUTURE** | W27FW-1 | crash | Medium | `fisher_weighted_residual` with a one-row query: `broadcast_to(...).reshape` returns a read-only view and the following `+=` raises |
 | **FUTURE** | W27FW-2 | scale | Medium | `fisher_weighted_residual` bands the query rows on a different quantity (prediction entropy, abs(p - median y)) than the train thresholds were computed from (cross-entropy, abs(y - p)) |
 | **FUTURE** | W27AF-1 | leakage | Medium | `adversarial_flip` takes the regression flip threshold from the in-sample train residual decile, which is biased low |
@@ -42,3 +42,4 @@ Three read-only reports by Opus 5.5 low-effort agents on code no earlier wave re
 |---|---|
 | W27KB-1 | `tests/feature_engineering/transformer/test_key_bank_cache_key_includes_the_target.py` |
 | W27KS-1, 2 | `tests/feature_engineering/transformer/test_ks_shift_matches_scipy_exact_distances.py` |
+| W27IB-1 | `tests/feature_engineering/transformer/test_ib_baseline_codes_train_predictions_are_out_of_fold.py` |

@@ -20,41 +20,55 @@ from ._utils import require_seed, validate_numeric_input
 logger = logging.getLogger(__name__)
 
 
-def _fit_3baselines_two(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int):
-    """Fit 3 diverse baselines (shallow LGB, deeper LGB, linear/logistic) on ``(Xt, y_t)`` and return their predictions on both train and query rows, stacked as ``(n, 3)`` arrays; the linear/logistic baseline falls back to the class prior on fit failure."""
+def _members_predict(Xa: np.ndarray, ya: np.ndarray, Xb: np.ndarray, task: str, seed: int) -> np.ndarray:
+    """Fit 3 diverse baselines (shallow LGB, deeper LGB, linear/logistic) on ``(Xa, ya)`` and return their predictions on ``Xb`` as ``(n_b, 3)``; a single-class binary target or a failed linear member falls back to the class prior."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
         raise ImportError("ib_baseline_codes requires lightgbm") from exc
     from sklearn.linear_model import Ridge, LogisticRegression
-    train_preds = np.zeros((Xt.shape[0], 3), dtype=np.float32)
-    query_preds = np.zeros((Xq.shape[0], 3), dtype=np.float32)
+    out = np.zeros((Xb.shape[0], 3), dtype=np.float32)
     if task == "binary":
-        m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1).fit(Xt, y_t.astype(np.int32))
-        train_preds[:, 0] = np.asarray(m1.predict_proba(Xt))[:, 1]
-        query_preds[:, 0] = np.asarray(m1.predict_proba(Xq))[:, 1]
-        m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1).fit(Xt, y_t.astype(np.int32))
-        train_preds[:, 1] = np.asarray(m2.predict_proba(Xt))[:, 1]
-        query_preds[:, 1] = np.asarray(m2.predict_proba(Xq))[:, 1]
+        ya_i = ya.astype(np.int32)
+        prior = float(ya.mean())
+        if np.unique(ya_i).size < 2:
+            out[:] = prior
+            return out
+        m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1).fit(Xa, ya_i)
+        out[:, 0] = np.asarray(m1.predict_proba(Xb))[:, 1]
+        m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1).fit(Xa, ya_i)
+        out[:, 1] = np.asarray(m2.predict_proba(Xb))[:, 1]
         try:
-            m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(seed) + 2).fit(Xt, y_t.astype(np.int32))
-            train_preds[:, 2] = m3.predict_proba(Xt)[:, 1]
-            query_preds[:, 2] = m3.predict_proba(Xq)[:, 1]
+            m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(seed) + 2).fit(Xa, ya_i)
+            out[:, 2] = m3.predict_proba(Xb)[:, 1]
         except Exception as e:
             logger.info("ib_baseline_codes: LogisticRegression member fit/predict failed (%s); falling back to constant class prior.", e)
-            prior = float(y_t.mean())
-            train_preds[:, 2] = prior
-            query_preds[:, 2] = prior
+            out[:, 2] = prior
     else:
-        m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1).fit(Xt, y_t)
-        train_preds[:, 0] = m1.predict(Xt)
-        query_preds[:, 0] = m1.predict(Xq)
-        m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1).fit(Xt, y_t)
-        train_preds[:, 1] = m2.predict(Xt)
-        query_preds[:, 1] = m2.predict(Xq)
-        m3 = Ridge(alpha=1.0, random_state=int(seed) + 2).fit(Xt, y_t)
-        train_preds[:, 2] = m3.predict(Xt)
-        query_preds[:, 2] = m3.predict(Xq)
+        m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1).fit(Xa, ya)
+        out[:, 0] = m1.predict(Xb)
+        m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1).fit(Xa, ya)
+        out[:, 1] = m2.predict(Xb)
+        m3 = Ridge(alpha=1.0, random_state=int(seed) + 2).fit(Xa, ya)
+        out[:, 2] = m3.predict(Xb)
+    return out
+
+
+def _fit_3baselines_two(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int):
+    """Return the 3 baselines' predictions on the train rows and on the query rows as ``(n, 3)`` arrays.
+
+    The query predictions come from a fit on all of ``Xt``; the train predictions are inner-KFold(3) out-of-fold, so the cut-points and per-code target
+    statistics derived from them describe the same out-of-sample predictions the query rows get. With fewer than 3 rows the train predictions are in-sample.
+    """
+    query_preds = _members_predict(Xt, y_t, Xq, task, seed)
+    n = Xt.shape[0]
+    if n < 3:
+        return _members_predict(Xt, y_t, Xt, task, seed), query_preds
+    from sklearn.model_selection import KFold
+
+    train_preds = np.zeros((n, 3), dtype=np.float32)
+    for k, (tr, va) in enumerate(KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11).split(Xt)):
+        train_preds[va] = _members_predict(Xt[tr], y_t[tr], Xt[va], task, int(seed) + 7 + k)
     return train_preds, query_preds
 
 
