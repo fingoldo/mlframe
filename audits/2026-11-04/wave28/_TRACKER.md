@@ -44,8 +44,8 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **FUTURE** | W28TA-29 | ties | Low | multi_temp_cbhr.py:79-81: q1 == q4 picks the same anchors on both sides |
 | **FUTURE** | W28TA-30 | weights | Low | multi_temp_residual_band.py:106-111: empty bands keep softmax weight |
 | **FUTURE** | W28TA-31 | convention | Low | lda_projection, mixup_boundary, multiscale_smote, smote_distance, per_class_spectral: all-zero output when a class has fewer than 2 rows |
-| **FUTURE** | W28TA-32 | validation | Low | per_class_spectral.py:88-102: y is not checked to be binary |
-| **FUTURE** | W28TA-33 | naming | Low | column named after the requested k, not the clamped k (nn_oof_target_mean, neighbor_aggregate_features, multiscale_rate, persistence_diagram) |
+| **RESOLVED** | W28TA-32 | validation | Low | per_class_spectral.py:88-102: y is not checked to be binary; a target outside {0, 1} raises a ValueError naming the binary requirement |
+| **DOC** | W28TA-33 | naming | Low | column named after the requested k, not the clamped k (nn_oof_target_mean, neighbor_aggregate_features, multiscale_rate, persistence_diagram); the column carries the REQUESTED k by design, so column names are stable across folds and datasets of different sizes; the values use the clamped k |
 | **RESOLVED** | W28TA-34 | labels | Low | focal_lgb.py:37, multi_aux_ensemble.py:57: {-1, 1} labels not remapped for the focal objective; the focal datasets take `y > 0.5` as the 0/1 label in `focal_lgb` and `multi_aux_ensemble` |
 | **RESOLVED** | W28TA-35 | naming | Low | multi_temperature.py:78: temperatures 0.301 and 0.304 format to the same column name; labels fall back to six significant digits when the two-decimal labels collide (existing names unchanged) |
 | **DOC** | W28TA-36 | precision | Low | per_column_rff.py:129-137: always float32, ignores dtype=float64; the fused kernel is float32 by design (benchmarked, selection-equivalent; the features are bounded by sqrt(1/m)); `dtype` selects the output container only |
@@ -87,3 +87,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | W28TA-9, 10 | `tests/feature_engineering/transformer/test_performer_attention_query_features_do_not_depend_on_the_batch.py` |
 | W28TA-23 | `tests/feature_engineering/transformer/test_spectral_attention_survives_a_tiny_training_fold.py` |
 | W28TA-26 | `tests/feature_engineering/transformer/test_row_attention_k_larger_than_a_fold_is_clamped.py` |
+| W28TA-32 | `tests/feature_engineering/transformer/test_per_class_spectral_rejects_a_non_binary_target.py` |
