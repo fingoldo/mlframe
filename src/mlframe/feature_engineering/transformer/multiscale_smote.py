@@ -31,7 +31,7 @@ import numpy as np
 import polars as pl
 
 from ._smote_kernels_shared import smote_synthesize_minority_rowloop as _smote_with_k
-from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice, far_pos_loggap_columns
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ def compute_multiscale_smote_features(
             Xq_s = Xq
         Xt_pos, Xt_neg = class_or_quantile_slice(Xt_s, y_t, task, q_high)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
-            return np.zeros((Xq_s.shape[0], 2 * len(_K_SCALES) * len(smote_k_scales)), dtype=np.float32)
+            return np.concatenate([far_pos_loggap_columns(Xq_s.shape[0], len(_K_SCALES))] * len(smote_k_scales), axis=1)
         neg_d = kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES), _K_SCALES)
         n_synthetic = max(50, int(Xt_pos.shape[0] * oversample))
         all_feats = []

@@ -34,7 +34,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice, pos_loggap_columns
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice, pos_loggap_columns, far_pos_loggap_columns
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ def compute_smote_distance_features(
             Xq_s = Xq
         Xt_pos, Xt_neg = class_or_quantile_slice(Xt_s, y_t, task, q_high)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
-            return np.zeros((Xq_s.shape[0], 2 * len(_K_SCALES)), dtype=np.float32)
+            return far_pos_loggap_columns(Xq_s.shape[0], len(_K_SCALES))
         n_synthetic = max(2 * Xt_pos.shape[0], int(Xt_pos.shape[0] * oversample))
         X_synth_pos = _smote_synthesize(Xt_pos, n_synthetic=n_synthetic, k_neighbors=k_smote, seed=fold_seed)
         # Combine REAL + SYNTHETIC positives for virtual cloud.

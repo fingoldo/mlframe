@@ -4,6 +4,9 @@ import pytest
 
 from mlframe.feature_engineering.transformer.active_virtual import compute_active_virtual_features
 from mlframe.feature_engineering.transformer.adasyn_smote import compute_adasyn_smote_features
+from mlframe.feature_engineering.transformer.mixup_boundary import compute_mixup_boundary_features
+from mlframe.feature_engineering.transformer.multiscale_smote import compute_multiscale_smote_features
+from mlframe.feature_engineering.transformer.smote_distance import compute_smote_distance_features
 from mlframe.feature_engineering.transformer.class_distance import compute_class_distance_features
 
 
@@ -16,7 +19,7 @@ def _one_positive_row():
     return X, y
 
 
-@pytest.mark.parametrize("fn", [compute_class_distance_features, compute_active_virtual_features, compute_adasyn_smote_features])
+@pytest.mark.parametrize("fn", [compute_class_distance_features, compute_active_virtual_features, compute_adasyn_smote_features, compute_mixup_boundary_features, compute_multiscale_smote_features, compute_smote_distance_features])
 def test_a_single_positive_row_gives_far_distances(fn):
     """The positive-distance columns must be 1e6 ("very far") and no column may be a zero distance."""
     X, y = _one_positive_row()
