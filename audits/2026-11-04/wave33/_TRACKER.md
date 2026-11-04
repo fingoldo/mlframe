@@ -13,10 +13,10 @@ Three read-only reports by Opus 5.5 low-effort agents (models optimization and e
 | **RESOLVED** | W33EN-4 | metric | Medium | `models/ensembling/selection.py:151` (`_score_blend`): the default AUC metric is silently wrong for a non-binary 1-D target; a 1-D blend over a target with more than two values raises a ValueError asking for an explicit metric instead of casting labels to int |
 | **RESOLVED** | W33DA-1 | missingness | High | `data/datasets/_missing.py:77-78`: MAR and MNAR masks keep `ordering >= cut`, so ties at the cut hide far more than the requested rate; MAR/MNAR hide an exact count (`round(share * n)`) from a lexsort with the stream breaking ties, so a tied driver no longer hides every tied row (binary driver, rate 0.1: 500 hidden before, 100 now) |
 | **RESOLVED** | W33DA-2 | missingness | Medium | `data/datasets/_missing.py:77`: a NaN in the ordering column makes the quantile NaN and nothing is masked, silently; a NaN in the ordering column ranks lowest and is not masked by the rule, and the cut no longer turns NaN |
-| **FUTURE** | W33DA-3 | labels | Low | `preprocessing/align_feature_direction.py:102`: only `y == 1` is the positive class, so other two-class labels raise a wrong single-class error |
-| **FUTURE** | W33CM-1 | degenerate | Low | `metrics/classification/_weighted_kappa.py:67-83`: identical single-class raters with `n_classes >= 2` give 0.0 where the docstring promises 1.0 |
-| **FUTURE** | W33CM-2 | empty | Low | `metrics/_multilabel_metrics.py:137,169,206`: empty input divides by zero inside numba |
-| **FUTURE** | W33CM-3 | empty | Low | `metrics/classification/_ordinal_cutpoints.py:113-115`: empty input reaches `np.quantile` on a zero-length array |
+| **RESOLVED** | W33DA-3 | labels | Low | `preprocessing/align_feature_direction.py:102`: only `y == 1` is the positive class, so other two-class labels raise a wrong single-class error; the larger of two labels is the positive class in `batch_univariate_auc` (as in sklearn); 1 stays positive for other label sets |
+| **RESOLVED** | W33CM-1 | degenerate | Low | `metrics/classification/_weighted_kappa.py:67-83`: identical single-class raters with `n_classes >= 2` give 0.0 where the docstring promises 1.0; identical single-class raters with n_classes >= 2 agree perfectly (1.0), matching the docstring |
+| **RESOLVED** | W33CM-2 | empty | Low | `metrics/_multilabel_metrics.py:137,169,206`: empty input divides by zero inside numba; empty multilabel input returns NaN from the three public wrappers instead of dividing by zero inside numba |
+| **RESOLVED** | W33CM-3 | empty | Low | `metrics/classification/_ordinal_cutpoints.py:113-115`: empty input reaches `np.quantile` on a zero-length array; empty ordinal input raises a clear ValueError instead of an opaque numpy IndexError |
 
 ## Not covered by this wave
 
@@ -33,3 +33,5 @@ Three read-only reports by Opus 5.5 low-effort agents (models optimization and e
 | W33OP-1, 2 | `tests/models/test_optimizer_warm_start_and_failed_evaluations.py` |
 | W33OP-3 | `tests/models/test_group_time_series_split_accepts_a_pandas_groups_series.py` |
 | W33DA-1, 2 | `tests/data/test_datasets_missingness_ties_and_nan_ordering.py` |
+| W33CM-1, 2, 3 | `tests/metrics/test_degenerate_inputs_kappa_multilabel_ordinal.py` |
+| W33DA-3 | `tests/preprocessing/test_align_feature_direction_two_class_labels.py` |
