@@ -106,9 +106,14 @@ def _eigvecs_from_graph(W: sp.csr_matrix, n_eigvecs: int) -> tuple[np.ndarray, n
     eigvecs_out = eigvecs_A[:, 1 : n_eigvecs + 1].astype(np.float32)
     # An eigenvector is defined up to sign and ARPACK starts from a random vector, so two fits of the same data could return opposite signs: fix the sign so the
     # largest-magnitude entry of each is positive.
+    eigvals_out = eigvals_A[1 : n_eigvecs + 1].astype(np.float32)
+    if eigvecs_out.shape[1] < n_eigvecs:  # a tiny graph has fewer eigenvectors than requested: the missing ones are all-zero columns with a zero eigenvalue
+        pad = n_eigvecs - eigvecs_out.shape[1]
+        eigvecs_out = np.concatenate([eigvecs_out, np.zeros((n, pad), dtype=np.float32)], axis=1)
+        eigvals_out = np.concatenate([eigvals_out, np.zeros(pad, dtype=np.float32)])
     pivot = np.argmax(np.abs(eigvecs_out), axis=0)
     eigvecs_out = eigvecs_out * np.where(eigvecs_out[pivot, np.arange(eigvecs_out.shape[1])] < 0, -1.0, 1.0).astype(np.float32)
-    return eigvals_A[1 : n_eigvecs + 1].astype(np.float32), eigvecs_out, d_inv_sqrt
+    return eigvals_out, eigvecs_out, d_inv_sqrt
 
 
 def _nystrom_extend(X_train: np.ndarray, X_query: np.ndarray, eigvals: np.ndarray, eigvecs_normalised: np.ndarray, d_inv_sqrt: np.ndarray, k_graph: int, sigma: Optional[float] = None) -> np.ndarray:
@@ -185,11 +190,12 @@ def compute_spectral_attention(
         else:
             Xt_s = Xt
             Xq_s = Xq
-        W, _ids, graph_dists = _build_knn_graph(Xt_s, k_graph=k_graph)
+        k_graph_eff = max(1, min(k_graph, Xt_s.shape[0] - 1))  # a fold with <= k_graph rows has no k_graph-th neighbour
+        W, _ids, graph_dists = _build_knn_graph(Xt_s, k_graph=k_graph_eff)
         graph_sigma = float(np.median(graph_dists[:, -1])) + 1e-9  # the training graph's bandwidth, reused for every query batch
         eigvals, eigvecs, d_inv_sqrt = _eigvecs_from_graph(W, n_eigvecs=n_eigvecs)
         eigvecs_normalised = eigvecs * d_inv_sqrt[:, None]
-        embedding = _nystrom_extend(Xt_s, Xq_s, eigvals=eigvals, eigvecs_normalised=eigvecs_normalised, d_inv_sqrt=d_inv_sqrt, k_graph=k_graph, sigma=graph_sigma)
+        embedding = _nystrom_extend(Xt_s, Xq_s, eigvals=eigvals, eigvecs_normalised=eigvecs_normalised, d_inv_sqrt=d_inv_sqrt, k_graph=k_graph_eff, sigma=graph_sigma)
         return embedding
 
     if X_query is not None:
