@@ -12,8 +12,8 @@ Three read-only reports by Opus 5.5 low-effort agents (metrics regression/classi
 | **FUTURE** | W32ME-6 | empty | Low | `metrics/_core_precision_mape.py:82,94`: empty input gives accuracy 0.0 and balanced accuracy 0.0 instead of NaN |
 | **FUTURE** | W32MO-1 | leakage | Medium | `models/tuning_rules.py:533-556`: CatBoost early-stops on `X_test` and then scores `X_test` as the estimator's expected score, replacing the CV mean |
 | **FUTURE** | W32MO-2 | scale | Low | `core/robust_location.py:65`: with MAD = 0 the scale falls back to 1.0 in absolute units, so the M-estimator is unit-dependent |
-| **FUTURE** | W32DA-1 | calibration | High | `data/datasets/generator.py:199-230` with `_noise.py:106`: a prior-valued noise rate is redrawn from the shared knob RNG on every `probability_at` call, so calibration, recorded AUC, true probabilities and labels come from different laws |
-| **FUTURE** | W32DA-2 | rng | Medium | `data/datasets/generator.py:189,213,246`: the knob RNG is consumed once per bisection step and then passed to missingness, so prior-valued missingness depends on the calibration target |
+| **RESOLVED** | W32DA-1 | calibration | High | `data/datasets/generator.py:199-230` with `_noise.py:106`: a prior-valued noise rate is redrawn from the shared knob RNG on every `probability_at` call, so calibration, recorded AUC, true probabilities and labels come from different laws; the noise rate is resolved once per target (before the bisection) and passed as a pinned copy of the spec; with the old code a 0.75 calibration target recorded achieved AUC 0.722 against a shipped-probability ceiling of 0.649 |
+| **RESOLVED** | W32DA-2 | rng | Medium | `data/datasets/generator.py:189,213,246`: the knob RNG is consumed once per bisection step and then passed to missingness, so prior-valued missingness depends on the calibration target; fixed by the same change: the bisection no longer consumes the knob stream, so prior-valued missingness no longer depends on the calibration target |
 | **RESOLVED** | W32DA-3 | target | High | `preprocessing/temporal_drift_augment.py:83-84,140,152`: with `feature_cols=None` a numeric label is treated as a feature and overwritten by its z-score on every synthetic row; new optional `label_cols` keeps named label columns out of the default `feature_cols`, so they are carried from the entity's true last period (the default cannot guess which numeric column is the label; documented) |
 | **RESOLVED** | W32DA-4 | nan | Low | `preprocessing/temporal_drift_augment.py:145-146`: a NaN last-period non-feature value takes the earlier vintage's value (a label leak); an entity found in the true-last rows takes its value even when NaN |
 
@@ -28,3 +28,4 @@ Three read-only reports by Opus 5.5 low-effort agents (metrics regression/classi
 | ID | Regression test |
 |---|---|
 | W32DA-3, 4 | `tests/preprocessing/test_temporal_drift_augment_label_handling.py` |
+| W32DA-1, 2 | `tests/data/test_datasets_prior_noise_rate_is_drawn_once.py` |
