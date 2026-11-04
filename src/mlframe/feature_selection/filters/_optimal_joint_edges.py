@@ -39,10 +39,12 @@ def _optimal_joint_plan(x: np.ndarray, candidates: tuple, n_splits: int, base: s
         val_x = x[val_mask]
         n_train = int(train_mask.sum())
         cells = []
+        # every candidate's quantile edges from one np.percentile call over the fold, instead of one partition of the fold per candidate
+        fold_edges = _quantile_edges_many(train_x, [M for M in candidates if M >= 2 and n_train >= M]) if base == "quantile" else None
         for M in candidates:
             if M < 2 or n_train < M:
                 continue
-            edges = _a()._edges_from_quantiles(train_x, M) if base == "quantile" else _a()._edges_from_uniform(train_x, M)
+            edges = fold_edges[M] if fold_edges is not None else _a()._edges_from_uniform(train_x, M)
             if edges.size == 0:
                 continue
             x_b = np.searchsorted(edges, val_x, side="right")
