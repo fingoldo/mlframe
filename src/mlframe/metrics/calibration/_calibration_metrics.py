@@ -127,11 +127,11 @@ def compute_ece_and_brier_decomposition(
     equal-population pockets. Equal-mass and equal-width ECE are NOT comparable on the same inputs --
     compare ECE only within one binning scheme.
 
-    Returns 1.0/1.0/0.0/0.0/1.0 on empty input - mirrors degenerate handling elsewhere in the calibration pipeline.
+    Returns NaN for every field on empty input: an empty slice has no calibration error, and a number (the old 1.0 worst case) would be averaged in as a measurement.
     """
     n = len(y_true)
     if n == 0:
-        return 1.0, 1.0, 0.0, 0.0, 1.0
+        return np.nan, np.nan, np.nan, np.nan, np.nan
 
     base_rate = 0.0
     for i in range(n):
@@ -205,12 +205,11 @@ def compute_ece_debiased(
 
     Uses the SAME fixed ``[0, 1]`` equal-width binning grid as ``compute_ece_and_brier_decomposition`` so the
     debiased and plug-in estimates are directly comparable AND comparable across datasets / resamples (the grid
-    does not depend on the sample's observed min/max). Returns 1.0 on empty input (degenerate handling mirrors
-    the rest of the calibration pipeline).
+    does not depend on the sample's observed min/max). Returns NaN on empty input (an empty slice must not score as a number).
     """
     n = len(y_true)
     if n == 0:
-        return 1.0
+        return np.nan
 
     pred_sum = np.zeros(nbins, dtype=np.float64)
     true_sum = np.zeros(nbins, dtype=np.float64)
@@ -279,11 +278,11 @@ def compute_brier_decomposition_debiased(
     Returns ``(reliability_debiased, resolution_debiased, uncertainty, brier_binned)``. ``uncertainty`` is unchanged
     from the plug-in; ``brier_binned`` is the plug-in BinnedBrier. Uses the SAME fixed ``[0, 1]`` equal-width grid as ``compute_ece_and_brier_decomposition`` so the
     debiased and plug-in decompositions are directly comparable AND comparable across datasets / resamples. Returns
-    1.0/0.0/0.0/1.0 on empty input.
+    NaN for every field on empty input.
     """
     n = len(y_true)
     if n == 0:
-        return 1.0, 0.0, 0.0, 1.0
+        return np.nan, np.nan, np.nan, np.nan
 
     base_rate = 0.0
     for i in range(n):
@@ -360,7 +359,7 @@ def compute_ece_brier_full_and_debiased(
     """
     n = len(y_true)
     if n == 0:
-        return 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0
+        return np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan
 
     base_rate = 0.0
     for i in range(n):

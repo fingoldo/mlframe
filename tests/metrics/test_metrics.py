@@ -644,13 +644,13 @@ class TestCalibration:
         assert abs(ece - expected) < 1e-9, f"got {ece}, expected {expected}"
 
     def test_ece_kernel_handles_empty_input(self):
-        """Empty input returns (1.0, 1.0, 0.0, 0.0, 1.0) - matches degenerate handling."""
+        """Empty input returns NaN in every field (no calibration error exists for an empty slice)."""
         ece, rel, res, unc, br = compute_ece_and_brier_decomposition(
             y_true=np.array([], dtype=np.float64),
             y_pred=np.array([], dtype=np.float64),
             nbins=10,
         )
-        assert (ece, rel, res, unc, br) == (1.0, 1.0, 0.0, 0.0, 1.0)
+        assert all(np.isnan(v) for v in (ece, rel, res, unc, br))
 
     def test_ece_kernel_handles_single_class(self):
         """Single-class input - kernel computes; identity still holds (binned)."""

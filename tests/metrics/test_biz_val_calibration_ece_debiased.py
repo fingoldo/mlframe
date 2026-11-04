@@ -98,7 +98,7 @@ def test_ece_debiased_tracks_real_miscalibration():
 
 def test_ece_debiased_empty_input_degenerate():
     """Ece debiased empty input degenerate."""
-    assert compute_ece_debiased(np.empty(0), np.empty(0), 10) == 1.0
+    assert np.isnan(compute_ece_debiased(np.empty(0), np.empty(0), 10))
 
 
 def test_ece_debiased_single_bin_span_zero():
