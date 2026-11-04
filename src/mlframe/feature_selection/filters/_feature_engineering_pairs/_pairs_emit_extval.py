@@ -212,10 +212,17 @@ def _emit_pair_features_step2_read_here_once(
     _family_cells = len(_ev_configs) * _n_ext_est * len(binary_transformations) * len(X)
     _family_exact = _family_cells <= _FAMILY_EXACT_MAX_CELLS
     _k_seen = 0  # candidates scored over every configuration of this pair (the family size K of the table floor)
+    # One validation-factor subset per PAIR: drawn per configuration, tied leaders were compared on different factor sets and the winner depended on how many
+    # draws the configurations before it had consumed.
+    _pair_ext_factors = _ext_factors_sorted
+    _pair_ext_max = fe_max_external_validation_factors
+    if fe_max_external_validation_factors and len(_ext_factors_sorted) > fe_max_external_validation_factors:
+        _pair_ext_factors = _rng_extval.choice(_ext_factors_sorted, fe_max_external_validation_factors, replace=False)
+        _pair_ext_max = 0
     for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_configs) > 1 else []):
         _pa_dev, param_a, best_valid_mi, config, _else_cols, _ev_param_bs, _pb_vals, _ev_can_batch, _ev_chunk = _emit_pair_features_step2_read_here_once_part2(
             final_transformed_vals, i, _this_chunk_deferred, _ev_resident_enabled, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations,
-            binary_transformations, transformations_pair, bin_func_name, _ext_factors_sorted, fe_max_external_validation_factors, _rng_extval,
+            binary_transformations, transformations_pair, bin_func_name, _pair_ext_factors, _pair_ext_max, _rng_extval,
             _extval_raw_col, X, _can_hoist_shared_buffer, _n_workers,
         )
         if quantization_method == "quantile" and _ev_param_bs and _ev_can_batch:

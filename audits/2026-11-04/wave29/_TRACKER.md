@@ -15,7 +15,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural base/flat modu
 | **FUTURE** | W29NR-6 | crash | Low | `_recurrent_data.py:302-311`: the stratified sampler branch does not exclude 2-D (multilabel) labels |
 | **FUTURE** | W29NR-7 | ties | Low | `fixed_sparse_linear.py:44-45`: the 1e-9 jitter is below float32 resolution for importances near 1, so `random_state` does not break ties |
 | **FUTURE** | W29PX-1 | crash | Medium | `_pairs_chunks.py:318-322` with `_pairs_score_steps.py:371`: a chunk where every transform fails stores a 3-tuple but the consumer unpacks 4 values |
-| **FUTURE** | W29PX-2 | ties | Medium | `_pairs_emit_extval.py:304-305`: the external factor subset is drawn per config, so tied leaders are compared on different factor sets and the winner depends on iteration order |
+| **RESOLVED** | W29PX-2 | ties | Medium | `_pairs_emit_extval.py:304-305`: the external factor subset is drawn per config, so tied leaders are compared on different factor sets and the winner depends on iteration order; the subset is drawn once per pair before the config loop and passed already capped |
 | **FUTURE** | W29PX-3 | gate | Low | `_pairs_emit_extval.py:233-257`: a config with a failed chunk is left out of the family but keeps its partial validation MI |
 
 ## Not covered by this wave
@@ -29,3 +29,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural base/flat modu
 |---|---|
 | W29NB-1 | `tests/training/test_neural_refit_relearns_the_class_labels.py` |
 | W29NR-2 | `tests/training/neural/test_mlp_ranker_restores_the_best_epoch_weights.py` |
+| W29PX-2 | `tests/feature_selection/fe/test_fe_extval_factor_subset_is_drawn_once_per_pair.py` |
