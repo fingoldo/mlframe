@@ -172,12 +172,12 @@ def _bin_columns(
 def _jmim_scores_device(eng_bins, eng_ks, y_bin, K_y: int, sel_bins, sel_ks):
     """``(K,)`` JMIM scores on the device: for every reference ``z`` the plug-in ``I((x, z); y) = H(x, z) + H(y) - H(x, z, y)`` of all candidates from the
     batched per-column joint entropies, clipped at 0 like ``_joint_mi_3d_njit``, and the minimum over the references (the host loop's early exit at 0 is
-    the minimum of the clipped values). Equal to the host up to summation order. OFF by default (``MLFRAME_JMIM_DEVICE=1`` turns it on): bench-attempt-rejected
-    2026-11-03, 100k rows x 40 references x 150 candidates, warm: host 2.68 s, device 2.59 s (two joint-entropy passes over every candidate per reference,
-    against the host njit kernel already parallel over the candidates). ``None`` when not used (off, no GPU, the plug-in MI dispatcher's choice is the host, or a fault)."""
+    the minimum of the clipped values). Equal to the host up to summation order. ON by default (``MLFRAME_JMIM_DEVICE=0`` turns it off). Alone it only ties the
+    host (2026-11-03, 100k rows x 40 references x 150 candidates, warm: host 2.68 s, device 2.59 s), but in a full fit the host kernel competes with the other FE
+    stages for the cores: warm all-families 100k x 100 fits, one process, pairs in opposite orders, 79.7 / 103.5 s with it against 91.2 / 102.6 s without. ``None`` when not used (off, no GPU, the plug-in MI dispatcher's choice is the host, or a fault)."""
     import os
 
-    if os.environ.get("MLFRAME_JMIM_DEVICE", "0").strip() != "1" or not len(sel_bins) or not len(eng_bins):
+    if os.environ.get("MLFRAME_JMIM_DEVICE", "1").strip() == "0" or not len(sel_bins) or not len(eng_bins):
         return None
     try:
         from ._gpu_policy import cuda_available_for_run
