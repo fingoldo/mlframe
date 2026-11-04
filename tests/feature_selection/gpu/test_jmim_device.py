@@ -27,7 +27,7 @@ def test_device_equals_host(monkeypatch):
     monkeypatch.setenv("MLFRAME_JMIM_DEVICE", "0")
     want = M.score_features_by_jmim(raw, eng, y)
     monkeypatch.setenv("MLFRAME_JMIM_DEVICE", "1")
-    monkeypatch.setattr("mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch.lookup_mi_classif_backend", lambda *a, **k: "cuda")
+    monkeypatch.setattr(M, "_JMIM_DEVICE_MIN_CELLS", 0)
     called = []
     real = M._jmim_scores_device
     monkeypatch.setattr(M, "_jmim_scores_device", lambda *a, **k: (lambda r: called.append(r is not None) or r)(real(*a, **k)))
@@ -36,3 +36,11 @@ def test_device_equals_host(monkeypatch):
     assert list(got["engineered_col"]) == list(want["engineered_col"])
     np.testing.assert_allclose(got["engineered_mi"].to_numpy(), want["engineered_mi"].to_numpy(), rtol=1e-9, atol=1e-12)
     assert (want["engineered_mi"] > 0).sum() >= 2
+
+
+def test_small_work_stays_on_the_host():
+    """Below the measured crossover the device pass declines, so a small scoring keeps the host loop."""
+    rng = np.random.default_rng(1)
+    bins = [rng.integers(0, 4, 500).astype(np.int64) for _ in range(3)]
+    assert 500 * 3 * 3 < M._JMIM_DEVICE_MIN_CELLS
+    assert M._jmim_scores_device(bins, [4, 4, 4], rng.integers(0, 2, 500).astype(np.int64), 2, bins, [4, 4, 4]) is None
