@@ -77,9 +77,20 @@ def _fit_3baselines_with_sigma(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, 
         m3.fit(Xt, y_t)
         p3_train = m3.predict(Xt).astype(np.float32)
         p3_query = m3.predict(Xq).astype(np.float32)
-        sigmas[0] = float((y_t - p1_train).std()) + 1e-6
-        sigmas[1] = float((y_t - p2_train).std()) + 1e-6
-        sigmas[2] = float((y_t - p3_train).std()) + 1e-6
+        # Out-of-fold residuals: the in-sample ones of a depth-5 booster are far smaller than the error it makes on a query row, which inflates its KL terms.
+        resid_pred = (p1_train, p2_train, p3_train)
+        if Xt.shape[0] >= 3:
+            from sklearn.model_selection import KFold
+
+            from .ib_baseline_codes import _members_predict
+
+            oof = np.zeros((Xt.shape[0], 3), dtype=np.float32)
+            for k, (tr, va) in enumerate(KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11).split(Xt)):
+                oof[va] = _members_predict(Xt[tr], y_t[tr], Xt[va], "regression", int(seed) + 7 + k)
+            resid_pred = (oof[:, 0], oof[:, 1], oof[:, 2])
+        sigmas[0] = float((y_t - resid_pred[0]).std()) + 1e-6
+        sigmas[1] = float((y_t - resid_pred[1]).std()) + 1e-6
+        sigmas[2] = float((y_t - resid_pred[2]).std()) + 1e-6
     return (p1_query, p2_query, p3_query), sigmas
 
 

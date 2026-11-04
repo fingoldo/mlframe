@@ -23,6 +23,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from ._baseline_oof import fit_baseline_predict_oof
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -72,11 +73,11 @@ def compute_variance_baseline_features(
         if task == "binary":
             m_mu = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
                                       random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            mu_train = np.asarray(m_mu.predict_proba(Xt_s))[:, 1].astype(np.float32)
+            mu_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed)  # out-of-fold: in-sample residuals understate the noise the variance model must learn
             mu_query = np.asarray(m_mu.predict_proba(Xq_s))[:, 1].astype(np.float32)
         else:
             m_mu = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            mu_train = np.asarray(m_mu.predict(Xt_s)).astype(np.float32)
+            mu_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed)  # out-of-fold: in-sample residuals understate the noise the variance model must learn
             mu_query = np.asarray(m_mu.predict(Xq_s)).astype(np.float32)
 
         # Stage 2: sigma2_hat

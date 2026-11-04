@@ -24,8 +24,8 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **FUTURE** | W28TA-9 | replay | Medium | performer_attention.py:65,121-122: the global-max shift is per batch and does not cancel |
 | **FUTURE** | W28TA-10 | precision | Medium | performer_attention.py:61-66,114: float32 underflow hidden by the 1e-9 floor fallback (y_est = 0) |
 | **FUTURE** | W28TA-11 | leakage | Medium | nn_oof_target_mean.py:68-96,143-144: kNN index built on in-sample baseline predictions, queries use out-of-sample ones |
-| **FUTURE** | W28TA-12 | leakage | Medium | pairwise_kl_divergence.py:80-82: baseline sigma is the in-sample residual std |
-| **FUTURE** | W28TA-13 | leakage | Medium | variance_baseline.py:79-85: mu_train is in-sample |
+| **RESOLVED** | W28TA-12 | leakage | Medium | pairwise_kl_divergence.py:80-82: baseline sigma is the in-sample residual std; the regression sigmas come from inner-KFold(3) out-of-fold residuals of the same three members; on a noise target the deeper booster's sigma was 0.50 and is near 1 |
+| **RESOLVED** | W28TA-13 | leakage | Medium | variance_baseline.py:79-85: mu_train is in-sample; mu_train is out-of-fold; the mean predicted sigma^2 on a noise target was 0.47 and is 1.18 (true 1) |
 | **FUTURE** | W28TA-14 | leakage | Medium | target_kmeans_codebook.py:405,409: train rows clustered on in-sample predictions, queries on held-out ones |
 | **FUTURE** | W28TA-15 | scale | Medium | target_kmeans_codebook.py:420,428: cluster_size is a fold-sized count in Mode A and a full-data count in Mode B |
 | **FUTURE** | W28TA-16 | scale | Medium | local_lift.py:50: max(y_global_mean, 1e-9) breaks for a zero or negative mean |
@@ -67,3 +67,5 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | W28TA-21 | `tests/feature_engineering/transformer/test_single_class_fold_does_not_crash_the_aux_mlp.py` |
 | W28TA-22 | `tests/feature_engineering/transformer/test_oof_rows_no_fold_validates_stay_nan.py` |
 | W28TA-3 | `tests/feature_engineering/transformer/test_predictive_info_delta_bins_are_out_of_fold.py` |
+| W28TA-12 | `tests/feature_engineering/transformer/test_pairwise_kl_sigmas_use_out_of_fold_residuals.py` |
+| W28TA-13 | `tests/feature_engineering/transformer/test_variance_baseline_sigma_uses_out_of_fold_residuals.py` |
