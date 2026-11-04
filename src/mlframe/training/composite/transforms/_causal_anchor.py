@@ -146,7 +146,7 @@ def _causal_anchor_residual_forward(
 ) -> np.ndarray:
     """Apply the fitted anchor shrink: target - alpha * base."""
     alpha = float(params["alpha"])
-    return cast("np.ndarray", y - alpha * base)
+    return cast("np.ndarray", np.asarray(y, dtype=np.float64) - alpha * np.asarray(base, dtype=np.float64))
 
 
 def _causal_anchor_residual_inverse(
@@ -154,7 +154,7 @@ def _causal_anchor_residual_inverse(
 ) -> np.ndarray:
     """Invert the anchor shrink to recover the original target scale: prediction + alpha * base."""
     alpha = float(params["alpha"])
-    return cast("np.ndarray", t_hat + alpha * base)
+    return cast("np.ndarray", np.asarray(t_hat, dtype=np.float64) + alpha * np.asarray(base, dtype=np.float64))
 
 
 _causal_anchor_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_no_cast

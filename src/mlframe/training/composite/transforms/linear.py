@@ -278,7 +278,8 @@ def _linear_residual_forward(
     """Compute the OLS residual ``T = y - alpha*base - beta`` from fitted ``params``."""
     alpha = float(params["alpha"])
     beta = float(params["beta"])
-    return cast("np.ndarray", y - alpha * base - beta)
+    # float64 arithmetic: with float32 inputs (numpy 2 keeps the Python-scalar product in float32) alpha * base rounds at float32 spacing, ~8 at 1e8
+    return cast("np.ndarray", np.asarray(y, dtype=np.float64) - alpha * np.asarray(base, dtype=np.float64) - beta)
 
 
 def _linear_residual_inverse(
@@ -289,7 +290,7 @@ def _linear_residual_inverse(
     """Invert the linear residual: ``y_hat = t_hat + alpha*base + beta``."""
     alpha = float(params["alpha"])
     beta = float(params["beta"])
-    return cast("np.ndarray", t_hat + alpha * base + beta)
+    return cast("np.ndarray", np.asarray(t_hat, dtype=np.float64) + alpha * np.asarray(base, dtype=np.float64) + beta)
 
 
 _linear_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_no_cast
@@ -848,10 +849,11 @@ def _linear_residual_grouped_fit(
         # Var(base_g) drives the scale-invariant JS slope-variance proxy.
         if _fit_ok:
             base_vars_for_shrink.append(float(np.var(base_g64)) if n_g > 1 else 0.0)
-        # Accumulate residuals for σ² estimate.
-        resid = y_g - a_g * base_g - b_g
-        total_resid_sq += float(np.sum(resid * resid))
-        total_n += n_g
+        # Accumulate residuals for σ² estimate, over the SAME groups as the shrinkage (a group whose OLS failed carries the global fit, not a residual of its own).
+        if _fit_ok:
+            resid = y_g - a_g * base_g - b_g
+            total_resid_sq += float(np.sum(resid * resid))
+            total_n += n_g
 
     # James-Stein shrinkage of the eligible per-group alphas.
     c = _js_shrinkage_for_groups(alphas_for_shrink, sizes_for_shrink, base_vars_for_shrink, alpha_global, total_resid_sq, total_n)

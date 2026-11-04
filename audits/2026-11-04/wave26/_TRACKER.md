@@ -8,6 +8,8 @@ Three read-only reports by Opus 5.5 low-effort agents on the files wave 25 left 
 | **RESOLVED** | W26DCD-1 | polars | Low | `_resolve_member_matrix` read `dtype.kind` and called a pandas-only `to_numpy(dtype=, copy=)`, which raised on a polars frame |
 | **RESOLVED** | W26TRF-1 | `tests/training/composite/test_oof_target_encoding_survives_zero_sample_weights.py` |
 | W26GATE-5 | `tests/training/composite/discovery/test_group_disjoint_carve_handles_missing_group_ids.py` |
+| W26TRF-5 | `tests/training/composite/test_linear_residual_float32_inputs_use_float64_arithmetic.py` |
+| W26TRF-6 | `tests/training/composite/test_grouped_linear_residual_shrinkage_ignores_failed_groups.py` |
 | W26GATE-6 | `tests/training/composite/discovery/test_tiny_screen_seed_repeats_survive_a_group_split_fallback.py` |
 | W26GATE-4 | `tests/training/composite/discovery/test_structural_gate_ignores_tiny_groups_noise.py` |
 | W26GATE-3 | `tests/training/composite/discovery/test_multiseed_early_stop_only_under_union_consensus.py` |
@@ -19,12 +21,12 @@ Three read-only reports by Opus 5.5 low-effort agents on the files wave 25 left 
 | **RESOLVED** | W26GATE-5 | split | Low | `_carve_group_disjoint` kept every NaN group id as a separate `np.unique` entry and tested `nan in set`, which is always False, so rows with a missing group id were never held out; missing ids are now one group of their own (`tests/training/composite/discovery/test_group_disjoint_carve_handles_missing_group_ids.py`) |
 | **RESOLVED** | W26GATE-6 | seeds | Low | the tiny screen collapsed seed repeats to one whenever groups were supplied, although with fewer groups than `cv_folds` the screen falls back to a seed-dependent shuffled KFold; the collapse now needs at least `cv_folds` distinct groups (`tests/training/composite/discovery/test_tiny_screen_seed_repeats_survive_a_group_split_fallback.py`) |
 | **RESOLVED** | W26TRF-1 | leakage | High | the zero-weight wrapper dropped zero-weight rows before `target_encoding_residual.fit`, so its out-of-fold fingerprint covered fewer rows than the forward later received, the fingerprint check failed and the forward used the in-sample encoding (each row's own y in its encoding); transforms with `oof_train_forward` are no longer wrapped, and the fit (which documents `sample_weight` as unused) keeps every row (`tests/training/composite/test_oof_target_encoding_survives_zero_sample_weights.py`) |
-| **FUTURE** | W26TRF-2 | seeds | Medium | grouped ewma / rolling-ratio / frac_diff forward seeds differ from the inverse seeds under recurrence continuation |
-| **FUTURE** | W26TRF-3 | domain | Medium | `centered_ratio` has no pole guard for a predict-time base at or below zero |
-| **FUTURE** | W26TRF-4 | roundtrip | Low | `reciprocal_residual` does not round-trip |y| below its eps floor |
-| **FUTURE** | W26TRF-5 | dtype | Low | `linear` / `_causal_anchor` forward and inverse do not cast to float64 |
-| **FUTURE** | W26TRF-6 | stats | Low | the James-Stein noise estimate counts groups that are not in the shrinkage set |
-| **FUTURE** | W26TRF-7 | domain | Low | the predict-time domain mask of `requires_base=False` transforms is the wrong length for a `None` base |
+| **DOC** | W26TRF-2 | seeds | Medium | the grouped ewma / rolling-ratio / frac_diff forward seeds from the per-group mean (or a cold window) while the inverse seeds from the train tail under `recurrence_continuation`; this is the package-wide convention of the recurrent transforms (documented on the ungrouped ones in wave 25: forward on the train sequence, inverse continuing it), the gap decays within `k` rows per group, and the continuation flag is opt-in |
+| **DOC** | W26TRF-3 | domain | Medium | `centered_ratio` is `y / (base + c)`; the fit already places the train minimum a full scale unit above the pole (its docstring records why), a predict base at or below `-c` is a base outside anything the model saw, and the sign flip there is the transform's mathematics rather than a missed guard; the estimator's soft base shrink and OOD guards are the lever for such rows |
+| **DOC** | W26TRF-4 | roundtrip | Low | `reciprocal_residual` floors |y| at `eps_y` = 1e-6 x median|y| in the forward by design (the floor keeps 1/y finite), so a y more than six orders below the median does not round-trip; the floor is documented in the forward's docstring |
+| **RESOLVED** | W26TRF-5 | dtype | Low | the linear and causal-anchor residuals did their arithmetic in the inputs' dtype, so float32 inputs near 1e8 lost the residual to float32 spacing; forward and inverse now compute in float64 (`tests/training/composite/test_linear_residual_float32_inputs_use_float64_arithmetic.py`) |
+| **RESOLVED** | W26TRF-6 | stats | Low | the grouped linear residual's James-Stein noise estimate accumulated residuals and rows of groups whose OLS failed (they carry the global fit, not a fit of their own) although those groups are excluded from the shrinkage set; the accumulation is now inside the `_fit_ok` branch (`tests/training/composite/test_grouped_linear_residual_shrinkage_ignores_failed_groups.py`; fails 900 vs 840 rows on the old accumulation) |
+| **REJECTED** | W26TRF-7 | domain | Low | the predict-time domain mask of `requires_base=False` transforms is built from `len(base)`; the estimator feeds a zeros placeholder of length n (`_estimator.py`, `_from_fitted.py`), so a `None` base never reaches it on the supported path |
 
 ## Not covered by this wave
 
