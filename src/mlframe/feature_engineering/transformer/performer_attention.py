@@ -45,7 +45,7 @@ from ._utils import require_seed, validate_numeric_input
 logger = logging.getLogger(__name__)
 
 
-def _performer_features(X: np.ndarray, W: np.ndarray) -> np.ndarray:
+def _performer_features(X: np.ndarray, W: np.ndarray, shift: Optional[float] = None) -> tuple[np.ndarray, float]:
     """Performer positive RFF: φ(x) = exp(W^T x − ||x||²/2).
 
     Returns (n_rows, M) feature matrix. Numerically stable via shifting by a single GLOBAL scalar (NOT a
@@ -57,13 +57,16 @@ def _performer_features(X: np.ndarray, W: np.ndarray) -> np.ndarray:
     query side (a global constant is a special case of the per-row constant that already cancels in each
     query row's own ratio).
     """
-    # ||x||² per row.
-    x_norm_sq = (X**2).sum(axis=1, keepdims=True)  # (n, 1)
-    proj = X @ W  # (n, M)
+    # float64: exp(log_phi - shift) underflows float32 once a row sits ~100 below the shift, and the 1e-9 denominator floor then hid it as y_est = 0.
+    X64 = np.asarray(X, dtype=np.float64)
+    x_norm_sq = (X64**2).sum(axis=1, keepdims=True)  # (n, 1)
+    proj = X64 @ np.asarray(W, dtype=np.float64)  # (n, M)
     log_phi = proj - 0.5 * x_norm_sq  # (n, M)
-    # Stabilize with a single GLOBAL scalar -- NOT log_phi.max(axis=1): see docstring.
-    log_phi -= log_phi.max()
-    return np.asarray(np.exp(log_phi).astype(np.float32))
+    # Stabilize with a single GLOBAL scalar -- NOT log_phi.max(axis=1): see docstring. The key side defines it (``shift=None``) and the query side reuses it, so a
+    # query row's features do not depend on which other rows are scored with it; the query exponent is capped to stay finite.
+    if shift is None:
+        shift = float(log_phi.max())
+    return np.exp(np.minimum(log_phi - shift, 600.0)), shift
 
 
 def compute_performer_attention_features(
@@ -104,15 +107,15 @@ def compute_performer_attention_features(
         rng = np.random.default_rng(fold_seed)
         # Random Gaussian projection directions, scaled for Performer kernel approximation.
         W = rng.standard_normal((d_input, n_features)).astype(np.float32) / np.sqrt(d_input)
-        phi_k = _performer_features(Xt_s, W)  # (n_train, M)
-        phi_q = _performer_features(Xq_s, W)  # (n_query, M)
+        phi_k, key_shift = _performer_features(Xt_s, W)  # (n_train, M)
+        phi_q, _ = _performer_features(Xq_s, W, shift=key_shift)  # (n_query, M)
         # Pre-aggregate K-side: A (numerator) and B (denominator).
-        A = phi_k.T @ y_t  # (M,)
+        A = phi_k.T @ np.asarray(y_t, dtype=np.float64)  # (M,)
         B = phi_k.sum(axis=0)  # (M,)
         # Per-query estimate.
         numer = phi_q @ A  # (n_query,)
-        denom = np.maximum(phi_q @ B, 1e-9)
-        y_estimate = (numer / denom).astype(np.float32)
+        denom = np.maximum(phi_q @ B, 1e-300)
+        y_estimate = np.where(phi_q @ B > 0.0, numer / denom, float(np.mean(y_t))).astype(np.float32)
         y_estimate_sq = (y_estimate**2).astype(np.float32)
         # Kernel concentration: max kernel-similarity over a SAMPLE of train rows (full max is O(N) per query but we sample).
         n_sample = min(200, Xt_s.shape[0])
