@@ -12,8 +12,8 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural base/flat modu
 | **FUTURE** | W29NR-3 | restore | Medium | `_lookahead_optimizer.py:221-245` with `_recurrent_torch_model.py:708-723`: the best-checkpoint reload overwrites the slow weights `on_train_end` installed |
 | **FUTURE** | W29NR-4 | crash | Medium | `_recurrent_arch.py:141`: positional encoding `max_len=5000` raises for padded sequence length >= 5000 (the CLS token adds one) |
 | **FUTURE** | W29NR-5 | nan | Medium | `tabular_1dcnn.py:158-250`: no NaN check or imputation, one NaN cell makes every weight and prediction NaN without an error |
-| **FUTURE** | W29NR-6 | crash | Low | `_recurrent_data.py:302-311`: the stratified sampler branch does not exclude 2-D (multilabel) labels |
-| **FUTURE** | W29NR-7 | ties | Low | `fixed_sparse_linear.py:44-45`: the 1e-9 jitter is below float32 resolution for importances near 1, so `random_state` does not break ties |
+| **RESOLVED** | W29NR-6 | crash | Low | `_recurrent_data.py:302-311`: the stratified sampler branch does not exclude 2-D (multilabel) labels; the stratified-sampler branch requires 1-D labels (one-line guard mirroring the wrapper's own copy; no separate regression test: no existing fixture builds the data module with 2-D labels) |
+| **RESOLVED** | W29NR-7 | ties | Low | `fixed_sparse_linear.py:44-45`: the 1e-9 jitter is below float32 resolution for importances near 1, so `random_state` does not break ties; ties are broken by a seeded random permutation and a stable sort |
 | **RESOLVED** | W29PX-1 | crash | Medium | `_pairs_chunks.py:318-322` with `_pairs_score_steps.py:371`: a chunk where every transform fails stores a 3-tuple but the consumer unpacks 4 values; the early return stores the four-field entry (candidates, None, times, None) the consumer unpacks |
 | **RESOLVED** | W29PX-2 | ties | Medium | `_pairs_emit_extval.py:304-305`: the external factor subset is drawn per config, so tied leaders are compared on different factor sets and the winner depends on iteration order; the subset is drawn once per pair before the config loop and passed already capped |
 | **FUTURE** | W29PX-3 | gate | Low | `_pairs_emit_extval.py:233-257`: a config with a failed chunk is left out of the family but keeps its partial validation MI |
@@ -31,3 +31,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural base/flat modu
 | W29NR-2 | `tests/training/neural/test_mlp_ranker_restores_the_best_epoch_weights.py` |
 | W29PX-2 | `tests/feature_selection/fe/test_fe_extval_factor_subset_is_drawn_once_per_pair.py` |
 | W29PX-1 | `tests/feature_selection/fe/test_fe_pair_chunk_where_every_transform_fails_keeps_the_entry_shape.py` |
+| W29NR-7 | `tests/training/neural/test_fixed_sparse_linear_tie_break_follows_the_seed.py` |
