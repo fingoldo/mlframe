@@ -284,6 +284,10 @@ def _score_one_pair_step4_iteration_serialization_point_part1(
                 st.best_config,
                 st.best_mi,
             )
+            if st.best_config is st.best_nonprewarp_config:
+                # The prewarp-uplift acceptance reads ``best_prewarp_mi``; left uncapped it could promote the form that was just demoted for being MI-equivalent to
+                # the clean one (``var_pairs_perf`` is capped the same way in the demotion helper).
+                st.best_prewarp_mi = min(st.best_prewarp_mi, st.best_nonprewarp_mi * 0.999)
 
     # experiment-rejected (2026-06-03): a held-out-CV firewall here (score
     # per-combo MI on a TRAIN stride slice for honest selection, then keep the
