@@ -9,10 +9,10 @@ Three read-only reports by Opus 5.5 low-effort agents (models optimization and e
 | **RESOLVED** | W33EN-3 | nan | Medium | `models/ensembling/float_aggregation.py:40-48`: a NaN member makes the robust flavour return a silent 0.0; the robust flavour is NaN-aware (nanmedian/nanmean); an all-NaN column stays NaN |
 | **RESOLVED** | W33OP-1 | search | Medium | `models/_optimization_search.py:649,654`: best/worst tracking runs before the finite check, so a failed (infinite) evaluation poisons the search state; only finite evaluations reach the best/worst tracking; a failed one counts as a non-improving step |
 | **RESOLVED** | W33OP-2 | search | Medium | `models/_optimization_search.py:254-270`, `optimization.py:198`: warm-start evaluations never count toward the returned best; finite warm-start evaluations seed the best / worst at construction (this also removes the earlier `NOT_READY` with known data but no best) |
-| **FUTURE** | W33OP-3 | splits | Medium | `models/selection.py:73-78` (`GroupTimeSeriesSplit.split`): a pandas Series of groups is indexed by label, not position |
+| **RESOLVED** | W33OP-3 | splits | Medium | `models/selection.py:73-78` (`GroupTimeSeriesSplit.split`): a pandas Series of groups is indexed by label, not position; `groups` is converted to an array so access is positional |
 | **RESOLVED** | W33EN-4 | metric | Medium | `models/ensembling/selection.py:151` (`_score_blend`): the default AUC metric is silently wrong for a non-binary 1-D target; a 1-D blend over a target with more than two values raises a ValueError asking for an explicit metric instead of casting labels to int |
-| **FUTURE** | W33DA-1 | missingness | High | `data/datasets/_missing.py:77-78`: MAR and MNAR masks keep `ordering >= cut`, so ties at the cut hide far more than the requested rate |
-| **FUTURE** | W33DA-2 | missingness | Medium | `data/datasets/_missing.py:77`: a NaN in the ordering column makes the quantile NaN and nothing is masked, silently |
+| **RESOLVED** | W33DA-1 | missingness | High | `data/datasets/_missing.py:77-78`: MAR and MNAR masks keep `ordering >= cut`, so ties at the cut hide far more than the requested rate; MAR/MNAR hide an exact count (`round(share * n)`) from a lexsort with the stream breaking ties, so a tied driver no longer hides every tied row (binary driver, rate 0.1: 500 hidden before, 100 now) |
+| **RESOLVED** | W33DA-2 | missingness | Medium | `data/datasets/_missing.py:77`: a NaN in the ordering column makes the quantile NaN and nothing is masked, silently; a NaN in the ordering column ranks lowest and is not masked by the rule, and the cut no longer turns NaN |
 | **FUTURE** | W33DA-3 | labels | Low | `preprocessing/align_feature_direction.py:102`: only `y == 1` is the positive class, so other two-class labels raise a wrong single-class error |
 | **FUTURE** | W33CM-1 | degenerate | Low | `metrics/classification/_weighted_kappa.py:67-83`: identical single-class raters with `n_classes >= 2` give 0.0 where the docstring promises 1.0 |
 | **FUTURE** | W33CM-2 | empty | Low | `metrics/_multilabel_metrics.py:137,169,206`: empty input divides by zero inside numba |
@@ -31,3 +31,5 @@ Three read-only reports by Opus 5.5 low-effort agents (models optimization and e
 | W33EN-1, 2 | `tests/models/ensembling/test_quality_gate_nan_member_and_zero_median.py` |
 | W33EN-3, 4 | `tests/models/ensembling/test_float_aggregation_and_default_metric_edge_cases.py` |
 | W33OP-1, 2 | `tests/models/test_optimizer_warm_start_and_failed_evaluations.py` |
+| W33OP-3 | `tests/models/test_group_time_series_split_accepts_a_pandas_groups_series.py` |
+| W33DA-1, 2 | `tests/data/test_datasets_missingness_ties_and_nan_ordering.py` |

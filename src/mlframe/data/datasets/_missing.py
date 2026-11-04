@@ -74,8 +74,17 @@ def missing_mask(spec: MissingnessSpec, columns: Dict[str, np.ndarray], rate: fl
     # Deterministic top-share selection rather than a probability increasing in the driver. Both are
     # legitimate MAR/MNAR mechanisms, but the deterministic one gives the stated rate exactly and makes the
     # mechanism's shape unambiguous: everything above a quantile is gone, nothing below it is.
-    cut = float(np.quantile(ordering, 1.0 - share))
-    return np.asarray(ordering >= cut, dtype=bool)
+    # An exact count, with ties at the cut broken by the stream: ``ordering >= quantile`` hid every tied row, so a binary or count driver with a large mass at its top
+    # value masked far more than the requested share. A missing value in the ordering column ranks lowest (it cannot be "large"), so it is not masked by this rule and
+    # does not turn the cut into NaN.
+    values = np.asarray(ordering, dtype=np.float64)
+    key = np.where(np.isnan(values), -np.inf, values)
+    n_hide = round(share * n)
+    mask = np.zeros(n, dtype=bool)
+    if n_hide > 0:
+        order = np.lexsort((np.asarray(rng.random(n)), key))  # ascending by value, ties in random order
+        mask[order[n - n_hide :]] = True
+    return mask
 
 
 def apply_missingness(

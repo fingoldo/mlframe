@@ -63,6 +63,7 @@ class GroupTimeSeriesSplit(_BaseKFold):
         if groups is None:
             raise ValueError("The 'groups' parameter should not be None")
         X, y, groups = indexable(X, y, groups)
+        groups = np.asarray(groups)  # positional access below: a pandas Series would be indexed by LABEL (KeyError, or silently wrong groups on a shuffled index)
         n_samples = _num_samples(X)
         n_splits = self.n_splits
         n_folds = n_splits + 1
