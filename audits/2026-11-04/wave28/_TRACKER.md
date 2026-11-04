@@ -19,8 +19,8 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **FUTURE** | W28TA-4 | replay | High | row_attention.py:202: apply_dedupe runs separately on the Mode A and Mode B outputs so their column sets can differ; reason: the dedupe keeps a data-dependent column subset, so Mode A and each Mode B batch can disagree; the fix is an additive `keep_columns` argument (names taken from the Mode A frame) that selects exactly those columns and skips the per-batch dedupe, to be wired through `compute_row_attention` and its wrappers together |
 | **FUTURE** | W28TA-5 | replay | High | spectral_attention.py:120-121: the Nystrom bandwidth is recomputed from the query batch instead of reusing the training graph sigma |
 | **FUTURE** | W28TA-6 | replay | Medium | residual_attention.py:106,136: Mode A applies dedupe_threshold, Mode B hard-codes None; reason: `residual_attention` applies its dedupe in the shared tail of both modes, so the report's "hard-coded None" is not the cause; the batch-dependent subset is the same defect as W28TA-4 and gets the same `keep_columns` fix |
-| **FUTURE** | W28TA-7 | replay | Medium | local_classifier.py:162: the bandwidth is the median k-th distance over the query batch |
-| **FUTURE** | W28TA-8 | replay | Medium | mdl_binning_pairwise.py:226: n_unique_combos counted over the query batch |
+| **RESOLVED** | W28TA-7 | replay | Medium | local_classifier.py:162: the bandwidth is the median k-th distance over the query batch; the bandwidth is the median k-th neighbour distance of (up to 2000 evenly spaced) train rows, self excluded |
+| **RESOLVED** | W28TA-8 | replay | Medium | mdl_binning_pairwise.py:226: n_unique_combos counted over the query batch; `unique_combos` counts the distinct combinations in the train rows |
 | **FUTURE** | W28TA-9 | replay | Medium | performer_attention.py:65,121-122: the global-max shift is per batch and does not cancel |
 | **FUTURE** | W28TA-10 | precision | Medium | performer_attention.py:61-66,114: float32 underflow hidden by the 1e-9 floor fallback (y_est = 0) |
 | **FUTURE** | W28TA-11 | leakage | Medium | nn_oof_target_mean.py:68-96,143-144: kNN index built on in-sample baseline predictions, queries use out-of-sample ones |
@@ -72,3 +72,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | W28GP-1, 2 | `tests/feature_selection/fe/test_pairs_abs_corr_gpu_keeps_float64_precision.py` |
 | W28DC-1 | `tests/feature_selection/clustering/test_dcd_foreign_view_of_the_same_buffer_is_scored_on_its_own_data.py` |
 | W28TA-20 | `tests/feature_engineering/transformer/test_row_attention_mode_b_accepts_overcomplete_heads.py` |
+| W28TA-7, 8 | `tests/feature_engineering/transformer/test_query_features_do_not_depend_on_the_rest_of_the_batch.py` |

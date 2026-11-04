@@ -158,8 +158,10 @@ def compute_local_classifier_features(
         k_used = min(k, Xt_s.shape[0])
         nn = NearestNeighbors(n_neighbors=k_used, algorithm="auto", n_jobs=-1).fit(Xt_s)
         dists, ids = nn.kneighbors(Xq_s)
-        # Bandwidth = bandwidth_mult * median k-th NN distance.
-        h = max(float(np.median(dists[:, -1])) * bandwidth_mult, 1e-3)
+        # Bandwidth = bandwidth_mult * median k-th NN distance of the TRAIN rows (self excluded), so a query row's features do not depend on the rest of its batch.
+        ref = Xt_s if Xt_s.shape[0] <= 2000 else Xt_s[np.linspace(0, Xt_s.shape[0] - 1, 2000).astype(np.int64)]
+        ref_dists, _ = nn.kneighbors(ref, n_neighbors=min(k_used + 1, Xt_s.shape[0]))
+        h = max(float(np.median(ref_dists[:, -1])) * bandwidth_mult, 1e-3)
         n_q = Xq_s.shape[0]
         f1 = np.zeros(n_q, dtype=np.float32)
         f2 = np.zeros(n_q, dtype=np.float32)
