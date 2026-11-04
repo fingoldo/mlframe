@@ -14,7 +14,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **FUTURE** | W28CT-1 | scale | Low | `composite/transforms/simple.py:321,331,452,468`: the eps floor `sign(base + 1e-300) * eps` is 0 when `base == -1e-300` |
 | **FUTURE** | W28CT-2 | ties | Low | `composite/transforms/unary.py:531-535`: tied knots map every tied y to the last duplicate position instead of the middle of the tie block |
 | **FUTURE** | W28TA-1 | metric | High | local_linear.py:107: neighbours come from a cosine index on median-centred data, so the local OLS is not local |
-| **FUTURE** | W28TA-2 | fit | High | local_curvature.py:87-112: the quadratic design has more columns than k rows for d >= 8, lstsq interpolates exactly, resid_quad ~ 0 |
+| **RESOLVED** | W28TA-2 | fit | High | local_curvature.py:87-112: the quadratic design has more columns than k rows for d >= 8, lstsq interpolates exactly, resid_quad ~ 0; with fewer neighbours than quadratic coefficients plus two the curvature columns (trace, frobenius, residual difference, quadratic value) are NaN with a throttled warning and the linear value is kept; the older bit-identity test is reframed to this contract |
 | **RESOLVED** | W28TA-3 | leakage | High | predictive_info_delta.py:110-119: H(y|bin) built from in-sample predictions, query rows use held-out ones; the bins are built from inner-KFold out-of-fold predictions (`fit_baseline_predict_oof`); mean abs delta on a noise target at n=300, d=20 was 0.40 and is 0.011 |
 | **FUTURE** | W28TA-4 | replay | High | row_attention.py:202: apply_dedupe runs separately on the Mode A and Mode B outputs so their column sets can differ; reason: the dedupe keeps a data-dependent column subset, so Mode A and each Mode B batch can disagree; the fix is an additive `keep_columns` argument (names taken from the Mode A frame) that selects exactly those columns and skips the per-batch dedupe, to be wired through `compute_row_attention` and its wrappers together |
 | **FUTURE** | W28TA-5 | replay | High | spectral_attention.py:120-121: the Nystrom bandwidth is recomputed from the query batch instead of reusing the training graph sigma |
@@ -75,3 +75,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | W28TA-7, 8 | `tests/feature_engineering/transformer/test_query_features_do_not_depend_on_the_rest_of_the_batch.py` |
 | W28TA-16, 25, 35 | `tests/feature_engineering/transformer/test_small_edge_cases_lift_clusters_and_temperature_names.py` |
 | W28TA-17, 34 | `tests/feature_engineering/transformer/test_focal_labels_and_tied_residual_bands.py` |
+| W28TA-2 | `tests/feature_engineering/transformer/test_local_curvature_is_nan_when_the_quadratic_fit_is_underdetermined.py` |
