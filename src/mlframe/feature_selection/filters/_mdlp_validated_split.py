@@ -104,6 +104,37 @@ from ._numba_utils import _entropy_from_counts_njit
 from .supervised_binning import _mdlp_best_split_inc_njit as _mdlp_best_split_njit
 
 
+@njit(nogil=True, cache=True)
+def _dedupe_sorted_runs(x: np.ndarray, y: np.ndarray):
+    """``(x_out, y_out, m)``: the distinct ``(x, y)`` pairs of a non-decreasing ``x`` in (x, y) ascending order in the first ``m`` slots, ``m == len(x)`` when
+    no pair repeats (the caller then keeps its arrays, as ``_dedupe_xy``'s lexsort path does)."""
+    n = x.shape[0]
+    x_out = np.empty_like(x)
+    y_out = np.empty(n, dtype=np.int64)
+    m = 0
+    i = 0
+    while i < n:
+        j = i + 1
+        while j < n and x[j] == x[i]:
+            j += 1
+        if j - i == 1:
+            x_out[m] = x[i]
+            y_out[m] = y[i]
+            m += 1
+        else:
+            run = np.sort(y[i:j])
+            x_out[m] = x[i]
+            y_out[m] = run[0]
+            m += 1
+            for t in range(1, j - i):
+                if run[t] != run[t - 1]:
+                    x_out[m] = x[i]
+                    y_out[m] = run[t]
+                    m += 1
+        i = j
+    return x_out, y_out, m
+
+
 def _dedupe_xy(x: np.ndarray, y_i: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     """Collapse exact-duplicate ``(x, y)`` rows to one occurrence each (first-seen order preserved).
 
@@ -132,6 +163,13 @@ def _dedupe_xy(x: np.ndarray, y_i: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
             # x already strictly increasing (the sorted column of ``mdlp_bin_edges``): no two rows share x, so no (x, y) pair repeats and the input is
             # returned as the full lexsort below would return it, without the sort
             return x, y_i
+        if y_i.dtype.kind in "iu" and bool((x[1:] >= x[:-1]).all()):
+            # x sorted with ties: only the labels inside each run of equal x need ordering, one linear pass instead of a lexsort of every row
+            # (warm 100k fits spent 1.6 s of worker time in that lexsort); same output as the lexsort below
+            x_out, y_out, m = _dedupe_sorted_runs(x, np.ascontiguousarray(y_i, dtype=np.int64))
+            if m == x.size:
+                return x, y_i
+            return x_out[:m], y_out[:m].astype(y_i.dtype, copy=False)
     order = np.lexsort((y_i, x))
     x_s, y_s = x[order], y_i[order]
     if x_s.size <= 1:
