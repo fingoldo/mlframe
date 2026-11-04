@@ -40,7 +40,7 @@ import numpy as np
 import polars as pl
 
 from ._intel_patch import try_patch_sklearn
-from ._utils import require_seed, validate_numeric_input, kth_nearest_dists
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, FAR_DISTANCE
 
 logger = logging.getLogger(__name__)
 
@@ -147,8 +147,8 @@ def compute_class_distance_features(
         Xt_pos, Xt_neg = _slice(Xt_s, y_t)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
             n_q = Xq_s.shape[0]
-            zero = np.zeros((n_q, len(_K_SCALES)), dtype=np.float32)
-            return zero, zero, zero
+            far = np.full((n_q, len(_K_SCALES)), FAR_DISTANCE, dtype=np.float32)
+            return far, far, np.zeros((n_q, len(_K_SCALES)), dtype=np.float32)
         return _compute_features(Xt_pos, Xt_neg, Xq_s)
 
     def _make_df(pos_d: np.ndarray, neg_d: np.ndarray, log_gap: np.ndarray) -> dict[str, np.ndarray]:

@@ -358,3 +358,11 @@ def require_seed(seed: object) -> int:
     if seed_int < 0 or seed_int >= 2**32:
         raise ValueError(f"seed must be in [0, 2**32); got {seed_int}.")
     return seed_int
+
+
+FAR_DISTANCE = 1e6
+
+
+def far_pos_loggap_columns(n_query: int, n_scales: int) -> np.ndarray:
+    """``(n_query, 2 * n_scales)`` features for a fold whose class bank is too small for a kNN query: the "very far" distance sentinel, then a zero log-gap ("no signal"), never a 0.0 that reads as "on the positive manifold"."""
+    return np.asarray(np.concatenate([np.full((n_query, n_scales), FAR_DISTANCE), np.zeros((n_query, n_scales))], axis=1).astype(np.float32))
