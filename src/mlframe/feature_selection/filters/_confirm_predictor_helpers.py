@@ -199,7 +199,9 @@ def _compact_confidence_inputs(data_copy: np.ndarray, factors_nbins: np.ndarray,
     sel = [int(v) for v in selected_vars]
     cols = sorted(set(xs) | set(ys) | set(sel))
     pos = {c: i for i, c in enumerate(cols)}
-    data = np.ascontiguousarray(data_copy[:, cols], dtype=np.int32)  # one code dtype (int8 / int32 inputs compiled the kernel twice); the copy is made anyway
+    # the codes keep their dtype: widening int8 to int32 here cost 1.0 s of copying in a warm 100k fit, and both code dtypes are disk-cached signatures
+    # (a compile once per machine, not per fit, unlike the per-arity tuple X below)
+    data = np.ascontiguousarray(data_copy[:, cols])
     nb = np.ascontiguousarray(np.asarray(factors_nbins)[cols])
     ent = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)  # Intentional float64: the kernel stores float64 entropies
     cond = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)  # Intentional float64: same value type as the caller's cache
