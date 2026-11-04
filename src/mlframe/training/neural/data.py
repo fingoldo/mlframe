@@ -251,6 +251,7 @@ class TorchDataset(Dataset):
         return perm
 
     def __getitem__(self, idx):
+        indices: Any
         if self.batch_size > 0 and self._row_shuffle_seed is not None:
             epoch, batch = divmod(int(idx), self.num_batches)
             rows = self._epoch_perm(epoch)[batch * self.batch_size : min((batch + 1) * self.batch_size, self.dataset_length)]
