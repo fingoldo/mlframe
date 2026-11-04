@@ -38,7 +38,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **RESOLVED** | W28TA-23 | crash | Low | spectral_attention.py:89,106,204: too few eigenvectors and NearestNeighbors failure on a small fold; the graph size is capped below the fold's row count and a graph with fewer eigenvectors than requested is padded with zero columns and zero eigenvalues |
 | **FUTURE** | W28TA-24 | scale | Low | spectral_attention.py:136: eigenvalues clamped at 1e-6 give embeddings of size ~1e6; reason: the 1e-6 eigenvalue floor sets the scale of every embedding column; changing it (for example to a relative floor) alters downstream feature scale and needs a measured comparison on the biz_val fixtures first |
 | **RESOLVED** | W28TA-25 | crash | Low | target_kmeans_codebook.py:416: n_clusters_eff never capped at n; the cluster count is capped at the row count |
-| **FUTURE** | W28TA-26 | validation | Low | row_attention.py:53, _oof.py:186: k checked against n_train, not the fold size; k_scales not validated |
+| **RESOLVED** | W28TA-26 | validation | Low | row_attention.py:53, _oof.py:186: k checked against n_train, not the fold size; k_scales not validated; the per-fold ANN query clamps k to the fold's training rows (k_scales validation left as is: each scale goes through the same clamp) |
 | **RESOLVED** | W28TA-27 | precision | Low | target_quantile.py:78-80, y_quintile_baseline_knn.py:251-253: the +1e-9 tie-break is below one ULP for |y| > 1e7; `strictly_increasing_edges` raises a tied edge by 1e-9 or one float64 step, whichever is larger, in both modules |
 | **FUTURE** | W28TA-28 | ties | Low | multi_baseline_hard_row.py:169-175: rows with all-negative z-scores tie at 0 |
 | **FUTURE** | W28TA-29 | ties | Low | multi_temp_cbhr.py:79-81: q1 == q4 picks the same anchors on both sides |
@@ -86,3 +86,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | W28TA-18 | `tests/feature_engineering/transformer/test_stacked_attention_names_the_unvalidated_rows_problem.py` |
 | W28TA-9, 10 | `tests/feature_engineering/transformer/test_performer_attention_query_features_do_not_depend_on_the_batch.py` |
 | W28TA-23 | `tests/feature_engineering/transformer/test_spectral_attention_survives_a_tiny_training_fold.py` |
+| W28TA-26 | `tests/feature_engineering/transformer/test_row_attention_k_larger_than_a_fold_is_clamped.py` |

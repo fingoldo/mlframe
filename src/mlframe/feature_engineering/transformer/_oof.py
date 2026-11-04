@@ -183,7 +183,7 @@ def kfold_attention_loop(
                 k_proj_tr[h], M=ann_M, ef_construction=ann_ef_construction, num_threads=num_threads,
                 random_state=int(seed) + fold_idx,
             )
-            topk_ids, _dists = query_topk(index, q_proj_va[h], k=k, ef_search=ann_ef_search, num_threads=num_threads)
+            topk_ids, _dists = query_topk(index, q_proj_va[h], k=min(k, int(k_proj_tr.shape[1])), ef_search=ann_ef_search, num_threads=num_threads)
 
             # Stage 4: fused gather + softmax + aggregates.
             y_mean_v = np.empty(val_idx.shape[0], dtype=np.float32)
