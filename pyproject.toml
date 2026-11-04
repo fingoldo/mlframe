@@ -1226,3 +1226,9 @@ module = [
     "mlframe.preprocessing.cluster",
 ]
 warn_unused_ignores = false
+
+# Vendor token shapes detect-secrets has no plugin for (read by py_ci_shared.tracked_secret_shapes in tests/test_meta/test_shared_gates_adopted_pass3.py).
+[tool.py_ci_shared.secret_shapes]
+openrouter_key = "sk-or-v1-[0-9a-f]{40,}"
+huggingface_token = "hf_[A-Za-z0-9]{34,}"
+anthropic_key = "sk-ant-[A-Za-z0-9_-]{30,}"
