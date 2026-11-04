@@ -79,7 +79,7 @@ def _global_cdf_integral(g: np.ndarray, prefix: np.ndarray, p: float, q: float) 
     n_g = g.shape[0]
     cp = _count_le(g, p)
     cq = _count_le(g, q)
-    return (cq * q - cp * p - (prefix[cq] - prefix[cp])) / n_g
+    return float((cq * q - cp * p - (prefix[cq] - prefix[cp])) / n_g)
 
 
 @numba.njit(cache=True, parallel=True)
