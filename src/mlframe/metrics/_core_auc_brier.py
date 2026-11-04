@@ -55,11 +55,6 @@ _GPU_ARGSORT_AVAILABLE: "bool | None" = None
 _PAR_BUCKET_ARGSORT_MIN_N = env_int("MLFRAME_METRICS_ARGSORT_PAR_MIN_N", 200000, minimum=0)
 
 
-def _has_nan_score(y_score: np.ndarray) -> bool:
-    """Whether ``y_score`` holds a NaN. NaN sorts last and the descending reversal puts it first, so it would be ranked as the highest score and the AUC would come out finite but wrong (sklearn raises)."""
-    return bool(y_score.dtype.kind == "f" and np.isnan(y_score).any())
-
-
 @numba.njit(cache=True, nogil=True, parallel=True)
 def _bucket_hist(y_score: np.ndarray, lo: float, inv_w: float, nbuckets: int, nthr: int) -> np.ndarray:
     """Per-thread linear-range bucket histogram, reduced to a single (nbuckets,) count vector."""
@@ -216,8 +211,7 @@ def fast_roc_auc_unstable(y_true: np.ndarray, y_score: np.ndarray) -> float:
     # fast_roc_auc (below) validates this; this sibling didn't, so a mismatched length reached the @njit
     # kernel with bounds-checking off and read out-of-bounds memory instead of raising.
     _check_equal_length(y_true, y_score)
-    if _has_nan_score(y_score):
-        return float("nan")
+    if _has_nan_score(y_score): return float("nan")
     y_true = _binary_labels_01(y_true)
     # No ``kind=stable``: numpy default quicksort is 2-3x faster and
     # numerically identical when scores have no exact ties (the dominant
@@ -597,8 +591,7 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
     _check_equal_length(y_true, y_score)
-    if _has_nan_score(y_score):
-        return float("nan")
+    if _has_nan_score(y_score): return float("nan")
     y_true = _binary_labels_01(y_true)
     desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338: dispatcher (unstable default, MLFRAME_METRICS_STABLE_SORT=1 to opt back)
     if sample_weight is not None:
@@ -846,8 +839,7 @@ def fast_aucs(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> tuple[float,
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
     _check_equal_length(y_true, y_score)
-    if _has_nan_score(y_score):
-        return float("nan"), float("nan")
+    if _has_nan_score(y_score): return float("nan"), float("nan")
     y_true = _binary_labels_01(y_true)
     desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338: dispatcher (unstable default, MLFRAME_METRICS_STABLE_SORT=1 to opt back)
     roc_auc, pr_auc = fast_numba_aucs(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
@@ -993,7 +985,7 @@ def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices:
 
 # Brier score kernels + scorers live in the sibling ``_core_brier`` (carved out to keep this module
 # under the 1k LOC ceiling); re-exported here so existing importers of this module are unaffected.
-from ._auc_labels import _binary_labels_01
+from ._auc_labels import _binary_labels_01, _has_nan_score
 from ._core_brier import (  # noqa: F401
     _fast_brier_checked_par,
     _fast_brier_checked_seq,

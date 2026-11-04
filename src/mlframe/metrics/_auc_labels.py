@@ -19,3 +19,8 @@ def _binary_labels_01(y_true):
         positive = values.max() if values.size == 2 else 1
         return np.ascontiguousarray(y == positive, dtype=np.float64)
     return y
+
+
+def _has_nan_score(y_score: np.ndarray) -> bool:
+    """Whether ``y_score`` holds a NaN. NaN sorts last and the descending reversal puts it first, so it would be ranked as the highest score and the AUC would come out finite but wrong (sklearn raises)."""
+    return bool(y_score.dtype.kind == "f" and np.isnan(y_score).any())
