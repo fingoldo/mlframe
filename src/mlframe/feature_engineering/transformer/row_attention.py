@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional, Sequence, Union
 
 import numpy as np
 import polars as pl
@@ -135,6 +135,7 @@ def compute_row_attention(
     dedupe_threshold: float | None = 0.99,
     allow_overcomplete: bool = False,
     column_prefix: str = "attn",
+    keep_columns: Sequence[str] | None = None,
 ) -> pl.DataFrame:
     """Multi-head softmax-weighted kNN-target-encoding over random-subspace projections.
 
@@ -143,6 +144,10 @@ def compute_row_attention(
         2. CPU: project X via per-head random Gaussian matrices to (n_heads, N, head_dim).
         3. CPU: per-head hnswlib build + top-k query.
         4. GPU (or CPU fallback): fused gather + softmax + weighted-sum-V producing per-head y_mean / y_std / x_mean.
+
+    ``keep_columns``: with ``dedupe_threshold`` set, the dedupe keeps a data-dependent subset of the columns, so a Mode B call can disagree with Mode A (and with
+    another Mode B batch). Pass the column names of the Mode A frame as ``keep_columns`` to Mode B (and the same list to later batches) to get exactly those columns,
+    in that order, with no dedupe.
 
     Mode A vs Mode B:
         - ``X_query is None``  -> OOF on X_train via ``splitter``.   Each train row attends only to non-self training rows in its fold's complement.
@@ -199,9 +204,17 @@ def compute_row_attention(
         # Concatenate all scales horizontally.
         matrix = np.concatenate([all_outputs[f"_matrix_k{k}"] for k in ks_to_run], axis=1)
         names = all_names
-        matrix, names = apply_dedupe(matrix, names, dedupe_threshold=dedupe_threshold)
+        if keep_columns is None:
+            matrix, names = apply_dedupe(matrix, names, dedupe_threshold=dedupe_threshold)
         # Rebrand column prefix per caller.
         names = [n.replace("attn_", f"{column_prefix}_") if column_prefix != "attn" else n for n in names]
+        if keep_columns is not None:
+            # The dedupe keeps a data-dependent subset, so Mode B cannot rediscover Mode A's columns from its own batch: take exactly the Mode A frame's columns.
+            missing = [c for c in keep_columns if c not in names]
+            if missing:
+                raise ValueError(f"keep_columns names columns this call does not produce: {missing[:5]}")
+            order = [names.index(c) for c in keep_columns]
+            matrix, names = matrix[:, order], list(keep_columns)
 
         return pl.DataFrame({n: matrix[:, i] for i, n in enumerate(names)})
     finally:
