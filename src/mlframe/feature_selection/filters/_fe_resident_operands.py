@@ -231,7 +231,7 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
         hit = _FE_RESIDENT_OPERANDS.get(sig)
         if hit is not None:  # another thread uploaded the same content meanwhile
             return hit
-        _FE_RESIDENT_OPERANDS[sig] = g
+        g = _FE_RESIDENT_OPERANDS.setdefault(sig, g)
         if len(_FE_RESIDENT_OPERANDS) > _MAX_ENTRIES:
             # evict-ok: a miss re-uploads the operand
             _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict ONLY the coldest entry, never the whole table

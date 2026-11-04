@@ -378,8 +378,7 @@ def cached_stable_argsort(x: np.ndarray) -> np.ndarray:
     with _ORDER_CACHE_LOCK:
         while _ORDER_CACHE and _ORDER_CACHE_BYTES[0] + order.nbytes > _ORDER_CACHE_MAX_BYTES:
             _ORDER_CACHE_BYTES[0] -= _ORDER_CACHE.pop(next(iter(_ORDER_CACHE))).nbytes  # evict-ok: oldest first; an evicted order is sorted again
-        if key not in _ORDER_CACHE and order.nbytes <= _ORDER_CACHE_MAX_BYTES:
-            _ORDER_CACHE[key] = order
+        if order.nbytes <= _ORDER_CACHE_MAX_BYTES and _ORDER_CACHE.setdefault(key, order) is order:
             _ORDER_CACHE_BYTES[0] += order.nbytes
     return order
 
