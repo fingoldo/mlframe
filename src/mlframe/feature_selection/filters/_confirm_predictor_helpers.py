@@ -156,7 +156,7 @@ def fleuret_conditional_recheck(ctx: Any, X: tuple, next_best_gain: float, boots
                 x=_cx,
                 y=_cy,
                 selected_vars=_csel,
-                bootstrapped_gain=next_best_gain,
+                bootstrapped_gain=float(next_best_gain),  # one float type: float32 / float64 gains compiled the kernel twice
                 npermutations=full_npermutations,
                 max_failed=max_failed,
                 nexisting=nexisting,
@@ -199,7 +199,7 @@ def _compact_confidence_inputs(data_copy: np.ndarray, factors_nbins: np.ndarray,
     sel = [int(v) for v in selected_vars]
     cols = sorted(set(xs) | set(ys) | set(sel))
     pos = {c: i for i, c in enumerate(cols)}
-    data = np.ascontiguousarray(data_copy[:, cols])
+    data = np.ascontiguousarray(data_copy[:, cols], dtype=np.int32)  # one code dtype (int8 / int32 inputs compiled the kernel twice); the copy is made anyway
     nb = np.ascontiguousarray(np.asarray(factors_nbins)[cols])
     ent = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)  # Intentional float64: the kernel stores float64 entropies
     cond = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)  # Intentional float64: same value type as the caller's cache
@@ -208,7 +208,9 @@ def _compact_confidence_inputs(data_copy: np.ndarray, factors_nbins: np.ndarray,
             v = entropy_cache.get(str(c))
             if v is not None:
                 ent[str(pos[c])] = v
-    x_new = type(X)(pos[c] for c in xs) if isinstance(X, tuple) else np.asarray([pos[c] for c in xs], dtype=np.asarray(X).dtype)
+    # always an int64 array: a tuple X is typed by its LENGTH (UniTuple(int64, k)), so every new arity compiled the kernel again inside the fit
+    # (2.8 s of llvmlite in a warm 100k fit); the kernel reads X the same way from either
+    x_new = np.asarray([pos[c] for c in xs], dtype=np.int64)
     y_new = np.asarray([pos[c] for c in ys], dtype=np.asarray(y).dtype)
     sel_new = [pos[c] for c in sel]
     return data, nb, x_new, y_new, sel_new, (ent, cond)
