@@ -376,18 +376,18 @@ class TestCopulaWinsOnHeavyTail:
     other scorer fights extreme-value crowding in the raw marginal.
     """
 
-    def test_auto_picks_copula_on_heavy_tail(self):
-        """Across an 8-seed sweep on the heavy-tail fixture the copula
-        scorer is the picked best for AT LEAST ONE engineered column
-        on the majority of seeds. The rank transform is the marginal-
-        invariance lever; KSG and dCor see extreme-value crowding in
-        the lognormal marginal and lose the LCB race on copula's
-        natural turf.
+    def test_copula_detects_the_heavy_tail_signal(self):
+        """Across an 8-seed sweep on the heavy-tail fixture the copula scorer's bootstrap LCB is clearly positive for an
+        engineered x1 column on EVERY seed: the rank transform finds the log-threshold signal through the lognormal marginal.
+
+        It used to assert copula WON the per-column LCB race on most seeds. Those wins came from the Miller-Madow term being
+        added instead of subtracted (60e50ecf3: independent 20-bin columns scored about 0.18 nats), which gave copula's
+        plug-in MI a head start; with the bias subtracted the race goes to scorers on other scales (HSIC, xi), and copula's
+        LCB is 0.11 to 0.45 on these seeds.
         """
         _, _, _, _, hybrid_with_recipes = _import_auto_fe()
         seeds = (1, 7, 13, 42, 101, 202, 303, 404)
-        n_copula_hits = 0
-        copula_hit_seeds = []
+        best_copula_lcb = {}
         for seed in seeds:
             X, y = _build_heavy_tail_fixture(seed, n=800)
             _X_aug, scores, _recipes = hybrid_with_recipes(
@@ -404,14 +404,9 @@ class TestCopulaWinsOnHeavyTail:
             )
             x1_rows = scores[scores["source_col"] == "x1"]
             assert not x1_rows.empty, f"seed={seed}: no engineered columns for source 'x1'; fixture is broken."
-            if (x1_rows["best_scorer"] == "copula").any():
-                n_copula_hits += 1
-                copula_hit_seeds.append(seed)
-        assert n_copula_hits >= 3, (
-            f"auto-selector picked copula on heavy-tail signal in only "
-            f"{n_copula_hits}/{len(seeds)} seeds (hit seeds {copula_hit_seeds}); "
-            f"expected >= 3 (the rank-uniform-marginal contract)."
-        )
+            best_copula_lcb[seed] = max(float(d.get("copula", float("-inf"))) for d in x1_rows["lcb_per_scorer"])
+        weak = {s: v for s, v in best_copula_lcb.items() if not v > 0.05}
+        assert not weak, f"copula LCB of the x1 columns not above 0.05 on seeds {weak} (all: {best_copula_lcb})"
 
 
 # ---------------------------------------------------------------------------
