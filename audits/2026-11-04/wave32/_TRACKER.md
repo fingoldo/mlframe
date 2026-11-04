@@ -14,11 +14,17 @@ Three read-only reports by Opus 5.5 low-effort agents (metrics regression/classi
 | **FUTURE** | W32MO-2 | scale | Low | `core/robust_location.py:65`: with MAD = 0 the scale falls back to 1.0 in absolute units, so the M-estimator is unit-dependent |
 | **FUTURE** | W32DA-1 | calibration | High | `data/datasets/generator.py:199-230` with `_noise.py:106`: a prior-valued noise rate is redrawn from the shared knob RNG on every `probability_at` call, so calibration, recorded AUC, true probabilities and labels come from different laws |
 | **FUTURE** | W32DA-2 | rng | Medium | `data/datasets/generator.py:189,213,246`: the knob RNG is consumed once per bisection step and then passed to missingness, so prior-valued missingness depends on the calibration target |
-| **FUTURE** | W32DA-3 | target | High | `preprocessing/temporal_drift_augment.py:83-84,140,152`: with `feature_cols=None` a numeric label is treated as a feature and overwritten by its z-score on every synthetic row |
-| **FUTURE** | W32DA-4 | nan | Low | `preprocessing/temporal_drift_augment.py:145-146`: a NaN last-period non-feature value takes the earlier vintage's value (a label leak) |
+| **RESOLVED** | W32DA-3 | target | High | `preprocessing/temporal_drift_augment.py:83-84,140,152`: with `feature_cols=None` a numeric label is treated as a feature and overwritten by its z-score on every synthetic row; new optional `label_cols` keeps named label columns out of the default `feature_cols`, so they are carried from the entity's true last period (the default cannot guess which numeric column is the label; documented) |
+| **RESOLVED** | W32DA-4 | nan | Low | `preprocessing/temporal_drift_augment.py:145-146`: a NaN last-period non-feature value takes the earlier vintage's value (a label leak); an entity found in the true-last rows takes its value even when NaN |
 
 ## Not covered by this wave
 
 - metrics: `regression/_regression_extras.py`, `_regression_corr.py`, `_regression_deviance.py`, `_regression_benchmark.py`, all of `classification/`, `_multilabel_*`, `_ranking_extras.py`, `core.py`, `iteration_metrics.py`, the rest of `_fairness_metrics.py`.
 - models: `_optimization_search.py`, `optimization.py`, `_optimization_shared.py`, `tuning_catboost.py`, `tuning.py`, `lgbm_defaults.py`, `rf_proximity.py`, `additive_interaction_diagnostic.py`, `selection.py`, `ensembling/score_gate.py` (bare `except Exception`); core: `arrays.py`, `helpers.py`, `binning.py`, `ewma.py`, `frame_compat.py`, `matrix_seriation.py`, `proportion_stats.py`, `recency_*`, `stats.py`.
 - data: `synthetic.py` and most of `datasets/` and `datasets/scenarios/*`; preprocessing: `cleaning.py`, `_cleaning_helpers.py`, `auto_transform_select.py`, `align_feature_direction.py`, `outlier_detector_zoo.py`.
+
+## Implemented
+
+| ID | Regression test |
+|---|---|
+| W32DA-3, 4 | `tests/preprocessing/test_temporal_drift_augment_label_handling.py` |

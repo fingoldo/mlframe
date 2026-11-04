@@ -25,6 +25,7 @@ def augment_temporal_drift(
     min_history: int = 2,
     weight_by_recency: bool = False,
     min_augmented_weight: float = 0.1,
+    label_cols: Optional[Sequence[str]] = None,
 ) -> pd.DataFrame:
     """Return ``df`` concatenated with synthetic "earlier vintage" rows.
 
@@ -52,6 +53,10 @@ def augment_temporal_drift(
         when entity history lengths vary a lot, the heavier-truncation copies are a much less faithful proxy
         for the true inference-time distribution and can dilute the signal from genuinely full-history rows
         if left equal-weighted. Default ``False`` leaves output (including columns) bit-identical to before.
+    label_cols
+        Target / label columns to keep OUT of the default ``feature_cols`` (which is every numeric column other than the entity and time columns, so a NUMERIC label is
+        otherwise standardised like a feature and overwritten on every synthetic row). They are carried through from the entity's true last period. Ignored when
+        ``feature_cols`` is given explicitly.
     min_augmented_weight
         Floor applied to the recency-based weight so a very-heavily-truncated synthetic row still contributes
         some signal rather than being effectively dropped. Only used when ``weight_by_recency=True``.
@@ -81,7 +86,8 @@ def augment_temporal_drift(
         train = pd.concat([real, synthetic_only], axis=0, ignore_index=True)
     """
     if feature_cols is None:
-        feature_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c not in (entity_col, time_col)]
+        _excluded = {entity_col, time_col, *(label_cols or ())}
+        feature_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c not in _excluded]
     feature_cols = list(feature_cols)
 
     ordered = df.sort_values([entity_col, time_col], kind="mergesort").reset_index(drop=True)
@@ -143,7 +149,9 @@ def augment_temporal_drift(
                 _synth_entities = synth[entity_col]
                 for _c in _non_feature:
                     _mapped = _synth_entities.map(_by_entity[_c])
-                    synth[_c] = _mapped.where(_mapped.notna(), synth[_c])
+                    # An entity present in the true-last rows takes ITS value even when that value is NaN: falling back to the earlier vintage's value would hand the
+                    # synthetic row the label the truncation is meant to hide.
+                    synth[_c] = _mapped.where(_synth_entities.isin(_by_entity.index), synth[_c])
         std = expanding_std.loc[eligible]
         mean = expanding_mean.loc[eligible]
         raw = ordered.loc[eligible, feature_cols]
