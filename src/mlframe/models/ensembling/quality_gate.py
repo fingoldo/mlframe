@@ -118,8 +118,8 @@ def _drop_rows_with_non_finite_member(arr: np.ndarray, sample_weight: Optional[n
     if rows_ok.all() or not rows_ok.any():
         return arr, sample_weight, group_ids
     n_rows = arr.shape[1]
-    sw = None if sample_weight is None else (np.asarray(sample_weight)[rows_ok] if np.asarray(sample_weight).shape[0] == n_rows else sample_weight)
-    gid = None if group_ids is None else (np.asarray(group_ids)[rows_ok] if np.asarray(group_ids).shape[0] == n_rows else group_ids)
+    sw = None if sample_weight is None else (np.asarray(sample_weight)[rows_ok] if np.shape(sample_weight)[0] == n_rows else sample_weight)
+    gid = None if group_ids is None else (np.asarray(group_ids)[rows_ok] if np.shape(group_ids)[0] == n_rows else group_ids)
     return arr[:, rows_ok], sw, gid
 
 

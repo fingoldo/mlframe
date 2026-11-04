@@ -182,7 +182,7 @@ def _jmim_scores_device(eng_bins, eng_ks, y_bin, K_y: int, sel_bins, sel_ks):
     try:
         from ._gpu_policy import cuda_available_for_run
 
-        n = int(np.asarray(y_bin).size)
+        n = int(np.size(y_bin))
         if not cuda_available_for_run():
             return None
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import lookup_mi_classif_backend

@@ -365,7 +365,7 @@ def _warn_if_no_usable_stratum(strata: np.ndarray, eng_name: str) -> None:
             "the sample is too small for this many bins",
             _MIN_STRATUM_ROWS,
             int(counts.max(initial=0)),
-            int(np.asarray(strata).shape[0]),
+            int(np.shape(strata)[0]),
             eng_name,
         )
 
