@@ -64,6 +64,12 @@ __all__ = [
 # diff: T = y - base. Always defined, no params, no domain restrictions.
 # ----------------------------------------------------------------------
 
+
+def _floor_to_eps(x: np.ndarray, eps: float) -> np.ndarray:
+    """``x`` with every entry smaller than ``eps`` in magnitude replaced by ``+-eps`` (the sign of ``x``, ``+eps`` at exactly 0); a divisor floor that never returns 0."""
+    return np.asarray(np.where(np.abs(x) < eps, np.where(x < 0, -eps, eps), x))
+
+
 def _diff_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
     """No learnable parameters: ``diff`` is a fixed alpha=1/beta=0 transform, so fitting is a no-op returning an empty params dict."""
     return {}
@@ -318,7 +324,7 @@ def _ratio_fit(
 def _ratio_forward(y: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     """Apply ``T = y / base``, flooring ``|base|`` at the fitted eps (sign-preserving) to avoid division blowup."""
     eps = float(params["eps"])
-    safe_base = np.where(np.abs(base) < eps, np.sign(base + 1e-300) * eps, base)
+    safe_base = _floor_to_eps(base, eps)
     return np.asarray(y / safe_base)
 
 
@@ -328,7 +334,7 @@ def _ratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any]) 
     # Mirror the forward eps-floor so the round-trip is exact on in-domain near-zero base rows (0<|base|<eps would otherwise yield unbounded relative error).
     """
     eps = float(params["eps"])
-    safe_base = np.where(np.abs(base) < eps, np.sign(base + 1e-300) * eps, base)
+    safe_base = _floor_to_eps(base, eps)
     return np.asarray(t_hat * safe_base)
 
 
@@ -449,7 +455,7 @@ def _rolling_quantile_ratio_forward(
     """Apply ``T = y / max(RollingQ50_k(base), eps)`` with the rolling median of ``base`` over window ``k`` in the fitted mode (params without a ``mode`` key predate the field and keep the historical centred window). ``history_base``: base rows immediately preceding the batch, read by the window."""
     eps = float(params["eps"])
     roll_med = _rqr_prefixed_median(base, params, history_base, continuation=False)
-    safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)
+    safe = _floor_to_eps(roll_med, eps)
     return np.asarray(np.asarray(y, dtype=np.float64).reshape(-1) / safe)
 
 
@@ -465,7 +471,7 @@ def _rolling_quantile_ratio_inverse(
     roll_med = _rqr_prefixed_median(base, params, history_base, continuation=True)
     # Mirror the forward eps-floor so the round-trip is exact on near-zero rolling medians.
     eps = float(params["eps"])
-    safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)
+    safe = _floor_to_eps(roll_med, eps)
     return np.asarray(t_f * safe)
 
 
