@@ -6,7 +6,7 @@ Three read-only reports by Opus 5.5 low-effort agents on the files wave 25 left 
 |---|---|---|---|---|
 | **RESOLVED** | W26PAIR-1 | null | Medium | `operand_uplift_null_bar` always permuted the second raw operand, so a strong second operand destroyed the signal the bar measures against and the bar fell to 1.0; `operand_uplift_null_bar_for_pair` now permutes the operand with the smaller marginal MI whichever slot it is in |
 | **RESOLVED** | W26DCD-1 | polars | Low | `_resolve_member_matrix` read `dtype.kind` and called a pandas-only `to_numpy(dtype=, copy=)`, which raised on a polars frame |
-| **FUTURE** | W26GATE-1 | grouped | High | `_yscale_holdout_gate`: on the val-split path the fit side calls the transform with `groups=None`, so every `requires_groups` transform is rejected |
+| **RESOLVED** | W26GATE-1 | grouped | High | on the val-split path the y-scale gate called every `requires_groups` transform with `groups=None` for the fit rows (the refit skip reused the same variable), so each grouped spec was rejected as 'fit/inverse raised'; the fit rows now get their group labels from the training frame while the fold-local refit stays off (`tests/training/composite/discovery/test_yscale_gate_forwards_grouped_transforms_on_val_split.py`) |
 | **FUTURE** | W26GATE-2 | grouped | High | `_honest_rmse_gate`: forward and inverse are called without `groups`, so every grouped transform raises and is rejected |
 | **FUTURE** | W26GATE-3 | gate | Medium | the tiny-screen seed early-stop reports an inflated median, which under `borda` aggregation inflates the cross-family mean |
 | **FUTURE** | W26GATE-4 | gate | Medium | the structural-fragility ratio uses an unweighted variance of group means, so tiny groups push it to ~1 for any base |
@@ -30,4 +30,5 @@ Three read-only reports by Opus 5.5 low-effort agents on the files wave 25 left 
 
 | ID | Regression test |
 |---|---|
+| W26GATE-1 | `tests/training/composite/discovery/test_yscale_gate_forwards_grouped_transforms_on_val_split.py` |
 | W26PAIR-1, W26DCD-1 | `tests/feature_selection/fe/test_wave26_operand_null_and_polars_member_matrix.py` |

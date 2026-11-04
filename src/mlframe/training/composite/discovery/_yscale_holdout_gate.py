@@ -515,6 +515,9 @@ def apply_yscale_holdout_gate(
     x_fit = self._build_feature_matrix(df, feats, fit_idx)
     x_eval = self._build_feature_matrix(_eval_df, feats, eval_idx)
     y_eval_std = float(np.std(y_eval))
+    # The forward pass over the fit rows needs their group labels. On the val-split path ``_fit_groups`` is None on purpose (the params were fit on train, so the
+    # fold-local refit is skipped), but a grouped transform still cannot be forwarded without labels: read them from the training frame.
+    _fit_labels = _fit_groups if _fit_groups is not None else _val_group_labels(self, df, fit_idx)
 
     n_estimators = int(getattr(cfg, "tiny_model_n_estimators", 60))
     num_leaves = int(getattr(cfg, "tiny_model_num_leaves", 15))
@@ -571,7 +574,7 @@ def apply_yscale_holdout_gate(
             candidates.append(fold)
         try:
             scored = [_reconstruct_on_eval(transform, spec.transform_name, p, v, y_fit, base_fit, base_eval,
-                                           x_fit, x_eval, _tiny, _fit_groups, _eval_groups) for p, v in candidates]
+                                           x_fit, x_eval, _tiny, _fit_labels, _eval_groups) for p, v in candidates]
         except Exception as exc:
             logger.debug("y-scale gate: fit/inverse raised for spec %s: %s: %s", getattr(spec, "name", spec), type(exc).__name__, exc)
             _gate_error_reject(self, spec, rejected, RejectStage.YSCALE_HOLDOUT, f"fit/inverse raised {type(exc).__name__}: {exc}")
