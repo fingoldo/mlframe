@@ -54,7 +54,7 @@ def _members_predict(Xa: np.ndarray, ya: np.ndarray, Xb: np.ndarray, task: str, 
     return out
 
 
-def _fit_3baselines_two(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int):
+def _fit_3baselines_two(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int) -> tuple[np.ndarray, np.ndarray]:
     """Return the 3 baselines' predictions on the train rows and on the query rows as ``(n, 3)`` arrays.
 
     The query predictions come from a fit on all of ``Xt``; the train predictions are inner-KFold(3) out-of-fold, so the cut-points and per-code target

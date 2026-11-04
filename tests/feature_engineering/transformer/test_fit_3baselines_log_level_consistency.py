@@ -32,7 +32,6 @@ def _fail_logistic_regression():
     [
         ("mlframe.feature_engineering.transformer.gradient_direction_agreement", "_fit_3baselines"),
         ("mlframe.feature_engineering.transformer.ib_baseline_codes", "_fit_3baselines_two"),
-        ("mlframe.feature_engineering.transformer.nn_oof_target_mean", "_fit_3baselines_predict_two"),
         ("mlframe.feature_engineering.transformer.pairwise_kl_divergence", "_fit_3baselines_with_sigma"),
     ],
 )

@@ -23,7 +23,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **RESOLVED** | W28TA-8 | replay | Medium | mdl_binning_pairwise.py:226: n_unique_combos counted over the query batch; `unique_combos` counts the distinct combinations in the train rows |
 | **FUTURE** | W28TA-9 | replay | Medium | performer_attention.py:65,121-122: the global-max shift is per batch and does not cancel |
 | **FUTURE** | W28TA-10 | precision | Medium | performer_attention.py:61-66,114: float32 underflow hidden by the 1e-9 floor fallback (y_est = 0) |
-| **FUTURE** | W28TA-11 | leakage | Medium | nn_oof_target_mean.py:68-96,143-144: kNN index built on in-sample baseline predictions, queries use out-of-sample ones |
+| **RESOLVED** | W28TA-11 | leakage | Medium | nn_oof_target_mean.py:68-96,143-144: kNN index built on in-sample baseline predictions, queries use out-of-sample ones; the three members now come from `ib_baseline_codes._fit_3baselines_two` (same settings, out-of-fold train side); the logging-consistency test lists that function instead of the removed copy |
 | **RESOLVED** | W28TA-12 | leakage | Medium | pairwise_kl_divergence.py:80-82: baseline sigma is the in-sample residual std; the regression sigmas come from inner-KFold(3) out-of-fold residuals of the same three members; on a noise target the deeper booster's sigma was 0.50 and is near 1 |
 | **RESOLVED** | W28TA-13 | leakage | Medium | variance_baseline.py:79-85: mu_train is in-sample; mu_train is out-of-fold; the mean predicted sigma^2 on a noise target was 0.47 and is 1.18 (true 1) |
 | **FUTURE** | W28TA-14 | leakage | Medium | target_kmeans_codebook.py:405,409: train rows clustered on in-sample predictions, queries on held-out ones |
@@ -78,3 +78,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | W28TA-2 | `tests/feature_engineering/transformer/test_local_curvature_is_nan_when_the_quadratic_fit_is_underdetermined.py` |
 | W28TA-1 | `tests/feature_engineering/transformer/test_local_linear_neighbours_are_nearest_not_same_direction.py` |
 | W28TA-5 | `tests/feature_engineering/transformer/test_spectral_attention_embedding_does_not_depend_on_the_query_batch.py` |
+| W28TA-11 | `tests/feature_engineering/transformer/test_nn_oof_target_mean_train_embedding_is_out_of_fold.py` |
