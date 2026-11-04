@@ -14,3 +14,12 @@ _apply_minmax_njit, _hermeval_njit, _chebval_njit, _is_int_as_cat_njit, _row_cen
 quantile_bin_block, _relevance_mi_1var_fused, evaluate_gain, arr2str, masked_abs_spearman_presorted, _abs_corr_finite_njit,
 label_bitsets_from_index, column_marginals, column_bin_bitsets, _zscore_from_bins_njit, _batch_joint_entropy_pairs,
 _composite_residuals_kernel.
+
+## Thread-parallel recheck (`_fleuret_confidence_prange.py`)
+
+`screen_predictors` ran the serial confidence kernel on one core (the joblib twin needs `n_jobs > 1`; the benchmarks fit with `n_jobs=1`):
+2.4 s at 20% CPU in the warm 100k fit, 1.2 s of it in the recheck. The prange twin shuffles a private copy of the compacted columns per
+permutation with private caches, records a pass / fail flag per permutation and counts them in order with the serial stop rule, so
+`(nfailed, nchecked)` equal the serial kernel's (`test_fleuret_confidence_prange.py`: 18 cases, early stop, block sizes 1 / 3 / 8).
+Same process, back to back: recheck 1.2 s -> 0.4 s, `screen_predictors` 2.4 s -> 1.6 s, wall 85.0 s -> 84.0 s. `MLFRAME_FLEURET_PRANGE=0`
+keeps the serial kernel.

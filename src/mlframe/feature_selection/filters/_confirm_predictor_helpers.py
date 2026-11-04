@@ -150,7 +150,9 @@ def fleuret_conditional_recheck(ctx: Any, X: tuple, next_best_gain: float, boots
                 entropy_cache[key] = value
         else:
             _cd, _cnb, _cx, _cy, _csel, _cent = _compact_confidence_inputs(data_copy, factors_nbins, X, y, selected_vars, entropy_cache)
-            nfailed, nchecked = get_fleuret_criteria_confidence(
+            _conf = _fleuret_confidence_prange_or_none(_cd, _cnb, _cx, _cy, _csel, full_npermutations, next_best_gain, max_failed, nexisting, mrmr_relevance_algo,
+                                                       mrmr_redundancy_algo, max_veteranes_interactions_order, extra_x_shuffling, _fleuret_base_seed)
+            nfailed, nchecked = _conf if _conf is not None else get_fleuret_criteria_confidence(
                 data_copy=_cd,
                 factors_nbins=_cnb,
                 x=_cx,
@@ -181,6 +183,23 @@ def fleuret_conditional_recheck(ctx: Any, X: tuple, next_best_gain: float, boots
         if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
             logger.debug("get_fleuret_criteria_confidence bootstrapped eval took %.1f sec.", timer() - eval_start)
     return bootstrapped_gain, confidence
+
+
+def _fleuret_confidence_prange_or_none(cd, cnb, cx, cy, csel, npermutations, gain, max_failed, nexisting, relevance_algo, redundancy_algo, max_order,
+                                       extra_x_shuffling, base_seed) -> "tuple | None":
+    """``(nfailed, nchecked)`` from the thread-parallel twin (same counts as the serial kernel) when more than one permutation and thread are available and
+    ``MLFRAME_FLEURET_PRANGE`` is not ``0``; ``None`` sends the caller to the serial kernel."""
+    import os
+
+    import numba
+
+    if os.environ.get("MLFRAME_FLEURET_PRANGE", "1").strip() == "0" or int(npermutations) < 2 or numba.get_num_threads() < 2:
+        return None
+    from ._fleuret_confidence_prange import fleuret_confidence_prange
+
+    return fleuret_confidence_prange(cd, cnb, cx, cy, csel, int(npermutations), float(gain), max_failed, nexisting, mrmr_relevance_algo=relevance_algo,
+                                     mrmr_redundancy_algo=redundancy_algo, max_veteranes_interactions_order=max_order, extra_x_shuffling=extra_x_shuffling,
+                                     base_seed=np.uint64(base_seed))
 
 
 def _compact_confidence_inputs(data_copy: np.ndarray, factors_nbins: np.ndarray, X: Any, y: Any, selected_vars: Any, entropy_cache: Any) -> tuple:
