@@ -3,13 +3,15 @@
 cupy sorts through thrust. A thrust temporary allocation that does not fit a memory pool with a hard limit (the default pool under
 ``ensure_fe_gpu_pool_limit``, a stage slot pool under FE stage concurrency) raises a C++ ``bad_alloc`` inside the allocator callback, and the
 process terminates (``Fatal Python error: Aborted``) instead of the ``OutOfMemoryError`` every GPU path catches to take its host twin. Here the
-pool behind the current allocator is checked first: when the sort's temporaries do not fit its remaining room, the cached free blocks are
-released and the room checked again, and if it is still short a cupy ``OutOfMemoryError`` is raised in Python, before thrust runs.
+pool behind the current allocator is checked first (its limit and the device's free memory), then the sort's room is reserved through the pool
+under the pool's lock (``sort_room``): a short pool or device raises a cupy ``OutOfMemoryError`` in Python, before thrust runs.
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+import contextlib
+import threading
+from typing import Any, Iterator, Optional
 
 #: Bytes a thrust sort of ``a`` along an axis needs beyond ``a``: a copy of the values, int64 indices, int64 segment keys and cub's scratch.
 _INDEX_BYTES = 8
@@ -40,6 +42,45 @@ def _room(cp: Any, pool: Any) -> int:
     return room
 
 
+_POOL_LOCKS: "dict[int, threading.Lock]" = {}
+_POOL_LOCKS_GUARD = threading.Lock()
+
+
+def _pool_lock(pool: Any) -> "threading.Lock":
+    """One lock per memory pool: threads that allocate from the same pool take turns between reserving a sort's room and the sort itself."""
+    with _POOL_LOCKS_GUARD:
+        lock = _POOL_LOCKS.get(id(pool))
+        if lock is None:
+            lock = _POOL_LOCKS[id(pool)] = threading.Lock()
+        return lock
+
+
+@contextlib.contextmanager
+def sort_room(a: Any) -> "Iterator[None]":
+    """Hold room for a sort of ``a`` in the current pool for the duration of the block, or raise cupy's ``OutOfMemoryError``.
+
+    A free-memory check alone races: under FE stage concurrency another thread allocated between the check and thrust's own allocation, and
+    thrust aborted the process (warm 100k fits, three cascades). Here the need is allocated through the pool (a short pool raises the ordinary
+    ``OutOfMemoryError`` there) and released at once, so the block stays cached in the pool for thrust's temporaries; the pool's lock keeps the
+    other threads of the same pool from taking it before the sort ran."""
+    import cupy as cp
+
+    ensure_sort_headroom(a)
+    pool = _current_pool(cp)
+    if pool is None:
+        yield
+        return
+    need = _sort_need_bytes(a)
+    with _pool_lock(pool):
+        try:
+            hold = cp.empty(need, dtype=cp.uint8)
+        except cp.cuda.memory.OutOfMemoryError:
+            pool.free_all_blocks()
+            hold = cp.empty(need, dtype=cp.uint8)
+        del hold
+        yield
+
+
 def ensure_sort_headroom(a: Any) -> None:
     """Raise cupy's ``OutOfMemoryError`` when a sort of ``a`` would not fit: the current pool's limit or the device itself (a sort that runs out of
     device memory inside thrust aborts the process just as one over the pool limit does), after releasing the pool's cached free blocks."""
@@ -60,16 +101,16 @@ def device_argsort(a: Any, axis: int = -1, **kwargs: Any) -> Any:
     """``cupy.argsort(a, axis, **kwargs)`` that raises ``OutOfMemoryError`` instead of aborting when the pool is short."""
     import cupy as cp
 
-    ensure_sort_headroom(a)
-    return cp.argsort(a, axis=axis, **kwargs)
+    with sort_room(a):
+        return cp.argsort(a, axis=axis, **kwargs)
 
 
 def device_sort(a: Any, axis: int = -1, **kwargs: Any) -> Any:
     """``cupy.sort(a, axis, **kwargs)`` that raises ``OutOfMemoryError`` instead of aborting when the pool is short."""
     import cupy as cp
 
-    ensure_sort_headroom(a)
-    return cp.sort(a, axis=axis, **kwargs)
+    with sort_room(a):
+        return cp.sort(a, axis=axis, **kwargs)
 
 
 def _guarded(name: str) -> Any:
@@ -79,9 +120,10 @@ def _guarded(name: str) -> Any:
         """``cupy.<name>(a, *args, **kwargs)`` that raises ``OutOfMemoryError`` instead of aborting when the pool is short."""
         import cupy as cp
 
-        if hasattr(a, "nbytes"):
-            ensure_sort_headroom(a)
-        return getattr(cp, name)(a, *args, **kwargs)
+        if not hasattr(a, "nbytes"):
+            return getattr(cp, name)(a, *args, **kwargs)
+        with sort_room(a):
+            return getattr(cp, name)(a, *args, **kwargs)
 
     call.__name__ = f"device_{name}"
     return call
@@ -93,4 +135,4 @@ device_median = _guarded("median")
 device_percentile = _guarded("percentile")
 device_quantile = _guarded("quantile")
 
-__all__ = ["device_argsort", "device_median", "device_percentile", "device_quantile", "device_sort", "device_unique", "ensure_sort_headroom"]
+__all__ = ["device_argsort", "device_median", "device_percentile", "device_quantile", "device_sort", "device_unique", "ensure_sort_headroom", "sort_room"]

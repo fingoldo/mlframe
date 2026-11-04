@@ -29,7 +29,6 @@ def test_short_pool_raises_out_of_memory_not_abort():
             device_argsort(a, axis=1)
         with pytest.raises(cp.cuda.memory.OutOfMemoryError):
             device_sort(a, axis=1)
-    del a
     pool.free_all_blocks()
 
 
@@ -57,3 +56,43 @@ def test_full_device_raises_out_of_memory_even_with_pool_room(monkeypatch):
     with cp.cuda.using_allocator(pool.malloc):
         with pytest.raises(cp.cuda.memory.OutOfMemoryError):
             device_argsort(a, axis=1)
+
+
+def test_sort_room_reserved_against_a_concurrent_allocation():
+    """Two threads of one limited pool: one sorts while the other keeps allocating; the sort never aborts the process, it sorts or raises OutOfMemoryError."""
+    import threading
+
+    _require_device()
+    from mlframe.feature_selection.filters._device_sort_safe import device_argsort
+
+    pool = cp.cuda.MemoryPool()
+    pool.set_limit(size=96 << 20)
+    outcomes = []
+
+    def hog():
+        """Allocate 2 MB blocks from the shared pool until it is full, then release them."""
+        with cp.cuda.using_allocator(pool.malloc):
+            held = []
+            try:
+                for _ in range(40):
+                    held.append(cp.empty(2 << 20, dtype=cp.uint8))
+            except cp.cuda.memory.OutOfMemoryError:
+                pass
+            del held
+
+    def sorter():
+        """Argsort a 1M-element column five times on the shared pool, recording sorted or oom."""
+        with cp.cuda.using_allocator(pool.malloc):
+            x = cp.random.random(1_000_000).astype(cp.float32)
+            for _ in range(5):
+                try:
+                    outcomes.append(bool((x[device_argsort(x)][1:] >= x[device_argsort(x)][:-1]).all()))
+                except cp.cuda.memory.OutOfMemoryError:
+                    outcomes.append("oom")
+
+    threads = [threading.Thread(target=hog), threading.Thread(target=sorter)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert outcomes and all(o is True or o == "oom" for o in outcomes)
