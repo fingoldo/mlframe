@@ -45,6 +45,11 @@ def prepare_df_for_catboost(
     ensure_categorical:bool=True makes further processing also suitable for xgboost.
     Works with both pandas and polars DataFrames. Always use the return value.
 
+    Mutation contract: a pandas ``df`` is modified IN PLACE (frames can be 100+ GB, so it is never copied) unless ``columns_to_drop`` forces a new frame, and
+    ``cat_features`` is an out-parameter that gains every categorical column detected here. A polars null-bearing integer or boolean column is widened to float only
+    to clear its nulls, so the dtype of such a column can differ between a frame with nulls and one without; CatBoost converts all numeric columns to float32
+    internally, so that does not change what it sees.
+
     A cast/conversion failure on an individual column (caught and logged internally) leaves that column untouched
     rather than aborting the whole call. Pass a list via ``skipped_columns`` to have every such column name appended
     to it, so callers can detect "N columns silently left unprocessed" beyond grepping the log.
