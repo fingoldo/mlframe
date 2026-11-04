@@ -8,7 +8,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural base/flat modu
 | **FUTURE** | W29NB-2 | crash | Medium | `base/_base_fit_helpers.py:120-124`: validation labels are encoded with the encoder fitted on the training labels only, so a class present only in validation raises |
 | **FUTURE** | W29NB-3 | sampling | Medium | `data.py:236-243,615`: in internal-batch mode each batch is a fixed contiguous slice; `shuffle=True` reorders batches but never changes which rows share a batch; a last batch of one row with BatchNorm is unconfirmed |
 | **FUTURE** | W29NR-1 | optimizer | High | `_sam_optimizer.py:206-213`: `SAM.step(closure)` assumes Lightning ran the closure first; under 32-true it perturbs with the previous batch's gradient, under 16-mixed it raises (depends on Lightning behaviour, not verified) |
-| **FUTURE** | W29NR-2 | restore | High | `ranker.py:839-870`: `MLPRanker.fit` adds `EarlyStopping` but never reloads the best weights, so `predict` uses the last epoch's |
+| **RESOLVED** | W29NR-2 | restore | High | `ranker.py:839-870`: `MLPRanker.fit` adds `EarlyStopping` but never reloads the best weights, so `predict` uses the last epoch's; `_BestWeightsCallback` snapshots the weights of the lowest `val_loss` epoch and reloads them at train end (added whenever early stopping is on) |
 | **FUTURE** | W29NR-3 | restore | Medium | `_lookahead_optimizer.py:221-245` with `_recurrent_torch_model.py:708-723`: the best-checkpoint reload overwrites the slow weights `on_train_end` installed |
 | **FUTURE** | W29NR-4 | crash | Medium | `_recurrent_arch.py:141`: positional encoding `max_len=5000` raises for padded sequence length >= 5000 (the CLS token adds one) |
 | **FUTURE** | W29NR-5 | nan | Medium | `tabular_1dcnn.py:158-250`: no NaN check or imputation, one NaN cell makes every weight and prediction NaN without an error |
@@ -28,3 +28,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural base/flat modu
 | ID | Regression test |
 |---|---|
 | W29NB-1 | `tests/training/test_neural_refit_relearns_the_class_labels.py` |
+| W29NR-2 | `tests/training/neural/test_mlp_ranker_restores_the_best_epoch_weights.py` |
