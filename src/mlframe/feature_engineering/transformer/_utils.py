@@ -11,7 +11,7 @@ All ``logger.*`` and ``print`` output here is ASCII-only by project rule; cp1251
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 from mlframe.utils.env_flags import env_int
@@ -366,3 +366,34 @@ FAR_DISTANCE = 1e6
 def far_pos_loggap_columns(n_query: int, n_scales: int) -> np.ndarray:
     """``(n_query, 2 * n_scales)`` features for a fold whose class bank is too small for a kNN query: the "very far" distance sentinel, then a zero log-gap ("no signal"), never a 0.0 that reads as "on the positive manifold"."""
     return np.asarray(np.concatenate([np.full((n_query, n_scales), FAR_DISTANCE), np.zeros((n_query, n_scales))], axis=1).astype(np.float32))
+
+
+class BoundSplitter:
+    """A splitter with its ``groups`` (and ``y``) closed over, so it satisfies the ``splitter.split(X)`` call every transformer in this package makes.
+
+    ``GroupKFold`` and friends raise on ``split(X)`` without groups, and a shuffled ``KFold`` ignores them and leaks a group across the train/validation boundary;
+    wrap the group-aware splitter once and hand the wrapper to any transformer's ``splitter=``.
+
+    Parameters
+    ----------
+    splitter
+        The wrapped splitter (``GroupKFold``, ``StratifiedKFold``, ...).
+    groups
+        Group labels passed on every ``split`` call.
+    y
+        Target (or stratification labels) passed on every ``split`` call.
+    """
+
+    def __init__(self, splitter: Any, groups: Any = None, y: Any = None) -> None:
+        self.splitter = splitter
+        self.groups = groups
+        self.y = y
+
+    @property
+    def n_splits(self) -> Any:
+        """The wrapped splitter's fold count (``None`` when it does not expose one)."""
+        return getattr(self.splitter, "n_splits", None)
+
+    def split(self, X: Any, y: Any = None, groups: Any = None) -> Any:
+        """Split ``X`` with the bound ``groups`` and ``y`` unless the caller passes its own."""
+        return self.splitter.split(X, self.y if y is None else y, self.groups if groups is None else groups)
