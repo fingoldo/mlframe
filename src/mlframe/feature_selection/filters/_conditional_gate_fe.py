@@ -128,7 +128,6 @@ from typing import Any
 if TYPE_CHECKING:
     import pandas as pd
     import polars as pl
-    from .engineered_recipes import EngineeredRecipe
 
 def apply_row_argmax(X: pd.DataFrame | pl.DataFrame, cols: Sequence[str]) -> np.ndarray:
     """Replay one row-argmax column: the integer index (0..k-1) of the row-maximum over the source columns.
@@ -864,143 +863,13 @@ def cheap_conditional_gate_scan(
     hits.sort(key=lambda h: (-h.margin_over_baseline, str(h.mode), tuple(str(c) for c in h.cols)))
     return hits
 
-def detect_row_argmax(
-    X: pd.DataFrame | pl.DataFrame, y: np.ndarray, cols: Optional[Sequence[str]] = None, *,
-    top_k: int = 4, nbins: int = 12, seed: int = 0,
-) -> list[dict[str, Any]]:
-    """Cheap-first scan; returns the list of responded row-argmax hits (each a dict with the source triple, MI + margin), capped
-    at ``top_k``. Empty when nothing responds - a non-argmax frame detects nothing."""
-    hits = cheap_row_argmax_scan(X, y, cols, nbins=nbins, seed=seed)
-    out = []
-    for h in hits:
-        if not h.responded:
-            continue
-        out.append({"cols": h.cols, "feat_mi": h.feat_mi, "operand_floor": h.operand_floor, "margin": h.margin_over_operands})
-        if len(out) >= int(top_k):
-            break
-    return out
 
-def detect_conditional_gate(
-    X: pd.DataFrame | pl.DataFrame, y: np.ndarray, cols: Optional[Sequence[str]] = None, *,
-    top_k: int = 4, nbins: int = 12, seed: int = 0,
-) -> list[dict[str, Any]]:
-    """Cheap-first scan; returns the list of responded conditional-gate hits (each a dict with mode, source columns, frozen tau,
-    MI + margin), capped at ``top_k``. Empty when nothing responds - the hardened baseline keeps smooth / ordinary_mul silent."""
-    hits = cheap_conditional_gate_scan(X, y, cols, nbins=nbins, seed=seed)
-    out = []
-    for h in hits:
-        if not h.responded:
-            continue
-        out.append({"mode": h.mode, "cols": h.cols, "tau": h.tau, "feat_mi": h.feat_mi, "baseline_mi": h.baseline_mi, "margin": h.margin_over_baseline})
-        if len(out) >= int(top_k):
-            break
-    return out
-
-# Recipe plumbing: emit frozen EngineeredRecipe objects so the MRMR selector materialises, scores, selects, and replays the
-# argmax / gate column at predict time identically. Replay is a pure function of X (argmax index; gate np.where / mask with the
-# FROZEN tau) - no y reference, so it is leak-free + deterministic + train/test bit-identical.
-
-def _top_marginal_mi_columns(X, y: np.ndarray, cols: Sequence[str], k: int, *, nbins: int) -> list[str]:
-    """The ``k`` columns of ``cols`` with the largest marginal binned MI against ``y``, in their original order."""
-    yi = encode_y_for_classif_mi(np.asarray(y))
-    scores = np.array([_mi(np.asarray(X[c]), yi, nbins=nbins) for c in cols], dtype=np.float64)  # Intentional float64: ranking statistic
-    keep = set(np.argsort(-scores, kind="stable")[:k].tolist())
-    return [c for i, c in enumerate(cols) if i in keep]
-
-
-def hybrid_row_argmax_fe_with_recipes(
-    X: pd.DataFrame | pl.DataFrame, y: np.ndarray, *,
-    cols: Optional[Sequence[str]] = None,
-    top_k: int = 4, nbins: int = 12, seed: int = 0,
-    max_cols: int = 30,
-) -> tuple[list[str], list[EngineeredRecipe]]:
-    """Detect responded row-argmax structure and emit it as frozen, replayable ``EngineeredRecipe`` objects.
-
-    Column-count BUDGET GUARD (the wide-frame cost is the budgeted C(p,3) triple sweep + the batched MI; see
-    ``_benchmarks/bench_conditional_gate_wideframe``): when the number of eligible columns exceeds ``max_cols`` the whole sweep is
-    SKIPPED (logged, never silent).
-
-    Returns ``(appended_names, recipes)`` - the materialised columns are NOT concatenated here (the MRMR caller appends them under
-    its own RAM-safe path); each recipe replays the exact argmax column from X alone, leak-free."""
-    if cols is None:
-        elig = [c for c in X.columns if _is_argmax_eligible(np.asarray(X[c]))]
-    else:
-        elig = [c for c in cols if c in X.columns and _is_argmax_eligible(np.asarray(X[c]))]
-
-    p = len(elig)
-    if p > int(max_cols):
-        # Every eligible column is ranked by marginal MI and the triple budget is spent on the strongest triples (cheap_row_argmax_scan), so a wide
-        # frame is swept in full instead of being skipped or cut to a subset of columns.
-        logger.info(
-            "row_argmax FE: %d eligible columns exceeds max_cols=%d; sweeping all of them with the triple budget spent on the strongest.",
-            p, int(max_cols),
-        )
-
-    hits = cheap_row_argmax_scan(X, y, elig, nbins=nbins, seed=seed, _cols_prefiltered=True)
-    appended: list[str] = []
-    recipes = []
-    seen: set[str] = set()
-    for h in hits:
-        if not h.responded:
-            continue
-        name = engineered_name_row_argmax(h.cols)
-        if name in seen:
-            continue
-        seen.add(name)
-        appended.append(name)
-        recipes.append(build_row_argmax_recipe(name=name, cols=h.cols))
-        if len(appended) >= int(top_k):
-            break
-    return appended, recipes
-
-def hybrid_conditional_gate_fe_with_recipes(
-    X: pd.DataFrame | pl.DataFrame, y: np.ndarray, *,
-    cols: Optional[Sequence[str]] = None,
-    top_k: int = 4, nbins: int = 12, seed: int = 0,
-    k_gate: int = 8, k_operand: int = 10,
-    max_cols: int = 200,
-    subsample_n: int = 0,
-) -> tuple[list[str], list[EngineeredRecipe]]:
-    """Detect responded conditional-gate structure and emit it as frozen, replayable ``EngineeredRecipe`` objects (tau frozen).
-
-    RELEVANCE-PRUNED candidate set: the sweep cost is O(k_operand^2 * k_gate * tau-scan), FLAT in p - the gate column c is drawn
-    from the top-``k_gate`` columns by raw MI vs y and the operands a, b from the top-``k_operand`` (see ``cheap_conditional_gate_scan``).
-    With k=8/10 the added cost is a small constant whether p=30 or p=300, so the prior O(p^3) blow-up that forced this OFF is gone.
-    ``max_cols`` (default 200) no longer skips the sweep: it is logged when exceeded, and the relevance pruning bounds the cost. The detector gates vs the HARDENED best-existing-op baseline so smooth / ordinary_mul
-    controls stay silent (0 FP at p=30 over 3 seeds).
-
-    Returns ``(appended_names, recipes)`` - the materialised columns are NOT concatenated here (the MRMR caller appends them under
-    its own RAM-safe path); each recipe replays the exact gate column from X + the frozen tau alone, leak-free."""
-    if cols is None:
-        elig = [c for c in X.columns if _is_argmax_eligible(np.asarray(X[c]))]
-    else:
-        elig = [c for c in cols if c in X.columns and _is_argmax_eligible(np.asarray(X[c]))]
-
-    p = len(elig)
-    if p > int(max_cols):
-        # The sweep is relevance-pruned (top-k gate and operand columns by raw MI), so its cost does not grow with p: a wide frame is swept
-        # in full rather than skipped. The planted gate is lost at p=260 with the skip and found without it (D:/Temp/gate_cap.py).
-        logger.info(
-            "conditional_gate FE: %d eligible columns exceeds max_cols=%d; sweeping all of them over the relevance-pruned candidate set.",
-            p, int(max_cols),
-        )
-
-    hits = cheap_conditional_gate_scan(
-        X, y, elig, nbins=nbins, seed=seed, k_gate=k_gate, k_operand=k_operand, subsample_n=subsample_n,
-        _cols_prefiltered=True,
-    )
-    appended: list[str] = []
-    recipes = []
-    seen: set[str] = set()
-    for h in hits:
-        if not h.responded:
-            continue
-        name = engineered_name_conditional_gate(h.mode, h.cols, h.tau)
-        if name in seen:
-            continue
-        seen.add(name)
-        appended.append(name)
-        recipes.append(build_conditional_gate_recipe(name=name, mode=h.mode, cols=h.cols, tau=h.tau))
-        if len(appended) >= int(top_k):
-            break
-    return appended, recipes
+# Detection / hybrid entry points live in ``_conditional_gate_hybrid`` (file-size carve). Imported at the bottom
+# because that module imports helpers from this one.
+from ._conditional_gate_hybrid import (  # noqa: F401  -- re-exported; the detection entry points moved to _conditional_gate_hybrid
+    detect_row_argmax,
+    detect_conditional_gate,
+    _top_marginal_mi_columns,
+    hybrid_row_argmax_fe_with_recipes,
+    hybrid_conditional_gate_fe_with_recipes,
+)
