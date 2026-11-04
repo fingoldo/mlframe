@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 def _fit_focal_lgb(X: np.ndarray, y: np.ndarray, *, n_estimators: int, max_depth: int, gamma: float, seed: int):
     """Fit a LightGBM model with focal-loss objective and return the booster."""
     import lightgbm as lgb
-    train_data = lgb.Dataset(X, label=y)
+    train_data = lgb.Dataset(X, label=(np.asarray(y) > 0.5).astype(np.float32))  # the focal gradient assumes 0/1 labels; {-1, 1} is mapped like the package's other binary slicers
     params = dict(
         objective=_focal_loss_obj(gamma),
         learning_rate=0.05,

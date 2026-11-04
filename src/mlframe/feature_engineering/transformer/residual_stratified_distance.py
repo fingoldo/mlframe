@@ -187,8 +187,9 @@ def compute_residual_stratified_distance_features(
             Xq_s = Xq
 
         abs_r = _compute_oof_residuals(Xt_s, y_t, task=task, seed=fold_seed)
-        median_r = float(np.median(abs_r))
-        easy_mask = abs_r < median_r
+        # Rank split, not ``abs_r < median``: with half or more of the residuals tied at the median the strict test leaves the easy band empty.
+        easy_mask = np.zeros(abs_r.shape[0], dtype=bool)
+        easy_mask[np.argsort(abs_r, kind="stable")[: abs_r.shape[0] // 2]] = True
         hard_mask = ~easy_mask
         X_easy = Xt_s[easy_mask]
         r_easy = abs_r[easy_mask]
