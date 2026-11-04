@@ -490,7 +490,7 @@ def fused_column_nfailed(honest_codes_fn: Any, col: int, observed: float, n_perm
     floor kept none for this stream and rows or the column is not in its pool."""
     binner = getattr(honest_codes_fn, "binner", None)
     kept = getattr(binner, "_fused_null_mi", None)
-    if kept is None:
+    if binner is None or kept is None:
         return None
     k_seed, k_perms, k_n, k_rows = kept[0]
     # permutation b of a stream is seeded ``base_seed + b``: a shorter run of the same stream is the floor's first ``n_permutations``
