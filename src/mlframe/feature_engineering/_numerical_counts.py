@@ -132,8 +132,12 @@ def compute_nunique_modes_quantiles_numpy(
     if _fused_ok:
         return _fused_nunique_modes_quantiles(arr, np.asarray(q, dtype=np.float64), quantile_method, max_modes)
 
-    if return_unsorted_stats:
-        vals, counts = np.unique(arr, return_counts=True)
+    # NaN is neither a value nor a mode here: the quantiles below skip it (nanquantile), so the distinct count, the modes and the crossings must too.
+    finite_arr = arr[~np.isnan(arr)] if np.issubdtype(arr.dtype, np.floating) else arr
+    if return_unsorted_stats and finite_arr.size == 0:
+        res = (0, np.nan, np.nan, np.nan, np.nan)
+    elif return_unsorted_stats:
+        vals, counts = np.unique(finite_arr, return_counts=True)
 
         max_modes = min(max_modes, len(counts))
 
@@ -177,7 +181,7 @@ def compute_nunique_modes_quantiles_numpy(
     res = res + tuple(quantiles)  # .tolist()
 
     if return_unsorted_stats:
-        res = res + tuple(compute_ncrossings(arr=arr, marks=quantiles))  # .tolist()
+        res = res + tuple(compute_ncrossings(arr=finite_arr, marks=quantiles))  # .tolist()
 
     return res
 
@@ -278,6 +282,6 @@ def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: Sequence[float] = d
             idx = factor - 1
         quantiles.append(xsorted[idx])
 
-    if times_occured == 1:
+    if best_count == 1:  # no value repeats; the mode of the whole array, not of its last run
         mode = np.nan
     return numUnique, mode, quantiles
