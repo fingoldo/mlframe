@@ -1,6 +1,7 @@
 """Helper methods of ``_FitMixin._fit_common``, carved out to keep ``_base_fit`` under its size budget."""
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Optional
 
@@ -16,11 +17,21 @@ from lightning.pytorch.callbacks import (
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping as EarlyStoppingCallback
 from sklearn.base import ClassifierMixin, RegressorMixin
 
+from mlframe.utils.log_throttle import log_throttle
 from ._base_losses import _make_binary_focal_loss, _validate_no_nan_inf
 from .._base_callbacks import BestEpochModelCheckpoint, ValLossDivergenceCallback, MonotonicDeclineStopCallback
 from .._history_recorder import TrainingHistoryRecorder
 
 logger = __import__("logging").getLogger("mlframe.training.neural.base")
+
+
+def _take_rows(X: Any, mask: np.ndarray) -> Any:
+    """Rows of ``X`` where ``mask`` is True, for a numpy array, pandas frame or polars frame."""
+    if isinstance(X, pd.DataFrame):
+        return X.loc[mask]
+    if isinstance(X, np.ndarray):
+        return X[mask]
+    return X.filter(mask)  # polars accepts a boolean mask
 
 
 class _FitCommonHelpersMixin:
@@ -121,7 +132,16 @@ class _FitCommonHelpersMixin:
                 _y_arr_val = eval_set[1].values if isinstance(eval_set[1], pd.Series) else np.asarray(eval_set[1])
                 if _y_arr_val.ndim == 2 and _y_arr_val.shape[1] == 1:
                     _y_arr_val = _y_arr_val.ravel()
-                eval_set = (eval_set[0], self._label_encoder.transform(_y_arr_val))
+                known = np.isin(_y_arr_val, self._label_encoder.classes_)
+                if not known.all():
+                    # A class present only in validation has no output unit to score: drop those rows (and say so) instead of failing the whole fit.
+                    log_throttle(
+                        logger, "neural_fit.val_unseen_classes", logging.WARNING,
+                        "validation holds %d rows of classes absent from the training labels; they are excluded from the validation loss", int((~known).sum()),
+                    )
+                    eval_set = (_take_rows(eval_set[0], known) if known.any() else None, eval_set[1])
+                    _y_arr_val = _y_arr_val[known]
+                eval_set = (eval_set[0], self._label_encoder.transform(_y_arr_val) if eval_set[0] is not None else None)
 
             # F-05: binary classification uses 1-output
             # sigmoid + BCEWithLogitsLoss instead of 2-output softmax +
