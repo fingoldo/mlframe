@@ -27,7 +27,7 @@ def content_digest(data: Any) -> str:
         if arr.dtype == object:
             h.update("".join(map(str, arr.ravel().tolist())).encode())
         else:
-            h.update(arr.tobytes())  # one column at a time, never the whole frame
+            h.update(arr.view(np.uint8).data)  # the contiguous buffer itself (same digest as tobytes), one column at a time
     return h.hexdigest()
 
 
