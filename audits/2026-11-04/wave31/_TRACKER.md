@@ -8,7 +8,7 @@ Three read-only reports by Opus 5.5 low-effort agents on large packages (metrics
 | **FUTURE** | W31ME-2 | nan | Medium | `metrics/_core_auc_brier.py:176,594,762-778`: NaN scores sort last, the descending reversal puts them first, so NaN is ranked highest and the AUC is finite but wrong |
 | **FUTURE** | W31ME-3 | labels | Medium | `metrics/_log_loss_and_separation.py:115-119`: any `y_true` other than 1 (2, -1, NaN) is scored as a negative |
 | **FUTURE** | W31ME-4 | empty | Low | `metrics/calibration/_calibration_metrics.py:133,212,285`: empty input returns 1.0 (ECE, debiased ECE, Brier decompositions) where NaN is correct |
-| **FUTURE** | W31PP-1 | asymmetry | Medium | `preprocessing/missing_indicator_pairing.py:60,85`: fit skips columns without NaN, so NaN in such a column at apply time gets no fill and no indicator |
+| **RESOLVED** | W31PP-1 | asymmetry | Medium | `preprocessing/missing_indicator_pairing.py:60,85`: fit skips columns without NaN, so NaN in such a column at apply time gets no fill and no indicator; an explicit `columns` list is learned in full (auto-discovery still keeps only the columns with a NaN in the fit frame, as documented) |
 | **FUTURE** | W31PP-2 | mutation | Medium | `preprocessing/transforms.py:166-266`: `prepare_df_for_catboost` rewrites the caller's pandas columns and grows the caller's `cat_features` list |
 | **FUTURE** | W31PP-3 | dtype | Medium | `preprocessing/transforms.py:184-197`: polars nullable Int/Boolean columns are cast to Float only when the frame has a null, so train and test dtypes differ |
 | **FUTURE** | W31PP-4 | crash | Low | `data_valuation/_adversarial_reweighting.py:157-188`: a 3-class `predict_proba` is written into a 1-D buffer |
@@ -29,3 +29,4 @@ Three read-only reports by Opus 5.5 low-effort agents on large packages (metrics
 |---|---|
 | W31ME-1 | `tests/metrics/test_auc_labels_use_the_larger_label_as_positive.py` |
 | W31UT-1 | `tests/utils/test_disk_cache_array_key_sees_middle_rows_of_bool_and_string_arrays.py` |
+| W31PP-1 | `tests/preprocessing/test_missing_indicator_explicit_columns_are_learned_even_without_train_nans.py` |
