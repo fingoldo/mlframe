@@ -163,6 +163,13 @@ def hash_array_summary(arr: np.ndarray, n_summary_rows: int = _DEFAULT_SUMMARY_R
         tail_n = min(n_summary_rows, arr.shape[0])
         h.update(array_buffer(arr[:head_n]))
         h.update(array_buffer(arr[-tail_n:]))
+    # Fixed-width strings, bytes and datetimes have no numeric reduction below, so head/tail would be the only content-bearing input and every middle-row
+    # difference would collide (as for object arrays above): hash the whole buffer.
+    if arr.dtype.kind in ("U", "S", "M", "m"):
+        h.update(array_buffer(np.ascontiguousarray(arr)))
+        return str(h.hexdigest())
+    if arr.dtype.kind == "b":
+        arr = arr.astype(np.uint8)  # bool: sums over the 0/1 values, like any numeric column
     # Per-column statistics. For numeric dtypes use sum/min/max; for non-numeric
     # (object/string) fall back to a representative-bytes hash of each column.
     if arr.ndim >= 2 and np.issubdtype(arr.dtype, np.number):

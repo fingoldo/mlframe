@@ -12,7 +12,7 @@ Three read-only reports by Opus 5.5 low-effort agents on large packages (metrics
 | **FUTURE** | W31PP-2 | mutation | Medium | `preprocessing/transforms.py:166-266`: `prepare_df_for_catboost` rewrites the caller's pandas columns and grows the caller's `cat_features` list |
 | **FUTURE** | W31PP-3 | dtype | Medium | `preprocessing/transforms.py:184-197`: polars nullable Int/Boolean columns are cast to Float only when the frame has a null, so train and test dtypes differ |
 | **FUTURE** | W31PP-4 | crash | Low | `data_valuation/_adversarial_reweighting.py:157-188`: a 3-class `predict_proba` is written into a 1-D buffer |
-| **FUTURE** | W31UT-1 | cache | High | `utils/disk_cache.py:168-184`: `hash_array_summary` adds sums only for numeric dtypes, so bool and fixed-width string arrays differing in the middle rows get the same key |
+| **RESOLVED** | W31UT-1 | cache | High | `utils/disk_cache.py:168-184`: `hash_array_summary` adds sums only for numeric dtypes, so bool and fixed-width string arrays differing in the middle rows get the same key; bool arrays add per-column sum/min/max over their 0/1 values, fixed-width string, bytes and datetime arrays hash the whole buffer |
 | **FUTURE** | W31UT-2 | backend | Medium | `votenrank/confidence_gated_blend.py:157,47-65,202-205`: the numba kernels allocate 1-D output but the shape check accepts 2-D input that the numpy path blends |
 | **FUTURE** | W31UT-3 | logging | Low | `votenrank/confidence_gated_blend.py:206-211`: a forced cupy backend failure falls back to numpy with a DEBUG log only |
 | **FUTURE** | W31UT-4 | edge | Low | `competition/leak_scan.py:155-162`: `max_col_shift >= n_cols` gives a negative slice stop and a matmul shape error |
@@ -28,3 +28,4 @@ Three read-only reports by Opus 5.5 low-effort agents on large packages (metrics
 | ID | Regression test |
 |---|---|
 | W31ME-1 | `tests/metrics/test_auc_labels_use_the_larger_label_as_positive.py` |
+| W31UT-1 | `tests/utils/test_disk_cache_array_key_sees_middle_rows_of_bool_and_string_arrays.py` |
