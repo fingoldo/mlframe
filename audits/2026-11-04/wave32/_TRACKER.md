@@ -4,8 +4,8 @@ Three read-only reports by Opus 5.5 low-effort agents (metrics regression/classi
 
 | Disposition | ID | Class | Severity | Location |
 |---|---|---|---|---|
-| **FUTURE** | W32ME-1 | nan | Medium | `metrics/quantile.py:104-114` (`_fast_coverage`): a NaN in `y_true`, `q_lo` or `q_hi` counts as a missed interval instead of giving NaN |
-| **FUTURE** | W32ME-2 | nan | Medium | `metrics/quantile.py:127-134` (`_fast_winkler`): NaN `y` drops the penalty and contributes only the width, so the score is finite and optimistic |
+| **RESOLVED** | W32ME-1 | nan | Medium | `metrics/quantile.py:104-114` (`_fast_coverage`): a NaN in `y_true`, `q_lo` or `q_hi` counts as a missed interval instead of giving NaN; the njit coverage kernel returns NaN on the first NaN input row |
+| **RESOLVED** | W32ME-2 | nan | Medium | `metrics/quantile.py:127-134` (`_fast_winkler`): NaN `y` drops the penalty and contributes only the width, so the score is finite and optimistic; the Winkler kernel returns NaN on the first NaN input row (fastmath is off in these kernels, so the test is safe) |
 | **FUTURE** | W32ME-3 | labels | Medium | `metrics/_core_brier.py:59-136`: `y_true` is never checked to be in {0, 1}; label 2 gives a plausible Brier score |
 | **FUTURE** | W32ME-4 | zero_division | Low | `metrics/_core_precision_mape.py:20-39` (`fast_precision`): the `zero_division` argument is accepted and ignored |
 | **FUTURE** | W32ME-5 | zero_division | Low | `metrics/_core_precision_mape.py:99-126` (`fast_classification_report`): empty denominators are hard-set to 0.0 so the later `nan_to_num(..., nan=zero_division)` never acts |
@@ -29,3 +29,4 @@ Three read-only reports by Opus 5.5 low-effort agents (metrics regression/classi
 |---|---|
 | W32DA-3, 4 | `tests/preprocessing/test_temporal_drift_augment_label_handling.py` |
 | W32DA-1, 2 | `tests/data/test_datasets_prior_noise_rate_is_drawn_once.py` |
+| W32ME-1, 2 | `tests/metrics/test_quantile_interval_metrics_nan_inputs.py` |

@@ -109,6 +109,8 @@ if _NUMBA_AVAILABLE:
             return np.nan
         c = 0
         for i in range(n):
+            if y[i] != y[i] or q_lo[i] != q_lo[i] or q_hi[i] != q_hi[i]:
+                return np.nan  # a NaN fails the interval test and would count as a miss; an unmeasurable row makes the coverage unmeasurable
             if q_lo[i] <= y[i] <= q_hi[i]:
                 c += 1
         return float(c / n)
@@ -125,6 +127,8 @@ if _NUMBA_AVAILABLE:
         s = 0.0
         two_over_a = 2.0 / max(alpha_miscov, 1e-12)
         for i in range(n):
+            if y[i] != y[i] or q_lo[i] != q_lo[i] or q_hi[i] != q_hi[i]:
+                return np.nan  # NaN y drops the penalty (both comparisons are False), so the score would be finite and optimistic
             width = q_hi[i] - q_lo[i]
             penalty = 0.0
             if y[i] < q_lo[i]:
