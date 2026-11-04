@@ -39,7 +39,7 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **FUTURE** | W28TA-24 | scale | Low | spectral_attention.py:136: eigenvalues clamped at 1e-6 give embeddings of size ~1e6 |
 | **RESOLVED** | W28TA-25 | crash | Low | target_kmeans_codebook.py:416: n_clusters_eff never capped at n; the cluster count is capped at the row count |
 | **FUTURE** | W28TA-26 | validation | Low | row_attention.py:53, _oof.py:186: k checked against n_train, not the fold size; k_scales not validated |
-| **FUTURE** | W28TA-27 | precision | Low | target_quantile.py:78-80, y_quintile_baseline_knn.py:251-253: the +1e-9 tie-break is below one ULP for |y| > 1e7 |
+| **RESOLVED** | W28TA-27 | precision | Low | target_quantile.py:78-80, y_quintile_baseline_knn.py:251-253: the +1e-9 tie-break is below one ULP for |y| > 1e7; `strictly_increasing_edges` raises a tied edge by 1e-9 or one float64 step, whichever is larger, in both modules |
 | **FUTURE** | W28TA-28 | ties | Low | multi_baseline_hard_row.py:169-175: rows with all-negative z-scores tie at 0 |
 | **FUTURE** | W28TA-29 | ties | Low | multi_temp_cbhr.py:79-81: q1 == q4 picks the same anchors on both sides |
 | **FUTURE** | W28TA-30 | weights | Low | multi_temp_residual_band.py:106-111: empty bands keep softmax weight |
@@ -82,3 +82,4 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | W28TA-14, 15 | `tests/feature_engineering/transformer/test_target_kmeans_codebook_uses_out_of_fold_baseline_and_shares.py` |
 | W28CT-1 | `tests/training/composite/test_ratio_floor_keeps_a_tiny_negative_base_finite.py` |
 | W28CT-2 | `tests/training/composite/test_quantile_normal_ties_map_to_the_middle_of_the_tie_block.py` |
+| W28TA-27 | `tests/feature_engineering/transformer/test_tied_quantile_edges_stay_strictly_increasing_at_large_offsets.py` |

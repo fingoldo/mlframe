@@ -416,3 +416,12 @@ def positive_class_proba(model: Any, X: Any) -> np.ndarray:
         return np.asarray(proba[:, 1])
     # sklearn's MLPClassifier fitted on one class still returns a second column, with a meaningless probability for a class it never saw.
     return np.full(proba.shape[0], 1.0 if float(classes[0]) > 0.5 else 0.0, dtype=proba.dtype)
+
+
+def strictly_increasing_edges(edges: np.ndarray) -> np.ndarray:
+    """``edges`` with each non-increasing entry raised just above its predecessor: by 1e-9, or by one float64 step where that is below the spacing (|edge| above about 1e7)."""
+    out = np.array(edges, dtype=np.float64)
+    for i in range(1, len(out)):
+        if out[i] <= out[i - 1]:
+            out[i] = max(out[i - 1] + 1e-9, np.nextafter(out[i - 1], np.inf))
+    return out

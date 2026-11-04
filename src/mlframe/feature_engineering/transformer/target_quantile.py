@@ -33,7 +33,7 @@ import numba
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import strictly_increasing_edges, require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +75,7 @@ def _bucket_centroids(X_pool, y_pool, n_quantiles, dtype):
     # Quantile edges (n_quantiles+1 boundaries including min/max).
     edges = np.quantile(y_pool, np.linspace(0, 1, n_quantiles + 1))
     # Make edges strictly increasing in case of ties (e.g. binary y or skewed continuous).
-    for i in range(1, len(edges)):
-        if edges[i] <= edges[i - 1]:
-            edges[i] = edges[i - 1] + 1e-9
+    edges = strictly_increasing_edges(edges)
     sums, counts = _bucket_sums_counts(np.ascontiguousarray(X_pool), np.ascontiguousarray(y_pool), edges.astype(np.float64))
     centroids: np.ndarray = np.zeros((n_quantiles, d), dtype=dtype)
     pool_mean = None
