@@ -36,7 +36,7 @@ import polars as pl
 
 from ._hard_row_shared import topk_within_subset
 from ._squared_dists_shared import squared_dists as _squared_dists
-from ._utils import require_seed, validate_numeric_input, softmax
+from ._utils import quantile_tail_masks, require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +166,7 @@ def compute_multi_baseline_hard_row_features(
         preds_list = _fit_3baselines_predict(Xt_s, y_t, task=task, seed=fold_seed)
 
         # Compute z-normalized |residual| per baseline, then max across baselines.
-        combined = np.zeros(Xt_s.shape[0], dtype=np.float32)
+        combined = np.full(Xt_s.shape[0], -np.inf, dtype=np.float32)  # starting at 0 tied every row whose z-scores are all negative
         for preds in preds_list:
             abs_r = np.abs(y_t - preds).astype(np.float32)
             mu = float(abs_r.mean())
@@ -178,9 +178,9 @@ def compute_multi_baseline_hard_row_features(
             pos_mask_idx = np.where(y_t > 0.5)[0]
             neg_mask_idx = np.where(y_t <= 0.5)[0]
         else:
-            q1, q4 = np.quantile(y_t, [0.2, 0.8])
-            pos_mask_idx = np.where(y_t >= q4)[0]
-            neg_mask_idx = np.where(y_t <= q1)[0]
+            pos_mask, neg_mask = quantile_tail_masks(y_t, 0.2, 0.8)  # disjoint even when ties make the two quantiles coincide
+            pos_mask_idx = np.where(pos_mask)[0]
+            neg_mask_idx = np.where(neg_mask)[0]
 
         pos_top = _topk_within_subset(combined, pos_mask_idx, n_hard_per_side)
         neg_top = _topk_within_subset(combined, neg_mask_idx, n_hard_per_side)

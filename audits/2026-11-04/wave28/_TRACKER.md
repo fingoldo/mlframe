@@ -40,8 +40,8 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **RESOLVED** | W28TA-25 | crash | Low | target_kmeans_codebook.py:416: n_clusters_eff never capped at n; the cluster count is capped at the row count |
 | **RESOLVED** | W28TA-26 | validation | Low | row_attention.py:53, _oof.py:186: k checked against n_train, not the fold size; k_scales not validated; the per-fold ANN query clamps k to the fold's training rows (k_scales validation left as is: each scale goes through the same clamp) |
 | **RESOLVED** | W28TA-27 | precision | Low | target_quantile.py:78-80, y_quintile_baseline_knn.py:251-253: the +1e-9 tie-break is below one ULP for |y| > 1e7; `strictly_increasing_edges` raises a tied edge by 1e-9 or one float64 step, whichever is larger, in both modules |
-| **FUTURE** | W28TA-28 | ties | Low | multi_baseline_hard_row.py:169-175: rows with all-negative z-scores tie at 0 |
-| **FUTURE** | W28TA-29 | ties | Low | multi_temp_cbhr.py:79-81: q1 == q4 picks the same anchors on both sides |
+| **RESOLVED** | W28TA-28 | ties | Low | multi_baseline_hard_row.py:169-175: rows with all-negative z-scores tie at 0; the max-z accumulator starts at -inf instead of 0 (no separate test: the effect is the order among rows that are all easy, which no output column exposes) |
+| **RESOLVED** | W28TA-29 | ties | Low | multi_temp_cbhr.py:79-81: q1 == q4 picks the same anchors on both sides; the three hard-row transformers take their regression tails from `quantile_tail_masks`, so the sides are disjoint and an empty low tail is reported as such |
 | **FUTURE** | W28TA-30 | weights | Low | multi_temp_residual_band.py:106-111: empty bands keep softmax weight |
 | **FUTURE** | W28TA-31 | convention | Low | lda_projection, mixup_boundary, multiscale_smote, smote_distance, per_class_spectral: all-zero output when a class has fewer than 2 rows |
 | **RESOLVED** | W28TA-32 | validation | Low | per_class_spectral.py:88-102: y is not checked to be binary; a target outside {0, 1} raises a ValueError naming the binary requirement |
@@ -49,10 +49,10 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **RESOLVED** | W28TA-34 | labels | Low | focal_lgb.py:37, multi_aux_ensemble.py:57: {-1, 1} labels not remapped for the focal objective; the focal datasets take `y > 0.5` as the 0/1 label in `focal_lgb` and `multi_aux_ensemble` |
 | **RESOLVED** | W28TA-35 | naming | Low | multi_temperature.py:78: temperatures 0.301 and 0.304 format to the same column name; labels fall back to six significant digits when the two-decimal labels collide (existing names unchanged) |
 | **DOC** | W28TA-36 | precision | Low | per_column_rff.py:129-137: always float32, ignores dtype=float64; the fused kernel is float32 by design (benchmarked, selection-equivalent; the features are bounded by sqrt(1/m)); `dtype` selects the output container only |
-| **FUTURE** | W28TA-37 | leakage | Low | pseudo_smote.py:68: filter threshold is a quantile of in-sample predictions |
+| **DOC** | W28TA-37 | leakage | Low | pseudo_smote.py:68: filter threshold is a quantile of in-sample predictions; the cut is a quantile of in-sample predictions, which only makes the top-quintile filter slightly stricter; the existing fallback keeps the top 10% when too few pass, so the output size is unchanged |
 | **DOC** | W28TA-38 | doc | Low | persistence_diagram.py: y is never used although the docstring promises a joint X/y metric; the module docstring now says the metric is X-only and `y_train` is kept for API symmetry |
 | **DOC** | W28TA-39 | leakage | Low | trust_score_oof.py:410,417: in-sample correctness mask, already stated in the module docstring; already stated in the module docstring as a known skew of the correctness mask |
-| **FUTURE** | W28TA-40 | unverified | Low | quantile_spread_fan.py:78-86: negative-row weights ~3e-9 at gamma=5 may make the q90 fit degenerate (plausible, not verified) |
+| **REJECTED** | W28TA-40 | unverified | Low | quantile_spread_fan.py:78-86: negative-row weights ~3e-9 at gamma=5 may make the q90 fit degenerate (plausible, not verified); not reproduced: on a 7.5% positive rate the gamma=5 head has 167 distinct values over 500 queries (std 0.27), so the weights do not collapse it |
 
 ## Not covered by this wave
 
