@@ -48,10 +48,10 @@ Three read-only reports by Opus 5.5 low-effort agents: the neural training packa
 | **FUTURE** | W28TA-33 | naming | Low | column named after the requested k, not the clamped k (nn_oof_target_mean, neighbor_aggregate_features, multiscale_rate, persistence_diagram) |
 | **RESOLVED** | W28TA-34 | labels | Low | focal_lgb.py:37, multi_aux_ensemble.py:57: {-1, 1} labels not remapped for the focal objective; the focal datasets take `y > 0.5` as the 0/1 label in `focal_lgb` and `multi_aux_ensemble` |
 | **RESOLVED** | W28TA-35 | naming | Low | multi_temperature.py:78: temperatures 0.301 and 0.304 format to the same column name; labels fall back to six significant digits when the two-decimal labels collide (existing names unchanged) |
-| **FUTURE** | W28TA-36 | precision | Low | per_column_rff.py:129-137: always float32, ignores dtype=float64 |
+| **DOC** | W28TA-36 | precision | Low | per_column_rff.py:129-137: always float32, ignores dtype=float64; the fused kernel is float32 by design (benchmarked, selection-equivalent; the features are bounded by sqrt(1/m)); `dtype` selects the output container only |
 | **FUTURE** | W28TA-37 | leakage | Low | pseudo_smote.py:68: filter threshold is a quantile of in-sample predictions |
-| **FUTURE** | W28TA-38 | doc | Low | persistence_diagram.py: y is never used although the docstring promises a joint X/y metric |
-| **FUTURE** | W28TA-39 | leakage | Low | trust_score_oof.py:410,417: in-sample correctness mask, already stated in the module docstring |
+| **DOC** | W28TA-38 | doc | Low | persistence_diagram.py: y is never used although the docstring promises a joint X/y metric; the module docstring now says the metric is X-only and `y_train` is kept for API symmetry |
+| **DOC** | W28TA-39 | leakage | Low | trust_score_oof.py:410,417: in-sample correctness mask, already stated in the module docstring; already stated in the module docstring as a known skew of the correctness mask |
 | **FUTURE** | W28TA-40 | unverified | Low | quantile_spread_fan.py:78-86: negative-row weights ~3e-9 at gamma=5 may make the q90 fit degenerate (plausible, not verified) |
 
 ## Not covered by this wave
