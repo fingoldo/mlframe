@@ -26,7 +26,7 @@ Three read-only reports by Opus 5.5 low-effort agents on code no earlier wave re
 | **RESOLVED** | W27PR-4 | crash | Medium | verbose mode formats a `None` correlation after a `_config_corr` exception and aborts the pair search; the verbose messages format an unmeasured correlation as n/a |
 | **FUTURE** | W27PR-5 | gate | Medium | a demoted prewarp winner is promoted again at its uncapped MI because `best_prewarp_mi` is not capped with `var_pairs_perf`; reason: the demotion runs after the prewarp-uplift acceptance in the same pass, so the re-promotion path the report names was not reproduced on HEAD; a reproducing fixture is needed before a change |
 | **RESOLVED** | W27PR-6 | ledger | Low | joint-gate rejections are all labelled `operand_uplift_floor` because `ratio_ok` is never passed; `ratio_ok` defaults to the comparison of the gate ratio with the prevalence floor, so a pair under the floor is attributed to `engineered_mi_prevalence` |
-| **FUTURE** | W27PR-7 | ledger | Low | pairs rejected by the family gate leave no rejection record |
+| **RESOLVED** | W27PR-7 | ledger | Low | pairs rejected by the family gate leave no rejection record; a rejected pair now writes a `pair_family_maxt` record (new registered gate label) to the pair list and the side channel |
 | **FUTURE** | W27PR-8 | debias | Low | on the RAM-fallback recompute path the Miller-Madow debias falls back to the nominal bin count |
 | **FUTURE** | W27PR-9 | log | Low | the progress bar best field shows the pair own best, not the running maximum |
 | **FUTURE** | W27PR-10 | dead | Low | dead NaN write on the per-pair materialise failure path |
@@ -48,3 +48,4 @@ Three read-only reports by Opus 5.5 low-effort agents on code no earlier wave re
 | W27PR-4, 6 | `tests/feature_selection/mrmr/test_pairs_demotion_message_survives_an_unmeasured_correlation.py` |
 | W27AF-2 | `tests/feature_engineering/transformer/test_degenerate_class_bank_reports_far_not_zero_distance.py` |
 | W27PR-2 | `tests/feature_selection/fe/test_fe_per_pair_path_feeds_the_pair_family_gate.py` |
+| W27PR-7 | `tests/feature_selection/fe/test_fe_pair_family_gate_rejection_is_recorded.py` |

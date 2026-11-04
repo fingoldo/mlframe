@@ -423,6 +423,23 @@ def _score_one_pair_side(_tp2, vars_transformations, transformed_vars, _abs_corr
     return _max_single_op_corr
 
 
+def record_family_gate_rejection(best_config, best_mi, raw_vars_pair, cols, rejection_records, rejection_ledger_out) -> None:
+    """Add the ledger record of a pair whose winner the family-wise gate rejected (the winner's MI was already computed; the family maximum is random, so no threshold)."""
+    rec = {
+        "gate": "pair_family_maxt",
+        "candidate": str(raw_vars_pair),
+        "operands": tuple(raw_vars_pair),
+        "operand_names": "(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
+        "operator": None if best_config is None else best_config[1],
+        "observed": float(best_mi),
+        "threshold": float("nan"),
+        "reason": "winner_below_family_maximum",
+    }
+    rejection_records.append(rec)
+    if rejection_ledger_out is not None:
+        rejection_ledger_out.append(rec)
+
+
 def _score_one_pair_all_values_were_already(_passes_joint_gate, _prewarp_accept, _marginal_uplift_accept, _usability_accept, fe_min_engineered_mi_prevalence, num_fs_steps, best_config, raw_vars_pair, cols, _gate_ratio, rejection_records, rejection_ledger_out, ratio_ok=None):
     """Block of _score_one_pair starting at ``if not (_passes_joint_gate or _prewarp_accept or _marginal_uplift_acce``."""
     if not (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept):
