@@ -295,6 +295,19 @@ def _collect_cat_blocks(
                     test_blocks.append(te_block)
 
 
+def _assemble_held_out(df: Any, blocks: Any, model_kind: Any, numeric_block: Any, numeric_feature_names: Any, train_asm: Any) -> Any:
+    """Assembly of a val / test split with the SVDs fitted on train, or ``None`` when the split is absent."""
+    if df is None:
+        return None
+    return assemble_for_model(
+        blocks, model_kind=model_kind,
+        numeric_block=numeric_block,
+        numeric_feature_names=numeric_feature_names,
+        svd_default_dim=256,
+        fitted_svds=train_asm.fitted_svds,
+    )
+
+
 def feature_handling_apply(
     *,
     train_df: Any,
@@ -419,24 +432,8 @@ def feature_handling_apply(
         numeric_feature_names=numeric_feature_names,
         svd_default_dim=256,
     )
-    val_asm = (
-        assemble_for_model(
-            val_blocks, model_kind=model_kind,
-            numeric_block=numeric_block_val,
-            numeric_feature_names=numeric_feature_names,
-            svd_default_dim=256,
-            fitted_svds=train_asm.fitted_svds,
-        ) if val_df is not None else None
-    )
-    test_asm = (
-        assemble_for_model(
-            test_blocks, model_kind=model_kind,
-            numeric_block=numeric_block_test,
-            numeric_feature_names=numeric_feature_names,
-            svd_default_dim=256,
-            fitted_svds=train_asm.fitted_svds,
-        ) if test_df is not None else None
-    )
+    val_asm = _assemble_held_out(val_df, val_blocks, model_kind, numeric_block_val, numeric_feature_names, train_asm)
+    test_asm = _assemble_held_out(test_df, test_blocks, model_kind, numeric_block_test, numeric_feature_names, train_asm)
 
     return FeatureHandlingResult(
         train=train_asm,

@@ -422,6 +422,18 @@ def generate_univariate_basis_features(
     return result
 
 
+def _basis_source_cols(X: pd.DataFrame, cols: Any, dedup_collinear_sources: bool, dedup_corr_threshold: float) -> list:
+    """The numeric source columns of the basis FE (all numeric columns when ``cols`` is None), collinear duplicates dropped when asked."""
+    if cols is None:
+        cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
+    else:
+        # Explicit columns are filtered the same way ("non-numeric are silently skipped"): the triplet stage passes the caller's column list, which may hold a string key.
+        cols = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
+    if dedup_collinear_sources:
+        cols = _dedup_collinear_source_cols(X, list(cols), corr_threshold=dedup_corr_threshold)
+    return list(cols)
+
+
 def _generate_univariate_basis_features_impl(
     X: pd.DataFrame,
     *,
@@ -462,15 +474,7 @@ def _generate_univariate_basis_features_impl(
     ``"x1__He2"``, ``"x2__T3"``).
     """
     _cols_auto = cols is None
-    if cols is None:
-        cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
-    else:
-        # Explicit columns are filtered the same way ("non-numeric are silently skipped"): the triplet stage passes the caller's column list, which may hold a string key.
-        cols = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
-    if dedup_collinear_sources:
-        cols = _dedup_collinear_source_cols(
-            X, list(cols), corr_threshold=dedup_corr_threshold,
-        )
+    cols = _basis_source_cols(X, cols, dedup_collinear_sources, dedup_corr_threshold)
     # Layer 80: semi-supervised unlabeled-pool augmentation. When
     # ``fe_semi_supervised_enable`` is active inside MRMR.fit, the wrapper
     # pushes a {col_name -> unlabeled_values} mapping into a thread-local; the
