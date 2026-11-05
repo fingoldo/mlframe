@@ -20,6 +20,7 @@ history.
 - `fe_provenance_` labels the columns admitted by the auto-escalation (`esc_*`) with the origin `escalation`, and the escalation writes its admissions to `fe_admission_ledger_` (stage `escalation`), so where such a column came from is readable without instrumenting the fit.
 
 ### Fixed
+- `CountWeightedBlendEnsemble` auto-k folds are split by entity when there are at least `k_cv` entities, so the selection is scored on unseen entities as at predict time (a row split put almost every validation entity in training).
 - `CountWeightedBlendEnsemble` auto-k selects `k` on the weighted squared error when sample weights are given, the loss the blend is fitted on (the selection error was unweighted).
 - The feature cache verifies a pickle entry's sha256 sidecar before `np.load(allow_pickle=True)` unpickles it (the check ran only after numpy had already unpickled the entry); a mismatch raises `PickleVerificationError`.
 - `load_mlframe_model` checks the bundle's digest and unpickles it through one open handle, so the bytes checked are the bytes loaded (it reopened the path before).
