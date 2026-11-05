@@ -93,12 +93,23 @@ def _score_trial_candidates(
 
 
 def _paired_significance(best_fold_scores: np.ndarray, current_fold_scores: np.ndarray, significance_level: float, n_remaining: int) -> Tuple[Optional[float], bool]:
-    """Paired one-sided t-test of the best candidate's fold scores against the current subset's; returns ``(p_value, significant)``."""
-    from scipy.stats import ttest_rel
+    """Nadeau-Bengio corrected one-sided t-test of the best candidate's fold scores against the current subset's; returns ``(p_value, significant)``.
 
-    if np.allclose(best_fold_scores, current_fold_scores):
+    CV folds share training rows, so their score differences are positively correlated and a plain paired t-test is too optimistic. The
+    corrected variance adds the ``n_test / n_train`` term (``1 / (k - 1)`` for k equal folds) to the ``1 / k`` of the plain test.
+    """
+    from scipy.stats import t as _t_dist
+
+    diff = np.asarray(best_fold_scores, dtype=np.float64) - np.asarray(current_fold_scores, dtype=np.float64)
+    k = diff.shape[0]
+    if k < 2 or np.allclose(diff, 0.0):
         return 1.0, False
-    _, p_value = ttest_rel(best_fold_scores, current_fold_scores, alternative="greater")
+    var = diff.var(ddof=1)
+    if var <= 0.0:
+        return (0.0, True) if diff.mean() > 0 else (1.0, False)
+    var_corrected = (1.0 / k + 1.0 / (k - 1)) * var
+    t_stat = diff.mean() / np.sqrt(var_corrected)
+    p_value = float(_t_dist.sf(t_stat, df=k - 1))
     # Bonferroni-correct for picking the best of `len(remaining)` candidates each round -
     # without this, "best-of-many noise columns" is significant far more often than
     # `significance_level` alone implies (the classic post-selection multiple-comparisons bias).
