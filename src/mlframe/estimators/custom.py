@@ -389,6 +389,9 @@ class PureRandomClassifier(ClassifierMixin, BaseEstimator):
     def predict_proba(self, X):
         """Draw random class probabilities from a fixed per-instance seed (uniform for binary, Dirichlet-like for multiclass)."""
         check_is_fitted(self, "_predict_seed_")
+        shape = np.shape(X)
+        if len(shape) == 2 and shape[1] != self.n_features_in_:
+            raise ValueError(f"X has {shape[1]} features, but this estimator was fitted with {self.n_features_in_}.")
         rng = np.random.RandomState(self._predict_seed_)  # fresh each call -> deterministic given X
         n = len(X)
         n_cls = len(self.classes_)
@@ -424,7 +427,9 @@ class MyDecorrelator(TransformerMixin, BaseEstimator):
         # correlated_features_` True for every j (a string set never contains an int) -- every column was
         # silently kept, defeating the transformer with no error.
         self.correlated_features_ = {c for c in range(len(cols)) if (upper[:, c] > self.threshold).any()}
-        self.feature_names_in_ = feature_names_in
+        # sklearn expects the attribute to be absent when fit saw no column names, not present as None.
+        if feature_names_in is not None:
+            self.feature_names_in_ = np.asarray(feature_names_in, dtype=object)
         self.n_features_in_ = len(cols)
         return self
 
