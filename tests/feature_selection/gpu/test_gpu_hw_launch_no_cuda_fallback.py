@@ -1,4 +1,4 @@
-"""Direct unit coverage for ``_gpu_hw_launch`` (mrmr_audit_2026-07-20 test_coverage.md #15): the
+"""Direct unit coverage for ``pyutilz.performance.gpu_hw_launch`` (mrmr_audit_2026-07-20 test_coverage.md #15): the
 no-HW-info (no cupy / no CUDA device / attribute-query failure) fallback contract, and that KTC
 callers (``_gpu_resident_radix_ktc._radix_threads_variants``) correctly degrade to their raw seed
 list when ``occupancy_block_candidates`` reports no HW info.
@@ -6,7 +6,7 @@ list when ``occupancy_block_candidates`` reports no HW info.
 
 from __future__ import annotations
 
-import mlframe.feature_selection.filters._gpu_hw_launch as hw_launch
+from pyutilz.performance import gpu_hw_launch as hw_launch
 
 
 class TestDevicePropsNoCudaFallback:

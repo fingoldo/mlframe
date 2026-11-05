@@ -248,7 +248,7 @@ def _shared_bytes(n_levels: int, n_warps: int, n_bins: int, n_classes: int) -> i
 
 def _block_width(kernel, shared_bytes: int, m: int) -> int:
     """Threads per block from the device limits (``fixed_shared_block_size``: the level table is fixed per block), 256 without device information."""
-    from ._gpu_hw_launch import fixed_shared_block_size
+    from pyutilz.performance.gpu_hw_launch import fixed_shared_block_size
 
     try:
         width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kernel.num_regs), static_smem=int(kernel.shared_size_bytes), min_width=64, max_width=256, work_items=m)  # the shared size is computed for 8 warps

@@ -97,11 +97,58 @@ def _pack_module(cp: Any, cap: int, n_y: int, c_type: str) -> Any:
     return mod
 
 
-def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gate: "Optional[tuple]" = None) -> Optional[np.ndarray]:
+_OBSERVED_LOCK = threading.Lock()
+_OBSERVED: "dict[int, tuple[Any, str, np.ndarray]]" = {}  # id(resident codes) -> (weak reference, labels key, plug-in MI of every column against the original labels)
+_OBSERVED_MAX = 8
+
+
+def labels_key(labels: Any) -> str:
+    """Content key of a label vector (as int64): which target an observed MI was computed against."""
+    from mlframe.utils.disk_cache import hash_array_content
+
+    return str(hash_array_content(np.ascontiguousarray(np.asarray(labels, dtype=np.int64).ravel())))
+
+
+def remember_observed(codes: Any, key: str, observed: np.ndarray) -> None:
+    """Keep the (K,) plug-in MI of the columns of the resident ``codes`` against the labels ``key``, for the stage that scores the same columns next (the family gate)."""
+    import weakref
+
+    ident = id(codes)
+
+    def _drop(_ref: Any, ident: int = ident) -> None:
+        """Forget the entry when the resident array is freed (a freed array's id can be reused by another one)."""
+        with _OBSERVED_LOCK:
+            entry = _OBSERVED.get(ident)
+            if entry is not None and entry[0] is _ref:
+                del _OBSERVED[ident]
+
+    try:
+        ref = weakref.ref(codes, _drop)
+    except TypeError:
+        return
+    with _OBSERVED_LOCK:
+        _OBSERVED[ident] = (ref, key, observed)
+        while len(_OBSERVED) > _OBSERVED_MAX:
+            _OBSERVED.pop(next(iter(_OBSERVED)))
+
+
+def recall_observed(codes: Any, key: str) -> Optional[np.ndarray]:
+    """The (K,) observed MI :func:`remember_observed` kept for exactly this resident array and these labels, or ``None``."""
+    with _OBSERVED_LOCK:
+        entry = _OBSERVED.get(id(codes))
+    if entry is None or entry[0]() is not codes or entry[1] != key:
+        return None
+    return entry[2]
+
+
+def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gate: "Optional[tuple]" = None, observed_key: Optional[str] = None) -> Optional[np.ndarray]:
     """``(P, K)`` plug-in MI (host double precision) of every column of the resident ``(n, K)`` codes against every row of the resident ``(P, n)`` target matrix, or ``None`` when the bit-set kernel does not apply.
 
     ``gate=(min_nonzero_confidence,)`` applies the noise-gate rejection rule on the device and returns the ``(K,)`` gated MI vector instead of the matrix: a column whose MI is positive and that at least
     ``max(1, int(P_perm * (1 - confidence)))`` shuffled targets reach is zeroed, exactly the rule ``_gate_from_mi`` applies on the host. Only K numbers cross the bus, not ``P * K``.
+
+    ``observed_key`` (a :func:`labels_key`) makes the call keep the UNGATED observed MI of every column for :func:`recall_observed`: the vector and the zeroing mask (one bit per column) cross the bus
+    instead of the gated vector alone, and the next stage that needs the observed MI of the same columns (the family max-T gate) reads it instead of computing and copying it again.
 
     It declines a code type it has no packing kernel for, more bins than ``MAX_BINS``, class bit sets that do not fit a block's shared memory, and any device failure (the caller then runs the histogram gate).
     """
@@ -158,12 +205,25 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gat
             del bits, px, part
         if gate is not None:
             original = out[0]
+            kept = original
+            zeroed = None
             n_shuffled = int(out.shape[0]) - 1
             if n_shuffled > 0:
                 max_failed = max(1, int(n_shuffled * (1.0 - float(gate[0]))))
                 failed = ((out[1:] >= original[None, :]) & (original[None, :] > 0)).sum(axis=0)
-                original = cp.where((original > 0) & (failed >= max_failed), 0.0, original)
-            gated: np.ndarray = cp.asnumpy(original).astype(np.float64, copy=False)  # Intentional float64: MI output contract of the kernel is double precision
+                zeroed = (original > 0) & (failed >= max_failed)
+                kept = cp.where(zeroed, 0.0, original)
+            if observed_key is not None:
+                # The ungated vector and the zeroing mask cross the bus (an eighth of a byte per column more than the gated vector alone); the gated vector is rebuilt on the host with the same values.
+                observed = cp.asnumpy(original).astype(np.float64, copy=False)  # Intentional float64: MI output contract of the kernel is double precision
+                gated_host = observed.copy()
+                if zeroed is not None:
+                    # the mask crosses packed, one bit per column
+                    packed = cp.asnumpy(cp.packbits(zeroed))
+                    gated_host[np.unpackbits(packed, count=int(zeroed.shape[0])).astype(np.bool_)] = 0.0
+                remember_observed(d_disc, observed_key, observed)
+                return gated_host
+            gated: np.ndarray = cp.asnumpy(kept).astype(np.float64, copy=False)  # Intentional float64: MI output contract of the kernel is double precision
             return gated
         host: np.ndarray = cp.asnumpy(out).astype(np.float64, copy=False)  # Intentional float64: MI output contract of the kernel is double precision
         return host

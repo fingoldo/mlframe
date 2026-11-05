@@ -141,7 +141,7 @@ _MODULES_BY_X = {xt: RawModuleCache(render(_SRC.replace("{XT}", xt))) for xt in 
 
 def _bits_width(kernel: Any, shared_bytes: int, n: int) -> int:
     """Threads per block of the bitset kernel from the device limits (``fixed_shared_block_size``: the count tables are fixed per block), 256 without device information."""
-    from ._gpu_hw_launch import fixed_shared_block_size
+    from pyutilz.performance.gpu_hw_launch import fixed_shared_block_size
 
     try:
         width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kernel.num_regs), static_smem=int(kernel.shared_size_bytes), min_width=64, max_width=1024, work_items=(n + 31) // 32 * 32)

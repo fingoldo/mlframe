@@ -396,7 +396,7 @@ def force_noise_gate_backend(value: "str | None") -> "str | None":
     return previous
 
 
-def _noise_gate_bits_matrix(d_disc, nbins_arr, d_y, K_y, n, K, gate=None):
+def _noise_gate_bits_matrix(d_disc, nbins_arr, d_y, K_y, n, K, gate=None, observed_key=None):
     """``(P, K)`` MI matrix from device bit sets (the ``(K,)`` gated vector when ``gate`` is given) when the backend choice is the bit-set gate and the kernel applies, else ``None`` (the histogram pair then runs)."""
     forced = _NOISE_GATE_BACKEND_OVERRIDE
     if forced == "hist":
@@ -405,7 +405,7 @@ def _noise_gate_bits_matrix(d_disc, nbins_arr, d_y, K_y, n, K, gate=None):
 
     if forced is None and noise_gate_backend_choice(n, K, K_y, int(np.max(nbins_arr))) != "bits":
         return None
-    mi = bits_gate_mi(d_disc, nbins_arr, d_y, K_y, gate)
+    mi = bits_gate_mi(d_disc, nbins_arr, d_y, K_y, gate, observed_key)
     if mi is None and forced == "bits":
         raise RuntimeError("the bit-set noise gate declined this shape")
     return mi
@@ -556,7 +556,9 @@ def batch_mi_with_noise_gate_cuda_resident(
     d_freq = _histgate_upload(freqs_y, "histgate_freq", np.float64)
     # Bit-set gate (``_batch_mi_noise_gate_bits``): the (P, K) MI matrix from popcounts of device bit sets, 7x faster than the histogram pair at 10 bins x 10 classes; the tuning cache decides.
     if not use_su:
-        _bits_gated = _noise_gate_bits_matrix(d_disc, nbins_arr, d_y, K_y, n, K, gate=(min_nonzero_confidence,))
+        from ._batch_mi_noise_gate_bits import labels_key
+
+        _bits_gated = _noise_gate_bits_matrix(d_disc, nbins_arr, d_y, K_y, n, K, gate=(min_nonzero_confidence,), observed_key=labels_key(classes_y))
         if _bits_gated is not None:
             gated: np.ndarray = np.asarray(_bits_gated)
             return gated

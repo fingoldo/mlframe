@@ -1,7 +1,7 @@
 """The block width of the v2 family-null kernel follows the device limits and the override, and falls back to the constant."""
 
 import mlframe.feature_selection.filters._family_maxt_cuda_bits as bits
-import mlframe.feature_selection.filters._gpu_hw_launch as hw
+from pyutilz.performance import gpu_hw_launch as hw
 
 _PASCAL = {
     "sm_count": 6, "max_threads_per_block": 1024, "max_threads_per_sm": 2048, "max_blocks_per_sm": 32, "warp": 32,

@@ -188,13 +188,13 @@ def accept_fits(n: int, y_raw_perm: np.ndarray) -> bool:
 
 
 def _block_width(kernel, shared_bytes: int, n: int) -> int:
-    """Threads per block from the device's limits (``_gpu_hw_launch.fixed_shared_block_size``: the table is fixed per block, so the width that keeps the most threads resident on an SM), ``THREADS`` without device information; ``MLFRAME_GPU_BLOCK_HONEST_ACCEPT`` overrides."""
+    """Threads per block from the device's limits (``pyutilz.performance.gpu_hw_launch.fixed_shared_block_size``: the table is fixed per block, so the width that keeps the most threads resident on an SM), ``THREADS`` without device information; ``MLFRAME_GPU_BLOCK_HONEST_ACCEPT`` overrides."""
     import os
 
     forced = os.environ.get("MLFRAME_GPU_BLOCK_HONEST_ACCEPT", "").strip()
     if forced.isdigit() and 32 <= int(forced) <= 1024 and int(forced) % 32 == 0:
         return int(forced)
-    from ._gpu_hw_launch import fixed_shared_block_size
+    from pyutilz.performance.gpu_hw_launch import fixed_shared_block_size
 
     try:
         width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kernel.num_regs), static_smem=int(kernel.shared_size_bytes), min_width=64, max_width=1024, work_items=n)

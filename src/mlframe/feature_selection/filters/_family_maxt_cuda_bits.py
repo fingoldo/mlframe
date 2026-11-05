@@ -94,7 +94,7 @@ def v2_block_width(kern, shared_bytes: int, columns: int) -> int:
     forced = os.environ.get("MLFRAME_GPU_BLOCK_FAMILY_BITS", "").strip()
     if forced.isdigit() and 32 <= int(forced) <= 1024 and int(forced) % 32 == 0:
         return int(forced)
-    from ._gpu_hw_launch import fixed_shared_block_size
+    from pyutilz.performance.gpu_hw_launch import fixed_shared_block_size
 
     try:
         width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kern.num_regs), static_smem=int(kern.shared_size_bytes), min_width=32, max_width=1024, work_items=columns)

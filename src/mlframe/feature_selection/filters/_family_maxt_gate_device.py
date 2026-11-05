@@ -36,6 +36,35 @@ def _device_codes(batches: Sequence[Any]) -> "Optional[list]":
     return out
 
 
+def _observed_from_noise_gate(batches: Sequence[Any], y: np.ndarray) -> "Optional[np.ndarray]":
+    """The observed MI of every one-column batch as the noise gate already computed it for the chunk the columns come from, or ``None`` (every column must be a lazy column of a chunk whose
+    resident codes the noise gate scored against these labels). The same kernel produced the numbers, so they are the values ``_FamilyOnDevice.observed`` would compute and copy."""
+    try:
+        from ._batch_mi_noise_gate_bits import labels_key, recall_observed
+        from ._feature_engineering_pairs._pairs_chunk_codes import LazyCodeColumn
+
+        if not all(isinstance(b, LazyCodeColumn) for b in batches):  # an isinstance test: ``getattr`` on a ``LazyHostCodes`` batch would copy the whole array to the host
+            return None
+        key = labels_key(y)
+        by_chunk: dict = {}
+        out = np.empty(len(batches), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+        for i, b in enumerate(batches):
+            dev, j = b.chunk._dev, b.j
+            if dev is None:
+                return None
+            vec = by_chunk.get(id(dev))
+            if vec is None:
+                vec = recall_observed(dev, key)
+                if vec is None or int(vec.shape[0]) != int(dev.shape[1]):
+                    return None
+                by_chunk[id(dev)] = vec
+            out[i] = vec[int(j)]
+        return out
+    except Exception as exc:
+        logger.debug("the noise gate's observed MI is not usable for the family gate (%s: %s); computing it", type(exc).__name__, exc)
+        return None
+
+
 class _FamilyOnDevice:
     """The column bit sets of one family on the device, with the observed-MI and null-maximum evaluations over them."""
 
@@ -145,7 +174,9 @@ def family_pass_batches_device(batches: Sequence[Any], y_codes: np.ndarray, alph
         fam = _FamilyOnDevice(cp, devs, y, n_y)
         widths = [int(d.shape[1]) for d in devs]
         starts = np.cumsum([0, *widths])
-        observed = fam.observed()
+        observed = _observed_from_noise_gate(batches, y)
+        if observed is None:
+            observed = fam.observed()
         n_batches = len(widths)
         # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         observed_max = np.array([float(observed[starts[j] : starts[j + 1]].max()) if widths[j] else 0.0 for j in range(n_batches)], dtype=np.float64)
