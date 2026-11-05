@@ -26,6 +26,7 @@ import numpy as np
 import polars as pl
 
 from ._oof import apply_dedupe
+from ._baseline_oof import fold_train_groups
 from ._residual_oof import compute_oof_yhat_within
 from ._utils import require_seed, validate_numeric_input
 from .row_attention import compute_row_attention
@@ -91,7 +92,9 @@ def compute_pred_augmented_attention(
 
     if X_query is not None:
         # Mode B: aux y_hat OOF for the train bank; query rows get y_hat from a full-train aux fit (leakage-safe — query rows are disjoint from train).
-        y_hat_train = compute_oof_yhat_within(X_train, y_train, task=task, make_aux=_make_aux, aux_n_splits=aux_n_splits, seed=seed)
+        y_hat_train = compute_oof_yhat_within(
+            X_train, y_train, task=task, make_aux=_make_aux, aux_n_splits=aux_n_splits, seed=seed, groups=fold_train_groups(splitter, np.arange(X_train.shape[0]))
+        )
         X_train_aug = _augment(X_train, y_hat_train)
         X_query_aug = _augment(X_query, _yhat_full(X_train, y_train, X_query))
         logger.info("pred_augmented: y_hat OOF mean=%.4f std=%.4f, augmented X shape: train=%s, query=%s",
@@ -110,7 +113,9 @@ def compute_pred_augmented_attention(
     fold_val_idx: list[np.ndarray] = []
     for train_idx, val_idx in splitter.split(X_train):
         X_comp, y_comp = X_train[train_idx], y_train[train_idx]
-        y_hat_comp = compute_oof_yhat_within(X_comp, y_comp, task=task, make_aux=_make_aux, aux_n_splits=aux_n_splits, seed=seed)
+        y_hat_comp = compute_oof_yhat_within(
+            X_comp, y_comp, task=task, make_aux=_make_aux, aux_n_splits=aux_n_splits, seed=seed, groups=fold_train_groups(splitter, train_idx)
+        )
         y_hat_val = _yhat_full(X_comp, y_comp, X_train[val_idx])
         X_comp_aug = _augment(X_comp, y_hat_comp)
         X_val_aug = _augment(X_train[val_idx], y_hat_val)

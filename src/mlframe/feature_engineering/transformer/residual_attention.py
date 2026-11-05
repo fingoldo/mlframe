@@ -26,6 +26,7 @@ from typing import Any, Literal, Optional, Sequence
 import numpy as np
 import polars as pl
 from ._oof import apply_dedupe
+from ._baseline_oof import fold_train_groups
 from ._residual_oof import compute_oof_residual_within
 from ._utils import require_seed, validate_numeric_input
 from .row_attention import compute_row_attention
@@ -99,6 +100,7 @@ def compute_residual_attention(
         # Mode B: aux fit once on full train → residual bank for the full train; query rows attend to the full bank.
         residual_train = compute_oof_residual_within(
             X_train, y_train, task=task, make_aux=_make_aux, aux_n_splits=aux_n_splits, seed=seed,
+            groups=fold_train_groups(splitter, np.arange(X_train.shape[0])),
         )
         logger.info("residual_attention: aux LGB OOF residuals: mean=%.4f, std=%.4f, abs_mean=%.4f", residual_train.mean(), residual_train.std(), np.abs(residual_train).mean())
         # Mode B never dedupes (a query batch cannot rediscover Mode A's subset); pass the Mode A frame's columns as ``keep_columns`` to match it.
@@ -117,6 +119,7 @@ def compute_residual_attention(
     for train_idx, val_idx in splitter.split(X_train):
         residual_complement = compute_oof_residual_within(
             X_train[train_idx], y_train[train_idx], task=task, make_aux=_make_aux, aux_n_splits=aux_n_splits, seed=seed,
+            groups=fold_train_groups(splitter, train_idx),
         )
         abs_means.append(float(np.abs(residual_complement).mean()))
         # Single-fold attention: complement residuals are the bank, this fold's val rows are the queries (Mode B mechanics, leakage-safe by construction here).

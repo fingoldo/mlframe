@@ -40,10 +40,13 @@ _FUNCTIONS = {
     "pairwise_kl_divergence": "compute_pairwise_kl_features",
     "residual_stratified_distance": "compute_residual_stratified_distance_features",
     "sign_residual_baseline": "compute_sign_residual_baseline_features",
+    "pred_augmented": "compute_pred_augmented_attention",
+    "residual_attention": "compute_residual_attention",
+    "cross_feature_reconstruction": "compute_cross_feature_reconstruction_features",
 }
 
 
-def _grouped_regression(n_groups: int = 24, rows_per_group: int = 4, n_features: int = 4, seed: int = 0):
+def _grouped_regression(n_groups: int = 24, rows_per_group: int = 4, n_features: int = 10, seed: int = 0):
     """Rows in groups of ``rows_per_group``, random features and a continuous target."""
     rng = np.random.default_rng(seed)
     n = n_groups * rows_per_group

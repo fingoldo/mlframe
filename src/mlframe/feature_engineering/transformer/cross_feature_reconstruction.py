@@ -13,6 +13,7 @@ from typing import Any
 import logging
 import numpy as np
 import polars as pl
+from ._baseline_oof import fold_train_groups
 from ._residual_oof import compute_oof_residual_within
 from ._utils import require_seed, validate_numeric_input
 
@@ -45,7 +46,7 @@ def compute_cross_feature_reconstruction_features(
     X_train_f = np.asarray(X_train, dtype=np.float32)
     n_features_out = 5
 
-    def _process(Xt, Xq, fold_seed):
+    def _process(Xt, Xq, fold_seed, groups_t=None):
         """Core per-fold pipeline: scale, then for each feature j fit a LightGBM predicting it from the rest, MAD-standardize the reconstruction residual, and aggregate the per-feature z-residuals of each query row into sum-of-squares, max, mean, extreme-count, and log-L2-norm."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -68,7 +69,7 @@ def compute_cross_feature_reconstruction_features(
 
             r_train = compute_oof_residual_within(
                 Xt_j_in, Xt_s[:, j], task="regression", make_aux=_make_aux,
-                aux_n_splits=aux_n_splits, seed=int(fold_seed) + j,
+                aux_n_splits=aux_n_splits, seed=int(fold_seed) + j, groups=groups_t,
             )
             mad_j = float(np.median(np.abs(r_train - float(np.median(r_train)))))
             mad_j = max(mad_j, 1e-6)
@@ -96,12 +97,12 @@ def compute_cross_feature_reconstruction_features(
 
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)
-        return pl.DataFrame(_make_df(_process(X_train_f, Xq, seed)))
+        return pl.DataFrame(_make_df(_process(X_train_f, Xq, seed, groups_t=fold_train_groups(splitter, np.arange(X_train_f.shape[0])))))
     if splitter is None:
         raise ValueError("Mode A requires splitter.")
     n_train = X_train_f.shape[0]
     out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
-        out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], int(seed) + fold_idx * 100).astype(dtype, copy=False)
+        out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx)).astype(dtype, copy=False)
         logger.info("cross_feature_reconstruction: fold %d done", fold_idx + 1)
     return pl.DataFrame(_make_df(out))
