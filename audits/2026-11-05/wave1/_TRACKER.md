@@ -64,7 +64,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **RESOLVED** | P10-05 | api | Low | `training/strategies/base.py:184-196`: `_NumericOnlyTransformer.fit` fits `inner` in place |
 | **RESOLVED** | P10-06 | api | Low | `estimators/custom.py:665-676`: `IdentityEstimator.fit` sets no `n_features_in_` |
 | **RESOLVED** | P10-07 | api | Low | `docs/ENVIRONMENT_VARIABLES.md` vs code: five switches undocumented; `MLFRAME_FE_GPU_FUSE_MI` read nowhere |
-| **OPEN** | R4-06 | resource | Info | `evaluation/blend_source_selection.py:85-99`: warns, then allocates two `n x n` matrices |
+| **RESOLVED** | R4-06 | resource | Info | `evaluation/blend_source_selection.py:85-99`: warns, then allocates two `n x n` matrices | Fixed: the rank-agreement comparison is built in row blocks with a budget constant; test `tests/evaluation/test_blend_source_pairwise_blocks_match_full_matrix.py`.
 | **OPEN** | K7-03 | parity | Info | `_null_max_perm_gpu.py:160,186`: no shared-memory check; fallback logged at debug |
 
 ## Reports whose scope was incomplete
