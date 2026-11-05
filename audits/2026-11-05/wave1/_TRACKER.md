@@ -41,7 +41,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **RESOLVED** | P10-02 | api | Medium | `feature_selection/wrappers/rfecv/__init__.py:450`: `set_params(search_config=...)` is ignored |
 | **OPEN** | D1-02 | deserialization | Low | `training/_trainer_train_and_evaluate_parts.py:132-133`: `trusted_root` defaults to the file's own directory |
 | **OPEN** | D1-03 | deserialization | Low | `inference/predict.py`, `training/core/_metadata_loader.py`, `training/io.py`: hash-then-reopen race |
-| **OPEN** | E2-01 | filesystem | Low | `training/feature_handling/hf_provider.py:118-122`: lock falls back to a predictable shared-temp name |
+| **RESOLVED** | E2-01 | filesystem | Low | `training/feature_handling/hf_provider.py:118-122`: lock falls back to a predictable shared-temp name |
 | **OPEN** | N3-01 | supply_chain | Low | `.pre-commit-config.yaml:126,200,459`: ruff-pre-commit pinned to a mutable tag |
 | **OPEN** | N3-02 | supply_chain | Low | `feature_selection/filters/_neural_mi.py:278-291`: InfoNet checkpoint pin trusts the first file seen |
 | **OPEN** | N3-03 | supply_chain | Low | `training/feature_handling/hf_provider.py:74-84`: unlisted model loads hub `main` without a revision |

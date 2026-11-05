@@ -38,7 +38,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import tempfile
 import warnings
 from typing import TYPE_CHECKING, Any, List, Optional, Sequence
 
@@ -118,7 +117,10 @@ def _hf_cache_lock_path(model_name: str, revision: Optional[str]) -> str:
     try:
         os.makedirs(lock_dir, mode=0o700, exist_ok=True)
     except OSError:
-        lock_dir = tempfile.gettempdir()
+        # The shared temp root holds predictable names any local user can pre-create; use the per-user private directory instead.
+        from mlframe.utils.private_temp import private_temp_dir
+
+        lock_dir = private_temp_dir("mlframe-hf-locks")
     return os.path.join(lock_dir, f"hf_{sig_hash}.lock")
 
 

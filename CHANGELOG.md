@@ -20,6 +20,7 @@ history.
 - `fe_provenance_` labels the columns admitted by the auto-escalation (`esc_*`) with the origin `escalation`, and the escalation writes its admissions to `fe_admission_ledger_` (stage `escalation`), so where such a column came from is readable without instrumenting the fit.
 
 ### Fixed
+- The HuggingFace download lock falls back to the per-user private directory when its cache directory cannot be created; it used the shared temp root, where a predictable lock name could be pre-created by another user.
 - The GPU rank-bin boundary cache is keyed by the current device as well as the array size, so a device array is not handed to another GPU.
 - When the library-version check on a model's sidecar raises, `read_trained_models` logs a warning (it was debug only): the load still goes ahead, but the drift warning did not run.
 - `_NumericOnlyTransformer.fit` fits a copy of its inner transformer, so the constructor parameter (`get_params()['inner']`) stays unfitted and a reused or cloned instance does not carry the first fit's statistics.
