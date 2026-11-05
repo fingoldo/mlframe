@@ -12,7 +12,8 @@ from __future__ import annotations
 from typing import Any, Callable
 
 import numpy as np
-from sklearn.model_selection import KFold
+
+from . import _baseline_oof as _bo
 
 
 def compute_oof_yhat_within(
@@ -23,11 +24,12 @@ def compute_oof_yhat_within(
     make_aux: Callable[[], Any],
     aux_n_splits: int,
     seed: int,
+    groups: Any = None,
 ) -> np.ndarray:
     """Aux OOF predictions ``y_hat`` for the rows of ``X_sub`` using only rows within ``X_sub`` — used per outer fold on the fold's train complement.
 
     The aux sub-partition is restricted to ``X_sub`` so no row outside it contributes to any row's prediction. ``aux_n_splits`` is capped to the subset size so tiny
-    subsets still partition cleanly.
+    subsets still partition cleanly. ``groups`` (one label per row of ``X_sub``) keeps the rows of a group on one side of every aux fold.
     """
     n = X_sub.shape[0]
     if n < 2:
@@ -39,8 +41,7 @@ def compute_oof_yhat_within(
         return np.zeros(n, dtype=np.float32)
     n_splits = max(2, min(aux_n_splits, n))
     y_hat = np.zeros(n, dtype=np.float32)
-    aux_splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    for tr_idx, va_idx in aux_splitter.split(X_sub):
+    for tr_idx, va_idx in _bo.kfold_splits(X_sub, n_splits, seed, groups):
         model = make_aux()
         model.fit(X_sub[tr_idx], y_sub[tr_idx])
         if task == "binary":
@@ -58,11 +59,12 @@ def compute_oof_residual_within(
     make_aux: Callable[[], Any],
     aux_n_splits: int,
     seed: int,
+    groups: Any = None,
 ) -> np.ndarray:
     """Aux OOF residuals for the rows of ``X_sub`` using only rows within ``X_sub`` — used per outer fold on the fold's train complement.
 
     The aux sub-partition is restricted to the complement so no outer-val row contributes to a complement-row residual. ``aux_n_splits`` is capped to the complement
     size so tiny complements (rare with sane fold counts) still partition cleanly.
     """
-    y_hat = compute_oof_yhat_within(X_sub, y_sub, task=task, make_aux=make_aux, aux_n_splits=aux_n_splits, seed=seed)
+    y_hat = compute_oof_yhat_within(X_sub, y_sub, task=task, make_aux=make_aux, aux_n_splits=aux_n_splits, seed=seed, groups=groups)
     return np.asarray((y_sub.astype(np.float32) - y_hat).astype(np.float32))

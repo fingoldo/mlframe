@@ -35,12 +35,14 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from . import _baseline_oof as _bo
+from ._baseline_oof import fold_train_groups
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
 
 
-def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int) -> tuple[np.ndarray, np.ndarray]:
+def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int, groups=None) -> tuple[np.ndarray, np.ndarray]:
     """Fit a small LightGBM baseline (classifier for ``task="binary"``, regressor otherwise) and return
     (OUT-OF-FOLD train predictions via an inner KFold(3), query predictions from a single full-Xt fit).
 
@@ -75,10 +77,8 @@ def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task:
     if n < 3:
         p_train = _predict(_make_and_fit(Xt, y_t, int(seed)), Xt)
     else:
-        from sklearn.model_selection import KFold
         p_train = np.zeros(n, dtype=np.float32)
-        inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
-        for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
+        for inner_idx, (in_tr, in_val) in enumerate(_bo.kfold_splits(Xt, 3, int(seed) + 11, groups)):
             m_inner = _make_and_fit(Xt[in_tr], y_t[in_tr], int(seed) + 7 + inner_idx)
             p_train[in_val] = _predict(m_inner, Xt[in_val])
 
@@ -111,7 +111,7 @@ def compute_baseline_surprise_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_features = 5
 
-    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int, groups_t=None) -> np.ndarray:
         """Fit the baseline on the (optionally scaled) train fold, compute a "surprise" score per train row (cross-entropy for binary, scaled squared residual for regression), then for each query row aggregate the surprise of its k nearest train neighbors into mean/max/std/high-fraction features plus the baseline's own query prediction."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -121,7 +121,7 @@ def compute_baseline_surprise_features(
         else:
             Xt_s = Xt
             Xq_s = Xq
-        p_train, p_query = _fit_baseline_predict(Xt_s, y_t, Xq_s, task=task, seed=fold_seed)
+        p_train, p_query = _fit_baseline_predict(Xt_s, y_t, Xq_s, task=task, seed=fold_seed, groups=groups_t)
         # Compute per-train-row surprise (uses y_train — OK).
         if task == "binary":
             p_train_c = np.clip(p_train, 1e-6, 1 - 1e-6)
@@ -165,7 +165,7 @@ def compute_baseline_surprise_features(
     out: np.ndarray = np.zeros((n_train, n_features), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("baseline_surprise: fold %d/%d done", fold_idx + 1, len(splits))
 

@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 # Out-of-fold baseline predictions on Xt. Imported rather than wrapped: a per-module wrapper differing only
 # in one string is still a near-duplicate body, which is the drift this cluster was consolidated to end.
-from ._baseline_oof import fit_baseline_predict_oof as _fit_baseline_predict
+from ._baseline_oof import fit_baseline_predict_oof as _fit_baseline_predict, fold_train_groups
 
 
 def compute_hard_row_attention_features(
@@ -74,7 +74,7 @@ def compute_hard_row_attention_features(
     X_train_f = np.asarray(X_train, dtype=np.float32)
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
-    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int, groups_t=None) -> np.ndarray:
         """Fit the baseline, pick the top-``n_hard`` hardest (largest |residual|) train rows as anchors (lexsort-tiebroken by row index for determinism, padded with the last anchor if the fold has fewer rows than ``n_hard``), then attend each query row over the anchors to produce per-anchor weights, entropy, weighted y/residual aggregates, argmax anchor, and nearest-anchor distance."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -87,6 +87,7 @@ def compute_hard_row_attention_features(
         preds_tr = _fit_baseline_predict(
             Xt_s, y_t, task=task, seed=fold_seed,
             n_estimators=baseline_n_estimators, max_depth=baseline_max_depth,
+            groups=groups_t,
         )
         signed_residuals = (y_t - preds_tr).astype(np.float32)
         abs_residuals = np.abs(signed_residuals)
@@ -147,7 +148,7 @@ def compute_hard_row_attention_features(
     out: np.ndarray = np.zeros((n_train, n_features), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("hard_row_attention: fold %d/%d done", fold_idx + 1, len(splits))
 

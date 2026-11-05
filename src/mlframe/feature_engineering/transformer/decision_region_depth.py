@@ -17,6 +17,8 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from . import _baseline_oof as _bo
+from ._baseline_oof import fold_train_groups
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -51,7 +53,7 @@ def compute_decision_region_depth_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_features_out = 5
 
-    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int, groups_t=None) -> np.ndarray:
         """Fit a shallow model on (Xt, y_t), then for each query row and each of ``n_probes`` random directions binary/coarse-search (at scales 0.5/1/2/max_scale sigma) the smallest perturbation that flips the prediction, returning the min/max/median/mean/std of the flip distances."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -82,10 +84,8 @@ def compute_decision_region_depth_features(
             if n_t < 3:
                 oof_resid = np.abs(y_t - model.predict(Xt_s))
             else:
-                from sklearn.model_selection import KFold
                 oof_pred = np.zeros(n_t, dtype=np.float32)
-                inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(fold_seed) + 11)
-                for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt_s)):
+                for inner_idx, (in_tr, in_val) in enumerate(_bo.kfold_splits(Xt_s, 3, int(fold_seed) + 11, groups_t)):
                     m_inner = lgb.LGBMRegressor(
                         n_estimators=50, max_depth=3, learning_rate=0.1,
                         random_state=int(fold_seed) + 7 + inner_idx, verbose=-1, n_jobs=-1,
@@ -152,7 +152,7 @@ def compute_decision_region_depth_features(
     out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("decision_region_depth: fold %d/%d done", fold_idx + 1, len(splits))
 

@@ -40,7 +40,8 @@ def weighted_kappa(y_true: np.ndarray, y_pred: np.ndarray, *, weights: str = "qu
     weights : {'quadratic', 'linear'}
         Penalty growth with class distance: quadratic ``(i-j)^2`` (QWK) or linear ``|i-j|``.
     n_classes : int, optional
-        Number of ordinal classes. Defaults to ``max(labels)+1``.
+        Number of ordinal classes. Defaults to the number of distinct labels that occur, ranked in value order (a label value
+        that never occurs does not add a class).
 
     Returns
     -------
@@ -58,7 +59,15 @@ def weighted_kappa(y_true: np.ndarray, y_pred: np.ndarray, *, weights: str = "qu
         return np.nan
     if yt.min() < 0 or yp.min() < 0:
         raise ValueError("weighted_kappa: labels must be non-negative integers.")
-    n = int(n_classes) if n_classes is not None else int(max(yt.max(), yp.max())) + 1
+    if n_classes is None:
+        # Classes are the distinct labels that occur, ranked in order: a label value that is absent does not add a class, so the
+        # weights and the matrix size depend on the classes present, not on the largest label value (sklearn's convention).
+        classes = np.unique(np.concatenate([yt, yp]))
+        yt = np.searchsorted(classes, yt)
+        yp = np.searchsorted(classes, yp)
+        n = int(classes.shape[0])
+    else:
+        n = int(n_classes)
     if n_classes is not None and (yt.max() >= n or yp.max() >= n):
         # _confusion_matrix's obs[y_true[k], y_pred[k]] += 1.0 runs under @njit with bounds-checking off --
         # an out-of-range label from a too-small explicit n_classes writes out of bounds (crash or silent

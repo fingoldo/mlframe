@@ -793,10 +793,23 @@ def _fit_impl_part2(
     return False, _include_numeric_input_nan_cols, _y_np, X, signature, _cache_key, start_time, ran_out_of_time, _fe_family_on, dtype, parallel_kwargs, n_jobs, verbose, prefetch_factor, _raw_input_cols_pre_fe, _second_pass_cmi_gate
 
 
+def _evict_cache_entries_for(self: Any) -> None:
+    """Remove every process-wide ``MRMR._FIT_CACHE`` entry whose value is ``self``, under the cache lock."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    with _MRMR_FIT_CACHE_LOCK:
+        for key in [k for k, v in MRMR._FIT_CACHE.items() if v is self]:
+            del MRMR._FIT_CACHE[key]
+
+
 def _fit_impl_part1(_replay_from_fit_cache: Any, self: Any, _cache_key: Any, fe: Any, X: pd.DataFrame | np.ndarray, recipes: Any) -> tuple[Any, ...]:
     """Extracted block of ``_fit_impl`` (part 1); returns the names the caller still uses."""
     if _replay_from_fit_cache(self, _cache_key):
         return True, (self)
+
+    # This instance is about to be refitted, so its state is going to change. A process-wide cache entry that points to this
+    # instance would then replay the new fit's state under the old key. Drop those entries; the finished fit stores itself again.
+    _evict_cache_entries_for(self)
 
     # ---------------------------------------------------------------------------------------------------------------
     # Inits

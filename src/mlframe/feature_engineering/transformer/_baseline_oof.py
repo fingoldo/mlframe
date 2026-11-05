@@ -33,6 +33,25 @@ def fold_train_groups(splitter, train_idx):
     return None if groups is None else np.asarray(groups)[np.asarray(train_idx)]
 
 
+def kfold_splits(X, n_splits, random_state, groups=None):
+    """Fold index pairs of an out-of-fold pass over ``X``: a shuffled KFold, or a GroupKFold when ``groups`` is given.
+
+    ``groups`` holds one label per row of ``X``. With it, the rows of one group are never split between a fold's training and
+    held-out rows, so a duplicate of a row cannot leak that row's own target into its out-of-fold prediction. Without it the
+    result is exactly the shuffled KFold the callers used before. With fewer than two distinct groups no group can be held
+    out, so the shuffled KFold is used and a warning says so.
+    """
+    from sklearn.model_selection import GroupKFold, KFold
+
+    if groups is not None:
+        g = np.asarray(groups)
+        n_groups = int(np.unique(g).size)
+        if n_groups >= 2:
+            return list(GroupKFold(n_splits=min(n_splits, n_groups)).split(X, groups=g))
+        logger.warning("kfold_splits: %d distinct group(s) cannot be held out; using a shuffled KFold, which cannot keep a group on one side.", n_groups)
+    return list(KFold(n_splits=n_splits, shuffle=True, random_state=random_state).split(X))
+
+
 def fit_baseline_predict_oof(
     Xt: np.ndarray,
     y_t: np.ndarray,
@@ -57,6 +76,8 @@ def fit_baseline_predict_oof(
     ``groups`` (the training rows' group labels) makes the inner split group-aware: the rows of one group are never split
     between the baseline's training and held-out folds, so duplicates of a row cannot leak their own target into its
     out-of-fold prediction. Without it the inner split is a shuffled KFold, which is the leaky default for grouped data.
+    With fewer than two distinct groups no group can be held out, so the split falls back to the shuffled KFold with a warning
+    (see :func:`kfold_splits`).
     """
     try:
         import lightgbm as lgb
@@ -73,19 +94,8 @@ def fit_baseline_predict_oof(
         model.fit(Xt, y_t)
         return np.asarray(model.predict(Xt)).astype(np.float32)
 
-    from sklearn.model_selection import GroupKFold, KFold
-
     preds = np.zeros(n, dtype=np.float32)
-    if groups is None:
-        inner_splits = list(KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11).split(Xt))
-    else:
-        g = np.asarray(groups)
-        n_groups = int(np.unique(g).size)
-        if n_groups < 2:
-            logger.warning("%s: %d distinct group(s) cannot be held out; fitting the baseline in-sample.", caller, n_groups)
-            return fit_baseline_predict_oof(Xt, y_t, task, seed, n_estimators=n_estimators, max_depth=max_depth, caller=caller)
-        inner_splits = list(GroupKFold(n_splits=min(3, n_groups)).split(Xt, groups=g))
-    for inner_idx, (in_tr, in_val) in enumerate(inner_splits):
+    for inner_idx, (in_tr, in_val) in enumerate(kfold_splits(Xt, 3, int(seed) + 11, groups)):
         if task == "binary":
             m = lgb.LGBMClassifier(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, random_state=int(seed) + 7 + inner_idx, verbose=-1, n_jobs=-1)
             m.fit(Xt[in_tr], y_t[in_tr].astype(np.int32))

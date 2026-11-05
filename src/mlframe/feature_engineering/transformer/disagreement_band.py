@@ -33,13 +33,15 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from . import _baseline_oof as _bo
+from ._baseline_oof import fold_train_groups
 from ._squared_dists_shared import squared_dists as _squared_dists
 from ._utils import require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
 
 
-def _fit_3baselines_oof(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int) -> np.ndarray:
+def _fit_3baselines_oof(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, groups=None) -> np.ndarray:
     """Fit 3 baselines on (Xt, y_t) via an inner KFold(3), return OUT-OF-FOLD predictions as (n_train, 3).
 
     An in-sample prediction is close to y_t almost by construction (the model was just fit on these exact
@@ -87,11 +89,8 @@ def _fit_3baselines_oof(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int) -
     if n < 3:
         return _fit_predict_fold(Xt, y_t, Xt, seed)
 
-    from sklearn.model_selection import KFold
-
     preds = np.zeros((n, 3), dtype=np.float32)
-    inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
-    for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
+    for inner_idx, (in_tr, in_val) in enumerate(_bo.kfold_splits(Xt, 3, int(seed) + 11, groups)):
         preds[in_val] = _fit_predict_fold(Xt[in_tr], y_t[in_tr], Xt[in_val], int(seed) + 7 + inner_idx)
     return preds
 
@@ -124,7 +123,7 @@ def compute_disagreement_band_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     effective_n_bands = n_bands
 
-    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int, groups_t=None) -> np.ndarray:
         """Standardize, fit the 3 OOF baselines to get per-row disagreement, bucket train rows into disagreement-quintile bands, then soft-assign query rows to bands (by centroid distance) and aggregate each band's y/std/disagreement into the final feature row."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -134,7 +133,7 @@ def compute_disagreement_band_features(
         else:
             Xt_s = Xt
             Xq_s = Xq
-        preds_tr = _fit_3baselines_oof(Xt_s, y_t, task=task, seed=fold_seed)  # (n, 3)
+        preds_tr = _fit_3baselines_oof(Xt_s, y_t, task=task, seed=fold_seed, groups=groups_t)  # (n, 3)
         disagreement = preds_tr.std(axis=1).astype(np.float32)
 
         quantiles = np.quantile(disagreement, np.linspace(0.0, 1.0, effective_n_bands + 1))
@@ -207,7 +206,7 @@ def compute_disagreement_band_features(
     out: np.ndarray = np.zeros((n_train, n_features), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("disagreement_band: fold %d/%d done", fold_idx + 1, len(splits))
 

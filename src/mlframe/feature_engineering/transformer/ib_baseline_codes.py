@@ -15,6 +15,8 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from . import _baseline_oof as _bo
+from ._baseline_oof import fold_train_groups
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -54,7 +56,7 @@ def _members_predict(Xa: np.ndarray, ya: np.ndarray, Xb: np.ndarray, task: str, 
     return out
 
 
-def _fit_3baselines_two(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int) -> tuple[np.ndarray, np.ndarray]:
+def _fit_3baselines_two(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int, groups=None) -> tuple[np.ndarray, np.ndarray]:
     """Return the 3 baselines' predictions on the train rows and on the query rows as ``(n, 3)`` arrays.
 
     The query predictions come from a fit on all of ``Xt``; the train predictions are inner-KFold(3) out-of-fold, so the cut-points and per-code target
@@ -64,10 +66,9 @@ def _fit_3baselines_two(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: s
     n = Xt.shape[0]
     if n < 3:
         return _members_predict(Xt, y_t, Xt, task, seed), query_preds
-    from sklearn.model_selection import KFold
 
     train_preds = np.zeros((n, 3), dtype=np.float32)
-    for k, (tr, va) in enumerate(KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11).split(Xt)):
+    for k, (tr, va) in enumerate(_bo.kfold_splits(Xt, 3, int(seed) + 11, groups)):
         train_preds[va] = _members_predict(Xt[tr], y_t[tr], Xt[va], task, int(seed) + 7 + k)
     return train_preds, query_preds
 
@@ -95,7 +96,7 @@ def compute_ib_baseline_codes_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_features_out = 5
 
-    def _process(Xt, Xq, y_t, fold_seed):
+    def _process(Xt, Xq, y_t, fold_seed, groups_t=None):
         """Fit the 3 baselines, quantize each to an above/below-median bit and combine into an 8-cell code, then emit per-query the code id, the code's train-set y mean/std, the mean baseline prediction, and the shallow-LGB prediction."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -105,7 +106,7 @@ def compute_ib_baseline_codes_features(
         else:
             Xt_s = Xt
             Xq_s = Xq
-        tp, qp = _fit_3baselines_two(Xt_s, y_t, Xq_s, task=task, seed=fold_seed)
+        tp, qp = _fit_3baselines_two(Xt_s, y_t, Xq_s, task=task, seed=fold_seed, groups=groups_t)
         # Discretize each baseline pred to 2 bits (4 levels) then combine. With 3 baselines and 2 bits each = 4^3 = 64 codes.
         # Reduce by quantile binning per baseline to 2 levels (above/below median) → 2^3 = 8 codes.
         bins_per_baseline = 2  # binary above/below median, 2^3 = 8 cells
@@ -158,6 +159,6 @@ def compute_ib_baseline_codes_features(
     out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
     return pl.DataFrame(_make_df(out))

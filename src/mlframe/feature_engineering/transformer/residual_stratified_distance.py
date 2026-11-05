@@ -48,6 +48,8 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from . import _baseline_oof as _bo
+from ._baseline_oof import fold_train_groups
 from ._intel_patch import try_patch_sklearn
 from ._knn_helper import knn_search
 from ._utils import require_seed, validate_numeric_input
@@ -73,7 +75,7 @@ def _resolve_lgb_device() -> str:
         return "cpu"
 
 
-def _compute_oof_residuals(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int) -> np.ndarray:
+def _compute_oof_residuals(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, groups=None) -> np.ndarray:
     """Return |OOF residual| per training row via inner KFold(3) LGB fits.
 
     Uses LGB GPU (device_type='cuda') when ``MLFRAME_TRUST_LGB_CUDA=1`` env var is set and the
@@ -84,13 +86,11 @@ def _compute_oof_residuals(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int
         import lightgbm as lgb
     except ImportError as exc:
         raise ImportError("residual_stratified_distance requires lightgbm") from exc
-    from sklearn.model_selection import KFold
 
     lgb_device = _resolve_lgb_device()
     n = Xt.shape[0]
     oof = np.zeros(n, dtype=np.float32)
-    inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
-    for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
+    for inner_idx, (in_tr, in_val) in enumerate(_bo.kfold_splits(Xt, 3, int(seed) + 11, groups)):
         if task == "binary":
             m = lgb.LGBMClassifier(
                 n_estimators=100, max_depth=5, learning_rate=0.1, device_type=lgb_device, random_state=int(seed) + 7 + inner_idx, verbose=-1, n_jobs=-1
@@ -175,7 +175,7 @@ def compute_residual_stratified_distance_features(
     X_train_f = np.asarray(X_train, dtype=np.float32)
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
-    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int, groups_t=None) -> np.ndarray:
         """Per-fold worker: standardize, compute OOF residuals, split into easy/hard bands by median residual, and return the stacked distance/residual features for the query rows."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -186,7 +186,7 @@ def compute_residual_stratified_distance_features(
             Xt_s = Xt
             Xq_s = Xq
 
-        abs_r = _compute_oof_residuals(Xt_s, y_t, task=task, seed=fold_seed)
+        abs_r = _compute_oof_residuals(Xt_s, y_t, task=task, seed=fold_seed, groups=groups_t)
         # Rank split, not ``abs_r < median``: with half or more of the residuals tied at the median the strict test leaves the easy band empty.
         easy_mask = np.zeros(abs_r.shape[0], dtype=bool)
         easy_mask[np.argsort(abs_r, kind="stable")[: abs_r.shape[0] // 2]] = True
@@ -232,7 +232,7 @@ def compute_residual_stratified_distance_features(
     out: np.ndarray = np.zeros((n_train, n_features), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("residual_stratified_distance: fold %d/%d done", fold_idx + 1, len(splits))
 
