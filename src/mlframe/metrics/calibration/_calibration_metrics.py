@@ -78,9 +78,11 @@ def calibration_metrics_from_freqs(
             w_sum = weights.sum()
             if w_sum > 0:
                 weights /= w_sum
-
-            calibration_mae = np.sum(diffs * weights)
-            calibration_std = np.sqrt(np.sum(((diffs - calibration_mae) ** 2) * weights))
+                calibration_mae = np.sum(diffs * weights)
+                calibration_std = np.sqrt(np.sum(((diffs - calibration_mae) ** 2) * weights))
+            else:
+                # Every bin is empty: there is nothing to measure. A zero here would read as a perfectly calibrated model.
+                calibration_mae, calibration_std = np.nan, np.nan
         else:
             calibration_mae = np.mean(diffs)
             calibration_std = np.sqrt(np.mean((diffs - calibration_mae) ** 2))

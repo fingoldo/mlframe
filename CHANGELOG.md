@@ -20,6 +20,7 @@ history.
 - `fe_provenance_` labels the columns admitted by the auto-escalation (`esc_*`) with the origin `escalation`, and the escalation writes its admissions to `fe_admission_ledger_` (stage `escalation`), so where such a column came from is readable without instrumenting the fit.
 
 ### Fixed
+- The calibration MAE with weights reports NaN when every bin is empty; it used to report 0, which reads as a perfectly calibrated model. Populated curves are unchanged.
 - The two-feature partial-dependence chart caps a categorical axis to `CATEGORICAL_PDP_MAX_CATEGORIES` labels, the most frequent ones in the sample, as the one-feature chart already did. A column with thousands of categories used to produce a surface with one row per category and predict over sample x categories rows per outer value.
 - `weighted_kappa` / `quadratic_weighted_kappa` take the classes that occur, ranked in value order, when `n_classes` is not given. A label value that never occurs used to count as an empty class: the weights changed (the same ratings coded 0, 1, 2 and 0, 1, 3 gave kappas of 0.676 and 0.638) and a large label value allocated a matrix of that size. An explicit `n_classes` is unchanged.
 - Refitting an `MRMR` instance drops the process-wide fit-cache entries that point at it. The cache held the live instance, so a later fit on the first data could replay the state of the refit on other data and return that fit's `support_`.
