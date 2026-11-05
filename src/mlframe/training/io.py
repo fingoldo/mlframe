@@ -578,6 +578,21 @@ def _verify_bundle_digest(bundle_path: str, handle=None) -> None:
         raise UnverifiedBundleError(f"load_mlframe_model: sha256 of {bundle_path!r} does not match its save sidecar; refusing to unpickle.")
 
 
+def _open_verified_bundle(file: str):
+    """Open ``file`` once and verify its digest against that handle; the handle is returned for the load, or ``None`` when the file is missing."""
+    try:
+        fh = open(file, "rb")
+    except OSError:
+        fh = None  # a missing or unreadable bundle fails in the load below, as before
+    try:
+        _verify_bundle_digest(file, fh)
+    except BaseException:
+        if fh is not None:
+            fh.close()
+        raise
+    return fh
+
+
 def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = False) -> Optional[object]:
     """
     Load an mlframe model from a compressed file.
@@ -630,16 +645,7 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
         # (previous) with no sidecar; that's a back-compat path with a
         # one-line INFO message in the helper.
         # One open for the digest and the load: the bytes that match the recorded digest are the bytes unpickled.
-        try:
-            _bundle_fh = open(file, "rb")
-        except OSError:
-            _bundle_fh = None  # a missing or unreadable bundle fails in the load below, as before
-        try:
-            _verify_bundle_digest(file, _bundle_fh)
-        except BaseException:
-            if _bundle_fh is not None:
-                _bundle_fh.close()
-            raise
+        _bundle_fh = _open_verified_bundle(file)
         try:
             validate_load_meta_sidecar(file, strict=strict_version)
         except ValueError:

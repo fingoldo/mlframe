@@ -139,6 +139,20 @@ def _load_features_file(features_file: str):
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
+def _read_verified_model_payload(model_file: str, featureset: str) -> Optional[bytes]:
+    """The model file's bytes if its sha256 sidecar matches them, else ``None`` (logged; the caller skips the model)."""
+    try:
+        with open(model_file, "rb") as fh:
+            payload = fh.read()
+    except OSError as e:
+        logger.warning("Could not read model file %s of featureset %s: %s", model_file, featureset, e)
+        return None
+    if not _verify_sidecar_payload(model_file, payload):
+        logger.error("sha256 mismatch for model %s; skipping", model_file)  # per file: a skipped model changes the ensemble, so none may be dropped
+        return None
+    return payload
+
+
 def read_trained_models(
     featureset: str,
     X: pd.DataFrame,
@@ -233,14 +247,8 @@ def read_trained_models(
             continue
         # One read: the digest is checked against these bytes and the same bytes are unpickled, so a payload swapped on disk
         # between the check and the load cannot pass.
-        try:
-            with open(model_file, "rb") as _fh:
-                _model_payload = _fh.read()
-        except OSError as e:
-            logger.warning("Could not read model file %s of featureset %s: %s", model_file, featureset, e)
-            continue
-        if not _verify_sidecar_payload(model_file, _model_payload):
-            logger.error("sha256 mismatch for model %s; skipping", model_file)  # per file: a skipped model changes the ensemble, so none may be dropped
+        _model_payload = _read_verified_model_payload(model_file, featureset)
+        if _model_payload is None:
             continue
         # Validate the .meta.json sidecar before unpickling so library-version drift gets a WARN log instead of
         # producing a cryptic AttributeError deep inside predict(). Non-fatal: legacy bundles (no sidecar) keep
