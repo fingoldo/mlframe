@@ -40,3 +40,10 @@ def test_the_fast_path_is_taken_for_a_string_column(monkeypatch):
     out = internals.group_key_strings(pd.Series(["u", "v", "u"], dtype="string[pyarrow]"))
     assert out.tolist() == ["u", "v", "u"]
     assert calls == []
+
+
+@pytest.mark.parametrize("values", [["a", "b", "a", "c"], ["a", None, "b", "a"], [1, 2, 1, 3], [1.0, 2.5, 1.0, np.nan], [True, False, True, True]])
+def test_categorical_columns_give_the_per_row_tokens(values):
+    """A categorical column gets one token per category and a gather by code: strings, a missing value, integers, floats with NaN and booleans."""
+    col = pd.Series(values).astype("category")
+    assert group_key_strings(col).tolist() == _per_row(col).tolist()

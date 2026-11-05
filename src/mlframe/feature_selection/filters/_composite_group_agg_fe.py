@@ -103,7 +103,7 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
     join unambiguous). The result is an object ndarray usable as a group key by
     the Layer 87 per-group machinery and as a dict key in the replay lookup.
     """
-    from ._internals import canonical_group_token, canonical_group_tokens
+    from ._internals import canonical_group_token, canonical_group_tokens, categorical_group_tokens
 
     parts = []
     for c in group_cols:
@@ -114,7 +114,9 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
         # change the whole composite key and miss every per-cell lookup. The
         # per-unique map keeps the low-cardinality hot path cheap. Nulls keep the
         # explicit branch (None -> "" while NaN -> the canonical 'nan').
-        if pd.api.types.infer_dtype(ser, skipna=False) == "string":
+        if isinstance(ser.dtype, pd.CategoricalDtype):
+            parts.append(categorical_group_tokens(ser))
+        elif pd.api.types.infer_dtype(ser, skipna=False) == "string":
             # every value is a str (no missing value, no mixed types): its canonical token is the string itself, and np.unique would sort 300000 Python strings (1.1 s of 1.6 s)
             parts.append(np.asarray(ser.astype(object).to_numpy()))
         elif not ser.isna().any():

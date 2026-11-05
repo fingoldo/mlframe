@@ -240,6 +240,16 @@ def canonical_group_tokens(values: np.ndarray) -> np.ndarray:
         toks[i] = canonical_group_token(values[i])
     return toks
 
+def categorical_group_tokens(col: pd.Series) -> np.ndarray:
+    """Object array of per-row canonical group keys of a categorical column, from one token per CATEGORY and a gather by the category codes.
+
+    The same strings ``col.astype(object).map(canonical_group_token)`` gives: a missing value (code -1) is the token of a float NaN, ``'nan'``."""
+    cats = col.cat.categories
+    toks = np.empty(len(cats) + 1, dtype=object)
+    toks[:-1] = [canonical_group_token(v) for v in cats]
+    toks[-1] = canonical_group_token(float("nan"))
+    return toks[col.cat.codes.to_numpy().astype(np.int64)]
+
 def group_key_strings(col: pd.Series) -> np.ndarray:
     """Object array of per-row canonical group keys (int<->float drift safe).
 
@@ -251,6 +261,10 @@ def group_key_strings(col: pd.Series) -> np.ndarray:
     so a fit-int / predict-float dtype drift still hits the per-group entry
     instead of falling through to the global value. NaN -> ``'nan'``,
     None -> ``'None'`` (unchanged); non-integral floats keep their repr."""
+    import pandas as pd
+
+    if isinstance(col.dtype, pd.CategoricalDtype):
+        return categorical_group_tokens(col)
     arr = col.to_numpy()
     if arr.dtype.kind in ("i", "u", "b"):
         # Integral / bool: native dtype already collapses 1 and 1.0 to "1" via
