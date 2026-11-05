@@ -27,14 +27,6 @@
   "src/mlframe/feature_selection/filters/_dcor_gpu.py": {
     "dcor_cols": "reviewed 2026-11-05: float32 values with double sums measured 45 ms against 46-49 ms (no gain, the double accumulations set the time); the host loads float64 on purpose (dvar2_x is a cancellation)."
   },
-  "src/mlframe/feature_selection/filters/_fe_batched_mi.py": {
-    "mi_from_codes": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "mi_from_codes_cm_i16": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "mi_from_counts_col": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "mi_from_values": "reviewed 2026-11-05: the double source is the template of the float32 kernel (mi_*_f32 is made from it by renaming and a float edge type, edges rounded up); the dispatcher picks one by the launched buffer dtype; scripts/kernel_dtype_audit.py found no mismatching launch.",
-    "mi_hist_split": "reviewed 2026-11-05: the double source is the template of the float32 kernel (mi_*_f32 is made from it by renaming and a float edge type, edges rounded up); the dispatcher picks one by the launched buffer dtype; scripts/kernel_dtype_audit.py found no mismatching launch.",
-    "mi_mm_from_values": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
-  },
   "src/mlframe/feature_selection/filters/_fe_batched_mi_cmi_lut.py": {
     "rows_ent_nnz_i32_lut1": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
     "rows_ent_nnz_i32_lut4": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
