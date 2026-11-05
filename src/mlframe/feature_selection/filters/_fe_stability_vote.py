@@ -181,6 +181,33 @@ def _raw_fold_codes(X: Any, name: str, idx: np.ndarray, raw_set: set, n: int, nb
     return _quantile_bin(vals[idx], nbins=nbins)
 
 
+def _replay_codes_on_device(recipe: Any, X_fold: Any, nbins: int) -> Optional[np.ndarray]:
+    """Host int64 equi-frequency codes of the replayed ``unary_binary`` recipe on one fold, the column replayed and binned on the device; ``None`` when the device route does not apply
+    (strict-resident mode off, a recipe the device replay does not cover, or any device failure), and the caller replays on the host as before.
+
+    The values never visit the host: the replayed column stays resident, is cast the way the host binner casts it (criterion dtype, then the binner's float type) and binned by the
+    sync-free device binner; only the codes come back, as int16, instead of the float column and then the codes."""
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+
+        if not fe_gpu_strict_resident_enabled() or int(nbins) > 32767:
+            return None
+        import cupy as cp
+
+        from ._mi_greedy_cmi_fe_binning import _qbin_float_dtype, _sync_free_qbin_codes
+        from .engineered_recipes import apply_unary_binary_gpu_resident
+
+        column = apply_unary_binary_gpu_resident(recipe, X_fold)
+        if column is None:
+            return None
+        column = column.astype(_crit_np_dtype(), copy=False).astype(_qbin_float_dtype(), copy=False)
+        codes = _sync_free_qbin_codes(cp, column, int(nbins))
+        return np.asarray(cp.asnumpy(codes.astype(cp.int16))).astype(np.int64)
+    except Exception as exc:
+        logger.debug("Stability vote: the device replay of a recipe failed (%s: %s); replaying on the host.", type(exc).__name__, exc)
+        return None
+
+
 def _vote_recipe_over_folds(
     eng_name: str, recipe: Any, folds: list, X: Any, y_codes: np.ndarray, src_a: Optional[str], src_b: Optional[str], _alt_acceptance: bool,
     raw_set: set, n: int, nbins: int, _raw_col_cache: dict,
@@ -193,20 +220,25 @@ def _vote_recipe_over_folds(
     evaluated = 0
     for idx in folds:
         X_fold = _slice_fold(X, idx)
-        try:
-            eng_fold = np.asarray(apply_recipe(recipe, X_fold)).ravel()
-        except Exception as exc:
-            # A recipe that cannot replay on a fold is not penalised here -
-            # transform()-time replay safety is a separate concern. Skip the
-            # fold; if every fold fails to replay the recipe is left admitted.
-            logger.debug(
-                "Stability vote: recipe '%s' failed to replay on a fold (%s: %s); skipping fold.",
-                eng_name, type(exc).__name__, exc,
-            )
-            continue
-        if eng_fold.shape[0] != idx.shape[0]:
-            continue
-        eng_codes = _quantile_bin(np.asarray(eng_fold, dtype=_crit_np_dtype()), nbins=nbins)
+        eng_codes = _replay_codes_on_device(recipe, X_fold, nbins)
+        if eng_codes is not None:
+            if eng_codes.shape[0] != idx.shape[0]:
+                continue
+        else:
+            try:
+                eng_fold = np.asarray(apply_recipe(recipe, X_fold)).ravel()
+            except Exception as exc:
+                # A recipe that cannot replay on a fold is not penalised here -
+                # transform()-time replay safety is a separate concern. Skip the
+                # fold; if every fold fails to replay the recipe is left admitted.
+                logger.debug(
+                    "Stability vote: recipe '%s' failed to replay on a fold (%s: %s); skipping fold.",
+                    eng_name, type(exc).__name__, exc,
+                )
+                continue
+            if eng_fold.shape[0] != idx.shape[0]:
+                continue
+            eng_codes = _quantile_bin(np.asarray(eng_fold, dtype=_crit_np_dtype()), nbins=nbins)
         a_codes = _raw_fold_codes(X, src_a, idx, raw_set, n, nbins, _raw_col_cache) if src_a is not None else None
         b_codes = _raw_fold_codes(X, src_b, idx, raw_set, n, nbins, _raw_col_cache) if src_b is not None else None
         y_fold = y_codes[idx]

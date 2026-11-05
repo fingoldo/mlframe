@@ -357,11 +357,41 @@ def resident_qbin_codes(a: Any, nbins: int, dtype: Any, compute_fn: Any) -> Any:
     return codes
 
 
+_QBIN_HOST_CODES: "OrderedDict" = OrderedDict()
+_MAX_QBIN_HOST_ENTRIES = 32
+
+
+def resident_qbin_codes_host(a: Any, nbins: int, dtype: Any, compute_fn: Any) -> Any:
+    """Host int64 equi-frequency bin codes of host column ``a``: :func:`resident_qbin_codes` brought back to the host, narrow.
+
+    The codes are ``0..nbins-1``, so they cross the bus as int16 (a quarter of the bytes of the int64 the kernels index) and are widened on the host; the narrow host copy is cached
+    by the same content signature, so a repeat bin of identical content moves nothing at all. Values are identical to ``cp.asnumpy(resident_qbin_codes(...))``."""
+    import cupy as cp
+    import numpy as np
+
+    host = np.ascontiguousarray(np.asarray(a))
+    if _disabled() or int(nbins) > 32767:
+        return cp.asnumpy(resident_qbin_codes(host, nbins, dtype, compute_fn))
+    sig = (host.shape, host.dtype.str, _content_hash_memoized(host), int(nbins), str(dtype))
+    with _FE_RESIDENT_OPERANDS_LOCK:
+        hit = _QBIN_HOST_CODES.get(sig)
+        if hit is not None:
+            _QBIN_HOST_CODES.move_to_end(sig)
+            return hit.astype(np.int64)
+    narrow = cp.asnumpy(resident_qbin_codes(host, nbins, dtype, compute_fn).astype(cp.int16))
+    with _FE_RESIDENT_OPERANDS_LOCK:
+        _QBIN_HOST_CODES[sig] = narrow
+        if len(_QBIN_HOST_CODES) > _MAX_QBIN_HOST_ENTRIES:
+            _QBIN_HOST_CODES.popitem(last=False)  # evict-ok: a miss copies the codes back again
+    return narrow.astype(np.int64)
+
+
 def clear_fe_resident_operands() -> None:
     """Drop the fit-constant FE operand + qbin-code device caches (call at FE-step teardown; mirrors mempool free)."""
     with _FE_RESIDENT_OPERANDS_LOCK:
         _FE_RESIDENT_OPERANDS.clear()
         _FE_RESIDENT_QBIN_CODES.clear()
+        _QBIN_HOST_CODES.clear()
     clear_hash_memo()
 
 

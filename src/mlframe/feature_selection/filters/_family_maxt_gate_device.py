@@ -55,9 +55,8 @@ class _FamilyOnDevice:
         k_total = int(codes.shape[1])
         self.n, self.k_total = n, k_total
         n_x = (codes.max(axis=0) + 1).astype(cp.int64)
-        # The level counts of int8 codes are at most 128, so they cross to the host as int16 and are widened there (same values, a quarter of the bytes).
-        host_nx = cp.asnumpy(n_x.astype(cp.int16)).astype(np.int64) if codes.dtype.itemsize == 1 else cp.asnumpy(n_x)
-        cap = int(host_nx.max()) if host_nx.size else 0
+        # The host needs only the largest level count (the bit-set depth): one scalar crosses the bus, not the per-column vector (the same vector was copied once per family).
+        cap = int(n_x.max()) if k_total else 0
         words = (n + 63) // 64
         if n == 0 or k_total == 0 or not 1 <= cap <= MAX_BINS or not _v2_applies(cp, self.n_y, words):
             raise _NotApplicableError("shape outside the bit-set kernels")
@@ -84,7 +83,7 @@ class _FamilyOnDevice:
             mod.get_function("pack_bins")(((kg + 127) // 128, words), (128,), (codes, np.int64(n), np.int32(k_total), np.int32(lo), np.int32(kg), np.int32(words), bits, px))
             self.groups.append((lo, hi, bits, px, self.table[px].sum(axis=1)))
             occupied.append((px > 0).sum(axis=1))
-        self.nx_occ = cp.asnumpy(cp.concatenate(occupied)).astype(np.int64)
+        self.nx_occ = cp.asnumpy(cp.concatenate(occupied).astype(cp.int16)).astype(np.int64)  # occupied-level counts are at most MAX_BINS: int16 over the bus
 
     def _parts(self, cls_host: np.ndarray):
         """The ``(B, kg)`` MI block of every column group against the ``B`` label bit-set rows of ``cls_host``."""
