@@ -286,12 +286,13 @@ def pair_su_batch(
 
     # Per-pair joint dispatch. ``pair_su`` honours the same cache the
     # warmup populated, so this is the bit-equivalent fall-through.
+    unreadable_pairs: list = []  # pairs whose indices cannot be read score 0.0, set after the loop
     try:
         for i, ab in enumerate(pairs_list):
             try:
                 a, b = int(ab[0]), int(ab[1])
             except (TypeError, ValueError, IndexError):
-                out[i] = 0.0
+                unreadable_pairs.append(i)
                 continue
             out[i] = float(pair_su(
                 state, a, b,
@@ -302,6 +303,8 @@ def pair_su_batch(
     finally:
         if _joint_cache is not None:
             state._joint_entropy_batch_cache = None
+    for i in unreadable_pairs:
+        out[i] = 0.0
     return out
 
 

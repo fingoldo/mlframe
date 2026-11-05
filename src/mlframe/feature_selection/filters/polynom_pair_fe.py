@@ -772,11 +772,14 @@ def _run_polynom_pair_f_same_pairs_old_per(X_ndarr, _uncoercible):
     if X_ndarr.dtype == object:
         _Xf = np.empty(X_ndarr.shape, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
         _uncoercible = np.zeros(X_ndarr.shape[1], dtype=bool)
+        unreadable_columns: list = []
         for _j in range(X_ndarr.shape[1]):
             try:
                 _Xf[:, _j] = np.asarray(X_ndarr[:, _j], dtype=_crit_np_dtype())
             except (ValueError, TypeError):  # noqa: PERF203 - per-column coercion needs its own try; runs once per FE round, not hot
-                _Xf[:, _j] = np.nan
-                _uncoercible[_j] = True
+                unreadable_columns.append(_j)
+        for _j in unreadable_columns:
+            _Xf[:, _j] = np.nan
+            _uncoercible[_j] = True
         X_ndarr = _Xf
     return X_ndarr, _uncoercible

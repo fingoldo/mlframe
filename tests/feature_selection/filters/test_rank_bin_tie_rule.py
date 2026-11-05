@@ -48,7 +48,9 @@ def test_no_tie_group_straddles_two_bins(col):
     """Every distinct (non-NaN) value maps to exactly one bin."""
     x = _tied_columns()[col]
     codes = _quantile_bin_sorted_njit(x.copy(), 6)
-    for v in np.unique(x[~np.isnan(x)]):
+    values = np.unique(x[~np.isnan(x)])
+    assert values.size > 0, "the column has no non-NaN value"
+    for v in values:
         assert np.unique(codes[x == v]).size == 1
 
 

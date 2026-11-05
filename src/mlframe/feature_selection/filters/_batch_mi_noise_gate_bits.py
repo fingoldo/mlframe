@@ -124,7 +124,7 @@ def remember_observed(codes: Any, key: str, observed: np.ndarray) -> None:
 
     try:
         ref = weakref.ref(codes, _drop)
-    except TypeError:
+    except TypeError:  # best-effort: an array that cannot be weakly referenced is not remembered; the family gate then computes its own observed MI
         return
     with _OBSERVED_LOCK:
         _OBSERVED[ident] = (ref, key, observed)

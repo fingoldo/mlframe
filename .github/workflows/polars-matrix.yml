@@ -85,7 +85,7 @@ jobs:
         # pyutilz is not on PyPI; the narrow extras mlframe transitively imports, as in sklearn-matrix-ci.yml.
         run: |
           git clone https://github.com/fingoldo/pyutilz.git
-          git -C pyutilz checkout 38532cd5c943e4624bdb687c1c5fc4381779c573
+          git -C pyutilz checkout 6b512f2b6f7c9e353ee1831d0130b8b194c1706d
           pip install "./pyutilz[system,pandas,polars,database]"
 
       - name: Install mlframe and the test tooling

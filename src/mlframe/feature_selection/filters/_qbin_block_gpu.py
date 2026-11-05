@@ -10,6 +10,7 @@ the quantile edges are taken for all columns together with the same lerp the per
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Sequence
 
 import numpy as np
@@ -95,12 +96,15 @@ def _order_statistics_rows(cp, xd, n: int, nbins: int):
 
 
 _COUNT_KERNELS: dict = {}
+_COUNT_KERNELS_LOCK = threading.Lock()
 
 
 def _count_kernel(cp):
     """Elementwise kernel: ``out[j, i]`` = number of ``kept[j, :]`` entries ``<= (double) x[j, i]``."""
-    kern = _COUNT_KERNELS.get("k")
-    if kern is None:
+    with _COUNT_KERNELS_LOCK:
+        kern = _COUNT_KERNELS.get("k")
+        if kern is not None:
+            return kern
         kern = cp.ElementwiseKernel(
             "raw X x, raw float64 kept, int64 n, int32 ne",
             "raw int64 out",

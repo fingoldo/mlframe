@@ -243,7 +243,7 @@ def _radix_edges_in_column_blocks(cp, X_gpu, n_bins: int):
         limit = int(pool.get_limit() or 0)
         if limit:
             free = min(free, max(0, limit - int(pool.used_bytes())))
-    except Exception as _silent_exc:
+    except Exception as _silent_exc:  # best-effort: with no memory information one column per block is scored (slower, identical values)
         logger.debug("_hermite_fe_mi.py: suppressed %r", _silent_exc)
         free = 0
     width = max(1, min(k, (free // 3) // max(1, n * X_gpu.dtype.itemsize)))  # the block, its transpose and the kernel scratch

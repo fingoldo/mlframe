@@ -21,7 +21,9 @@ def test_group_splits_never_share_a_group_between_train_and_validation():
 def test_time_ordered_splits_validate_only_on_later_rows():
     """Forward-chaining folds validate strictly after their training rows."""
     finite = np.ones(100, dtype=bool)
-    for tr, va in st._meta_cv_splits(100, finite, None, True):
+    splits = list(st._meta_cv_splits(100, finite, None, True))
+    assert splits, "the forward-chaining helper produced no fold"
+    for tr, va in splits:
         assert tr.max() < va.min()
 
 

@@ -66,11 +66,11 @@ def _screen_matrices(self, df, _usable_features_list, train_idx_screen, *, _bin_
     the per-base dedup reads instead; the eager path returns the float matrix and its (cached) prebinned codes.
     """
     _streamed_dedup = None
-    _lazy_force = os.environ.get("MLFRAME_DISCOVERY_LAZY_PREBIN", "").strip().lower()
+    _lazy_set = "MLFRAME_DISCOVERY_LAZY_PREBIN" in os.environ
     _lazy_eligible = _bin_estimator and _is_polars_df(df) and len(_usable_features_list) > 0
-    if _lazy_force in ("0", "false", "no", "off"):
+    if _lazy_set and not env_flag("MLFRAME_DISCOVERY_LAZY_PREBIN", True):
         _use_lazy_prebin = False
-    elif _lazy_force in ("1", "true", "yes", "on"):
+    elif _lazy_set and env_flag("MLFRAME_DISCOVERY_LAZY_PREBIN", False):
         _use_lazy_prebin = _lazy_eligible
     else:
         _use_lazy_prebin = _lazy_eligible and train_idx_screen.size >= _lazy_prebin_floor()

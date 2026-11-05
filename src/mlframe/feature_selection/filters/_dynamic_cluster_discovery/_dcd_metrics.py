@@ -29,7 +29,7 @@ def _same_view(a, b) -> bool:
         return False
     try:
         return bool(a.strides == b.strides and a.__array_interface__["data"][0] == b.__array_interface__["data"][0])
-    except (AttributeError, KeyError):
+    except (AttributeError, KeyError):  # best-effort: an object without the array interface is compared by memory overlap instead
         return bool(np.may_share_memory(a, b))
 
 

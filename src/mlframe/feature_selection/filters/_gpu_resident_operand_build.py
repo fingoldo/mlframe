@@ -171,6 +171,7 @@ def _group_raw_operands(col_specs, fb):
 def _upload_dtype_groups(cp, _groups):
     """One device upload per dtype group (the column-stacked host matrix); a failed group is recorded as None so its columns take the per-column path."""
     _dev_groups: dict = {}  # dtype_key -> device (n, m) array (ONE H2D per dtype group)
+    failed_groups: list = []
     for _dk, cols in _groups.items():
         try:
             _host = np.ascontiguousarray(np.column_stack(cols)) if len(cols) > 1 else np.ascontiguousarray(cols[0]).reshape(-1, 1)
@@ -184,7 +185,9 @@ def _upload_dtype_groups(cp, _groups):
                 _dk,
                 e,
             )
-            _dev_groups[_dk] = None
+            failed_groups.append(_dk)
+    for _dk in failed_groups:
+        _dev_groups[_dk] = None
     return _dev_groups
 
 def _batched_unary_prepass(cp, col_specs, _raw_slot, _dev_groups, fb, g, n, n_operands):

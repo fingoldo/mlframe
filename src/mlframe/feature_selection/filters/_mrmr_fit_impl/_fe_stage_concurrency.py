@@ -77,14 +77,24 @@ def _same(a: Any, b: Any) -> bool:
 
                 return bool(cp.array_equal(a, b))
             return bool(np.array_equal(a, b))
-        except Exception:
+        except Exception:  # best-effort: values that cannot be compared are treated as different, so the stage state is kept apart
             return False
     if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
         return type(a) is type(b) and len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
     try:
         return bool(a == b)
-    except Exception:
+    except Exception:  # best-effort: values that cannot be compared are treated as different, so the stage state is kept apart
         return False
+
+
+def _synchronize_device(device_id: int) -> None:
+    """Wait for all work queued on ``device_id`` so a timer stopped after it measures completion; a host without cupy has nothing to wait for."""
+    try:
+        import cupy as cp
+    except ImportError:  # best-effort: no cupy means no device work to wait for
+        return
+    with cp.cuda.Device(device_id):
+        cp.cuda.Device().synchronize()
 
 
 def merge_stage_state(target: Any, base: "dict[str, Any]", stage_copies: Sequence[Any]) -> None:
@@ -175,6 +185,7 @@ def run_stages_concurrently(
             with fe_deadline_scope(deadline), fit_context_scope(context), stage_device_slot(slots[i], i):
                 return stages[i](copies[i])
         finally:
+            _synchronize_device(slots[i].device_id)  # the wall is the stage's work, not the launch of its last kernel
             walls[i] = time.perf_counter() - t0
 
     from .._edge_pool import concurrent_stages

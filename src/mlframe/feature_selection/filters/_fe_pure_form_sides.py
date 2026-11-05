@@ -36,25 +36,25 @@ def _side_values(recipe: Any, X: Any) -> "list[np.ndarray] | None":
 def drop_forms_not_beating_their_sides(candidates: list, X: Any, y: np.ndarray, *, classification: bool, seed: int, n_folds: int = 3, improve_rel: float = 0.01) -> list:
     """``candidates`` without the pair forms whose CV loss is not below ``(1 - improve_rel)`` times the better side's; raw passthroughs and forms
     whose sides cannot be replayed are kept unchanged."""
-    kept = []
+    keep: "list[bool]" = []  # one verdict per candidate, in order; a candidate that cannot be judged is kept unchanged
     for cand in candidates:
         recipe = getattr(cand, "recipe", None)
         if recipe is None:
-            kept.append(cand)
+            keep.append(True)
             continue
         try:
             sides = _side_values(recipe, X)
             if sides is None:
-                kept.append(cand)
+                keep.append(True)
                 continue
             form_loss = cv_loss(cand.values, y, classification, n_folds, seed)
             side_loss = min(cv_loss(s, y, classification, n_folds, seed) for s in sides)
         except Exception as exc:
             logger.debug("pure-form side check skipped for %s: %s", getattr(cand, "name", "?"), exc)
-            kept.append(cand)
+            keep.append(True)
             continue
-        if form_loss < (1.0 - improve_rel) * side_loss:
-            kept.append(cand)
-        else:
+        beats = form_loss < (1.0 - improve_rel) * side_loss
+        keep.append(beats)
+        if not beats:
             logger.debug("pure-form retention: %s does not beat its better side (CV loss %.5f vs %.5f); dropped", cand.name, form_loss, side_loss)
-    return kept
+    return [cand for cand, verdict in zip(candidates, keep) if verdict]

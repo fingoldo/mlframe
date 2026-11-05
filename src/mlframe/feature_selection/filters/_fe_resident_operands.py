@@ -373,13 +373,12 @@ def resident_qbin_codes_host(a: Any, nbins: int, dtype: Any, compute_fn: Any) ->
     if _disabled() or int(nbins) > 32767:
         return cp.asnumpy(resident_qbin_codes(host, nbins, dtype, compute_fn))
     sig = (host.shape, host.dtype.str, _content_hash_memoized(host), int(nbins), str(dtype))
-    with _FE_RESIDENT_OPERANDS_LOCK:
+    with _FE_RESIDENT_OPERANDS_LOCK:  # the test and the write are one step, as in ``resident_qbin_codes`` (the lock is reentrant)
         hit = _QBIN_HOST_CODES.get(sig)
         if hit is not None:
             _QBIN_HOST_CODES.move_to_end(sig)
             return hit.astype(np.int64)
-    narrow = cp.asnumpy(resident_qbin_codes(host, nbins, dtype, compute_fn).astype(cp.int16))
-    with _FE_RESIDENT_OPERANDS_LOCK:
+        narrow = cp.asnumpy(resident_qbin_codes(host, nbins, dtype, compute_fn).astype(cp.int16))
         _QBIN_HOST_CODES[sig] = narrow
         if len(_QBIN_HOST_CODES) > _MAX_QBIN_HOST_ENTRIES:
             _QBIN_HOST_CODES.popitem(last=False)  # evict-ok: a miss copies the codes back again
