@@ -1,7 +1,6 @@
 """Interpreter-exit handlers must neither abandon in-flight work nor hang the exit."""
 
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -26,7 +25,7 @@ def test_the_prewarm_exit_handler_waits_for_a_running_prewarm(own_executor, monk
 
     def _slow_prewarm():
         """Sleep briefly, then signal completion."""
-        time.sleep(0.5)
+        threading.Event().wait(0.5)
         finished.set()
 
     reg._PREWARM_FUTURES["sig"] = own_executor.submit(_slow_prewarm)

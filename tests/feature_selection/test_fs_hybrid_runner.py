@@ -7,8 +7,8 @@ would let one hung cell hold a machine for a day while the run looked healthy.
 
 from __future__ import annotations
 
-import time
-from typing import Any, Dict, List
+import threading
+from typing import Any
 
 import pytest
 
@@ -16,7 +16,7 @@ from mlframe.feature_selection._benchmarks.fs_hybrid._runner_pool import CellPoo
 from mlframe.feature_selection._benchmarks.fs_hybrid._tiers import SOURCES, TIERS, estimate, format_estimate, get_tier, median_cell_seconds, scenarios_for
 
 
-def _record(arm: str, wall: float, status: str = "ok", drained: bool = True) -> Dict[str, Any]:
+def _record(arm: str, wall: float, status: str = "ok", drained: bool = True) -> dict[str, Any]:
     """Build one stored cell carrying a timing."""
     return {"arm": arm, "status": status, "wall_time_s": wall, "memo_drained": drained}
 
@@ -161,13 +161,13 @@ def test_prewarm_reports_whether_it_completed() -> None:
     assert prewarm_kernels() is True
 
 
-def _sleep_forever(seconds: float) -> Dict[str, Any]:
+def _sleep_forever(seconds: float) -> dict[str, Any]:
     """A cell that does not come back, for the timeout to stop."""
-    time.sleep(seconds)
+    threading.Event().wait(seconds)
     return {"status": "ok"}
 
 
-def _quick(value: int) -> Dict[str, Any]:
+def _quick(value: int) -> dict[str, Any]:
     """A cell that returns immediately."""
     return {"status": "ok", "value": value}
 
@@ -192,7 +192,7 @@ def test_pool_stops_a_cell_that_exceeds_its_budget_and_records_it() -> None:
     The surviving jobs matter as much as the killed one: terminating the whole pool would discard the work
     every other worker had in flight, which is why each slot owns its own process.
     """
-    jobs: List[Any] = [("hung", _sleep_forever, (600.0,))] + [(index, _quick, (index,)) for index in range(3)]
+    jobs: list[Any] = [("hung", _sleep_forever, (600.0,))] + [(index, _quick, (index,)) for index in range(3)]
 
     with CellPool(workers=2, threads=1, timeout_s=5.0, heartbeat_s=1e6) as pool:
         outcomes = {outcome.key: outcome for outcome in pool.map(jobs)}

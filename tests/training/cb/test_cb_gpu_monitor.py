@@ -5,6 +5,7 @@ monitor is driven through a fake ``train_dir`` with synthetic ``time_left.tsv`` 
 """
 from __future__ import annotations
 
+import threading
 import logging
 import os
 
@@ -106,9 +107,11 @@ def test_two_guards_get_distinct_train_dirs():
 class _Clock:
     """Manually advanced monotonic clock."""
     def __init__(self):
+        """Init."""
         self.t = 1000.0
 
     def __call__(self):
+        """Call."""
         return self.t
 
 
@@ -197,7 +200,7 @@ def test_monitor_thread_polls_and_stops(tmp_path):
 
     deadline = time.time() + 5
     while mon.polls < 2 and time.time() < deadline:
-        time.sleep(0.01)
+        threading.Event().wait(0.01)
     mon.stop()
     assert mon.polls >= 2 and not mon.alive
 
@@ -293,6 +296,7 @@ def test_zero_time_budget_mins_on_a_callback_means_no_limit():
         """Callback stub carrying a time budget."""
 
         def __init__(self, mins):
+            """Init."""
             self.time_budget_mins = mins
 
     assert m._time_budget_from_callbacks([_Cb(0)]) is None

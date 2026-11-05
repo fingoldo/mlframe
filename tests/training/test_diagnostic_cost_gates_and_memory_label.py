@@ -15,6 +15,7 @@ now goes through one helper, and the message says which quantity it is.
 from __future__ import annotations
 
 
+import threading
 import numpy as np
 import pandas as pd
 import pytest
@@ -118,13 +119,12 @@ class TestTheMemoryMeasureIsNamed:
 
     def test_the_phase_table_labels_its_memory_column(self):
         """The column used to say "net RSS" on a platform where the number is private commit."""
-        import time
 
         from mlframe.training.phases import format_phase_summary, phase, reset_phase_registry
 
         reset_phase_registry()
         with phase("p"):
-            time.sleep(0.01)
+            threading.Event().wait(0.01)
         assert f"net {memory_measure_name()}" in format_phase_summary()
 
     def test_the_two_reporting_paths_agree(self):

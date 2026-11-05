@@ -2,7 +2,6 @@
 
 import os
 import threading
-import time
 
 import pytest
 
@@ -17,7 +16,7 @@ def test_a_late_writer_lands_on_a_scratch_path_not_the_target(tmp_path, monkeypa
     def _slow_write(fig, path, opts=None):
         """Write the file after a delay that outlives the timeout."""
         started.set()
-        time.sleep(1.5)  # outlives the timeout below
+        threading.Event().wait(1.5)  # outlives the timeout below
         with open(path, "w", encoding="utf-8") as f:
             f.write("late writer")
         wrote.set()

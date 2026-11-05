@@ -27,18 +27,24 @@ def test_polyeval_sweep_disables_cuda_when_it_never_wins(monkeypatch):
     # 2ms cuda sleep below, making njit_par spuriously the LOSER at large n (flaky). Return a cached tiny array
     # so njit_par is reliably microseconds at every swept n -> the "cuda never wins" world the test asserts.
     _tiny = np.zeros(1)
-    fast = lambda x, c: _tiny
+    def fast(x, c):
+        """Return the cached tiny array."""
+        return _tiny
+
     monkeypatch.setattr(mod, "_NJIT_FUNCS", {b: fast for b in ("hermite", "legendre", "chebyshev", "laguerre")}, raising=False)
     monkeypatch.setattr(mod, "_NJIT_PAR_FUNCS", {b: fast for b in ("hermite", "legendre", "chebyshev", "laguerre")}, raising=False)
 
-    # Make _polyeval_cuda deliberately slow so it never beats njit_par.
-    import time
+    # Make _polyeval_cuda deliberately slow so it never beats njit_par: the sweep reads a fake clock that only the cuda stand-in advances.
+    from types import SimpleNamespace
+
+    now = [0.0]
 
     def slow_cuda(basis, x, c):
         """Slow cuda."""
-        time.sleep(0.002)
+        now[0] += 0.002
         return np.zeros_like(x)
 
+    monkeypatch.setattr(mod, "time", SimpleNamespace(perf_counter=lambda: now[0]))
     monkeypatch.setattr(mod, "_polyeval_cuda", slow_cuda, raising=False)
 
     regions = mod._run_sweep_polyeval(n_iters=1)

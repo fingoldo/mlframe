@@ -12,7 +12,6 @@ something: nothing differs afterwards, and the set that moves cannot grow silent
 from __future__ import annotations
 
 import threading
-import time
 
 import numpy as np
 import pandas as pd
@@ -60,7 +59,7 @@ def _fit_while_polling(est, X, y):
             for key, value in before.items():
                 if key in now and now[key] != value and key not in seen:
                     seen[key] = (value, now[key])
-            time.sleep(0.001)
+            stop.wait(0.001)
 
     watcher = threading.Thread(target=poll, daemon=True)
     watcher.start()

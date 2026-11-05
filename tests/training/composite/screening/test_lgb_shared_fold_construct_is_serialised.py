@@ -9,7 +9,6 @@ parallel, which is where the rerank's time actually goes.
 from __future__ import annotations
 
 import threading
-import time
 
 import numpy as np
 
@@ -20,6 +19,7 @@ class _ConcurrencyProbe:
     """Stands in for ``lightgbm.Dataset``, recording how many threads are inside ``construct`` at once."""
 
     def __init__(self, data, label=None, params=None, free_raw_data=True):
+        """Init."""
         self.data = data
         self.label = label
 
@@ -28,7 +28,7 @@ class _ConcurrencyProbe:
         with _STATE["lock"]:
             _STATE["live"] += 1
             _STATE["peak"] = max(_STATE["peak"], _STATE["live"])
-        time.sleep(0.02)
+        threading.Event().wait(0.02)
         with _STATE["lock"]:
             _STATE["live"] -= 1
         return self
@@ -43,7 +43,7 @@ _STATE = {"lock": threading.Lock(), "live": 0, "peak": 0}
 
 def _fake_train(params, ds, num_boost_round=0):
     """Stand-in booster: training is deliberately left parallel, so it only needs to take some time."""
-    time.sleep(0.01)
+    threading.Event().wait(0.01)
     return object()
 
 

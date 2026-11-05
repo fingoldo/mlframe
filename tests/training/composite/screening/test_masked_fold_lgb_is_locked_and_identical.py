@@ -8,7 +8,6 @@ serialisation. Masked folds now build their dataset under the same lock, cached 
 from __future__ import annotations
 
 import threading
-import time
 
 import numpy as np
 import pytest
@@ -44,6 +43,7 @@ class _ConcurrencyProbe:
     """Stands in for ``lightgbm.Dataset``, recording how many threads construct at once."""
 
     def __init__(self, data, label=None, params=None, free_raw_data=True):
+        """Init."""
         self.label = label
 
     def construct(self):
@@ -51,7 +51,7 @@ class _ConcurrencyProbe:
         with _STATE["lock"]:
             _STATE["live"] += 1
             _STATE["peak"] = max(_STATE["peak"], _STATE["live"])
-        time.sleep(0.02)
+        threading.Event().wait(0.02)
         with _STATE["lock"]:
             _STATE["live"] -= 1
         return self

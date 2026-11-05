@@ -9,33 +9,59 @@ not limit the group; it picks a victim.
 from __future__ import annotations
 
 import logging
-import time
+from types import SimpleNamespace
 
 import pytest
 
+from mlframe.training.reporting import _diagnostics_budget
 from mlframe.training.reporting._diagnostics_budget import DiagnosticsBudget
+
+
+class _Clock:
+    """A hand-advanced stand-in for ``time.perf_counter``."""
+
+    def __init__(self):
+        """Init."""
+        self.now = 1000.0
+
+    def __call__(self):
+        """Call."""
+        return self.now
+
+    def advance(self, seconds):
+        """Advance."""
+        self.now += seconds
+        return self.now
+
+
+@pytest.fixture(autouse=True)
+def clock(monkeypatch):
+    """The budget reads this clock, so a test advances time instead of waiting for it."""
+    c = _Clock()
+    monkeypatch.setattr(_diagnostics_budget, "time", SimpleNamespace(perf_counter=c))
+    return c
 
 
 class TestTheGate:
     """When it lets a diagnostic through and when it does not."""
 
-    def test_runs_everything_while_there_is_budget(self):
+    def test_runs_everything_while_there_is_budget(self, clock):
         """A cheap block must be unaffected."""
         budget = DiagnosticsBudget(60.0)
         assert [budget.run(str(i), lambda i=i: i) for i in range(3)] == [0, 1, 2]
         assert budget.skipped == []
 
-    def test_skips_once_exhausted_and_names_what_it_skipped(self):
+    def test_skips_once_exhausted_and_names_what_it_skipped(self, clock):
         """A shortened report must never look like a complete one."""
         budget = DiagnosticsBudget(0.01)
-        time.sleep(0.02)
+        clock.advance(0.02)
         assert budget.run("pdp_ice", lambda: "drawn") is None
         assert budget.skipped == ["pdp_ice"]
 
-    def test_zero_disables_the_budget(self):
+    def test_zero_disables_the_budget(self, clock):
         """The escape hatch for a caller who wants the full report regardless of cost."""
         budget = DiagnosticsBudget(0.0)
-        time.sleep(0.01)
+        clock.advance(0.01)
         assert budget.exhausted() is False
         assert budget.run("shap", lambda: "drawn") == "drawn"
 
@@ -44,10 +70,10 @@ class TestTheGate:
         """An unset knob must not silently truncate the report."""
         assert DiagnosticsBudget(value or 0.0).exhausted() is False
 
-    def test_a_running_diagnostic_is_never_interrupted(self):
+    def test_a_running_diagnostic_is_never_interrupted(self, clock):
         """The gate is checked BETWEEN diagnostics: a half-drawn figure is worse than a missing one."""
         budget = DiagnosticsBudget(0.05)
-        result = budget.run("slow", lambda: (time.sleep(0.12), "finished")[1])
+        result = budget.run("slow", lambda: (clock.advance(0.12), "finished")[1])
         assert result == "finished"
         assert budget.skipped == []
         assert budget.exhausted() is True
@@ -56,7 +82,7 @@ class TestTheGate:
 class TestTheReport:
     """What the operator is told."""
 
-    def test_nothing_skipped_says_nothing(self, caplog):
+    def test_nothing_skipped_says_nothing(self, caplog, clock):
         """A complete report must not carry a warning about completeness."""
         budget = DiagnosticsBudget(60.0)
         budget.run("a", lambda: None)
@@ -64,10 +90,10 @@ class TestTheReport:
             budget.report()
         assert caplog.records == []
 
-    def test_skips_are_reported_once_with_names_and_the_knob(self, caplog):
+    def test_skips_are_reported_once_with_names_and_the_knob(self, caplog, clock):
         """One line, naming every dropped diagnostic and how to get them back."""
         budget = DiagnosticsBudget(0.01)
-        time.sleep(0.02)
+        clock.advance(0.02)
         for name in ("pdp_ice", "shap", "slice_finder"):
             budget.run(name, lambda: None)
         with caplog.at_level(logging.WARNING, logger="mlframe.training.reporting._diagnostics_budget"):
@@ -81,25 +107,25 @@ class TestTheReport:
 class TestTheTimingBreakdown:
     """Which of the ~13 independent diagnostics under this one block actually dominates."""
 
-    def test_ran_diagnostics_are_timed_worst_first(self, caplog):
+    def test_ran_diagnostics_are_timed_worst_first(self, caplog, clock):
         """A profiler sees this whole block as one opaque phase; the breakdown is the only cheap way to
         tell which single diagnostic inside it is the real cost, without re-running under cProfile."""
         budget = DiagnosticsBudget(60.0)
-        budget.run("fast", lambda: time.sleep(0.01))
-        budget.run("slow", lambda: time.sleep(0.05))
+        budget.run("fast", lambda: clock.advance(0.01))
+        budget.run("slow", lambda: clock.advance(0.05))
         with caplog.at_level(logging.INFO, logger="mlframe.training.reporting._diagnostics_budget"):
             budget.report()
         text = " ".join(r.getMessage() for r in caplog.records)
         assert text.index("slow=") < text.index("fast=")
 
-    def test_a_skipped_diagnostic_is_not_timed(self):
+    def test_a_skipped_diagnostic_is_not_timed(self, clock):
         """Never ran, so it has no wall time to report -- it belongs in ``skipped``, not ``timings``."""
         budget = DiagnosticsBudget(0.01)
-        time.sleep(0.02)
+        clock.advance(0.02)
         budget.run("pdp_ice", lambda: "drawn")
         assert budget.timings == []
 
-    def test_nothing_ran_logs_no_breakdown_line(self, caplog):
+    def test_nothing_ran_logs_no_breakdown_line(self, caplog, clock):
         """An empty block must not print an empty breakdown."""
         budget = DiagnosticsBudget(60.0)
         with caplog.at_level(logging.INFO, logger="mlframe.training.reporting._diagnostics_budget"):
@@ -110,7 +136,7 @@ class TestTheTimingBreakdown:
 class TestTheConfigKnob:
     """The default has to be larger than a normal block and smaller than the runaway one."""
 
-    def test_default_exists_and_is_a_real_budget(self):
+    def test_default_exists_and_is_a_real_budget(self, clock):
         """0 would mean no budget at all, which is the state this fix exists to end."""
         from mlframe.training._reporting_configs import ReportingConfig
 
@@ -149,11 +175,11 @@ class TestHeavyDiagnosticsScope:
         """The model the report is actually about keeps its full explanation set."""
         assert self._budget("best", is_primary=True).run(name, lambda: "drawn") == "drawn"
 
-    def test_all_mode_restores_the_previous_behaviour(self):
+    def test_all_mode_restores_the_previous_behaviour(self, clock):
         """A caller who wants a surface per variant must be able to have one."""
         assert self._budget("all", is_primary=False).run("shap", lambda: "drawn") == "drawn"
 
-    def test_out_of_scope_is_reported_separately_from_a_budget_skip(self, caplog):
+    def test_out_of_scope_is_reported_separately_from_a_budget_skip(self, caplog, clock):
         """ "Not applicable here" and "we ran out of time" are different facts and must not read alike."""
         budget = self._budget("best", is_primary=False)
         budget.run("shap", lambda: None)
@@ -163,7 +189,7 @@ class TestHeavyDiagnosticsScope:
         assert "restricted to the primary model" in text
         assert "INCOMPLETE" not in text
 
-    def test_default_mode_is_best(self):
+    def test_default_mode_is_best(self, clock):
         """The default has to be the one that stops the waste; "all" is the opt-in."""
         from mlframe.training._reporting_configs import ReportingConfig
 
