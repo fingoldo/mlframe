@@ -93,6 +93,7 @@ def bootstrap_metrics_clustered(
             logger.debug("clustered bootstrap metric %r failed on the full sample: %r", name, exc)
             results[name] = {"error": f"{type(exc).__name__}: {exc}"}
     samples: dict[str, list[float]] = {name: [] for name in points}
+    n_dropped: dict[str, int] = {name: 0 for name in points}
     for _ in range(n_bootstrap):
         if groups is not None:
             idx = cluster_resample_indices(rng, order, offsets)
@@ -104,16 +105,26 @@ def bootstrap_metrics_clustered(
                 v = float(metric_fns[name](yt, yp))
             except Exception as exc:
                 logger.debug("clustered bootstrap resample failed for %r: %r", name, exc)
+                n_dropped[name] += 1
                 continue
             if math.isfinite(v):
                 samples[name].append(v)
+            else:
+                n_dropped[name] += 1
     for name, pt in points.items():
         arr = np.asarray(samples[name], dtype=np.float64)
+        # A resample the metric could not score is left out of the interval; past a quarter of them the interval is built on a
+        # biased subset, so say so as the ordinary bootstrap does.
+        if n_dropped[name] > 0.25 * n_bootstrap:
+            logger.warning(
+                "clustered bootstrap for %r: %d of %d resamples dropped (failed or non-finite); the interval is built on the rest.",
+                name, n_dropped[name], n_bootstrap,
+            )
         if arr.size == 0:
-            results[name] = {"error": f"all {n_bootstrap} clustered resamples failed"}
+            results[name] = {"error": f"all {n_bootstrap} clustered resamples failed", "n_dropped": n_dropped[name]}
             continue
         lo, hi = _ci_from_samples(arr, pt, alpha, "percentile", None)
-        results[name] = {"point": pt, "lo": lo, "hi": hi, "samples": arr, "resampling": scheme}
+        results[name] = {"point": pt, "lo": lo, "hi": hi, "samples": arr, "resampling": scheme, "n_dropped": n_dropped[name]}
     return results
 
 
