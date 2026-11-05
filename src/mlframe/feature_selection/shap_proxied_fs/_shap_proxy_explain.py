@@ -72,7 +72,7 @@ def _build_oof_fold_fit_disk_key(model_template, X_tr_fold, y_tr_fold, classific
     cache is best-effort, never a correctness gate.
     """
     try:
-        from mlframe.utils.disk_cache import compose_key, hash_array_summary, hash_object
+        from mlframe.utils.disk_cache import compose_key, hash_array_content, hash_object
 
         try:
             params = model_template.get_params(deep=False)
@@ -80,8 +80,8 @@ def _build_oof_fold_fit_disk_key(model_template, X_tr_fold, y_tr_fold, classific
         except Exception as e:
             logger.debug("get_params(deep=False) failed, using repr() as the cache-key params: %s", e)
             params = {"_repr": repr(model_template)}
-        x_tr_key = hash_array_summary(X_tr_fold.values if hasattr(X_tr_fold, "values") else np.asarray(X_tr_fold))
-        y_tr_key = hash_array_summary(np.asarray(y_tr_fold))
+        x_tr_key = hash_array_content(X_tr_fold.values if hasattr(X_tr_fold, "values") else np.asarray(X_tr_fold))
+        y_tr_key = hash_array_content(np.asarray(y_tr_fold))
         state_key = hash_object({
             "seed": int(seed) if seed is not None else None,
             "jitter_depth": int(jitter_depth) if jitter_depth is not None else None,

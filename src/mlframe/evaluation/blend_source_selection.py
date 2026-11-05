@@ -20,6 +20,8 @@ import numpy.typing as npt
 from scipy.stats import spearmanr
 
 _PAIRWISE_MATRIX_WARN_N = 20_000
+#: Cells per row block when building the pairwise-comparison matrices; bounds the transient memory.
+_PAIRWISE_BLOCK_ELEMENTS = 4_000_000
 """Above this many members, the O(n^2) pairwise-comparison boolean matrices below get large enough
 (400M+ bool elements) to be worth a heads-up -- fine at the diagnostic-scale member counts (tens to
 thousands of blend-weight candidates) this function is designed for."""
@@ -94,11 +96,19 @@ def check_pairwise_score_correlation(
     # vectorized pairwise-comparison matrices instead of an O(n^2) Python double loop (44x faster at n=500,
     # bit-identical) -- broadcast each rank vector against itself to get every pair's ">" relation in one
     # pass, then compare the two boolean matrices only on the upper triangle (each unordered pair once).
-    a_gt = rank_a[:, None] > rank_a[None, :]
-    b_gt = rank_b[:, None] > rank_b[None, :]
-    iu = np.triu_indices(n, k=1)
-    total = iu[0].shape[0]
-    rank_agreement = float(np.sum(a_gt[iu] == b_gt[iu])) / total if total > 0 else 1.0
+    # Built in row blocks of at most _PAIRWISE_BLOCK_ELEMENTS cells: the full n x n matrices are n^2 bools each.
+    total = n * (n - 1) // 2
+    agree = 0
+    block = max(1, int(_PAIRWISE_BLOCK_ELEMENTS) // max(n, 1))
+    col = np.arange(n)
+    for start in range(0, n, block):
+        stop = min(n, start + block)
+        rows = np.arange(start, stop)
+        a_gt = rank_a[start:stop, None] > rank_a[None, :]
+        b_gt = rank_b[start:stop, None] > rank_b[None, :]
+        upper = col[None, :] > rows[:, None]
+        agree += int(np.count_nonzero((a_gt == b_gt) & upper))
+    rank_agreement = float(agree) / total if total > 0 else 1.0
 
     result: dict[str, Any] = {
         "spearman_correlation": corr,

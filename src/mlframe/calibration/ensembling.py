@@ -159,7 +159,7 @@ def _dispatch(p: np.ndarray, clip: float) -> np.ndarray:
         try:
             return _odds_combine_cupy(p, clip)
         except Exception as e:  # GPU path failed at runtime (OOM, driver hiccup) -> CPU fallback, never raise
-            logger.debug("_odds_combine_cupy failed, falling back to CPU: %s", e)
+            logger.warning("_odds_combine_cupy failed, falling back to CPU: %s", e)
             backend = "njit_parallel" if _NUMBA_AVAILABLE else "numpy"
     if not _NUMBA_AVAILABLE:
         return _odds_combine_numpy(p, clip)
@@ -179,7 +179,7 @@ def _dispatch_weighted(p: np.ndarray, w: np.ndarray, clip: float) -> np.ndarray:
         try:
             return _odds_combine_cupy_weighted(p, w, clip)
         except Exception as e:
-            logger.debug("_odds_combine_cupy_weighted failed, falling back to CPU: %s", e)
+            logger.warning("_odds_combine_cupy_weighted failed, falling back to CPU: %s", e)
             backend = "njit_parallel" if _NUMBA_AVAILABLE else "numpy"
     if not _NUMBA_AVAILABLE:
         return _odds_combine_numpy_weighted(p, w, clip)

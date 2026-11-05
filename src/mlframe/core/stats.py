@@ -75,6 +75,9 @@ def get_tukey_fences_multiplier_for_quantile(
         sd_sigma = get_sd_for_dist_percentage(nonoutlying_dist_percentage, dist=dist, **dist_kwargs)
 
     ppf = np.abs(dist.ppf(quantile, **dist_kwargs))
+    if ppf == 0.0:
+        # The median of a symmetric distribution: the fence multiplier divides by it and has no value there.
+        raise ValueError(f"get_tukey_fences_multiplier_for_quantile: quantile {quantile!r} is the median; the multiplier is undefined there.")
     return float((sd_sigma - ppf) / (2 * ppf))
 
 

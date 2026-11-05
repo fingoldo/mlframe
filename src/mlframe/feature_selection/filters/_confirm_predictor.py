@@ -60,7 +60,15 @@ logger = logging.getLogger(__name__)
 # dead code) for a workload shape a future host-specific measurement might favor. The parallel merge-back is
 # selection-identical to the serial path. ``n_workers`` is still accepted/threaded through regardless (other
 # call sites, e.g. the Fleuret conditional-confirmation gate further down, branch on it).
-_EVALUATE_CANDIDATES_POOL_ENABLED = os.environ.get("MLFRAME_MRMR_EVAL_POOL", "0").strip().lower() in ("1", "true", "on", "yes")
+#: Test override for the candidate-pool gate; ``None`` reads ``MLFRAME_MRMR_EVAL_POOL`` at call time.
+_EVALUATE_CANDIDATES_POOL_ENABLED: "bool | None" = None
+
+
+def _evaluate_candidates_pool_enabled() -> bool:
+    """Whether the candidate pool is on; the environment is read per call so it can change after import."""
+    if _EVALUATE_CANDIDATES_POOL_ENABLED is not None:
+        return bool(_EVALUATE_CANDIDATES_POOL_ENABLED)
+    return os.environ.get("MLFRAME_MRMR_EVAL_POOL", "0").strip().lower() in ("1", "true", "on", "yes")
 
 
 # ``_mrmr_fit_impl`` imports ``_extract_single_raw_parent`` from this module by name (raw-retention pass).
@@ -145,7 +153,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate: Any, 
         feasible_candidates.append((cand_idx, X, nexisting if reduce_gain_on_subelement_chosen else 0))
 
     if (
-        _EVALUATE_CANDIDATES_POOL_ENABLED
+        _evaluate_candidates_pool_enabled()
         and n_workers > 1
         and (not use_simple_mode or len(cached_MIs) < num_possible_candidates)
         and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS

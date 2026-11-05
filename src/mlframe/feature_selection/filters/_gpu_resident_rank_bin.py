@@ -77,7 +77,8 @@ _BIN_BOUNDARIES_LOCK = threading.Lock()
 def _bin_boundaries_dev(cp, n: int, n_bins: int):
     """Cached device (n_bins,) cumulative bin-size boundary vector for ``(n, n_bins)``; builds + uploads via
     :func:`_bin_boundaries` on a miss, returns the shared device array on a hit."""
-    key = (int(n), int(n_bins))
+    # Keyed by the current device as well: a device array lives on one GPU, and another device must not receive it.
+    key = (int(cp.cuda.get_device_id()), int(n), int(n_bins))
     with _BIN_BOUNDARIES_LOCK:
         hit = _BIN_BOUNDARIES_CACHE.get(key)
     if hit is None:

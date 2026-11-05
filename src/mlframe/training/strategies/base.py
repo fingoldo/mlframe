@@ -128,6 +128,13 @@ class _InfToNaNTransformer(TransformerMixin, BaseEstimator):
         import numpy as _np
         if hasattr(X, "replace") and hasattr(X, "columns"):  # pandas DataFrame
             return X.replace([_np.inf, -_np.inf], _np.nan)
+        if hasattr(X, "with_columns") and hasattr(X, "schema"):  # polars DataFrame: keep the frame, null-out infinities in float columns only
+            import polars as _pl
+
+            _float_cols = [c for c, dt in X.schema.items() if dt in (_pl.Float32, _pl.Float64)]
+            if not _float_cols:
+                return X
+            return X.with_columns([_pl.when(_pl.col(c).is_infinite()).then(None).otherwise(_pl.col(c)).alias(c) for c in _float_cols])
         arr = _np.asarray(X)
         if arr.dtype.kind == "f":  # float -> safe to test finiteness
             return _np.where(_np.isfinite(arr), arr, _np.nan)
@@ -181,16 +188,24 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
 
     def fit(self, X, y=None):
         """Fit the inner transformer on the detected numeric columns only; on non-frame input, fit it on the whole array since cats can't be identified by name."""
+        import copy as _copy
         import numpy as _np
+        from sklearn.base import clone as _clone
+        # Fit a copy: ``self.inner`` is the caller's constructor parameter and must stay unfitted (sklearn contract). A transformer
+        # that is not sklearn-cloneable (no ``get_params``) gets a deep copy instead.
+        try:
+            self._fitted_inner = _clone(self.inner)
+        except TypeError:
+            self._fitted_inner = _copy.deepcopy(self.inner)
         if hasattr(X, "columns"):
             self.feature_names_in_ = _np.asarray(list(X.columns))
             num_cols = self._num_cols(X)
             self._num_cols_ = num_cols
             if num_cols:
-                self.inner.fit(X[num_cols], y)
+                self._fitted_inner.fit(X[num_cols], y)
         else:
             self._num_cols_ = None
-            self.inner.fit(X, y)
+            self._fitted_inner.fit(X, y)
         _shape = getattr(X, "shape", None)
         if _shape is not None and len(_shape) >= 2:
             self.n_features_in_ = int(_shape[1])
@@ -199,11 +214,11 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
     def transform(self, X):
         """Transform the numeric block via the inner transformer and reassemble it back into original column order/names, leaving categoricals untouched."""
         if getattr(self, "_num_cols_", None) is None or not hasattr(X, "columns"):
-            return self.inner.transform(X)
+            return self._fitted_inner.transform(X)
         num_cols = self._num_cols_
         if not num_cols:
             return X
-        transformed = self.inner.transform(X[num_cols])
+        transformed = self._fitted_inner.transform(X[num_cols])
         if not hasattr(transformed, "columns"):
             import pandas as _pd
             # The inner transformer is expected to preserve the numeric block width (imputers configured with keep_empty_features=True, scalers, inf->NaN / float32 casts all do). If it nonetheless changed the column count -- e.g. a SimpleImputer left at its default keep_empty_features=False that dropped an all-NaN column -- recover the surviving column labels from get_feature_names_out so the reassembly maps each output column back to the right name instead of crashing the DataFrame constructor with a width mismatch.
@@ -213,7 +228,7 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
             else:
                 _out_cols = None
                 try:
-                    _names = list(self.inner.get_feature_names_out(num_cols))
+                    _names = list(self._fitted_inner.get_feature_names_out(num_cols))
                     if len(_names) == _n_out:
                         _out_cols = _names
                 except (AttributeError, ValueError, NotImplementedError, TypeError):

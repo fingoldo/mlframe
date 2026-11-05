@@ -17,7 +17,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `FS_HYBRID_RESULTS` | `RESULTS_PATH` | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/_report_blocks.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/_report_blocks.py#L205) |
 | `FS_HYBRID_SCENARIOS` | `'default'` | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/run_experiment.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/run_experiment.py#L315) |
 | `FULL_P_SWEEP` | — | [src/mlframe/feature_selection/_benchmarks/fs_quality/mrmr_largeN_campaign.py](../src/mlframe/feature_selection/_benchmarks/fs_quality/mrmr_largeN_campaign.py#L272) |
-| `HF_HOME` | — | [src/mlframe/training/feature_handling/hf_provider.py](../src/mlframe/training/feature_handling/hf_provider.py#L109) |
+| `HF_HOME` | — | [src/mlframe/training/feature_handling/hf_provider.py](../src/mlframe/training/feature_handling/hf_provider.py#L108) |
 | `HOSTNAME` | `'?'` | [src/mlframe/training/composite/discovery/_benchmarks/bench_mi_from_binned_pair_njit.py](../src/mlframe/training/composite/discovery/_benchmarks/bench_mi_from_binned_pair_njit.py#L79) |
 | `HYB_N` | `'1500'` | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/hybrid_opt_baseline.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/hybrid_opt_baseline.py#L31) |
 | `HYB_SEED` | `'0'` | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/hybrid_opt_baseline.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/hybrid_opt_baseline.py#L32) |
@@ -363,7 +363,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `PYUTILZ_KERNEL_DISABLE_SWEEP` | — | [src/mlframe/system/kernel_tuning_cache/_policy.py](../src/mlframe/system/kernel_tuning_cache/_policy.py#L86) |
 | `SCENE_N` | `'700'` | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_fs_campaign_profile.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_fs_campaign_profile.py#L22) |
 | `TQDM_DISABLE` | — | [src/mlframe/feature_selection/hybrid_selector.py](../src/mlframe/feature_selection/hybrid_selector.py#L178) |
-| `TRANSFORMERS_CACHE` | — | [src/mlframe/training/feature_handling/hf_provider.py](../src/mlframe/training/feature_handling/hf_provider.py#L111) |
+| `TRANSFORMERS_CACHE` | — | [src/mlframe/training/feature_handling/hf_provider.py](../src/mlframe/training/feature_handling/hf_provider.py#L110) |
 | `USER` | — | [src/mlframe/utils/private_temp.py](../src/mlframe/utils/private_temp.py#L23) |
 | `USERNAME` | — | [src/mlframe/utils/private_temp.py](../src/mlframe/utils/private_temp.py#L23) |
 | `WELLBORE_DUMP_AUDIT` | `'0'` | [src/mlframe/feature_selection/_benchmarks/profile_wellbore_mrmr_only_100k.py](../src/mlframe/feature_selection/_benchmarks/profile_wellbore_mrmr_only_100k.py#L34) |

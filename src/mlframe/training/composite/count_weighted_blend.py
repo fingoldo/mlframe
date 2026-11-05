@@ -112,11 +112,22 @@ class CountWeightedBlendEnsemble(RegressorMixin, BaseEstimator):
     def _select_k_via_cv(self, X: pd.DataFrame, y_arr: np.ndarray, meta_cols: list[str], fit_kwargs: dict[str, Any]) -> float:
         """Cross-validate the blend smoothing constant ``k`` over a grid and return the value with lowest mean squared error."""
         grid = list(self.k_grid) if self.k_grid is not None else list(DEFAULT_K_GRID)
-        kf = KFold(n_splits=self.k_cv, shuffle=True, random_state=self.random_state)
-        n = len(X)
-        sq_err_by_k: dict[float, list[np.ndarray]] = {k: [] for k in grid}
+        # Split by entity: a validation entity must be unseen in the fold's training rows, as a new entity is at predict time. A row
+        # split put almost every validation entity in training, so the selection never saw the cold-start case that k exists for.
+        from sklearn.model_selection import GroupKFold
 
-        for train_idx, val_idx in kf.split(np.arange(n)):
+        entities = X[self.entity_col].to_numpy()
+        n_entities = int(np.unique(entities).size)
+        if n_entities >= self.k_cv:
+            splits = list(GroupKFold(n_splits=self.k_cv).split(np.arange(len(X)), groups=entities))
+        else:
+            splits = list(KFold(n_splits=self.k_cv, shuffle=True, random_state=self.random_state).split(np.arange(len(X))))
+        sq_err_by_k: dict[float, list[np.ndarray]] = {k: [] for k in grid}
+        # Validation-row weights, so the selection error is the same weighted loss the models were trained on.
+        val_w_parts: list[np.ndarray] = []
+        all_weights = np.asarray(fit_kwargs["sample_weight"], dtype=np.float64) if "sample_weight" in fit_kwargs else None
+
+        for train_idx, val_idx in splits:
             X_tr, X_val = X.iloc[train_idx], X.iloc[val_idx]
             y_tr, y_val = y_arr[train_idx], y_arr[val_idx]
             fold_fit_kwargs = dict(fit_kwargs)
@@ -133,12 +144,17 @@ class CountWeightedBlendEnsemble(RegressorMixin, BaseEstimator):
             pred_entity = np.asarray(fold_entity_model.predict(X_val), dtype=np.float64)
             pred_global = np.asarray(fold_global_model.predict(X_val[meta_cols]), dtype=np.float64)
 
+            val_w_parts.append(all_weights[val_idx] if all_weights is not None else np.ones(len(val_idx)))
             for k in grid:
                 w = counts_val / (counts_val + k)
                 pred = w * pred_entity + (1.0 - w) * pred_global
                 sq_err_by_k[k].append((pred - y_val) ** 2)
 
-        self.k_cv_scores_ = {k: float(np.mean(np.concatenate(errs))) for k, errs in sq_err_by_k.items()}
+        val_w = np.concatenate(val_w_parts)
+        self.k_cv_scores_ = {}
+        for k, errs in sq_err_by_k.items():
+            err = np.concatenate(errs)
+            self.k_cv_scores_[k] = float(np.average(err, weights=val_w)) if all_weights is not None else float(np.mean(err))
         return min(self.k_cv_scores_, key=lambda k: self.k_cv_scores_[k])
 
     def fit(self, X: pd.DataFrame, y: Any, sample_weight: Optional[np.ndarray] = None) -> "CountWeightedBlendEnsemble":

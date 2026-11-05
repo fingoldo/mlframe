@@ -30,6 +30,23 @@ history.
 - `fe_provenance_` labels the columns admitted by the auto-escalation (`esc_*`) with the origin `escalation`, and the escalation writes its admissions to `fe_admission_ledger_` (stage `escalation`), so where such a column came from is readable without instrumenting the fit.
 
 ### Fixed
+- `CountWeightedBlendEnsemble` auto-k folds are split by entity when there are at least `k_cv` entities, so the selection is scored on unseen entities as at predict time (a row split put almost every validation entity in training).
+- `CountWeightedBlendEnsemble` auto-k selects `k` on the weighted squared error when sample weights are given, the loss the blend is fitted on (the selection error was unweighted).
+- The feature cache verifies a pickle entry's sha256 sidecar before `np.load(allow_pickle=True)` unpickles it (the check ran only after numpy had already unpickled the entry); a mismatch raises `PickleVerificationError`.
+- `load_mlframe_model` checks the bundle's digest and unpickles it through one open handle, so the bytes checked are the bytes loaded (it reopened the path before).
+- The infinity-to-NaN step of the linear and MLP pipelines handles a polars frame: it returns a polars frame with infinities in its float columns as null (it passed mixed-dtype polars frames through with the infinities).
+- A failed ECE, bootstrap-CI or RMSE block in the honest report is logged at WARNING (it was debug only). The block is still recorded as skipped with its reason.
+- The HuggingFace download lock falls back to the per-user private directory when its cache directory cannot be created; it used the shared temp root, where a predictable lock name could be pre-created by another user.
+- The GPU rank-bin boundary cache is keyed by the current device as well as the array size, so a device array is not handed to another GPU.
+- When the library-version check on a model's sidecar raises, `read_trained_models` logs a warning (it was debug only): the load still goes ahead, but the drift warning did not run.
+- `_NumericOnlyTransformer.fit` fits a copy of its inner transformer, so the constructor parameter (`get_params()['inner']`) stays unfitted and a reused or cloned instance does not carry the first fit's statistics.
+- `IdentityEstimator` and `IdentityClassifier` record `n_features_in_` (and `feature_names_in_` for a frame) at fit, as sklearn estimators do.
+- `get_tukey_fences_multiplier_for_quantile` raises for the median (quantile 0.5), where the multiplier is undefined; it returned inf. `proportions_significantly_different` raises when a count exceeds its sample size instead of answering.
+- `RFECV.set_params` keeps a grouped config object (`search_config`, `fi_config`, `robustness_config`) and the flat attributes consistent. Changing a flat field such as `max_refits` left the config's old value in place, so `clone` failed the sklearn parameter check; passing a config object to `set_params` was ignored.
+- Wrapping a model for a multilabel target logs a warning naming the early-stopping parameters it switches off, since the per-label fits then train for their full budget. A failure to switch them off is a warning too (it was debug only).
+- A loss-fallback refit that both refit paths reject restores the model's original parameters. The fallback loss used to stay on the model after the refit failed, so saved metadata and later refits described a booster that never trained on that loss.
+- `read_trained_models` logs every model file it skips (sha256 mismatch or unreadable). The messages were throttled to five per process, so later skips dropped silently and the ensemble lost members with no sign.
+- The calibration MAE with weights reports NaN when every bin is empty; it used to report 0, which reads as a perfectly calibrated model. Populated curves are unchanged.
 - The selection compaction no longer drops, or replaces by a single feature, an engineered feature that lowers the held-out linear loss of the selection: binned joint information cannot see the value of `x__pade2` beside `x` for `y = x^2 + 0.2x`, and the default fit returned a support a linear model could not fit (R^2 0.84 / 0.59 against the pinned 0.85).
 - The usability-aware pure-form retention keeps a pair form only if it beats its better operand under the same cross-validated scorer: `max(abs(x), sin(noise_k))` passed its gates through `abs(x)` alone and three such copies displaced `abs(x)` from the support.
 - The serial and the batched MDLP split permutation tests, and the per-node null, draw the same permutations (one shared `shuffle_labels_into`); the xorshift switch of 2026-11-04 had left the serial twin on numba's Mersenne stream, so the column-outer honest null and the per-permutation route disagreed on borderline splits.

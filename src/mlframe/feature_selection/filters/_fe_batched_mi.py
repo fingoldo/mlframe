@@ -116,6 +116,7 @@ void mi_from_values(const {REAL}* __restrict__ X, const {REAL}* __restrict__ edg
     for (long long i = tid; i < n; i += nt) {          // 2026-07-02: row-major X[i*K+c] was gld_efficiency 28.9%)
         const {REAL} v = Xc[i];
         int lo = 0, hi = ne;                          // upper_bound: count of interior edges <= v
+        if (v != v) lo = hi;                        // NaN sorts last: the last bin, as cp.searchsorted does
         while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
         atomicAdd(&sh[lo * Ky + y[i]], 1);
     }
@@ -246,6 +247,7 @@ void mi_mm_from_values(const {REAL}* __restrict__ X, const {EDGE}* __restrict__ 
     for (long long i = tid; i < n; i += nt) {
         {REAL} v = X[i * (long long)K + c];
         int lo = 0, hi = ne;                          // upper_bound == cp.searchsorted side='right'
+        if (v != v) lo = hi;                        // NaN sorts last: the last bin, as cp.searchsorted does
         while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
         atomicAdd(&sh[lo * Ky + y[i]], 1);
     }

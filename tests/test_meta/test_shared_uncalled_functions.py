@@ -688,6 +688,20 @@ _KEPT_SUPERSEDED_REFERENCES = {
     "_bspline_basis_values_numpy",  # the numpy twin kept as the test oracle of the compiled B-spline basis (test_bspline_basis_kernel)
 }
 
+#: Test-referenced kernels and oracles that have no production caller. Each one is compared by a named test, so deleting it would
+#: lose the reference the test checks the production twin against; restoring a caller would route production to a variant that
+#: was measured as slower, coarser or unsafe.
+_KEPT_TEST_REFERENCES = {
+    "_bspline_basis_values_numpy",  # the numpy oracle of the compiled B-spline twin; test_bspline_basis_kernel compares them
+    "fit_logistic_ridge_newton_numpy",  # the numpy Newton reference of the gate fit; test_gate_newton_kernel compares them
+    "masked_abs_spearman_many",  # the first batched Spearman; v2 (presorted rows) is the production path, test_eng_dedup_presorted_spearman compares them
+    "_binagg_null_calibrated_floor",  # the sequential per-permutation null; the batched twin is production, its parity is test_resident_mi_candidate_cache
+    "_fused_block",  # the majority-class fused kernel; the minority variant is checked against it in test_honest_oj_minority
+    "fits_shared",  # the shared-memory fit predicate of the k3 kernel; test_honest_null_k3 exercises the kernel it gates
+    "launch_k3",  # the k3 honest-null launcher, a measured variant kept under test; test_honest_null_k3 checks its output
+    "get_kernel_k4f",  # the float-gain k4 kernel, rejected as too coarse for the significance test (see _honest_null_k4); test_honest_null_k4 pins that
+}
+
 #: Diagnostic hooks: the docstring says they are not for the production path (every transfer is hashed on the host anyway).
 _DIAGNOSTIC_HOOKS = {
     "duplicate_transfer_audit",  # yields a report of repeated device-to-host copies inside a block; a developer tool
@@ -1205,7 +1219,7 @@ def test_no_new_function_without_a_caller(request):
         files,
         REPO_ROOT,
         BASELINE,
-        ignore=_INTERPRETER_INVOKED | _KEPT_KERNEL_VERSIONS | _KEPT_SUPERSEDED_REFERENCES | _DIAGNOSTIC_HOOKS
+        ignore=_INTERPRETER_INVOKED | _KEPT_KERNEL_VERSIONS | _KEPT_SUPERSEDED_REFERENCES | _KEPT_TEST_REFERENCES | _DIAGNOSTIC_HOOKS
         | _PUBLIC_API
         | _REEXPORTED_PUBLIC_API
         | _OFFLINE_GENERATORS

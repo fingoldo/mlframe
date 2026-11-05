@@ -469,8 +469,8 @@ void fused_gen(const {REAL}* __restrict__ ua, const {REAL}* __restrict__ ub,
         case 1: v = x + y; break;
         case 2: v = x - y; break;
         case 3: v = x / ((y == ({REAL})0) ? ({REAL})1e-9 : y); break;
-        case 4: v = (x > y) ? x : y; break;
-        case 5: v = (x < y) ? x : y; break;
+        case 4: v = (x > y || isnan(x)) ? x : y; break;
+        case 5: v = (x < y || isnan(x)) ? x : y; break;
         default: v = ({REAL})0;
     }
     if (isnan(v) || isinf(v)) v = ({REAL})0;
@@ -502,8 +502,8 @@ void fused_gen_cm(const {REAL}* __restrict__ ua, const {REAL}* __restrict__ ub,
         case 1: v = x + y; break;
         case 2: v = x - y; break;
         case 3: v = x / ((y == ({REAL})0) ? ({REAL})1e-9 : y); break;
-        case 4: v = (x > y) ? x : y; break;
-        case 5: v = (x < y) ? x : y; break;
+        case 4: v = (x > y || isnan(x)) ? x : y; break;
+        case 5: v = (x < y || isnan(x)) ? x : y; break;
         default: v = ({REAL})0;
     }
     if (isnan(v) || isinf(v)) v = ({REAL})0;
@@ -586,8 +586,8 @@ void fused_gen_bin_hist(const {REAL}* __restrict__ ua, const {REAL}* __restrict_
             case 1: v = x + y; break;
             case 2: v = x - y; break;
             case 3: v = x / ((y == ({REAL})0) ? ({REAL})1e-9 : y); break;
-            case 4: v = (x > y) ? x : y; break;
-            case 5: v = (x < y) ? x : y; break;
+            case 4: v = (x > y || isnan(x)) ? x : y; break;
+            case 5: v = (x < y || isnan(x)) ? x : y; break;
             default: v = ({REAL})0;
         }
         if (isnan(v) || isinf(v)) v = ({REAL})0;

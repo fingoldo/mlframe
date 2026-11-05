@@ -24,48 +24,48 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **RESOLVED** | C8-01 | state | High | `feature_selection/filters/_mrmr_fit_impl/_finalise.py:659`: process-wide fit cache holds the live instance |
 | **RESOLVED** | R4-01 | resource | High | `reporting/charts/pdp_ice.py:471-490`: categorical PDP axis sweeps every category |
 | **RESOLVED** | R4-02 | resource | High | `metrics/classification/_weighted_kappa.py:61,74-78`: class count taken from the largest label value |
-| **OPEN** | D1-01 | deserialization | Medium | `training/feature_handling/cache.py:557`: `np.load(allow_pickle=True)` unpickles before the sidecar check |
-| **OPEN** | R4-03 | resource | Medium | `metrics/classification/_threshold_optimization.py:219,226`: full `(n_boot, n)` index matrix |
-| **OPEN** | R4-04 | resource | Medium | `votenrank/rank_percentile_stacking.py:28,74,81`: dense `(n_query, n_oof)` matrices |
-| **OPEN** | S5-02 | leakage | Medium | `training/composite/count_weighted_blend.py:115`: auto-k CV with shuffled row KFold |
-| **OPEN** | S5-03 | leakage | Medium | `training/composite/hpo_ensembling.py:162`: `honest_score` ignores the purged time split |
-| **OPEN** | M6-01 | numerics | Medium | `votenrank/rank_percentile_stacking.py:95-106`: out-of-range test values jump to 0 or 1 |
-| **OPEN** | K7-01 | parity | Medium | `feature_selection/filters/_gpu_resident_shared.py:469-470,501-502,593-594`: GPU max/min do not propagate NaN |
-| **OPEN** | C8-02 | state | Medium | `shap_proxied_fs/_shap_proxy_revalidate/_shap_proxy_loss.py:80-83,122-123`; `_shap_proxy_explain.py:83-84`: summary-hash cache keys |
-| **OPEN** | C8-03 | state | Medium | `_numba_parallel_guard.py:42-45,63-81`: guard lock built through `lru_cache`; unguarded probe |
-| **OPEN** | X9-02 | silent_failure | Medium | `models/ensembling/score_gate.py:306-310,408-412,285-292`: catastrophic-member drop check fails silently |
-| **OPEN** | X9-03 | silent_failure | Medium | `training/_training_loop_objectives.py:136-159`: MultiOutputClassifier wrapping drops early stopping silently |
-| **OPEN** | X9-04 | silent_failure | Medium | `inference/predict.py:228,247,250-251`: skipped models are logged at most 5 times per process |
-| **OPEN** | X9-05 | silent_failure | Medium | `training/_training_loop_refit.py:167-192,336-352`: failed refit leaves the live model with the fallback loss |
-| **OPEN** | P10-01 | api | Medium | `feature_selection/wrappers/rfecv/__init__.py:450`: `set_params` flat field then `clone()` raises |
-| **OPEN** | P10-02 | api | Medium | `feature_selection/wrappers/rfecv/__init__.py:450`: `set_params(search_config=...)` is ignored |
-| **OPEN** | D1-02 | deserialization | Low | `training/_trainer_train_and_evaluate_parts.py:132-133`: `trusted_root` defaults to the file's own directory |
-| **OPEN** | D1-03 | deserialization | Low | `inference/predict.py`, `training/core/_metadata_loader.py`, `training/io.py`: hash-then-reopen race |
-| **OPEN** | E2-01 | filesystem | Low | `training/feature_handling/hf_provider.py:118-122`: lock falls back to a predictable shared-temp name |
-| **OPEN** | N3-01 | supply_chain | Low | `.pre-commit-config.yaml:126,200,459`: ruff-pre-commit pinned to a mutable tag |
-| **OPEN** | N3-02 | supply_chain | Low | `feature_selection/filters/_neural_mi.py:278-291`: InfoNet checkpoint pin trusts the first file seen |
-| **OPEN** | N3-03 | supply_chain | Low | `training/feature_handling/hf_provider.py:74-84`: unlisted model loads hub `main` without a revision |
-| **OPEN** | R4-05 | resource | Low | `reporting/charts/slice_finder.py:386,392`: all pairs built before the cap |
-| **OPEN** | S5-04 | leakage | Low | `training/composite/count_weighted_blend.py:139`: auto-k error ignores sample weights |
-| **OPEN** | M6-02 | numerics | Low | `metrics/calibration/_calibration_metrics.py:78-83`: all-zero hits report perfect calibration |
-| **OPEN** | M6-03 | numerics | Low | `core/stats.py:67-78`: Tukey multiplier at quantile 0.5 is `inf` |
-| **OPEN** | M6-04 | numerics | Low | `core/proportion_stats.py:89-98`: impossible counts get an answer |
-| **OPEN** | K7-02 | parity | Low | `_fe_batched_mi.py:115-117`, `_null_max_perm_gpu.py:39-42,91-93`: NaN bin differs between kernel and fallback |
-| **OPEN** | C8-04 | state | Low | `_mrmr_fit_impl/_fit_impl_core.py:35` vs `_fit_impl_core_parts.py:26,232-233`: two different fit-cache locks |
-| **OPEN** | C8-05 | state | Low | `_fe_resident_operands.py:132-149`: identity-keyed content memo |
-| **OPEN** | C8-06 | state | Low | `info_theory/_cmi_cuda.py:95-121`: identity-keyed F-order copy cache |
-| **OPEN** | C8-07 | state | Low | `_gpu_resident_rank_bin.py:80-87`: device-array cache without device id |
-| **OPEN** | C8-08 | state | Low | `_neural_mi.py:94`, `_confirm_predictor.py:63`, `_orth_extra_basis_fe_helpers.py:389`: env vars read at import |
-| **OPEN** | X9-06 | silent_failure | Low | `training/honest_diagnostics.py:592-594,249-251,278-280`: failed blocks become `skipped` at debug |
-| **OPEN** | X9-07 | silent_failure | Low | `inference/predict.py:233-240`: failed version check is logged at debug |
-| **OPEN** | X9-08 | silent_failure | Low | `training/honest_diagnostics.py:236-238`; `calibration/ensembling.py:161-163,181-183`: slow-path fallbacks logged at debug |
-| **OPEN** | P10-03 | api | Low | `estimators/early_stopping.py:105-112`: documented default 5, actual 7, suite uses 20 |
-| **OPEN** | P10-04 | api | Low | `training/strategies/base.py:127-136`: `_InfToNaNTransformer` skips polars frames |
-| **OPEN** | P10-05 | api | Low | `training/strategies/base.py:184-196`: `_NumericOnlyTransformer.fit` fits `inner` in place |
-| **OPEN** | P10-06 | api | Low | `estimators/custom.py:665-676`: `IdentityEstimator.fit` sets no `n_features_in_` |
-| **OPEN** | P10-07 | api | Low | `docs/ENVIRONMENT_VARIABLES.md` vs code: five switches undocumented; `MLFRAME_FE_GPU_FUSE_MI` read nowhere |
-| **OPEN** | R4-06 | resource | Info | `evaluation/blend_source_selection.py:85-99`: warns, then allocates two `n x n` matrices |
-| **OPEN** | K7-03 | parity | Info | `_null_max_perm_gpu.py:160,186`: no shared-memory check; fallback logged at debug |
+| **RESOLVED** | D1-01 | deserialization | Medium | `training/feature_handling/cache.py:557`: `np.load(allow_pickle=True)` unpickles before the sidecar check |
+| **RESOLVED** | R4-03 | resource | Medium | `metrics/classification/_threshold_optimization.py:219,226`: full `(n_boot, n)` index matrix | Fixed: resamples are drawn and consumed in byte-budgeted row chunks, same generator stream; test `tests/metrics/classification/test_threshold_bootstrap_chunked_draw.py`.
+| **RESOLVED** | R4-04 | resource | Medium | `votenrank/rank_percentile_stacking.py:28,74,81`: dense `(n_query, n_oof)` matrices | Fixed: smoothed percentile built in query blocks under a byte budget; test `tests/votenrank/test_rank_percentile_smoothing_blocks_match_full.py`.
+| **RESOLVED** | S5-02 | leakage | Medium | `training/composite/count_weighted_blend.py:115`: auto-k CV with shuffled row KFold |
+| **RESOLVED** | S5-03 | leakage | Medium | `training/composite/hpo_ensembling.py:162`: `honest_score` ignores the purged time split. Fixed: `select_oof_pool_ensemble(time_ordering=...)` scores held-out folds on contiguous time blocks; test `test_honest_selection_score_is_time_ordered.py` |
+| **RESOLVED** | M6-01 | numerics | Medium | `votenrank/rank_percentile_stacking.py:95-106`: out-of-range test values jump to 0 or 1 | Fixed: out-of-range values clamp to (0.5/n, (n-0.5)/n); the smoothing biz test moves to an in-range query.
+| **RESOLVED** | K7-01 | parity | Medium | `feature_selection/filters/_gpu_resident_shared.py:469-470,501-502,593-594`: GPU max/min do not propagate NaN | Fixed: CUDA max/min propagate NaN as np.maximum/np.minimum do, in all three generator kernels; GPU test `tests/feature_selection/gpu/test_fused_gen_max_min_propagate_nan.py` (9216 mismatched cells on the old kernel).
+| **RESOLVED** | C8-02 | state | Medium | `shap_proxied_fs/_shap_proxy_revalidate/_shap_proxy_loss.py:80-83,122-123`; `_shap_proxy_explain.py:83-84`: summary-hash cache keys | Fixed: SHAP-proxy disk keys use the full-content hash; test `tests/feature_selection/shap_proxied/test_shap_proxy_honest_key_covers_row_order.py`. `_shap_proxy_explain_cache.py` already adds `content_digest`, so it is unchanged.
+| **RESOLVED** | C8-03 | state | Medium | `_numba_parallel_guard.py:42-45,63-81`: guard lock built through `lru_cache`; unguarded probe | Fixed: the guard lock and probe are built under one guard, so concurrent first callers share one object; test `tests/test_numba_parallel_guard_first_use_race.py`.
+| **RESOLVED** | X9-02 | silent_failure | Medium | `models/ensembling/score_gate.py:306-310,408-412,285-292`: catastrophic-member drop check fails silently | Fixed: both catastrophic-drop check failures log at WARNING regardless of verbose; test `tests/models/test_ensembling_score_gate_catastrophic_check_failure_is_logged.py`.
+| **RESOLVED** | X9-03 | silent_failure | Medium | `training/_training_loop_objectives.py:136-159`: MultiOutputClassifier wrapping drops early stopping silently |
+| **RESOLVED** | X9-04 | silent_failure | Medium | `inference/predict.py:228,247,250-251`: skipped models are logged at most 5 times per process |
+| **RESOLVED** | X9-05 | silent_failure | Medium | `training/_training_loop_refit.py:167-192,336-352`: failed refit leaves the live model with the fallback loss |
+| **RESOLVED** | P10-01 | api | Medium | `feature_selection/wrappers/rfecv/__init__.py:450`: `set_params` flat field then `clone()` raises |
+| **RESOLVED** | P10-02 | api | Medium | `feature_selection/wrappers/rfecv/__init__.py:450`: `set_params(search_config=...)` is ignored |
+| **DOC** | D1-02 | deserialization | Low | disposition: the containment check is a path-escape guard, not the trust boundary (the sha256 sidecar and the class allowlist are); the default root is the file's own directory so the in-process trained-then-loaded flow keeps working, and callers that take the path from outside should pass `trusted_root` explicitly. Changing the default would change that contract and is a maintainer decision. | `training/_trainer_train_and_evaluate_parts.py:132-133`: `trusted_root` defaults to the file's own directory |
+| **RESOLVED** | D1-03 | deserialization | Low | `training/io.py` `load_mlframe_model`, `inference/predict.py` `read_trained_models`, `training/core/_metadata_loader.py`: each reads a file once, verifies those bytes and unpickles the same bytes. Tests `test_load_model_bundle_read_once.py`, `test_read_trained_models_unpickles_the_verified_bytes.py`, `test_metadata_loader_joblib_loads_the_verified_bytes.py`. |
+| **RESOLVED** | E2-01 | filesystem | Low | `training/feature_handling/hf_provider.py:118-122`: lock falls back to a predictable shared-temp name |
+| **DOC** | N3-01 | supply_chain | Low | `.pre-commit-config.yaml:126,200,459`: ruff-pre-commit pinned to a mutable tag. Kept as the tag `v0.16.10`: the shared `pinned-tool-versions` gate in py-ci-shared requires the literal tag form, and a SHA pin fails it. Mitigation is the tag match enforced by that gate. |
+| **DOC** | N3-02 | supply_chain | Low | `feature_selection/filters/_neural_mi.py:278-291`: InfoNet checkpoint pin trusts the first file seen. Kept as trust-on-first-use (the logged first-use record). A real pin needs the upstream checkpoint digest, which the repo does not contain; the owner can supply it. |
+| **DOC** | N3-03 | supply_chain | Low | `training/feature_handling/hf_provider.py:74-84`: unlisted model loads hub `main` without a revision. Kept: pinning an unlisted model changes which weights load, which is an owner decision. Listed models keep their pinned revision. Recorded so the owner can choose a revision per model.
+| **RESOLVED** | R4-05 | resource | Low | `reporting/charts/slice_finder.py:386,392`: all pairs built before the cap | Fixed: pairs are enumerated lazily and only the kept prefix is built; test `tests/reporting/test_slice_finder_pair_cap_is_lazy.py`.
+| **RESOLVED** | S5-04 | leakage | Low | `training/composite/count_weighted_blend.py:139`: auto-k error ignores sample weights |
+| **RESOLVED** | M6-02 | numerics | Low | `metrics/calibration/_calibration_metrics.py:78-83`: all-zero hits report perfect calibration |
+| **RESOLVED** | M6-03 | numerics | Low | `core/stats.py:67-78`: Tukey multiplier at quantile 0.5 is `inf` |
+| **RESOLVED** | M6-04 | numerics | Low | `core/proportion_stats.py:89-98`: impossible counts get an answer |
+| **RESOLVED** | K7-02 | parity | Low | `_fe_batched_mi.py:115-117`, `_null_max_perm_gpu.py:39-42,91-93`: NaN bin differs between kernel and fallback | Fixed: the in-kernel binary searches send NaN to the last bin, as cp.searchsorted does; GPU test `tests/feature_selection/gpu/test_batched_mi_nan_goes_to_last_bin.py` (MI differs by 1.1e-3 on the HEAD kernel).
+| **RESOLVED** | C8-04 | state | Low | `_mrmr_fit_impl/_fit_impl_core.py:35` vs `_fit_impl_core_parts.py:26,232-233`: two different fit-cache locks | Fixed: one canonical lock in `_fit_impl_core_parts.py`, imported by the core module; test `tests/feature_selection/contracts/test_mrmr_fit_cache_lock_is_one_object.py`.
+| **DOC** | C8-05 | state | Low | `_fe_resident_operands.py:132-149`: identity-keyed content memo. Latent: no current caller mutates an operand in place and then reuses it. A guard (re-hash every writable array) would cost the hot path the memo exists to save; the contract stays documented as read-only operands. |
+| **DOC** | C8-06 | state | Low | `info_theory/_cmi_cuda.py:95-121`: identity-keyed F-order copy cache. Latent: the DCD path calls `conditional_mi` directly, not `_cpu_cmi_loop` on the mutated `factors_data`. A writable-input guard would copy per call on the hot path. |
+| **RESOLVED** | C8-07 | state | Low | `_gpu_resident_rank_bin.py:80-87`: device-array cache without device id |
+| **RESOLVED** | C8-08 | state | Low | `_neural_mi.py:94`, `_confirm_predictor.py:63`, `_orth_extra_basis_fe_helpers.py:389`: env vars read at import | Fixed: the three gates are read per call, with the module attribute kept as a test override; test `tests/feature_selection/filters/test_env_gates_read_at_call_time.py`.
+| **RESOLVED** | X9-06 | silent_failure | Low | `training/honest_diagnostics.py:592-594,249-251,278-280`: failed blocks become `skipped` at debug |
+| **RESOLVED** | X9-07 | silent_failure | Low | `inference/predict.py:233-240`: failed version check is logged at debug |
+| **RESOLVED** | X9-08 | silent_failure | Low | `training/honest_diagnostics.py:236-238`; `calibration/ensembling.py:161-163,181-183`: slow-path fallbacks logged at debug | Fixed: the GPU-fallback and jackknife-import fallbacks log at WARNING; test `tests/calibration/test_odds_combine_gpu_fallback_logs_warning.py`.
+| **DOC** | P10-03 | api | Low | `estimators/early_stopping.py:105-112`: documented default 5, actual 7, suite uses 20. Code default 7 is kept (changing it changes every early-stopping fit). The comment now states 7 and that the calibration bench ran at N=5. Docs-only change, so no failing behaviour test applies.
+| **RESOLVED** | P10-04 | api | Low | `training/strategies/base.py:127-136`: `_InfToNaNTransformer` skips polars frames |
+| **RESOLVED** | P10-05 | api | Low | `training/strategies/base.py:184-196`: `_NumericOnlyTransformer.fit` fits `inner` in place |
+| **RESOLVED** | P10-06 | api | Low | `estimators/custom.py:665-676`: `IdentityEstimator.fit` sets no `n_features_in_` |
+| **RESOLVED** | P10-07 | api | Low | `docs/ENVIRONMENT_VARIABLES.md` vs code: five switches undocumented; `MLFRAME_FE_GPU_FUSE_MI` read nowhere |
+| **RESOLVED** | R4-06 | resource | Info | `evaluation/blend_source_selection.py:85-99`: warns, then allocates two `n x n` matrices | Fixed: the rank-agreement comparison is built in row blocks with a budget constant; test `tests/evaluation/test_blend_source_pairwise_blocks_match_full_matrix.py`.
+| **RESOLVED** | K7-03 | parity | Info | `_null_max_perm_gpu.py:160,186`: no shared-memory check; fallback logged at debug. Correction: the shared-memory check exists (`_SHARED_BUDGET_BYTES` caps the general kernel at 32 KiB per launch, and the bitset path runs only for nbins <= 32, at most about 8 KiB), so the earlier note about a launch failure near nbins 190 was wrong. The real gap was the silent fallback: both callers now log it at WARNING through `log_throttle`. Test `tests/feature_selection/filters/test_null_max_gpu_fallback_logs_warning.py`.
 
 ## Reports whose scope was incomplete
 

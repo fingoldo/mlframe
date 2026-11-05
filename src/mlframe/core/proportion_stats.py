@@ -88,6 +88,8 @@ def proportions_significantly_different(m1: int, n1: int, m2: int, n2: int, *, c
     """
     if n1 <= 0 or n2 <= 0:
         raise ValueError("proportions_significantly_different: n1, n2 must be > 0.")
+    if not (0 <= m1 <= n1) or not (0 <= m2 <= n2):
+        raise ValueError("proportions_significantly_different: require 0 <= m <= n for each sample.")
     p1 = m1 / n1
     p2 = m2 / n2
     pooled = (m1 + m2) / (n1 + n2)

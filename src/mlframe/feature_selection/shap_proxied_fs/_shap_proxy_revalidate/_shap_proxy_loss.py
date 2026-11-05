@@ -70,17 +70,17 @@ def _build_honest_loss_disk_key(model_template, X_tr, y_tr, X_ev, y_ev, idx, cla
     falls through to the compute path - the cache is best-effort, never a correctness gate.
     """
     try:
-        from mlframe.utils.disk_cache import compose_key, hash_array_summary, hash_object
+        from mlframe.utils.disk_cache import compose_key, hash_array_content, hash_object
 
         try:
             params = model_template.get_params(deep=False)
         except Exception as e:
             logger.warning("get_params(deep=False) failed, using repr() as the cache-key params: %s", e)
             params = {"_repr": repr(model_template)}
-        x_tr_key = hash_array_summary(X_tr.values if hasattr(X_tr, "values") else np.asarray(X_tr))
-        y_tr_key = hash_array_summary(np.asarray(y_tr))
-        x_ev_key = hash_array_summary(X_ev.values if hasattr(X_ev, "values") else np.asarray(X_ev))
-        y_ev_key = hash_array_summary(np.asarray(y_ev))
+        x_tr_key = hash_array_content(X_tr.values if hasattr(X_tr, "values") else np.asarray(X_tr))
+        y_tr_key = hash_array_content(np.asarray(y_tr))
+        x_ev_key = hash_array_content(X_ev.values if hasattr(X_ev, "values") else np.asarray(X_ev))
+        y_ev_key = hash_array_content(np.asarray(y_ev))
         state_key = hash_object({
             "cols": tuple(sorted(int(c) for c in idx)),
             "seed": seed,
@@ -112,15 +112,15 @@ def _build_perm_fit_disk_key(model_template, X_tr, y_tr, idx, n_estimators_cap, 
     predict pass.
     """
     try:
-        from mlframe.utils.disk_cache import compose_key, hash_array_summary, hash_object
+        from mlframe.utils.disk_cache import compose_key, hash_array_content, hash_object
 
         try:
             params = model_template.get_params(deep=False)
         except Exception as e:
             logger.warning("get_params(deep=False) failed, using repr() as the cache-key params: %s", e)
             params = {"_repr": repr(model_template)}
-        x_tr_key = hash_array_summary(X_tr.values if hasattr(X_tr, "values") else np.asarray(X_tr))
-        y_tr_key = hash_array_summary(np.asarray(y_tr))
+        x_tr_key = hash_array_content(X_tr.values if hasattr(X_tr, "values") else np.asarray(X_tr))
+        y_tr_key = hash_array_content(np.asarray(y_tr))
         state_key = hash_object({
             "cols": tuple(sorted(int(c) for c in idx)),
             "n_estimators_cap": n_estimators_cap,

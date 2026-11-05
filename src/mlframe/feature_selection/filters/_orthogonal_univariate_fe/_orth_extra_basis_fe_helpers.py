@@ -386,7 +386,15 @@ def cached_stable_argsort(x: np.ndarray) -> np.ndarray:
 # The coarse sweep scores all grid frequencies with one matrix-vector product per sin / cos block (BLAS, GIL released) instead of two dot products per frequency in
 # Python; the sums differ from the per-frequency dots in the last bits, which can only move the coarse argmax that ``_refine_peak_freq`` re-localises.
 # ``MLFRAME_FOURIER_COARSE_GEMV=0`` keeps the per-frequency loop.
-_COARSE_GEMV = os.environ.get("MLFRAME_FOURIER_COARSE_GEMV", "1").strip() != "0"
+#: Test override for the coarse-GEMV switch; ``None`` reads ``MLFRAME_FOURIER_COARSE_GEMV`` at call time.
+_COARSE_GEMV: "bool | None" = None
+
+
+def _coarse_gemv_enabled() -> bool:
+    """Whether the coarse GEMV path is on; the environment is read per call so it can change after import."""
+    if _COARSE_GEMV is not None:
+        return bool(_COARSE_GEMV)
+    return os.environ.get("MLFRAME_FOURIER_COARSE_GEMV", "1").strip() != "0"
 
 
 def _best_coarse_freq(mats, yc, y_ss, grid):
@@ -414,9 +422,9 @@ def _greedy_fourier_frequency_search(max_freqs, y_tr, y_va, grid, _coarse_basis,
         best_f = None
         best_power = -1.0
         _mats = getattr(_coarse_basis, "matrices", None)
-        if _mats is not None and _COARSE_GEMV:
+        if _mats is not None and _coarse_gemv_enabled():
             best_f = _best_coarse_freq(_mats, yc, y_ss, grid)
-        for gi, f in enumerate(grid if _mats is None or not _COARSE_GEMV else ()):
+        for gi, f in enumerate(grid if _mats is None or not _coarse_gemv_enabled() else ()):
             sc, s_ss, cc, c_ss = _coarse_basis[gi]
             num_s = float(sc @ yc)
             num_c = float(cc @ yc)
