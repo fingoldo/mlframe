@@ -76,12 +76,20 @@ def is_tree_based_model(model: Any, unwrap_pipeline: bool = False) -> bool:
     return False
 
 
+def fit_outlier_bounds(X: pd.DataFrame, columns: list, cap_quantiles: Tuple[float, float] = (0.01, 0.99)) -> Tuple[pd.Series, pd.Series]:
+    """Capping bounds ``(lower, upper)`` per column, computed from ``X`` alone; fit them on the training frame and pass them to
+    :func:`apply_outlier_policy` so the test frame is capped by training statistics."""
+    q = X[columns].quantile([cap_quantiles[0], cap_quantiles[1]])
+    return q.loc[cap_quantiles[0]], q.loc[cap_quantiles[1]]
+
+
 def apply_outlier_policy(
     X: pd.DataFrame,
     model: Any,
     columns: Optional[list] = None,
     cap_quantiles: Tuple[float, float] = (0.01, 0.99),
     unwrap_pipeline: bool = False,
+    bounds: Optional[Tuple[pd.Series, pd.Series]] = None,
 ) -> pd.DataFrame:
     """Apply a model-family-aware outlier policy: cap for non-tree models, flag-only for tree models.
 
@@ -139,9 +147,12 @@ def apply_outlier_policy(
     # entirely (pandas column assignment never writes into the shared buffer in place), so X's
     # original data is never touched.
     out = X.copy(deep=False)
-    bounds = X[columns].quantile([cap_quantiles[0], cap_quantiles[1]])
-    out[columns] = out[columns].clip(lower=bounds.loc[cap_quantiles[0]], upper=bounds.loc[cap_quantiles[1]], axis=1)
+    if bounds is None:
+        lower, upper = fit_outlier_bounds(X, columns, cap_quantiles)
+    else:
+        lower, upper = bounds
+    out[columns] = out[columns].clip(lower=lower[columns], upper=upper[columns], axis=1)
     return out
 
 
-__all__ = ["is_tree_based_model", "apply_outlier_policy"]
+__all__ = ["is_tree_based_model", "apply_outlier_policy", "fit_outlier_bounds"]
