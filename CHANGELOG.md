@@ -20,6 +20,7 @@ history.
 - `fe_provenance_` labels the columns admitted by the auto-escalation (`esc_*`) with the origin `escalation`, and the escalation writes its admissions to `fe_admission_ledger_` (stage `escalation`), so where such a column came from is readable without instrumenting the fit.
 
 ### Fixed
+- `RFECV.set_params` keeps a grouped config object (`search_config`, `fi_config`, `robustness_config`) and the flat attributes consistent. Changing a flat field such as `max_refits` left the config's old value in place, so `clone` failed the sklearn parameter check; passing a config object to `set_params` was ignored.
 - Wrapping a model for a multilabel target logs a warning naming the early-stopping parameters it switches off, since the per-label fits then train for their full budget. A failure to switch them off is a warning too (it was debug only).
 - A loss-fallback refit that both refit paths reject restores the model's original parameters. The fallback loss used to stay on the model after the refit failed, so saved metadata and later refits described a booster that never trained on that loss.
 - `read_trained_models` logs every model file it skips (sha256 mismatch or unreadable). The messages were throttled to five per process, so later skips dropped silently and the ensemble lost members with no sign.

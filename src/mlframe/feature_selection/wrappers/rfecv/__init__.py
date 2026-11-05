@@ -454,6 +454,32 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
         store_params_in_object(obj=self, params=params, postfix="")
         self.signature = None
 
+    _GROUPED_CONFIG_ATTRS = ("search_config", "fi_config", "robustness_config")
+
+    def set_params(self, **params):
+        """Set parameters, keeping the grouped config objects consistent with the flat attributes.
+
+        A flat field also held by a config object (``max_refits`` on a ``SearchConfig``) is written to that object too: otherwise a
+        ``clone`` re-applies the config's stale value over the flat one and fails the sklearn parameter check. Passing a config
+        object expands its explicitly-set fields onto the flat attributes, as the constructor does.
+        """
+        super().set_params(**params)
+        for _name in self._GROUPED_CONFIG_ATTRS:
+            _cfg = getattr(self, _name, None)
+            if _cfg is None:
+                continue
+            _flat = {k: v for k, v in params.items() if k in getattr(_cfg, "model_fields", {})}
+            if _flat:
+                setattr(self, _name, _cfg.model_copy(update=_flat))
+        for _name in self._GROUPED_CONFIG_ATTRS:
+            _incoming = params.get(_name)
+            if _incoming is None:
+                continue
+            for _k in getattr(_incoming, "model_fields_set", ()):
+                if hasattr(self, _k):
+                    setattr(self, _k, getattr(_incoming, _k))
+        return self
+
     @staticmethod
     def _check_stability_selection_params(stability_selection, stability_threshold, stability_n_bootstrap, verbose):
         """Validate the stability-selection parameters."""
