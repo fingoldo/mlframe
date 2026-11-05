@@ -2,6 +2,10 @@
 
 numba's ``np.random.randint`` (a Mersenne Twister draw with rejection sampling) cost about five times the scoring of the permutations it fed. These helpers are an xorshift64* generator seeded through splitmix64 and a multiply-shift reduction of a
 32-bit value to ``[0, bound)`` (the bias is below ``bound / 2**32``). A permutation seeded ``s`` is a pure function of ``s``, so rows drawn on different threads or in different chunks are the same data.
+
+``shuffle_labels_into`` is the one permutation draw of the MDLP split tests (per-node null, batched level test, serial twin) and is ``src[seeded_permutation(n, seed)]`` of the honest null:
+a stochastic test that exists as a serial and a batched twin must draw its permutations from this function (a private copy of the shuffle is how two twins end up on different streams
+and disagree on borderline splits; ``test_mdlp_serial_batch_twins`` pins both facts).
 """
 
 from __future__ import annotations
