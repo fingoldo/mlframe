@@ -678,10 +678,13 @@ class IdentityEstimator(BaseEstimator):
                 self.classes_ = np.sort(_y_arr)
             else:
                 self.classes_ = np.array(sorted(_y_arr, key=lambda v: (v is None, str(v))))
+        # Set on every fit: a fit with no width or label record would otherwise leave nothing for sklearn's fitted check to find.
+        self.is_fitted_ = True
         return self
 
     def predict(self, X):
         """Return the selected feature column(s) from ``X`` verbatim, by name or positional index."""
+        check_is_fitted(self, "is_fitted_")
         if isinstance(X, (pd.DataFrame, pd.Series)):
             if self.feature_names:
                 return X.loc[:, self.feature_names].to_numpy()
@@ -716,6 +719,7 @@ class IdentityClassifier(ClassifierMixin, IdentityEstimator):
 
     def predict_proba(self, X):
         """Coerce the selected feature column(s) into a valid, clipped, row-normalised class-probability matrix."""
+        check_is_fitted(self, "is_fitted_")
         last_class_probs = self.predict(X)
         if len(self.classes_) == 2 and last_class_probs.ndim == 1:
             return np.vstack([1 - last_class_probs, last_class_probs]).T
