@@ -1,22 +1,19 @@
 {
   "src/mlframe/feature_selection/_benchmarks/bench_poly_eval_backends.py": {
-    "chebval_kernel": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "hermeval_kernel": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "lagval_kernel": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "legval_kernel": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
+    "chebval_kernel": "reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.",
+    "hermeval_kernel": "reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.",
+    "lagval_kernel": "reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.",
+    "legval_kernel": "reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm."
   },
   "src/mlframe/feature_selection/_benchmarks/fe_operator_factory/kernel_prototypes/offset_closed_form.py": {
-    "gram4_partials": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "offset_gen_cm": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "solve4_shift": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
+    "gram4_partials": "reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.",
+    "offset_gen_cm": "reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.",
+    "solve4_shift": "reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm."
   },
   "src/mlframe/feature_selection/_benchmarks/fe_operator_factory/kernel_prototypes/offset_fused_cuda.py": {
-    "argmax_first": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "offset_fused_mi": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "offset_fused_null": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
-  },
-  "src/mlframe/feature_selection/filters/_batch_pair_mi_cuda_shared_fused.py": {
-    "pair_mi_shared_fused": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
+    "argmax_first": "reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.",
+    "offset_fused_mi": "reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.",
+    "offset_fused_null": "reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm."
   },
   "src/mlframe/feature_selection/filters/_cell_moments_kernel.py": {
     "cell_centred": "reviewed 2026-11-05: per-cell moments are double atomic accumulators whose results are compared with thresholds; the host passes float64 explicitly. Float shared atomics would move the thresholded statistics at ~1e-5, for 0.3 s of a 90 s fit (3.2% of kernel time): revisit with a selection-parity A/B.",
@@ -30,9 +27,6 @@
   "src/mlframe/feature_selection/filters/_fe_batched_qbin.py": {
     "qbin_code": "reviewed 2026-11-05: the double column is compared through integer order keys (mono_key), no FP64 compare; the host uploads float64 explicitly."
   },
-  "src/mlframe/feature_selection/filters/_gpu_resident_discretize.py": {
-    "bin_codes_TYPENAME": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
-  },
   "src/mlframe/feature_selection/filters/_gpu_resident_select_kernels.py": {
     "radix_interp": "reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and scripts/kernel_dtype_audit.py saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.",
     "radix_select_f64": "reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and scripts/kernel_dtype_audit.py saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.",
@@ -41,43 +35,27 @@
     "radix_select_interp_f64_v3": "reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and scripts/kernel_dtype_audit.py saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.",
     "transpose_f64": "reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and scripts/kernel_dtype_audit.py saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype."
   },
-  "src/mlframe/feature_selection/filters/_honest_null_device.py": {
-    "root_split_stats": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "root_split_stats_k2": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "root_split_stats_v2": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
-  },
   "src/mlframe/feature_selection/filters/_modular_codes_gpu.py": {
     "modular_all_ops": "reviewed 2026-11-05: float64 on purpose, floor(v / p) of a timestamp (~1.6e9) is noise at float32 resolution 128; the host uploads float64 explicitly."
   },
   "src/mlframe/feature_selection/filters/_offset_product_gpu.py": {
-    "scan_offset_products": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
-  },
-  "src/mlframe/feature_selection/filters/_pairwise_modular_rank_gpu.py": {
-    "residue_rank": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
+    "scan_offset_products": "reviewed 2026-11-05: 12 ms of a 9.3 s kernel profile (0.1%) in a full 100k x 100 fit. The kernel solves 4 x 4 normal equations of the offset-product shift from sums over the rows, which is a double-precision statistic by CUDA.md; the host uploads float64 explicitly (U, yr, clips). Float32 operands would only save table memory."
   },
   "src/mlframe/feature_selection/filters/_parity_gpu.py": {
     "parity_mi_grid": "reviewed 2026-11-05: float64 on purpose, floor(v * inv) of a timestamp needs double as on the host; the host uploads float64 explicitly."
   },
-  "src/mlframe/feature_selection/filters/discretization/_discretization_cuda.py": {
-    "searchsorted_right_2d": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
-  },
-  "src/mlframe/feature_selection/filters/hermite_fe/_als_fused_gpu.py": {
-    "gram_scaled": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "matvec_stats": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "solve_small": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
-  },
   "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_treeshap_gpu.py": {
-    "treeshap": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
+    "treeshap": "reviewed 2026-11-05: the separate SHAP-proxy selector (shap_proxied_fs), not on the MRMR fit path, no GPU profile exists for it. The path-dependent TreeSHAP weight recurrences (unwound sums with divisions and subtractions) are double on purpose and the host uploads float64 explicitly (val, cover, phi). Open item: an A/B of float32 SHAP values against the double run on the SHAP rank before changing it."
   },
   "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py": {
-    "treeshap_interactions": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
+    "treeshap_interactions": "reviewed 2026-11-05: the separate SHAP-proxy selector (shap_proxied_fs), not on the MRMR fit path, no GPU profile exists for it. The path-dependent TreeSHAP weight recurrences (unwound sums with divisions and subtractions) are double on purpose and the host uploads float64 explicitly (val, cover, phi). Open item: an A/B of float32 SHAP values against the double run on the SHAP rank before changing it."
   },
   "src/mlframe/signal/dtw.py": {
     "dtw_banded_diagonal": "reviewed 2026-11-05: as dtw_diagonal.",
     "dtw_diagonal": "reviewed 2026-11-05: the GPU DTW kernels accumulate in double so the distances equal the CPU result (documented in the module); the host uploads float64 explicitly."
   },
   "src/mlframe/training/_benchmarks/bench_ewma_frac_diff_backends.py": {
-    "ewma_batched": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "frac_diff_inv_batched": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
+    "ewma_batched": "reviewed 2026-11-05: used by the training composite transforms (_nonlinear_ewma_fracdiff), not by MRMR. The recursive EWMA / fractional-difference filters carry a state across the whole series, where float32 rounding accumulates; every buffer is created as float64 in this file (np/cp.float64, no float32 anywhere).",
+    "frac_diff_inv_batched": "reviewed 2026-11-05: used by the training composite transforms (_nonlinear_ewma_fracdiff), not by MRMR. The recursive EWMA / fractional-difference filters carry a state across the whole series, where float32 rounding accumulates; every buffer is created as float64 in this file (np/cp.float64, no float32 anywhere)."
   }
 }

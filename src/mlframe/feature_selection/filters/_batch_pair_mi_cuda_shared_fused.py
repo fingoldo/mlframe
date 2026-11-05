@@ -41,6 +41,7 @@ import threading
 from typing import Any
 
 import numpy as np
+from ._kernel_types import render
 
 # Guards the max_dynamic_shared_size_bytes property-set +
 # launch pair below so a concurrent call with a different shared_bytes requirement cannot race and
@@ -64,7 +65,7 @@ _DRIVER_SHARED_MEM_HEADROOM_BYTES = 2048
 _SHARED_FUSED_KERNEL: Any = None  # lazy-compiled cp.RawKernel, cached process-wide
 
 
-_PAIR_MI_SHARED_FUSED_SRC = r"""
+_PAIR_MI_SHARED_FUSED_SRC = render(r"""
 extern "C" __global__
 void pair_mi_shared_fused(
     const int* __restrict__ factors_data,   // (n_samples, n_features) row-major int32
@@ -72,15 +73,15 @@ void pair_mi_shared_fused(
     const long long* __restrict__ pair_b,   // (n_pairs,)
     const int* __restrict__ nbins,          // (n_features,)
     const int* __restrict__ classes_y,      // (n_samples,)
-    const double* __restrict__ freqs_y,     // (n_classes_y,)
+    const {ACC}* __restrict__ freqs_y,     // (n_classes_y,)
     const long long n_samples, const int n_features, const int n_pairs,
-    const int max_joint, const int n_classes_y, const double inv_n,
-    double* __restrict__ mi_out             // (n_pairs,)
+    const int max_joint, const int n_classes_y, const {ACC} inv_n,
+    {ACC}* __restrict__ mi_out             // (n_pairs,)
 ) {
     // Dynamic shared int32 histogram: [0:max_joint*n_classes_y) joint counts, then [.. +max_joint)
     // marginal (fx) counts - same flat layout as the row-chunked kernel's shared-staged variant.
     extern __shared__ int sh[];
-    __shared__ double warp_sums[32];
+    __shared__ {ACC} warp_sums[32];
     int n_joint_cells = max_joint * n_classes_y;
     int total_cells = n_joint_cells + max_joint;
     int tid = threadIdx.x, nt = blockDim.x;
@@ -107,8 +108,8 @@ void pair_mi_shared_fused(
     // earlier version of this kernel, measured ~6x slower end-to-end than doing the histogram-accumulate
     // phase alone would suggest; see bench_batch_pair_mi_shared_fused.py). Every thread strides over a
     // disjoint subset of cells; partials combine by a fixed-order warp shuffle tree and a serial sum over
-    // warps, so the result is bit-identical run to run (a shared atomicAdd on a double is order-dependent).
-    double loc = 0.0;
+    // warps, so the result is bit-identical run to run (a shared atomicAdd on a {ACC} is order-dependent).
+    {ACC} loc = 0.0;
     for (int idx = tid; idx < n_joint_cells; idx += nt) {
         int jc = sh[idx];
         if (jc == 0) continue;
@@ -116,22 +117,22 @@ void pair_mi_shared_fused(
         int j = idx - i * n_classes_y;
         int fx = sh[n_joint_cells + i];
         if (fx == 0) continue;
-        double prob_y = freqs_y[j];
+        {ACC} prob_y = freqs_y[j];
         if (prob_y <= 0.0) continue;
-        double prob_x = (double)fx * inv_n;
-        double jf = (double)jc * inv_n;
+        {ACC} prob_x = ({ACC})fx * inv_n;
+        {ACC} jf = ({ACC})jc * inv_n;
         loc += jf * log(jf / (prob_x * prob_y));
     }
     for (int off = 16; off > 0; off >>= 1) loc += __shfl_down_sync(0xffffffffu, loc, off);
     if ((tid & 31) == 0) warp_sums[tid >> 5] = loc;
     __syncthreads();
     if (tid == 0) {
-        double total = 0.0;
+        {ACC} total = 0.0;
         for (int w = 0; w < (nt >> 5); ++w) total += warp_sums[w];
         mi_out[p] = total;
     }
 }
-"""
+""")
 
 
 def validate_pair_codes(factors_data: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, nbins: np.ndarray, classes_y: np.ndarray, n_classes_y: int) -> None:

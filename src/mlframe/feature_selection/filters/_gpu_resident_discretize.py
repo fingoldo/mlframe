@@ -21,6 +21,7 @@ import numpy as np
 # select parent, so this top import resolves during the partial-init import chain - same pattern as the parent).
 from ._gpu_resident_shared import _quantile_levels_dev
 from mlframe.feature_selection.filters._device_sort_safe import device_percentile  # thrust aborts the process on a short pool
+from ._kernel_types import render
 
 # FUSED PER-COLUMN BINNING (nvprof-driven). The per-column ``for j in range(K): out[:,j] =
 # cp.searchsorted(edges[:,j], col, 'right')`` loop fired K separate searchsorted launches PLUS K int64->
@@ -55,13 +56,13 @@ from mlframe.feature_selection.filters._device_sort_safe import device_percentil
 # Pascal. VERDICT: at its practical floor for this card.
 _BIN_CODES_SRC = r"""
 extern "C" __global__
-void bin_codes_TYPENAME(const TYPE* __restrict__ cand, const double* __restrict__ edges,
+void bin_codes_TYPENAME(const TYPE* __restrict__ cand, const {EDGE}* __restrict__ edges,
                         const long long n, const int K, const int ne, OUTTYPE* __restrict__ out) {
     long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n * (long long)K;
     if (idx >= total) return;
     int col = (int)(idx % (long long)K);
-    double v = (double)cand[idx];
+    {EDGE} v = ({EDGE})cand[idx];
     int lo = 0, hi = ne;                       // upper_bound over this column's interior edges
     while (lo < hi) {
         int mid = (lo + hi) >> 1;
@@ -106,7 +107,7 @@ def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
             .replace("OUTTYPE", out_ctype)  # MUST precede the TYPE replace (TYPE is a substring of OUTTYPE)
             .replace("TYPE", ctype)
         )
-        k = cp.RawKernel(src, sym)
+        k = cp.RawKernel(render(src, edge=np.float64), sym)  # the edges and the comparison are float64: a float32 candidate is promoted, the codes are the double comparison's
         with _BIN_CODES_KERNELS_LOCK:
             k = _BIN_CODES_KERNELS.setdefault(cache_key, k)
     return k

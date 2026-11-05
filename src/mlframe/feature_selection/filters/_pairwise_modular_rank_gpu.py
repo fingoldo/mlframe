@@ -14,6 +14,8 @@ from typing import Optional, cast
 import threading
 import numpy as np
 
+from ._kernel_types import render
+
 logger = logging.getLogger(__name__)
 
 _BLOCK = 128
@@ -24,11 +26,11 @@ extern "C" __BOUNDS__ __global__ void residue_rank(
     const __COLT__* __restrict__ cols, const int n,
     const int* __restrict__ ia, const int* __restrict__ ib, const int* __restrict__ ic,
     const int mode, const int* __restrict__ mods, const int n_mods,
-    const int* __restrict__ ycls, const int n_cls, const int max_k, const double hy,
-    double* __restrict__ scores)
+    const int* __restrict__ ycls, const int n_cls, const int max_k, const {ACC} hy,
+    {ACC}* __restrict__ scores)
 {
     extern __shared__ int sh[];
-    __shared__ double red[128];
+    __shared__ {ACC} red[128];
     int* joint = sh;
     int* marg = sh + max_k * n_cls;
     const int q = blockIdx.x;
@@ -37,7 +39,7 @@ extern "C" __BOUNDS__ __global__ void residue_rank(
     const __COLT__* cb = cols + (long long)ib[q] * n;
     const __COLT__* cc = (mode == 1) ? cols + (long long)ic[q] * n : ca;
     const int n_ops = (mode == 1) ? 1 : 3;
-    double best = 0.0;
+    {ACC} best = 0.0;
     for (int op = 0; op < n_ops; ++op) {
         for (int mi = 0; mi < n_mods; ++mi) {
             const int k = mods[mi];
@@ -56,12 +58,12 @@ extern "C" __BOUNDS__ __global__ void residue_rank(
                 atomicAdd(&marg[r], 1);
             }
             __syncthreads();
-            double local = 0.0;
+            {ACC} local = 0.0;
             for (int r = tid; r < k; r += blockDim.x) {
-                if (marg[r] > 0) { double pr = (double)marg[r] / n; local -= pr * log(pr); }
+                if (marg[r] > 0) { {ACC} pr = ({ACC})marg[r] / n; local -= pr * log(pr); }
             }
             for (int j = tid; j < cells; j += blockDim.x) {
-                if (joint[j] > 0) { double pj = (double)joint[j] / n; local += pj * log(pj); }
+                if (joint[j] > 0) { {ACC} pj = ({ACC})joint[j] / n; local += pj * log(pj); }
             }
 __REDUCE__
         }
@@ -78,7 +80,7 @@ _REDUCE_V1 = """            red[tid] = local;
                 __syncthreads();
             }
             if (tid == 0) {
-                const double mi_val = hy + red[0];
+                const {ACC} mi_val = hy + red[0];
                 if (mi_val > best) best = mi_val;
             }
             __syncthreads();"""
@@ -88,7 +90,7 @@ _REDUCE_V2 = """            for (int o = 16; o > 0; o >>= 1) local += __shfl_dow
             if ((tid & 31) == 0) red[tid >> 5] = local;
             __syncthreads();
             if (tid == 0) {
-                const double mi_val = hy + red[0] + red[1] + red[2] + red[3];
+                const {ACC} mi_val = hy + red[0] + red[1] + red[2] + red[3];
                 if (mi_val > best) best = mi_val;
             }"""
 
@@ -99,12 +101,12 @@ extern "C" __BOUNDS__ __global__ void residue_rank(
     const __COLT__* __restrict__ cols, const int n,
     const int* __restrict__ ia, const int* __restrict__ ib, const int* __restrict__ ic,
     const int mode, const int* __restrict__ mods, const int n_mods,
-    const int* __restrict__ ycls, const int n_cls, const int max_k, const double hy,
-    double* __restrict__ scores)
+    const int* __restrict__ ycls, const int n_cls, const int max_k, const {ACC} hy,
+    {ACC}* __restrict__ scores)
 {
     extern __shared__ int sh[];
-    __shared__ double red[4];
-    __shared__ double best_sh;
+    __shared__ {ACC} red[4];
+    __shared__ {ACC} best_sh;
     int* joint = sh;
     int* marg = sh + max_k * n_cls;
     const int q = blockIdx.x;
@@ -132,18 +134,18 @@ extern "C" __BOUNDS__ __global__ void residue_rank(
                 atomicAdd(&marg[r], 1);
             }
             __syncthreads();
-            double local = 0.0;
+            {ACC} local = 0.0;
             for (int r = tid; r < k; r += blockDim.x) {
-                if (marg[r] > 0) { double pr = (double)marg[r] / n; local -= pr * log(pr); }
+                if (marg[r] > 0) { {ACC} pr = ({ACC})marg[r] / n; local -= pr * log(pr); }
             }
             for (int j = tid; j < cells; j += blockDim.x) {
-                if (joint[j] > 0) { double pj = (double)joint[j] / n; local += pj * log(pj); }
+                if (joint[j] > 0) { {ACC} pj = ({ACC})joint[j] / n; local += pj * log(pj); }
             }
             for (int o = 16; o > 0; o >>= 1) local += __shfl_down_sync(0xffffffffu, local, o);
             if ((tid & 31) == 0) red[tid >> 5] = local;
             __syncthreads();
             if (tid == 0) {
-                const double mi_val = hy + red[0] + red[1] + red[2] + red[3];
+                const {ACC} mi_val = hy + red[0] + red[1] + red[2] + red[3];
                 if (mi_val > best_sh) best_sh = mi_val;
             }
         }
@@ -164,11 +166,11 @@ _KERNEL_V6_TEMPLATE = _KERNEL_V4_TEMPLATE.replace(
     "                atomicAdd(&joint[r * n_cls + ycls[t]], 1);\n                atomicAdd(&marg[r], 1);\n",
     "                atomicAdd(&joint[wp * sj + r * n_cls + ycls[t]], 1);\n                atomicAdd(&marg[wp * sm + r], 1);\n",
 ).replace(
-    "                if (marg[r] > 0) { double pr = (double)marg[r] / n; local -= pr * log(pr); }\n",
-    "                const int mr = marg[r] + marg[sm + r] + marg[2 * sm + r] + marg[3 * sm + r];\n                if (mr > 0) { double pr = (double)mr / n; local -= pr * log(pr); }\n",
+    "                if (marg[r] > 0) { {ACC} pr = ({ACC})marg[r] / n; local -= pr * log(pr); }\n",
+    "                const int mr = marg[r] + marg[sm + r] + marg[2 * sm + r] + marg[3 * sm + r];\n                if (mr > 0) { {ACC} pr = ({ACC})mr / n; local -= pr * log(pr); }\n",
 ).replace(
-    "                if (joint[j] > 0) { double pj = (double)joint[j] / n; local += pj * log(pj); }\n",
-    "                const int cj = joint[j] + joint[sj + j] + joint[2 * sj + j] + joint[3 * sj + j];\n                if (cj > 0) { double pj = (double)cj / n; local += pj * log(pj); }\n",
+    "                if (joint[j] > 0) { {ACC} pj = ({ACC})joint[j] / n; local += pj * log(pj); }\n",
+    "                const int cj = joint[j] + joint[sj + j] + joint[2 * sj + j] + joint[3 * sj + j];\n                if (cj > 0) { {ACC} pj = ({ACC})cj / n; local += pj * log(pj); }\n",
 )
 # Version 7: no division in the row loop. The residues of every column at every modulus are computed once into an int8 table (p, n_mods, n); (a + b) mod k is then
 # ra + rb with one conditional subtraction, a - b one conditional addition, a + b + c two, and a * b a lookup in a k x k table built once per modulus in shared memory.
@@ -178,12 +180,12 @@ extern "C" __BOUNDS__ __global__ void residue_rank(
     const signed char* __restrict__ R, const int n, const int n_mods,
     const int* __restrict__ ia, const int* __restrict__ ib, const int* __restrict__ ic,
     const int mode, const int* __restrict__ mods,
-    const int* __restrict__ ycls, const int n_cls, const int max_k, const double hy,
-    double* __restrict__ scores)
+    const int* __restrict__ ycls, const int n_cls, const int max_k, const {ACC} hy,
+    {ACC}* __restrict__ scores)
 {
     extern __shared__ int sh[];
-    __shared__ double red[4];
-    __shared__ double best_sh;
+    __shared__ {ACC} red[4];
+    __shared__ {ACC} best_sh;
     int* joint = sh;
     int* marg = sh + max_k * n_cls;
     unsigned char* ptab = (unsigned char*)(marg + max_k);
@@ -216,18 +218,18 @@ extern "C" __BOUNDS__ __global__ void residue_rank(
                 atomicAdd(&marg[r], 1);
             }
             __syncthreads();
-            double local = 0.0;
+            {ACC} local = 0.0;
             for (int r = tid; r < k; r += blockDim.x) {
-                if (marg[r] > 0) { double pr = (double)marg[r] / n; local -= pr * log(pr); }
+                if (marg[r] > 0) { {ACC} pr = ({ACC})marg[r] / n; local -= pr * log(pr); }
             }
             for (int j = tid; j < cells; j += blockDim.x) {
-                if (joint[j] > 0) { double pj = (double)joint[j] / n; local += pj * log(pj); }
+                if (joint[j] > 0) { {ACC} pj = ({ACC})joint[j] / n; local += pj * log(pj); }
             }
             for (int o = 16; o > 0; o >>= 1) local += __shfl_down_sync(0xffffffffu, local, o);
             if ((tid & 31) == 0) red[tid >> 5] = local;
             __syncthreads();
             if (tid == 0) {
-                const double mi_val = hy + red[0] + red[1] + red[2] + red[3];
+                const {ACC} mi_val = hy + red[0] + red[1] + red[2] + red[3];
                 if (mi_val > best_sh) best_sh = mi_val;
             }
         }
@@ -242,8 +244,8 @@ _KERNEL_V8_TEMPLATE = _KERNEL_V7_TEMPLATE.replace(
     "                atomicAdd(&marg[r], 1);\n",
     "",
 ).replace(
-    "                if (marg[r] > 0) { double pr = (double)marg[r] / n; local -= pr * log(pr); }\n",
-    "                int mr = 0;\n                for (int y = 0; y < n_cls; ++y) mr += joint[r * n_cls + y];\n                if (mr > 0) { double pr = (double)mr / n; local -= pr * log(pr); }\n",
+    "                if (marg[r] > 0) { {ACC} pr = ({ACC})marg[r] / n; local -= pr * log(pr); }\n",
+    "                int mr = 0;\n                for (int y = 0; y < n_cls; ++y) mr += joint[r * n_cls + y];\n                if (mr > 0) { {ACC} pr = ({ACC})mr / n; local -= pr * log(pr); }\n",
 )
 _KERNEL_COPIES = {6: 4}  # versions that keep several count-matrix copies in shared memory
 _TABLE_VERSIONS = {7, 8}  # versions that read the int8 residue table instead of the columns
@@ -287,7 +289,7 @@ def _get_kernel(version: Optional[int] = None, wide: bool = True):
         if key not in _kernels:
             import cupy as cp
 
-            src = _KERNEL_SOURCES[v].replace("__COLT__", "long long" if wide else "int")
+            src = render(_KERNEL_SOURCES[v]).replace("__COLT__", "long long" if wide else "int")
             _kernels[key] = cp.RawKernel(src, "residue_rank")
         return _kernels[key]
 

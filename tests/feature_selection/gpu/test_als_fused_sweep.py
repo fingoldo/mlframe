@@ -115,3 +115,15 @@ def test_a_constant_weight_column_does_not_blow_up():
     Ba, Bb, yc = _designs("legendre", 3, 4_000, seed=3)
     got = als_sweep_fused(cp, Ba, Bb, cp.zeros_like(yc) + 1e-30, 2)
     assert got is None or (len(got) > 0 and all(np.all(np.isfinite(v)) for v in got))
+
+
+@pytest.mark.parametrize("basis", ["legendre", "hermite"])
+def test_float32_designs_run_the_float_kernels_and_stay_close_to_the_float64_sweep(basis):
+    """float32 designs are read as float32 (no double pointer on a float32 buffer); the sums, Gram and coefficients stay float64, so the coefficients agree with the float64 run to 1e-4 of their size."""
+    Ba, Bb, yc = _designs(basis, 8, 20000, 5)
+    want = als_sweep_fused(cp, Ba, Bb, yc, 3)
+    got = als_sweep_fused(cp, Ba.astype(cp.float32), Bb.astype(cp.float32), yc.astype(cp.float32), 3)
+    assert want is not None and got is not None
+    for g, w in zip(got, want):
+        assert g.dtype == np.float64
+        np.testing.assert_allclose(g, w, rtol=1e-3, atol=1e-4 * float(np.max(np.abs(w))))
