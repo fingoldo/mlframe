@@ -132,7 +132,7 @@ def _fe_stage_cascade_mid_a(
     # the OOF-fit target-aware supervised bin index; each survivor MI-gated
     # against the source num_col marginal MI. Routing piggybacks on
     # hybrid_orth_features_ (same Layer 23 remap as Layers 33/34/37/38/87).
-    X_acc = _fe_merge_new_columns(X_acc, _stage_grouped_quantile(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _grouped_quantile_pre_recipes, verbose), X)
+    # (the grouped-quantile family runs in the early_b cascade's slot now: it reads only the step input, and early_b's slot is idle for 13 s while mid_a is the longest of the three concurrent cascades)
 
     # Layer 89: cat x cat synergy cross with II pre-filter.
     X_acc = _fe_merge_new_columns(X_acc, _stage_cat_pair(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_pair_pre_recipes, verbose), X)
