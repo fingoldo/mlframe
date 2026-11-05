@@ -16,7 +16,7 @@ Eleven read-only Opus 5.5 (low effort) audits, one per attack class. Each findin
 | SEC-W2-2 | Info | DOC | `model_dump(scrub_secrets=False)` returns secrets by design for provider load |
 | NET-W2-1 | Low | DOC | Unlisted HF model loads `main` with a warning; the owner chooses revisions (same as N3-03) |
 | NET-W2-2 | Low | RESOLVED | `027d1f344` `packaging` pinned in both matrix workflows; meta test `test_workflow_packaging_is_pinned.py` |
-| RES-W2-1 | High | PARTIAL | `b212aa330` int32 tables and 2**31 row guard; `_n_train_` stored instead of the leaf matrix (see QRF commit). Next: logged size limit on the forest. |
+| RES-W2-1 | High | RESOLVED | `b212aa330` int32 tables and 2**31 row guard; `5ed4e190f` leaf matrix not kept on the model; `a868f2a4e` logged size warning above 1 GiB |
 | RES-W2-2 | Medium | RESOLVED | `8adef3764` decompression cap is half of RAM, at most 64 GiB |
 | RES-W2-3 | Low | DOC | Column-order cache caps each entry at 4 GB but not the total; the owner can choose a total cap |
 | RES-W2-4 | Info | REJECTED | Already bounded (checked) |
