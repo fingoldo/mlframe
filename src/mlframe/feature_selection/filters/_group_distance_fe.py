@@ -63,6 +63,7 @@ except ImportError:  # numba is an optional dep; fall back to scipy below.
 
 from ._grouped_coerce_shared import auto_detect_group_cols, auto_detect_num_cols_plain as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
 from ._internals import group_key_strings, stable_argsort_codes
+from ._numba_utils_shared import radix_order_f64
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -343,8 +344,9 @@ def generate_group_distance_features(
             with _ORDER_LOCK:
                 order = _fin_order.get(num_col)
             if order is None:
-                order = np.argsort(x, kind="stable")
-                order = order[np.isfinite(x[order])]
+                # the finite rows in ascending value order, ties in row order: a radix order of the finite values (3x a stable comparison argsort, NaN and inf never enter it)
+                finite_rows = np.flatnonzero(np.isfinite(x))
+                order = finite_rows[radix_order_f64(np.ascontiguousarray(x[finite_rows], dtype=np.float64))]
                 with _ORDER_LOCK:
                     _fin_order[num_col] = order
             w_all = _wasserstein1_all_groups(x, order, gid, len(group_rows), global_sorted)
