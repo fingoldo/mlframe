@@ -20,6 +20,7 @@ import logging
 
 import numpy as np
 
+from ._kernel_types import render
 from ._honest_null_device import _pack_bits
 from ._raw_module_cache import RawModuleCache
 
@@ -29,17 +30,17 @@ THREADS = 256
 SHARED_BUDGET_BYTES = 22 * 1024  # per table; the kernel holds two of them (row-space and sorted-space labels)
 _MARGIN = 1e-6
 
-_SRC = r"""
+_SRC = render(r"""
 extern "C" __global__ void root_split_accept(const int* __restrict__ order, const unsigned int* __restrict__ valid, const unsigned int* __restrict__ ybits,
-                                             const double* __restrict__ tab, const double* __restrict__ thr, const long long n, const int W, const int YW, const int m,
-                                             const int B, const double h_full, const double pi,
-                                             double* __restrict__ out_gain, int* __restrict__ out_ncand, int* __restrict__ out_idx) {
+                                             const {ACC}* __restrict__ tab, const {ACC}* __restrict__ thr, const long long n, const int W, const int YW, const int m,
+                                             const int B, const {ACC} h_full, const {ACC} pi,
+                                             {ACC}* __restrict__ out_gain, int* __restrict__ out_ncand, int* __restrict__ out_idx) {
     extern __shared__ unsigned int sh[];              // YW words of row-space labels, then W words: bit i = label of the row at sorted position i
     unsigned int* ysh = sh;
     unsigned int* bits = sh + YW;
     __shared__ int warp_tot[32];
     __shared__ int s_ncand;
-    __shared__ double best_g[32];
+    __shared__ {ACC} best_g[32];
     __shared__ int best_i[32];
     const int tid = threadIdx.x;
     const int j = blockIdx.x / B;
@@ -91,27 +92,27 @@ extern "C" __global__ void root_split_accept(const int* __restrict__ order, cons
     __syncthreads();
     int L = warp_tot[tid >> 5] + v - pc;               // ones before this thread's first word
     const int ncand = s_ncand;
-    double bg = -1e300;
+    {ACC} bg = -1e300;
     int bi = -1;
     if (ncand > 0) {
-        const double th = thr[ncand];
-        const float pif = (float)pi;
-        const float pi1mf = (float)(pi * (1.0 - pi));
-        const float nnf = (float)n;
-        const double nn = (double)n;
+        const {ACC} th = thr[ncand];
+        const {REAL} pif = ({REAL})pi;
+        const {REAL} pi1mf = ({REAL})(pi * (1.0 - pi));
+        const {REAL} nnf = ({REAL})n;
+        const {ACC} nn = ({ACC})n;
         for (int w = w0; w < w1; ++w) {
             const unsigned int cur = bits[w];
             const unsigned int nxt = (w + 1 < W) ? bits[w + 1] : 0u;
             const unsigned int cand = (cur ^ ((cur >> 1) | (nxt << 31))) & vj[w];
             if (cand) {
-                // The bound in single precision (double rate is 1/32 of float on the target cards): MI <= log(1 + phi^2) <= phi^2, with 0.5 added to |D| and a 1e-3 relative margin covering the float rounding.
-                const float i0 = (float)w * 32.0f;
-                const float dlo = (float)L - (i0 + 32.0f) * pif;
-                const float dhi = (float)L + 32.0f - (i0 + 1.0f) * pif;
-                const float d = fmaxf(fabsf(dlo), fabsf(dhi)) + 0.5f;
-                const float nl1 = i0 + 1.0f, nl2 = fminf(i0 + 32.0f, nnf - 1.0f);
-                const float fmn = fminf(nl1 * (nnf - nl1), nl2 * (nnf - nl2));
-                const double bound = (double)(d * d / (fmn * pi1mf)) * 1.001 + 1e-12;
+                // The bound in single precision ({ACC} rate is 1/32 of {REAL} on the target cards): MI <= log(1 + phi^2) <= phi^2, with 0.5 added to |D| and a 1e-3 relative margin covering the {REAL} rounding.
+                const {REAL} i0 = ({REAL})w * 32.0f;
+                const {REAL} dlo = ({REAL})L - (i0 + 32.0f) * pif;
+                const {REAL} dhi = ({REAL})L + 32.0f - (i0 + 1.0f) * pif;
+                const {REAL} d = fmaxf(fabsf(dlo), fabsf(dhi)) + 0.5f;
+                const {REAL} nl1 = i0 + 1.0f, nl2 = fminf(i0 + 32.0f, nnf - 1.0f);
+                const {REAL} fmn = fminf(nl1 * (nnf - nl1), nl2 * (nnf - nl2));
+                const {ACC} bound = ({ACC})(d * d / (fmn * pi1mf)) * 1.001 + 1e-12;
                 if (bound >= th) {
                     unsigned int c = cand;
                     while (c) {
@@ -122,7 +123,7 @@ extern "C" __global__ void root_split_accept(const int* __restrict__ order, cons
                         const long long l1 = (long long)L + __popc(cur & upto);
                         const long long n_l = i + 1, n_r = (long long)n - n_l, l0 = n_l - l1;
                         const long long r1 = (long long)m - l1, r0 = ((long long)n - m) - l0;
-                        const double gain = h_full - (tab[n_l] - (tab[l0] + tab[l1]) + tab[n_r] - (tab[r0] + tab[r1])) / nn;
+                        const {ACC} gain = h_full - (tab[n_l] - (tab[l0] + tab[l1]) + tab[n_r] - (tab[r0] + tab[r1])) / nn;
                         if (gain > bg) { bg = gain; bi = (int)i; }
                     }
                 }
@@ -133,14 +134,14 @@ extern "C" __global__ void root_split_accept(const int* __restrict__ order, cons
     // best (gain, index) of the block: shuffle reduction inside each warp, then the 8 warp winners; ties go to the smaller index
 #pragma unroll
     for (int o = 16; o >= 1; o >>= 1) {
-        const double og = __shfl_down_sync(0xffffffffu, bg, o);
+        const {ACC} og = __shfl_down_sync(0xffffffffu, bg, o);
         const int oi = __shfl_down_sync(0xffffffffu, bi, o);
         if (oi >= 0 && (bi < 0 || og > bg || (og == bg && oi < bi))) { bg = og; bi = oi; }
     }
     if ((tid & 31) == 0) { best_g[tid >> 5] = bg; best_i[tid >> 5] = bi; }
     __syncthreads();
     if (tid == 0) {
-        double G = -1e300;
+        {ACC} G = -1e300;
         int I = -1;
         for (int t = 0; t < (int)(blockDim.x >> 5); ++t)
             if (best_i[t] >= 0 && (best_g[t] > G || (best_g[t] == G && best_i[t] < I))) { G = best_g[t]; I = best_i[t]; }
@@ -150,7 +151,7 @@ extern "C" __global__ void root_split_accept(const int* __restrict__ order, cons
         out_idx[idx] = I;
     }
 }
-"""
+""", real=np.float32)
 
 _MODULE = RawModuleCache(_SRC)
 

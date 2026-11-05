@@ -15,16 +15,20 @@ Other versions:
 
 from __future__ import annotations
 
+from ._kernel_types import render
+
+import numpy as np
+
 from typing import Any
 
 # Intentional float64: tab/out_gain hold statistic tables and partial gain sums whose rounding would change split selection vs the CPU twin.
-_SOURCE_K4F = r"""
+_SOURCE_K4F = render(r"""
 #define XL(v) (((v) < 32768) ? ({REAL})tab[(v)] : ({REAL})(v) * logf(({REAL})(v)))
 #define ENT2(m, c) (((c) > 0.f && (c) < (m)) ? -((c) * __logf((c) / (m)) + ((m) - (c)) * __logf(((m) - (c)) / (m))) : 0.f)
-// {REAL}: the type of the exact-gain arithmetic (float: the double path runs at 1/32 of the float rate on consumer cards); the stored gain is converted to double.
+// {REAL}: the type of the exact-gain arithmetic ({REAL}: the {ACC} path runs at 1/32 of the {REAL} rate on consumer cards); the stored gain is converted to {ACC}.
 extern "C" __global__ void root_split_stats_k4(const int* __restrict__ order, const unsigned char* __restrict__ tie, const unsigned char* __restrict__ ybits,
-                                               const double* __restrict__ tab, const long long* __restrict__ ctot, const int n, const int B,
-                                               const int Kc, const int min_split, const double h_full, const int words, double* __restrict__ out_gain,
+                                               const {ACC}* __restrict__ tab, const long long* __restrict__ ctot, const int n, const int B,
+                                               const int Kc, const int min_split, const {ACC} h_full, const int words, {ACC}* __restrict__ out_gain,
                                                int* __restrict__ out_ncand, int* __restrict__ out_idx) {
     const long long idx = (long long)blockDim.x * blockIdx.x + threadIdx.x;
     if (idx >= (long long)B * Kc) return;
@@ -37,7 +41,7 @@ extern "C" __global__ void root_split_stats_k4(const int* __restrict__ order, co
     const {REAL} h_r = ({REAL})h_full;
     const int TILE = 8;
     int ybuf[TILE + 1];
-    float w_min = 3.0e38f;
+    {REAL} w_min = 3.0e38f;
     int ncand = 0;
     long long l0 = 0, l1 = 0, r0 = ctot[0], r1 = ctot[1];
     {REAL} best_gain = -3.0e38f;
@@ -54,7 +58,7 @@ extern "C" __global__ void root_split_stats_k4(const int* __restrict__ order, co
             if (yi) { ++l1; --r1; } else { ++l0; --r0; }
             const int n_l = i + 1, n_r = n - n_l;
             if (n_l >= min_split && n_r >= min_split && yi != ybuf[t + 1] && !tj[i]) {
-                const float w_f = ENT2((float)n_l, (float)l1) + ENT2((float)n_r, (float)r1);
+                const {REAL} w_f = ENT2(({REAL})n_l, ({REAL})l1) + ENT2(({REAL})n_r, ({REAL})r1);
                 ++ncand;
                 if (w_f < w_min) w_min = w_f;
                 if (w_f <= w_min + 0.5f) {
@@ -64,11 +68,11 @@ extern "C" __global__ void root_split_stats_k4(const int* __restrict__ order, co
             }
         }
     }
-    out_gain[idx] = best_idx < 0 ? -1e300 : (double)best_gain;
+    out_gain[idx] = best_idx < 0 ? -1e300 : ({ACC})best_gain;
     out_ncand[idx] = ncand;
     out_idx[idx] = best_idx;
 }
-"""
+""", real=np.float32)
 
 _kernel_k4f = None
 
@@ -81,13 +85,13 @@ def get_kernel_k4f(cp: Any) -> Any:
     return _kernel_k4f
 
 
-_SOURCE_K5 = r"""
-#define XL(v) (((v) < 32768) ? tab[(v)] : (double)(v) * log((double)(v)))
+_SOURCE_K5 = render(r"""
+#define XL(v) (((v) < 32768) ? tab[(v)] : ({ACC})(v) * log(({ACC})(v)))
 #define ENT2(m, c) (((c) > 0.f && (c) < (m)) ? -((c) * __logf((c) / (m)) + ((m) - (c)) * __logf(((m) - (c)) / (m))) : 0.f)
-// One pass in {REAL} (float): the stable entropy score w_f (every term below n ln 2) is tracked for its minimum and the position; the exact double gain is evaluated ONCE, at that position.
+// One pass in {REAL} ({REAL}): the stable entropy score w_f (every term below n ln 2) is tracked for its minimum and the position; the exact {ACC} gain is evaluated ONCE, at that position.
 extern "C" __global__ void root_split_stats_k5(const int* __restrict__ order, const unsigned char* __restrict__ tie, const unsigned char* __restrict__ ybits,
-                                               const double* __restrict__ tab, const long long* __restrict__ ctot, const int n, const int B,
-                                               const int Kc, const int min_split, const double h_full, const int words, double* __restrict__ out_gain,
+                                               const {ACC}* __restrict__ tab, const long long* __restrict__ ctot, const int n, const int B,
+                                               const int Kc, const int min_split, const {ACC} h_full, const int words, {ACC}* __restrict__ out_gain,
                                                int* __restrict__ out_ncand, int* __restrict__ out_idx) {
     const long long idx = (long long)blockDim.x * blockIdx.x + threadIdx.x;
     if (idx >= (long long)B * Kc) return;
@@ -114,22 +118,22 @@ extern "C" __global__ void root_split_stats_k5(const int* __restrict__ order, co
             if (yi) { ++l1; --r1; } else { ++l0; --r0; }
             const int n_l = i + 1, n_r = n - n_l;
             if (n_l >= min_split && n_r >= min_split && yi != ybuf[t + 1] && !tj[i]) {
-                const {REAL} w_f = ({REAL})(ENT2((float)n_l, (float)l1) + ENT2((float)n_r, (float)r1));
+                const {REAL} w_f = ({REAL})(ENT2(({REAL})n_l, ({REAL})l1) + ENT2(({REAL})n_r, ({REAL})r1));
                 ++ncand;
                 if (w_f < w_min) { w_min = w_f; best_i = i; b_l0 = l0; b_l1 = l1; b_r0 = r0; b_r1 = r1; }
             }
         }
     }
-    double best_gain = -1e300;
+    {ACC} best_gain = -1e300;
     if (best_i >= 0) {
         const int n_l = best_i + 1, n_r = n - n_l;
-        best_gain = h_full - (XL(n_l) - (XL(b_l0) + XL(b_l1)) + XL(n_r) - (XL(b_r0) + XL(b_r1))) / (double)n;
+        best_gain = h_full - (XL(n_l) - (XL(b_l0) + XL(b_l1)) + XL(n_r) - (XL(b_r0) + XL(b_r1))) / ({ACC})n;
     }
     out_gain[idx] = best_gain;
     out_ncand[idx] = ncand;
     out_idx[idx] = best_i;
 }
-"""
+""", real=np.float32)
 
 _kernel_k5 = None
 
@@ -142,13 +146,13 @@ def get_kernel_k5(cp: Any) -> Any:
     return _kernel_k5
 
 
-_SOURCE_K4 = r"""
+_SOURCE_K4 = render(r"""
 // The table ``tab`` holds x ln x for EVERY count up to n, so the gain needs no log call.
 #define XL(v) (tab[(v)])
 #define ENT2(m, c) (((c) > 0.f && (c) < (m)) ? -((c) * __logf((c) / (m)) + ((m) - (c)) * __logf(((m) - (c)) / (m))) : 0.f)
 extern "C" __global__ void root_split_stats_k4(const int* __restrict__ order, const unsigned char* __restrict__ tie, const unsigned char* __restrict__ ybits,
-                                               const double* __restrict__ tab, const long long* __restrict__ ctot, const int n, const int B,
-                                               const int Kc, const int min_split, const double h_full, const int words, double* __restrict__ out_gain,
+                                               const {ACC}* __restrict__ tab, const long long* __restrict__ ctot, const int n, const int B,
+                                               const int Kc, const int min_split, const {ACC} h_full, const int words, {ACC}* __restrict__ out_gain,
                                                int* __restrict__ out_ncand, int* __restrict__ out_idx) {
     const long long idx = (long long)blockDim.x * blockIdx.x + threadIdx.x;
     if (idx >= (long long)B * Kc) return;
@@ -157,13 +161,13 @@ extern "C" __global__ void root_split_stats_k4(const int* __restrict__ order, co
     const int* ord = order + (long long)j * n;
     const unsigned char* tj = tie + (long long)j * n;
     const unsigned int* yb = (const unsigned int*)ybits;
-    const double n_f = (double)n;
+    const {ACC} n_f = ({ACC})n;
     const int TILE = 8;
     int ybuf[TILE + 1];
-    float w_min = 3.0e38f;
+    {REAL} w_min = 3.0e38f;
     int ncand = 0;
     long long l0 = 0, l1 = 0, r0 = ctot[0], r1 = ctot[1];
-    double best_gain = -1e300;
+    {ACC} best_gain = -1e300;
     int best_idx = -1;
     for (int i0 = 0; i0 < n - 1; i0 += TILE) {
         const int cnt = min(TILE + 1, n - i0);
@@ -177,11 +181,11 @@ extern "C" __global__ void root_split_stats_k4(const int* __restrict__ order, co
             if (yi) { ++l1; --r1; } else { ++l0; --r0; }
             const int n_l = i + 1, n_r = n - n_l;
             if (n_l >= min_split && n_r >= min_split && yi != ybuf[t + 1] && !tj[i]) {
-                const float w_f = ENT2((float)n_l, (float)l1) + ENT2((float)n_r, (float)r1);
+                const {REAL} w_f = ENT2(({REAL})n_l, ({REAL})l1) + ENT2(({REAL})n_r, ({REAL})r1);
                 ++ncand;
                 if (w_f < w_min) w_min = w_f;
                 if (w_f <= w_min + 0.5f) {
-                    const double gain = h_full - (XL(n_l) - (XL(l0) + XL(l1)) + XL(n_r) - (XL(r0) + XL(r1))) / n_f;
+                    const {ACC} gain = h_full - (XL(n_l) - (XL(l0) + XL(l1)) + XL(n_r) - (XL(r0) + XL(r1))) / n_f;
                     if (gain > best_gain) { best_gain = gain; best_idx = i; }
                 }
             }
@@ -191,7 +195,7 @@ extern "C" __global__ void root_split_stats_k4(const int* __restrict__ order, co
     out_ncand[idx] = ncand;
     out_idx[idx] = best_idx;
 }
-"""
+""", real=np.float32)
 
 _kernel_k4 = None
 

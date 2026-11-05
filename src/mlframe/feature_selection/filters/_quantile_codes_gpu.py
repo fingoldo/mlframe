@@ -210,8 +210,6 @@ def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: 
         return False
     from ._numba_utils import quantile_codes_block
 
-    real = "float" if v.dtype == np.float32 else "double"
-    kernel = _MODULES[real].get(cp).get_function("quantile_codes_f32" if real == "float" else "quantile_codes_f64")
     i0, i1, gamma = _edge_positions(n, int(n_bins))
     i0_dev, i1_dev, gamma_dev = cp.asarray(i0), cp.asarray(i1), cp.asarray(gamma)
     nb1 = int(n_bins) + 1
@@ -220,6 +218,8 @@ def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: 
     for c0 in range(0, k, block):
         c1 = min(k, c0 + block)
         v_dev = cp.asarray(np.ascontiguousarray(v[c0:c1]))
+        real = "float" if v_dev.dtype == cp.float32 else "double"  # the kernel type follows the buffer that is launched
+        kernel = _MODULES[real].get(cp).get_function("quantile_codes_f32" if real == "float" else "quantile_codes_f64")
         if method == "radix" and v.dtype == np.float32:
             few = np.flatnonzero(_few_levels_mask(np.ascontiguousarray(v[c0:c1]), int(n_bins)))
             vals = _order_statistics_f32(cp, v_dev, w_unique)  # (cb, T) values at the ranks the edges read

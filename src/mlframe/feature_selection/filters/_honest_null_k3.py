@@ -18,6 +18,8 @@ a precision choice of the caller). Keep v2 for the shapes that do not fit.
 
 from __future__ import annotations
 
+from ._kernel_types import render
+
 from typing import Any
 
 import numpy as np
@@ -25,13 +27,13 @@ import numpy as np
 MAX_SHARED_BYTES = 48 * 1024
 THREADS = 128
 
-_SOURCE_K3 = r"""
-#define XL(v) (((v) < 32768) ? tab[(v)] : (double)(v) * log((double)(v)))
+_SOURCE_K3 = render(r"""
+#define XL(v) (((v) < 32768) ? tab[(v)] : ({ACC})(v) * log(({ACC})(v)))
 #define ENT2(m, c) (((c) > 0.f && (c) < (m)) ? -((c) * __logf((c) / (m)) + ((m) - (c)) * __logf(((m) - (c)) / (m))) : 0.f)
 // Block (x, b): the label bitset of permutation b in shared memory, thread j = blockIdx.x * blockDim.x + threadIdx.x scans column j. Same two passes and tie rule as root_split_stats_k2.
 extern "C" __global__ void root_split_stats_k3(const int* __restrict__ order, const unsigned char* __restrict__ tie, const unsigned int* __restrict__ yb,
-                                               const double* __restrict__ tab, const long long* __restrict__ ctot, const int n, const int B,
-                                               const int Kc, const int min_split, const double h_full, const int words, double* __restrict__ out_gain,
+                                               const {ACC}* __restrict__ tab, const long long* __restrict__ ctot, const int n, const int B,
+                                               const int Kc, const int min_split, const {ACC} h_full, const int words, {ACC}* __restrict__ out_gain,
                                                int* __restrict__ out_ncand, int* __restrict__ out_idx) {
     extern __shared__ unsigned int sy[];
     const int b = blockIdx.y;
@@ -42,14 +44,14 @@ extern "C" __global__ void root_split_stats_k3(const int* __restrict__ order, co
     const long long idx = (long long)j * B + b;
     const int* ord = order + (long long)j * n;
     const unsigned char* tj = tie + (long long)j * n;
-    const double n_f = (double)n;
+    const {ACC} n_f = ({ACC})n;
     const int TILE = 8;
     int ybuf[TILE + 1];
-    float w_min = 3.0e38f;
+    {REAL} w_min = 3.0e38f;
     int ncand = 0;
     for (int pass = 0; pass < 2; ++pass) {
         long long l0 = 0, l1 = 0, r0 = ctot[0], r1 = ctot[1];
-        double best_gain = -1e300;
+        {ACC} best_gain = -1e300;
         int best_idx = -1;
         for (int i0 = 0; i0 < n - 1; i0 += TILE) {
             const int cnt = min(TILE + 1, n - i0);
@@ -63,12 +65,12 @@ extern "C" __global__ void root_split_stats_k3(const int* __restrict__ order, co
                 if (yi) { ++l1; --r1; } else { ++l0; --r0; }
                 const int n_l = i + 1, n_r = n - n_l;
                 if (n_l >= min_split && n_r >= min_split && yi != ybuf[t + 1] && !tj[i]) {
-                    const float w_f = ENT2((float)n_l, (float)l1) + ENT2((float)n_r, (float)r1);
+                    const {REAL} w_f = ENT2(({REAL})n_l, ({REAL})l1) + ENT2(({REAL})n_r, ({REAL})r1);
                     if (pass == 0) {
                         ++ncand;
                         if (w_f < w_min) w_min = w_f;
                     } else if (w_f <= w_min + 0.5f) {
-                        const double gain = h_full - (XL(n_l) - (XL(l0) + XL(l1)) + XL(n_r) - (XL(r0) + XL(r1))) / n_f;
+                        const {ACC} gain = h_full - (XL(n_l) - (XL(l0) + XL(l1)) + XL(n_r) - (XL(r0) + XL(r1))) / n_f;
                         if (gain > best_gain) { best_gain = gain; best_idx = i; }
                     }
                 }
@@ -81,7 +83,7 @@ extern "C" __global__ void root_split_stats_k3(const int* __restrict__ order, co
         }
     }
 }
-"""
+""", real=np.float32)
 
 _kernel_k3 = None
 
