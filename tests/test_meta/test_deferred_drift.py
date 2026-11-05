@@ -2,7 +2,7 @@
 
 Every meta-test that tolerates known debt keeps it in a named collection. A deferred item costs nothing to add and
 a real cleanup costs effort, so left alone the collections only grow. ``py_ci_shared.deferred_drift`` counts their
-entries with ``pyutilz.dev.meta_test_utils.count_user_deferred_entries`` and compares with
+entries with ``py_ci_shared.meta_test_utils.count_user_deferred_entries`` and compares with
 ``_debt_baseline.json``: a new or grown list fails, and so does a list that SHRANK or vanished until the baseline
 follows it down. The local copy this replaced only reported a shrink on stderr, which left the old, higher count as
 headroom for the list to grow back into.
@@ -26,7 +26,7 @@ _BASELINE_PATH = TEST_META_DIR / "_debt_baseline.json"
 
 def regenerate_baseline(path: Path = _BASELINE_PATH) -> None:
     """Rewrite the debt baseline from today's counts, for ``regen_baselines.py``."""
-    from pyutilz.dev.meta_test_utils import count_user_deferred_entries
+    from py_ci_shared.meta_test_utils import count_user_deferred_entries
 
     path.write_text(
         orjson.dumps(count_user_deferred_entries(TEST_META_DIR), option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS).decode("utf-8") + "\n",
