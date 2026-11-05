@@ -29,10 +29,10 @@ def _stash_fe_targets(self, _y_np, X):
     try:
         _y_esc_arr = _y_np
         if _y_esc_arr.ndim == 1 and _y_esc_arr.dtype.kind in "fiub" and len(_y_esc_arr) == len(X):
-            # rank = inverse of the stable sort permutation; a scatter gives it exactly, where a second argsort re-sorts a random-access permutation
-            _y_order = np.argsort(_y_esc_arr, kind="stable")
-            _y_esc_rank = np.empty(len(_y_order), dtype=_crit_np_dtype())
-            _y_esc_rank[_y_order] = np.arange(len(_y_order), dtype=_crit_np_dtype())  # ordinal-rank-ok: stable position rank by contract, pinned by test_stash_fe_targets_rank
+            # average ranks (0-based): tied target values share one rank instead of being ordered by row position
+            from scipy.stats import rankdata
+
+            _y_esc_rank = (rankdata(_y_esc_arr, method="average") - 1.0).astype(_crit_np_dtype(), copy=False)
             self._fe_escalation_y_rank_ = _y_esc_rank / max(len(_y_esc_rank) - 1, 1)
         else:
             self._fe_escalation_y_rank_ = None
