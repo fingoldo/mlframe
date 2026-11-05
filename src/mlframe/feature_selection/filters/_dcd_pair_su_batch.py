@@ -290,7 +290,8 @@ def pair_su_batch(
         for i, ab in enumerate(pairs_list):
             try:
                 a, b = int(ab[0]), int(ab[1])
-            except (TypeError, ValueError, IndexError):
+            except (TypeError, ValueError, IndexError) as exc:
+                logger.warning("pair %d is not an index pair (%s); its score is 0.0", i, exc)
                 out[i] = 0.0
                 continue
             out[i] = float(pair_su(

@@ -775,7 +775,8 @@ def _run_polynom_pair_f_same_pairs_old_per(X_ndarr, _uncoercible):
         for _j in range(X_ndarr.shape[1]):
             try:
                 _Xf[:, _j] = np.asarray(X_ndarr[:, _j], dtype=_crit_np_dtype())
-            except (ValueError, TypeError):  # noqa: PERF203 - per-column coercion needs its own try; runs once per FE round, not hot
+            except (ValueError, TypeError) as exc:  # noqa: PERF203 - per-column coercion needs its own try; runs once per FE round, not hot
+                logger.warning("polynom pair FE: column %d cannot be coerced to float (%s); it is excluded from the pairs", _j, exc)
                 _Xf[:, _j] = np.nan
                 _uncoercible[_j] = True
         X_ndarr = _Xf

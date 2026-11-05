@@ -99,7 +99,7 @@ def v2_block_width(kern, shared_bytes: int, columns: int) -> int:
     try:
         width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kern.num_regs), static_smem=int(kern.shared_size_bytes), min_width=32, max_width=1024, work_items=columns)
     except Exception as _silent_exc:
-        logger.debug("_family_maxt_cuda_bits.py: suppressed %r", _silent_exc)
+        logger.warning("_family_maxt_cuda_bits.py: block width not derived (%r); the default width is used", _silent_exc)
         width = 0
     return width or _THREADS_V2
 _MAX_CLASSES_V2 = 24  # registers hold ``n_y - 1`` counters per thread

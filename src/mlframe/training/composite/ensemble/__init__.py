@@ -208,6 +208,7 @@ def env_signature() -> dict[str, str | None]:
         try:
             sig[libname] = version(distmap.get(libname, libname))
         except PackageNotFoundError:  # noqa: PERF203 -- per-package isolation: one unreadable distribution must not cost the others their line
+            logger.warning("env_signature: %s has no installed distribution metadata; its version is recorded as None", libname)
             sig[libname] = None
     sig["python"] = platform.python_version()
     return sig

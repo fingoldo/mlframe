@@ -22,6 +22,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Sequence
@@ -77,13 +78,13 @@ def _same(a: Any, b: Any) -> bool:
 
                 return bool(cp.array_equal(a, b))
             return bool(np.array_equal(a, b))
-        except Exception:
+        except Exception:  # best-effort: a comparison that raises is reported as unequal, the conservative answer
             return False
     if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
         return type(a) is type(b) and len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
     try:
         return bool(a == b)
-    except Exception:
+    except Exception:  # best-effort: a comparison that raises is reported as unequal, the conservative answer
         return False
 
 
@@ -175,6 +176,9 @@ def run_stages_concurrently(
             with fe_deadline_scope(deadline), fit_context_scope(context), stage_device_slot(slots[i], i):
                 return stages[i](copies[i])
         finally:
+            _cp = sys.modules.get("cupy")
+            if _cp is not None:
+                _cp.cuda.Device().synchronize()  # the clock stops at completion, not at the kernel launch
             walls[i] = time.perf_counter() - t0
 
     from .._edge_pool import concurrent_stages

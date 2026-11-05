@@ -85,7 +85,7 @@ def _quantile_columns(cp: Any, M: Any, fractions: "list[float]") -> Any:
         try:
             radix = _radix_quantiles(M, list(fractions))
         except Exception as _silent_exc:
-            logger.debug("_nonpoly_cells_gpu.py: suppressed %r", _silent_exc)
+            logger.warning("_nonpoly_cells_gpu.py: radix quantiles failed (%r); the column sort is used", _silent_exc)
             radix = None
         if radix is not None:
             return radix

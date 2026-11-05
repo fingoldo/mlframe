@@ -403,7 +403,7 @@ def _prebin_cache_max_bytes() -> int:
     """Per-entry byte ceiling for the prebin code cache (env-overridable)."""
     raw = os.environ.get("MLFRAME_PREBIN_CACHE_MAX_BYTES")
     try:
-        return int(raw) if raw else _PREBIN_CACHE_MAX_BYTES_DEFAULT
+        return int(raw) if raw is not None else _PREBIN_CACHE_MAX_BYTES_DEFAULT
     except (TypeError, ValueError) as _exc:
         logger.warning("_prebin_cache_max_bytes fell back to its default after %s", type(_exc).__name__)
         return _PREBIN_CACHE_MAX_BYTES_DEFAULT

@@ -748,9 +748,10 @@ class HybridSelector:
         self.reps_, self.members_ = corr_clusters(X_cluster, self.corr_thr)
         # columns dropped from clustering become their own singleton cluster (selection-neutral: FI==0 noise) so the
         # downstream cluster_of_ / vote still has an entry for every column it might encounter.
-        for c in cols:
-            if c not in self.members_:
-                self.reps_.append(c); self.members_[c] = [c]
+        clustered = set(self.members_)
+        singletons = [c for c in dict.fromkeys(cols) if c not in clustered]
+        self.reps_.extend(singletons)
+        self.members_.update({c: [c] for c in singletons})
         self.cluster_of_ = {f: r for r, ms in self.members_.items() for f in ms}
 
         # STAGE 1 - shared relevance pre-screen (held-out permutation FI > 0, OR MRMR-relevant, OR engineered:

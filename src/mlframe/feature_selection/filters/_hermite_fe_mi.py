@@ -244,7 +244,7 @@ def _radix_edges_in_column_blocks(cp, X_gpu, n_bins: int):
         if limit:
             free = min(free, max(0, limit - int(pool.used_bytes())))
     except Exception as _silent_exc:
-        logger.debug("_hermite_fe_mi.py: suppressed %r", _silent_exc)
+        logger.warning("_hermite_fe_mi.py: device free memory unknown (%r); the block width falls back to one column", _silent_exc)
         free = 0
     width = max(1, min(k, (free // 3) // max(1, n * X_gpu.dtype.itemsize)))  # the block, its transpose and the kernel scratch
     parts = []

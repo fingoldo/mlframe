@@ -346,7 +346,7 @@ class DiscoveryCache:
         # so the operator can inspect / delete it.
         try:
             _max_bytes_raw = os.environ.get("MLFRAME_DISCOVERY_CACHE_MAX_BYTES")
-            _max_bytes = int(_max_bytes_raw) if _max_bytes_raw else 1024 * 1024 * 1024
+            _max_bytes = int(_max_bytes_raw) if _max_bytes_raw is not None else 1024 * 1024 * 1024
         except (TypeError, ValueError):
             _max_bytes = 1024 * 1024 * 1024
         try:
@@ -477,7 +477,7 @@ class DiscoveryCache:
         """
         try:
             _age_raw = os.environ.get("MLFRAME_DISCOVERY_CACHE_TMP_AGE_S")
-            min_age = float(_age_raw) if _age_raw else self._ORPHAN_TMP_MIN_AGE_S
+            min_age = float(_age_raw) if _age_raw is not None else self._ORPHAN_TMP_MIN_AGE_S
         except (TypeError, ValueError):
             min_age = self._ORPHAN_TMP_MIN_AGE_S
         now = time.time()

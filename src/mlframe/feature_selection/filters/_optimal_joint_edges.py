@@ -30,21 +30,22 @@ def _fold_masks(n: int, n_splits: int, random_state: int) -> list:
     """``[(k, train mask, validation mask, training rows)]`` of the folds with at least 4 validation rows. They depend only on ``(n, n_splits, random_state)``:
     every column of a frame shares them, and drawing the permutation of the rows for each column cost 2.8 s of worker time in a warm 100k optimal_joint fit."""
     key = (n, n_splits, random_state)
+    # The lookup, the build and the store share one hold, so two threads missing on the same key build it once and the
+    # store cannot race a concurrent eviction.
     with _FOLD_MASKS_LOCK:
         hit = _FOLD_MASKS.get(key)
-    if hit is not None:
-        return hit
-    fold_idx = np.random.default_rng(random_state).permutation(n) % n_splits
-    out = []
-    for k in range(n_splits):
-        train_mask = fold_idx != k
-        val_mask = ~train_mask
-        if val_mask.sum() < 4:
-            continue  # val-fold-too-small check does not depend on M -> applies to every M for this k
-        train_mask.setflags(write=False)
-        val_mask.setflags(write=False)
-        out.append((k, train_mask, val_mask, int(train_mask.sum())))
-    with _FOLD_MASKS_LOCK:
+        if hit is not None:
+            return hit
+        fold_idx = np.random.default_rng(random_state).permutation(n) % n_splits
+        out = []
+        for k in range(n_splits):
+            train_mask = fold_idx != k
+            val_mask = ~train_mask
+            if val_mask.sum() < 4:
+                continue  # val-fold-too-small check does not depend on M -> applies to every M for this k
+            train_mask.setflags(write=False)
+            val_mask.setflags(write=False)
+            out.append((k, train_mask, val_mask, int(train_mask.sum())))
         if len(_FOLD_MASKS) >= _FOLD_MASKS_MAX:
             _FOLD_MASKS.pop(next(iter(_FOLD_MASKS)))
         _FOLD_MASKS[key] = out
