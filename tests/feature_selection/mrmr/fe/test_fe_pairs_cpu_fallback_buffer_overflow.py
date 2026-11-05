@@ -40,4 +40,6 @@ def test_fe_pair_cpu_fallback_does_not_overrun_buffer(monkeypatch):
         m = MRMR(verbose=0, random_state=7).fit(X, y)
     # The fit completing at all is the regression assertion (pre-fix it raised IndexError inside _score_one_pair).
     assert hasattr(m, "support_")
-    assert int(np.asarray(m.support_).sum()) >= 1
+    # the fit must select something; on this a*b + c - d target it keeps engineered features (mul(cbrt(a),identity(b)), sub(rint(c),identity(d)))
+    # and no raw column, so the raw ``support_`` (indices, not a mask) can be empty
+    assert len(m.get_feature_names_out()) >= 1

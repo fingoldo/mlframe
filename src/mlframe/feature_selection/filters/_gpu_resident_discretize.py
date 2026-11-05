@@ -20,6 +20,7 @@ import numpy as np
 # Parent-of-the-FE-block name consumed at module scope (defined in _gpu_resident_fe before it imports the
 # select parent, so this top import resolves during the partial-init import chain - same pattern as the parent).
 from ._gpu_resident_shared import _quantile_levels_dev
+from mlframe.feature_selection.filters._device_sort_safe import device_percentile  # thrust aborts the process on a short pool
 
 # FUSED PER-COLUMN BINNING (nvprof-driven). The per-column ``for j in range(K): out[:,j] =
 # cp.searchsorted(edges[:,j], col, 'right')`` loop fired K separate searchsorted launches PLUS K int64->
@@ -290,7 +291,7 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint
         # (verified maxdiff ~23 vs numpy; multi-column is exact). A K==1 chunk occurs whenever the last
         # candidate block holds one column, which would silently corrupt that column's codes (breaking the
         # discretize bit-identity). Ravel to 1D where cp.percentile is correct, then restore the shape.
-        bin_edges = cp.percentile(edge_src.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
+        bin_edges = device_percentile(edge_src.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
     else:
-        bin_edges = cp.percentile(edge_src, qs, axis=0)  # (nbins+1, K)
+        bin_edges = device_percentile(edge_src, qs, axis=0)  # (nbins+1, K)
     return _searchsorted_codes(cand_gpu, bin_edges[1:-1], out_dtype=out_dtype)

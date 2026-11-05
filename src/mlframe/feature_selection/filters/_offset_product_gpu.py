@@ -17,6 +17,7 @@ from typing import Any, Optional
 import numpy as np
 
 from ._offset_product_kernels import N_BASELINES, N_EDGE_SUBSAMPLE
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 __all__ = ["scan_offset_products_gpu", "scan_offset_products_device", "DEVICE_UNARIES"]
 
@@ -300,7 +301,7 @@ def _device_unary(cp: Any, name: str, x: Any, log_shift: float) -> Any:
 
 def _column_quantiles(cp: Any, a: Any, qs: "tuple[float, ...]") -> Any:
     """Linear-interpolation quantiles ``qs`` along axis 1 of the ``(k, h)`` array ``a`` (same rule as ``np.quantile``), shape ``(k, len(qs))``."""
-    srt = cp.sort(a, axis=1)
+    srt = device_sort(a, axis=1)
     h = int(a.shape[1])
     cols = []
     for q in qs:

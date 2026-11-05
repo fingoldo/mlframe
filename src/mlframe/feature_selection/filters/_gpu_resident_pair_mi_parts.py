@@ -23,6 +23,7 @@ from ._gpu_resident_shared import (
     _unary_stack_cm,
 )
 from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.feature_selection.filters._device_sort_safe import device_percentile  # thrust aborts the process on a short pool
 
 
 def _grand_fused_pair_mi_part1(
@@ -232,9 +233,9 @@ def _grand_fused_pair_mi_fused_part1(
             cand = cand.astype(work, copy=False)
         if blk == 1:
             # cupy single-column percentile bug guard (mirror _gpu_resident_discretize_codes).
-            bin_edges = cp.percentile(cand.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
+            bin_edges = device_percentile(cand.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
         else:
-            bin_edges = cp.percentile(cand, qs, axis=1)  # (nbins+1, blk) over the (blk, n) plane
+            bin_edges = device_percentile(cand, qs, axis=1)  # (nbins+1, blk) over the (blk, n) plane
         del cand  # (n,blk) float GONE before the hist pass
         # interior edges, transposed to (blk, nbins-1) row-major f64 for the kernel's per-candidate scan.
         # Intentional float64: bin-edge / cut vector, compared against values at full precision

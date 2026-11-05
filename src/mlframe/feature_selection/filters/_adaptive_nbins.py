@@ -652,7 +652,8 @@ def _edge_pool(workers: int) -> Any:
 
 
 def _resolve_edge_jobs(n_jobs: Any, n_miss: int) -> int:
-    """Worker-thread count for the edge computation: the logical core count when ``n_jobs`` is unset (``MLFRAME_EDGE_JOBS`` overrides; the pools run GIL-free kernels, which gain 15 to 25% from the second hardware thread of a core), capped at the number of columns that need computing."""
+    """Worker-thread count for the edge computation: the logical core count when ``n_jobs`` is unset (``MLFRAME_EDGE_JOBS`` overrides; the pools run GIL-free kernels, which gain 15 to 25% from the second hardware thread of a core), capped at the number of columns that need computing. While FE stage cascades run concurrently (``_edge_pool.concurrent_stages``) an unset ``n_jobs`` takes its
+    cascade's share of the cores, so the cascades' pools together do not oversubscribe them."""
     if n_jobs is None or int(n_jobs) <= 0:
         import os
 
@@ -664,10 +665,13 @@ def _resolve_edge_jobs(n_jobs: Any, n_miss: int) -> int:
 
             _resolved_jobs = psutil.cpu_count(logical=True) or 1
         except Exception as e:
-            logger.warning("psutil.cpu_count(logical=False) failed, falling back to os.cpu_count(): %s", e)
+            logger.warning("psutil.cpu_count(logical=True) failed, falling back to os.cpu_count(): %s", e)
             import os
 
             _resolved_jobs = os.cpu_count() or 1
+        from ._edge_pool import _ACTIVE_STAGES
+
+        _resolved_jobs = max(1, _resolved_jobs // _ACTIVE_STAGES[0])
     else:
         _resolved_jobs = int(n_jobs)
     _resolved_jobs = max(1, min(_resolved_jobs, max(1, n_miss)))

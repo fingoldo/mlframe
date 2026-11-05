@@ -14,7 +14,8 @@ from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_m
 
 from ._pairwise_modular_fe import _mi
 
-logger = logging.getLogger(__name__)
+# the parent's logger: the carve moved these entry points into this file, and their messages keep the logger name configurations and tests use
+logger = logging.getLogger("mlframe.feature_selection.filters._conditional_gate_fe")
 
 # The gate-grid build kernels live in a sibling (file-size carve only); re-exported here because the parent
 # is their only caller and `_conditional_gate_fe._gate_select_grid_njit` is the name benchmarks reference.
@@ -57,8 +58,6 @@ if TYPE_CHECKING:
 
 
 from . import _conditional_gate_fe as _cgf
-
-logger = logging.getLogger(__name__)
 
 
 def detect_row_argmax(

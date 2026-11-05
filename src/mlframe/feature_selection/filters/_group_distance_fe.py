@@ -330,10 +330,11 @@ def generate_group_distance_features(
         kl_lookup: dict[str, float] = {}
         w_lookup: dict[str, float] = {}
         w_all = None
-        if _HAVE_NUMBA and global_sorted.size and os.environ.get("MLFRAME_GROUP_DISTANCE_W1_BATCH", "0").strip() == "1":
-            # one parallel W1 call for every group of the pair instead of a sort + merge per group. bench-attempt-rejected (2026-11-03): OFF by default; at
-            # 100k rows x 5 group x 20 numeric columns the output is identical and the wall is not (0.94-0.97 s vs 0.96 s): the pairs already run on the
-            # edge pool and the per-group sorts release the GIL, so the cores were busy. MLFRAME_GROUP_DISTANCE_W1_BATCH=1 turns it on.
+        if _HAVE_NUMBA and global_sorted.size and os.environ.get("MLFRAME_GROUP_DISTANCE_W1_BATCH", "1").strip() != "0":
+            # one parallel W1 call for every group of the pair instead of a sort + merge per group; the output is identical. Alone it tied the per-group
+            # path (2026-11-03, 100k rows x 5 group x 20 numeric columns: 0.94-0.97 s vs 0.96 s), but in a full fit the per-group sorts compete with the
+            # other FE stages for the cores: warm all-families 100k x 100 fits, one process, 80.8 / 93.6 s batched against 84.4 s (seed 10) and
+            # 101.4-102.6 s (seed 11, earlier runs; one outlier at 146.7 s) per group. MLFRAME_GROUP_DISTANCE_W1_BATCH=0 turns it off.
             gid = np.empty(x.size, dtype=np.int64)
             for gi, rows in enumerate(group_rows.values()):
                 gid[rows] = gi

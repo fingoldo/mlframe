@@ -8,6 +8,7 @@ import threading
 from typing import Callable, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._device_sort_safe import device_percentile, device_unique  # thrust aborts the process on a short pool
 from mlframe.feature_selection.filters._lazy_host_codes import size_of
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
@@ -55,6 +56,7 @@ from ._mi_greedy_cmi_fe_binning import (  # noqa: F401  -- carved helpers
     _FAC_ARRAY_CAP,
     _factorize_dense_njit,
 )
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 
 @njit(cache=True, parallel=True)
@@ -242,7 +244,7 @@ def _dense_renumber_device(cp, keys):
     (so the caller can broadcast it into ``joint + c*k`` with no host read; read it once at the very end)."""
     if keys.size == 0:
         return keys.astype(cp.int64, copy=False), cp.asarray(1, dtype=cp.int64)
-    order = cp.argsort(keys, kind="stable")
+    order = device_argsort(keys, kind="stable")
     ks = keys[order]
     is_new = cp.empty(ks.shape, dtype=cp.bool_)
     is_new[0] = True
@@ -735,7 +737,7 @@ def _greedy_cmi_fe_constr_step2_rng_raw_small(cand_names, rng_floor, y_bin, z_jo
 
                     _Xs_dev = _cp.stack([cand_bins_dev[_nm] for _nm in sample_names], axis=1)
                     _mi_dev = batched_cmi_gpu(_Xs_dev, y_shuf, _zc, return_device=True)
-                    return float(_cp.percentile(_mi_dev, 95.0).item())
+                    return float(device_percentile(_mi_dev, 95.0).item())
                 # bench-attempt-rejected (2026-07): np.column_stack([cand_bins[nm] ...]).astype(int64) vs this per-column loop was noise
                 # across n{50k,200k,1M} x k{24,100} x dtype{i32,i64}: -9.8%..+8.8%, no consistent >=5% win (memory-bandwidth-bound copy either way).
                 _Xs = np.empty((int(y_shuf.shape[0]), len(sample_names)), dtype=np.int64)
@@ -927,15 +929,13 @@ def _greedy_cmi_fe_constr_step3_while_st_remaining(st, top_k, _noise_floor_for_c
             # call the host ``_renumber_joint``. ``z_joint`` (host) is left ``None`` and only backfilled
             # lazily (``_z_host`` in the fallback branch above) if a later round's batched CMI call faults
             # and needs a host mirror - the common, all-batched-rounds-succeed path never materializes it.
-            import cupy as _cp
-
             new_support_dev = cand_bins_dev[best_name]
             if z_joint_dev is None:
                 z_joint_dev = new_support_dev.copy()
-                st.z_card = int(_cp.unique(z_joint_dev).size)
+                st.z_card = int(device_unique(z_joint_dev).size)
             else:
                 candidate_joint_dev, _ = _renumber_joint_gpu(z_joint_dev, new_support_dev)
-                cand_card = int(_cp.unique(candidate_joint_dev).size)
+                cand_card = int(device_unique(candidate_joint_dev).size)
                 if cand_card <= st.frag_cap:
                     z_joint_dev = candidate_joint_dev
                     st.z_card = cand_card

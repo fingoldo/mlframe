@@ -21,6 +21,7 @@ from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_
 
 from ._recipe_core import EngineeredRecipe
 from ._recipe_extract import _extract_column
+from mlframe.feature_selection.filters._device_sort_safe import device_percentile  # thrust aborts the process on a short pool
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def _device_fit_edges(values: Any, method: str, nbins: int) -> "np.ndarray | Non
 
         x = values.dev.astype(crit_float_dtype(), copy=False).ravel()
         if method == "quantile":
-            return np.asarray(cp.percentile(x, cp.asarray(np.linspace(0.0, 100.0, nbins + 1))).get(), dtype=_crit_np_dtype())
+            return np.asarray(device_percentile(x, cp.asarray(np.linspace(0.0, 100.0, nbins + 1))).get(), dtype=_crit_np_dtype())
         finite = x[cp.isfinite(x)]
         if int(finite.size) == 0:
             return np.linspace(0.0, 0.0, nbins + 1)

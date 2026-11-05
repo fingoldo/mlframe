@@ -26,6 +26,7 @@ from .hermite_fe._nonpoly_cells import NONPOLY_BASES
 from .hermite_fe._nonpoly_cells_gpu import nonpoly_block_gpu
 
 from mlframe.feature_selection.filters._safe_scale import guarded_scale
+from mlframe.feature_selection.filters._device_sort_safe import device_median, device_percentile  # thrust aborts the process on a short pool
 
 # --- GPU port of the per-operand PRE-WARP apply (phase R1) ----------------------------------------------
 # Mirrors hermite_fe.apply_operand_prewarp so the operand-table mirror can BUILD a prewarp operand column on
@@ -242,16 +243,16 @@ def _batched_quantiles(cp, M, q_fracs):
     except Exception as e:  # nosec B110 - best-effort/optional path, no module logger
         import logging
         logging.getLogger(__name__).debug("_radix_quantiles failed, falling back to cp.percentile: %s", e)
-    return cp.percentile(M, cp.asarray([float(q) * 100.0 for q in q_fracs]), axis=0)
+    return device_percentile(M, cp.asarray([float(q) * 100.0 for q in q_fracs]), axis=0)
 
 
 def _gpu_robust_scale(cp, xf, med):
     """cupy mirror of _hermite_robust._robust_scale: 1.4826*MAD, IQR/1.349 fallback, 0.0 if degenerate."""
-    mad = float(cp.median(cp.abs(xf - med)))
+    mad = float(device_median(cp.abs(xf - med)))
     scale = 1.4826 * mad
     if scale > 1e-12:
         return scale
-    q25, q75 = (float(v) for v in cp.percentile(xf, cp.asarray([25.0, 75.0])))
+    q25, q75 = (float(v) for v in device_percentile(xf, cp.asarray([25.0, 75.0])))
     iqr_scale = (q75 - q25) / 1.349
     return iqr_scale if iqr_scale > 1e-12 else 0.0
 
@@ -260,7 +261,7 @@ def _gpu_detect_heavy_tail(cp, xf):
     """cupy mirror of _hermite_robust._detect_heavy_tail_numpy (the n>=3000 oracle path)."""
     if xf.size < 8:
         return False
-    med = float(cp.median(xf))
+    med = float(device_median(xf))
     scale = _gpu_robust_scale(cp, xf, med)
     if scale <= 1e-12:
         return False
@@ -289,7 +290,7 @@ def _gpu_basis_preprocess(cp, x, basis, *, robust: bool):
     xf = x[cp.isfinite(x)]
     if basis == "hermite":  # z-score
         if robust:
-            center = float(cp.median(xf))
+            center = float(device_median(xf))
             lo, hi = _gpu_robust_lo_hi(cp, x, xf, center)
             std = (hi - lo) / 6.0
             std = std if std > 1e-12 else float(guarded_scale(cp.std(xf), cp.abs(xf).max(), xp=cp))
@@ -298,7 +299,7 @@ def _gpu_basis_preprocess(cp, x, basis, *, robust: bool):
         return (x - mean) / std
     if basis in ("legendre", "chebyshev"):  # min-max -> [-1, 1]
         if robust:
-            med = float(cp.median(xf))
+            med = float(device_median(xf))
             lo, hi = _gpu_robust_lo_hi(cp, x, xf, med)
             span = float(guarded_scale(hi - lo, max(abs(lo), abs(hi))))
             return cp.clip(2.0 * (x - lo) / span - 1.0, -1.0, 1.0)
@@ -306,7 +307,7 @@ def _gpu_basis_preprocess(cp, x, basis, *, robust: bool):
         return 2.0 * (x - lo) / span - 1.0
     if basis == "laguerre":  # shift to >= 0
         if robust:
-            med = float(cp.median(xf))
+            med = float(device_median(xf))
             lo, hi = _gpu_robust_lo_hi(cp, x, xf, med)
             upper = hi - lo
             return cp.clip(x - lo + 1e-9, 0.0, upper + 1e-9)

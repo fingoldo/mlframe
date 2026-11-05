@@ -14,6 +14,7 @@ from ._fe_gpu_batch._devices import crit_float_dtype
 from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from numba import njit, prange
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger("mlframe.feature_selection.filters._binned_numeric_agg_fe")
 
@@ -68,7 +69,7 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
             # [0, nbins-1] -> na = nbins is a known width (no int(max) sync). resident_bincount avoids the
             # cp.bincount int(max) sync. Only the y cardinality (nb) and the final MI scalar cross the bus.
             _qs = cp.asarray(np.linspace(0.0, 1.0, nbins + 1)[1:-1])
-            _xs = cp.sort(cvd.ravel())
+            _xs = device_sort(cvd.ravel())
             _pos = _qs * (_n - 1)
             _lo = cp.floor(_pos).astype(cp.int64)
             _hi = cp.minimum(_lo + 1, _n - 1)

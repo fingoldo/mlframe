@@ -32,6 +32,8 @@ def _run_four_stages_together(self, stages, after_early_a, _y_np, _X_step_input,
     # in the fixed order. A dominant candidate from early_a stops a sequential run after it, so only early_a's state is kept then.
     # Opt-in: at 30000 x 40 it gives the same selection and the same wall as early_a first (44.4 vs 44.5 s warm); at 100000 x 100 it could not be measured on the
     # dev box (four stages' buffers ran the host out of pinned memory), so the default keeps early_a ahead of the three concurrent cascades.
+    # Re-measured at 100000 x 100 after the slot-pool fixes (pinned staging now falls back to pageable uploads instead of failing), one process, pairs in opposite
+    # orders: 91.5 / 115.5 s with early_a beside the others against 94.1 / 101.4 s with early_a first; the streamed MI still lost its pinned staging, so it stays opt-in.
     dominant: dict = {}
 
     def _keep(outcomes: list) -> int:

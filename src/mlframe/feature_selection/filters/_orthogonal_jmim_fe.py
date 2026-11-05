@@ -169,15 +169,20 @@ def _bin_columns(
         ks.append(max(1, k))
     return bins, ks, names
 
+#: Smallest n x candidates x references for the device JMIM pass. Measured against the 8-thread host loop on idle cores (GTX 1050 Ti): 1M cells 0.010 vs
+#: 0.005 s, 20M 0.024 vs 0.017 s, 120M 0.059 vs 0.066 s, 674M 0.25 vs 0.40 s; the crossover sits near 100M, and in a fit the host loop shares the cores.
+_JMIM_DEVICE_MIN_CELLS = 100_000_000
+
+
 def _jmim_scores_device(eng_bins, eng_ks, y_bin, K_y: int, sel_bins, sel_ks):
     """``(K,)`` JMIM scores on the device: for every reference ``z`` the plug-in ``I((x, z); y) = H(x, z) + H(y) - H(x, z, y)`` of all candidates from the
     batched per-column joint entropies, clipped at 0 like ``_joint_mi_3d_njit``, and the minimum over the references (the host loop's early exit at 0 is
-    the minimum of the clipped values). Equal to the host up to summation order. OFF by default (``MLFRAME_JMIM_DEVICE=1`` turns it on): bench-attempt-rejected
-    2026-11-03, 100k rows x 40 references x 150 candidates, warm: host 2.68 s, device 2.59 s (two joint-entropy passes over every candidate per reference,
-    against the host njit kernel already parallel over the candidates). ``None`` when not used (off, no GPU, the plug-in MI dispatcher's choice is the host, or a fault)."""
+    the minimum of the clipped values). Equal to the host up to summation order. ON by default (``MLFRAME_JMIM_DEVICE=0`` turns it off). Alone it only ties the
+    host (2026-11-03, 100k rows x 40 references x 150 candidates, warm: host 2.68 s, device 2.59 s), but in a full fit the host kernel competes with the other FE
+    stages for the cores: warm all-families 100k x 100 fits, one process, pairs in opposite orders, 79.7 / 103.5 s with it against 91.2 / 102.6 s without. ``None`` when not used (off, no GPU, the plug-in MI dispatcher's choice is the host, or a fault)."""
     import os
 
-    if os.environ.get("MLFRAME_JMIM_DEVICE", "0").strip() != "1" or not len(sel_bins) or not len(eng_bins):
+    if os.environ.get("MLFRAME_JMIM_DEVICE", "1").strip() == "0" or not len(sel_bins) or not len(eng_bins):
         return None
     try:
         from ._gpu_policy import cuda_available_for_run
@@ -185,9 +190,10 @@ def _jmim_scores_device(eng_bins, eng_ks, y_bin, K_y: int, sel_bins, sel_ks):
         n = int(np.size(y_bin))
         if not cuda_available_for_run():
             return None
-        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import lookup_mi_classif_backend
-
-        if lookup_mi_classif_backend(n, len(eng_bins)) != "cuda":
+        # The work is n x candidates x references joint-entropy cells. The plug-in MI dispatcher's choice (lookup_mi_classif_backend) measures one MI per
+        # column, not this per-reference pass, and kept the host loop at 30000 rows x 210 candidates x 107 references (4.8 s of worker time in a warm
+        # 100k fit); only work too small to amortise the uploads stays on the host.
+        if n * len(eng_bins) * len(sel_bins) < _JMIM_DEVICE_MIN_CELLS:
             return None
         import cupy as cp
 

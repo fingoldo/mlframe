@@ -100,8 +100,12 @@ _MECHANISMS = [
 _MECH_PARAMS = [pytest.param(kw, cat, id=mid) for (mid, kw, cat) in _MECHANISMS]
 
 
-# (mechanism id, seed) cells where the shared engineered column replays to allclose values under weights; every other cell is a measured open gap
-_ENGINEERED_VALUE_PARITY_CELLS = {("mi_greedy", 0)}
+# (mechanism id, seed) cells where the shared engineered column replays to allclose values under weights; every other cell is a measured open gap.
+# ("mi_greedy", 0) left the set 2026-11-04: both fits still recover x0 + x1, but through different families (duplication: (x0__add__x1) and
+# binagg_mean(x5|qbin(x0)); sample_weight: add(log(x1),exp(x0__modsin_12))), so no engineered column is shared and KG-7 (weights are a fixed-size
+# resample, not duplication) shows here too; it had only been "closed" while both fits happened to pick the same names. ("mi_greedy", 1) joined it the
+# same day: both fits now keep (x0__add__x1) and it replays to equal values.
+_ENGINEERED_VALUE_PARITY_CELLS = {("mi_greedy", 1)}
 
 
 def _mechanism_id(ctor_kw: dict) -> str:

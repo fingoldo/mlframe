@@ -46,6 +46,7 @@ from typing import Any, Optional
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,7 @@ def rank_bin_codes_gpu_resident(x_gpu: Any, n_bins: int) -> Any:
         nb = int(n_bins)
         if nb <= 1:
             return cp.zeros(n, dtype=cp.int32)
-        si = cp.argsort(xg)  # cupy argsort is stable; the tie rule below makes the codes order-independent on ties too
+        si = device_argsort(xg)  # stable sort; the tie rule below makes the codes order-independent on ties too
         bnd = _bin_boundaries_dev(cp, n, nb)
         pos = cp.arange(n, dtype=cp.int64)
         binid = cp.searchsorted(bnd, pos, side="right").astype(cp.int32)  # bin of each sorted position
@@ -160,7 +161,7 @@ def rank_bin_codes_batch_gpu_resident(X_gpu: Any, n_bins: int) -> Any:
         # bench-attempt-rejected (2026-06-28): flat-index scatter (si*k+coloff) instead of the 2D fancy scatter.
         # Byte-identical but only ~1% faster (scatter is ~12% of the path; argsort dominates) - not worth the
         # less-readable flat indexing. Kept the 2D scatter.
-        si = cp.argsort(Xg, axis=0)  # (n, k) stable per-column sort indices
+        si = device_argsort(Xg, axis=0)  # (n, k) stable per-column sort indices
         bnd = _bin_boundaries_dev(cp, n, nb)
         pos = cp.arange(n, dtype=cp.int64)
         binid = cp.searchsorted(bnd, pos, side="right").astype(cp.int32)  # (n,) rank->bin, shared across cols

@@ -30,6 +30,7 @@ from typing import Optional, Sequence
 
 import numpy as np
 from mlframe._numerical_floors import VARIANCE_FLOOR
+from mlframe.feature_selection.filters._device_sort_safe import device_quantile  # thrust aborts the process on a short pool
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +182,7 @@ def _hinge_full_scan(cp, xg, yg, ones, n, proj, r_y, sse_lin, cand_q_lo, cand_q_
     # FULL SCAN: inner-quantile candidate cuts; per round QR the growing block once and score every
     # cut in one batched FWL evaluation; held-out-validate the argmin tau; add its relu leg and repeat.
     qs = np.linspace(float(cand_q_lo), float(cand_q_hi), int(n_candidates))
-    cand = np.unique(cp.asnumpy(cp.quantile(xg, cp.asarray(qs))))
+    cand = np.unique(cp.asnumpy(device_quantile(xg, cp.asarray(qs))))
     if cand.size == 0:
         return []
     found: list = []
@@ -292,7 +293,7 @@ def detect_hinge_breakpoints_gpu(
         if not np.isfinite(sse_lin) or sse_lin <= VARIANCE_FLOOR:
             return []
         # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
-        pre_cuts = np.unique(cp.asnumpy(cp.quantile(xg, cp.asarray(np.asarray(precheck_qs, dtype=np.float64)))))
+        pre_cuts = np.unique(cp.asnumpy(device_quantile(xg, cp.asarray(np.asarray(precheck_qs, dtype=np.float64)))))
         if pre_cuts.size == 0:
             return []
         R_pre, ok_pre = _fwl_relu_legs(cp, xg, pre_cuts, n, min_seg_rows)

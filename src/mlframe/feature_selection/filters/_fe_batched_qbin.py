@@ -9,6 +9,8 @@ from typing import Any
 
 import numpy as np
 
+from ._device_sort_safe import device_percentile
+
 logger = logging.getLogger(__name__)
 
 
@@ -97,7 +99,7 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
         edges_all = None
     if edges_all is None:
         qs = cp.linspace(0.0, 100.0, nbins + 1)
-        edges_all = cp.percentile(Xd, qs, axis=0)  # (nbins+1, K) - one batched device sort
+        edges_all = device_percentile(Xd, qs, axis=0)  # (nbins+1, K) - one batched device sort
     # Vectorized per-column coding (replaces a K-iteration Python loop of cp.unique + cp.searchsorted +
     # per-column copy - ~3 kernel launches PER COLUMN, 617 columns = ~1850 launches per call on the
     # wellbore-100k trace). The searchsorted-on-deduped-interior-edges semantics reduce to counting, per

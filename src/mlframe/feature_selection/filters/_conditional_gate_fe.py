@@ -55,6 +55,7 @@ from itertools import combinations
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._device_sort_safe import device_median  # thrust aborts the process on a short pool
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
@@ -615,7 +616,7 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
         if _gate_dev is not None:
             _cp, _mat_dev, _yi_dev, _probe_dev = _gate_dev
             _cvd = _mat_dev[:, gi]
-            _hi = _cvd > (_gate_meds[gi] if _gate_meds is not None else _cp.median(_cvd))
+            _hi = _cvd > (_gate_meds[gi] if _gate_meds is not None else device_median(_cvd))
             # Integer row indices (not boolean masks): cp.where syncs once to size each index, but then the four
             # regime gathers (_probe_dev / _yi_dev for hi + lo) are known-size integer gathers with NO sync, and
             # the degenerate-split check reads .size (host shape, free) instead of a separate int(_hi.sum()) D2H.

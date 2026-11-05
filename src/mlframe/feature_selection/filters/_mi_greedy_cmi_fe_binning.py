@@ -17,6 +17,7 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
 
 
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ def _sync_free_qbin_codes(cp, xd, nbins: int):
     # shaving a partial-sort constant off every call. Keep the simple full sort here.
     n = int(xd.size)
     qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
-    xs = cp.sort(xd.ravel())
+    xs = device_sort(xd.ravel())
     pos = qs / 100.0 * (n - 1)
     lo = cp.floor(pos).astype(cp.int64)
     hi = cp.minimum(lo + 1, n - 1)
@@ -97,7 +98,7 @@ def _sync_free_qbin_codes(cp, xd, nbins: int):
     emax = e[-1]
     has_interior = cp.any((e > emin) & (e < emax))  # 0-dim device bool - no sync
     excl = (e == emin) | dup | (has_interior & (e == emax))
-    e2 = cp.sort(cp.where(excl, cp.inf, e))  # excluded edges -> +inf, sorted to the tail
+    e2 = device_sort(cp.where(excl, cp.inf, e))  # excluded edges -> +inf, sorted to the tail
     # numpy compares the (float32) values with the (float64) edges in float64; searchsorted on a float32 column would round the edges and move a value that sits on one into the next bin
     return cp.searchsorted(e2, xd.astype(e2.dtype, copy=False), side="right").astype(cp.int64)
 

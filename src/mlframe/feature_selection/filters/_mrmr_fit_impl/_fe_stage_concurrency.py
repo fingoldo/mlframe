@@ -22,8 +22,11 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Sequence
+
+import numpy as np
 
 from .._fe_deadline import _state as _deadline_state
 from .._fe_deadline import fe_deadline_scope
@@ -59,6 +62,31 @@ def snapshot(estimator: Any) -> "dict[str, Any]":
     return {name: (type(value)(value) if isinstance(value, (list, dict, set)) else value) for name, value in vars(estimator).items()}
 
 
+def _same(a: Any, b: Any) -> bool:
+    """Whether ``a`` and ``b`` hold the same value. ``==`` alone cannot be used: on numpy / cupy arrays (the weights of a weighted fit, cached codes) it
+    returns an array, and ``if`` on that raised "truth value ... is ambiguous" in every weighted fit whose stages ran concurrently. A comparison that
+    fails counts as a change, so the stage's value is kept."""
+    if a is b:
+        return True
+    if hasattr(a, "shape") and hasattr(b, "shape") and hasattr(a, "dtype") and hasattr(b, "dtype"):
+        try:
+            if type(a) is not type(b) or a.shape != b.shape or a.dtype != b.dtype:
+                return False
+            if type(a).__module__.startswith("cupy"):
+                import cupy as cp
+
+                return bool(cp.array_equal(a, b))
+            return bool(np.array_equal(a, b))
+        except Exception:
+            return False
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return type(a) is type(b) and len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
+    try:
+        return bool(a == b)
+    except Exception:
+        return False
+
+
 def merge_stage_state(target: Any, base: "dict[str, Any]", stage_copies: Sequence[Any]) -> None:
     """Fold the changes of ``stage_copies`` (in stage order) relative to ``base`` into ``target``."""
     created: "dict[str, Any]" = {}
@@ -76,16 +104,16 @@ def merge_stage_state(target: Any, base: "dict[str, Any]", stage_copies: Sequenc
                 continue
             before = base[name]
             if isinstance(value, list) and isinstance(before, list):
-                if value[: len(before)] == before:
+                if _same(value[: len(before)], before):
                     getattr(target, name).extend(value[len(before) :])  # appended: only the new items
-                elif value != before:
+                elif not _same(value, before):
                     setattr(target, name, list(value))  # rebuilt: the last stage wins
             elif isinstance(value, dict) and isinstance(before, dict):
-                changed = {k: v for k, v in value.items() if k not in before or (before[k] is not v and before[k] != v)}
+                changed = {k: v for k, v in value.items() if k not in before or not _same(before[k], v)}
                 getattr(target, name).update(changed)
             elif isinstance(value, set) and isinstance(before, set):
                 getattr(target, name).update(value - before)
-            elif value is not before and value != before:
+            elif not _same(value, before):
                 setattr(target, name, value)
     for name, value in created.items():
         setattr(target, name, value)
@@ -138,15 +166,24 @@ def run_stages_concurrently(
     copies = [private_copy(estimator) for _ in stages]
     deadline = getattr(_deadline_state, "deadline", None)
     context = capture_fit_context()
+    walls = [0.0] * len(stages)
 
     def _run(i: int) -> Any:
         """One stage on its copy, in its device slot, with the fit's deadline and scoring settings published to this worker thread."""
-        with fe_deadline_scope(deadline), fit_context_scope(context), stage_device_slot(slots[i], i):
-            return stages[i](copies[i])
+        t0 = time.perf_counter()
+        try:
+            with fe_deadline_scope(deadline), fit_context_scope(context), stage_device_slot(slots[i], i):
+                return stages[i](copies[i])
+        finally:
+            walls[i] = time.perf_counter() - t0
 
-    with ThreadPoolExecutor(max_workers=len(stages)) as pool:
+    from .._edge_pool import concurrent_stages
+
+    with concurrent_stages(len(stages)), ThreadPoolExecutor(max_workers=len(stages)) as pool:
         futures = [pool.submit(_run, i) for i in range(len(stages))]
     errors = [f.exception() for f in futures]
+    # the slowest stage sets the section's wall: these show which cascade to shorten or rebalance
+    logger.debug("FE stage concurrency: stage walls %s s", [round(w, 2) for w in walls])
     if merge_count is None:
         keep = len(stages)
     else:

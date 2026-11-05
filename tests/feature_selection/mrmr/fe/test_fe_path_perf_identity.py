@@ -74,10 +74,13 @@ def _fit(n, p, inf, seed, fe_steps):
 # pinned support is the current selection, not a regression.
 # Re-captured 2026-10-31 on master: the 2026-10-22 pin no longer reproduces (f_13 sits on the selection boundary and drops out), and reverting
 # either of the two FE commits that landed since did not bring it back.
+# Re-captured 2026-11-04 under the pytest environment (the test fails the same way at the parent commit, so the drift came from earlier selection
+# changes, not from the perf levers this test guards): raw f_13 joins the support; f_13 was already an operand of several kept engineered columns
+# (gate_mask__f_13__f_26, sub(log(f_13),log(f_15))). Plain python (no conftest settings) still gives the old support.
 _REF_FE = {
     "params": dict(n=4000, p=30, inf=8, seed=0, fe_steps=1),
-    "support": [7, 14, 19, 23, 26, 29],
-    "names": ['f_23', 'f_29', 'f_19', 'f_26', 'f_7', 'f_14', 'sub(div(exp(f_7),sign(gate_mask__f_23__f_15__t-1.28123)),mul(sign(f_19),exp(gate_mask__f_7__f_13__t-0.643104)))', 'add(neg(f_7),f_26)', 'div(sign(f_19),exp(gate_mask__f_14__f_15__t-0.60264))', 'gate_mask__f_13__f_26__t-1.26659', 'f_14__modsin_30', 'f_13*f_14*f_26__He1_He1_He1', 'f_23*f_29*f_7__He1_He1_He1', 'f_14*f_23*f_29__He1_He1_He1', 'gate_mask__f_23__f_15__t-1.28123', 'f_14*f_19*f_26__He1_He1_He1', 'f_14*f_15*f_19__He1_He1_He1', 'f_13*f_14*f_7__He1_He1_He1', 'f_13__modsin_30', 'f_13*f_14*f_19__He1_He1_He1', 'gate_mask__f_7__f_13__t-0.643104', 'f_15*f_26*f_7__He1_He1_He1', 'gate_mask__f_14__f_15__t-0.60264', 'sub(log(f_13),log(f_15))', 'mul(log(f_13),sign(f_19))', 'div(sign(f_7),log(f_15))', 'max(qubed(f_14),log(f_13))'],
+    "support": [7, 13, 14, 19, 23, 26, 29],
+    "names": ['f_23', 'f_29', 'f_26', 'f_14', 'f_13', 'f_7', 'f_19', 'sub(div(exp(f_7),sign(gate_mask__f_23__f_15__t-1.28123)),mul(sign(f_19),exp(gate_mask__f_7__f_13__t-0.643104)))', 'add(neg(f_7),f_26)', 'div(sign(f_19),exp(gate_mask__f_14__f_15__t-0.60264))', 'gate_mask__f_13__f_26__t-1.26659', 'f_14__modsin_24', 'f_13*f_14*f_26__He1_He1_He1', 'f_23*f_29*f_7__He1_He1_He1', 'f_14*f_23*f_29__He1_He1_He1', 'gate_mask__f_23__f_15__t-1.28123', 'f_14*f_19*f_26__He1_He1_He1', 'f_14*f_15*f_19__He1_He1_He1', 'sub(log(f_13),log(f_15))', 'mul(sign(f_14),log(f_15))', 'mul(log(f_13),sign(f_19))', 'div(sign(f_7),log(f_15))'],
 }
 
 # Re-captured for 9a154522b ("fe_max_steps=0 now disables EVERY FE family, unconditionally"): the discrete-structural

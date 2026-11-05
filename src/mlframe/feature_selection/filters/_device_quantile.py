@@ -15,6 +15,7 @@ from typing import Any, Optional
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ def _device_quantile_raw(x, qs: np.ndarray) -> Optional[np.ndarray]:
     if n == 0:
         return None
     # The column keeps its own floating dtype (np.quantile does not narrow it): sorting a narrowed copy would change the order statistics, and so the bit-identity this module promises.
-    xs = cp.sort(x if isinstance(x, cp.ndarray) else cp.asarray(np.ascontiguousarray(x)))
+    xs = device_sort(x if isinstance(x, cp.ndarray) else cp.asarray(np.ascontiguousarray(x)))
     virtual, prev, nxt = _indices(n, qs)
     idx = np.concatenate([prev, nxt, [n - 1]])
     vals = xs[cp.asarray(idx)].get()

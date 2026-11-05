@@ -6,8 +6,28 @@ threads, sizes the pool with ``_adaptive_nbins._resolve_edge_jobs`` and folds no
 
 from __future__ import annotations
 
+import contextlib
+import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Iterator, Sequence
+
+#: FE stage cascades running concurrently right now (``_fe_stage_concurrency``): ``_resolve_edge_jobs`` gives each family's pool its share of the cores, so
+#: three cascades do not run 3 x cores threads on the cores
+_ACTIVE_STAGES = [1]
+_ACTIVE_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def concurrent_stages(n: int) -> "Iterator[None]":
+    """Mark ``n`` FE stage cascades as running together for the duration of the block."""
+    with _ACTIVE_LOCK:
+        prev = _ACTIVE_STAGES[0]
+        _ACTIVE_STAGES[0] = max(1, int(n))
+    try:
+        yield
+    finally:
+        with _ACTIVE_LOCK:
+            _ACTIVE_STAGES[0] = prev
 
 
 def map_on_edge_pool(fn: Callable[[Any], Any], items: Sequence[Any], *, min_items: int = 4) -> "list[Any]":

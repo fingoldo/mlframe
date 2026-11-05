@@ -33,12 +33,15 @@ class DeviceSlot:
 
 
 def _device_facts(cp: Any, device_ids: "Sequence[int] | None") -> "list[tuple[int, int, int]]":
-    """``[(device id, free bytes, SM count)]`` of the usable devices."""
+    """``[(device id, free bytes, SM count)]`` of the usable devices. Free bytes are the driver's free memory plus the default pool's cached free blocks: by the time
+    the stages are planned the earlier families have left their freed blocks in the pool, which the driver counts as used, so the driver figure alone gave the
+    smallest stage less than the minimum budget and the cascades never ran concurrently (``_stages_fit_device`` counts the same two)."""
     ids = list(device_ids) if device_ids is not None else list(range(int(cp.cuda.runtime.getDeviceCount())))
     facts = []
     for d in ids:
         with cp.cuda.Device(d):
             free_b, _total = cp.cuda.runtime.memGetInfo()
+            free_b = int(free_b) + int(cp.get_default_memory_pool().free_bytes())
             sms = int(cp.cuda.runtime.getDeviceProperties(d)["multiProcessorCount"])
         facts.append((int(d), int(free_b), max(1, sms)))
     return facts
@@ -88,11 +91,14 @@ def plan_stage_slots(
         group = placed[d]
         if not group:
             continue
+        # every stage first gets the minimum budget, the rest of the usable memory is split by the memory weights: split by weight alone, the lightest
+        # stage (mid_b, 13 % of the weight) fell under the minimum until 3 GB were free, which a 4 GB card never has mid-fit, so the cascades never overlapped
+        spare = usable - len(group) * int(min_budget_bytes)
+        if spare < 0:
+            return None
         total_w = sum(max(float(mem_w[i]), 1e-9) for i in group)
         for i in group:
-            budget = int(usable * max(float(mem_w[i]), 1e-9) / total_w)
-            if budget < min_budget_bytes:
-                return None
+            budget = int(min_budget_bytes) + int(spare * max(float(mem_w[i]), 1e-9) / total_w)
             slots[i] = DeviceSlot(device_id=d, budget_bytes=budget)
     return [s for s in slots if s is not None]
 
@@ -112,7 +118,9 @@ def _slot_pool(slot: DeviceSlot, key: int) -> Any:
         if pool is None:
             pool = cp.cuda.MemoryPool()
             _SLOT_POOLS[(slot.device_id, key)] = pool
-    pool.set_limit(size=int(slot.budget_bytes))
+    # the budget is new room: the planner measured device free memory, which already excludes the arrays this persistent pool still holds from earlier fits
+    # (the process caches keep device columns); a limit of the budget alone sat below the held bytes and sent every allocation into the OOM fallbacks
+    pool.set_limit(size=int(pool.used_bytes()) + int(slot.budget_bytes))
     return pool
 
 

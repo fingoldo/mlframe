@@ -17,6 +17,7 @@ from typing import cast
 import numpy as np
 
 from ._raw_module_cache import RawModuleCache
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.nda
             c1 = min(k, c0 + block_cols)
             block = cp.asarray(np.ascontiguousarray(arr[:, c0:c1]))
             finite = cp.isfinite(block).all(axis=0)
-            order = cp.argsort(block, axis=0)
+            order = device_argsort(block, axis=0)
             sv = cp.take_along_axis(block, order, axis=0)
             distinct = finite & (sv[1:] != sv[:-1]).all(axis=0)
             ok = np.flatnonzero(cp.asnumpy(distinct))

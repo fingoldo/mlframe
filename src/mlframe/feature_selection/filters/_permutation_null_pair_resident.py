@@ -47,6 +47,7 @@ import os
 import numpy as np
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
 from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 # Per-shuffle working-set budget: the largest intermediate is the (pb * n_pairs * n) int64 flat-joint-index
 # array. We tile over perms so ``pb * n_pairs * n * 8`` bytes stays well inside a 4GB card. Below ~24M cells
@@ -159,7 +160,7 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         rs = cp.random.RandomState(seed)
         d_y = cp.asarray(np.ascontiguousarray(classes_y).astype(np.int64))  # (n,) one tiny upload
         keys = rs.random_sample(size=(nperm, n))  # (nperm, n) device draw, no H2D
-        order = cp.argsort(keys, axis=1)  # per-row uniform permutation
+        order = device_argsort(keys, axis=1)  # per-row uniform permutation
         del keys
         y_perms = d_y[order]  # (nperm, n) device shuffles
         del order

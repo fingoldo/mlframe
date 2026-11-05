@@ -200,6 +200,7 @@ def dtw_cuda(
 # ---------------------------------------------------------------------
 
 
+# Intentional float64: the GPU DTW kernels accumulate in double so the distances equal the CPU result.
 _CUPY_KERNEL_SRC = r"""
 extern "C" __global__
 void dtw_diagonal(const double* __restrict__ x, const double* __restrict__ y,

@@ -13,6 +13,7 @@ import numpy as np
 
 from ._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._lazy_host_codes import size_of
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -373,7 +374,7 @@ def _conditional_batched_gpu_null(inp: _NullInputs, sup: _StratifiedSupport, npe
         for i in range(nperm):
             keys[:, i] = inp.rng.random(inp.n_size)  # per-perm draw -> SAME sequence as the CPU loop
         z_rank_d = cp.asarray(sup.z_rank)[:, None]
-        within = cp.argsort(z_rank_d + cp.asarray(keys), axis=0)  # (n, nperm) within-stratum orders
+        within = device_argsort(z_rank_d + cp.asarray(keys), axis=0)  # (n, nperm) within-stratum orders
         x_sorted_d = cp.asarray(x_sorted)
         order_d = cp.asarray(sup.order)
         Xp_d = cp.empty((inp.n_size, nperm), dtype=cp.int64)

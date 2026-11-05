@@ -34,6 +34,7 @@ import math
 
 import numpy as np
 from numba import njit
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger(__name__)
 
@@ -552,8 +553,8 @@ def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5, intens: float = 1
     x_gpu = cp.asarray(x_np)
     y_gpu = cp.asarray(y_np)
     eps_gpu = cp.asarray(eps_cpu)
-    sx = cp.sort(x_gpu)
-    sy = cp.sort(y_gpu)
+    sx = device_sort(x_gpu)
+    sy = device_sort(y_gpu)
     n_x = cp.searchsorted(sx, x_gpu + eps_gpu - 1e-12, side="right") - cp.searchsorted(sx, x_gpu - eps_gpu + 1e-12, side="left") - 1
     n_y = cp.searchsorted(sy, y_gpu + eps_gpu - 1e-12, side="right") - cp.searchsorted(sy, y_gpu - eps_gpu + 1e-12, side="left") - 1
     n_x = cp.maximum(n_x, 0).astype(cp.int64).get()

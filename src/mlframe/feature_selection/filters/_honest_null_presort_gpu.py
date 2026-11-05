@@ -13,6 +13,7 @@ import logging
 import os
 
 import numpy as np
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ def presort_and_ties_gpu(raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
         for c0 in range(0, k, block):
             c1 = min(k, c0 + block)
             cols = cp.asarray(np.ascontiguousarray(raw_cont[:, c0:c1].T))  # one contiguous row per column
-            idx = cp.argsort(cols, axis=1)
+            idx = device_argsort(cols, axis=1)
             sv = cp.take_along_axis(cols, idx, axis=1)
             tie_dev = cp.zeros((c1 - c0, n), dtype=cp.uint8)
             tie_dev[:, : n - 1] = (sv[:, :-1] == sv[:, 1:]).astype(cp.uint8)

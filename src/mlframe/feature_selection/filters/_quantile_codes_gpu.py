@@ -25,6 +25,7 @@ from numba import njit, prange
 
 from ._numba_utils_cross_module import _few_distinct_levels
 from ._raw_module_cache import RawModuleCache
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +228,7 @@ def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: 
             # Intentional float64: same double-precision edge arithmetic as the lower order statistic
             b = vals[:, cp.asarray(np.searchsorted(w_unique, i1))].astype(cp.float64)
         else:
-            s = cp.sort(v_dev, axis=1)
+            s = device_sort(v_dev, axis=1)
             distinct = 1 + (s[:, 1:] != s[:, :-1]).sum(axis=1)
             few = np.flatnonzero(cp.asnumpy(distinct) <= int(n_bins))
             # Intentional float64: the edges are computed in numpy's double-precision arithmetic, as the host kernel does
@@ -273,7 +274,7 @@ def quantile_codes_resident_f32(cp, v_dev, n_bins: int, codes: np.ndarray, nx: n
         c1 = min(k, c0 + block)
         vb = v_dev[c0:c1]
         vals = _order_statistics_f32(cp, vb, w_unique)
-        srt = cp.sort(vals, axis=1)
+        srt = device_sort(vals, axis=1)
         maybe_few = np.flatnonzero(cp.asnumpy(1 + (srt[:, 1:] != srt[:, :-1]).sum(axis=1)) <= int(n_bins))
         # Intentional float64: the edges are computed in numpy's double-precision arithmetic, as the host kernel does
         a = vals[:, lo_idx].astype(cp.float64)

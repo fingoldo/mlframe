@@ -90,6 +90,8 @@ import numpy as np
 import numba
 from numba import njit
 
+from ._numba_utils_shuffle import bounded, next_state, seed_state
+
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 
 logger = logging.getLogger(__name__)
@@ -100,6 +102,37 @@ from ._numba_utils import _entropy_from_counts_njit
 # The best-split search of every significance-validated path (the observed split and each of the permutation draws) is the incremental kernel: O(1) per candidate instead of O(K_y), 6.5x faster at
 # n = 10 000, K_y = 16 with the same candidates and tie rule (gains agree to 1e-13; the best index differs only where two candidates tie exactly). The old kernel stays in supervised_binning.
 from .supervised_binning import _mdlp_best_split_inc_njit as _mdlp_best_split_njit
+
+
+@njit(nogil=True, cache=True)
+def _dedupe_sorted_runs(x: np.ndarray, y: np.ndarray):
+    """``(x_out, y_out, m)``: the distinct ``(x, y)`` pairs of a non-decreasing ``x`` in (x, y) ascending order in the first ``m`` slots, ``m == len(x)`` when
+    no pair repeats (the caller then keeps its arrays, as ``_dedupe_xy``'s lexsort path does)."""
+    n = x.shape[0]
+    x_out = np.empty_like(x)
+    y_out = np.empty(n, dtype=np.int64)
+    m = 0
+    i = 0
+    while i < n:
+        j = i + 1
+        while j < n and x[j] == x[i]:
+            j += 1
+        if j - i == 1:
+            x_out[m] = x[i]
+            y_out[m] = y[i]
+            m += 1
+        else:
+            run = np.sort(y[i:j])
+            x_out[m] = x[i]
+            y_out[m] = run[0]
+            m += 1
+            for t in range(1, j - i):
+                if run[t] != run[t - 1]:
+                    x_out[m] = x[i]
+                    y_out[m] = run[t]
+                    m += 1
+        i = j
+    return x_out, y_out, m
 
 
 def _dedupe_xy(x: np.ndarray, y_i: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
@@ -130,6 +163,13 @@ def _dedupe_xy(x: np.ndarray, y_i: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
             # x already strictly increasing (the sorted column of ``mdlp_bin_edges``): no two rows share x, so no (x, y) pair repeats and the input is
             # returned as the full lexsort below would return it, without the sort
             return x, y_i
+        if y_i.dtype.kind in "iu" and bool((x[1:] >= x[:-1]).all()):
+            # x sorted with ties: only the labels inside each run of equal x need ordering, one linear pass instead of a lexsort of every row
+            # (warm 100k fits spent 1.6 s of worker time in that lexsort); same output as the lexsort below
+            x_out, y_out, m = _dedupe_sorted_runs(x, np.ascontiguousarray(y_i, dtype=np.int64))
+            if m == x.size:
+                return x, y_i
+            return x_out[:m], y_out[:m].astype(y_i.dtype, copy=False)
     order = np.lexsort((y_i, x))
     x_s, y_s = x[order], y_i[order]
     if x_s.size <= 1:
@@ -174,12 +214,12 @@ def _permutation_null_gain_njit(x_sorted: np.ndarray, y_compact: np.ndarray, n_c
     n = y_compact.shape[0]
     null_gains = np.empty(n_permutations, dtype=np.float64)  # Intentional float64: null-gain accumulator for the MDLP permutation test
     for p in numba.prange(n_permutations):
-        np.random.seed(seed + p)
+        rs = seed_state(seed + p)
         y_perm = y_compact.copy()
-        # Fisher-Yates on a scratch copy - np.random.shuffle is not always njit-supported across numba
-        # versions for arbitrary dtypes, so implement it directly (int64 labels only).
+        # Fisher-Yates on a scratch copy, drawn from the xorshift stream of ``_numba_utils_shuffle`` (the batch twin below draws the same one)
         for i in range(n - 1, 0, -1):
-            j = int(np.random.randint(0, i + 1))
+            rs = next_state(rs)
+            j = bounded(rs, i + 1)
             tmp = y_perm[i]
             y_perm[i] = y_perm[j]
             y_perm[j] = tmp
@@ -337,10 +377,11 @@ def _mdlp_permutation_batch_njit(
             node = live[li]
             ni = node_sizes[node]
             x_i = x_padded[node, :ni]
-            np.random.seed(base_seeds[node] + p)
+            rs = seed_state(base_seeds[node] + p)
             y_perm = y_padded[node, :ni].copy()
             for i in range(ni - 1, 0, -1):
-                j = int(np.random.randint(0, i + 1))
+                rs = next_state(rs)
+                j = bounded(rs, i + 1)
                 tmp = y_perm[i]
                 y_perm[i] = y_perm[j]
                 y_perm[j] = tmp

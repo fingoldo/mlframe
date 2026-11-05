@@ -384,7 +384,8 @@ def gpu_multiple_roc_auc_scores(actual: Any, predicted: Any) -> Any:
     n_neg = N - n_pos
 
     # Per-column fractional ranks: equal-value runs get the average of the strict ranks they occupy (e.g. three 0.5's at positions 4,5,6 all get rank 5).
-    order = cp.argsort(predicted, axis=0)
+    from mlframe.feature_selection.filters import _device_sort_safe as _safe_sort  # local: metrics must not import the filters package at module load
+    order = _safe_sort.device_argsort(predicted, axis=0)
     ranks = cp.empty((N, M), dtype=cp.float64)
     for j in range(M):
         col = predicted[:, j]
@@ -452,7 +453,8 @@ def gpu_multiple_pr_auc_scores(actual: Any, predicted: Any) -> Any:
     idx = cp.arange(1, N + 1, dtype=cp.float64)
     for j in range(M):
         col = predicted[:, j]
-        order = cp.argsort(col, kind="stable")[::-1]  # descending
+        from mlframe.feature_selection.filters import _device_sort_safe as _safe_sort  # local: metrics must not import the filters package at module load
+        order = _safe_sort.device_argsort(col, kind="stable")[::-1]  # descending
         col_sorted = col[order]
         y_sorted = actual[order]
 

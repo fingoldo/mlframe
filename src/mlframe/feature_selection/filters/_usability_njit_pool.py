@@ -73,6 +73,8 @@ from ._usability_njit_pool_codes import (  # noqa: F401  re-export: the op-code 
     njit_binary_codes_or_none,
     njit_unary_codes_or_none,
 )
+from mlframe.feature_selection.filters._device_sort_safe import device_unique  # thrust aborts the process on a short pool
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 # Near-constant when std is within this factor of machine epsilon of the combo's largest |value|.
 # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
@@ -175,7 +177,7 @@ def _gpu_quantile_bin_codes(V, qs):
     ``m`` combos in the chunk; the searchsorted is done per row (each row has its own edge vector)."""
     cp = _cp
     m, n = V.shape
-    srt = cp.sort(V, axis=1)  # (m, n) ascending - matches np.sort
+    srt = device_sort(V, axis=1)  # (m, n) ascending - matches np.sort
     pos = qs * (n - 1)  # virtual indices, (nq,)
     lo = cp.floor(pos).astype(cp.int64)  # (nq,)
     hi = cp.where(lo < n - 1, lo + 1, lo)
@@ -188,7 +190,7 @@ def _gpu_quantile_bin_codes(V, qs):
     for r in range(m):
         qr = q[r]
         # np.unique on an ascending vector == adjacent dedup.
-        edges = cp.unique(qr)  # ascending, deduped
+        edges = device_unique(qr)  # ascending, deduped
         me = int(edges.shape[0])
         if me <= 1:
             kx[r] = 1
@@ -288,7 +290,7 @@ def _pair_combo_mi_cupy(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
         var = V.var(axis=0)
         vmax, vmin = V.max(axis=0), V.min(axis=0)
         live = (var > 1e-18) & (vmax > vmin)
-        srt = cp.sort(V, axis=0)
+        srt = device_sort(V, axis=0)
         q = srt[lo, :] + (srt[hi, :] - srt[lo, :]) * frac  # (nq, m) lerp edges
         del srt
         mi = binned_mm_mi_from_values_gpu(V, q[1 : nq - 1], d_y, nq - 1, int(k_y), float(h_y), int(k_y), codes_trusted=True, return_device=True)

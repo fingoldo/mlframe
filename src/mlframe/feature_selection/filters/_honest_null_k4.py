@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
+# Intentional float64: tab/out_gain hold statistic tables and partial gain sums whose rounding would change split selection vs the CPU twin.
 _SOURCE_K4F = r"""
 #define XL(v) (((v) < 32768) ? ({REAL})tab[(v)] : ({REAL})(v) * logf(({REAL})(v)))
 #define ENT2(m, c) (((c) > 0.f && (c) < (m)) ? -((c) * __logf((c) / (m)) + ((m) - (c)) * __logf(((m) - (c)) / (m))) : 0.f)
