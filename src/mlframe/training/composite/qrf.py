@@ -291,7 +291,12 @@ class _LeafResidualForest:
         self.forest_.fit(Xa, ya, sample_weight=sample_weight)
         self.y_train_ = ya
         # Per-tree leaf id of every training row: (n_train, n_trees).
-        self.train_leaves_ = self.forest_.apply(Xa)
+        # Leaf ids and row indices fit in int32 (a leaf id is a node index, a row index is below 2**31); int64 doubled the
+        # per-tree tables, which at 200 trees and 2M rows was about 9 GB stored in the model.
+        n_rows = Xa.shape[0]
+        if n_rows >= np.iinfo(np.int32).max:
+            raise ValueError(f"QuantileRegressionForest: {n_rows} training rows exceed the int32 row-index range.")
+        self.train_leaves_ = self.forest_.apply(Xa).astype(np.int32)
         # Per-tree, per-leaf bincount of training rows (membership normaliser): the QRF
         # weight of a training row for a query is 1 / (#train rows sharing its leaf),
         # summed over trees. Precompute the per-tree leaf-size lookup once.
@@ -308,8 +313,8 @@ class _LeafResidualForest:
         # order-invariant), and leaf_offsets[t, l]:leaf_offsets[t, l+1] slices out leaf
         # l's member rows within that permutation.
         n_train = self.train_leaves_.shape[0]
-        self._sorted_train_idx_ = np.empty((n_trees, n_train), dtype=np.int64)
-        self._leaf_offsets_ = np.zeros((n_trees, max_leaf + 1), dtype=np.int64)
+        self._sorted_train_idx_ = np.empty((n_trees, n_train), dtype=np.int32)
+        self._leaf_offsets_ = np.zeros((n_trees, max_leaf + 1), dtype=np.int32)
         for t in range(n_trees):
             leaves_t = self.train_leaves_[:, t]
             counts = np.bincount(leaves_t, minlength=max_leaf)
