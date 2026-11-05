@@ -40,3 +40,17 @@ def test_concurrent_groups_give_the_sequential_fit(monkeypatch):
     assert fits["0"][0] == fits["1"][0]
     assert fits["0"][1] == fits["1"][1]
     pd.testing.assert_frame_equal(fits["0"][2], fits["1"][2])
+
+
+def test_both_switches_must_allow_the_concurrent_groups(monkeypatch):
+    """The groups run together only when the cascade-level switch and the group-level switch are both on."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._hybrid_orth_family_variants._concurrent import hybrid_variant_concurrency_enabled
+
+    monkeypatch.delenv("MLFRAME_FE_STAGE_CONCURRENCY", raising=False)
+    monkeypatch.delenv("MLFRAME_FE_HYBRID_VARIANT_CONCURRENCY", raising=False)
+    assert hybrid_variant_concurrency_enabled() is True
+    monkeypatch.setenv("MLFRAME_FE_HYBRID_VARIANT_CONCURRENCY", "0")
+    assert hybrid_variant_concurrency_enabled() is False
+    monkeypatch.delenv("MLFRAME_FE_HYBRID_VARIANT_CONCURRENCY")
+    monkeypatch.setenv("MLFRAME_FE_STAGE_CONCURRENCY", "0")
+    assert hybrid_variant_concurrency_enabled() is False

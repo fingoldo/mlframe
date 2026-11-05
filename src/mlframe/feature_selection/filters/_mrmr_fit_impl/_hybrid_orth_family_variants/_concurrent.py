@@ -20,8 +20,11 @@ _GROUP_WEIGHTS = (6.6, 2.1, 6.2)
 
 
 def hybrid_variant_concurrency_enabled() -> bool:
-    """Whether groups 1, 3 and 4 run together (default on); ``MLFRAME_FE_HYBRID_VARIANT_CONCURRENCY=0`` keeps the sequential order."""
-    return os.environ.get("MLFRAME_FE_HYBRID_VARIANT_CONCURRENCY", "1").strip() != "0"
+    """Whether groups 1, 3 and 4 run together (default on); ``MLFRAME_FE_HYBRID_VARIANT_CONCURRENCY=0`` keeps the sequential order, and so does
+    ``MLFRAME_FE_STAGE_CONCURRENCY=0`` (the switch that runs the whole FE one cascade at a time)."""
+    from .._fe_stage_concurrency import concurrency_enabled
+
+    return concurrency_enabled() and os.environ.get("MLFRAME_FE_HYBRID_VARIANT_CONCURRENCY", "1").strip() != "0"
 
 
 def _new_names(out: Any, base_cols: "set[str]") -> "list[str]":
