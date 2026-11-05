@@ -20,6 +20,7 @@ history.
 - `fe_provenance_` labels the columns admitted by the auto-escalation (`esc_*`) with the origin `escalation`, and the escalation writes its admissions to `fe_admission_ledger_` (stage `escalation`), so where such a column came from is readable without instrumenting the fit.
 
 ### Fixed
+- A loss-fallback refit that both refit paths reject restores the model's original parameters. The fallback loss used to stay on the model after the refit failed, so saved metadata and later refits described a booster that never trained on that loss.
 - `read_trained_models` logs every model file it skips (sha256 mismatch or unreadable). The messages were throttled to five per process, so later skips dropped silently and the ensemble lost members with no sign.
 - The calibration MAE with weights reports NaN when every bin is empty; it used to report 0, which reads as a perfectly calibrated model. Populated curves are unchanged.
 - The two-feature partial-dependence chart caps a categorical axis to `CATEGORICAL_PDP_MAX_CATEGORIES` labels, the most frequent ones in the sample, as the one-feature chart already did. A column with thousands of categories used to produce a surface with one row per category and predict over sample x categories rows per outer value.

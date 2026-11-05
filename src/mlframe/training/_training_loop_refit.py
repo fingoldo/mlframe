@@ -182,11 +182,17 @@ def _maybe_refit_on_degenerate_best_iter(
             model_obj.__dict__.clear()
             model_obj.__dict__.update(_new_model.__dict__)
         except Exception as _rebuild_err:
+            # Undo the set_params that already ran (its parameters were read before it): the caller keeps the degenerate fit with the loss it was trained on.
+            if _cur_params:
+                try:
+                    model_obj.set_params(**_cur_params)
+                except Exception as _restore_err:
+                    logger_.debug("[loss-fallback] could not restore %s parameters after the rejected refit: %s", model_type_name, _restore_err)
             logger_.warning(
                 "[loss-fallback] %s refit rejected on both set_params (%s) "
                 "and fresh-instance (%s) paths. Keeping the degenerate "
-                "fit; downstream charts will show the truth (R^2 < 0, "
-                "near-constant pred).",
+                "fit with its original loss; downstream charts will show "
+                "the truth (R^2 < 0, near-constant pred).",
                 model_type_name, _refit_err, _rebuild_err,
             )
             return None
