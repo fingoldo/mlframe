@@ -19,3 +19,15 @@ initialises a 624-word state) and drew every Fisher-Yates index with `randint`. 
 seeds (`seed + p`, `base_seeds[node] + p`), so the twins stay equal to each other. 12 `mdlp_bin_edges` calls at 100k rows (binary and 3-class targets):
 0.296 -> 0.254 s, best of 3. The permutations differ from the Mersenne ones (valid and uniform), so the edges on significant columns move slightly
 (29 -> 32 and 20 -> 23 edges on the two informative columns of the bench; the noise columns keep 2).
+
+## 2026-11-05: correction - the serial twin must draw the same permutations
+
+The xorshift commit (57762e7a5, pushed in 8abc2061b) moved `_permutation_null_gain_njit` and `_mdlp_permutation_batch_njit` to xorshift draws and claimed the twins stay equal. They did not:
+`_accept_split_serial` (the serial twin of the batched level test, used by the column-outer honest null of `_numba_utils_cross_module`) still drew from numba's Mersenne
+`np.random.seed`. Verdicts of the two stochastic tests then disagreed on borderline splits, and `test_honest_candidate_spec_route::test_candidate_nfailed_identical_on_both_routes`
+failed (categorise route 3, batched route 2 exceedances for column 4; bisect from 3e8021b6e^: first bad commit 57762e7a5). Verdict agreement on clear-cut nodes hid it: a twin test
+that compares accept flags passes with either stream (`test_mdlp_serial_batch_twins` first version passed with the old serial twin).
+
+Fix: `_numba_utils_shuffle.shuffle_labels_into(src, dst, seed)` is the one permutation draw of the MDLP split tests (= `src[seeded_permutation(n, seed)]`, the honest-null stream); the
+per-node null, the batched level test, the serial twin and the benchmark reference all call it, so they cannot drift. The remaining numba-RNG users
+(`root_null_gain_threshold`, `_mdlp_oos_honest_njit`) have no twin in another stream and stay.
