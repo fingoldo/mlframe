@@ -46,7 +46,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **OPEN** | N3-02 | supply_chain | Low | `feature_selection/filters/_neural_mi.py:278-291`: InfoNet checkpoint pin trusts the first file seen |
 | **OPEN** | N3-03 | supply_chain | Low | `training/feature_handling/hf_provider.py:74-84`: unlisted model loads hub `main` without a revision |
 | **OPEN** | R4-05 | resource | Low | `reporting/charts/slice_finder.py:386,392`: all pairs built before the cap |
-| **OPEN** | S5-04 | leakage | Low | `training/composite/count_weighted_blend.py:139`: auto-k error ignores sample weights |
+| **RESOLVED** | S5-04 | leakage | Low | `training/composite/count_weighted_blend.py:139`: auto-k error ignores sample weights |
 | **RESOLVED** | M6-02 | numerics | Low | `metrics/calibration/_calibration_metrics.py:78-83`: all-zero hits report perfect calibration |
 | **RESOLVED** | M6-03 | numerics | Low | `core/stats.py:67-78`: Tukey multiplier at quantile 0.5 is `inf` |
 | **RESOLVED** | M6-04 | numerics | Low | `core/proportion_stats.py:89-98`: impossible counts get an answer |
