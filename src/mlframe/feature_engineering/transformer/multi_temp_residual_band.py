@@ -37,7 +37,7 @@ _DEFAULT_TEMPS: tuple[float, ...] = (0.3, 1.0, 3.0)
 
 # Out-of-fold baseline predictions on Xt. Imported rather than wrapped: a per-module wrapper differing only
 # in one string is still a near-duplicate body, which is the drift this cluster was consolidated to end.
-from ._baseline_oof import fit_baseline_predict_oof as _fit_baseline_predict
+from ._baseline_oof import fit_baseline_predict_oof as _fit_baseline_predict, fold_train_groups
 
 
 def _residual_band_masks(residuals: np.ndarray, quantiles: np.ndarray, n_bands: int) -> list[np.ndarray]:
@@ -82,7 +82,7 @@ def compute_multi_temp_residual_band_features(
     n_temps = len(temps_list)
     features_per_temp = effective_n_bands + 4
 
-    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int, groups_t=None) -> np.ndarray:
         """Compute the full per-fold feature block: fit the baseline, bin residuals into quintile bands, build per-band centroids/y-stats, then for each temperature in ``temps_list`` emit the softmax band-membership weights + entropy + aggregated y-mean/y-std + argmax band for every query row."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -95,6 +95,7 @@ def compute_multi_temp_residual_band_features(
         preds_tr = _fit_baseline_predict(
             Xt_s, y_t, task=task, seed=fold_seed,
             n_estimators=baseline_n_estimators, max_depth=baseline_max_depth,
+            groups=groups_t,
         )
         residuals = np.abs(y_t - preds_tr).astype(np.float32)
         quantiles = np.quantile(residuals, np.linspace(0.0, 1.0, effective_n_bands + 1))
@@ -166,7 +167,7 @@ def compute_multi_temp_residual_band_features(
     out: np.ndarray = np.zeros((n_train, total_features), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("multi_temp_residual_band: fold %d/%d done", fold_idx + 1, len(splits))
 

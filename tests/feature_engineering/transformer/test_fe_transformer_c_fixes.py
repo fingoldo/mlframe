@@ -102,7 +102,7 @@ def test_f5_bidir_residual_band_empty_bands_get_zero_weight(monkeypatch):
     baseline, so residuals are exactly {0, 10}) and assert their attention weight is exactly 0."""
     import mlframe.feature_engineering.transformer.bidir_residual_band as brb
 
-    def fake_predict(Xt, y_t, task, seed, n_estimators=50, max_depth=3):
+    def fake_predict(Xt, y_t, task, seed, n_estimators=50, max_depth=3, groups=None):
         """Fake predict callable returning a fixed array."""
         return np.zeros_like(y_t)
 

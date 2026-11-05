@@ -17,6 +17,8 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from . import _baseline_oof as _bo
+from ._baseline_oof import fold_train_groups
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -36,7 +38,7 @@ def _gaussian_kl(mu_i: np.ndarray, mu_j: np.ndarray, sigma_i: "np.ndarray | floa
     return np.asarray(np.log(sigma_j / sigma_i) + (var_i + (mu_i - mu_j) ** 2) / (2.0 * var_j) - 0.5)
 
 
-def _fit_3baselines_with_sigma(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int):
+def _fit_3baselines_with_sigma(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int, groups=None):
     """Fit 3 deliberately-diverse baselines (shallow LGBM, deeper LGBM, linear/logistic) on the train fold and return their query-set predictions plus, for regression, each baseline's train-residual sigma (needed by the Gaussian KL)."""
     try:
         import lightgbm as lgb
@@ -80,12 +82,11 @@ def _fit_3baselines_with_sigma(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, 
         # Out-of-fold residuals: the in-sample ones of a depth-5 booster are far smaller than the error it makes on a query row, which inflates its KL terms.
         resid_pred = (p1_train, p2_train, p3_train)
         if Xt.shape[0] >= 3:
-            from sklearn.model_selection import KFold
 
             from .ib_baseline_codes import _members_predict
 
             oof = np.zeros((Xt.shape[0], 3), dtype=np.float32)
-            for k, (tr, va) in enumerate(KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11).split(Xt)):
+            for k, (tr, va) in enumerate(_bo.kfold_splits(Xt, 3, int(seed) + 11, groups)):
                 oof[va] = _members_predict(Xt[tr], y_t[tr], Xt[va], "regression", int(seed) + 7 + k)
             resid_pred = (oof[:, 0], oof[:, 1], oof[:, 2])
         sigmas[0] = float((y_t - resid_pred[0]).std()) + 1e-6
@@ -119,7 +120,7 @@ def compute_pairwise_kl_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_features = 5
 
-    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int, groups_t=None) -> np.ndarray:
         """Fit the 3 baselines on one (fold-local or global) train slice, then compute the 5 pairwise-KL/JS features for the query rows."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -129,7 +130,7 @@ def compute_pairwise_kl_features(
         else:
             Xt_s = Xt
             Xq_s = Xq
-        (p1, p2, p3), sigmas = _fit_3baselines_with_sigma(Xt_s, y_t, Xq_s, task=task, seed=fold_seed)
+        (p1, p2, p3), sigmas = _fit_3baselines_with_sigma(Xt_s, y_t, Xq_s, task=task, seed=fold_seed, groups=groups_t)
         if task == "binary":
             kl12 = _bernoulli_kl(p1, p2).astype(np.float32)
             kl23 = _bernoulli_kl(p2, p3).astype(np.float32)
@@ -174,7 +175,7 @@ def compute_pairwise_kl_features(
     out: np.ndarray = np.zeros((n_train, n_features), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("pairwise_kl_divergence: fold %d/%d done", fold_idx + 1, len(splits))
 

@@ -19,7 +19,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 
 | Status | ID | Class | Severity | Location |
 |---|---|---|---|---|
-| **OPEN** | S5-01 | leakage | High | `feature_engineering/transformer/baseline_surprise.py:80` and nine sibling modules: inner baseline KFold ignores outer groups |
+| **PARTIAL** | S5-01 | leakage | High | `feature_engineering/transformer/baseline_surprise.py:80` and nine sibling modules: inner baseline KFold ignores outer groups; confirmed on HEAD, and eight more modules importing the shared baseline under an alias had the same gap; the inner split now comes from `_baseline_oof.kfold_splits` in all 22 Mode A callers (`tests/feature_engineering/transformer/test_inner_baseline_folds_are_group_aware.py`); still open: the aux splitter of `_residual_oof.py` and its users `pred_augmented`, `residual_attention`, `cross_feature_reconstruction` |
 | **OPEN** | X9-01 | silent_failure | High | `feature_selection/hybrid_selector.py:525-527, 915-916`: transform drops engineered columns on a replay failure and returns the first column |
 | **OPEN** | C8-01 | state | High | `feature_selection/filters/_mrmr_fit_impl/_finalise.py:659`: process-wide fit cache holds the live instance |
 | **OPEN** | R4-01 | resource | High | `reporting/charts/pdp_ice.py:471-490`: categorical PDP axis sweeps every category |
@@ -69,5 +69,5 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 
 ## Reports whose scope was incomplete
 
-- A3 finished while its own background work was still running; the full-tree secret scan did not complete (see `network_supply_chain.md`).
+- A3 finished while its own background work was still running; the full-tree secret scan then completed with no hard-coded credentials (see `network_supply_chain.md`).
 - Every report lists its "Not covered" areas; the largest unread parts are the roughly 2900 broad-except sites in `feature_selection/filters/*`, the other composite training modules using raw shuffled KFold, and calibration fitters.

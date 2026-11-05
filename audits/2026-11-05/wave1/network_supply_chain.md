@@ -1,6 +1,6 @@
 # Wave 1 (2026-11-05), attack class A3: network, secrets and supply chain
 
-Read-only audit by one Opus 5.5 low-effort agent. The tree is mostly hardened in this class: three verified findings, all Low, none High or Medium. The report is the agent's returned text, condensed; each finding is re-checked on HEAD before it is fixed. The agent finished while its own background work was still running, so this report may be interim; the secret sweep below did not complete.
+Read-only audit by one Opus 5.5 low-effort agent. The tree is mostly hardened in this class: three verified findings, all Low, none High or Medium. The report is the agent's returned text, condensed; each finding is re-checked on HEAD before it is fixed. The agent first finished while its own background work was still running; the full-tree secret scan then completed and found no hard-coded credentials in `src`, `tests`, `scripts` or `docs` (the only hit is a long test string, `LONG_TOKEN` in `tests/reporting/test_text_fills_the_real_width.py:157`, which is not a secret), so the three findings below stand as the final report.
 
 ## Findings
 
@@ -32,7 +32,7 @@ Suppose a user passes an unlisted model such as `hf://org/model` without `revisi
 
 ## Not covered
 
-- Full-tree secret scan: the grep for hard-coded credentials across src, tests, scripts and docs timed out and its results were never obtained. detect-secrets is present in pre-commit; its baseline was not checked.
+- The detect-secrets baseline file was not checked (the full-tree secret scan itself completed, see the header).
 - Called workflow internals: the jobs inside the py-ci-shared reusable workflows, the upload-codecov and install-pyutilz actions, and `scripts/sync_and_push.sh`.
 - `uv.lock`: not checked for direct-URL entries or hash coverage.
 - `release.yml`: the trusted-publishing and OIDC scope was not reviewed in depth.

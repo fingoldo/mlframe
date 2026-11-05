@@ -42,8 +42,8 @@ def test_group_aware_inner_split_holds_whole_groups_out():
     assert float(np.mean((preds > 0.5) == y)) < 0.7
 
 
-def test_single_group_falls_back_to_the_in_sample_fit():
-    """One distinct group cannot be held out, so the baseline fits in-sample instead of raising."""
+def test_single_group_falls_back_to_a_shuffled_kfold():
+    """One distinct group cannot be held out, so the inner split is a shuffled KFold (with a warning) instead of raising."""
     X, y, _ = _grouped_duplicates(n_groups=1, rows_per_group=12)
     preds = fit_baseline_predict_oof(X, y, "binary", seed=0, groups=np.zeros(len(y), dtype=int))
     assert preds.shape == (len(y),)

@@ -34,6 +34,8 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from . import _baseline_oof as _bo
+from ._baseline_oof import fold_train_groups
 from ._hard_row_shared import topk_within_subset
 from ._squared_dists_shared import squared_dists as _squared_dists
 from ._utils import quantile_tail_masks, require_seed, validate_numeric_input, softmax
@@ -41,7 +43,7 @@ from ._utils import quantile_tail_masks, require_seed, validate_numeric_input, s
 logger = logging.getLogger(__name__)
 
 
-def _fit_3baselines_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int) -> list[np.ndarray]:
+def _fit_3baselines_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, groups=None) -> list[np.ndarray]:
     """Fit 3 baselines via an inner KFold(3), return list of 3 OUT-OF-FOLD prediction arrays.
 
     An in-sample prediction is close to y_t almost by construction (the model was just fit on these exact
@@ -89,11 +91,8 @@ def _fit_3baselines_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: in
     if n < 3:
         return _fit_predict_fold(Xt, y_t, Xt, seed)
 
-    from sklearn.model_selection import KFold
-
     preds_list = [np.zeros(n, dtype=np.float32) for _ in range(3)]
-    inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
-    for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
+    for inner_idx, (in_tr, in_val) in enumerate(_bo.kfold_splits(Xt, 3, int(seed) + 11, groups)):
         fold_preds = _fit_predict_fold(Xt[in_tr], y_t[in_tr], Xt[in_val], int(seed) + 7 + inner_idx)
         for b in range(3):
             preds_list[b][in_val] = fold_preds[b]
@@ -153,7 +152,7 @@ def compute_multi_baseline_hard_row_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_total_anchors = 2 * n_hard_per_side
 
-    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int, groups_t=None) -> np.ndarray:
         """Fit the 3 baselines, compute the combined (max-of-z-scored |residual|) hardness, pick the K/2 hardest anchors per class/quintile side, then attend each query row to those anchors via softmax(-squared-distance)."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -163,7 +162,7 @@ def compute_multi_baseline_hard_row_features(
         else:
             Xt_s = Xt
             Xq_s = Xq
-        preds_list = _fit_3baselines_predict(Xt_s, y_t, task=task, seed=fold_seed)
+        preds_list = _fit_3baselines_predict(Xt_s, y_t, task=task, seed=fold_seed, groups=groups_t)
 
         # Compute z-normalized |residual| per baseline, then max across baselines.
         combined = np.full(Xt_s.shape[0], -np.inf, dtype=np.float32)  # starting at 0 tied every row whose z-scores are all negative
@@ -254,7 +253,7 @@ def compute_multi_baseline_hard_row_features(
     out: np.ndarray = np.zeros((n_train, n_features), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("multi_baseline_hard_row: fold %d/%d done", fold_idx + 1, len(splits))
 

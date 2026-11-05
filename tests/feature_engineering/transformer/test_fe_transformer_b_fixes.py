@@ -409,7 +409,7 @@ def test_f22_ib_baseline_codes_empty_cell_uses_global_fallback(monkeypatch):
     """F22 ib baseline codes empty cell uses global fallback: a query whose baseline code has no train rows gets the global y mean/std."""
     from mlframe.feature_engineering.transformer import ib_baseline_codes as mod
 
-    def _fake_baselines(Xt, y_t, Xq, task, seed):
+    def _fake_baselines(Xt, y_t, Xq, task, seed, groups=None):
         """Train predictions mirror y in all 3 baselines (codes 0 or 7 only); query predictions set only bit 0 (code 1, unseen)."""
         tp = np.column_stack([y_t, y_t, y_t]).astype(np.float32)
         qp = np.column_stack([np.full(len(Xq), 2.0), np.zeros(len(Xq)), np.zeros(len(Xq))]).astype(np.float32)
@@ -450,7 +450,7 @@ def test_f20_fisher_weighted_residual_empty_band_uses_global_fallback(monkeypatc
 
     # residuals of 0 / 1 tie heavily, so the top quantile band (weighted residual > max train value) is empty in train
     monkeypatch.setattr(lightgbm, "LGBMRegressor", _FakeRegressor)
-    monkeypatch.setattr(mod, "_oof_train_predictions", lambda Xt, y_t, is_binary, seed: (y_t - (y_t > 0.5)).astype(np.float32))
+    monkeypatch.setattr(mod, "_oof_train_predictions", lambda Xt, y_t, is_binary, seed, groups=None: (y_t - (y_t > 0.5)).astype(np.float32))
     monkeypatch.setattr(mod, "_finite_difference_grad_norm", lambda model, X, is_binary, eps: np.ones(len(X), dtype=np.float32))
     rng = np.random.default_rng(0)
     X = rng.normal(size=(100, 3)).astype(np.float32)

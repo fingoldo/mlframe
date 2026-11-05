@@ -19,6 +19,8 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from . import _baseline_oof as _bo
+from ._baseline_oof import fold_train_groups
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -28,7 +30,7 @@ logger = logging.getLogger(__name__)
 _MAX_STACK_ELEMS = 64_000_000
 
 
-def _oof_train_predictions(Xt: np.ndarray, y_t: np.ndarray, is_binary: bool, seed: int) -> np.ndarray:
+def _oof_train_predictions(Xt: np.ndarray, y_t: np.ndarray, is_binary: bool, seed: int, groups=None) -> np.ndarray:
     """Inner-KFold(3) OOF predictions on Xt, used ONLY for ``resid_train`` (the statistic that sets the
     quantile-band thresholds in ``compute_fisher_weighted_residual_features``). An in-sample prediction is
     close to y_t almost by construction (the model was just fit on these exact rows), which understates the
@@ -57,11 +59,8 @@ def _oof_train_predictions(Xt: np.ndarray, y_t: np.ndarray, is_binary: bool, see
     if n < 3:
         return _fit_predict(Xt, y_t, Xt, seed)
 
-    from sklearn.model_selection import KFold
-
     preds = np.zeros(n, dtype=np.float32)
-    inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
-    for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
+    for inner_idx, (in_tr, in_val) in enumerate(_bo.kfold_splits(Xt, 3, int(seed) + 11, groups)):
         preds[in_val] = _fit_predict(Xt[in_tr], y_t[in_tr], Xt[in_val], int(seed) + 7 + inner_idx)
     return preds
 
@@ -164,7 +163,7 @@ def compute_fisher_weighted_residual_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_features_out = 5
 
-    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int, groups_t=None) -> np.ndarray:
         """Fit the baseline on the (optionally scaled) train fold, compute a residual proxy and Fisher-gradient norm per row, form the Fisher-weighted residual (``|residual| * sqrt(fisher_norm)``), bucket train rows into quantile bands of it, and assign each query row to a band + its aggregated y-mean plus its own Fisher/residual/weighted-residual values."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -180,7 +179,7 @@ def compute_fisher_weighted_residual_features(
             p_query = np.asarray(model.predict_proba(Xq_s))[:, 1].astype(np.float32)
             is_binary = True
             # Band thresholds come from the same label-free quantity the query rows are banded on: the entropy of the (out-of-fold) prediction.
-            p_train_oof = _oof_train_predictions(Xt_s, y_t, is_binary, fold_seed)
+            p_train_oof = _oof_train_predictions(Xt_s, y_t, is_binary, fold_seed, groups_t)
             p_train_c = np.clip(p_train_oof, 1e-6, 1 - 1e-6)
             resid_train = (-p_train_c * np.log(p_train_c) - (1 - p_train_c) * np.log(1 - p_train_c)).astype(np.float32)
             # Query "residual proxy": entropy of prediction (uncertainty).
@@ -191,7 +190,7 @@ def compute_fisher_weighted_residual_features(
             p_query = np.asarray(model.predict(Xq_s)).astype(np.float32)
             is_binary = False
             # Same quantity as the query proxy below, taken on out-of-fold predictions so the band thresholds describe the rows they are applied to.
-            p_train_oof = _oof_train_predictions(Xt_s, y_t, is_binary, fold_seed)
+            p_train_oof = _oof_train_predictions(Xt_s, y_t, is_binary, fold_seed, groups_t)
             resid_train = np.abs(p_train_oof - float(np.median(y_t))).astype(np.float32)
             # Query residual proxy: prediction variance proxy = |p_query - train_y_median|
             resid_query = np.abs(p_query - float(np.median(y_t))).astype(np.float32)
@@ -238,7 +237,7 @@ def compute_fisher_weighted_residual_features(
     out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("fisher_weighted_residual: fold %d/%d done", fold_idx + 1, len(splits))
 

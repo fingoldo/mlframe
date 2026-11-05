@@ -36,7 +36,7 @@ _DEFAULT_TEMPS: tuple[float, ...] = (0.3, 1.0, 3.0)
 
 # Out-of-fold baseline predictions on Xt. This module's own copy was verified bit-identical to the shared
 # implementation on both task branches before being replaced by this import.
-from ._baseline_oof import fit_baseline_predict_oof as _fit_baseline_predict
+from ._baseline_oof import fit_baseline_predict_oof as _fit_baseline_predict, fold_train_groups
 
 _topk_within_subset = topk_within_subset
 
@@ -137,7 +137,7 @@ def compute_multi_temp_cbhr_features(
     n_temps = len(temps_list)
     features_per_temp = n_total_anchors + 5
 
-    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int, groups_t=None) -> np.ndarray:
         """Fit the baseline + hard-anchor selection on ``(Xt, y_t)``, then compute the multi-temperature attention feature block for query rows ``Xq``; used per-fold (Mode A) or once on the full train set against ``X_query`` (Mode B)."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -150,6 +150,7 @@ def compute_multi_temp_cbhr_features(
         preds_tr = _fit_baseline_predict(
             Xt_s, y_t, task=task, seed=fold_seed,
             n_estimators=baseline_n_estimators, max_depth=baseline_max_depth,
+            groups=groups_t,
         )
         signed_residuals = (y_t - preds_tr).astype(np.float32)
         abs_residuals = np.abs(signed_residuals)
@@ -208,7 +209,7 @@ def compute_multi_temp_cbhr_features(
     out: np.ndarray = np.zeros((n_train, total_features), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("multi_temp_cbhr: fold %d/%d done", fold_idx + 1, len(splits))
 

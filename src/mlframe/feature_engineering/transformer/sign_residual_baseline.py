@@ -25,6 +25,8 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from . import _baseline_oof as _bo
+from ._baseline_oof import fold_train_groups
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -57,7 +59,7 @@ def compute_sign_residual_baseline_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_features_out = 5
 
-    def _process(Xt, Xq, y_t, fold_seed):
+    def _process(Xt, Xq, y_t, fold_seed, groups_t=None):
         """Fit a baseline mean/probability model, then fit a second classifier to predict the SIGN of the train residual (whether ``y`` under-predicts the baseline); the second model's query-row probability minus 0.5 gives a directional bias signal, plus its absolute value as a magnitude-only feature."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -85,10 +87,8 @@ def compute_sign_residual_baseline_features(
             else:
                 mu_train = np.asarray(m_mu.predict(Xt_s)).astype(np.float32)
         else:
-            from sklearn.model_selection import KFold
             mu_train = np.zeros(n_t, dtype=np.float32)
-            inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(fold_seed) + 11)
-            for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt_s)):
+            for inner_idx, (in_tr, in_val) in enumerate(_bo.kfold_splits(Xt_s, 3, int(fold_seed) + 11, groups_t)):
                 if task == "binary":
                     m_inner = lgb.LGBMClassifier(
                         n_estimators=50, max_depth=3, learning_rate=0.1,
@@ -137,7 +137,7 @@ def compute_sign_residual_baseline_features(
     out: np.ndarray = np.full((n_train, n_features_out), np.nan, dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("sign_residual_baseline: fold %d/%d done", fold_idx + 1, len(splits))
 
