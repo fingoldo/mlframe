@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 #: Walls of groups 1, 3 and 4 in a warm 100k x 100 fit (6.6, 2.1, 6.2 s): they place the groups on the device slots.
 _GROUP_WEIGHTS = (6.6, 2.1, 6.2)
+#: Device-pool peaks of the three groups (MB at 50000 rows): the 486 MB peak of the whole early_a cascade split by the walls above. They split a device's memory among the groups and, scaled
+#: linearly with the rows, decide whether the groups fit the device together (they run one after another when they do not, as the FE cascades do).
+_GROUP_VRAM_WEIGHTS = (216.0, 69.0, 203.0)
 
 
 def hybrid_variant_concurrency_enabled() -> bool:
@@ -59,7 +62,7 @@ def run_groups_concurrently(
 
         return run
 
-    outs = run_stages_concurrently(_Holder(), [stage(g1, 0), stage(g3, 1), stage(g4, 2)], _GROUP_WEIGHTS, vram_weights=(1.0, 1.0, 1.0))
+    outs = run_stages_concurrently(_Holder(), [stage(g1, 0), stage(g3, 1), stage(g4, 2)], _GROUP_WEIGHTS, vram_weights=_GROUP_VRAM_WEIGHTS, n_rows=len(X))
     if outs is None:
         return None
     by_slot = {slot: est for slot, est in copies}

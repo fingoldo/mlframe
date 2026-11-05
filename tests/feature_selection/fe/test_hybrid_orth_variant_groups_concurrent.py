@@ -54,3 +54,26 @@ def test_both_switches_must_allow_the_concurrent_groups(monkeypatch):
     monkeypatch.delenv("MLFRAME_FE_HYBRID_VARIANT_CONCURRENCY")
     monkeypatch.setenv("MLFRAME_FE_STAGE_CONCURRENCY", "0")
     assert hybrid_variant_concurrency_enabled() is False
+
+
+def test_groups_run_one_after_another_when_their_peaks_do_not_fit_the_device(monkeypatch):
+    """The group peaks, scaled to the rows, are checked against the device as the FE cascades' are: when they do not fit, ``None`` goes back and the caller runs the groups in order."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters._mrmr_fit_impl import _fe_stage_concurrency as C
+    from mlframe.feature_selection.filters._mrmr_fit_impl._hybrid_orth_family_variants._concurrent import _GROUP_VRAM_WEIGHTS, run_groups_concurrently
+
+    seen = []
+
+    def _no_fit(vram_weights, n_rows):
+        """Record the check's inputs; the device is full."""
+        seen.append((tuple(vram_weights), int(n_rows)))
+        return False
+
+    monkeypatch.setattr(C, "_stages_fit_device", _no_fit)
+    X = pd.DataFrame({"a": range(10)})
+    ran = []
+    groups = tuple((lambda X, **k: ran.append(1) or X) for _ in range(4))
+    assert run_groups_concurrently(_Est(), X, {"_hybrid_orth_pre_recipes": {}}, groups) is None
+    assert seen == [(_GROUP_VRAM_WEIGHTS, 10)]
+    assert ran == []
