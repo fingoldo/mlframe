@@ -167,7 +167,7 @@ def _setup_binary_bootstrap_metrics(out: dict[str, Any]) -> tuple[dict[str, Any]
             from mlframe.evaluation.shared import jackknife_ece as _jk_ece
             _jackknife_fns["ece"] = lambda yy, pp: _jk_ece(yy, pp)
         except ImportError as exc:
-            logger.debug("honest_diagnostics: _jackknife_ece import failed (%r); ece BCa uses the generic jackknife.", exc)
+            logger.warning("honest_diagnostics: _jackknife_ece import failed (%r); ece BCa uses the generic jackknife.", exc)
         # roc_auc via the INDEX-aware resampler: pre-argsort the base score
         # vector ONCE, then build each of the 1000 resamples' descending order
         # in O(n) (counting-gather over base ranks) instead of a fresh
@@ -235,7 +235,7 @@ def _run_binary_bootstrap(
             )
         except Exception as exc:
             # fallback: a failed fused bootstrap reruns through bootstrap_metrics, which yields the same CI quantities.
-            logger.debug("honest_diagnostics: fused bootstrap bundle failed, falling back to bootstrap_metrics: %r", exc, exc_info=True)
+            logger.warning("honest_diagnostics: fused bootstrap bundle failed, falling back to bootstrap_metrics: %r", exc, exc_info=True)
             cis = None
     if cis is None:
         try:

@@ -58,7 +58,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **OPEN** | C8-08 | state | Low | `_neural_mi.py:94`, `_confirm_predictor.py:63`, `_orth_extra_basis_fe_helpers.py:389`: env vars read at import |
 | **RESOLVED** | X9-06 | silent_failure | Low | `training/honest_diagnostics.py:592-594,249-251,278-280`: failed blocks become `skipped` at debug |
 | **RESOLVED** | X9-07 | silent_failure | Low | `inference/predict.py:233-240`: failed version check is logged at debug |
-| **OPEN** | X9-08 | silent_failure | Low | `training/honest_diagnostics.py:236-238`; `calibration/ensembling.py:161-163,181-183`: slow-path fallbacks logged at debug |
+| **RESOLVED** | X9-08 | silent_failure | Low | `training/honest_diagnostics.py:236-238`; `calibration/ensembling.py:161-163,181-183`: slow-path fallbacks logged at debug | Fixed: the GPU-fallback and jackknife-import fallbacks log at WARNING; test `tests/calibration/test_odds_combine_gpu_fallback_logs_warning.py`.
 | **OPEN** | P10-03 | api | Low | `estimators/early_stopping.py:105-112`: documented default 5, actual 7, suite uses 20 |
 | **RESOLVED** | P10-04 | api | Low | `training/strategies/base.py:127-136`: `_InfToNaNTransformer` skips polars frames |
 | **RESOLVED** | P10-05 | api | Low | `training/strategies/base.py:184-196`: `_NumericOnlyTransformer.fit` fits `inner` in place |
