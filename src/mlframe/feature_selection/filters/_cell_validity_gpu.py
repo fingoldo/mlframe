@@ -85,7 +85,7 @@ def cell_validity_gpu(cp: Any, cand: Any, min_std: float = 1e-12) -> "tuple[np.n
     part = cp.zeros((chunks, m, 3), dtype=cp.float64)
     bad = cp.zeros((chunks, m), dtype=cp.int32)
     module = _MODULES_BY_REAL["float" if block.dtype.itemsize == 4 else "double"].get(cp)
-    module.get_function("cell_moments")(((m + 31) // 32, chunks), (32, 8), (block, np.int64(n), np.int32(m), np.int64(_ROWS_PER_CHUNK), part, bad))
+    module.get_function("cell_moments")(((m + 31) // 32, chunks), (32, 8), (block, np.int64(n), np.int32(m), np.int64(_ROWS_PER_CHUNK), part, bad))  # launch-ok: the 2-D block is the tile the kernel is written for (columns x row lanes), its shared arrays are sized by it
     host_part = cp.asnumpy(part)
     host_bad = cp.asnumpy(bad).any(axis=0)
     cnt = host_part[0, :, 0].copy()

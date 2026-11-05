@@ -34,6 +34,8 @@ from typing import Optional, Sequence
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import assert_kernel_buffers, crit_float_dtype
 
 logger = logging.getLogger(__name__)
@@ -145,12 +147,11 @@ def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp, out_dtype=
         pi, pj = _pair_index_arrays(cp, pairs)
         out = cp.empty((k, n), dtype=buf_t)
         total = n * k
-        threads = 256
         _real = "float" if buf_t == cp.float32 else "double"
         assert_kernel_buffers("build_op_cands_cm", _real, M=M, out=out)
-        _get_build_opcands_cm_kernel(cp, _real)(
-            ((total + threads - 1) // threads,), (threads,), (M, pi, pj, np.int64(n), np.int32(m), np.int32(npairs), np.int32(has_sum), np.int32(k), out)
-        )
+        build_cm = _get_build_opcands_cm_kernel(cp, _real)
+        threads = block_size_for(build_cm, work_items=total)
+        build_cm(((total + threads - 1) // threads,), (threads,), (M, pi, pj, np.int64(n), np.int32(m), np.int32(npairs), np.int32(has_sum), np.int32(k), out))
         return out
     except Exception as e:
         logger.debug("column-major batched-fill kernel failed, transposing the row-major build: %s", e)
@@ -200,12 +201,11 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
         pi, pj = _pair_index_arrays(cp, pairs)
         out = cp.empty((n, k), dtype=buf_t)
         total = n * k
-        threads = 256
         _real = "float" if buf_t == cp.float32 else "double"
         assert_kernel_buffers("build_op_cands", _real, M=M, out=out)
-        _get_build_opcands_kernel(cp, _real)(
-            ((total + threads - 1) // threads,), (threads,), (M, pi, pj, np.int64(n), np.int32(m), np.int32(npairs), np.int32(has_sum), np.int32(k), out)
-        )
+        build_rm = _get_build_opcands_kernel(cp, _real)
+        threads = block_size_for(build_rm, work_items=total)
+        build_rm(((total + threads - 1) // threads,), (threads,), (M, pi, pj, np.int64(n), np.int32(m), np.int32(npairs), np.int32(has_sum), np.int32(k), out))
         return out
     except Exception as e:
         logger.warning("batched-fill kernel failed, falling back to the per-candidate loop: %s", e)

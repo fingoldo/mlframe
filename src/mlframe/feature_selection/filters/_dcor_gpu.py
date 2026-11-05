@@ -12,6 +12,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 logger = logging.getLogger(__name__)
 
 _SRC = r"""
@@ -50,7 +52,7 @@ extern "C" __global__ void dcor_cols(const double* __restrict__ xs, const double
 }
 """
 
-_THREADS = 256
+_MAX_BLOCK = 256  # widest block the kernel's dynamic partials allow
 _MAX_M = 4096  # shared memory: m doubles + 4 x 256 partials (40 KB at m = 4096)
 _KERNEL: list = []
 _DCOR_DEVICE_MIN_WORK = 1_000_000  # k * m * m pair terms from which the device wins without a tuning-cache measurement (GTX 1050 Ti)
@@ -83,13 +85,15 @@ def dcor_columns_gpu(xs: np.ndarray, b: np.ndarray) -> "Optional[tuple[np.ndarra
         b_d = cp.asarray(np.ascontiguousarray(b, dtype=np.float64))  # Intentional float64: dCor moments in double
         free = int(cp.cuda.Device().mem_info[0])
         width = max(1, min(k, (free // 4) // max(1, m * 8)))
-        shared = (m + 4 * _THREADS) * 8
+        # the reduction halves blockDim.x over 4 dynamic partials per thread: a power of two; 256 keeps m doubles + the partials within the 48 KB block limit at m = 4096
+        threads = block_size_for(kern, dyn_smem=(m + 4 * _MAX_BLOCK) * 8, work_items=m, pow2=True, max_width=_MAX_BLOCK)
+        shared = (m + 4 * threads) * 8
         mm = float(m) * float(m)
         for start in range(0, k, width):
             stop = min(k, start + width)
             xs_d = cp.asarray(np.ascontiguousarray(xs[start:stop], dtype=np.float64))  # Intentional float64: dCor moments in double
             sums = cp.empty((stop - start) * 4, dtype=cp.float64)  # Intentional float64: dCor moments in double
-            kern((stop - start,), (_THREADS,), (xs_d, b_d, np.int32(m), np.int32(stop - start), sums), shared_mem=shared)
+            kern((stop - start,), (threads,), (xs_d, b_d, np.int32(m), np.int32(stop - start), sums), shared_mem=shared)
             s = sums.get().reshape(-1, 4)
             total, sq, cross, sum_r2 = s[:, 0], s[:, 1], s[:, 2], s[:, 3]
             g = total / mm

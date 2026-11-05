@@ -23,6 +23,8 @@ import os
 from typing import Any, Optional
 
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from numba import njit, prange
 
 from ._honest_oj_fused import _permuted_codes, _pool_max
@@ -247,6 +249,13 @@ def _pool_block(perms, picks, yc, rows, pool_dep, pool_rc, pool_nb, pool_kxe, n_
         out[b] = _pool_max(picks[b], ycp, ny, ky_eff, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff)
 
 
+def _launch_flat(cp: Any, name: str, n_work: int, args: tuple) -> None:
+    """Launch the one-thread-per-item kernel ``name`` over ``n_work`` items with the block size the device and the kernel's register use call for."""
+    kernel = _kernel(cp, name)
+    threads = block_size_for(kernel, work_items=n_work)
+    kernel(((n_work + threads - 1) // threads,), (threads,), args)
+
+
 class DeviceWinners:
     """The packed plan codes resident on the device; :meth:`picks` returns the winners of a block of permutations."""
 
@@ -276,7 +285,7 @@ class DeviceWinners:
         self.masks = cp.zeros((int(kxc.sum()) * self.NW,), dtype=cp.uint32)
         total = self.C * self.NV
         args = (self.xb, self.off, self.kx, self.nv, np.int32(self.C), np.int32(self.P * self.M), np.int32(self.NV), np.int32(self.NW), self.masks)
-        _kernel(cp, "oj_build_masks")(((total + 255) // 256,), (256,), args)
+        _launch_flat(cp, "oj_build_masks", total, args)
         self.px = cp.asarray(np.ascontiguousarray(self.px_h.reshape(self.C, -1)[:, : self.kxmax], dtype=np.int32))
 
     def _cell_mi_bitmask(self, vy: Any, ky: Any, b_n: int) -> Any:
@@ -286,7 +295,7 @@ class DeviceWinners:
             self._build_masks()
         n_y = b_n * self.F * self.NW
         ybits = cp.empty((n_y,), dtype=cp.uint32)
-        _kernel(cp, "oj_build_ybits")(((n_y + 255) // 256,), (256,), (vy, self.nv, np.int32(b_n), np.int32(self.F), np.int32(self.NV), np.int32(self.NW), ybits))
+        _launch_flat(cp, "oj_build_ybits", n_y, (vy, self.nv, np.int32(b_n), np.int32(self.F), np.int32(self.NV), np.int32(self.NW), ybits))
         c1 = cp.zeros((b_n * self.C * self.kxmax,), dtype=cp.int32)
         pm = np.int32(self.P * self.M)
         args = (self.masks, ybits, self.off, self.kx, np.int32(b_n), np.int32(self.C), np.int32(self.F), pm, np.int32(self.NW), np.int32(self.kxmax), c1)
@@ -452,13 +461,13 @@ class DevicePool:
         ones = vy.sum(axis=1).astype(cp.int32)
         n_y = b_n * self.NW
         ybits = cp.empty((n_y,), dtype=cp.uint32)
-        _kernel(cp, "oj_build_ybits")(((n_y + 255) // 256,), (256,), (vy, self.nv, np.int32(b_n), np.int32(1), np.int32(self.R), np.int32(self.NW), ybits))
+        _launch_flat(cp, "oj_build_ybits", n_y, (vy, self.nv, np.int32(b_n), np.int32(1), np.int32(self.R), np.int32(self.NW), ybits))
         c1 = cp.zeros((b_n * self.C * self.kxmax,), dtype=cp.int32)
         args = (self.masks, ybits, self.off, self.kx, np.int32(b_n), np.int32(self.C), np.int32(1), np.int32(self.C), np.int32(self.NW), np.int32(self.kxmax), c1)
         _kernel(cp, "oj_count_ones")((self.C, (b_n + 7) // 8), (128,), args)
         mi = cp.empty((b_n, self.T, self.M), dtype=cp.float64)  # Intentional float64: MI statistic
         n_o = b_n * self.C
-        _kernel(cp, "oj_pool_mi")(((n_o + 127) // 128,), (128,), (c1, self.px, self.kx, ones, np.int32(b_n), np.int32(self.C), np.int32(self.kxmax), np.int64(self.R), mi))
+        _launch_flat(cp, "oj_pool_mi", n_o, (c1, self.px, self.kx, ones, np.int32(b_n), np.int32(self.C), np.int32(self.kxmax), np.int64(self.R), mi))
         # the candidate of every pool column under every permutation: the column's winner, 0 for a fixed column
         dep = self.dep
         m_idx = np.zeros((b_n, self.T), dtype=np.int64)

@@ -16,6 +16,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._kernel_types import render
 import logging
 
@@ -52,8 +54,9 @@ def row_argmax_cm(cp: Any, columns: Sequence[Any]) -> Any:
         if kernel is None:
             kernel = _KERNELS[real] = cp.RawKernel(render(_SRC, np.float32 if real == "float" else np.float64), "row_argmax")
     out = cp.empty(n, dtype=cp.float64)  # Intentional float64: index output matches the caller's float64 cast contract
-    blocks = max(1, min(4096, (n + 255) // 256))
-    kernel((blocks,), (256,), (M, np.int64(n), np.int32(len(columns)), out))
+    threads = block_size_for(kernel, work_items=n)
+    blocks = max(1, min(4096, (n + threads - 1) // threads))
+    kernel((blocks,), (threads,), (M, np.int64(n), np.int32(len(columns)), out))
     return out
 
 

@@ -18,6 +18,7 @@ import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
 from ._kernel_types import render
+from pyutilz.performance.gpu_hw_launch import block_size_for
 
 # bench-attempt-rejected: fit-amortised reuse of the joint-histogram atomicAdd count buffers in
 # joint_counts_gpu (227 calls/fit, ~22M int64) and _batched_joint_counts2 (15 calls, up to ~320M int64) - one
@@ -174,6 +175,11 @@ from ._fe_batched_mi_cmi_lut import (  # noqa: F401 -- carved lookup-table entro
 )
 
 
+def _tree_block(kernel, dyn_smem: int, work: int) -> int:
+    """Threads per block for a kernel whose block reduction halves ``blockDim.x`` down to 1 over 256-wide static scratch: a power of two, at most 256, derived from the device."""
+    return block_size_for(kernel, dyn_smem=int(dyn_smem), work_items=int(work), pow2=True, max_width=256)
+
+
 def _rows_entropy_and_k(counts, inv_n):
     """Per-row (per-candidate) plug-in entropy + occupied-cell count from a (K, M) device count matrix.
 
@@ -198,7 +204,6 @@ def _rows_entropy_and_k(counts, inv_n):
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out_h = cp.empty(K, dtype=cp.float64)
         out_k = cp.empty(K, dtype=cp.int64)
-        threads = 256
         # SPLIT-K when the one-block-per-row grid cannot fill the SMs (narrow perm chunk, huge M): a 6-SM card
         # runs ~48 resident blocks, so K < ~48 with a multi-million-cell M leaves most SMs idle for the whole
         # 15-30ms reduction. Split each row's M cells across S segment blocks (K*S ~ a few hundred blocks) +
@@ -206,17 +211,20 @@ def _rows_entropy_and_k(counts, inv_n):
         if counts.dtype == cp.int32 and K < 48 and M >= (1 << 20):
             S = max(2, min(64, (48 + K - 1) // max(1, K)))
             _split, _finish = _get_rows_ent_nnz_split_kernels(cp)
+            threads = _tree_block(_split, 0, M)
             # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             part_h = cp.empty(K * S, dtype=cp.float64)
             # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             part_k = cp.empty(K * S, dtype=cp.float64)
             _split((K, S), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), np.int32(S), part_h, part_k))
-            _finish(((K + 255) // 256,), (256,), (part_h, part_k, np.int32(K), np.int32(S), out_h, out_k))
+            finish_threads = block_size_for(_finish, work_items=K)
+            _finish(((K + finish_threads - 1) // finish_threads,), (finish_threads,), (part_h, part_k, np.int32(K), np.int32(S), out_h, out_k))
             return out_h, out_k
         if counts.dtype == cp.int32:
             _lut = _rows_entropy_lut(cp, c, inv_n)
             if _lut is not None:
                 return _lut
+        threads = _tree_block(_ker, 0, M)
         _ker((K,), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), out_h, out_k))
         return out_h, out_k
     except Exception as e:
@@ -375,7 +383,7 @@ def _batched_joint_counts2(X, b, Kx, Kb):
     # entropy-reduce traffic + the buffer VRAM (2x perms per perm-null chunk). Identical counts.
     counts = cp.zeros(int(K) * int(Kx) * int(Kb), dtype=cp.int32)
     h2 = _get_batched_joint_hist_kernels()[3]
-    threads = 256
+    threads = block_size_for(h2, work_items=n * K)
     blocks = (n * K + threads - 1) // threads
     h2((blocks,), (threads,), (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), counts))
     return counts.reshape(K, int(Kx) * int(Kb))
@@ -390,7 +398,7 @@ def _batched_marginal_counts(X, Kx):
     # int32 counts: same bandwidth fix as _batched_joint_counts2 (identical counts, half the traffic).
     counts = cp.zeros(int(K) * int(Kx), dtype=cp.int32)
     h1 = _get_batched_joint_hist_kernels()[2]
-    threads = 256
+    threads = block_size_for(h1, work_items=n * K)
     blocks = (n * K + threads - 1) // threads
     h1((blocks,), (threads,), (X, np.int32(int(Kx)), np.int64(n), np.int32(K), counts))
     return counts.reshape(K, int(Kx))
@@ -468,7 +476,8 @@ def batched_joint_entropy_global(X, b, Kx, Kb, inv_n, blocks: int):
     scratch = cp.empty(g * M, dtype=cp.uint32)
     out_h = cp.empty(K, dtype=cp.float64)  # Intentional float64: entropies, as the fused kernel writes them
     out_k = cp.empty(K, dtype=cp.int64)
-    _BATCHED_JOINT_ENTROPY_G_KERNEL[0]((g,), (256,), (cp.ascontiguousarray(X), b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), scratch, out_h, out_k))
+    g_threads = _tree_block(_BATCHED_JOINT_ENTROPY_G_KERNEL[0], 0, n)
+    _BATCHED_JOINT_ENTROPY_G_KERNEL[0]((g,), (g_threads,), (cp.ascontiguousarray(X), b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), scratch, out_h, out_k))
     return out_h, out_k
 _BATCHED_JOINT_ENTROPY_SH_LIMIT = None
 
@@ -539,7 +548,7 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out_h = cp.empty(K, dtype=cp.float64)
         out_k = cp.empty(K, dtype=cp.int64)
-        threads = 256
+        threads = _tree_block(ker, M * 4, n)
         ker(
             (K,), (threads,), (Xc, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), out_h, out_k), shared_mem=M * 4
         )
@@ -594,7 +603,7 @@ def _ent_nnz_1d(c, inv_n):
         M = int(c.size)
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.zeros(2, dtype=cp.float64)  # cudaMemsetAsync, not a cuLaunchKernel
-        threads = 256
+        threads = _tree_block(_ENT_NNZ_1D_KERNEL, 0, M)
         blocks = min(1024, max(1, (M + threads - 1) // threads))
         _ENT_NNZ_1D_KERNEL((blocks,), (threads,), (c, float(inv_n), np.int64(M), out))
         h_k = cp.asnumpy(out)
@@ -619,9 +628,9 @@ def joint_counts_gpu(codes: Any, cards: Any) -> Any:
     for kc in cards:
         M *= int(kc)
     counts = cp.zeros(int(max(M, 1)), dtype=cp.int64)
-    threads = 256
-    blocks = (n + threads - 1) // threads
     h1, h2, h3 = _get_joint_hist_kernels()
+    threads = block_size_for(h1 if len(codes) == 1 else h2 if len(codes) == 2 else h3, work_items=n)
+    blocks = (n + threads - 1) // threads
     if len(codes) == 1:
         h1((blocks,), (threads,), (codes[0], np.int64(n), counts))
     elif len(codes) == 2:
@@ -730,12 +739,13 @@ def joint_entropy_gpu(codes: Any, cards: Any, inv_n: float) -> tuple[float, int]
             # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             out = cp.zeros(2, dtype=cp.float64)
             shmem = M * 4
+            tree_threads = _tree_block(kers[min(len(codes), 3) - 1], shmem, n)
             if len(codes) == 1:
-                kers[0]((1,), (256,), (codes[0], np.int64(n), np.int32(M), float(inv_n), out), shared_mem=shmem)
+                kers[0]((1,), (tree_threads,), (codes[0], np.int64(n), np.int32(M), float(inv_n), out), shared_mem=shmem)
             elif len(codes) == 2:
-                kers[1]((1,), (256,), (codes[0], codes[1], np.int32(int(cards[1])), np.int64(n), np.int32(M), float(inv_n), out), shared_mem=shmem)
+                kers[1]((1,), (tree_threads,), (codes[0], codes[1], np.int32(int(cards[1])), np.int64(n), np.int32(M), float(inv_n), out), shared_mem=shmem)
             else:
-                kers[2]((1,), (256,), (codes[0], codes[1], codes[2], np.int32(int(cards[1])),
+                kers[2]((1,), (tree_threads,), (codes[0], codes[1], codes[2], np.int32(int(cards[1])),
                                        np.int32(int(cards[2])), np.int64(n), np.int32(M), float(inv_n), out),
                         shared_mem=shmem)
             hk = cp.asnumpy(out)
@@ -811,7 +821,7 @@ def cmi_joint_entropies_gpu(dx: Any, dy: Any, dz: Any, Kx: int, ky: int, kz: int
         n = int(dz.size)
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.zeros(8, dtype=cp.float64)
-        _CMI_JOINT_ENTROPIES_KERNEL((4,), (256,), (dx, dy, dz, np.int32(int(Kx)), np.int32(int(ky)),
+        _CMI_JOINT_ENTROPIES_KERNEL((4,), (_tree_block(_CMI_JOINT_ENTROPIES_KERNEL, Mmax * 4, n),), (dx, dy, dz, np.int32(int(Kx)), np.int32(int(ky)),
                                     np.int32(int(kz)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
         hk = cp.asnumpy(out)
         return ((float(hk[0]), round(hk[1])), (float(hk[2]), round(hk[3])), (float(hk[4]), round(hk[5])), (float(hk[6]), round(hk[7])))
@@ -884,7 +894,7 @@ def marginal_mi_entropies_gpu(dx: Any, dy: Any, Kx: int, ky: int, inv_n: float) 
         n = int(dx.size)
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.zeros(6, dtype=cp.float64)
-        _MARGINAL_MI_ENTROPIES_KERNEL((3,), (256,), (dx, dy, np.int32(int(Kx)), np.int32(int(ky)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
+        _MARGINAL_MI_ENTROPIES_KERNEL((3,), (_tree_block(_MARGINAL_MI_ENTROPIES_KERNEL, Mmax * 4, n),), (dx, dy, np.int32(int(Kx)), np.int32(int(ky)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
         hk = cp.asnumpy(out)
         return ((float(hk[0]), round(hk[1])), (float(hk[2]), round(hk[3])), (float(hk[4]), round(hk[5])))
     except Exception:
@@ -925,7 +935,7 @@ def _cmi_assemble(he1, he2, hc, kc1, kc2, kc, inv2n):
         K = int(he1.shape[0])
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.empty(K, dtype=cp.float64)
-        threads = 128
+        threads = block_size_for(_CMI_ASSEMBLE_KERNEL, work_items=K)
         _CMI_ASSEMBLE_KERNEL(((K + threads - 1) // threads,), (threads,),
                              # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
                              (cp.ascontiguousarray(he1.astype(cp.float64, copy=False)),
@@ -967,9 +977,9 @@ def joint_nnz_gpu(codes: Any, cards: Any) -> int:
         M *= int(kc)
     counts = cp.zeros(int(max(M, 1)), dtype=cp.int64)  # cudaMemsetAsync, not a cuLaunchKernel
     nnz = cp.zeros(1, dtype=cp.uint64)  # cudaMemsetAsync, not a cuLaunchKernel
-    threads = 256
-    blocks = (n + threads - 1) // threads
     h1, h2, h3 = _get_joint_nnz_kernels()
+    threads = block_size_for(h1 if len(codes) == 1 else h2 if len(codes) == 2 else h3, work_items=n)
+    blocks = (n + threads - 1) // threads
     if len(codes) == 1:
         h1((blocks,), (threads,), (codes[0], np.int64(n), counts, nnz))
     elif len(codes) == 2:

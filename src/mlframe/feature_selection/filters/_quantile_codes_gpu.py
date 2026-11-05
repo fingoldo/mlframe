@@ -21,6 +21,8 @@ import logging
 import os
 
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from numba import njit, prange
 
 from ._numba_utils_cross_module import _few_distinct_levels
@@ -286,7 +288,8 @@ def quantile_codes_resident_f32(cp, v_dev, n_bins: int, codes: np.ndarray, nx: n
         keep[:, 1:] = (edges[:, 1:] != edges[:, :-1]).astype(cp.uint8)
         hi_code = cp.maximum(keep.sum(axis=1).astype(cp.int32) - 2, 0).astype(cp.int32)
         out = cp.empty((c1 - c0, n), dtype=cp.int16)
-        kernel((min(1024, (n + THREADS - 1) // THREADS), c1 - c0), (THREADS,), (vb, cp.ascontiguousarray(edges), keep, hi_code, np.int64(n), np.int32(nb1), out))
+        threads = block_size_for(kernel, work_items=n)
+        kernel((min(1024, (n + threads - 1) // threads), c1 - c0), (threads,), (vb, cp.ascontiguousarray(edges), keep, hi_code, np.int64(n), np.int32(nb1), out))
         codes[c0:c1] = cp.asnumpy(out)
         nx[c0:c1] = cp.asnumpy(out.max(axis=1)).astype(np.int64) + 1
         if maybe_few.size:

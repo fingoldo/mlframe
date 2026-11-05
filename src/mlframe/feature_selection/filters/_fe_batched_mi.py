@@ -28,6 +28,8 @@ from typing import Any
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 logger = logging.getLogger(__name__)
 
 
@@ -321,8 +323,9 @@ def _launch_dedup_edges(E, cmin, cmax, ne: int, K: int, Ec, ne_k) -> None:
     import cupy as cp
 
     real_t = "float" if E.dtype == cp.float32 else "double"
-    threads = 256
-    _get_dedup_edges_kernel(real_t)(((K + threads - 1) // threads,), (threads,), (E, cmin, cmax, np.int32(ne), np.int32(K), Ec, ne_k))
+    dedup = _get_dedup_edges_kernel(real_t)
+    threads = block_size_for(dedup, work_items=K)
+    dedup(((K + threads - 1) // threads,), (threads,), (E, cmin, cmax, np.int32(ne), np.int32(K), Ec, ne_k))
 
 
 # Length-aware twin of mi_mm_from_values: each column binary-searches only its VALID prefix ne_k[c] of the
@@ -424,7 +427,8 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     ne_k = cp.empty(K, dtype=cp.int32)
     _launch_dedup_edges(E, cmin, cmax, ne, K, Ec, ne_k)
     _mm_nek = _get_mi_mm_from_values_nek_f32_kernel() if _is_f32 else _get_mi_mm_from_values_nek_kernel()
-    _mm_nek((K,), (256,),
+    mm_threads = block_size_for(_mm_nek, dyn_smem=int(nbins) * Ky * 4, work_items=n)
+    _mm_nek((K,), (mm_threads,),
         (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(int(nbins)),
          np.int32(Ky), np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)),  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
          ne_k, mi_out),
@@ -548,14 +552,16 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
             M = int(nbins) * Ky
             gcounts = cp.zeros(K * M, dtype=cp.int32)
             _hist, _mi = _get_mi_split_f32_kernels(cp) if _is_f32 else _get_mi_split_kernels(cp)
-            _hist((K, S), (256,), (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), np.int32(S), gcounts), shared_mem=M * 4)
-            _mi((K,), (32,), (gcounts, np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out))
+            hist_threads = block_size_for(_hist, dyn_smem=M * 4, work_items=n)
+            _hist((K, S), (hist_threads,), (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), np.int32(S), gcounts), shared_mem=M * 4)
+            _mi((K,), (32,), (gcounts, np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out))  # launch-ok: only thread 0 of each block works (a ~100-cell serial reduce), the block width has no effect
             return np.asarray(cp.asnumpy(mi_out))
         except Exception:
             import logging
             logging.getLogger(__name__).debug("mi split-n path failed; single-launch mi_from_values", exc_info=True)
     _single = _get_mi_from_values_f32_kernel() if _is_f32 else _get_mi_from_values_kernel()
-    _single((K,), (256,), (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out), shared_mem=int(nbins) * Ky * 4)
+    single_threads = block_size_for(_single, dyn_smem=int(nbins) * Ky * 4, work_items=n)
+    _single((K,), (single_threads,), (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out), shared_mem=int(nbins) * Ky * 4)
     return np.asarray(cp.asnumpy(mi_out))
 
 
@@ -695,19 +701,20 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
         out = batched_binned_mi_gpu(C, y, kx_per_col=kx_per_col, ky=Ky)
         return cp.asarray(out) if as_device else out
     mi_out = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI output accumulator
-    threads = 256
     v2 = _get_mi_from_codes_v2_kernels()
     if v2 is not None and Kx < 32768 and Ky < 32768:
         try:
             from ._gpu_resident_select import transpose_codes_to_cm
             codes_cm = transpose_codes_to_cm(cp.ascontiguousarray(C.astype(cp.int16, copy=False)))  # (K, n)
             y16 = y.astype(cp.int16, copy=False)
+            threads = block_size_for(v2, dyn_smem=Kx * Ky * 4, work_items=n)
             v2((K,), (threads,), (codes_cm, y16, np.int64(n), np.int32(K), np.int32(Kx), np.int32(Ky),
                                   np.float64(1.0 / float(max(1, n))), mi_out), shared_mem=Kx * Ky * 4)  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
             return mi_out if as_device else np.asarray(cp.asnumpy(mi_out))
         except Exception:
             logger.debug("mi_from_codes v2 launch failed; one-kernel fallback", exc_info=True)
     self_kernel = _get_mi_from_codes_kernel()
+    threads = block_size_for(self_kernel, dyn_smem=Kx * Ky * 4, work_items=n)
     self_kernel((K,), (threads,), (C.ravel(), y, np.int64(n), np.int32(K), np.int32(Kx), np.int32(Ky),
                                    np.float64(1.0 / float(max(1, n))), mi_out),  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
                 shared_mem=Kx * Ky * 4)

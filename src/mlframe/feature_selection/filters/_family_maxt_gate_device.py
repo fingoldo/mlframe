@@ -16,6 +16,8 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from ._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
@@ -104,12 +106,14 @@ class _FamilyOnDevice:
         group = max(1, int(min(_BUDGET_CAP_BYTES, free_bytes // 4) // (cap * words * 8)))
         self.groups = []
         occupied = []
+        pack_bins = mod.get_function("pack_bins")
         for lo in range(0, k_total, group):
             hi = min(lo + group, k_total)
             kg = hi - lo
             bits = cp.empty((cap, words, kg), dtype=cp.uint64)
             px = cp.zeros((kg, cap), dtype=cp.int64)
-            mod.get_function("pack_bins")(((kg + 127) // 128, words), (128,), (codes, np.int64(n), np.int32(k_total), np.int32(lo), np.int32(kg), np.int32(words), bits, px))
+            bins_block = block_size_for(pack_bins, work_items=kg)
+            pack_bins(((kg + bins_block - 1) // bins_block, words), (bins_block,), (codes, np.int64(n), np.int32(k_total), np.int32(lo), np.int32(kg), np.int32(words), bits, px))
             self.groups.append((lo, hi, bits, px, self.table[px].sum(axis=1)))
             occupied.append((px > 0).sum(axis=1))
         self.nx_occ = cp.asnumpy(cp.concatenate(occupied).astype(cp.int16)).astype(np.int64)  # occupied-level counts are at most MAX_BINS: int16 over the bus

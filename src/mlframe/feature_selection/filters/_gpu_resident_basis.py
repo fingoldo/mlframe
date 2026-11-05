@@ -20,6 +20,8 @@ import threading
 from mlframe.utils.log_throttle import log_throttle
 
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from ._fe_gpu_batch._devices import crit_float_dtype
 from ._abs_corr_tiled_gpu import MIN_COLUMNS, abs_corr_tiled
 from .hermite_fe._nonpoly_cells import NONPOLY_BASES
@@ -207,8 +209,9 @@ def _clenshaw_basis_block_gpu(cp, Zg, basis, degrees):
     degs = cp.asarray(np.asarray([int(d) for d in degrees], dtype=np.int32))
     out = cp.empty((n, m * nd), dtype=crit_float_dtype())
     total = n * m * nd
-    threads = 256
-    _get_clenshaw_kernel("float" if Z.dtype == cp.float32 else "double")(((total + threads - 1) // threads,), (threads,), (Z, degs, np.int64(n), np.int32(m), np.int32(nd), np.int32(bid), out))
+    clenshaw = _get_clenshaw_kernel("float" if Z.dtype == cp.float32 else "double")
+    threads = block_size_for(clenshaw, work_items=total)
+    clenshaw(((total + threads - 1) // threads,), (threads,), (Z, degs, np.int64(n), np.int32(m), np.int32(nd), np.int32(bid), out))
     return out
 
 # --- GPU port of the orth-FE basis-column evaluation (matrix-native, Piece 2) --------------------------
@@ -380,14 +383,14 @@ def _gpu_robust_scale_batched(cp, M, med, *, q25=None, q75=None):
     try:
         K = int(mad.shape[0])
         out = cp.empty(K, dtype=crit_float_dtype())
-        threads = 128
+        combine = _get_robust_scale_combine_kernel(cp, "float" if out.dtype == cp.float32 else "double")
+        threads = block_size_for(combine, work_items=K)
         # The kernel's element type follows the buffers actually launched (cast to the crit dtype), not the dtype ``mad`` arrived in:
         # a float64 ``mad`` under a float32 crit dtype would otherwise read the float32 vectors as doubles.
         mad_c = cp.ascontiguousarray(mad.astype(crit_float_dtype(), copy=False))
         q25_c = cp.ascontiguousarray(q25.astype(crit_float_dtype(), copy=False))
         q75_c = cp.ascontiguousarray(q75.astype(crit_float_dtype(), copy=False))
-        _get_robust_scale_combine_kernel(cp, "float" if out.dtype == cp.float32 else "double")(((K + threads - 1) // threads,), (threads,),
-            (mad_c, q25_c, q75_c, np.int32(K), out))
+        combine(((K + threads - 1) // threads,), (threads,), (mad_c, q25_c, q75_c, np.int32(K), out))
         return out
     except Exception as e:
         import logging
@@ -478,7 +481,8 @@ def _gpu_detect_heavy_tail_batched(cp, M):
         K = int(Mc.shape[1])
         out_v = cp.empty(K, dtype=cp.int8)
         real_t = "float" if Mc.dtype == cp.float32 else "double"
-        _get_heavy_tail_stats_kernel(cp, real_t)((K,), (256,),
+        heavy = _get_heavy_tail_stats_kernel(cp, real_t)
+        heavy((K,), (block_size_for(heavy, work_items=n, pow2=True, max_width=256),),
             (Mc, cp.ascontiguousarray(med.astype(crit_float_dtype(), copy=False)),
              cp.ascontiguousarray(scale.astype(crit_float_dtype(), copy=False)),
              float(_GPU_ROBUST_AXIS_OUTER_K), float(_GPU_ROBUST_AXIS_GAP),
@@ -621,7 +625,7 @@ def _col_meanstd(cp, Mc):
     n, K = int(Mc.shape[0]), int(Mc.shape[1])
     mean = cp.empty(K, dtype=Mc.dtype)
     std = cp.empty(K, dtype=Mc.dtype)
-    kern((K,), (256,), (Mc, np.int64(n), np.int32(K), mean, std))
+    kern((K,), (block_size_for(kern, work_items=n, pow2=True, max_width=256),), (Mc, np.int64(n), np.int32(K), mean, std))
     return mean, std
 
 
@@ -641,8 +645,9 @@ def _gpu_basis_preprocess_nonrobust_fused(cp, M, basis):
         p0 = Mc.min(axis=0); p1 = p0
     out = cp.empty((n, g), dtype=crit_float_dtype())
     total = n * g
-    threads = 256
-    _get_basis_preprocess_nr_kernel(cp, "float" if Mc.dtype == cp.float32 else "double")(((total + threads - 1) // threads,), (threads,),
+    preprocess_nr = _get_basis_preprocess_nr_kernel(cp, "float" if Mc.dtype == cp.float32 else "double")
+    threads = block_size_for(preprocess_nr, work_items=total)
+    preprocess_nr(((total + threads - 1) // threads,), (threads,),
         (Mc, cp.ascontiguousarray(p0.astype(crit_float_dtype(), copy=False)),
          cp.ascontiguousarray(p1.astype(crit_float_dtype(), copy=False)),
          np.int32(code), np.int64(n), np.int32(g), out))
@@ -684,7 +689,7 @@ def _col_minmax(cp, Mc):
     n, K = int(Mc.shape[0]), int(Mc.shape[1])
     mn = cp.empty(K, dtype=Mc.dtype)
     mx = cp.empty(K, dtype=Mc.dtype)
-    kern((K,), (256,), (Mc, np.int64(n), np.int32(K), mn, mx))
+    kern((K,), (block_size_for(kern, work_items=n, pow2=True, max_width=256),), (Mc, np.int64(n), np.int32(K), mn, mx))
     return mn, mx
 
 
@@ -702,8 +707,9 @@ def _gpu_basis_preprocess_robust_fused(cp, M, basis):
     stdcol = Mc.std(axis=0) if code == 0 else scale  # std only used by the hermite fallback; else unused
     out = cp.empty((n, g), dtype=crit_float_dtype())
     total = n * g
-    threads = 256
-    _get_basis_preprocess_kernel(cp, "float" if Mc.dtype == cp.float32 else "double")(((total + threads - 1) // threads,), (threads,),
+    preprocess = _get_basis_preprocess_kernel(cp, "float" if Mc.dtype == cp.float32 else "double")
+    threads = block_size_for(preprocess, work_items=total)
+    preprocess(((total + threads - 1) // threads,), (threads,),
         (Mc, cp.ascontiguousarray(med.astype(crit_float_dtype(), copy=False)),
          cp.ascontiguousarray(scale.astype(crit_float_dtype(), copy=False)),
          cp.ascontiguousarray(mn.astype(crit_float_dtype(), copy=False)),
@@ -880,7 +886,8 @@ def _gpu_batched_abs_corr(cp, cand, y_cont, mu=None):
         out = cp.empty(m, dtype=cp.float64)  # Intentional float64: statistic vector (|corr|), accumulated in double
         real_t = "float" if cand2.dtype == cp.float32 else "double"
         # Intentional float64: scalar kernel argument contract (must match the CUDA kernel signature)
-        _get_abs_corr_kernel(real_t)((m,), (256,), (cand2, yc, mu, np.int64(n), np.int32(m), np.float64(Syy), out), shared_mem=2 * 8)
+        abs_corr_kernel = _get_abs_corr_kernel(real_t)
+        abs_corr_kernel((m,), (block_size_for(abs_corr_kernel, dyn_smem=2 * 8, work_items=n),), (cand2, yc, mu, np.int64(n), np.int32(m), np.float64(Syy), out), shared_mem=2 * 8)
         return out
     except Exception as e:
         import logging

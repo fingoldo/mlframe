@@ -272,7 +272,7 @@ def scan_offset_products_gpu(U: Any, tasks: np.ndarray, yr: Any, ycodes: Any, ky
     out_shift = cp.empty((T, 2), dtype=cp.float64)
     # Intentional float64: output buffer the offset-product kernel writes in double
     out_mi = cp.empty((T, 2, _N_FEATURES), dtype=cp.float64)
-    _kernel(cp)(
+    _kernel(cp)(  # launch-ok: THREADS is a compile-time macro of the kernel (sizes its shared reduction array and every strided loop); the module is compiled once for this width, which is the one the block reductions were tuned at
         (T,), (_THREADS,),
         (Ud, td, yrd, ycd, cd, np.int32(m), np.int32(nu), np.int64(n), np.int32(ky), np.int32(nb), out_shift, out_mi),
         shared_mem=_shared_bytes(nb, ky),

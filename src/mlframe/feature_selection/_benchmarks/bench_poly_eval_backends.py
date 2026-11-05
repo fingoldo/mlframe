@@ -20,6 +20,8 @@ from pathlib import Path
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 # module-level filter removed; gated under __main__ below.
 
 
@@ -376,7 +378,7 @@ void lagval_kernel(const double* __restrict__ x,
     def _hermeval_cuda(x_gpu, c_gpu):
         n = x_gpu.shape[0]
         out = cp.empty(n, dtype=cp.float64)
-        block = 256
+        block = block_size_for(_HERMEVAL_CUDA_KERNEL, work_items=n)
         grid = (n + block - 1) // block
         _HERMEVAL_CUDA_KERNEL((grid,), (block,), (x_gpu, c_gpu, c_gpu.shape[0], n, out))
         return out
@@ -384,7 +386,7 @@ void lagval_kernel(const double* __restrict__ x,
     def _legval_cuda(x_gpu, c_gpu):
         n = x_gpu.shape[0]
         out = cp.empty(n, dtype=cp.float64)
-        block = 256
+        block = block_size_for(_LEGVAL_CUDA_KERNEL, work_items=n)
         grid = (n + block - 1) // block
         _LEGVAL_CUDA_KERNEL((grid,), (block,), (x_gpu, c_gpu, c_gpu.shape[0], n, out))
         return out
@@ -392,7 +394,7 @@ void lagval_kernel(const double* __restrict__ x,
     def _chebval_cuda(x_gpu, c_gpu):
         n = x_gpu.shape[0]
         out = cp.empty(n, dtype=cp.float64)
-        block = 256
+        block = block_size_for(_CHEBVAL_CUDA_KERNEL, work_items=n)
         grid = (n + block - 1) // block
         _CHEBVAL_CUDA_KERNEL((grid,), (block,), (x_gpu, c_gpu, c_gpu.shape[0], n, out))
         return out
@@ -400,7 +402,7 @@ void lagval_kernel(const double* __restrict__ x,
     def _lagval_cuda(x_gpu, c_gpu):
         n = x_gpu.shape[0]
         out = cp.empty(n, dtype=cp.float64)
-        block = 256
+        block = block_size_for(_LAGVAL_CUDA_KERNEL, work_items=n)
         grid = (n + block - 1) // block
         _LAGVAL_CUDA_KERNEL((grid,), (block,), (x_gpu, c_gpu, c_gpu.shape[0], n, out))
         return out

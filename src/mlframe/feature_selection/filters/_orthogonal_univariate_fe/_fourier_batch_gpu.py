@@ -14,6 +14,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Sequence
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 import numpy as np
 
 from mlframe._numerical_floors import VARIANCE_FLOOR
@@ -25,7 +27,12 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["detect_fourier_freqs_batch_gpu"]
 
-_THREADS = 256
+
+def _block_for(kernel: Any, n: int) -> int:
+    """Threads per block: the kernels keep one partial per warp in shared arrays of 32 rows, so any warp multiple up to 1024 fits; derived from the device."""
+    return block_size_for(kernel, work_items=n, max_width=1024)
+
+
 _MIN_STD = 1e-9
 _MIN_Y_SS = VARIANCE_FLOOR
 _DUPLICATE_WINDOW = 0.25
@@ -179,24 +186,28 @@ def _power(cp: Any, Z: Any, YC: Any, freqs: Any, nfreq: Any, y_ss: Any) -> Any:
     y_ss = cp.ascontiguousarray(y_ss, dtype=Z.dtype)
     # Intentional float64: the power statistic (a ratio of sums), accumulated and stored in double precision.
     out = cp.empty((C, F), dtype=cp.float64)
-    _module_for(Z).get(cp).get_function("periodogram_power_b")((F, C), (_THREADS,), (Z, YC, freqs, nfreq, y_ss, out, cp.int64(n), cp.int32(F)))
+    power = _module_for(Z).get(cp).get_function("periodogram_power_b")
+    power((F, C), (_block_for(power, n),), (Z, YC, freqs, nfreq, y_ss, out, cp.int64(n), cp.int32(F)))
     return out
 
 
 def _deflate(cp: Any, Z: Any, Y: Any, fvec: Any, active: Any) -> "tuple[Any, np.ndarray]":
     """Deflate ``[1, sin, cos]`` at ``fvec[c]`` out of every ACTIVE column; returns the new block and the host mask of columns whose 3x3 system was singular (their rows hold NaN)."""
     C, n = int(Z.shape[0]), int(Z.shape[1])
-    blocks = max(1, min(64, (n + _THREADS - 1) // _THREADS))
     mod = _module_for(Z).get(cp)
+    gram = mod.get_function("sincos_gram_b")
+    deflate = mod.get_function("apply_deflate_b")
+    gram_threads = _block_for(gram, n)
+    blocks = max(1, min(64, (n + gram_threads - 1) // gram_threads))
     Y = cp.ascontiguousarray(Y, dtype=Z.dtype)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     part = cp.empty((C * blocks, 9), dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     coef = cp.empty((C, 3), dtype=cp.float64)
     out = cp.empty((C, n), dtype=Z.dtype)  # the deflated target keeps the sample block's dtype; the projection is accumulated in double precision
-    mod.get_function("sincos_gram_b")((blocks, C), (_THREADS,), (Z, Y, fvec, part, cp.int64(n), cp.int32(blocks)))
-    mod.get_function("solve3_b")((C,), (32,), (part, cp.int32(blocks), active, coef))
-    mod.get_function("apply_deflate_b")((blocks, C), (_THREADS,), (Z, Y, coef, fvec, out, cp.int64(n)))
+    gram((blocks, C), (gram_threads,), (Z, Y, fvec, part, cp.int64(n), cp.int32(blocks)))
+    mod.get_function("solve3_b")((C,), (32,), (part, cp.int32(blocks), active, coef))  # launch-ok: one warp: threads 0-8 fold the nine partial sums, thread 0 solves the 3x3 system; a wider block adds nothing
+    deflate((blocks, C), (_block_for(deflate, n),), (Z, Y, coef, fvec, out, cp.int64(n)))
     singular = ~np.isfinite(cp.asnumpy(coef)).all(axis=1)
     return out, singular
 

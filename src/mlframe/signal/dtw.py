@@ -37,6 +37,8 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 logger = logging.getLogger(__name__)
 
 from mlframe.system import try_import_cupy
@@ -370,7 +372,7 @@ def dtw_cupy_banded(
     band_d = cp.full((n + 1, bw), cp.float64(1e18))
     # cost[0,0] = 0 lives at band[0, 0 - 0 + w] = band[0, w].
     band_d[0, w] = cp.float64(0.0)
-    threads = 256
+    threads = block_size_for(kernel, work_items=min(n, m))  # one thread per cell of an anti-diagonal, at most min(n, m) cells
     for k in range(1, n + m + 1):
         i_min = max(1, k - m)
         i_max = min(n, k - 1)
@@ -424,7 +426,7 @@ def dtw_cupy_full(
     y_d = cp.asarray(y, dtype=cp.float64)
     cost_d = cp.full((n + 1, m + 1), cp.float64(1e18))
     cost_d[0, 0] = cp.float64(0.0)
-    threads = 256
+    threads = block_size_for(kernel, work_items=min(n, m))  # one thread per cell of an anti-diagonal, at most min(n, m) cells
     for k in range(1, n + m + 1):
         i_min = max(1, k - m)
         i_max = min(n, k - 1)

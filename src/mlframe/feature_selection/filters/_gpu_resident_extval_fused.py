@@ -11,6 +11,8 @@ from typing import Any
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._kernel_types import ctype_of, render
 
 _SOURCE = r"""
@@ -59,6 +61,6 @@ def fused_extval_candidates(cp: Any, pa: Any, ext_stack: Any, ops: Any) -> Any:
     n_ops = int(ops.shape[0])
     out = cp.empty((n, n_ext * n_ops), dtype=pa.dtype)
     total = n * n_ext * n_ops
-    block = 256
+    block = block_size_for(kernel, work_items=total)
     kernel(((total + block - 1) // block,), (block,), (pa, ext_stack, ops, out, cp.int64(n), cp.int32(n_ops), cp.int64(n_ext * n_ops), cp.int64(total)))
     return out

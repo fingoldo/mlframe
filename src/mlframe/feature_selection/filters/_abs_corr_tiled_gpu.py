@@ -58,7 +58,7 @@ def abs_corr_tiled(cp: Any, cand: Any, yc: Any, mu: Any, syy: float) -> Any:
     # Intentional float64: device accumulator for the tiled correlation sums
     part = cp.zeros((chunks, m, 2), dtype=cp.float64)
     module = _MODULES_BY_REAL["float" if cand.dtype.itemsize == 4 else "double"].get(cp)
-    module.get_function("abs_corr_tiled")(((m + 31) // 32, chunks), (32, 8), (cand, yc, mu, np.int64(n), np.int32(m), np.int64(_ROWS_PER_CHUNK), part))
+    module.get_function("abs_corr_tiled")(((m + 31) // 32, chunks), (32, 8), (cand, yc, mu, np.int64(n), np.int32(m), np.int64(_ROWS_PER_CHUNK), part))  # launch-ok: the 2-D block is the tile the kernel is written for (columns x row lanes), its shared arrays are sized by it
     host = cp.asnumpy(part)
     scc = host[0, :, 0].copy()
     scy = host[0, :, 1].copy()

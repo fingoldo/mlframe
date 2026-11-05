@@ -12,6 +12,8 @@ from __future__ import annotations
 import functools
 import threading
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from typing import Any
 from ._fe_resident_operands import _content_hash_memoized
 from ._kernel_types import render
@@ -108,9 +110,10 @@ def _ent_from_counts(c, inv_n: float):
         M = int(c.size)
         # Intentional float64: entropy accumulator kept f64 (cudaMemset dtype)
         out = cp.zeros(2, dtype=cp.float64)  # cudaMemsetAsync, not a cuLaunchKernel
-        threads = 256
+        ent_nnz = _get_ent_nnz_kernel(cp)
+        threads = block_size_for(ent_nnz, work_items=M, pow2=True, max_width=256)  # the block reduction halves blockDim.x over 256-wide scratch
         blocks = min(1024, max(1, (M + threads - 1) // threads))
-        _get_ent_nnz_kernel(cp)((blocks,), (threads,), (c, float(inv_n), np.int64(M), out))
+        ent_nnz((blocks,), (threads,), (c, float(inv_n), np.int64(M), out))
         h_k = cp.asnumpy(out)
         return float(-h_k[0]), round(h_k[1])
     except Exception as e:

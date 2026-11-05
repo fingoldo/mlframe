@@ -11,6 +11,8 @@ import threading
 import weakref
 from collections import OrderedDict
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from ._kernel_types import render
 
@@ -666,14 +668,16 @@ def _fused_generate_block(ua_cm, ub_cm, combos_block, *, column_major: bool = Fa
         else:
             ua_idx, ub_idx, bop = _cc
     total = n * K
-    threads = 256
-    blocks = (total + threads - 1) // threads
     if column_major:
         out = cp.empty((K, n), dtype=cp.float64)  # Intentional float64: bit-equal to the cupy elementwise f64 path this matrix is checked against  # (K, n) C-order == column-major over the (n, K) matrix
-        _get_fused_gen_cm_kernel()((blocks,), (threads,), (ua_cm, ub_cm, ua_idx, ub_idx, bop, np.int64(n), np.int32(K), out))
+        gen_cm = _get_fused_gen_cm_kernel()
+        threads = block_size_for(gen_cm, work_items=total)
+        gen_cm(((total + threads - 1) // threads,), (threads,), (ua_cm, ub_cm, ua_idx, ub_idx, bop, np.int64(n), np.int32(K), out))
         return out
     out = cp.empty((n, K), dtype=cp.float64)  # Intentional float64: bit-equal to the cupy elementwise f64 path this matrix is checked against
-    _get_fused_gen_kernel()((blocks,), (threads,), (ua_cm, ub_cm, ua_idx, ub_idx, bop, np.int64(n), np.int32(K), out))
+    gen = _get_fused_gen_kernel()
+    threads = block_size_for(gen, work_items=total)
+    gen(((total + threads - 1) // threads,), (threads,), (ua_cm, ub_cm, ua_idx, ub_idx, bop, np.int64(n), np.int32(K), out))
     return out
 
 

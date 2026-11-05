@@ -11,6 +11,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from mlframe.utils.log_throttle import log_throttle
 from ._gpu_resident_shared import _unary_apply
 from ._kernel_types import ctype_of, render
@@ -224,7 +226,7 @@ def _batched_unary_prepass(cp, col_specs, _raw_slot, _dev_groups, fb, g, n, n_op
                 out_col = cp.asarray(np.asarray(oc, dtype=np.int64))
                 ncols = len(s)
                 total = n * ncols
-                threads = 256
+                threads = block_size_for(_ker, work_items=total)
                 _ker(
                     ((total + threads - 1) // threads,), (threads,), (G, slot, opc, out_col, np.int64(n), np.int32(m), np.int32(ncols), np.int32(n_operands), g)
                 )

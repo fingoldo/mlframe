@@ -24,8 +24,9 @@ from typing import Any
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 MAX_SHARED_BYTES = 48 * 1024
-THREADS = 128
 
 _SOURCE_K3 = render(r"""
 #define XL(v) (((v) < 32768) ? tab[(v)] : ({ACC})(v) * log(({ACC})(v)))
@@ -103,10 +104,12 @@ def get_kernel_k3(cp: Any) -> Any:
 
 def launch_k3(cp: Any, order: Any, tie: Any, ybits_wb: Any, tab: Any, counts: Any, n: int, n_perm: int, kc: int, min_split: int, h_full: float, words: int, d_gain: Any, d_ncand: Any, d_idx: Any) -> None:
     """Launch v3: ``ybits_wb`` is the ``(words, permutations)`` uint32 table (the layout v2 reads), the outputs are the ``(kc * permutations)`` vectors v2 writes."""
-    blocks_x = (int(kc) + THREADS - 1) // THREADS
-    get_kernel_k3(cp)(
+    kernel = get_kernel_k3(cp)
+    threads = block_size_for(kernel, dyn_smem=4 * int(words), work_items=int(kc))
+    blocks_x = (int(kc) + threads - 1) // threads
+    kernel(
         (blocks_x, int(n_perm)),
-        (THREADS,),
+        (threads,),
         (order, tie, ybits_wb, tab, counts, np.int32(n), np.int32(n_perm), np.int32(kc), np.int32(min_split), np.float64(h_full), np.int32(words), d_gain, d_ncand, d_idx),  # Intentional float64: the kernel signature declares double
         shared_mem=4 * int(words),
     )

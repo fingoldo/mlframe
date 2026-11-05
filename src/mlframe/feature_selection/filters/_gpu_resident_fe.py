@@ -66,6 +66,8 @@ import threading
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import assert_kernel_buffers, crit_float_dtype
 
 from mlframe.feature_selection.filters._safe_scale import guarded_scale
@@ -541,10 +543,11 @@ def _gpu_apply_prewarp(cp, x, spec):
         xfc = cp.ascontiguousarray(xf)
         nrow = int(xfc.size)
         z = cp.empty(nrow, dtype=buf_t)
-        threads = 256
         _real = "float" if buf_t == cp.float32 else "double"
         assert_kernel_buffers("prewarp_transform", _real, x=xfc, out=z)
-        _get_prewarp_transform_kernel(cp, _real)(
+        prewarp = _get_prewarp_transform_kernel(cp, _real)
+        threads = block_size_for(prewarp, work_items=nrow)
+        prewarp(
             ((nrow + threads - 1) // threads,),
             (threads,),
             (

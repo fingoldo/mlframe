@@ -18,11 +18,12 @@ import threading
 from typing import Any, Optional
 
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
 
-_THREADS = 256
 #: Dynamic shared memory the histogram may use (the 48 KB every device grants, less the static warp sums and the driver's reserve).
 _SHARED_BUDGET_BYTES = 44 * 1024
 _KERNEL: Any = None
@@ -152,9 +153,12 @@ def pair_mi_perm_matrix_cuda(
         d_fy = cp.asarray(np.ascontiguousarray(freqs_y, dtype=np.float64))  # Intentional float64: frequency vector of the MI formula (kernel contract double*)
         out = cp.empty((K, n_pairs), dtype=cp.float64)  # Intentional float64: MI output buffer (kernel contract double*)
         shared = (max_joint * ky + max_joint) * 4
-        _kernel(cp)(
+        pair_kernel = _kernel(cp)
+        # one partial per warp in a shared array of 32 rows: any warp multiple up to 1024 threads
+        threads = block_size_for(pair_kernel, dyn_smem=shared, work_items=n, max_width=1024)
+        pair_kernel(
             (n_pairs,),
-            (_THREADS,),
+            (threads,),
             (cols, d_a, d_b, d_nb, d_y, d_fy, np.int64(n), np.int32(n_pairs), np.int32(K), np.int32(ky), np.int64(cap), np.float64(1.0 / n), out),  # Intentional float64: MI scalar handed to the kernel (kernel contract double*)
             shared_mem=shared,
         )

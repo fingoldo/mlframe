@@ -15,6 +15,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._code_dtype import _safe_code_dtype
 from mlframe.feature_selection.filters._device_sort_safe import device_percentile  # thrust aborts the process on a short pool
 from .._kernel_types import ctype_of, render
@@ -453,7 +455,7 @@ def _discretize_quantile_rawkernel(d_arr, cuts, n_bins, out_cp_dtype):
     out_int32 = cp.empty((n_rows, n_cols), dtype=cp.int32)
     values = d_arr if d_arr.dtype in (cp.float32, cp.float64) else d_arr.astype(cp.float64)  # the kernel reads float32 or float64 as they are
     kernel = _get_searchsorted_right_2d_kernel(np.float32 if values.dtype == cp.float32 else np.float64)
-    threads = 256
+    threads = block_size_for(kernel, work_items=n_rows * n_cols)
     blocks = _searchsorted_launch_blocks(n_rows, n_cols, threads)
     kernel(
         (blocks,),

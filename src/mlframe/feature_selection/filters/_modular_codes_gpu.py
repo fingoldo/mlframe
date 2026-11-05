@@ -19,6 +19,8 @@ import os
 from typing import Optional, Sequence
 
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 import pandas as pd
 
 from ._raw_module_cache import RawModuleCache
@@ -115,7 +117,8 @@ def modular_family_codes_gpu(X: pd.DataFrame, cols: Sequence[str], periods: Sequ
             # Intentional float64: input of the residue v - p*floor(v/p); a float32 timestamp (~1.6e9) has resolution 128, so mod 7 would be noise.
             src = cp.asarray(np.ascontiguousarray(X[part].to_numpy(dtype=np.float64).T))
             out = cp.empty((len(part) * per_source, n), dtype=cp.float32)
-            kernel((min(1024, (n + THREADS - 1) // THREADS), len(part) * len(periods)), (THREADS,), (src, p_dev, np.int64(n), np.int32(len(periods)), out))
+            threads = block_size_for(kernel, work_items=n)
+            kernel((min(1024, (n + threads - 1) // threads), len(part) * len(periods)), (threads,), (src, p_dev, np.int64(n), np.int32(len(periods)), out))
             del src
             r0 = s0 * per_source
             quantile_codes_resident_f32(cp, out, int(n_bins), codes[r0 : r0 + out.shape[0]], nx[r0 : r0 + out.shape[0]])

@@ -16,6 +16,8 @@ from typing import cast
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._raw_module_cache import RawModuleCache
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 from ._kernel_types import render
@@ -139,7 +141,7 @@ def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.nda
             ord_t = cp.ascontiguousarray(order[:, cp.asarray(ok)].T.astype(cp.int32))
             # Intentional float64: device MI statistic matrix, same element type as the host array
             out = cp.zeros((n_rep, ok.size), dtype=cp.float64)
-            threads = 128
+            threads = block_size_for(kernel, work_items=int(ok.size) * n_rep)
             grid = (int(ok.size) * n_rep + threads - 1) // threads
             kernel((grid,), (threads,), (ord_t, counts, ycode, cum, lens, np.int32(n), np.int32(ok.size), np.int32(n_rep), np.int32(n_bins), np.int32(n_classes), out))
             mi[:, c0 + ok] = cp.asnumpy(out)

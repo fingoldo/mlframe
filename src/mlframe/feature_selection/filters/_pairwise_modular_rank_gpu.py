@@ -335,7 +335,7 @@ def residue_rank_scores_gpu(
             table = cp.empty((cols.shape[0], mods.shape[0], n), dtype=cp.int8)
             for mi in range(mods.shape[0]):
                 table[:, mi, :] = cp.mod(cols_d, int(mods[mi])).astype(cp.int8)  # floored residue, 0 <= r < k
-            _get_kernel(version, wide)(
+            _get_kernel(version, wide)(  # launch-ok: the kernels are written and verified for exactly _BLOCK threads (a narrower block gives wrong scores on version 5), launch bounds fix 128 for the capped versions
                 (int(ia.shape[0]),),
                 (_BLOCK,),
                 # Intentional float64: kernel argument: the double class counts
@@ -343,7 +343,7 @@ def residue_rank_scores_gpu(
                 shared_mem=shared,
             )
             return cast(np.ndarray, cp.asnumpy(scores))
-        _get_kernel(None, wide)(
+        _get_kernel(None, wide)(  # launch-ok: the kernels are written and verified for exactly _BLOCK threads (a narrower block gives wrong scores on version 5), launch bounds fix 128 for the capped versions
             (int(ia.shape[0]),),
             (_BLOCK,),
             # Intentional float64: kernel argument: the double class counts

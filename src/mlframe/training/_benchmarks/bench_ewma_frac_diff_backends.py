@@ -29,6 +29,8 @@ from pathlib import Path
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from mlframe._bench_timing_shared import best_of_ms
 
 try:
@@ -129,7 +131,7 @@ def _ewma_v3_cuda_batched(base_batch, alphas, anchors):
     d_alphas = _cp.asarray(alphas, dtype=_cp.float64)
     d_anchors = _cp.asarray(anchors, dtype=_cp.float64)
     d_out = _cp.empty((K, N), dtype=_cp.float64)
-    block = 32
+    block = block_size_for(kernel, work_items=K)
     grid = (K + block - 1) // block
     kernel((grid,), (block,), (d_base, d_alphas, d_anchors, d_out, np.int32(K), np.int32(N)))
     _cp.cuda.runtime.deviceSynchronize()
@@ -228,7 +230,7 @@ def _frac_diff_inverse_v3_cuda_batched(t_batch, lags, weights_batch, anchors):
     d_w = _cp.asarray(weights_batch, dtype=_cp.float64)
     d_anchors = _cp.asarray(anchors, dtype=_cp.float64)
     d_out = _cp.empty((K, N), dtype=_cp.float64)
-    block = 32
+    block = block_size_for(kernel, work_items=K)
     grid = (K + block - 1) // block
     kernel((grid,), (block,), (d_t, d_w, d_anchors, d_out, np.int32(K), np.int32(N), np.int32(lags)))
     _cp.cuda.runtime.deviceSynchronize()

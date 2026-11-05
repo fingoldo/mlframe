@@ -194,22 +194,22 @@ def als_sweep_fused(cp: Any, Ba: Any, Bb: Any, yc: Any, iters: int) -> Optional[
 
     def gram(B, w, stats):
         """Launch the Gram kernel (``w=None`` for the unweighted first solve) and the small solve that follows it."""
-        gram_scaled((gram_blocks,), (256,), (B, w if w is not None else y, y, stats, part, nn, cp.int32(_STAT_BLOCKS), cp.int32(0 if w is None else 1), rel))
+        gram_scaled((gram_blocks,), (256,), (B, w if w is not None else y, y, stats, part, nn, cp.int32(_STAT_BLOCKS), cp.int32(0 if w is None else 1), rel))  # launch-ok: the kernels keep one partial per warp in shared arrays of 8 rows, so the block is exactly 8 warps
 
     def solve(out):
         """Reduce the Gram partials and solve the normal equations into ``out``."""
-        solve_small((1,), (256,), (part, cp.int32(gram_blocks), out))
+        solve_small((1,), (256,), (part, cp.int32(gram_blocks), out))  # launch-ok: the kernels keep one partial per warp in shared arrays of 8 rows, so the block is exactly 8 warps
 
     gram(bb, None, stats_g)
     solve(cb)
-    matvec_stats((_STAT_BLOCKS,), (256,), (bb, cb, g, stats_g, nn))
+    matvec_stats((_STAT_BLOCKS,), (256,), (bb, cb, g, stats_g, nn))  # launch-ok: the kernels keep one partial per warp in shared arrays of 8 rows, so the block is exactly 8 warps
     for _ in range(max(1, int(iters))):
         gram(ba, g, stats_g)
         solve(ca)
-        matvec_stats((_STAT_BLOCKS,), (256,), (ba, ca, f, stats_f, nn))
+        matvec_stats((_STAT_BLOCKS,), (256,), (ba, ca, f, stats_f, nn))  # launch-ok: the kernels keep one partial per warp in shared arrays of 8 rows, so the block is exactly 8 warps
         gram(bb, f, stats_f)
         solve(cb)
-        matvec_stats((_STAT_BLOCKS,), (256,), (bb, cb, g, stats_g, nn))
+        matvec_stats((_STAT_BLOCKS,), (256,), (bb, cb, g, stats_g, nn))  # launch-ok: the kernels keep one partial per warp in shared arrays of 8 rows, so the block is exactly 8 warps
     host = cp.asnumpy(coef)
     if not np.all(np.isfinite(host)):
         return None

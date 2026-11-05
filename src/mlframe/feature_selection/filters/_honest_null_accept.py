@@ -4,6 +4,8 @@ from __future__ import annotations
 
 # --- imports (managed) ---
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from mlframe.feature_selection.filters._honest_null_device import XLOGX_TABLE_SIZE
 from mlframe.feature_selection.filters._honest_null_device import _accepted
 from mlframe.feature_selection.filters._honest_null_device import _entropy
@@ -84,9 +86,10 @@ def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx
         elif n_classes_total == 2:
             ybits = _pack_bits(y_raw_perm)
             _kernel, _full_table = _root_split_kernel(cp)
+            threads = block_size_for(_kernel, work_items=n_perm * kc)
             _kernel(
-                ((n_perm * kc + 127) // 128,),
-                (128,),
+                ((n_perm * kc + threads - 1) // threads,),
+                (threads,),
                 (
                     cp.asarray(order),
                     cp.asarray(tie),
@@ -106,9 +109,11 @@ def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx
                 ),
             )
         else:
-            _get_kernel(cp)(
-                ((n_perm * kc + 127) // 128,),
-                (128,),
+            multi_kernel = _get_kernel(cp)
+            threads = block_size_for(multi_kernel, work_items=n_perm * kc)
+            multi_kernel(
+                ((n_perm * kc + threads - 1) // threads,),
+                (threads,),
                 (
                     cp.asarray(order),
                     cp.asarray(tie),

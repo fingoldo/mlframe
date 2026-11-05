@@ -20,6 +20,8 @@ import logging
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -258,8 +260,8 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     # Intentional float64: bit-identical to cp.percentile's linear interpolation, which computes in float64
     edges = cp.empty((ne_rows, K), dtype=cp.float64)
     _ker_interp = _get_radix_interp_kernel()
-    _threads = 256
     _total = ne_rows * K
+    _threads = block_size_for(_ker_interp, work_items=_total)
     _ker_interp(((_total + _threads - 1) // _threads,), (_threads,), (osv64, bi, ai, cp.ascontiguousarray(w), np.int32(K), np.int32(ne_rows), edges))
     return edges  # (nbins-1, K) double
 
@@ -330,8 +332,8 @@ def _radix_quantiles(cand_gpu, q_fracs):
     # Intentional float64: bit-identical to cp.percentile's linear interpolation, which computes in float64
     osv64 = osv if osv.dtype == cp.float64 else osv.astype(cp.float64)
     _ker = _get_radix_interp_kernel()
-    t = 256
     total = nq * K
+    t = block_size_for(_ker, work_items=total)
     _ker(((total + t - 1) // t,), (t,), (osv64, bi, ai, w, np.int32(K), np.int32(nq), out))
     return out  # (len(q_fracs), K) double
 

@@ -415,7 +415,7 @@ def _transpose_to_cm(cand_gpu):
         return cp.ascontiguousarray(cand_gpu.T)
     try:
         out = cp.empty((K, n), dtype=_dt)
-        _ker((tiled_transpose_blocks(n, K),), (32, 32), (cand_gpu, out, np.int64(n), np.int32(K)))
+        _ker((tiled_transpose_blocks(n, K),), (32, 32), (cand_gpu, out, np.int64(n), np.int32(K)))  # launch-ok: a 32x32 shared-memory transpose tile: the tile is the algorithm (32x33 padded shared array, one warp per tile row)
         return out
     except Exception:
         import logging
@@ -438,7 +438,7 @@ def _transpose_cm_to_rm(cm_gpu):
         return cp.ascontiguousarray(cm_gpu.T)
     try:
         out = cp.empty((nc, Kr), dtype=cp.float32)  # (n, K)
-        _get_transpose_f32_kernel()((tiled_transpose_blocks(Kr, nc),), (32, 32), (cm_gpu, out, np.int64(Kr), np.int32(nc)))
+        _get_transpose_f32_kernel()((tiled_transpose_blocks(Kr, nc),), (32, 32), (cm_gpu, out, np.int64(Kr), np.int32(nc)))  # launch-ok: a 32x32 shared-memory transpose tile: the tile is the algorithm (32x33 padded shared array, one warp per tile row)
         return out
     except Exception:
         import logging
@@ -507,7 +507,7 @@ def transpose_codes_to_cm(disc_gpu: Any) -> Any:
         return cp.ascontiguousarray(disc_gpu.T)
     try:
         out = cp.empty((K, n), dtype=disc_gpu.dtype)
-        _get_transpose_int_kernel(itemsize)((tiled_transpose_blocks(n, K),), (32, 32), (disc_gpu, out, np.int64(n), np.int32(K)))
+        _get_transpose_int_kernel(itemsize)((tiled_transpose_blocks(n, K),), (32, 32), (disc_gpu, out, np.int64(n), np.int32(K)))  # launch-ok: a 32x32 shared-memory transpose tile: the tile is the algorithm (32x33 padded shared array, one warp per tile row)
         return out
     except Exception:
         import logging

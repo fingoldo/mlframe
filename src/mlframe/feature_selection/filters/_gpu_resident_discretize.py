@@ -17,6 +17,8 @@ import threading
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 # Parent-of-the-FE-block name consumed at module scope (defined in _gpu_resident_fe before it imports the
 # select parent, so this top import resolves during the partial-init import chain - same pattern as the parent).
 from ._gpu_resident_shared import _quantile_levels_dev
@@ -172,7 +174,7 @@ def _bin_codes_f32e(cp, cand_c, edges_f64, out):
     gx = (K + 31) // 32
     rows_per_block = 8
     gy = max(1, min((n + rows_per_block - 1) // rows_per_block, max(1, 2048 // gx)))
-    _bin_codes_f32e_kernel(out.dtype.name)((gx, gy), (32, rows_per_block), (cand_c, edges32, np.int64(n), np.int32(K), np.int32(ne), out))
+    _bin_codes_f32e_kernel(out.dtype.name)((gx, gy), (32, rows_per_block), (cand_c, edges32, np.int64(n), np.int32(K), np.int32(ne), out))  # launch-ok: the 2-D block is the tile the kernel is written for (columns x row lanes), its shared arrays are sized by it
     return True
 
 
@@ -201,9 +203,10 @@ def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None):
         if n > 0 and K > 0 and _bin_codes_f32e(cp, cand_c, edges_c, out):
             return out
         total = n * K
-        threads = 256
+        bin_codes = _get_bin_codes_kernel(cand_c.dtype, _od.name)
+        threads = block_size_for(bin_codes, work_items=total)
         blocks = (total + threads - 1) // threads
-        _get_bin_codes_kernel(cand_c.dtype, _od.name)(
+        bin_codes(
             (blocks,),
             (threads,),
             (cand_c, edges_c, np.int64(n), np.int32(K), np.int32(ne), out),

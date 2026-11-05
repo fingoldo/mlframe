@@ -18,6 +18,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 logger = logging.getLogger(__name__)
 
 MAX_CLASSES = 25  # one class is the remainder of the others; the shared-memory kernel holds up to ``_MAX_CLASSES_V2`` stored classes
@@ -174,7 +176,9 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gat
         mod = _pack_module(cp, cap, n_y, _C_TYPES[codes.dtype])
         cls = cp.empty((n_perm, n_y, words), dtype=cp.uint64)
         cnt = cp.zeros((n_perm, n_y), dtype=cp.int64)
-        mod.get_function("pack_cls")(((words + 127) // 128, n_perm), (128,), (y_all, np.int64(n), np.int32(words), np.int32(n_y), cls, cnt))
+        pack_cls = mod.get_function("pack_cls")
+        cls_block = block_size_for(pack_cls, work_items=words)
+        pack_cls(((words + cls_block - 1) // cls_block, n_perm), (cls_block,), (y_all, np.int64(n), np.int32(words), np.int32(n_y), cls, cnt))
         # Intentional float64: the xlogx table of the MI formula (exact permutation ties); the kernel takes its element type from this buffer
         table = cp.asarray(xlogx_table(n))
         const_b = table[n] - table[cnt].sum(axis=1)
@@ -186,12 +190,14 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gat
         free_bytes = int(cp.cuda.runtime.memGetInfo()[0])
         group = max(_MIN_GROUP_COLUMNS, min(_BUDGET_CAP_BYTES, free_bytes // 4) // (cap * words * 8))
         out = cp.empty((n_perm, k_total), dtype=table.dtype)
+        pack_bins = mod.get_function("pack_bins")
         for lo in range(0, k_total, group):
             hi = min(lo + group, k_total)
             kg = hi - lo
             bits = cp.empty((cap, words, kg), dtype=cp.uint64)
             px = cp.zeros((kg, cap), dtype=cp.int64)
-            mod.get_function("pack_bins")(((kg + 127) // 128, words), (128,), (codes, np.int64(n), np.int32(k_total), np.int32(lo), np.int32(kg), np.int32(words), bits, px))
+            bins_block = block_size_for(pack_bins, work_items=kg)
+            pack_bins(((kg + bins_block - 1) // bins_block, words), (bins_block,), (codes, np.int64(n), np.int32(k_total), np.int32(lo), np.int32(kg), np.int32(words), bits, px))
             c_a = table[px].sum(axis=1)
             part = cp.empty((n_perm, kg), dtype=table.dtype)
             width = v2_block_width(kern, (n_y - 1) * words * 8, kg)

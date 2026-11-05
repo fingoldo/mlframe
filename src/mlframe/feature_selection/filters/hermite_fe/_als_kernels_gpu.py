@@ -10,6 +10,8 @@ from __future__ import annotations
 import threading
 from typing import Any
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
 
 _LOCK = threading.Lock()
@@ -76,9 +78,9 @@ def _modules_for(B: Any) -> Any:
     return _MODULES_BY_REAL["float" if B.dtype.itemsize == 4 else "double"]
 
 
-def _grid(cp, n: int) -> int:
-    """Block count for a grid-stride launch over ``n`` rows."""
-    return int(min(4096, max(1, (n + 255) // 256)))
+def _grid(cp, n: int, block: int = 256) -> int:
+    """Block count for a grid-stride launch of ``block``-thread blocks over ``n`` rows."""
+    return int(min(4096, max(1, (n + block - 1) // block)))
 
 
 def design_matvec(cp: Any, B: Any, c: Any) -> Any:
@@ -86,7 +88,9 @@ def design_matvec(cp: Any, B: Any, c: Any) -> Any:
     n, d = B.shape
     out = cp.empty(n, dtype=B.dtype)
     c = cp.ascontiguousarray(c, dtype=B.dtype)
-    _modules_for(B).get(cp, d).get_function("design_matvec")((_grid(cp, n),), (256,), (B, c, out, cp.int64(n)))
+    matvec = _modules_for(B).get(cp, d).get_function("design_matvec")
+    threads = block_size_for(matvec, work_items=n)
+    matvec((_grid(cp, n, threads),), (threads,), (B, c, out, cp.int64(n)))
     return out
 
 
@@ -98,7 +102,7 @@ def weighted_gram(cp: Any, B: Any, w: Any, y: Any) -> "tuple[Any, Any]":
     part = cp.empty((blocks, nacc), dtype=cp.float64)  # Intentional float64: normal-equation partial sums, solved in double precision
     y64 = cp.ascontiguousarray(y, dtype=B.dtype)
     w64 = y64 if w is None else cp.ascontiguousarray(w, dtype=B.dtype)
-    _modules_for(B).get(cp, d).get_function("weighted_gram")((blocks,), (256,), (B, w64, y64, part, cp.int64(n), cp.int32(0 if w is None else 1)))
+    _modules_for(B).get(cp, d).get_function("weighted_gram")((blocks,), (256,), (B, w64, y64, part, cp.int64(n), cp.int32(0 if w is None else 1)))  # launch-ok: the kernel keeps one partial per warp in a shared array of 8 rows, so the block is exactly 8 warps
     out = part.sum(axis=0)
     ata_idx, atb_idx = _unpack_index(cp, d)
     return out[ata_idx], out[atb_idx]

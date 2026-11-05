@@ -259,6 +259,8 @@ def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray, device: int | None 
         # x (the column being evaluated) is invariant across CMA-ES/Optuna trials for the SAME column;
         # resident-cache it so repeated trials on one column upload ONCE. c (the coefficients) genuinely
         # vary per trial - that is the thing being optimized - so it stays a raw per-call upload.
+        from pyutilz.performance.gpu_hw_launch import block_size_for
+
         from .._fe_resident_operands import resident_operand
 
         # The kernel reads x at the CALLER's precision (float32 stays float32, anything else is float64) and computes in double: forcing float32 on a float64 column would round x, which a
@@ -271,9 +273,10 @@ def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray, device: int | None 
         n = x.shape[0]
         # Intentional float64: coefficient / output contract kept f64
         out_gpu = cp.empty(n, dtype=cp.float64)
-        block = 256
+        polyeval = _hfmi._polyeval_kernel(basis, "float" if x_gpu.dtype == cp.float32 else "double")
+        block = block_size_for(polyeval, work_items=n)
         grid = (n + block - 1) // block
-        _hfmi._polyeval_kernel(basis, "float" if x_gpu.dtype == cp.float32 else "double")(
+        polyeval(
             (grid,),
             (block,),
             (x_gpu, c_gpu, c_gpu.shape[0], n, out_gpu),

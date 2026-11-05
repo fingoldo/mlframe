@@ -9,6 +9,8 @@ from typing import Any
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._device_sort_safe import device_percentile
 
 logger = logging.getLogger(__name__)
@@ -120,7 +122,7 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
         kern = _get_qbin_coder_kernel()
         codes = cp.empty((n, K), dtype=cp.int64)
         total = n * K
-        threads = 256
+        threads = block_size_for(kern, work_items=total)
         blocks = (total + threads - 1) // threads
         eb = (cp.ascontiguousarray(edges_all) + 0.0).view(cp.int64)  # normalize -0.0, reinterpret bits
         keys = cp.where(eb >= 0, eb, eb ^ np.int64(0x7FFFFFFFFFFFFFFF))

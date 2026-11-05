@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from mlframe._numerical_floors import VARIANCE_FLOOR
 from mlframe.feature_selection.filters._kernel_types import render
 from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
@@ -149,7 +151,8 @@ def power_sincos(cp: Any, z: Any, yc: Any, y_ss: float, freqs: Any) -> Any:
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = cp.empty(int(f.shape[0]), dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-    _modules_for(z).get(cp).get_function("periodogram_power")((int(f.shape[0]),), (256,), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss)))
+    power = _modules_for(z).get(cp).get_function("periodogram_power")
+    power((int(f.shape[0]),), (block_size_for(power, work_items=int(z.shape[0]), max_width=1024),), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss)))
     return out
 
 
@@ -161,7 +164,10 @@ def deflate_sincos(cp: Any, z: Any, y: Any, freq: float) -> Optional[Any]:
 
     n = int(z.shape[0])
     mod = _modules_for(z).get(cp)
-    blocks = max(1, min(64, (n + 255) // 256))
+    gram = mod.get_function("sincos_gram")
+    deflate = mod.get_function("apply_deflate")
+    gram_threads = block_size_for(gram, work_items=n, max_width=1024)  # one partial per warp in a shared array of 32 rows: any warp multiple up to 1024
+    blocks = max(1, min(64, (n + gram_threads - 1) // gram_threads))
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     part = cp.empty((blocks, 9), dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
@@ -169,10 +175,10 @@ def deflate_sincos(cp: Any, z: Any, y: Any, freq: float) -> Optional[Any]:
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = cp.empty(n, dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-    mod.get_function("sincos_gram")((blocks,), (256,), (z, y, cp.float64(freq), part, cp.int64(n)))
-    mod.get_function("solve3")((1,), (32,), (part, cp.int32(blocks), coef))
+    gram((blocks,), (gram_threads,), (z, y, cp.float64(freq), part, cp.int64(n)))
+    mod.get_function("solve3")((1,), (32,), (part, cp.int32(blocks), coef))  # launch-ok: one warp: threads 0-8 fold the nine partial sums, thread 0 solves the 3x3 system; a wider block adds nothing
     if not np.all(np.isfinite(cp.asnumpy(coef))):
         return None
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-    mod.get_function("apply_deflate")((blocks,), (256,), (z, y, coef, cp.float64(freq), out, cp.int64(n)))
+    deflate((blocks,), (block_size_for(deflate, work_items=n),), (z, y, coef, cp.float64(freq), out, cp.int64(n)))
     return out

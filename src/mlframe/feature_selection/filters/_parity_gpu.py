@@ -16,13 +16,14 @@ import os
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._raw_module_cache import RawModuleCache
 
 logger = logging.getLogger(__name__)
 
 PB = 8  # periods per block
 NC = 4  # largest class count the kernel handles
-THREADS = 256
 COLUMN_BLOCK = 32  # columns per launch: bounds the double copy of the block on the device (32 x n x 8 bytes)
 
 _SRC = r"""
@@ -102,7 +103,7 @@ def parity_mi_grids_gpu(columns: "list[np.ndarray]", y_codes: np.ndarray, n_clas
         v_dev = cp.asarray(np.ascontiguousarray(np.stack([np.asarray(c, dtype=np.float64) for c in block])))  # Intentional float64: floor(v / period) needs double precision on large values
         inv_dev = cp.asarray(np.ascontiguousarray(np.stack([1.0 / np.asarray(g, dtype=np.float64) for g in grids[c0 : c0 + COLUMN_BLOCK]])))  # Intentional float64: the host multiplies by the double reciprocal of the period
         out = cp.zeros((len(block), G), dtype=cp.float64)  # Intentional float64: MI statistic vector compared with the host's
-        kernel((len(block), (G + PB - 1) // PB), (THREADS,), (v_dev, y_dev, inv_dev, cls_tot, np.int64(n), np.int32(G), np.int32(n_classes), out))
+        kernel((len(block), (G + PB - 1) // PB), (block_size_for(kernel, work_items=n),), (v_dev, y_dev, inv_dev, cls_tot, np.int64(n), np.int32(G), np.int32(n_classes), out))
         results.extend(list(cp.asnumpy(out)))
     return results
 

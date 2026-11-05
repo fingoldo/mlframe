@@ -19,6 +19,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 logger = logging.getLogger(__name__)
 
 _SRC = r"""
@@ -112,8 +114,9 @@ def fourier_block_cuda(cp: Any, columns: "list[Any]", metas: "list[dict]") -> Op
             """The array on the device in the element type of the columns."""
             return cp.asarray(np.ascontiguousarray(a.astype(dtype)))
 
-        threads = 256
-        _kernel(cp, real)(
+        fourier = _kernel(cp, real)
+        threads = block_size_for(fourier, work_items=k * n)
+        fourier(
             (((k * n) + threads - 1) // threads,),
             (threads,),
             (xs, cp.asarray(src), cp.asarray(cosine), cp.asarray(params[:, 4].astype(np.int32)), cp.asarray(params[:, 5].astype(np.int32)), up(params[:, 0]), up(params[:, 1]), up(params[:, 2]), up(params[:, 3]), up(weight), np.int64(n), np.int32(k), out),

@@ -188,7 +188,7 @@ def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, per
         block = perms[p0 : p0 + per_launch]
         yp = cp.ascontiguousarray(y8[cp.asarray(np.ascontiguousarray(block))])  # (P, n) permuted labels
         res = cp.empty((len(block), k), dtype=cp.float64)  # Intentional float64: MI accumulator, as the per-permutation kernel's
-        kernel((k,), (256,), (x_cm, edges, yp, np.int64(n), np.int32(k), np.int32(nbins), np.int32(n_classes), np.int32(len(block)), np.float64(1.0 / float(max(1, n))), res), shared_mem=len(block) * m * 4)
+        kernel((k,), (_bits_width(kernel, len(block) * m * 4, n),), (x_cm, edges, yp, np.int64(n), np.int32(k), np.int32(nbins), np.int32(n_classes), np.int32(len(block)), np.float64(1.0 / float(max(1, n))), res), shared_mem=len(block) * m * 4)
         out[p0 : p0 + len(block)] = cp.asnumpy(cp.nanmax(res, axis=1))
         del yp, res
     return out

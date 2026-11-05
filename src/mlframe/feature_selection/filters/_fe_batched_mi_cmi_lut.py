@@ -9,6 +9,8 @@ import os
 import threading
 
 import numpy as np
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._kernel_types import render
 
 # LOOKUP-TABLE variant (profiled on a GTX 1050 Ti, 1500 candidates x 200000 / 400000 int32 cells per row, n = 20000): rows_ent_nnz_i32 was 66 percent of the device
@@ -118,7 +120,9 @@ def _rows_entropy_lut(cp, c, inv_n: float):
     out_h = cp.empty(K, dtype=cp.float64)
     out_k = cp.empty(K, dtype=cp.int64)
     ker = lut4 if (M % 4 == 0) else lut1
-    ker((K,), (256,), (c, tab, np.int32(n_int), float(inv_n), float(np.log(n_int)), np.int32(K), np.int64(M), out_h, out_k))
+    # the block reduction halves blockDim.x over 256-wide shared scratch: a power of two, at most 256
+    threads = block_size_for(ker, work_items=M, pow2=True, max_width=256)
+    ker((K,), (threads,), (c, tab, np.int32(n_int), float(inv_n), float(np.log(n_int)), np.int32(K), np.int64(M), out_h, out_k))
     return out_h, out_k
 
 

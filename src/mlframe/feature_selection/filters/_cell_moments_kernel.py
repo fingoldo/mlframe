@@ -7,6 +7,8 @@ histogram and merges it into the global one once. The arithmetic per row is the 
 
 from __future__ import annotations
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 import logging
 from typing import Any, Optional
 
@@ -96,7 +98,7 @@ def masked_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, w: Any, n_cel
         return None
     k1, k2 = kernels
     n = int(codes_g.shape[0])
-    threads = 256
+    threads = block_size_for(k2, dyn_smem=3 * nc * 8, work_items=n)
     blocks = max(1, min((n + threads - 1) // threads, 4 * cp.cuda.Device().attributes["MultiProcessorCount"]))
     codes = codes_g if codes_g.dtype == cp.int64 else codes_g.astype(cp.int64)
     # The kernels declare ``double*`` for the samples, the weights and every output, so each is a float64 buffer (the per-cell sums are double-precision atomic accumulators).
@@ -212,7 +214,7 @@ def fold_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, finite_f: Any, 
         return None
     k1, k2 = kernels
     n = int(codes_g.shape[0])
-    threads = 256
+    threads = block_size_for(k2, dyn_smem=3 * nf * nc * 8, work_items=n)
     blocks = max(1, min((n + threads - 1) // threads, 4 * cp.cuda.Device().attributes["MultiProcessorCount"]))
     codes = codes_g if codes_g.dtype == cp.int64 else codes_g.astype(cp.int64)
     folds = fold_g if fold_g.dtype == cp.int64 else fold_g.astype(cp.int64)
