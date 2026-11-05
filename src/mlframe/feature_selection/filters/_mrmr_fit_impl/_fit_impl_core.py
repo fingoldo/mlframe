@@ -15,7 +15,6 @@ live in the parent and are imported lazily inside this body to avoid the
 from __future__ import annotations
 
 import logging
-import threading
 
 
 import numpy as np
@@ -24,15 +23,6 @@ import pandas as pd
 from mlframe.utils.log_throttle import log_throttle  # noqa: F401 - kept as a facade name (moved callers live in _fit_impl_gains)
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
-
-# Guards every read-then-mutate sequence on the process-wide ``MRMR._FIT_CACHE`` (lookup + ``move_to_end`` on
-# a hit; ``__setitem__`` + ``move_to_end`` + LRU/byte-cap ``popitem`` on store). Concurrent fits - multi-target
-# discovery, joblib-threading callers, web-service workers - otherwise race ``popitem``/``__setitem__``/
-# ``move_to_end`` on the same OrderedDict and can raise KeyError or evict the wrong entry. RLock so a wrapped
-# region may safely re-enter. The companion ``_MRMR_IDENTITY_FP_CACHE`` already had its own lock; this closes the
-# same gap for the fit cache. Exposed on the ``MRMR`` class (idempotently, inside the fit body) as
-# ``_FIT_CACHE_LOCK`` so any other holder of the cache can take the same canonical lock.
-_MRMR_FIT_CACHE_LOCK = threading.RLock()
 
 
 # _pgn_raw_budget re-exported from the ``_assign_support`` sub-split (Tier F) for backward-compat
@@ -59,7 +49,7 @@ in the sibling _helpers.py.
 
 
 from ._helpers import _mrmr_cache_bytes_total
-from ._fit_impl_core_parts import _fit_impl_part7, _fit_impl_part9
+from ._fit_impl_core_parts import _MRMR_FIT_CACHE_LOCK, _fit_impl_part7, _fit_impl_part9
 
 
 def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
