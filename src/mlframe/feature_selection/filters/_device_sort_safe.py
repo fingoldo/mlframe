@@ -10,7 +10,9 @@ under the pool's lock (``sort_room``): a short pool or device raises a cupy ``Ou
 from __future__ import annotations
 
 import contextlib
+import os
 import threading
+import time
 from typing import Any, Iterator, Optional
 
 #: Bytes a thrust sort of ``a`` along an axis needs beyond ``a``: a copy of the values, int64 indices, int64 segment keys, the int64 result and cub's scratch.
@@ -58,6 +60,22 @@ def _pool_lock(pool: Any) -> "threading.Lock":
         return lock
 
 
+def _trace_sort(cp: Any, a: Any, pool: Any) -> None:
+    """Append one line per device sort to the file named by ``MLFRAME_SORT_ROOM_TRACE`` (shape, dtype, estimated need, device and pool room, allocator type, thread): a process that
+    aborts inside thrust leaves the sort that killed it as the last line. Off (one dict lookup) when the variable is unset."""
+    path = os.environ.get("MLFRAME_SORT_ROOM_TRACE", "").strip()
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(
+                f"{time.time():.3f} thread={threading.get_ident()} shape={tuple(a.shape)} dtype={a.dtype} need={_sort_need_bytes(a)} room={_room(cp, pool)} "
+                f"pool={'none' if pool is None else (int(pool.used_bytes()), int(pool.total_bytes()), int(pool.get_limit()))} allocator={type(cp.cuda.get_allocator()).__name__}\n"
+            )
+    except OSError:
+        pass
+
+
 @contextlib.contextmanager
 def sort_room(a: Any) -> "Iterator[None]":
     """Hold room for a sort of ``a`` in the current pool for the duration of the block, or raise cupy's ``OutOfMemoryError``.
@@ -70,6 +88,7 @@ def sort_room(a: Any) -> "Iterator[None]":
 
     ensure_sort_headroom(a)
     pool = _current_pool(cp)
+    _trace_sort(cp, a, pool)
     if pool is None:
         yield
         return
