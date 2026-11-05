@@ -7,6 +7,7 @@ call stack that produced it.
 
     python -m mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit --small          # a quick strict-GPU fit, exit code 1 on a mismatch
     python -m mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit --only conj,xor3  # the four-pillar cases (see bench_four_pillars)
+    python -m mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit --families --n 100000 --p 100  # a warm fit with every FE family on (profiling.family_scale)
 """
 
 from __future__ import annotations
@@ -177,16 +178,32 @@ def _small_fit() -> None:
     MRMR(verbose=0).fit(pd.DataFrame(columns), pd.Series(y))
 
 
+def _families_fit(n: int, p: int) -> None:
+    """A small warm-up fit and then a fit of ``n`` x ``p`` with every FE family on (the frame and settings of ``profiling.family_scale``), so the audit sees the launches of a full run."""
+    from mlframe.feature_selection._benchmarks.profiling import family_scale as scale
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    kwargs = scale.all_families_kwargs()
+    kwargs["nbins_strategy"] = "mdlp"
+    MRMR(verbose=0, random_seed=0, n_jobs=1, **kwargs).fit(*scale._make(20000, 30, 1))
+    MRMR(verbose=0, random_seed=0, n_jobs=1, **kwargs).fit(*scale._make(n, p, 0))
+
+
 def main(argv: "Optional[list[str]]" = None) -> int:
     """Run the audit over a small fit (``--small``) or the bench_four_pillars cases (``--only``); exit code 1 when a mismatch was found."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--small", action="store_true", help="run the built-in quick fit instead of the pillar cases")
     parser.add_argument("--only", default="f2,noise,xor3,conj", help="pillar cases to run (bench_four_pillars --only)")
+    parser.add_argument("--families", action="store_true", help="run a fit with every FE family on (see --n, --p) instead of the pillar cases")
+    parser.add_argument("--n", type=int, default=100000, help="rows of the --families fit")
+    parser.add_argument("--p", type=int, default=100, help="columns of the --families fit")
     args = parser.parse_args(argv)
     os.environ.setdefault("MLFRAME_FE_GPU_STRICT", "1")
     install()
     if args.small:
         _small_fit()
+    elif args.families:
+        _families_fit(args.n, args.p)
     else:
         bench = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench_four_pillars.py")
         sys.argv = [bench, "--only", args.only]
