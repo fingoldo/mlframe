@@ -39,13 +39,17 @@ def test_shared_shuffle_is_the_honest_null_permutation(seed):
 
 
 def test_twin_modules_have_no_private_permutation_draw():
-    """Every MDLP split test draws through ``shuffle_labels_into``: none of the twin modules shuffles with numba's ``np.random`` on its own (a private copy is how the streams drifted apart)."""
+    """Every MDLP split test draws through ``shuffle_labels_into``: none of the twin modules calls numba's ``np.random`` on its own (a private copy is how the streams drifted apart)."""
+    import ast
     import inspect
+    import textwrap
 
     from mlframe.feature_selection.filters import _mdlp_validated_split, _numba_utils_cross_module
 
     for mod, funcs in ((_mdlp_validated_split, ("_permutation_null_gain_njit", "_mdlp_permutation_batch_njit")), (_numba_utils_cross_module, ("_accept_split_serial",))):
         for name in funcs:
-            src = inspect.getsource(getattr(mod, name).py_func)
-            assert "shuffle_labels_into" in src, f"{mod.__name__}.{name} must draw through shuffle_labels_into"
-            assert "np.random" not in src, f"{mod.__name__}.{name} must not draw from numba's np.random"
+            tree = ast.parse(textwrap.dedent(inspect.getsource(getattr(mod, name).py_func)))
+            called = {n.func.id for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+            random_attrs = [n for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr == "random"]
+            assert "shuffle_labels_into" in called, f"{mod.__name__}.{name} must draw through shuffle_labels_into"
+            assert not random_attrs, f"{mod.__name__}.{name} must not draw from numba's np.random"
