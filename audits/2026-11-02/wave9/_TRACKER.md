@@ -11,7 +11,7 @@ Three read-only reports on `src/mlframe` by Opus 5.5 low-effort agents (swallowe
 | **RESOLVED** | TIME9-1 | time | Medium | stdlib datetime segment edges converted to the host's local zone (`targets/_target_temporal_types.py`) |
 | **RESOLVED** | TIME9-2 | time | Low | partial_fit wrapper stamped its callback with `time.time()`, the callback reads `default_timer` |
 | **RESOLVED** | TIME9-3b | time | Low | tz-aware timestamps made calendar-feature detection return nothing (`charts/_calendar_features.py`) |
-| **FUTURE** | TIME9-3a | time | Low | calendar features derived in a local zone do not match UTC timestamps, so they can appear as drift drivers; needs a circular-shift-invariant match and a benchmark |
+| **DOC** | TIME9-3a | time | Low | calendar features derived in a local zone do not match UTC timestamps, so they can appear as drift drivers; needs a circular-shift-invariant match and a benchmark Closed as DOC: calendar features are meaningful only in the zone the timestamps were recorded in, and a circular-shift-invariant match would need its own benchmark for a Low finding; derive calendar features from one consistent zone before the fit. Residual risk: a mismatched zone can show up as a drift driver. |
 | **REJECTED** | ALIAS9-0 | aliasing | Info | no aliasing or in-place mutation bug found; every `inplace=True`, params-dict and `fit_params` site copies or documents the mutation |
 
 ## Counts

@@ -22,7 +22,7 @@ Three read-only reports on `src/mlframe` by Opus 5.5 low-effort agents (environm
 | **RESOLVED** | ALIGN10-6 | alignment | Low | `visualize_prediction_vs_truth` looked rows up by label |
 | **REJECTED** | NJIT10-0 | njit_kernels | Info | no race, out-of-bounds or uninitialised-read finding in the kernels read |
 | **RESOLVED** | NJIT10-1 | njit_kernels | Low | `eval_candidates` read `sub[-1]` of an empty sample at n=0 (agent's dropped candidate, fixed anyway) |
-| **FUTURE** | NJIT10-2 | njit_kernels | Info | kernels the agents did not read line by line (list below) |
+| **DOC** | NJIT10-2 | njit_kernels | Info | kernels the agents did not read line by line (list below) Closed as DOC: a statement of audit scope, not a defect. The kernels listed were not read line by line in that wave; the repository-wide agent audit that follows the closure of these trackers re-reads them. |
 
 ## Counts
 
