@@ -43,6 +43,7 @@ Eviction strategies:
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import shutil
@@ -69,7 +70,7 @@ from mlframe.training.feature_handling.fingerprint import (
     InMemoryKey,
 )
 from mlframe.training.feature_handling.system import long_path_safe
-from mlframe.training.io import atomic_write_bytes
+from mlframe.training.io import _SafeUnpickler, atomic_write_bytes
 from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 logger = logging.getLogger(__name__)
@@ -537,6 +538,22 @@ def _serialize(value: Any, fileobj: Any, *, allow_pickle: bool = False) -> None:
     pickle.dump(value, fileobj, protocol=5)
 
 
+def _read_verified_cache_payload(path: str) -> bytes:
+    """Read a cache entry once and check its sha256 sidecar against those bytes; the caller unpickles the same bytes.
+
+    A missing sidecar is refused unless ``MLFRAME_FEATURE_CACHE_STRICT`` is set to a false value, the explicit opt-out for entries
+    written before the sidecar existed.
+    """
+    from mlframe.utils.safe_pickle import PickleVerificationError, verify_sidecar_payload
+
+    with open(path, "rb") as fh:
+        payload = fh.read()
+    allow_unverified = os.environ.get("MLFRAME_FEATURE_CACHE_STRICT", "1").strip().lower() in ("0", "false", "no", "off")
+    if not verify_sidecar_payload(path, payload, allow_unverified=allow_unverified):
+        raise PickleVerificationError(f"FeatureCache: sidecar digest mismatch (or missing) for {path!r}; refusing to unpickle.")
+    return payload
+
+
 def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
     """Inverse of :func:`_serialize`. Memmap on read for ndarray
     payloads (fp16 memmap saves 5-10 GB peak RAM).
@@ -546,6 +563,7 @@ def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
     reached when ``allow_pickle=True``. With the default False, a
     pickle-only payload on disk raises :class:`CachePickleRefusedError`
     instead of executing the pickle stream."""
+    payload = _read_verified_cache_payload(path) if allow_pickle else None
     try:
         # np.load returns an NpzFile wrapping a zipfile + mmap-backed handle
         # when the payload is npz. Not closing it leaks one OS handle per
@@ -554,15 +572,11 @@ def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
         # CV/RFECV loops. Use the with-block and materialise arrays via
         # np.array(...) before exiting so the caller gets owned buffers
         # (mmap views would go invalid on close).
-        if allow_pickle:
-            # ``np.load(allow_pickle=True)`` unpickles inside numpy, so the digest is checked before it runs (strict mode
-            # refuses an entry with no sidecar, as the pickle fallback below does).
-            from mlframe.utils.safe_pickle import PickleVerificationError, verify_sidecar as _vsc
-
-            _strict = os.environ.get("MLFRAME_FEATURE_CACHE_STRICT", "").strip().lower() in ("1", "true", "yes", "on")
-            if not _vsc(path, allow_unverified=not _strict):
-                raise PickleVerificationError(f"FeatureCache: sidecar digest mismatch (or missing in strict mode) for {path!r}; refusing to unpickle.")
-        loaded = np.load(path, allow_pickle=allow_pickle, mmap_mode="r")
+        if payload is not None:
+            # Unpickles the verified bytes, not the path: a file replaced on disk after the digest check is never read.
+            loaded = np.load(io.BytesIO(payload), allow_pickle=True)
+        else:
+            loaded = np.load(path, allow_pickle=False, mmap_mode="r")
     except (OSError, zipfile.BadZipFile):
         # OSError (PermissionError from a locked file on Windows, a genuine disk-read failure, ...) and
         # zipfile.BadZipFile (a truncated npz from a crashed write) are real I/O/corruption failures, not
@@ -571,19 +585,12 @@ def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
         # raise a confusing UnpicklingError that hides the real underlying error.
         raise
     except Exception:
-        if not allow_pickle:
+        if payload is None:
             raise CachePickleRefusedError(
                 f"FeatureCache: failed to read {path!r} via numpy and " "CacheConfig.allow_pickle is False; refusing pickle fallback."
             )
-        # Pickle fallback: route through safe_pickle.safe_load so a sidecar-digest mismatch
-        # surfaces as PickleVerificationError instead of executing tampered bytes. legacy
-        # entries written before the sidecar landed have no .sha256, so allow_unverified=True
-        # keeps them readable; strict mode is opt-in via MLFRAME_FEATURE_CACHE_STRICT=1.
-        from mlframe.utils.safe_pickle import safe_load as _sload
-        _strict = os.environ.get("MLFRAME_FEATURE_CACHE_STRICT", "").strip().lower() in (
-            "1", "true", "yes", "on",
-        )
-        return _sload(path, allow_unverified=not _strict)
+        # Pickle fallback over the verified bytes, through the allowlisted unpickler.
+        return _SafeUnpickler(io.BytesIO(payload)).load()
     # ``np.load`` with ``allow_pickle=True`` on a pure-pickle file (no
     # npy / npz magic header) returns the unpickled object directly.
     # NpzFile exposes ``.files``; anything else is already the value.
