@@ -161,6 +161,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_FE_GPU_USABILITY` | `''` | [src/mlframe/feature_selection/filters/_usability_gpu.py](../src/mlframe/feature_selection/filters/_usability_gpu.py#L62) |
 | `MLFRAME_FE_HINGE_GPU` | `'1'` | [src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py](../src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py#L42) |
 | `MLFRAME_FE_HOIST_HEADROOM_OVERHEAD` | — | [src/mlframe/feature_selection/filters/_feature_engineering_mem_budget.py](../src/mlframe/feature_selection/filters/_feature_engineering_mem_budget.py#L166) |
+| `MLFRAME_FE_HYBRID_VARIANT_CONCURRENCY` | `'1'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_hybrid_orth_family_variants/_concurrent.py](../src/mlframe/feature_selection/filters/_mrmr_fit_impl/_hybrid_orth_family_variants/_concurrent.py#L24) |
 | `MLFRAME_FE_IMBALANCE_MI` | `''` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_imbalance_mi.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_imbalance_mi.py#L96) |
 | `MLFRAME_FE_IMBALANCE_N_RARE` | `150` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_imbalance_mi.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_imbalance_mi.py#L171) |
 | `MLFRAME_FE_IMBALANCE_PRIOR` | `0.3` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_imbalance_mi.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_imbalance_mi.py#L169) |

@@ -36,3 +36,20 @@ def test_intra_fit_same_object_still_hits_memo():
     # The memo now holds X's 3-tuple key; a second call returns the cached hash (same value).
     assert fp._full_x_content_hash(X) == h1
     assert fp._MRMR_LAST_X_HASH_CACHE["id_shape"][0] == id(X)
+
+
+def test_memo_hit_extracts_no_column(monkeypatch):
+    """The second hash of the same frame returns from the memo without reading or copying a whole column."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters import _mrmr_fingerprints as fp
+
+    X = pd.DataFrame({"a": np.arange(50.0), "b": np.arange(50.0)[::-1]})
+    first = fp._full_x_content_hash(X)
+    assert first
+    calls = []
+    real = fp._column_values
+    # the strided signature reads 1024 rows per column (a third ``rows`` argument); only a read of the whole column counts
+    monkeypatch.setattr(fp, "_column_values", lambda *a, **k: (calls.append(1) if len(a) < 3 and "rows" not in k else None) or real(*a, **k))
+    assert fp._full_x_content_hash(X) == first
+    assert calls == []

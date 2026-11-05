@@ -338,7 +338,9 @@ class TestScenarioCAsymmetricChurn:
         auc_b = _classifier_holdout_auc(mb, Xtr, ytr, Xte, yte)
         sup_b = list(mb.get_feature_names_out())
 
-        assert _has_univariate_basis_of(sup_b, "usage"), f"C seed={seed}: a usage univariate basis detector must enter the DEFAULT support; got {sup_b}"
+        # the detector may be the orthogonal basis (usage__He2) or another univariate family's transform of usage (oofwarp(usage) on seed 13): both
+        # recover the U-shape, and the AUC check below is what pins the recovery
+        assert _engineered_uses(sup_b, "usage"), f"C seed={seed}: an engineered usage detector must enter the DEFAULT support; got {sup_b}"
         assert (
             auc_b >= 0.90
         ), f"C seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90 -- the univariate basis recovers the sign(usage^2-1) U-shape; support={sup_b}"

@@ -250,7 +250,8 @@ class TestLogSignalRecovered:
             fe_mi_greedy_include_binary=False,
         )
         m.fit(X, y)
-        appended = list(m.mi_greedy_features_)
+        # what the family APPENDED: mi_greedy_features_ keeps survivors only, and an equivalent detector of another family (x__pade3) can win the support
+        appended = list(m.mi_greedy_candidates_)
         # Either log_abs(x) or one of its monotone siblings (sqrt_abs / abs)
         # may capture the same monotone-in-|x| signal. Pin that AT LEAST ONE
         # |x|-derived transform of x is appended (the contract is that the
@@ -297,7 +298,8 @@ class TestRatioSignalRecovered:
             fe_mi_greedy_include_binary=True,
         )
         m.fit(X, y)
-        appended = list(m.mi_greedy_features_)
+        # what the family APPENDED: mi_greedy_features_ keeps survivors only, and an equivalent detector of another family (x__pade3) can win the support
+        appended = list(m.mi_greedy_candidates_)
         # The ratio of x_revenue / x_cost is THE signal. Either div or
         # ratio_log (both surrogates for the ratio) on the right pair must
         # show up in the engineered columns.
@@ -325,7 +327,8 @@ class TestSquareSignalRecovered:
             fe_mi_greedy_include_binary=False,
         )
         m.fit(X, y)
-        appended = list(m.mi_greedy_features_)
+        # what the family APPENDED: mi_greedy_features_ keeps survivors only, and an equivalent detector of another family (x__pade3) can win the support
+        appended = list(m.mi_greedy_candidates_)
         # square(x) or one of its monotone-in-x^2 siblings (abs / sqrt_abs) must appear -- the |x|
         # family carries the signal of sign(x^2-1). ``reciprocal_safe(x) = 1/(x+eps)`` is also a
         # valid member: for x != 0 it is a sign-preserving bijection of x, so |reciprocal_safe(x)|

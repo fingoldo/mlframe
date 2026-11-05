@@ -609,16 +609,18 @@ def _full_x_content_hash(X) -> str:
 def _full_named_frame_hash(X, sh) -> str:
     """``_full_x_content_hash`` for a pandas / polars frame: one blake2b updated column by column, behind the same single-slot memo."""
     columns = list(X.columns)
+    # The memo key needs only the cheap strided signature, so a hit returns before any column is extracted and copied (the extraction was paid on every call,
+    # hit or miss).
+    id_shape = (id(X), sh if sh is not None else (None,), _content_array_signature(X))
+    with _MRMR_LAST_X_HASH_LOCK:
+        if _MRMR_LAST_X_HASH_CACHE["id_shape"] == id_shape:
+            return str(_MRMR_LAST_X_HASH_CACHE["hash"])
     buffers = []
     for name in columns:
         vals = _column_values(X, name)
         if vals.dtype == object:
             return ""
         buffers.append((name, np.ascontiguousarray(vals), _column_categories(X, name)))
-    id_shape = (id(X), sh if sh is not None else (None,), _content_array_signature(X))
-    with _MRMR_LAST_X_HASH_LOCK:
-        if _MRMR_LAST_X_HASH_CACHE["id_shape"] == id_shape:
-            return str(_MRMR_LAST_X_HASH_CACHE["hash"])
     h = new_content_hasher()
     for name, vals, categories in buffers:
         h.update(vals.data)

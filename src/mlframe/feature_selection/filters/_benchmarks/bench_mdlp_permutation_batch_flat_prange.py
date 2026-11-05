@@ -19,6 +19,7 @@ import numpy as np
 from numba import njit
 
 from mlframe.feature_selection.filters._mdlp_validated_split import _mdlp_permutation_batch_njit
+from mlframe.feature_selection.filters._numba_utils_shuffle import shuffle_labels_into
 from mlframe.feature_selection.filters.supervised_binning import _mdlp_best_split_njit
 
 
@@ -36,13 +37,8 @@ def _batch_prange_over_nodes(x_padded, y_padded, node_sizes, node_gains, n_class
         base_seed = base_seeds[node]
         null_gains = np.empty(n_permutations, dtype=np.float64)
         for p in range(n_permutations):
-            np.random.seed(base_seed + p)
-            y_perm = y_i.copy()
-            for i in range(ni - 1, 0, -1):
-                j = int(np.random.randint(0, i + 1))
-                tmp = y_perm[i]
-                y_perm[i] = y_perm[j]
-                y_perm[j] = tmp
+            y_perm = np.empty_like(y_i)
+            shuffle_labels_into(y_i, y_perm, base_seed + p)
             _, g, _, _, _ = _mdlp_best_split_njit(x_i, y_perm, nc, min_split_size)
             null_gains[p] = g if g > 0.0 else 0.0
         null_gains.sort()

@@ -460,6 +460,10 @@ def retain_usable_pure_forms(
 
         filtered: list[Any] = []
         _retain_usable_pure_cand_pool(pool, filtered, _resid_verdicts, _adds_nonlinear_value)
+        # a pair form must beat its better side: max(abs(x), sin(noise)) passed the gates through abs(x) alone and displaced it
+        from ._fe_pure_form_sides import drop_forms_not_beating_their_sides
+
+        filtered = drop_forms_not_beating_their_sides(filtered, X_fit, _yv, classification=is_clf, seed=int(seed))
         usable = usability_greedy(
             filtered, _yv, w=w, K=K, seed=int(seed), n_folds=3, shortlist=15, classification=is_clf,
         )

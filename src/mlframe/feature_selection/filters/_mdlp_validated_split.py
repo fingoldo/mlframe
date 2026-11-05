@@ -90,7 +90,7 @@ import numpy as np
 import numba
 from numba import njit
 
-from ._numba_utils_shuffle import bounded, next_state, seed_state
+from ._numba_utils_shuffle import shuffle_labels_into
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 
@@ -211,18 +211,10 @@ def _permutation_null_gain_njit(x_sorted: np.ndarray, y_compact: np.ndarray, n_c
     representative node shape (n=200, n_permutations=30) despite the small per-call iteration count --
     see ``bench_mdlp_permutation_null_parallel.py``.
     """
-    n = y_compact.shape[0]
     null_gains = np.empty(n_permutations, dtype=np.float64)  # Intentional float64: null-gain accumulator for the MDLP permutation test
     for p in numba.prange(n_permutations):
-        rs = seed_state(seed + p)
-        y_perm = y_compact.copy()
-        # Fisher-Yates on a scratch copy, drawn from the xorshift stream of ``_numba_utils_shuffle`` (the batch twin below draws the same one)
-        for i in range(n - 1, 0, -1):
-            rs = next_state(rs)
-            j = bounded(rs, i + 1)
-            tmp = y_perm[i]
-            y_perm[i] = y_perm[j]
-            y_perm[j] = tmp
+        y_perm = np.empty_like(y_compact)
+        shuffle_labels_into(y_compact, y_perm, seed + p)  # the draw every MDLP split test shares
         _, gain, _, _, _ = _mdlp_best_split_njit(x_sorted, y_perm, n_classes, min_split_size)
         null_gains[p] = gain if gain > 0.0 else 0.0
     return null_gains
@@ -377,14 +369,8 @@ def _mdlp_permutation_batch_njit(
             node = live[li]
             ni = node_sizes[node]
             x_i = x_padded[node, :ni]
-            rs = seed_state(base_seeds[node] + p)
-            y_perm = y_padded[node, :ni].copy()
-            for i in range(ni - 1, 0, -1):
-                rs = next_state(rs)
-                j = bounded(rs, i + 1)
-                tmp = y_perm[i]
-                y_perm[i] = y_perm[j]
-                y_perm[j] = tmp
+            y_perm = np.empty(ni, dtype=y_padded.dtype)
+            shuffle_labels_into(y_padded[node, :ni], y_perm, base_seeds[node] + p)
             _, g, _, _, _ = _mdlp_best_split_njit(x_i, y_perm, n_classes_arr[node], min_split_size)
             null_chunk[li, k - li * width] = g if g > 0.0 else 0.0
         for li in range(live.size):

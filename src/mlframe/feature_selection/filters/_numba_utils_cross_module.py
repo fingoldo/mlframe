@@ -9,6 +9,8 @@ import math
 import numpy as np
 from numba import njit, prange
 
+from ._numba_utils_shuffle import shuffle_labels_into
+
 
 @njit(cache=True)
 def _accept_split_serial(
@@ -17,8 +19,8 @@ def _accept_split_serial(
     """Per-node permutation test (serial twin of ``_mdlp_permutation_batch_njit``): accept when the observed gain exceeds the
     ``ceil((1 - alpha) * B) - 1`` order statistic of the null gains, seeded per permutation.
 
-    Side effect: each draw reseeds the calling thread's numba RNG (``np.random.seed(base_seed + p)``), the same stream the batched twin uses, so the two stay draw-for-draw
-    identical. numba cannot save and restore that state inside a kernel; any other kernel that draws from ``np.random`` in the same thread must seed it first."""
+    The draws are ``shuffle_labels_into`` seeded ``base_seed + p``, the same call ``_mdlp_permutation_batch_njit`` makes, so the two stay draw-for-draw identical by construction and no
+    thread-local numba RNG is touched."""
     ni = x_i.shape[0]
     q_idx = min(math.ceil((1.0 - alpha) * n_permutations) - 1, n_permutations - 1)
     q_idx = max(0, q_idx)
@@ -28,14 +30,7 @@ def _accept_split_serial(
     reach = 0
     y_perm = np.empty(ni, dtype=np.int64)
     for p in range(n_permutations):
-        np.random.seed(base_seed + p)
-        for i in range(ni):
-            y_perm[i] = y_i[i]
-        for i in range(ni - 1, 0, -1):
-            j = int(np.random.randint(0, i + 1))
-            tmp = y_perm[i]
-            y_perm[i] = y_perm[j]
-            y_perm[j] = tmp
+        shuffle_labels_into(y_i, y_perm, base_seed + p)
         _, g, _, _, _ = _mdlp_best_split_njit(x_i, y_perm, n_classes, min_split_size)
         if g >= gain:
             reach += 1

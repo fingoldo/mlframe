@@ -2,6 +2,10 @@
 
 numba's ``np.random.randint`` (a Mersenne Twister draw with rejection sampling) cost about five times the scoring of the permutations it fed. These helpers are an xorshift64* generator seeded through splitmix64 and a multiply-shift reduction of a
 32-bit value to ``[0, bound)`` (the bias is below ``bound / 2**32``). A permutation seeded ``s`` is a pure function of ``s``, so rows drawn on different threads or in different chunks are the same data.
+
+``shuffle_labels_into`` is the one permutation draw of the MDLP split tests (per-node null, batched level test, serial twin) and is ``src[seeded_permutation(n, seed)]`` of the honest null:
+a stochastic test that exists as a serial and a batched twin must draw its permutations from this function (a private copy of the shuffle is how two twins end up on different streams
+and disagree on borderline splits; ``test_mdlp_serial_batch_twins`` pins both facts).
 """
 
 from __future__ import annotations
@@ -38,3 +42,19 @@ def bounded(x: np.uint64, bound: int) -> Any:
     """A value in ``[0, bound)`` from the state ``x`` (``bound`` at most 2**32)."""
     r = (x * np.uint64(2685821657736338717)) >> np.uint64(32)
     return np.int64((r * np.uint64(bound)) >> np.uint64(32))
+
+
+@njit(cache=True)
+def shuffle_labels_into(src: np.ndarray, dst: np.ndarray, seed: int) -> None:
+    """``dst`` = ``src`` read through the Fisher-Yates shuffle seeded ``seed`` (``src[seeded_permutation(len(src), seed)]``). The one permutation draw of the MDLP split tests: the serial
+    per-node test, the per-node null and the batched level test all call it, so they cannot drift to different streams."""
+    n = src.shape[0]
+    for i in range(n):
+        dst[i] = src[i]
+    x = seed_state(seed)
+    for i in range(n - 1, 0, -1):
+        x = next_state(x)
+        j = bounded(x, i + 1)
+        t = dst[i]
+        dst[i] = dst[j]
+        dst[j] = t

@@ -138,7 +138,8 @@ def test_unseen_group_falls_back_to_global_edges(fit_recipe, fit_data):
     assert np.isfinite(out).all()
     global_edges = np.asarray(payload["global_edges"], dtype=float)
     expected = float(np.searchsorted(global_edges, 0.3, side="right")) / max(1, global_edges.size)
-    assert out[0] == expected
+    # the replay is stored in the criterion dtype (float32 by default): the position fraction is compared at the precision it is stored in
+    assert out[0] == out.dtype.type(expected)
 
 
 def test_oof_fit_column_differs_from_naive_allrows_replay(fit_recipe, fit_data):
