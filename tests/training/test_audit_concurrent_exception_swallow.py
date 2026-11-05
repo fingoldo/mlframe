@@ -26,7 +26,7 @@ future.
 from __future__ import annotations
 
 import logging
-import time
+import threading
 
 # ---------------------------------------------------------------------------
 # Failure surfacing, exercised through the code that owns it
@@ -35,7 +35,6 @@ import time
 
 def test_kick_cpu_count_logs_at_debug_on_failure(monkeypatch, caplog) -> None:
     """A failing cpu_count prefetch is swallowed but leaves a DEBUG record with the traceback; a healthy one logs nothing."""
-    import threading
 
     import joblib.parallel
 
@@ -101,7 +100,7 @@ def test_prewarm_registers_done_callback(caplog) -> None:
         for _ in range(300):
             if any(sig in r.getMessage() for r in caplog.records):
                 break
-            time.sleep(0.01)
+            threading.Event().wait(0.01)
         logged = [r for r in caplog.records if sig in r.getMessage()]
         assert len(logged) == 1
         assert logged[0].levelno == logging.WARNING
@@ -157,12 +156,12 @@ def test_prewarm_done_callback_logs_warning_when_worker_raises(caplog) -> None:
     for _ in range(100):
         if fut.done():
             break
-        time.sleep(0.01)
+        threading.Event().wait(0.01)
     assert fut.done()
     # The callback may run on the executor thread; give it a beat.
     for _ in range(50):
         if "exc" in captured:
             break
-        time.sleep(0.01)
+        threading.Event().wait(0.01)
     assert isinstance(captured.get("exc"), RuntimeError)
     assert any("prewarm" in r.message for r in caplog.records)

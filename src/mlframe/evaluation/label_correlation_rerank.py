@@ -199,6 +199,7 @@ def _default_ranking_metric(y_true: np.ndarray, scores: np.ndarray) -> float:
     return float(label_ranking_average_precision_score(y_true[has_positive], scores[has_positive]))
 
 
+# unwired-ok: metric_fn is a documented caller-supplied scoring override; production uses the default metric
 def optimize_group_blend_weight(
     y_true: np.ndarray,
     pred_scores: np.ndarray,

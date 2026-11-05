@@ -19,7 +19,7 @@ from mlframe.feature_engineering.hurst import (
 )
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)  # fastmath-nan-ok: benchmark arm that copies the production kernel as measured
 def OLD_dfa_alpha(x):
     n = x.size
     if n < 20:
@@ -70,7 +70,7 @@ def OLD_dfa_alpha(x):
     return num / den if den > 0 else 0.0
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)  # fastmath-nan-ok: benchmark arm that copies the production kernel as measured
 def OLD_dfa_alpha2(x):
     n = x.size
     if n < 50:

@@ -17,6 +17,7 @@ inside the region, a single transfer for the whole measurement means it was hois
 
 from __future__ import annotations
 
+import threading
 import sys
 import types
 
@@ -116,14 +117,12 @@ def test_the_measure_helper_runs_setup_outside_the_timed_region():
     """`setup` exists precisely so the restore is not charged to the backend being measured."""
     from mlframe._ktc_dispatch_shared import measure_backend
 
-    import time
-
     calls = {"setup": 0, "fn": 0}
 
     def _setup():
         """A deliberately slow restore that must not land in the reported time."""
         calls["setup"] += 1
-        time.sleep(0.02)
+        threading.Event().wait(0.02)
 
     def _fn():
         """The measured work, which is far cheaper than the restore."""

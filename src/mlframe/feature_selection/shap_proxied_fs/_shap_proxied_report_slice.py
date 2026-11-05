@@ -41,7 +41,7 @@ def split_report_slice(
     n_rep = int(np.ceil(float(fraction) * len(idx_hold)))
     # a stratified split needs at least one row per class on both sides: a tiny fraction of a small holdout cannot give that and used to raise
     stratify = y_hold if classification and counts.size > 1 and counts.min() >= 2 and n_rep >= counts.size and len(idx_hold) - n_rep >= counts.size else None
-    keep, rep = train_test_split(idx_hold, test_size=float(fraction), random_state=int(random_state), shuffle=True, stratify=stratify)
+    keep, rep = train_test_split(idx_hold, test_size=float(fraction), random_state=int(random_state), shuffle=True, stratify=stratify)  # group-blind-ok: reached only without groups or with a single holdout group
     X_report = X.iloc[rep].reset_index(drop=True) if hasattr(X, "iloc") else np.asarray(X)[rep]
     return np.asarray(keep), (X_report, y_arr[rep])
 

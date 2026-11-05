@@ -25,6 +25,9 @@ META_DIR = Path(__file__).resolve().parent
 FLAG_EXEMPT: dict[str, str] = {
     # Flag predates the file name and renaming it would break the documented invocation.
     "_logger_lazy_baseline.json": "--refresh-logger-baseline",
+    # py-ci-shared ratchets: refreshed through the shared PY_CI_SHARED_REFRESH=<gate> environment route, shrink-only.
+    "_module_state_test_reset_baseline.json": "PY_CI_SHARED_REFRESH=module_state_test_reset",
+    "_patch_target_read_at_call_baseline.json": "PY_CI_SHARED_REFRESH=patch_target_read_at_call",
     "_module_level_logging_disable_baseline.json": "--refresh-logging-disable-baseline",
     "_numba_config_env_mutation_baseline.json": "--refresh-numba-config-env-baseline",
     # Refreshed by the batch entry point instead of a per-gate flag.

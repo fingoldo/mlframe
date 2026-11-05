@@ -154,10 +154,6 @@ def main() -> int:
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-
 def write_results(path: str | None = None) -> str:
     """Run all benches and persist a JSON results table under ``_results/`` (methodology: committed numbers)."""
     import json
@@ -175,3 +171,7 @@ def write_results(path: str | None = None) -> str:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(out, indent=2, sort_keys=True), encoding="utf-8")
     return str(p)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

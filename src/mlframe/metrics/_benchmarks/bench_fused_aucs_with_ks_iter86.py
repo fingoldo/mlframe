@@ -3,7 +3,7 @@ sys.modules['cupy'] = None
 import numpy as np
 from numba import njit
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)  # fastmath-nan-ok: benchmark arm that copies the production kernel as measured
 def aucs_with_ks(y_true, y_score, desc):
     n = len(desc)
     total_pos = 0.0

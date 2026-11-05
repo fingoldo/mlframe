@@ -159,7 +159,7 @@ def dro_reweight_fit(
             fold_model = fit_fn(X[tr_idx], y[tr_idx], w[tr_idx])
             pred = _predict_for_loss(fold_model, X[val_idx])
             if oof_pred is None:
-                oof_pred = np.empty((n, *pred.shape[1:]), dtype=np.float64)
+                oof_pred = np.full((n, *pred.shape[1:]), np.nan, dtype=np.float64)
             oof_pred[val_idx] = pred
         assert oof_pred is not None  # fold_splits is never empty
         losses = np.asarray(loss_fn(y, oof_pred), dtype=np.float64)

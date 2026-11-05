@@ -245,7 +245,7 @@ class _SafeJoblibUnpickler(_JoblibNumpyUnpickler):
         return _resolve_denylisted_class(module, name, super().find_class)
 
 
-def safe_joblib_load(filename: str) -> Any:
+def safe_joblib_load(filename: str, *, payload: Optional[bytes] = None) -> Any:
     """Restricted drop-in replacement for ``joblib.load`` that routes deserialization through
     :class:`_SafeJoblibUnpickler` instead of the unrestricted ``NumpyUnpickler``, blocking the classic
     pickle RCE gadgets (eval/exec/os/subprocess/etc.) while still permitting arbitrary custom model/
@@ -561,6 +561,9 @@ def _verify_bundle_digest(bundle_path: str, handle=None) -> None:
 
     The sidecar is written at save time next to the bundle; a bundle without a recorded digest, or with one that no longer matches, is not
     unpickled. ``MLFRAME_ALLOW_UNVERIFIED_PICKLE`` is the explicit opt-out for a bundle that predates the digest.
+
+    ``handle``: an open handle on the bundle; when given, its bytes are hashed, so the bytes verified are the bytes that get unpickled
+    (a second open could see a file another process replaced in between).
     """
     if not os.path.exists(bundle_path):
         # Nothing to verify: the loader's own read fails and returns its documented None for a missing file.

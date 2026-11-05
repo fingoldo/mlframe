@@ -325,6 +325,7 @@ def _layout(sel: List[int], edges: List[FriendGraphEdge], seed) -> Dict[int, Tup
     return {int(v): (float(np.cos(a)), float(np.sin(a))) for v, a in zip(sel, angles)}
 
 
+# unwired-ok: entropy_cache is a caller-supplied memo shared across calls; only tests inject one
 def build_friend_graph(
     selected_vars: Sequence[int],
     factors_data: np.ndarray,

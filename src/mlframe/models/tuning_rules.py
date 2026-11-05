@@ -211,7 +211,7 @@ def double_check_dist_params(cand: dict, rng: Optional[np.random.Generator] = No
     try on a deeper level.
     """
     if rng is None:
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(0)  # fixed default seed: resampled parameters must be reproducible
     nchanged = 1
     while nchanged > 0:
         nchanged = 0

@@ -74,7 +74,13 @@ def adapt_cv_informativeness(train_df: Any, val_df: Any, test_df: Any, target_co
         n_splits = min(3, len(X))
         if n_splits < 2:
             return {"error": "cv_informativeness: not enough rows for a CV split"}
-        cv_splits = list(KFold(n_splits=n_splits, shuffle=True, random_state=0).split(X))
+        _g = np.asarray(group_ids) if group_ids is not None and len(group_ids) == len(X) else None
+        if _g is not None and np.unique(_g).size >= n_splits:
+            from sklearn.model_selection import GroupKFold
+
+            cv_splits = list(GroupKFold(n_splits=n_splits).split(X, groups=_g))  # whole groups per fold, as the training CV does
+        else:
+            cv_splits = list(KFold(n_splits=n_splits, shuffle=True, random_state=0).split(X))  # group-blind-ok: no usable groups for this frame
         return cv_informativeness_check(
             X=X, y=np.asarray(y), cv_splits=cv_splits, model_factory=model_factory, metric_fn=metric_fn, **kwargs,
         )
@@ -107,8 +113,8 @@ def adapt_compare_cv_schemes(train_df: Any, val_df: Any, test_df: Any, target_co
         from typing import Iterable, Tuple
 
         schemes: Dict[str, Iterable[Tuple[np.ndarray, np.ndarray]]] = {
-            "kfold": list(KFold(n_splits=n_splits, shuffle=True, random_state=0).split(train_part_idx)),
-            "shuffled": list(ShuffleSplit(n_splits=n_splits, random_state=1).split(train_part_idx)),
+            "kfold": list(KFold(n_splits=n_splits, shuffle=True, random_state=0).split(train_part_idx)),  # group-blind-ok: the naive scheme is what this diagnostic compares
+            "shuffled": list(ShuffleSplit(n_splits=n_splits, random_state=1).split(train_part_idx)),  # group-blind-ok: the naive scheme is what this diagnostic compares
         }
         return compare_cv_schemes(
             X=X, y=np.asarray(y), schemes=schemes, ooo_time_idx=(train_part_idx, ooo_idx),

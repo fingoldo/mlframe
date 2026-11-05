@@ -322,7 +322,7 @@ def confirm_recipes_cross_fold(
     y_codes = _quantile_bin(np.asarray(y_codes, dtype=_crit_np_dtype()), nbins=nbins)
 
     if rng is None:
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(0)  # fixed default seed: the stability-vote folds must not change run to run
     folds = _vote_folds(cv_policy, n, k, rng)
     need = math.ceil(q * k)
 

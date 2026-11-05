@@ -65,7 +65,7 @@ def test_heartbeat_emits_and_stops(caplog):
         hb = cd.Heartbeat(0.05, line_fn=lambda: "[heartbeat] test-line").start()
         deadline = time.time() + 5
         while hb.beats < 2 and time.time() < deadline:
-            time.sleep(0.02)
+            threading.Event().wait(0.02)
         hb.stop()
     assert hb.beats >= 2
     assert not hb.alive

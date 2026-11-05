@@ -14,7 +14,6 @@ already crossed at this size, so the code path under test is the same.
 from __future__ import annotations
 
 import threading
-import time
 
 import pytest
 
@@ -38,7 +37,7 @@ def _peak_rss_during(fn):
                     peak[0] = rss
             except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                 pass
-            time.sleep(0.02)
+            threading.Event().wait(0.02)
 
     t = threading.Thread(target=sampler, daemon=True)
     t.start()

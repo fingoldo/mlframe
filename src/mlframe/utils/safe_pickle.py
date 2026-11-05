@@ -12,6 +12,7 @@ contracts, etc.).
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 from pyutilz.core.safe_pickle import (
@@ -35,6 +36,8 @@ __all__ = [
 
 UNVERIFIED_ENV_VAR = "MLFRAME_ALLOW_UNVERIFIED_PICKLE"
 
+_logger = logging.getLogger(__name__)
+
 
 def verify_sidecar(path: str, *, allow_unverified: Optional[bool] = None) -> bool:
     """Verify ``path``'s sha256 sidecar, honoring mlframe's ``MLFRAME_ALLOW_UNVERIFIED_PICKLE`` env var. See ``pyutilz.core.safe_pickle.verify_sidecar``."""
@@ -49,3 +52,4 @@ def verify_sidecar_payload(path: str, payload: bytes, *, allow_unverified: Optio
 def safe_load(path: str, *, allow_unverified: Optional[bool] = None) -> Any:
     """Verify then unpickle ``path``, honoring mlframe's ``MLFRAME_ALLOW_UNVERIFIED_PICKLE`` env var. See ``pyutilz.core.safe_pickle.safe_load``."""
     return _pyutilz_safe_load(path, allow_unverified=allow_unverified, env_var=UNVERIFIED_ENV_VAR)
+

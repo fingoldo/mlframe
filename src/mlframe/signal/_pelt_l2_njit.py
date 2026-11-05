@@ -12,8 +12,10 @@ from __future__ import annotations
 import numpy as np
 from numba import njit
 
+_NAN_SAFE_FASTMATH = {"nsz", "arcp", "contract", "afn", "reassoc"}  # no nnan/ninf: this kernel returns or tests NaN/inf
 
-@njit(cache=True, fastmath=True)
+
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
 def _pelt_l2_kernel(y: np.ndarray, min_size: int, penalty: float) -> np.ndarray:
     """Run PELT changepoint detection with the l2 cost via prefix sums and return the breakpoint indices."""
     n = y.shape[0]

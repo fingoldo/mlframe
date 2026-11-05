@@ -31,19 +31,18 @@ def test_times_spent_lock_is_a_real_mutex():
     non-atomic float += across threads)."""
     acquired_second = threading.Event()
     released_first = threading.Event()
+    holder_has_lock = threading.Event()
 
     def _holder():
         """Hold the lock briefly, signal release, then let go."""
         with _TIMES_SPENT_LOCK:
+            holder_has_lock.set()
             released_first.wait(timeout=2.0)
 
     t = threading.Thread(target=_holder)
     t.start()
     try:
-        # Give the holder thread a moment to actually acquire the lock first.
-        import time
-
-        time.sleep(0.05)
+        assert holder_has_lock.wait(timeout=2.0), "the holder thread never acquired the lock"
         assert _TIMES_SPENT_LOCK.acquire(blocking=False) is False, "lock should be held by the other thread"
     finally:
         released_first.set()

@@ -56,11 +56,6 @@ def profile():
     pstats.Stats(pr).sort_stats("cumulative").print_stats(8)
 
 
-if __name__ == "__main__":
-    bench()
-    profile()
-
-
 def bench_parallel():
     from mlframe.core.robust_location import _robust_mean_irls, _robust_mean_irls_parallel
     from mlframe.core.robust_location import WEIGHTS
@@ -76,3 +71,8 @@ def bench_parallel():
 
 if __name__ == "__main__" and "PARALLEL" in __import__("os").environ:
     bench_parallel()
+
+
+if __name__ == "__main__":
+    bench()
+    profile()

@@ -97,6 +97,7 @@ def _wavelet_legs_of_column(col, X, y_arr, allowed, max_scale, max_legs, scale_s
             "skipping wavelet for that column.", col, exc,
         )
         return []
+    y_num = np.asarray(y_arr, dtype=_crit_np_dtype())
     for j, k, leg_arr in legs:
         # Reuse the array _select_wavelet_legs already built to rank this survivor instead of rebuilding
         # it from scratch; a plain dtype cast (when feature_dtype differs from the selection's default
@@ -106,7 +107,6 @@ def _wavelet_legs_of_column(col, X, y_arr, allowed, max_scale, max_legs, scale_s
         if float(np.std(leg)) <= 1e-12:
             continue
         box = False
-        y_num = np.asarray(y_arr, dtype=_crit_np_dtype())
         if _heldout_r2(np.abs(leg), y_num) >= _heldout_r2(leg, y_num) + _WAVELET_BOX_MIN_R2_GAIN:
             leg = np.abs(leg)
             box = True

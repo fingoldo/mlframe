@@ -57,7 +57,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--sizes", type=str, default="1000,10000,100000", help="Comma-separated N values")
     parser.add_argument("--ds", type=str, default="64,1000,10000", help="Comma-separated d values")
-    parser.add_argument("--n_features", type=int, default=256)
+    parser.add_argument("--n-features", "--n_features", type=int, default=256)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--measured", type=int, default=7)

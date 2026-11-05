@@ -92,9 +92,9 @@ def _run_fit(*, gen: str, dist: str, model: str, use_mrmr: bool, seed: int = 0, 
                     return json.loads(line)
         last_err = (proc.stderr or "")[-3000:]
         if any(t in last_err.lower() for t in ("paging file", "memoryerror", "cannot allocate", "oom")) and attempt == 0:
-            import time as _t
+            import threading
 
-            _t.sleep(90)
+            threading.Event().wait(90)  # back off while the machine-wide memory pressure that killed the worker eases
             continue
         break
     raise RuntimeError(

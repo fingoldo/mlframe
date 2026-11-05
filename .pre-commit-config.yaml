@@ -668,7 +668,7 @@ repos:
   # runnable via `pre-commit run mypy-full-manual --hook-stage manual` for a quick changed-files-
   # only check without paying the whole-project scan) rather than deleting the hook entirely.
   - repo: https://github.com/fingoldo/py-ci-shared
-    rev: 2ab4fdf4b0e1c7ba7613913ac78ad61b91913391  # v1.23.8  # pragma: allowlist secret
+    rev: e13229e5707e73356eca2a74f39d4cd93af0db10  # v1.23.8  # pragma: allowlist secret
     hooks:
       - id: mypy-full-manual
         pass_filenames: true

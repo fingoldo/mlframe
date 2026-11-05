@@ -8,7 +8,6 @@ update, one in predict -- and 0 of 12 with these entry points serialised.
 from __future__ import annotations
 
 import threading
-import time
 from types import SimpleNamespace
 
 import pytest
@@ -25,7 +24,7 @@ def _fake_module():
         with state["lock"]:
             state["live"] += 1
             state["peak"] = max(state["peak"], state["live"])
-        time.sleep(0.01)
+        threading.Event().wait(0.01)
         with state["lock"]:
             state["live"] -= 1
 
@@ -36,6 +35,7 @@ def _fake_module():
     class Booster:
         """Stand-in for lightgbm.basic.Booster whose init, update and predict all go through the probe."""
         def __init__(self, *a, **k):
+            """Init."""
             _probe()
 
         update = _probe

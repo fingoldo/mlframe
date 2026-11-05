@@ -12,5 +12,5 @@ def ordinal_ranks_float(v: np.ndarray) -> np.ndarray:
     """Ordinal ranks via single argsort + scatter (bit-identical to argsort(argsort(v)), ~1.7-1.9x faster)."""
     order = np.argsort(v)
     r = np.empty(v.size, dtype=np.float64)
-    r[order] = np.arange(v.size, dtype=np.float64)
+    r[order] = np.arange(v.size, dtype=np.float64)  # ordinal-rank-ok: the function is the ordinal ranking; callers needing ties averaged use rankdata
     return r

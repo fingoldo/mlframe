@@ -15,9 +15,12 @@ BASH = shutil.which("bash")
 pytestmark = pytest.mark.skipif(BASH is None or shutil.which("git") is None, reason="needs bash and git")
 
 
+_GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}  # a hook's GIT_DIR/GIT_INDEX_FILE must not steer the child git
+
+
 def _git(cwd: Path, *args: str) -> str:
     """Run git in ``cwd`` and return stdout, failing the test on a non-zero exit."""
-    done = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", check=True)
+    done = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", check=True, env=_GIT_ENV)
     return done.stdout.strip()
 
 
@@ -27,7 +30,7 @@ def _clone_pair(tmp_path: Path) -> "tuple[Path, Path, Path]":
     _git(tmp_path, "init", "--bare", "-b", "master", str(remote))
     mine, other = tmp_path / "mine", tmp_path / "other"
     for clone in (mine, other):
-        subprocess.run(["git", "clone", str(remote), str(clone)], check=True, capture_output=True)
+        subprocess.run(["git", "clone", str(remote), str(clone)], check=True, capture_output=True, env=_GIT_ENV)
         _git(clone, "config", "user.email", "t@example.com")
         _git(clone, "config", "user.name", "t")
         _git(clone, "config", "core.autocrlf", "false")
@@ -153,7 +156,7 @@ def test_other_sessions_dirty_files_are_not_swept_into_the_merge_commit(tmp_path
 
     assert done.returncode == 0, done.stdout + done.stderr
     assert flag.exists(), "the failing merge-commit hook never ran, so the retry path was not exercised"
-    pushed = subprocess.run(["git", "--git-dir", str(remote), "show", "master:base.txt"], capture_output=True, text=True, encoding="utf-8", check=True).stdout
+    pushed = subprocess.run(["git", "--git-dir", str(remote), "show", "master:base.txt"], capture_output=True, text=True, encoding="utf-8", check=True, env=_GIT_ENV).stdout
     assert pushed == "base\n"
 
 

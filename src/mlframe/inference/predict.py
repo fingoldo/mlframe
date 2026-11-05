@@ -97,7 +97,7 @@ def _check_model_feature_order(model, expected_features: list, context: str, *, 
 def _load_features_file(features_file: str):
     """Prefer orjson-based sidecar (``features_file + '.json'`` or a ``.json`` twin),
     fall back to joblib. Both paths require a matching ``<candidate>.sha256`` sidecar (via
-    ``_verify_sidecar``) before the content is trusted. Returns a list[str], or None when no features
+    ``verify_sidecar_payload`` over the bytes it then loads) before the content is trusted. Returns a list[str], or None when no features
     file / sidecar is present or the sha256 sidecar mismatches. Malformed sidecar JSON propagates the
     decode error -- the sole caller, ``read_trained_models``, wraps this call in try/except and logs a
     warning.
@@ -110,24 +110,31 @@ def _load_features_file(features_file: str):
 
     for candidate in json_candidates:
         if isfile(candidate):
-            if not _verify_sidecar(candidate):
+            with open(candidate, "rb") as f:
+                raw = f.read()
+            if not _verify_sidecar_payload(candidate, raw):
                 log_throttle(logger, "predict_features_json_sidecar_sha256_mismatch", logging.ERROR, "sha256 mismatch for features JSON sidecar %s; refusing to load", candidate)
                 return None
             import orjson
 
-            with open(candidate, "rb") as f:
-                data = orjson.loads(f.read())
+            data = orjson.loads(raw)
             if isinstance(data, list):
                 return [str(c) for c in data]
             log_throttle(logger, "predict_features_json_not_a_list", logging.WARNING, "JSON features file %s did not contain a list", candidate)
             return None
 
-    if not _verify_sidecar(features_file):
+    try:
+        with open(features_file, "rb") as f:
+            features_raw = f.read()
+    except OSError:
+        logger.error("features file %s cannot be read; refusing to load", features_file)
+        return None
+    if not _verify_sidecar_payload(features_file, features_raw):
         logger.error("sha256 mismatch for features file %s; refusing to load", features_file)
         return None
 
     # Trusts the sha256 sidecar verified just above: an integrity/corruption gate, NOT authenticity (an attacker with dir write access rewrites both).
-    features = safe_joblib_load(features_file)
+    features = safe_joblib_load(features_file, payload=features_raw)
     if isinstance(features, pd.core.indexes.base.Index):
         # ``.to_list()`` is the pandas-modern path (handles nullable dtypes); ``.values.tolist()`` round-trips through ndarray needlessly.
         features = features.to_list()

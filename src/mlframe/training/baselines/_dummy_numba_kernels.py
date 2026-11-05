@@ -27,8 +27,10 @@ except ImportError:
     _NUMBA_AVAILABLE = False
 
 
+_NAN_SAFE_FASTMATH = {"nsz", "arcp", "contract", "afn", "reassoc"}  # no nnan/ninf: the log-loss kernel returns NaN
+
 if _NUMBA_AVAILABLE:
-    @njit(parallel=True, fastmath=True, cache=True)
+    @njit(parallel=True, fastmath=_NAN_SAFE_FASTMATH, cache=True)
     def _numba_macro_log_loss(y_int, p, n, K):
         """Per-label-averaged binary log-loss; skips all-constant labels.
 

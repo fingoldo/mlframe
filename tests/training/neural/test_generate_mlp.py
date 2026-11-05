@@ -858,8 +858,10 @@ def test_nlayers_exactly_one():
         verbose=0,
     )
     assert isinstance(model, nn.Sequential)
-    linear_layers = [m for m in model.modules() if isinstance(m, nn.Linear)]
-    assert len(linear_layers) == 2  # 1 hidden + 1 output
+    # one more layer than the boundary adds exactly one hidden Linear, so the boundary is not off by one
+    deeper = generate_mlp(num_features=10, num_classes=2, nlayers=2, verbose=0)
+    n_linear = lambda m: len([x for x in m.modules() if isinstance(x, nn.Linear)])
+    assert n_linear(model) == 2 and n_linear(deeper) == 3
 
 
 def test_groupnorm_zero_disables():
@@ -943,16 +945,8 @@ def test_dropout_not_applied_when_negative():
 
     Kills mutation: `dropout_prob > 0` to `!= 0`.
     """
-    # Dropout prob of exactly 0 should not add dropout
-    model = generate_mlp(
-        num_features=10,
-        num_classes=2,
-        nlayers=2,
-        dropout_prob=0.0,
-        inputs_dropout_prob=0.0,
-        verbose=0,
-    )
-    assert count_layers_of_type(model, nn.Dropout) == 0
+    with pytest.raises(ValueError, match="dropout_prob must be >= 0.0"):
+        generate_mlp(num_features=10, num_classes=2, nlayers=2, dropout_prob=-0.1, inputs_dropout_prob=0.0, verbose=0)
 
 
 # ================================================================================================

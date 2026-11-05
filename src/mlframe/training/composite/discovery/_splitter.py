@@ -38,8 +38,8 @@ def make_discovery_splitter(n_splits: int, *, groups: Any = None, time_aware: bo
     if time_aware:
         return TimeSeriesSplit(n_splits=n_splits), None
     if contiguous:
-        return KFold(n_splits=n_splits, shuffle=False), None
-    return KFold(n_splits=n_splits, shuffle=True, random_state=int(random_state)), None
+        return KFold(n_splits=n_splits, shuffle=False), None  # group-blind-ok: explicit contiguous request; groups were reported above when too few
+    return KFold(n_splits=n_splits, shuffle=True, random_state=int(random_state)), None  # group-blind-ok: fewer groups than folds, warned above
 
 
 def discovery_splits(n_rows: int, n_splits: int, *, groups: Any = None, time_aware: bool = False, random_state: int = 0, contiguous: bool = False) -> list:

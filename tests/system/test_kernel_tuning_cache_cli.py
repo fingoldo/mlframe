@@ -164,9 +164,10 @@ def test_main_no_command_prints_help(capsys):
     mock_discover.assert_not_called()
 
 
-def test_main_explicit_empty_argv_treated_as_no_command(capsys):
+def test_main_explicit_empty_argv_treated_as_no_command(capsys, monkeypatch):
     """main(argv=[]) means 'no arguments were given' and must print help, not fall back to
     sys.argv (`argv or sys.argv[1:]` would wrongly treat an explicit [] as falsy)."""
+    monkeypatch.setattr("sys.argv", ["ktc", "list"])  # a fallback to sys.argv would run `list` and call discover_specs
     with patch.object(ktc_cli, "discover_specs") as mock_discover:
         rc = ktc_cli.main([])
     assert rc == 0

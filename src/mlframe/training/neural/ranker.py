@@ -574,7 +574,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         # path. Set via constructor for callers that need bit-exact gradient
         # flow vs prior behaviour (e.g., test reproducibility on a tiny
         # query set where the 32x averaging shifts the loss surface).
-        self.accumulate_grad_batches = max(1, int(accumulate_grad_batches))
+        self.accumulate_grad_batches = accumulate_grad_batches
 
     def __getstate__(self) -> dict:
         # ``trainer_`` is a live ``lightning.pytorch.Trainer`` that references a
@@ -790,7 +790,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
             # OPT-6: see __init__ docstring -- amortizes
             # optimizer.step() cost across N batches (queries). 1 = legacy
             # per-query update; 32 = batched gradient update.
-            accumulate_grad_batches=self.accumulate_grad_batches,
+            accumulate_grad_batches=max(1, int(self.accumulate_grad_batches)),
         )
         return trainer
 

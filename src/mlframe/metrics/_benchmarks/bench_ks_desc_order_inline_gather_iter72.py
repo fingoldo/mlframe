@@ -56,11 +56,6 @@ def bench(n, reps=200, trials=30):
           f"min-speedup {o_min/n_min:.2f}x  med {o_med/n_med:.2f}x | identical={v_old==v_new}")
 
 
-if __name__ == "__main__":
-    for n in (2048, 10000, 50000, 200000, 500000):
-        bench(n)
-
-
 def bench_standalone(n, reps=100, trials=25):
     """The _reporting_probabilistic per-class path: ks_statistic(yt, ys) with NO desc_order -> own argsort + (gather|inline)."""
     from mlframe.metrics.classification import _classification_extras as ex
@@ -92,3 +87,8 @@ def bench_standalone(n, reps=100, trials=25):
     ex._KS_INLINE_ORDERED_MIN_N = orig
     print(f"standalone n={n:>7}: OLD min {o_min*1e6:8.1f}us | NEW min {n_min*1e6:8.1f}us | "
           f"min {o_min/n_min:.3f}x med {o_med/n_med:.3f}x | identical={v_old==v_new}")
+
+
+if __name__ == "__main__":
+    for n in (2048, 10000, 50000, 200000, 500000):
+        bench(n)

@@ -117,7 +117,7 @@ def test_catalogue_function_reachable_via_adapter(name):
     """The adapter built by name wraps the exported function itself."""
     adapter = ShortlistTransformerAdapter(name)
     assert isinstance(adapter, ShortlistTransformerAdapter)
-    assert adapter.compute_fn is getattr(pkg, name)
+    assert adapter._resolved_fn is getattr(pkg, name)
 
 
 def test_factory_rejects_non_catalogue_name():
