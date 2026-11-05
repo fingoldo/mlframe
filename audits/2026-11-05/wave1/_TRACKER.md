@@ -48,8 +48,8 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **OPEN** | R4-05 | resource | Low | `reporting/charts/slice_finder.py:386,392`: all pairs built before the cap |
 | **OPEN** | S5-04 | leakage | Low | `training/composite/count_weighted_blend.py:139`: auto-k error ignores sample weights |
 | **RESOLVED** | M6-02 | numerics | Low | `metrics/calibration/_calibration_metrics.py:78-83`: all-zero hits report perfect calibration |
-| **OPEN** | M6-03 | numerics | Low | `core/stats.py:67-78`: Tukey multiplier at quantile 0.5 is `inf` |
-| **OPEN** | M6-04 | numerics | Low | `core/proportion_stats.py:89-98`: impossible counts get an answer |
+| **RESOLVED** | M6-03 | numerics | Low | `core/stats.py:67-78`: Tukey multiplier at quantile 0.5 is `inf` |
+| **RESOLVED** | M6-04 | numerics | Low | `core/proportion_stats.py:89-98`: impossible counts get an answer |
 | **OPEN** | K7-02 | parity | Low | `_fe_batched_mi.py:115-117`, `_null_max_perm_gpu.py:39-42,91-93`: NaN bin differs between kernel and fallback |
 | **OPEN** | C8-04 | state | Low | `_mrmr_fit_impl/_fit_impl_core.py:35` vs `_fit_impl_core_parts.py:26,232-233`: two different fit-cache locks |
 | **OPEN** | C8-05 | state | Low | `_fe_resident_operands.py:132-149`: identity-keyed content memo |

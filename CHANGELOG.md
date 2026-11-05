@@ -20,6 +20,7 @@ history.
 - `fe_provenance_` labels the columns admitted by the auto-escalation (`esc_*`) with the origin `escalation`, and the escalation writes its admissions to `fe_admission_ledger_` (stage `escalation`), so where such a column came from is readable without instrumenting the fit.
 
 ### Fixed
+- `get_tukey_fences_multiplier_for_quantile` raises for the median (quantile 0.5), where the multiplier is undefined; it returned inf. `proportions_significantly_different` raises when a count exceeds its sample size instead of answering.
 - `RFECV.set_params` keeps a grouped config object (`search_config`, `fi_config`, `robustness_config`) and the flat attributes consistent. Changing a flat field such as `max_refits` left the config's old value in place, so `clone` failed the sklearn parameter check; passing a config object to `set_params` was ignored.
 - Wrapping a model for a multilabel target logs a warning naming the early-stopping parameters it switches off, since the per-label fits then train for their full budget. A failure to switch them off is a warning too (it was debug only).
 - A loss-fallback refit that both refit paths reject restores the model's original parameters. The fallback loss used to stay on the model after the refit failed, so saved metadata and later refits described a booster that never trained on that loss.
