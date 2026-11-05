@@ -91,9 +91,6 @@ def _clamp_mi_nonneg(mi: float, estimator: str) -> float:
     return max(0.0, mi)
 
 
-_NEURAL_MI_DEVICE = os.environ.get("MLFRAME_NEURAL_MI_DEVICE", "auto")
-
-
 def _resolve_device(device: str = "auto"):
     """Pick CUDA if available and requested, else CPU. Raises if cuda asked
     explicitly but not available."""
@@ -263,10 +260,15 @@ def mine_mi(
 # =============================================================================
 
 
-_INFONET_CACHE_DIR = Path(os.environ.get(
-    "MLFRAME_INFONET_CACHE",
-    str(Path.home() / ".cache" / "mlframe" / "infonet"),
-))
+#: Set to a path to override the InfoNet cache directory; ``None`` reads ``MLFRAME_INFONET_CACHE`` at call time.
+_INFONET_CACHE_DIR: "Path | None" = None
+
+
+def _infonet_cache_dir() -> Path:
+    """The InfoNet checkpoint directory, resolved per call so the environment can change after import."""
+    if _INFONET_CACHE_DIR is not None:
+        return Path(_INFONET_CACHE_DIR)
+    return Path(os.environ.get("MLFRAME_INFONET_CACHE", str(Path.home() / ".cache" / "mlframe" / "infonet")))
 _INFONET_MODEL_CACHE: dict = {}
 # Guards the lazy double-checked init of the neural-MI model / calibration caches below: without it two
 # threads missing concurrently both run the (slow, side-effectful) load/calibration and race the dict write.
@@ -298,7 +300,7 @@ def _get_infonet_model(device: str = "auto"):
     with _NEURAL_MI_CACHE_LOCK:
         if cache_key in _INFONET_MODEL_CACHE:
             return _INFONET_MODEL_CACHE[cache_key]
-        ckpt_path = _INFONET_CACHE_DIR / "infonet_pretrained.pt"
+        ckpt_path = _infonet_cache_dir() / "infonet_pretrained.pt"
         if not ckpt_path.exists():
             raise RuntimeError(
                 f"InfoNet checkpoint not found at {ckpt_path}. "
