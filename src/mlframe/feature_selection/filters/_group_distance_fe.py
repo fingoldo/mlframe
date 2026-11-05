@@ -62,7 +62,7 @@ except ImportError:  # numba is an optional dep; fall back to scipy below.
     _HAVE_NUMBA = False
 
 from ._grouped_coerce_shared import auto_detect_group_cols, auto_detect_num_cols_plain as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
-from ._internals import group_key_strings
+from ._internals import group_key_strings, stable_argsort_codes
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -190,7 +190,7 @@ def _wasserstein1_all_groups(x: np.ndarray, fin_order: np.ndarray, gid: np.ndarr
     column shared by every group column) are stable-sorted by group id, so each group's values come out contiguous and sorted, the same values the per-group
     ``np.sort`` gives (the W1 integral depends only on the sorted multiset)."""
     gsorted = gid[fin_order]
-    perm = np.argsort(gsorted, kind="stable")
+    perm = stable_argsort_codes(gsorted, n_groups)
     vals = np.ascontiguousarray(x[fin_order][perm], dtype=np.float64)  # Intentional float64: KS statistic sorted operand, as the per-group path casts it
     offsets = np.zeros(n_groups + 1, dtype=np.int64)
     np.cumsum(np.bincount(gsorted, minlength=n_groups), out=offsets[1:])

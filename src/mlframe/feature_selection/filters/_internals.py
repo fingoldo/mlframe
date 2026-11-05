@@ -179,6 +179,18 @@ def smart_log(x: np.ndarray) -> np.ndarray:
             return np.asarray(np.log(x))
         return np.asarray(np.log(x + (1e-5 - x_min)))
 
+def stable_argsort_codes(codes: np.ndarray, n_codes: int) -> np.ndarray:
+    """``np.argsort(codes, kind="stable")`` for integer ``codes`` in ``[0, n_codes)``, through the narrowest unsigned type that holds them.
+
+    numpy sorts 8 and 16 bit integers with a radix sort when the sort is stable (several times faster than the comparison sort of a 64 bit key on 100000 rows); the order is the
+    same, since a stable sort of equal keys is unique. ``n_codes`` above 65536 keeps the input dtype."""
+    codes = np.asarray(codes)
+    if n_codes <= 256:
+        codes = codes.astype(np.uint8, copy=False)
+    elif n_codes <= 65536:
+        codes = codes.astype(np.uint16, copy=False)
+    return np.argsort(codes, kind="stable")
+
 def canonical_group_token(value: object) -> str:
     """Stable per-value group/category key robust to int<->float dtype drift.
 
