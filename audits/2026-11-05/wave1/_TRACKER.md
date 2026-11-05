@@ -52,8 +52,8 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **RESOLVED** | M6-04 | numerics | Low | `core/proportion_stats.py:89-98`: impossible counts get an answer |
 | **OPEN** | K7-02 | parity | Low | `_fe_batched_mi.py:115-117`, `_null_max_perm_gpu.py:39-42,91-93`: NaN bin differs between kernel and fallback |
 | **RESOLVED** | C8-04 | state | Low | `_mrmr_fit_impl/_fit_impl_core.py:35` vs `_fit_impl_core_parts.py:26,232-233`: two different fit-cache locks | Fixed: one canonical lock in `_fit_impl_core_parts.py`, imported by the core module; test `tests/feature_selection/contracts/test_mrmr_fit_cache_lock_is_one_object.py`.
-| **OPEN** | C8-05 | state | Low | `_fe_resident_operands.py:132-149`: identity-keyed content memo |
-| **OPEN** | C8-06 | state | Low | `info_theory/_cmi_cuda.py:95-121`: identity-keyed F-order copy cache |
+| **DOC** | C8-05 | state | Low | `_fe_resident_operands.py:132-149`: identity-keyed content memo. Latent: no current caller mutates an operand in place and then reuses it. A guard (re-hash every writable array) would cost the hot path the memo exists to save; the contract stays documented as read-only operands. |
+| **DOC** | C8-06 | state | Low | `info_theory/_cmi_cuda.py:95-121`: identity-keyed F-order copy cache. Latent: the DCD path calls `conditional_mi` directly, not `_cpu_cmi_loop` on the mutated `factors_data`. A writable-input guard would copy per call on the hot path. |
 | **RESOLVED** | C8-07 | state | Low | `_gpu_resident_rank_bin.py:80-87`: device-array cache without device id |
 | **RESOLVED** | C8-08 | state | Low | `_neural_mi.py:94`, `_confirm_predictor.py:63`, `_orth_extra_basis_fe_helpers.py:389`: env vars read at import | Fixed: the three gates are read per call, with the module attribute kept as a test override; test `tests/feature_selection/filters/test_env_gates_read_at_call_time.py`.
 | **RESOLVED** | X9-06 | silent_failure | Low | `training/honest_diagnostics.py:592-594,249-251,278-280`: failed blocks become `skipped` at debug |
