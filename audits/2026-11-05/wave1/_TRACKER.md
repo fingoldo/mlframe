@@ -43,7 +43,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **RESOLVED** | D1-03 | deserialization | Low | `training/io.py` `load_mlframe_model`, `inference/predict.py` `read_trained_models`, `training/core/_metadata_loader.py`: each reads a file once, verifies those bytes and unpickles the same bytes. Tests `test_load_model_bundle_read_once.py`, `test_read_trained_models_unpickles_the_verified_bytes.py`, `test_metadata_loader_joblib_loads_the_verified_bytes.py`. |
 | **RESOLVED** | E2-01 | filesystem | Low | `training/feature_handling/hf_provider.py:118-122`: lock falls back to a predictable shared-temp name |
 | **DOC** | N3-01 | supply_chain | Low | `.pre-commit-config.yaml:126,200,459`: ruff-pre-commit pinned to a mutable tag. Kept as the tag `v0.16.10`: the shared `pinned-tool-versions` gate in py-ci-shared requires the literal tag form, and a SHA pin fails it. Mitigation is the tag match enforced by that gate. |
-| **OPEN** | N3-02 | supply_chain | Low | `feature_selection/filters/_neural_mi.py:278-291`: InfoNet checkpoint pin trusts the first file seen |
+| **DOC** | N3-02 | supply_chain | Low | `feature_selection/filters/_neural_mi.py:278-291`: InfoNet checkpoint pin trusts the first file seen. Kept as trust-on-first-use (the logged first-use record). A real pin needs the upstream checkpoint digest, which the repo does not contain; the owner can supply it. |
 | **OPEN** | N3-03 | supply_chain | Low | `training/feature_handling/hf_provider.py:74-84`: unlisted model loads hub `main` without a revision |
 | **RESOLVED** | R4-05 | resource | Low | `reporting/charts/slice_finder.py:386,392`: all pairs built before the cap | Fixed: pairs are enumerated lazily and only the kept prefix is built; test `tests/reporting/test_slice_finder_pair_cap_is_lazy.py`.
 | **RESOLVED** | S5-04 | leakage | Low | `training/composite/count_weighted_blend.py:139`: auto-k error ignores sample weights |
@@ -65,7 +65,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **RESOLVED** | P10-06 | api | Low | `estimators/custom.py:665-676`: `IdentityEstimator.fit` sets no `n_features_in_` |
 | **RESOLVED** | P10-07 | api | Low | `docs/ENVIRONMENT_VARIABLES.md` vs code: five switches undocumented; `MLFRAME_FE_GPU_FUSE_MI` read nowhere |
 | **RESOLVED** | R4-06 | resource | Info | `evaluation/blend_source_selection.py:85-99`: warns, then allocates two `n x n` matrices | Fixed: the rank-agreement comparison is built in row blocks with a budget constant; test `tests/evaluation/test_blend_source_pairwise_blocks_match_full_matrix.py`.
-| **OPEN** | K7-03 | parity | Info | `_null_max_perm_gpu.py:160,186`: no shared-memory check; fallback logged at debug |
+| **FUTURE** | K7-03 | parity | Info | `_null_max_perm_gpu.py:160,186`: no shared-memory check; fallback logged at debug. Real: the bitset kernel's shared bytes are `(64*nbins + nbins)*4`, above the 48 KiB default at about nbins 190, so the launch fails there. Next step: cap the permutations per launch by the device's dynamic shared-memory limit (a per-chunk size that keeps shared bytes under it), add a GPU test at nbins=256, and log the fallback at warning. Deferred: it needs a GPU shape bench across nbins. |
 
 ## Reports whose scope was incomplete
 
