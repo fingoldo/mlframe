@@ -108,12 +108,17 @@ def rank_bin_codes_gpu_resident(x_gpu: Any, n_bins: int) -> Any:
         nb = int(n_bins)
         if nb <= 1:
             return cp.zeros(n, dtype=cp.int32)
-        si = cp.argsort(xg)  # cupy argsort is stable -> bit-identical rank on tie-free columns
+        si = cp.argsort(xg)  # cupy argsort is stable; the tie rule below makes the codes order-independent on ties too
         bnd = _bin_boundaries_dev(cp, n, nb)
         pos = cp.arange(n, dtype=cp.int64)
-        binid = cp.searchsorted(bnd, pos, side="right").astype(cp.int32)
+        binid = cp.searchsorted(bnd, pos, side="right").astype(cp.int32)  # bin of each sorted position
+        xs = xg[si]
+        same = (xs[1:] == xs[:-1]) | (cp.isnan(xs[1:]) & cp.isnan(xs[:-1]))
+        is_start = cp.concatenate([cp.ones(1, dtype=cp.bool_), ~same])
+        # first sorted position of each row's tie group: the group number (cumulative count of group starts) indexes the start positions
+        group_start = cp.nonzero(is_start)[0][cp.cumsum(is_start, dtype=cp.int64) - 1]
         out = cp.empty(n, dtype=cp.int32)
-        out[si] = binid
+        out[si] = binid[group_start]
         return out
     except Exception as _exc:
         logger.warning("rank_bin_codes_gpu_resident: cupy failed (%s)", _exc)
@@ -159,10 +164,20 @@ def rank_bin_codes_batch_gpu_resident(X_gpu: Any, n_bins: int) -> Any:
         bnd = _bin_boundaries_dev(cp, n, nb)
         pos = cp.arange(n, dtype=cp.int64)
         binid = cp.searchsorted(bnd, pos, side="right").astype(cp.int32)  # (n,) rank->bin, shared across cols
+        xs = cp.take_along_axis(Xg, si, axis=0)
+        same = (xs[1:] == xs[:-1]) | (cp.isnan(xs[1:]) & cp.isnan(xs[:-1]))
+        is_start = cp.concatenate([cp.ones((1, k), dtype=cp.bool_), ~same], axis=0)
+        # first sorted position of each row's tie group, per column: starts are listed column by column, then a row's group
+        # number within its column offsets into that list
+        start_row = cp.nonzero(is_start.T)[1]
+        starts_per_col = is_start.sum(axis=0, dtype=cp.int64)
+        col_offset = cp.concatenate([cp.zeros(1, dtype=cp.int64), cp.cumsum(starts_per_col)[:-1]])
+        group_no = cp.cumsum(is_start, axis=0, dtype=cp.int64) - 1
+        group_start = start_row[col_offset[None, :] + group_no]
         out = cp.empty((n, k), dtype=cp.int32)
-        # scatter per column: out[si[:, j], j] = binid. Vectorised via take_along_axis-style assignment.
+        # scatter per column: out[si[:, j], j] = bin of the tie group's first position. Vectorised via broadcast indices.
         cols = cp.broadcast_to(cp.arange(k, dtype=cp.int64), (n, k))
-        out[si, cols] = binid[:, None]
+        out[si, cols] = binid[group_start]
         return out
     except Exception as _exc:
         logger.warning("rank_bin_codes_batch_gpu_resident: cupy failed (%s)", _exc)

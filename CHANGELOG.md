@@ -11,6 +11,7 @@ history.
 
 ## [Unreleased]
 ### Changed
+- Rank binning (`_quantile_bin_njit`, the numpy and class-balanced twins, and the GPU rank binners) keeps a run of equal values in one bin: the run takes the bin of its first sorted position. The old rule split tied values across bins by row order, so a constant column with row-ordered labels scored a non-zero MI. Feature-selection scores on tied columns change accordingly; the CPU and GPU rank paths agree.
 - `select_features_noise_floor` chooses its cut with `stop_rule="band"` by default: the smallest N whose real score lies within the permuted-null spread of the real best score. The previous increment rule kept every feature when `rerank="permutation"` made the null fall with N; `stop_rule="plateau"` restores it.
 - `MRMR(fe_pair_usability_prescan_max_pairs=None)` scans every pair for the dominant-pair usability check, in blocks sized from the free host RAM; the old default of 256 pairs is gone. The running maximum keeps the first pair of the largest value, so the decision is the same as one call over all pairs. The GPU admission check for the usability scan counts the operand matrix at its own dtype, not at float64, so a float32 scan is admitted on a smaller card; a block that does not fit the VRAM cushion is sized down, so the scan no longer falls back to the CPU block by block.
 

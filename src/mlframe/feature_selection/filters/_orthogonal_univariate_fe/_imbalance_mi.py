@@ -218,15 +218,25 @@ def _class_balanced_mi_batch_njit(
     for j in prange(k):
         col = X_cols[:, j]
         sort_idx = np.argsort(col, kind="mergesort")
-        x_binned = np.empty(n, dtype=np.int64)
         base = n // n_bins
         rem = n % n_bins
+        bin_of_pos = np.empty(n, dtype=np.int64)
         pos = 0
         for b in range(n_bins):
             size = base + (1 if b < rem else 0)
             for _ in range(size):
-                x_binned[sort_idx[pos]] = b
+                bin_of_pos[pos] = b
                 pos += 1
+        # Tie rule shared with ``_quantile_bin_sorted_njit``: a run of equal values takes the bin of its first sorted position.
+        x_binned = np.empty(n, dtype=np.int64)
+        group_start = 0
+        for p in range(n):
+            if p > 0:
+                prev = col[sort_idx[p - 1]]
+                cur = col[sort_idx[p]]
+                if not (prev == cur or (prev != prev and cur != cur)):
+                    group_start = p
+            x_binned[sort_idx[p]] = bin_of_pos[group_start]
 
         # Intentional float64: statistic vector and histogram accumulators (MI), exact ties decide the selection
         hist_xy = np.zeros((n_bins, n_classes), dtype=np.float64)

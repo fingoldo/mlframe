@@ -409,15 +409,26 @@ def _quantile_bin_sorted_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     n = x.shape[0]
     # NaN is keyed as +inf so it sorts last, as in numpy and cupy; the stable sort keeps NaN rows in row order.
     sort_idx = np.argsort(np.where(np.isnan(x), np.inf, x), kind="mergesort")
-    out = np.empty(n, dtype=np.int32)
+    # Tie rule: a run of equal values is one group and takes the bin of its first sorted position, so no value is split
+    # across bins. Every rank binner (CPU njit, CPU sorted reference, GPU) follows this rule.
+    bin_of_pos = np.empty(n, dtype=np.int32)
     pos = 0
     base = n // n_bins
     rem = n % n_bins
     for b in range(n_bins):
         size = base + (1 if b < rem else 0)
         for _ in range(size):
-            out[sort_idx[pos]] = b
+            bin_of_pos[pos] = b
             pos += 1
+    out = np.empty(n, dtype=np.int32)
+    group_start = 0
+    for p in range(n):
+        if p > 0:
+            prev = x[sort_idx[p - 1]]
+            cur = x[sort_idx[p]]
+            if not (prev == cur or (prev != prev and cur != cur)):
+                group_start = p
+        out[sort_idx[p]] = bin_of_pos[group_start]
     return out
 
 
@@ -449,9 +460,9 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
                     hi = m
             out[i] = lo
         return out
-    # Equal values that straddle a bin boundary are placed as the stable sort places them: after every smaller value, in row order. ``below`` is the number of smaller values of such a run
-    # (counted once per distinct value) and ``seen`` how many of its rows have been placed so far.
-    below, canon, seen = _quantile_crossing_offsets(n_bins, cuts, crossing, n, x)
+    # Equal values that straddle a bin boundary go, as one group, to the bin of their first sorted position (the tie rule of
+    # ``_quantile_bin_sorted_njit``). ``below`` is the number of smaller values of such a run, counted once per distinct value.
+    below, canon, _seen = _quantile_crossing_offsets(n_bins, cuts, crossing, n, x)
     for i in range(n):
         v = x[i]
         lo = 0
@@ -464,8 +475,7 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
                 hi = m
         if lo > 0 and cuts[lo - 1] == v and crossing[lo - 1]:
             c = canon[lo - 1]
-            position = below[c] + seen[c]
-            seen[c] += 1
+            position = below[c]
             blo = 0
             bhi = n_bins - 1
             while blo < bhi:
