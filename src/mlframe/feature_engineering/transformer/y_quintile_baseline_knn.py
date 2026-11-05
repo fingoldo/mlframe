@@ -42,6 +42,7 @@ import numpy as np
 import polars as pl
 
 from ._utils import require_seed, strictly_increasing_edges, validate_numeric_input
+from ._baseline_oof import fold_train_groups
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ _N_STRATA = 5
 _K_NEIGHBOURS = 8
 
 
-def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int) -> np.ndarray:
+def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, groups=None) -> np.ndarray:
     """Out-of-fold baseline predictions on Xt; see ``_baseline_oof.fit_baseline_predict_oof``.
 
     The previous form took a separate ``Xall`` to predict on, but its one call site passed the train matrix
@@ -58,7 +59,7 @@ def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int)
     """
     from ._baseline_oof import fit_baseline_predict_oof
 
-    return fit_baseline_predict_oof(Xt, y_t, task, seed, n_estimators=100, max_depth=5, caller="y_quintile_baseline_knn")
+    return fit_baseline_predict_oof(Xt, y_t, task, seed, n_estimators=100, max_depth=5, caller="y_quintile_baseline_knn", groups=groups)
 
 
 def _knn_pred_stats(X_stratum: np.ndarray, pred_stratum: np.ndarray, X_query: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
@@ -101,7 +102,7 @@ def compute_y_quintile_baseline_knn_features(
     X_train_f = np.asarray(X_train, dtype=np.float32)
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
-    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int, groups_t=None) -> np.ndarray:
         """Stratify the train fold into ``_N_STRATA`` y-bands (quantile bands for regression, baseline-probability bands for binary), then for each stratum compute the mean/std of the in-band baseline predictions among each query row's k nearest in-band neighbours."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -112,7 +113,7 @@ def compute_y_quintile_baseline_knn_features(
             Xt_s = Xt
             Xq_s = Xq
 
-        pred_train = _fit_baseline_predict(Xt_s, y_t, task=task, seed=fold_seed)
+        pred_train = _fit_baseline_predict(Xt_s, y_t, task=task, seed=fold_seed, groups=groups_t)
 
         if task == "binary":
             # No epsilon shift: the >=lo & <hi (all bands) / >=lo & <=hi (last band) masking scheme
@@ -173,7 +174,7 @@ def compute_y_quintile_baseline_knn_features(
     out: np.ndarray = np.full((n_train, n_features), np.nan, dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("y_quintile_baseline_knn: fold %d/%d done", fold_idx + 1, len(splits))
 

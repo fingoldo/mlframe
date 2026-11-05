@@ -16,7 +16,21 @@ held-out Xq and returns a pair; ``y_quintile_baseline_knn`` calls this one with 
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+def fold_train_groups(splitter, train_idx):
+    """Group labels of one outer fold's training rows, or ``None`` when the splitter carries no groups.
+
+    A ``BoundSplitter`` (or any splitter exposing ``groups``) hands its labels to the baseline through this helper, so the
+    inner baseline folds are group-aware on the same rows the outer fold trains on.
+    """
+    groups = getattr(splitter, "groups", None)
+    return None if groups is None else np.asarray(groups)[np.asarray(train_idx)]
 
 
 def fit_baseline_predict_oof(
@@ -27,6 +41,7 @@ def fit_baseline_predict_oof(
     n_estimators: int = 50,
     max_depth: int = 3,
     caller: str = "the residual-band transformer cluster",
+    groups: "np.ndarray | None" = None,
 ) -> np.ndarray:
     """Fit a shallow LightGBM baseline via an inner KFold(3) and return its OUT-OF-FOLD predictions on Xt.
 
@@ -38,6 +53,10 @@ def fit_baseline_predict_oof(
     ``caller`` names the caller in the ImportError. Modules that need no other difference import this
     function under their own name rather than wrapping it, since a wrapper differing only in this string is
     still a near-duplicate body -- the exact drift this consolidation exists to end.
+
+    ``groups`` (the training rows' group labels) makes the inner split group-aware: the rows of one group are never split
+    between the baseline's training and held-out folds, so duplicates of a row cannot leak their own target into its
+    out-of-fold prediction. Without it the inner split is a shuffled KFold, which is the leaky default for grouped data.
     """
     try:
         import lightgbm as lgb
@@ -54,11 +73,19 @@ def fit_baseline_predict_oof(
         model.fit(Xt, y_t)
         return np.asarray(model.predict(Xt)).astype(np.float32)
 
-    from sklearn.model_selection import KFold
+    from sklearn.model_selection import GroupKFold, KFold
 
     preds = np.zeros(n, dtype=np.float32)
-    inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
-    for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
+    if groups is None:
+        inner_splits = list(KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11).split(Xt))
+    else:
+        g = np.asarray(groups)
+        n_groups = int(np.unique(g).size)
+        if n_groups < 2:
+            logger.warning("%s: %d distinct group(s) cannot be held out; fitting the baseline in-sample.", caller, n_groups)
+            return fit_baseline_predict_oof(Xt, y_t, task, seed, n_estimators=n_estimators, max_depth=max_depth, caller=caller)
+        inner_splits = list(GroupKFold(n_splits=min(3, n_groups)).split(Xt, groups=g))
+    for inner_idx, (in_tr, in_val) in enumerate(inner_splits):
         if task == "binary":
             m = lgb.LGBMClassifier(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, random_state=int(seed) + 7 + inner_idx, verbose=-1, n_jobs=-1)
             m.fit(Xt[in_tr], y_t[in_tr].astype(np.int32))

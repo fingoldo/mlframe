@@ -25,7 +25,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
-from ._baseline_oof import fit_baseline_predict_oof
+from ._baseline_oof import fit_baseline_predict_oof, fold_train_groups
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -140,7 +140,7 @@ def compute_adversarial_flip_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_features_out = 5
 
-    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int, groups_t=None) -> np.ndarray:
         """Fit a baseline model, then for each query row and feature probe additive perturbations at ±{0.5,1,2}σ to find the smallest scale that flips the prediction (class flip for binary, prediction-shift beyond the train 10th-percentile residual for regression); emits the min/mean/max flip distance across features, the most-fragile feature index, and the fraction of features flippable within 2σ. Batches all perturbation combos into one stacked predict call (bit-identical to per-combo predicts for tree models) when the stack fits within ``_MAX_STACK_ELEMS``, else falls back to a per-combo loop."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -162,7 +162,7 @@ def compute_adversarial_flip_features(
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1)
             model.fit(Xt_s, y_t)
             pred_orig = np.asarray(model.predict(Xq_s)).astype(np.float32)
-            train_pred = fit_baseline_predict_oof(Xt_s, y_t, "regression", fold_seed, caller="adversarial_flip")
+            train_pred = fit_baseline_predict_oof(Xt_s, y_t, "regression", fold_seed, caller="adversarial_flip", groups=groups_t)
             train_resid_decile = float(np.quantile(np.abs(y_t - train_pred), 0.10))
             orig_class = None  # for regression we compare pred-shift magnitude
 
@@ -199,7 +199,7 @@ def compute_adversarial_flip_features(
     out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("adversarial_flip: fold %d/%d done", fold_idx + 1, len(splits))
 
