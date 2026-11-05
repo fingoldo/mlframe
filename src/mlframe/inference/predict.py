@@ -236,6 +236,8 @@ def read_trained_models(
         features_file_name + ".json",
         splitext(features_file_name)[0] + ".json",
     }
+    n_candidates = 0
+    skipped: list = []
     for model_name in tqdmu(sorted(os.listdir(fpath)), desc="Reading trained models"):
         if model_name in feature_sidecars or model_name.endswith(sidecar_suffixes):
             continue
@@ -245,10 +247,12 @@ def read_trained_models(
         model_file = join(fpath, model_name)
         if not isfile(model_file):
             continue
+        n_candidates += 1
         # One read: the digest is checked against these bytes and the same bytes are unpickled, so a payload swapped on disk
         # between the check and the load cannot pass.
         _model_payload = _read_verified_model_payload(model_file, featureset)
         if _model_payload is None:
+            skipped.append(model_name)
             continue
         # Validate the .meta.json sidecar before unpickling so library-version drift gets a WARN log instead of
         # producing a cryptic AttributeError deep inside predict(). Non-fatal: legacy bundles (no sidecar) keep
@@ -269,13 +273,18 @@ def read_trained_models(
             model = safe_joblib_load_bytes(_model_payload, model_file)
         except Exception as e:
             logger.warning("Could not read model file %s of featureset %s: %s", model_file, featureset, e)  # per file, see the sha256 branch above
+            skipped.append(model_name)
             continue
 
         if not _check_model_feature_order(model, features, f"featureset {featureset}, file {model_file}", allow_unvalidatable=allow_unvalidatable_models):
+            skipped.append(model_name)
             continue
 
         models[splitext(model_name)[0]] = model
 
+    if skipped:
+        # The per-file messages go by unnoticed; the count is what tells a caller the ensemble is short of members.
+        logger.warning("read_trained_models: featureset %s served %d of %d model file(s); skipped %s.", featureset, len(models), n_candidates, sorted(skipped))
     return models, X
 
 
