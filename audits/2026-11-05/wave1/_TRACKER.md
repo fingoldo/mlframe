@@ -23,7 +23,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **RESOLVED** | X9-01 | silent_failure | High | `feature_selection/hybrid_selector.py:525-527, 915-916`: transform drops engineered columns on a replay failure and returns the first column |
 | **RESOLVED** | C8-01 | state | High | `feature_selection/filters/_mrmr_fit_impl/_finalise.py:659`: process-wide fit cache holds the live instance |
 | **OPEN** | R4-01 | resource | High | `reporting/charts/pdp_ice.py:471-490`: categorical PDP axis sweeps every category |
-| **OPEN** | R4-02 | resource | High | `metrics/classification/_weighted_kappa.py:61,74-78`: class count taken from the largest label value |
+| **RESOLVED** | R4-02 | resource | High | `metrics/classification/_weighted_kappa.py:61,74-78`: class count taken from the largest label value |
 | **OPEN** | D1-01 | deserialization | Medium | `training/feature_handling/cache.py:557`: `np.load(allow_pickle=True)` unpickles before the sidecar check |
 | **OPEN** | R4-03 | resource | Medium | `metrics/classification/_threshold_optimization.py:219,226`: full `(n_boot, n)` index matrix |
 | **OPEN** | R4-04 | resource | Medium | `votenrank/rank_percentile_stacking.py:28,74,81`: dense `(n_query, n_oof)` matrices |
