@@ -68,6 +68,7 @@ def select_oof_pool_ensemble(
     tol: float = 0.0,
     min_models: int = 1,
     honest_folds: int = 0,
+    time_ordering: Optional[np.ndarray] = None,
     random_state: int = 0,
 ) -> OOFPoolSelectionResult:
     """Run :func:`stepwise_ensemble_selection` directly over an HPO ``trial_oof_pool``.
@@ -143,7 +144,7 @@ def select_oof_pool_ensemble(
     if int(honest_folds) >= 2:
         honest = _nested_selection_score(stacked, y_arr, resolved_metric, int(honest_folds), int(random_state), dict(
             greater_is_better=greater_is_better, max_picks=max_picks, max_rounds=max_rounds, with_replacement=with_replacement, tol=tol, min_models=min_models,
-        ))
+        ), time_ordering=time_ordering)
 
     return OOFPoolSelectionResult(
         kept_trial_indices=kept_trial_indices,
@@ -154,12 +155,30 @@ def select_oof_pool_ensemble(
     )
 
 
-def _nested_selection_score(stacked: np.ndarray, y_arr: np.ndarray, metric: Callable, folds: int, random_state: int, selection_kwargs: dict) -> float:
-    """Mean metric of the stepwise-selected blend scored on rows the selection never saw (K-fold over rows)."""
+def _nested_selection_score(
+    stacked: np.ndarray, y_arr: np.ndarray, metric: Callable, folds: int, random_state: int, selection_kwargs: dict,
+    time_ordering: Optional[np.ndarray] = None,
+) -> float:
+    """Mean metric of the stepwise-selected blend scored on rows the selection never saw.
+
+    Rows are split into K shuffled folds, or, when ``time_ordering`` is given, into K contiguous blocks in time order, so a
+    test block is a period the selection did not see and autocorrelated neighbours do not straddle the split.
+    """
     from sklearn.model_selection import KFold
 
+    n = y_arr.shape[0]
+    if time_ordering is not None:
+        order = np.argsort(np.asarray(time_ordering), kind="stable")
+        splits = []
+        for block in np.array_split(order, folds):
+            test_rows = np.sort(block)
+            train_rows = np.setdiff1d(np.arange(n), test_rows)
+            splits.append((train_rows, test_rows))
+    else:
+        splits = KFold(n_splits=folds, shuffle=True, random_state=random_state).split(np.arange(n))
+
     scores = []
-    for train_rows, test_rows in KFold(n_splits=folds, shuffle=True, random_state=random_state).split(np.arange(y_arr.shape[0])):
+    for train_rows, test_rows in splits:
         picked = stepwise_ensemble_selection(stacked[:, train_rows], y_arr[train_rows], metric=metric, **selection_kwargs)
         blend = np.mean(stacked[list(picked.kept)][:, test_rows], axis=0)
         scores.append(float(metric(y_arr[test_rows], blend)))

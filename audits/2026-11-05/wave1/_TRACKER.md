@@ -28,7 +28,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **OPEN** | R4-03 | resource | Medium | `metrics/classification/_threshold_optimization.py:219,226`: full `(n_boot, n)` index matrix |
 | **OPEN** | R4-04 | resource | Medium | `votenrank/rank_percentile_stacking.py:28,74,81`: dense `(n_query, n_oof)` matrices |
 | **RESOLVED** | S5-02 | leakage | Medium | `training/composite/count_weighted_blend.py:115`: auto-k CV with shuffled row KFold |
-| **OPEN** | S5-03 | leakage | Medium | `training/composite/hpo_ensembling.py:162`: `honest_score` ignores the purged time split |
+| **RESOLVED** | S5-03 | leakage | Medium | `training/composite/hpo_ensembling.py:162`: `honest_score` ignores the purged time split. Fixed: `select_oof_pool_ensemble(time_ordering=...)` scores held-out folds on contiguous time blocks; test `test_honest_selection_score_is_time_ordered.py` |
 | **OPEN** | M6-01 | numerics | Medium | `votenrank/rank_percentile_stacking.py:95-106`: out-of-range test values jump to 0 or 1 |
 | **OPEN** | K7-01 | parity | Medium | `feature_selection/filters/_gpu_resident_shared.py:469-470,501-502,593-594`: GPU max/min do not propagate NaN |
 | **OPEN** | C8-02 | state | Medium | `shap_proxied_fs/_shap_proxy_revalidate/_shap_proxy_loss.py:80-83,122-123`; `_shap_proxy_explain.py:83-84`: summary-hash cache keys |
