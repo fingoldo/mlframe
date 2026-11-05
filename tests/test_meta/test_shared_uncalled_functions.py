@@ -678,6 +678,14 @@ _KEPT_SUPERSEDED_REFERENCES = {
     "oos_mdlp_cuts_njit",  # the unsorted OOS MDLP cut search; test_mdlp_oos_presorted compares it to the presorted variant
     "permuted_labels",  # replaced by the parallel batched generator (commit 493deb834); kept as the sequential reference
     "_top_marginal_mi_columns",  # removed from the FE sweep in commit 6eeec7029 (the sweep now covers every column); kept as a reference
+    "_binagg_null_calibrated_floor",  # the single-block floor; production folds the per-permutation maxima of the column blocks itself (fmax over blocks); test_resident_mi_candidate_cache uses it
+    "fit_logistic_ridge_newton_numpy",  # the NumPy twin the Newton kernel is tested against (test_gate_newton_kernel)
+    "launch_k3",  # version 3 of the root-split kernel, bench-rejected (1.4 to 1.8 times slower than v2, see the module header); test_honest_null_k3 keeps the equivalence for a tuner
+    "fits_shared",  # the shared-memory guard of version 3 (launch_k3); same status
+    "get_kernel_k4f",  # version 4f of the root-split kernel, rejected (gain error 2.4e-6 against gains of 1e-4); test_honest_null_k4 keeps the equivalence
+    "_fused_block",  # the exact fused pool scan; the minority variant (_fused_block_minority) is dispatched, test_honest_oj_minority compares them
+    "masked_abs_spearman_many",  # version 1 of the batched masked Spearman; version 2 (presorted rows) is dispatched, test_eng_dedup_presorted_spearman compares them
+    "_bspline_basis_values_numpy",  # the numpy twin kept as the test oracle of the compiled B-spline basis (test_bspline_basis_kernel)
 }
 
 #: Diagnostic hooks: the docstring says they are not for the production path (every transfer is hashed on the host anyway).
