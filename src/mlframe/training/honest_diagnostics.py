@@ -188,7 +188,7 @@ def _setup_binary_bootstrap_metrics(out: dict[str, Any]) -> tuple[dict[str, Any]
         from mlframe.calibration.shared import ece_score as _ece_score
         metric_fns["ece"] = lambda yy, pp: _ece_score(yy, pp)
     except Exception as exc:
-        logger.debug("ece metric setup failed, skipping: %s", exc)
+        logger.warning("ece metric setup failed, skipping: %s", exc)
         out["ece"] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
     return metric_fns, _per_row_fns, _jackknife_fns, _make_auc_resampler
 
@@ -247,7 +247,7 @@ def _run_binary_bootstrap(
                 jackknife_fns=jackknife_fns,
             )
         except Exception as exc:
-            logger.debug("bootstrap CI computation failed for this metric bundle: %s", exc)
+            logger.warning("bootstrap CI computation failed for this metric bundle: %s", exc)
             cis = {name: {"error": f"{type(exc).__name__}: {exc}"} for name in metric_fns}
     return cis
 
@@ -276,7 +276,7 @@ def _rmse_bootstrap_entry(y_true: np.ndarray, p_pos: np.ndarray, out: dict[str, 
         )
         out["rmse"] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"], "resampling": "iid"}
     except Exception as exc:
-        logger.debug("rmse metric computation failed, skipping: %s", exc)
+        logger.warning("rmse metric computation failed, skipping: %s", exc)
         out["rmse"] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
 
 
