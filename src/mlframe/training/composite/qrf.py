@@ -235,6 +235,9 @@ def _weighted_quantiles(values: np.ndarray, weights: np.ndarray, levels: np.ndar
     return np.asarray(np.interp(lv, pos, v_s, left=v_s[0], right=v_s[-1]))
 
 
+_QRF_TABLE_WARN_BYTES = 1 << 30
+
+
 class _LeafResidualForest:
     """From-scratch quantile-regression forest (pure sklearn + numpy).
 
@@ -297,6 +300,13 @@ class _LeafResidualForest:
         if n_rows >= np.iinfo(np.int32).max:
             raise ValueError(f"QuantileRegressionForest: {n_rows} training rows exceed the int32 row-index range.")
         train_leaves = self.forest_.apply(Xa).astype(np.int32)
+        # The per-tree tables are (n_trees x n_train) int32 plus leaf-indexed ones; say what the fitted model will hold.
+        _table_bytes = 4 * train_leaves.shape[0] * train_leaves.shape[1] + 8 * (train_leaves.shape[1] * (int(train_leaves.max()) + 2))
+        if _table_bytes > _QRF_TABLE_WARN_BYTES:
+            logger.warning(
+                "QuantileRegressionForest: %d rows x %d trees keep about %.2f GiB of lookup tables in the fitted model.",
+                train_leaves.shape[0], train_leaves.shape[1], _table_bytes / 1024**3,
+            )
         # Per-tree, per-leaf bincount of training rows (membership normaliser): the QRF
         # weight of a training row for a query is 1 / (#train rows sharing its leaf),
         # summed over trees. Precompute the per-tree leaf-size lookup once.

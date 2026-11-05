@@ -29,3 +29,18 @@ def test_fitted_forest_does_not_keep_the_per_row_leaf_matrix():
     f = _LeafResidualForest(n_estimators=20, min_samples_leaf=5, random_state=1).fit(X, y)
     assert not hasattr(f, "train_leaves_")
     assert f._n_train_ == 400
+
+
+def test_large_lookup_tables_are_reported_at_fit(monkeypatch, caplog):
+    """A forest whose lookup tables pass the reporting threshold logs a WARNING with the size it keeps."""
+    import logging
+
+    from mlframe.training.composite import qrf as qrf_mod
+
+    monkeypatch.setattr(qrf_mod, "_QRF_TABLE_WARN_BYTES", 0)
+    rng = np.random.default_rng(3)
+    X = rng.normal(0, 1, (300, 3))
+    y = X[:, 0] + 0.3 * rng.normal(0, 1, 300)
+    with caplog.at_level(logging.WARNING, logger=qrf_mod.logger.name):
+        _LeafResidualForest(n_estimators=10, min_samples_leaf=5, random_state=1).fit(X, y)
+    assert any(r.levelno == logging.WARNING and "lookup tables" in r.getMessage() for r in caplog.records)
