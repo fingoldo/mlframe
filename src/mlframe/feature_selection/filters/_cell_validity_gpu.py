@@ -15,30 +15,31 @@ from typing import Any
 import numpy as np
 
 from ._raw_module_cache import RawModuleCache
+from ._kernel_types import render
 
-_SRC = r"""
+_SRC = render(r"""
 extern "C" __global__ void cell_moments(const {REAL}* __restrict__ x, const long long n, const int m, const long long rows_per_chunk,
-                                        double* __restrict__ part, int* __restrict__ bad) {
-    __shared__ double sh_n[8][32];
-    __shared__ double sh_mean[8][32];
-    __shared__ double sh_m2[8][32];
+                                        {ACC}* __restrict__ part, int* __restrict__ bad) {
+    __shared__ {ACC} sh_n[8][32];
+    __shared__ {ACC} sh_mean[8][32];
+    __shared__ {ACC} sh_m2[8][32];
     __shared__ int sh_bad[8][32];
-    __shared__ double rcp[1025];   // reciprocals of the per-thread counts: a double division is 1/32 rate on Pascal
+    __shared__ {ACC} rcp[1025];   // reciprocals of the per-thread counts: a {ACC} division is 1/32 rate on Pascal
     const int col = blockIdx.x * 32 + threadIdx.x;
     const int ly = threadIdx.y;
-    for (int t = threadIdx.y * 32 + threadIdx.x; t < 1025; t += 256) rcp[t] = t == 0 ? 0.0 : 1.0 / (double)t;
+    for (int t = threadIdx.y * 32 + threadIdx.x; t < 1025; t += 256) rcp[t] = t == 0 ? 0.0 : 1.0 / ({ACC})t;
     __syncthreads();
     const long long start = (long long)blockIdx.y * rows_per_chunk;
     long long stop = start + rows_per_chunk;
     if (stop > n) stop = n;
-    double cnt = 0.0, mean = 0.0, m2 = 0.0;
+    {ACC} cnt = 0.0, mean = 0.0, m2 = 0.0;
     int nonfinite = 0;
     if (col < m) {
         for (long long i = start + ly; i < stop; i += 8) {
-            const double v = (double)x[i * (long long)m + col];
+            const {ACC} v = ({ACC})x[i * (long long)m + col];
             if (!isfinite(v)) { nonfinite = 1; continue; }
             cnt += 1.0;
-            const double delta = v - mean;
+            const {ACC} delta = v - mean;
             mean += delta * rcp[(int)cnt];
             m2 += delta * (v - mean);
         }
@@ -46,15 +47,15 @@ extern "C" __global__ void cell_moments(const {REAL}* __restrict__ x, const long
     sh_n[ly][threadIdx.x] = cnt; sh_mean[ly][threadIdx.x] = mean; sh_m2[ly][threadIdx.x] = m2; sh_bad[ly][threadIdx.x] = nonfinite;
     __syncthreads();
     if (ly == 0 && col < m) {
-        double tn = sh_n[0][threadIdx.x], tmean = sh_mean[0][threadIdx.x], tm2 = sh_m2[0][threadIdx.x];
+        {ACC} tn = sh_n[0][threadIdx.x], tmean = sh_mean[0][threadIdx.x], tm2 = sh_m2[0][threadIdx.x];
         int tbad = sh_bad[0][threadIdx.x];
         for (int l = 1; l < 8; ++l) {   // fixed merge order
-            const double bn = sh_n[l][threadIdx.x];
+            const {ACC} bn = sh_n[l][threadIdx.x];
             tbad |= sh_bad[l][threadIdx.x];
             if (bn == 0.0) continue;
-            const double bmean = sh_mean[l][threadIdx.x], bm2 = sh_m2[l][threadIdx.x];
-            const double tot = tn + bn;
-            const double d = bmean - tmean;
+            const {ACC} bmean = sh_mean[l][threadIdx.x], bm2 = sh_m2[l][threadIdx.x];
+            const {ACC} tot = tn + bn;
+            const {ACC} d = bmean - tmean;
             tm2 = tm2 + bm2 + d * d * tn * bn / tot;
             tmean = tmean + d * bn / tot;
             tn = tot;
@@ -64,7 +65,7 @@ extern "C" __global__ void cell_moments(const {REAL}* __restrict__ x, const long
         bad[(long long)blockIdx.y * m + col] = tbad;
     }
 }
-"""
+""")
 
 _MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float"))}
 _ROWS_PER_CHUNK = 8192  # at most 1024 rows per lane: the size of the reciprocal table

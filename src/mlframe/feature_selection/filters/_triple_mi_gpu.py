@@ -15,6 +15,7 @@ import os
 import numpy as np
 
 from ._raw_module_cache import RawModuleCache
+from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +25,9 @@ SHARED_BUDGET_BYTES = 40 * 1024
 DEVICE_MIN_WORK = 5_000_000
 TRIPLES_PER_LAUNCH = 1 << 20
 
-_SRC = r"""
+_SRC = render(r"""
 extern "C" __global__ void triple_mi(const signed char* __restrict__ codes, const unsigned char* __restrict__ Y, const int* __restrict__ TI, const int* __restrict__ TJ,
-                                     const int* __restrict__ TK, const long long n, const int base, const int n_y, const int n_cells, double* __restrict__ out) {
+                                     const int* __restrict__ TK, const long long n, const int base, const int n_y, const int n_cells, {ACC}* __restrict__ out) {
     extern __shared__ int sh[];                       // (n_cells, n_y) joint table, cell-major
     const int t = blockIdx.x;
     const signed char* ci = codes + (long long)TI[t] * n;
@@ -42,35 +43,35 @@ extern "C" __global__ void triple_mi(const signed char* __restrict__ codes, cons
     __syncthreads();
     // The MI tail is spread over the block: class totals, then one term per cell, then a short ordered sum.
     __shared__ long long pys[16];
-    __shared__ double term[1024];
+    __shared__ {ACC} term[1024];
     if (threadIdx.x < n_y) {
         long long tot = 0;
         for (int c = 0; c < n_cells; ++c) tot += sh[c * n_y + threadIdx.x];
         pys[threadIdx.x] = tot;
     }
     __syncthreads();
-    const double nn = (double)n;
+    const {ACC} nn = ({ACC})n;
     for (int c = threadIdx.x; c < n_cells; c += blockDim.x) {
         long long px = 0;
         for (int v = 0; v < n_y; ++v) px += sh[c * n_y + v];
-        double tc = 0.0;
+        {ACC} tc = 0.0;
         if (px != 0) {
             for (int v = 0; v < n_y; ++v) {
                 const long long cnt = sh[c * n_y + v];
                 if (cnt == 0) continue;
-                tc += ((double)cnt / nn) * log(((double)cnt * nn) / ((double)px * (double)pys[v]));
+                tc += (({ACC})cnt / nn) * log((({ACC})cnt * nn) / (({ACC})px * ({ACC})pys[v]));
             }
         }
         term[c] = tc;
     }
     __syncthreads();
     if (threadIdx.x == 0) {
-        double mi = 0.0;
+        {ACC} mi = 0.0;
         for (int c = 0; c < n_cells; ++c) mi += term[c];
         out[t] = mi;
     }
 }
-"""
+""")
 
 _MODULE = RawModuleCache(_SRC)
 

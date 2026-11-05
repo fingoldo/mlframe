@@ -15,12 +15,14 @@ import weakref
 from typing import Any, Sequence
 
 import numpy as np
+
+from ._kernel_types import render
 import logging
 
 logger = logging.getLogger(__name__)
 
 _SRC = r"""
-extern "C" __global__ void row_argmax(const {REAL}* __restrict__ M, const long long n, const int m, double* __restrict__ out) {
+extern "C" __global__ void row_argmax(const {REAL}* __restrict__ M, const long long n, const int m, {ACC}* __restrict__ out) {
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
         {REAL} best = M[i];
         int bi = 0;
@@ -28,7 +30,7 @@ extern "C" __global__ void row_argmax(const {REAL}* __restrict__ M, const long l
             const {REAL} v = M[(long long)q * n + i];
             if (v > best) { best = v; bi = q; }
         }
-        out[i] = (double)bi;
+        out[i] = ({ACC})bi;
     }
 }
 """
@@ -48,7 +50,7 @@ def row_argmax_cm(cp: Any, columns: Sequence[Any]) -> Any:
     with _LOCK:
         kernel = _KERNELS.get(real)
         if kernel is None:
-            kernel = _KERNELS[real] = cp.RawKernel(_SRC.replace("{REAL}", real), "row_argmax")
+            kernel = _KERNELS[real] = cp.RawKernel(render(_SRC, np.float32 if real == "float" else np.float64), "row_argmax")
     out = cp.empty(n, dtype=cp.float64)  # Intentional float64: index output matches the caller's float64 cast contract
     blocks = max(1, min(4096, (n + 255) // 256))
     kernel((blocks,), (256,), (M, np.int64(n), np.int32(len(columns)), out))

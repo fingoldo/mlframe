@@ -27,6 +27,7 @@ from .hermite_fe._nonpoly_cells_gpu import nonpoly_block_gpu
 
 from mlframe.feature_selection.filters._safe_scale import guarded_scale
 from mlframe.feature_selection.filters._device_sort_safe import device_median, device_percentile  # thrust aborts the process on a short pool
+from ._kernel_types import render
 
 # --- GPU port of the per-operand PRE-WARP apply (phase R1) ----------------------------------------------
 # Mirrors hermite_fe.apply_operand_prewarp so the operand-table mirror can BUILD a prewarp operand column on
@@ -138,28 +139,28 @@ _BASIS_ID = {"chebyshev": 0, "legendre": 1, "hermite": 2, "laguerre": 3}
 # chains (~nd*degree elementwise ops -> the measured #1 launch source _gpu_evaluate_basis_matrix). Each
 # in-kernel recurrence reproduces _{cheb,leg,herme}_clenshaw_gpu (backward Clenshaw, one-hot coef) and
 # _lag_clenshaw_gpu (forward) op-for-op in double precision -> bit-identical basis values.
-_CLENSHAW_SRC = r"""
-__device__ double eval_basis(int basis, int d, double x) {
+_CLENSHAW_SRC = render(r"""
+__device__ {ACC} eval_basis(int basis, int d, {ACC} x) {
     if (d == 0) return 1.0;
     if (d == 1) return basis == 3 ? (1.0 - x) : x;
     if (basis == 3) {                                  // laguerre forward L_d
-        double pp = 1.0, pc = 1.0 - x, pn;
+        {ACC} pp = 1.0, pc = 1.0 - x, pn;
         for (int k = 2; k <= d; ++k) { pn = ((2.0*k - 1.0 - x) * pc - (k - 1) * pp) / k; pp = pc; pc = pn; }
         return pc;
     }
     if (basis == 0) {                                  // chebyshev Clenshaw one-hot
-        double x2 = 2.0 * x, c0 = 0.0, c1 = 1.0;
-        for (int i = 3; i <= d + 1; ++i) { double tmp = c0; c0 = -c1; c1 = tmp + c1 * x2; }
+        {ACC} x2 = 2.0 * x, c0 = 0.0, c1 = 1.0;
+        for (int i = 3; i <= d + 1; ++i) { {ACC} tmp = c0; c0 = -c1; c1 = tmp + c1 * x2; }
         return c0 + c1 * x;
     }
     if (basis == 1) {                                  // legendre Clenshaw one-hot
-        int nd = d + 1; double c0 = 0.0, c1 = 1.0;
-        for (int i = 3; i <= d + 1; ++i) { double tmp = c0; nd -= 1; c0 = -(c1 * (nd - 1)) / nd; c1 = tmp + (c1 * x * (2*nd - 1)) / nd; }
+        int nd = d + 1; {ACC} c0 = 0.0, c1 = 1.0;
+        for (int i = 3; i <= d + 1; ++i) { {ACC} tmp = c0; nd -= 1; c0 = -(c1 * (nd - 1)) / nd; c1 = tmp + (c1 * x * (2*nd - 1)) / nd; }
         return c0 + c1 * x;
     }
     // basis == 2: hermite(He) Clenshaw one-hot
-    int nd = d + 1; double c0 = 0.0, c1 = 1.0;
-    for (int i = 3; i <= d + 1; ++i) { double tmp = c0; nd -= 1; c0 = -c1 * (nd - 1); c1 = tmp + c1 * x; }
+    int nd = d + 1; {ACC} c0 = 0.0, c1 = 1.0;
+    for (int i = 3; i <= d + 1; ++i) { {ACC} tmp = c0; nd -= 1; c0 = -c1 * (nd - 1); c1 = tmp + c1 * x; }
     return c0 + c1 * x;
 }
 extern "C" __global__
@@ -172,10 +173,10 @@ void clenshaw_basis(const {REAL}* __restrict__ Z, const int* __restrict__ degs, 
     long long r = t / (long long)m;
     int k = (int)(r % (long long)nd);
     long long i = r / (long long)nd;
-    double z = (double)Z[i * (long long)m + j];
+    {ACC} z = ({ACC})Z[i * (long long)m + j];
     out[i * ((long long)m * nd) + (long long)k * m + j] = ({REAL})eval_basis(basis, degs[k], z);
 }
-"""
+""")
 
 
 _CLENSHAW_KERNELS: dict = {}
@@ -339,17 +340,17 @@ def _gpu_evaluate_basis_column(cp, x, basis, degree, *, robust_axis: bool):
 # count (p200). Bit-equivalent to the per-column path (same math, just vectorised); guarded by
 # test_gpu_basis_column_parity's batched leg.
 
-_ROBUST_SCALE_COMBINE_SRC = r"""
+_ROBUST_SCALE_COMBINE_SRC = render(r"""
 extern "C" __global__
 void robust_scale_combine(const {REAL}* __restrict__ mad, const {REAL}* __restrict__ q25,
                           const {REAL}* __restrict__ q75, const int K, {REAL}* __restrict__ out) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= K) return;
-    double sc = 1.4826 * mad[i];
-    double iqr = (q75[i] - q25[i]) / 1.349;
+    {ACC} sc = 1.4826 * mad[i];
+    {ACC} iqr = (q75[i] - q25[i]) / 1.349;
     out[i] = sc > 1e-12 ? sc : (iqr > 1e-12 ? iqr : 0.0);
 }
-"""
+""")
 _ROBUST_SCALE_COMBINE_KERNELS: dict = {}
 
 
@@ -405,28 +406,28 @@ def _gpu_robust_lo_hi_batched(cp, M, med, scale):
     return lo, hi
 
 
-_HEAVY_TAIL_STATS_SRC = r"""
+_HEAVY_TAIL_STATS_SRC = render(r"""
 extern "C" __global__
 void heavy_tail_stats(const {REAL}* __restrict__ M, const {REAL}* __restrict__ med,
-                      const {REAL}* __restrict__ scale, const double outerK, const double gapthr,
-                      const double maxfrac, const long long n, const int K,
+                      const {REAL}* __restrict__ scale, const {ACC} outerK, const {ACC} gapthr,
+                      const {ACC} maxfrac, const long long n, const int K,
                       signed char* __restrict__ out_v) {
     int col = blockIdx.x;
     if (col >= K) return;
-    double mc = (double)med[col];
-    double sc = (double)scale[col];
-    double thr = outerK * sc;
+    {ACC} mc = ({ACC})med[col];
+    {ACC} sc = ({ACC})scale[col];
+    {ACC} thr = outerK * sc;
     int tid = threadIdx.x;
     long long nloc = 0;
-    double bulk = -1e308, omin = 1e308;
+    {ACC} bulk = -1e308, omin = 1e308;
     for (long long i = tid; i < n; i += blockDim.x) {
-        double dev = fabs((double)M[i * (long long)K + col] - mc);
+        {ACC} dev = fabs(({ACC})M[i * (long long)K + col] - mc);
         if (dev > thr) { nloc += 1; if (dev < omin) omin = dev; }
         else if (dev > bulk) bulk = dev;
     }
     __shared__ long long sh_n[256];
-    __shared__ double sh_b[256];
-    __shared__ double sh_o[256];
+    __shared__ {ACC} sh_b[256];
+    __shared__ {ACC} sh_o[256];
     sh_n[tid] = nloc; sh_b[tid] = bulk; sh_o[tid] = omin;
     __syncthreads();
     for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
@@ -439,12 +440,12 @@ void heavy_tail_stats(const {REAL}* __restrict__ M, const {REAL}* __restrict__ m
     }
     if (tid == 0) {
         long long no = sh_n[0];
-        double bk = sh_b[0] > 1e-12 ? sh_b[0] : 1e-12;
-        double gap = sh_o[0] / bk;
-        out_v[col] = ((sc > 1e-12) && (no > 0) && ((double)no <= maxfrac * (double)n) && (gap >= gapthr)) ? 1 : 0;
+        {ACC} bk = sh_b[0] > 1e-12 ? sh_b[0] : 1e-12;
+        {ACC} gap = sh_o[0] / bk;
+        out_v[col] = ((sc > 1e-12) && (no > 0) && (({ACC})no <= maxfrac * ({ACC})n) && (gap >= gapthr)) ? 1 : 0;
     }
 }
-"""
+""")
 _HEAVY_TAIL_STATS_KERNELS: dict = {}
 
 
@@ -496,45 +497,45 @@ def _gpu_detect_heavy_tail_batched(cp, M):
         return (scale > 1e-12) & (n_outer > 0) & (n_outer <= _GPU_ROBUST_AXIS_MAX_FRAC * n) & gap_ok
 
 
-_BASIS_PREPROCESS_SRC = r"""
+_BASIS_PREPROCESS_SRC = render(r"""
 #define REL_TOL 7.105427357601002e-15   // 32 * DBL_EPSILON, the host _safe_scale._REL_TOL
 extern "C" __global__
 void basis_preprocess(const {REAL}* __restrict__ M, const {REAL}* __restrict__ med,
                       const {REAL}* __restrict__ scale, const {REAL}* __restrict__ mn,
                       const {REAL}* __restrict__ mx, const {REAL}* __restrict__ stdcol,
-                      const int basis_code, const double Kc, const long long n, const int K,
+                      const int basis_code, const {ACC} Kc, const long long n, const int K,
                       {REAL}* __restrict__ out) {
     long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n * (long long)K;
     if (t >= total) return;
     int col = (int)(t % (long long)K);
     long long row = t / (long long)K;
-    double x = M[row * (long long)K + col];
-    double mc = med[col], sc = scale[col];
+    {ACC} x = M[row * (long long)K + col];
+    {ACC} mc = med[col], sc = scale[col];
     bool deg = sc <= 1e-12;
-    double lo = deg ? mn[col] : mc - Kc * sc;
-    double hi = deg ? mx[col] : mc + Kc * sc;
-    double z;
+    {ACC} lo = deg ? mn[col] : mc - Kc * sc;
+    {ACC} hi = deg ? mx[col] : mc + Kc * sc;
+    {ACC} z;
     if (basis_code == 0) {                                   // hermite robust z-score
-        double std = (hi - lo) / 6.0;
+        {ACC} std = (hi - lo) / 6.0;
         if (!(std > 1e-12)) std = stdcol[col];               // cp.where(std>1e-12, std, guarded M.std)
         if (!(std > REL_TOL * fabs(mc))) std = 1.0;
         z = (x - mc) / std;
         z = z < -6.0 ? -6.0 : (z > 6.0 ? 6.0 : z);
     } else if (basis_code == 1) {                            // legendre/chebyshev min-max -> [-1,1]
-        double mag = fabs(lo) > fabs(hi) ? fabs(lo) : fabs(hi);
-        double span = hi - lo;
+        {ACC} mag = fabs(lo) > fabs(hi) ? fabs(lo) : fabs(hi);
+        {ACC} span = hi - lo;
         if (!(span > REL_TOL * mag)) span = 1.0;
         z = 2.0 * (x - lo) / span - 1.0;
         z = z < -1.0 ? -1.0 : (z > 1.0 ? 1.0 : z);
     } else {                                                 // laguerre shift -> >= 0
-        double hic = (hi - lo) + 1e-9;
+        {ACC} hic = (hi - lo) + 1e-9;
         z = x - lo + 1e-9;
         z = z < 0.0 ? 0.0 : (z > hic ? hic : z);
     }
     out[row * (long long)K + col] = z;
 }
-"""
+""")
 _BASIS_PREPROCESS_KERNELS: dict = {}
 
 
@@ -552,7 +553,7 @@ _BASIS_PREPROCESS_CODE = {"hermite": 0, "legendre": 1, "chebyshev": 1, "laguerre
 
 # Non-robust preprocess fused: hermite z = (x-mean)/std (no clip); legendre/cheb z = 2(x-lo)/span - 1 (no
 # clip); laguerre z = x-lo+1e-9. p0/p1 are the per-column params; ONE launch vs the cupy reduction+arith chain.
-_BASIS_PREPROCESS_NR_SRC = r"""
+_BASIS_PREPROCESS_NR_SRC = render(r"""
 extern "C" __global__
 void basis_preprocess_nr(const {REAL}* __restrict__ M, const {REAL}* __restrict__ p0,
                          const {REAL}* __restrict__ p1, const int basis_code,
@@ -562,15 +563,15 @@ void basis_preprocess_nr(const {REAL}* __restrict__ M, const {REAL}* __restrict_
     if (t >= total) return;
     int col = (int)(t % (long long)K);
     long long row = t / (long long)K;
-    double x = M[row * (long long)K + col];
-    double a = p0[col], b = p1[col];
-    double z;
+    {ACC} x = M[row * (long long)K + col];
+    {ACC} a = p0[col], b = p1[col];
+    {ACC} z;
     if (basis_code == 0)       z = (x - a) / b;            // hermite z-score (b = std + 1e-12)
     else if (basis_code == 1)  z = 2.0 * (x - a) / b - 1.0; // legendre/cheb min-max (a = lo, b = span)
     else                       z = x - a + 1e-9;            // laguerre shift (a = lo)
     out[row * (long long)K + col] = z;
 }
-"""
+""")
 _BASIS_PREPROCESS_NR_KERNELS: dict = {}
 
 
@@ -584,27 +585,27 @@ def _get_basis_preprocess_nr_kernel(cp, real_t: str = "double"):
     return kern
 
 
-_COL_MEANSTD_SRC = r"""
+_COL_MEANSTD_SRC = render(r"""
 extern "C" __global__
 void col_meanstd(const {REAL}* __restrict__ M, const long long n, const int K,
                  {REAL}* __restrict__ out_mean, {REAL}* __restrict__ out_std) {
     int col = blockIdx.x;
     if (col >= K) return;
     int tid = threadIdx.x, nt = blockDim.x;
-    __shared__ double sh[256];
-    double s = 0.0;
-    for (long long i = tid; i < n; i += nt) s += (double)M[i * (long long)K + col];
+    __shared__ {ACC} sh[256];
+    {ACC} s = 0.0;
+    for (long long i = tid; i < n; i += nt) s += ({ACC})M[i * (long long)K + col];
     sh[tid] = s; __syncthreads();
     for (int j = nt >> 1; j > 0; j >>= 1) { if (tid < j) sh[tid] += sh[tid + j]; __syncthreads(); }
-    double mean = sh[0] / (double)n;
+    {ACC} mean = sh[0] / ({ACC})n;
     __syncthreads();
-    double d2 = 0.0;
-    for (long long i = tid; i < n; i += nt) { double dv = (double)M[i * (long long)K + col] - mean; d2 += dv * dv; }
+    {ACC} d2 = 0.0;
+    for (long long i = tid; i < n; i += nt) { {ACC} dv = ({ACC})M[i * (long long)K + col] - mean; d2 += dv * dv; }
     sh[tid] = d2; __syncthreads();
     for (int j = nt >> 1; j > 0; j >>= 1) { if (tid < j) sh[tid] += sh[tid + j]; __syncthreads(); }
-    if (tid == 0) { out_mean[col] = ({REAL})mean; out_std[col] = ({REAL})sqrt(sh[0] / (double)n); }
+    if (tid == 0) { out_mean[col] = ({REAL})mean; out_std[col] = ({REAL})sqrt(sh[0] / ({ACC})n); }
 }
-"""
+""")
 _COL_MEANSTD_KERNELS: dict = {}
 
 
@@ -648,17 +649,17 @@ def _gpu_basis_preprocess_nonrobust_fused(cp, M, basis):
     return out
 
 
-_COL_MINMAX_SRC = r"""
+_COL_MINMAX_SRC = render(r"""
 extern "C" __global__
 void col_minmax(const {REAL}* __restrict__ M, const long long n, const int K,
                 {REAL}* __restrict__ out_min, {REAL}* __restrict__ out_max) {
     int col = blockIdx.x;
     if (col >= K) return;
     int tid = threadIdx.x, nt = blockDim.x;
-    double lmin = 1e308, lmax = -1e308;
-    for (long long i = tid; i < n; i += nt) { double v = M[i * (long long)K + col]; if (v < lmin) lmin = v; if (v > lmax) lmax = v; }
-    __shared__ double sh_min[256];
-    __shared__ double sh_max[256];
+    {ACC} lmin = 1e308, lmax = -1e308;
+    for (long long i = tid; i < n; i += nt) { {ACC} v = M[i * (long long)K + col]; if (v < lmin) lmin = v; if (v > lmax) lmax = v; }
+    __shared__ {ACC} sh_min[256];
+    __shared__ {ACC} sh_max[256];
     sh_min[tid] = lmin; sh_max[tid] = lmax;
     __syncthreads();
     for (int s = nt >> 1; s > 0; s >>= 1) {
@@ -667,7 +668,7 @@ void col_minmax(const {REAL}* __restrict__ M, const long long n, const int K,
     }
     if (tid == 0) { out_min[col] = sh_min[0]; out_max[col] = sh_max[0]; }
 }
-"""
+""")
 _COL_MINMAX_KERNELS: dict = {}
 
 
@@ -806,38 +807,38 @@ def _gpu_evaluate_basis_matrix(cp, M, bases, degrees, *, robust_axis, heavy_host
     return cp.ascontiguousarray(cp.concatenate(cand_blocks, axis=1)), meta
 
 
-_ABS_CORR_SRC = r"""
+_ABS_CORR_SRC = render(r"""
 #define REAL_T {REAL}
 extern "C" __global__
 void abs_corr(const REAL_T* __restrict__ cand, const REAL_T* __restrict__ yc, const REAL_T* __restrict__ mu, const long long n,
-              const int m, const double Syy, double* __restrict__ out) {
+              const int m, const {ACC} Syy, {ACC}* __restrict__ out) {
     // Centred accumulation: yc is the centred target and mu the per-column means, so the sums below are sum((v-mean)^2) and
     // sum((v-mean)*yc) directly. The raw-power-sum form n*sum(v^2) - (sum v)^2 cancels to rounding noise once a column's mean is far
     // above its spread, and then reported a corrupted |corr| or the -1.0 skip sentinel for a perfectly usable column.
     int c = blockIdx.x;
     if (c >= m) return;
-    __shared__ double sh[2];                       // sum_cc, sum_cy
+    __shared__ {ACC} sh[2];                       // sum_cc, sum_cy
     int tid = threadIdx.x, nt = blockDim.x;
     if (tid < 2) sh[tid] = 0.0;
     __syncthreads();
-    double pcc = 0.0, pcy = 0.0;
-    double muc = (double)mu[c];
+    {ACC} pcc = 0.0, pcy = 0.0;
+    {ACC} muc = ({ACC})mu[c];
     for (long long i = tid; i < n; i += nt) {
-        double d = (double)cand[i * (long long)m + c] - muc;
-        pcc += d * d; pcy += d * (double)yc[i];
+        {ACC} d = ({ACC})cand[i * (long long)m + c] - muc;
+        pcc += d * d; pcy += d * ({ACC})yc[i];
     }
     atomicAdd(&sh[0], pcc); atomicAdd(&sh[1], pcy);
     __syncthreads();
     if (tid == 0) {
-        double nf = (double)n, scc = sh[0], scy = sh[1];
-        double den = sqrt(scc * Syy);
-        double corr = den > 1e-300 ? fabs(scy / den) : 0.0;
+        {ACC} nf = ({ACC})n, scc = sh[0], scy = sh[1];
+        {ACC} den = sqrt(scc * Syy);
+        {ACC} corr = den > 1e-300 ? fabs(scy / den) : 0.0;
         bool ok = isfinite(corr) && (sqrt(scc) > 1e-12);   // same degenerate test as the cupy chain: cn = sqrt(sum cc^2) > 1e-12
         (void)nf;
         out[c] = ok ? corr : -1.0;
     }
 }
-"""
+""")
 _ABS_CORR_KERNELS: dict = {}
 
 

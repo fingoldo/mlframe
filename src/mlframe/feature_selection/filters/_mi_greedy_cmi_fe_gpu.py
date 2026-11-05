@@ -14,6 +14,7 @@ import threading
 import numpy as np
 from typing import Any
 from ._fe_resident_operands import _content_hash_memoized
+from ._kernel_types import render
 from ._mi_greedy_cmi_fe_steps import (  # noqa: F401  -- carved helpers
     logger,
     _qbin_float_dtype,
@@ -65,19 +66,19 @@ _NNZ_RK = None
 # out[1]=nnz). out is cp.zeros(2) - a cudaMemsetAsync, NOT a cuLaunchKernel - so the call is ONE launch.
 # Same double precision plug-in entropy / same occupied-cell definition -> selection-equivalent (bit-identical sum
 # up to float reduction order, which the plug-in MI is already order-tolerant to).
-_ENT_NNZ_SRC = r"""
+_ENT_NNZ_SRC = render(r"""
 extern "C" __global__
-void ent_nnz(const long long* __restrict__ c, const double inv_n, const long long M,
-             double* __restrict__ out) {
+void ent_nnz(const long long* __restrict__ c, const {ACC} inv_n, const long long M,
+             {ACC}* __restrict__ out) {
     long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long stride = (long long)gridDim.x * blockDim.x;
-    double hloc = 0.0, kloc = 0.0;
+    {ACC} hloc = 0.0, kloc = 0.0;
     for (long long i = t; i < M; i += stride) {
         long long ci = c[i];
-        if (ci > 0) { double p = (double)ci * inv_n; hloc += p * log(p); kloc += 1.0; }
+        if (ci > 0) { {ACC} p = ({ACC})ci * inv_n; hloc += p * log(p); kloc += 1.0; }
     }
-    __shared__ double sh_h[256];
-    __shared__ double sh_k[256];
+    __shared__ {ACC} sh_h[256];
+    __shared__ {ACC} sh_k[256];
     int tid = threadIdx.x;
     sh_h[tid] = hloc; sh_k[tid] = kloc;
     __syncthreads();
@@ -87,7 +88,7 @@ void ent_nnz(const long long* __restrict__ c, const double inv_n, const long lon
     }
     if (tid == 0) { atomicAdd(&out[0], sh_h[0]); atomicAdd(&out[1], sh_k[0]); }
 }
-"""
+""")
 _ENT_NNZ_KERNEL = None
 
 def _get_ent_nnz_kernel(cp):

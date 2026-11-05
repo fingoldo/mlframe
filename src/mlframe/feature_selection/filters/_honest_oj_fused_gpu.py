@@ -26,26 +26,27 @@ import numpy as np
 from numba import njit, prange
 
 from ._honest_oj_fused import _permuted_codes, _pool_max
+from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
 
-_KERNEL = r"""
-__device__ double cell_mi(const int* hist, int n, int k_x, int k_y)
+_KERNEL = render(r"""
+__device__ {ACC} cell_mi(const int* hist, int n, int k_x, int k_y)
 {
-    // the loops of _plug_in_mi_njit (miller_madow=False), same order, double precision
-    double mi = 0.0;
+    // the loops of _plug_in_mi_njit (miller_madow=False), same order, {ACC} precision
+    {ACC} mi = 0.0;
     if (n > 0 && k_y >= 1) {
-        double px[64]; double py[64];
+        {ACC} px[64]; {ACC} py[64];
         for (int a = 0; a < k_x; ++a) px[a] = 0.0;
         for (int q = 0; q < k_y; ++q) py[q] = 0.0;
-        for (int a = 0; a < k_x; ++a) for (int q = 0; q < k_y; ++q) { double v = (double)hist[a * k_y + q]; px[a] += v; py[q] += v; }
-        const double nf = (double)n;
+        for (int a = 0; a < k_x; ++a) for (int q = 0; q < k_y; ++q) { {ACC} v = ({ACC})hist[a * k_y + q]; px[a] += v; py[q] += v; }
+        const {ACC} nf = ({ACC})n;
         for (int a = 0; a < k_x; ++a) {
             if (px[a] <= 0.0) continue;
             for (int q = 0; q < k_y; ++q) {
-                double v = (double)hist[a * k_y + q];
+                {ACC} v = ({ACC})hist[a * k_y + q];
                 if (v <= 0.0 || py[q] <= 0.0) continue;
-                double p = v / nf;
+                {ACC} p = v / nf;
                 mi += p * log(p * nf / (px[a] * py[q] / nf));
             }
         }
@@ -56,7 +57,7 @@ __device__ double cell_mi(const int* hist, int n, int k_x, int k_y)
 // one block per (cell, permutation); per-warp shared histograms with atomics
 extern "C" __global__ void oj_cell_mi(const signed char* __restrict__ xb, const int* __restrict__ vy, const long long* __restrict__ kx,
                                       const long long* __restrict__ nv, const int* __restrict__ ky, int F, int PM, int NV, int KXMAX, int KYMAX,
-                                      double* __restrict__ out)
+                                      {ACC}* __restrict__ out)
 {
     extern __shared__ unsigned char smem[];
     int* hist = (int*)smem;
@@ -85,7 +86,7 @@ extern "C" __global__ void oj_cell_mi(const signed char* __restrict__ xb, const 
 // private 16-bit counters per thread, laid out [bin][thread]: no atomics; valid while k_x * k_y <= 64 and every thread sees at most 65535 rows
 extern "C" __global__ void oj_cell_mi_private(const signed char* __restrict__ xb, const int* __restrict__ vy, const long long* __restrict__ kx,
                                               const long long* __restrict__ nv, const int* __restrict__ ky, int F, int PM, int NV, int KXMAX, int KYMAX,
-                                              double* __restrict__ out)
+                                              {ACC}* __restrict__ out)
 {
     extern __shared__ unsigned char smem[];
     unsigned short* cnt = (unsigned short*)smem;
@@ -181,7 +182,7 @@ extern "C" __global__ void oj_count_ones(const unsigned int* __restrict__ masks,
 // the cell MI of every (permutation, cell) from the ones and the fixed bin counts: hist[x, 1] = ones, hist[x, 0] = px - ones (exact integers)
 extern "C" __global__ void oj_mi_from_ones(const int* __restrict__ c1, const int* __restrict__ px, const long long* __restrict__ kx,
                                            const long long* __restrict__ nv, const int* __restrict__ ky, int B, int C, int F, int PM, int KXMAX,
-                                           double* __restrict__ out)
+                                           {ACC}* __restrict__ out)
 {
     const long long g = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (g >= (long long)B * C) return;
@@ -201,7 +202,7 @@ extern "C" __global__ void oj_mi_from_ones(const int* __restrict__ c1, const int
 // pool MI of every (permutation, pool column, candidate count) cell, the loops of _mi_codes_njit with integer counts: ones from the popcounts,
 // zeros = fixed bin count - ones; py = (rows - ones total, ones total) of the permutation
 extern "C" __global__ void oj_pool_mi(const int* __restrict__ c1, const int* __restrict__ px, const long long* __restrict__ kx, const int* __restrict__ ones,
-                                      int B, int C, int KXMAX, long long n, double* __restrict__ out)
+                                      int B, int C, int KXMAX, long long n, {ACC}* __restrict__ out)
 {
     const long long g = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (g >= (long long)B * C) return;
@@ -209,18 +210,18 @@ extern "C" __global__ void oj_pool_mi(const int* __restrict__ c1, const int* __r
     const int k_x = (int)kx[c];
     if (k_x == 0) { out[g] = 0.0; return; }
     const long long py1 = ones[b], py0 = n - py1;
-    double mi = 0.0;
+    {ACC} mi = 0.0;
     for (int a = 0; a < k_x; ++a) {
         const long long all = px[(long long)c * KXMAX + a];
         if (all == 0) continue;
         const long long n1 = c1[g * KXMAX + a];
         const long long n0 = all - n1;
-        if (n0 != 0) mi += ((double)n0 / (double)n) * log((double)(n0 * n) / (double)(all * py0));
-        if (n1 != 0) mi += ((double)n1 / (double)n) * log((double)(n1 * n) / (double)(all * py1));
+        if (n0 != 0) mi += (({ACC})n0 / ({ACC})n) * log(({ACC})(n0 * n) / ({ACC})(all * py0));
+        if (n1 != 0) mi += (({ACC})n1 / ({ACC})n) * log(({ACC})(n1 * n) / ({ACC})(all * py1));
     }
     out[g] = mi;
 }
-"""
+""")
 _MAX_BINS = 64  # the kernels' per-thread marginal arrays; wider codes or targets stay on the CPU
 _cache: dict = {}
 
