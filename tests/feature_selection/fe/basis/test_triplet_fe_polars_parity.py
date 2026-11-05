@@ -60,8 +60,10 @@ def test_triplet_fe_runs_on_polars_and_matches_pandas():
 
 
 def _quad_cols(sel):
-    """Quad cols."""
-    return sorted(c for c in (getattr(sel, "hybrid_orth_features_", None) or []) if c.split("__", 1)[0].count("*") == 3)
+    """The quadruplet columns the family appended to the candidate pool. ``hybrid_orth_features_`` keeps only survivors: on this fixture
+    the greedy selects a pair feature built on the quadruplet product (``min(abs(x1),neg(x1*x2*x3*x4__He1_He1_He1_He1))``), so the
+    product itself is not a survivor although the family fired; ``hybrid_orth_candidates_`` records what it appended."""
+    return sorted(c for c in (getattr(sel, "hybrid_orth_candidates_", None) or []) if str(c).split("__", 1)[0].count("*") == 3)
 
 
 def test_quadruplet_fe_runs_on_polars_and_matches_pandas():
