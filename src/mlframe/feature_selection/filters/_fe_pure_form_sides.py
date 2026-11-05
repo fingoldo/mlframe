@@ -14,6 +14,8 @@ from typing import Any
 
 import numpy as np
 
+from ._linear_cv_loss import cv_loss
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,31 +33,6 @@ def _side_values(recipe: Any, X: Any) -> "list[np.ndarray] | None":
     return out
 
 
-def _cv_score(col: np.ndarray, y: np.ndarray, classification: bool, n_folds: int, seed: int) -> float:
-    """Mean CV loss of a one-column scaled linear model on ``col`` (log-loss for classification, MAE for regression); ``inf`` when it cannot be fit."""
-    from sklearn.model_selection import KFold
-
-    from ._usability_aware_selection import _scrub, _usability_scorers
-
-    scorers = _usability_scorers(classification, y)
-    if scorers is None:
-        return float("inf")
-    mk, logloss, y_enc, _n_classes = scorers
-    x = _scrub(np.asarray(col, dtype=np.float64)).reshape(-1, 1)  # Intentional float64: as above
-    if not np.isfinite(x).all() or float(np.std(x)) <= 1e-12:
-        return float("inf")
-    losses = []
-    for tr, va in KFold(n_splits=n_folds, shuffle=True, random_state=seed).split(x):
-        model = mk()
-        if classification:
-            model.fit(x[tr], y_enc[tr])
-            losses.append(logloss(y_enc[va], model.predict_proba(x[va])))
-        else:
-            model.fit(x[tr], y[tr])
-            losses.append(float(np.mean(np.abs(y[va] - model.predict(x[va])))))
-    return float(np.mean(losses))
-
-
 def drop_forms_not_beating_their_sides(candidates: list, X: Any, y: np.ndarray, *, classification: bool, seed: int, n_folds: int = 3, improve_rel: float = 0.01) -> list:
     """``candidates`` without the pair forms whose CV loss is not below ``(1 - improve_rel)`` times the better side's; raw passthroughs and forms
     whose sides cannot be replayed are kept unchanged."""
@@ -70,8 +47,8 @@ def drop_forms_not_beating_their_sides(candidates: list, X: Any, y: np.ndarray, 
             if sides is None:
                 kept.append(cand)
                 continue
-            form_loss = _cv_score(cand.values, y, classification, n_folds, seed)
-            side_loss = min(_cv_score(s, y, classification, n_folds, seed) for s in sides)
+            form_loss = cv_loss(cand.values, y, classification, n_folds, seed)
+            side_loss = min(cv_loss(s, y, classification, n_folds, seed) for s in sides)
         except Exception as exc:
             logger.debug("pure-form side check skipped for %s: %s", getattr(cand, "name", "?"), exc)
             kept.append(cand)

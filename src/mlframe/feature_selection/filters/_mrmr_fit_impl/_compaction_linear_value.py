@@ -15,37 +15,12 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 
+from .._linear_cv_loss import cv_loss
+
 logger = logging.getLogger(__name__)
 
 _MAX_ROWS = 3000
 _MARGIN = 0.01
-
-
-def cv_loss(design: np.ndarray, y: np.ndarray, classification: bool, n_folds: int, seed: int) -> float:
-    """Mean CV loss of a scaled linear model on the columns of ``design`` (log-loss for classification, MAE for regression); ``inf`` when it cannot be fit."""
-    from sklearn.model_selection import KFold
-
-    from .._usability_aware_selection import _scrub, _usability_scorers
-
-    scorers = _usability_scorers(classification, y)
-    if scorers is None:
-        return float("inf")
-    mk, logloss, y_enc, _n_classes = scorers
-    x = _scrub(np.asarray(design, dtype=np.float64))  # Intentional float64: the retention gates score float64 columns
-    if x.ndim == 1:
-        x = x.reshape(-1, 1)
-    if not np.isfinite(x).all():
-        return float("inf")
-    losses = []
-    for tr, va in KFold(n_splits=n_folds, shuffle=True, random_state=seed).split(x):
-        model = mk()
-        if classification:
-            model.fit(x[tr], y_enc[tr])
-            losses.append(logloss(y_enc[va], model.predict_proba(x[va])))
-        else:
-            model.fit(x[tr], y[tr])
-            losses.append(float(np.mean(np.abs(y[va] - model.predict(x[va])))))
-    return float(np.mean(losses))
 
 
 def make_linear_value_check(self: Any, X: Any, recipes_by_name: dict, seed: int = 0, n_folds: int = 3) -> Optional[Callable[[str, "list[str]"], bool]]:
