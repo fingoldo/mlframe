@@ -17,6 +17,7 @@ from typing import Any, Callable, Sequence
 import numpy as np
 
 from mlframe._numerical_floors import VARIANCE_FLOOR
+from mlframe.feature_selection.filters._kernel_types import render
 from .._gpu_raw_module import LazyRawModule
 from ._fourier_core_cycles import core_span, freq_is_tail_aliased
 
@@ -34,6 +35,17 @@ _REFINE_FINE = (0.05, 0.0125)  # (half width, step) of the second scan around th
 _MIN_REFINE_FREQ = 0.05
 
 _SRC_TEMPLATE = r"""
+// sin / cos of w * z. A float z: the argument is reduced to [-pi, pi] in double (a few double operations) and the sine and cosine are taken in float, the full double sincos
+// being ~30 times slower on the cards this runs on; a double z keeps the double sincos. Outside the extern "C" block: C linkage cannot overload.
+__device__ __forceinline__ void trig(const double w, const float z, double* s, double* c) {
+    const double a = w * (double)z;
+    const double r = a - 6.283185307179586 * rint(a * 0.15915494309189535);
+    float sf, cf;
+    sincosf((float)r, &sf, &cf);
+    *s = (double)sf;
+    *c = (double)cf;
+}
+__device__ __forceinline__ void trig(const double w, const double z, double* s, double* c) { sincos(w * z, s, c); }
 extern "C" {
 __device__ __forceinline__ double power_term(double sv, double vv, double vy, double n, double y_ss) {
     const double v_ss = vv - sv * sv / n;
@@ -51,7 +63,7 @@ __global__ void periodogram_power_b(const {REAL}* Z, const {REAL}* YC, const dou
     double ss = 0.0, sc = 0.0, vvs = 0.0, vvc = 0.0, vys = 0.0, vyc = 0.0;
     for (long long i = threadIdx.x; i < n; i += blockDim.x) {
         double s, co;
-        sincos(w * z[i], &s, &co);
+        trig(w, z[i], &s, &co);
         const double y = yc[i];
         ss += s; sc += co; vvs += s * s; vvc += co * co; vys += s * y; vyc += co * y;
     }
@@ -83,7 +95,7 @@ __global__ void sincos_gram_b(const {REAL}* Z, const {REAL}* Y, const double* fv
     const double w = 6.283185307179586 * fvec[c];
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
         double s, co;
-        sincos(w * z[i], &s, &co);
+        trig(w, z[i], &s, &co);
         const double yi = y[i];
         acc[0] += 1.0; acc[1] += s; acc[2] += co; acc[3] += s * s; acc[4] += s * co; acc[5] += co * co;
         acc[6] += yi; acc[7] += s * yi; acc[8] += co * yi;
@@ -105,7 +117,7 @@ __global__ void sincos_gram_b(const {REAL}* Z, const {REAL}* Y, const double* fv
     }
 }
 // grid (C): compensated merge of the block partials and the 3x3 solve; coef = 0 for an inactive column, NaN for a singular system
-__global__ void solve3_b(const double* part, const int blocks, const int* active, double* coef) {
+__global__ void solve3_b(const {ACC}* part, const int blocks, const int* active, {ACC}* coef) {
     const int c = blockIdx.x;
     if (!active[c]) { if (threadIdx.x < 3) coef[c * 3 + threadIdx.x] = 0.0; return; }
     __shared__ double tot[9];
@@ -142,7 +154,7 @@ __global__ void apply_deflate_b(const {REAL}* Z, const {REAL}* Y, const double* 
     const double c0 = coef[c * 3], c1 = coef[c * 3 + 1], c2 = coef[c * 3 + 2];
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
         double s, co;
-        sincos(w * Z[(long long)c * n + i], &s, &co);
+        trig(w, Z[(long long)c * n + i], &s, &co);
         out[(long long)c * n + i] = Y[(long long)c * n + i] - (c0 + c1 * s + c2 * co);
     }
 }
@@ -150,7 +162,7 @@ __global__ void apply_deflate_b(const {REAL}* Z, const {REAL}* Y, const double* 
 """
 
 
-_SRC = _SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR))
+_SRC = render(_SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR)))  # {ACC} is float64; {REAL} stays for the per-type modules
 _MODULES_BY_REAL = {"double": LazyRawModule(_SRC.replace("{REAL}", "double"), ("-std=c++14",)), "float": LazyRawModule(_SRC.replace("{REAL}", "float"), ("-std=c++14",))}
 
 

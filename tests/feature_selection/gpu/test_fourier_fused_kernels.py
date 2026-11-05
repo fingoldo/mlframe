@@ -88,3 +88,15 @@ def test_detected_frequencies_are_the_same(freq, monkeypatch):
     got = det.detect_fourier_freqs_for_col_gpu(z, y, f_grid=GRID, min_rows=800, fourier_detect_max_n=30_000)
     assert len(got) == len(want)
     np.testing.assert_allclose(got, want, atol=0.02)
+
+
+@pytest.mark.parametrize("n", [900, 66_000])
+def test_float32_trig_keeps_the_power_grid_and_its_argmax(n):
+    """float32 samples take the float sine / cosine of a double-reduced argument: the powers agree with the float64 run to 1e-5 of the largest and every argmax is the same."""
+    z, yc = _column(n, 3)
+    y_ss = float(cp.dot(yc, yc))
+    freqs = cp.asarray([*GRID, 3.07, 3.1, 3.12, 40.0, 77.3])
+    want = cp.asnumpy(fused.power_sincos(cp, z, yc, y_ss, freqs))
+    got = cp.asnumpy(fused.power_sincos(cp, z.astype(cp.float32), yc.astype(cp.float32), y_ss, freqs))
+    np.testing.assert_allclose(got, want, rtol=1e-4, atol=1e-5 * float(np.max(np.abs(want))))
+    assert int(np.argmax(got)) == int(np.argmax(want))

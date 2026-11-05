@@ -15,9 +15,21 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from mlframe._numerical_floors import VARIANCE_FLOOR
+from mlframe.feature_selection.filters._kernel_types import render
 from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
 
 _SRC_TEMPLATE = r"""
+// sin / cos of w * z. A float z: the argument is reduced to [-pi, pi] in double (a few double operations) and the sine and cosine are taken in float, the full double sincos
+// being ~30 times slower on the cards this runs on; a double z keeps the double sincos. Outside the extern "C" block: C linkage cannot overload.
+__device__ __forceinline__ void trig(const double w, const float z, double* s, double* c) {
+    const double a = w * (double)z;
+    const double r = a - 6.283185307179586 * rint(a * 0.15915494309189535);
+    float sf, cf;
+    sincosf((float)r, &sf, &cf);
+    *s = (double)sf;
+    *c = (double)cf;
+}
+__device__ __forceinline__ void trig(const double w, const double z, double* s, double* c) { sincos(w * z, s, c); }
 extern "C" {
 __device__ __forceinline__ double power_term(double sv, double vv, double vy, double n, double y_ss) {
     const double v_ss = vv - sv * sv / n;
@@ -30,7 +42,7 @@ __global__ void periodogram_power(const {REAL}* z, const {REAL}* yc, const doubl
     double ss = 0.0, sc = 0.0, vvs = 0.0, vvc = 0.0, vys = 0.0, vyc = 0.0;
     for (long long i = threadIdx.x; i < n; i += blockDim.x) {
         double s, c;
-        sincos(w * z[i], &s, &c);
+        trig(w, z[i], &s, &c);
         const double y = yc[i];
         ss += s; sc += c; vvs += s * s; vvc += c * c; vys += s * y; vyc += c * y;
     }
@@ -59,7 +71,7 @@ __global__ void sincos_gram(const {REAL}* z, const {REAL}* y, const double f, do
     const double w = 6.283185307179586 * f;
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
         double s, c;
-        sincos(w * z[i], &s, &c);
+        trig(w, z[i], &s, &c);
         const double yi = y[i];
         acc[0] += 1.0; acc[1] += s; acc[2] += c; acc[3] += s * s; acc[4] += s * c; acc[5] += c * c;
         acc[6] += yi; acc[7] += s * yi; acc[8] += c * yi;
@@ -80,7 +92,7 @@ __global__ void sincos_gram(const {REAL}* z, const {REAL}* y, const double f, do
         part[(long long)blockIdx.x * 9 + threadIdx.x] = t;
     }
 }
-__global__ void solve3(const double* part, const int nblocks, double* coef) {
+__global__ void solve3(const {ACC}* part, const int nblocks, {ACC}* coef) {
     __shared__ double tot[9];
     if (threadIdx.x < 9) {
         double s = 0.0, comp = 0.0;
@@ -111,7 +123,7 @@ __global__ void apply_deflate(const {REAL}* z, const {REAL}* y, const double* co
     const double c0 = coef[0], c1 = coef[1], c2 = coef[2];
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
         double s, c;
-        sincos(w * z[i], &s, &c);
+        trig(w, z[i], &s, &c);
         out[i] = y[i] - (c0 + c1 * s + c2 * c);
     }
 }
@@ -120,7 +132,7 @@ __global__ void apply_deflate(const {REAL}* z, const {REAL}* y, const double* co
 
 
 # The variance floor is filled in from the shared constant so the kernel and the host agree.
-_SRC = _SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR))
+_SRC = render(_SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR)))  # {ACC} is float64; {REAL} stays for the per-type modules
 # One module per input element type: the samples arrive in the critical dtype (float32 by default) and the kernels read them as that type; the sums accumulate in double.
 _MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float"))}
 
