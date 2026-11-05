@@ -23,6 +23,7 @@ unrelated to the unpickler trust boundary.
 from __future__ import annotations
 
 
+import io
 import itertools
 import logging
 from mlframe.utils.env_flags import env_flag
@@ -256,12 +257,21 @@ def safe_joblib_load(filename: str) -> Any:
     Does not support ``mmap_mode`` (models loaded this way are read fully into memory, matching how
     ``inference/predict.py`` already used plain ``joblib.load``)."""
     with open(filename, "rb") as fobj:
-        with _joblib_validate_fileobject_and_memmap(fobj, filename, mmap_mode=None) as (validated_fobj, _):
-            if isinstance(validated_fobj, str):
-                raise dill.UnpicklingError(f"safe_joblib_load: legacy pre-0.10 joblib pickle format is not supported: {filename}")
-            unpickler = _SafeJoblibUnpickler(filename, validated_fobj, ensure_native_byte_order=True)
-            obj = unpickler.load()
-    return obj
+        return _safe_joblib_load_fobj(fobj, filename)
+
+
+def safe_joblib_load_bytes(payload: bytes, filename: str) -> Any:
+    """:func:`safe_joblib_load` over bytes the caller already read, so the unpickled bytes are the ones it verified."""
+    return _safe_joblib_load_fobj(io.BytesIO(payload), filename)
+
+
+def _safe_joblib_load_fobj(fobj: Any, filename: str) -> Any:
+    """Unpickle a joblib payload from an open binary file object through the restricted unpickler."""
+    with _joblib_validate_fileobject_and_memmap(fobj, filename, mmap_mode=None) as (validated_fobj, _):
+        if isinstance(validated_fobj, str):
+            raise dill.UnpicklingError(f"safe_joblib_load: legacy pre-0.10 joblib pickle format is not supported: {filename}")
+        unpickler = _SafeJoblibUnpickler(filename, validated_fobj, ensure_native_byte_order=True)
+        return unpickler.load()
 
 
 _SIDECAR_META_VERSION = 1

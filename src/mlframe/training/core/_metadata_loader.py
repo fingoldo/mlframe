@@ -6,9 +6,9 @@ import io
 from typing import Any
 
 from mlframe.training._bounded_zstd import decompress_bounded
-from mlframe.training.io import _SafeUnpickler, safe_joblib_load
+from mlframe.training.io import _SafeUnpickler, safe_joblib_load_bytes
 from mlframe.utils.safe_pickle import UNVERIFIED_ENV_VAR
-from mlframe.utils.safe_pickle import verify_sidecar
+from mlframe.utils.safe_pickle import verify_sidecar_payload
 
 
 def load_metadata_file(metadata_file: str, kind: str, caller: str) -> Any:
@@ -17,14 +17,19 @@ def load_metadata_file(metadata_file: str, kind: str, caller: str) -> Any:
     Every kind, ``joblib`` included, needs a matching sha256 sidecar unless ``MLFRAME_ALLOW_UNVERIFIED_PICKLE`` opts in (DESER-07: joblib metadata
     used to load before any check).
     """
-    if not verify_sidecar(metadata_file):
+    # One read: the digest is checked against these bytes and the same bytes are unpickled, so a payload swapped on disk
+    # between the check and the load cannot pass.
+    try:
+        with open(metadata_file, "rb") as f:
+            raw = f.read()
+    except OSError:
+        raw = None
+    if raw is None or not verify_sidecar_payload(metadata_file, raw):
         raise RuntimeError(
             f"{caller}: sha256 sidecar missing or mismatched on {metadata_file!r}; refusing to load. "
             f"Set {UNVERIFIED_ENV_VAR}=1 to load a bundle without a sidecar."
         )
     if kind == "joblib":
-        return safe_joblib_load(metadata_file)
-    with open(metadata_file, "rb") as f:
-        raw = f.read()
+        return safe_joblib_load_bytes(raw, metadata_file)
     payload = decompress_bounded(raw) if kind == "pkl.zst" else raw
     return _SafeUnpickler(io.BytesIO(payload)).load()

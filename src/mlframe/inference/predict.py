@@ -28,10 +28,11 @@ from pyutilz.system import tqdmu
 
 from mlframe.utils.safe_pickle import (
     verify_sidecar as _safe_pickle_verify_sidecar,
+    verify_sidecar_payload as _safe_pickle_verify_sidecar_payload,
 )
 from mlframe.utils.shared import sha256_of_file as _sha256_of_file  # noqa: F401 -- re-exported for callers importing predict._sha256_of_file
 from mlframe.utils.log_throttle import log_throttle
-from mlframe.training.io import safe_joblib_load
+from mlframe.training.io import safe_joblib_load, safe_joblib_load_bytes
 
 # Allow-listed extensions for joblib model deserialization. Anything outside
 # this set is skipped to make "drop a planted .pkl in the dir" attacks harder.
@@ -41,6 +42,11 @@ _ALLOWED_MODEL_EXTENSIONS = frozenset({".dump", ".joblib", ".pkl", ".pickle"})
 def _verify_sidecar(path: str) -> bool:
     """Back-compat shim delegating to :func:`mlframe.utils.safe_pickle.verify_sidecar`."""
     return _safe_pickle_verify_sidecar(path)
+
+
+def _verify_sidecar_payload(path: str, payload: bytes) -> bool:
+    """Verify ``path``'s sidecar against ``payload``, the bytes already read from it."""
+    return _safe_pickle_verify_sidecar_payload(path, payload)
 
 
 def _model_feature_names(model) -> Optional[list]:
@@ -225,7 +231,15 @@ def read_trained_models(
         model_file = join(fpath, model_name)
         if not isfile(model_file):
             continue
-        if not _verify_sidecar(model_file):
+        # One read: the digest is checked against these bytes and the same bytes are unpickled, so a payload swapped on disk
+        # between the check and the load cannot pass.
+        try:
+            with open(model_file, "rb") as _fh:
+                _model_payload = _fh.read()
+        except OSError as e:
+            logger.warning("Could not read model file %s of featureset %s: %s", model_file, featureset, e)
+            continue
+        if not _verify_sidecar_payload(model_file, _model_payload):
             logger.error("sha256 mismatch for model %s; skipping", model_file)  # per file: a skipped model changes the ensemble, so none may be dropped
             continue
         # Validate the .meta.json sidecar before unpickling so library-version drift gets a WARN log instead of
@@ -244,7 +258,7 @@ def read_trained_models(
             # Trusts the sha256 sidecar verified above: integrity/corruption gate, NOT authenticity (dir-write attacker rewrites payload+sidecar).
             # Routed through the same _SafeUnpickler-derived module/class allowlist training/io.py uses for
             # dill bundles, so infer/ models get the RCE-surface restriction, not just the integrity gate.
-            model = safe_joblib_load(model_file)
+            model = safe_joblib_load_bytes(_model_payload, model_file)
         except Exception as e:
             logger.warning("Could not read model file %s of featureset %s: %s", model_file, featureset, e)  # per file, see the sha256 branch above
             continue

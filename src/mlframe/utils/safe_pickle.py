@@ -22,6 +22,7 @@ from pyutilz.core.safe_pickle import (
 )
 from pyutilz.core.safe_pickle import safe_load as _pyutilz_safe_load
 from pyutilz.core.safe_pickle import verify_sidecar as _pyutilz_verify_sidecar
+from pyutilz.core.safe_pickle import _verify_sidecar as _pyutilz_verify_sidecar_payload
 
 __all__ = [
     "PickleVerificationError",
@@ -38,6 +39,11 @@ UNVERIFIED_ENV_VAR = "MLFRAME_ALLOW_UNVERIFIED_PICKLE"
 def verify_sidecar(path: str, *, allow_unverified: Optional[bool] = None) -> bool:
     """Verify ``path``'s sha256 sidecar, honoring mlframe's ``MLFRAME_ALLOW_UNVERIFIED_PICKLE`` env var. See ``pyutilz.core.safe_pickle.verify_sidecar``."""
     return bool(_pyutilz_verify_sidecar(path, allow_unverified=allow_unverified, env_var=UNVERIFIED_ENV_VAR))
+
+
+def verify_sidecar_payload(path: str, payload: bytes, *, allow_unverified: Optional[bool] = None) -> bool:
+    """Verify the sidecar against ``payload``, the bytes the caller already read from ``path`` and is about to use."""
+    return bool(_pyutilz_verify_sidecar_payload(path, allow_unverified=allow_unverified, env_var=UNVERIFIED_ENV_VAR, payload=payload))
 
 
 def safe_load(path: str, *, allow_unverified: Optional[bool] = None) -> Any:
