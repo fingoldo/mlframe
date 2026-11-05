@@ -68,3 +68,7 @@ Scored one by one the kept compound `add(sin(cat_a), log(grptabin(x0|grp)))` rea
 ## Is the CPU under-use a thread cap? (checked)
 
 numba runs the TBB threading layer with 8 threads (`NUMBA_NUM_THREADS` 8) on this host, which is safe for parallel kernels launched from several Python threads at once; no code in the fit path calls `numba.set_num_threads` or lowers the pool. `MLFRAME_EDGE_JOBS` only sizes the Python-side edge pools (default: the logical core count). So the 33 percent CPU mean is not a configured thread cap: it comes from the serial Python stretches and the small kernels between the parallel regions.
+
+## numeric_decompose (nd_cprof.py, 100000 x 40 rounded columns, CPU only)
+
+`hybrid_numeric_decompose_fe_with_recipes` takes 1.9 s standalone, of which 1.58 s (84 percent) is the compiled `_bootstrap_rank_mi_f32` kernel (two calls) and 0.07 s lock waits; the Python around it is under 0.2 s. Its time is the bootstrap MI of the candidates, already a numba kernel (and a device twin for the tied columns in the GPU fit); no Python-level loop is left to remove.
