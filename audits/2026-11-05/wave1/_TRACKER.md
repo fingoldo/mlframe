@@ -45,7 +45,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **OPEN** | N3-01 | supply_chain | Low | `.pre-commit-config.yaml:126,200,459`: ruff-pre-commit pinned to a mutable tag |
 | **OPEN** | N3-02 | supply_chain | Low | `feature_selection/filters/_neural_mi.py:278-291`: InfoNet checkpoint pin trusts the first file seen |
 | **OPEN** | N3-03 | supply_chain | Low | `training/feature_handling/hf_provider.py:74-84`: unlisted model loads hub `main` without a revision |
-| **OPEN** | R4-05 | resource | Low | `reporting/charts/slice_finder.py:386,392`: all pairs built before the cap |
+| **RESOLVED** | R4-05 | resource | Low | `reporting/charts/slice_finder.py:386,392`: all pairs built before the cap | Fixed: pairs are enumerated lazily and only the kept prefix is built; test `tests/reporting/test_slice_finder_pair_cap_is_lazy.py`.
 | **RESOLVED** | S5-04 | leakage | Low | `training/composite/count_weighted_blend.py:139`: auto-k error ignores sample weights |
 | **RESOLVED** | M6-02 | numerics | Low | `metrics/calibration/_calibration_metrics.py:78-83`: all-zero hits report perfect calibration |
 | **RESOLVED** | M6-03 | numerics | Low | `core/stats.py:67-78`: Tukey multiplier at quantile 0.5 is `inf` |

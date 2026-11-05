@@ -383,8 +383,7 @@ def _build_combos(
 ) -> List[Tuple[int, ...]]:
     """Build the candidate feature-combination list (singles, pairs, restricted triples) honouring the caps; appends cap notes to ``capped``."""
     combos: List[Tuple[int, ...]] = [(j,) for j in range(p)]
-    pairs = list(itertools.combinations(range(p), 2))
-    _cap_combos_with_pairs(max_arity, combos, pairs, max_combos, capped)
+    _cap_combos_with_pairs(max_arity, combos, itertools.combinations(range(p), 2), p * (p - 1) // 2, max_combos, capped)
     if max_arity >= 3 and p > 3:
         top = _top_split_features(mat, err, list(names), max_depth=3, n_features=min(three_way_top_features, p), seed=seed)
         if len(top) < p:
@@ -567,16 +566,16 @@ def _slice_figure(
     )
 
 
-def _cap_combos_with_pairs(max_arity, combos, pairs, max_combos, capped):
-    """Cap the combination list at max_combos when pairs are added."""
+def _cap_combos_with_pairs(max_arity, combos, pairs, n_pairs, max_combos, capped):
+    """Cap the combination list at max_combos when pairs are added; ``pairs`` is consumed lazily so only the kept prefix is built."""
     if max_arity >= 2:
-        if len(combos) + len(pairs) > max_combos:
+        if len(combos) + n_pairs > max_combos:
             keep = max(0, max_combos - len(combos))
             capped.append(
                 f"pair enumeration truncated: the {max_combos} combo budget minus {len(combos)} single-feature "
-                f"slices leaves room for {keep} of {len(pairs)} pairs"
+                f"slices leaves room for {keep} of {n_pairs} pairs"
             )
-            pairs = pairs[:keep]
+            pairs = itertools.islice(pairs, keep)
         combos.extend(pairs)
 
 
