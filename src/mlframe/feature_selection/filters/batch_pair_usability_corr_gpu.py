@@ -705,7 +705,7 @@ def dispatch_batch_pair_usability_corr(
         form_ids = ALL_FORM_IDS
     form_ids = np.asarray(form_ids, dtype=np.int64)
     if int(pair_a.shape[0]) * int(form_ids.shape[0]) * int(y.shape[0]) < _CORR_MEMO_MIN_WORK:
-        return _dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, pair_a, pair_b, form_ids, force_backend)
+        return _same_dtype(_dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, pair_a, pair_b, form_ids, force_backend))
     from ._gpu_policy import gpu_globally_disabled
 
     key = _CORR_MEMO.key([y, operand_matrix, pair_a, pair_b, form_ids], force_backend, bool(gpu_globally_disabled()))
@@ -713,9 +713,15 @@ def dispatch_batch_pair_usability_corr(
     if hit is not None:
         remembered: tuple[np.ndarray, str] = hit
         return remembered
-    result = _dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, pair_a, pair_b, form_ids, force_backend)
+    result = _same_dtype(_dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, pair_a, pair_b, form_ids, force_backend))
     _CORR_MEMO.put(key, result)
     return result
+
+
+def _same_dtype(result: tuple[np.ndarray, str]) -> tuple[np.ndarray, str]:
+    """The table in ``crit_float_dtype()`` whichever backend ran: the CPU kernel is float64, the GPU kernels are not, and a fallback changed the dtype."""
+    table, backend = result
+    return table.astype(crit_float_dtype(), copy=False), backend
 
 
 # ---------------------------------------------------------------------------
