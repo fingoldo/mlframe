@@ -38,6 +38,7 @@ __device__ __forceinline__ long long mono_key(double v) {
     long long b = __double_as_longlong(v);
     return b >= 0 ? b : (b ^ 0x7FFFFFFFFFFFFFFFLL);   // signed-compare monotonic map
 }
+// dtype-ok: reviewed 2026-11-05: the double column is compared through integer order keys (mono_key), no FP64 compare; the host uploads float64 explicitly.
 extern "C" __global__ void qbin_code(const double* __restrict__ x, const long long* __restrict__ edge_keys,
                                      const long long n, const long long K, const int ne1,
                                      long long* __restrict__ codes) {

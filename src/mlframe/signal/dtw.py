@@ -202,6 +202,7 @@ def dtw_cuda(
 
 # Intentional float64: the GPU DTW kernels accumulate in double so the distances equal the CPU result.
 _CUPY_KERNEL_SRC = r"""
+// dtype-ok: reviewed 2026-11-05: the GPU DTW kernels accumulate in double so the distances equal the CPU result (documented in the module); the host uploads float64 explicitly.
 extern "C" __global__
 void dtw_diagonal(const double* __restrict__ x, const double* __restrict__ y,
                   double* cost, int n, int m, int w, int k) {
@@ -239,6 +240,7 @@ void dtw_diagonal(const double* __restrict__ x, const double* __restrict__ y,
 # squared diff, same min-of-three with the diag<=up<=left tie order, same 1e18
 # out-of-band sentinel, single final sqrt -- only the cost-buffer indexing changes.
 _CUPY_BANDED_KERNEL_SRC = r"""
+// dtype-ok: reviewed 2026-11-05: as dtw_diagonal.
 extern "C" __global__
 void dtw_banded_diagonal(const double* __restrict__ x, const double* __restrict__ y,
                          double* band, int n, int m, int w, int bw, int k) {

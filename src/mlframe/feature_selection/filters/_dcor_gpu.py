@@ -15,6 +15,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 _SRC = r"""
+// dtype-ok: reviewed 2026-11-05: float32 values with double sums measured 45 ms against 46-49 ms (no gain, the double accumulations set the time); the host loads float64 on purpose (dvar2_x is a cancellation).
 extern "C" __global__ void dcor_cols(const double* __restrict__ xs, const double* __restrict__ b, const int m, const int k, double* __restrict__ sums) {
     extern __shared__ double sm[];
     double* sx = sm;                     // this column's m values

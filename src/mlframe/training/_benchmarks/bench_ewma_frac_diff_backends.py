@@ -95,6 +95,7 @@ def _ensure_ewma_cuda_kernel():
     if _EWMA_CUDA_KERNEL is not None or not _HAS_CP:
         return _EWMA_CUDA_KERNEL
     src = r"""
+    // dtype-ok: reviewed 2026-11-05: used by the training composite transforms (_nonlinear_ewma_fracdiff), not by MRMR. The recursive EWMA / fractional-difference filters carry a state across the whole series, where float32 rounding accumulates; every buffer is created as float64 in this file (np/cp.float64, no float32 anywhere).
     extern "C" __global__
     void ewma_batched(const double* __restrict__ base,
                       const double* __restrict__ alphas,
@@ -188,6 +189,7 @@ def _ensure_frac_diff_cuda_kernel():
     if _FRAC_DIFF_CUDA_KERNEL is not None or not _HAS_CP:
         return _FRAC_DIFF_CUDA_KERNEL
     src = r"""
+    // dtype-ok: reviewed 2026-11-05: used by the training composite transforms (_nonlinear_ewma_fracdiff), not by MRMR. The recursive EWMA / fractional-difference filters carry a state across the whole series, where float32 rounding accumulates; every buffer is created as float64 in this file (np/cp.float64, no float32 anywhere).
     extern "C" __global__
     void frac_diff_inv_batched(const double* __restrict__ t_batch,
                                 const double* __restrict__ weights_batch,

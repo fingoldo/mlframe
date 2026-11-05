@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 MAX_CELLS = 2048
 
 _PASS1_SRC = r"""
+// dtype-ok: reviewed 2026-11-05: per-cell moments are double atomic accumulators whose results are compared with thresholds; the host passes float64 explicitly. Float shared atomics would move the thresholded statistics at ~1e-5, for 0.3 s of a 90 s fit (3.2% of kernel time): revisit with a selection-parity A/B.
 extern "C" __global__ void cell_sums(const long long* codes, const double* v, const double* w, long long n, int nc, double* cnt_out, double* sum_out) {
     extern __shared__ double sh[];
     for (int i = threadIdx.x; i < 2 * nc; i += blockDim.x) sh[i] = 0.0;
@@ -38,6 +39,7 @@ extern "C" __global__ void cell_sums(const long long* codes, const double* v, co
 """
 
 _PASS2_SRC = r"""
+// dtype-ok: reviewed 2026-11-05: per-cell moments are double atomic accumulators whose results are compared with thresholds; the host passes float64 explicitly. Float shared atomics would move the thresholded statistics at ~1e-5, for 0.3 s of a 90 s fit (3.2% of kernel time): revisit with a selection-parity A/B.
 extern "C" __global__ void cell_centred(const long long* codes, const double* v, const double* w, const double* mean, long long n, int nc,
                                          double* cm2_out, double* cm3_out, double* cm4_out) {
     extern __shared__ double sh[];
@@ -116,6 +118,7 @@ def masked_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, w: Any, n_cel
 # ``(n_folds, n_cells)`` histogram that is merged into the global ``(n_folds, n_cells)`` tables once per block. Per-row terms are the expressions of the per-fold kernels (``w`` is 1.0 on a
 # train row, and a test row would add an exact 0.0), so the tables hold the same moments; only the order of the atomic additions differs, as it already does between runs.
 _FOLDS_PASS1_SRC = r"""
+// dtype-ok: reviewed 2026-11-05: per-cell moments are double atomic accumulators whose results are compared with thresholds; the host passes float64 explicitly. Float shared atomics would move the thresholded statistics at ~1e-5, for 0.3 s of a 90 s fit (3.2% of kernel time): revisit with a selection-parity A/B.
 extern "C" __global__ void fold_cell_sums(const long long* codes, const double* v, const double* fin, const long long* fold, long long n, int nc, int nf, double* cnt_out, double* sum_out) {
     extern __shared__ double sh[];
     for (int i = threadIdx.x; i < 2 * nf * nc; i += blockDim.x) sh[i] = 0.0;
@@ -141,6 +144,7 @@ extern "C" __global__ void fold_cell_sums(const long long* codes, const double* 
 """
 
 _FOLDS_PASS2_SRC = r"""
+// dtype-ok: reviewed 2026-11-05: per-cell moments are double atomic accumulators whose results are compared with thresholds; the host passes float64 explicitly. Float shared atomics would move the thresholded statistics at ~1e-5, for 0.3 s of a 90 s fit (3.2% of kernel time): revisit with a selection-parity A/B.
 extern "C" __global__ void fold_cell_centred(const long long* codes, const double* v, const double* fin, const long long* fold, const double* mean, long long n, int nc, int nf,
                                               double* cm2_out, double* cm3_out, double* cm4_out) {
     extern __shared__ double sh[];

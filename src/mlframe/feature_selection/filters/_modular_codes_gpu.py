@@ -30,6 +30,7 @@ _BYTES_PER_SOURCE_ROW = 8  # one double source value per row and source column
 _BUDGET_FRACTION = 0.2
 
 _SRC = r"""
+// dtype-ok: reviewed 2026-11-05: float64 on purpose, floor(v / p) of a timestamp (~1.6e9) is noise at float32 resolution 128; the host uploads float64 explicitly.
 extern "C" __global__ void modular_all_ops(const double* __restrict__ S, const double* __restrict__ P, const long long n, const int n_periods, float* __restrict__ out) {
     const int src = blockIdx.y / n_periods;
     const int ip = blockIdx.y - src * n_periods;

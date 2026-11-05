@@ -28,6 +28,7 @@ COLUMN_BLOCK = 32  # columns per launch: bounds the double copy of the block on 
 _SRC = r"""
 #define PB 8
 #define NC 4
+// dtype-ok: reviewed 2026-11-05: float64 on purpose, floor(v * inv) of a timestamp needs double as on the host; the host uploads float64 explicitly.
 extern "C" __global__ void parity_mi_grid(const double* __restrict__ V, const unsigned char* __restrict__ Y, const double* __restrict__ INV,
                                           const long long* __restrict__ cls_tot, const long long n, const int G, const int nc, double* __restrict__ out) {
     const int col = blockIdx.x;

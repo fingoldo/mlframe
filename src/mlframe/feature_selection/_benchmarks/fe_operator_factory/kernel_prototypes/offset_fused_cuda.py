@@ -37,6 +37,7 @@ __device__ __forceinline__ double val_of(unsigned long long k) {
     k = (k & 0x8000000000000000ULL) ? (k & 0x7FFFFFFFFFFFFFFFULL) : ~k;
     return __longlong_as_double((long long)k);
 }
+// dtype-ok: reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.
 extern "C" __global__
 void offset_fused_mi(const double* __restrict__ U, const double* __restrict__ V, const double* __restrict__ P /*C x 3*/,
                      const int G, const long long n, const int* __restrict__ y, const int ncls, const int nbins,
@@ -120,6 +121,7 @@ void offset_fused_mi(const double* __restrict__ U, const double* __restrict__ V,
     }
 }
 // deterministic first-max over C candidates (one block): winner index and value
+// dtype-ok: reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.
 extern "C" __global__ void argmax_first(const double* mi, const int C, int* best_idx, double* best_val) {
     __shared__ double sv[256]; __shared__ int si[256];
     double bv = -1.0; int bi = 0;
@@ -130,6 +132,7 @@ extern "C" __global__ void argmax_first(const double* mi, const int C, int* best
         *best_idx = i0; *best_val = v0; }
 }
 // permutation null, recompute variant: grid = (C, B). Block (c, b) re-bins candidate c against shuffled y row b; edges_in from offset_fused_mi.
+// dtype-ok: reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.
 extern "C" __global__
 void offset_fused_null(const double* __restrict__ U, const double* __restrict__ V, const double* __restrict__ P, const int G, const long long n,
                        const signed char* __restrict__ Yperm /*B x n*/, const int ncls, const int nbins, const double* __restrict__ edges_in,
