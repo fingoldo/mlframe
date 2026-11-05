@@ -461,12 +461,6 @@ def _output_membership(mrmr_self: Any) -> "tuple[set | None, dict]":
     for rec in getattr(mrmr_self, "_fe_rejection_records_", None) or ():
         if isinstance(rec, dict) and rec.get("gate") and rec.get("candidate") is not None:
             last_gate[str(rec["candidate"])] = str(rec["gate"])
-    # The post-screen passes leave their verdicts on the estimator, not in the rejection ledger; they run in this order, so a later one overrides an earlier gate.
-    for dropped in getattr(mrmr_self, "_final_subsumption_dropped_", None) or ():
-        last_gate[str(dropped)] = "final_subsumption"
-    for replacement, replaced in getattr(mrmr_self, "_selection_compaction_", None) or ():
-        for name in replaced:
-            last_gate[str(name)] = "selection_compaction:redundant" if replacement is None else f"selection_compaction:replaced_by:{replacement}"
     return names, last_gate
 
 

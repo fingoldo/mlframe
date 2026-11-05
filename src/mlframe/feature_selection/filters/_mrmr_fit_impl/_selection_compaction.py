@@ -261,6 +261,14 @@ def _recipe_consumers(recipes: list) -> dict:
     return consumers
 
 
+def _record_compaction(self, name: str, replacement: "str | None") -> None:
+    """Write one compaction decision to the rejection ledger (``fe_rejection_ledger_`` / ``fe_provenance_.dropped_by``): the engineered feature ``name`` was redundant, or replaced by ``replacement``."""
+    from .._fe_rejection_ledger import record_fe_rejection
+
+    reason = "no information or held-out linear value beyond the rest of the selection" if replacement is None else f"replaced by {replacement}: at least the same bias-corrected joint information and no worse held-out linear loss, one feature fewer"
+    record_fe_rejection(self, gate="selection_compaction", candidate=name, operator="engineered", reason=reason)
+
+
 def run_selection_compaction(
     self, X: Any, selected_vars: list[int], cols: list[str], data: np.ndarray, classes_y: np.ndarray, engineered_recipes: dict[str, Any], verbose: bool
 ) -> tuple[bool, list[int]]:
@@ -305,6 +313,8 @@ def run_selection_compaction(
             sel_eng = [e for e in sel_eng if e not in dropped]
             changed = True
             self._selection_compaction_ = [*self._selection_compaction_, *((None, (d,)) for d in dropped)]
+            for d in dropped:
+                _record_compaction(self, d, None)
         for _ in range(3):
             choice = choose_compaction(columns, sel_raw + sel_eng, [e for e in sel_eng if e not in protected], sources, [p for p in pool if p not in sel_eng], y_codes, consumers, replacement_ok)
             if choice is None:
@@ -313,6 +323,8 @@ def run_selection_compaction(
             sel_eng = [*(e for e in sel_eng if e not in replaced), cand]
             changed = True
             self._selection_compaction_ = [*self._selection_compaction_, (cand, tuple(replaced))]
+            for r in replaced:
+                _record_compaction(self, r, cand)
             if verbose:
                 logger.info("MRMR selection compaction: %s replaces %s (at least the same bias-corrected joint information, fewer features).", cand, replaced)
         if not changed:
