@@ -19,10 +19,10 @@
     "pair_mi_shared_fused": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
   },
   "src/mlframe/feature_selection/filters/_cell_moments_kernel.py": {
-    "cell_centred": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "cell_sums": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "fold_cell_centred": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "fold_cell_sums": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
+    "cell_centred": "reviewed 2026-11-05: per-cell moments are double atomic accumulators whose results are compared with thresholds; the host passes float64 explicitly. Float shared atomics would move the thresholded statistics at ~1e-5, for 0.3 s of a 90 s fit (3.2% of kernel time): revisit with a selection-parity A/B.",
+    "cell_sums": "reviewed 2026-11-05: per-cell moments are double atomic accumulators whose results are compared with thresholds; the host passes float64 explicitly. Float shared atomics would move the thresholded statistics at ~1e-5, for 0.3 s of a 90 s fit (3.2% of kernel time): revisit with a selection-parity A/B.",
+    "fold_cell_centred": "reviewed 2026-11-05: per-cell moments are double atomic accumulators whose results are compared with thresholds; the host passes float64 explicitly. Float shared atomics would move the thresholded statistics at ~1e-5, for 0.3 s of a 90 s fit (3.2% of kernel time): revisit with a selection-parity A/B.",
+    "fold_cell_sums": "reviewed 2026-11-05: per-cell moments are double atomic accumulators whose results are compared with thresholds; the host passes float64 explicitly. Float shared atomics would move the thresholded statistics at ~1e-5, for 0.3 s of a 90 s fit (3.2% of kernel time): revisit with a selection-parity A/B."
   },
   "src/mlframe/feature_selection/filters/_dcor_gpu.py": {
     "dcor_cols": "reviewed 2026-11-05: float32 values with double sums measured 45 ms against 46-49 ms (no gain, the double accumulations set the time); the host loads float64 on purpose (dvar2_x is a cancellation)."
@@ -31,8 +31,8 @@
     "mi_from_codes": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
     "mi_from_codes_cm_i16": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
     "mi_from_counts_col": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "mi_from_values": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "mi_hist_split": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
+    "mi_from_values": "reviewed 2026-11-05: the double source is the template of the float32 kernel (mi_*_f32 is made from it by renaming and a float edge type, edges rounded up); the dispatcher picks one by the launched buffer dtype; scripts/kernel_dtype_audit.py found no mismatching launch.",
+    "mi_hist_split": "reviewed 2026-11-05: the double source is the template of the float32 kernel (mi_*_f32 is made from it by renaming and a float edge type, edges rounded up); the dispatcher picks one by the launched buffer dtype; scripts/kernel_dtype_audit.py found no mismatching launch.",
     "mi_mm_from_values": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
   },
   "src/mlframe/feature_selection/filters/_fe_batched_mi_cmi_lut.py": {
@@ -55,12 +55,12 @@
     "batch_unary": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
   },
   "src/mlframe/feature_selection/filters/_gpu_resident_select_kernels.py": {
-    "radix_interp": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "radix_select_f64": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "radix_select_interp_f64": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "radix_select_interp_f64_v2": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "radix_select_interp_f64_v3": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
-    "transpose_f64": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
+    "radix_interp": "reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and scripts/kernel_dtype_audit.py saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.",
+    "radix_select_f64": "reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and scripts/kernel_dtype_audit.py saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.",
+    "radix_select_interp_f64": "reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and scripts/kernel_dtype_audit.py saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.",
+    "radix_select_interp_f64_v2": "reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and scripts/kernel_dtype_audit.py saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.",
+    "radix_select_interp_f64_v3": "reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and scripts/kernel_dtype_audit.py saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.",
+    "transpose_f64": "reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and scripts/kernel_dtype_audit.py saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype."
   },
   "src/mlframe/feature_selection/filters/_gpu_resident_shared.py": {
     "fused_gen": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed",
