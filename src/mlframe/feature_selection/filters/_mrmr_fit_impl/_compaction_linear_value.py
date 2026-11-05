@@ -11,7 +11,7 @@ by more than the greedy's relative margin (1%).
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -23,9 +23,77 @@ _MAX_ROWS = 3000
 _MARGIN = 0.01
 
 
-def make_linear_value_check(self: Any, X: Any, recipes_by_name: dict, seed: int = 0, n_folds: int = 3) -> Optional[Callable[[str, "list[str]"], bool]]:
-    """``check(feature, rest)``: whether dropping ``feature`` from ``rest + [feature]`` worsens the held-out linear loss by more than the margin; ``None`` when no continuous target exists
-    (the compaction then keeps its information-only rule)."""
+class LinearValueCheck:
+    """Held-out linear loss of column sets of the selection, on at most ``_MAX_ROWS`` sampled rows (the retention's scorers, a fixed fold split)."""
+
+    def __init__(self, X: Any, recipes_by_name: dict, y: np.ndarray, rows: np.ndarray, is_clf: bool, seed: int, n_folds: int, replay: Any, apply_recipe: Any) -> None:
+        self._X = X
+        self._recipes = recipes_by_name
+        self._y = y
+        self._rows = rows
+        self._n_total = len(X)
+        self._is_clf = is_clf
+        self._seed = seed
+        self._n_folds = n_folds
+        self._replay = replay
+        self._apply_recipe = apply_recipe
+        self._cache: "dict[str, Optional[np.ndarray]]" = {}
+
+    def _column(self, name: str) -> "Optional[np.ndarray]":
+        """The continuous values of a selected raw column or engineered recipe on the sampled rows; ``None`` when they cannot be read."""
+        if name in self._cache:
+            return self._cache[name]
+        vals: "Optional[np.ndarray]" = None
+        try:
+            if name in self._recipes:
+                full = np.asarray(self._replay(self._recipes[name], self._X, self._apply_recipe), dtype=np.float64).ravel()  # Intentional float64: the retention gates score float64 columns
+            else:
+                full = np.asarray(self._X[name].to_numpy(), dtype=np.float64).ravel()  # Intentional float64: as above
+            if full.shape[0] == self._n_total:
+                vals = full[self._rows]
+        except Exception as exc:
+            logger.debug("compaction linear-value check: cannot read %s (%s)", name, exc)
+        self._cache[name] = vals
+        return vals
+
+    def _design(self, names: "list[str]") -> "Optional[np.ndarray]":
+        """The ``(rows, len(names))`` design of ``names``, or ``None`` when one of the columns cannot be read."""
+        cols = [self._column(nm) for nm in names]
+        arrays = [c for c in cols if c is not None]
+        if not arrays or len(arrays) != len(cols):
+            return None
+        return np.column_stack(arrays)
+
+    def _loss(self, names: "list[str]") -> float:
+        """Held-out CV loss of the design of ``names`` (``nan`` when it cannot be built, ``inf`` when it cannot be fit)."""
+        design = self._design(names)
+        if design is None:
+            return float("nan")
+        return cv_loss(design, self._y, self._is_clf, self._n_folds, self._seed)
+
+    def __call__(self, feature: str, rest: "list[str]") -> bool:
+        """Whether ``feature`` lowers the held-out linear loss of ``rest`` by more than the margin (``False`` when a column cannot be read)."""
+        with_e = self._loss([*rest, feature])
+        if not np.isfinite(with_e):
+            return False
+        if not rest:
+            return True
+        without = self._loss(rest)
+        if np.isnan(without):
+            return False
+        return bool(not np.isfinite(without) or without > (1.0 + _MARGIN) * with_e)
+
+    def replacement_loses(self, candidate: str, replaced: "list[str]", rest: "list[str]") -> bool:
+        """Whether swapping ``replaced`` for ``candidate`` beside ``rest`` raises the held-out linear loss by more than the margin."""
+        old_loss = self._loss([*rest, *replaced])
+        new_loss = self._loss([*rest, candidate])
+        if np.isnan(old_loss) or np.isnan(new_loss) or not np.isfinite(old_loss):
+            return False
+        return bool(not np.isfinite(new_loss) or new_loss > (1.0 + _MARGIN) * old_loss)
+
+
+def make_linear_value_check(self: Any, X: Any, recipes_by_name: dict, seed: int = 0, n_folds: int = 3) -> "Optional[LinearValueCheck]":
+    """The check for a fitted selector ``self`` and its frame ``X``; ``None`` when no continuous target exists (the compaction then keeps its information-only rule)."""
     y_cont = getattr(self, "_fe_prewarp_y_continuous_", None)
     if y_cont is None:
         return None
@@ -47,43 +115,4 @@ def make_linear_value_check(self: Any, X: Any, recipes_by_name: dict, seed: int 
     except Exception as exc:
         logger.debug("compaction linear-value check unavailable: %s", exc)
         return None
-    cache: "dict[str, np.ndarray]" = {}
-
-    def column(name: str) -> "np.ndarray | None":
-        """The continuous values of a selected raw column or engineered recipe on the sampled rows."""
-        if name in cache:
-            return cache[name]
-        try:
-            if name in recipes_by_name:
-                vals = np.asarray(replay_candidate_continuous(recipes_by_name[name], X, apply_recipe), dtype=np.float64).ravel()  # Intentional float64: as above
-            else:
-                vals = np.asarray(X[name].to_numpy(), dtype=np.float64).ravel()  # Intentional float64: as above
-            cache[name] = vals[rows] if vals.shape[0] == n else None
-        except Exception as exc:
-            logger.debug("compaction linear-value check: cannot read %s (%s)", name, exc)
-            cache[name] = None
-        return cache[name]
-
-    def check(feature: str, rest: "list[str]") -> bool:
-        """Whether ``feature`` lowers the held-out linear loss of ``rest`` by more than the margin."""
-        cols = [column(nm) for nm in [*rest, feature]]
-        if any(c is None for c in cols):
-            return False
-        with_e = cv_loss(np.column_stack(cols), y, is_clf, n_folds, seed)
-        if len(cols) == 1:
-            return bool(np.isfinite(with_e))
-        without = cv_loss(np.column_stack(cols[:-1]), y, is_clf, n_folds, seed)
-        return bool(np.isfinite(with_e) and (not np.isfinite(without) or without > (1.0 + _MARGIN) * with_e))
-
-    def replacement_loses(candidate: str, replaced: "list[str]", rest: "list[str]") -> bool:
-        """Whether swapping ``replaced`` for ``candidate`` beside ``rest`` raises the held-out linear loss by more than the margin."""
-        old_cols = [column(nm) for nm in [*rest, *replaced]]
-        new_cols = [column(nm) for nm in [*rest, candidate]]
-        if any(c is None for c in old_cols) or any(c is None for c in new_cols):
-            return False
-        old_loss = cv_loss(np.column_stack(old_cols), y, is_clf, n_folds, seed)
-        new_loss = cv_loss(np.column_stack(new_cols), y, is_clf, n_folds, seed)
-        return bool(np.isfinite(old_loss) and (not np.isfinite(new_loss) or new_loss > (1.0 + _MARGIN) * old_loss))
-
-    check.replacement_loses = replacement_loses  # type: ignore[attr-defined]
-    return check
+    return LinearValueCheck(X, recipes_by_name, y, rows, is_clf, seed, n_folds, replay_candidate_continuous, apply_recipe)
