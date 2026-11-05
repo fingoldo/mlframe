@@ -271,9 +271,11 @@ def _group_distance_global_stats(X: pd.DataFrame, num_col: str) -> tuple:
         if hi <= lo:
             hi = lo + 1.0
         global_edges = np.linspace(lo, hi, _DIST_NBINS + 1)
-        global_hist, _ = np.histogram(finite_all, bins=global_edges)
-        global_hist = global_hist.astype(np.float64)  # Intentional float64: global histogram statistic
         global_sorted = np.sort(finite_all)
+        # the histogram from the sorted column: bins are [edge_i, edge_i+1) and the last one is closed, as in np.histogram, which would sort the column again
+        _cuts = np.searchsorted(global_sorted, global_edges, side="left")
+        _cuts[-1] = np.searchsorted(global_sorted, global_edges[-1], side="right")
+        global_hist = np.diff(_cuts).astype(np.float64)  # Intentional float64: global histogram statistic
     bin_idx = _global_bin_index(x, global_edges) if global_edges.size >= 2 else None
     return (x, global_mean, global_std, global_edges, global_hist, global_sorted, bin_idx)
 
