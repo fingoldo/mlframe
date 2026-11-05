@@ -225,7 +225,7 @@ def read_trained_models(
         if not isfile(model_file):
             continue
         if not _verify_sidecar(model_file):
-            log_throttle(logger, "predict_model_sha256_mismatch", logging.ERROR, "sha256 mismatch for model %s; skipping", model_file)
+            logger.error("sha256 mismatch for model %s; skipping", model_file)  # per file: a skipped model changes the ensemble, so none may be dropped
             continue
         # Validate the .meta.json sidecar before unpickling so library-version drift gets a WARN log instead of
         # producing a cryptic AttributeError deep inside predict(). Non-fatal: legacy bundles (no sidecar) keep
@@ -244,7 +244,7 @@ def read_trained_models(
             # dill bundles, so infer/ models get the RCE-surface restriction, not just the integrity gate.
             model = safe_joblib_load(model_file)
         except Exception as e:
-            log_throttle(logger, "predict_model_read_failed", logging.WARNING, "Could not read model file %s of featureset %s: %s", model_file, featureset, e)
+            logger.warning("Could not read model file %s of featureset %s: %s", model_file, featureset, e)  # per file, see the sha256 branch above
             continue
 
         if not _check_model_feature_order(model, features, f"featureset {featureset}, file {model_file}", allow_unvalidatable=allow_unvalidatable_models):
