@@ -61,8 +61,19 @@ def _hybrid_orth_family_variants(
         _gbm_seeded_triplet_names=_gbm_seeded_triplet_names,
         _fe_family_on=_fe_family_on,
     )
+    groups = (_hybrid_orth_family_variants_group1, _hybrid_orth_family_variants_group2, _hybrid_orth_family_variants_group3, _hybrid_orth_family_variants_group4)
+    from ._concurrent import hybrid_variant_concurrency_enabled, run_groups_concurrently
+
+    if hybrid_variant_concurrency_enabled():
+        together = run_groups_concurrently(self, X, kwargs, groups)
+        if together is not None:
+            return together
     X = _hybrid_orth_family_variants_group1(X=X, **kwargs)
     X = _hybrid_orth_family_variants_group2(X=X, **kwargs)
     X = _hybrid_orth_family_variants_group3(X=X, **kwargs)
     X = _hybrid_orth_family_variants_group4(X=X, **kwargs)
+    # a name two variants emit (x4__fourier3 from the extra-basis and a hybrid variant) is kept once in the frame; list it once too, as the concurrent path does
+    from ._concurrent import _drop_repeated_features
+
+    _drop_repeated_features(self)
     return X
