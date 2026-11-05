@@ -70,6 +70,7 @@ def _stage_mi_greedy(self, X_acc, X, _y_np, _mi_greedy_pre_recipes, verbose):
         if _mig_appended:
             X_acc = fe_append_columns(X_acc, fe_extract_columns(X_mg, _mig_appended))
             self.mi_greedy_features_ = list(_mig_appended)
+            self.mi_greedy_candidates_ = list(_mig_appended)
             for _r in _mig_recipes:
                 _mi_greedy_pre_recipes[_r.name] = _r
             if verbose:
@@ -491,6 +492,8 @@ def _fe_stage_cascade_early_a_part1(
     # ``log(x__He2)``); each constructor explores its own design space and
     # the union of winners is screened by MRMR.
     self.mi_greedy_features_ = []
+    # every column the MI-greedy family appended, survivor or not (``mi_greedy_features_`` keeps survivors only), as ``hybrid_orth_candidates_``
+    self.mi_greedy_candidates_ = []
     if _fe_family_on("fe_mi_greedy_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         X_acc = _stage_mi_greedy(self, X_acc, X, _y_np, _mi_greedy_pre_recipes, verbose)
@@ -655,6 +658,7 @@ def _stage_greedy_cmi(self, _fe_family_on, _y_np, X, _mi_greedy_pre_recipes, ver
                 for _c in _cmi_appended:
                     if _c not in _existing:
                         self.mi_greedy_features_.append(_c)
+                        self.mi_greedy_candidates_.append(_c)
                         _existing.add(_c)
                 for _r in _cmi_recipes:
                     if _r.name not in _mi_greedy_pre_recipes:

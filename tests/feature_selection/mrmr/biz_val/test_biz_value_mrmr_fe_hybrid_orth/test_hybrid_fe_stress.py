@@ -398,8 +398,9 @@ class TestHybridMiGreedyConflictResolution:
             fe_mi_greedy_include_binary=False,
         )
         m_g.fit(X, y)
-        mig_x2 = [c for c in m_g.mi_greedy_features_ if c in {"square(x)", "abs(x)", "sqrt_abs(x)", "log_abs(x)"}]
-        assert mig_x2, f"seed={seed}: mi_greedy (alone) did not emit a |x|-family transform for quadratic signal; got {m_g.mi_greedy_features_}"
+        # what the family EMITTED (mi_greedy_features_ keeps survivors only: an equivalent detector of another family can win the support)
+        mig_x2 = [c for c in m_g.mi_greedy_candidates_ if c in {"square(x)", "abs(x)", "sqrt_abs(x)", "log_abs(x)"}]
+        assert mig_x2, f"seed={seed}: mi_greedy (alone) did not emit a |x|-family transform for quadratic signal; got {m_g.mi_greedy_candidates_}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_final_support_picks_at_most_one_x_quadratic(self, seed):
