@@ -45,6 +45,8 @@ from py_ci_shared.systemexit_in_library import assert_no_systemexit_in_library
 from py_ci_shared.tracked_secret_shapes import assert_no_tracked_secret_shapes
 from py_ci_shared.truncating_discretisation import assert_truncating_discretisation
 from py_ci_shared.unseeded_rng_fallback import assert_unseeded_rng_fallback
+from py_ci_shared.verified_then_reopened import assert_verified_then_reopened
+from py_ci_shared.wallclock_test_waits import assert_no_new_wallclock_test_waits
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC = REPO_ROOT / "src" / "mlframe"
@@ -166,6 +168,16 @@ def test_skip_as_pass_scripts_do_not_report_success():
 def test_tests_that_spawn_git_scrub_the_hook_environment():
     """Under a git hook `GIT_DIR` points at the committing repository; a test that spawns git without scrubbing it runs against that repository."""
     assert_no_new_unscrubbed_git_spawns(REPO_ROOT)
+
+
+def test_a_verified_file_is_not_reopened_to_load_it():
+    """Verifying a sidecar by path and then opening the path again lets a replaced file be loaded unverified; verify the bytes that get loaded."""
+    assert_verified_then_reopened(SRC, min_files=MIN_SRC_FILES)
+
+
+def test_tests_do_not_wait_on_the_wall_clock():
+    """A real sleep makes the suite slower on every run and flaky under load; inject a clock or wait on the event the test is after."""
+    assert_no_new_wallclock_test_waits(REPO_ROOT, python_mode="ast")
 
 
 def test_no_output_token_ceiling_is_hardcoded():

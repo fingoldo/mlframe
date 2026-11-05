@@ -23,6 +23,8 @@ unrelated to the unpickler trust boundary.
 from __future__ import annotations
 
 
+import hashlib
+import io
 import itertools
 import logging
 from mlframe.utils.env_flags import env_flag
@@ -244,7 +246,7 @@ class _SafeJoblibUnpickler(_JoblibNumpyUnpickler):
         return _resolve_denylisted_class(module, name, super().find_class)
 
 
-def safe_joblib_load(filename: str) -> Any:
+def safe_joblib_load(filename: str, *, payload: Optional[bytes] = None) -> Any:
     """Restricted drop-in replacement for ``joblib.load`` that routes deserialization through
     :class:`_SafeJoblibUnpickler` instead of the unrestricted ``NumpyUnpickler``, blocking the classic
     pickle RCE gadgets (eval/exec/os/subprocess/etc.) while still permitting arbitrary custom model/
@@ -254,8 +256,9 @@ def safe_joblib_load(filename: str) -> Any:
     its sidecar check is code-execution-equivalent for whoever can write it. Custom model classes must stay loadable, which is why
     the allowlist is not used here; a writer that can rewrite both the bundle and its sidecar is outside the threat model.
     Does not support ``mmap_mode`` (models loaded this way are read fully into memory, matching how
-    ``inference/predict.py`` already used plain ``joblib.load``)."""
-    with open(filename, "rb") as fobj:
+    ``inference/predict.py`` already used plain ``joblib.load``).
+    ``payload``: the bytes the caller already read from ``filename`` and verified; they are unpickled instead of re-opening the file."""
+    with io.BytesIO(payload) if payload is not None else open(filename, "rb") as fobj:
         with _joblib_validate_fileobject_and_memmap(fobj, filename, mmap_mode=None) as (validated_fobj, _):
             if isinstance(validated_fobj, str):
                 raise dill.UnpicklingError(f"safe_joblib_load: legacy pre-0.10 joblib pickle format is not supported: {filename}")
@@ -534,11 +537,14 @@ class UnverifiedBundleError(RuntimeError):
     """
 
 
-def _verify_bundle_digest(bundle_path: str) -> None:
+def _verify_bundle_digest(bundle_path: str, payload: Optional[bytes] = None) -> None:
     """Refuse a model bundle whose bytes do not match the sha256 recorded in its save sidecar (DESER-02).
 
     The sidecar is written at save time next to the bundle; a bundle without a recorded digest, or with one that no longer matches, is not
     unpickled. ``MLFRAME_ALLOW_UNVERIFIED_PICKLE`` is the explicit opt-out for a bundle that predates the digest.
+
+    ``payload`` is the bundle's bytes as the caller read them: when given, THOSE bytes are hashed, so the bytes verified are the bytes that get
+    unpickled (a second open could see a file another process replaced in between).
     """
     if not os.path.exists(bundle_path):
         # Nothing to verify: the loader's own read fails and returns its documented None for a missing file.
@@ -550,7 +556,7 @@ def _verify_bundle_digest(bundle_path: str) -> None:
             logger.warning("load_mlframe_model: %r has no recorded sha256; loading because %s is set", bundle_path, UNVERIFIED_ENV_VAR)
             return
         raise UnverifiedBundleError(f"load_mlframe_model: no sha256 recorded for {bundle_path!r}; refusing to unpickle. Set {UNVERIFIED_ENV_VAR}=1 to load it.")
-    actual = _bundle_sha256(bundle_path)
+    actual = hashlib.sha256(payload).hexdigest() if payload is not None else _bundle_sha256(bundle_path)
     if actual != expected:
         raise UnverifiedBundleError(f"load_mlframe_model: sha256 of {bundle_path!r} does not match its save sidecar; refusing to unpickle.")
 
@@ -606,7 +612,12 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
         # AttributeError deep in predict(). Returns None on legacy bundles
         # (previous) with no sidecar; that's a back-compat path with a
         # one-line INFO message in the helper.
-        _verify_bundle_digest(file)
+        try:
+            with open(file, "rb") as _bundle_f:
+                _raw: Optional[bytes] = _bundle_f.read()
+        except OSError:
+            _raw = None  # missing or unreadable: the digest check passes through and the load below reports it
+        _verify_bundle_digest(file, payload=_raw)
         try:
             validate_load_meta_sidecar(file, strict=strict_version)
         except ValueError:
@@ -621,20 +632,21 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
                 _meta_e,
             )
         try:
-            with open(file, "rb") as f:
-                zstd = import_optional("zstandard", "db", "reading compressed model bundles")
-                decompressor = zstd.ZstdDecompressor()
-                with decompressor.stream_reader(f) as _zraw:
-                    zf = BoundedReader(_zraw, max_decompressed_bytes())
-                    if safe:
-                        model = _SafeUnpickler(zf).load()
-                    else:
-                        warnings.warn(
-                            "Loading without allowlist -- trust source",
-                            UserWarning,
-                            stacklevel=2,
-                        )
-                        model = dill.load(zf)  # deserialize-ok: safe=False is the caller's explicit opt-in, warned above  # nosec B301
+            if _raw is None:
+                raise FileNotFoundError(f"model bundle {file!r} could not be read")
+            zstd = import_optional("zstandard", "db", "reading compressed model bundles")
+            decompressor = zstd.ZstdDecompressor()
+            with decompressor.stream_reader(io.BytesIO(_raw)) as _zraw:
+                zf = BoundedReader(_zraw, max_decompressed_bytes())
+                if safe:
+                    model = _SafeUnpickler(zf).load()
+                else:
+                    warnings.warn(
+                        "Loading without allowlist -- trust source",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    model = dill.load(zf)  # deserialize-ok: safe=False is the caller's explicit opt-in, warned above  # nosec B301
             if _cache_key is not None:
                 _max_count_env = os.environ.get("MLFRAME_LOAD_MODEL_CACHE_MAX", "32")
                 try:
