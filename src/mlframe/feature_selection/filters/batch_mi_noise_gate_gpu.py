@@ -36,7 +36,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     import cupy
@@ -565,7 +565,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     # Intentional float64: device buffer the numba CUDA kernel reads or writes in double
     d_freq = _histgate_upload(freqs_y, "histgate_freq", np.float64)
     # Bit-set gate (``_batch_mi_noise_gate_bits``): the (P, K) MI matrix from popcounts of device bit sets, 7x faster than the histogram pair at 10 bins x 10 classes; the tuning cache decides.
-    _bits_gated = None if use_su else _bits_gated_vector(d_disc, nbins_arr, d_y, K_y, n, K, min_nonzero_confidence, classes_y)
+    _bits_gated: Optional[np.ndarray] = None if use_su else _bits_gated_vector(d_disc, nbins_arr, d_y, K_y, n, K, min_nonzero_confidence, classes_y)
     if _bits_gated is not None:
         return _bits_gated
     # Fused histogram + reduction: no (P, total_size) counts matrix (444 MB at 27744 candidates x 100 shuffles), one launch; falls through when it does not apply.

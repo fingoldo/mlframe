@@ -221,8 +221,8 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gat
                 kept = cp.where(zeroed, 0.0, original)
             if observed_key is not None:
                 # The ungated vector and the zeroing mask cross the bus (an eighth of a byte per column more than the gated vector alone); the gated vector is rebuilt on the host with the same values.
-                observed = cp.asnumpy(original).astype(np.float64, copy=False)  # Intentional float64: MI output contract of the kernel is double precision
-                gated_host = observed.copy()
+                observed: np.ndarray = cp.asnumpy(original).astype(np.float64, copy=False)  # Intentional float64: MI output contract of the kernel is double precision
+                gated_host: np.ndarray = observed.copy()
                 if zeroed is not None:
                     # the mask crosses packed, one bit per column
                     packed = cp.asnumpy(cp.packbits(zeroed))
