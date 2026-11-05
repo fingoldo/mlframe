@@ -63,6 +63,12 @@ class TestClusterMembersAccessor:
         # always resolve against the fitted column universe (raw cols +
         # engineered aggregates).
         fitted_cols = set(X.columns)
+        # the DCD pool is every column of the fit, the engineered candidates of the FE steps (a hybrid_orth triplet such as ``a*b*c__He1_He1_He1``) included
+        from mlframe.feature_selection.filters.engineered_recipes.shared import simplify_fe_name
+
+        engineered_universe = {str(getattr(r, "name", "")) for r in (getattr(m, "_produced_recipes_", None) or [])}
+        engineered_universe |= {simplify_fe_name(n) for n in engineered_universe} | {str(n) for n in (getattr(m, "_engineered_features_", None) or [])}
+        fitted_cols = fitted_cols | engineered_universe
         engineered_anchors = set()
         for anchor_name, members in cm.items():
             assert isinstance(anchor_name, str) and len(anchor_name) > 0
@@ -390,7 +396,9 @@ class TestClusterDiagnosticsMonotonicity:
         X, y = _strong_cluster_frame(n=2000, n_members=5, seed=0)
         mins = {}
         for tau in (0.4, 0.6, 0.75):
-            m = MRMR(dcd_enable=True, dcd_tau_cluster=tau, verbose=0, random_state=0).fit(X, y)
+            # fe_max_steps=0: the diagnostic spans every cached pair of a cluster (members of an engineered candidate included, whose SU with a sibling can sit below tau by design), so
+            # the admission-threshold invariant is checked on the raw pool this sanity test is about
+            m = MRMR(dcd_enable=True, dcd_tau_cluster=tau, fe_max_steps=0, verbose=0, random_state=0).fit(X, y)
             diag = m.dcd_.get("cluster_diagnostics", {})
             cluster_mins = [info["min_pair_su"] for info in diag.values() if info["min_pair_su"] is not None]
             if cluster_mins:
