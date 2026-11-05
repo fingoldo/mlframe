@@ -36,3 +36,16 @@ def test_shared_shuffle_is_the_honest_null_permutation(seed):
     shuffle_labels_into(y, out, seed)
     assert np.array_equal(out, y[seeded_permutation(len(y), seed)])
     assert np.array_equal(np.sort(out), np.sort(y))
+
+
+def test_twin_modules_have_no_private_permutation_draw():
+    """Every MDLP split test draws through ``shuffle_labels_into``: none of the twin modules shuffles with numba's ``np.random`` on its own (a private copy is how the streams drifted apart)."""
+    import inspect
+
+    from mlframe.feature_selection.filters import _mdlp_validated_split, _numba_utils_cross_module
+
+    for mod, funcs in ((_mdlp_validated_split, ("_permutation_null_gain_njit", "_mdlp_permutation_batch_njit")), (_numba_utils_cross_module, ("_accept_split_serial",))):
+        for name in funcs:
+            src = inspect.getsource(getattr(mod, name).py_func)
+            assert "shuffle_labels_into" in src, f"{mod.__name__}.{name} must draw through shuffle_labels_into"
+            assert "np.random" not in src, f"{mod.__name__}.{name} must not draw from numba's np.random"
