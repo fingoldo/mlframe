@@ -54,7 +54,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **OPEN** | C8-04 | state | Low | `_mrmr_fit_impl/_fit_impl_core.py:35` vs `_fit_impl_core_parts.py:26,232-233`: two different fit-cache locks |
 | **OPEN** | C8-05 | state | Low | `_fe_resident_operands.py:132-149`: identity-keyed content memo |
 | **OPEN** | C8-06 | state | Low | `info_theory/_cmi_cuda.py:95-121`: identity-keyed F-order copy cache |
-| **OPEN** | C8-07 | state | Low | `_gpu_resident_rank_bin.py:80-87`: device-array cache without device id |
+| **RESOLVED** | C8-07 | state | Low | `_gpu_resident_rank_bin.py:80-87`: device-array cache without device id |
 | **OPEN** | C8-08 | state | Low | `_neural_mi.py:94`, `_confirm_predictor.py:63`, `_orth_extra_basis_fe_helpers.py:389`: env vars read at import |
 | **OPEN** | X9-06 | silent_failure | Low | `training/honest_diagnostics.py:592-594,249-251,278-280`: failed blocks become `skipped` at debug |
 | **RESOLVED** | X9-07 | silent_failure | Low | `inference/predict.py:233-240`: failed version check is logged at debug |
