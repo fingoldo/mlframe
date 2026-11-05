@@ -34,7 +34,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **OPEN** | C8-02 | state | Medium | `shap_proxied_fs/_shap_proxy_revalidate/_shap_proxy_loss.py:80-83,122-123`; `_shap_proxy_explain.py:83-84`: summary-hash cache keys |
 | **OPEN** | C8-03 | state | Medium | `_numba_parallel_guard.py:42-45,63-81`: guard lock built through `lru_cache`; unguarded probe |
 | **OPEN** | X9-02 | silent_failure | Medium | `models/ensembling/score_gate.py:306-310,408-412,285-292`: catastrophic-member drop check fails silently |
-| **OPEN** | X9-03 | silent_failure | Medium | `training/_training_loop_objectives.py:136-159`: MultiOutputClassifier wrapping drops early stopping silently |
+| **RESOLVED** | X9-03 | silent_failure | Medium | `training/_training_loop_objectives.py:136-159`: MultiOutputClassifier wrapping drops early stopping silently |
 | **RESOLVED** | X9-04 | silent_failure | Medium | `inference/predict.py:228,247,250-251`: skipped models are logged at most 5 times per process |
 | **RESOLVED** | X9-05 | silent_failure | Medium | `training/_training_loop_refit.py:167-192,336-352`: failed refit leaves the live model with the fallback loss |
 | **OPEN** | P10-01 | api | Medium | `feature_selection/wrappers/rfecv/__init__.py:450`: `set_params` flat field then `clone()` raises |

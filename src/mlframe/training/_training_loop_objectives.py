@@ -153,10 +153,14 @@ def _maybe_wrap_for_2d_target(model, train_target):
             if "early_stopping_rounds" in inner_params and inner_params.get("early_stopping_rounds"):
                 patch["early_stopping_rounds"] = None
             if patch:
+                # Early stopping is dropped for the per-label fits: say so, since the run trains each label for its full budget.
+                logger.warning(
+                    "multilabel wrap of %s: per-label fits cannot early-stop (no eval set per label); disabling %s.",
+                    type(model).__name__, sorted(patch),
+                )
                 model.set_params(**patch)
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
+        except Exception as e:  # nosec B110 - swallow converted to a warning, non-fatal by design
+            logger.warning("multilabel wrap of %s: could not disable its early stopping (%s); the per-label fits may stop early or fail.", type(model).__name__, e)
         return MultiOutputClassifier(model, n_jobs=1)
     except ImportError as _import_err:
         # sklearn missing or version skew. Wrapping is impossible -> caller's bare model
