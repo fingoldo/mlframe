@@ -14,7 +14,7 @@ a replacement must save at least one feature, and sets whose joint table is too 
 from __future__ import annotations
 
 import logging
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from typing import Any
 
 import numpy as np
@@ -60,8 +60,11 @@ def choose_compaction(
     pool: Iterable[str],
     y_codes: np.ndarray,
     consumers: Mapping[str, set[str]] | None = None,
+    replacement_keeps_linear_value: "Callable[[str, list[str], list[str]], bool] | None" = None,
 ) -> tuple[str, list[str]] | None:
     """The single replacement that shrinks the selection without losing corrected information, as ``(candidate, replaced)``, or ``None``.
+
+    ``replacement_keeps_linear_value(candidate, replaced, rest)``: a replacement that makes the held-out linear loss of the selection worse is skipped (binned information cannot see that loss).
 
     ``columns`` maps a name to its integer codes; ``selected`` is every selected name (raw and engineered); ``engineered_selected`` the engineered part;
     ``sources`` maps a name to the frozenset of raw operands it is built from; ``pool`` the unselected engineered candidates; ``consumers`` maps a name
@@ -89,6 +92,8 @@ def choose_compaction(
         if new_cells > n / _MIN_ROWS_PER_CELL:
             continue
         if score < current - _equivalence_tolerance(new_cells - cells, n_y, n):
+            continue
+        if replacement_keeps_linear_value is not None and not replacement_keeps_linear_value(cand, covered, kept):
             continue
         key = (-score, len(kept) + 1, cand)
         if best is None or key < best[0]:
@@ -121,9 +126,12 @@ def prune_redundant(
     engineered_selected: Collection[str],
     y_codes: np.ndarray,
     consumers: Mapping[str, Collection[str]] | None = None,
+    keeps_linear_value: "Callable[[str, list[str]], bool] | None" = None,
 ) -> list[str]:
     """Engineered features whose removal does not lower the bias-corrected joint information of the selection beyond its standard error, dropped one at a time (a feature that another selected
-    recipe reads is kept). A copy of information the rest of the selection already holds, such as a fragment built on a proxy of a selected column, goes."""
+    recipe reads is kept). A copy of information the rest of the selection already holds, such as a fragment built on a proxy of a selected column, goes.
+
+    ``keeps_linear_value(feature, rest)``: a feature that is redundant in the binned information but lowers the held-out linear loss of the rest stays (see ``_compaction_linear_value``)."""
     consumers = consumers or {}
     n = int(y_codes.shape[0])
     n_y = int(np.unique(y_codes).size)
@@ -140,6 +148,8 @@ def prune_redundant(
             continue
         without, cells_without = corrected_joint_mi([columns[nm] for nm in rest], y_codes)
         if without >= with_e - _equivalence_tolerance(cells_without - cells_with, n_y, n):
+            if keeps_linear_value is not None and keeps_linear_value(e, rest):
+                continue
             kept = rest
             dropped.append(e)
     return dropped
@@ -285,13 +295,18 @@ def run_selection_compaction(
         # A hinge leg is admitted on its held-out linear usability, and a missingness indicator ties with the NaN bin of its source; binned joint information sees neither (a monotone leg of a selected source adds none by the
         # data-processing inequality), so the information-based compaction must not drop or replace it.
         protected = {c for attr in ("_hinge_features_", "missingness_indicator_features_", "missingness_pattern_features_") for c in (getattr(self, attr, None) or [])}
-        dropped = prune_redundant(columns, sel_raw + sel_eng, [e for e in sel_eng if e not in protected], y_codes, consumers)
+        from ._compaction_linear_value import make_linear_value_check
+
+        # the replacement candidates are pool recipes, not yet selected: the check replays them from their own recipes as well
+        linear_value = make_linear_value_check(self, X, {**{str(k): v for k, v in engineered_recipes.items()}, **by_recipe}, seed=int(getattr(self, "random_seed", 0) or 0))
+        replacement_ok = None if linear_value is None else (lambda cand, replaced, rest: not linear_value.replacement_loses(cand, replaced, rest))
+        dropped = prune_redundant(columns, sel_raw + sel_eng, [e for e in sel_eng if e not in protected], y_codes, consumers, linear_value)
         if dropped:
             sel_eng = [e for e in sel_eng if e not in dropped]
             changed = True
             self._selection_compaction_ = [*self._selection_compaction_, *((None, (d,)) for d in dropped)]
         for _ in range(3):
-            choice = choose_compaction(columns, sel_raw + sel_eng, [e for e in sel_eng if e not in protected], sources, [p for p in pool if p not in sel_eng], y_codes, consumers)
+            choice = choose_compaction(columns, sel_raw + sel_eng, [e for e in sel_eng if e not in protected], sources, [p for p in pool if p not in sel_eng], y_codes, consumers, replacement_ok)
             if choice is None:
                 break
             cand, replaced = choice
