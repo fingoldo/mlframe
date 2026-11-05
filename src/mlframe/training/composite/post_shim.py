@@ -184,6 +184,7 @@ class PrePipelinePredictShim(BaseEstimator):
 
     def predict(self, X: Any) -> Any:
         """Predict on ``pre_pipeline``-transformed ``X``, mirroring the scaling applied during ``fit``."""
+        check_is_fitted(self)
         if self._routes_to_composite():
             return self._composite_call("predict", X)
         # Tree-tier components carry no pre_pipeline (docstring above), so ``self.model`` -- not just

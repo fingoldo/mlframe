@@ -20,6 +20,7 @@ from typing import Optional
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.utils.validation import check_is_fitted
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +162,7 @@ class MultiTaskAuxiliaryLossRegressor(RegressorMixin, BaseEstimator):
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict the primary task's target via the trunk and primary head only."""
+        check_is_fitted(self)
         import torch
 
         X_t = torch.from_numpy(np.asarray(X, dtype=np.float32))

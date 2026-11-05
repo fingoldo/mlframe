@@ -26,6 +26,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 from .estimator import CompositeTargetEstimator
 from mlframe.training.composite.estimator.shared import extract_groups as _extract_groups
 from mlframe.utils.log_throttle import log_throttle
+from sklearn.utils.validation import check_is_fitted
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +150,7 @@ class PerGroupCompositeRouter(RegressorMixin, BaseEstimator):
         common/intended case), running the global model over every row first and immediately
         discarding most of that output was wasted inference work.
         """
+        check_is_fitted(self)
         group_vals = _extract_groups(X, self.group_column)
         n = len(group_vals)
         preds = np.full(n, np.nan, dtype=np.float64)

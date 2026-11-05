@@ -23,6 +23,7 @@ from sklearn.exceptions import NotFittedError
 from torch import nn
 
 from ._mlp_predict_shared import mlp_predict
+from sklearn.utils.validation import check_is_fitted
 
 
 class _TrunkInjectedBlock(nn.Module):
@@ -151,10 +152,12 @@ class TrunkResidualMLPRegressor(RegressorMixin, BaseEstimator):
 
     def predict_ensemble_mean(self, X: np.ndarray) -> np.ndarray:
         """Seed-averaged point estimate across ``ensemble_members_`` (lower variance than any single seed)."""
+        check_is_fitted(self)
         return np.asarray(self._ensemble_predictions(X).mean(axis=0))
 
     def predict_std(self, X: np.ndarray) -> np.ndarray:
         """Per-row across-seed prediction std (population, ddof=0) -- an epistemic/seed-sensitivity signal."""
+        check_is_fitted(self)
         return np.asarray(self._ensemble_predictions(X).std(axis=0, ddof=0))
 
     @staticmethod

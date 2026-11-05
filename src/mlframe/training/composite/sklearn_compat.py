@@ -67,6 +67,7 @@ from mlframe.training.composite.estimator.shared import (
 )
 from .transforms import get_transform
 from mlframe.training.composite.transforms.shared import call_transform
+from sklearn.utils.validation import check_is_fitted
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +264,7 @@ class CompositeTargetTransformer(TransformerMixin, BaseEstimator):
 
     def transform(self, y: Any) -> np.ndarray:
         """Forward the target: ``y -> T`` (the scale the inner model learns)."""
+        check_is_fitted(self)
         transform = get_transform(self._fitted_transform_name())
         y_arr = _to_1d_numpy(y)
         base_arr = self._replay_base(y_arr.shape[0])

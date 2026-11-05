@@ -23,6 +23,7 @@ import torch
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.preprocessing import LabelEncoder
 from torch import nn
+from sklearn.utils.validation import check_is_fitted
 
 
 def _finite_float32(X: np.ndarray) -> np.ndarray:
@@ -189,6 +190,7 @@ class Tabular1DCNNRegressor(RegressorMixin, BaseEstimator):
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict continuous targets for X (applies the fitted feature order first)."""
+        check_is_fitted(self)
         X_arr = _finite_float32(X)[:, self.feature_order_]
         self.model_.eval()
         with torch.no_grad():
@@ -261,6 +263,7 @@ class Tabular1DCNNClassifier(ClassifierMixin, BaseEstimator):
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         """Per-class probabilities for X (applies the fitted feature order first)."""
+        check_is_fitted(self)
         X_arr = _finite_float32(X)[:, self.feature_order_]
         self.model_.eval()
         with torch.no_grad():
@@ -270,6 +273,7 @@ class Tabular1DCNNClassifier(ClassifierMixin, BaseEstimator):
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict the most likely class label for X."""
+        check_is_fitted(self)
         proba = self.predict_proba(X)
         idx = np.argmax(proba, axis=-1)
         labels: np.ndarray = self.label_encoder_.inverse_transform(idx)

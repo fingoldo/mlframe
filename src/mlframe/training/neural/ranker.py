@@ -59,6 +59,7 @@ from ._ranker_losses import (  # noqa: F401
 # Group-aware batching
 # ----------------------------------------------------------------------------------
 from ._ranker_sampler import GroupBatchSampler  # re-exported for existing callers
+from sklearn.utils.validation import check_is_fitted
 
 
 class _RankerDataset(Dataset):
@@ -903,6 +904,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
 
     def predict(self, X) -> np.ndarray:
         """Return per-row scores (1-D, higher=more relevant)."""
+        check_is_fitted(self)
         X_arr = self._apply_scaler(self._apply_imputer(self._x_to_array(X)))
         self.module_.eval()
         device = next(self.module_.parameters()).device

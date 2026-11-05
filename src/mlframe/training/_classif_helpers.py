@@ -12,6 +12,7 @@ import numpy as np
 
 from sklearn.base import ClassifierMixin, BaseEstimator, clone
 from sklearn.multioutput import ClassifierChain, MultiOutputClassifier
+from sklearn.utils.validation import check_is_fitted
 
 logger = logging.getLogger(__name__)
 
@@ -589,6 +590,7 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         """Average each chain's independent per-label probabilities across chains using ``self.proba_aggregation`` (defaults to legacy ``'arithmetic'`` for pre-flip pickles lacking the attribute)."""
         # Each chain returns (N, K) of INDEPENDENT per-label P(label_j=1) (multilabel; columns do not sum to 1), so
         # the geometric blend renormalises per-label against its complement, not across labels (simplex=False).
+        check_is_fitted(self)
         per_chain = [chain.predict_proba(X) for chain in self.chains_]
         stacked = np.stack(per_chain, axis=0)  # (n_chains, N, K)
         method = getattr(self, "proba_aggregation", "arithmetic")  # pre-flip pickles lack the attribute -> replay legacy arithmetic exactly
@@ -596,6 +598,7 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
 
     def predict(self, X, threshold=0.5):
         """Threshold the aggregated per-label probabilities into a multilabel binary indicator matrix."""
+        check_is_fitted(self)
         proba = self.predict_proba(X)
         return (proba >= threshold).astype(np.int8)
 

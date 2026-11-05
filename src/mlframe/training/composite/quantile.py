@@ -65,6 +65,7 @@ from .estimator import CompositeTargetEstimator
 from .transforms import get_transform
 from mlframe.training.composite.transforms.shared import call_transform
 from mlframe.utils.log_throttle import log_throttle
+from sklearn.utils.validation import check_is_fitted
 
 logger = logging.getLogger(__name__)
 
@@ -390,6 +391,7 @@ class CompositeQuantileEstimator(RegressorMixin, BaseEstimator):
         returns the quantile nearest 0.5 from the fitted grid (so ``predict`` is
         always defined for a fitted estimator).
         """
+        check_is_fitted(self)
         q_arr = self.quantiles_
         nearest = float(q_arr[np.argmin(np.abs(q_arr - 0.5))])
         # Same complementary-head lookup predict_quantile() applies: on a decreasing-inverse
