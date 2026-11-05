@@ -21,10 +21,9 @@ from mlframe.feature_selection.filters import _family_maxt_gate as gate
 def _locked_guard(monkeypatch):
     """These tests assert that every call site holds the lock, which only exists in the locked mode (under a thread-safe numba layer the guard is a deliberate no-op)."""
     monkeypatch.setenv("MLFRAME_NUMBA_PARALLEL_GUARD", "always")
-    _guard._concurrent_entry_ok.cache_clear()
+    monkeypatch.setattr(_guard, "_CONCURRENT_ENTRY_OK", None)
     yield
     monkeypatch.undo()
-    _guard._concurrent_entry_ok.cache_clear()
 
 
 _KERNELS = ("mi_all_columns_njit", "family_null_max_njit", "null_max_bitsets", "quantile_codes_block", "_occupied_bins")

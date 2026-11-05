@@ -32,7 +32,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **OPEN** | M6-01 | numerics | Medium | `votenrank/rank_percentile_stacking.py:95-106`: out-of-range test values jump to 0 or 1 |
 | **OPEN** | K7-01 | parity | Medium | `feature_selection/filters/_gpu_resident_shared.py:469-470,501-502,593-594`: GPU max/min do not propagate NaN |
 | **OPEN** | C8-02 | state | Medium | `shap_proxied_fs/_shap_proxy_revalidate/_shap_proxy_loss.py:80-83,122-123`; `_shap_proxy_explain.py:83-84`: summary-hash cache keys |
-| **OPEN** | C8-03 | state | Medium | `_numba_parallel_guard.py:42-45,63-81`: guard lock built through `lru_cache`; unguarded probe |
+| **RESOLVED** | C8-03 | state | Medium | `_numba_parallel_guard.py:42-45,63-81`: guard lock built through `lru_cache`; unguarded probe | Fixed: the guard lock and probe are built under one guard, so concurrent first callers share one object; test `tests/test_numba_parallel_guard_first_use_race.py`.
 | **OPEN** | X9-02 | silent_failure | Medium | `models/ensembling/score_gate.py:306-310,408-412,285-292`: catastrophic-member drop check fails silently |
 | **RESOLVED** | X9-03 | silent_failure | Medium | `training/_training_loop_objectives.py:136-159`: MultiOutputClassifier wrapping drops early stopping silently |
 | **RESOLVED** | X9-04 | silent_failure | Medium | `inference/predict.py:228,247,250-251`: skipped models are logged at most 5 times per process |

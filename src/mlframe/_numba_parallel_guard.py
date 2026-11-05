@@ -28,7 +28,6 @@ holding it is by definition still only one thread inside.
 from __future__ import annotations
 
 import contextlib
-import functools
 import threading
 import logging
 
@@ -39,10 +38,20 @@ __all__ = ["parallel_kernel_entry"]
 #: Process-wide, deliberately: numba's threading layer is a process-wide resource, so a per-module lock
 #: would let two different fan-outs enter it at the same time and reproduce the crash between them.
 #: RLock, not Lock: see the reentrancy note above -- nested guards on the SAME thread must not deadlock.
-@functools.lru_cache(maxsize=1)
+_ENTRY_LOCK: "threading.RLock | None" = None
+_ONCE_GUARD = threading.Lock()
+
+
 def _entry_lock() -> threading.RLock:
-    """The one process-wide RLock; created on first use and cached so every caller receives the same object."""
-    return threading.RLock()
+    """The one process-wide RLock, created under a guard so concurrent first callers all receive the same object.
+
+    ``lru_cache`` does not serialise its first call, so two threads could each build an RLock and keep different ones.
+    """
+    global _ENTRY_LOCK
+    with _ONCE_GUARD:
+        if _ENTRY_LOCK is None:
+            _ENTRY_LOCK = threading.RLock()
+        return _ENTRY_LOCK
 
 
 def _layer_allows_concurrent_entry() -> bool:
@@ -75,10 +84,16 @@ def _layer_allows_concurrent_entry() -> bool:
         return False
 
 
-@functools.lru_cache(maxsize=1)
+_CONCURRENT_ENTRY_OK: "bool | None" = None
+
+
 def _concurrent_entry_ok() -> bool:
-    """Cached :func:`_layer_allows_concurrent_entry`."""
-    return _layer_allows_concurrent_entry()
+    """Cached :func:`_layer_allows_concurrent_entry`; the probe compiles a kernel, so concurrent first callers run it once."""
+    global _CONCURRENT_ENTRY_OK
+    with _ONCE_GUARD:
+        if _CONCURRENT_ENTRY_OK is None:
+            _CONCURRENT_ENTRY_OK = _layer_allows_concurrent_entry()
+        return _CONCURRENT_ENTRY_OK
 
 
 def parallel_kernel_entry() -> "contextlib.AbstractContextManager[object]":
