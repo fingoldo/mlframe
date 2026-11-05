@@ -114,7 +114,10 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
         # change the whole composite key and miss every per-cell lookup. The
         # per-unique map keeps the low-cardinality hot path cheap. Nulls keep the
         # explicit branch (None -> "" while NaN -> the canonical 'nan').
-        if not ser.isna().any():
+        if pd.api.types.infer_dtype(ser, skipna=False) == "string":
+            # every value is a str (no missing value, no mixed types): its canonical token is the string itself, and np.unique would sort 300000 Python strings (1.1 s of 1.6 s)
+            parts.append(np.asarray(ser.astype(object).to_numpy()))
+        elif not ser.isna().any():
             arr = ser.to_numpy()
             try:
                 uniq, inv = np.unique(arr, return_inverse=True)
