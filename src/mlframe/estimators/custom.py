@@ -663,7 +663,12 @@ class IdentityEstimator(BaseEstimator):
         self.feature_indices = feature_indices
 
     def fit(self, X, y, **fit_params):
-        """Record sorted ``classes_`` from ``y`` when acting as a classifier; no other state is learned."""
+        """Record the input width (and names, for a frame), plus sorted ``classes_`` from ``y`` when acting as a classifier."""
+        if hasattr(X, "columns"):
+            self.feature_names_in_ = np.asarray(X.columns, dtype=object)
+        _shape = getattr(X, "shape", None) or np.shape(X)
+        if len(_shape) == 2:
+            self.n_features_in_ = int(_shape[1])
         if isinstance(self, ClassifierMixin):
             # object-dtype label set with mixed types
             # (None + str) would TypeError on Python sorted(); use np.sort
