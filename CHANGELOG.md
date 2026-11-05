@@ -20,6 +20,7 @@ history.
 - `fe_provenance_` labels the columns admitted by the auto-escalation (`esc_*`) with the origin `escalation`, and the escalation writes its admissions to `fe_admission_ledger_` (stage `escalation`), so where such a column came from is readable without instrumenting the fit.
 
 ### Fixed
+- `_NumericOnlyTransformer.fit` fits a copy of its inner transformer, so the constructor parameter (`get_params()['inner']`) stays unfitted and a reused or cloned instance does not carry the first fit's statistics.
 - `IdentityEstimator` and `IdentityClassifier` record `n_features_in_` (and `feature_names_in_` for a frame) at fit, as sklearn estimators do.
 - `get_tukey_fences_multiplier_for_quantile` raises for the median (quantile 0.5), where the multiplier is undefined; it returned inf. `proportions_significantly_different` raises when a count exceeds its sample size instead of answering.
 - `RFECV.set_params` keeps a grouped config object (`search_config`, `fi_config`, `robustness_config`) and the flat attributes consistent. Changing a flat field such as `max_refits` left the config's old value in place, so `clone` failed the sklearn parameter check; passing a config object to `set_params` was ignored.
