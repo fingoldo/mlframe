@@ -121,6 +121,7 @@ def _jackknife_metric(
     # produced), so the metric sees bit-identical inputs. At n=2M / max_n=2000 the mask path re-scans the
     # full 2M-row range on every one of 2000 iterations (~4e9 element touches from the scan alone); this
     # drops to one memcpy pass per iteration.
+    dropped = 0
     for i in sel:
         idx = int(i)
         y_true_loo = np.concatenate((y_true[:idx], y_true[idx + 1 :]))
@@ -129,11 +130,16 @@ def _jackknife_metric(
             v = float(metric_fn(y_true_loo, y_pred_loo))
         except Exception as exc:
             logger.debug("jackknife LOO metric failed at i=%d: %r", idx, exc, exc_info=True)
+            dropped += 1
             continue
         if not _isfinite(v):
+            dropped += 1
             continue
         out[w] = v
         w += 1
+    if dropped:
+        # The BCa acceleration is computed from the kept values only; say how many evaluations it skipped.
+        logger.warning("jackknife: dropped %d of %d leave-one-out evaluation(s); the BCa interval uses the remaining %d.", dropped, sel.shape[0], w)
     if w < 3:
         return None
     return out[:w]
