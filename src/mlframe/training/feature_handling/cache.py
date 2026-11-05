@@ -554,6 +554,14 @@ def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
         # CV/RFECV loops. Use the with-block and materialise arrays via
         # np.array(...) before exiting so the caller gets owned buffers
         # (mmap views would go invalid on close).
+        if allow_pickle:
+            # ``np.load(allow_pickle=True)`` unpickles inside numpy, so the digest is checked before it runs (strict mode
+            # refuses an entry with no sidecar, as the pickle fallback below does).
+            from mlframe.utils.safe_pickle import PickleVerificationError, verify_sidecar as _vsc
+
+            _strict = os.environ.get("MLFRAME_FEATURE_CACHE_STRICT", "").strip().lower() in ("1", "true", "yes", "on")
+            if not _vsc(path, allow_unverified=not _strict):
+                raise PickleVerificationError(f"FeatureCache: sidecar digest mismatch (or missing in strict mode) for {path!r}; refusing to unpickle.")
         loaded = np.load(path, allow_pickle=allow_pickle, mmap_mode="r")
     except (OSError, zipfile.BadZipFile):
         # OSError (PermissionError from a locked file on Windows, a genuine disk-read failure, ...) and

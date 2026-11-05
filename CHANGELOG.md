@@ -20,6 +20,7 @@ history.
 - `fe_provenance_` labels the columns admitted by the auto-escalation (`esc_*`) with the origin `escalation`, and the escalation writes its admissions to `fe_admission_ledger_` (stage `escalation`), so where such a column came from is readable without instrumenting the fit.
 
 ### Fixed
+- The feature cache verifies a pickle entry's sha256 sidecar before `np.load(allow_pickle=True)` unpickles it (the check ran only after numpy had already unpickled the entry); a mismatch raises `PickleVerificationError`.
 - `load_mlframe_model` checks the bundle's digest and unpickles it through one open handle, so the bytes checked are the bytes loaded (it reopened the path before).
 - The infinity-to-NaN step of the linear and MLP pipelines handles a polars frame: it returns a polars frame with infinities in its float columns as null (it passed mixed-dtype polars frames through with the infinities).
 - A failed ECE, bootstrap-CI or RMSE block in the honest report is logged at WARNING (it was debug only). The block is still recorded as skipped with its reason.
