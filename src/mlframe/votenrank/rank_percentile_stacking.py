@@ -103,7 +103,9 @@ def rank_percentile_transform(
     # applied to another. Ties work out too: a value duplicated at sorted positions i and i+1 has OOF percentile
     # (i + 1)/n, and left=i / right=i+2 gives test_rank = i + 1.
     test_percentile = test_rank / n_oof
-    test_percentile = np.clip(test_percentile, 0.0, 1.0)
+    # Values beyond the OOF range clamp to the nearest OOF extreme. The extremes are (0.5/n, (n-0.5)/n), not 0 and 1: 0 and 1 are
+    # outside the scale the meta-learner was trained on.
+    test_percentile = np.clip(test_percentile, 0.5 / n_oof, (n_oof - 0.5) / n_oof)
 
     return oof_percentile, test_percentile
 

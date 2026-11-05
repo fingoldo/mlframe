@@ -68,7 +68,7 @@ def test_rank_percentile_transform_test_pred_matches_oof_scale():
     oof_pct, test_pct = rank_percentile_transform(oof, test_pred)
     assert test_pct is not None
     assert test_pct[0] <= oof_pct[0]  # below the OOF range -> low percentile (ties the OOF min by construction)
-    assert test_pct[2] > oof_pct[-1]  # above the OOF range -> clamped near the top
+    assert test_pct[2] == oof_pct[-1]  # above the OOF range -> clamped to the top OOF extreme (0.5/n .. (n-0.5)/n scale)
     assert np.all((test_pct >= 0) & (test_pct <= 1))
 
 
@@ -86,11 +86,13 @@ def test_biz_val_rank_percentile_transform_smoothing_reduces_edge_variance_on_sm
     tail, so which side of the nearest neighbor the query lands on flips the estimate by a whole rank step).
     The Gaussian-kernel-smoothed mode (``smoothing=0.35``) averages over all reference points with a smooth
     weight instead of a hard step, cutting that resampling variance at the same near-edge query.
+    The query sits inside the OOF range: a value beyond every OOF point is clamped to the extreme percentile,
+    which pins the hard estimate and leaves nothing for smoothing to reduce.
     """
     rng = np.random.default_rng(0)
     n_oof = 15
     n_repeats = 400
-    query = np.array([-1.6])  # near the low tail of a standard normal reference distribution
+    query = np.array([-1.0])  # inside the OOF range, near its low tail for a standard normal reference
 
     hard_estimates = np.empty(n_repeats)
     soft_estimates = np.empty(n_repeats)
@@ -104,7 +106,7 @@ def test_biz_val_rank_percentile_transform_smoothing_reduces_edge_variance_on_sm
     hard_var = float(np.var(hard_estimates))
     soft_var = float(np.var(soft_estimates))
 
-    # measured ratio on this fixture is ~0.79 (a ~21% variance cut); threshold set with margin below that.
+    # measured ratio on this fixture is ~0.80 (a ~20% variance cut); threshold set with margin below that.
     assert soft_var < hard_var * 0.85, (
         f"kernel-smoothed percentile should have materially lower resampling variance than the hard rank "
         f"near the distribution's edge with a small reference set: soft_var={soft_var:.6f} hard_var={hard_var:.6f}"
