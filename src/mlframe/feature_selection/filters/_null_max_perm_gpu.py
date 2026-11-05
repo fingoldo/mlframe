@@ -36,7 +36,8 @@ extern "C" __global__ void null_mi_perms(const {XT}* __restrict__ X, const doubl
     const {XT}* Xc = X + (long long)c * n;
     for (long long i = tid; i < n; i += nt) {
         const double v = Xc[i];
-        int lo = 0, hi = ne;                          // upper_bound: count of interior edges <= v
+        int lo = 0, hi = ne;
+        if (v != v) lo = hi;                        // NaN sorts last: the last bin, as cp.searchsorted does
         while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
         const int base = lo * Ky;
         for (int p = 0; p < P; ++p) atomicAdd(&sh[p * M + base + yp[(long long)p * n + i]], 1);
@@ -88,7 +89,8 @@ extern "C" __global__ void null_mi_perms_bits(const {XT}* __restrict__ X, const 
         int code = -1;
         if (i < n) {
             const double v = Xc[i];
-            int lo = 0, hi = ne;                      // upper_bound: count of interior edges <= v
+            int lo = 0, hi = ne;
+            if (v != v) lo = hi;                        // NaN sorts last: the last bin, as cp.searchsorted does
             while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
             code = lo;
         }
