@@ -16,6 +16,8 @@ import os
 from typing import Any, Callable
 
 import numpy as np
+
+from mlframe.utils.log_throttle import log_throttle
 from numba import njit, prange
 
 from .._numba_utils import _quantile_bin_njit
@@ -145,7 +147,7 @@ def _strict_null_max_batched(
         y_shift = yd.astype(cp.int64) - int(y_min) if y_min else yd.astype(cp.int64)
         return null_max_mi_perms_gpu(cp, x_cm, interior, y_shift, np.stack([np.asarray(p) for p in permutations]), int(nbins), int(n_classes))
     except Exception as exc:
-        logger.debug("batched STRICT null max not used (%s); one launch per permutation", exc)
+        log_throttle(logger, "orth_strict_null_max_fallback", logging.WARNING, "batched STRICT null max not used (%s); one launch per permutation", exc)
         return None
 
 

@@ -50,6 +50,8 @@ from typing import Any, Callable, Optional
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._resident_bincount import resident_bincount
 
 logger = logging.getLogger(__name__)
@@ -426,7 +428,7 @@ def _batched_null_max(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.ndarray, _ymin:
         y_shift = _shifted_y_cached(y0, int(_ymin)) if _ymin else y0
         return null_max_mi_perms_gpu(cp, x_cm, interior, y_shift, perms, int(nbins), int(_ncls))
     except Exception as exc:
-        logger.debug("batched binagg null failed (%s); one launch per permutation", exc)
+        log_throttle(logger, "binagg_batched_null_fallback", logging.WARNING, "batched binagg null failed (%s); one launch per permutation", exc)
         return None
 
 

@@ -65,7 +65,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **RESOLVED** | P10-06 | api | Low | `estimators/custom.py:665-676`: `IdentityEstimator.fit` sets no `n_features_in_` |
 | **RESOLVED** | P10-07 | api | Low | `docs/ENVIRONMENT_VARIABLES.md` vs code: five switches undocumented; `MLFRAME_FE_GPU_FUSE_MI` read nowhere |
 | **RESOLVED** | R4-06 | resource | Info | `evaluation/blend_source_selection.py:85-99`: warns, then allocates two `n x n` matrices | Fixed: the rank-agreement comparison is built in row blocks with a budget constant; test `tests/evaluation/test_blend_source_pairwise_blocks_match_full_matrix.py`.
-| **FUTURE** | K7-03 | parity | Info | `_null_max_perm_gpu.py:160,186`: no shared-memory check; fallback logged at debug. Real: the bitset kernel's shared bytes are `(64*nbins + nbins)*4`, above the 48 KiB default at about nbins 190, so the launch fails there. Next step: cap the permutations per launch by the device's dynamic shared-memory limit (a per-chunk size that keeps shared bytes under it), add a GPU test at nbins=256, and log the fallback at warning. Deferred: it needs a GPU shape bench across nbins. |
+| **RESOLVED** | K7-03 | parity | Info | `_null_max_perm_gpu.py:160,186`: no shared-memory check; fallback logged at debug. Correction: the shared-memory check exists (`_SHARED_BUDGET_BYTES` caps the general kernel at 32 KiB per launch, and the bitset path runs only for nbins <= 32, at most about 8 KiB), so the earlier note about a launch failure near nbins 190 was wrong. The real gap was the silent fallback: both callers now log it at WARNING through `log_throttle`. Test `tests/feature_selection/filters/test_null_max_gpu_fallback_logs_warning.py`.
 
 ## Reports whose scope was incomplete
 
