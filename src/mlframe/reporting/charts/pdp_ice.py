@@ -468,6 +468,11 @@ def compute_pdp_2d(
     # categorical model never receives a dtype-breaking float grid value (CatBoost errors / native-predict hangs).
     _cat0_labels, _cat0_dtype = _categorical_grid(carrier, name0)
     _cat1_labels, _cat1_dtype = _categorical_grid(carrier, name1)
+    # The same cap as the 1-D sweep (compute_pdp): a categorical axis of k categories costs k predicts over m*k rows, so keep the
+    # most frequent labels in the sampled rows instead of sweeping every category of a high-cardinality column.
+    _sample_carrier = _native_row_subset(carrier, idx) if (_cat0_labels is not None or _cat1_labels is not None) else None
+    _cat0_labels = _cap_categorical_labels(_sample_carrier, name0, _cat0_labels, CATEGORICAL_PDP_MAX_CATEGORIES) if _cat0_labels is not None else None
+    _cat1_labels = _cap_categorical_labels(_sample_carrier, name1, _cat1_labels, CATEGORICAL_PDP_MAX_CATEGORIES) if _cat1_labels is not None else None
     grid0 = np.arange(len(_cat0_labels), dtype=np.float64) if _cat0_labels is not None else _feature_grid(vals[:, i0], grid)[0]
     grid1 = np.arange(len(_cat1_labels), dtype=np.float64) if _cat1_labels is not None else _feature_grid(vals[:, i1], grid)[0]
     g0, g1 = grid0.shape[0], grid1.shape[0]
