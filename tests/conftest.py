@@ -116,6 +116,8 @@ if not (os.environ.get("CUDA_PATH") or os.environ.get("CUDA_HOME")):
 
 import pytest
 
+from tests._module_state_reset import _reset_module_state
+
 
 # ---------------------------------------------------------------------------
 # CatBoost: per-pytest-xdist-worker ``train_dir`` so the widget's background
