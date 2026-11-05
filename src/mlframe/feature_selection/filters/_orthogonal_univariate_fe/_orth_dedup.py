@@ -391,7 +391,8 @@ def _classify_dedup_columns(X: pd.DataFrame, cols: Sequence[str], _sample_idx: O
         if _sample_idx is not None:
             arr = arr[_sample_idx]
         finite = np.isfinite(arr)
-        if not finite.any():
+        all_finite = bool(finite.all())
+        if not all_finite and not finite.any():
             # All-NaN: pass-through, no kept_array stored. (Matches legacy:
             # legacy stored kept_arrays[c] = arr but immediately continued
             # on the next iteration's `mask.sum() < 8` check; the only
@@ -400,10 +401,11 @@ def _classify_dedup_columns(X: pd.DataFrame, cols: Sequence[str], _sample_idx: O
             classes.append("pass_through")
             continue
         # std on the finite subset, matching legacy's constant-detection.
-        if arr[finite].std() <= 1e-12:
+        # (an all-finite column is its own finite subset: no boolean-index copy of the whole column)
+        if (arr.std() if all_finite else arr[finite].std()) <= 1e-12:
             classes.append("pass_through")
             continue
-        if finite.all():
+        if all_finite:
             classes.append("dense")
             dense_idx.append(len(dense_rows))
             dense_rows.append(arr)
