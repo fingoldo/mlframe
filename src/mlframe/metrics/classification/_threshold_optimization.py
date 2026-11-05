@@ -184,6 +184,10 @@ def _bootstrap_threshold_kernel(y_sorted: np.ndarray, s_sorted: np.ndarray, idx:
     return out
 
 
+#: Byte budget for one chunk of resample indices in :func:`optimal_threshold_bootstrap_ci`.
+_BOOT_INDEX_MAX_BYTES = 256 << 20
+
+
 def optimal_threshold_bootstrap_ci(
     y_true: np.ndarray,
     y_score: np.ndarray,
@@ -216,15 +220,29 @@ def optimal_threshold_bootstrap_ci(
     order = np.argsort(-ys, kind="stable")
     # All resample indices in ONE draw: the per-resample RNG call is what makes a Python-level bootstrap loop
     # GIL-bound, and drawing up front is also what makes the run reproducible from the seed alone.
-    idx = np.random.default_rng(random_state).integers(0, n, size=(int(n_boot), n)).astype(np.int64)
-    # Sorted per row. ``idx`` holds POSITIONS into the descending-sorted arrays, drawn at random, so each
-    # resample reached the kernel in random score order -- and the kernel's incremental counts are only
-    # confusion counts when the walk is monotone: ``tn = N - fp`` and ``fn = P - tp`` presuppose that every
-    # row seen so far is a row scoring at or above the current cut. Sorting the positions restores that
-    # order while preserving the resample MULTISET, which is what a bootstrap resample is; the draw itself
-    # is untouched, so the result stays reproducible from the seed.
-    idx.sort(axis=1)
-    thrs = _bootstrap_threshold_kernel(yt[order], ys[order], idx, _METRIC_CODE[metric], float(fp_cost), float(fn_cost))
+    rng = np.random.default_rng(random_state)
+    yt_sorted = yt[order]
+    ys_sorted = ys[order]
+    code = _METRIC_CODE[metric]
+    # Resamples are drawn and consumed in row chunks: the full (n_boot, n) int64 matrix is n_boot * n * 8 bytes, which is
+    # gigabytes at production sizes. Consecutive chunks consume the same generator stream as one big draw, so the thresholds
+    # are unchanged, and each row's kernel result depends on that row alone.
+    rows_per_chunk = max(1, int(_BOOT_INDEX_MAX_BYTES) // max(1, n * 8))
+    thrs_parts = []
+    done = 0
+    while done < int(n_boot):
+        take = min(rows_per_chunk, int(n_boot) - done)
+        idx = rng.integers(0, n, size=(take, n)).astype(np.int64)
+        # Sorted per row. ``idx`` holds POSITIONS into the descending-sorted arrays, drawn at random, so each
+        # resample reached the kernel in random score order -- and the kernel's incremental counts are only
+        # confusion counts when the walk is monotone: ``tn = N - fp`` and ``fn = P - tp`` presuppose that every
+        # row seen so far is a row scoring at or above the current cut. Sorting the positions restores that
+        # order while preserving the resample MULTISET, which is what a bootstrap resample is; the draw itself
+        # is untouched, so the result stays reproducible from the seed.
+        idx.sort(axis=1)
+        thrs_parts.append(_bootstrap_threshold_kernel(yt_sorted, ys_sorted, idx, code, float(fp_cost), float(fn_cost)))
+        done += take
+    thrs = np.concatenate(thrs_parts)
     # ``method="nearest"`` returns an OBSERVED threshold rather than interpolating between two: interpolating
     # across the +inf ("predict all negative") solution yields inf-inf = nan and silently erases the interval,
     # and a threshold halfway between two observed cuts is not itself a cut anyway.

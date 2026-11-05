@@ -25,7 +25,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **RESOLVED** | R4-01 | resource | High | `reporting/charts/pdp_ice.py:471-490`: categorical PDP axis sweeps every category |
 | **RESOLVED** | R4-02 | resource | High | `metrics/classification/_weighted_kappa.py:61,74-78`: class count taken from the largest label value |
 | **RESOLVED** | D1-01 | deserialization | Medium | `training/feature_handling/cache.py:557`: `np.load(allow_pickle=True)` unpickles before the sidecar check |
-| **OPEN** | R4-03 | resource | Medium | `metrics/classification/_threshold_optimization.py:219,226`: full `(n_boot, n)` index matrix |
+| **RESOLVED** | R4-03 | resource | Medium | `metrics/classification/_threshold_optimization.py:219,226`: full `(n_boot, n)` index matrix | Fixed: resamples are drawn and consumed in byte-budgeted row chunks, same generator stream; test `tests/metrics/classification/test_threshold_bootstrap_chunked_draw.py`.
 | **OPEN** | R4-04 | resource | Medium | `votenrank/rank_percentile_stacking.py:28,74,81`: dense `(n_query, n_oof)` matrices |
 | **RESOLVED** | S5-02 | leakage | Medium | `training/composite/count_weighted_blend.py:115`: auto-k CV with shuffled row KFold |
 | **RESOLVED** | S5-03 | leakage | Medium | `training/composite/hpo_ensembling.py:162`: `honest_score` ignores the purged time split. Fixed: `select_oof_pool_ensemble(time_ordering=...)` scores held-out folds on contiguous time blocks; test `test_honest_selection_score_is_time_ordered.py` |
