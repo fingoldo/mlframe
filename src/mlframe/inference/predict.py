@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
+from collections.abc import Iterable
 
 import os
 import pandas as pd, numpy as np
@@ -234,9 +235,10 @@ def read_trained_models(
             from mlframe.training.io import validate_load_meta_sidecar as _vlms
             _vlms(model_file, strict=False)
         except Exception as _meta_e:
-            logger.debug(
+            # A failing version check means the library-version drift warning did not run: say so, since the load goes ahead without it.
+            logger.warning(
                 "inference.read_trained_models: sidecar validation raised "
-                "for %s: %s; proceeding with load.", model_file, _meta_e,
+                "for %s: %s; proceeding with load without the version check.", model_file, _meta_e,
             )
         try:
             # Trusts the sha256 sidecar verified above: integrity/corruption gate, NOT authenticity (dir-write attacker rewrites payload+sidecar).

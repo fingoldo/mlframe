@@ -20,6 +20,7 @@ history.
 - `fe_provenance_` labels the columns admitted by the auto-escalation (`esc_*`) with the origin `escalation`, and the escalation writes its admissions to `fe_admission_ledger_` (stage `escalation`), so where such a column came from is readable without instrumenting the fit.
 
 ### Fixed
+- When the library-version check on a model's sidecar raises, `read_trained_models` logs a warning (it was debug only): the load still goes ahead, but the drift warning did not run.
 - `_NumericOnlyTransformer.fit` fits a copy of its inner transformer, so the constructor parameter (`get_params()['inner']`) stays unfitted and a reused or cloned instance does not carry the first fit's statistics.
 - `IdentityEstimator` and `IdentityClassifier` record `n_features_in_` (and `feature_names_in_` for a frame) at fit, as sklearn estimators do.
 - `get_tukey_fences_multiplier_for_quantile` raises for the median (quantile 0.5), where the multiplier is undefined; it returned inf. `proportions_significantly_different` raises when a count exceeds its sample size instead of answering.
