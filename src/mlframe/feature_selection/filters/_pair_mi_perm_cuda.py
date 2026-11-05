@@ -18,6 +18,7 @@ import threading
 from typing import Any, Optional
 
 import numpy as np
+from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +33,14 @@ class DeviceKernelDeclinedError(RuntimeError):
     """Raised by a floor that was asked for the device kernel only when the kernel does not apply (no CUDA, the shape does not fit, the host prefers the CPU kernel)."""
 
 
-_SRC = r"""
+_SRC = render(r"""
 extern "C" __global__
 void pair_mi_perm(const unsigned char* __restrict__ cols, const long long* __restrict__ pair_a, const long long* __restrict__ pair_b,
-                  const int* __restrict__ nbins, const unsigned char* __restrict__ yperm, const double* __restrict__ freqs_y,
-                  const long long n, const int n_pairs, const int K, const int ky, const long long cap, const double inv_n,
-                  double* __restrict__ mi_out) {
+                  const int* __restrict__ nbins, const unsigned char* __restrict__ yperm, const {ACC}* __restrict__ freqs_y,
+                  const long long n, const int n_pairs, const int K, const int ky, const long long cap, const {ACC} inv_n,
+                  {ACC}* __restrict__ mi_out) {
     extern __shared__ int sh[];
-    __shared__ double warp_sums[32];
+    __shared__ {ACC} warp_sums[32];
     const int p = blockIdx.x;
     const int tid = threadIdx.x, nt = blockDim.x;
     const long long a = pair_a[p], b = pair_b[p];
@@ -66,7 +67,7 @@ void pair_mi_perm(const unsigned char* __restrict__ cols, const long long* __res
         const unsigned char* yk = yperm + (long long)k * n;
         for (long long i = tid; i < n; i += nt) atomicAdd(&hist[((int)ca[i] * nbb + (int)cb[i]) * ky + (int)yk[i]], 1);
         __syncthreads();
-        double loc = 0.0;
+        {ACC} loc = 0.0;
         for (int idx = tid; idx < cells; idx += nt) {
             const int jc = hist[idx];
             if (jc == 0) continue;
@@ -74,24 +75,24 @@ void pair_mi_perm(const unsigned char* __restrict__ cols, const long long* __res
             const int cj = idx - ci * ky;
             const int fxc = fx[ci];
             if (fxc == 0) continue;
-            const double py = freqs_y[cj];
+            const {ACC} py = freqs_y[cj];
             if (!(py > 0.0)) continue;
-            const double px = (double)fxc * inv_n;
-            const double jf = (double)jc * inv_n;
+            const {ACC} px = ({ACC})fxc * inv_n;
+            const {ACC} jf = ({ACC})jc * inv_n;
             loc += jf * log(jf / (px * py));
         }
         for (int off = 16; off > 0; off >>= 1) loc += __shfl_down_sync(0xffffffffu, loc, off);
         if ((tid & 31) == 0) warp_sums[tid >> 5] = loc;
         __syncthreads();
         if (tid == 0) {
-            double total = 0.0;
+            {ACC} total = 0.0;
             for (int w = 0; w < (nt >> 5); ++w) total += warp_sums[w];
             mi_out[(long long)k * n_pairs + p] = total;
         }
         __syncthreads();
     }
 }
-"""
+""")
 
 
 def _kernel(cp: Any) -> Any:

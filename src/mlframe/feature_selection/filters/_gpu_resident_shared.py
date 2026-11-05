@@ -12,6 +12,7 @@ import weakref
 from collections import OrderedDict
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from ._kernel_types import render
 
 logger = logging.getLogger("mlframe.feature_selection.filters._gpu_resident_fe")
 
@@ -447,80 +448,73 @@ def _candidate_names(a_label: str = "a", b_label: str = "b") -> list[str]:
     return [f"{bop}({ua}({a_label}),{ub}({b_label}))" for ua in _MINIMAL_UNARY for ub in _MINIMAL_UNARY for bop in _MINIMAL_BINARY]
 
 
-_FUSED_GEN_SRC = r"""
+_FUSED_GEN_TEMPLATE = r"""
 extern "C" __global__
-void fused_gen(const double* __restrict__ ua, const double* __restrict__ ub,
+void fused_gen(const {REAL}* __restrict__ ua, const {REAL}* __restrict__ ub,
                const int* __restrict__ ua_idx, const int* __restrict__ ub_idx,
                const int* __restrict__ bop, const long long n, const int K,
-               double* __restrict__ out) {
+               {REAL}* __restrict__ out) {
     long long tid = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n * (long long)K;
     if (tid >= total) return;
     int c = (int)(tid % (long long)K);
     long long i = tid / (long long)K;
-    double x = ua[(long long)ua_idx[c] * n + i];
-    double y = ub[(long long)ub_idx[c] * n + i];
-    double v;
+    {REAL} x = ua[(long long)ua_idx[c] * n + i];
+    {REAL} y = ub[(long long)ub_idx[c] * n + i];
+    {REAL} v;
     switch (bop[c]) {
         case 0: v = x * y; break;
         case 1: v = x + y; break;
         case 2: v = x - y; break;
-        case 3: v = x / ((y == 0.0) ? 1e-9 : y); break;
+        case 3: v = x / ((y == ({REAL})0) ? ({REAL})1e-9 : y); break;
         case 4: v = (x > y) ? x : y; break;
         case 5: v = (x < y) ? x : y; break;
-        default: v = 0.0;
+        default: v = ({REAL})0;
     }
-    if (isnan(v) || isinf(v)) v = 0.0;
+    if (isnan(v) || isinf(v)) v = ({REAL})0;
     out[i * (long long)K + c] = v;
 }
 """
+_FUSED_GEN_SRC = render(_FUSED_GEN_TEMPLATE, real=np.float64)
 
 
 _FUSED_GEN_KERNEL = None  # module-level singleton (lazy-compiled; never on an instance -> pickle-safe)
 
 
-_FUSED_GEN_CM_SRC = r"""
+_FUSED_GEN_CM_TEMPLATE = r"""
 extern "C" __global__
-void fused_gen_cm(const double* __restrict__ ua, const double* __restrict__ ub,
+void fused_gen_cm(const {REAL}* __restrict__ ua, const {REAL}* __restrict__ ub,
                   const int* __restrict__ ua_idx, const int* __restrict__ ub_idx,
                   const int* __restrict__ bop, const long long n, const int K,
-                  double* __restrict__ out) {
+                  {REAL}* __restrict__ out) {
     long long tid = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n * (long long)K;
     if (tid >= total) return;
     long long i = tid % n;
     int c = (int)(tid / n);
-    double x = ua[(long long)ua_idx[c] * n + i];
-    double y = ub[(long long)ub_idx[c] * n + i];
-    double v;
+    {REAL} x = ua[(long long)ua_idx[c] * n + i];
+    {REAL} y = ub[(long long)ub_idx[c] * n + i];
+    {REAL} v;
     switch (bop[c]) {
         case 0: v = x * y; break;
         case 1: v = x + y; break;
         case 2: v = x - y; break;
-        case 3: v = x / ((y == 0.0) ? 1e-9 : y); break;
+        case 3: v = x / ((y == ({REAL})0) ? ({REAL})1e-9 : y); break;
         case 4: v = (x > y) ? x : y; break;
         case 5: v = (x < y) ? x : y; break;
-        default: v = 0.0;
+        default: v = ({REAL})0;
     }
-    if (isnan(v) || isinf(v)) v = 0.0;
+    if (isnan(v) || isinf(v)) v = ({REAL})0;
     out[(long long)c * n + i] = v;   // COLUMN-MAJOR (K, n): out_cm[c, i] == out_rm[i, c], c*n+i < K*n < 2^63
 }
 """
+_FUSED_GEN_CM_SRC = render(_FUSED_GEN_CM_TEMPLATE, real=np.float64)
 
 
 _FUSED_GEN_CM_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe twin of _FUSED_GEN_KERNEL)
 
 
-_FUSED_GEN_CM_F32_SRC = (
-    _FUSED_GEN_CM_SRC.replace("fused_gen_cm", "fused_gen_cm_f32")
-    .replace("const double*", "const float*")
-    .replace("double* __restrict__ out", "float* __restrict__ out")
-    .replace("double x", "float x")
-    .replace("double y", "float y")
-    .replace("double v", "float v")
-    .replace("(y == 0.0) ? 1e-9 : y", "(y == 0.0f) ? 1e-9f : y")
-    .replace("v = 0.0;", "v = 0.0f;")
-)
+_FUSED_GEN_CM_F32_SRC = render(_FUSED_GEN_CM_TEMPLATE, real=np.float32).replace("fused_gen_cm", "fused_gen_cm_f32")
 
 
 _FUSED_GEN_CM_F32_KERNEL = None
@@ -550,12 +544,12 @@ def _get_fused_gen_cm_kernel(float32: bool = False):
     return _FUSED_GEN_CM_KERNEL
 
 
-_FUSED_GEN_BIN_HIST_SRC = r"""
+_FUSED_GEN_BIN_HIST_TEMPLATE = r"""
 extern "C" __global__
-void fused_gen_bin_hist(const double* __restrict__ ua, const double* __restrict__ ub,
+void fused_gen_bin_hist(const {REAL}* __restrict__ ua, const {REAL}* __restrict__ ub,
                         const int* __restrict__ ua_idx, const int* __restrict__ ub_idx,
                         const int* __restrict__ bop,
-                        const double* __restrict__ edges,   // (K, nbins-1) interior edges
+                        const {REAL}* __restrict__ edges,   // (K, nbins-1) interior edges
                         const long long* __restrict__ col_off,  // (K,) histogram offset of column c
                         const int* __restrict__ y_all,      // (P1, n) int32 y-vectors
                         const long long n, const int K, const int nbins, const int K_y,
@@ -578,23 +572,23 @@ void fused_gen_bin_hist(const double* __restrict__ ua, const double* __restrict_
     for (int s = tid; s < hist_size; s += nthreads) sh[s] = 0;
     __syncthreads();
     int ne = nbins - 1;
-    const double* ec = edges + (long long)c * ne;
+    const {REAL}* ec = edges + (long long)c * ne;
     int ua_c = ua_idx[c], ub_c = ub_idx[c], bop_c = bop[c];
     int nbky = nbins * K_y;
     for (long long i = tid; i < n; i += nthreads) {
-        double x = ua[(long long)ua_c * n + i];
-        double y = ub[(long long)ub_c * n + i];
-        double v;
+        {REAL} x = ua[(long long)ua_c * n + i];
+        {REAL} y = ub[(long long)ub_c * n + i];
+        {REAL} v;
         switch (bop_c) {
             case 0: v = x * y; break;
             case 1: v = x + y; break;
             case 2: v = x - y; break;
-            case 3: v = x / ((y == 0.0) ? 1e-9 : y); break;
+            case 3: v = x / ((y == ({REAL})0) ? ({REAL})1e-9 : y); break;
             case 4: v = (x > y) ? x : y; break;
             case 5: v = (x < y) ? x : y; break;
-            default: v = 0.0;
+            default: v = ({REAL})0;
         }
-        if (isnan(v) || isinf(v)) v = 0.0;
+        if (isnan(v) || isinf(v)) v = ({REAL})0;
         // bin: searchsorted(edges[c], v, side='right')
         int lo = 0, hi = ne;
         while (lo < hi) { int mid = (lo + hi) >> 1; if (ec[mid] > v) hi = mid; else lo = mid + 1; }
@@ -613,6 +607,7 @@ void fused_gen_bin_hist(const double* __restrict__ ua, const double* __restrict_
     }
 }
 """
+_FUSED_GEN_BIN_HIST_SRC = render(_FUSED_GEN_BIN_HIST_TEMPLATE, real=np.float64)
 
 
 _FUSED_GEN_BIN_HIST_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe)
