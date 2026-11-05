@@ -33,12 +33,6 @@
   "src/mlframe/feature_selection/filters/_gpu_resident_discretize.py": {
     "bin_codes_TYPENAME": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
   },
-  "src/mlframe/feature_selection/filters/_gpu_resident_extval_fused.py": {
-    "extval_candidates": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
-  },
-  "src/mlframe/feature_selection/filters/_gpu_resident_operand_build.py": {
-    "batch_unary": "unreviewed: pre-existing baseline entry, launch sites not yet reviewed"
-  },
   "src/mlframe/feature_selection/filters/_gpu_resident_select_kernels.py": {
     "radix_interp": "reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and scripts/kernel_dtype_audit.py saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.",
     "radix_select_f64": "reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and scripts/kernel_dtype_audit.py saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.",

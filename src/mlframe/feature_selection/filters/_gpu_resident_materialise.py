@@ -508,7 +508,7 @@ def _resident_operand_table(cp, transformed_vars):
 from ._gpu_resident_operand_build import (  # noqa: F401  -- carved sibling, re-exported
     _BATCH_UNARY_OPS,
     _BATCH_UNARY_SRC,
-    _BATCH_UNARY_KERNEL,
+    _BATCH_UNARY_KERNELS,
     _get_batch_unary_kernel,
     build_resident_operand_table,
 )

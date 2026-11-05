@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 import numpy as np
 
+from ._fe_usability_signal import _crit_np_dtype
+
 from mlframe.utils.env_flags import env_flag
 
 
@@ -41,7 +43,7 @@ def _extval_op_gpu(cp, op: int, a, b):
     if op == 2:  # sub
         return a - b
     if op == 3:  # div = _safe_div: exact x/y for y != 0, eps floor only on an exact-zero denominator
-        return a / cp.where(b == 0.0, cp.asarray(1e-9, dtype=cp.float64), b)  # Intentional float64: device op must be byte-faithful to the float64 host njit materialisation
+        return a / cp.where(b == 0.0, cp.asarray(1e-9, dtype=a.dtype), b)
     if op == 4:  # max = np.maximum (nan-propagating)
         return cp.maximum(a, b)
     if op == 5:  # min = np.minimum (nan-propagating)
@@ -55,7 +57,7 @@ def _extval_op_gpu(cp, op: int, a, b):
 
 
 def _candidate_matrix(cp, pa, param_b_list, ops, n, n_ops, resident_operand):
-    """The ``(n, n_ext * n_ops)`` double-precision device matrix of ``op_o(pa, ext_e)`` (ext-outer / op-inner), or ``None`` when an external column has the wrong length.
+    """The ``(n, n_ext * n_ops)`` device matrix (crit dtype) of ``op_o(pa, ext_e)`` (ext-outer / op-inner), or ``None`` when an external column has the wrong length.
 
     The fused kernel computes all cells in one launch (``MLFRAME_EXTVAL_FUSED=0`` selects the per-column cupy loop).
 
@@ -65,8 +67,7 @@ def _candidate_matrix(cp, pa, param_b_list, ops, n, n_ops, resident_operand):
     """
     bs = []
     for _pb in param_b_list:
-        # Intentional float64: external-factor values, byte-faithful to the host njit materialisation
-        b = resident_operand(_pb, ("extval_ext",), dtype=np.float64).ravel()
+        b = resident_operand(_pb, ("extval_ext",), dtype=pa.dtype).ravel()  # the crit dtype of the candidate matrix (float32 by default)
         if b.shape[0] != n:
             return None
         bs.append(b)
@@ -74,8 +75,7 @@ def _candidate_matrix(cp, pa, param_b_list, ops, n, n_ops, resident_operand):
         from ._gpu_resident_extval_fused import fused_extval_candidates
 
         return fused_extval_candidates(cp, pa, cp.stack(bs), cp.asarray(ops, dtype=cp.int32))
-    # Intentional float64: per-column loop kept as the reference, same values as the host materialisation
-    out_dev = cp.empty((n, len(bs) * n_ops), dtype=cp.float64)
+    out_dev = cp.empty((n, len(bs) * n_ops), dtype=pa.dtype)
     for _e, b in enumerate(bs):
         _base = _e * n_ops
         for _o in range(n_ops):
@@ -117,7 +117,8 @@ def gpu_materialise_extval_codes_host(
     try:
         # param_a + each external-factor column ride the content-keyed resident cache: the SAME ext-factor
         # content reused across pairs uploads ONCE (dedup), and each is a f64 device array here.
-        pa = resident_operand(param_a, ("extval_pa",), dtype=np.float64).ravel() if param_a_dev is None else param_a_dev.astype(cp.float64, copy=False).ravel()  # Intentional float64: device op must be byte-faithful to the float64 host njit materialisation
+        _real = _crit_np_dtype()
+        pa = resident_operand(param_a, ("extval_pa",), dtype=_real).ravel() if param_a_dev is None else param_a_dev.astype(_real, copy=False).ravel()
         n = int(pa.shape[0])
         _ops = np.asarray(op_codes).ravel()
         n_ops = int(_ops.shape[0])

@@ -13,6 +13,7 @@ import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
 from ._gpu_resident_shared import _unary_apply
+from ._kernel_types import ctype_of, render
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +55,9 @@ _BATCH_UNARY_OPS = {
     "arccosh": 26,
     "arctanh": 27,
 }
-_BATCH_UNARY_SRC = r"""
+_BATCH_UNARY_TEMPLATE = r"""
 extern "C" __global__
-void batch_unary(const double* __restrict__ G, const long long* __restrict__ slot,
+void batch_unary(const {REAL}* __restrict__ G, const long long* __restrict__ slot,
                  const int* __restrict__ opc, const long long* __restrict__ out_col,
                  const long long n, const int m, const int ncols, const int n_operands,
                  float* __restrict__ out) {
@@ -65,26 +66,26 @@ void batch_unary(const double* __restrict__ G, const long long* __restrict__ slo
     if (t >= total) return;
     int c = (int)(t % (long long)ncols);
     long long row = t / (long long)ncols;
-    double x = G[row * (long long)m + slot[c]];
-    double r;
+    {REAL} x = G[row * (long long)m + slot[c]];
+    {REAL} r;
     switch (opc[c]) {
         case 0:  r = x; break;
         case 1:  r = -x; break;
         case 2:  r = fabs(x); break;
         case 3:  r = x * x; break;
-        case 4:  r = pow(x, -1.0); break;
+        case 4:  r = pow(x, ({REAL})-1); break;
         case 5:  r = sqrt(fabs(x)); break;
         case 6:  r = sin(x); break;
-        case 7:  r = isnan(x) ? x : (x > 0.0 ? 1.0 : (x < 0.0 ? -1.0 : 0.0)); break;
+        case 7:  r = isnan(x) ? x : (x > ({REAL})0 ? ({REAL})1 : (x < ({REAL})0 ? ({REAL})-1 : ({REAL})0)); break;
         case 8:  r = rint(x); break;
         case 9:  r = x * x * x; break;
-        case 10: r = 1.0 / (x * x); break;
-        case 11: r = 1.0 / (x * x * x); break;
+        case 10: r = ({REAL})1 / (x * x); break;
+        case 11: r = ({REAL})1 / (x * x * x); break;
         case 12: r = cbrt(x); break;
-        case 13: r = pow(x, -1.0 / 3.0); break;
-        case 14: r = pow(x, -1.0 / 2.0); break;
+        case 13: r = pow(x, ({REAL})(-1.0 / 3.0)); break;
+        case 14: r = pow(x, ({REAL})(-1.0 / 2.0)); break;
         case 15: r = exp(x); break;
-        case 16: { double pix = 3.141592653589793 * x; r = (x == 0.0) ? 1.0 : sin(pix) / pix; break; }
+        case 16: { {REAL} pix = ({REAL})3.141592653589793 * x; r = (x == ({REAL})0) ? ({REAL})1 : sin(pix) / pix; break; }
         case 17: r = cos(x); break;
         case 18: r = tan(x); break;
         case 19: r = asin(x); break;
@@ -101,17 +102,19 @@ void batch_unary(const double* __restrict__ G, const long long* __restrict__ slo
     out[row * (long long)n_operands + out_col[c]] = (float)r;
 }
 """
-_BATCH_UNARY_KERNEL = None
+_BATCH_UNARY_SRC = render(_BATCH_UNARY_TEMPLATE, real=np.float64)  # the float64 source, kept under its old name for the modules that re-export it
+_BATCH_UNARY_KERNELS: dict = {}
 
 
-def _get_batch_unary_kernel():
-    """Lazily compile (once) and return the module-level batched plain-unary op-code ``batch_unary`` RawKernel singleton."""
-    global _BATCH_UNARY_KERNEL
-    if _BATCH_UNARY_KERNEL is None:
+def _get_batch_unary_kernel(real: Any = np.float64):
+    """Lazily compile (once per element type) and return the batched plain-unary op-code ``batch_unary`` RawKernel for the group type ``real`` (float32 or float64)."""
+    key = ctype_of(real)
+    kernel = _BATCH_UNARY_KERNELS.get(key)
+    if kernel is None:
         import cupy as cp
 
-        _BATCH_UNARY_KERNEL = cp.RawKernel(_BATCH_UNARY_SRC, "batch_unary")
-    return _BATCH_UNARY_KERNEL
+        kernel = _BATCH_UNARY_KERNELS[key] = cp.RawKernel(render(_BATCH_UNARY_TEMPLATE, real=real), "batch_unary")
+    return kernel
 
 
 def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequence[Any], *, fallback_unaries: Sequence[str] = ()) -> Any:
@@ -185,10 +188,10 @@ def _upload_dtype_groups(cp, _groups):
     return _dev_groups
 
 def _batched_unary_prepass(cp, col_specs, _raw_slot, _dev_groups, fb, g, n, n_operands):
-    """Apply the GPU-buildable plain-unary columns per double group with one batch kernel each; returns the set of batched column indices."""
+    """Apply the GPU-buildable plain-unary columns per float group (float32 and float64, each computed in its own type) with one batch kernel each; returns the set of batched column indices."""
     _batched: set = set()
-    _f64_key = np.dtype(np.float64).str  # batch ONLY the float64 group: the kernel computes in f64, matching  # Intentional float64: float64 batching key; kernel contract
-    try:  # the CPU tr_func's f64 math; an f32 group must compute in f32 -> per-col
+    _batch_keys = {np.dtype(np.float64).str: np.float64, np.dtype(np.float32).str: np.float32}  # each group computes in its own type, as the CPU tr_func does
+    try:
         _bg: dict = {}  # dtype_key -> (slots[], opcs[], out_cols[])
         for _spec_t in col_specs:
             col_idx, raw_vals, unary_name = _spec_t[0], _spec_t[1], _spec_t[2]
@@ -201,18 +204,18 @@ def _batched_unary_prepass(cp, col_specs, _raw_slot, _dev_groups, fb, g, n, n_op
             if _rk not in _raw_slot:
                 continue
             _dk, _slot = _raw_slot[_rk]
-            if _dk != _f64_key or _dev_groups.get(_dk) is None:
+            if _dk not in _batch_keys or _dev_groups.get(_dk) is None:
                 continue
             s, o, oc = _bg.setdefault(_dk, ([], [], []))
             s.append(_slot)
             o.append(_BATCH_UNARY_OPS[unary_name])
             oc.append(col_idx)
         if _bg:
-            _ker = _get_batch_unary_kernel()
             for _dk, (s, o, oc) in _bg.items():
+                _ker = _get_batch_unary_kernel(_batch_keys[_dk])
                 _dev = _dev_groups[_dk]
                 m = int(_dev.shape[1]) if _dev.ndim > 1 else 1
-                G = cp.ascontiguousarray(_dev.astype(cp.float64, copy=False))  # Intentional float64: GPU operand; kernel contract is float64
+                G = cp.ascontiguousarray(_dev)  # the group's own element type: the kernel is compiled for it
                 slot = cp.asarray(np.asarray(s, dtype=np.int64))
                 opc = cp.asarray(np.asarray(o, dtype=np.int32))
                 out_col = cp.asarray(np.asarray(oc, dtype=np.int64))
