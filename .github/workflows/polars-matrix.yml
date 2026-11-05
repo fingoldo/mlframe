@@ -50,7 +50,7 @@ jobs:
         # The lowest locked version, the newest release of its major series and the newest release overall, each once (scripts/ci_version_matrix.py).
         id: plan
         run: |
-          python -m pip install packaging
+          python -m pip install packaging==26.0
           python scripts/ci_version_matrix.py plan --package polars --lock uv.lock --python 3.12 --github-output "$GITHUB_OUTPUT"
 
   test:
@@ -160,7 +160,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
-          python -m pip install packaging
+          python -m pip install packaging==26.0
           python scripts/ci_version_matrix.py badge --package polars --legs "$MATRIX" --result "$RESULT" --out "$RUNNER_TEMP/polars.json"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
