@@ -473,6 +473,16 @@ def _cuda_kernel_warp_factory(ft=np.float64):
     return _kernel_warp
 
 
+def _float32_unsafe(y: np.ndarray, operand_matrix: np.ndarray) -> bool:
+    """True when some column's offset is more than 1000 times its spread, or a value is not finite: the inputs float32 cannot represent."""
+    cols = np.concatenate([np.asarray(y, dtype=np.float64).reshape(-1, 1), np.asarray(operand_matrix, dtype=np.float64).reshape(len(y), -1)], axis=1)
+    if not np.all(np.isfinite(cols)):
+        return True
+    spread = cols.std(axis=0)
+    offset = np.abs(cols.mean(axis=0))
+    return bool(np.any(offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny)))
+
+
 def batch_pair_usability_corr_cuda_warp(y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray) -> np.ndarray:
     """WARP-coalesced CUDA backend (see :func:`_cuda_kernel_warp_factory`): one WARP per (pair, form).
     Same contract as :func:`batch_pair_usability_corr_cuda` (raises if CUDA unavailable; callers should go
@@ -482,6 +492,10 @@ def batch_pair_usability_corr_cuda_warp(y: np.ndarray, operand_matrix: np.ndarra
     # float32 forms and moments by default: this kernel was float64-bound on a 1/32-double card (5778 pairs x 5 forms x 33334 rows: 0.74 s float64, 0.17 s
     # float32; |corr| within 1.7e-6, the best form of every pair unchanged). MLFRAME_USABILITY_CORR_F32=0 keeps the double kernel.
     ft = np.float64 if os.environ.get("MLFRAME_USABILITY_CORR_F32", "1").strip() == "0" else np.float32
+    # float32 cannot hold an offset next to a small spread (1e8 + 0.1 * i has a step of 8 in float32, so the correlation of a
+    # perfectly linear pair degrades and a near-constant column reads as constant). Those inputs keep the double kernel.
+    if ft is np.float32 and _float32_unsafe(y, operand_matrix):
+        ft = np.float64
     kernel = _CUDA_KERNELS_WARP.get(ft)
     if kernel is None:
         kernel = _CUDA_KERNELS_WARP[ft] = _cuda_kernel_warp_factory(ft)
