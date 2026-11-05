@@ -333,6 +333,10 @@ class CompositeMultiOutputEstimator(MultiOutputMixin, RegressorMixin, BaseEstima
             from sklearn.exceptions import NotFittedError
 
             raise NotFittedError("CompositeMultiOutputEstimator: call fit before predict.")
+        # A width different from the fitted one would reach each column's pipeline unaligned and give silently wrong predictions.
+        fitted_width = next((getattr(e, "n_features_in_", None) for e in self.estimators_ if e is not None), None)
+        if fitted_width is not None and np.ndim(X) == 2 and np.shape(X)[1] != fitted_width:
+            raise ValueError(f"CompositeMultiOutputEstimator: X has {np.shape(X)[1]} features, but the estimator was fitted with {fitted_width}.")
         # Determine row count from the first successful per-column predict, or
         # fall back to len(X) when every column failed (all-constant output).
         cols: List[Optional[np.ndarray]] = []
