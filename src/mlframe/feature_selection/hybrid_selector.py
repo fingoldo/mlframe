@@ -904,7 +904,11 @@ class HybridSelector:
 
     def transform(self, X):
         """Replay the fitted FE recipe on ``X`` (so engineered ``eng_N`` selections are reproducible on new data), then
-        slice to the fitted selection. Falls back to the frame's first column if the selection is empty on this input."""
+        slice to the fitted selection. Falls back to the frame's first column only when the fitted selection itself is empty.
+
+        Raises ``ValueError`` when a selected feature cannot be produced from ``X`` (a raw column is absent, or the
+        engineered-feature replay failed): returning fewer or different columns would feed a model a layout it was not trained on.
+        """
         from sklearn.exceptions import NotFittedError
 
         if not hasattr(self, "raw_selected_"):
@@ -912,7 +916,13 @@ class HybridSelector:
         # replay FE so engineered selections (eng_N) are available, then slice to the selected set
         X = _as_pandas_view(X)
         X_aug = self._augment(X)
-        keep = [c for c in self.raw_selected_ if c in X_aug.columns]
+        missing = [c for c in self.raw_selected_ if c not in X_aug.columns]
+        if missing:
+            raise ValueError(
+                f"HybridSelector.transform: {len(missing)} of {len(self.raw_selected_)} selected feature(s) cannot be produced from the input "
+                f"(first: {missing[:5]}); the input lacks a raw column they need, or the engineered-feature replay failed (see the preceding warning)."
+            )
+        keep = list(self.raw_selected_)
         return X_aug[keep] if keep else X_aug.iloc[:, :1]
 
     def fit_transform(self, X, y):
