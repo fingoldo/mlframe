@@ -534,7 +534,19 @@ class UnverifiedBundleError(RuntimeError):
     """
 
 
-def _verify_bundle_digest(bundle_path: str) -> None:
+def _sha256_of_open_file(handle, chunk: int = 1 << 20) -> str:
+    """SHA-256 of an open binary file, read from its start; the handle is left at its start for the caller to read the same bytes."""
+    import hashlib
+
+    handle.seek(0)
+    h = hashlib.sha256()
+    for block in iter(lambda: handle.read(chunk), b""):
+        h.update(block)
+    handle.seek(0)
+    return h.hexdigest()
+
+
+def _verify_bundle_digest(bundle_path: str, handle=None) -> None:
     """Refuse a model bundle whose bytes do not match the sha256 recorded in its save sidecar (DESER-02).
 
     The sidecar is written at save time next to the bundle; a bundle without a recorded digest, or with one that no longer matches, is not
@@ -550,7 +562,8 @@ def _verify_bundle_digest(bundle_path: str) -> None:
             logger.warning("load_mlframe_model: %r has no recorded sha256; loading because %s is set", bundle_path, UNVERIFIED_ENV_VAR)
             return
         raise UnverifiedBundleError(f"load_mlframe_model: no sha256 recorded for {bundle_path!r}; refusing to unpickle. Set {UNVERIFIED_ENV_VAR}=1 to load it.")
-    actual = _bundle_sha256(bundle_path)
+    # Hash the handle the bundle is then read from, so the digest and the unpickled bytes are the same bytes.
+    actual = _sha256_of_open_file(handle) if handle is not None else _bundle_sha256(bundle_path)
     if actual != expected:
         raise UnverifiedBundleError(f"load_mlframe_model: sha256 of {bundle_path!r} does not match its save sidecar; refusing to unpickle.")
 
@@ -606,7 +619,17 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
         # AttributeError deep in predict(). Returns None on legacy bundles
         # (previous) with no sidecar; that's a back-compat path with a
         # one-line INFO message in the helper.
-        _verify_bundle_digest(file)
+        # One open for the digest and the load: the bytes that match the recorded digest are the bytes unpickled.
+        try:
+            _bundle_fh = open(file, "rb")
+        except OSError:
+            _bundle_fh = None  # a missing or unreadable bundle fails in the load below, as before
+        try:
+            _verify_bundle_digest(file, _bundle_fh)
+        except BaseException:
+            if _bundle_fh is not None:
+                _bundle_fh.close()
+            raise
         try:
             validate_load_meta_sidecar(file, strict=strict_version)
         except ValueError:
@@ -621,7 +644,7 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
                 _meta_e,
             )
         try:
-            with open(file, "rb") as f:
+            with _bundle_fh if _bundle_fh is not None else open(file, "rb") as f:
                 zstd = import_optional("zstandard", "db", "reading compressed model bundles")
                 decompressor = zstd.ZstdDecompressor()
                 with decompressor.stream_reader(f) as _zraw:
