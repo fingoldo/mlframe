@@ -16,7 +16,7 @@ Scope: pyproject.toml, uv.lock (header, source entries, registry hosts), require
 | ID | File:line | Severity | Proposed status |
 |---|---|---|---|
 | SUP-01 | pyproject.toml:176 | Medium | DOC |
-| SUP-02 | pyproject.toml:154 | Medium | FUTURE |
+| SUP-02 | pyproject.toml:154 | Medium | REJECTED (won't fix, owner decision 2026-11-05) |
 | SUP-03 | .github/workflows/dependabot-auto-merge.yml:36-43 | Medium | FUTURE |
 | SUP-04 | .github/workflows/macos-abort-probe.yml:173-175 | Low | FUTURE |
 | SUP-05 | .github/workflows/docs.yml:45-46; codecov-full.yml:75; dep-floors.yml:89 | Low | FUTURE |
@@ -40,7 +40,7 @@ Scope: pyproject.toml, uv.lock (header, source entries, registry hosts), require
 - Exploitable in practice: only by a maintainer or an automated re-lock, or by an attacker who controls the upstream repo. The committed `uv.lock:12331` pins `#38532cd5...`, so a normal `uv sync` or CI run is reproducible. Risk is limited to lock regeneration.
 - Disposition DOC: the branch is an intentional design choice, documented in pyproject.toml:161-172. Keep the comment and the lock as the authority. The CI copies of the pin (ci.yml, dep-floors.yml, docs.yml) must stay in step with `uv.lock`.
 
-### SUP-02 (Medium, FUTURE): `pyutilz>=1.0.0` is a non-PyPI name in the runtime dependencies
+### SUP-02 (Medium, REJECTED: won't fix, owner decision 2026-11-05): `pyutilz>=1.0.0` is a non-PyPI name in the runtime dependencies
 
 - Where: `pyproject.toml:154` lists `pyutilz>=1.0.0` under `[project].dependencies`. The comment at pyproject.toml:146 tells plain-pip users to install `pyutilz @ git+...@38532cd...` first.
 - Risk: pip resolves `pyutilz` against PyPI. The project says the name is not published there. If anyone registers `pyutilz` on PyPI, `pip install mlframe` installs that package (dependency confusion). Nothing in the metadata pins the source.
