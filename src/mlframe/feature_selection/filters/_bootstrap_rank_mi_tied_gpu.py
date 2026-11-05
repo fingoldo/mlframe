@@ -222,11 +222,10 @@ def _run_sweep() -> list:
 
         def run(arr, y, reps):
             """One scoring of the frame."""
-            os.environ["MLFRAME_BOOTSTRAP_RANK_TIED_DEVICE"] = flag
-            try:
+            from ._bootstrap_rank_mi_gpu import _forced_env
+
+            with _forced_env("MLFRAME_BOOTSTRAP_RANK_TIED_DEVICE", flag):
                 return host.bootstrap_rank_mi(arr, y, reps, 10)[0]
-            finally:
-                os.environ.pop("MLFRAME_BOOTSTRAP_RANK_TIED_DEVICE", None)
 
         return run
 
