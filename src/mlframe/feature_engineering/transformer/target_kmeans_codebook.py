@@ -12,7 +12,7 @@ import logging
 from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
-from ._baseline_oof import fit_baseline_predict_oof
+from ._baseline_oof import fit_baseline_predict_oof, fold_train_groups
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ def compute_target_kmeans_codebook_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_features_out = 5
 
-    def _process(Xt, Xq, y_t, fold_seed):
+    def _process(Xt, Xq, y_t, fold_seed, groups_t=None):
         """Core per-fold pipeline: scale, fit a small LightGBM baseline to get ŷ, cluster the [X, ŷ*sqrt(d)] joint space (ŷ weighted so it isn't swamped by d feature dims), then compute each query row's cluster stats and centroid distances."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -59,11 +59,11 @@ def compute_target_kmeans_codebook_features(
         # Get baseline ŷ to augment X
         if task == "binary":
             m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            y_hat_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed)  # out-of-fold, like the query predictions the clusters are applied to
+            y_hat_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed, groups=groups_t)  # out-of-fold, like the query predictions the clusters are applied to
             y_hat_query = np.asarray(m.predict_proba(Xq_s))[:, 1].astype(np.float32)
         else:
             m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            y_hat_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed)
+            y_hat_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed, groups=groups_t)
             y_hat_query = np.asarray(m.predict(Xq_s)).astype(np.float32)
         # Joint [X, ŷ] space — ŷ gets weight = sqrt(d) to balance scale
         d = Xt_s.shape[1]
@@ -109,6 +109,6 @@ def compute_target_kmeans_codebook_features(
     n_train = X_train_f.shape[0]
     out: np.ndarray = np.full((n_train, n_features_out), np.nan, dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
-        out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100).astype(dtype, copy=False)
+        out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx)).astype(dtype, copy=False)
         logger.info("target_kmeans_codebook: fold %d done", fold_idx + 1)
     return pl.DataFrame(_make_df(out))

@@ -6,16 +6,17 @@ from mlframe.feature_selection.filters._numba_utils import _quantile_bin_njit
 
 
 def _numpy_reference(x, n_bins):
-    """Equi-frequency bins from a stable numpy sort (NaN last)."""
+    """Equi-frequency bins from a stable numpy sort (NaN last); a run of equal values takes the bin of its first sorted position."""
     n = x.shape[0]
     order = np.argsort(x, kind="stable")
-    out = np.empty(n, dtype=np.int32)
     base, rem = divmod(n, n_bins)
-    pos = 0
-    for b in range(n_bins):
-        size = base + (1 if b < rem else 0)
-        out[order[pos : pos + size]] = b
-        pos += size
+    bin_of_pos = np.repeat(np.arange(n_bins), [base + (1 if b < rem else 0) for b in range(n_bins)])
+    xs = x[order]
+    same = (xs[1:] == xs[:-1]) | (np.isnan(xs[1:]) & np.isnan(xs[:-1]))
+    is_start = np.concatenate(([True], ~same))
+    group_start = np.maximum.accumulate(np.where(is_start, np.arange(n), 0))
+    out = np.empty(n, dtype=np.int32)
+    out[order] = bin_of_pos[group_start]
     return out
 
 

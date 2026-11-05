@@ -16,7 +16,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
-from ._baseline_oof import fit_baseline_predict_oof
+from ._baseline_oof import fit_baseline_predict_oof, fold_train_groups
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -95,7 +95,7 @@ def compute_predictive_info_delta_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_features_out = 5
 
-    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int, groups_t=None) -> np.ndarray:
         """Per-fold feature block: fit a small baseline LightGBM, bin its train predictions into ``n_bins`` quantile buckets with a per-bin conditional entropy H(y|bin), assign query rows to bins, and return the marginal-minus-conditional information delta (H(y) - H(y|bin)) plus the baseline prediction, bin index, conditional entropy, and marginal entropy per query row."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -108,7 +108,7 @@ def compute_predictive_info_delta_features(
         if task == "binary":
             model = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
                                        random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            p_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed)  # out-of-fold, like the query predictions the bins are applied to
+            p_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed, groups=groups_t)  # out-of-fold, like the query predictions the bins are applied to
             p_query = np.asarray(model.predict_proba(Xq_s))[:, 1].astype(np.float32)
             # H(y) marginal: Bernoulli entropy of class prior.
             p_mean = float(y_t.mean())
@@ -116,7 +116,7 @@ def compute_predictive_info_delta_features(
             H_y = float(-p_mean_c * np.log(p_mean_c) - (1 - p_mean_c) * np.log(1 - p_mean_c))
         else:
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            p_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed)  # out-of-fold, like the query predictions the bins are applied to
+            p_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed, groups=groups_t)  # out-of-fold, like the query predictions the bins are applied to
             p_query = np.asarray(model.predict(Xq_s)).astype(np.float32)
             # H(y) marginal: 0.5 * log(2π e σ²) for Gaussian — use just log(σ²) per row scaling.
             H_y = float(np.log(np.var(y_t) + 1e-9))
@@ -158,7 +158,7 @@ def compute_predictive_info_delta_features(
     out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("predictive_info_delta: fold %d/%d done", fold_idx + 1, len(splits))
 

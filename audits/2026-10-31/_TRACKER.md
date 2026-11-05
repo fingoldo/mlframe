@@ -151,7 +151,7 @@ Each row is a finding and the disposition its report proposed. None is executed 
 | **RESOLVED** | CMD-11 | subprocess | `feature_selection/_benchmarks/bench_iter87_cumulative.py:119`, `bench_iter100_stratified_anchors_contour.py:113`, `bench_iter101_stratified_anchors_2d.py:119` |
 | **DOC** | CMD-12 | subprocess | `feature_selection/filters/_benchmarks/bench_sf3_jmim_exponent_selection.py:80` |
 | **DOC** | SUP-01 | supply_chain | `pyproject.toml:176` |
-| **FUTURE** | SUP-02 | supply_chain | `pyproject.toml:154` |
+| **REJECTED** | SUP-02 | supply_chain | `pyproject.toml:154` (won't fix: owner declined the PyPI name reservation for `pyutilz`, 2026-11-05; the pre-install comment at `pyproject.toml:146-156` stays as the mitigation) |
 | **REJECTED** | SUP-03 | supply_chain | `.github/workflows/dependabot-auto-merge.yml:36-43` |
 | **RESOLVED** | SUP-04 | supply_chain | `.github/workflows/macos-abort-probe.yml:173-175` |
 | **RESOLVED** | SUP-05 | supply_chain | `.github/workflows/docs.yml:45-46; codecov-full.yml:75; dep-floors.yml:89` |
@@ -185,4 +185,4 @@ INP-02 is REJECTED: `shapley_blend` has no exact 2^n enumeration (`_permutation_
 DESER-03/04/05 are DOC under the denylist trust model stated in `safe_joblib_load`.
 Implemented in the 2026-11-02 pass: DESER-10 (already fail-closed at HEAD, `tests/training/composite/cache/test_cache_unsigned_pickle_rejected.py`), EXE-19 (`_distribution` accepts only `rv_continuous`/`rv_discrete` objects, `tests/data/datasets/test_sapp_distribution_allowlist.py`), FS-03 and FS-04 (`utils/private_temp.py`, `tests/utils/test_private_temp_dir.py`), FS-06 (benchmark baselines in a fresh `mkdtemp` directory), SEC-02 (token in `http.extraheader` in `pandas-matrix.yml` and `polars-matrix.yml`), CMD-02 (`commits_since` needs a hex object name, `tests/feature_selection/test_fs_hybrid_staleness.py`), SUP-04 (sha256 check of the fetched formula), SUP-05 (tool versions pinned in `docs.yml`, `codecov-full.yml`, `dep-floors.yml`).
 NET-06 is DOC: `huggingface_hub` applies its own 10 s `HF_HUB_DOWNLOAD_TIMEOUT` and `HF_HUB_ETAG_TIMEOUT` defaults (checked on 1.18.0), so a stalled connection is bounded; both can be raised or lowered by environment variable.
-Still FUTURE, needs a maintainer action outside the code: SUP-02 (publishing or reserving the `pyutilz` name on PyPI). SUP-03 is REJECTED: the workflow header records the owner's explicit 2026-08-23 decision that every dependabot PR, majors included, merges once CI is green.
+SUP-02 is REJECTED (won't fix, owner decision 2026-11-05): the `pyutilz` name stays unreserved on PyPI; the pre-install comment at `pyproject.toml:146-156` is the mitigation. SUP-03 is REJECTED: the workflow header records the owner's explicit 2026-08-23 decision that every dependabot PR, majors included, merges once CI is green.

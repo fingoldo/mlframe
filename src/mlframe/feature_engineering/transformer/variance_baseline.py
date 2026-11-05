@@ -23,7 +23,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
-from ._baseline_oof import fit_baseline_predict_oof
+from ._baseline_oof import fit_baseline_predict_oof, fold_train_groups
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ def compute_variance_baseline_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_features_out = 5
 
-    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int, groups_t=None) -> np.ndarray:
         """Fit the mu_hat baseline, fit a second baseline on the squared residual to get sigma2_hat, then derive the 5 heteroscedasticity features on the query rows."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
@@ -73,11 +73,11 @@ def compute_variance_baseline_features(
         if task == "binary":
             m_mu = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
                                       random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            mu_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed)  # out-of-fold: in-sample residuals understate the noise the variance model must learn
+            mu_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed, groups=groups_t)  # out-of-fold: in-sample residuals understate the noise the variance model must learn
             mu_query = np.asarray(m_mu.predict_proba(Xq_s))[:, 1].astype(np.float32)
         else:
             m_mu = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            mu_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed)  # out-of-fold: in-sample residuals understate the noise the variance model must learn
+            mu_train = fit_baseline_predict_oof(Xt_s, y_t, task, fold_seed, groups=groups_t)  # out-of-fold: in-sample residuals understate the noise the variance model must learn
             mu_query = np.asarray(m_mu.predict(Xq_s)).astype(np.float32)
 
         # Stage 2: sigma2_hat
@@ -115,7 +115,7 @@ def compute_variance_baseline_features(
     out: np.ndarray = np.full((n_train, n_features_out), np.nan, dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
-        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100, groups_t=fold_train_groups(splitter, train_idx))
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("variance_baseline: fold %d/%d done", fold_idx + 1, len(splits))
 

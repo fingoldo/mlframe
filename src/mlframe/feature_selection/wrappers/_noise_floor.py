@@ -83,6 +83,29 @@ def noise_floor_plateau(n_grid: Sequence[int], real_curve: np.ndarray, perm_curv
     return n_grid[star_idx], star_idx, remaining_gain, remaining_env
 
 
+def noise_floor_band(n_grid: Sequence[int], real_curve: np.ndarray, perm_curves: np.ndarray, pct: float = 95.0) -> int:
+    """Smallest N whose real score lies within the permuted-y null's own spread of the real best score.
+
+    Let k be the grid index of the real curve's maximum. For each permutation the gap between the null's best score over
+    the grid and its score at k is a draw of how far selection noise can move the curve at one fixed size. The tolerance is
+    the ``pct`` percentile of those gaps, and N* is the smallest N whose real score is at least ``real_max - tolerance``.
+
+    Unlike :func:`noise_floor_plateau` this compares levels, not increments. A null curve that falls as features are added
+    (the re-ranked null) has large increments that make the plateau rule read noise as signal and keep every feature; the
+    band rule reads the same curve as a spread of levels and stays where the real curve stops improving.
+    """
+    n_grid = list(n_grid)
+    real_curve = np.asarray(real_curve, dtype=float)
+    perm_curves = np.atleast_2d(np.asarray(perm_curves, dtype=float))
+    k = int(np.argmax(real_curve))
+    gap = perm_curves.max(axis=1) - perm_curves[:, k]
+    tol = float(np.percentile(gap, pct))
+    for i, n in enumerate(n_grid):
+        if real_curve[i] >= real_curve[k] - tol:
+            return int(n)
+    return int(n_grid[-1])
+
+
 def _default_grid(p: int) -> list:
     """Log-ish spaced default sweep of feature-count checkpoints to probe the noise-floor curve, capped and de-duplicated against the actual feature count ``p``."""
     grid = [1, 2, 3, 5, 8, 12, 16, 20, 25, 30, 40, 50, 75, 100, 150, 200, 300, 400, p]
@@ -170,7 +193,7 @@ def cv_curve(estimator_factory: Callable, X: Any, y: Any, ranking: Sequence, n_g
 
 def select_features_noise_floor(estimator_factory: Callable, X: pd.DataFrame | np.ndarray, y: Any, ranking: Sequence,
                                 n_grid: Optional[Sequence[int]] = None, cv: Any = 3, n_perm: int = 50,
-                                pct: float = 95.0, random_state: int = 0, rerank: str = "none") -> dict[str, Any]:
+                                pct: float = 95.0, random_state: int = 0, rerank: str = "none", stop_rule: str = "band") -> dict[str, Any]:
     """Post-hoc permuted-y noise-floor cut of an over-selected feature RANKING. Returns the top-N* features.
 
     Parameters
@@ -186,11 +209,13 @@ def select_features_noise_floor(estimator_factory: Callable, X: pd.DataFrame | n
         the ``pct`` percentile is an interior order statistic (>=ceil(100/(100-pct)), e.g. >=20 at pct=95) - a tiny
         n_perm makes the envelope a high-variance sample maximum and the floor seed-unstable / anti-conservative.
     pct : noise-envelope percentile.
+    stop_rule : ``"band"`` (default) cuts at the smallest N within the permuted-null spread of the real best score
+        (:func:`noise_floor_band`). ``"plateau"`` is the earlier increment rule (:func:`noise_floor_plateau`), kept for callers
+        that depend on it.
     rerank : ``"none"`` (default) reuses the real ranking for every shuffle. ``"permutation"`` re-ranks the features with a model fitted on each
         shuffled y (on at most 20,000 rows) so the null curve carries the same selection-on-the-labels optimism as the real ranking. Opt-in:
-        the re-ranked null starts high and falls as noise features are added, and the plateau rule then reads the real curve's smaller decline
-        as signal (on a 3-informative / 40-noise control it keeps all 43 features where the fixed null keeps 3), so it needs a different stop
-        rule before it can be the default.
+        the re-ranked null starts high and falls as noise features are added. The default ``stop_rule="band"`` reads that null as a spread of
+        levels, so the re-ranked mode no longer keeps the noise features the plateau rule kept.
 
     Returns
     -------
@@ -215,6 +240,8 @@ def select_features_noise_floor(estimator_factory: Callable, X: pd.DataFrame | n
             splitter = StratifiedKFold(n_splits=cv, shuffle=True, random_state=random_state)
     else:
         splitter = cv
+    if stop_rule not in ("band", "plateau"):
+        raise ValueError(f"select_features_noise_floor: stop_rule must be 'band' or 'plateau', got {stop_rule!r}")
     if rerank not in ("permutation", "none"):
         raise ValueError(f"select_features_noise_floor: rerank must be 'permutation' or 'none', got {rerank!r}")
     do_rerank = rerank == "permutation"
@@ -222,7 +249,10 @@ def select_features_noise_floor(estimator_factory: Callable, X: pd.DataFrame | n
     perm_mean, perm_curves = cv_curve(estimator_factory, X, y, ranking, n_grid, splitter,
                                       permute=True, n_perm=n_perm, base_seed=100 + random_state, scoring=scoring,
                                       rerank_rows=_RERANK_MAX_ROWS if do_rerank else None)
-    n_star, _, _, _ = noise_floor_plateau(n_grid, real_curve, perm_curves, pct=pct)
+    if stop_rule == "band":
+        n_star = noise_floor_band(n_grid, real_curve, perm_curves, pct=pct)
+    else:
+        n_star, _, _, _ = noise_floor_plateau(n_grid, real_curve, perm_curves, pct=pct)
     # The envelope at each grid point is the ``pct`` percentile of ``n_perm`` permuted incremental gains. With a tiny
     # n_perm the percentile is a high-variance extreme order statistic (n_perm=3 makes the 95th pct literally the MAX of
     # 3 draws), so the floor jumps around with the seed and is anti-conservative. n_perm must be large enough that the

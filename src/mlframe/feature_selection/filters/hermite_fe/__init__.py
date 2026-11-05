@@ -130,7 +130,7 @@ def _plugin_mi_classif_batch_rows_njit(X_rows: np.ndarray, y: np.ndarray, n_bins
 def _quantile_bin_numpy(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Pure-numpy quantile binning. ~1.6x faster than the numba version
     at n=1500 on continuous data because numpy's ``np.argsort`` dispatches to a SIMD-optimised
-    C sort that numba's argsort wrapper does not match. The sort is stable so ties bin exactly like ``_quantile_bin_njit``.
+    C sort that numba's argsort wrapper does not match. The sort is stable and ties bin exactly like ``_quantile_bin_njit`` (a tie group takes the bin of its first sorted position).
 
     Used by the hot CMA-ES inner loop in :func:`optimise_hermite_pair`
     via :func:`plugin_mi_classif_fast` / :func:`plugin_mi_classif_batch_fast`
@@ -138,14 +138,17 @@ def _quantile_bin_numpy(x: np.ndarray, n_bins: int) -> np.ndarray:
     """
     n = x.shape[0]
     sort_idx = np.argsort(x, kind="stable")
-    out = np.empty(n, dtype=np.int32)
     base = n // n_bins
     rem = n % n_bins
-    pos = 0
-    for b in range(n_bins):
-        size = base + (1 if b < rem else 0)
-        out[sort_idx[pos : pos + size]] = b
-        pos += size
+    bin_of_pos = np.repeat(np.arange(n_bins, dtype=np.int32), [base + (1 if b < rem else 0) for b in range(n_bins)])
+    # Tie rule shared with ``_quantile_bin_sorted_njit``: a run of equal values takes the bin of its first sorted position.
+    xs = x[sort_idx]
+    same = (xs[1:] == xs[:-1]) | (np.isnan(xs[1:]) & np.isnan(xs[:-1]))
+    is_start = np.concatenate(([True], ~same))
+    rows = np.arange(n)
+    group_start = np.maximum.accumulate(np.where(is_start, rows, 0))
+    out = np.empty(n, dtype=np.int32)
+    out[sort_idx] = bin_of_pos[group_start]
     return out
 
 
