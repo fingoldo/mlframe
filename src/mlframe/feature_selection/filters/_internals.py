@@ -252,6 +252,11 @@ def group_key_strings(col: pd.Series) -> np.ndarray:
         # fit/predict counterpart that arrived as integer dtype.
         uniq, inv = np.unique(arr, return_inverse=True)
         return np.asarray(canonical_group_tokens(uniq)[inv])
+    import pandas as pd
+
+    if pd.api.types.infer_dtype(col, skipna=False) == "string":
+        # every value is a str (no missing value, no mixed types): its canonical token is the string itself, so no per-row call is needed
+        return np.asarray(col.astype(object).to_numpy())
     # object / categorical / string: per-value canonical (handles mixed dtypes,
     # python ints/floats embedded in object arrays, NaN sentinels via str()).
     return np.asarray(col.astype(object).map(canonical_group_token).to_numpy())
