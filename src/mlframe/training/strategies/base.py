@@ -128,6 +128,13 @@ class _InfToNaNTransformer(TransformerMixin, BaseEstimator):
         import numpy as _np
         if hasattr(X, "replace") and hasattr(X, "columns"):  # pandas DataFrame
             return X.replace([_np.inf, -_np.inf], _np.nan)
+        if hasattr(X, "with_columns") and hasattr(X, "schema"):  # polars DataFrame: keep the frame, null-out infinities in float columns only
+            import polars as _pl
+
+            _float_cols = [c for c, dt in X.schema.items() if dt in (_pl.Float32, _pl.Float64)]
+            if not _float_cols:
+                return X
+            return X.with_columns([_pl.when(_pl.col(c).is_infinite()).then(None).otherwise(_pl.col(c)).alias(c) for c in _float_cols])
         arr = _np.asarray(X)
         if arr.dtype.kind == "f":  # float -> safe to test finiteness
             return _np.where(_np.isfinite(arr), arr, _np.nan)

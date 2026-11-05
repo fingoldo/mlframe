@@ -60,7 +60,7 @@ Totals: 47 findings (High 5, Medium 15, Low 25, Info 2).
 | **RESOLVED** | X9-07 | silent_failure | Low | `inference/predict.py:233-240`: failed version check is logged at debug |
 | **OPEN** | X9-08 | silent_failure | Low | `training/honest_diagnostics.py:236-238`; `calibration/ensembling.py:161-163,181-183`: slow-path fallbacks logged at debug |
 | **OPEN** | P10-03 | api | Low | `estimators/early_stopping.py:105-112`: documented default 5, actual 7, suite uses 20 |
-| **OPEN** | P10-04 | api | Low | `training/strategies/base.py:127-136`: `_InfToNaNTransformer` skips polars frames |
+| **RESOLVED** | P10-04 | api | Low | `training/strategies/base.py:127-136`: `_InfToNaNTransformer` skips polars frames |
 | **RESOLVED** | P10-05 | api | Low | `training/strategies/base.py:184-196`: `_NumericOnlyTransformer.fit` fits `inner` in place |
 | **RESOLVED** | P10-06 | api | Low | `estimators/custom.py:665-676`: `IdentityEstimator.fit` sets no `n_features_in_` |
 | **RESOLVED** | P10-07 | api | Low | `docs/ENVIRONMENT_VARIABLES.md` vs code: five switches undocumented; `MLFRAME_FE_GPU_FUSE_MI` read nowhere |
