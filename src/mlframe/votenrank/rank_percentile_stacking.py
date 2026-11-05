@@ -13,6 +13,9 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+#: Byte budget for one (query rows x n_oof) block in the smoothed percentile.
+_SMOOTH_BLOCK_BYTES = 64 << 20
+
 
 def _gaussian_smoothed_percentile(query: np.ndarray, oof_pred: np.ndarray, bandwidth: float) -> np.ndarray:
     """Kernel-smoothed empirical CDF of ``oof_pred`` evaluated at ``query`` (Gaussian kernel, bandwidth ``h``).
@@ -25,8 +28,15 @@ def _gaussian_smoothed_percentile(query: np.ndarray, oof_pred: np.ndarray, bandw
     """
     from scipy.special import ndtr
 
-    z = (query[:, None] - oof_pred[None, :]) / bandwidth
-    return np.asarray(ndtr(z).mean(axis=1), dtype=np.float64)
+    # Query rows are processed in blocks so the (block, n_oof) matrix stays under _SMOOTH_BLOCK_BYTES; each row's mean
+    # reduces over the same n_oof values in the same order, so the result does not depend on the block size.
+    out = np.empty(query.shape[0], dtype=np.float64)
+    rows_per_block = max(1, int(_SMOOTH_BLOCK_BYTES) // max(1, oof_pred.shape[0] * 8))
+    for start in range(0, query.shape[0], rows_per_block):
+        stop = min(query.shape[0], start + rows_per_block)
+        z = (query[start:stop, None] - oof_pred[None, :]) / bandwidth
+        out[start:stop] = ndtr(z).mean(axis=1)
+    return out
 
 
 def rank_percentile_transform(
