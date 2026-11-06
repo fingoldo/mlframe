@@ -82,6 +82,14 @@ def conditional_quantile_rank_fe(
     if fit_bins.shape[0] != fit_x.shape[0]:
         raise ValueError("conditional_quantile_rank_fe: x_i_fit and x_j_bins_fit must have the same length")
 
+    if x_i_fit is None and x_j_bins_fit is None:
+        from ._conditional_quantile_rank_gpu import conditional_quantile_rank_device, use_device_cqr
+
+        if use_device_cqr(n):
+            on_device = conditional_quantile_rank_device(x_i, x_j_bins)
+            if on_device is not None:
+                return on_device
+
     # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     out = np.full(n, np.nan, dtype=np.float64)
     finite_mask = np.isfinite(x_i)
