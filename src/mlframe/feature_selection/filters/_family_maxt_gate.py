@@ -222,9 +222,15 @@ _PERM_CACHE_LARGE_N_BYTES = (
     384 * 1024 * 1024
 )  # beyond it the cache holds two blocks of the permutation budget at most: a million-row stream is gigabytes and held memory is what the fit runs out of
 _PERM_BLOCK_BUDGET_BYTES = env_int("MLFRAME_PERM_BLOCK_BUDGET_MB", 192, minimum=1) * 1024 * 1024  # one block of permutation indices
-_PERM_BLOCK_CACHE_BYTES = (
-    env_int("MLFRAME_PERM_BLOCK_CACHE_MB", 1024, minimum=0) * 1024 * 1024
-)  # one full permutation stream of a 100k-row family is ~400 MB; a smaller budget makes the cyclic re-reads of it miss every time
+
+
+def _perm_block_cache_budget_bytes() -> int:
+    """Byte budget of the permutation-block cache, read from ``MLFRAME_PERM_BLOCK_CACHE_MB`` (MiB, default 1024)."""
+    return env_int("MLFRAME_PERM_BLOCK_CACHE_MB", 1024, minimum=0) * 1024 * 1024
+
+
+# one full permutation stream of a 100k-row family is ~400 MB; a smaller budget makes the cyclic re-reads of it miss every time
+_PERM_BLOCK_CACHE_BYTES = _perm_block_cache_budget_bytes()
 _perm_block_cache: "OrderedDict[tuple, tuple]" = OrderedDict()
 _perm_block_cache_bytes = 0
 _perm_block_cache_lock = threading.Lock()  # move_to_end, insert and the byte-budget eviction are one read-modify-write on shared state
