@@ -357,15 +357,10 @@ def test_categorical_composite_fe_detect_cat_columns_logs_on_failure(caplog):
 
 
 def test_pipeline_fit_transform_looks_embedding_logs_on_failure(caplog, monkeypatch):
-    """The embedding-column detector must log and treat the column as non-embedding when the sample probe fails.
-
-    ``_looks_embedding`` is a closure inside ``fit_and_transform_pipeline``; the pipeline is run on a small pandas frame
-    with an object column whose ``Series.head`` raises, and must still complete.
-    """
+    """The embedding-column detector must log and treat the column as non-embedding when the sample probe fails."""
     import pandas as pd
 
     from mlframe.training.pipeline import _pipeline_fit_transform as pft
-    from mlframe.training.configs import PreprocessingBackendConfig
 
     real_head = pd.Series.head
 
@@ -376,10 +371,9 @@ def test_pipeline_fit_transform_looks_embedding_logs_on_failure(caplog, monkeypa
         return real_head(self, n)
 
     monkeypatch.setattr(pd.Series, "head", _head)
-    train = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "c": ["a", "b", "a", "b"]})
     with caplog.at_level(logging.DEBUG):
-        out = pft.fit_and_transform_pipeline(train, None, None, PreprocessingBackendConfig(), verbose=0)
-    assert out is not None
+        out = pft._looks_embedding(pd.Series(["a", "b", "a", "b"], dtype=object))
+    assert out is False
     assert any("_looks_embedding: sample probe failed" in rec.getMessage() for rec in caplog.records)
 
 
