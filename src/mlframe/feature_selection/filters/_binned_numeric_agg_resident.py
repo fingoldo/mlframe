@@ -248,6 +248,27 @@ def _oof_gather_kernel(cp):
     return _OOF_GATHER_KERNEL
 
 
+_OOF_GATHER_INTO_KERNELS: dict = {}
+
+
+def _oof_gather_into_kernel(cp, out_dtype):
+    """Elementwise kernel of the gather above that writes the cast result into a caller-owned output of ``out_dtype`` (float32 or float64): one launch per column
+    where gather-then-assign was two (the gather, then a float64 -> block-dtype copy), and no float64 temporary per column."""
+    key = cp.dtype(out_dtype).name
+    kern = _OOF_GATHER_INTO_KERNELS.get(key)
+    if kern is None:
+        ctype = {"float32": "float", "float64": "double"}[key]
+        kern = cp.ElementwiseKernel(
+            # Intentional float64: the stat table and the fallback keep the table's width; only the written column takes the block dtype
+            "int64 idx, raw float64 table, float64 fallback",
+            f"{key} out",
+            f"double v = table[idx]; out = ({ctype})(isfinite(v) ? v : fallback);",
+            f"binagg_oof_gather_into_{key}",
+        )
+        _OOF_GATHER_INTO_KERNELS[key] = kern
+    return kern
+
+
 def _row_cell_index(cp, code_cache: dict, gcol, fold_g, codes_g, n_cells: int):
     """Per-row flat index ``fold * n_cells + cell`` into a ``(n_folds, n_cells)`` stat table, shared by every column of the same group column."""
     key = ("rowidx", gcol)
@@ -398,10 +419,15 @@ def build_binagg_oof_matrix_gpu(
         if tables is None:
             tables = _pair_fold_stat_tables(cp, codes_g, v_safe, finite_f, fold_g, nf, n_cells, _pstats)
             fold_stat_cache["tables"] = tables
-        oof = _oof_column_from_table(cp, tables[stat], _row_cell_index(cp, code_cache, gcol, fold_g, codes_g, n_cells), glob)
+        row_index = _row_cell_index(cp, code_cache, gcol, fold_g, codes_g, n_cells)
         assert block is not None  # allocated before the first column is written
+        if cp.dtype(dt).name in ("float32", "float64"):
+            # one launch writes the cast column into its place in the block (the columns ARE the rows of the (K, n) block when column_major: contiguous, nothing to transpose)
+            _oof_gather_into_kernel(cp, dt)(row_index, tables[stat].reshape(-1), glob, block[out_i] if column_major else block[:, out_i])
+            continue
+        oof = _oof_column_from_table(cp, tables[stat], row_index, glob)
         if column_major:
-            block[out_i] = oof  # the columns ARE the rows of the (K, n) block: contiguous, nothing for a consumer to transpose; the assignment casts to ``dt``
+            block[out_i] = oof  # the assignment casts to ``dt``
         else:
             block[:, out_i] = oof
 
