@@ -75,7 +75,10 @@ def test_concurrent_cascade_keeps_only_early_a_on_a_dominant_candidate(monkeypat
 
     monkeypatch.setenv("MLFRAME_FE_STAGE_CONCURRENCY", "1")
     monkeypatch.setenv("MLFRAME_FE_STAGE_CONCURRENCY_EARLY_A", "1")
-    monkeypatch.setattr(DS, "plan_stage_slots", lambda weights, **k: [None] * len(weights))
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(DS, "plan_stage_slots", lambda weights, **k: [SimpleNamespace(device_id=0)] * len(weights))
+    monkeypatch.setattr(C, "_synchronize_device", lambda device_id: None)  # the stages are stubs: nothing runs on a device
     import contextlib
 
     monkeypatch.setattr(DS, "stage_device_slot", lambda slot, i: contextlib.nullcontext())
