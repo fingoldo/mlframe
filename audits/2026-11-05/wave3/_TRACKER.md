@@ -20,10 +20,10 @@ Coverage: the audit read 2 of about 60 GPU-kernel files. Not yet read: the MI an
 | API3-1 | Medium | RESOLVED | `251dc4a4c` `ShapProxiedFS` keeps None through get_params and clone; the per-host default resolves at fit |
 | API3-2..11, API3-13 | Medium | RESOLVED | `3b1bfe6de` predict/transform before fit raise NotFittedError; test `tests/test_meta/test_estimators_refuse_predict_before_fit.py` |
 | API3-12 | Low | DOC | `_Float32CastTransformer`, `_InfToNaNTransformer` accept *args/**kwargs and transform unfitted |
-| API3-14 | Low | OPEN | `EstimatorWithEarlyStopping` with `base_estimator=None` fails in clone instead of a clear error |
+| API3-14 | Low | RESOLVED | `aafac049e` `EarlyStoppingWrapper` with `base_model=None` raises ValueError naming the parameter |
 | API3-15 | High | RESOLVED | `73adbdbbd` composite multi-output predict refuses a different input width |
-| API3-5 | Medium | OPEN | `Tabular1DCNN` predict silently drops extra columns (read from code, not run); no `n_features_in_` check |
-| API3-7, API3-8 | Low | OPEN | `TrunkResidualMLPRegressor`, `MultiTaskAuxiliaryLossRegressor` do not set `n_features_in_`; narrow input gives IndexError or torch RuntimeError |
+| API3-5 | Medium | RESOLVED | `a403b4b1a` Tabular1DCNN regressor and classifier record the width and refuse a different one at predict |
+| API3-7, API3-8 | Low | RESOLVED | `a403b4b1a` `TrunkResidualMLPRegressor`, `MultiTaskAuxiliaryLossRegressor` record the width and refuse a different one at predict |
 
 ## Known failures in the shap-proxied test directory (run on 2026-11-06, 749 passed, 6 failed)
 
