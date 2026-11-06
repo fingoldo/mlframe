@@ -14,6 +14,7 @@ import os
 
 import numpy as np
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
+from ._fe_gpu_vram import pool_column_block
 
 logger = logging.getLogger(__name__)
 
@@ -24,17 +25,9 @@ _BUDGET_FRACTION = 0.25
 _BYTES_PER_COLUMN_ROW = 28
 
 
-def _column_block(cp, n_rows: int) -> int:
+def _presort_column_block(cp, n_rows: int) -> int:
     """Columns per launch within ``_BUDGET_FRACTION`` of what the memory pool can still hand out (at least 4)."""
-    try:
-        pool = cp.get_default_memory_pool()
-        free_device = int(cp.cuda.runtime.memGetInfo()[0]) + int(pool.free_bytes())
-        limit = int(pool.get_limit())
-        room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))
-    except Exception as exc:
-        logger.debug("device presort: free memory unknown (%s); small blocks", exc)
-        return 8
-    return int(max(4, (_BUDGET_FRACTION * room) // (_BYTES_PER_COLUMN_ROW * max(1, n_rows))))
+    return pool_column_block(cp, n_rows, bytes_per_column_row=_BYTES_PER_COLUMN_ROW, budget_fraction=_BUDGET_FRACTION, min_block=4, fallback=8, what="device presort")
 
 
 def use_device_presort(n_rows: int, n_cols: int) -> bool:
@@ -58,7 +51,7 @@ def presort_and_ties_gpu(raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
     order = np.empty((k, n), dtype=np.int32)
     tie = np.zeros((k, n), dtype=np.uint8)
     try:
-        block = _column_block(cp, n)
+        block = _presort_column_block(cp, n)
         c0 = 0
         while c0 < k:
             c1 = min(k, c0 + block)

@@ -21,6 +21,8 @@ from typing import Optional
 
 import numpy as np
 
+from ._ktc_fallback import device_from_rows
+
 from ._kernel_types import render
 from ._raw_module_cache import RawModuleCache
 from ._bootstrap_rank_mi_gpu import _SWEEP_ROWS
@@ -185,12 +187,12 @@ def use_device_tied(n_rows: int) -> bool:
     if forced in ("0", "1"):
         return forced == "1"
     if _SPEC is None:
-        return _fallback_choice(int(n_rows)) == "device"
+        return _bootstrap_tied_fallback_choice(int(n_rows)) == "device"
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
         logger.debug("fe_bootstrap_rank_tied_device: KTC choose() failed, using the fallback: %s", exc)
-        return _fallback_choice(int(n_rows)) == "device"
+        return _bootstrap_tied_fallback_choice(int(n_rows)) == "device"
 
 
 #: Rows from which the device counting sort is the fallback choice. Measured on the GTX 1050 Ti (856 rounding / digit / raw columns, 10 resamples of 80%):
@@ -199,9 +201,9 @@ DEVICE_TIED_MIN_ROWS = 30_000
 _SALT = 1
 
 
-def _fallback_choice(n_samples: int) -> str:
+def _bootstrap_tied_fallback_choice(n_samples: int) -> str:
     """Pre-sweep fallback: the device from ``DEVICE_TIED_MIN_ROWS`` rows."""
-    return "device" if int(n_samples) >= DEVICE_TIED_MIN_ROWS else "host"
+    return device_from_rows(n_samples, DEVICE_TIED_MIN_ROWS)
 
 
 def _make_inputs(dims: dict) -> tuple:
@@ -359,7 +361,7 @@ try:
         variant_fns=(),  # GPU-only cupy path; covered by salt
         tuner=_run_sweep,
         axes={"n_samples": list(_SWEEP_ROWS)},
-        fallback=_fallback_choice,
+        fallback=_bootstrap_tied_fallback_choice,
         gpu_capable=True,
         salt=_SALT,
         cli_label="fe_bootstrap_rank_tied_device",

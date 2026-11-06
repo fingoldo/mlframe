@@ -68,7 +68,7 @@ def test_an_out_of_memory_block_is_halved_and_retried_not_given_up(monkeypatch):
         return real_argsort(cols, axis=axis)
 
     monkeypatch.setattr(presort, "device_argsort", flaky)
-    monkeypatch.setattr(presort, "_column_block", lambda _cp, _n: 32)
+    monkeypatch.setattr(presort, "_presort_column_block", lambda _cp, _n: 32)
     got = presort.presort_and_ties_gpu(raw)
     assert got is not None
     assert np.array_equal(got[0], _presort_columns(raw), equal_nan=True)

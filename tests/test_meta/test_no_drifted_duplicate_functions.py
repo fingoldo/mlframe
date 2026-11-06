@@ -29,7 +29,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 KNOWN_DUPLICATE_GROUPS = {
     # NOT A COPY -- typing.overload stubs: two annotation-only declarations plus the implementation share one name by
     # design, so the scanner reads them as three variants of one function.
-    "refine_near_collapsed_supervised_edges": "DELIBERATE: @overload typing stubs of the one implementation",
     # DELIBERATE -- trainer's pickers read USE_*_SHIM from THEIR OWN module, which is what makes
     # `monkeypatch.setattr(trainer, "USE_LGB_DATASET_REUSE_SHIM", False)` flip dispatch. Delegating to the
     # factory would silently detach that documented toggle; pinned by
@@ -44,7 +43,6 @@ KNOWN_DUPLICATE_GROUPS = {
     "_fit_bgmm_and_sample": "CONSOLIDATED into transformer/_bgmm_sample.fit_bgmm_and_sample; wrappers pass only the caller label",
     "_block_size": "CONSOLIDATED into shap_proxied_fs/_gpu_block_size; wrappers pass their own cache key, entry field and default",
     "_agg_func_for_stat": "CONSOLIDATED into filters/_agg_stat_helpers; wrappers pass their own valid-stat set (composite has `count`, grouped does not)",
-    "_global_value_for_stat": "CONSOLIDATED into filters/_agg_stat_helpers, alongside _agg_func_for_stat",
     "_frame_columns": "CONSOLIDATED into composite/_frame_columns; the _incremental wrapper wraps the shared list in a set for O(1) membership",
     # DELIBERATE -- the PEP 562 lazy-facade idiom. Each one has to read ITS OWN module's ``globals()``, which
     # a shared helper cannot do (``globals()`` inside the helper is the helper's module), and they draw their

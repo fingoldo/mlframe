@@ -56,7 +56,7 @@ def test_small_column_blocks_and_a_device_fault_keep_the_result(monkeypatch):
     host._PREP_CACHE.clear()
     want_mi, want_ok = host.bootstrap_rank_mi(arr, y, reps, 10)
     monkeypatch.setenv("MLFRAME_BOOTSTRAP_RANK_DEVICE", "1")
-    monkeypatch.setattr(gpu, "_column_block", lambda cp, n: 3)
+    monkeypatch.setattr(gpu, "_bootstrap_walk_column_block", lambda cp, n: 3)
     host._PREP_CACHE.clear()
     require_cuda_device()
     got_mi, got_ok = host.bootstrap_rank_mi(arr, y, reps, 10)
@@ -67,7 +67,7 @@ def test_small_column_blocks_and_a_device_fault_keep_the_result(monkeypatch):
         """A block-size probe that fails like an exhausted pool."""
         raise MemoryError("pool exhausted")
 
-    monkeypatch.setattr(gpu, "_column_block", _boom)
+    monkeypatch.setattr(gpu, "_bootstrap_walk_column_block", _boom)
     host._PREP_CACHE.clear()
     mi2, ok2 = host.bootstrap_rank_mi(arr, y, reps, 10)
     np.testing.assert_array_equal(ok2, want_ok)
