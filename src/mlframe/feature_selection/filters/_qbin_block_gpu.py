@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
@@ -57,7 +57,8 @@ def sync_free_qbin_codes_block(cp, xd, nbins: int):
     for c0 in range(0, k, _COMPARE_COLUMNS):
         c1 = min(k, c0 + _COMPARE_COLUMNS)
         x = xd[c0:c1].astype(kept.dtype, copy=False)
-        out[c0:c1] = (kept[c0:c1, :, None] <= x[:, None, :]).sum(axis=1)
+        counts = (kept[c0:c1, :, None] <= x[:, None, :]).sum(axis=1)
+        out[c0:c1] = cp.where(cp.isnan(x), kept.shape[1], counts)  # NaN sorts after every edge, as searchsorted(side='right') gives
     return out
 
 
@@ -112,7 +113,7 @@ def _count_kernel(cp):
             const long long j = i / n;
             const double v = (double)x[i];
             long long c = 0;
-            for (int t = 0; t < ne; ++t) c += (kept[j * ne + t] <= v) ? 1 : 0;
+            if (isnan(v)) c = ne; else for (int t = 0; t < ne; ++t) c += (kept[j * ne + t] <= v) ? 1 : 0;   // NaN sorts after every edge, as searchsorted(side='right') gives
             out[i] = c;
             """,
             "qbin_count_kept_edges",

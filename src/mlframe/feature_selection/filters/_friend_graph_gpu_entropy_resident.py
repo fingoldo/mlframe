@@ -25,8 +25,6 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 __all__ = ["entropy_segments_gpu"]
 
@@ -59,7 +57,7 @@ def entropy_segments_gpu(cp: Any, counts_dev: Any, n: int, offsets: np.ndarray) 
     """
     n_segments = int(offsets.shape[0]) - 1
     if n_segments <= 0:
-        return np.zeros(0, dtype=_crit_np_dtype())
+        return np.zeros(0, dtype=np.float64)  # Intentional float64: entropies in double, as documented
     total = int(offsets[-1])
     if counts_dev.shape[0] != total:
         raise ValueError(f"entropy_segments_gpu: counts_dev length {counts_dev.shape[0]} != offsets[-1] {total}")
@@ -71,7 +69,7 @@ def entropy_segments_gpu(cp: Any, counts_dev: Any, n: int, offsets: np.ndarray) 
     seg_id_host = np.repeat(np.arange(n_segments, dtype=np.int64), seg_lens)
     seg_id = cp.asarray(seg_id_host)
 
-    counts_f = counts_dev.astype(crit_float_dtype(), copy=False)
+    counts_f = counts_dev.astype(cp.float64, copy=False)  # Intentional float64: float32 entropies left ~1e-7 error against the documented 1e-9 agreement
     freqs = counts_f * (1.0 / float(n))
     # -(freqs * log(freqs)) per nonzero element; zero elements contribute 0 (never a -inf*0 -> nan),
     # matching _entropy_from_counts's explicit nz = counts[counts > 0] prune before the log.
@@ -83,4 +81,4 @@ def entropy_segments_gpu(cp: Any, counts_dev: Any, n: int, offsets: np.ndarray) 
     # workload" discipline _wavelet_basis_fe_batched.py's batched_binned_mi_gpu already established
     # for this exact class of "many small per-entity reductions" problem.
     h_dev = cp.bincount(seg_id, weights=contrib, minlength=n_segments)[:n_segments]
-    return np.asarray(cp.asnumpy(h_dev), dtype=_crit_np_dtype())
+    return np.asarray(cp.asnumpy(h_dev), dtype=np.float64)  # Intentional float64: entropies in double, as documented

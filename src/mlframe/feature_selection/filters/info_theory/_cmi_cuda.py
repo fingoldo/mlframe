@@ -313,8 +313,9 @@ def _entropy_from_counts_axis(counts_3d, axes, n):
     # (c*invn)*log(c*invn) : 0`` - then one sum(axis=1). Same float64 plug-in entropy -> within the 1e-9
     # selection gate (cmi_cuda parity tests stay < 1e-9). ElementwiseKernel launches via the same
     # cuLaunchKernel driver API -> genuine count reduction, not a counter shift.
-    real = crit_float_dtype()
-    contrib = _get_xlogx_kernel(real.__name__)(marg, 1.0 / float(n))
+    # Double, as the docstring says: the four-entropy fallback subtracts these, and float32 entropies of size log(n) left about 1e-6 nats of
+    # cancellation error against the 1e-9 parity gate.
+    contrib = _get_xlogx_kernel("float64")(marg, 1.0 / float(n))
     return -contrib.sum(axis=1)
 
 

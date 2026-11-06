@@ -49,20 +49,20 @@ Four read-only audits covered the remaining GPU-kernel files (reports `kernel_pa
 | PARG3-1 | High | RESOLVED | `ec13aee95` rank binning uses float64 only for offset-dominated columns (offset above 1000x spread); float32 stays the default; tests `test_hermite_rank_bin_keeps_distinct_offset_values.py` |
 | PARG3-2 | High | RESOLVED | `2029d5326` both fused preprocess paths centre in float64 before narrowing; test `test_basis_preprocess_centres_before_narrowing.py` |
 | PARG2-2 | High (if modulus > 127) | OPEN | Default modular-rank kernels store residues as int8; shared-memory gate allows moduli above 127 |
-| PARG4-3 | Medium | OPEN | DTW GPU kernels use finite 1e18 for unreachable cells; costs above 1e18 reach invalid cells |
+| PARG4-3 | Medium | OPEN | DTW GPU kernels use finite 1e18 for unreachable cells; costs above 1e18 reach invalid cells. Checked on HEAD 2026-11-06: the report's example (x=[0,0,0], y=[2e9]*3) gives the same distance on GPU and CPU, so it does not discriminate. The CPU twin `dtw_cpu` (dtw.py:115,143,144) uses the same 1e18 sentinel, so the defect is shared, not a GPU-only mismatch. A fix must change both twins and needs a discriminating input before it is claimed. |
 | PARG4-4 | Medium | OPEN | GPU subset scan breaks ties at top-N arbitrarily and returns float32 losses |
 | PARG4-5 | Medium | OPEN | Row attention switches njit/GPU by batch size; different precision per batch |
-| PARG1-3 | Medium | OPEN | Op-candidate row max/min skips NaN in non-first operands; numpy returns NaN |
-| PARG1-4 | Medium | OPEN | Radix select orders NaN with the sign bit below -inf |
-| PARG1-5 | Medium | OPEN | `_qbin_block_gpu` count kernel gives NaN code 0; the per-column twin gives nbins+1 |
-| PARG1-6 | Medium | OPEN | Fused CMI fallback computes entropies in float32; CMI error about 1e-6 nats |
+| PARG1-3 | Medium | RESOLVED | `d0d07877f` device row max and min propagate NaN from any operand, as numpy; test `test_candidate_row_extrema_propagate_nan.py` |
+| PARG1-4 | Medium | RESOLVED | radix entry points canonicalise NaN to the positive quiet NaN, so a sign-bit NaN sorts last; reproduced on HEAD (rank 0 was NaN, sorted 0.0); test `test_radix_select_orders_sign_bit_nan_last.py`; 85 existing radix/quantile GPU tests pass |
+| PARG1-5 | Medium | RESOLVED | `d38ed8df8` block count gives a NaN row the edge count, as the per-column binner; test `test_qbin_block_nan_code_matches_single_column.py` |
+| PARG1-6 | Medium | RESOLVED | `7d08849ca` four-entropy CMI fallback reduces in float64; test `test_cmi_entropy_fallback_is_double.py` |
 | PARG2-3 | Medium | OPEN | Cupy polynom optimiser builds basis in float32; high degree overflows where numba float64 scores it |
 | PARG2-4 | Medium | OPEN | `gpu_pairs_fe_mi` casts candidates to float32 before binning |
-| PARG3-3 | Medium | OPEN | Fused binning kernels put NaN in bin 0; CPU and fallback put it rightmost; a docstring is also wrong. Check whether callers scrub NaN first. |
+| PARG3-3 | Medium | RESOLVED | `2d2271bfe` fused bin-code kernels send a NaN row past every edge, as the fallback and CPU; test `test_discretize_fused_nan_code_is_the_last_bin.py` |
 | PARG3-4 | Medium | RESOLVED | `99fa73344` device HSIC centres rows in float64 before narrowing; test `test_hsic_device_is_offset_invariant.py` |
 | PARG2-6 | Low | RESOLVED | `b4bc25fcb` fused gate clamps MI at zero as the host; reproduced at -6.5e-16 on HEAD; test `test_fused_su_gate_clamps_negative_mi.py` |
 | PARG2-7 | Low | RESOLVED | `a6be24ee2` negative target codes go to the generic path; test `test_analytic_gate_refuses_negative_target_codes.py` |
-| PARG3-5 | Low | OPEN | Opt-in on-device entropy runs in float32 although the docstring claims float64 |
+| PARG3-5 | Low | RESOLVED | `3057db77a` on-device segment entropies computed and returned in float64, as documented; test `test_friend_entropy_is_double.py` |
 | PARG3-6 | Low | RESOLVED | `330ac70ff` device sign of NaN is NaN, as the twins; test `test_unary_sign_keeps_nan.py` |
 | PARG3-7 | Low | RESOLVED | `0ee82cc02` empty family returns zeros before any launch; test `test_family_null_max_empty_family.py` |
 | PARG1-7..PARG1-11 | Low | OPEN | Interpolation mismatch, negative codes as indices, rounding, docstring overstatement, undocumented last-bit difference (see g1 report) |
