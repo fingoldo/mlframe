@@ -63,7 +63,7 @@ void build_op_cands(const {REAL}* __restrict__ M, const int* __restrict__ pi, co
         int r = c - m - 4 * npairs;
         if (r <= 1) {                                  // row max / min over the m operands
             double acc = Mr[0];
-            for (int q = 1; q < m; ++q) { double w = Mr[q]; acc = (r == 0) ? (w > acc ? w : acc) : (w < acc ? w : acc); }
+            for (int q = 1; q < m; ++q) { double w = Mr[q]; acc = isnan(acc) ? acc : (isnan(w) ? w : ((r == 0) ? (w > acc ? w : acc) : (w < acc ? w : acc))); }
             val = acc;
         } else {                                        // row sum (has_sum)
             double acc = 0.0;
@@ -100,7 +100,7 @@ void build_op_cands_cm(const {REAL}* __restrict__ M, const int* __restrict__ pi,
         int r = c - m - 4 * npairs;
         if (r <= 1) {                                                      // row max / min over the m operands
             double acc = M[row];
-            for (int q = 1; q < m; ++q) { double w = M[(long long)q * n + row]; acc = (r == 0) ? (w > acc ? w : acc) : (w < acc ? w : acc); }
+            for (int q = 1; q < m; ++q) { double w = M[(long long)q * n + row]; acc = isnan(acc) ? acc : (isnan(w) ? w : ((r == 0) ? (w > acc ? w : acc) : (w < acc ? w : acc))); }
             val = acc;
         } else {                                                           // row sum (has_sum)
             double acc = 0.0;
