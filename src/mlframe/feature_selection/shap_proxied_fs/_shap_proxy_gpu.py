@@ -19,11 +19,11 @@ import multiprocessing
 
 import numpy as np
 
-from mlframe.feature_selection.filters._fe_gpu_batch._devices import assert_kernel_buffers
+from mlframe.feature_selection.filters.shared import assert_kernel_buffers
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import METRIC_CODES, resolve_metric
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import generate_combinations, _merge_topn
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import _cuda_demote_errors
-from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
+from mlframe.feature_selection.filters.shared import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger(__name__)
 

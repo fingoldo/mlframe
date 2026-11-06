@@ -59,7 +59,7 @@ def adaptive_degree_cells_on_device(
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
         from ._orthogonal_adaptive_degree_fe import _BASIS_CODE
         from ._orthogonal_univariate_fe import evaluable_bases
-        from .hermite_fe._hermite_robust import _robust_axis_enabled
+        from .hermite_fe.shared import robust_axis_enabled as _robust_axis_enabled
     except Exception as exc:
         log_throttle(logger, "adaptive_degree_device_imports", logging.DEBUG, "adaptive-degree device path unavailable (%s: %s)", type(exc).__name__, exc)
         return None

@@ -76,6 +76,7 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 from typing import Any
 
 import numba
@@ -306,6 +307,7 @@ def _cuda_kernel_factory():
 
 
 _CUDA_KERNELS_WARP: dict = {}  # float type -> compiled warp kernel
+_CUDA_KERNELS_WARP_LOCK = threading.Lock()
 _WARP_SIZE = 32
 
 
@@ -496,9 +498,10 @@ def batch_pair_usability_corr_cuda_warp(y: np.ndarray, operand_matrix: np.ndarra
     # perfectly linear pair degrades and a near-constant column reads as constant). Those inputs keep the double kernel.
     if ft is np.float32 and _float32_unsafe(y, operand_matrix):
         ft = np.float64
-    kernel = _CUDA_KERNELS_WARP.get(ft)
-    if kernel is None:
-        kernel = _CUDA_KERNELS_WARP[ft] = _cuda_kernel_warp_factory(ft)
+    with _CUDA_KERNELS_WARP_LOCK:
+        kernel = _CUDA_KERNELS_WARP.get(ft)
+        if kernel is None:
+            kernel = _CUDA_KERNELS_WARP[ft] = _cuda_kernel_warp_factory(ft)
     if kernel is None:
         raise RuntimeError("CUDA is not available for batch_pair_usability_corr_cuda_warp")
 

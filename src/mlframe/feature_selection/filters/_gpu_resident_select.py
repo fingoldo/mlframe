@@ -17,6 +17,7 @@ behavior changed.
 from __future__ import annotations
 
 import logging
+import threading
 
 import numpy as np
 
@@ -114,13 +115,31 @@ def _launch_radix_f32_v4(cp, data_cm, n: int, K: int, ranks_g, R: int, osv, thre
         return False
 
 
+_CANONICAL_NAN_KERNELS: dict = {}
+_CANONICAL_NAN_KERNELS_LOCK = threading.Lock()
+
+
 def _canonical_nan(cand_gpu):
-    """``cand_gpu`` with every NaN replaced by the positive quiet NaN, so the radix key transform puts it last as sorting does."""
+    """``cand_gpu`` with every NaN rewritten, in place, to the positive quiet NaN, so the radix key transform puts it last as sorting does.
+
+    One elementwise pass over the matrix and no second matrix: the first version built ``cp.where(isnan(x), nan, x)``, a full copy of the candidate block on the device, which
+    went over the memory pool's limit when the FE stages run together (a 406 MB block next to the 865 MB already held, limit 1.06 GB) and sent the edge computation to the
+    CPU path. Only the payload of a NaN changes, never a value, so a caller that holds the same array sees the same numbers.
+    """
     import cupy as cp
 
     if cand_gpu.dtype.kind != "f":
         return cand_gpu
-    return cp.where(cp.isnan(cand_gpu), cp.asarray(np.nan, dtype=cand_gpu.dtype), cand_gpu)
+    key = cand_gpu.dtype.name
+    quiet = {"float32": "__int_as_float(0x7fc00000)", "float64": "__longlong_as_double(0x7ff8000000000000LL)"}.get(key)
+    if quiet is None:
+        return cand_gpu
+    with _CANONICAL_NAN_KERNELS_LOCK:
+        kern = _CANONICAL_NAN_KERNELS.get(key)
+        if kern is None:
+            kern = _CANONICAL_NAN_KERNELS[key] = cp.ElementwiseKernel(f"{key} x", f"{key} y", f"y = isnan(x) ? {quiet} : x", f"canonical_nan_{key}")
+    kern(cand_gpu, cand_gpu)
+    return cand_gpu
 
 
 def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extremes: bool = False, data_is_cm: bool = False):
@@ -152,10 +171,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     cand_gpu = _canonical_nan(cand_gpu)  # a sign-bit NaN keys below -inf in the radix transform; sorting puts every NaN last
     import cupy as cp
 
-    if data_is_cm:
-        K, n = cand_gpu.shape
-    else:
-        n, K = cand_gpu.shape
+    K, n = cand_gpu.shape if data_is_cm else cand_gpu.shape[::-1]
     is_f32 = cand_gpu.dtype == cp.float32
     # ALL of the order-statistic geometry (ranks, R, shared-mem gate, the cupy 'linear' interp gathers bi/ai/w,
     # the device rank vector ranks_g) depends ONLY on (n, nbins) - NOT the candidate data - so compute it ONCE
@@ -349,7 +365,7 @@ def _radix_quantiles(cand_gpu, q_fracs):
     return out  # (len(q_fracs), K) double
 
 
-def radix_order_statistics(cand_gpu, ranks):
+def radix_order_statistics(cand_gpu: Any, ranks: Any) -> "Any":
     """``(len(ranks), K)`` order statistics (0-based ranks, values in the input dtype) of every column of the finite ``(n, K)`` cupy matrix: the values a column
     sort puts at those ranks, from the sort-free radix select. ``None`` when the select does not apply (too many ranks for the shared histograms, another dtype)."""
     cand_gpu = _canonical_nan(cand_gpu)  # a sign-bit NaN keys below -inf in the radix transform; sorting puts every NaN last
@@ -375,7 +391,7 @@ def radix_order_statistics(cand_gpu, ranks):
     return osv[cp.asarray([row[int(r)] for r in np.asarray(ranks, dtype=np.int64)], dtype=cp.int64)]
 
 
-def radix_column_medians(cand_gpu):
+def radix_column_medians(cand_gpu: Any) -> "Any":
     """``cp.median`` of every column of the finite ``(n, K)`` matrix, in its dtype: the two middle order statistics from the radix select and their mean as
     ``cp.median`` forms it (``(a + b) / 2`` in the input dtype). ``None`` when the select does not apply."""
     cand_gpu = _canonical_nan(cand_gpu)  # a sign-bit NaN keys below -inf in the radix transform; sorting puts every NaN last
@@ -386,7 +402,7 @@ def radix_column_medians(cand_gpu):
     return (st[0] + st[1]) / cand_gpu.dtype.type(2)
 
 
-def radix_quantiles_grouped(cand_gpu, q_fracs, group: int = 16):
+def radix_quantiles_grouped(cand_gpu: Any, q_fracs: Any, group: int = 16) -> "Any":
     """:func:`_radix_quantiles` for more fractions than one radix launch holds: the fractions in groups of ``group`` (each order statistic is selected
     independently, so the stacked groups equal one launch over all of them, and ``cp.percentile``). ``None`` when a group is inapplicable or ``MLFRAME_RADIX_GROUPED=0``."""
     cand_gpu = _canonical_nan(cand_gpu)  # a sign-bit NaN keys below -inf in the radix transform; sorting puts every NaN last
@@ -418,6 +434,7 @@ def radix_quantiles_grouped(cand_gpu, q_fracs, group: int = 16):
 from . import _gpu_resident_select_kernels as _grsk
 from . import _gpu_resident_discretize as _grd
 from . import _gpu_resident_materialise as _grm
+from typing import Any
 for _m in (_grsk, _grd, _grm):
     for _n in dir(_m):
         if not _n.startswith("__") and _n not in globals():

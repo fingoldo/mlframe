@@ -7,6 +7,7 @@ silently shrinking the ratio. ``safe_div`` divides exactly and returns 0.0 only 
 from __future__ import annotations
 
 import numpy as np
+from typing import Any
 
 
 def safe_div(num: np.ndarray, den: np.ndarray) -> np.ndarray:
@@ -18,7 +19,7 @@ def safe_div(num: np.ndarray, den: np.ndarray) -> np.ndarray:
     return out
 
 
-def safe_rel_err(abs_err, ref_abs) -> np.ndarray:
+def safe_rel_err(abs_err: Any, ref_abs: Any) -> np.ndarray:
     """Elementwise ``abs_err / ref_abs`` for a relative-error diagnostic.
 
     Exact where ``ref_abs != 0``. Where the reference is exactly zero the error is 0.0 if the error is zero and ``+inf`` otherwise, so a

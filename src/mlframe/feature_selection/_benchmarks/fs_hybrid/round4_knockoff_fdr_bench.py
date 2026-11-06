@@ -44,7 +44,7 @@ def main():
     t0 = time.time()
     if os.path.exists(cache):
         with open(cache, "rb") as _f:
-            support = pickle.load(_f)  # nosec B301 - dev-only benchmark cache; local file this script itself wrote
+            support = pickle.load(_f)  # nosec B301  # deserialize-ok: dev-only benchmark cache; local file this script itself wrote
         print("  (loaded cached RFECV support)", flush=True)
     else:
         sel = S.RFECVSel("lgbm_perm"); sel.fit(Xtr, ytr)

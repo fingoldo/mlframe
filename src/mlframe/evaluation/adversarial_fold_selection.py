@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union, o
 
 import numpy as np
 import pandas as pd
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 logger = logging.getLogger(__name__)
 

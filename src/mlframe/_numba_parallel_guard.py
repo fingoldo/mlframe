@@ -80,7 +80,7 @@ def _layer_allows_concurrent_entry() -> bool:
         _probe(np.ones(8))
         return str(numba.threading_layer()) == "tbb"
     except Exception as _silent_exc:
-        logger.debug("_numba_parallel_guard.py: suppressed %r", _silent_exc)
+        logger.warning("numba threading-layer probe failed (%r); the parallel kernels keep the entry lock", _silent_exc)
         return False
 
 
@@ -94,6 +94,16 @@ def _concurrent_entry_ok() -> bool:
         if _CONCURRENT_ENTRY_OK is None:
             _CONCURRENT_ENTRY_OK = _layer_allows_concurrent_entry()
         return _CONCURRENT_ENTRY_OK
+
+
+def _reset_concurrent_entry_ok() -> None:
+    """Forget the cached threading-layer answer so the next :func:`_concurrent_entry_ok` asks again (tests force the answer through the environment)."""
+    global _CONCURRENT_ENTRY_OK
+    with _ONCE_GUARD:
+        _CONCURRENT_ENTRY_OK = None
+
+
+_concurrent_entry_ok.cache_clear = _reset_concurrent_entry_ok  # type: ignore[attr-defined]  # the ``functools.cache`` spelling the callers of a cached probe expect
 
 
 def parallel_kernel_entry() -> "contextlib.AbstractContextManager[object]":

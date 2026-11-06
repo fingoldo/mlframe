@@ -18,6 +18,7 @@ from typing import cast
 import numpy as np
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from typing import Any
 
 # A group of columns may hold this share of the free host RAM (the stacked group, and the transposed copies the kernels make of it).
 _STACK_FREE_FRACTION = 0.25
@@ -61,7 +62,7 @@ def _stack_group(mats: "list[np.ndarray]", group: "list[tuple[int, int, int]]") 
     return cols, cols.max(axis=1).astype(np.int64) + 1
 
 
-def streamed_null_max(mats: "list[np.ndarray]", groups: "list[list[tuple[int, int, int]]]", y: np.ndarray, n_y: int):
+def streamed_null_max(mats: "list[np.ndarray]", groups: "list[list[tuple[int, int, int]]]", y: np.ndarray, n_y: int) -> "Any":
     """``null_max(m, rng)``: the next ``m`` null maxima over the whole family, with one group of columns stacked at a time.
 
     Every group is scored against the same permutation draw (the generator is rewound to the start of the draw for each group, and ends where a single pass would leave it)."""

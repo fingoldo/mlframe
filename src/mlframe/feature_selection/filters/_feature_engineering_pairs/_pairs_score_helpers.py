@@ -24,6 +24,7 @@ from mlframe.utils.log_throttle import log_throttle
 from .._fe_usability_signal import _crit_np_dtype
 from .._numba_utils import rows_to_columns_into
 from mlframe.feature_selection.filters._lazy_host_codes import shape_of, size_of
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -422,7 +423,7 @@ def _score_one_pair_side(_tp2, vars_transformations, transformed_vars, _abs_corr
     return _max_single_op_corr
 
 
-def record_family_gate_rejection(best_config, best_mi, raw_vars_pair, cols, rejection_records, rejection_ledger_out) -> None:
+def record_family_gate_rejection(best_config: Any, best_mi: Any, raw_vars_pair: Any, cols: Any, rejection_records: Any, rejection_ledger_out: Any) -> None:
     """Add the ledger record of a pair whose winner the family-wise gate rejected (the winner's MI was already computed; the family maximum is random, so no threshold)."""
     rec = {
         "gate": "pair_family_maxt",

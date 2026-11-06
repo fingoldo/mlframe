@@ -65,6 +65,7 @@ from ._grouped_coerce_shared import auto_detect_group_cols, auto_detect_num_cols
 from ._internals import group_key_strings, stable_argsort_codes
 from ._numba_utils_shared import radix_order_f64
 from typing import TYPE_CHECKING
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -190,14 +191,15 @@ def _wasserstein1_all_groups(x: np.ndarray, fin_order: np.ndarray, gid: np.ndarr
     """Wasserstein-1 of every group against ``global_sorted`` in one parallel call: the finite values in ascending order (``fin_order``, one argsort of the
     column shared by every group column) are stable-sorted by group id, so each group's values come out contiguous and sorted, the same values the per-group
     ``np.sort`` gives (the W1 integral depends only on the sorted multiset)."""
-    gsorted = gid[fin_order]
-    perm = stable_argsort_codes(gsorted, n_groups)
-    vals = np.ascontiguousarray(x[fin_order][perm], dtype=np.float64)  # Intentional float64: KS statistic sorted operand, as the per-group path casts it
-    offsets = np.zeros(n_groups + 1, dtype=np.int64)
-    np.cumsum(np.bincount(gsorted, minlength=n_groups), out=offsets[1:])
-    out = np.zeros(n_groups, dtype=np.float64)  # Intentional float64: KS statistic
-    _wasserstein1_groups_kernel(vals, offsets, np.ascontiguousarray(global_sorted, dtype=np.float64), out)  # Intentional float64: sorted operand
-    return out
+    with parallel_kernel_entry():
+        gsorted = gid[fin_order]
+        perm = stable_argsort_codes(gsorted, n_groups)
+        vals = np.ascontiguousarray(x[fin_order][perm], dtype=np.float64)  # Intentional float64: KS statistic sorted operand, as the per-group path casts it
+        offsets = np.zeros(n_groups + 1, dtype=np.int64)
+        np.cumsum(np.bincount(gsorted, minlength=n_groups), out=offsets[1:])
+        out = np.zeros(n_groups, dtype=np.float64)  # Intentional float64: KS statistic
+        _wasserstein1_groups_kernel(vals, offsets, np.ascontiguousarray(global_sorted, dtype=np.float64), out)  # Intentional float64: sorted operand
+        return out
 
 
 def _wasserstein1(group_vals: np.ndarray, global_sorted: np.ndarray) -> float:
@@ -335,7 +337,7 @@ def generate_group_distance_features(
         w_all = None
         if _HAVE_NUMBA and global_sorted.size and os.environ.get("MLFRAME_GROUP_DISTANCE_W1_BATCH", "1").strip() != "0":
             # one parallel W1 call for every group of the pair instead of a sort + merge per group; the output is identical. Alone it tied the per-group
-            # path (2026-11-03, 100k rows x 5 group x 20 numeric columns: 0.94-0.97 s vs 0.96 s), but in a full fit the per-group sorts compete with the
+            # path (100k rows x 5 group x 20 numeric columns: 0.94-0.97 s vs 0.96 s), but in a full fit the per-group sorts compete with the
             # other FE stages for the cores: warm all-families 100k x 100 fits, one process, 80.8 / 93.6 s batched against 84.4 s (seed 10) and
             # 101.4-102.6 s (seed 11, earlier runs; one outlier at 146.7 s) per group. MLFRAME_GROUP_DISTANCE_W1_BATCH=0 turns it off.
             gid = np.empty(x.size, dtype=np.int64)

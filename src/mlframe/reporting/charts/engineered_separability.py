@@ -24,7 +24,7 @@ import numpy as np
 from mlframe.reporting.charts._categorical_codes import ordinal_codes
 
 from mlframe.reporting.spec import FIGSIZE_SQUARE, FIGSIZE_WIDE, AnnotationPanelSpec, FigureSpec, PanelSpec, ScatterPanelSpec
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 # Bounded scatter cap: matplotlib per-point primitives scale poorly past ~5k points and the Fisher ratio has converged
 # on far fewer, so both the plot and the score run on the same seeded subsample.

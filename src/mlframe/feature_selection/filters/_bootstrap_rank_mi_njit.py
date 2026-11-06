@@ -267,7 +267,7 @@ def _bootstrap_rank_mi_f32(
 
 
 @njit(cache=True, fastmath=True, parallel=True)
-def dense_ranks_f32(bits: np.ndarray):
+def dense_ranks_f32(bits: np.ndarray) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
     """``(rk (k, n) int32, n_levels (k,), ok (k,))``: the dense rank of every row of each column of the float32 matrix given as raw ``uint32`` bits ``(n, k)`` (the ranks
     ``_bootstrap_rank_mi_f32`` feeds its counting sort), the number of distinct values and whether the column is finite (a non-finite column keeps ``ok`` False)."""
     n, k = bits.shape

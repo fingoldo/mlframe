@@ -25,7 +25,7 @@ from .._helpers import (
     select_appropriate_feature_importances,
 )
 from mlframe.utils.log_throttle import log_throttle
-from mlframe.feature_selection.filters._lazy_host_codes import length_of
+from mlframe.utils.array_shape import length_of
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 

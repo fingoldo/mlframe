@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import threading
+
 import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
@@ -43,6 +45,7 @@ extern "C" __global__ void extval_candidates(const {REAL}* __restrict__ pa, cons
 """
 
 _KERNELS: dict = {}
+_KERNELS_LOCK = threading.Lock()
 
 
 def fused_extval_candidates(cp: Any, pa: Any, ext_stack: Any, ops: Any) -> Any:
@@ -53,9 +56,10 @@ def fused_extval_candidates(cp: Any, pa: Any, ext_stack: Any, ops: Any) -> Any:
     if ext_stack.dtype != pa.dtype:
         ext_stack = ext_stack.astype(pa.dtype)
     key = ctype_of(real)
-    kernel = _KERNELS.get(key)
-    if kernel is None:
-        kernel = _KERNELS[key] = cp.RawKernel(render(_SOURCE, real=real), "extval_candidates")
+    with _KERNELS_LOCK:
+        kernel = _KERNELS.get(key)
+        if kernel is None:
+            kernel = _KERNELS[key] = cp.RawKernel(render(_SOURCE, real=real), "extval_candidates")
     n = int(pa.shape[0])
     n_ext = int(ext_stack.shape[0])
     n_ops = int(ops.shape[0])

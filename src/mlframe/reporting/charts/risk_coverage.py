@@ -38,7 +38,7 @@ import pandas as pd
 
 from mlframe.metrics import trapezoid
 from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 MAX_PLOT_POINTS: int = 2000
 

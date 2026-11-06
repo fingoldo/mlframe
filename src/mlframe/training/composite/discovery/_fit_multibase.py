@@ -26,7 +26,7 @@ from ..transforms import compose_target_name
 from mlframe.training.composite.transforms.shared import linear_residual_multi_fit as _linear_residual_multi_fit
 from .forward_stepwise import forward_stepwise_multi_base
 from mlframe.utils.log_throttle import log_throttle
-from mlframe.feature_selection.filters._lazy_host_codes import size_of
+from mlframe.utils.array_shape import size_of
 
 logger = logging.getLogger(__name__)
 

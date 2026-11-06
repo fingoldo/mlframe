@@ -12,7 +12,10 @@ from ._oof_split import (
     _slice_rows as slice_rows,
 )
 
+from . import _has_supervised_selection as has_supervised_selection
+
 __all__ = [
+    "has_supervised_selection",
     "is_monotone_nondecreasing",
     "maybe_pass_sample_weight",
     "slice_rows",

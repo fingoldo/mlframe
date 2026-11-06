@@ -897,6 +897,6 @@ PlotlyRenderer._colorbar_placement = staticmethod(_colorbar_placement_impl)
 # ``_scatter`` too, for the same reason: the low-evidence split (a second, hollow trace for bins whose interval
 # is too wide to read) pushed this file back over the limit.
 from ._plotly_scatter import _scatter as _scatter_impl
-from mlframe.feature_selection.filters._lazy_host_codes import length_of
+from mlframe.utils.array_shape import length_of
 
 PlotlyRenderer._scatter = _scatter_impl

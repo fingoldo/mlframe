@@ -20,7 +20,7 @@ import logging
 from typing import Any, Callable, Optional, cast
 
 import numpy as np
-from mlframe.feature_selection.filters._lazy_host_codes import size_of
+from mlframe.utils.array_shape import size_of
 
 logger = logging.getLogger(__name__)
 

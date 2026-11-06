@@ -197,7 +197,7 @@ jobs:
     # instead of raising cleanly. `tests/_hang_watchdog.py`'s autouse fixture is the safe alternative:
     # it dumps every thread's stack partway through a stalled test WITHOUT signalling it, so the next
     # hang names its exact blocking call in the live log instead of just "cancelled" 6 hours later.
-    timeout-minutes: 360
+    timeout-minutes: 345  # below the 360-minute platform default (a value at or above it bounds nothing): headroom for a cold-cache shard, not a budget
     # Newest-Python rows are marked experimental so a single optional-extra
     # that has not yet published a cp314 wheel does not turn a required check
     # red while the ecosystem finishes catching up. The core stack (numpy /
@@ -251,7 +251,7 @@ jobs:
       # collection from blowing up on ModuleNotFoundError) in a SINGLE `uv pip install`. Extracted 2026-07-18
       # to py-ci-shared's install-pyutilz composite action -- this exact clone+uv-install pair was
       # duplicated near-verbatim across 6 workflows in this repo.
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -410,7 +410,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload coverage to Codecov
-        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
         # (success() || failure()): a test failure in this shard (even one unrelated to coverage, e.g. a
         # meta-test) otherwise skips this step by GitHub Actions' default "only if prior steps succeeded"
         # rule, so codecov never sees that shard's coverage.xml and the merged report stays incomplete --
@@ -497,7 +497,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -628,13 +628,13 @@ jobs:
   # be redundant, not safer.
   ruff-blocking:
     name: Ruff (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
     with:
-      py-ci-shared-ref: ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
+      py-ci-shared-ref: adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
 
   lint-blocking:
     name: lint + security (blocking, triaged clean)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
     with:
       source-path: src/mlframe
       codespell-paths: src/mlframe
@@ -668,9 +668,9 @@ jobs:
 
   lint-advisory:
     name: lint (advisory)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
     with:
-      py-ci-shared-ref: ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
+      py-ci-shared-ref: adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
       source-path: src/mlframe
       # import-linter's two contracts are now real blocking meta-tests
       # (test_no_sibling_backimport_to_facade.py, test_no_inbound_edge_to_benchmarking.py); the
@@ -692,21 +692,21 @@ jobs:
   # reusable workflows (py-ci-shared v1.1.0+) point them at tests/ instead of the whole repo.
   tests-ruff-blocking:
     name: Ruff tests/ (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
     with:
-      py-ci-shared-ref: ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
+      py-ci-shared-ref: adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
       check-path: tests
 
   tests-black-filtered:
     name: Black tests/ (filtered, blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
     with:
-      py-ci-shared-ref: ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
+      py-ci-shared-ref: adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
       check-path: tests
 
   tests-lint-blocking:
     name: lint + security tests/ (blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
     with:
       source-path: tests
       codespell-paths: tests

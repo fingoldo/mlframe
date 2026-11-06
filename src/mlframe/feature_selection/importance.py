@@ -31,7 +31,7 @@ from pyutilz.system import ensure_dir_exists
 
 from mlframe._optional_imports import import_optional
 from mlframe._output_paths import ensure_parent_dir
-from mlframe.feature_selection.filters._lazy_host_codes import ndim_of
+from mlframe.utils.array_shape import ndim_of
 
 # Precompile once; strips anything that could turn ``model_name`` into a path
 # traversal, a hidden file, or a Windows-reserved character when interpolated

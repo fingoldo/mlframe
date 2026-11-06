@@ -23,6 +23,8 @@ for name in sys.argv[3:]:
                     t = time.perf_counter(); f0 = _me.memory_info().num_page_faults
                     try: return fn(*a, **k)
                     finally:
+                        import cupy as _cp
+                        _cp.cuda.Stream.null.synchronize()  # the timer stops at completion, not at the launch of the last kernel
                         dt = time.perf_counter() - t
                         with lock: walls[key] = walls.get(key, 0.0) + dt; calls[key] = calls.get(key, 0) + 1; faults[key] = faults.get(key, 0) + _me.memory_info().num_page_faults - f0
                 return w

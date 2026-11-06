@@ -47,29 +47,35 @@ from . import (
     warm_start_als_seed,
 )
 
+from ._nonpoly_cells import NONPOLY_BASES, eval_basis_cell, is_nonpoly
+from ._nonpoly_cells_gpu import nonpoly_block_gpu
+
 __all__ = [
-    "HermiteResult",
-    "build_basis_matrix",
-    "warm_start_als_seed",
     "BASIS_BUILDERS",
     "CUDA_AVAILABLE",
     "CUDA_THRESHOLD",
     "DEFAULT_BIN_FUNCS",
+    "HermiteResult",
     "L2_PENALTY_SATURATION_DEFAULT",
     "NJIT_FUNCS",
     "NJIT_PAR_FUNCS",
+    "NONPOLY_BASES",
     "PAR_THRESHOLD",
     "POLY_BASES",
+    "build_basis_matrix",
     "canonical_seeds",
     "chebval_njit",
     "detect_heavy_tail",
+    "eval_basis_cell",
     "fit_basis_coef_robust",
     "heavy_tail_memo_scope",
     "hermeval_njit",
+    "is_nonpoly",
     "l2_normalize_pair",
     "l2_penalty_value",
     "lagval_njit",
     "legval_njit",
+    "nonpoly_block_gpu",
     "plugin_mi_classif_batch_cuda_resident",
     "plugin_mi_classif_batch_njit",
     "plugin_mi_classif_batch_rows_njit",
@@ -82,4 +88,5 @@ __all__ = [
     "quantile_bin_numpy",
     "robust_axis_enabled",
     "robust_lo_hi",
+    "warm_start_als_seed",
 ]

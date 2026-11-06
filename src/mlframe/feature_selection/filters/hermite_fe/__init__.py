@@ -237,7 +237,9 @@ from ._hermite_basis_eval import (
 # Wins at n >= 500k once host->device transfer is amortised.
 
 # find_spec, not an import: importing cupy at package import builds a CUDA context on any host.
-_CUDA_AVAILABLE = importlib.util.find_spec("cupy") is not None
+from mlframe._optional_imports import module_available
+
+_CUDA_AVAILABLE = module_available("cupy")
 _CUDA_KERNELS: dict = {}
 
 

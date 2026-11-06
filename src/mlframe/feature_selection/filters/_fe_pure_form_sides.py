@@ -23,7 +23,7 @@ def _side_values(recipe: Any, X: Any) -> "list[np.ndarray] | None":
     """``[unary_a(X[a]), unary_b(X[b])]`` of a ``unary_binary`` recipe, replayed the way the recipe replays its operands; ``None`` when unavailable."""
     if getattr(recipe, "kind", None) != "unary_binary" or len(getattr(recipe, "src_names", ()) or ()) != 2:
         return None
-    from .engineered_recipes._recipe_unary_binary import _apply_unary_side, _cached_unary_transformations
+    from .engineered_recipes.shared import apply_unary_side as _apply_unary_side, cached_unary_transformations as _cached_unary_transformations
 
     funcs = _cached_unary_transformations(recipe.unary_preset)
     out = []

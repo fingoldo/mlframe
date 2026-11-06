@@ -179,52 +179,53 @@ def xi_correlation_batch(X: np.ndarray, y: np.ndarray, *, random_state: int = 0)
     ``y`` - avoids re-deriving ``y``'s own rank array K times (the walk depends only on the
     ORDER x induces on y, so the ``y``-rank computation per column is the dominant repeated cost
     otherwise). Returns a ``(K,)`` double precision array."""
-    X = np.asarray(X, dtype=_crit_np_dtype())
-    if X.ndim == 1:
-        X = X[:, None]
-    n, k = X.shape
-    # Intentional float64: target labels kept f64 (exact binning / comparison contract)
-    y = np.asarray(y, dtype=np.float64).ravel()
-    # Intentional float64: accumulator output kept f64
-    out = np.zeros(k, dtype=np.float64)
-    if n < 2 or y.size != n or float(np.std(y)) <= 1e-12:
+    with parallel_kernel_entry():
+        X = np.asarray(X, dtype=_crit_np_dtype())
+        if X.ndim == 1:
+            X = X[:, None]
+        n, k = X.shape
+        # Intentional float64: target labels kept f64 (exact binning / comparison contract)
+        y = np.asarray(y, dtype=np.float64).ravel()
+        # Intentional float64: accumulator output kept f64
+        out = np.zeros(k, dtype=np.float64)
+        if n < 2 or y.size != n or float(np.std(y)) <= 1e-12:
+            return out
+        if not np.isfinite(y).all():
+            return out
+        rng = np.random.default_rng(random_state)
+        # the tie-corrected right ranks of ``y`` do not depend on the column: derived once per row, then gathered in each column's order (the values ``_xi_from_order`` computes per column)
+        _uniq, inv, counts = np.unique(y, return_counts=True, return_inverse=True)
+        # Intentional float64: exact rank accumulator kept f64
+        r_row = np.cumsum(counts)[inv].astype(np.float64)
+        # Intentional float64: exact rank accumulator kept f64
+        l_row = np.cumsum(counts[::-1])[::-1][inv].astype(np.float64)
+        finite = [j for j in range(k) if np.isfinite(X[:, j]).all()]
+        # the generator is advanced once per finite column in column order, as the per-column calls do; the columns are then ordered and scored in parallel blocks
+        block = max(1, min(12, (64 << 20) // (8 * max(n, 1))))
+        blocks = [finite[s0 : s0 + block] for s0 in range(0, len(finite), block)]
+
+        def draw(js: list) -> np.ndarray:
+            """The permutations of one block, drawn in column order from the shared generator (the shuffle releases the GIL)."""
+            perms = np.empty((len(js), n), dtype=np.int64)
+            for r in range(len(js)):
+                perms[r] = rng.permutation(n)
+            return perms
+
+        # One helper thread draws the next block while the kernel scores the current one; it is the only user of the generator and blocks are drawn in order, so the stream is the serial one.
+        if len(blocks) > 1:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=1) as drawer:
+                pending = drawer.submit(draw, blocks[0])
+                for i, js in enumerate(blocks):
+                    perms = pending.result()
+                    if i + 1 < len(blocks):
+                        pending = drawer.submit(draw, blocks[i + 1])
+                    _score_block(X, js, perms, r_row, l_row, out)
+        else:
+            for js in blocks:
+                _score_block(X, js, draw(js), r_row, l_row, out)
         return out
-    if not np.isfinite(y).all():
-        return out
-    rng = np.random.default_rng(random_state)
-    # the tie-corrected right ranks of ``y`` do not depend on the column: derived once per row, then gathered in each column's order (the values ``_xi_from_order`` computes per column)
-    _uniq, inv, counts = np.unique(y, return_counts=True, return_inverse=True)
-    # Intentional float64: exact rank accumulator kept f64
-    r_row = np.cumsum(counts)[inv].astype(np.float64)
-    # Intentional float64: exact rank accumulator kept f64
-    l_row = np.cumsum(counts[::-1])[::-1][inv].astype(np.float64)
-    finite = [j for j in range(k) if np.isfinite(X[:, j]).all()]
-    # the generator is advanced once per finite column in column order, as the per-column calls do; the columns are then ordered and scored in parallel blocks
-    block = max(1, min(12, (64 << 20) // (8 * max(n, 1))))
-    blocks = [finite[s0 : s0 + block] for s0 in range(0, len(finite), block)]
-
-    def draw(js: list) -> np.ndarray:
-        """The permutations of one block, drawn in column order from the shared generator (the shuffle releases the GIL)."""
-        perms = np.empty((len(js), n), dtype=np.int64)
-        for r in range(len(js)):
-            perms[r] = rng.permutation(n)
-        return perms
-
-    # One helper thread draws the next block while the kernel scores the current one; it is the only user of the generator and blocks are drawn in order, so the stream is the serial one.
-    if len(blocks) > 1:
-        from concurrent.futures import ThreadPoolExecutor
-
-        with ThreadPoolExecutor(max_workers=1) as drawer:
-            pending = drawer.submit(draw, blocks[0])
-            for i, js in enumerate(blocks):
-                perms = pending.result()
-                if i + 1 < len(blocks):
-                    pending = drawer.submit(draw, blocks[i + 1])
-                _score_block(X, js, perms, r_row, l_row, out)
-    else:
-        for js in blocks:
-            _score_block(X, js, draw(js), r_row, l_row, out)
-    return out
 
 
 def _score_block(X: np.ndarray, js: list, perms: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, out: np.ndarray) -> None:

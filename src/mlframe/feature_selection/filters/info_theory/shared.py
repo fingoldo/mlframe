@@ -28,6 +28,8 @@ from ._state_and_dispatch import (
     set_group_mi,
 )
 
+from . import _state_and_dispatch as state_and_dispatch
+
 __all__ = [
     "check_joint_cardinality",
     "clear_cmi_resident_cache",
@@ -42,4 +44,5 @@ __all__ = [
     "reset_cmi_gpu_circuit_breaker",
     "select_batch_mi_kernel",
     "set_group_mi",
+    "state_and_dispatch",
 ]

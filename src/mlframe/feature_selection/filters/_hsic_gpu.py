@@ -10,6 +10,7 @@ flat column's score relies on). The bandwidths are computed on the host (O(m log
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Optional
 
 import numpy as np
@@ -53,19 +54,21 @@ extern "C" __global__ void hsic_biased_cols(const {REAL}* __restrict__ xs, const
 _MAX_BLOCK = 256  # widest block the kernel's dynamic scratch allows
 _MAX_M = 4096  # the column's values live in shared memory (16 KB float32 / 32 KB double)
 _MODULES: dict = {}
+_MODULES_LOCK = threading.Lock()
 # k * m * m pair terms from which the device wins when the kernel-tuning cache has no measurement on this host (GTX 1050 Ti, m=500: about 5 columns)
 _HSIC_DEVICE_MIN_WORK = 1_000_000
 _HSIC_CODE_VERSION = "hsic_biased_backend-v1"
 
 
-def _kernel(real: str) -> Any:
+def _hsic_kernel(real: str) -> Any:
     """The compiled kernel for ``real`` ("float" / "double"), one module per type."""
     import cupy as cp
 
-    kern = _MODULES.get(real)
-    if kern is None:
-        src = _SRC.replace("{REAL}", real).replace("EXPF", "expf" if real == "float" else "exp")
-        kern = _MODULES.setdefault(real, cp.RawKernel(src, "hsic_biased_cols"))
+    with _MODULES_LOCK:
+        kern = _MODULES.get(real)
+        if kern is None:
+            src = _SRC.replace("{REAL}", real).replace("EXPF", "expf" if real == "float" else "exp")
+            kern = _MODULES[real] = cp.RawKernel(src, "hsic_biased_cols")
     return kern
 
 
@@ -84,7 +87,7 @@ def hsic_biased_columns_gpu(xs_rows: np.ndarray, lc: np.ndarray, sigmas: np.ndar
             return None
         dt = crit_float_dtype()
         real = "float" if dt == cp.float32 else "double"
-        kern = _kernel(real)
+        kern = _hsic_kernel(real)
         lc64 = np.ascontiguousarray(lc, dtype=np.float64)  # Intentional float64: the trace is summed in double, as the host kernel sums it
         diag = float(np.trace(lc64))
         lc_d = cp.asarray(lc64)
@@ -100,7 +103,7 @@ def hsic_biased_columns_gpu(xs_rows: np.ndarray, lc: np.ndarray, sigmas: np.ndar
         for start in range(0, k, width):
             stop = min(k, start + width)
             # Centre each row in float64 BEFORE narrowing: the kernel uses only pairwise differences, which a row offset does not change, but a
-            # float32 offset of 1e6 has a step of 0.06 and snaps a 0.01-spread column (audit PARG3-4).
+            # float32 offset of 1e6 has a step of 0.06 and snaps a 0.01-spread column.
             rows_c = np.asarray(xs_rows[start:stop], dtype=np.float64)
             rows_c = rows_c - rows_c.mean(axis=1, keepdims=True)
             xs_d = cp.asarray(np.ascontiguousarray(rows_c).astype(dt, copy=False))

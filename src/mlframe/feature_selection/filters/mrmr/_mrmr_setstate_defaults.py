@@ -496,6 +496,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "_feature_names_in_synthesized_": False,
     "_fe_steps_executed_": 0,
     "parity_features_": [],
+    "mi_greedy_candidates_": [],  # the greedy family's candidate roster; a fit sets [] first
     "_final_subsumption_dropped_": [],
     "no_significant_features_": False,
     # Fitted attributes that were baselined as having no neutral default. Each reader passes ``None`` (or ``{}``) to getattr, so an

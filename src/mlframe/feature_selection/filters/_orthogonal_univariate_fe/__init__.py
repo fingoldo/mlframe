@@ -58,7 +58,7 @@ from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from ..hermite_fe import basis_route_by_moments, polyeval_dispatch
-from ..hermite_fe._nonpoly_cells import eval_basis_cell, is_nonpoly
+from ..hermite_fe.shared import eval_basis_cell, is_nonpoly
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from ._orth_mi_backends import (
     _MI_BACKEND,
@@ -212,7 +212,7 @@ def evaluable_bases() -> tuple:
     """The registered bases that have a cell evaluator: the four orthogonal polynomials and fourier / rbf / sigmoid / pade (``hermite_fe._nonpoly_cells``).
 
     Before the cells existed the last four had a fit but no entry in ``polyeval_dispatch``, so every column and degree raised ``KeyError`` that the router swallowed; they are candidates now."""
-    from mlframe.feature_selection.filters.hermite_fe import _NJIT_FUNCS
+    from mlframe.feature_selection.filters.hermite_fe.shared import NJIT_FUNCS as _NJIT_FUNCS
 
     return tuple(b for b in _POLY_BASES if b in _NJIT_FUNCS or is_nonpoly(b))
 

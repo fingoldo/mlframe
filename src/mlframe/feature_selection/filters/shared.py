@@ -50,12 +50,16 @@ from .permutation import (
     _perm_pvalue as perm_pvalue,
 )
 
+from ._device_sort_safe import device_argsort, device_sort
+from ._fe_gpu_batch._devices import assert_kernel_buffers
+
 __all__ = [
     "ContentMemo",
     "apply_conditional_gate",
     "apply_integer_lattice",
     "apply_pairwise_modular",
     "apply_row_argmax",
+    "assert_kernel_buffers",
     "bin_y_for_class_mi",
     "boruta_select",
     "cheap_conditional_gate_scan",
@@ -65,6 +69,8 @@ __all__ = [
     "class_mi_fe_applicable",
     "crit_float_dtype",
     "crit_np_dtype",
+    "device_argsort",
+    "device_sort",
     "escalate_modulus",
     "hashable_params_signature",
     "is_integer_col",

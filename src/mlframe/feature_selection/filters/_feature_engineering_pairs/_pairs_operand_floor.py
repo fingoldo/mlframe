@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 from numba import njit
+from typing import Any
 
 __all__ = ["_beats_the_larger_operand", "operand_uplift_null_bar"]
 
@@ -52,7 +53,7 @@ def operand_uplift_null_bar(codes_a: np.ndarray | None, codes_b: np.ndarray | No
     return max(1.0, float(np.quantile(null, quantile)))
 
 
-def operand_uplift_null_bar_for_pair(raw_vars_pair, operand_marginal_mi, operand_discretized, codes_y: np.ndarray, floor: float, **kwargs) -> float:
+def operand_uplift_null_bar_for_pair(raw_vars_pair: Any, operand_marginal_mi: Any, operand_discretized: Any, codes_y: np.ndarray, floor: float, **kwargs: Any) -> float:
     """``operand_uplift_null_bar`` for a raw pair, permuting the operand with the SMALLER marginal MI whichever slot it sits in.
 
     The null asks what a noise partner reaches next to the stronger operand; permuting the stronger one instead destroys the signal the bar is measured against, so the

@@ -55,7 +55,7 @@ from typing import Any, Optional
 import numpy as np
 
 from mlframe.training.composite._composite_report_shared import factorize as _shared_factorize, to_native
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 try:
     import pandas as pd

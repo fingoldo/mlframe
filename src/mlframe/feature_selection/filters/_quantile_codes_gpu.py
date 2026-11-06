@@ -28,6 +28,7 @@ from numba import njit, prange
 from ._numba_utils_cross_module import _few_distinct_levels
 from ._raw_module_cache import RawModuleCache
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +259,7 @@ def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: 
     return True
 
 
-def quantile_codes_resident_f32(cp, v_dev, n_bins: int, codes: np.ndarray, nx: np.ndarray) -> None:
+def quantile_codes_resident_f32(cp: Any, v_dev: Any, n_bins: int, codes: np.ndarray, nx: np.ndarray) -> None:
     """``quantile_codes_block_gpu`` of a RESIDENT finite float32 block ``v_dev`` ``(columns, n)`` (C-contiguous): same edges, same code kernel, codes copied into the
     host ``codes`` / ``nx``. Only the rows that may have at most ``n_bins`` distinct values are copied to the host: a row whose order statistics already hold more
     than ``n_bins`` distinct values has more levels, the others are checked exactly by the host kernel and, when few-valued, take its exact level codes."""
@@ -315,7 +316,7 @@ def _device_min_elements() -> int:
     return DEVICE_MIN_ELEMENTS
 
 
-def quantile_codes_block_auto(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray, host_kernel=None) -> None:
+def quantile_codes_block_auto(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray, host_kernel: Any = None) -> None:
     """``quantile_codes_block`` on the device when the block is a large float32 one and the device is usable, else ``host_kernel`` (default: the njit kernel); any device fault returns to the host kernel."""
     if host_kernel is None:
         from ._numba_utils import quantile_codes_block as host_kernel

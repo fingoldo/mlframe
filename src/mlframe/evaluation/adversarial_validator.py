@@ -25,7 +25,7 @@ import pandas as pd
 
 from ..evaluation.adversarial_fold_selection import build_test_like_validation_fold
 from ..reporting.charts.drift import adversarial_auc
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 
 class AdversarialValidator:

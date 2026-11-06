@@ -168,7 +168,7 @@ def _argsort_desc_for_metrics(y_score: np.ndarray) -> np.ndarray:
     if n >= _GPU_ARGSORT_MIN_N and _gpu_argsort_available():
         try:
             import cupy as cp
-            from mlframe.feature_selection.filters import _device_sort_safe as _safe_sort  # local: metrics must not import the filters package at module load
+            from mlframe.feature_selection.filters import shared as _safe_sort  # local: metrics must not import the filters package at module load
             return np.asarray(cp.asnumpy(_safe_sort.device_argsort(cp.asarray(y_score))[::-1]))
         except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
             logger.debug("GPU argsort failed, falling back to the exact CPU path: %s", e)  # GPU OOM / transient device error -> exact CPU fallback

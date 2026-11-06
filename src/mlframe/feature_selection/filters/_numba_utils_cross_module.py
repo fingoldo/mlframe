@@ -936,3 +936,32 @@ from .supervised_binning import _mdlp_best_split_inc_njit as _mdlp_best_split_nj
 # boundaries of the sorted points, and the sorted values enter only through the runs of tied values, which are few and fixed per column. ``root_decision_binary`` rebuilds the deduplicated label
 # stream in an int8 buffer (the working set shrinks from megabytes to the size of an L2 cache) and applies the root test of ``_mdlp_dfs`` to it with the same arithmetic. It answers only when
 # the root is judged by the analytic test; otherwise it returns UNDECIDED and the caller takes the general route, which is also the route for an accepted root (it needs the cut and the children).
+
+
+@njit(cache=True)
+def _permuted_codes(perm, yc, rows):
+    """Permuted target codes at the evaluation rows, their class count and the number of occupied classes."""
+    ycp = np.empty(rows.shape[0], dtype=np.int64)
+    ny = 0
+    for i in range(rows.shape[0]):
+        ycp[i] = yc[perm[rows[i]]]
+        ny = max(ny, ycp[i] + 1)
+    counts = np.zeros(ny, dtype=np.int64)
+    for i in range(rows.shape[0]):
+        counts[ycp[i]] += 1
+    return ycp, ny, float((counts > 0).sum())
+
+
+@njit(cache=True)
+def _pool_max(pick, ycp, ny, ky_eff, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff):
+    """The pool's largest Miller-Madow corrected MI (``corrected_mi_best``'s formula), ``-inf`` when a column has no winner."""
+    res = 0.0
+    for t in range(pool_dep.shape[0]):
+        m = 0
+        if pool_dep[t] >= 0:
+            m = pick[pool_dep[t]]
+            if m < 0:
+                return -np.inf
+        mi = _mi_codes_njit(pool_rc[t, m], pool_nb[t, m], ycp, ny)
+        res = max(res, mi - (pool_kxe[t, m] - 1.0) * (ky_eff - 1.0) / (2.0 * n_eff))
+    return res

@@ -33,10 +33,11 @@ from .._fe_usability_signal import _crit_np_dtype
 from numba import prange
 
 from .._numba_utils_shared import radix_order_f32, radix_order_f64
+from typing import Any
 
 
 @numba.njit(cache=True, parallel=True)
-def average_ranks_many(cols, out: np.ndarray) -> None:
+def average_ranks_many(cols: Any, out: np.ndarray) -> None:
     """``out[k]`` = average ranks (ties share the mean rank, as ``pandas.Series.rank(method="average")``) of the all-finite 1-D column ``cols[k]``; one parallel task per column."""
     for k in prange(len(cols)):
         c = cols[k]
@@ -70,7 +71,7 @@ def _avg_ranks_inplace(v: np.ndarray, m: int, order: np.ndarray, ranks: np.ndarr
 
 
 @numba.njit(cache=True, parallel=True)
-def masked_abs_spearman_many(a: np.ndarray, fin_a: np.ndarray, others, rel_tol: float, out: np.ndarray) -> None:
+def masked_abs_spearman_many(a: np.ndarray, fin_a: np.ndarray, others: Any, rel_tol: float, out: np.ndarray) -> None:
     """``out[k]`` = |Spearman rho| of ``a`` and ``others[k]`` over the rows finite in both, or ``-1`` when the pair is skipped.
 
     A pair is skipped (as the one-pair loop skips it) with fewer than 8 jointly finite rows, a constant masked column (std at most ``rel_tol`` times its largest magnitude) or constant ranks.
@@ -156,7 +157,7 @@ def _avg_ranks_presorted(v: np.ndarray, order_full: np.ndarray, cm: np.ndarray, 
 
 
 @numba.njit(cache=True, parallel=True)
-def masked_abs_spearman_presorted(a: np.ndarray, fin_a: np.ndarray, order_a: np.ndarray, others, orders, rel_tol: float, out: np.ndarray) -> None:
+def masked_abs_spearman_presorted(a: np.ndarray, fin_a: np.ndarray, order_a: np.ndarray, others: Any, orders: Any, rel_tol: float, out: np.ndarray) -> None:
     """Version 2 of :func:`masked_abs_spearman_many`: the sorted row order of the candidate (``order_a``, finite rows only) and of every kept column (``orders[k]``) is given, so a pair costs linear passes instead of two sorts.
 
     The averaged ranks, the skip rules and every sum are the version-1 ones in the same order, so the results are equal."""

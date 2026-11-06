@@ -23,6 +23,7 @@ import numpy as np
 from ._kernel_types import render
 from ._honest_null_device import _pack_bits
 from ._raw_module_cache import RawModuleCache
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +205,7 @@ def _block_width(kernel, shared_bytes: int, n: int) -> int:
     return width or THREADS
 
 
-def root_split_accept_gpu(cp, order, tie, y_raw_perm, n: int, n_perm: int, kc: int, min_split: int, alpha: float, h_full: float, tab_full, d_gain, d_ncand, d_idx) -> bool:
+def root_split_accept_gpu(cp: Any, order: Any, tie: Any, y_raw_perm: Any, n: int, n_perm: int, kc: int, min_split: int, alpha: float, h_full: float, tab_full: Any, d_gain: Any, d_ncand: Any, d_idx: Any) -> bool:
     """Fill ``d_gain`` / ``d_ncand`` / ``d_idx`` (index ``column * n_perm + permutation``) with the pruned acceptance scan of every pair; ``False`` when the path does not apply (nothing written)."""
     if not accept_fits(n, y_raw_perm):
         return False

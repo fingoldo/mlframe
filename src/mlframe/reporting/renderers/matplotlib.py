@@ -959,6 +959,6 @@ MatplotlibRenderer._confusion_margins = _confusion_margins_impl
 
 # ``_network`` lives in ``._matplotlib_network`` for the same LOC ceiling; bound back onto the class like the two above.
 from ._matplotlib_network import _network as _network_impl
-from mlframe.feature_selection.filters._lazy_host_codes import length_of
+from mlframe.utils.array_shape import length_of
 
 MatplotlibRenderer._network = _network_impl

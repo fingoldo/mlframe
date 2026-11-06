@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 import numpy as np
 
 from mlframe.models.lgbm_defaults import default_lgbm_params
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 
 def _additive_deficit_exceeds(full_score: float, additive_score: float, threshold: float) -> bool:

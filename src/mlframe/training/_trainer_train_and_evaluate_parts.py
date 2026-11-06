@@ -364,7 +364,7 @@ def _stamp_oof_honesty(diag: dict, pre_pipeline: Any) -> None:
     The OOF loop cross-validates only the final estimator on columns already selected with every train label, so its scores and predictions are optimistic
     by an amount the loop cannot measure; downstream consumers (ensemble choice, OOF calibration, conformal sets) should not treat them as honest.
     """
-    from mlframe.training.composite.ensemble import _has_supervised_selection
+    from mlframe.training.composite.ensemble.shared import has_supervised_selection as _has_supervised_selection
 
     flagged = bool(pre_pipeline is not None and _has_supervised_selection(pre_pipeline))
     diag["supervised_preprocessing_outside_folds"] = flagged

@@ -36,7 +36,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 import numpy as np
-from mlframe.feature_selection.filters._lazy_host_codes import size_of
+from mlframe.utils.array_shape import size_of
 
 # Default additive-smoothing strength (pseudo-count toward the global mean).
 # 20 means a category needs ~20 train rows before its own mean dominates the

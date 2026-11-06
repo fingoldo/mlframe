@@ -62,9 +62,9 @@ else:  # pragma: no cover
 # LightGBM
 # ----------------------------------------------------------------------------------------------------------------------------
 
-import importlib.util as _importlib_util
+from mlframe._optional_imports import module_available
 
-_HAS_LIGHTGBM = _importlib_util.find_spec("lightgbm") is not None  # availability only: importing lightgbm here cost 0.25 s for every consumer of training.core
+_HAS_LIGHTGBM = module_available("lightgbm")  # availability only: importing lightgbm here cost 0.25 s for every consumer of training.core
 
 
 if _HAS_LIGHTGBM:
@@ -138,10 +138,9 @@ else:  # pragma: no cover
 # torch DLLs at module load, which is expensive and (on Windows under memory
 # pressure) can trip the paging-file-too-small OSError during test collection
 # in every unrelated test that transitively imports this module.
-import importlib.util as _ilu
 
 try:
-    _HAS_LIGHTNING = _ilu.find_spec("pytorch_lightning") is not None
+    _HAS_LIGHTNING = module_available("pytorch_lightning")
 except ImportError:  # a blocked or broken import path means Lightning is not usable here
     _HAS_LIGHTNING = False
 

@@ -147,9 +147,13 @@ def cupy_available() -> bool:
         import cupy as cp
 
         _CUPY_OK = cp.cuda.runtime.getDeviceCount() > 0
-    except Exception as _exc:
+    except ImportError as _exc:
         logger.warning("cmi_cuda: cupy unavailable (%s); CPU fallback", _exc)
         _CUPY_OK = False
+    except Exception as _exc:
+        # a probe fault is a moment, not a fact (contention, an allocation failing, a driver reset): answer for this call and probe again on the next
+        logger.warning("cmi_cuda: the cupy device probe raised %s: %s; CPU fallback for this call", type(_exc).__name__, _exc)
+        return False
     return _CUPY_OK
 
 

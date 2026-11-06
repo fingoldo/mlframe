@@ -23,7 +23,7 @@ import pandas as pd
 
 from mlframe.feature_engineering.two_step_target_encode import two_step_recency_weighted_target_encode
 from ._composite_fe_shared import attach_new_columns, to_pandas, row_count
-from mlframe.feature_selection.filters._lazy_host_codes import length_of
+from mlframe.utils.array_shape import length_of
 
 logger = logging.getLogger(__name__)
 

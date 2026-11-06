@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any, Optional
 
 import numpy as np
@@ -27,7 +28,7 @@ import numpy as np
 from pyutilz.performance.gpu_hw_launch import block_size_for
 from numba import njit, prange
 
-from ._honest_oj_fused import _permuted_codes, _pool_max
+from ._numba_utils_cross_module import _permuted_codes, _pool_max
 from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
@@ -226,18 +227,20 @@ extern "C" __global__ void oj_pool_mi(const int* __restrict__ c1, const int* __r
 """)
 _MAX_BINS = 64  # the kernels' per-thread marginal arrays; wider codes or targets stay on the CPU
 _cache: dict = {}
+_cache_lock = threading.Lock()
 
 
 def _kernel(cp: Any, name: str = "oj_cell_mi") -> Any:
     """The compiled kernel ``name`` of :data:`_KERNEL`, once per process."""
-    k = _cache.get(name)
-    if k is None:
-        mod = _cache.get("module")
-        if mod is None:
-            mod = cp.RawModule(code=_KERNEL)
-            _cache["module"] = mod
-        k = mod.get_function(name)
-        _cache[name] = k
+    with _cache_lock:
+        k = _cache.get(name)
+        if k is None:
+            mod = _cache.get("module")
+            if mod is None:
+                mod = cp.RawModule(code=_KERNEL)
+                _cache["module"] = mod
+            k = mod.get_function(name)
+            _cache[name] = k
     return k
 
 

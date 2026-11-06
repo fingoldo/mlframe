@@ -12,6 +12,7 @@ from collections import OrderedDict
 
 import numpy as np
 from numba import njit, prange
+from typing import Any
 
 HOST_PERM_BUDGET_BYTES = 256 * 1024 * 1024
 # The permutation stream is a pure function of (target codes, seed, first permutation, count), and a fit asks for the same batches of the same target
@@ -73,7 +74,7 @@ def host_permuted_y_batch(classes_y: np.ndarray, base_seed: object, first_perm: 
     return out
 
 
-def device_array_cached(cp, host: np.ndarray):
+def device_array_cached(cp: Any, host: np.ndarray) -> "Any":
     """``cp.asarray(host)``, reusing the device copy of a read-only host batch that was uploaded before (bounded by ``DEVICE_PERM_CACHE_BYTES``).
 
     Only read-only arrays are cached, since a writable one could change after the upload; the copy is completed before it is shared so any stream may read it.

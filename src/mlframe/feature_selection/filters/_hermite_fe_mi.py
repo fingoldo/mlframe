@@ -39,6 +39,8 @@ except ImportError:
 # The plug-in MI kernels moved to _numba_utils (cross-module @njit invariant); re-imported here for the in-file dispatchers.
 from ._numba_utils import _plugin_mi_classif_njit, _plugin_mi_regression_njit  # noqa: F401 -- used by plugin_mi_classif_dispatch and re-exported
 from mlframe.feature_selection.filters._device_sort_safe import device_percentile  # thrust aborts the process on a short pool
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+from collections.abc import Iterator
 
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
@@ -490,7 +492,7 @@ _MEMO_OFF = threading.local()
 
 
 @contextlib.contextmanager
-def column_mi_memo_disabled():
+def column_mi_memo_disabled() -> "Iterator[None]":
     """Scope in which this thread's batch MI calls skip the column memo: resampled blocks never repeat, so fingerprinting them only costs time."""
     prev = getattr(_MEMO_OFF, "on", False)
     _MEMO_OFF.on = True
@@ -506,41 +508,42 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
     The families of one fit score the same columns against the same target again and again (a raw column and each family's re-derivation of it: about a fifth of the column scorings of a fit with every family
     on are exact repeats), and the MI of a column does not depend on the other columns of its batch, so a column seen before takes its stored value and only the new ones are scored. A host matrix only;
     ``MLFRAME_COLUMN_MI_MEMO=0`` switches it off."""
-    if not isinstance(X_cols, np.ndarray) or X_cols.ndim != 2 or X_cols.shape[1] == 0 or getattr(_MEMO_OFF, "on", False) or os.environ.get("MLFRAME_COLUMN_MI_MEMO", "1") == "0":
-        return _plugin_mi_classif_batch_dispatch_uncached(X_cols, y, n_bins)
-    from mlframe.utils.disk_cache import hash_array_content
+    with parallel_kernel_entry():
+        if not isinstance(X_cols, np.ndarray) or X_cols.ndim != 2 or X_cols.shape[1] == 0 or getattr(_MEMO_OFF, "on", False) or os.environ.get("MLFRAME_COLUMN_MI_MEMO", "1") == "0":
+            return _plugin_mi_classif_batch_dispatch_uncached(X_cols, y, n_bins)
+        from mlframe.utils.disk_cache import hash_array_content
 
-    y_arr = np.ascontiguousarray(y)
-    base = (hash_array_content(y_arr), int(n_bins), str(X_cols.dtype), int(X_cols.shape[0]))
-    if X_cols.dtype.itemsize in (4, 8) and X_cols.dtype.kind == "f":
-        # the columns are fingerprinted in place by one parallel pass over the matrix (a copy of each strided column cost more than the scoring it saves)
-        from ._numba_utils import column_fingerprints
+        y_arr = np.ascontiguousarray(y)
+        base = (hash_array_content(y_arr), int(n_bins), str(X_cols.dtype), int(X_cols.shape[0]))
+        if X_cols.dtype.itemsize in (4, 8) and X_cols.dtype.kind == "f":
+            # the columns are fingerprinted in place by one parallel pass over the matrix (a copy of each strided column cost more than the scoring it saves)
+            from ._numba_utils import column_fingerprints
 
-        raw = np.ascontiguousarray(X_cols).view(np.uint32 if X_cols.dtype.itemsize == 4 else np.uint64)
-        fp = column_fingerprints(raw)
-        keys: list = [(int(fp[j, 0]), int(fp[j, 1]), *base) for j in range(fp.shape[0])]
-    else:
-        keys = [(hash_array_content(np.ascontiguousarray(X_cols[:, j])), *base) for j in range(X_cols.shape[1])]
-    out = np.empty(len(keys), dtype=np.float64)  # Intentional float64: MI statistic vector, output contract kept f64
-    missing = []
-    with _COLUMN_MI_MEMO_LOCK:
-        for j, key in enumerate(keys):
-            hit = _COLUMN_MI_MEMO.get(key)
-            if hit is None:
-                missing.append(j)
-            else:
-                out[j] = hit
-    if missing:
-        sub = X_cols if len(missing) == len(keys) else np.ascontiguousarray(X_cols[:, missing])
-        # Intentional float64: MI statistic vector, output contract kept f64
-        fresh = np.asarray(_plugin_mi_classif_batch_dispatch_uncached(sub, y, n_bins), dtype=np.float64)
-        out[missing] = fresh
+            raw = np.ascontiguousarray(X_cols).view(np.uint32 if X_cols.dtype.itemsize == 4 else np.uint64)
+            fp = column_fingerprints(raw)
+            keys: list = [(int(fp[j, 0]), int(fp[j, 1]), *base) for j in range(fp.shape[0])]
+        else:
+            keys = [(hash_array_content(np.ascontiguousarray(X_cols[:, j])), *base) for j in range(X_cols.shape[1])]
+        out = np.empty(len(keys), dtype=np.float64)  # Intentional float64: MI statistic vector, output contract kept f64
+        missing = []
         with _COLUMN_MI_MEMO_LOCK:
-            if len(_COLUMN_MI_MEMO) + len(missing) > _COLUMN_MI_MEMO_MAX:
-                _COLUMN_MI_MEMO.clear()
-            for j, v in zip(missing, fresh):
-                _COLUMN_MI_MEMO[keys[j]] = float(v)
-    return out
+            for j, key in enumerate(keys):
+                hit = _COLUMN_MI_MEMO.get(key)
+                if hit is None:
+                    missing.append(j)
+                else:
+                    out[j] = hit
+        if missing:
+            sub = X_cols if len(missing) == len(keys) else np.ascontiguousarray(X_cols[:, missing])
+            # Intentional float64: MI statistic vector, output contract kept f64
+            fresh = np.asarray(_plugin_mi_classif_batch_dispatch_uncached(sub, y, n_bins), dtype=np.float64)
+            out[missing] = fresh
+            with _COLUMN_MI_MEMO_LOCK:
+                if len(_COLUMN_MI_MEMO) + len(missing) > _COLUMN_MI_MEMO_MAX:
+                    _COLUMN_MI_MEMO.clear()
+                for j, v in zip(missing, fresh):
+                    _COLUMN_MI_MEMO[keys[j]] = float(v)
+        return out
 
 
 def _plugin_mi_classif_batch_dispatch_uncached(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
@@ -551,49 +554,50 @@ def _plugin_mi_classif_batch_dispatch_uncached(X_cols: np.ndarray, y: np.ndarray
     GROUND-TRUTH OVERRIDE returning the njit (prange CPU) backend, per real end-to-end measurements.
     Override via ``MLFRAME_MI_BACKEND`` env var.
     """
-    # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
-    # this sibling at its bottom, so a top-level ``from .hermite_fe
-    # import ...`` would create a hard cycle the meta-test flags.
-    from mlframe.feature_selection.filters.hermite_fe.shared import (
-        CUDA_AVAILABLE as _CUDA_AVAILABLE,
-        plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit,
-    )
-    from ._gpu_policy import gpu_globally_disabled
+    with parallel_kernel_entry():
+        # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
+        # this sibling at its bottom, so a top-level ``from .hermite_fe
+        # import ...`` would create a hard cycle the meta-test flags.
+        from mlframe.feature_selection.filters.hermite_fe.shared import (
+            CUDA_AVAILABLE as _CUDA_AVAILABLE,
+            plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit,
+        )
+        from ._gpu_policy import gpu_globally_disabled
 
-    forced = os.environ.get("MLFRAME_MI_BACKEND", "")
-    if forced == "njit":
+        forced = os.environ.get("MLFRAME_MI_BACKEND", "")
+        if forced == "njit":
+            return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
+        # Honor the global GPU off-switch (MLFRAME_DISABLE_GPU / CUDA_VISIBLE_DEVICES="") - cupy's own
+        # device detection ignores both, so without this a CPU-only / weak-GPU run still routes this HOT
+        # batched orth-FE MI to cupy (37% of a 300k fit: cupy argsort + GPU-sync sleep, CPU idle).
+        # An explicit MLFRAME_MI_BACKEND=cuda still wins (handled above / below).
+        if forced == "cuda":
+            if _CUDA_AVAILABLE:
+                return np.asarray(_plugin_mi_classif_batch_cuda(X_cols, y, n_bins))
+            return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
+        if not _CUDA_AVAILABLE or gpu_globally_disabled():
+            return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
+        # GROUND-TRUTH OVERRIDE: this batched FE-MI path defaults to njit regardless of the per-call tuner.
+        # The tuner sweep was upgraded to measure BOTH backends under realistic joblib worker-thread CONTENTION
+        # (_run_sweep_mi_classif_dispatch) - and that DID surface a 5-7x cuda contention penalty (n=100k k=20:
+        # solo 34ms vs contended 135ms). But even the contended microbench still under-counts this path by ~5x
+        # vs the real fit: it (a) reuses a warm GPU buffer while production allocates a FRESH engineered
+        # candidate array every call (cudaMalloc churn + fresh H2D/D2H), (b) runs MI in isolation while
+        # production interleaves the GPU-CMI redundancy kernel on the same device, and (c) inflates the
+        # contended-njit baseline via prange oversubscription absent from the real FE call pattern. Net: the
+        # tuner says "cuda" at n>=100k yet the ground-truth end-to-end fit is njit 3x faster (114 vs 368s,
+        # 1.6 vs 5.0 GB peak, byte-identical selection on the canonical 5-feature/n=100k fit). An isolated MI
+        # microbench cannot model the full pipeline, so we trust the end-to-end measurement. The principled way
+        # to actually WIN on GPU here is to make FE candidates GPU-RESIDENT (eliminating the per-call H2D/D2H
+        # the microbench omits) - the larger matrix-native FE replatform, tracked separately.
+        # MLFRAME_MI_BACKEND=cuda forces GPU (handled above) for a caller whose own end-to-end profile shows it.
+        # bench-rejected (2026-07-06): the 1M-wellbore .prof attributes 65.6s tottime to THIS dispatch frame, but
+        # that is cProfile mis-attribution - numba's compiled C body of _plugin_mi_classif_batch_njit has no python
+        # frame, so its compute time rolls into this plain-python caller's tottime. Isolated wrapper routing (the
+        # 2 cached imports + 2 env reads + gpu_globally_disabled + shape) = 10.1 us/call -> 0.075% at the real
+        # ~157-call F2 count; full-vs-njit A/B aggregate -0.78% (noise). COMPUTE-FLOOR: no wrapper/wasted-work/hoist
+        # win here; see _benchmarks/bench_plugin_mi_batch_dispatch_overhead.py for the numbers.
         return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
-    # Honor the global GPU off-switch (MLFRAME_DISABLE_GPU / CUDA_VISIBLE_DEVICES="") - cupy's own
-    # device detection ignores both, so without this a CPU-only / weak-GPU run still routes this HOT
-    # batched orth-FE MI to cupy (37% of a 300k fit: cupy argsort + GPU-sync sleep, CPU idle).
-    # An explicit MLFRAME_MI_BACKEND=cuda still wins (handled above / below).
-    if forced == "cuda":
-        if _CUDA_AVAILABLE:
-            return np.asarray(_plugin_mi_classif_batch_cuda(X_cols, y, n_bins))
-        return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
-    if not _CUDA_AVAILABLE or gpu_globally_disabled():
-        return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
-    # GROUND-TRUTH OVERRIDE: this batched FE-MI path defaults to njit regardless of the per-call tuner.
-    # The tuner sweep was upgraded to measure BOTH backends under realistic joblib worker-thread CONTENTION
-    # (_run_sweep_mi_classif_dispatch) - and that DID surface a 5-7x cuda contention penalty (n=100k k=20:
-    # solo 34ms vs contended 135ms). But even the contended microbench still under-counts this path by ~5x
-    # vs the real fit: it (a) reuses a warm GPU buffer while production allocates a FRESH engineered
-    # candidate array every call (cudaMalloc churn + fresh H2D/D2H), (b) runs MI in isolation while
-    # production interleaves the GPU-CMI redundancy kernel on the same device, and (c) inflates the
-    # contended-njit baseline via prange oversubscription absent from the real FE call pattern. Net: the
-    # tuner says "cuda" at n>=100k yet the ground-truth end-to-end fit is njit 3x faster (114 vs 368s,
-    # 1.6 vs 5.0 GB peak, byte-identical selection on the canonical 5-feature/n=100k fit). An isolated MI
-    # microbench cannot model the full pipeline, so we trust the end-to-end measurement. The principled way
-    # to actually WIN on GPU here is to make FE candidates GPU-RESIDENT (eliminating the per-call H2D/D2H
-    # the microbench omits) - the larger matrix-native FE replatform, tracked separately.
-    # MLFRAME_MI_BACKEND=cuda forces GPU (handled above) for a caller whose own end-to-end profile shows it.
-    # bench-rejected (2026-07-06): the 1M-wellbore .prof attributes 65.6s tottime to THIS dispatch frame, but
-    # that is cProfile mis-attribution - numba's compiled C body of _plugin_mi_classif_batch_njit has no python
-    # frame, so its compute time rolls into this plain-python caller's tottime. Isolated wrapper routing (the
-    # 2 cached imports + 2 env reads + gpu_globally_disabled + shape) = 10.1 us/call -> 0.075% at the real
-    # ~157-call F2 count; full-vs-njit A/B aggregate -0.78% (noise). COMPUTE-FLOOR: no wrapper/wasted-work/hoist
-    # win here; see _benchmarks/bench_plugin_mi_batch_dispatch_overhead.py for the numbers.
-    return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
 
 
 # The x column is read as ``{REAL}`` (float or double) and every operation runs in double, so a column uploaded in the criterion dtype needs no float64 copy; the

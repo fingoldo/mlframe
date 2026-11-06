@@ -19,7 +19,7 @@ import numpy as np
 from .._synthetic_bases import SPECABLE_OPS, synthetic_column
 from ._interaction_bases import discover_interaction_bases
 from .screening import _extract_column_array, _is_numeric_column, _sample_indices
-from mlframe.feature_selection.filters._lazy_host_codes import size_of
+from mlframe.utils.array_shape import size_of
 
 logger = logging.getLogger(__name__)
 
