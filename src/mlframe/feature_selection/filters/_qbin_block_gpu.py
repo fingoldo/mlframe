@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
