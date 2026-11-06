@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 from typing import Optional, Sequence, Tuple
+from urllib.parse import urlsplit
 import html
 import os
 import re
@@ -102,6 +103,9 @@ def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:
     """
     if ".." in re.split(r"[\\/]+", str(fname)):
         raise ValueError(f"embed_website_to_mlflow: fname {fname!r} contains a '..' path component")
+    # The iframe is sandboxed with allow-same-origin allow-scripts: a javascript: or data: source would run in the MLflow UI origin.
+    if urlsplit(url).scheme.lower() not in ("http", "https"):
+        raise ValueError(f"embed_website_to_mlflow: url scheme {urlsplit(url).scheme!r} is not http or https; refusing to embed it")
 
     safe_url = html.escape(url, quote=True)
     safe_width = int(width)
