@@ -195,3 +195,18 @@ if __name__ == "__main__":
     import sys
 
     sys.exit(pytest.main([__file__, "-s", "-x", "-v", "--no-cov"]))
+
+
+def test_bootstrap_seed_follows_random_state_not_the_deprecated_alias():
+    """X_TEST_COVERAGE_QUALITY-1: an estimator built with ``random_state=`` seeds the accessor's bootstrap with that value, not with 0."""
+    X, y = _tiny_canonical(n=150, seed=11)
+    fe_off = dict(
+        fe_max_pair_features=0, fe_max_steps=0, fe_modular_enable=False, fe_pairwise_modular_enable=False,
+        fe_integer_lattice_enable=False, fe_row_argmax_enable=False, fe_conditional_gate_enable=False,
+    )
+    sel = _mrmr(random_seed=None, random_state=42, **fe_off).fit(X, y)
+    from_estimator = sel.selection_stability_report(n_boot=40, as_text=False)["feature_selection_frequency"]
+    explicit_42 = sel.selection_stability_report(n_boot=40, random_state=42, as_text=False)["feature_selection_frequency"]
+    explicit_0 = sel.selection_stability_report(n_boot=40, random_state=0, as_text=False)["feature_selection_frequency"]
+    assert from_estimator == explicit_42
+    assert explicit_42 != explicit_0, "the two seeds gave the same frequencies, so this fixture cannot tell the seeds apart"
