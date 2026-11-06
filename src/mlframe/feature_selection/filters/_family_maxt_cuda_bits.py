@@ -102,7 +102,7 @@ def v2_block_width(kern: Any, shared_bytes: int, columns: int) -> int:
     except Exception as _silent_exc:
         logger.warning("_family_maxt_cuda_bits.py: block width not derived (%r); the default width is used", _silent_exc)
         width = 0
-    return width or _THREADS_V2
+    return width if width > 0 else _THREADS_V2
 _MAX_CLASSES_V2 = 24  # registers hold ``n_y - 1`` counters per thread
 _SHARED_MARGIN = 1024
 

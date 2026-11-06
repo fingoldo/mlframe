@@ -362,7 +362,7 @@ def _warp_pass_helpers(ft=np.float64):  # Intentional float64: the usability ker
                 cnt += 1
                 sa += yi
                 sv += v
-            i += _WARP_SIZE
+            i += _WARP_SIZE  # audit-exempt: parameter_aliasing_mutation -- the aliased value is an int lane index, which rebinds instead of mutating the caller's object
         offset = 16
         while offset > 0:
             cnt += _nb_cuda.shfl_down_sync(0xFFFFFFFF, cnt, offset)
@@ -394,7 +394,7 @@ def _warp_pass_helpers(ft=np.float64):  # Intentional float64: the usability ker
                 saa += da * da
                 svv += dv * dv
                 sav += da * dv
-            i += _WARP_SIZE
+            i += _WARP_SIZE  # audit-exempt: parameter_aliasing_mutation -- the aliased value is an int lane index, which rebinds instead of mutating the caller's object
         offset = 16
         while offset > 0:
             saa += _nb_cuda.shfl_down_sync(0xFFFFFFFF, saa, offset)

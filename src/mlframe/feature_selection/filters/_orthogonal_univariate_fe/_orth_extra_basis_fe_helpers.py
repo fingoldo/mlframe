@@ -401,7 +401,7 @@ _COARSE_GEMV: "bool | None" = None
 
 def _coarse_gemv_enabled() -> bool:
     """Whether the coarse GEMV path is on; the environment is read per call so it can change after import."""
-    if _COARSE_GEMV is not None:
+    if _COARSE_GEMV is not None:  # audit-exempt: guard_decidable_from_constants -- the module global is a seam that tests rebind with monkeypatch; the source never assigns it
         return bool(_COARSE_GEMV)
     return os.environ.get("MLFRAME_FOURIER_COARSE_GEMV", "1").strip() != "0"
 

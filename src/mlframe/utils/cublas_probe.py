@@ -52,7 +52,7 @@ def _has_pkg(name: str) -> bool:
     try:
         _pkg_version(name)
         return True
-    except PackageNotFoundError:  # best-effort: an absent package means the backend is not installed
+    except PackageNotFoundError:  # best-effort: an absent package means the backend is not installed  # audit-exempt: non_neutral_except_fallback -- an absent package means the backend is not installed; False is the answer, not a stand-in
         return False
 
 

@@ -66,7 +66,7 @@ _EVALUATE_CANDIDATES_POOL_ENABLED: "bool | None" = None
 
 def _evaluate_candidates_pool_enabled() -> bool:
     """Whether the candidate pool is on; the environment is read per call so it can change after import."""
-    if _EVALUATE_CANDIDATES_POOL_ENABLED is not None:
+    if _EVALUATE_CANDIDATES_POOL_ENABLED is not None:  # audit-exempt: guard_decidable_from_constants -- the module global is a seam that tests rebind with monkeypatch; the source never assigns it
         return bool(_EVALUATE_CANDIDATES_POOL_ENABLED)
     return os.environ.get("MLFRAME_MRMR_EVAL_POOL", "0").strip().lower() in ("1", "true", "on", "yes")
 

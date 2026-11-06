@@ -24,6 +24,7 @@ from ._kernel_types import render
 from ._honest_null_device import _pack_bits
 from ._raw_module_cache import RawModuleCache
 from typing import Any
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -200,9 +201,9 @@ def _block_width(kernel, shared_bytes: int, n: int) -> int:
     try:
         width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kernel.num_regs), static_smem=int(kernel.shared_size_bytes), min_width=64, max_width=1024, work_items=n)
     except Exception as exc:  # best-effort: only the launch width changes, never a result
-        logger.debug("honest-null accept block width: device limits unavailable (%s)", exc)
+        log_throttle(logger, "_honest_null_accept_bits.block_width", logging.INFO, "honest-null accept block width: device limits unavailable (%s)", exc)
         width = 0
-    return width or THREADS
+    return width if width > 0 else THREADS
 
 
 def root_split_accept_gpu(cp: Any, order: Any, tie: Any, y_raw_perm: Any, n: int, n_perm: int, kc: int, min_split: int, alpha: float, h_full: float, tab_full: Any, d_gain: Any, d_ncand: Any, d_idx: Any) -> bool:

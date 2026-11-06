@@ -17,6 +17,7 @@ import numpy as np
 
 from ._kernel_types import render
 from ._raw_module_cache import RawModuleCache
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -148,9 +149,9 @@ def _bits_width(kernel: Any, shared_bytes: int, n: int) -> int:
     try:
         width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kernel.num_regs), static_smem=int(kernel.shared_size_bytes), min_width=64, max_width=1024, work_items=(n + 31) // 32 * 32)
     except Exception as exc:  # best-effort: only the launch width changes, never a result
-        logger.debug("null max bitset kernel: device limits unavailable (%s)", exc)
+        log_throttle(logger, "_null_max_perm_gpu.block_width", logging.INFO, "null max bitset kernel: device limits unavailable (%s)", exc)
         width = 0
-    return width or 256
+    return width if width > 0 else 256
 
 
 def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, perms: np.ndarray, nbins: int, n_classes: int) -> Optional[np.ndarray]:

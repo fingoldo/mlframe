@@ -315,6 +315,14 @@ class OptimalJointPlanCache:
         self._max_bytes = int(max_bytes)
         self._lock = threading.Lock()
 
+    def __getstate__(self) -> dict:
+        """Only the byte budget: the plans, facts and memoised results are rebuilt on demand, and the lock and the thread-local do not pickle."""
+        return {"max_bytes": self._max_bytes}
+
+    def __setstate__(self, state: dict) -> None:
+        """An empty cache with the saved byte budget, with a fresh lock."""
+        self.__init__(state["max_bytes"])
+
     def content_key(self, arr: np.ndarray) -> str:
         """Content hash of ``arr``, reusing the hash of the array this thread hashed last when it is the same object (the cache holds a reference, so the object cannot be a recycled address)."""
         from mlframe.utils.disk_cache import hash_array_content

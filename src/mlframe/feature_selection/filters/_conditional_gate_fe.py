@@ -701,7 +701,7 @@ def _gate_device_born_all_mi(_pending, yi, nbins):
         specs = [(mode, ctup, operands, taus) for (mode, ctup, operands, taus, _bkey) in _pending]
         # Outside STRICT the device must give the host's numbers (the host scan bins by rank): the percentile-edge binner collapses the tied zeros of a mask column and its MI differs from
         # the host's by up to 0.49 on the F2 two-pair frame at n=1000, which moved the chosen tau and lost a planted pair. The rank binner matches the host to 1e-15.
-        return gate_grid_mi_resident(specs, yi, nbins, rank_binning=_gate_rank_binning() or not strict, y_min=_ym, n_classes=_nc)
+        return gate_grid_mi_resident(specs, yi, nbins, rank_binning=(True if _gate_rank_binning() else not strict), y_min=_ym, n_classes=_nc)
     except Exception as _resident_exc:
         logger.debug("gate_grid_mi_resident batch failed (%s); caller falls back to per-spec host scoring.", _resident_exc)
         return None

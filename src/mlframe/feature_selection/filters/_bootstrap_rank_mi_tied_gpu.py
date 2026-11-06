@@ -27,6 +27,7 @@ from ._kernel_types import render
 from ._raw_module_cache import RawModuleCache
 from ._bootstrap_rank_mi_gpu import _SWEEP_ROWS
 from typing import Any
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -271,9 +272,9 @@ def _block_width(kernel, shared_bytes: int, m: int) -> int:
     try:
         width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kernel.num_regs), static_smem=int(kernel.shared_size_bytes), min_width=64, max_width=256, work_items=m)  # the shared size is computed for 8 warps
     except Exception as exc:  # best-effort: only the launch width changes, never a result
-        logger.debug("tied replicate MI block width: device limits unavailable (%s)", exc)
+        log_throttle(logger, "_bootstrap_rank_mi_tied_gpu.block_width", logging.INFO, "tied replicate MI block width: device limits unavailable (%s)", exc)
         width = 0
-    return width or 256
+    return width if width > 0 else 256
 
 
 def tied_replicate_mi_stream(bits: np.ndarray, prep: dict, n_bins: int, rank_fn: Any) -> "Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]":

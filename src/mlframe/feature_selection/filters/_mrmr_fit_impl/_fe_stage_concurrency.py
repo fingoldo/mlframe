@@ -85,7 +85,7 @@ def _same(a: Any, b: Any) -> bool:
         return type(a) is type(b) and len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
     try:
         return bool(a == b)
-    except Exception as exc:  # best-effort: a comparison that raises is reported as unequal, the conservative answer
+    except Exception as exc:  # best-effort: a comparison that raises is reported as unequal, the conservative answer  # audit-exempt: non_neutral_except_fallback -- unequal is the conservative answer for a comparison that raised, and the cause is on the debug line
         logger.debug("stage-state comparison raised %s: %s; reported as unequal", type(exc).__name__, exc)
         return False
 

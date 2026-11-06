@@ -71,7 +71,7 @@ def fleuret_confidence_prange(data_copy: Any, factors_nbins: Any, x: Any, y: Any
     """``(nfailed, nchecked)`` of ``get_fleuret_criteria_confidence`` on the same inputs, the permutations of a block run on all threads."""
     if npermutations == 0:
         return 0, 0
-    block = int(block or numba.get_num_threads())
+    block = int(block) if block else numba.get_num_threads()
     sel = np.asarray(list(selected_vars), dtype=np.int64)
     xs = np.asarray(x, dtype=np.int64)
     ys = np.asarray(y, dtype=np.int64)
