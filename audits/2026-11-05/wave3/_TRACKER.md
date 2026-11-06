@@ -63,8 +63,8 @@ Four read-only audits covered the remaining GPU-kernel files (reports `kernel_pa
 | PARG2-6 | Low | OPEN | Fused SU gate does not clamp a negative MI to 0 |
 | PARG2-7 | Low | OPEN | Fused analytic gate does not check negative target codes |
 | PARG3-5 | Low | OPEN | Opt-in on-device entropy runs in float32 although the docstring claims float64 |
-| PARG3-6 | Low | OPEN | Unary sign kernel maps NaN to 0; twins return NaN; caller scrubs first |
-| PARG3-7 | Low | OPEN | Empty family: device raises, CPU returns zeros |
+| PARG3-6 | Low | RESOLVED | `330ac70ff` device sign of NaN is NaN, as the twins; test `test_unary_sign_keeps_nan.py` |
+| PARG3-7 | Low | RESOLVED | `0ee82cc02` empty family returns zeros before any launch; test `test_family_null_max_empty_family.py` |
 | PARG1-7..PARG1-11 | Low | OPEN | Interpolation mismatch, negative codes as indices, rounding, docstring overstatement, undocumented last-bit difference (see g1 report) |
 | PARG4-6..PARG4-11 | Low | OPEN | fastmath NaN guards, float32 casts, dtype differences, frac-diff division, DTW cupy checks (see g4 report) |
 | PARG2-5, PARG2-8..11 | DOC / Info | DOC | Honest-null threshold margin, equal-MI counting, prewarp rounding, polynom ties, pair-residual float32 near-ties (see g2 report) |
