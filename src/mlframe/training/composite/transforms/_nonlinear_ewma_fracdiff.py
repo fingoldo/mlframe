@@ -165,12 +165,13 @@ def _frac_diff_inverse_prefix(t_f: np.ndarray, lags: int, weights: np.ndarray, p
     if _HAS_NUMBA:
         return np.asarray(_frac_diff_inverse_kernel_prefix(t_f, int(lags), weights, prefix))
     out = np.empty(t_f.size, dtype=np.float64)
+    inv_w0 = 1.0 / weights[0]  # same rounding as the njit kernel; a per-step division would differ by an ulp
     for i in range(t_f.size):
         lag_sum = 0.0
         for k_idx in range(1, lags + 1):
             j = i - k_idx
             lag_sum += weights[k_idx] * (out[j] if j >= 0 else prefix[lags + j])
-        out[i] = (t_f[i] - lag_sum) / weights[0]
+        out[i] = (t_f[i] - lag_sum) * inv_w0
     return out
 
 
