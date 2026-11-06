@@ -52,7 +52,7 @@ Four read-only audits covered the remaining GPU-kernel files (reports `kernel_pa
 | PARG4-3 | Medium | OPEN | DTW GPU kernels use finite 1e18 for unreachable cells; costs above 1e18 reach invalid cells |
 | PARG4-4 | Medium | OPEN | GPU subset scan breaks ties at top-N arbitrarily and returns float32 losses |
 | PARG4-5 | Medium | OPEN | Row attention switches njit/GPU by batch size; different precision per batch |
-| PARG1-3 | Medium | OPEN | Op-candidate row max/min skips NaN in non-first operands; numpy returns NaN |
+| PARG1-3 | Medium | RESOLVED | `d0d07877f` device row max and min propagate NaN from any operand, as numpy; test `test_candidate_row_extrema_propagate_nan.py` |
 | PARG1-4 | Medium | OPEN | Radix select orders NaN with the sign bit below -inf |
 | PARG1-5 | Medium | OPEN | `_qbin_block_gpu` count kernel gives NaN code 0; the per-column twin gives nbins+1 |
 | PARG1-6 | Medium | OPEN | Fused CMI fallback computes entropies in float32; CMI error about 1e-6 nats |
