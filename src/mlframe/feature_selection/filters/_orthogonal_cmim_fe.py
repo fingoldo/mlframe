@@ -376,13 +376,15 @@ def _cmim_scores_device(eng_bins, y_bin, sel_bins, support_names, eng_sources, n
         for b0 in range(0, k, block):
             b1 = min(k, b0 + block)
             Xd = cp.asarray(np.ascontiguousarray(np.asarray(eng_bins[b0:b1]).T, dtype=np.int64))  # (n, block)
+            best = cp.full(b1 - b0, cp.inf, dtype=cp.float64)  # Intentional float64: CMI statistic, the running minimum over the references
             for j, zd in enumerate(zs):
                 mask = allowed[j, b0:b1]
                 if not mask.any():
                     continue
-                cmi = np.asarray(batched_cmi_gpu(Xd, yd, zd, kx=int(n_bins), ky=ky), dtype=np.float64)  # Intentional float64: CMI statistic
-                out[b0:b1] = np.where(mask, np.minimum(out[b0:b1], cmi), out[b0:b1])
-            del Xd
+                cmi = batched_cmi_gpu(Xd, yd, zd, kx=int(n_bins), ky=ky, return_device=True)
+                best = cp.where(cp.asarray(mask), cp.minimum(best, cmi), best)  # the minimum stays on the device: no host copy per reference
+            out[b0:b1] = cp.asnumpy(best)
+            del Xd, best
         return np.maximum(out, 0.0)
     except Exception as exc:
         log_throttle(logger, "_orthogonal_cmim_fe.except_387", logging.WARNING, "device CMIM not used (%s: %s); host loop", type(exc).__name__, exc)
