@@ -12,7 +12,7 @@ from typing import Any, cast
 
 import numpy as np
 
-from mlframe.utils.array_shape import shape_of, size_of  # noqa: F401 - moved to a low-level module; re-exported here for the existing importers
+from mlframe.utils.array_shape import length_of, ndim_of, shape_of, size_of  # noqa: F401 - moved to a low-level module; re-exported here for the existing importers
 
 # Below this many elements the copy is too small for the two range reductions to pay for themselves.
 _NARROW_MIN_ELEMENTS = 4096
@@ -176,22 +176,6 @@ class LazyHostCodes:
         if name.startswith("__"):
             raise AttributeError(name)
         return getattr(self.host(), name)
-
-
-def length_of(values: Any) -> int:
-    """First-axis length of an array, a lazy device-backed array or any sequence, without materialising a lazy one (``np.asarray(x).shape[0]`` copies it whole)."""
-    shape = getattr(values, "shape", None)
-    if shape is not None and len(shape) >= 1:
-        return int(shape[0])
-    return int(np.asarray(values).shape[0])  # length-ok: no shape attribute means a plain sequence
-
-
-def ndim_of(values: Any) -> int:
-    """Number of dimensions of an array, a lazy device-backed array or any sequence, without materialising a lazy one."""
-    shape = getattr(values, "shape", None)
-    if shape is not None:
-        return len(shape)
-    return np.asarray(values).ndim  # length-ok: no shape attribute means a plain sequence
 
 
 def host_as(values: Any, dtype: Any) -> np.ndarray:

@@ -24,8 +24,8 @@ import numpy as np
 from pyutilz.performance.gpu_hw_launch import block_size_for
 from ._fe_gpu_batch._devices import crit_float_dtype
 from ._abs_corr_tiled_gpu import MIN_COLUMNS, abs_corr_tiled
-from .hermite_fe._nonpoly_cells import NONPOLY_BASES
-from .hermite_fe._nonpoly_cells_gpu import nonpoly_block_gpu
+from .hermite_fe.shared import NONPOLY_BASES
+from .hermite_fe.shared import nonpoly_block_gpu
 
 from mlframe.feature_selection.filters._safe_scale import guarded_scale
 from mlframe.feature_selection.filters._device_sort_safe import device_median, device_percentile  # thrust aborts the process on a short pool

@@ -46,7 +46,7 @@ from mlframe.training.composite.transforms.shared import register_transform_if_a
 from .screening import _extract_column_array, _sample_indices
 from ._region_adaptive import fit_region_adaptive
 from ._auto_chain import discover_chains
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 logger = logging.getLogger(__name__)
 

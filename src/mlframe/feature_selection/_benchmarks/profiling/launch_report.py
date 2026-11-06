@@ -13,15 +13,17 @@ ROW_COUNTS = (20_000, 100_000, 1_000_000)
 
 def _kernels(cp):
     """``(label, compiled function, current constant width, shared-bytes rule)`` of the kernels whose launch geometry depends on the device."""
+    from pyutilz.performance.gpu_hw_launch import block_size_for
+
     from mlframe.feature_selection.filters import _honest_null_accept_bits as accept
     from mlframe.feature_selection.filters import _parity_gpu as parity
     from mlframe.feature_selection.filters import _quantile_codes_gpu as qcodes
     from mlframe.feature_selection.filters import _triple_mi_gpu as triple
 
     out = [
-        ("honest_null root_split_accept", accept._MODULE.get(cp).get_function("root_split_accept"), accept.THREADS, lambda n: 2 * ((n + 31) // 32) * 4),
-        ("triple_mi (base 5, 2 classes)", triple._MODULE.get(cp).get_function("triple_mi"), triple.THREADS, lambda n: 125 * 2 * 4),
-        ("parity_mi_grid", parity._MODULE.get(cp).get_function("parity_mi_grid"), parity.THREADS, lambda n: 0),
+        ("honest_null root_split_accept", accept._MODULE.get(cp).get_function("root_split_accept"), block_size_for(accept._MODULE.get(cp).get_function("root_split_accept"), work_items=1 << 20), lambda n: 2 * ((n + 31) // 32) * 4),
+        ("triple_mi (base 5, 2 classes)", triple._MODULE.get(cp).get_function("triple_mi"), block_size_for(triple._MODULE.get(cp).get_function("triple_mi"), work_items=1 << 20), lambda n: 125 * 2 * 4),
+        ("parity_mi_grid", parity._MODULE.get(cp).get_function("parity_mi_grid"), block_size_for(parity._MODULE.get(cp).get_function("parity_mi_grid"), work_items=1 << 20), lambda n: 0),
     ]
     radix = qcodes._RADIX.get(cp)
     for name in ("radix_hist1", "radix_hist2", "radix_hist3"):

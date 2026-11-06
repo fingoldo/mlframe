@@ -20,7 +20,8 @@ def _default_max_decompressed_bytes() -> int:
         import psutil
 
         total = int(psutil.virtual_memory().total)
-    except Exception:  # pragma: no cover - psutil is a hard dependency; keep the ceiling if the probe fails
+    except Exception as exc:  # pragma: no cover - psutil is a hard dependency; keep the ceiling if the probe fails
+        logger.warning("physical-RAM probe failed (%s: %s); the decompressed-size ceiling stays at its %d-byte maximum", type(exc).__name__, exc, _CAP_CEILING_BYTES)
         return _CAP_CEILING_BYTES
     return min(_CAP_CEILING_BYTES, total // 2)
 

@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional, Sequence, cast
 
 import numpy as np
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 logger = logging.getLogger(__name__)
 

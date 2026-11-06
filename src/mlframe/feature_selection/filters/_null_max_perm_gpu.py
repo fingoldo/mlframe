@@ -40,7 +40,7 @@ extern "C" __global__ void null_mi_perms(const {XT}* __restrict__ X, const {XT}*
         int lo = 0, hi = ne;                          // upper_bound: count of interior edges <= v
         if (v != v) lo = hi;                        // NaN sorts last: the last bin, as cp.searchsorted does
         while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
-        const int base = lo * Ky;
+        const long long base = (long long)lo * Ky;
         for (int p = 0; p < P; ++p) atomicAdd(&sh[p * M + base + yp[(long long)p * n + i]], 1);
     }
     __syncthreads();

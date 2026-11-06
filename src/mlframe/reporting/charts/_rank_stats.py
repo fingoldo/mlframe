@@ -10,7 +10,7 @@ implementation both sites use now.
 from __future__ import annotations
 
 import numpy as np
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 # Above this length the whole-vector rank+Pearson runs in the njit kernel (single argsort + tie-average in machine
 # code) instead of the pure-Python tie-collapse loop below; ~2.1x at N=200k, bit-identical (same average-rank

@@ -24,9 +24,9 @@ for ``Blueprint`` methods, ``pds.X`` for top-level ``polars_ds`` API.
 
 from __future__ import annotations
 
-import importlib.util
 import logging
 from typing import FrozenSet, Optional
+from mlframe._optional_imports import module_available
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ def _polars_ds_available() -> bool:
     """Cheap presence check via ``importlib.util.find_spec`` -- does NOT execute the module body, so a
     user-controlled ``polars_ds.py`` shadow package can't run arbitrary code at FHC construction time.
     """
-    return importlib.util.find_spec("polars_ds") is not None
+    return module_available("polars_ds")
 
 
 def detect_polars_ds_capabilities() -> FrozenSet[str]:

@@ -429,4 +429,4 @@ class CompositeDriftMonitor:
 # Drift-aware rediscovery helper lives in the sibling module (LOC discipline); re-exported here so
 # callers import both the monitor and its automatic reaction from one place.
 from .monitoring_rediscovery import check_and_rediscover  # noqa: F401
-from mlframe.feature_selection.filters._lazy_host_codes import size_of
+from mlframe.utils.array_shape import size_of

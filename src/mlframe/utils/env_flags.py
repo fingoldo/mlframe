@@ -18,7 +18,7 @@ from typing import Optional, cast
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["env_flag", "env_flag_tristate", "env_float", "env_int", "TRUE_VALUES", "FALSE_VALUES"]
+__all__ = ["env_flag", "env_float", "env_int", "TRUE_VALUES", "FALSE_VALUES"]
 
 TRUE_VALUES = frozenset({"1", "true", "yes", "on", "y", "t"})
 FALSE_VALUES = frozenset({"0", "false", "no", "off", "n", "f", ""})
@@ -49,22 +49,6 @@ def env_flag(name: str, default: bool = False) -> bool:
     if value in FALSE_VALUES:
         return False
     return bool(default)
-
-
-def env_flag_tristate(name: str) -> Optional[bool]:
-    """True or False for a recognised value of ``name``; None when it is unset, blank, or in neither vocabulary.
-
-    For a switch whose unset state means "decide from the data": :func:`env_flag` cannot say whether the variable was given.
-    """
-    raw = os.environ.get(name)
-    if raw is None or not raw.strip():
-        return None
-    value = raw.strip().lower()
-    if value in TRUE_VALUES:
-        return True
-    if value in FALSE_VALUES:
-        return False
-    return None
 
 
 def _env_number(name: str, default, parse, minimum, maximum):

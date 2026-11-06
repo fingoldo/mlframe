@@ -663,7 +663,7 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
                 _meta_e,
             )
         try:
-            with _bundle_fh if _bundle_fh is not None else open(file, "rb") as f:
+            with _bundle_fh if _bundle_fh is not None else open(file, "rb") as f:  # reopen-ok: the fallback open runs only when no digest was recorded (nothing was verified); otherwise the verified handle is the one read
                 zstd = import_optional("zstandard", "db", "reading compressed model bundles")
                 decompressor = zstd.ZstdDecompressor()
                 with decompressor.stream_reader(f) as _zraw:

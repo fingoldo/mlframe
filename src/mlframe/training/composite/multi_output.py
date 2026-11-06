@@ -394,7 +394,7 @@ from .multi_output_conformal import (
     calibrate_conformal as _calibrate_conformal,
     predict_interval as _predict_interval,
 )
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 CompositeMultiOutputEstimator.calibrate_conformal = _calibrate_conformal
 CompositeMultiOutputEstimator.predict_interval = _predict_interval

@@ -71,6 +71,11 @@ def _fit_impl_part9(_ret_fit_impl_part7: Any, self: Any, y: pd.DataFrame | pd.Se
     _persisted_maxt_floor_cache, _persisted_workers_pool, _cat_fe_lineage, _dcd_config, _effective_max_confirmation_cand_nbins, _screen_factors_names_to_use, _adaptive_relax_retry, _fe_step_params, _runtime_budget_exhausted, _sufficient_summary_reached, times_spent = _fit_impl_part8(
 
     )
+    if int(num_fs_steps) == 0 and fe.max_steps > 0:
+        from mlframe.feature_selection.filters._gbm_seeder_prefetch import prefetch_surrogate_seeds_early
+
+        # the surrogate seeder's LightGBM fits start now, beside the first screening, not at the FE step's entry (where their result is already needed)
+        prefetch_surrogate_seeds_early(self, data=data, cols=cols, X=X, target_indices=target_indices, categorical_vars=categorical_vars, nbins=nbins, dtype=dtype)
     while True:
         n_recommended_features = 0
         _persisted_dcd_state, selected_vars, predictors, cached_MIs, cached_confident_MIs, classes_y, classes_y_safe, freqs_y, _dcd_state, _attach_dcd_results, _persisted_screen_caches = _fit_impl_part4(
@@ -185,6 +190,9 @@ def _fit_impl_part9(_ret_fit_impl_part7: Any, self: Any, y: pd.DataFrame | pd.Se
     # rebinds ``selected_vars`` to original-frame indices. When pruning is enabled the pruned cols-space
     # list flows through that same remap into ``support_``. Never allowed to break fit - guarded.
     # ---------------------------------------------------------------------------------------------------------------
+    from mlframe.feature_selection.filters._gbm_seeder_prefetch import drop_prefetched
+
+    drop_prefetched(self)  # a prefetch the rounds never took (no FE step ran) is forgotten here
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._post_selection import _friend_graph_analysis
     return False, MRMR, _hashable_params_signature, recipes, fe, _y_np, X, signature, _cache_key, start_time, ran_out_of_time, _fe_family_on, verbose, cols, data, nbins, target_indices, categorical_vars_names, engineered_recipes, _effective_min_relevance_gain, _persisted_dcd_state, selected_vars, predictors, cached_MIs, classes_y, _eng_continuous_snapshot, _friend_graph_analysis
 

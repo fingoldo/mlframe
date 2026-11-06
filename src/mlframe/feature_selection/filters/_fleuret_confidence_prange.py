@@ -15,6 +15,7 @@ import numpy as np
 from numba import njit, prange, types
 
 from ._numba_utils import LARGE_CONST, _fleuret_shuffle_col_lcg, evaluate_gain
+from typing import Any
 
 
 @njit(cache=True, parallel=True)
@@ -24,7 +25,7 @@ def _block_flags(data, factors_nbins, x, y, selected_vars_arr, b0, b1, bootstrap
     flags = np.zeros(b1 - b0, dtype=np.bool_)
     for k in prange(b1 - b0):
         i = b0 + k
-        own = data.copy()
+        own = data.copy()  # loop-invariant-ok: each permutation shuffles its own private copy of the columns
         ent = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)
         cond = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)
         state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(perm_offset + i + 1)
@@ -63,10 +64,10 @@ def _block_flags(data, factors_nbins, x, y, selected_vars_arr, b0, b1, bootstrap
     return flags
 
 
-def fleuret_confidence_prange(data_copy, factors_nbins, x, y, selected_vars, npermutations, bootstrapped_gain, max_failed, nexisting,
-                              mrmr_relevance_algo="fleuret", mrmr_redundancy_algo="fleuret", max_veteranes_interactions_order=1,
-                              extra_knowledge_multipler=-1.0, sink_threshold=-1.0, extra_x_shuffling=True, base_seed=0, perm_offset=0,
-                              use_su=False, use_mm=False, use_jmim=False, jmim_discount_only=False, block=None) -> "tuple[int, int]":
+def fleuret_confidence_prange(data_copy: Any, factors_nbins: Any, x: Any, y: Any, selected_vars: Any, npermutations: Any, bootstrapped_gain: Any, max_failed: Any, nexisting: Any,
+                              mrmr_relevance_algo: str="fleuret", mrmr_redundancy_algo: str="fleuret", max_veteranes_interactions_order: int=1,
+                              extra_knowledge_multipler: float=-1.0, sink_threshold: float=-1.0, extra_x_shuffling: bool=True, base_seed: int=0, perm_offset: int=0,
+                              use_su: bool=False, use_mm: bool=False, use_jmim: bool=False, jmim_discount_only: bool=False, block: Any=None) -> "tuple[int, int]":
     """``(nfailed, nchecked)`` of ``get_fleuret_criteria_confidence`` on the same inputs, the permutations of a block run on all threads."""
     if npermutations == 0:
         return 0, 0

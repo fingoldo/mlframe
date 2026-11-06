@@ -37,7 +37,7 @@ def _with_replay_value_cache(fn):
     """Run ``fn`` inside ``replay_value_cache`` so the stages of the support tail share their recipe replays."""
     import functools
 
-    from ..engineered_recipes._recipe_dispatch import replay_value_cache
+    from ..engineered_recipes.shared import replay_value_cache
 
     @functools.wraps(fn)
     def inner(*args, **kwargs):

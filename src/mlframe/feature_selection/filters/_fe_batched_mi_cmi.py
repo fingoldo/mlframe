@@ -463,7 +463,7 @@ _BATCHED_JOINT_ENTROPY_KERNEL = None
 _BATCHED_JOINT_ENTROPY_G_KERNEL: list = []
 
 
-def batched_joint_entropy_global(X, b, Kx, Kb, inv_n, blocks: int):
+def batched_joint_entropy_global(X: Any, b: Any, Kx: int, Kb: int, inv_n: float, blocks: int) -> "tuple[Any, Any]":
     """The fused per-column joint entropy with each block's histogram in global scratch (``batched_joint_entropy2_g``), for joints over the shared-memory
     limit: ``(h (K,), k (K,))``, the fused kernel's loop and reduction with ``blocks`` blocks walking the columns."""
     import cupy as cp

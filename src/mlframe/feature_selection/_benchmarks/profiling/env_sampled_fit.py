@@ -37,3 +37,13 @@ print("own cores avg %.2f p90 %.2f | system cores busy avg %.2f | others avg %.2
 print("available MB min %.0f avg %.0f | swap used MB max %.0f | rss MB max %.0f" % (min(s[3] for s in samples), S.mean(s[3] for s in samples), max(s[4] for s in samples), max(s[5] for s in samples)))
 pf = [s[6] for s in samples]; print("page faults total %d" % (pf[-1] - pf[0]))
 g = [s[7] for s in samples if s[7] >= 0]; print("gpu util avg %.0f max %d" % (S.mean(g), max(g)) if g else "gpu n/a")
+
+# coarse timeline: seconds from the start of the fit, own cores and GPU utilisation in buckets of ~6 s (where the fit idles)
+t0 = samples[0][0] - 2.0 if samples else 0.0
+bucket = 6.0
+rows = {}
+for s_ in samples:
+    rows.setdefault(int((s_[0] - t0) // bucket), []).append(s_)
+print("TIMELINE (s, own cores, gpu%)")
+for b in sorted(rows):
+    r = rows[b]; print("  %4d-%4d  cores %.2f  gpu %3.0f" % (b * bucket, (b + 1) * bucket, S.mean(x[1] for x in r), S.mean(max(0, x[7]) for x in r)))

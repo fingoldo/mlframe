@@ -105,7 +105,7 @@ def use_device_lof(n_rows: int) -> bool:
 
 
 _SWEEP_ROWS = [2_000, 20_000, 100_000]
-_SALT = 1
+_SALT = 2  # 2: the equivalence tolerance is 1e-9 / 1e-12 (the device scorer agrees with the host to about 1e-15), so the regions are measured again
 
 
 def _make_inputs(dims: dict) -> tuple:
@@ -140,8 +140,8 @@ def _run_sweep() -> list:
             _make_inputs,
             reference="host",
             repeats=3,
-            equiv_rtol=1e-2,
-            equiv_atol=1e-2,
+            equiv_rtol=1e-9,
+            equiv_atol=1e-12,
         ),
     )
 

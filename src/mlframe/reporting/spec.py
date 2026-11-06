@@ -25,7 +25,7 @@ import numpy as np
 # dependency is the leaf, not the ``mlframe.reporting`` package surface -- that back-edge closes the reporting.charts
 # facade into one import SCC. ``colors`` has no internal imports, so this is a true leaf edge.
 import mlframe.reporting.colors as _colors
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 # ----------------------------------------------------------------------------
 # Panel specs

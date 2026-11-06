@@ -879,7 +879,7 @@ from ._screening_tiny import (  # noqa: F401
     _per_bin_from_fold_preds,
     _tiny_cv_rmse_y_scale,
 )
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 
 def _sample_indices(

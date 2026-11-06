@@ -57,7 +57,18 @@ if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
 
-from . import _conditional_gate_fe as _cgf
+class _GateModule:
+    """``_conditional_gate_fe`` looked up on each attribute read: that module re-exports this one at its bottom, so a module-level import here would close an import cycle,
+    and a lookup per call keeps a test's patch of the gate module visible."""
+
+    def __getattr__(self, name: str):
+        """The attribute of ``_conditional_gate_fe`` called ``name``."""
+        from . import _conditional_gate_fe
+
+        return getattr(_conditional_gate_fe, name)
+
+
+_cgf = _GateModule()
 
 
 def detect_row_argmax(

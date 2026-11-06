@@ -7,9 +7,10 @@ RLock and keep different ones, so two fan-outs held "the" lock at once. A slow c
 from __future__ import annotations
 
 import threading
-import time
 
 import mlframe._numba_parallel_guard as guard
+
+_widen_the_race_window = threading.Event()  # never set: waiting on it is a pause that holds the check-then-store window open
 
 
 def test_concurrent_first_callers_all_receive_one_lock(monkeypatch):
@@ -19,7 +20,7 @@ def test_concurrent_first_callers_all_receive_one_lock(monkeypatch):
 
     def slow_rlock():
         """Build an RLock after a pause, widening the window between the check and the store."""
-        time.sleep(0.05)
+        _widen_the_race_window.wait(0.05)  # the pause IS the point: it keeps the check-then-store window open; nothing is waited for
         return real_rlock()
 
     monkeypatch.setattr(threading, "RLock", slow_rlock)

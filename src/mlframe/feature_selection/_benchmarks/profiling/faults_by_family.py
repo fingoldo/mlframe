@@ -29,6 +29,8 @@ for m in pkgutil.iter_modules(mods.__path__):
                 try:
                     return fn(*a, **k)
                 finally:
+                    import cupy as _cp
+                    _cp.cuda.Stream.null.synchronize()  # the timer stops at completion, not at the launch of the last kernel
                     with lock:
                         walls[key] = walls.get(key, 0.0) + time.perf_counter() - t
                         faults[key] = faults.get(key, 0) + _me.memory_info().num_page_faults - f0

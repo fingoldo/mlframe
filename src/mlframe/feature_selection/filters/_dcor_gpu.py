@@ -59,7 +59,7 @@ _DCOR_DEVICE_MIN_WORK = 1_000_000  # k * m * m pair terms from which the device 
 _DCOR_CODE_VERSION = "dcor_columns_backend-v1"
 
 
-def _kernel() -> Any:
+def _dcor_kernel() -> Any:
     """The compiled kernel (compiled once)."""
     import cupy as cp
 
@@ -81,7 +81,7 @@ def dcor_columns_gpu(xs: np.ndarray, b: np.ndarray) -> "Optional[tuple[np.ndarra
             return dcov2, dvar2
         if m < 1 or m > _MAX_M:
             return None
-        kern = _kernel()
+        kern = _dcor_kernel()
         b_d = cp.asarray(np.ascontiguousarray(b, dtype=np.float64))  # Intentional float64: dCor moments in double
         free = int(cp.cuda.Device().mem_info[0])
         width = max(1, min(k, (free // 4) // max(1, m * 8)))

@@ -448,7 +448,7 @@ def _family_codes(X, n_bins: int):
     return cols, nx
 
 
-def family_codes_of_rows(values: np.ndarray, n_bins: int):
+def family_codes_of_rows(values: np.ndarray, n_bins: int) -> "tuple[np.ndarray, np.ndarray]":
     """:func:`_family_codes` of candidates already held as the rows of a ``(K, n)`` matrix at the fit's float dtype (same codes, same counts): the blocks are
     coded in place, without the per-block copy and transpose a DataFrame needs. A non-finite value takes the column median, as there (on a copy of that row)."""
     n_cols, n_rows = values.shape

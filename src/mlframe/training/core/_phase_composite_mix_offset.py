@@ -8,7 +8,7 @@ import logging
 
 
 from ..configs import TargetTypes
-from mlframe.feature_selection.filters._lazy_host_codes import ndim_of
+from mlframe.utils.array_shape import ndim_of
 
 logger = logging.getLogger("mlframe.training.core._phase_composite_discovery")
 

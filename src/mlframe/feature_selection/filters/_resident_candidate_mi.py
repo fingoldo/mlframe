@@ -280,6 +280,7 @@ def best_existing_op_mi_resident(
 
 
 _TAU_KERNELS: dict = {}
+_TAU_KERNELS_LOCK = threading.Lock()
 
 
 def _tau_grid_kernel(cp, mode: str, out_ctype: str):
@@ -296,7 +297,8 @@ def _tau_grid_kernel(cp, mode: str, out_ctype: str):
             kern = cp.ElementwiseKernel(
                 "float64 c, float64 t, float64 a, float64 b", decl + " o", f"o = ({out_ctype})(c > t ? a : b)", "gate_tau_select_" + out_ctype
             )
-        kern = _TAU_KERNELS.setdefault(key, kern)  # two threads may build it at once; both use the one stored first
+        with _TAU_KERNELS_LOCK:
+            kern = _TAU_KERNELS.setdefault(key, kern)  # two threads may build it at once; both use the one stored first
     return kern
 
 

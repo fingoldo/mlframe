@@ -68,22 +68,23 @@ def _permuted_labels_kernel(src_raw: np.ndarray, src_codes: np.ndarray, base_see
 def permuted_labels_seeded(y_raw: np.ndarray, y_codes: np.ndarray, count: int, base_seed: int) -> "tuple[np.ndarray, np.ndarray]":
     """``(y_raw[perm], y_codes[perm])`` for ``count`` shuffles seeded ``base_seed + b``, in the narrowest signed integer type that holds the labels (as ``permuted_labels``); the shuffles are drawn in parallel
     and no index matrix is held. The permutations are a function of ``base_seed`` alone."""
-    if np.array_equal(y_raw, y_codes):  # the raw labels are their own codes (a 0/1 target): one matrix serves both, half the memory and half the gathers
-        top = int(np.asarray(y_raw).max(initial=0))
-        dtype = np.int8 if top < 127 else np.int16 if top < 32767 else np.int32
-        src = np.asarray(y_raw).astype(dtype)
-        out = np.empty((count, src.shape[0]), dtype=dtype)
-        _permuted_labels_kernel(src, src, int(base_seed), out, out)
-        return out, out
-    outs = []
-    srcs = []
-    for labels in (y_raw, y_codes):
-        top = int(np.asarray(labels).max(initial=0))
-        dtype = np.int8 if top < 127 else np.int16 if top < 32767 else np.int32
-        outs.append(np.empty((count, labels.shape[0]), dtype=dtype))
-        srcs.append(np.asarray(labels).astype(dtype))
-    _permuted_labels_kernel(srcs[0], srcs[1], int(base_seed), outs[0], outs[1])
-    return outs[0], outs[1]
+    with parallel_kernel_entry():
+        if np.array_equal(y_raw, y_codes):  # the raw labels are their own codes (a 0/1 target): one matrix serves both, half the memory and half the gathers
+            top = int(np.asarray(y_raw).max(initial=0))
+            dtype = np.int8 if top < 127 else np.int16 if top < 32767 else np.int32
+            src = np.asarray(y_raw).astype(dtype)
+            out = np.empty((count, src.shape[0]), dtype=dtype)
+            _permuted_labels_kernel(src, src, int(base_seed), out, out)
+            return out, out
+        outs = []
+        srcs = []
+        for labels in (y_raw, y_codes):
+            top = int(np.asarray(labels).max(initial=0))
+            dtype = np.int8 if top < 127 else np.int16 if top < 32767 else np.int32
+            outs.append(np.empty((count, labels.shape[0]), dtype=dtype))
+            srcs.append(np.asarray(labels).astype(dtype))
+        _permuted_labels_kernel(srcs[0], srcs[1], int(base_seed), outs[0], outs[1])
+        return outs[0], outs[1]
 
 
 from ._numba_utils import (  # helpers hosted in _numba_utils_cross_module for the cross-module njit invariant
@@ -95,6 +96,7 @@ from ._numba_utils import (  # helpers hosted in _numba_utils_cross_module for t
     pack_sorted_labels_from_bits,
     root_decision_packed,
 )
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 
 ROOT_NULL_DRAWS = 2000
 

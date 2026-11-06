@@ -22,8 +22,9 @@ import numpy as np
 from numba import njit, prange
 
 from ._adaptive_nbins import _plug_in_mi_njit
-from ._numba_utils_cross_module import _mi_codes_njit, _n_unique_codes
+from ._numba_utils_cross_module import _n_unique_codes, _permuted_codes, _pool_max
 from ._numba_utils_shared import seeded_permutation
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 
 logger = logging.getLogger(__name__)
 
@@ -166,35 +167,6 @@ def _winners_minority(xb, kx, nv, vy, ky, px):
                 best = sc
                 pick[j] = m
     return pick
-
-
-@njit(cache=True)
-def _permuted_codes(perm, yc, rows):
-    """Permuted target codes at the evaluation rows, their class count and the number of occupied classes."""
-    ycp = np.empty(rows.shape[0], dtype=np.int64)
-    ny = 0
-    for i in range(rows.shape[0]):
-        ycp[i] = yc[perm[rows[i]]]
-        ny = max(ny, ycp[i] + 1)
-    counts = np.zeros(ny, dtype=np.int64)
-    for i in range(rows.shape[0]):
-        counts[ycp[i]] += 1
-    return ycp, ny, float((counts > 0).sum())
-
-
-@njit(cache=True)
-def _pool_max(pick, ycp, ny, ky_eff, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff):
-    """The pool's largest Miller-Madow corrected MI (``corrected_mi_best``'s formula), ``-inf`` when a column has no winner."""
-    res = 0.0
-    for t in range(pool_dep.shape[0]):
-        m = 0
-        if pool_dep[t] >= 0:
-            m = pick[pool_dep[t]]
-            if m < 0:
-                return -np.inf
-        mi = _mi_codes_njit(pool_rc[t, m], pool_nb[t, m], ycp, ny)
-        res = max(res, mi - (pool_kxe[t, m] - 1.0) * (ky_eff - 1.0) / (2.0 * n_eff))
-    return res
 
 
 @njit(cache=True, parallel=True)
@@ -414,67 +386,68 @@ def _floor(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, c
 
 def _floor_body(honest_codes_fn, binner, y_raw, factors_data, factors_nbins, y_idx, cols, n_permutations, quantile, base_seed, eval_rows):
     """:func:`_floor`, raising :class:`_DeclineError` where the fused path does not apply."""
-    from ._adaptive_nbins import _distinct_exceeds
-    from ._optimal_joint_edges import pack_plans
+    with parallel_kernel_entry():
+        from ._adaptive_nbins import _distinct_exceeds
+        from ._optimal_joint_edges import pack_plans
 
-    max_y = int(binner._kwargs.get("optimal_joint_max_y_classes", 64))
-    if y_raw.dtype.kind not in "iub" or y_raw.size == 0 or int(y_raw.min()) < 0 or _distinct_exceeds(y_raw, max_y):
-        raise _DeclineError("the raw target is not small non-negative integer labels")
-    y_int = np.ascontiguousarray(y_raw, dtype=np.int64)
-    cache = binner._kwargs.get("optimal_joint_plan_cache")
-    if cache is None:
-        raise _DeclineError("no optimal_joint plan cache on the binner")
-    n = int(factors_data.shape[0])
-    plans, candidates = _cached_plans(honest_codes_fn, binner, cache, n, base_seed)
-    planned = [j for j in range(len(plans)) if plans[j] is not None]
-    if not planned:
-        raise _DeclineError("no column has an optimal_joint plan")
-    packed = pack_plans([plans[j] for j in planned], candidates)
-    if packed is None:
-        raise _DeclineError("the column plans do not pack (differing folds or wide codes)")
-    ms = list(packed["ms"])
-    key = cache._target_key(y_int)
-    free_rows = _free_rows(binner, plans, y_int, n, base_seed)
-    sub = {j: i for i, j in enumerate(planned)}  # re-binned column -> its place among the packed plans
-    dep_rows = np.full((len(plans), len(ms)), -1, dtype=np.int64)
-    from concurrent.futures import ThreadPoolExecutor
+        max_y = int(binner._kwargs.get("optimal_joint_max_y_classes", 64))
+        if y_raw.dtype.kind not in "iub" or y_raw.size == 0 or int(y_raw.min()) < 0 or _distinct_exceeds(y_raw, max_y):
+            raise _DeclineError("the raw target is not small non-negative integer labels")
+        y_int = np.ascontiguousarray(y_raw, dtype=np.int64)
+        cache = binner._kwargs.get("optimal_joint_plan_cache")
+        if cache is None:
+            raise _DeclineError("no optimal_joint plan cache on the binner")
+        n = int(factors_data.shape[0])
+        plans, candidates = _cached_plans(honest_codes_fn, binner, cache, n, base_seed)
+        planned = [j for j in range(len(plans)) if plans[j] is not None]
+        if not planned:
+            raise _DeclineError("no column has an optimal_joint plan")
+        packed = pack_plans([plans[j] for j in planned], candidates)
+        if packed is None:
+            raise _DeclineError("the column plans do not pack (differing folds or wide codes)")
+        ms = list(packed["ms"])
+        key = cache._target_key(y_int)
+        free_rows = _free_rows(binner, plans, y_int, n, base_seed)
+        sub = {j: i for i, j in enumerate(planned)}  # re-binned column -> its place among the packed plans
+        dep_rows = np.full((len(plans), len(ms)), -1, dtype=np.int64)
+        from concurrent.futures import ThreadPoolExecutor
 
-    from ._adaptive_nbins import _resolve_edge_jobs
+        from ._adaptive_nbins import _resolve_edge_jobs
 
-    def _column_slots(j):
-        """The code-table slots of column ``j`` under every candidate count (columns are independent: own plan, own table rows under the binner's lock)."""
-        return j, [_count_slot(binner, plans[j], j, m, key, y_int) for m in ms]
+        def _column_slots(j):
+            """The code-table slots of column ``j`` under every candidate count (columns are independent: own plan, own table rows under the binner's lock)."""
+            return j, [_count_slot(binner, plans[j], j, m, key, y_int) for m in ms]
 
-    with ThreadPoolExecutor(max_workers=_resolve_edge_jobs(None, len(planned))) as pool_ex:
-        for j, slots in pool_ex.map(_column_slots, planned):
-            dep_rows[j] = slots
-    rows = np.arange(n, dtype=np.int64) if eval_rows is None else np.asarray(eval_rows, dtype=np.int64)
-    pool_dep, pool_codes, pool_nb = _pool_arrays(binner, cols, dep_rows, ms, factors_data, factors_nbins, n, sub, free_rows)
-    nv, val_idx = _val_index(packed)
-    yc = np.ascontiguousarray(factors_data[:, int(y_idx)]).astype(np.int64)
-    # the pool's codes at the evaluation rows and their occupied-bin counts do not depend on the permutation: built once here, not per permutation in the kernel
-    pool_rc = np.ascontiguousarray(pool_codes[:, :, rows])
-    pool_kxe = _occupied_bins(pool_rc)
-    kx = np.asarray(packed["kx"], dtype=np.int64)
-    px = _px_table(packed["xb"], kx, nv)  # per-cell bin counts: the winners scatter only the rows outside the majority class
-    from ._honest_oj_fused_gpu import device_pool, device_winners
+        with ThreadPoolExecutor(max_workers=_resolve_edge_jobs(None, len(planned))) as pool_ex:
+            for j, slots in pool_ex.map(_column_slots, planned):
+                dep_rows[j] = slots
+        rows = np.arange(n, dtype=np.int64) if eval_rows is None else np.asarray(eval_rows, dtype=np.int64)
+        pool_dep, pool_codes, pool_nb = _pool_arrays(binner, cols, dep_rows, ms, factors_data, factors_nbins, n, sub, free_rows)
+        nv, val_idx = _val_index(packed)
+        yc = np.ascontiguousarray(factors_data[:, int(y_idx)]).astype(np.int64)
+        # the pool's codes at the evaluation rows and their occupied-bin counts do not depend on the permutation: built once here, not per permutation in the kernel
+        pool_rc = np.ascontiguousarray(pool_codes[:, :, rows])
+        pool_kxe = _occupied_bins(pool_rc)
+        kx = np.asarray(packed["kx"], dtype=np.int64)
+        px = _px_table(packed["xb"], kx, nv)  # per-cell bin counts: the winners scatter only the rows outside the majority class
+        from ._honest_oj_fused_gpu import device_pool, device_winners
 
-    dev = device_winners(packed["xb"], kx, nv, val_idx, y_int, px, n)
-    dev_pool = device_pool(dev, pool_dep, pool_rc, pool_nb, pool_kxe, yc, rows)
-    pool_args = (pool_dep, pool_rc, pool_nb, pool_kxe, float(len(rows)))
-    nulls = np.empty(int(n_permutations), dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
-    mi_blocks: "list | None" = []
-    for b0 in range(0, int(n_permutations), _PERM_BLOCK):
-        b1 = min(int(n_permutations), b0 + _PERM_BLOCK)
-        perms = _perm_block(n, base_seed, b0, b1)
-        out, mi = _score_block(dev, dev_pool, perms, y_int, yc, rows, packed["xb"], kx, nv, val_idx, px, pool_args)
-        if np.isneginf(out).any():
-            raise _DeclineError("a column had no scored candidate count in some permutation")
-        nulls[b0:b1] = out
-        mi_blocks = None if (mi_blocks is None or mi is None) else [*mi_blocks, mi]
-    if mi_blocks:
-        binner._fused_null_mi = (_null_key(base_seed, n_permutations, n, rows), {int(c): t for t, c in enumerate(cols)}, np.concatenate(mi_blocks))
-    return float(np.quantile(nulls, float(quantile), method="higher"))
+        dev = device_winners(packed["xb"], kx, nv, val_idx, y_int, px, n)
+        dev_pool = device_pool(dev, pool_dep, pool_rc, pool_nb, pool_kxe, yc, rows)
+        pool_args = (pool_dep, pool_rc, pool_nb, pool_kxe, float(len(rows)))
+        nulls = np.empty(int(n_permutations), dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
+        mi_blocks: "list | None" = []
+        for b0 in range(0, int(n_permutations), _PERM_BLOCK):
+            b1 = min(int(n_permutations), b0 + _PERM_BLOCK)
+            perms = _perm_block(n, base_seed, b0, b1)
+            out, mi = _score_block(dev, dev_pool, perms, y_int, yc, rows, packed["xb"], kx, nv, val_idx, px, pool_args)
+            if np.isneginf(out).any():
+                raise _DeclineError("a column had no scored candidate count in some permutation")
+            nulls[b0:b1] = out
+            mi_blocks = None if (mi_blocks is None or mi is None) else [*mi_blocks, mi]
+        if mi_blocks:
+            binner._fused_null_mi = (_null_key(base_seed, n_permutations, n, rows), {int(c): t for t, c in enumerate(cols)}, np.concatenate(mi_blocks))
+        return float(np.quantile(nulls, float(quantile), method="higher"))
 
 
 def _null_key(base_seed, n_permutations, n, rows) -> tuple:

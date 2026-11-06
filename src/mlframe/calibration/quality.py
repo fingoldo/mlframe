@@ -38,7 +38,7 @@ from mlframe._optional_imports import import_optional
 from mlframe.metrics.core import fast_brier_score_loss, fast_r2_score  # sklearn-equivalent, faster
 
 from scipy.stats import ks_1samp, cramervonmises, chisquare, entropy
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits

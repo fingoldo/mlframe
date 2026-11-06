@@ -11,6 +11,7 @@ import math
 import numpy as np
 from numba import njit, prange
 from ._numba_utils_shuffle import bounded, next_state, seed_state
+from typing import Any
 
 
 @njit(nogil=True, cache=True)
@@ -124,7 +125,7 @@ def _factorize_dense_njit(joint: np.ndarray) -> tuple:
 
 
 @njit(cache=True)
-def group_mean_std_count(inverse: np.ndarray, x: np.ndarray, n_groups: int):
+def group_mean_std_count(inverse: np.ndarray, x: np.ndarray, n_groups: int) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
     """``(mean, std, count)`` per group code ``0..n_groups-1``: mean and std in the dtype of ``x`` (NaN for a group without a non-NaN row, std NaN below two rows), count as int64."""
     dtype = x.dtype
     sumx = np.zeros(n_groups, dtype=dtype)
@@ -191,7 +192,7 @@ _GATHER_ROW_TILE = 512
 
 
 @njit(cache=True)
-def gather_columns_to_rows(views, out: np.ndarray) -> None:
+def gather_columns_to_rows(views: Any, out: np.ndarray) -> None:
     """``out[j] = views[j]`` for a typed list of equal-length 1-D arrays (any strides), copied in tiles of rows.
 
     The columns of a pandas frame built from a C-ordered ``(n, p)`` array are strided views 4p bytes apart; copying them one at a time reads a cache line per

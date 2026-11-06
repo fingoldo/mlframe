@@ -87,7 +87,7 @@ _kernels_v2: dict = {}
 _THREADS_V2 = 128  # the width without device information; the launches take it from ``v2_block_width``
 
 
-def v2_block_width(kern, shared_bytes: int, columns: int) -> int:
+def v2_block_width(kern: Any, shared_bytes: int, columns: int) -> int:
     """Threads per block of the v2 kernel from the device's limits: its class bitsets (``shared_bytes``, fixed per block) are shared by the block's columns, so the width that keeps the most threads resident on an SM wins
     (256 at 100000 rows on a Pascal SM: 19 ms against 28 ms at 128, 300 permutations x 250 columns); ``MLFRAME_GPU_BLOCK_FAMILY_BITS`` overrides; ``_THREADS_V2`` without a device."""
     import os

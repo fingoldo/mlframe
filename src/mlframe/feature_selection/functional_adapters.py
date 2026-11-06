@@ -23,7 +23,7 @@ from .cascade_select import cascade_select
 from .forward_select import forward_select
 from .greedy_backward_elimination import greedy_backward_elimination
 from .zero_importance_pruning import iterative_zero_importance_pruning
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 logger = logging.getLogger(__name__)
 

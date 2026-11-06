@@ -133,7 +133,7 @@ def test_pickle_keeps_tree_attrs_drops_transient(interaction_frame):
     import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
     X, y = interaction_frame
     h = HybridSelector(use_tree_member=True).fit(X, y)
-    h2 = pickle.loads(pickle.dumps(h))  # nosec B301 - round-trips a same-process object, no external input
+    h2 = pickle.loads(pickle.dumps(h))  # nosec B301  # deserialize-ok: round-trips a same-process object, no external input
     # Spec: the round-trip reproduces the tree replay state exactly (pairs are needed to replay op columns at transform).
     assert h2._tree_prod_pairs_ == h._tree_prod_pairs_, "pickle round-trip should keep the tree product pairs"
     assert h2._tree_prod_names_ == h._tree_prod_names_, "pickle round-trip should keep the tree product names"

@@ -24,6 +24,7 @@ import numpy as np
 from ._kernel_types import render
 from ._raw_module_cache import RawModuleCache
 from ._bootstrap_rank_mi_gpu import _SWEEP_ROWS
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -273,7 +274,7 @@ def _block_width(kernel, shared_bytes: int, m: int) -> int:
     return width or 256
 
 
-def tied_replicate_mi_stream(bits: np.ndarray, prep: dict, n_bins: int, rank_fn) -> "Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]":
+def tied_replicate_mi_stream(bits: np.ndarray, prep: dict, n_bins: int, rank_fn: Any) -> "Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]":
     """``(mi (B, k), done (k,), ok (k,))`` for the float32 matrix given as raw bits ``(n, k)``: the columns with repeated values and at most ``MAX_LEVELS`` levels are
     scored by the device counting sort (``done``), ``ok`` marks the finite columns. ``rank_fn(bits_block) -> (rk, n_levels, ok)`` gives the host dense ranks of a block of
     columns; a block is ranked on the host while the device scores the previous one. ``None`` when the path does not apply or the device fails (the host scores all)."""

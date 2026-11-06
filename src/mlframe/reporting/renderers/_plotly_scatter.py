@@ -18,7 +18,7 @@ from mlframe.reporting.spec import ScatterPanelSpec
 
 from ._plotly_color import _axis_ref, _mpl_to_plotly_cmap, _rgba
 from ._shared_helpers import _SCATTER_MAX_POINTS, PX_PER_INCH, low_evidence_mask, non_colliding_label_indices, select_per_point
-from mlframe.feature_selection.filters._lazy_host_codes import length_of
+from mlframe.utils.array_shape import length_of
 
 logger = logging.getLogger(__name__)
 

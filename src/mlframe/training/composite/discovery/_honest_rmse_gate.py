@@ -57,7 +57,7 @@ from .._row_roles import note_rows
 from ._rejection_ledger import gate_error_reject as _gate_error_reject
 from ._rejection_ledger import spec_inverse
 from mlframe.training.composite.transforms.shared import call_transform
-from mlframe.feature_selection.filters._lazy_host_codes import size_of
+from mlframe.utils.array_shape import size_of
 
 logger = logging.getLogger(__name__)
 

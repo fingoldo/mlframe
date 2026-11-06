@@ -75,6 +75,7 @@ from .neural import (
     LinearModelStrategy,
     RecurrentModelStrategy,
 )
+from mlframe._optional_imports import module_available
 
 # =============================================================================
 # Strategy Registry
@@ -174,7 +175,7 @@ def get_strategy(model_name: Any) -> ModelPipelineStrategy:
 
 def _catboost_classes():
     """Lazily import and return CatBoost's classifier/regressor classes, or () if catboost isn't installed."""
-    if importlib.util.find_spec("catboost") is None:
+    if not module_available("catboost"):
         return ()
     from catboost import CatBoostClassifier, CatBoostRegressor
     return (CatBoostClassifier, CatBoostRegressor)
@@ -182,7 +183,7 @@ def _catboost_classes():
 
 def _lightgbm_classes():
     """Lazily import and return LightGBM's classifier/regressor classes, or () if lightgbm isn't installed."""
-    if importlib.util.find_spec("lightgbm") is None:
+    if not module_available("lightgbm"):
         return ()
     from lightgbm import LGBMClassifier, LGBMRegressor
     return (LGBMClassifier, LGBMRegressor)
@@ -190,7 +191,7 @@ def _lightgbm_classes():
 
 def _xgboost_classes():
     """Lazily import and return XGBoost's classifier/regressor classes, or () if xgboost isn't installed."""
-    if importlib.util.find_spec("xgboost") is None:
+    if not module_available("xgboost"):
         return ()
     from xgboost import XGBClassifier, XGBRegressor
     return (XGBClassifier, XGBRegressor)

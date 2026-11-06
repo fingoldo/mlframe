@@ -15,7 +15,7 @@ from ._estimator_helpers import _y_quantile_grid
 
 from ._input_extract import _y_train_clip_bounds
 from ._routing import resolve_transform as get_transform
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 # Same logger name as before the carve, so anything filtering these records by logger name keeps seeing them.
 logger = logging.getLogger("mlframe.training.composite.estimator._estimator")

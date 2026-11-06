@@ -574,9 +574,9 @@ def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
         # (mmap views would go invalid on close).
         if payload is not None:
             # Unpickles the verified bytes, not the path: a file replaced on disk after the digest check is never read.
-            loaded = np.load(io.BytesIO(payload), allow_pickle=True)
+            loaded = np.load(io.BytesIO(payload), allow_pickle=True)  # deserialize-ok: the bytes were checked against the sha256 sidecar by _read_verified_cache_payload above
         else:
-            loaded = np.load(path, allow_pickle=False, mmap_mode="r")
+            loaded = np.load(path, allow_pickle=False, mmap_mode="r")  # reopen-ok: nothing is verified on this branch and allow_pickle=False cannot execute code; the verified bytes are read above
     except (OSError, zipfile.BadZipFile):
         # OSError (PermissionError from a locked file on Windows, a genuine disk-read failure, ...) and
         # zipfile.BadZipFile (a truncated npz from a crashed write) are real I/O/corruption failures, not

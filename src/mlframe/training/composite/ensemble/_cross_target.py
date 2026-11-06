@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover
     _HAS_POLARS = False
 
 from mlframe.utils.log_throttle import log_throttle
-from mlframe.feature_selection.filters._lazy_host_codes import size_of
+from mlframe.utils.array_shape import size_of
 
 logger = logging.getLogger(__name__)
 

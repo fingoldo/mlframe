@@ -47,7 +47,7 @@ def _fold_masks(n: int, n_splits: int, random_state: int) -> list:
             val_mask.setflags(write=False)
             out.append((k, train_mask, val_mask, int(train_mask.sum())))
         if len(_FOLD_MASKS) >= _FOLD_MASKS_MAX:
-            _FOLD_MASKS.pop(next(iter(_FOLD_MASKS)))
+            _FOLD_MASKS.pop(next(iter(_FOLD_MASKS)))  # evict-ok: a miss draws the same seeded folds again
         _FOLD_MASKS[key] = out
     return out
 

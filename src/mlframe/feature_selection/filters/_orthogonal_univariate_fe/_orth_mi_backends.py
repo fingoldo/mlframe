@@ -16,6 +16,7 @@ import logging
 import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -157,87 +158,88 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
     ``rank_binning=True`` is now an HONORED contract end-to-end instead of being silently dropped once past
     the outer STRICT gate.
     """
-    from .._fe_usability_signal import _crit_np_dtype
-    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
-    from ..hermite_fe import plugin_mi_classif_batch_dispatch
+    with parallel_kernel_entry():
+        from .._fe_usability_signal import _crit_np_dtype
+        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
+        from ..hermite_fe import plugin_mi_classif_batch_dispatch
 
-    _n, p = X.shape
-    y_i64 = np.ascontiguousarray(y, dtype=np.int64)
-    # Intentional float64: MI output vector accumulated per column and returned f64 (output contract for the ranking).
-    mis = np.zeros(p, dtype=np.float64)
-    # Partition columns into "all-finite" (bulk path) and "partial-NaN"
-    # (per-column fallback). In the hybrid_orth_mi_fe production path the
-    # source frames are nan-filled upstream so partial_idx is empty and
-    # everything goes through the single batch dispatch call.
-    finite_per_col = np.isfinite(X).all(axis=0)
-    dense_cols = np.where(finite_per_col)[0]
-    partial_cols = np.where(~finite_per_col)[0]
+        _n, p = X.shape
+        y_i64 = np.ascontiguousarray(y, dtype=np.int64)
+        # Intentional float64: MI output vector accumulated per column and returned f64 (output contract for the ranking).
+        mis = np.zeros(p, dtype=np.float64)
+        # Partition columns into "all-finite" (bulk path) and "partial-NaN"
+        # (per-column fallback). In the hybrid_orth_mi_fe production path the
+        # source frames are nan-filled upstream so partial_idx is empty and
+        # everything goes through the single batch dispatch call.
+        finite_per_col = np.isfinite(X).all(axis=0)
+        dense_cols = np.where(finite_per_col)[0]
+        partial_cols = np.where(~finite_per_col)[0]
 
-    if dense_cols.size:
-        # When EVERY column is finite (the production nan-filled path), the
-        # ``X[:, dense_cols]`` fancy-index is a full (n, p) gather COPY that
-        # reproduces X verbatim - skip it and hand the (already-contiguous)
-        # frame straight to the batch kernel. On a 40k x 200 all-finite frame
-        # this setup dropped 3109ms -> 212ms (~14.6x) across 23 calls; the
-        # gather copy was the entire self-time. Partial-NaN columns still take
-        # the real gather below.
-        if dense_cols.size == p:
-            X_dense = np.ascontiguousarray(X)
-        else:
-            X_dense = np.ascontiguousarray(X[:, dense_cols])
-        _path = _mi_path_for(_n, int(dense_cols.size), _dt, rank_binning)
-        _routed = False
-        if _path == "streamed":
-            _streamed = _streamed_block_mi(X_dense, y_i64, nbins, _dt)
-            if _streamed is not None:
-                mis[dense_cols] = _streamed
-                _routed = True
-        elif _path == "cpu_blocks":
-            _routed = _cpu_column_blocks_mi(X_dense, y_i64, nbins, mis, dense_cols)
-        if not _routed:
-            try:
-                if (not rank_binning) and _orth_mi_gpu_enabled(n=int(_n), p=int(dense_cols.size)):
-                    # Full-residency GPU path -> the FE batcher: VRAM-budget column-chunked, CP-SAT-packed across
-                    # heterogeneous GPUs (multi_gpu_fe_batch_mi collapses to one device on a 1-GPU host). Same
-                    # resident edge-binned plug-in MI as the prior direct _plugin_mi_classif_batch_cuda_resident
-                    # call, so selection is unchanged vs the pre-batcher STRICT path; it only adds VRAM-chunking
-                    # + multi-GPU. The CPU default branch below stays RANK binning (see the docstring).
-                    from .._fe_gpu_batch import multi_gpu_fe_batch_mi
-                    from .._fe_gpu_batch._devices import fe_gpu_f32_enabled
-                    # X_dense is the FINITE-filtered dense subset (finite_per_col) -> scrub=False skips cupy's
-                    # full-array nan scan (~12% of the GPU MI wall) that would otherwise be a pure no-op cost here.
-                    # f32 opt-in (MLFRAME_FE_VRAM_F32): ~2.2x faster, selection-equivalent (Spearman rank 1.0).
-                    # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
-                    _dt = np.float32 if fe_gpu_f32_enabled() else np.float64
-                    mis[dense_cols] = multi_gpu_fe_batch_mi(X_dense, y_i64, nbins, scrub=False, dtype=_dt)
-                elif _fe_edge_binning_enabled():
-                    from .._fe_edge_mi import plugin_mi_classif_batch_edge_njit
-                    mis[dense_cols] = plugin_mi_classif_batch_edge_njit(X_dense, y_i64, nbins)
-                else:
-                    mis_dense = plugin_mi_classif_batch_dispatch(X_dense, y_i64, nbins)
-                    mis[dense_cols] = mis_dense
-            except Exception as e:
-                logger.debug("_orth_mi_backends.py: suppressed %r", e)
-                # If the batch path fails for any reason (cupy import error,
-                # kernel tuning miss, etc.), fall back to sklearn for the
-                # affected slice rather than poisoning the whole call.
-                #
-                # BUG FOUND AND FIXED (incidental to a profiling cycle): this except was previously
-                # silent -- no logging at all -- so when the numba/GPU dispatch call fails, the ~53x-slower
-                # sklearn loop kicks in for that slice with zero diagnostic trail. Confirmed live via a 2M-row
-                # cProfile (combo `c0056_f76bf491`) that caught `_mi_classif_batch_sklearn` costing 149.3s
-                # cumtime across 23 calls (~12% of a 1271s run) with no indication of WHY the fast path was
-                # skipped that often. WARN (visible, not silent) with the exception type/message so a future
-                # profiling cycle can tell "GPU contention/OOM" from "a genuine kernel-dispatch regression"
-                # instead of re-discovering this fallback blind every time.
-                # OOM on the full slice (the (n, cols) float64 batch and its intermediates exceed the memory limit) is not a
-                # kernel fault: the MI of each column is independent, so the same numba dispatch runs on column blocks sized to
-                # the RAM budget, with identical values. Only a single column that still fails goes to the sklearn reference.
-                _retry_mi_column_blocks(X_dense, y_i64, nbins, dense_cols, mis, _n, _dt, e)
+        if dense_cols.size:
+            # When EVERY column is finite (the production nan-filled path), the
+            # ``X[:, dense_cols]`` fancy-index is a full (n, p) gather COPY that
+            # reproduces X verbatim - skip it and hand the (already-contiguous)
+            # frame straight to the batch kernel. On a 40k x 200 all-finite frame
+            # this setup dropped 3109ms -> 212ms (~14.6x) across 23 calls; the
+            # gather copy was the entire self-time. Partial-NaN columns still take
+            # the real gather below.
+            if dense_cols.size == p:
+                X_dense = np.ascontiguousarray(X)
+            else:
+                X_dense = np.ascontiguousarray(X[:, dense_cols])
+            _path = _mi_path_for(_n, int(dense_cols.size), _dt, rank_binning)
+            _routed = False
+            if _path == "streamed":
+                _streamed = _streamed_block_mi(X_dense, y_i64, nbins, _dt)
+                if _streamed is not None:
+                    mis[dense_cols] = _streamed
+                    _routed = True
+            elif _path == "cpu_blocks":
+                _routed = _cpu_column_blocks_mi(X_dense, y_i64, nbins, mis, dense_cols)
+            if not _routed:
+                try:
+                    if (not rank_binning) and _orth_mi_gpu_enabled(n=int(_n), p=int(dense_cols.size)):
+                        # Full-residency GPU path -> the FE batcher: VRAM-budget column-chunked, CP-SAT-packed across
+                        # heterogeneous GPUs (multi_gpu_fe_batch_mi collapses to one device on a 1-GPU host). Same
+                        # resident edge-binned plug-in MI as the prior direct _plugin_mi_classif_batch_cuda_resident
+                        # call, so selection is unchanged vs the pre-batcher STRICT path; it only adds VRAM-chunking
+                        # + multi-GPU. The CPU default branch below stays RANK binning (see the docstring).
+                        from .._fe_gpu_batch import multi_gpu_fe_batch_mi
+                        from .._fe_gpu_batch._devices import fe_gpu_f32_enabled
+                        # X_dense is the FINITE-filtered dense subset (finite_per_col) -> scrub=False skips cupy's
+                        # full-array nan scan (~12% of the GPU MI wall) that would otherwise be a pure no-op cost here.
+                        # f32 opt-in (MLFRAME_FE_VRAM_F32): ~2.2x faster, selection-equivalent (Spearman rank 1.0).
+                        # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
+                        _dt = np.float32 if fe_gpu_f32_enabled() else np.float64
+                        mis[dense_cols] = multi_gpu_fe_batch_mi(X_dense, y_i64, nbins, scrub=False, dtype=_dt)
+                    elif _fe_edge_binning_enabled():
+                        from .._fe_edge_mi import plugin_mi_classif_batch_edge_njit
+                        mis[dense_cols] = plugin_mi_classif_batch_edge_njit(X_dense, y_i64, nbins)
+                    else:
+                        mis_dense = plugin_mi_classif_batch_dispatch(X_dense, y_i64, nbins)
+                        mis[dense_cols] = mis_dense
+                except Exception as e:
+                    logger.debug("_orth_mi_backends.py: suppressed %r", e)
+                    # If the batch path fails for any reason (cupy import error,
+                    # kernel tuning miss, etc.), fall back to sklearn for the
+                    # affected slice rather than poisoning the whole call.
+                    #
+                    # BUG FOUND AND FIXED (incidental to a profiling cycle): this except was previously
+                    # silent -- no logging at all -- so when the numba/GPU dispatch call fails, the ~53x-slower
+                    # sklearn loop kicks in for that slice with zero diagnostic trail. Confirmed live via a 2M-row
+                    # cProfile (combo `c0056_f76bf491`) that caught `_mi_classif_batch_sklearn` costing 149.3s
+                    # cumtime across 23 calls (~12% of a 1271s run) with no indication of WHY the fast path was
+                    # skipped that often. WARN (visible, not silent) with the exception type/message so a future
+                    # profiling cycle can tell "GPU contention/OOM" from "a genuine kernel-dispatch regression"
+                    # instead of re-discovering this fallback blind every time.
+                    # OOM on the full slice (the (n, cols) float64 batch and its intermediates exceed the memory limit) is not a
+                    # kernel fault: the MI of each column is independent, so the same numba dispatch runs on column blocks sized to
+                    # the RAM budget, with identical values. Only a single column that still fails goes to the sklearn reference.
+                    _retry_mi_column_blocks(X_dense, y_i64, nbins, dense_cols, mis, _n, _dt, e)
 
-    if partial_cols.size:
-        _mi_partial_nan_columns(X, y_i64, nbins, partial_cols, mis)
-    return mis
+        if partial_cols.size:
+            _mi_partial_nan_columns(X, y_i64, nbins, partial_cols, mis)
+        return mis
 
 
 def _mi_partial_nan_columns(X: np.ndarray, y_i64: np.ndarray, nbins: int, partial_cols: np.ndarray, mis: np.ndarray) -> None:
@@ -685,37 +687,38 @@ def _mi_classif_batch_balanced(X: np.ndarray, y: np.ndarray, class_w, *, nbins: 
     Returns ``None`` on any failure so the caller falls back to plain MI rather
     than poisoning the whole call.
     """
-    try:
-        from ._imbalance_mi import _class_balanced_mi_batch_njit
-    except ImportError as e:
-        logger.debug("_imbalance_mi import failed: %s", e)
-        return None
-    _n, p = X.shape
-    y_i64 = np.ascontiguousarray(y, dtype=np.int64)
-    # Intentional float64: class-weight operand of the MI sums; kept f64 with the f64 accumulator it feeds.
-    class_w = np.ascontiguousarray(class_w, dtype=np.float64)
-    # Intentional float64: MI output vector accumulated per column and returned f64 (output contract for the ranking).
-    mis = np.zeros(p, dtype=np.float64)
-    finite_per_col = np.isfinite(X).all(axis=0)
-    dense_cols = np.where(finite_per_col)[0]
-    partial_cols = np.where(~finite_per_col)[0]
-    try:
-        if dense_cols.size:
-            if dense_cols.size == p:
-                X_dense = np.ascontiguousarray(X)
-            else:
-                X_dense = np.ascontiguousarray(X[:, dense_cols])
-            mis[dense_cols] = _class_balanced_mi_batch_njit(X_dense, y_i64, class_w, nbins)
-        for j in partial_cols:
-            col = X[:, j]
-            finite = np.isfinite(col)
-            if not finite.any():
-                mis[j] = 0.0
-                continue
-            col_f = np.ascontiguousarray(col[finite].reshape(-1, 1))
-            y_f = np.ascontiguousarray(y_i64[finite])
-            mis[j] = float(_class_balanced_mi_batch_njit(col_f, y_f, class_w, nbins)[0])
-    except Exception as e:
-        logger.debug("Class-balanced batch MI failed (%s: %s) -- caller falls back to plain MI", type(e).__name__, e)
-        return None
-    return mis
+    with parallel_kernel_entry():
+        try:
+            from ._imbalance_mi import _class_balanced_mi_batch_njit
+        except ImportError as e:
+            logger.debug("_imbalance_mi import failed: %s", e)
+            return None
+        _n, p = X.shape
+        y_i64 = np.ascontiguousarray(y, dtype=np.int64)
+        # Intentional float64: class-weight operand of the MI sums; kept f64 with the f64 accumulator it feeds.
+        class_w = np.ascontiguousarray(class_w, dtype=np.float64)
+        # Intentional float64: MI output vector accumulated per column and returned f64 (output contract for the ranking).
+        mis = np.zeros(p, dtype=np.float64)
+        finite_per_col = np.isfinite(X).all(axis=0)
+        dense_cols = np.where(finite_per_col)[0]
+        partial_cols = np.where(~finite_per_col)[0]
+        try:
+            if dense_cols.size:
+                if dense_cols.size == p:
+                    X_dense = np.ascontiguousarray(X)
+                else:
+                    X_dense = np.ascontiguousarray(X[:, dense_cols])
+                mis[dense_cols] = _class_balanced_mi_batch_njit(X_dense, y_i64, class_w, nbins)
+            for j in partial_cols:
+                col = X[:, j]
+                finite = np.isfinite(col)
+                if not finite.any():
+                    mis[j] = 0.0
+                    continue
+                col_f = np.ascontiguousarray(col[finite].reshape(-1, 1))
+                y_f = np.ascontiguousarray(y_i64[finite])
+                mis[j] = float(_class_balanced_mi_batch_njit(col_f, y_f, class_w, nbins)[0])
+        except Exception as e:
+            logger.debug("Class-balanced batch MI failed (%s: %s) -- caller falls back to plain MI", type(e).__name__, e)
+            return None
+        return mis

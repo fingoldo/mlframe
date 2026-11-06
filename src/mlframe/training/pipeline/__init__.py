@@ -62,6 +62,7 @@ from pyutilz.pandaslib import ensure_dataframe_float32_convertability
 from ..utils import log_ram_usage
 from ..configs import PreprocessingBackendConfig, PreprocessingExtensionsConfig
 from ..strategies import PANDAS_CATEGORICAL_DTYPES, get_polars_cat_columns
+from mlframe._optional_imports import module_available
 
 _SCALER_FACTORIES = {
     "StandardScaler": lambda: __import__("sklearn.preprocessing", fromlist=["StandardScaler"]).StandardScaler(),
@@ -180,7 +181,7 @@ def _build_dim_reducer(name: str, n_components: int, random_state: int):
     """Instantiate the named dimensionality-reduction estimator with the given output width/seed."""
     if name == "UMAP":
         import importlib.util as _ilu
-        if _ilu.find_spec("umap") is None:
+        if not module_available("umap"):
             raise ImportError("UMAP requires `pip install umap-learn`")
         import umap
         return umap.UMAP(n_components=n_components, random_state=random_state)
