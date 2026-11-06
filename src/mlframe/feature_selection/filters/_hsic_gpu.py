@@ -99,7 +99,11 @@ def hsic_biased_columns_gpu(xs_rows: np.ndarray, lc: np.ndarray, sigmas: np.ndar
         out = np.empty(k, dtype=np.float64)  # Intentional float64: HSIC score vector (output contract of the host kernel)
         for start in range(0, k, width):
             stop = min(k, start + width)
-            xs_d = cp.asarray(np.ascontiguousarray(xs_rows[start:stop]).astype(dt, copy=False))
+            # Centre each row in float64 BEFORE narrowing: the kernel uses only pairwise differences, which a row offset does not change, but a
+            # float32 offset of 1e6 has a step of 0.06 and snaps a 0.01-spread column (audit PARG3-4).
+            rows_c = np.asarray(xs_rows[start:stop], dtype=np.float64)
+            rows_c = rows_c - rows_c.mean(axis=1, keepdims=True)
+            xs_d = cp.asarray(np.ascontiguousarray(rows_c).astype(dt, copy=False))
             tot = cp.empty(stop - start, dtype=cp.float64)  # Intentional float64: {ACC} sums
             kern((stop - start,), (threads,), (xs_d, lc_d, cp.asarray(inv[start:stop]), np.int32(m), np.int32(stop - start), tot), shared_mem=shared)
             out[start:stop] = (diag + 2.0 * tot.get()) / float(denom)

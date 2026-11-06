@@ -32,6 +32,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 from mlframe.feature_selection.shared import cluster_anchors as _cluster_anchors
 from .ensemble.feature_stacking import composite_oof_predictions
 from mlframe.utils.log_throttle import log_throttle
+from sklearn.utils.validation import check_is_fitted
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +243,7 @@ class GroupedBlockStacker(RegressorMixin, BaseEstimator):
 
     def predict(self, X: Any) -> np.ndarray:
         """Predict via each group's submodel to build meta-features, then apply the fitted meta-model."""
+        check_is_fitted(self)
         meta_cols: dict[str, np.ndarray] = {}
         for group_name, columns in self.feature_groups_.items():
             X_group = _select_group(X, columns)

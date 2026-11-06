@@ -445,6 +445,7 @@ def _make_evaluator(
     return _evaluate
 
 
+# unwired-ok: conditional_inner_space_fn is a documented caller-supplied search-space hook
 def optimize_composite(
     X: Any,
     y: Any,

@@ -22,7 +22,7 @@ def test_time_ordered_splits_validate_only_on_later_rows():
     """Forward-chaining folds validate strictly after their training rows."""
     finite = np.ones(100, dtype=bool)
     splits = list(st._meta_cv_splits(100, finite, None, True))
-    assert splits, "the forward-chaining helper produced no fold"
+    assert splits, "no folds: the ordering check below would pass on nothing"
     for tr, va in splits:
         assert tr.max() < va.min()
 

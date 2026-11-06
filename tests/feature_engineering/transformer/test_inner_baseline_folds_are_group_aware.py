@@ -71,9 +71,9 @@ def test_kfold_splits_with_groups_never_splits_a_group():
     """With group labels, no group has rows on both sides of any fold."""
     _, _, groups = _grouped_regression()
     X = np.zeros((groups.size, 1))
-    folds = list(_baseline_oof.kfold_splits(X, 3, 0, groups))
-    assert folds, "kfold_splits produced no fold"
-    for tr, va in folds:
+    splits = list(_baseline_oof.kfold_splits(X, 3, 0, groups))
+    assert splits, "no folds: the disjointness check below would pass on nothing"
+    for tr, va in splits:
         assert set(groups[tr]).isdisjoint(groups[va])
 
 
@@ -116,7 +116,6 @@ def test_transformer_inner_baseline_folds_follow_the_outer_groups(module_name, m
     for call_groups, splits in calls:
         assert call_groups is not None, f"{module_name} built an inner split without the group labels"
         labels = np.asarray(call_groups)
-        splits = list(splits)
-        assert splits, f"{module_name} built an inner split with no fold"
+        assert splits, "no folds: the disjointness check below would pass on nothing"
         for tr, va in splits:
             assert set(labels[tr]).isdisjoint(labels[va])

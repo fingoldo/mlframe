@@ -7,7 +7,8 @@ Carved out of ``base.py`` (1k-LOC house limit); ``base`` re-exports every name h
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Optional
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -49,8 +50,9 @@ def _stacked_corrcoef(M: np.ndarray) -> np.ndarray:
             corr_gpu = _cp.corrcoef(M_gpu)
             return np.asarray(_cp.asnumpy(corr_gpu))
         except Exception as e:  # pragma: no cover -- defensive
-            logger.debug("swallowed exception in base.py: %s", e)
-            pass
+            from mlframe.utils.log_throttle import log_throttle
+
+            log_throttle(logger, "stacked_corrcoef_gpu_fallback", logging.WARNING, "GPU correlation failed (%s); using the numpy path.", e)
     return np.asarray(np.corrcoef(M))
 
 

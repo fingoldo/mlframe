@@ -30,7 +30,7 @@ __all__ = ["cell_screen", "all_pair_scores", "offset_ols2"]
 def _qcodes(x: np.ndarray, k: int) -> np.ndarray:
     """Equal-frequency codes in ``[0, k)`` from the stable rank."""
     r = np.empty(len(x), np.int64)
-    r[np.argsort(x, kind="stable")] = np.arange(len(x))
+    r[np.argsort(x, kind="stable")] = np.arange(len(x))  # ordinal-rank-ok: equal-frequency bins need distinct ordinal ranks
     return np.minimum(r * k // len(x), k - 1)
 
 

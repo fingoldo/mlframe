@@ -16,7 +16,6 @@ across threads.
 from __future__ import annotations
 
 import threading
-import time
 
 from mlframe.training.neural.base._cuda_fallback import run_with_cuda_cpu_fallback
 
@@ -32,7 +31,7 @@ def test_run_with_cuda_cpu_fallback_serializes_concurrent_calls():
         with lock:
             in_flight["count"] += 1
             in_flight["max_seen"] = max(in_flight["max_seen"], in_flight["count"])
-        time.sleep(0.02)
+        threading.Event().wait(0.02)
         with lock:
             in_flight["count"] -= 1
         return "ok"

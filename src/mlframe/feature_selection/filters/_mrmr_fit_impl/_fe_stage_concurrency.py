@@ -77,13 +77,13 @@ def _same(a: Any, b: Any) -> bool:
 
                 return bool(cp.array_equal(a, b))
             return bool(np.array_equal(a, b))
-        except Exception:  # best-effort: values that cannot be compared are treated as different, so the stage state is kept apart
+        except Exception:  # best-effort: a comparison that raises is reported as unequal, the conservative answer
             return False
     if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
         return type(a) is type(b) and len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
     try:
         return bool(a == b)
-    except Exception:  # best-effort: values that cannot be compared are treated as different, so the stage state is kept apart
+    except Exception:  # best-effort: a comparison that raises is reported as unequal, the conservative answer
         return False
 
 

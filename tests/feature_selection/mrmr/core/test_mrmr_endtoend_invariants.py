@@ -335,9 +335,9 @@ def _run_case(case: dict, fe_kwargs: dict, timeout: int = 900) -> dict:
         last_err = (proc.stderr or "")[-3000:]
         transient = any(t in last_err.lower() for t in ("paging file", "memoryerror", "cannot allocate", "oom"))
         if transient and attempt == 0:
-            import time as _t
+            import threading
 
-            _t.sleep(90)
+            threading.Event().wait(90)  # back off while the machine-wide memory pressure that killed the worker eases
             continue
         break
     raise RuntimeError(f"worker failed for case={case} fe_kwargs={fe_kwargs}\n--- stderr tail ---\n{last_err}\n--- stdout tail ---\n{out[-1500:]}")

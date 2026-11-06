@@ -18,6 +18,8 @@ def try_discretize_2d_cuda(
     arr: np.ndarray, n_bins: int, method: str, dtype: type, cuda_fn: Callable[..., np.ndarray], cuda_row_chunked_fn: Callable[..., np.ndarray]
 ) -> Optional[np.ndarray]:
     """Run the CUDA discretisation (full upload, or row-chunked when the VRAM cushion is missing); None when CUDA is unavailable or every GPU attempt failed (caller runs CPU prange)."""
+    # The kernels index the array as row-major. A Fortran-ordered input (common from a pandas to_numpy) would be read from the wrong cells.
+    arr = np.ascontiguousarray(arr)
     try:
         from .._gpu_policy import cuda_available_for_run
 

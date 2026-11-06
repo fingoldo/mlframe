@@ -99,6 +99,7 @@ def _take_rows(X: Any, mask: np.ndarray) -> Any:
 
 
 from mlframe.utils.frame_rows import n_rows as _n_rows
+from sklearn.utils.validation import check_is_fitted
 
 
 def _default_classifier() -> Any:
@@ -292,6 +293,7 @@ class HurdleRegressor(RegressorMixin, BaseEstimator):
 
     def predict(self, X: Any) -> np.ndarray:
         """``zero_value + P(event) * (E[y | event] - zero_value)``: the conditional mean of y."""
+        check_is_fitted(self)
         z = float(self.zero_value)
         if self.event_rate_ == 0.0:
             return np.full(_n_rows(X), z)

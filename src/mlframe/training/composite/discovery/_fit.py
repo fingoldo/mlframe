@@ -9,6 +9,7 @@ sites that invoke ``disc.fit(...)`` continue to work unchanged.
 from __future__ import annotations
 
 import os
+
 from timeit import default_timer as timer
 from typing import TYPE_CHECKING, Any, Sequence
 

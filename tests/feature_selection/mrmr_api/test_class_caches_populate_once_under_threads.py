@@ -6,7 +6,6 @@ Its miss path constructs a full MRMR(); without a lock every concurrently-unpick
 from __future__ import annotations
 
 import threading
-import time
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 from mlframe.feature_selection.filters.mrmr import _mrmr_class_config as cc
@@ -23,7 +22,7 @@ def test_fresh_instance_defaults_cache_populates_once_under_threads(monkeypatch)
         """Count constructions and widen the race window."""
         with count_lock:
             calls["n"] += 1
-        time.sleep(0.05)
+        threading.Event().wait(0.05)
         real_init(self, *a, **kw)
 
     monkeypatch.setattr(MRMR, "__init__", slow_counting_init)

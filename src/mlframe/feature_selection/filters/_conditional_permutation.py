@@ -47,6 +47,7 @@ import numpy as np
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
+# unwired-ok: statistic_fn is a documented caller-supplied statistic override of this public test
 def conditional_permutation_test(
     x: np.ndarray, y: np.ndarray, z: np.ndarray,
     nbins_x: int, nbins_y: int, nbins_z: int,

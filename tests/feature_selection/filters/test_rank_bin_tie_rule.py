@@ -49,7 +49,7 @@ def test_no_tie_group_straddles_two_bins(col):
     x = _tied_columns()[col]
     codes = _quantile_bin_sorted_njit(x.copy(), 6)
     values = np.unique(x[~np.isnan(x)])
-    assert values.size > 0, "the column has no non-NaN value"
+    assert values.size, "no finite values: the tie rule below would pass on nothing"
     for v in values:
         assert np.unique(codes[x == v]).size == 1
 

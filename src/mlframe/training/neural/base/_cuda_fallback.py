@@ -109,6 +109,8 @@ def is_cuda_runtime_error(exc: BaseException, accelerator: str) -> bool:
 
 # What ``_disable_cuda_globally`` replaced, so the process can be put back the way it was found.
 _CUDA_DISABLED_STATE: "dict | None" = None
+# Two threads reaching the fallback together must save the real original, not each other's replacement.
+_CUDA_STATE_LOCK = threading.Lock()
 
 
 def cuda_is_disabled_for_this_process() -> bool:
@@ -125,10 +127,11 @@ def _disable_cuda_globally() -> None:
     """
     global _CUDA_DISABLED_STATE
     try:
-        if _CUDA_DISABLED_STATE is None:
-            _CUDA_DISABLED_STATE = {"env": os.environ.get("CUDA_VISIBLE_DEVICES"), "is_available": torch.cuda.is_available}
-        os.environ["CUDA_VISIBLE_DEVICES"] = ""
-        torch.cuda.is_available = lambda: False
+        with _CUDA_STATE_LOCK:
+            if _CUDA_DISABLED_STATE is None:
+                _CUDA_DISABLED_STATE = {"env": os.environ.get("CUDA_VISIBLE_DEVICES"), "is_available": torch.cuda.is_available}
+            os.environ["CUDA_VISIBLE_DEVICES"] = ""
+            torch.cuda.is_available = lambda: False
     except Exception as _e_disable:  # nosec B110 - best-effort path
         logger.debug("Failed to hard-disable CUDA globally: %s", _e_disable)
 

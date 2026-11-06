@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 PKG_DIR = Path(__file__).resolve().parents[1]
-SCRATCH_ROOT = Path(tempfile.gettempdir()) / "mlframe_fe_operator_factory"
+SCRATCH_ROOT = Path(tempfile.gettempdir()) / "mlframe_fe_operator_factory"  # tmp-path-ok: developer benchmark scratch directory, run by one user on their own machine
 FRESH_FLAG = "--fresh"
 
 

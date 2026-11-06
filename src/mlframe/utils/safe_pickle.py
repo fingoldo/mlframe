@@ -12,6 +12,7 @@ contracts, etc.).
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 from pyutilz.core.safe_pickle import (
@@ -34,6 +35,8 @@ __all__ = [
 ]
 
 UNVERIFIED_ENV_VAR = "MLFRAME_ALLOW_UNVERIFIED_PICKLE"
+
+_logger = logging.getLogger(__name__)
 
 
 def verify_sidecar(path: str, *, allow_unverified: Optional[bool] = None) -> bool:

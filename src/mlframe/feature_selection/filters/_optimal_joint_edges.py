@@ -30,7 +30,9 @@ def _fold_masks(n: int, n_splits: int, random_state: int) -> list:
     """``[(k, train mask, validation mask, training rows)]`` of the folds with at least 4 validation rows. They depend only on ``(n, n_splits, random_state)``:
     every column of a frame shares them, and drawing the permutation of the rows for each column cost 2.8 s of worker time in a warm 100k optimal_joint fit."""
     key = (n, n_splits, random_state)
-    with _FOLD_MASKS_LOCK:  # the test and the write are one step: the permutation is drawn once per key and every column shares the result
+    # The lookup, the build and the store share one hold, so two threads missing on the same key build it once and the
+    # store cannot race a concurrent eviction.
+    with _FOLD_MASKS_LOCK:
         hit = _FOLD_MASKS.get(key)
         if hit is not None:
             return hit

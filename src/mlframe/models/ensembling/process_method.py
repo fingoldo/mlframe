@@ -532,6 +532,11 @@ def _stack_member_predictions(_test_preds, next_ens_results):
             _cols.append(_a.ravel())
         if len(_cols) >= 2:
             _w = min(c.shape[0] for c in _cols)
+            if any(c.shape[0] != _w for c in _cols):
+                logger.warning(
+                    "member test predictions have different lengths %s; stacking the first %d rows of each.",
+                    sorted({int(c.shape[0]) for c in _cols}), _w,
+                )
             # train_and_evaluate_model returns (entry_namespace, train_df, val_df, test_df); stamp the namespace.
             _entry_ns = next_ens_results[0] if isinstance(next_ens_results, tuple) else next_ens_results
             _entry_ns.member_test_preds = np.column_stack([c[:_w] for c in _cols])

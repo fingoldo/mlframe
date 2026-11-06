@@ -259,6 +259,7 @@ def _default_probe_factories(task, random_state, probe_model_fn, multivariate_pr
     return probe_model_fn, multivariate_probe_model_fn
 
 
+# unwired-ok: probe_model_fn and multivariate_probe_model_fn are documented caller-supplied probe overrides
 def select_column_transforms(
     df: pd.DataFrame,
     y: np.ndarray,

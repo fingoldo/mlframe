@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import _resolve_brute_force_n_sub_gate, _resolve_brute_force_work_budget
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_init_params import effective_brute_force_max_features
 
 # gt_08 auto-path-ONLY SNR tightening. The opt-in ``su_seeded_interactions=True`` flag keeps its
 # original defaults (snr_z=3.0 / snr_abs_floor=1e-3, unchanged) - these only apply when
@@ -248,7 +249,7 @@ class ShapProxiedMethodsMixin:
             return opt
         from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import total_subsets
 
-        if n_features <= self.brute_force_max_features:
+        if n_features <= effective_brute_force_max_features(self):
             n_sub = total_subsets(n_features, self.min_features, self.max_features)
             # Both the subset count AND the work it implies: the kernel scores every row for every subset, so the
             # same 67M subsets that take seconds on a small frame took minutes on a 1300-row one.

@@ -249,7 +249,7 @@ def test_after_pending_runs_only_once_earlier_tasks_are_done():
 
     def _slow(tag):
         """Appends ``tag`` after a pause so a missing barrier would be visible."""
-        time.sleep(0.3)
+        threading.Event().wait(0.3)
         order.append(tag)
 
     def _barrier():
@@ -293,7 +293,7 @@ def test_summary_accounts_overlap():
         """Busy for at least ``seconds`` of the worker's own clock, then signal; the caller never waits on it."""
         end = time.perf_counter() + seconds
         while time.perf_counter() < end:
-            time.sleep(0.001)
+            threading.Event().wait(0.001)
         done.set()
 
     q = ReportRenderQueue(backend="thread", workers=1)

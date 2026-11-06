@@ -304,6 +304,7 @@ def pair_su_batch(
         if _joint_cache is not None:
             state._joint_entropy_batch_cache = None
     for i in unreadable_pairs:
+        logger.warning("pair %d is not an index pair; its score is 0.0", i)
         out[i] = 0.0
     return out
 

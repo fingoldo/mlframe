@@ -59,6 +59,7 @@ from ._ranker_losses import (  # noqa: F401
 # Group-aware batching
 # ----------------------------------------------------------------------------------
 from ._ranker_sampler import GroupBatchSampler  # re-exported for existing callers
+from sklearn.utils.validation import check_is_fitted
 
 
 class _RankerDataset(Dataset):
@@ -574,7 +575,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         # path. Set via constructor for callers that need bit-exact gradient
         # flow vs prior behaviour (e.g., test reproducibility on a tiny
         # query set where the 32x averaging shifts the loss surface).
-        self.accumulate_grad_batches = max(1, int(accumulate_grad_batches))
+        self.accumulate_grad_batches = accumulate_grad_batches
 
     def __getstate__(self) -> dict:
         # ``trainer_`` is a live ``lightning.pytorch.Trainer`` that references a
@@ -790,7 +791,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
             # OPT-6: see __init__ docstring -- amortizes
             # optimizer.step() cost across N batches (queries). 1 = legacy
             # per-query update; 32 = batched gradient update.
-            accumulate_grad_batches=self.accumulate_grad_batches,
+            accumulate_grad_batches=max(1, int(self.accumulate_grad_batches)),
         )
         return trainer
 
@@ -903,6 +904,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
 
     def predict(self, X) -> np.ndarray:
         """Return per-row scores (1-D, higher=more relevant)."""
+        check_is_fitted(self)
         X_arr = self._apply_scaler(self._apply_imputer(self._x_to_array(X)))
         self.module_.eval()
         device = next(self.module_.parameters()).device

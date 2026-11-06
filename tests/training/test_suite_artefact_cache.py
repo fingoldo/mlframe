@@ -14,6 +14,7 @@ Coverage:
 
 from __future__ import annotations
 
+import threading
 import os
 import time
 
@@ -139,7 +140,7 @@ def test_cache_artefact_hit_faster_than_miss(tmp_path):
     def slow(x):
         # Meaningful enough to dominate the cache I/O so the speedup is visible across noise.
         """Slow."""
-        time.sleep(0.05)
+        threading.Event().wait(0.05)
         return x * x
 
     miss_dt = float("inf")

@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
 from ._sensor_ledger import record_sensor_trip
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,6 @@ def apply_prediction_envelope_clip(
     suite didn't thread them, an eval-derived bound (k_sigma=10, intentionally generous) is a defensive net against
     truly catastrophic predictions. No-op when no usable envelope can be derived.
     """
-    _K_FALLBACK_SIGMA = 10.0
     _env_stats = None
     _envelope_source = "none"
     if y_train_min is not None and y_train_max is not None and y_train_std is not None and y_train_std > 0:
@@ -45,23 +45,14 @@ def apply_prediction_envelope_clip(
             y_std=float(y_train_std),
         )
         _envelope_source = "train"
-    elif targets_arr.ndim == 1 and targets_arr.size > 0:
-        _y_eval = targets_arr[np.isfinite(targets_arr)]
-        if _y_eval.size >= 10:
-            _y_std = float(_y_eval.std())
-            if _y_std > 0:
-                from ..._prediction_envelope_clip import TrainEnvelopeStats
-                _env_stats = TrainEnvelopeStats(
-                    y_min=float(_y_eval.min()),
-                    y_max=float(_y_eval.max()),
-                    y_std=_y_std,
-                )
-                _envelope_source = "eval-fallback"
+    else:
+        # No eval-derived envelope: the scored split's own labels would bound its predictions, so the metrics would read the labels they score.
+        log_throttle(logger, "envelope_clip_no_train_stats", logging.WARNING, "apply_prediction_envelope_clip: no train target statistics for %s; predictions are not clipped.", model_name)
     if _env_stats is not None:
         from ..._prediction_envelope_clip import clip_predictions_to_train_envelope
         preds_arr = clip_predictions_to_train_envelope(
             preds_arr, _env_stats,
-            k_sigma=(3.0 if _envelope_source == "train" else _K_FALLBACK_SIGMA),
+            k_sigma=3.0,
             model_label=str(model_name) if model_name else "<unknown>",
             split_label=(f"{report_title} [{_envelope_source}]" if report_title else f"<unknown> [{_envelope_source}]"),
         )

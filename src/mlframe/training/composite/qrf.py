@@ -235,6 +235,9 @@ def _weighted_quantiles(values: np.ndarray, weights: np.ndarray, levels: np.ndar
     return np.asarray(np.interp(lv, pos, v_s, left=v_s[0], right=v_s[-1]))
 
 
+_QRF_TABLE_WARN_BYTES = 1 << 30
+
+
 class _LeafResidualForest:
     """From-scratch quantile-regression forest (pure sklearn + numpy).
 
@@ -291,12 +294,24 @@ class _LeafResidualForest:
         self.forest_.fit(Xa, ya, sample_weight=sample_weight)
         self.y_train_ = ya
         # Per-tree leaf id of every training row: (n_train, n_trees).
-        self.train_leaves_ = self.forest_.apply(Xa)
+        # Leaf ids and row indices fit in int32 (a leaf id is a node index, a row index is below 2**31); int64 doubled the
+        # per-tree tables, which at 200 trees and 2M rows was about 9 GB stored in the model.
+        n_rows = Xa.shape[0]
+        if n_rows >= np.iinfo(np.int32).max:
+            raise ValueError(f"QuantileRegressionForest: {n_rows} training rows exceed the int32 row-index range.")
+        train_leaves = self.forest_.apply(Xa).astype(np.int32)
+        # The per-tree tables are (n_trees x n_train) int32 plus leaf-indexed ones; say what the fitted model will hold.
+        _table_bytes = 4 * train_leaves.shape[0] * train_leaves.shape[1] + 8 * (train_leaves.shape[1] * (int(train_leaves.max()) + 2))
+        if _table_bytes > _QRF_TABLE_WARN_BYTES:
+            logger.warning(
+                "QuantileRegressionForest: %d rows x %d trees keep about %.2f GiB of lookup tables in the fitted model.",
+                train_leaves.shape[0], train_leaves.shape[1], _table_bytes / 1024**3,
+            )
         # Per-tree, per-leaf bincount of training rows (membership normaliser): the QRF
         # weight of a training row for a query is 1 / (#train rows sharing its leaf),
         # summed over trees. Precompute the per-tree leaf-size lookup once.
-        n_trees = self.train_leaves_.shape[1]
-        max_leaf = int(self.train_leaves_.max()) + 1 if self.train_leaves_.size else 1
+        n_trees = train_leaves.shape[1]
+        max_leaf = int(train_leaves.max()) + 1 if train_leaves.size else 1
         # Packed (n_trees, max_leaf) inverse-leaf-size table: leaf_inv[t, leaf] =
         # 1/|leaf| (0 for empty leaf ids in the padded tail). One contiguous array the
         # njit kernel can index without a python list of ragged bincounts.
@@ -307,18 +322,17 @@ class _LeafResidualForest:
         # (stable sort so within-leaf order is deterministic, though weight assembly is
         # order-invariant), and leaf_offsets[t, l]:leaf_offsets[t, l+1] slices out leaf
         # l's member rows within that permutation.
-        n_train = self.train_leaves_.shape[0]
-        self._sorted_train_idx_ = np.empty((n_trees, n_train), dtype=np.int64)
-        self._leaf_offsets_ = np.zeros((n_trees, max_leaf + 1), dtype=np.int64)
+        n_train = train_leaves.shape[0]
+        self._n_train_ = n_train
+        self._sorted_train_idx_ = np.empty((n_trees, n_train), dtype=np.int32)
+        self._leaf_offsets_ = np.zeros((n_trees, max_leaf + 1), dtype=np.int32)
         for t in range(n_trees):
-            leaves_t = self.train_leaves_[:, t]
+            leaves_t = train_leaves[:, t]
             counts = np.bincount(leaves_t, minlength=max_leaf)
             nz = counts > 0
             self._leaf_inv_[t, nz] = 1.0 / counts[nz]
             self._leaf_offsets_[t, 1:] = np.cumsum(counts)
             self._sorted_train_idx_[t] = np.argsort(leaves_t, kind="stable")
-        # Train leaves transposed to (n_train, n_trees) is already the apply() layout;
-        # the kernel reads train_leaves[j, t], so keep it as-is.
         return self
 
     def _leaf_weights(self, X: Any) -> np.ndarray:
@@ -330,7 +344,7 @@ class _LeafResidualForest:
         """
         Xa = np.asarray(X, dtype=np.float64)
         q_leaves = np.ascontiguousarray(self.forest_.apply(Xa))  # (n_query, n_trees)
-        n_train = self.train_leaves_.shape[0]
+        n_train = self._n_train_
         if _HAS_NUMBA:
             # njit(parallel) kernel: leaf-bucketed lookup via the fit-time CSR layout.
             return _leaf_weights_kernel(q_leaves, self._leaf_inv_, self._sorted_train_idx_, self._leaf_offsets_, n_train)

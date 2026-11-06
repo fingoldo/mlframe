@@ -97,7 +97,7 @@ def _check_model_feature_order(model, expected_features: list, context: str, *, 
 def _load_features_file(features_file: str):
     """Prefer orjson-based sidecar (``features_file + '.json'`` or a ``.json`` twin),
     fall back to joblib. Both paths require a matching ``<candidate>.sha256`` sidecar (via
-    ``_verify_sidecar``) before the content is trusted. Returns a list[str], or None when no features
+    ``verify_sidecar_payload`` over the bytes it then loads) before the content is trusted. Returns a list[str], or None when no features
     file / sidecar is present or the sha256 sidecar mismatches. Malformed sidecar JSON propagates the
     decode error -- the sole caller, ``read_trained_models``, wraps this call in try/except and logs a
     warning.
@@ -110,24 +110,31 @@ def _load_features_file(features_file: str):
 
     for candidate in json_candidates:
         if isfile(candidate):
-            if not _verify_sidecar(candidate):
+            with open(candidate, "rb") as f:
+                raw = f.read()
+            if not _verify_sidecar_payload(candidate, raw):
                 log_throttle(logger, "predict_features_json_sidecar_sha256_mismatch", logging.ERROR, "sha256 mismatch for features JSON sidecar %s; refusing to load", candidate)
                 return None
             import orjson
 
-            with open(candidate, "rb") as f:
-                data = orjson.loads(f.read())
+            data = orjson.loads(raw)
             if isinstance(data, list):
                 return [str(c) for c in data]
             log_throttle(logger, "predict_features_json_not_a_list", logging.WARNING, "JSON features file %s did not contain a list", candidate)
             return None
 
-    if not _verify_sidecar(features_file):
+    try:
+        with open(features_file, "rb") as f:
+            features_raw = f.read()
+    except OSError:
+        logger.error("features file %s cannot be read; refusing to load", features_file)
+        return None
+    if not _verify_sidecar_payload(features_file, features_raw):
         logger.error("sha256 mismatch for features file %s; refusing to load", features_file)
         return None
 
     # Trusts the sha256 sidecar verified just above: an integrity/corruption gate, NOT authenticity (an attacker with dir write access rewrites both).
-    features = safe_joblib_load(features_file)
+    features = safe_joblib_load(features_file, payload=features_raw)
     if isinstance(features, pd.core.indexes.base.Index):
         # ``.to_list()`` is the pandas-modern path (handles nullable dtypes); ``.values.tolist()`` round-trips through ndarray needlessly.
         features = features.to_list()
@@ -151,6 +158,12 @@ def _read_verified_model_payload(model_file: str, featureset: str) -> Optional[b
         logger.error("sha256 mismatch for model %s; skipping", model_file)  # per file: a skipped model changes the ensemble, so none may be dropped
         return None
     return payload
+
+
+def _warn_short_ensemble(featureset: str, served: int, candidates: int, skipped: list) -> None:
+    """Say how many model files a featureset served out of the candidates: the per-file messages go by unnoticed, the count does not."""
+    if skipped:
+        logger.warning("read_trained_models: featureset %s served %d of %d model file(s); skipped %s.", featureset, served, candidates, sorted(skipped))
 
 
 def read_trained_models(
@@ -236,6 +249,8 @@ def read_trained_models(
         features_file_name + ".json",
         splitext(features_file_name)[0] + ".json",
     }
+    n_candidates = 0
+    skipped: list = []
     for model_name in tqdmu(sorted(os.listdir(fpath)), desc="Reading trained models"):
         if model_name in feature_sidecars or model_name.endswith(sidecar_suffixes):
             continue
@@ -245,10 +260,12 @@ def read_trained_models(
         model_file = join(fpath, model_name)
         if not isfile(model_file):
             continue
+        n_candidates += 1
         # One read: the digest is checked against these bytes and the same bytes are unpickled, so a payload swapped on disk
         # between the check and the load cannot pass.
         _model_payload = _read_verified_model_payload(model_file, featureset)
         if _model_payload is None:
+            skipped.append(model_name)
             continue
         # Validate the .meta.json sidecar before unpickling so library-version drift gets a WARN log instead of
         # producing a cryptic AttributeError deep inside predict(). Non-fatal: legacy bundles (no sidecar) keep
@@ -269,13 +286,16 @@ def read_trained_models(
             model = safe_joblib_load_bytes(_model_payload, model_file)
         except Exception as e:
             logger.warning("Could not read model file %s of featureset %s: %s", model_file, featureset, e)  # per file, see the sha256 branch above
+            skipped.append(model_name)
             continue
 
         if not _check_model_feature_order(model, features, f"featureset {featureset}, file {model_file}", allow_unvalidatable=allow_unvalidatable_models):
+            skipped.append(model_name)
             continue
 
         models[splitext(model_name)[0]] = model
 
+    _warn_short_ensemble(featureset, len(models), n_candidates, skipped)
     return models, X
 
 

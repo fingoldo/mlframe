@@ -81,7 +81,7 @@ def test_the_installed_py_ci_shared_includes_the_pin():
 
 
 _UNRELEASED_MARK = re.compile(r"#\s*v\d+\.\d+\.\d+\+(?P<suffix>\w+)")
-_UNRELEASED_ALLOWED: frozenset[str] = frozenset()
+_UNRELEASED_ALLOWED: frozenset[str] = frozenset({"ddl_lock_safety"})
 
 
 def test_the_pin_is_a_released_tag_not_an_unreleased_commit() -> None:

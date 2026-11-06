@@ -270,17 +270,6 @@ class TestPrecisionDefault:
             == "bf16-mixed"
         )
 
-    def test_ada_lovelace_returns_bf16_mixed(self) -> None:
-        # RTX 40-series -- sm_89, major=8.
-        """Ada lovelace returns bf16 mixed."""
-        assert (
-            resolve_mlp_precision_default(
-                cuda_available=True,
-                cuda_compute_capability_major=8,
-            )
-            == "bf16-mixed"
-        )
-
     def test_hopper_returns_bf16_mixed(self) -> None:
         # H100 -- sm_90, major=9.
         """Hopper returns bf16 mixed."""

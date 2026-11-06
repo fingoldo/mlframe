@@ -71,7 +71,7 @@ def swap_noise_augment(
     """
     if not 0.0 <= swap_prob <= 1.0:
         raise ValueError(f"swap_prob must be in [0, 1], got {swap_prob}")
-    rng = rng if rng is not None else np.random.default_rng()
+    rng = rng if rng is not None else np.random.default_rng(0)  # fixed default seed: an unseeded augmentation differs run to run
     n, d = X.shape
     X_out = np.array(X, copy=True)
 

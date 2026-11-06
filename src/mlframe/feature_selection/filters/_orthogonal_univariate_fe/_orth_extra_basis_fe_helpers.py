@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import cast
 
+from mlframe.utils.disk_cache import hash_array_content
 from mlframe.utils.log_throttle import log_throttle
 
 import numba
@@ -361,7 +363,7 @@ def _deflate_sincos(z: np.ndarray, y: np.ndarray, freq: float) -> np.ndarray:
 _ORDER_CACHE: "dict[tuple, np.ndarray]" = {}
 _ORDER_CACHE_BYTES = [0]
 _ORDER_CACHE_MAX_BYTES = 64 << 20
-_ORDER_CACHE_LOCK = __import__("threading").Lock()
+_ORDER_CACHE_LOCK = threading.Lock()
 
 
 def _stable_order(x: np.ndarray) -> np.ndarray:
@@ -375,8 +377,6 @@ def cached_stable_argsort(x: np.ndarray) -> np.ndarray:
     """``np.argsort(x, kind="stable")`` of a 1-D array, shared between callers that sort the same content when ``MLFRAME_EXTRA_BASIS_ORDER_CACHE=1`` (off by default)."""
     if os.environ.get("MLFRAME_EXTRA_BASIS_ORDER_CACHE", "0").strip() != "1" or x.ndim != 1:
         return _stable_order(x)
-    from mlframe.utils.disk_cache import hash_array_content
-
     key = (x.size, str(x.dtype), hash_array_content(np.ascontiguousarray(x)))
     with _ORDER_CACHE_LOCK:
         hit = _ORDER_CACHE.get(key)

@@ -15,7 +15,8 @@ from __future__ import annotations
 import logging
 
 from mlframe.utils.log_throttle import log_throttle
-from typing import Any, Optional, Sequence, Tuple, Union
+from typing import Any, Optional, Tuple, Union
+from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
@@ -166,20 +167,20 @@ def _net_input_frame(model: Any, X: Any) -> Any:
         try:
             out = pre_pipeline.transform(out)
         except Exception as exc:
-            logger.debug("_net_input_frame: replaying the stamped pre_pipeline on X failed (%s); using X as-is for the next step.", exc)
+            log_throttle(logger, "net_input_pre_pipeline_failed", logging.WARNING, "_net_input_frame: replaying the stamped pre_pipeline on X failed (%s); the importances use X unscaled.", exc)
     else:
         pipeline = _find_pipeline_in_chain(model)
         if pipeline is not None:
             try:
                 out = pipeline[:-1].transform(out)
             except Exception as exc:
-                logger.debug("_net_input_frame: replaying the embedded pipeline's pre-estimator steps on X failed (%s); using X as-is for the next step.", exc)
+                log_throttle(logger, "net_input_embedded_pipeline_failed", logging.WARNING, "_net_input_frame: replaying the embedded pipeline's pre-estimator steps on X failed (%s); the importances use X unscaled.", exc)
     cat_applier = _find_cat_code_applier(model)
     if cat_applier is not None:
         try:
             out = cat_applier._apply_cat_codes(out)
         except Exception as exc:
-            logger.debug("_net_input_frame: replaying _apply_cat_codes on X failed (%s); returning the frame as of the previous step.", exc)
+            log_throttle(logger, "net_input_cat_codes_failed", logging.WARNING, "_net_input_frame: replaying _apply_cat_codes on X failed (%s); the importances use the frame as of the previous step.", exc)
     return out
 
 

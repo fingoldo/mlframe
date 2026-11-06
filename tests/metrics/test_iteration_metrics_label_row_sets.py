@@ -40,7 +40,7 @@ def test_multiclass_out_of_range_label_leaves_every_metric_unchanged():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         dirty = _multiclass_metrics(np.append(y, 99), np.vstack([sc, [0.1, 0.1, 0.8]]), 3, 10)
-    assert clean, "the clean run reported no metric"
+    assert clean, "no metrics computed: the comparison below would pass on nothing"
     for key, val in clean.items():
         assert dirty[key] == val or (np.isnan(val) and np.isnan(dirty[key])), key
 

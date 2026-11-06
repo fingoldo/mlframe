@@ -8,5 +8,5 @@ import os
 import tempfile
 from pathlib import Path
 
-OUT_DIR = Path(os.environ.get("MLFRAME_PROFILE_DIR", tempfile.gettempdir()))
+OUT_DIR = Path(os.environ.get("MLFRAME_PROFILE_DIR", tempfile.gettempdir()))  # tmp-path-ok: developer benchmark scratch directory, run by one user on their own machine
 PROF_FILE = OUT_DIR / "gpu_fit.prof"

@@ -12,7 +12,7 @@ from mlframe.training.feature_handling import hf_provider
 
 
 def test_unwritable_lock_root_falls_back_to_the_private_directory(monkeypatch, tmp_path):
-    """With the lock directory refused, the lock path sits inside a private ``mlframe-hf-locks`` directory, not in the temp root."""
+    """With the cache root unwritable, the lock path sits inside a private ``mlframe-hf-locks`` directory, not in the temp root."""
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
     monkeypatch.delenv("TRANSFORMERS_CACHE", raising=False)
     real_makedirs = os.makedirs
@@ -24,8 +24,8 @@ def test_unwritable_lock_root_falls_back_to_the_private_directory(monkeypatch, t
         return real_makedirs(path, *args, **kwargs)
 
     monkeypatch.setattr(hf_provider.os, "makedirs", _refuse_lock_dir)
+    monkeypatch.setattr(hf_provider, "private_temp_dir", None, raising=False)
     lock = hf_provider._hf_cache_lock_path("org/model", None)
-    lock_dir = os.path.dirname(lock)
-    assert lock_dir != tempfile.gettempdir()
-    assert "mlframe-hf-locks" in lock_dir
+    assert os.path.dirname(lock) != tempfile.gettempdir()
+    assert "mlframe-hf-locks" in os.path.dirname(lock)
     assert os.path.basename(lock).startswith("hf_")

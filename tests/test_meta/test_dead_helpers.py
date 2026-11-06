@@ -33,7 +33,7 @@ from pathlib import Path
 import pytest
 
 import mlframe
-from pyutilz.dev.meta_test_utils import (
+from py_ci_shared.meta_test_utils import (
     consumer_corpus,
     public_top_level_symbols,
     strip_lineno,
@@ -118,7 +118,7 @@ def _python_files() -> list[Path]:
 
 
 # Symbol enumeration / corpus assembly / lineno-strip moved to
-# ``pyutilz.dev.meta_test_utils`` so the same logic is shared with
+# ``py_ci_shared.meta_test_utils`` so the same logic is shared with
 # pyutilz's own meta-test suite.
 
 

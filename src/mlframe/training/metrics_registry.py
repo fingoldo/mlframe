@@ -83,7 +83,10 @@ def register_metric(
     """
     spec = MetricSpec(fn=fn, higher_is_better=bool(higher_is_better), description=description)
     with _REGISTRY_LOCK:
-        _REGISTRY.setdefault(target_type, {})[name] = spec
+        by_name = _REGISTRY.get(target_type)
+        if by_name is None:
+            by_name = _REGISTRY[target_type] = {}
+        by_name[name] = spec
 
 
 def unregister_metric(target_type: TargetTypes, name: str) -> None:

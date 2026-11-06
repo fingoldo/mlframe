@@ -1,10 +1,11 @@
-"""The escalation target rank equals the double-argsort rank it replaced, ties and NaN included."""
+"""The escalation target rank is the average rank of y (ties share one value), NaN included."""
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.stats import rankdata
 
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._inputs import _stash_fe_targets
 
@@ -20,10 +21,15 @@ class _Holder:
     lambda rng: rng.integers(0, 3, size=500),
 ])
 def test_rank_matches_double_argsort(make):
-    """Stable ranks with ties broken by position, normalised to [0, 1]."""
+    """Average ranks normalised to [0, 1].
+
+    Tied target values share one rank. The earlier stable-position rank split a tie by row order, so a discrete target got an arbitrary
+    within-tie order. Replacing it changed no escalation decision on seeded tied datasets (6/6 equivalent, see
+    feature_selection/_benchmarks/bench_escalation_rank_ties.py), so the average form is the contract.
+    """
     y = make(np.random.default_rng(0))
     holder = _Holder()
     _stash_fe_targets(holder, y, pd.DataFrame({"a": np.zeros(len(y))}))
-    want = np.argsort(np.argsort(y, kind="stable"), kind="stable").astype(np.float64)
+    want = rankdata(y, method="average") - 1.0
     want = want / max(len(want) - 1, 1)
-    np.testing.assert_array_equal(holder._fe_escalation_y_rank_, want)
+    np.testing.assert_allclose(holder._fe_escalation_y_rank_, want, rtol=1e-6, atol=0)  # stored at the engine's float32 precision

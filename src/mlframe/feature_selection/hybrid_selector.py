@@ -22,6 +22,7 @@ from __future__ import annotations
 import functools
 import logging
 import os
+import threading
 import warnings
 from collections import defaultdict
 from typing import Any, Literal, Optional
@@ -166,24 +167,38 @@ def _selection_summary(sel):
     return sel.selected_features_, int(sel.n_features_in_), f"+{sel.n_engineered_} engineered", len(sel.selected_features_) - int(sel.n_engineered_)
 
 
+_TQDM_LOCK = threading.Lock()
+_TQDM_DEPTH = 0
+_TQDM_PREVIOUS: "str | None" = None
+
+
 def _tqdm_off_during_call(method):
     """Run ``method`` with ``TQDM_DISABLE=1`` (the member selectors draw progress bars) and put the variable back afterwards.
 
-    Setting it at import time silenced every progress bar in the process for the rest of the session, the user's own included.
+    Setting it at import time silenced every progress bar in the process for the rest of the session, the user's own included. Calls that
+    overlap in threads share one save and one restore: the value is restored only when the last of them returns, so an earlier return cannot
+    leave the variable set for the others or restore a value that another call had already replaced.
     """
 
     @functools.wraps(method)
     def wrapper(*args, **kwargs):
-        """Set the variable, call, restore."""
-        previous = os.environ.get("TQDM_DISABLE")
-        os.environ["TQDM_DISABLE"] = "1"
+        """Enter the disabled-progress window, call, leave it when the last overlapping call returns."""
+        global _TQDM_DEPTH, _TQDM_PREVIOUS
+        with _TQDM_LOCK:
+            if _TQDM_DEPTH == 0:
+                _TQDM_PREVIOUS = os.environ.get("TQDM_DISABLE")
+                os.environ["TQDM_DISABLE"] = "1"
+            _TQDM_DEPTH += 1
         try:
             return method(*args, **kwargs)
         finally:
-            if previous is None:
-                os.environ.pop("TQDM_DISABLE", None)
-            else:
-                os.environ["TQDM_DISABLE"] = previous
+            with _TQDM_LOCK:
+                _TQDM_DEPTH -= 1
+                if _TQDM_DEPTH == 0:
+                    if _TQDM_PREVIOUS is None:
+                        os.environ.pop("TQDM_DISABLE", None)
+                    else:
+                        os.environ["TQDM_DISABLE"] = _TQDM_PREVIOUS
 
     return wrapper
 
@@ -733,9 +748,10 @@ class HybridSelector:
         self.reps_, self.members_ = corr_clusters(X_cluster, self.corr_thr)
         # columns dropped from clustering become their own singleton cluster (selection-neutral: FI==0 noise) so the
         # downstream cluster_of_ / vote still has an entry for every column it might encounter.
-        for c in cols:
-            if c not in self.members_:
-                self.reps_.append(c); self.members_[c] = [c]
+        clustered = set(self.members_)
+        singletons = [c for c in dict.fromkeys(cols) if c not in clustered]
+        self.reps_.extend(singletons)
+        self.members_.update({c: [c] for c in singletons})
         self.cluster_of_ = {f: r for r, ms in self.members_.items() for f in ms}
 
         # STAGE 1 - shared relevance pre-screen (held-out permutation FI > 0, OR MRMR-relevant, OR engineered:

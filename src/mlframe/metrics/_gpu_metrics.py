@@ -346,6 +346,14 @@ def gpu_multiple_rmse_scores(actual: Any, predicted: Any) -> Any:
     return cp.sqrt(sse / N)
 
 
+def _gpu_binary_labels(actual: Any) -> np.ndarray:
+    """The labels as {0, 1} on the host, the same mapping the CPU AUC path applies: {-1, 1} or {1, 2} labels otherwise count as NaN here."""
+    from ._auc_labels import _binary_labels_01
+
+    host = actual.get() if hasattr(actual, "get") else np.asarray(actual)
+    return np.asarray(_binary_labels_01(host))
+
+
 def gpu_multiple_roc_auc_scores(actual: Any, predicted: Any) -> Any:
     """Vectorized ROC AUC across columns on GPU (cupy), tie-correct.
 
@@ -374,7 +382,7 @@ def gpu_multiple_roc_auc_scores(actual: Any, predicted: Any) -> Any:
         O(N log N).
     """
     cp = _require_cupy()
-    actual = cp.asarray(actual)
+    actual = cp.asarray(_gpu_binary_labels(actual))
     predicted = cp.asarray(predicted)
     if predicted.ndim == 1:
         predicted = predicted[:, cp.newaxis]
@@ -437,7 +445,7 @@ def gpu_multiple_pr_auc_scores(actual: Any, predicted: Any) -> Any:
         single-class label columns (sklearn behavior would raise).
     """
     cp = _require_cupy()
-    actual = cp.asarray(actual).astype(cp.float64)
+    actual = cp.asarray(_gpu_binary_labels(actual)).astype(cp.float64)
     predicted = cp.asarray(predicted)
     if predicted.ndim == 1:
         predicted = predicted[:, cp.newaxis]

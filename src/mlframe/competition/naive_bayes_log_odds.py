@@ -34,6 +34,7 @@ import numpy.typing as npt
 from sklearn.base import BaseEstimator, ClassifierMixin, clone
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
+from sklearn.utils.validation import check_is_fitted
 
 __all__ = ["NaiveBayesLogOddsEnsembler"]
 
@@ -154,6 +155,7 @@ class NaiveBayesLogOddsEnsembler(ClassifierMixin, BaseEstimator):
 
     def predict_proba(self, X: npt.ArrayLike) -> npt.NDArray[np.float64]:
         """Combine per-block log-odds via summation (with optional prior correction) into class probabilities."""
+        check_is_fitted(self)
         X_arr = np.asarray(X, dtype=np.float64)
         if X_arr.shape[1] != self.n_features_in_:
             raise ValueError(
@@ -170,6 +172,7 @@ class NaiveBayesLogOddsEnsembler(ClassifierMixin, BaseEstimator):
 
     def predict(self, X: npt.ArrayLike) -> npt.NDArray[Any]:
         """Predict the class label with highest combined-log-odds probability for each sample."""
+        check_is_fitted(self)
         proba = self.predict_proba(X)
         idx = np.argmax(proba, axis=1)
         return np.asarray(self.classes_[idx])

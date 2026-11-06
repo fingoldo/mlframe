@@ -11,19 +11,30 @@ import logging
 logger = logging.getLogger(__name__)
 
 MAX_DECOMPRESSED_ENV = "MLFRAME_MAX_DECOMPRESSED_BYTES"
-_DEFAULT_MAX_DECOMPRESSED_BYTES = 64 * 1024**3
+_CAP_CEILING_BYTES = 64 * 1024**3
+
+
+def _default_max_decompressed_bytes() -> int:
+    """Half of physical RAM, at most 64 GiB: a bundle that cannot fit in memory must not get a buffer the host cannot back."""
+    try:
+        import psutil
+
+        total = int(psutil.virtual_memory().total)
+    except Exception:  # pragma: no cover - psutil is a hard dependency; keep the ceiling if the probe fails
+        return _CAP_CEILING_BYTES
+    return min(_CAP_CEILING_BYTES, total // 2)
 
 
 def max_decompressed_bytes() -> int:
-    """Decompressed-size ceiling in bytes: ``MLFRAME_MAX_DECOMPRESSED_BYTES`` when it parses to a positive integer, else 64 GiB. 0 or a negative value disables the cap."""
+    """Decompressed-size ceiling in bytes: ``MLFRAME_MAX_DECOMPRESSED_BYTES`` when it parses to a positive integer, else half of RAM (at most 64 GiB). 0 or a negative value disables the cap."""
     raw = os.environ.get(MAX_DECOMPRESSED_ENV)
     if raw is None or not raw.strip():
-        return _DEFAULT_MAX_DECOMPRESSED_BYTES
+        return _default_max_decompressed_bytes()
     try:
         value = int(raw)
     except ValueError as _exc:
         logger.warning("max_decompressed_bytes fell back to its default after %s", type(_exc).__name__)
-        return _DEFAULT_MAX_DECOMPRESSED_BYTES
+        return _default_max_decompressed_bytes()
     return value if value > 0 else 0
 
 

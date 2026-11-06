@@ -1021,7 +1021,7 @@ def test_marked_tests_are_selected_by_some_ci_run(marker, min_marked):
 # CONSOLIDATED in 2026-09-05, COMPLETE per cluster in 2026-08-28); mapping them onto four would change what the
 # rows say. A new word has to be added here, which is the point: a typo'd status is otherwise uncounted.
 _TRACKER_STATUSES = (
-    "RESOLVED", "WON'T FIX", "DEFERRED", "NOT A DEFECT", "TODO", "DONE", "FIXED", "CLOSED", "COMPLETE", "REJECTED",
+    "OPEN", "RESOLVED", "WON'T FIX", "DEFERRED", "NOT A DEFECT", "TODO", "DONE", "FIXED", "CLOSED", "COMPLETE", "REJECTED",
     "DOC", "FUTURE", "PARTIAL", "PARTIALLY RESOLVED", "CONSOLIDATED", "NOT CONSOLIDATED", "SUPERSEDED", "CHECKED",
     "UNRESOLVED",
 )

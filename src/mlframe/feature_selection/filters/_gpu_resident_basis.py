@@ -634,7 +634,11 @@ def _gpu_basis_preprocess_nonrobust_fused(cp, M, basis):
     mean/std or min/max reductions + the per-element transform) - bit-identical to the cupy chain."""
     code = _BASIS_PREPROCESS_CODE[basis]
     n, g = int(M.shape[0]), int(M.shape[1])
-    Mc = cp.ascontiguousarray(M.astype(crit_float_dtype(), copy=False))
+    # Centre in float64 BEFORE narrowing: a large offset (1e10 + unit spread) has a float32 step of about 1e3, so narrowing first erased
+    # the spread. The transforms are affine in the data, so the statistics of the centred block give the same output.
+    M64 = cp.asarray(M, dtype=cp.float64)
+    Mc = cp.ascontiguousarray((M64 - M64.mean(axis=0)).astype(crit_float_dtype(), copy=False))
+    del M64
     if code == 0:                                  # hermite: (M-mean)/std
         _mean, _std = _col_meanstd(cp, Mc)         # mean + std in ONE launch
         p0 = _mean; p1 = guarded_scale(_std, cp.abs(Mc).max(axis=0), xp=cp)
@@ -702,7 +706,10 @@ def _gpu_basis_preprocess_robust_fused(cp, M, basis):
     scale = _gpu_robust_scale_batched(cp, M, med)
     code = _BASIS_PREPROCESS_CODE[basis]
     n, g = int(M.shape[0]), int(M.shape[1])
-    Mc = cp.ascontiguousarray(M.astype(crit_float_dtype(), copy=False))
+    # Centre on the median in float64 BEFORE narrowing (see the non-robust path). The kernel then runs on centred values with a zero
+    # median; min, max and std of the centred block are the shifted originals, so the output is unchanged apart from the rounding.
+    med64 = cp.asarray(med, dtype=cp.float64)
+    Mc = cp.ascontiguousarray((cp.asarray(M, dtype=cp.float64) - med64).astype(crit_float_dtype(), copy=False))
     mn, mx = _col_minmax(cp, Mc)  # min + max in ONE launch (bit-identical)
     stdcol = Mc.std(axis=0) if code == 0 else scale  # std only used by the hermite fallback; else unused
     out = cp.empty((n, g), dtype=crit_float_dtype())
@@ -710,7 +717,7 @@ def _gpu_basis_preprocess_robust_fused(cp, M, basis):
     preprocess = _get_basis_preprocess_kernel(cp, "float" if Mc.dtype == cp.float32 else "double")
     threads = block_size_for(preprocess, work_items=total)
     preprocess(((total + threads - 1) // threads,), (threads,),
-        (Mc, cp.ascontiguousarray(med.astype(crit_float_dtype(), copy=False)),
+        (Mc, cp.zeros(g, dtype=crit_float_dtype()),
          cp.ascontiguousarray(scale.astype(crit_float_dtype(), copy=False)),
          cp.ascontiguousarray(mn.astype(crit_float_dtype(), copy=False)),
          cp.ascontiguousarray(mx.astype(crit_float_dtype(), copy=False)),

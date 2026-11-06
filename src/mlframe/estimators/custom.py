@@ -389,6 +389,9 @@ class PureRandomClassifier(ClassifierMixin, BaseEstimator):
     def predict_proba(self, X):
         """Draw random class probabilities from a fixed per-instance seed (uniform for binary, Dirichlet-like for multiclass)."""
         check_is_fitted(self, "_predict_seed_")
+        shape = np.shape(X)
+        if len(shape) == 2 and shape[1] != self.n_features_in_:
+            raise ValueError(f"X has {shape[1]} features, but this estimator was fitted with {self.n_features_in_}.")
         rng = np.random.RandomState(self._predict_seed_)  # fresh each call -> deterministic given X
         n = len(X)
         n_cls = len(self.classes_)
@@ -424,7 +427,9 @@ class MyDecorrelator(TransformerMixin, BaseEstimator):
         # correlated_features_` True for every j (a string set never contains an int) -- every column was
         # silently kept, defeating the transformer with no error.
         self.correlated_features_ = {c for c in range(len(cols)) if (upper[:, c] > self.threshold).any()}
-        self.feature_names_in_ = feature_names_in
+        # sklearn expects the attribute to be absent when fit saw no column names, not present as None.
+        if feature_names_in is not None:
+            self.feature_names_in_ = np.asarray(feature_names_in, dtype=object)
         self.n_features_in_ = len(cols)
         return self
 
@@ -678,10 +683,13 @@ class IdentityEstimator(BaseEstimator):
                 self.classes_ = np.sort(_y_arr)
             else:
                 self.classes_ = np.array(sorted(_y_arr, key=lambda v: (v is None, str(v))))
+        # Set on every fit: a fit with no width or label record would otherwise leave nothing for sklearn's fitted check to find.
+        self.is_fitted_ = True
         return self
 
     def predict(self, X):
         """Return the selected feature column(s) from ``X`` verbatim, by name or positional index."""
+        check_is_fitted(self, "is_fitted_")
         if isinstance(X, (pd.DataFrame, pd.Series)):
             if self.feature_names:
                 return X.loc[:, self.feature_names].to_numpy()
@@ -716,6 +724,7 @@ class IdentityClassifier(ClassifierMixin, IdentityEstimator):
 
     def predict_proba(self, X):
         """Coerce the selected feature column(s) into a valid, clipped, row-normalised class-probability matrix."""
+        check_is_fitted(self, "is_fitted_")
         last_class_probs = self.predict(X)
         if len(self.classes_) == 2 and last_class_probs.ndim == 1:
             return np.vstack([1 - last_class_probs, last_class_probs]).T

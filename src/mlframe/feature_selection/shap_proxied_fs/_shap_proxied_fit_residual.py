@@ -16,6 +16,7 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_init_params import effective_brute_force_max_features
 
 logger = logging.getLogger(__name__)
 
@@ -288,7 +289,7 @@ def _residual_round(
     # its magnitude still sits below a 4x floor, so a magnitude floor either killed all recall (tight) or let noise columns leak into the protected set (loose). The gate
     # reuses ``per_fold_phi_mean2``, already computed by the folds the pass pays for: a genuinely-informative column ranks near the top consistently across independent
     # folds, a noise column's rank is a one-fold fluke. A column must clear a generous per-fold pool (``3 * top_k``) in EVERY fold before it is eligible for rescue.
-    top_k = int(self.residual_top_k) if self.residual_top_k is not None else int(self.brute_force_max_features)
+    top_k = int(self.residual_top_k) if self.residual_top_k is not None else effective_brute_force_max_features(self)
     top_k = min(top_k, importance2.shape[0])
     consistent, fold_pool = fold_rank_consistency(per_fold_phi_mean2, top_k)
     magnitude_floor = gate_by_residual_magnitude(consistent, importance2)

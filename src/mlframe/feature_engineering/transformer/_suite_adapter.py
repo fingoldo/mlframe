@@ -80,17 +80,14 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         seed: Optional[int] = None,
         splitter: Any = None,
     ):
-        resolved: Callable[..., pl.DataFrame]
         if isinstance(compute_fn, str):
             # Opt-in switch by name: ``ShortlistTransformerAdapter("compute_rff_features")`` resolves to the exported catalogue function.
             from mlframe.feature_engineering import transformer as _pkg
 
             if not compute_fn.startswith("compute_") or compute_fn not in getattr(_pkg, "__all__", ()):
                 raise KeyError(f"ShortlistTransformerAdapter: {compute_fn!r} is not an exported compute_* transformer")
-            resolved = getattr(_pkg, compute_fn)
-        else:
-            resolved = compute_fn
-        self.compute_fn = resolved
+            getattr(_pkg, compute_fn)
+        self.compute_fn = compute_fn  # as given (get_params/clone round-trip); ``_resolved_fn`` maps a catalogue name to the function
         if seed is not None:
             # Deprecated back-compat alias: every other BaseEstimator subclass in this codebase names its
             # RNG param random_state; seed is kept only so pre-existing callers don't get a TypeError.
@@ -104,6 +101,16 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         self.passthrough = passthrough
         self.compute_kwargs = compute_kwargs
         self.splitter = splitter
+
+    @property
+    def _resolved_fn(self) -> Callable[..., pl.DataFrame]:
+        """The callable ``compute_fn`` names: the function itself, or the exported catalogue function for a ``compute_*`` name."""
+        if isinstance(self.compute_fn, str):
+            from mlframe.feature_engineering import transformer as _pkg
+
+            fn: Callable[..., pl.DataFrame] = getattr(_pkg, self.compute_fn)
+            return fn
+        return self.compute_fn
 
     def fit(self, X, y=None):
         """Stash the train fold (and target, if the wrapped ``compute_fn`` needs it) for later use in ``transform``."""
@@ -138,11 +145,11 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         #   * supervised kNN-style: ``f(X_train, y_train, X_query, *, seed, ...)`` (class_distance / local_lift).
         #   * RFF-style: ``f(X, *, seed, X_query=..., ...)`` -- single positional + X_query keyword.
         # Detect by inspecting the parameter names; route Mode B (fit on train fold, apply to query) either way.
-        params = list(inspect.signature(self.compute_fn).parameters)
+        params = list(inspect.signature(self._resolved_fn).parameters)
         if "y_train" in params or "X_train" in params:
-            feats = self.compute_fn(self._X_train_, self._y_train_, Xq, **kwargs)
+            feats = self._resolved_fn(self._X_train_, self._y_train_, Xq, **kwargs)
         else:
-            feats = self.compute_fn(self._X_train_, X_query=Xq, **kwargs)
+            feats = self._resolved_fn(self._X_train_, X_query=Xq, **kwargs)
         return self._assemble(X, feats)
 
     def _align_to_fit_columns(self, X):
@@ -223,7 +230,7 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         import inspect
 
         self.fit(X, y)
-        params = list(inspect.signature(self.compute_fn).parameters)
+        params = list(inspect.signature(self._resolved_fn).parameters)
         if "splitter" not in params:
             return self.transform(X)
         kwargs = dict(self.compute_kwargs or {})
@@ -234,9 +241,9 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
             return self.transform(X)
         splitter = self._make_oof_splitter()
         if "y_train" in params or "X_train" in params:
-            feats = self.compute_fn(self._X_train_, self._y_train_, None, splitter=splitter, **kwargs)
+            feats = self._resolved_fn(self._X_train_, self._y_train_, None, splitter=splitter, **kwargs)
         else:
-            feats = self.compute_fn(self._X_train_, X_query=None, splitter=splitter, **kwargs)
+            feats = self._resolved_fn(self._X_train_, X_query=None, splitter=splitter, **kwargs)
         return self._assemble(X, feats)
 
     def get_feature_names_out(self, input_features=None):

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import contextmanager
 from typing import cast
 
 import numpy as np
@@ -184,6 +185,23 @@ def _make_inputs(dims: dict) -> tuple:
     return (arr, y, reps)
 
 
+@contextmanager
+def _forced_env(name: str, value: str):
+    """Set ``name`` to ``value`` for the block, then put back the value it had before (or remove it when it was unset).
+
+    The sweep runs in the middle of a fit, so popping the variable would drop an override the user set for the rest of the process.
+    """
+    previous = os.environ.get(name)
+    os.environ[name] = value
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = previous
+
+
 def _run_sweep() -> list:
     """Time the host walk and the device walk per row count; the fastest variant whose MI agrees with the host's wins each region."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
@@ -192,19 +210,13 @@ def _run_sweep() -> list:
 
     def host_variant(arr, y, reps):
         """Host walk with the device path switched off."""
-        os.environ["MLFRAME_BOOTSTRAP_RANK_DEVICE"] = "0"
-        try:
+        with _forced_env("MLFRAME_BOOTSTRAP_RANK_DEVICE", "0"):
             return host.bootstrap_rank_mi(arr, y, reps, 10)[0]
-        finally:
-            os.environ.pop("MLFRAME_BOOTSTRAP_RANK_DEVICE", None)
 
     def device_variant(arr, y, reps):
         """Device walk forced on."""
-        os.environ["MLFRAME_BOOTSTRAP_RANK_DEVICE"] = "1"
-        try:
+        with _forced_env("MLFRAME_BOOTSTRAP_RANK_DEVICE", "1"):
             return host.bootstrap_rank_mi(arr, y, reps, 10)[0]
-        finally:
-            os.environ.pop("MLFRAME_BOOTSTRAP_RANK_DEVICE", None)
 
     return cast(
         list,

@@ -21,7 +21,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-_PENDING: "dict[int, tuple[tuple, Future]]" = {}
+_PENDING: "dict[int, tuple[Any, Any, Any, tuple, Future]]" = {}
 _LOCK = threading.Lock()
 _EXECUTOR: "Optional[ThreadPoolExecutor]" = None
 
@@ -81,7 +81,7 @@ def prefetch_surrogate_seeds(self: Any, *, num_fs_steps: int, data: Any, cols: S
         with _LOCK:
             if _EXECUTOR is None:
                 _EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gbm_seeder")
-            _PENDING[id(self)] = (_key(data, classes_y, cand, kwargs), _EXECUTOR.submit(surrogate_gbm_interaction_seeds, data, y, cand, **kwargs))
+            _PENDING[id(self)] = (self, data, classes_y, _key(data, classes_y, cand, kwargs), _EXECUTOR.submit(surrogate_gbm_interaction_seeds, data, y, cand, **kwargs))
     except Exception as exc:
         logger.debug("surrogate seeder prefetch not started (%s); the seeder runs in place", exc)
 
@@ -92,8 +92,8 @@ def take_prefetched(self: Any, data: Any, classes_y: Any, cand: Sequence[int], k
         entry = _PENDING.pop(id(self), None)
     if entry is None:
         return None
-    key, fut = entry
-    if key != _key(data, classes_y, cand, kwargs):
+    owner, owner_data, owner_y, key, fut = entry
+    if owner is not self or owner_data is not data or owner_y is not classes_y or key != _key(data, classes_y, cand, kwargs):
         fut.cancel()
         return None
     try:
@@ -106,9 +106,11 @@ def take_prefetched(self: Any, data: Any, classes_y: Any, cand: Sequence[int], k
 def drop_prefetched(self: Any) -> None:
     """Forget a pending call of this estimator (the step ended without using it)."""
     with _LOCK:
-        entry = _PENDING.pop(id(self), None)
-    if entry is not None:
-        entry[1].cancel()
+        entry = _PENDING.get(id(self))
+        if entry is None or entry[0] is not self:
+            return
+        del _PENDING[id(self)]
+    entry[-1].cancel()
 
 
 __all__ = ["drop_prefetched", "prefetch_surrogate_seeds", "seeder_candidates", "seeder_kwargs", "take_prefetched"]

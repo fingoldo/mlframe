@@ -79,7 +79,7 @@ def streamed_null_max(mats: "list[np.ndarray]", groups: "list[list[tuple[int, in
         state = rng.bit_generator.state
         for group in groups:
             cols, n_x = _stack_group(mats, group)
-            replay = np.random.default_rng()
+            replay = np.random.default_rng()  # rng-entropy-ok: the bit-generator state is overwritten with the caller's state on the next line
             replay.bit_generator.state = state
             if _null_device_wanted(cols, y, int(m)):
                 import cupy as cp

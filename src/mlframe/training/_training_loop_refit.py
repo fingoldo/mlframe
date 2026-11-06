@@ -187,7 +187,11 @@ def _maybe_refit_on_degenerate_best_iter(
                 try:
                     model_obj.set_params(**_cur_params)
                 except Exception as _restore_err:
-                    logger_.debug("[loss-fallback] could not restore %s parameters after the rejected refit: %s", model_type_name, _restore_err)
+                    logger_.warning(
+                        "[loss-fallback] could not restore %s parameters after the rejected refit: %s; the model keeps the parameters of the rejected refit.",
+                        model_type_name,
+                        _restore_err,
+                    )
             logger_.warning(
                 "[loss-fallback] %s refit rejected on both set_params (%s) "
                 "and fresh-instance (%s) paths. Keeping the degenerate "

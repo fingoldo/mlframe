@@ -1,6 +1,6 @@
 """Doc-drift guard for the generated ``CompositeTargetDiscoveryConfig`` reference.
 
-Re-runs ``scripts/gen_composite_config_reference.render_markdown()`` in memory and
+Re-runs ``render_markdown()`` of ``scripts/gen_composite_config_reference.py`` in memory and
 asserts the committed ``docs/composite_config_reference.md`` matches byte-for-byte.
 A new config field (or a changed comment / default / type) without regenerating
 the doc therefore fails CI -- forcing the doc to stay in sync with the config.

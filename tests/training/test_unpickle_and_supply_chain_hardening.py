@@ -16,7 +16,13 @@ import numpy as np
 import pytest
 import zstandard as zstd
 
-from mlframe.training._bounded_zstd import BoundedReader, DecompressedSizeError, decompress_bounded, max_decompressed_bytes
+from mlframe.training._bounded_zstd import (
+    BoundedReader,
+    DecompressedSizeError,
+    _default_max_decompressed_bytes,
+    decompress_bounded,
+    max_decompressed_bytes,
+)
 from mlframe.training.io import _SafeUnpickler, load_mlframe_model, safe_joblib_load, save_mlframe_model
 
 
@@ -274,7 +280,8 @@ def test_max_decompressed_bytes_env_parsing(monkeypatch):
     monkeypatch.setenv("MLFRAME_MAX_DECOMPRESSED_BYTES", "0")
     assert max_decompressed_bytes() == 0
     monkeypatch.setenv("MLFRAME_MAX_DECOMPRESSED_BYTES", "junk")
-    assert max_decompressed_bytes() == 64 * 1024**3
+    # The default follows physical RAM (half of it, at most 64 GiB), so the expected value is the default function's own.
+    assert max_decompressed_bytes() == _default_max_decompressed_bytes()
 
 
 # Hugging Face revision pins

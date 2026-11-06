@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import sys
 import threading
-import time
 
 import numpy as np
 import pandas as pd
@@ -68,7 +67,7 @@ def test_simulated_darwin_lock_serializes_concurrent_fit_bodies(monkeypatch):
             overlap_detected.set()
         in_body.set()
         try:
-            time.sleep(0.05)  # widen the window so a real race would be caught
+            overlap_detected.wait(timeout=0.05)  # hold the body open until a second thread enters (an overlap) or the window passes
             return real_fit_body(self, *args, **kwargs)
         finally:
             in_body.clear()
@@ -118,7 +117,7 @@ def test_lock_is_none_off_darwin_so_real_concurrency_is_unaffected(monkeypatch):
             overlap_detected.set()
         in_body.set()
         try:
-            time.sleep(0.05)
+            overlap_detected.wait(timeout=0.05)  # returns as soon as a second thread enters
             return real_fit_body(self, *args, **kwargs)
         finally:
             in_body.clear()

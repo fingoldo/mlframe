@@ -567,6 +567,10 @@ def render_prediction_stability_diagnostic(
         # so both are aligned to the shorter length before ``abs_error`` broadcasts them together.
         if yt is not None and yt.shape[0] != mp.shape[0]:
             n = min(yt.shape[0], mp.shape[0])
+            logger.warning(
+                "prediction-stability chart: target has %d rows and member predictions %d; plotting the first %d of each.",
+                yt.shape[0], mp.shape[0], n,
+            )
             yt = yt[:n]
             mp = mp[:n]
         spec = compose_prediction_stability_figure(mp, y_true=yt, seed=seed)

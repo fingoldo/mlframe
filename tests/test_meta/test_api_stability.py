@@ -40,7 +40,7 @@ from pathlib import Path
 import pytest
 
 import mlframe.training as training_pkg
-from pyutilz.dev.meta_test_utils import capture_signature
+from py_ci_shared.meta_test_utils import capture_signature
 
 # Snapshot lives next to the test so it travels with the suite.
 _SNAPSHOT_PATH = Path(__file__).resolve().parent / "_api_snapshot.json"
@@ -79,7 +79,7 @@ def _public_names() -> list[str]:
     return sorted(set(names))
 
 
-# Signature capture moved to ``pyutilz.dev.meta_test_utils`` —
+# Signature capture moved to ``py_ci_shared.meta_test_utils`` —
 # ``capture_signature`` imported above.
 
 

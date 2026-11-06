@@ -18,6 +18,7 @@ Each test pins one fix and fails on the pre-fix code:
 
 from __future__ import annotations
 
+import threading
 import inspect
 
 import numpy as np
@@ -204,14 +205,13 @@ def test_predict_runtimes_preempts_before_exceeding_budget():
     # only checking max_runtime_mins reactively after the eval already ran.
     """predict_runtimes=True stops the loop before a predicted-duration eval would exceed max_runtime_mins."""
     from mlframe.models import optimization as opt_mod
-    import time
 
     calls = {"n": 0}
 
     def evalfn(x):
         """Records a call and sleeps briefly to simulate a per-eval duration for runtime prediction."""
         calls["n"] += 1
-        time.sleep(0.05)
+        threading.Event().wait(0.05)
         return float(x)
 
     opt_mod.optimize_finite_onedimensional_search_space(

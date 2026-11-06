@@ -518,7 +518,7 @@ class ParamOracle:
         self.epsilon = float(epsilon)
         self.min_observations = int(min_observations)
         self.host = _host_key()
-        self.rng = random.Random() if rng is None else rng  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
+        self.rng = random.Random() if rng is None else rng  # rng-entropy-ok: epsilon-greedy exploration is meant to vary between runs unless the caller passes rng  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
 
     # ----- param-space enumeration -----
 

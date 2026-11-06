@@ -102,7 +102,7 @@ def _cross_fitted_oof(estimator: Any, X: Any, target: np.ndarray, kf: KFold, sam
     these predictions is leakage-free (the Neyman-orthogonality requirement).
     """
     n = target.shape[0]
-    oof = np.empty(n, dtype=np.float64)
+    oof = np.full(n, np.nan, dtype=np.float64)
     is_polars = _is_polars_df(X)
     for train_idx, test_idx in kf.split(np.arange(n)):
         model = clone(estimator)

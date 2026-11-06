@@ -6,6 +6,7 @@ estimators (Ridge / a small HistGradientBoosting) at moderate n so the whole fil
 
 from __future__ import annotations
 
+import threading
 import cProfile
 import io
 import pstats
@@ -131,7 +132,7 @@ def test_time_budget_skips_larger_sizes_and_logs(caplog):
             """Groups tests covering slow."""
             def fit(self, X, yy, **kw):
                 """Fit."""
-                time.sleep(0.15)
+                threading.Event().wait(0.15)
                 return super().fit(X, yy, **kw)
 
         return _Slow(alpha=1.0)

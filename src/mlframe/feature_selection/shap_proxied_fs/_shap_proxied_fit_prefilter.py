@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 import pandas as pd
 import numpy as np
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_init_params import effective_cluster_su_auto_max_features
 
 
 def materialise_holdout_and_cluster(
@@ -72,7 +73,7 @@ def materialise_holdout_and_cluster(
                 # on-the-fly-binning cost gate; above the cap Pearson's vectorised correlation
                 # matrix still beats pairwise SU on wall-clock.
                 n_search_cols = int(X_search.shape[1])
-                if _have_precomputed_bins or n_search_cols <= int(self.cluster_su_auto_max_features):
+                if _have_precomputed_bins or n_search_cols <= effective_cluster_su_auto_max_features(self):
                     effective_backend = "su"
                 else:
                     effective_backend = "pearson"

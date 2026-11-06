@@ -177,7 +177,7 @@ def _fixed_shuffle_seed(cv_shuffle: bool, random_state):
     fits and identical across the splits inside this one.
     """
     if cv_shuffle and random_state is None:
-        return int(np.random.default_rng().integers(0, 2**31 - 1))
+        return int(np.random.default_rng().integers(0, 2**31 - 1))  # rng-entropy-ok: one entropy seed per fit by design, see the docstring
     return random_state
 
 

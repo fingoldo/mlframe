@@ -17,7 +17,7 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 import numpy.typing as npt
-from scipy.stats import spearmanr
+from scipy.stats import rankdata, spearmanr
 
 _PAIRWISE_MATRIX_WARN_N = 20_000
 #: Cells per row block when building the pairwise-comparison matrices; bounds the transient memory.
@@ -73,15 +73,9 @@ def check_pairwise_score_correlation(
     corr = float(corr) if np.isfinite(corr) else 0.0
 
     n = a.shape[0]
-    # Single argsort + scatter instead of double argsort (bit-identical ranks, ~1.7x faster at n=99401 in
-    # the mlframe FE benchmark this pattern was found in -- see _orth_extra_basis_fe.py's docstring for the
-    # derivation): argsort once for the sort order, scatter 0..n-1 into that order's positions.
     def _ranks(v: np.ndarray) -> np.ndarray:
-        """Rank of each element in ``v`` (0-indexed, ascending), via one argsort + scatter."""
-        order = np.argsort(v)
-        r = np.empty(v.size, dtype=np.intp)
-        r[order] = np.arange(v.size)
-        return r
+        """Rank of each element in ``v`` (ascending), tied scores sharing their average rank so a tie is not scored as a disagreement."""
+        return np.asarray(rankdata(v))
 
     rank_a, rank_b = _ranks(a), _ranks(b)
     if n > _PAIRWISE_MATRIX_WARN_N:
