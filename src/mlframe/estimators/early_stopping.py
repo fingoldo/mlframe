@@ -344,6 +344,8 @@ class EarlyStoppingWrapper(BaseEstimator):
         # sklearn contract: never mutate the caller-supplied ``base_model``. Under clone / GridSearchCV every
         # clone shares the SAME ``base_model`` object, so fitting it in place would train an already-fitted
         # estimator on a later fold (and leave the user's instance fitted). Operate on a fresh clone instead.
+        if self.base_model is None:
+            raise ValueError("EarlyStoppingWrapper: base_model is required; pass the estimator to wrap.")
         self.estimator_ = clone(self.base_model)
         _shape = getattr(X, "shape", None)
         if _shape is not None and len(_shape) >= 2:
