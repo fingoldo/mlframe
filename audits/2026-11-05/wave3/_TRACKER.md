@@ -43,7 +43,7 @@ Four read-only audits covered the remaining GPU-kernel files (reports `kernel_pa
 |---|---|---|---|
 | PARG2-1 | High | RESOLVED | `1788f6c9b` one row budget for the pair-residual check on both backends; test `test_pair_residual_budget_is_backend_independent.py` |
 | PARG4-1 | High | RESOLVED | `812a9a61c` GPU ROC and PR AUC map labels to {0,1} as the CPU path does; GPU test against sklearn |
-| PARG4-2 | High | OPEN | Treeshap numba twin is float32 under `MLFRAME_CRIT_DTYPE_RELAXED=1`; cupy twin is float64. Explains the 1.1e-4 gap in `test_treeshap_gpu_matches_numba`. Needs one dtype contract. |
+| PARG4-2 | High | RESOLVED | numba TreeSHAP takes leaf values, covers and phi as float64 (the contract its docstring already stated), matching the cupy twin. On the old code under relaxed crit dtype, phi came back float32 (test failed on the dtype assert). Test `tests/feature_selection/shap_proxied/test_treeshap_numba_phi_is_float64.py`; existing numba TreeSHAP suites (26 tests) pass. The `test_treeshap_gpu_matches_numba` 1.1e-4 gap should shrink; not re-measured here (no CUDA run in this step). |
 | PARG1-1 | High | OPEN | Device-born binned aggregates upload values as float64; host casts to crit dtype. Bin codes and cell moments can differ near edges and at 1e39. |
 | PARG1-2 | High | RESOLVED | `bb1c84dd6` the device ratio uses the host guard `u/max(abs(v),1e-6)`; test `test_candidate_ratio_matches_host_guard.py` |
 | PARG3-1 | High | RESOLVED | `ec13aee95` rank binning uses float64 only for offset-dominated columns (offset above 1000x spread); float32 stays the default; tests `test_hermite_rank_bin_keeps_distinct_offset_values.py` |
