@@ -743,6 +743,8 @@ def _fused_gate_device_helpers():
         for b in range(nb_k):
             mi += part_mi[b]
             hx += part_hx[b]
+        if mi < 0.0:  # rounding can leave a tiny negative MI for a constant column; the host clamps it to 0 before SU
+            mi = 0.0
         if use_su:
             denom = hx + h_y
             return 0.0 if denom <= 1e-12 else 2.0 * mi / denom
