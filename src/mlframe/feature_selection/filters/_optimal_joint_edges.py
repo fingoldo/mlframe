@@ -305,6 +305,10 @@ class OptimalJointPlanCache:
     """
 
     def __init__(self, max_bytes: int = 512 * 1024 * 1024) -> None:
+        self._reset(max_bytes)
+
+    def _reset(self, max_bytes: int) -> None:
+        """Empty every store and set the byte budget, with a fresh lock and thread-local."""
         self._plans: dict = {}
         self._local = threading.local()  # last (array, key) hashed by this thread: one call hashes the same column for the plan and for the column facts, and the same target for every fold
         self._views: "dict[tuple, tuple]" = {}  # (read-only base id, data pointer, shape, strides, dtype) of a view -> (base, content hash)
@@ -321,7 +325,7 @@ class OptimalJointPlanCache:
 
     def __setstate__(self, state: dict) -> None:
         """An empty cache with the saved byte budget, with a fresh lock."""
-        self.__init__(state["max_bytes"])
+        self._reset(state["max_bytes"])
 
     def content_key(self, arr: np.ndarray) -> str:
         """Content hash of ``arr``, reusing the hash of the array this thread hashed last when it is the same object (the cache holds a reference, so the object cannot be a recycled address)."""
