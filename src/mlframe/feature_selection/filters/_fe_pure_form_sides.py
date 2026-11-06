@@ -37,25 +37,27 @@ def _side_values(recipe: Any, X: Any) -> "list[np.ndarray] | None":
 def drop_forms_not_beating_their_sides(candidates: list, X: Any, y: np.ndarray, *, classification: bool, seed: int, n_folds: int = 3, improve_rel: float = 0.01) -> list:
     """``candidates`` without the pair forms whose CV loss is not below ``(1 - improve_rel)`` times the better side's; raw passthroughs and forms
     whose sides cannot be replayed are kept unchanged."""
-    keep: "list[bool]" = []  # one verdict per candidate, in order; a candidate that cannot be judged is kept unchanged
-    for cand in candidates:
+    from ._edge_pool import map_on_edge_pool
+
+    def _verdict(cand: Any) -> bool:
+        """Whether ``cand`` stays: raw passthroughs, forms whose sides cannot be replayed and forms that cannot be judged stay; the others must beat their better side."""
         recipe = getattr(cand, "recipe", None)
         if recipe is None:
-            keep.append(True)
-            continue
+            return True
         try:
             sides = _side_values(recipe, X)
             if sides is None:
-                keep.append(True)
-                continue
+                return True
             form_loss = cv_loss(cand.values, y, classification, n_folds, seed)
             side_loss = min(cv_loss(s, y, classification, n_folds, seed) for s in sides)
         except Exception as exc:
             log_throttle(logger, "fe_pure_form_sides.check_skipped", logging.WARNING, "pure-form side check skipped for %s, so the candidate is kept unchecked: %s", getattr(cand, "name", "?"), exc)
-            keep.append(True)
-            continue
+            return True
         beats = form_loss < (1.0 - improve_rel) * side_loss
-        keep.append(beats)
         if not beats:
             logger.debug("pure-form retention: %s does not beat its better side (CV loss %.5f vs %.5f); dropped", cand.name, form_loss, side_loss)
+        return beats
+
+    # the candidates are independent (each fits its own small linear models on its own columns) and the pool returns the verdicts in candidate order
+    keep = map_on_edge_pool(_verdict, candidates)
     return [cand for cand, verdict in zip(candidates, keep) if verdict]

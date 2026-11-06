@@ -37,3 +37,31 @@ def test_raw_passthrough_and_unreplayable_forms_are_kept():
     """A raw passthrough (no recipe) is never dropped."""
     raw = UsableCandidate(name="x", values=np.arange(10.0), mi=0.0)
     assert drop_forms_not_beating_their_sides([raw], pd.DataFrame({"x": np.arange(10.0)}), np.zeros(10, dtype=int), classification=True, seed=0) == [raw]
+
+
+def test_pool_and_single_thread_give_the_same_verdicts(monkeypatch):
+    """The candidates are judged on the edge pool; the kept list equals the one-thread result, in the same order."""
+    from types import SimpleNamespace
+
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.feature_selection.filters import _fe_pure_form_sides as sides
+
+    rng = np.random.default_rng(0)
+    n, k = 4000, 6
+    X = pd.DataFrame({f"x{i}": rng.standard_normal(n) for i in range(k)})
+    y = (X["x0"].to_numpy() * X["x1"].to_numpy() + 0.3 * rng.standard_normal(n) > 0).astype(int)
+    cands = []
+    for i in range(12):
+        a, b = f"x{i % k}", f"x{(i * 5 + 1) % k}"
+        rec = SimpleNamespace(kind="unary_binary", src_names=(a, b), unary_names=("identity", "identity"), unary_preset="all")
+        cands.append(SimpleNamespace(name=f"c{i}", recipe=rec, values=X[a].to_numpy() * X[b].to_numpy()))
+    monkeypatch.setattr(sides, "_side_values", lambda recipe, X_: [np.asarray(X_[s].to_numpy(), dtype=np.float64) for s in recipe.src_names])
+
+    kept = {}
+    for jobs in ("1", "4"):
+        monkeypatch.setenv("MLFRAME_EDGE_JOBS", jobs)
+        kept[jobs] = [c.name for c in sides.drop_forms_not_beating_their_sides(cands, X, y, classification=True, seed=0)]
+    assert kept["1"] == kept["4"]
+    assert 0 < len(kept["1"]) < len(cands), "the fixture must keep some candidates and drop others, or the order check proves nothing"
