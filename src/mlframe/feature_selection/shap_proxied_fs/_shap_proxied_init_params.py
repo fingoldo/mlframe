@@ -165,6 +165,22 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import (
 # LRU-evicted; see ``mlframe.utils.disk_cache``.
 
 
+def effective_brute_force_max_features(est: Any) -> int:
+    """The prescreen width the fit uses: the constructor value, or the per-host default when it was left ``None``.
+
+    The default is resolved here, at fit time, and not stored on the instance: a stored value would appear in ``get_params`` and be frozen into clones
+    and pickles.
+    """
+    value = getattr(est, "brute_force_max_features", None)
+    return int(value) if value is not None else int(_resolve_brute_force_max_features())
+
+
+def effective_cluster_su_auto_max_features(est: Any) -> int:
+    """The width up to which the SU clustering is chosen automatically: the constructor value, or the per-host default when ``None``."""
+    value = getattr(est, "cluster_su_auto_max_features", None)
+    return int(value) if value is not None else int(_resolve_cluster_su_auto_max_features())
+
+
 def _assign_part1(est: Any, p: dict[str, Any]) -> None:
     """Store constructor parameters, part 1 of 5 (see ``assign_init_params``)."""
     est.model = p["model"]
@@ -289,7 +305,7 @@ def _assign_part1(est: Any, p: dict[str, Any]) -> None:
     # constant (~1MB). ``None`` consults ``pyutilz.performance.kernel_tuning.cache`` (key
     # ``mlframe.shap_proxied_fs.brute_force_max_features``) for per-HW override, falling back
     # to the module default. Explicit int pins always win.
-    est.brute_force_max_features = int(p["brute_force_max_features"]) if p["brute_force_max_features"] is not None else _resolve_brute_force_max_features()
+    est.brute_force_max_features = None if p["brute_force_max_features"] is None else int(p["brute_force_max_features"])
 
 
 def _assign_part2(est: Any, p: dict[str, Any]) -> None:
@@ -445,9 +461,7 @@ def _assign_part3(est: Any, p: dict[str, Any]) -> None:
     if str(p["cluster_backend"]).lower() not in ("auto", "su", "pearson"):
         raise ValueError(f"cluster_backend must be one of 'auto', 'su', 'pearson'; got {p['cluster_backend']!r}")
     est.cluster_backend = p["cluster_backend"]
-    est.cluster_su_auto_max_features = (
-        int(p["cluster_su_auto_max_features"]) if p["cluster_su_auto_max_features"] is not None else _resolve_cluster_su_auto_max_features()
-    )
+    est.cluster_su_auto_max_features = None if p["cluster_su_auto_max_features"] is None else int(p["cluster_su_auto_max_features"])
     est.cluster_su_n_bins = int(p["cluster_su_n_bins"])
     # Default True: SU edges between high-cardinality columns are re-scored against a permutation null so plug-in SU bias (two independent
     # 10k-level columns score SU~0.56 at n=556k) does not merge unrelated ID-like columns; low-cardinality edges are untouched. False = raw plug-in.

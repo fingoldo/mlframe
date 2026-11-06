@@ -27,6 +27,7 @@ from mlframe.utils.misc import rng_hygienic_fit
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_report_slice import score_on_report_slice, split_report_slice
 
 from ._shap_proxied_fit_steps import ShapProxiedFitStepsMixin
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_init_params import effective_brute_force_max_features
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +200,7 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
 
             sp_top = (self.shap_prefilter_top if self.shap_prefilter_top is not None
                       else resolve_shap_prefilter_top(
-                          brute_force_max_features=self.brute_force_max_features,
+                          brute_force_max_features=effective_brute_force_max_features(self),
                           safety_factor=self.shap_prefilter_safety_factor,
                           min_features=self.shap_prefilter_min_features))
             # Tighten only - never expand the user's prefilter budget.
@@ -287,23 +288,23 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
         # measurement-driven (median pairwise Spearman of per-fold mean |phi| feature ranks) and only
         # ever narrows; high-stability regimes keep the current cap. Computed BEFORE the prescreen
         # block below so the resolved cap drives that block's keep count.
-        effective_brute_force_cap = self.brute_force_max_features
+        effective_brute_force_cap = effective_brute_force_max_features(self)
         adaptive_info: Optional[dict] = None
         ladder_mode = str(getattr(self, "prescreen_ladder_mode", "knee") or "knee").lower()
         if ladder_mode == "knee":
             # Data-driven ladder: narrow the cap toward the knee of the sorted |phi| importance curve.
             # Dense-signal frames keep the full cap; sparse frames prune harder. Always runs.
             importance_full = np.abs(phi).mean(axis=0)
-            effective_brute_force_cap, adaptive_info = _resolve_knee_prescreen_cap(importance_full, default_cap=self.brute_force_max_features)
+            effective_brute_force_cap, adaptive_info = _resolve_knee_prescreen_cap(importance_full, default_cap=effective_brute_force_max_features(self))
             report["adaptive_prescreen"] = adaptive_info
         elif ladder_mode == "hardcoded" and want_per_fold_phi and per_fold_phi_mean is not None and per_fold_phi_mean.shape[0] >= 2:
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_phi_rank_stability
 
-            stability = compute_phi_rank_stability(per_fold_phi_mean, top_k=2 * max(self.brute_force_max_features, 40))
-            effective_brute_force_cap = _resolve_adaptive_prescreen_width(stability, default_cap=self.brute_force_max_features)
+            stability = compute_phi_rank_stability(per_fold_phi_mean, top_k=2 * max(effective_brute_force_max_features(self), 40))
+            effective_brute_force_cap = _resolve_adaptive_prescreen_width(stability, default_cap=effective_brute_force_max_features(self))
             adaptive_info = dict(
                 stability=float(stability),
-                default_cap=int(self.brute_force_max_features),
+                default_cap=int(effective_brute_force_max_features(self)),
                 effective_cap=int(effective_brute_force_cap),
             )
             report["adaptive_prescreen"] = adaptive_info

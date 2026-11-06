@@ -59,8 +59,12 @@ def test_shap_proxied_fs_default_cap_uses_module_default():
         ShapProxiedFS,
     )
 
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxied_init_params import effective_brute_force_max_features
+
     fs = ShapProxiedFS()
-    assert fs.brute_force_max_features == _resolve_brute_force_max_features()
+    # The constructor keeps None; the per-host default is resolved at fit (see effective_brute_force_max_features).
+    assert fs.brute_force_max_features is None
+    assert effective_brute_force_max_features(fs) == _resolve_brute_force_max_features()
 
 
 def test_shap_proxied_fs_explicit_cap_wins():
