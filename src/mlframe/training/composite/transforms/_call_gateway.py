@@ -15,6 +15,8 @@ from typing import Any, Callable
 import numpy as np
 import logging
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 logger = logging.getLogger(__name__)
 
 _OPS = ("fit", "forward", "inverse")
@@ -57,7 +59,9 @@ def call_transform(transform: Any, op: str, *args: Any, **optional: Any) -> Any:
     kwargs = {k: v for k, v in optional.items() if v is not None and callable_accepts(fn, k)}
     if "groups" in kwargs:
         kwargs["groups"] = np.asarray(kwargs["groups"]).reshape(-1)
-    return fn(*args, **kwargs)
+    # Specs are scored on threads, and the numba transforms they call are parallel=True kernels: enter them through the guard.
+    with parallel_kernel_entry():
+        return fn(*args, **kwargs)
 
 
 __all__ = ["call_transform", "callable_accepts"]
