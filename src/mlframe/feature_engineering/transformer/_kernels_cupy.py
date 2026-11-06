@@ -100,9 +100,9 @@ void row_attention_stage4_fused(
     float* __restrict__ y_std_out,           // (n_queries,)
     float* __restrict__ x_mean_out           // (n_queries, head_dim)
 ) {
-    extern __shared__ float smem[];
-    float* s_logits = smem;
-    float* s_y      = smem + K;
+    extern __shared__ double smem[];
+    double* s_logits = smem;
+    double* s_y      = smem + K;
 
     int q = blockIdx.x;
     if (q >= n_queries) return;
@@ -114,28 +114,28 @@ void row_attention_stage4_fused(
     const long long qK = (long long)q * K;
     const long long qH = (long long)q * head_dim;
     int nid = topk_ids[qK + t];
-    float dot = 0.0f;
+    double dot = 0.0;
     for (int d = 0; d < head_dim; ++d) {
-        dot += q_proj[qH + d] * k_proj[(long long)nid * head_dim + d];
+        dot += (double)q_proj[qH + d] * (double)k_proj[(long long)nid * head_dim + d];
     }
     s_logits[t] = dot * inv_temp;
-    s_y[t] = y_train[nid];
+    s_y[t] = (double)y_train[nid];
     __syncthreads();
 
     // Stage 2: max-subtract softmax. Sequential reduction is fine for K<=128; warp-shuffle reduction is overkill.
     if (t == 0) {
-        float m = s_logits[0];
+        double m = s_logits[0];
         for (int i = 1; i < K; ++i) {
             if (s_logits[i] > m) m = s_logits[i];
         }
-        float s = 0.0f;
+        double s = 0.0;
         // If max is non-finite (all -inf neighbours), bail to uniform 1/K to avoid NaN propagation.
         if (!isfinite(m)) {
             float inv_k = 1.0f / (float)K;
             for (int i = 0; i < K; ++i) s_logits[i] = inv_k;
         } else {
             for (int i = 0; i < K; ++i) {
-                s_logits[i] = expf(s_logits[i] - m);
+                s_logits[i] = exp(s_logits[i] - m);
                 s += s_logits[i];
             }
             if (s <= 0.0f || !isfinite(s)) {
@@ -152,12 +152,12 @@ void row_attention_stage4_fused(
     // Stage 3: weighted mean of y_train neighbours. Thread 0 does the sequential reduction (K<=128 so single-thread is fine,
     // saves the headache of a warp-shuffle reduction that needs careful boundary handling).
     if (t == 0) {
-        float mean = 0.0f;
-        for (int i = 0; i < K; ++i) mean += s_logits[i] * s_y[i];
-        y_mean_out[q] = mean;
-        float var = 0.0f;
+        double mean = 0.0;
+        for (int i = 0; i < K; ++i) mean += (double)s_logits[i] * (double)s_y[i];
+        y_mean_out[q] = (float)mean;
+        double var = 0.0;
         for (int i = 0; i < K; ++i) {
-            float diff = s_y[i] - mean;
+            double diff = (double)s_y[i] - mean;
             var += s_logits[i] * diff * diff;
         }
         y_std_out[q] = (var > 0.0f) ? sqrtf(var) : 0.0f;
@@ -166,11 +166,11 @@ void row_attention_stage4_fused(
 
     // Stage 4: per-dim weighted mean of projected neighbour features. Parallelise across head_dim: each thread t handles dims t, t+K, t+2K, ...
     for (int d = t; d < head_dim; d += K) {
-        float s = 0.0f;
+        double s = 0.0;
         for (int i = 0; i < K; ++i) {
-            s += s_logits[i] * k_proj[(long long)topk_ids[qK + i] * head_dim + d];
+            s += (double)s_logits[i] * (double)k_proj[(long long)topk_ids[qK + i] * head_dim + d];
         }
-        x_mean_out[qH + d] = s;
+        x_mean_out[qH + d] = (float)s;
     }
 }
 """
@@ -345,7 +345,7 @@ def row_attention_stage4_cupy(
     y_std_dev = cp.empty(n_queries, dtype=cp.float32)
     x_mean_dev = cp.empty((n_queries, head_dim), dtype=cp.float32)
 
-    shared_mem_bytes = 2 * k * 4
+    shared_mem_bytes = 2 * k * 8
 
     # Block layout: one block per query, threads = K. Grid = n_queries.
     row_attention_stage4_raw_kernel(

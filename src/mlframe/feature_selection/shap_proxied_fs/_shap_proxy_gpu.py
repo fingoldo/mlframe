@@ -19,7 +19,7 @@ import multiprocessing
 
 import numpy as np
 
-from mlframe.feature_selection.filters.shared import assert_kernel_buffers, crit_float_dtype
+from mlframe.feature_selection.filters.shared import assert_kernel_buffers
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import METRIC_CODES, resolve_metric
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import generate_combinations, _merge_topn
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import _cuda_demote_errors
@@ -124,8 +124,9 @@ def brute_force_top_n_gpu(
         raise ValueError("GPU backend does not support metric='auc'; use brier/logloss.")
     metric_code = METRIC_CODES[metric_name]
 
-    buf_t = crit_float_dtype()
-    _real = "float" if buf_t == cp.float32 else "double"
+    # Float64 buffers: float32 losses turn near-equal subsets into ties, and the ranking then depends on the kernel's reduction order.
+    _real = "double"
+    buf_t = cp.float64
     kernel = _ensure_kernel(_real)
     block = _block_size()
 
@@ -153,11 +154,15 @@ def brute_force_top_n_gpu(
         # selected as "top"; lower=better, so +inf sinks. Cannot be exercised on this CPU-only box.
         out_d[~cp.isfinite(out_d)] = cp.inf
         k = min(top_n, C)
-        sel = cp.argpartition(out_d, k - 1)[:k]
-        sel = sel[device_argsort(out_d[sel])]
-        sel_host = cp.asnumpy(sel)
-        loss_host = cp.asnumpy(out_d[sel])
-        for pos, ci in enumerate(sel_host):
+        # Strictly-better subsets fill the top-k; a loss tie at the boundary takes the lowest combination indices, as the CPU scan does.
+        kth = out_d[cp.argpartition(out_d, k - 1)[:k]].max()
+        below = cp.nonzero(out_d < kth)[0]
+        ties = cp.nonzero(out_d == kth)[0][: k - int(below.size)]
+        sel_host = cp.asnumpy(cp.concatenate((below, ties)))
+        loss_host = cp.asnumpy(out_d[cp.asarray(sel_host)])
+        order = np.lexsort((sel_host, loss_host))  # loss first, then combination index
+        for pos in order:
+            ci = sel_host[pos]
             candidates.append((float(loss_host[pos]), tuple(int(x) for x in combos[ci])))
     merged = _merge_topn(candidates, top_n)
     if metric_name == "rmse":

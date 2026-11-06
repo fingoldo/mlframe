@@ -139,6 +139,9 @@ def compute_row_attention(
 ) -> pl.DataFrame:
     """Multi-head softmax-weighted kNN-target-encoding over random-subspace projections.
 
+    The GPU stage-4 kernel computes in float32 whatever ``dtype`` is passed, as the output buffers always are; ``dtype=np.float64`` changes only the
+    CPU path's internal arithmetic. Neighbour logits closer than float32 epsilon can rank differently on the two paths.
+
     Pipeline (4 stages; backend per stage is fixed):
         1. CPU: validate, standardise (RobustScaler).
         2. CPU: project X via per-head random Gaussian matrices to (n_heads, N, head_dim).

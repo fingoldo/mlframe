@@ -38,7 +38,6 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
-from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 from numba import njit, prange
 from mlframe.utils.log_throttle import log_throttle
 
@@ -164,8 +163,8 @@ def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
 
     children_left = np.asarray(cl, dtype=np.int32)
     children_right = np.asarray(cr, dtype=np.int32)
-    values = np.asarray(val, dtype=_crit_np_dtype())
-    node_sample_weight = np.asarray(cover, dtype=_crit_np_dtype())
+    values = np.asarray(val, dtype=np.float64)
+    node_sample_weight = np.asarray(cover, dtype=np.float64)
     tree_roots_arr = np.asarray(tree_roots, dtype=np.int32)
 
     # SHAP's tree_path_dependent base value is NOT base_score: it is base_score plus, per tree, the
@@ -197,7 +196,7 @@ def _ensemble_expected_value(children_left, children_right, values, cover, tree_
     propagates leaf expectations upward. Returns the summed root expectation across all trees.
     """
     n_nodes = children_left.shape[0]
-    exp = values.astype(_crit_np_dtype()).copy()  # leaves already hold their value; internals overwritten
+    exp = values.astype(np.float64).copy()  # leaves already hold their value; internals overwritten
     # Reverse pass: when we reach an internal node, its children are already finalised.
     for nid in range(n_nodes - 1, -1, -1):
         lc = children_left[nid]
@@ -451,7 +450,7 @@ def treeshap_phi_base_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.n
 
     Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
     n = Xf.shape[0]
-    phi = np.zeros((n, ensemble.n_features), dtype=_crit_np_dtype())
+    phi = np.zeros((n, ensemble.n_features), dtype=np.float64)
     with parallel_kernel_entry():
         _treeshap_batch(
             Xf, phi,
@@ -538,8 +537,8 @@ def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
 
     children_left = np.asarray(cl, dtype=np.int32)
     children_right = np.asarray(cr, dtype=np.int32)
-    values = np.asarray(val, dtype=_crit_np_dtype())
-    node_sample_weight = np.asarray(cover, dtype=_crit_np_dtype())
+    values = np.asarray(val, dtype=np.float64)
+    node_sample_weight = np.asarray(cover, dtype=np.float64)
     tree_roots_arr = np.asarray(tree_roots, dtype=np.int32)
     base_offset = _ensemble_expected_value(children_left, children_right, values, node_sample_weight, tree_roots_arr)
 

@@ -438,7 +438,8 @@ def fit_binned_numeric_agg(
         # (mirrors the orth-univariate/pair-cross/extra-basis generators' internal deadline check).
         if fe_deadline_passed():
             break
-        gvals = np.asarray(X[gcol].to_numpy(), dtype=_crit_np_dtype())
+        # Float64 for binning: the device path bins at float64, and float32 collapses nearby group values onto one edge.
+        gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)
         if not np.isfinite(gvals).all():
             continue  # v1 skips NaN-bearing group columns (quantile-edge replay has no NaN bin)
         nbins, kept_stats = resolve_nbins_and_stats(n, stats, nbins_base, k=1)
@@ -456,7 +457,7 @@ def fit_binned_numeric_agg(
                 continue  # PRE-CAP: only compute OOF for the kept top-max_pairs (bit-identical output)
             _avc = _av_cache.get(acol)
             if _avc is None:
-                av = np.asarray(X[acol].to_numpy(), dtype=_crit_np_dtype())
+                av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
                 finite = np.isfinite(av)
                 finite_count = int(np.count_nonzero(finite))
                 _av_cache[acol] = (av, finite, finite_count)
