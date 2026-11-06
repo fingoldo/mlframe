@@ -307,13 +307,20 @@ BITSET_BUDGET_BYTES = 128 * 1024 * 1024  # column bitsets held at a time
 
 def bitset_groups(cols: np.ndarray, n_x: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[tuple[int, int, np.ndarray]]]:
     """``(table, c_a, px, groups)`` for the bitset null: the xlogx table, the per-column ``sum_a xlogx(px_a)`` and bin counts, and ``[(lo, hi, bits)]`` column groups within the memory budget."""
+    table, c_a, px, group_iter = bitset_tables_and_group_iter(cols, n_x)
+    return table, c_a, px, list(group_iter)
+
+
+def bitset_tables_and_group_iter(cols: np.ndarray, n_x: np.ndarray) -> tuple:
+    """``(table, c_a, px, groups)`` as :func:`bitset_groups` returns them, with ``groups`` a generator: each column group's bit sets are built when it is asked for. A caller that hands every group
+    to the device as it arrives (``DeviceBitsets``) never holds more than one group of bit sets on the host, where the list holds the whole family's (about one and a half bytes per code)."""
     k, n = cols.shape
     cap = int(n_x.max())
     table = xlogx_table(n)
     px, c_a = column_marginals(cols, n_x, cap, table)
     words = (n + 63) // 64
     per_group = max(1, BITSET_BUDGET_BYTES // (cap * words * 8))
-    groups = [(lo, min(lo + per_group, k), column_bin_bitsets(cols[lo : lo + per_group], n_x[lo : lo + per_group], cap)) for lo in range(0, k, per_group)]
+    groups = ((lo, min(lo + per_group, k), column_bin_bitsets(cols[lo : lo + per_group], n_x[lo : lo + per_group], cap)) for lo in range(0, k, per_group))
     return table, c_a, px, groups
 
 

@@ -104,25 +104,37 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
     return float(compute_mi_from_codes(xc, y_codes))
 
 
+#: Host bytes one block of candidate columns may hold in the strict-resident group pre-selection (the columns of the block, and the stacked copy the device pass takes of them).
+_GROUP_SELECTION_BLOCK_BYTES = 192 * 1024 * 1024
+
+
 def _cheap_mi_group_selection_device(X: pd.DataFrame, gcands: Sequence[str], y_codes: np.ndarray, nbins: int) -> dict:
-    """The strict-resident group pre-selection: the finite, non-constant candidates are scored in one device pass (``group_mi_block_gpu``), any other candidate scores 0.0 as in ``_cheap_mi_with_y``; a failed block pass keeps the per-column device loop."""
+    """The strict-resident group pre-selection: the finite, non-constant candidates are scored in device passes (``group_mi_block_gpu``) of column blocks that fit a host budget, any other candidate scores 0.0 as in ``_cheap_mi_with_y``.
+
+    Every column is binned by its own quantile edges, so the blocks give the values one pass over all the columns gave. The columns stay in the criterion dtype of the device pass (float32 frames are not widened to float64 on the host: 800 MB of
+    candidate columns at a million rows and 100 columns, and the stacked copy of them)."""
     from ._qbin_block_gpu import group_mi_block_gpu
 
+    dt = crit_float_dtype()
+    n = max(1, int(np.size(y_codes)))
+    width = max(2, _GROUP_SELECTION_BLOCK_BYTES // (n * int(np.dtype(dt).itemsize)))
     out: dict = {}
-    names: list = []
-    cols: list = []
+    usable: list = []
     for g in gcands:
-        cv = np.asarray(X[g].to_numpy(), dtype=np.float64)  # Intentional float64: the group and operand columns are binned by exact quantile edges from the host float64 values
+        cv = np.asarray(X[g].to_numpy(), dtype=dt)
         if not np.isfinite(cv).all() or float(np.min(cv)) == float(np.max(cv)):
             out[g] = 0.0
             continue
-        names.append(g)
-        cols.append(cv)
-    if cols:
-        mis = group_mi_block_gpu(cols, y_codes, int(nbins)) if len(cols) > 1 else None
-        if mis is None:
-            return {g: _cheap_mi_with_y(X[g].to_numpy(), y_codes, nbins) for g in gcands}
-        out.update(zip(names, (float(m) for m in mis)))
+        usable.append(g)
+    if len(usable) > 1:
+        for start in range(0, len(usable), width):
+            names = usable[start : start + width]
+            mis = group_mi_block_gpu([np.asarray(X[g].to_numpy(), dtype=dt) for g in names], y_codes, int(nbins))
+            if mis is None:
+                return {g: _cheap_mi_with_y(X[g].to_numpy(), y_codes, nbins) for g in gcands}
+            out.update(zip(names, (float(m) for m in mis)))
+    elif usable:
+        return {g: _cheap_mi_with_y(X[g].to_numpy(), y_codes, nbins) for g in gcands}
     return {g: out[g] for g in gcands}
 
 

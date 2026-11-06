@@ -347,6 +347,7 @@ def build_binagg_oof_matrix_gpu(
     # stats -> compute once, keyed on (group, agg). The per-stat gather/fallback is the only per-column work.
     code_cache: dict = {}  # gcol -> (codes_g, n_cells)
     pair_cache: dict = {}  # (gcol, acol) -> (av_g, finite_g, v_safe, finite_f, per-fold moments/stat cache)
+    acol_cache: dict = {}  # acol -> (av_g, finite_g, v_safe, finite_f): the aggregated column's device operands, shared by every group column
 
     # Stats requested per (group, agg) pair -> derive ALL of a pair's stats from the shared per-fold moments in
     # ONE _stats_from_moments_gpu pass (was one call per (pair, fold, stat): mean/std/skew/kurt each derived by a
@@ -390,15 +391,20 @@ def build_binagg_oof_matrix_gpu(
 
         pc = pair_cache.get((gcol, acol))
         if pc is None:
-            # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
-            av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
-            # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
-            av_g = resident_operand(np.ascontiguousarray(av), ("binagg_a", acol), dtype=cp.float64)
-            finite_g = cp.isfinite(av_g)
-            # v_safe: non-finite entries zeroed once so the masked scatter-add never forms inf*0=nan on the
-            # rows excluded by the 0/1 weight (the weight already carries finite_g, so their contribution is 0).
-            v_safe = cp.where(finite_g, av_g, 0.0)
-            finite_f = finite_g.astype(cp.float64)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
+            # the aggregated column's device operands depend on the column only, so every group column of the same aggregated column shares them
+            ac = acol_cache.get(acol)
+            if ac is None:
+                # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
+                av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
+                # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
+                av_g = resident_operand(np.ascontiguousarray(av), ("binagg_a", acol), dtype=cp.float64)
+                finite_g = cp.isfinite(av_g)
+                # v_safe: non-finite entries zeroed once so the masked scatter-add never forms inf*0=nan on the
+                # rows excluded by the 0/1 weight (the weight already carries finite_g, so their contribution is 0).
+                v_safe = cp.where(finite_g, av_g, 0.0)
+                finite_f = finite_g.astype(cp.float64)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
+                ac = acol_cache[acol] = (av_g, finite_g, v_safe, finite_f)
+            av_g, finite_g, v_safe, finite_f = ac
             _fold_stat_cache_new: dict = {}
             pc = (av_g, finite_g, v_safe, finite_f, _fold_stat_cache_new)
             pair_cache[(gcol, acol)] = pc

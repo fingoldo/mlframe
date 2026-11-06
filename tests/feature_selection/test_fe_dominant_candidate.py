@@ -108,3 +108,20 @@ def test_concurrent_cascade_keeps_only_early_a_on_a_dominant_candidate(monkeypat
     X_out, raw = R._run_fe_stage_cascades(_Self(), X, y, 0, 1, y, None, None, None, _Rec())
     assert list(X_out.columns) == list(X.columns) and list(raw) == list(X.columns)
     assert C.concurrency_enabled()
+
+
+def test_blocks_of_columns_name_the_same_dominant_column(monkeypatch):
+    """A frame over the block budget is scored a block of columns at a time; the dominant column is the one a single call names."""
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.feature_selection.filters import _fe_dominant_candidate as dom
+
+    rng = np.random.default_rng(0)
+    n = 20_000
+    X = pd.DataFrame({f"x{i}": rng.normal(size=n) for i in range(5)})
+    y = (X["x2"].to_numpy() > 0).astype(np.int64)  # x2 is the label itself
+    one_call = dom.dominant_candidate(X, y)
+    monkeypatch.setattr(dom, "_BLOCK_BYTES", n * 4 * 2)  # two columns per block
+    blocked = dom.dominant_candidate(X, y)
+    assert one_call == blocked == "x2"

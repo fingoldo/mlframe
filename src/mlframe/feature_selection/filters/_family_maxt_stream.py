@@ -22,6 +22,10 @@ from typing import Any
 
 # A group of columns may hold this share of the free host RAM (the stacked group, and the transposed copies the kernels make of it).
 _STACK_FREE_FRACTION = 0.25
+# What a stacked group of codes costs per code, in bytes, beyond the code itself: its column bit sets (a bin set of ``n / 8`` bytes per bin, about one and a half bytes per code at the
+# usual twelve bins) and the transposed copy the kernels take of it. Measured at 1000000 rows x 100 columns: the group budget counted only the codes, so the groups of a wide family
+# held about three and a half times the share of the free RAM they were planned for (peak growth 8.2 GB = 20 x the frame).
+_GROUP_FOOTPRINT_PER_CODE = 3.5
 
 
 def _code_itemsize(mats: "list[np.ndarray]") -> int:
@@ -36,7 +40,7 @@ def plan_stream_groups(mats: "list[np.ndarray]", widths: "list[int]", n_rows: in
     """Groups of column pieces ``(batch, first, stop)`` whose stacked matrix fits the budget, or ``None`` when the whole family fits (the single-pass path then runs)."""
     from ._orthogonal_univariate_fe._streamed_gpu_mi import _host_free_bytes
 
-    per_column = max(1, int(n_rows)) * _code_itemsize(mats)
+    per_column = max(1, int(n_rows * _code_itemsize(mats) * _GROUP_FOOTPRINT_PER_CODE))
     budget_columns = max(1, int(_STACK_FREE_FRACTION * _host_free_bytes() // per_column))
     if int(sum(widths)) <= budget_columns:
         return None

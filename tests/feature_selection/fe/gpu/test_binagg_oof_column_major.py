@@ -42,3 +42,20 @@ def test_empty_spec_list_has_matching_empty_shapes():
     folds = res.binagg_fold_ids(10, 2, 0)
     assert res.build_binagg_oof_matrix_gpu(cp, df, [], folds, 2).shape == (10, 0)
     assert res.build_binagg_oof_matrix_gpu(cp, df, [], folds, 2, column_major=True).shape == (0, 10)
+
+
+def test_group_columns_sharing_an_aggregated_column_match_separate_builds():
+    """Two group columns aggregating the same column share its device operands; the combined build equals the two builds made one at a time."""
+    rng = np.random.default_rng(1)
+    n = 8_000
+    df = pd.DataFrame({"g1": rng.normal(size=n), "g2": rng.uniform(size=n), "a1": rng.normal(size=n)})
+    df.loc[::29, "a1"] = np.nan
+    specs = []
+    for g in ("g1", "g2"):
+        edges = np.quantile(df[g], np.linspace(0, 1, 7)[1:-1])
+        for stat in ("mean", "std"):
+            specs.append({"name": f"a1_{stat}_by_{g}", "group_col": g, "agg_col": "a1", "stat": stat, "edges": edges, "global": float(df["a1"].mean())})
+    folds = res.binagg_fold_ids(n, 5, 0)
+    together = cp.asnumpy(res.build_binagg_oof_matrix_gpu(cp, df, specs, folds, 5))
+    apart = np.column_stack([cp.asnumpy(res.build_binagg_oof_matrix_gpu(cp, df, [s], folds, 5))[:, 0] for s in specs])
+    np.testing.assert_allclose(together, apart, rtol=1e-9, atol=1e-12, equal_nan=True)

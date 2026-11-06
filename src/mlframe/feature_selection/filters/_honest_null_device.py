@@ -216,10 +216,18 @@ def _get_kernel_k2(cp):
 
 def _pack_bits(y_perm: np.ndarray) -> np.ndarray:
     """``(permutations, ceil(n / 32))`` uint32 rows of the 0 / 1 labels, bit ``i % 32`` of word ``i // 32``."""
-    n = y_perm.shape[1]
-    pad = (-n) % 32
-    bits = np.pad((y_perm == 1).astype(np.uint8), ((0, 0), (0, pad)))
-    return np.packbits(bits, axis=1, bitorder="little").view(np.uint32)  # (permutations, words)
+    b_count, n = int(y_perm.shape[0]), int(y_perm.shape[1])
+    words = (n + 31) // 32
+    out = np.empty((b_count, words), dtype=np.uint32)
+    # the rows are packed a block at a time: the boolean mask, its uint8 copy and the padded copy of the whole matrix were three (permutations, n) arrays at once
+    # (1.5 GB for 500 permutations of a million rows)
+    step = max(1, (64 << 20) // max(1, words * 32))
+    for r in range(0, b_count, step):
+        block = y_perm[r : r + step]
+        buf = np.zeros((block.shape[0], words * 32), dtype=np.uint8)
+        buf[:, :n] = block == 1
+        out[r : r + step] = np.packbits(buf, axis=1, bitorder="little").view(np.uint32)
+    return out  # (permutations, words)
 
 
 @njit(cache=True, parallel=True)
@@ -426,7 +434,8 @@ def honest_null_columns_device(
     codes, nx, kx = _fallback_codes(raw_cont, is_cont, fixed_codes, fixed_nbins, col_slot, q_fallback, q_fallback_len, eval_rows, nan_cont)
     if int(nx.max()) > MAX_BINS:
         return None
-    ys = np.ascontiguousarray(y_codes_perm[:, eval_rows], dtype=np.int64)
+    # the permuted codes keep their own narrow integer type (int8 for a binary target): widening them to int64 made an 8x copy of the (permutations, rows) matrix
+    ys = y_codes_perm if (eval_rows.shape[0] == y_codes_perm.shape[1] and bool(np.array_equal(eval_rows, np.arange(eval_rows.shape[0])))) else np.ascontiguousarray(y_codes_perm[:, eval_rows])
     ny = int(ys.max()) + 1
     if ny > MAX_CLASSES:
         return None

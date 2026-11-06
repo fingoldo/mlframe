@@ -270,7 +270,7 @@ def _collinear_hits_streaming(X: Any, live: list, n_rows: int, tol: float = _COL
     return good, hits
 
 
-def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_PASS_MAX_COLS, max_collinearity_bytes: int = _COLLINEARITY_PASS_MAX_BYTES) -> dict:
+def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_PASS_MAX_COLS, max_collinearity_bytes: "int | None" = None) -> dict:
     """Cheap O(p) degenerate-column scan. Returns ``{column: reason}``.
 
     Order of precedence per column: all_nan > constant > duplicate_of > collinear_with.
@@ -286,6 +286,16 @@ def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_
     influences selection. Above this many numeric candidate columns, the collinearity pass is skipped
     (``collinear_with`` reasons simply won't be reported that fit; all_nan/constant/duplicate still are).
     """
+    if max_collinearity_bytes is None:
+        # the dense pass holds the (K, n) matrix and the BLAS call takes about as much again: the share of the free RAM it may use is a tenth, so a frame that does not fit
+        # that streams (the random-projection pass) instead of allocating (1085 MB of growth for a 400 MB frame at a million rows x 100 columns)
+        max_collinearity_bytes = _COLLINEARITY_PASS_MAX_BYTES
+        try:
+            import psutil
+
+            max_collinearity_bytes = min(max_collinearity_bytes, int(psutil.virtual_memory().available) // 10)
+        except Exception as exc:  # no psutil: the fixed cap decides
+            logger.debug("degenerate audit: free-memory probe failed (%s); using the fixed %d byte cap", exc, max_collinearity_bytes)
     degenerate: dict = {}
     seen_content: dict = {}  # content_key -> first column name
     numeric_cols: list = []  # names of numeric candidates for the collinearity pass; values are re-read from X when the matrix is filled

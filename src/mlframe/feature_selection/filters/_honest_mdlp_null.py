@@ -113,7 +113,9 @@ def _permuted_labels_cached(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, 
     # one byte per label per permutation when the codes are the raw labels (one shared matrix), two otherwise; the cap is a fixed budget, widened to a quarter of the free memory (at most 2 GiB)
     # so that a million-row draw (about 1 GB) is kept for the next call instead of redrawn
     draw_bytes = n_permutations * n * (1 if np.array_equal(y_raw, y_codes) else 2)
-    cap = max(_PERM_LABELS_CACHE_MAX_BYTES, min(2 * 1024**3, _free_memory_bytes() // 4))
+    # a sixteenth of the free memory (it was a quarter): the matrix is needed while the null is computed, and a kept copy stays on the spec for the rest of the fit, through the stages that
+    # follow it (500 MB at 500000 rows was live at the fit's peak); the null is asked for twice per fit, so a redraw costs 2.7 s per 1000 permutations at 500000 rows
+    cap = max(_PERM_LABELS_CACHE_MAX_BYTES, min(2 * 1024**3, _free_memory_bytes() // 16))
     if draw_bytes > cap:
         log_throttle(
             logger, "honest_null_perm_labels_cache_too_large", logging.INFO,
@@ -131,7 +133,27 @@ def _permuted_labels_cached(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, 
     return hit[0][:n_permutations], hit[1][:n_permutations]
 
 
+#: Host bytes one block of columns of the honest null may hold (its raw values, NaN flags and codes, and the sort order and tie flags the device pass makes of them).
+_NULL_COLUMNS_BLOCK_BYTES = 192 * 1024 * 1024
+
+
 def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, cols, n_permutations: int, seed_key: int, eval_rows=None):
+    """Per-permutation null MI of ``cols`` (no cache): ``(plain, corrected)`` each ``(n_permutations, len(cols))``, from ``honest_null_columns``.
+
+    A column's null depends on that column, the labels and the permutation stream only, and the stream is a function of ``seed_key``, so the columns go in blocks that fit a host budget and the
+    blocks' results are laid side by side: the values are the ones a single call gives. A block holds about 20 bytes per row and column (the raw values, the NaN flag, the codes, the int32 sort
+    order and the tie flags); at a million rows the 100 columns of a fit were 2 GB at once."""
+    cols = list(cols)
+    n = int(factors_data.shape[0])
+    per_column = n * (int(spec["raw"].dtype.itemsize) + 1 + 2 + 4 + 1)
+    width = max(1, _NULL_COLUMNS_BLOCK_BYTES // max(1, per_column))
+    if len(cols) <= width:
+        return _njit_null_columns_block(spec, factors_data, factors_nbins, y_idx, cols, n_permutations, seed_key, eval_rows)
+    parts = [_njit_null_columns_block(spec, factors_data, factors_nbins, y_idx, cols[start : start + width], n_permutations, seed_key, eval_rows) for start in range(0, len(cols), width)]
+    return np.concatenate([p[0] for p in parts], axis=1), np.concatenate([p[1] for p in parts], axis=1)
+
+
+def _njit_null_columns_block(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, cols, n_permutations: int, seed_key: int, eval_rows=None):
     """Per-permutation null MI of ``cols`` (no cache): ``(plain, corrected)`` each ``(n_permutations, len(cols))``, from ``honest_null_columns``."""
     from ._mdlp_oos_honest_njit import honest_validated_null_columns
     from ._analytic_mi_null import analytic_null_min_n, analytic_null_min_n_lowered, _min_expected_cell

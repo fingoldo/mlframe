@@ -150,10 +150,13 @@ class DeviceBitsets:
         self.c_a = cp.asarray(c_a, dtype=self.table.dtype)
         self.px = cp.asarray(px)
         self.n_x = cp.asarray(np.ascontiguousarray(n_x, dtype=np.int64))
-        self.cap = int(groups[0][2].shape[1])
-        self.words = int(groups[0][2].shape[2])
-        # word-major per group: (bins, words, columns), so the threads of a warp (consecutive columns) read consecutive addresses
-        self.groups = [(lo, hi, cp.ascontiguousarray(cp.asarray(bits).transpose(1, 2, 0))) for lo, hi, bits in groups]
+        self.groups: list = []
+        for lo, hi, bits in groups:  # a generator is consumed one group at a time: the host bit sets of a group are dropped once it is on the device
+            if not self.groups:
+                self.cap = int(bits.shape[1])
+                self.words = int(bits.shape[2])
+            # word-major per group: (bins, words, columns), so the threads of a warp (consecutive columns) read consecutive addresses
+            self.groups.append((lo, hi, cp.ascontiguousarray(cp.asarray(bits).transpose(1, 2, 0))))
 
 
 def null_max_bits_device(dev: DeviceBitsets, cls_host: np.ndarray, py_const: float, acc: Any = None) -> np.ndarray | None:
