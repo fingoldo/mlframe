@@ -103,7 +103,10 @@ def gpu_pairs_fe_mi(
         # sort-free); the observed MI + G-test keep/reject are the same estimator + decision. Any cupy fault ->
         # None -> the CPU dispatcher.
         _nb = int(quantization_nbins)
-        cand_d = cp.asarray(np.ascontiguousarray(cand, dtype=np.float32))
+        # Narrow to float32 only when no two distinct values can merge: an offset that dwarfs the spread (the same test as the hermite binning) keeps float64.
+        from ._hermite_fe_mi import _binning_dtype
+
+        cand_d = cp.asarray(np.ascontiguousarray(cand, dtype=_binning_dtype(cand)))
         codes_d = _gpu_resident_discretize_codes(cand_d, _nb, out_dtype=cp.int32)  # (n,K) RESIDENT int codes
         yc = np.ascontiguousarray(classes_y, dtype=np.int64)
         # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties

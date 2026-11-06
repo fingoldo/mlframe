@@ -57,7 +57,7 @@ Four read-only audits covered the remaining GPU-kernel files (reports `kernel_pa
 | PARG1-5 | Medium | RESOLVED | `d38ed8df8` block count gives a NaN row the edge count, as the per-column binner; test `test_qbin_block_nan_code_matches_single_column.py` |
 | PARG1-6 | Medium | RESOLVED | `7d08849ca` four-entropy CMI fallback reduces in float64; test `test_cmi_entropy_fallback_is_double.py` |
 | PARG2-3 | Medium | OPEN | Cupy polynom optimiser builds basis in float32; high degree overflows where numba float64 scores it |
-| PARG2-4 | Medium | OPEN | `gpu_pairs_fe_mi` casts candidates to float32 before binning |
+| PARG2-4 | Medium | RESOLVED | `(commit)` `gpu_pairs_fe_mi` narrows candidates with the offset-aware dtype (`_binning_dtype`); on HEAD a column 1+i*1e-12 gave MI 0, now ln 2; test `test_gpu_pairs_mi_keeps_near_tied_float64_values_apart.py` | `gpu_pairs_fe_mi` casts candidates to float32 before binning |
 | PARG3-3 | Medium | RESOLVED | `2d2271bfe` fused bin-code kernels send a NaN row past every edge, as the fallback and CPU; test `test_discretize_fused_nan_code_is_the_last_bin.py` |
 | PARG3-4 | Medium | RESOLVED | `99fa73344` device HSIC centres rows in float64 before narrowing; test `test_hsic_device_is_offset_invariant.py` |
 | PARG2-6 | Low | RESOLVED | `b4bc25fcb` fused gate clamps MI at zero as the host; reproduced at -6.5e-16 on HEAD; test `test_fused_su_gate_clamps_negative_mi.py` |
