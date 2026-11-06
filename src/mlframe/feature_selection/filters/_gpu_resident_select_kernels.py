@@ -46,7 +46,7 @@ void radix_select_f64(const double* __restrict__ data, const long long n, const 
         __syncthreads();
         for(long long i=tid;i<n;i+=nt){
             double d=data[(long long)col*n+i];unsigned long long u;memcpy(&u,&d,8);  // COLUMN-MAJOR: coalesced
-            u=(u&0x8000000000000000ULL)?~u:(u|0x8000000000000000ULL);
+            u=((u&0x7FFFFFFFFFFFFFFFULL)>0x7FF0000000000000ULL)?0xFFFFFFFFFFFFFFFFULL:((u&0x8000000000000000ULL)?~u:(u|0x8000000000000000ULL));
             unsigned long long pm=u&hmask;int win=-1;
             for(int q=0;q<Wl;++q)if(wpref[q]==pm){win=q;break;}
             if(win>=0){int dig=(int)((u>>shift)&0xFFULL);atomicAdd(&sh[win*256+dig],1u);}
@@ -90,7 +90,7 @@ void radix_select_f32(const float* __restrict__ data, const long long n, const i
         __syncthreads();
         for(long long i=tid;i<n;i+=nt){
             float d=data[(long long)col*n+i];unsigned int u;memcpy(&u,&d,4);  // COLUMN-MAJOR: coalesced
-            u=(u&0x80000000u)?~u:(u|0x80000000u);
+            u=((u&0x7FFFFFFFu)>0x7F800000u)?0xFFFFFFFFu:((u&0x80000000u)?~u:(u|0x80000000u));
             unsigned int pm=u&hmask;int win=-1;
             for(int q=0;q<Wl;++q)if(wpref[q]==pm){win=q;break;}
             if(win>=0){int dig=(int)((u>>shift)&0xFFu);atomicAdd(&sh[win*256+dig],1u);}
@@ -156,7 +156,7 @@ void radix_select_f32_bsearch(const float* __restrict__ data, const long long n,
         __syncthreads();
         for(long long i=tid;i<n;i+=nt){
             float d=data[(long long)col*n+i];unsigned int u;memcpy(&u,&d,4);  // COLUMN-MAJOR: coalesced
-            u=(u&0x80000000u)?~u:(u|0x80000000u);
+            u=((u&0x7FFFFFFFu)>0x7F800000u)?0xFFFFFFFFu:((u&0x80000000u)?~u:(u|0x80000000u));
             unsigned int pm=u&hmask;
             // branchless lower_bound over wsort[0..Wl): fixed-trip-count, no early break -> low warp divergence
             int lo=0,hi=Wl;
@@ -250,7 +250,7 @@ void radix_select_f32_v3(const float* __restrict__ data, const long long n, cons
         __syncthreads();
         for(long long i=tid;i<n;i+=nt){
             float d=data[(long long)col*n+i];unsigned int u;memcpy(&u,&d,4);  // COLUMN-MAJOR: coalesced
-            u=(u&0x80000000u)?~u:(u|0x80000000u);
+            u=((u&0x7FFFFFFFu)>0x7F800000u)?0xFFFFFFFFu:((u&0x80000000u)?~u:(u|0x80000000u));
             unsigned int pm=u&hmask;
             int lo=0,hi=Wl;
             while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}
@@ -564,7 +564,7 @@ void radix_select_interp_f64(const double* __restrict__ data, const long long n,
         __syncthreads();
         for(long long i=tid;i<n;i+=nt){
             double d=data[(long long)col*n+i];unsigned long long u;memcpy(&u,&d,8);
-            u=(u&0x8000000000000000ULL)?~u:(u|0x8000000000000000ULL);
+            u=((u&0x7FFFFFFFFFFFFFFFULL)>0x7FF0000000000000ULL)?0xFFFFFFFFFFFFFFFFULL:((u&0x8000000000000000ULL)?~u:(u|0x8000000000000000ULL));
             unsigned long long pm=u&hmask;int win=-1;
             for(int q=0;q<Wl;++q)if(wpref[q]==pm){win=q;break;}
             if(win>=0){int dig=(int)((u>>shift)&0xFFULL);atomicAdd(&sh[win*256+dig],1u);}
@@ -632,7 +632,7 @@ void radix_select_interp_f64_v2(const double* __restrict__ data, const long long
         __syncthreads();
         for(long long i=tid;i<n;i+=nt){
             double d=data[(long long)col*n+i];unsigned long long u;memcpy(&u,&d,8);
-            u=(u&0x8000000000000000ULL)?~u:(u|0x8000000000000000ULL);
+            u=((u&0x7FFFFFFFFFFFFFFFULL)>0x7FF0000000000000ULL)?0xFFFFFFFFFFFFFFFFULL:((u&0x8000000000000000ULL)?~u:(u|0x8000000000000000ULL));
             unsigned long long pm=u&hmask;
             int lo=0,hi=Wl;
             while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}
@@ -719,7 +719,7 @@ void radix_select_interp_f64_v3(const double* __restrict__ data, const long long
         if(full){
             for(long long i=tid;i<n;i+=nt){
                 double d=data[(long long)col*n+i];unsigned long long u;memcpy(&u,&d,8);
-                u=(u&0x8000000000000000ULL)?~u:(u|0x8000000000000000ULL);
+                u=((u&0x7FFFFFFFFFFFFFFFULL)>0x7FF0000000000000ULL)?0xFFFFFFFFFFFFFFFFULL:((u&0x8000000000000000ULL)?~u:(u|0x8000000000000000ULL));
                 unsigned long long pm=u&hmask;
                 int lo=0,hi=Wl;
                 while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}

@@ -50,7 +50,7 @@ void radix_select_f32_v4(const float* __restrict__ data, const long long n, cons
         if(!have_cand){
             for(long long i=tid;i<n;i+=nt){
                 float d=data[(long long)col*n+i];unsigned int u;memcpy(&u,&d,4);  // COLUMN-MAJOR: coalesced
-                u=(u&0x80000000u)?~u:(u|0x80000000u);
+                u=((u&0x7FFFFFFFu)>0x7F800000u)?0xFFFFFFFFu:((u&0x80000000u)?~u:(u|0x80000000u));
                 unsigned int pm=u&hmask;
                 int lo=0,hi=Wl;
                 while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}
