@@ -186,6 +186,7 @@ def family_null_max_njit(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray,
     return out
 
 
+_PERM_BLOCK_BUDGET_BYTES = env_int("MLFRAME_PERM_BLOCK_BUDGET_MB", 192, minimum=1) * 1024 * 1024  # one block of permutation indices
 _PERM_BLOCK_CACHE_BYTES = env_int("MLFRAME_PERM_BLOCK_CACHE_MB", 1024, minimum=0) * 1024 * 1024  # one full permutation stream of a 100k-row family is ~400 MB; a smaller budget makes the cyclic re-reads of it miss every time
 _perm_block_cache: "OrderedDict[tuple, tuple]" = OrderedDict()
 _perm_block_cache_bytes = 0
@@ -323,6 +324,9 @@ def family_null_max(
     py_const = _label_const(bit_prep[0], y, int(n_y)) if (dev_bits is not None and bit_prep is not None) else 0.0
     words = (int(y.shape[0]) + 63) // 64
     py_counts = np.bincount(np.asarray(y, dtype=np.int64), minlength=int(n_y)).astype(np.int64)
+    # a block of permutation indices is (block, n) ints: at a million rows 256 permutations are a gigabyte, and the block cache holds another; the block is narrowed to the budget
+    # (a fit up to ~190000 rows keeps 256, so its permutation stream is unchanged)
+    block = max(1, min(int(block), _PERM_BLOCK_BUDGET_BYTES // max(1, int(y.shape[0]) * (2 if int(y.shape[0]) <= np.iinfo(np.uint16).max else 4))))
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
         perm_idx = _permutation_block(rng, y, m)

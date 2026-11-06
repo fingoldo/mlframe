@@ -142,3 +142,33 @@ def test_fast_mode_on_keeps_categorise_path(monkeypatch):
     X, y = _fixture()
     _, spec_builds = _fit(X, y, monkeypatch, disable_spec=False, kwargs={"mdlp_fast_mode": True})
     assert spec_builds == 0
+
+
+def test_column_blocks_give_the_values_of_one_call(monkeypatch):
+    """The honest null goes in blocks of columns that fit a host budget; a one-column block layout returns the matrices a single call returns, column by column."""
+    from mlframe.feature_selection.filters import _honest_mdlp_null as hmn
+
+    real_null = hmn._njit_null_columns
+    compared: list = []
+
+    def _spy(spec, factors_data, factors_nbins, y_idx, cols, n_permutations, seed_key, eval_rows=None):
+        """Run the call as it comes, then again with one column per block, and keep the pair."""
+        plain, corr = real_null(spec, factors_data, factors_nbins, y_idx, cols, n_permutations, seed_key, eval_rows)
+        if len(cols) > 1:
+            budget = hmn._NULL_COLUMNS_BLOCK_BYTES
+            hmn._NULL_COLUMNS_BLOCK_BYTES = 1
+            try:
+                plain_b, corr_b = real_null(spec, factors_data, factors_nbins, y_idx, cols, n_permutations, seed_key, eval_rows)
+            finally:
+                hmn._NULL_COLUMNS_BLOCK_BYTES = budget
+            compared.append((np.asarray(plain), np.asarray(plain_b), np.asarray(corr), np.asarray(corr_b)))
+        return plain, corr
+
+    monkeypatch.setattr(hmn, "_njit_null_columns", _spy)
+    X, y = _fixture_with_nan()
+    _fit(X, y, monkeypatch, disable_spec=False, kwargs={})
+    assert compared, "a fit must call the null for several columns at once"
+    for plain, plain_b, corr, corr_b in compared:
+        assert plain.shape == plain_b.shape
+        np.testing.assert_array_equal(plain, plain_b)
+        np.testing.assert_array_equal(corr, corr_b)

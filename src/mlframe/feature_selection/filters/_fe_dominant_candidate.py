@@ -39,6 +39,10 @@ def _target_codes(y: np.ndarray) -> "np.ndarray | None":
     return binned
 
 
+#: Host bytes of one block of columns scored together (the sanitised float32 matrix of the block).
+_BLOCK_BYTES = 256 * 1024 * 1024
+
+
 def dominant_candidate(X: Any, y: Any, n_rows_min: int = _MIN_ROWS) -> "str | None":
     """Name of a numeric column of ``X`` whose corrected MI with ``y`` reaches ``_DOMINANT_FRACTION`` of H(y), else None."""
     if os.environ.get("MLFRAME_FE_DOMINANT_STOP", "1") == "0":
@@ -55,12 +59,21 @@ def dominant_candidate(X: Any, y: Any, n_rows_min: int = _MIN_ROWS) -> "str | No
     names = [c for c in fe_columns(X) if fe_is_numeric_col(X, c)]
     if not names:
         return None
-    cols = fe_extract_columns(X, names)
-    mat = np.column_stack([np.nan_to_num(np.asarray(cols[c], dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0) for c in names])
     from ._hermite_fe_mi import plugin_mi_classif_batch_dispatch
 
-    # Intentional float64: MI statistic vector from the plug-in estimator
-    mi = np.asarray(plugin_mi_classif_batch_dispatch(mat, codes, _N_BINS), dtype=np.float64)
+    # A frame that fits the budget is scored in one call, as before. A larger one goes in blocks of columns: the extracted columns, their sanitised copies and the stacked matrix were
+    # three frame-sized arrays at once (1.2 GB for a million rows x 100 columns), and every column's MI is its own.
+    width = len(names) if n * len(names) * 4 <= _BLOCK_BYTES else max(1, _BLOCK_BYTES // (n * 4))
+    parts = []
+    for start in range(0, len(names), width):
+        block = names[start : start + width]
+        cols = fe_extract_columns(X, block)
+        mat = np.column_stack([np.nan_to_num(np.asarray(cols[c], dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0) for c in block])
+        del cols
+        # Intentional float64: MI statistic vector from the plug-in estimator
+        parts.append(np.asarray(plugin_mi_classif_batch_dispatch(mat, codes, _N_BINS), dtype=np.float64))
+        del mat
+    mi = np.concatenate(parts)
     bias = (_N_BINS - 1) * (len(p) - 1) / (2.0 * n)
     best = int(np.argmax(mi))
     if mi[best] - bias >= _DOMINANT_FRACTION * h_y:

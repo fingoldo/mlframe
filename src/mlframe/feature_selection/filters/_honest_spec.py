@@ -38,7 +38,11 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
     n = len(y_raw)
     m = len(cols)
     nan_cols = np.zeros((n, m), dtype=np.bool_)
-    raw = np.zeros((n, m), dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
+    # float32 frames keep a float32 matrix: widening a float32 value to float64 is exact, so the cut search reads the same numbers (a column with NaN is median-filled in double
+    # precision, so any NaN keeps the double matrix); the (n, m) matrix is the largest array of the spec, 4 bytes per cell instead of 8
+    _numeric = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
+    _f32_exact = bool(_numeric) and all(X[c].dtype == np.float32 for c in _numeric) and not any(bool(X[c].isna().any()) for c in _numeric)
+    raw = np.zeros((n, m), dtype=np.float32 if _f32_exact else np.float64)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
     is_cont = np.zeros(m, dtype=np.bool_)
     q_fb_rows: list[np.ndarray] = []
     q_rf_rows: list[np.ndarray] = []
@@ -82,7 +86,7 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
     def _edges_of(j: int) -> "tuple[bool, np.ndarray, np.ndarray]":
         """``(is continuous, ranked-quantile edges, fallback edges)`` of the filled column ``j``."""
         # One sort serves the distinct count and both quantile edge sets (all three are order-invariant, and the percentile selection and the unique pass are cheap on sorted input).
-        v = np.sort(raw[:, j])
+        v = np.sort(raw[:, j]).astype(np.float64, copy=False)  # Intentional float64: the edges are computed in double precision from the (exactly widened) sorted column
         if 1 + int(np.count_nonzero(v[1:] != v[:-1])) <= _LOW_CARD_CAP:
             return False, np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width
         # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)

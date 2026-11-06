@@ -214,3 +214,25 @@ def test_resident_gate_blocks_equal_one_matrix(monkeypatch, block):
     monkeypatch.setenv("MLFRAME_BINAGG_GATE_BLOCK", block)
     got = run()
     assert want[0] is not None and got == want
+
+
+def test_group_selection_in_column_blocks_equals_one_pass(monkeypatch):
+    """The strict-resident group pre-selection scores the candidates in host-budget blocks; every column is binned by its own edges, so the block width cannot change a value."""
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.feature_selection.filters import _binned_agg_cheap_mi as cheap
+
+    rng = np.random.default_rng(0)
+    n = 4000
+    X = pd.DataFrame({f"g{i}": rng.standard_normal(n).astype(np.float32) for i in range(7)})
+    X["g_const"] = np.float32(3.0)
+    y = (X["g0"].to_numpy() + 0.3 * rng.standard_normal(n) > 0).astype(np.int64)
+    cands = list(X.columns)
+    one_pass = cheap._cheap_mi_group_selection_device(X, cands, y, 8)
+    monkeypatch.setattr(cheap, "_GROUP_SELECTION_BLOCK_BYTES", n * 4 * 3)  # three columns per block
+    blocked = cheap._cheap_mi_group_selection_device(X, cands, y, 8)
+    assert list(blocked) == list(one_pass) == cands
+    assert blocked["g_const"] == 0.0
+    assert all(abs(blocked[g] - one_pass[g]) <= 1e-12 for g in cands)
+    assert blocked["g0"] > 10 * max(blocked["g3"], 1e-9), "the planted column must stand out in every block layout"
