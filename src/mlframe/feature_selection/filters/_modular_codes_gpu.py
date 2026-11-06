@@ -24,6 +24,7 @@ from pyutilz.performance.gpu_hw_launch import block_size_for
 import pandas as pd
 
 from ._raw_module_cache import RawModuleCache
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ def _sources_per_block(cp, n_rows: int, per_source: int) -> int:
         limit = int(pool.get_limit())
         room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))
     except Exception as exc:
-        logger.debug("modular device codes: free memory unknown (%s)", exc)
+        log_throttle(logger, "_modular_codes_gpu.except_85", logging.WARNING, "modular device codes: free memory unknown (%s)", exc)
         return 4
     per = (_BYTES_PER_SOURCE_ROW + 4 * per_source) * max(1, n_rows)
     return int(max(1, (_BUDGET_FRACTION * room) // per))

@@ -16,6 +16,7 @@ from typing import Any, Optional
 import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ def hsic_biased_columns_gpu(xs_rows: np.ndarray, lc: np.ndarray, sigmas: np.ndar
         out[(out < 0.0) & (out > -1e-12)] = 0.0
         return out
     except Exception as exc:
-        logger.debug("device HSIC not used (%s: %s); host kernel", type(exc).__name__, exc)
+        log_throttle(logger, "_hsic_gpu.except_115", logging.WARNING, "device HSIC not used (%s: %s); host kernel", type(exc).__name__, exc)
         return None
 
 
@@ -132,7 +133,7 @@ def hsic_backend(m: int, k: int) -> str:
         if cp.cuda.runtime.getDeviceCount() < 1:
             return "cpu"
     except Exception as _silent_exc:
-        logger.debug("_hsic_gpu.py: suppressed %r", _silent_exc)
+        log_throttle(logger, "_hsic_gpu.except_134", logging.INFO, "_hsic_gpu.py: suppressed %r", _silent_exc)
         return "cpu"
     fallback = "device" if int(k) * int(m) * int(m) >= _HSIC_DEVICE_MIN_WORK else "cpu"
     try:

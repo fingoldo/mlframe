@@ -20,6 +20,7 @@ import numpy as np
 from mlframe.utils.env_flags import env_int
 
 from .._fe_cmi_redundancy_null import _CMI_FLOOR_QUANTILE as _CMI_QUANTILE
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ def batched_perm_null_admissions(self: Any, gate_cache: dict, cached_MIs: dict, 
     try:
         return _score_groups(self, groups, cached_MIs, data, classes_y, stride)
     except Exception as exc:
-        logger.debug("batched pair admission failed (%s); the pairs are scored one by one", exc)
+        log_throttle(logger, "_pair_admission_batch.except_107", logging.INFO, "batched pair admission failed (%s); the pairs are scored one by one", exc)
         return {}
 
 
@@ -170,7 +171,7 @@ def batched_asymmetric_relax_verdicts(self: Any, pairs: list, synergy_added_idx:
                     out[pair] = bool(obs > floor[j] and (obs - mean[j]) >= floor[j])
         return out
     except Exception as exc:
-        logger.debug("batched asymmetric-synergy relaxation failed (%s); the gate scores the pairs one by one", exc)
+        log_throttle(logger, "_pair_admission_batch.except_172", logging.INFO, "batched asymmetric-synergy relaxation failed (%s); the gate scores the pairs one by one", exc)
         return {}
 
 

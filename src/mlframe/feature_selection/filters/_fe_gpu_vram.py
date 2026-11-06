@@ -114,7 +114,7 @@ def _own_pool_free_bytes() -> int:
 
         return int(cp.get_default_memory_pool().free_bytes())
     except Exception as exc:
-        logger.debug("cupy pool free bytes unreadable (%r); 0", exc)
+        log_throttle(logger, "_fe_gpu_vram.except_116", logging.INFO, "cupy pool free bytes unreadable (%r); 0", exc)
         return 0
 
 

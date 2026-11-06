@@ -385,7 +385,7 @@ def _cmim_scores_device(eng_bins, y_bin, sel_bins, support_names, eng_sources, n
             del Xd
         return np.maximum(out, 0.0)
     except Exception as exc:
-        logger.debug("device CMIM not used (%s: %s); host loop", type(exc).__name__, exc)
+        log_throttle(logger, "_orthogonal_cmim_fe.except_387", logging.WARNING, "device CMIM not used (%s: %s); host loop", type(exc).__name__, exc)
         return None
 
 

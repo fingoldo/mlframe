@@ -228,7 +228,7 @@ def _jmim_scores_device(eng_bins, eng_ks, y_bin, K_y: int, sel_bins, sel_ks):
             del Xd
         return np.asarray(cp.asnumpy(out), dtype=np.float64)  # Intentional float64: score statistic
     except Exception as exc:
-        logger.debug("device JMIM not used (%s: %s); host loop", type(exc).__name__, exc)
+        log_throttle(logger, "_orthogonal_jmim_fe.except_230", logging.WARNING, "device JMIM not used (%s: %s); host loop", type(exc).__name__, exc)
         return None
 
 

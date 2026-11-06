@@ -13,6 +13,7 @@ from typing import Any, Optional
 import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,7 @@ def dcor_columns_gpu(xs: np.ndarray, b: np.ndarray) -> "Optional[tuple[np.ndarra
             dvar2[start:stop] = (sq - 2.0 * m * sum_r2 + mm * g * g) / mm  # moment-ok: distances are translation-invariant, as in the host kernel
         return dcov2, dvar2
     except Exception as exc:
-        logger.debug("device dCor not used (%s: %s); host kernel", type(exc).__name__, exc)
+        log_throttle(logger, "_dcor_gpu.except_103", logging.WARNING, "device dCor not used (%s: %s); host kernel", type(exc).__name__, exc)
         return None
 
 
@@ -120,7 +121,7 @@ def dcor_backend(m: int, k: int) -> str:
         if cp.cuda.runtime.getDeviceCount() < 1:
             return "cpu"
     except Exception as _silent_exc:
-        logger.debug("_dcor_gpu.py: suppressed %r", _silent_exc)
+        log_throttle(logger, "_dcor_gpu.except_122", logging.INFO, "_dcor_gpu.py: suppressed %r", _silent_exc)
         return "cpu"
     fallback = "device" if int(k) * int(m) * int(m) >= _DCOR_DEVICE_MIN_WORK else "cpu"
     try:

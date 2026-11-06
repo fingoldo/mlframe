@@ -16,6 +16,7 @@ from collections.abc import Sequence
 import numpy as np
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 from typing import Any
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ def _order_statistics_rows(cp, xd, n: int, nbins: int):
         hi_rows = cp.asarray([row[int(v)] for v in hi], dtype=cp.int64)
         return osv[lo_rows].T, osv[hi_rows].T
     except Exception as exc:
-        logger.debug("radix order statistics for the qbin block not used (%s: %s); sorting", type(exc).__name__, exc)
+        log_throttle(logger, "_qbin_block_gpu.except_95", logging.INFO, "radix order statistics for the qbin block not used (%s: %s); sorting", type(exc).__name__, exc)
         return None
 
 
@@ -131,7 +132,7 @@ def _block_columns(cp, n_rows: int, n_cols: int) -> int:
         limit = int(pool.get_limit())
         room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))
     except Exception as exc:
-        logger.debug("qbin block: free memory unknown (%s); small blocks", exc)
+        log_throttle(logger, "_qbin_block_gpu.except_133", logging.INFO, "qbin block: free memory unknown (%s); small blocks", exc)
         return 8
     return int(max(1, min(n_cols, (0.25 * room) // (_SORT_BYTES_PER_ROW_COLUMN * max(1, n_rows)))))
 
@@ -177,7 +178,7 @@ def resident_qbin_codes_block(columns: Sequence[np.ndarray], nbins: int, dtype: 
                         ro._FE_RESIDENT_QBIN_CODES.popitem(last=False)
             del block, narrow
     except Exception:
-        logger.debug("batched device quantile binning failed; per-column path", exc_info=True)
+        log_throttle(logger, "_qbin_block_gpu.except_179", logging.WARNING, "batched device quantile binning failed; per-column path", exc_info=True)
         return None
     return codes
 
@@ -208,7 +209,7 @@ def group_mi_block_gpu(columns: Sequence[np.ndarray], y_codes: np.ndarray, nbins
         mi = binned_mi_from_values_gpu(None, edges, cp.asarray(y), int(nbins), int(y.max()) + 1, x_cm=xd)
         return None if mi is None else np.asarray(mi, dtype=np.float64)  # Intentional float64: MI statistic vector
     except Exception:
-        logger.debug("batched device group MI failed; per-column path", exc_info=True)
+        log_throttle(logger, "_qbin_block_gpu.except_210", logging.WARNING, "batched device group MI failed; per-column path", exc_info=True)
         return None
 
 

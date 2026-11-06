@@ -30,6 +30,7 @@ from numba import njit, prange
 
 from ._numba_utils_cross_module import _permuted_codes, _pool_max
 from ._kernel_types import render
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -419,7 +420,7 @@ def device_winners(xb: np.ndarray, kx: np.ndarray, nv: np.ndarray, val_idx: np.n
             return None
         return DeviceWinners(cp, xb, kx, nv, val_idx, y_raw, px)
     except Exception as exc:
-        logger.debug("honest optimal_joint device winners unavailable (%s: %s); CPU", type(exc).__name__, exc)
+        log_throttle(logger, "_honest_oj_fused_gpu.except_421", logging.WARNING, "honest optimal_joint device winners unavailable (%s: %s); CPU", type(exc).__name__, exc)
         return None
 
 
@@ -505,5 +506,5 @@ def device_pool(dev: Optional[DeviceWinners], pool_dep: np.ndarray, pool_rc: np.
             return None
         return DevicePool(cp, pool_dep, pool_rc, pool_nb, pool_kxe, yc, rows)
     except Exception as exc:
-        logger.debug("honest optimal_joint device pool unavailable (%s: %s); CPU", type(exc).__name__, exc)
+        log_throttle(logger, "_honest_oj_fused_gpu.except_507", logging.WARNING, "honest optimal_joint device pool unavailable (%s: %s); CPU", type(exc).__name__, exc)
         return None
