@@ -22,16 +22,13 @@ proposed disposition: **RESOLVED** (already safe, citation given), **FUTURE** (r
 - **DESER-10 (High), RESOLVED** in `303e54be4`: the cache loader deferred to `MLFRAME_ALLOW_UNVERIFIED_PICKLE` (default closed) instead
   of forcing `allow_unverified=True`. Pinned by `tests/training/composite/cache/test_cache_unsigned_pickle_rejected.py`, which fails
   on the previous code.
-- **DESER-02 (Medium)**, `training/io.py` `load_mlframe_model`: the default model-bundle loader has no sha256 check.
-  **Proposed: FUTURE** (needs a manifest format change).
+- **DESER-02 (Medium), RESOLVED** in `71d53db0e`: the save sidecar records `bundle_sha256`, and `_verify_bundle_digest` (`training/io.py`) refuses a bundle whose bytes do not match it, or one with no recorded digest unless `MLFRAME_ALLOW_UNVERIFIED_PICKLE` is set. Pinned by `tests/inference/test_pickle_verification.py` (5 passed on 2026-11-06). Residual limit, DOC: the digest is integrity, not authenticity; an attacker who rewrites both bundle and sidecar is not stopped without a signing key.
 - **DESER-06 (Medium)**, `estimators/pipelines.py:111`: unrestricted `joblib.load` after an integrity-only sidecar check.
   **Proposed: FUTURE.**
 - **FS-02 (Medium), RESOLVED**: `estimators/pipelines.py`: the default dump no longer sits at a predictable name in the shared temp
   root; it goes to a fresh `tempfile.mkdtemp` directory (0o700 on POSIX) created once per top-level call. Pinned by
   `tests/estimators/test_pipeline_gridsearch_default_dump_dir_private.py`, which fails on the previous code.
-- **DESER-06 (Medium), FUTURE**: `pipelines.py` `replay_cv_results` still calls `joblib.load` after an integrity-only sidecar.
-  `safe_pickle.safe_load` cannot be swapped in because it uses `pickle.loads` and the dumps are zlib-compressed joblib. Needs an
-  authenticity key or a format change, which is a design decision.
+- **DESER-06 (Medium), RESOLVED**: `replay_cv_results` (`estimators/pipelines.py`) loads through `safe_joblib_load`, the restricted unpickler, after the sha256 sidecar check. The sidecar is integrity-only; authenticity needs a signing key (DOC, same residual as DESER-02).
 - **SEC-01 (Medium), RESOLVED** in `620c0d2d2`: the give-up log carries the scrubbed message only, and the re-raised error is no longer
   chained to the original. Pinned by `tests/integrations/test_mlflow_scrubbed_giveup_log.py`, which fails on the previous code.
 - **SUP-02 (Medium)**, `pyproject.toml:154`: `pyutilz>=1.0.0` is not on PyPI, so pip users are exposed to dependency confusion.
