@@ -353,12 +353,16 @@ def dtw_cupy_banded(
 ) -> Tuple[float, List[Tuple[int, int]]]:
     """Banded cupy DTW: O(n*window) device RAM (vs O(n*m) full matrix).
 
+    Unequal lengths are delegated to :func:`dtw_cpu`: the device sweep returns the unreachable sentinel for them (audit PARG4-11).
+
     Stores only the ``2*window+1`` live Sakoe-Chiba diagonals (band coords
     ``b = j - i + window``) instead of the full ``(n+1)x(m+1)`` cost matrix. The
     (i-1,j-1)/(i-1,j)/(i,j-1) dependency forces the anti-diagonal sweep, so this
     keeps one launch per anti-diagonal; the memory reduction is the win. Distance
     + path are bit-identical to the full-matrix ``dtw_cupy`` and the dtaidistance
     reference; this is the default cupy path (``dtw_cupy`` dispatches here)."""
+    if len(x) != len(y):
+        return dtw_cpu(x, y, window=window)
     _check_kernel_index_range((len(x) + 1) * (2 * _band_half_width(window) + 1), "banded DTW band")
     if not _HAS_CUPY:
         raise ImportError("dtw_cupy requires cupy + a CUDA-capable GPU.")
@@ -415,6 +419,9 @@ def dtw_cupy_full(
     """Pre-CPX-P0-2 full-matrix cupy diagonal sweep. Allocates the full
     ``(n+1)x(m+1)`` cost matrix (O(n*m) device RAM); retained for A/B benching
     against ``dtw_cupy_banded`` (REJECTED!=DELETED). Numerically identical."""
+    if len(x) != len(y):
+        # The device sweep is written for equal lengths and returns the unreachable sentinel for unequal ones; the CPU path handles them.
+        return dtw_cpu(x, y, window=window)
     n = len(x)
     _check_kernel_index_range((n + 1) * (len(y) + 1), "full DTW matrix")
     if not _HAS_CUPY:
