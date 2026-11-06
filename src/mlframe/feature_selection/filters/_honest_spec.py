@@ -30,15 +30,15 @@ def _pad_rows(rows: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
 
 
 class _FrameColumns:
-    """The spec's ``raw`` matrix of a float32 frame without NaN, read from the frame instead of copied out of it: ``raw[:, j]`` is column ``j`` of the frame (zeros for a column that is not numeric),
-    the same values the dense matrix holds. The dense copy was the largest array of the spec (4 bytes per cell, 400 MB at a million rows by 100 columns) and duplicated the frame the fit holds anyway;
-    the spec lives on the fit's closure, which is dropped after the fit and never pickled."""
+    """The spec's ``raw`` matrix read from the frame instead of copied out of it: ``raw[:, j]`` is column ``j`` of the frame in the matrix dtype (zeros for a column that is not numeric), or the
+    median-filled column held in ``filled`` when the frame's column has NaN. The dense copy was the largest array of the spec (4 to 8 bytes per cell, 400 to 800 MB at a million rows by
+    100 columns) and duplicated the frame the fit holds anyway; the spec lives on the fit's closure, which is dropped after the fit and never pickled."""
 
-    dtype = np.dtype(np.float32)
-
-    def __init__(self, X: pd.DataFrame, cols: Sequence[str], n: int):
+    def __init__(self, X: pd.DataFrame, cols: Sequence[str], n: int, dtype: Any, filled: "dict[int, np.ndarray]"):
         self._X = X
         self._cols = [c if (c in X.columns and pd.api.types.is_numeric_dtype(X[c])) else None for c in cols]
+        self._filled = filled
+        self.dtype = np.dtype(dtype)
         self.shape = (int(n), len(self._cols))
 
     def __getitem__(self, key: tuple) -> np.ndarray:
@@ -46,10 +46,13 @@ class _FrameColumns:
         rows, j = key
         if rows != slice(None):
             raise IndexError("_FrameColumns serves whole columns only")
-        name = self._cols[int(j)]
+        j = int(j)
+        if j in self._filled:
+            return self._filled[j].astype(self.dtype, copy=False)
+        name = self._cols[j]
         if name is None:
-            return np.zeros(self.shape[0], dtype=np.float32)
-        return np.asarray(self._X[name].to_numpy(dtype=np.float32, copy=False))
+            return np.zeros(self.shape[0], dtype=self.dtype)
+        return np.asarray(self._X[name].to_numpy(dtype=self.dtype, copy=False))
 
 
 def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, max_depth: int, method: str = "mdlp") -> dict | None:
@@ -66,7 +69,8 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
     # precision, so any NaN keeps the double matrix); the (n, m) matrix is the largest array of the spec, 4 bytes per cell instead of 8
     _numeric = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     _f32_exact = bool(_numeric) and all(X[c].dtype == np.float32 for c in _numeric) and not any(bool(X[c].isna().any()) for c in _numeric)
-    raw: Any = _FrameColumns(X, cols, n) if _f32_exact else np.zeros((n, m), dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
+    filled: dict[int, np.ndarray] = {}  # the median-filled columns of the frame's columns that have NaN
+    raw: Any = _FrameColumns(X, cols, n, np.float32 if _f32_exact else np.float64, filled)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
     is_cont = np.zeros(m, dtype=np.bool_)
     q_fb_rows: list[np.ndarray] = []
     q_rf_rows: list[np.ndarray] = []
@@ -98,8 +102,8 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
             # the fallback edges and the unique-value count all see the filled column. The NaN rows keep their own code afterwards.
             v = np.where(nan_here, float(np.nanmedian(v)), v)
             nan_cols[:, j] = nan_here
-        if not _f32_exact:
-            raw[:, j] = v
+        if nan_here.any():
+            filled[j] = v
         q_fb_rows.append(np.empty(0, dtype=np.float64))  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
         q_rf_rows.append(np.empty(0, dtype=np.float64))  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
         numeric_js.append(j)
@@ -145,7 +149,7 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
     q_rf, q_rf_len = _pad_rows(q_rf_rows)
     return {
         "method": method,
-        "raw": raw if _f32_exact else np.ascontiguousarray(raw),
+        "raw": raw,
         "nan_mask": nan_cols if nan_cols.any() else None,
         "has_nan": bool(nan_cols.any()),
         "is_cont": is_cont,

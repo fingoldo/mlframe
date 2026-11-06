@@ -22,7 +22,7 @@ def test_float32_spec_is_frame_backed_and_matches_the_dense_spec():
     lazy = build_honest_spec(X32, cols, y, 6)
     dense = build_honest_spec(X32.astype(np.float64), cols, y, 6)
     assert isinstance(lazy["raw"], _FrameColumns)
-    assert not isinstance(dense["raw"], _FrameColumns)
+    assert lazy["raw"].dtype == np.float32 and dense["raw"].dtype == np.float64
     for j in range(len(cols)):
         assert np.array_equal(np.asarray(lazy["raw"][:, j], dtype=np.float64), dense["raw"][:, j])
     codes = np.zeros((600, len(cols)), dtype=np.int8)
@@ -30,3 +30,15 @@ def test_float32_spec_is_frame_backed_and_matches_the_dense_spec():
     a = _njit_null_columns(lazy, codes, nbins, 0, list(range(len(cols))), 20, 5)
     b = _njit_null_columns(dense, codes, nbins, 0, list(range(len(cols))), 20, 5)
     assert np.array_equal(a[0], b[0]) and np.array_equal(a[1], b[1])
+
+
+def test_nan_column_is_served_median_filled():
+    """A column with NaN keeps the double-precision median fill (the spec then reads float64) and a frame-backed spec holds no dense matrix."""
+    X, y = _frame(np.float32)
+    X.loc[::7, "b"] = np.nan
+    spec = build_honest_spec(X, list(X.columns), y, 6)
+    col = np.asarray(spec["raw"][:, 1])
+    assert spec["raw"].dtype == np.float64 and not np.isnan(col).any()
+    assert col[0] == np.float64(np.nanmedian(X["b"].to_numpy(dtype=np.float64)))
+    assert np.array_equal(col[1:7], X["b"].to_numpy(dtype=np.float64)[1:7])
+    assert spec["has_nan"] and spec["nan_mask"][::7, 1].all()
