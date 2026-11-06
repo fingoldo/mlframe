@@ -68,7 +68,7 @@ from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HistogramPanelSpec,
     LinePanelSpec, PanelSpec,
 )
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 logger = logging.getLogger(__name__)
 

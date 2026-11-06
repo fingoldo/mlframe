@@ -19,11 +19,12 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-def fold_train_groups(splitter, train_idx):
+def fold_train_groups(splitter: Any, train_idx: Any) -> "np.ndarray | None":
     """Group labels of one outer fold's training rows, or ``None`` when the splitter carries no groups.
 
     A ``BoundSplitter`` (or any splitter exposing ``groups``) hands its labels to the baseline through this helper, so the
@@ -33,7 +34,7 @@ def fold_train_groups(splitter, train_idx):
     return None if groups is None else np.asarray(groups)[np.asarray(train_idx)]
 
 
-def kfold_splits(X, n_splits, random_state, groups=None):
+def kfold_splits(X: Any, n_splits: int, random_state: int, groups: Any = None) -> "list[tuple[np.ndarray, np.ndarray]]":
     """Fold index pairs of an out-of-fold pass over ``X``: a shuffled KFold, or a GroupKFold when ``groups`` is given.
 
     ``groups`` holds one label per row of ``X``. With it, the rows of one group are never split between a fold's training and
@@ -49,7 +50,7 @@ def kfold_splits(X, n_splits, random_state, groups=None):
         if n_groups >= 2:
             return list(GroupKFold(n_splits=min(n_splits, n_groups)).split(X, groups=g))
         logger.warning("kfold_splits: %d distinct group(s) cannot be held out; using a shuffled KFold, which cannot keep a group on one side.", n_groups)
-    return list(KFold(n_splits=n_splits, shuffle=True, random_state=random_state).split(X))
+    return list(KFold(n_splits=n_splits, shuffle=True, random_state=random_state).split(X))  # group-blind-ok: with fewer than two groups none can be held out (warned above), and without groups it is the plain KFold
 
 
 def fit_baseline_predict_oof(

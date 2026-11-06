@@ -35,7 +35,7 @@ floor for change-point detection (a "segment" of one bin is just an
 outlier, not a regime). Raise to 3+ to filter out short transients."""
 
 
-def bin_ts_to_naive_utc(_t):
+def bin_ts_to_naive_utc(_t: Any) -> Any:
     """A Timestamp or datetime as tz-naive UTC, the form ``coerce_timestamps_for_audit`` gives the timestamps it is compared with.
 
     A stdlib datetime goes through ``astimezone(timezone.utc)``: ``astimezone(None)`` would convert to the machine's local zone and shift every segment edge by its UTC offset.

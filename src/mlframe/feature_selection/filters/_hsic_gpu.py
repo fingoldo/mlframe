@@ -10,6 +10,7 @@ flat column's score relies on). The bandwidths are computed on the host (O(m log
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Optional
 
 import numpy as np
@@ -53,6 +54,7 @@ extern "C" __global__ void hsic_biased_cols(const {REAL}* __restrict__ xs, const
 _MAX_BLOCK = 256  # widest block the kernel's dynamic scratch allows
 _MAX_M = 4096  # the column's values live in shared memory (16 KB float32 / 32 KB double)
 _MODULES: dict = {}
+_MODULES_LOCK = threading.Lock()
 # k * m * m pair terms from which the device wins when the kernel-tuning cache has no measurement on this host (GTX 1050 Ti, m=500: about 5 columns)
 _HSIC_DEVICE_MIN_WORK = 1_000_000
 _HSIC_CODE_VERSION = "hsic_biased_backend-v1"
@@ -62,10 +64,11 @@ def _hsic_kernel(real: str) -> Any:
     """The compiled kernel for ``real`` ("float" / "double"), one module per type."""
     import cupy as cp
 
-    kern = _MODULES.get(real)
-    if kern is None:
-        src = _SRC.replace("{REAL}", real).replace("EXPF", "expf" if real == "float" else "exp")
-        kern = _MODULES.setdefault(real, cp.RawKernel(src, "hsic_biased_cols"))
+    with _MODULES_LOCK:
+        kern = _MODULES.get(real)
+        if kern is None:
+            src = _SRC.replace("{REAL}", real).replace("EXPF", "expf" if real == "float" else "exp")
+            kern = _MODULES[real] = cp.RawKernel(src, "hsic_biased_cols")
     return kern
 
 

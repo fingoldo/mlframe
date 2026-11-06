@@ -15,3 +15,14 @@ def import_optional(module: str, extra: str, purpose: str = "") -> ModuleType:
         raise ImportError(
             f"{module!r} is required{suffix} but is not installed; install it with `pip install mlframe[{extra}]` or `pip install {module.split('.')[0]}`."
         ) from exc
+
+
+def module_available(module: str) -> bool:
+    """Whether ``module`` can be found, without importing it. A finder that refuses the name (an import blocker raises instead of returning None) and a module whose
+    ``__spec__`` is unset (``ValueError``) both count as not available."""
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec(module) is not None
+    except (ImportError, ValueError):
+        return False

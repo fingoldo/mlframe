@@ -27,7 +27,7 @@ def route_columns_on_device(X: Any, cols: Sequence[str], y: Any, degrees: Sequen
         from ._gpu_resident_basis import _gpu_route_bases_batched, device_bases
         from ._gpu_resident_fe import fe_gpu_resident_basis_mi_enabled, fe_gpu_routing_enabled
         from ._orthogonal_univariate_fe import _is_int_as_cat_axis, evaluable_bases
-        from .hermite_fe._hermite_robust import _robust_axis_enabled
+        from .hermite_fe.shared import robust_axis_enabled as _robust_axis_enabled
     except Exception as exc:
         log_throttle(logger, "univariate_route_device_imports", logging.DEBUG, "device routing of the univariate columns unavailable (%s: %s)", type(exc).__name__, exc)
         return {}

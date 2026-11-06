@@ -183,7 +183,7 @@ def _make_null_binner(self: Any, nbins_strategy: Any, x_for_cat: Any, cols: Any,
     ``categorize_dataset`` pass per permutation (MLFRAME_OJ_NULL_BINNER=0 restores it)."""
     if str(nbins_strategy).lower() not in ("optimal_joint", "cv") or os.environ.get("MLFRAME_OJ_NULL_BINNER", "1") == "0":
         return None
-    from mlframe.feature_selection.filters.discretization._null_binner import PermutedTargetBinner
+    from mlframe.feature_selection.filters.discretization.shared import PermutedTargetBinner
 
     dep_df = x_for_cat if fixed_codes is None else x_for_cat[[c for c in x_for_cat.columns if str(c) in dependent]]
     if not PermutedTargetBinner.supported(dep_df):

@@ -31,7 +31,7 @@ from ._recurrent_wrapper_base import (  # noqa: F401 -- re-exported; recurrent_d
     _monitor_mode,
     _RecurrentWrapperBase,
 )
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 logger = logging.getLogger("mlframe.training.neural.recurrent_dataset_helpers")  # matches the pre-carve logger name; preserves log-filter/caplog compatibility for existing callers/tests
 

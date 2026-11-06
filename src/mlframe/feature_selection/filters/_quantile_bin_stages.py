@@ -5,7 +5,7 @@ from __future__ import annotations
 # --- imports (managed) ---
 import numpy as np
 from numba import njit
-from mlframe.feature_selection.filters.discretization._multiselect import multiselect_inplace
+from mlframe.feature_selection.filters.discretization.shared import multiselect_inplace
 # --- end imports ---
 
 

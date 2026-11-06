@@ -365,7 +365,7 @@ def _radix_quantiles(cand_gpu, q_fracs):
     return out  # (len(q_fracs), K) double
 
 
-def radix_order_statistics(cand_gpu, ranks):
+def radix_order_statistics(cand_gpu: Any, ranks: Any) -> "Any":
     """``(len(ranks), K)`` order statistics (0-based ranks, values in the input dtype) of every column of the finite ``(n, K)`` cupy matrix: the values a column
     sort puts at those ranks, from the sort-free radix select. ``None`` when the select does not apply (too many ranks for the shared histograms, another dtype)."""
     cand_gpu = _canonical_nan(cand_gpu)  # a sign-bit NaN keys below -inf in the radix transform; sorting puts every NaN last
@@ -391,7 +391,7 @@ def radix_order_statistics(cand_gpu, ranks):
     return osv[cp.asarray([row[int(r)] for r in np.asarray(ranks, dtype=np.int64)], dtype=cp.int64)]
 
 
-def radix_column_medians(cand_gpu):
+def radix_column_medians(cand_gpu: Any) -> "Any":
     """``cp.median`` of every column of the finite ``(n, K)`` matrix, in its dtype: the two middle order statistics from the radix select and their mean as
     ``cp.median`` forms it (``(a + b) / 2`` in the input dtype). ``None`` when the select does not apply."""
     cand_gpu = _canonical_nan(cand_gpu)  # a sign-bit NaN keys below -inf in the radix transform; sorting puts every NaN last
@@ -402,7 +402,7 @@ def radix_column_medians(cand_gpu):
     return (st[0] + st[1]) / cand_gpu.dtype.type(2)
 
 
-def radix_quantiles_grouped(cand_gpu, q_fracs, group: int = 16):
+def radix_quantiles_grouped(cand_gpu: Any, q_fracs: Any, group: int = 16) -> "Any":
     """:func:`_radix_quantiles` for more fractions than one radix launch holds: the fractions in groups of ``group`` (each order statistic is selected
     independently, so the stacked groups equal one launch over all of them, and ``cp.percentile``). ``None`` when a group is inapplicable or ``MLFRAME_RADIX_GROUPED=0``."""
     cand_gpu = _canonical_nan(cand_gpu)  # a sign-bit NaN keys below -inf in the radix transform; sorting puts every NaN last
@@ -434,6 +434,7 @@ def radix_quantiles_grouped(cand_gpu, q_fracs, group: int = 16):
 from . import _gpu_resident_select_kernels as _grsk
 from . import _gpu_resident_discretize as _grd
 from . import _gpu_resident_materialise as _grm
+from typing import Any
 for _m in (_grsk, _grd, _grm):
     for _n in dir(_m):
         if not _n.startswith("__") and _n not in globals():

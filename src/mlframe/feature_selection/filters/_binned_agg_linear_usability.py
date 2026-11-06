@@ -37,6 +37,7 @@ import numpy as np
 
 from mlframe.feature_selection.filters._internals import stable_argsort_codes
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from typing import Any
 
 _MAX_ROWS = 100_000
 _N_FOLDS = 5
@@ -181,7 +182,7 @@ def _pair_state(X, srcs, y_cls, cell_ids, pair_key: str):
     return {"rows": rows, "prep": prep, "cells_s": cells_s, "n_cells": n_cells, "sums": _cell_sums(prep, cells_s, n_cells)}
 
 
-def linear_usability_keeps(X, srcs, cands: dict, y_cls, cell_ids, level: float, pair_key: str) -> set:
+def linear_usability_keeps(X: Any, srcs: Any, cands: dict, y_cls: Any, cell_ids: Any, level: float, pair_key: str) -> set:
     """Names of the candidates of ONE (group, agg) pair that improve an out-of-fold linear fit of ``y`` beyond what a random per-cell column does.
 
     ``cands`` maps a candidate name to its numeric values or bin codes, ``X[srcs]`` are the raw group and agg columns, ``y_cls`` the

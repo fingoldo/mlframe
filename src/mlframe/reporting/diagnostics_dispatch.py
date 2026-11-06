@@ -935,4 +935,4 @@ from ._diagnostics_dispatch_extra import (  # noqa: F401
     render_target_dist_overlay,
 )
 from mlframe._output_paths import ensure_parent_dir
-from mlframe.feature_selection.filters._lazy_host_codes import length_of
+from mlframe.utils.array_shape import length_of

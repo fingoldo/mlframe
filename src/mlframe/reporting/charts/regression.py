@@ -64,7 +64,7 @@ from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec,
     PanelSpec, ScatterPanelSpec,
 )
-from mlframe.feature_selection.filters._lazy_host_codes import size_of
+from mlframe.utils.array_shape import size_of
 
 # Above this many finite points the pred-vs-actual cloud is drawn as a log-density 2-D histogram instead of a raw scatter
 # (a 2M-point Scattergl/SVG cloud is both slow and a solid unreadable blob; density binning preserves structure).

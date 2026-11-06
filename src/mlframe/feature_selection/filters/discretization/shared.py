@@ -16,7 +16,10 @@ from ._discretization_edges import (
     _knuth_bin_edges as knuth_bin_edges,
 )
 
+from ._null_binner import PermutedTargetBinner
+
 __all__ = [
+    "PermutedTargetBinner",
     "bayesian_blocks_bin_edges",
     "discretize_array_impl",
     "knuth_bin_edges",

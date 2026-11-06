@@ -20,7 +20,7 @@ from mlframe.reporting.colors import resolve_heatmap_cmap
 from ._shared_helpers import network_label_indices, truncate_bar_label
 
 import logging
-from mlframe.feature_selection.filters._lazy_host_codes import size_of
+from mlframe.utils.array_shape import size_of
 
 logger = logging.getLogger(__name__)
 

@@ -40,6 +40,7 @@ except ImportError:
 from ._numba_utils import _plugin_mi_classif_njit, _plugin_mi_regression_njit  # noqa: F401 -- used by plugin_mi_classif_dispatch and re-exported
 from mlframe.feature_selection.filters._device_sort_safe import device_percentile  # thrust aborts the process on a short pool
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from collections.abc import Iterator
 
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
@@ -491,7 +492,7 @@ _MEMO_OFF = threading.local()
 
 
 @contextlib.contextmanager
-def column_mi_memo_disabled():
+def column_mi_memo_disabled() -> "Iterator[None]":
     """Scope in which this thread's batch MI calls skip the column memo: resampled blocks never repeat, so fingerprinting them only costs time."""
     prev = getattr(_MEMO_OFF, "on", False)
     _MEMO_OFF.on = True

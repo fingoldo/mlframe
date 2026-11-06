@@ -50,7 +50,7 @@ from ._multiclass_confusion import (
     _confusion_panel,
     _resolve_pred,
 )
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 def _class_color(idx: int) -> str:
     """Per-class line colour from the shared palette (paired with ``line_style``'s per-wrap dash past 10 classes)."""

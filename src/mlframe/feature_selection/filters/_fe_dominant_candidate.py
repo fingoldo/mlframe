@@ -12,6 +12,7 @@ import os
 import numpy as np
 
 from ._fe_frame_ops import fe_columns, fe_extract_columns, fe_is_numeric_col
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ def _target_codes(y: np.ndarray) -> "np.ndarray | None":
     return binned
 
 
-def dominant_candidate(X, y, n_rows_min: int = _MIN_ROWS) -> "str | None":
+def dominant_candidate(X: Any, y: Any, n_rows_min: int = _MIN_ROWS) -> "str | None":
     """Name of a numeric column of ``X`` whose corrected MI with ``y`` reaches ``_DOMINANT_FRACTION`` of H(y), else None."""
     if os.environ.get("MLFRAME_FE_DOMINANT_STOP", "1") == "0":
         return None

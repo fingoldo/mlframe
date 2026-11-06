@@ -48,7 +48,7 @@ from ._fold_refit import refit_transform_on_fold
 from ._lgb_shared_fold import fit_on_rows, fit_on_shared_fold, lgb_params
 from ._ridge_shared_fold import fit_ridge_on_shared_fold
 from mlframe.training.composite.transforms.shared import call_transform
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 
 def _per_bin_rmse(

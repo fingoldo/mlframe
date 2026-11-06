@@ -28,6 +28,8 @@ from ._soft_shrink import (
     BASE_FIT_RANGE_KEY,
 )
 
+from ._frame_utils import _subset_rows as subset_rows
+
 __all__ = [
     "BASE_FIT_RANGE_KEY",
     "N_SMEAR_QUANTILES",
@@ -40,6 +42,7 @@ __all__ = [
     "inner_input",
     "smeared_inverse",
     "smeared_prediction",
+    "subset_rows",
     "to_1d_numpy",
     "y_train_clip_bounds",
 ]

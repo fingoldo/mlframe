@@ -67,7 +67,7 @@ from ._model_factories import (
     GPU_VRAM_SAFE_FREE_LIMIT_GB, GPU_VRAM_SAFE_SATURATION_LIMIT,
 )
 from mlframe.utils.log_throttle import log_throttle
-from mlframe.feature_selection.filters._lazy_host_codes import size_of
+from mlframe.utils.array_shape import size_of
 
 # ngboost is imported where an NGB model is built (see the ``ngb`` block below): importing it here cost ~4 s (sympy) for every consumer of training.core.
 

@@ -8,13 +8,13 @@ the PyTorch-Lightning-based `mlframe.training.neural.flat.generate_mlp`.
 
 from __future__ import annotations
 
-import importlib.util
 from typing import Any, Optional
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
+from mlframe._optional_imports import module_available
 
-_HAS_TF = importlib.util.find_spec("tensorflow") is not None
+_HAS_TF = module_available("tensorflow")
 
 _INSTALL_MSG = (
     "Install tensorflow and scikeras for Keras compatibility; " "or use mlframe.training.neural.flat.generate_mlp for the PyTorch Lightning equivalent."

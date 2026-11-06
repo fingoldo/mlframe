@@ -17,6 +17,7 @@ import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
 from time import perf_counter as _perf_counter
+from mlframe._optional_imports import module_available
 
 logger = logging.getLogger(__name__)
 
@@ -798,8 +799,7 @@ def _prewarm_numba_cach_skip_heavy(_skip_heavy):
     if not _skip_heavy:
         try:
             import importlib
-            import importlib.util as _ilu
-            if _ilu.find_spec("lightning") is not None:
+            if module_available("lightning"):
                 try:
                     import lightning.fabric  # noqa: F401
                 except Exception as e:  # nosec B110 - optional dependency import guard
@@ -813,13 +813,13 @@ def _prewarm_numba_cach_skip_heavy(_skip_heavy):
                 except Exception as e:  # nosec B110 - optional dependency import guard
                     logger.debug("mlframe.lightninglib import warmup failed, skipping: %s", e)
             # `pytorch_lightning` is a separate package from `lightning` (legacy alias kept for back-compat); cold import is ~500s on Windows for the currently-pinned version.
-            if _ilu.find_spec("pytorch_lightning") is not None:
+            if module_available("pytorch_lightning"):
                 try:
                     import pytorch_lightning  # noqa: F401
                 except Exception as e:  # nosec B110 - optional dependency import guard
                     logger.debug("pytorch_lightning import warmup failed, skipping: %s", e)
             # `shap` cold import is ~228s on Windows (includes `shap.utils.transformers` walking the local transformers registry). The suite imports shap inside trainer.py when use_shap=True.
-            if _ilu.find_spec("shap") is not None:
+            if module_available("shap"):
                 try:
                     import shap
                     import shap.utils.transformers

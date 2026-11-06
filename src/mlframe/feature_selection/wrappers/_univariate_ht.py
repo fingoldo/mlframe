@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 

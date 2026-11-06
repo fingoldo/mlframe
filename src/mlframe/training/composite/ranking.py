@@ -67,7 +67,7 @@ _MAX_PAIRS_PER_GROUP = 4096
 
 
 from ._composite_utils import is_polars_df_logged as _is_polars_df
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 
 def _group_boundaries(group: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

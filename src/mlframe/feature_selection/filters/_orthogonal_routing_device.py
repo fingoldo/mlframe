@@ -69,7 +69,7 @@ def routing_scores_on_device(
         from ._gpu_resident_basis import _gpu_batched_abs_corr, _gpu_detect_heavy_tail_batched, _gpu_evaluate_basis_matrix, device_bases
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
         from ._orthogonal_routing_fe import _pre_transform_variants_for_column, _routing_col_name
-        from .hermite_fe._hermite_robust import _robust_axis_enabled
+        from .hermite_fe.shared import robust_axis_enabled as _robust_axis_enabled
     except Exception as exc:
         log_throttle(logger, "routing_device_imports", logging.DEBUG, "routing device path unavailable (%s: %s)", type(exc).__name__, exc)
         return None

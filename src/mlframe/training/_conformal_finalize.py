@@ -25,7 +25,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any, Optional
 
 import numpy as np
-from mlframe.feature_selection.filters._lazy_host_codes import size_of
+from mlframe.utils.array_shape import size_of
 
 SplitStructure = str  # one of: "iid", "temporal", "grouped", "temporal_grouped", "stratified"
 

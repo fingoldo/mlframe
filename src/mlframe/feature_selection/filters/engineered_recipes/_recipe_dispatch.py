@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover
 
 from ._recipe_core import EngineeredRecipe
 from ._recipe_extract import _extract_column
+from collections.abc import Iterator
 
 _Handler = Callable[[EngineeredRecipe, Any, "dict[str, np.ndarray] | None", "dict[tuple, np.ndarray] | None"], np.ndarray]
 
@@ -281,7 +282,7 @@ _REPLAY_VALUES = threading.local()
 
 
 @contextlib.contextmanager
-def replay_value_cache():
+def replay_value_cache() -> "Iterator[None]":
     """Within the block, ``apply_recipe`` returns a copy of a previous replay of the same recipe on the same ``X`` object instead of replaying it again.
 
     For stages that run one after another on one frame and each replay the engineered columns (the residual rescue, then the final subsumption), so a compound is computed and, on

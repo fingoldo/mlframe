@@ -870,7 +870,7 @@ def _coerce_x(v: Any, pd: Any) -> float:
 # Re-exported so every existing ``from ...drift import adversarial_auc`` keeps working. Imported at the BOTTOM
 # because the sibling imports this module's frame helpers and ADV_* constants back.
 from ._drift_adversarial import adversarial_auc, adversarial_validation
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 __all__ = [
     "PSI_MODERATE",

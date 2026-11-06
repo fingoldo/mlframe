@@ -130,7 +130,7 @@ def _eval_orth_basis_column(
     |delta|=1 bin drift on a nested ``a__He2`` sub-operand). ``None`` (legacy /
     pre-fix pickles) falls back to the refit path, byte-identical to before.
     """
-    from ..hermite_fe._nonpoly_cells import eval_basis_cell
+    from ..hermite_fe.shared import eval_basis_cell
     from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
     basis_info = _POLY_BASES[basis]
     fit_fn = basis_info["fit"]

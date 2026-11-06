@@ -15,6 +15,7 @@ from collections.abc import Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ _COMPARE_COLUMNS = 16
 _SORT_BYTES_PER_ROW_COLUMN = 24
 
 
-def sync_free_qbin_codes_block(cp, xd, nbins: int):
+def sync_free_qbin_codes_block(cp: Any, xd: Any, nbins: int) -> "Any":
     """Resident int64 codes ``(k, n)`` of the rows of the resident float matrix ``xd`` ``(k, n)`` (one column per row, contiguous); row ``j`` equals ``_sync_free_qbin_codes(cp, xd[j], nbins)``."""
     k, n = int(xd.shape[0]), int(xd.shape[1])
     qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
@@ -135,7 +136,7 @@ def _block_columns(cp, n_rows: int, n_cols: int) -> int:
     return int(max(1, min(n_cols, (0.25 * room) // (_SORT_BYTES_PER_ROW_COLUMN * max(1, n_rows)))))
 
 
-def resident_qbin_codes_block(columns: Sequence[np.ndarray], nbins: int, dtype) -> "list | None":
+def resident_qbin_codes_block(columns: Sequence[np.ndarray], nbins: int, dtype: Any) -> "list | None":
     """Resident int64 codes of each host column of ``columns``, same values and same code cache as ``resident_qbin_codes`` column by column; ``None`` when the device path fails (the caller keeps its per-column loop)."""
     import cupy as cp
 

@@ -21,9 +21,18 @@ from ._orthogonal_univariate_fe import (
 )
 
 logger = logging.getLogger(__name__)
+# the triplet module's own logger (the records of the recipe code are emitted under its name)
+_otf_logger = logging.getLogger("mlframe.feature_selection.filters._orthogonal_triplet_fe")
 
 
-from . import _orthogonal_triplet_fe as _otf
+def _hybrid_orth_mi_triplet_fe(*args, **kwargs):
+    """``_orthogonal_triplet_fe.hybrid_orth_mi_triplet_fe``, looked up on each call: that module re-exports this one at its bottom, so a module-level import
+    here would close an import cycle, and a lookup per call keeps a test's patch of the triplet scorer visible."""
+    from ._orthogonal_triplet_fe import hybrid_orth_mi_triplet_fe
+
+    return hybrid_orth_mi_triplet_fe(*args, **kwargs)
+
+
 from ._fe_family_timing import fe_timed
 from .engineered_recipes import EngineeredRecipe
 
@@ -44,7 +53,7 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
             parts = suffix.split("_")
         except (ValueError, IndexError):
             log_throttle(
-                _otf.logger,
+                _otf_logger,
                 "triplet_recipe_cannot_parse_suffix",
                 logging.WARNING,
                 "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse suffix in %r; skipping recipe.",
@@ -53,7 +62,7 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
             return None
         if len(parts) != 3:
             log_throttle(
-                _otf.logger,
+                _otf_logger,
                 "triplet_recipe_bad_parts_count",
                 logging.WARNING,
                 "hybrid_orth_mi_triplet_fe_with_recipes: expected 3 deg parts in %r; skipping recipe.",
@@ -65,7 +74,7 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
         basis_c, deg_c = parse_code_deg_with_basis(parts[2])
         if basis_a is None or basis_b is None or basis_c is None or deg_a is None or deg_b is None or deg_c is None:
             log_throttle(
-                _otf.logger,
+                _otf_logger,
                 "triplet_recipe_cannot_parse_code_deg",
                 logging.WARNING,
                 "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse code/deg from %r; skipping recipe.",
@@ -85,7 +94,7 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
                 basis_b = basis_route_by_moments(x_j)
                 basis_c = basis_route_by_moments(x_k)
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                _otf.logger.debug("suppressed: %s", e)
+                _otf_logger.debug("suppressed: %s", e)
                 pass
         # REPLAY-FIDELITY FIX: freeze each leg's fit-time basis-preprocess params
         # (z-score mean/std, min-max lo/hi, ...) so ``transform()`` replays the basis axis
@@ -97,7 +106,7 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
             _, _pp_b = _evaluate_basis_column(x_j, basis_b, deg_b, return_params=True)
             _, _pp_c = _evaluate_basis_column(x_k, basis_c, deg_c, return_params=True)
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            _otf.logger.debug("suppressed: %s", e)
+            _otf_logger.debug("suppressed: %s", e)
             pass
         return build_orth_triplet_cross_recipe(
             name=name,
@@ -121,7 +130,7 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
         chosen_basis, chosen_degree = parse_code_deg_with_basis(suffix)
         if chosen_basis is None or chosen_degree is None:
             log_throttle(
-                _otf.logger,
+                _otf_logger,
                 "triplet_recipe_cannot_parse_basis_degree",
                 logging.WARNING,
                 "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse basis/degree from %r; skipping recipe.",
@@ -136,7 +145,7 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
             _x_u = X[src].to_numpy(dtype=np.float64)  # value-construction: always float64, see above
             _, _pp_u = _evaluate_basis_column(_x_u, chosen_basis, chosen_degree, return_params=True)
         except Exception as e:  # nosec B110 - optional dependency import guard
-            _otf.logger.debug("Could not freeze fit-time basis-preprocess params for %r (%s: %s); recipe replays without them", src, type(e).__name__, e)
+            _otf_logger.debug("Could not freeze fit-time basis-preprocess params for %r (%s: %s); recipe replays without them", src, type(e).__name__, e)
         return build_orth_univariate_recipe(
             name=name,
             src_name=src,
@@ -146,7 +155,7 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
         )
     else:
         log_throttle(
-            _otf.logger,
+            _otf_logger,
             "triplet_recipe_unexpected_leg_count",
             logging.WARNING,
             "hybrid_orth_mi_triplet_fe_with_recipes: unexpected leg count in %r (legs=%r); skipping recipe.",
@@ -183,7 +192,7 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
     order-3-floored proposer survivors) instead of the C(seed_k, 3) over the
     univariate-MI seed pool.
     """
-    X_aug, uni_scores, triplet_scores = _otf.hybrid_orth_mi_triplet_fe(
+    X_aug, uni_scores, triplet_scores = _hybrid_orth_mi_triplet_fe(
         X,
         y,
         cols=cols,

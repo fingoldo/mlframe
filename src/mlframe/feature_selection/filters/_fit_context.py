@@ -16,7 +16,7 @@ def _fit_locals() -> "List[Any]":
     """The thread-local objects that carry per-fit settings (imported lazily: some of these modules import the pools that use this one)."""
     from . import _dynamic_cluster_discovery as dcd
     from . import _fe_gpu_strict, _fourier_detect_cap
-    from .info_theory import _state_and_dispatch as sd
+    from .info_theory.shared import state_and_dispatch as sd
 
     names = ("_SU_STATE", "_JMIM_STATE", "_BUR_STATE", "_MM_STATE", "_CS_STATE", "_GROUP_MI_STATE", "_RELAXMRMR_STATE", "_PID_STATE", "_CMI_PERM_STATE", "_CPT_STATE")
     return [getattr(sd, n) for n in names if hasattr(sd, n)] + [dcd._DCD_STATE, _fe_gpu_strict._auto_fit_state, _fourier_detect_cap._state]

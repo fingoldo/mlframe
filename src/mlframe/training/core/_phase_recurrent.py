@@ -34,7 +34,7 @@ from ..configs import TargetTypes
 from ..utils import log_phase
 from ._misc_helpers import _compute_neural_max_time
 from mlframe.utils.log_throttle import log_throttle
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 if TYPE_CHECKING:
     from ._training_context import TrainingContext

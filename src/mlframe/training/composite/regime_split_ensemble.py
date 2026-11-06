@@ -21,7 +21,7 @@ from typing import Any, Callable, Literal, Optional
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
-from .estimator._frame_utils import _subset_rows
+from .estimator.shared import subset_rows as _subset_rows
 
 logger = logging.getLogger(__name__)
 

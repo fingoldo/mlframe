@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover - sklearn always present in mlframe
     TransformerMixin = object
 
 from mlframe.utils.log_throttle import log_throttle
-from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.utils.array_shape import shape_of
 
 logger = logging.getLogger(__name__)
 
