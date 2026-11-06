@@ -56,8 +56,18 @@ def _basis_matrix_gpu(cp, x, degree: int, basis_id: int):
     multiple seeds on the module's own cubic-inner regression scenario when BOTH this matrix and
     the coefficient population upload are float32 - cupy promotes float32 @ double back to
     double silently, so half-measures (only one side float32) would give zero benefit."""
+    B = _build_basis(cp, x, degree, basis_id, cp.float32)
+    if bool(cp.isfinite(B).all()):
+        return B
+    # float32 overflows past about 3.4e38 (a |z|=40 operand at degree 25 is already inf there, and the candidate would be dropped); the same
+    # recurrence in float64 keeps it finite, so the basis is rebuilt in double only when float32 cannot represent it.
+    return _build_basis(cp, x, degree, basis_id, cp.float64)
+
+
+def _build_basis(cp, x, degree: int, basis_id: int, dtype):
+    """The (n, degree+1) basis matrix for one recurrence in the given device dtype."""
     n = x.shape[0]
-    B = cp.empty((n, degree + 1), dtype=cp.float32)
+    B = cp.empty((n, degree + 1), dtype=dtype)
     B[:, 0] = 1.0
     if degree >= 1:
         B[:, 1] = x
