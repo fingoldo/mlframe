@@ -56,7 +56,7 @@ void build_op_cands(const {REAL}* __restrict__ M, const int* __restrict__ pi, co
     } else if (c < m + 4 * npairs) {
         int q = c - m; int p = q >> 2; int o = q & 3;
         double u = Mr[pi[p]], v = Mr[pj[p]];
-        val = o == 0 ? u * v : (o == 1 ? u - v : (o == 2 ? u / (fabs(v) + 1e-6) : u + v));
+        val = o == 0 ? u * v : (o == 1 ? u - v : (o == 2 ? u / fmax(fabs(v), 1e-6) : u + v));
     } else {
         int r = c - m - 4 * npairs;
         if (r <= 1) {                                  // row max / min over the m operands
@@ -93,7 +93,7 @@ void build_op_cands_cm(const {REAL}* __restrict__ M, const int* __restrict__ pi,
     } else if (c < m + 4 * npairs) {
         int q = c - m; int p = q >> 2; int o = q & 3;
         double u = M[(long long)pi[p] * n + row], v = M[(long long)pj[p] * n + row];
-        val = o == 0 ? u * v : (o == 1 ? u - v : (o == 2 ? u / (fabs(v) + 1e-6) : u + v));
+        val = o == 0 ? u * v : (o == 1 ? u - v : (o == 2 ? u / fmax(fabs(v), 1e-6) : u + v));
     } else {
         int r = c - m - 4 * npairs;
         if (r <= 1) {                                                      // row max / min over the m operands
