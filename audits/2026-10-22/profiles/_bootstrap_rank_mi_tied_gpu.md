@@ -56,3 +56,13 @@ Upper bound: replacing the random reads `rj[ib[t]]` and `ycode[r]` by sequential
 | `PRIV_LEVELS` 64 -> 0 (no per-warp level tables, atomics on the shared starts) | 0.76 s (about 300 levels), ~0.76 s (about 20 levels) | 0.76 s, 0.72 s (inside the run-to-run spread) |
 
 None shipped. What is left of the counter reading is the gather itself: the only change that removes it is a coalesced pre-gather of the levels (and y codes) of each resample into a device scratch of 2 to 4 bytes per draw (205 to 410 MB for a 128-column block), which competes for the 2.58 GB pool with the concurrent stages; not tried.
+
+### Shipped: the draw ranks are gathered beforehand (2026-11-06)
+
+The counters said the in-kernel gather `rj[ib[t]]` (then `ycode[r]`) was the stall: dependent loads per draw at 15 percent load efficiency. The same gather as a plain `cupy.take` per column is cheap (`pregather_cost.py`: 15 ms for 128 columns x 10 resamples x 80000 draws, 205 MB of int16 ranks), because a gather has no dependent chain behind it and the 200 KB rank table of a column stays in L2. The kernel now reads its draws in order from `lv` (ranks, per column and resample) and `yg` (classes per resample, the same for every column, built once per stream).
+
+Same-process A/B on one 128-column block (`tied_pregather_ab.py`, 100000 rows, 10 resamples, about 300 levels): kernel plus the gather 0.261 s -> 0.061 s (4.3 times), MI matrices equal (`array_equal`). The whole stream (host dense ranks included) over 256 columns: 0.77 to 0.82 s -> 0.45 to 0.54 s. A launch holds at most 128 MB of gathered ranks (`_GATHER_BYTES`, so 80 columns at 10 x 80000 draws) and halves its column count (down to 8) on a device out-of-memory instead of failing.
+
+A latent sizing bug found by the test of the sub-blocks: the dynamic shared bytes were computed from the column with the most levels, but a column with at most `PRIV_LEVELS` levels also keeps a per-warp level table, so in a block that mixes few-level and many-level columns the few-level column needed more than the allocation (`CUDA_ERROR_ILLEGAL_ADDRESS` in the new test, 28 columns of 20 to 230 levels). `_launch_shared_bytes` takes the larger of the two cases. (The overrun was seen with the new kernel; I did not run the old kernel on that block.)
+
+Test: `tests/feature_selection/gpu/test_bootstrap_rank_mi_tied_gpu.py::test_gathered_draws_split_into_sub_blocks`. Not yet measured in the full fit; the kernel was 1.02 s of the 2.6 s of kernel time in the `binned_numeric_agg` window.
