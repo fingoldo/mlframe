@@ -170,6 +170,21 @@ def _get_fused_mi_term():
     return _FUSED_MI_TERM
 
 
+def _binning_dtype(X_cols: np.ndarray):
+    """The dtype the rank binning runs in: the criterion float, unless a column's offset dwarfs its spread.
+
+    Float32 has a step of about offset * 6e-8, so a column near 1e8 with a spread of 1e-4 has its distinct values merged into one bin. Such
+    columns are binned in float64; ordinary columns keep the float32 criterion dtype, so the common case stays fast.
+    """
+    if isinstance(X_cols, np.ndarray) and X_cols.size:
+        x = np.asarray(X_cols, dtype=np.float64)
+        spread = x.std(axis=0)
+        offset = np.abs(x.mean(axis=0))
+        if np.any(offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny)):
+            return np.float64
+    return crit_float_dtype()
+
+
 def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Cupy batch plug-in MI. Quantile-bins each column on GPU via
     ``cp.argsort`` -> rank-to-bin lookup, then computes joint histograms
@@ -182,7 +197,7 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     # import ...`` would create a hard cycle the meta-test flags.
     import cupy as cp
 
-    X_gpu = cp.asarray(X_cols, dtype=crit_float_dtype())
+    X_gpu = cp.asarray(X_cols, dtype=_binning_dtype(X_cols))
     # y is the fit-constant target: resident-cache it (same role string as the already-fixed
     # ``_orth_mi_backends.py`` / ``_binned_numeric_agg_fe.py`` sites) so it uploads ONCE per fit instead of
     # once per call, AND so the SAME device object comes back across calls - which lets the downstream
