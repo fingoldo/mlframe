@@ -32,12 +32,15 @@ MAX_BINS = 32
 #: Levels per column the shared table holds (int32 start + one byte of straddle flag each); a column with more stays on the host.
 MAX_LEVELS = 6144
 _COLUMN_BLOCK = 128
+#: Bytes of the gathered draw ranks one launch may hold (columns x resamples x draws x 2); a launch takes fewer columns rather than more memory.
+_GATHER_BYTES = 128 * 1024 * 1024
+_MIN_SUB_BLOCK = 8
 
 _SRC = r"""
 #define KMAX 16
 #define BMAX 32
 #define PRIV_LEVELS 64
-extern "C" __global__ void tied_replicate_mi(const short* __restrict__ rk, const int* __restrict__ idx, const short* __restrict__ binpos, const int* __restrict__ ycode,
+extern "C" __global__ void tied_replicate_mi(const short* __restrict__ rk, const int* __restrict__ idx, const short* __restrict__ binpos, const int* __restrict__ ycode, const short* __restrict__ lv, const int* __restrict__ yg,
                                              const int* __restrict__ lens, const int* __restrict__ nlev, const long long n, const int m_max, const int B,
                                              const int nbins, const int ncls, {ACC}* __restrict__ out) {
     extern __shared__ int sh[];
@@ -59,6 +62,8 @@ extern "C" __global__ void tied_replicate_mi(const short* __restrict__ rk, const
     const int m = lens[b];
     const short* rj = rk + (long long)j * n;
     const int* ib = idx + (long long)b * m_max;
+    const short* lj = lv + ((long long)j * B + b) * m_max;       // the rank of every draw of this (column, resample), gathered beforehand: the draw order is read coalesced
+    const int* ygb = yg + (long long)b * m_max;                  // the class of every draw of this resample
     const short* bp = binpos + (long long)b * m_max;
     for (int u = tid; u <= nl; u += blockDim.x) start[u] = 0;
     for (int u = tid; u < nw * cells; u += blockDim.x) whist[u] = 0;
@@ -67,11 +72,11 @@ extern "C" __global__ void tied_replicate_mi(const short* __restrict__ rk, const
     int* myhist = whist + (tid >> 5) * cells;
     if (priv_levels) {
         int* mycnt = wcnt + (tid >> 5) * nl;
-        for (int t = tid; t < m; t += blockDim.x) atomicAdd(&mycnt[rj[ib[t]]], 1);
+        for (int t = tid; t < m; t += blockDim.x) atomicAdd(&mycnt[lj[t]], 1);
         __syncthreads();
         for (int u = tid; u < nl; u += blockDim.x) { int c = 0; for (int w = 0; w < nw; ++w) c += wcnt[w * nl + u]; start[u] = c; }
     } else {
-        for (int t = tid; t < m; t += blockDim.x) atomicAdd(&start[rj[ib[t]]], 1);
+        for (int t = tid; t < m; t += blockDim.x) atomicAdd(&start[lj[t]], 1);
     }
     __syncthreads();
     // exclusive scan of the nl counts: a contiguous chunk per thread, warp shuffles over the chunk sums, then the warp totals
@@ -109,10 +114,10 @@ extern "C" __global__ void tied_replicate_mi(const short* __restrict__ rk, const
     for (int t = t0 + lane; t - lane < t1; t += 32) {
         int q = 255, r = 0;
         if (t < t1) {
-            r = ib[t];
-            const int L = rj[r];
+            r = t;
+            const int L = lj[t];
             q = sid[L];
-            if (q == 255) atomicAdd(&myhist[bp[start[L]] * ncls + ycode[r]], 1);
+            if (q == 255) atomicAdd(&myhist[bp[start[L]] * ncls + ygb[t]], 1);
         }
         unsigned int mask = __ballot_sync(0xffffffffu, q != 255);
         while (mask) {
@@ -128,13 +133,13 @@ extern "C" __global__ void tied_replicate_mi(const short* __restrict__ rk, const
     if (ns > 0) {
         for (int t = t0 + lane; t - lane < t1; t += 32) {
             int q = 255, r = 0;
-            if (t < t1) { r = ib[t]; q = sid[rj[r]]; }
+            if (t < t1) { r = t; q = sid[lj[t]]; }
             unsigned int mask = __ballot_sync(0xffffffffu, q != 255);
             while (mask) {
                 const int ql = __shfl_sync(0xffffffffu, q, __ffs(mask) - 1);
                 const unsigned int same = __ballot_sync(0xffffffffu, q == ql);
                 const int base = wstrad[w * BMAX + ql];
-                if (q == ql) atomicAdd(&myhist[bp[base + __popc(same & lt)] * ncls + ycode[r]], 1);
+                if (q == ql) atomicAdd(&myhist[bp[base + __popc(same & lt)] * ncls + ygb[r]], 1);
                 __syncwarp();
                 if (lane == 0) wstrad[w * BMAX + ql] = base + __popc(same);
                 __syncwarp();
@@ -245,6 +250,17 @@ def _shared_bytes(n_levels: int, n_warps: int, n_bins: int, n_classes: int) -> i
     return 4 * words
 
 
+def _launch_shared_bytes(n_levels: np.ndarray, n_warps: int, n_bins: int, n_classes: int) -> int:
+    """Dynamic shared bytes a launch over columns with these level counts needs: the most any one column asks for. A column with at most ``PRIV_LEVELS`` levels adds a
+    per-warp level table, so the largest of those can need more than the column with the most levels (sizing by the maximum alone overran the allocation)."""
+    levels = np.asarray(n_levels)
+    need = _shared_bytes(int(levels.max()), n_warps, n_bins, n_classes)
+    small = levels[levels <= _PRIV_LEVELS]
+    if small.size:
+        need = max(need, _shared_bytes(int(small.max()), n_warps, n_bins, n_classes))
+    return need
+
+
 def _block_width(kernel, shared_bytes: int, m: int) -> int:
     """Threads per block from the device limits (``fixed_shared_block_size``: the level table is fixed per block), 256 without device information."""
     from pyutilz.performance.gpu_hw_launch import fixed_shared_block_size
@@ -277,6 +293,7 @@ def tied_replicate_mi_stream(bits: np.ndarray, prep: dict, n_bins: int, rank_fn)
         ycode = cp.asarray(np.ascontiguousarray(prep["y_codes"], dtype=np.int32))
         lens = cp.asarray(np.ascontiguousarray(prep["lens"], dtype=np.int32))
         n_rep, m_max = int(idx.shape[0]), int(idx.shape[1])
+        y_draws = ycode[idx]  # (n_rep, m_max): the class of every draw, the same for every column
         pending = None
         for c0 in range(0, k, _COLUMN_BLOCK):
             c1 = min(k, c0 + _COLUMN_BLOCK)
@@ -292,15 +309,34 @@ def tied_replicate_mi_stream(bits: np.ndarray, prep: dict, n_bins: int, rank_fn)
             if local.size == 0:
                 continue
             nl = n_levels[local].astype(np.int32)
-            width = _block_width(kernel, _shared_bytes(int(nl.max()), 8, int(n_bins), n_classes), m_max)
-            shared = _shared_bytes(int(nl.max()), width // 32, int(n_bins), n_classes)
+            width = _block_width(kernel, _launch_shared_bytes(nl, 8, int(n_bins), n_classes), m_max)
+            shared = _launch_shared_bytes(nl, width // 32, int(n_bins), n_classes)
             rk_dev = cp.asarray(np.ascontiguousarray(rk[local]).astype(np.int16))
+            nl_dev = cp.asarray(nl)
             res = cp.zeros((n_rep, local.size), dtype=cp.float64)  # Intentional float64: MI statistic matrix
-            kernel(
-                (int(local.size) * n_rep,), (width,),
-                (rk_dev, idx, binpos, ycode, lens, cp.asarray(nl), np.int64(n), np.int32(m_max), np.int32(n_rep), np.int32(n_bins), np.int32(n_classes), res),
-                shared_mem=shared,
-            )
+            sub = int(max(_MIN_SUB_BLOCK, min(local.size, _GATHER_BYTES // max(1, 2 * n_rep * m_max))))
+            c_lo = 0
+            while c_lo < local.size:
+                c_hi = min(local.size, c_lo + sub)
+                try:
+                    # the rank of every draw, gathered once per (column, resample) by cheap parallel gathers: the kernel then reads its draws in order instead of
+                    # chasing idx -> rank -> level table per draw (the load efficiency of the in-kernel gather was 15 percent)
+                    lv = cp.empty((c_hi - c_lo, n_rep, m_max), dtype=cp.int16)
+                    for jj in range(c_hi - c_lo):
+                        cp.take(rk_dev[c_lo + jj], idx, out=lv[jj])
+                except cp.cuda.memory.OutOfMemoryError:
+                    if sub <= _MIN_SUB_BLOCK:
+                        raise
+                    sub = max(_MIN_SUB_BLOCK, sub // 2)
+                    continue
+                part = cp.zeros((n_rep, c_hi - c_lo), dtype=cp.float64)  # Intentional float64: MI statistic matrix
+                kernel(
+                    ((c_hi - c_lo) * n_rep,), (width,),
+                    (rk_dev[c_lo:c_hi], idx, binpos, ycode, lv, y_draws, lens, nl_dev[c_lo:c_hi], np.int64(n), np.int32(m_max), np.int32(n_rep), np.int32(n_bins), np.int32(n_classes), part),
+                    shared_mem=shared,
+                )
+                res[:, c_lo:c_hi] = part
+                c_lo = c_hi
             pending = (res, c0 + local)
         if pending is not None:
             res, cols = pending

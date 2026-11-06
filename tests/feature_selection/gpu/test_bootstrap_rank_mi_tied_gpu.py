@@ -59,3 +59,22 @@ def test_streams_many_column_blocks(monkeypatch):
     monkeypatch.setenv("MLFRAME_BOOTSTRAP_RANK_TIED_DEVICE", "1")
     got, _ = bootstrap_rank_mi(arr, y, reps, 10)
     np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-14)
+
+
+def test_gathered_draws_split_into_sub_blocks(monkeypatch):
+    """A launch limited to a few columns of gathered draw ranks (many sub-blocks per block) gives the host's MI."""
+    from mlframe.feature_selection.filters import _bootstrap_rank_mi_tied_gpu as tied
+
+    rng = np.random.default_rng(7)
+    n = 20000
+    arr = np.ascontiguousarray(np.stack([np.round(rng.normal(size=n) * s) for s in range(2, 30)], axis=1).astype(np.float32))
+    y = rng.integers(0, 3, n)
+    reps = [rng.integers(0, n, int(0.8 * n)) for _ in range(4)]
+    monkeypatch.setenv("MLFRAME_BOOTSTRAP_RANK_DEVICE", "0")
+    monkeypatch.setenv("MLFRAME_BOOTSTRAP_RANK_TIED_DEVICE", "0")
+    want, _ = bootstrap_rank_mi(arr, y, reps, 10)
+    monkeypatch.setenv("MLFRAME_BOOTSTRAP_RANK_TIED_DEVICE", "1")
+    monkeypatch.setattr(tied, "_GATHER_BYTES", 2 * 4 * int(0.8 * n) * 8)  # eight columns per launch
+    monkeypatch.setattr(tied, "_MIN_SUB_BLOCK", 8)
+    got, _ = bootstrap_rank_mi(arr, y, reps, 10)
+    np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-14)

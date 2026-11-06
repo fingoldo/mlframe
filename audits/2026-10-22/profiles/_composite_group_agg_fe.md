@@ -14,3 +14,7 @@ the per-group mean / std / count with the numba `group_mean_std_count` (one pass
 samples put the time in the Python layer around those kernels (the `{key string: value}` lookups the recipes keep, `_array_lookup`, the recipe dicts, the per
 (key set, column, statistic) bookkeeping), not in the arithmetic. A device kernel (atomic group sums, broadcast, residuals) would replace the part that is
 already a one-pass numba kernel and leave the Python layer in place, so it is not built; the lever is fewer Python objects per candidate, not a faster reduction.
+
+## Inside the 100000 x 100 every-family GPU fit (module_walls.py, wall 83.9 s with the wrappers, 2026-11-06)
+
+Inclusive seconds summed over threads: `hybrid_composite_group_agg_fe` 3.63 (1 call) = `generate_composite_group_agg_features` 2.35 + `auto_detect_key_sets` 0.65 + the rest 0.6. Inside the generator `_emit_num_col_features` 3.30 over 384 calls (summed over the edge pool threads, so it exceeds the 2.35 s of wall): `_broadcast_lookup` 1.24 over 1152 calls (about 1.1 ms each, a host table gather over 100000 rows), `_composite_residuals` 0.60, `_global_value_for_stat` 0.16, `build_composite_keys` 0.42 over 15 calls, `_unique_inverse` 0.10. A batched device gather of all the stat tables of a key set would remove at most about 1.2 thread-seconds, under 0.3 s of wall on 8 threads, and adds a host-to-device copy of every emitted column unless the consumer takes device columns. Not changed.
