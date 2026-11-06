@@ -71,8 +71,11 @@ def instantiate_recommended_estimator(recommendation: Optional[dict[str, Any]], 
     mod = importlib.import_module(module_name)
     name = str(recommendation["estimator"])
     cls = getattr(mod, name) if not name.startswith("_") else None
-    # Only an estimator class is constructed: any other attribute a recommendation names would be called with the caller's kwargs (EXE-10 / DYN2-2).
-    if not isinstance(cls, type) or not callable(getattr(cls, "fit", None)):
+    # Allow-list: a scikit-learn estimator defined in the mlframe package. Any other attribute, or any mlframe class that is not an estimator,
+    # would be constructed with the caller's kwargs (EXE-10 / DYN2-2 / DYN4-1).
+    from sklearn.base import BaseEstimator
+
+    if not isinstance(cls, type) or not issubclass(cls, BaseEstimator) or cls.__module__.partition(".")[0] != "mlframe":
         raise ValueError(f"instantiate_recommended_estimator: {module_name}.{name} is not an estimator class")
     return cls(**kwargs)
 

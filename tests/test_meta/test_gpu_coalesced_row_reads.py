@@ -38,18 +38,25 @@ def _kernel_bodies(text: str) -> "list[tuple[str, str]]":
     """``[(kernel name, body text)]`` for every ``__global__`` function in ``text`` (brace-matched)."""
     out: list[tuple[str, str]] = []
     for m in _KERNEL_RE.finditer(text):
-        open_at = text.find("{", m.end())
+        # Comments are stripped first: a comment in the parameter list can hold an unbalanced ")" such as "[0,Kx)".
+        seg = _COMMENT_RE.sub(" ", text[m.end() :])
+        # Skip the parameter list: templated kernels carry ``{ACC}``-style placeholders in it, which are not the body.
+        depth, i = 1, 0
+        while i < len(seg) and depth:
+            depth += (seg[i] == "(") - (seg[i] == ")")
+            i += 1
+        open_at = seg.find("{", i)
         if open_at < 0:
             continue
-        depth, i = 0, open_at
-        while i < len(text):
-            ch = text[i]
+        depth, j = 0, open_at
+        while j < len(seg):
+            ch = seg[j]
             depth += ch == "{"
             depth -= ch == "}"
             if depth == 0:
                 break
-            i += 1
-        out.append((m.group(1), _COMMENT_RE.sub(" ", text[open_at : i + 1])))
+            j += 1
+        out.append((m.group(1), seg[open_at : j + 1]))
     return out
 
 
@@ -66,6 +73,24 @@ def _thread_vars(body: str) -> "set[str]":
     return derived
 
 
+_SHARED_RE = re.compile(r"__shared__[^;(]*?(\w+)\s*\[")
+# A statically sized ``__shared__`` buffer (``se[EDGE_CACHE]``) has a fixed footprint, so a fill of it from global memory is bounded
+# by its declared size. A dynamic ``extern __shared__`` array (its size comes from the launch) has no such bound and is not exempt.
+_STATIC_SHARED_RE = re.compile(r"(?<!extern )__shared__[^;(]*?(\w+)\s*\[[^\]\s]+\]")
+
+
+def _without_shared_subscripts(body: str) -> str:
+    """``body`` with every ``__shared__`` array access blanked: shared memory is not a global read.
+
+    A store into a statically sized shared buffer is dropped as a whole statement, since its global read is bounded by the buffer size.
+    """
+    for name in set(_STATIC_SHARED_RE.findall(body)):
+        body = re.sub(rf"\b{re.escape(name)}\s*\[[^\]]*\]\s*=(?!=)[^;]*;", ";", body)
+    for name in set(_SHARED_RE.findall(body)):
+        body = re.sub(rf"\b{re.escape(name)}\s*\[[^\]]*\]", "0", body)
+    return body
+
+
 def uncoalesced_kernels(text: str) -> "list[str]":
     """Names of kernels in ``text`` that index an array by ``<thread-strided loop var> * <non-constant> + ...``."""
     if "__global__" not in text:
@@ -73,6 +98,7 @@ def uncoalesced_kernels(text: str) -> "list[str]":
     hits: list[str] = []
     for name, body in _kernel_bodies(text):
         derived = _thread_vars(body)
+        body = _without_shared_subscripts(body)
         for var, init in _FOR_RE.findall(body):
             if "threadIdx.x" not in init and not any(re.search(rf"\b{re.escape(v)}\b", init) for v in derived):
                 continue
@@ -86,7 +112,7 @@ def uncoalesced_kernels(text: str) -> "list[str]":
 def _current() -> "set[str]":
     """``{"<module path>::<kernel>"}`` over the package source."""
     found: set[str] = set()
-    files = sorted(SRC_ROOT.rglob("*.py"))
+    files = sorted(p for p in SRC_ROOT.rglob("*.py") if "_benchmarks" not in p.parts)
     assert_scanned_enough(len(files), str(SRC_ROOT))
     for path in files:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -137,3 +163,26 @@ def test_checker_flags_row_major_stride_and_accepts_column_major_read():
     )
     assert uncoalesced_kernels(bad) == ["k"]
     assert not uncoalesced_kernels(good)
+
+
+def test_static_shared_fill_is_exempt_and_dynamic_shared_fill_is_flagged():
+    """A fill of a statically sized shared buffer is bounded by its size, so it is not flagged; a dynamic ``extern __shared__`` fill is."""
+    static_fill = """
+extern "C" __global__ void fill_static(const double* __restrict__ edges, const int K, const int c, const int ne) {
+    __shared__ double se[256];
+    for (int s = threadIdx.x; s < ne; s += blockDim.x) se[s] = edges[(long long)s * K + c];
+    __syncthreads();
+    double acc = 0.0;
+    for (int b = 0; b < 4; ++b) acc += se[b];
+    (void)acc;
+}
+"""
+    dynamic_fill = """
+extern "C" __global__ void fill_dynamic(const double* __restrict__ yb, const long long words, const int B, const int b) {
+    extern __shared__ unsigned int sy[];
+    for (long long w = threadIdx.x; w < words; w += blockDim.x) sy[w] = yb[(long long)w * B + b];
+    __syncthreads();
+}
+"""
+    assert uncoalesced_kernels(static_fill) == []
+    assert uncoalesced_kernels(dynamic_fill) == ["fill_dynamic"]

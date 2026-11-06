@@ -244,10 +244,10 @@ def interaction_subset_loss(Phi: np.ndarray, base: np.ndarray, y: np.ndarray, id
 
 def interaction_top_n(
     Phi: np.ndarray, base: np.ndarray, y: np.ndarray, *, classification: bool, metric: str | None = None, min_card: int = 1, max_card: int | None = None, top_n: int = 30,
-    exhaustive_max: int = 16,
+    exhaustive_max: int = 16, exhaustive_max_card: int = 3,
 ) -> list[tuple[float, tuple[int, ...]]]:
-    """Rank subsets by the interaction-aware coalition loss. Exhaustive for small P; always also runs
-    a greedy-forward pass (which recovers interacting pairs a main-effect search would miss)."""
+    """Rank subsets by the interaction-aware coalition loss. Exhaustive for small P, up to cardinality ``exhaustive_max_card``; always also
+    runs a greedy-forward pass (which recovers interacting pairs a main-effect search would miss and covers larger subsets)."""
     metric = resolve_metric(classification, metric)
     P = Phi.shape[1]
     max_card = P if max_card is None else min(max_card, P)
@@ -265,7 +265,7 @@ def interaction_top_n(
         return v
 
     if P <= exhaustive_max:
-        for r in range(min_card, max_card + 1):
+        for r in range(min_card, min(max_card, exhaustive_max_card) + 1):
             for comb in itertools.combinations(range(P), r):
                 loss(comb)
     # Always run greedy-forward to surface interacting pairs (cheap, dedup via cache); when P is too
