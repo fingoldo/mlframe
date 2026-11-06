@@ -172,3 +172,26 @@ def test_column_blocks_give_the_values_of_one_call(monkeypatch):
         assert plain.shape == plain_b.shape
         np.testing.assert_array_equal(plain, plain_b)
         np.testing.assert_array_equal(corr, corr_b)
+
+
+def test_permutation_blocks_equal_the_single_draw(monkeypatch):
+    """A draw too large for the label cache is made block by block from the same seed: the null equals the single-draw null, row for row."""
+    from mlframe.feature_selection.filters import _honest_mdlp_null as H
+    from mlframe.feature_selection.filters._honest_spec import build_honest_spec
+
+    rng = np.random.default_rng(11)
+    n = 700
+    X = pd.DataFrame(rng.standard_normal((n, 4)).astype(np.float32), columns=list("abcd"))
+    y = (X["a"].to_numpy() + 0.7 * rng.standard_normal(n) > 0).astype(np.int8)
+    spec = build_honest_spec(X, list(X.columns), y, 6)
+    codes = np.zeros((n, 5), dtype=np.int8)
+    codes[:, 4] = y
+    nbins = np.full(5, 8, dtype=np.int64)
+    whole = H._njit_null_columns(spec, codes, nbins, 4, [0, 1, 2, 3], 37, 9)
+    spec2 = build_honest_spec(X, list(X.columns), y, 6)
+    monkeypatch.setattr(H, "_PERM_LABELS_CACHE_MAX_BYTES", 1)
+    monkeypatch.setattr(H, "_free_memory_bytes", lambda: 0)
+    monkeypatch.setattr(H, "_PERM_LABELS_BLOCK_BYTES", 10 * n)
+    blocks = H._njit_null_columns(spec2, codes, nbins, 4, [0, 1, 2, 3], 37, 9)
+    assert len(list(H._permuted_label_blocks(spec2, np.asarray(spec2["y_enc"]), codes[:, 4].astype(np.int64), np.random.default_rng(9), n, 37, 9))) == 4
+    assert np.array_equal(whole[0], blocks[0]) and np.array_equal(whole[1], blocks[1])

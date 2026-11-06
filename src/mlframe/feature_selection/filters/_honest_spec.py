@@ -9,6 +9,7 @@ target-free collapse fallbacks are precomputed per column.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -28,6 +29,29 @@ def _pad_rows(rows: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
     return out, lengths
 
 
+class _FrameColumns:
+    """The spec's ``raw`` matrix of a float32 frame without NaN, read from the frame instead of copied out of it: ``raw[:, j]`` is column ``j`` of the frame (zeros for a column that is not numeric),
+    the same values the dense matrix holds. The dense copy was the largest array of the spec (4 bytes per cell, 400 MB at a million rows by 100 columns) and duplicated the frame the fit holds anyway;
+    the spec lives on the fit's closure, which is dropped after the fit and never pickled."""
+
+    dtype = np.dtype(np.float32)
+
+    def __init__(self, X: pd.DataFrame, cols: Sequence[str], n: int):
+        self._X = X
+        self._cols = [c if (c in X.columns and pd.api.types.is_numeric_dtype(X[c])) else None for c in cols]
+        self.shape = (int(n), len(self._cols))
+
+    def __getitem__(self, key: tuple) -> np.ndarray:
+        """Column ``key[1]`` for ``key[0] == slice(None)``."""
+        rows, j = key
+        if rows != slice(None):
+            raise IndexError("_FrameColumns serves whole columns only")
+        name = self._cols[int(j)]
+        if name is None:
+            return np.zeros(self.shape[0], dtype=np.float32)
+        return np.asarray(self._X[name].to_numpy(dtype=np.float32, copy=False))
+
+
 def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, max_depth: int, method: str = "mdlp") -> dict | None:
     """Spec dict for ``_mdlp_honest_njit.honest_null_columns`` over the first ``len(cols)`` factor columns, or None when a column is not
     usable (non-numeric or non-finite): the caller then keeps the categorise-per-permutation path."""
@@ -42,7 +66,7 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
     # precision, so any NaN keeps the double matrix); the (n, m) matrix is the largest array of the spec, 4 bytes per cell instead of 8
     _numeric = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     _f32_exact = bool(_numeric) and all(X[c].dtype == np.float32 for c in _numeric) and not any(bool(X[c].isna().any()) for c in _numeric)
-    raw = np.zeros((n, m), dtype=np.float32 if _f32_exact else np.float64)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
+    raw: Any = _FrameColumns(X, cols, n) if _f32_exact else np.zeros((n, m), dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
     is_cont = np.zeros(m, dtype=np.bool_)
     q_fb_rows: list[np.ndarray] = []
     q_rf_rows: list[np.ndarray] = []
@@ -74,7 +98,8 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
             # the fallback edges and the unique-value count all see the filled column. The NaN rows keep their own code afterwards.
             v = np.where(nan_here, float(np.nanmedian(v)), v)
             nan_cols[:, j] = nan_here
-        raw[:, j] = v
+        if not _f32_exact:
+            raw[:, j] = v
         q_fb_rows.append(np.empty(0, dtype=np.float64))  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
         q_rf_rows.append(np.empty(0, dtype=np.float64))  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
         numeric_js.append(j)
@@ -120,7 +145,7 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
     q_rf, q_rf_len = _pad_rows(q_rf_rows)
     return {
         "method": method,
-        "raw": np.ascontiguousarray(raw),
+        "raw": raw if _f32_exact else np.ascontiguousarray(raw),
         "nan_mask": nan_cols if nan_cols.any() else None,
         "has_nan": bool(nan_cols.any()),
         "is_cont": is_cont,
