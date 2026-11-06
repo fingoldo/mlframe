@@ -162,6 +162,15 @@ def _nnz_from_counts(c) -> int:
 # per-kernel scalar D2H, not operand re-uploads). Not worth a DATA cache's stale id()-reuse collision risk for
 # ~10 ms. The real redundancy is the DOUBLE card computation, eliminated by the precomp_cards reuse below.
 
+def _shift_to_nonnegative(codes):
+    """Return ``codes`` relabelled to start at 0, and the shift added; codes already non-negative are returned unchanged."""
+    arr = np.asarray(codes)
+    lo = int(arr.min()) if arr.size else 0
+    if lo >= 0:
+        return codes, 0
+    return arr - lo, -lo
+
+
 def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False, kx: int = 0, kz: int = 0):
     """Device twin of :func:`_cmi_from_binned` (marginal + conditional) via cp.unique partition counts.
     Value-order densify -> same partition -> same MI/CMI (selection-identical, fp-order ~1e-15).
@@ -175,6 +184,17 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False, kx: int = 0
     # stable-id greedy/perm paths (free), so the kernel only ADDED a launch where the cache had removed one.
     # Keep dx.max() + _cached_card(y)/_cached_card(z_support).
     import cupy as cp
+
+    # Host codes carry the -1 missing code, and the joint kernels index their histograms with the raw codes, so shift each host array to
+    # start at 0. Relabelling leaves the partition, so the MI is unchanged; the caller's cardinality bounds move by the same shift.
+    if not isinstance(x, cp.ndarray):
+        x, _shift_x = _shift_to_nonnegative(x)
+        kx = kx + _shift_x if kx else kx
+    if not isinstance(y, cp.ndarray):
+        y, _ = _shift_to_nonnegative(y)
+    if z_joint is not None and not isinstance(z_joint, cp.ndarray):
+        z_joint, _shift_z = _shift_to_nonnegative(z_joint)
+        kz = kz + _shift_z if kz else kz
 
     from ._fe_resident_operands import resident_operand
     # The candidate binned column is RE-SCORED across greedy steps with IDENTICAL content (H2D audit of a 1M
