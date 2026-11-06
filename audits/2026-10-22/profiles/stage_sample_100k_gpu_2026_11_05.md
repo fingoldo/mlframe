@@ -104,3 +104,7 @@ Selection check against the first baseline of the session (the tree before any o
 ## binned_numeric_agg standalone (bna_cprof.py, fit-shaped 100000 x 100 frame, CPU only, single pool thread)
 
 8.8 s under cProfile with a flat profile: the largest function is `ndarray.partition` (382 calls, 0.88 s, the quantile edges), then `searchsorted` (381 calls, 0.88 s, the binning), ufunc `reduce` (7652 calls, 0.64 s), `_binned_agg_linear_usability._gain` (188 calls, 0.50 s), `_oof_stat_columns` (64 calls, 0.46 s), `argsort` (116 calls, 0.40 s). No function holds more than about 10 percent, no copy or sort pattern repeats; the family is a sum of many equal-sized pieces (per pair: binning, out-of-fold statistics, a linear-usability test), so there is no one fix. Not changed.
+
+### Correction to the binned_numeric_agg entry above
+
+That profile ran with the device hidden (`CUDA_VISIBLE_DEVICES=-1`), so it measured the host path. In the GPU fit the family already has a device-born builder and gate (`_binned_numeric_agg_resident.py`: the OOF candidate matrix is built on the device from the group and aggregate columns, the fold ids and the stored edges, and scored with the resident plug-in MI), so the host profile above does not describe its 11 to 13 s in the GPU fit. What that time is made of in the GPU fit has not been measured; a device-side batching of the quantile edges would duplicate what the resident path already does.
