@@ -66,4 +66,4 @@ def test_column_tiled_gate_matches_the_untiled_gate(monkeypatch):
     monkeypatch.setattr(_fe_gpu_vram, "fe_gpu_has_vram_cushion", lambda b, **_k: b <= full_bytes // 2)
     tiled = bg.batch_mi_with_noise_gate_cuda_resident(**kwargs)
     assert tiled is not None
-    np.testing.assert_allclose(np.asarray(tiled), np.asarray(untiled), atol=1e-12, rtol=1e-12)
+    assert np.allclose(np.asarray(tiled), np.asarray(untiled), atol=1e-12, rtol=1e-12, equal_nan=True)

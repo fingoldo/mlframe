@@ -34,4 +34,4 @@ def test_blockwise_winners_equal_full_winners(monkeypatch):
     )
     assert set(frame.columns) == set(want)
     assert set(recipes) == set(want)
-    assert all(np.array_equal(frame[c].to_numpy(), full_enc[c].to_numpy()) for c in want)
+    assert len(want) > 0 and all(np.array_equal(frame[c].to_numpy(), full_enc[c].to_numpy()) for c in want)

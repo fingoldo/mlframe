@@ -25,7 +25,7 @@ def test_four_independent_triples_all_get_a_column():
         """Number of planted triples with an emitted column for this count."""
         _aug, _uni, scores = hybrid_orth_mi_triplet_fe(X, y, top_triplet_count=count, top_triplet_seed_k=12)
         kept = scores[scores["cmi_gain"] > 0].head(count)["engineered_col"].astype(str)
-        return sum(any(all(f"x{i}" in name for i in tr) for name in kept) for tr in triples)
+        return sum(any(len(tr) > 0 and all(f"x{i}" in name for i in tr) for name in kept) for tr in triples)
 
     assert found(8) == 4
     assert found(2) <= 2

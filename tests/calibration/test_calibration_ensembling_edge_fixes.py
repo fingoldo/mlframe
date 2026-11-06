@@ -13,7 +13,7 @@ from mlframe.calibration.ensembling import odds_ratio_combine
 
 def test_disjoint_binary_splits_with_equal_class_counts_are_not_an_overlap():
     """[0,1,0,1] against [1,0,1,0] have the same sorted values but are different rows."""
-    _check_target_identity("m", np.array([0, 1, 0, 1]), np.array([1, 0, 1, 0]))
+    assert _check_target_identity("m", np.array([0, 1, 0, 1]), np.array([1, 0, 1, 0])) is None
 
 
 def test_identical_binary_targets_are_still_refused():

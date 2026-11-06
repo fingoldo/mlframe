@@ -215,6 +215,7 @@ def test_end_to_end_regression_proposes_saddle():
 
     proposed = any(FOCUS in c["proposed"] for c in learned)
     names = [str(n) for n in m.get_feature_names_out()]
+    assert len(FOCUS) > 0
     present = any(all(re.search(rf"(?<![A-Za-z0-9_])x{k}(?![0-9])", n) for k in FOCUS) for n in names)
     assert proposed or present, f"saddle neither proposed by a learning invocation ({[c['proposed'] for c in learned]}) nor present in the output {names}"
 

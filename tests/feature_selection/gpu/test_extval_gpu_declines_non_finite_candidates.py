@@ -31,7 +31,7 @@ def test_nan_in_an_external_factor_gives_the_host_codes():
     ops = np.array([0, 1, 2], dtype=np.int64)
     got = ev.gpu_materialise_extval_codes_host(a, [b_nan, b], ops, 10)
     assert got is not None
-    np.testing.assert_array_equal(got, _host_codes(a, [b_nan, b], ops, 10))
+    assert np.array_equal(got, _host_codes(a, [b_nan, b], ops, 10), equal_nan=True)
     assert ev.gpu_materialise_extval_codes_host(a, [b], ops, 10) is not None
 
 

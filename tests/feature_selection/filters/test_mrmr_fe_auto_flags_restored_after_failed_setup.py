@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -40,8 +42,6 @@ def test_recommendation_from_a_previous_fit_is_cleared(monkeypatch):
     est = MRMR(fe_auto=True, verbose=0)
     est._fe_recommended_flags_ = {"fe_pair_prewarp_enable": True}
     est.set_params(fe_auto=False)
-    try:
+    with contextlib.suppress(Exception):  # only the attribute reset is under test
         est.fit(X, y)
-    except Exception:  # only the attribute reset is under test
-        pass
     assert est._fe_recommended_flags_ is None

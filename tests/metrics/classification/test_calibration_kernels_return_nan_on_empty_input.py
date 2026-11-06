@@ -15,4 +15,4 @@ def test_empty_input_is_nan_everywhere():
     p = np.array([], dtype=np.float64)
     assert np.isnan(compute_ece_debiased(y, p, 10))
     for result in (compute_ece_and_brier_decomposition(y, p, 10), compute_brier_decomposition_debiased(y, p, 10), compute_ece_brier_full_and_debiased(y, p, 10)):
-        assert all(np.isnan(v) for v in result), result
+        assert len(result) > 0 and all(np.isnan(v) for v in result), result

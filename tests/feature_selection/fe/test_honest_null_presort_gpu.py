@@ -7,7 +7,7 @@ import pytest
 def _cupy_or_skip():
     """cupy, or a skip without a usable CUDA device."""
     cp = pytest.importorskip("cupy")
-    try:
+    try:  # audit-exempt: except_skip_masks_call_under_test -- the guarded call only asks the runtime for a CUDA device; nothing under test runs in the try
         cp.cuda.runtime.getDeviceCount()
     except Exception:
         pytest.skip("no CUDA device")
@@ -32,8 +32,8 @@ def test_order_and_ties_equal_the_host(dtype, n, k):
     tie_host = _tie_flags(raw, order_host)
     got = presort_and_ties_gpu(raw)
     assert got is not None
-    np.testing.assert_array_equal(got[0], order_host)
-    np.testing.assert_array_equal(got[1], tie_host)
+    assert np.array_equal(got[0], order_host, equal_nan=True)
+    assert np.array_equal(got[1], tie_host, equal_nan=True)
 
 
 def test_non_finite_columns_stay_on_the_host():
@@ -71,5 +71,5 @@ def test_an_out_of_memory_block_is_halved_and_retried_not_given_up(monkeypatch):
     monkeypatch.setattr(presort, "_column_block", lambda _cp, _n: 32)
     got = presort.presort_and_ties_gpu(raw)
     assert got is not None
-    np.testing.assert_array_equal(got[0], _presort_columns(raw))
+    assert np.array_equal(got[0], _presort_columns(raw), equal_nan=True)
     assert calls["widths"][0] == 32 and calls["widths"][1] == 16, calls["widths"]

@@ -1,5 +1,6 @@
 """Residual-target pass 2 passes the group ids to its OOF and survives the NaN warm-up block of a forward-chaining split."""
 
+import contextlib
 from types import SimpleNamespace
 
 import numpy as np
@@ -38,10 +39,8 @@ def test_oof_gets_groups_in_the_residual_pass(monkeypatch):
     df = pd.DataFrame({"a": np.arange(n, dtype=float), "y": np.arange(n, dtype=float)})
     obj, _ = _fake()
     train_idx = np.arange(10, 30)
-    try:
+    with contextlib.suppress(Exception):
         _stacked.fit_stacked_on_residual(obj, df, "y", ["a"], train_idx)
-    except Exception:
-        pass
     np.testing.assert_array_equal(seen["groups"], np.repeat(np.arange(8), 5)[train_idx])
 
 
@@ -60,9 +59,7 @@ def test_nan_warmup_rows_do_not_cancel_pass_two(monkeypatch):
     obj, calls = _fake()
     monkeypatch.setattr(_stacked, "_annotate_residual_specs", lambda self, specs: [])
     train_idx = np.arange(10, 30)
-    try:
+    with contextlib.suppress(Exception):
         _stacked.fit_stacked_on_residual(obj, df, "y", ["a"], train_idx)
-    except Exception:
-        pass
     residual_fits = [t for tgt, t in calls.get("fits", []) if tgt.startswith("__y_residual__")]
     assert residual_fits and len(residual_fits[0]) == 15

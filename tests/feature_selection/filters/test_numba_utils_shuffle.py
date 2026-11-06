@@ -12,7 +12,7 @@ def test_rows_are_permutations_and_depend_only_on_their_seed():
     n = 500
     block = np.empty((6, n), dtype=np.int32)
     _fill_permutations(block, 40)
-    assert all(np.array_equal(np.sort(r), np.arange(n)) for r in block)
+    assert len(block) > 0 and all(np.array_equal(np.sort(r), np.arange(n)) for r in block)
     single = np.empty((1, n), dtype=np.int32)
     _fill_permutations(single, 43)
     np.testing.assert_array_equal(block[3], single[0])

@@ -226,11 +226,17 @@ def test_hybrid_orth_candidates_roster_separates_never_fired_from_lost_the_greed
 def test_step_score_safe_code_dtype_reserves_uniform_nan_slot():
     """The FE-step score path must pass reserve_nan_slot for the uniform method, like the discretization module's
     own call sites -- otherwise a uniform nbins==dtype.max+1 write wraps the NaN sentinel negative."""
+    import ast
     import inspect
+    import textwrap
 
     from mlframe.feature_selection.filters._mrmr_fe_step import _step_score, _step_score_parts, _step_score_parts2
 
-    src = "".join(inspect.getsource(m) for m in (_step_score, _step_score_parts, _step_score_parts2))
-    n_calls = src.count("_safe_code_dtype(self.quantization_nbins")
-    n_guarded = src.count("reserve_nan_slot=(self.quantization_method ==")
-    assert n_calls and n_guarded == n_calls, f"{n_calls - n_guarded} of {n_calls} call sites lack reserve_nan_slot"
+    calls = []
+    for fn in (_step_score, _step_score_parts, _step_score_parts2):
+        for node in ast.walk(ast.parse(textwrap.dedent(inspect.getsource(fn)))):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", None)) == "_safe_code_dtype":
+                if node.args and isinstance(node.args[0], ast.Attribute) and node.args[0].attr == "quantization_nbins":
+                    calls.append(node)
+    guarded = [c for c in calls if any(kw.arg == "reserve_nan_slot" for kw in c.keywords)]
+    assert calls and len(guarded) == len(calls), f"{len(calls) - len(guarded)} of {len(calls)} call sites lack reserve_nan_slot"

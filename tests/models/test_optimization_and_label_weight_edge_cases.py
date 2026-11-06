@@ -58,6 +58,7 @@ def test_search_survives_nan_evaluations():
         None,
     )
     assert best is not None
+    assert len(best) > 0
 
 
 def test_known_candidate_outside_the_search_space_is_ignored_not_an_index_error():
