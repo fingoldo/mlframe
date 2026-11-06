@@ -189,8 +189,9 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     """Cupy batch plug-in MI. Quantile-bins each column on GPU via
     ``cp.argsort`` -> rank-to-bin lookup, then computes joint histograms
     via a single ``cp.bincount`` across (col, bin, class) flat indices.
-    Numerically equivalent to :func:`_plugin_mi_classif_batch_njit`
-    up to fp64 round-off.
+    Equivalent to :func:`_plugin_mi_classif_batch_njit` up to fp64 round-off on continuous data. The bins are cut at percentile
+    edges, not at rank positions, so at tied values the two can assign a row to adjacent bins; that is the accepted trade of the
+    relaxed binning, not a round-off difference.
     """
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
