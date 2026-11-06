@@ -45,7 +45,7 @@ Four read-only audits covered the remaining GPU-kernel files (reports `kernel_pa
 | PARG4-1 | High | RESOLVED | `812a9a61c` GPU ROC and PR AUC map labels to {0,1} as the CPU path does; GPU test against sklearn |
 | PARG4-2 | High | OPEN | Treeshap numba twin is float32 under `MLFRAME_CRIT_DTYPE_RELAXED=1`; cupy twin is float64. Explains the 1.1e-4 gap in `test_treeshap_gpu_matches_numba`. Needs one dtype contract. |
 | PARG1-1 | High | OPEN | Device-born binned aggregates upload values as float64; host casts to crit dtype. Bin codes and cell moments can differ near edges and at 1e39. |
-| PARG1-2 | High | OPEN | Op-candidate ratio is `u/(abs(v)+1e-6)` on the kernel, `u/max(abs(v),1e-6)` on the host; row order can differ |
+| PARG1-2 | High | RESOLVED | `bb1c84dd6` the device ratio uses the host guard `u/max(abs(v),1e-6)`; test `test_candidate_ratio_matches_host_guard.py` |
 | PARG3-1 | High | OPEN | Hermite rank-binning on GPU casts to float32 before binning; values distinct at 1e-4 collapse into one bin |
 | PARG3-2 | High | OPEN | Fused basis preprocess narrows to float32 before centring; the fallback does not |
 | PARG2-2 | High (if modulus > 127) | OPEN | Default modular-rank kernels store residues as int8; shared-memory gate allows moduli above 127 |
