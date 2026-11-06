@@ -85,6 +85,9 @@ def _stage_mi_greedy(self, X_acc, X, _y_np, _mi_greedy_pre_recipes, verbose):
             type(_mig_exc).__name__,
             _mig_exc,
         )
+        from .._fe_rejection_ledger import record_family_failure
+
+        record_family_failure(self, "mi_greedy", _mig_exc)
     return X_acc
 
 
@@ -323,6 +326,9 @@ def _fe_stage_cascade_early_a_part2(
                 type(_h_exc).__name__,
                 _h_exc,
             )
+            from .._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth", _h_exc)
         # Layer 32 — extra-basis (B-spline / Fourier) FE stage.
         # Runs only when the master hybrid switch is on AND the user
         # opted in via a non-empty ``fe_hybrid_orth_extra_bases`` tuple.
@@ -675,4 +681,7 @@ def _stage_greedy_cmi(self, _fe_family_on, _y_np, X, _mi_greedy_pre_recipes, ver
                 type(_cmi_exc).__name__,
                 _cmi_exc,
             )
+            from .._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "mi_greedy_cmi", _cmi_exc)
     return X
