@@ -44,6 +44,7 @@ default path untouched). NEVER ``free_all_blocks`` (mempool teardown owns that).
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Sequence
 from typing import Any, Callable, Optional
 
@@ -249,14 +250,17 @@ def _oof_gather_kernel(cp):
 
 
 _OOF_GATHER_INTO_KERNELS: dict = {}
+_OOF_GATHER_INTO_KERNELS_LOCK = threading.Lock()
 
 
 def _oof_gather_into_kernel(cp, out_dtype):
     """Elementwise kernel of the gather above that writes the cast result into a caller-owned output of ``out_dtype`` (float32 or float64): one launch per column
     where gather-then-assign was two (the gather, then a float64 -> block-dtype copy), and no float64 temporary per column."""
     key = cp.dtype(out_dtype).name
-    kern = _OOF_GATHER_INTO_KERNELS.get(key)
-    if kern is None:
+    with _OOF_GATHER_INTO_KERNELS_LOCK:
+        kern = _OOF_GATHER_INTO_KERNELS.get(key)
+        if kern is not None:
+            return kern
         ctype = {"float32": "float", "float64": "double"}[key]
         kern = cp.ElementwiseKernel(
             # Intentional float64: the stat table and the fallback keep the table's width; only the written column takes the block dtype

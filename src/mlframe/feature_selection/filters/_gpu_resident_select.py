@@ -17,6 +17,7 @@ behavior changed.
 from __future__ import annotations
 
 import logging
+import threading
 
 import numpy as np
 
@@ -115,6 +116,7 @@ def _launch_radix_f32_v4(cp, data_cm, n: int, K: int, ranks_g, R: int, osv, thre
 
 
 _CANONICAL_NAN_KERNELS: dict = {}
+_CANONICAL_NAN_KERNELS_LOCK = threading.Lock()
 
 
 def _canonical_nan(cand_gpu):
@@ -129,13 +131,13 @@ def _canonical_nan(cand_gpu):
     if cand_gpu.dtype.kind != "f":
         return cand_gpu
     key = cand_gpu.dtype.name
-    kern = _CANONICAL_NAN_KERNELS.get(key)
-    if kern is None:
-        quiet = {"float32": "__int_as_float(0x7fc00000)", "float64": "__longlong_as_double(0x7ff8000000000000LL)", "float16": "x"}.get(key)
-        if quiet is None or key == "float16":
-            return cand_gpu
-        kern = cp.ElementwiseKernel(f"{key} x", f"{key} y", f"y = isnan(x) ? {quiet} : x", f"canonical_nan_{key}")
-        _CANONICAL_NAN_KERNELS[key] = kern
+    quiet = {"float32": "__int_as_float(0x7fc00000)", "float64": "__longlong_as_double(0x7ff8000000000000LL)"}.get(key)
+    if quiet is None:
+        return cand_gpu
+    with _CANONICAL_NAN_KERNELS_LOCK:
+        kern = _CANONICAL_NAN_KERNELS.get(key)
+        if kern is None:
+            kern = _CANONICAL_NAN_KERNELS[key] = cp.ElementwiseKernel(f"{key} x", f"{key} y", f"y = isnan(x) ? {quiet} : x", f"canonical_nan_{key}")
     kern(cand_gpu, cand_gpu)
     return cand_gpu
 
@@ -169,10 +171,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     cand_gpu = _canonical_nan(cand_gpu)  # a sign-bit NaN keys below -inf in the radix transform; sorting puts every NaN last
     import cupy as cp
 
-    if data_is_cm:
-        K, n = cand_gpu.shape
-    else:
-        n, K = cand_gpu.shape
+    K, n = cand_gpu.shape if data_is_cm else cand_gpu.shape[::-1]
     is_f32 = cand_gpu.dtype == cp.float32
     # ALL of the order-statistic geometry (ranks, R, shared-mem gate, the cupy 'linear' interp gathers bi/ai/w,
     # the device rank vector ranks_g) depends ONLY on (n, nbins) - NOT the candidate data - so compute it ONCE

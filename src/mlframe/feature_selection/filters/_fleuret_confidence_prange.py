@@ -24,7 +24,7 @@ def _block_flags(data, factors_nbins, x, y, selected_vars_arr, b0, b1, bootstrap
     flags = np.zeros(b1 - b0, dtype=np.bool_)
     for k in prange(b1 - b0):
         i = b0 + k
-        own = data.copy()
+        own = data.copy()  # loop-invariant-ok: each permutation shuffles its own private copy of the columns
         ent = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)
         cond = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)
         state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(perm_offset + i + 1)

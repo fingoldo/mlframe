@@ -607,7 +607,7 @@ def _best_coefs_for(coef_a, coef_b, direction_only):
     if direction_only:
         nc_a, nc_b = _l2_normalize_pair(coef_a, coef_b)
         return (nc_a.copy(), nc_b.copy())
-    return (coef_a.copy(), coef_b.copy())
+    return (np.array(coef_a, copy=True), np.array(coef_b, copy=True))  # the incumbent is stored apart from the arrays the search keeps mutating
 
 
 def _plateau_step(best_score, last_gen_best, plateau_gens, early_stop_no_improve_gens):

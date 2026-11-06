@@ -58,7 +58,7 @@ _HSIC_DEVICE_MIN_WORK = 1_000_000
 _HSIC_CODE_VERSION = "hsic_biased_backend-v1"
 
 
-def _kernel(real: str) -> Any:
+def _hsic_kernel(real: str) -> Any:
     """The compiled kernel for ``real`` ("float" / "double"), one module per type."""
     import cupy as cp
 
@@ -84,7 +84,7 @@ def hsic_biased_columns_gpu(xs_rows: np.ndarray, lc: np.ndarray, sigmas: np.ndar
             return None
         dt = crit_float_dtype()
         real = "float" if dt == cp.float32 else "double"
-        kern = _kernel(real)
+        kern = _hsic_kernel(real)
         lc64 = np.ascontiguousarray(lc, dtype=np.float64)  # Intentional float64: the trace is summed in double, as the host kernel sums it
         diag = float(np.trace(lc64))
         lc_d = cp.asarray(lc64)
@@ -100,7 +100,7 @@ def hsic_biased_columns_gpu(xs_rows: np.ndarray, lc: np.ndarray, sigmas: np.ndar
         for start in range(0, k, width):
             stop = min(k, start + width)
             # Centre each row in float64 BEFORE narrowing: the kernel uses only pairwise differences, which a row offset does not change, but a
-            # float32 offset of 1e6 has a step of 0.06 and snaps a 0.01-spread column (audit PARG3-4).
+            # float32 offset of 1e6 has a step of 0.06 and snaps a 0.01-spread column.
             rows_c = np.asarray(xs_rows[start:stop], dtype=np.float64)
             rows_c = rows_c - rows_c.mean(axis=1, keepdims=True)
             xs_d = cp.asarray(np.ascontiguousarray(rows_c).astype(dt, copy=False))

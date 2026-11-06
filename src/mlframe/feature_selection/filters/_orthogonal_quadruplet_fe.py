@@ -379,7 +379,7 @@ def _quadruplet_null_engineered_mi_floor(
     the target and taking the ``quantile`` of the per-permutation maxima gives the chance ceiling a winner
     must exceed, independent of the pool size.
     """
-    rng = np.random.default_rng(_QUADRUPLET_NULL_SEED)
+    rng = np.random.default_rng(_QUADRUPLET_NULL_SEED)  # seed-ok: raw_X_seed is the raw-column frame, not an RNG seed; the chance ceiling is deliberately one fixed, reproducible draw
     y_arr = np.asarray(y)
     maxima = []
     for _ in range(int(n_perm)):

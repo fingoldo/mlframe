@@ -7,6 +7,7 @@ from ``_gpu_resident_fe`` inside the function body to avoid an import cycle.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Sequence
 
 import numpy as np
@@ -106,16 +107,18 @@ void batch_unary(const {REAL}* __restrict__ G, const long long* __restrict__ slo
 """
 _BATCH_UNARY_SRC = render(_BATCH_UNARY_TEMPLATE, real=np.float64)  # the float64 source, kept under its old name for the modules that re-export it
 _BATCH_UNARY_KERNELS: dict = {}
+_BATCH_UNARY_KERNELS_LOCK = threading.Lock()
 
 
 def _get_batch_unary_kernel(real: Any = np.float64):
     """Lazily compile (once per element type) and return the batched plain-unary op-code ``batch_unary`` RawKernel for the group type ``real`` (float32 or float64)."""
     key = ctype_of(real)
-    kernel = _BATCH_UNARY_KERNELS.get(key)
-    if kernel is None:
-        import cupy as cp
+    with _BATCH_UNARY_KERNELS_LOCK:
+        kernel = _BATCH_UNARY_KERNELS.get(key)
+        if kernel is None:
+            import cupy as cp
 
-        kernel = _BATCH_UNARY_KERNELS[key] = cp.RawKernel(render(_BATCH_UNARY_TEMPLATE, real=real), "batch_unary")
+            kernel = _BATCH_UNARY_KERNELS[key] = cp.RawKernel(render(_BATCH_UNARY_TEMPLATE, real=real), "batch_unary")
     return kernel
 
 
