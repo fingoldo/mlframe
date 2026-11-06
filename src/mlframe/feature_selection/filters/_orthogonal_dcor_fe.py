@@ -101,7 +101,7 @@ def _u_centered_distance_matrix(z: np.ndarray) -> np.ndarray:
     """
     # Intentional float64: the double-centred m x m sums lose precision in float32 (the batch kernel builds its x side in double too); a float32 matrix here made the
     # per-column dCor differ from the batched one in the 5th-6th digit (test_auto_scorer_bootstrap_batch_equivalence)
-    arr = np.asarray(z, dtype=np.float64).ravel()
+    arr = np.asarray(z, dtype=np.float64).ravel()  # Intentional float64: the distance correlation is computed in double
     # Pairwise absolute differences - the 1-D Euclidean distance.
     a = np.abs(arr[:, None] - arr[None, :])
     row_mean = a.mean(axis=1, keepdims=True)

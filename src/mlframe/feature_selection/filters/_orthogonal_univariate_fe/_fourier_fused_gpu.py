@@ -134,7 +134,7 @@ __global__ void apply_deflate(const {REAL}* z, const {REAL}* y, const double* co
 
 
 # The variance floor is filled in from the shared constant so the kernel and the host agree.
-_SRC = render(_SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR)))  # {ACC} is float64; {REAL} stays for the per-type modules
+_SRC = render(_SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR)))  # Intentional float64: {ACC} is float64; {REAL} stays for the per-type modules
 # One module per input element type: the samples arrive in the critical dtype (float32 by default) and the kernels read them as that type; the sums accumulate in double.
 _MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float"))}
 
@@ -152,7 +152,7 @@ def power_sincos(cp: Any, z: Any, yc: Any, y_ss: float, freqs: Any) -> Any:
     out = cp.empty(int(f.shape[0]), dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     power = _modules_for(z).get(cp).get_function("periodogram_power")
-    power((int(f.shape[0]),), (block_size_for(power, work_items=int(z.shape[0]), max_width=1024),), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss)))
+    power((int(f.shape[0]),), (block_size_for(power, work_items=int(z.shape[0]), max_width=1024),), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss)))  # Intentional float64: the power kernel accumulates in double
     return out
 
 

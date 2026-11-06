@@ -43,7 +43,7 @@ def average_ranks_many(cols: Any, out: np.ndarray) -> None:
         c = cols[k]
         n = c.shape[0]
         # the ranks depend only on the tie runs, so a radix order of the (exactly widened) values gives the same ranks as the comparison sort
-        order = radix_order_f64(c.astype(np.float64))
+        order = radix_order_f64(c.astype(np.float64))  # Intentional float64: radix_order_f64 takes float64 keys
         i = 0
         while i < n:
             e = i + 1
@@ -58,7 +58,7 @@ def average_ranks_many(cols: Any, out: np.ndarray) -> None:
 @numba.njit(cache=True)
 def _avg_ranks_inplace(v: np.ndarray, m: int, order: np.ndarray, ranks: np.ndarray) -> None:
     """Average ranks (ties share the mean rank, as ``pandas.Series.rank(method="average")``) of the first ``m`` values of ``v`` into ``ranks``; ``order`` is scratch."""
-    order[:m] = radix_order_f64(v[:m].astype(np.float64))  # same tie runs, so the same average ranks
+    order[:m] = radix_order_f64(v[:m].astype(np.float64))  # Intentional float64: same tie runs, so the same average ranks
     i = 0
     while i < m:
         e = i + 1
@@ -239,7 +239,7 @@ def finite_sort_order(col: np.ndarray, *, cache: bool = True) -> np.ndarray:
     finite = col[rows]
     if finite.dtype == np.float32:
         order = rows[radix_order_f32(np.ascontiguousarray(finite))]  # the same stable order as the mergesort, about 7 times faster
-    elif finite.dtype == np.float64:
+    elif finite.dtype == np.float64:  # Intentional float64: radix_order_f64 takes float64 keys
         order = rows[radix_order_f64(np.ascontiguousarray(finite))]
     else:
         order = rows[np.argsort(finite, kind="mergesort")]

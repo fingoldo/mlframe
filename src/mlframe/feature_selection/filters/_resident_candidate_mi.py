@@ -288,14 +288,14 @@ def _tau_grid_kernel(cp, mode: str, out_ctype: str):
     key = (mode, out_ctype)
     kern = _TAU_KERNELS.get(key)
     if kern is None:
-        decl = "float32" if out_ctype == "float" else "float64"  # cupy's name of the output type
+        decl = "float32" if out_ctype == "float" else "float64"  # Intentional float64: cupy's name of the output type
         if mode == "mask":
             kern = cp.ElementwiseKernel(
-                "float64 c, float64 t, float64 a", decl + " o", f"o = ({out_ctype})((c > t ? 1.0 : 0.0) * a)", "gate_tau_mask_" + out_ctype
+                "float64 c, float64 t, float64 a", decl + " o", f"o = ({out_ctype})((c > t ? 1.0 : 0.0) * a)", "gate_tau_mask_" + out_ctype  # Intentional float64: the gate kernels compare doubles
             )
         else:
             kern = cp.ElementwiseKernel(
-                "float64 c, float64 t, float64 a, float64 b", decl + " o", f"o = ({out_ctype})(c > t ? a : b)", "gate_tau_select_" + out_ctype
+                "float64 c, float64 t, float64 a, float64 b", decl + " o", f"o = ({out_ctype})(c > t ? a : b)", "gate_tau_select_" + out_ctype  # Intentional float64: the gate kernels compare doubles
             )
         with _TAU_KERNELS_LOCK:
             kern = _TAU_KERNELS.setdefault(key, kern)  # two threads may build it at once; both use the one stored first

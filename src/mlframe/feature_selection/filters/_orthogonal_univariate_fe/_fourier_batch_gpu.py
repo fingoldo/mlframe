@@ -169,7 +169,7 @@ __global__ void apply_deflate_b(const {REAL}* Z, const {REAL}* Y, const double* 
 """
 
 
-_SRC = render(_SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR)))  # {ACC} is float64; {REAL} stays for the per-type modules
+_SRC = render(_SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR)))  # Intentional float64: {ACC} is float64; {REAL} stays for the per-type modules
 _MODULES_BY_REAL = {"double": LazyRawModule(_SRC.replace("{REAL}", "double"), ("-std=c++14",)), "float": LazyRawModule(_SRC.replace("{REAL}", "float"), ("-std=c++14",))}
 
 

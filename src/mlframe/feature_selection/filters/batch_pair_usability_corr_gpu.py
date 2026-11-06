@@ -311,13 +311,13 @@ _CUDA_KERNELS_WARP_LOCK = threading.Lock()
 _WARP_SIZE = 32
 
 
-def _form_device(ft=np.float64):
+def _form_device(ft=np.float64):  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     """The device ``_eval_form`` of the warp kernel in the float type ``ft``."""
     nan_ft = ft(np.nan)
 
     @_nb_cuda.jit(device=True, inline=True)
     def _form(form_id, x0, x1, eps):
-        """``_eval_form`` with the NaN of a near-zero divisor in ``ft`` (a float64 NaN literal would promote a float32 kernel to double)."""
+        """``_eval_form`` with the NaN of a near-zero divisor in ``ft`` (a double NaN literal would promote a float32 kernel to double)."""
         if form_id == FORM_X0:
             return x0
         if form_id == FORM_X1:
@@ -339,9 +339,9 @@ def _form_device(ft=np.float64):
     return _form
 
 
-def _warp_pass_helpers(ft=np.float64):
+def _warp_pass_helpers(ft=np.float64):  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     """Device helpers of the warp kernel: the strided mean pass and the centred-moment pass, each warp-reduced so every lane holds the totals. ``ft`` is the float type
-    of the forms and the moments (``np.float64``, or ``np.float32`` on cards whose double rate is 1/32 of single)."""
+    of the forms and the moments (``np.double``, or ``np.float32`` on cards whose double rate is 1/32 of single)."""
     _form = _form_device(ft)
 
     @_nb_cuda.jit(device=True)
@@ -353,9 +353,9 @@ def _warp_pass_helpers(ft=np.float64):
         sv = ft(0.0)
         i = lane
         while i < n_rows:
-            yi = ft(y[i])  # the kernel's float type: float64, or float32 on a 1/32-double card
+            yi = ft(y[i])  # Intentional float64: the kernel's float type: float64, or float32 on a 1/32-double card
             x0 = ft(operand_matrix[a_idx, i])  # the kernel's float type: float64, or float32 on a 1/32-double card
-            x1 = ft(operand_matrix[b_idx, i])  # the kernel's float type: float64, or float32 on a 1/32-double card
+            x1 = ft(operand_matrix[b_idx, i])  # Intentional float64: the kernel's float type: float64, or float32 on a 1/32-double card
             v = _form(form_id, x0, x1, eps)
             finite = math.isfinite(yi) and math.isfinite(v)
             if finite:
@@ -383,9 +383,9 @@ def _warp_pass_helpers(ft=np.float64):
         sav = ft(0.0)
         i = lane
         while i < n_rows:
-            yi = ft(y[i])  # the kernel's float type: float64, or float32 on a 1/32-double card
+            yi = ft(y[i])  # Intentional float64: the kernel's float type: float64, or float32 on a 1/32-double card
             x0 = ft(operand_matrix[a_idx, i])  # the kernel's float type: float64, or float32 on a 1/32-double card
-            x1 = ft(operand_matrix[b_idx, i])  # the kernel's float type: float64, or float32 on a 1/32-double card
+            x1 = ft(operand_matrix[b_idx, i])  # Intentional float64: the kernel's float type: float64, or float32 on a 1/32-double card
             v = _form(form_id, x0, x1, eps)
             finite = math.isfinite(yi) and math.isfinite(v)
             if finite:
@@ -406,7 +406,7 @@ def _warp_pass_helpers(ft=np.float64):
     return _warp_mean_sums, _warp_centered_sums
 
 
-def _cuda_kernel_warp_factory(ft=np.float64):
+def _cuda_kernel_warp_factory(ft=np.float64):  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     """Build (once) the WARP-coalesced CUDA kernel variant: one WARP (32 threads) per
     (pair, form) instead of one THREAD. The rejected thread-per-item design has each thread do a full
     serial n_rows-length loop over its OWN (pair, form)'s operand rows; since ``pair_a``/``pair_b`` are
@@ -477,12 +477,12 @@ def _cuda_kernel_warp_factory(ft=np.float64):
 
 def _float32_unsafe(y: np.ndarray, operand_matrix: np.ndarray) -> bool:
     """True when some column's offset is more than 1000 times its spread, or a value is not finite: the inputs float32 cannot represent."""
-    cols = np.concatenate([np.asarray(y, dtype=np.float64).reshape(-1, 1), np.asarray(operand_matrix, dtype=np.float64).reshape(len(y), -1)], axis=1)
+    cols = np.concatenate([np.asarray(y, dtype=np.float64).reshape(-1, 1), np.asarray(operand_matrix, dtype=np.float64).reshape(len(y), -1)], axis=1)  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     if not np.all(np.isfinite(cols)):
         return True
     spread = cols.std(axis=0)
     offset = np.abs(cols.mean(axis=0))
-    return bool(np.any(offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny)))
+    return bool(np.any(offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny)))  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
 
 
 def batch_pair_usability_corr_cuda_warp(y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray) -> np.ndarray:
@@ -493,11 +493,11 @@ def batch_pair_usability_corr_cuda_warp(y: np.ndarray, operand_matrix: np.ndarra
 
     # float32 forms and moments by default: this kernel was float64-bound on a 1/32-double card (5778 pairs x 5 forms x 33334 rows: 0.74 s float64, 0.17 s
     # float32; |corr| within 1.7e-6, the best form of every pair unchanged). MLFRAME_USABILITY_CORR_F32=0 keeps the double kernel.
-    ft = np.float64 if os.environ.get("MLFRAME_USABILITY_CORR_F32", "1").strip() == "0" else np.float32
+    ft = np.float64 if os.environ.get("MLFRAME_USABILITY_CORR_F32", "1").strip() == "0" else np.float32  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     # float32 cannot hold an offset next to a small spread (1e8 + 0.1 * i has a step of 8 in float32, so the correlation of a
     # perfectly linear pair degrades and a near-constant column reads as constant). Those inputs keep the double kernel.
     if ft is np.float32 and _float32_unsafe(y, operand_matrix):
-        ft = np.float64
+        ft = np.float64  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     with _CUDA_KERNELS_WARP_LOCK:
         kernel = _CUDA_KERNELS_WARP.get(ft)
         if kernel is None:
@@ -722,7 +722,7 @@ def dispatch_batch_pair_usability_corr(
 
 
 def _same_dtype(result: tuple[np.ndarray, str]) -> tuple[np.ndarray, str]:
-    """The table in ``crit_float_dtype()`` whichever backend ran: the CPU kernel is float64, the GPU kernels are not, and a fallback changed the dtype."""
+    """The table in ``crit_float_dtype()`` whichever backend ran: the CPU kernel is double, the GPU kernels are not, and a fallback changed the dtype."""
     table, backend = result
     return table.astype(crit_float_dtype(), copy=False), backend
 

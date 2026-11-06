@@ -113,7 +113,7 @@ def _minority_rows(vy, nv, ky):
 @njit(cache=True)
 def _mi_from_minority(xrow, vy_f, rows, n_rows, px, k_x, k_y, cmax, n):
     """``_plug_in_mi_njit(xrow, vy_f, k_x, k_y, False)`` bit for bit: the joint counts of the majority class column are the bin counts ``px`` minus the
-    other classes' (exact integers in float64), so only the minority rows are scattered; Px, Py and the MI sum run in the same order."""
+    other classes' (exact integers in double), so only the minority rows are scattered; Px, Py and the MI sum run in the same order."""
     joint = np.zeros((k_x, k_y), dtype=np.float64)  # Intentional float64: joint-count accumulator for the MI statistic
     for r in range(n_rows):
         i = rows[r]

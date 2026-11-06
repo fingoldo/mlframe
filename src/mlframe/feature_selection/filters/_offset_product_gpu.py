@@ -102,7 +102,7 @@ __device__ void bitonic_sort(double* a, const int n) {
     }
 }
 
-// dtype-ok: reviewed 2026-11-05: 12 ms of a 9.3 s kernel profile (0.1%) in a full 100k x 100 fit. The kernel solves 4 x 4 normal equations of the offset-product shift from sums over the rows, which is a double-precision statistic by CUDA.md; the host uploads float64 explicitly (U, yr, clips). Float32 operands would only save table memory.
+// dtype-ok: Intentional float64, reviewed 2026-11-05: 12 ms of a 9.3 s kernel profile (0.1%) in a full 100k x 100 fit. The kernel solves 4 x 4 normal equations of the offset-product shift from sums over the rows, which is a double-precision statistic by CUDA.md; the host uploads float64 explicitly (U, yr, clips). Float32 operands would only save table memory.
 extern "C" __global__ void scan_offset_products(
     const double* __restrict__ U, const int* __restrict__ tasks, const double* __restrict__ yr, const int* __restrict__ ycodes,
     const double* __restrict__ clips, const int m, const int nu, const long long n, const int ky, const int nb,

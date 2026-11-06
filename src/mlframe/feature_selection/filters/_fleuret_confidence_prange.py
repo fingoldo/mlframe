@@ -26,7 +26,7 @@ def _block_flags(data, factors_nbins, x, y, selected_vars_arr, b0, b1, bootstrap
     for k in prange(b1 - b0):
         i = b0 + k
         own = data.copy()  # loop-invariant-ok: each permutation shuffles its own private copy of the columns
-        ent = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)
+        ent = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)  # Intentional float64: numba typed dict of entropy values, float64 like the serial kernel
         cond = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)
         state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(perm_offset + i + 1)
         for idx in y:

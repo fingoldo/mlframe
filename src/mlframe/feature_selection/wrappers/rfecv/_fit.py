@@ -536,7 +536,7 @@ def _record_fit_provenance(self: Any, X: Any) -> None:
         logger.debug("suppressed: %s", e)
 
 
-_NUMPY_VIEW_MAX_BYTES = 2 * 2**30  # eager float64 conversion below this size, the pandas path above it
+_NUMPY_VIEW_MAX_BYTES = 2 * 2**30  # Intentional float64: eager float64 conversion below this size, the pandas path above it
 
 
 def _numpy_view_of_numeric_X(_force_pandas, X, X_estimator, col_pos):
@@ -554,7 +554,7 @@ def _numpy_view_of_numeric_X(_force_pandas, X, X_estimator, col_pos):
             # The float64 twin lives next to X for the whole fit; above the gate the pandas path (no second copy) is used instead.
             log_throttle(
                 logger, "rfecv_numpy_view_too_large", logging.INFO,
-                "RFECV: not building the float64 numpy view of X (%d x %d = %.1f GB, gate %.1f GB); fitting from the pandas frame",
+                "RFECV: not building the float64 numpy view of X (%d x %d = %.1f GB, gate %.1f GB); fitting from the pandas frame",  # Intentional float64: the statistic is computed in double
                 int(X.shape[0]), int(X.shape[1]), int(X.shape[0]) * int(X.shape[1]) * 8 / 2**30, _NUMPY_VIEW_MAX_BYTES / 2**30,
             )
             _all_numeric = False

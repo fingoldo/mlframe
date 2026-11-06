@@ -158,7 +158,7 @@ def discretize_2d_array_cuda(
         # cp.nanmin/cp.nanmax exist (unlike cp.nanpercentile above) so this branch stays fully on-device.
         # The range and the affine map run in float64: a float32 column spanning more than float32's maximum has an infinite float32 range, and a subnormal one a
         # reciprocal that overflows, both of which collapsed every row to bin 0 while the CPU kernel binned them correctly.
-        col_min = cp.nanmin(d_arr, axis=0, keepdims=True).astype(cp.float64)
+        col_min = cp.nanmin(d_arr, axis=0, keepdims=True).astype(cp.float64)  # Intentional float64: the cuts and the scaling are double so the codes equal the host binner's
         col_max = cp.nanmax(d_arr, axis=0, keepdims=True).astype(cp.float64)
         # Mirrors the CPU
         # ``discretize_uniform`` fix - canonical formula
@@ -176,7 +176,7 @@ def discretize_2d_array_cuda(
         _rng_safe = cp.where(_rng > 0, _rng, 1.0)
         rev = n_bins / _rng_safe
         flat_cols = cp.asnumpy(_rng.ravel() <= 0) if arr.dtype == np.float32 else None
-        out_f = (d_arr.astype(cp.float64, copy=False) - col_min) * rev
+        out_f = (d_arr.astype(cp.float64, copy=False) - col_min) * rev  # Intentional float64: the cuts and the scaling are double so the codes equal the host binner's
         out_f = cp.where(_rng > 0, out_f, 0.0)
         out_f = cp.nan_to_num(out_f, nan=0.0, posinf=n_bins - 1, neginf=0.0)
         out_f = cp.clip(out_f, 0, n_bins - 1)
@@ -300,7 +300,7 @@ def discretize_2d_array_cuda_row_chunked(
         for row_start in range(0, n_rows, row_chunk_rows):
             row_end = min(row_start + row_chunk_rows, n_rows)
             d_chunk = cp.asarray(arr[row_start:row_end])
-            cmin = cp.nanmin(d_chunk, axis=0).astype(cp.float64)
+            cmin = cp.nanmin(d_chunk, axis=0).astype(cp.float64)  # Intentional float64: the cuts and the scaling are double so the codes equal the host binner's
             cmax = cp.nanmax(d_chunk, axis=0).astype(cp.float64)
             col_min_d = cmin if col_min_d is None else cp.minimum(col_min_d, cmin)
             col_max_d = cmax if col_max_d is None else cp.maximum(col_max_d, cmax)
@@ -312,7 +312,7 @@ def discretize_2d_array_cuda_row_chunked(
         for row_start in range(0, n_rows, row_chunk_rows):
             row_end = min(row_start + row_chunk_rows, n_rows)
             d_chunk = cp.asarray(arr[row_start:row_end])
-            out_f = (d_chunk.astype(cp.float64, copy=False) - col_min_d) * rev
+            out_f = (d_chunk.astype(cp.float64, copy=False) - col_min_d) * rev  # Intentional float64: the cuts and the scaling are double so the codes equal the host binner's
             out_f = cp.where(_rng > 0, out_f, 0.0)
             out_f = cp.nan_to_num(out_f, nan=0.0, posinf=n_bins - 1, neginf=0.0)
             out_f = cp.clip(out_f, 0, n_bins - 1)
@@ -371,8 +371,8 @@ def discretize_2d_array_cuda_row_chunked(
 
 _SEARCHSORTED_RIGHT_2D_TEMPLATE = r"""
 extern "C" __global__ void searchsorted_right_2d(
-    const {REAL}* __restrict__ arr,    // (n_rows, n_cols) C-order, float32 or float64
-    const {EDGE}* __restrict__ cuts,    // (n_cols, n_cuts) C-order, float64: the comparison sees the double cut
+    const {REAL}* __restrict__ arr,    // (n_rows, n_cols) C-order, float32 or double
+    const {EDGE}* __restrict__ cuts,    // (n_cols, n_cuts) C-order, double: the comparison sees the double cut
     int* __restrict__ out,              // (n_rows, n_cols)
     const long long n_rows, const long long n_cols, const int n_cuts
 ){
@@ -381,7 +381,7 @@ extern "C" __global__ void searchsorted_right_2d(
     if (gid >= total) return;
     long long row = gid / n_cols;
     long long col = gid % n_cols;
-    {EDGE} v = arr[gid];                // a float32 value is promoted: the same comparison as on a float64 copy
+    {EDGE} v = arr[gid];                // a float32 value is promoted: the same comparison as on a double copy
     // searchsorted side='right': bin = first index i s.t. cuts[i] > v,
     // OR n_cuts if every cut <= v.
     int lo = 0, hi = n_cuts;
@@ -398,7 +398,7 @@ _DISCRETIZE_KERNEL_LOCK = threading.Lock()
 
 
 def _get_searchsorted_right_2d_kernel(real: Any = None):
-    """Build (idempotently) and return the fused per-column searchsorted RawKernel for the element type ``real`` of the values (float32 or float64; the cuts are float64).
+    """Build (idempotently) and return the fused per-column searchsorted RawKernel for the element type ``real`` of the values (float32 or double; the cuts are double).
 
     Mirrors ``info_theory._cmi_cuda._get_kernel``'s module-level-singleton pattern. ``cp.RawKernel`` used
     to be rebuilt from CUDA source text on EVERY call to ``_discretize_quantile_rawkernel`` - which
@@ -408,13 +408,13 @@ def _get_searchsorted_right_2d_kernel(real: Any = None):
     """
     import cupy as cp
 
-    real = np.float64 if real is None else real
+    real = np.float64 if real is None else real  # Intentional float64: the cuts and the scaling are double so the codes equal the host binner's
     key = ctype_of(real)
     with _DISCRETIZE_KERNEL_LOCK:
         kernel = _searchsorted_right_2d_cuda.get(key)
         if kernel is None:
             kernel = _searchsorted_right_2d_cuda[key] = cp.RawKernel(
-                render(_SEARCHSORTED_RIGHT_2D_TEMPLATE, real=real, edge=np.float64),
+                render(_SEARCHSORTED_RIGHT_2D_TEMPLATE, real=real, edge=np.float64),  # Intentional float64: the cuts and the scaling are double so the codes equal the host binner's
                 "searchsorted_right_2d",
             )
         return kernel
@@ -453,7 +453,7 @@ def _discretize_quantile_rawkernel(d_arr, cuts, n_bins, out_cp_dtype):
 
     n_rows, n_cols = d_arr.shape
     out_int32 = cp.empty((n_rows, n_cols), dtype=cp.int32)
-    values = d_arr if d_arr.dtype in (cp.float32, cp.float64) else d_arr.astype(cp.float64)  # the kernel reads float32 or float64 as they are
+    values = d_arr if d_arr.dtype in (cp.float32, cp.float64) else d_arr.astype(cp.float64)  # Intentional float64: the kernel reads float32 or float64 as they are
     kernel = _get_searchsorted_right_2d_kernel(np.float32 if values.dtype == cp.float32 else np.float64)
     threads = block_size_for(kernel, work_items=n_rows * n_cols)
     blocks = _searchsorted_launch_blocks(n_rows, n_cols, threads)

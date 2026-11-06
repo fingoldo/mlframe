@@ -147,9 +147,9 @@ def _rerank_by_model(estimator_factory: Callable, X: Any, y: Any, ranking: Seque
     ys = y.iloc[rows] if hasattr(y, "iloc") else np.asarray(y)[rows]
     model = estimator_factory().fit(Xs, ys)
     if hasattr(model, "feature_importances_"):
-        imp = np.asarray(model.feature_importances_, dtype=np.float64)
+        imp = np.asarray(model.feature_importances_, dtype=np.float64)  # Intentional float64: importances are summed in double
     else:
-        imp = np.abs(np.asarray(model.coef_, dtype=np.float64)).reshape(-1, len(cols)).sum(axis=0)
+        imp = np.abs(np.asarray(model.coef_, dtype=np.float64)).reshape(-1, len(cols)).sum(axis=0)  # Intentional float64: importances are summed in double
     return [cols[i] for i in np.argsort(-imp, kind="stable")]
 
 

@@ -49,10 +49,10 @@ _KERNELS_LOCK = threading.Lock()
 
 
 def fused_extval_candidates(cp: Any, pa: Any, ext_stack: Any, ops: Any) -> Any:
-    """``(n, n_ext * n_ops)`` device matrix of every ``op(pa, ext_e)`` in the element type of ``pa`` (float32 or float64); ``ext_stack`` is ``(n_ext, n)`` of the same type, ``ops`` the int32 op codes.
+    """``(n, n_ext * n_ops)`` device matrix of every ``op(pa, ext_e)`` in the element type of ``pa`` (float32 or double); ``ext_stack`` is ``(n_ext, n)`` of the same type, ``ops`` the int32 op codes.
 
     The kernel is compiled once per element type and the type follows the buffers that are launched, so a float32 operand never meets a ``double*`` kernel."""
-    real = np.float32 if pa.dtype == cp.float32 else np.float64
+    real = np.float32 if pa.dtype == cp.float32 else np.float64  # Intentional float64: the fused op is evaluated in the element type of its operand
     if ext_stack.dtype != pa.dtype:
         ext_stack = ext_stack.astype(pa.dtype)
     key = ctype_of(real)

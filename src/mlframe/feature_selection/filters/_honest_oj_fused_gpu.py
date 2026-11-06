@@ -480,7 +480,7 @@ class DevicePool:
         m_g = cp.asarray(np.maximum(m_idx, 0))
         sel = cp.take_along_axis(mi, m_g[:, :, None], axis=2)[:, :, 0]
         kxe = self.kxe[cp.arange(self.T)[None, :], m_g]
-        ky_eff = ((ones > 0).astype(cp.float64) + (ones < self.R).astype(cp.float64))[:, None]
+        ky_eff = ((ones > 0).astype(cp.float64) + (ones < self.R).astype(cp.float64))[:, None]  # Intentional float64: the class counts are exact integers in double, as in the CPU kernel
         corr = sel - (kxe - 1.0) * (ky_eff - 1.0) / (2.0 * float(n_eff))
         res = cp.maximum(corr.max(axis=1), 0.0)
         out = np.asarray(cp.asnumpy(res), dtype=np.float64)  # Intentional float64: statistic vector

@@ -17,7 +17,7 @@ from pyutilz.performance.gpu_hw_launch import block_size_for
 logger = logging.getLogger(__name__)
 
 _SRC = r"""
-// dtype-ok: reviewed 2026-11-05: float32 values with double sums measured 45 ms against 46-49 ms (no gain, the double accumulations set the time); the host loads float64 on purpose (dvar2_x is a cancellation).
+// dtype-ok: Intentional float64, reviewed 2026-11-05: float32 values with double sums measured 45 ms against 46-49 ms (no gain, the double accumulations set the time); the host loads float64 on purpose (dvar2_x is a cancellation).
 extern "C" __global__ void dcor_cols(const double* __restrict__ xs, const double* __restrict__ b, const int m, const int k, double* __restrict__ sums) {
     extern __shared__ double sm[];
     double* sx = sm;                     // this column's m values
@@ -168,7 +168,7 @@ def _run_dcor_sweep():
         """Random columns and a double-centred binary-label distance matrix."""
         m, k = int(dims["m"]), int(dims["k"])
         rng = np.random.default_rng(0)
-        return (np.ascontiguousarray(rng.standard_normal((k, m))), np.ascontiguousarray(_u_centered_distance_matrix(rng.integers(0, 2, m).astype(np.float64))))
+        return (np.ascontiguousarray(rng.standard_normal((k, m))), np.ascontiguousarray(_u_centered_distance_matrix(rng.integers(0, 2, m).astype(np.float64))))  # Intentional float64: the statistic is computed in double
 
     return list(
         sweep_backend_grid(

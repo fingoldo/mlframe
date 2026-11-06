@@ -50,7 +50,7 @@ def sync_free_qbin_codes_block(cp: Any, xd: Any, nbins: int) -> "Any":
     excl = (e == emin) | dup | (has_interior & (e == emax))
     kept = cp.where(excl, cp.inf, e)
     out = cp.empty((k, n), dtype=cp.int64)
-    if kept.dtype == cp.float64 and xd.dtype in (cp.float32, cp.float64):
+    if kept.dtype == cp.float64 and xd.dtype in (cp.float32, cp.float64):  # Intentional float64: the quantile-bin block kernel reads float32 or float64 columns
         # one thread per value counts the kept edges <= x (the comparison in double precision, as the broadcast below does after its cast): the same integer,
         # without the (columns, edges, rows) boolean temporary and its reduction
         _count_kernel(cp)(cp.ascontiguousarray(xd), cp.ascontiguousarray(kept), np.int64(n), np.int32(kept.shape[1]), out, size=k * n)  # Intentional float64: the kept edges are double
@@ -69,7 +69,7 @@ def _order_statistics_rows(cp, xd, n: int, nbins: int):
     The ranks are formed on the host with the device expression's formula, so no value is read back; ``MLFRAME_QBIN_BLOCK_RADIX=0`` keeps the sort."""
     import os
 
-    if os.environ.get("MLFRAME_QBIN_BLOCK_RADIX", "1").strip() == "0" or xd.dtype not in (cp.float32, cp.float64) or not xd.flags.c_contiguous or n < 1:
+    if os.environ.get("MLFRAME_QBIN_BLOCK_RADIX", "1").strip() == "0" or xd.dtype not in (cp.float32, cp.float64) or not xd.flags.c_contiguous or n < 1:  # Intentional float64: the quantile-bin block kernel reads float32 or float64 columns
         return None
     try:
         from ._gpu_resident_select_kernels import _RADIX_SELECT_MAXR, _RADIX_STATIC_SHARED_BYTES, _get_radix_select_f32_dispatch, _get_radix_select_kernel, _resolve_radix_threads
@@ -108,7 +108,7 @@ def _count_kernel(cp):
         if kern is not None:
             return kern
         kern = cp.ElementwiseKernel(
-            "raw X x, raw float64 kept, int64 n, int32 ne",
+            "raw X x, raw float64 kept, int64 n, int32 ne",  # Intentional float64: the quantile-bin block kernel reads float32 or float64 columns
             "raw int64 out",
             """
             const long long j = i / n;

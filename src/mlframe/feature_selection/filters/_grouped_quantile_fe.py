@@ -249,7 +249,7 @@ def generate_grouped_quantile_features(
                 if fin.size >= _MIN_GROUP_SIZE:
                     # one stable argsort gives the sorted values AND the rank position of every member, so the group's own values need no binary search
                     # (a radix order of the finite values: the same permutation as the stable comparison argsort, about 3 times faster)
-                    order = radix_order_f64(np.ascontiguousarray(fin, dtype=np.float64))
+                    order = radix_order_f64(np.ascontiguousarray(fin, dtype=np.float64))  # Intentional float64: radix_order_f64 takes float64 keys
                     sv = fin[order]
                     pct_vals = _member_pct_ranks(order, sv, vals, finite)
                     # Same linear-interpolation quantiles as np.quantile(fin, q), read off the sorted array (exact, no second partition per call).

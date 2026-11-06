@@ -154,9 +154,9 @@ def _bits_width(kernel: Any, shared_bytes: int, n: int) -> int:
 
 
 def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, perms: np.ndarray, nbins: int, n_classes: int) -> Optional[np.ndarray]:
-    """``(P,)`` maximum over the candidates of the plug-in MI against ``y_shifted[perms[p]]``, for the float32 or float64 ``(K, n)`` C-order candidate block ``x_cm`` binned by
+    """``(P,)`` maximum over the candidates of the plug-in MI against ``y_shifted[perms[p]]``, for the float32 or double ``(K, n)`` C-order candidate block ``x_cm`` binned by
     ``interior`` (``(nbins - 1, K)``, the edges ``binned_mi_from_values_gpu`` uses); ``None`` when the path does not apply (the caller keeps one launch per permutation)."""
-    if x_cm.dtype not in (cp.float32, cp.float64) or not x_cm.flags.c_contiguous or int(n_classes) > 255:
+    if x_cm.dtype not in (cp.float32, cp.float64) or not x_cm.flags.c_contiguous or int(n_classes) > 255:  # Intentional float64: the kernel reads float32 or float64 candidates
         return None
     module = _MODULES_BY_X["float" if x_cm.dtype == cp.float32 else "double"]
     k, n = int(x_cm.shape[0]), int(x_cm.shape[1])
@@ -182,7 +182,7 @@ def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, per
             del yp, padded
             res = cp.empty((len(block), k), dtype=cp.float64)  # Intentional float64: MI accumulator, as the per-permutation kernel's
             shared = (len(block) * int(nbins) + int(nbins)) * 4
-            bits_kernel((k,), (_bits_width(bits_kernel, shared, n),), (x_cm, edges, ybits, np.int64(n), np.int32(words), np.int32(k), np.int32(nbins), np.int32(len(block)), np.float64(1.0 / float(max(1, n))), res), shared_mem=shared)
+            bits_kernel((k,), (_bits_width(bits_kernel, shared, n),), (x_cm, edges, ybits, np.int64(n), np.int32(words), np.int32(k), np.int32(nbins), np.int32(len(block)), np.float64(1.0 / float(max(1, n))), res), shared_mem=shared)  # Intentional float64: the kernel reads float32 or float64 candidates
             out[p0 : p0 + len(block)] = cp.asnumpy(cp.nanmax(res, axis=1))
             del ybits, res
         return out

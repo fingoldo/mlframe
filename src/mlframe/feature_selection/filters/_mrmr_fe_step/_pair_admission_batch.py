@@ -38,14 +38,14 @@ def _block_analytic_nulls(n: int, k_z: Any, k_xz: Any, k_yz: Any, k_xyz: Any, qu
     df = k_xyz + int(k_z) - k_xz - int(k_yz)
     nf = float(max(1, n))
     cells = np.maximum(1, k_xyz)
-    applies = (df > 0) & ((nf / cells.astype(np.float64)) >= _min_expected_cell())
+    applies = (df > 0) & ((nf / cells.astype(np.float64)) >= _min_expected_cell())  # Intentional float64: the chi-square quantile and the cell counts are double, as in the scalar gate
     if not (_HAVE_CHI2 and analytic_null_enabled() and n >= _cmi_analytic_null_min_n()):
         applies[:] = False
     floor = np.zeros(df.shape, dtype=np.float64)  # Intentional float64: null statistic
     mean = np.zeros(df.shape, dtype=np.float64)  # Intentional float64: null statistic
     if applies.any():
         d = df[applies]
-        floor[applies] = np.maximum(np.asarray(_chi2.ppf(float(_CMI_QUANTILE), d), dtype=np.float64) / (2.0 * nf), 0.0)
+        floor[applies] = np.maximum(np.asarray(_chi2.ppf(float(_CMI_QUANTILE), d), dtype=np.float64) / (2.0 * nf), 0.0)  # Intentional float64: the chi-square quantile and the cell counts are double, as in the scalar gate
         mean[applies] = d / (2.0 * nf)
     return floor, mean, applies
 

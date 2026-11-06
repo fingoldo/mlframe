@@ -223,7 +223,7 @@ def run_residual_pass(
     # another significant (n, f) float64 matrix. Each later pass explains what the previous pass left unexplained.
     X_pass2 = X_proxy.iloc[:, kept_proxy_idx] if kept_proxy_idx.size < n_proxy else X_proxy
     model_template_regression = _residual_regression_template(self)
-    gated_total = np.zeros(kept_proxy_idx.size, dtype=np.float64)
+    gated_total = np.zeros(kept_proxy_idx.size, dtype=np.float64)  # Intentional float64: the gated totals accumulate in double
     passes_run: list = []
     residual_std_after = residual_std_before
     for _round in range(n_passes):

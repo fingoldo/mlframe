@@ -477,7 +477,7 @@ void fused_gen(const {REAL}* __restrict__ ua, const {REAL}* __restrict__ ub,
     out[i * (long long)K + c] = v;
 }
 """
-_FUSED_GEN_SRC = render(_FUSED_GEN_TEMPLATE, real=np.float64)
+_FUSED_GEN_SRC = render(_FUSED_GEN_TEMPLATE, real=np.float64)  # Intentional float64: the generated kernel is rendered for double accumulation
 
 
 _FUSED_GEN_KERNEL = None  # module-level singleton (lazy-compiled; never on an instance -> pickle-safe)
@@ -510,7 +510,7 @@ void fused_gen_cm(const {REAL}* __restrict__ ua, const {REAL}* __restrict__ ub,
     out[(long long)c * n + i] = v;   // COLUMN-MAJOR (K, n): out_cm[c, i] == out_rm[i, c], c*n+i < K*n < 2^63
 }
 """
-_FUSED_GEN_CM_SRC = render(_FUSED_GEN_CM_TEMPLATE, real=np.float64)
+_FUSED_GEN_CM_SRC = render(_FUSED_GEN_CM_TEMPLATE, real=np.float64)  # Intentional float64: the generated kernel is rendered for double accumulation
 
 
 _FUSED_GEN_CM_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe twin of _FUSED_GEN_KERNEL)
@@ -609,7 +609,7 @@ void fused_gen_bin_hist(const {REAL}* __restrict__ ua, const {REAL}* __restrict_
     }
 }
 """
-_FUSED_GEN_BIN_HIST_SRC = render(_FUSED_GEN_BIN_HIST_TEMPLATE, real=np.float64)
+_FUSED_GEN_BIN_HIST_SRC = render(_FUSED_GEN_BIN_HIST_TEMPLATE, real=np.float64)  # Intentional float64: the generated kernel is rendered for double accumulation
 
 
 _FUSED_GEN_BIN_HIST_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe)

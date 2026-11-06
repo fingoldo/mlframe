@@ -110,7 +110,7 @@ def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
             .replace("OUTTYPE", out_ctype)  # MUST precede the TYPE replace (TYPE is a substring of OUTTYPE)
             .replace("TYPE", ctype)
         )
-        k = cp.RawKernel(render(src, edge=np.float64), sym)  # the edges and the comparison are float64: a float32 candidate is promoted, the codes are the double comparison's
+        k = cp.RawKernel(render(src, edge=np.float64), sym)  # Intentional float64: the edges and the comparison are float64: a float32 candidate is promoted, the codes are the double comparison's
         with _BIN_CODES_KERNELS_LOCK:
             k = _BIN_CODES_KERNELS.setdefault(cache_key, k)
     return k

@@ -76,7 +76,7 @@ def family_null_max_device(cols: np.ndarray, n_x: np.ndarray, perms: np.ndarray,
     K = int(cols.shape[0])
     if K == 0 or B == 0:
         # An empty family has no MI to maximise; the CPU twin returns zeros, and a zero-width launch fails on the device.
-        return np.zeros(B, dtype=np.float64)
+        return np.zeros(B, dtype=np.float64)  # Intentional float64: the null-max output buffer is the float64 the max-T gate compares
     import cupy as cp
 
     from mlframe.utils.cupy_pinned import install_pinned_policy

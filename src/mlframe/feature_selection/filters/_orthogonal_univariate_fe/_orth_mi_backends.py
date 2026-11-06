@@ -443,7 +443,7 @@ def _strict_resident_mi(X: Any, y: Any, nbins: int, rank_binning: bool) -> Optio
                 # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
                 from .._device_upload_f64 import upload_as_float64
 
-                Xd = upload_as_float64(cp, X)
+                Xd = upload_as_float64(cp, X)  # Intentional float64: the strict-resident MI kernels take float64 operands
             if Xd.ndim == 1:
                 Xd = Xd[:, None]
             # X is the per-candidate batch (transient, device-bound only for this call) -> NOT cached. y is a
