@@ -38,6 +38,14 @@ def test_concurrency_declines_when_the_scaled_peaks_do_not_fit(monkeypatch):
             """No cached free bytes."""
             return 0
 
+        def get_limit(self):
+            """No cap."""
+            return 0
+
+        def used_bytes(self):
+            """Nothing in use."""
+            return 0
+
     class _Dev:
         """A 4 GB card with 3 GB free."""
 
@@ -52,6 +60,42 @@ def test_concurrency_declines_when_the_scaled_peaks_do_not_fit(monkeypatch):
     ran = []
     assert C.run_stages_concurrently(object(), [lambda e: ran.append(1)] * 3, n_rows=500_000) is None
     assert not ran
+
+
+def test_concurrency_respects_the_cap_of_the_memory_pool(monkeypatch):
+    """The fit caps the pool (here 1.5 GB): four stages whose scaled peaks (2.6 GB at 100000 rows) fit the free memory of the card but not the cap are declined; without the cap they run."""
+    import mlframe.feature_selection.filters._mrmr_fit_impl._fe_stage_concurrency as C
+
+    class _Pool:
+        """A pool with a settable cap and some memory in use."""
+
+        limit = 0
+
+        def free_bytes(self):
+            """No cached free bytes."""
+            return 0
+
+        def get_limit(self):
+            """The cap, 0 for none."""
+            return self.limit
+
+        def used_bytes(self):
+            """A little in use."""
+            return 100 << 20
+
+    class _Dev:
+        """A 4 GB card with 3.5 GB free."""
+
+        mem_info = (int(3.5 * 2**30), 4 * 2**30)
+
+    import cupy as cp
+
+    pool = _Pool()
+    monkeypatch.setattr(cp.cuda, "Device", lambda *a, **k: _Dev())
+    monkeypatch.setattr(cp, "get_default_memory_pool", lambda: pool)
+    assert C._stages_fit_device(C.STAGE_VRAM_WEIGHTS_WITH_EARLY_A, 100_000) is True
+    pool.limit = int(1.5 * 2**30)
+    assert C._stages_fit_device(C.STAGE_VRAM_WEIGHTS_WITH_EARLY_A, 100_000) is False
 
 
 def test_merge_handles_array_attributes():
