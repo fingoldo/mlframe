@@ -377,3 +377,23 @@ class TestPickleAndClone:
         assert list(getattr(m2, "hybrid_orth_features_", []) or []) == list(
             getattr(m, "hybrid_orth_features_", []) or []
         ), "pickle changed hybrid_orth_features_"
+
+
+class TestMultiLegRecipesReplayFrozen:
+    """ORTH_SCORING_A-2: an arity 2/3/4 recipe replays on a distributionally shifted slice exactly as on the full frame (the fit-time basis preprocessing is frozen)."""
+
+    def test_recipes_of_arity_two_and_three_replay_the_same_on_a_shifted_slice(self):
+        """Replaying each multi-leg recipe on the lowest-x1 third of the rows gives the full-frame replay's values for those rows."""
+        from mlframe.feature_selection.filters._orthogonal_adaptive_arity_fe import hybrid_orth_mi_adaptive_arity_fe_with_recipes
+        from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
+        X, y_ser = _build_xor3(7)
+        n = len(X)
+        y = y_ser.to_numpy()
+        _x_aug, _uni, _scores, recipes = hybrid_orth_mi_adaptive_arity_fe_with_recipes(X, y, cols=["x1", "x2", "x3", "x4"], max_arity=3, max_degree=1, basis="hermite")
+        assert len(recipes) > 0, "the planted 3-way product produced no adaptive-arity recipe, so there is nothing to replay"
+        shifted = np.argsort(X["x1"].to_numpy())[: n // 3]
+        for rec in recipes:
+            full = np.asarray(apply_recipe(rec, X), dtype=float)
+            part = np.asarray(apply_recipe(rec, X.iloc[shifted]), dtype=float)
+            assert np.allclose(full[shifted], part, equal_nan=True), f"recipe {getattr(rec, 'name', rec)} refits its basis on the slice instead of replaying the frozen one"
