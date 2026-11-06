@@ -118,74 +118,64 @@ def _su_codes_of_finite_columns(columns: list, n_bins: int) -> list:
     return out
 
 
+def _su_code_column(col: np.ndarray, n_bins: int) -> tuple:
+    """``(int32 codes, bin count)`` of one column that has non-finite values (or needs the plain rule): the quantiser's edges over the finite part, ``searchsorted`` against the inner edges."""
+    edges = np.quantile(col[np.isfinite(col)] if np.isfinite(col).any() else col, np.linspace(0, 1, n_bins + 1))
+    edges = np.unique(edges)
+    if edges.size < 3:
+        return np.zeros(col.shape, dtype=np.int32), 1
+    binned = np.searchsorted(edges[1:-1], col, side="right").astype(np.int32)
+    return binned, int(binned.max()) + 1
+
+
 def _quantize_for_su(X) -> tuple:
     """Quantize a DataFrame / ndarray into integer bin codes the same
     way the L47 calibration test does, so the resulting ``factors_data``
     is consumable by ``pair_su`` with ``distance='su'``.
 
     Returns ``(factors_data, factors_nbins, col_names)``.
+
+    The int32 code matrix is allocated once and filled a block of columns at a time: the per-column code arrays, the list of them kept for the finite columns and the ``column_stack`` copy of
+    that list were three ``(n, p)`` int32 arrays at once (1.2 GB at a million rows x 100 columns).
     """
     if X is None:
         return None, None, []
     n_bins = 10
-    cols: list = []
-    nbins: list = []
-    names: list = []
     if hasattr(X, "columns"):
         col_iter = list(X.columns)
-        pre = _su_codes_of_finite_columns([X[c].to_numpy(dtype=_crit_np_dtype(), copy=False) for c in col_iter], n_bins)
-        for ci, c in enumerate(col_iter):
-            col = X[c].to_numpy(dtype=_crit_np_dtype(), copy=False)
-            names.append(str(c))
-            if pre[ci] is not None:
-                cols.append(pre[ci][0])
-                nbins.append(pre[ci][1])
-                continue
-            edges = np.quantile(col[np.isfinite(col)] if np.isfinite(col).any() else col, np.linspace(0, 1, n_bins + 1))
-            edges = np.unique(edges)
-            if edges.size < 3:
-                binned = np.zeros(col.shape, dtype=np.int32)
-                nb = 1
-            else:
-                binned = np.searchsorted(edges[1:-1], col, side="right").astype(np.int32)
-                nb = int(binned.max()) + 1
-            cols.append(binned)
-            nbins.append(nb)
+        names = [str(c) for c in col_iter]
+
+        def get(ci: int) -> np.ndarray:
+            """Column ``ci`` of the frame in the criterion dtype."""
+            return X[col_iter[ci]].to_numpy(dtype=_crit_np_dtype(), copy=False)
+
+        n = len(X)
     else:
         arr = np.asarray(X)
         if arr.ndim != 2:
             return None, None, []
-        pre = _su_codes_of_finite_columns([arr[:, j].astype(_crit_np_dtype(), copy=False) for j in range(arr.shape[1])], n_bins)
-        for j in range(arr.shape[1]):
-            col = arr[:, j].astype(_crit_np_dtype(), copy=False)
-            names.append(f"col_{j}")
-            if pre[j] is not None:
-                cols.append(pre[j][0])
-                nbins.append(pre[j][1])
-                continue
-            # mirror the DataFrame
-            # branch's finite-mask. np.quantile over a column containing any
-            # NaN/Inf returns NaN edges -> searchsorted assigns a single bin ->
-            # SU(this anchor, *)=0, so the anchor silently never merges. The
-            # DataFrame path already guards this at the sibling branch above.
-            edges = np.quantile(
-                col[np.isfinite(col)] if np.isfinite(col).any() else col,
-                np.linspace(0, 1, n_bins + 1),
-            )
-            edges = np.unique(edges)
-            if edges.size < 3:
-                binned = np.zeros(col.shape, dtype=np.int32)
-                nb = 1
-            else:
-                binned = np.searchsorted(edges[1:-1], col, side="right").astype(np.int32)
-                nb = int(binned.max()) + 1
-            cols.append(binned)
-            nbins.append(nb)
-    if not cols:
+        names = [f"col_{j}" for j in range(arr.shape[1])]
+
+        def get(ci: int) -> np.ndarray:
+            """Column ``ci`` of the array in the criterion dtype."""
+            return arr[:, ci].astype(_crit_np_dtype(), copy=False)
+
+        n = int(arr.shape[0])
+    p = len(names)
+    if p == 0:
         return None, None, []
-    factors_data = np.column_stack(cols)
-    factors_nbins = np.asarray(nbins, dtype=np.int64)
-    return factors_data, factors_nbins, names
+    factors_data = np.empty((n, p), dtype=np.int32)
+    nbins = np.empty(p, dtype=np.int64)
+    # a block of columns is binned together by the parallel block quantiser; the block holds at most 128 MB of values
+    block = max(1, (128 << 20) // (np.dtype(_crit_np_dtype()).itemsize * max(n, 1)))
+    for j0 in range(0, p, block):
+        cols_block = [get(ci) for ci in range(j0, min(p, j0 + block))]
+        pre = _su_codes_of_finite_columns(cols_block, n_bins)
+        for k, col in enumerate(cols_block):
+            binned, nb = pre[k] if pre[k] is not None else _su_code_column(col, n_bins)
+            factors_data[:, j0 + k] = binned
+            nbins[j0 + k] = nb
+    return factors_data, nbins, names
 
 
 def _resolve_anchor_indices(anchor_names: list, name_to_idx: dict) -> dict:

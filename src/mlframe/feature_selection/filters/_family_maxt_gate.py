@@ -31,6 +31,7 @@ from ._family_maxt_null_v2_njit import (
     BITSET_MAX_BINS,
     BITSET_MAX_CLASSES,
     bitset_groups,
+    bitset_tables_and_group_iter,
     label_bitsets_batch,
     label_bitsets_from_index,
     mi_all_columns_counts as mi_all_columns_njit,
@@ -186,6 +187,8 @@ def family_null_max_njit(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray,
     return out
 
 
+_PERM_CACHE_FULL_ROWS = 200_000  # up to this many rows the cache keeps its full byte cap (a 100000-row family stream is ~400 MB and is replayed by every family)
+_PERM_CACHE_LARGE_N_BYTES = 384 * 1024 * 1024  # beyond it the cache holds two blocks of the permutation budget at most: a million-row stream is gigabytes and held memory is what the fit runs out of
 _PERM_BLOCK_BUDGET_BYTES = env_int("MLFRAME_PERM_BLOCK_BUDGET_MB", 192, minimum=1) * 1024 * 1024  # one block of permutation indices
 _PERM_BLOCK_CACHE_BYTES = env_int("MLFRAME_PERM_BLOCK_CACHE_MB", 1024, minimum=0) * 1024 * 1024  # one full permutation stream of a 100k-row family is ~400 MB; a smaller budget makes the cyclic re-reads of it miss every time
 _perm_block_cache: "OrderedDict[tuple, tuple]" = OrderedDict()
@@ -250,7 +253,7 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
         _fill_permutations(idx, int(rng.integers(0, 2**31 - 1)))
         _perm_block_cache[key] = (idx, rng.bit_generator.state)
         _perm_block_cache_bytes += idx.nbytes
-        while _perm_block_cache_bytes > _PERM_BLOCK_CACHE_BYTES and len(_perm_block_cache) > 1:
+        while _perm_block_cache_bytes > (_PERM_BLOCK_CACHE_BYTES if n <= _PERM_CACHE_FULL_ROWS else min(_PERM_BLOCK_CACHE_BYTES, _PERM_CACHE_LARGE_N_BYTES)) and len(_perm_block_cache) > 1:
             _, (old, _) = _perm_block_cache.popitem(last=False)
             _perm_block_cache_bytes -= old.nbytes
     return idx
@@ -312,6 +315,14 @@ def family_null_max(
     if cols.shape[0] and int(n_x.max()) <= BITSET_MAX_BINS and int(n_y) <= BITSET_MAX_CLASSES:
         # Parallel=True column-prange kernels: reachable from the pair sweep's joblib threads; see mlframe._numba_parallel_guard.
         cache = prep_cache if prep_cache is not None else {}
+        if want_device and "dev_bits" not in cache and "bit_prep" not in cache:
+            # the bit sets go to the device one column group at a time as they are built: the whole family's host bit sets (about one and a half bytes per code, 1.2 GB for a family at
+            # 500000 rows) are never held; only the table and the per-column constants stay on the host, for the label constant
+            with parallel_kernel_entry():
+                table, c_a, px, group_iter = bitset_tables_and_group_iter(cols, n_x)
+                cache["dev_bits"] = _device_bitsets((table, c_a, px, group_iter), n_x, int(y.shape[0]))
+                if cache["dev_bits"] is not None:
+                    cache["bit_prep"] = (table, c_a, px, [])
         if "bit_prep" not in cache:
             with parallel_kernel_entry():
                 cache["bit_prep"] = bitset_groups(cols, n_x)
@@ -320,6 +331,9 @@ def family_null_max(
             if "dev_bits" not in cache:
                 cache["dev_bits"] = _device_bitsets(bit_prep, n_x, int(y.shape[0]))
             dev_bits = cache["dev_bits"]
+        if dev_bits is None and not bit_prep[3]:
+            with parallel_kernel_entry():  # the groups went to a device that then failed, or were released: the host path needs them
+                cache["bit_prep"] = bit_prep = bitset_groups(cols, n_x)
     use_device = want_device and bit_prep is None and device_supported(n_x, int(n_y))
     py_const = _label_const(bit_prep[0], y, int(n_y)) if (dev_bits is not None and bit_prep is not None) else 0.0
     words = (int(y.shape[0]) + 63) // 64
