@@ -116,3 +116,7 @@ That profile ran with the device hidden (`CUDA_VISIBLE_DEVICES=-1`), so it measu
 ### numeric_decompose and modular inside the 300000 x 100 GPU fit (module_walls.py, wall 234.8 s, inclusive seconds summed over threads)
 
 `bootstrap_rank_mi` 25.4 s over 20 calls (`_tied_on_device` 9.3 s of it over 12 calls; `_replicate_mi` 20.0 s over 12 calls; `score_features_by_bootstrap_mi` 17.1 s over 4 calls): the bootstrap MI of the candidates, already a numba kernel with a device twin for tied columns, is what the numeric-decompose (16.6 s: `score_decompose_by_bootstrap_mi` 14.9 s, `apply_rounding` 5.8 s over 434 calls, `apply_digit_extract` 3.2 s over 321 calls) and the modular family (13.0 s: the family max-T gate 4.7 s, the candidate codes 2.7 s) spend their time on, and it grows with the rows. A fused njit loop for `apply_rounding` (bit-identical to `np.round(x / p) * p` in float32 and float64, tested) ran 0.88 ms against numpy's 1.06 ms per 300000-row column; the 13 ms per call seen in the fit is contention between the stage threads, not the arithmetic, so the change was not kept.
+
+## Edge-pool width (MLFRAME_EDGE_JOBS), 100000 x 100, one process per value
+
+Width 4: wall 71.1 s; width 16: 72.1 s; the default (8 logical cores): 70.4 s in the earlier selection run. The selection is the same 7 features at every width. The wall does not depend on the width of the Python-side edge pools in this range, so the pools are neither too narrow nor oversubscribed; the CPU under-use is not a pool-size setting.
