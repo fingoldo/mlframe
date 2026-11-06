@@ -50,8 +50,8 @@ def drop_forms_not_beating_their_sides(candidates: list, X: Any, y: np.ndarray, 
             form_loss = cv_loss(cand.values, y, classification, n_folds, seed)
             side_loss = min(cv_loss(s, y, classification, n_folds, seed) for s in sides)
         except Exception as exc:
-            logger.warning("pure-form side check skipped for %s, so the candidate is kept unchecked: %s", getattr(cand, "name", "?"), exc)
-            keep.append(True)
+            logger.warning("pure-form side check failed for %s, so the candidate is dropped unchecked: %s", getattr(cand, "name", "?"), exc)
+            keep.append(False)
             continue
         beats = form_loss < (1.0 - improve_rel) * side_loss
         keep.append(beats)

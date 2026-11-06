@@ -23,6 +23,7 @@ import numpy as np
 
 from ._kernel_types import render
 from ._raw_module_cache import RawModuleCache
+from ._bootstrap_rank_mi_gpu import _SWEEP_ROWS
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +190,6 @@ def use_device_tied(n_rows: int) -> bool:
 #: Rows from which the device counting sort is the fallback choice. Measured on the GTX 1050 Ti (856 rounding / digit / raw columns, 10 resamples of 80%):
 #: 100000 rows host 2.98 s, device 1.75 s.
 DEVICE_TIED_MIN_ROWS = 30_000
-_SWEEP_ROWS = [5_000, 30_000, 100_000]
 _SALT = 1
 
 

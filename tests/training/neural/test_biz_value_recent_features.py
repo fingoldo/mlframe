@@ -19,7 +19,6 @@ deltas in the +-0.01 R^2 range with high noise. The bar here is
 from __future__ import annotations
 
 import numpy as np
-import pytest
 import torch
 import torch.nn as nn
 from sklearn.datasets import make_regression
@@ -103,111 +102,10 @@ def test_biz_value_sam_does_not_catastrophically_regress():
     assert max(deltas) > -0.01, f"F-63 sanity: SAM showed only NEGATIVE deltas across all seeds ({deltas}); the perturbation step may have silently broken."
 
 
-# --- F-72 spectral_norm_output_only -----------------------------------------
-
-
-@pytest.mark.skip(
-    reason=(
-        "F-72 reverted 2026-06-01 after biz_value test showed it does NOT "
-        "deliver OOD safety (plain R^2=-0.85 vs spec_out R^2=-2.16 on 5-sigma "
-        "shift). Math reason: bounding only the output Linear's Lipschitz "
-        "constant doesn't stop hidden Linears from amplifying the OOD input "
-        "shift. For real Lipschitz bound use the existing spectral_norm=True "
-        "flag (bounds every Linear)."
-    )
-)
-def test_biz_value_spectral_norm_output_only_prevents_ood_blowup():
-    """Kept here only as a historical record of the F-72 biz_value finding."""
-    rng = np.random.default_rng(0)
-    n = 800
-    X_in = rng.standard_normal((n, 4)).astype(np.float32)
-    coefs = np.array([1.0, -0.7, 0.5, -0.3], dtype=np.float32)
-    y_raw = X_in @ coefs + 0.1 * rng.standard_normal(n)
-    # Bounded target via tanh-on-scaled-input so the network's output
-    # range stays small enough for a unit Lipschitz bound to fit.
-    y = np.tanh(y_raw).astype(np.float32)
-
-    n_tr = int(n * 0.7)
-    X_tr, X_te_in = X_in[:n_tr], X_in[n_tr:]
-    y_tr, y_te = y[:n_tr], y[n_tr:]
-    # OOD evaluation: features shifted by 5 sigma. The TRUE y at OOD
-    # inputs is sign-saturated tanh -> approximately +/-1. A network
-    # that extrapolates linearly will blow past that.
-    X_te_ood = X_te_in + 5.0
-    y_te_ood = np.tanh(X_te_ood @ coefs).astype(np.float32)
-
-    from mlframe.training.neural import (
-        MLPTorchModel,
-        PytorchLightningRegressor,
-        TorchDataModule,
-    )
-
-    def fit_predict(use_spec_out: bool):
-        """Fit predict."""
-        torch.manual_seed(0)
-        np.random.seed(0)
-        reg = PytorchLightningRegressor(
-            model_class=MLPTorchModel,
-            model_params={
-                "loss_fn": nn.MSELoss(),
-                "learning_rate": 5e-3,
-            },
-            network_params={
-                "nlayers": 3,
-                "first_layer_num_neurons": 32,
-                "dropout_prob": 0.0,
-                "inputs_dropout_prob": 0.0,
-                "use_layernorm": False,
-                "use_batchnorm": False,
-                "activation_function": nn.ReLU,
-                "spectral_norm_output_only": use_spec_out,
-            },
-            datamodule_class=TorchDataModule,
-            datamodule_params={
-                "features_dtype": torch.float32,
-                "labels_dtype": torch.float32,
-                "dataloader_params": {"batch_size": 64, "num_workers": 0},
-            },
-            trainer_params={
-                "max_epochs": 50,
-                "enable_model_summary": False,
-                "enable_progress_bar": False,
-                "log_every_n_steps": 5,
-                "devices": 1,
-                "accelerator": "cpu",
-                "logger": False,
-            },
-            random_state=0,
-        )
-        reg.fit(X_tr, y_tr)
-        pred_in = reg.predict(X_te_in)
-        pred_ood = reg.predict(X_te_ood)
-        return (
-            r2_score(y_te, pred_in),
-            r2_score(y_te_ood, pred_ood),
-        )
-
-    r2_in_plain, r2_ood_plain = fit_predict(use_spec_out=False)
-    r2_in_spec, r2_ood_spec = fit_predict(use_spec_out=True)
-
-    # In-distribution: both reach reasonable R^2 (the tanh-bounded
-    # target fits within the unit Lipschitz bound when properly
-    # initialised). Tolerance 0.20.
-    assert r2_in_spec > r2_in_plain - 0.20, f"F-72 in-distribution R^2 regressed catastrophically: plain={r2_in_plain:.4f}, spec_out={r2_in_spec:.4f}"
-    # OOD: spectral_norm_output_only's value-add. The bound MUST keep
-    # OOD R^2 from going wildly negative. Plain unbounded MLP often
-    # goes to R^2 ~ -1 to -50 on this shift; spec_out should keep it
-    # above -2.0. Pass if spec_out's OOD R^2 is BETTER than plain's
-    # by at least 0.10 R^2 (catches the case where the bound doesn't
-    # help at all).
-    ood_lift = r2_ood_spec - r2_ood_plain
-    assert ood_lift > -0.10, (
-        f"F-72 OOD safety regression: spec_out={r2_ood_spec:.4f} did "
-        f"NOT improve over plain={r2_ood_plain:.4f} (lift={ood_lift:+.4f}). "
-        f"The output Lipschitz bound is supposed to clip extrapolation "
-        f"on OOD-shifted inputs; if it doesn't even tie plain, the "
-        f"bound may not be tight enough."
-    )
+# --- F-72 spectral_norm_output_only (reverted 2026-06-01) ------------------
+# Bounding only the output Linear's Lipschitz constant did not deliver OOD safety (plain R^2=-0.85 vs spec_out R^2=-2.16 on a 5-sigma
+# shift): hidden Linears still amplify the OOD input shift. For a real Lipschitz bound use the spectral_norm=True flag (bounds every Linear).
+# The biz_value test that measured this was skipped after the revert and is removed with it.
 
 
 # --- F-69 recurrent Mixup HYBRID --------------------------------------------

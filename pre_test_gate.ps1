@@ -16,7 +16,7 @@ param([switch]$ContinueOnCollectErrors, [switch]$GatesOnly)
 
 $ErrorActionPreference = 'Continue'
 $log = "$env:TEMP\pytest_master.log"
-Set-Location "C:\Users\Admin\Machine learning\mlframe"
+Set-Location $PSScriptRoot
 $env:PYTHONUNBUFFERED = '1'; $env:PYTHONIOENCODING = 'utf-8'
 $ok = $true
 
