@@ -27,7 +27,9 @@ logger = logging.getLogger(__name__)
 PAIR_BINS = 5  # levels per raw column in the pair grid: 5 x 5 x 10 cells stay dense at a few thousand rows
 PAIR_ALPHA = 0.001  # family-wise level of the pair ceiling, split over the pairs (Bonferroni); a real interaction clears it by a wide margin
 PAIR_WORK_BUDGET = 4_000_000_000  # pair-rows scored per check on the CPU: a few seconds on a multi-core host
-PAIR_WORK_BUDGET_GPU = 100_000_000_000  # pair-rows scored per check when the GPU backend is chosen
+# The GPU backend uses the same budget: the row count decides whether the check runs at all, so a backend choice from the host's tuning
+# cache must not change it.
+PAIR_WORK_BUDGET_GPU = PAIR_WORK_BUDGET
 PAIR_MIN_ROWS = 1500  # fewer rows than this cannot certify a pair: the caller keeps the FE search running
 BLOCK_COLS = 256  # raw columns per streamed block: two blocks of int8 codes are all that is held at once
 BLOCK_RAM_FRACTION = 0.2  # share of the free RAM the two code blocks may take
@@ -556,7 +558,7 @@ def pair_residual_test(raw_codes: np.ndarray, raw_nbins: np.ndarray, r_codes: np
     n_pairs = p * (p - 1) // 2
     chosen = pair_residual_backend_choice(n, n_pairs) if backend is None else backend
     chosen = "gpu_fused" if chosen == "gpu" else chosen
-    budget = PAIR_WORK_BUDGET_GPU if chosen.startswith("gpu") else PAIR_WORK_BUDGET
+    budget = PAIR_WORK_BUDGET
     stride = 1
     if n_pairs * n > budget:
         stride = int(np.ceil(n_pairs * n / budget))
