@@ -81,6 +81,7 @@ import numpy as np
 from numba import njit, prange
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than
 from mlframe.feature_selection.filters._lazy_host_codes import size_of
 from mlframe.feature_selection.filters._device_sort_safe import device_quantile, device_unique  # thrust aborts the process on a short pool
@@ -873,13 +874,15 @@ def _select_wavelet_legs(
     tr_idx = np.flatnonzero(tr).astype(np.int64)
     va_idx = np.flatnonzero(va).astype(np.int64)
     n_y_classes = int(max(int(yb_tr.max()), int(yb_va.max()))) + 1
-    mi_tr_arr, mi_va_arr = _wavelet_legs_mi_batch_njit(
-        # Intentional float64: the leg kernel takes z as float64 (kernel contract)
-        np.ascontiguousarray(z, dtype=np.float64),
-        np.ascontiguousarray(yb_tr, dtype=np.int64),
-        np.ascontiguousarray(yb_va, dtype=np.int64),
-        tr_idx, va_idx, n_y_classes, js_arr, ks_arr,
-    )
+    # The prange kernel is entered from the enrichment thread pool; numba's workqueue layer aborts on concurrent entry, so it goes through the guard.
+    with parallel_kernel_entry():
+        mi_tr_arr, mi_va_arr = _wavelet_legs_mi_batch_njit(
+            # Intentional float64: the leg kernel takes z as float64 (kernel contract)
+            np.ascontiguousarray(z, dtype=np.float64),
+            np.ascontiguousarray(yb_tr, dtype=np.int64),
+            np.ascontiguousarray(yb_va, dtype=np.int64),
+            tr_idx, va_idx, n_y_classes, js_arr, ks_arr,
+        )
     cand = [(float(mi_tr_arr[i]), float(mi_va_arr[i]), int(js_arr[i]), int(ks_arr[i])) for i in range(js_arr.size)]
     if not cand:
         return []
