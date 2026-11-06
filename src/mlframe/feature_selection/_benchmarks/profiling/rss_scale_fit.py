@@ -75,9 +75,9 @@ def sampler():
             os._exit(3)
         if rss > peak[0]:
             peak[0] = rss
-            if TRACE and rss - base > 600e6 and (not snapshots or rss - snapshots[-1][0] > 400e6):
+            if TRACE and rss - base > float(os.environ.get("RSS_SNAP_FIRST_MB", "600")) * 1e6 and (not snapshots or rss - snapshots[-1][0] > float(os.environ.get("RSS_SNAP_STEP_MB", "400")) * 1e6):
                 snap = tracemalloc.take_snapshot()
-                snapshots.append((rss, (rss - base) / 1e6, snap.statistics("traceback")[:6]))
+                snapshots.append((rss, (rss - base) / 1e6, snap.statistics("traceback")[:14]))
             if rss - last_logged > 50e6:
                 last_logged = rss
                 events.append((time.perf_counter() - t0, (rss - base) / 1e6, innermost(sys._current_frames().get(main_id))))
@@ -93,6 +93,25 @@ except BaseException as exc:  # reported with the peak: a MemoryError at scale i
     status = f"{type(exc).__name__}: {str(exc)[:120]}"
 wall = time.perf_counter() - t
 stop.set()
+def _rss_growth_mb():
+    """The process RSS growth over the start of the script, in MB."""
+    return (proc.memory_info().rss - base) / 1e6
+
+
+print(f"RSS growth right after the fit: {_rss_growth_mb():.0f} MB")
+import gc
+
+gc.collect()
+print(f"after gc.collect(): {_rss_growth_mb():.0f} MB")
+try:
+    import cupy as _cp
+
+    _cp.get_default_pinned_memory_pool().free_all_blocks()
+    print(f"after the pinned pool is freed: {_rss_growth_mb():.0f} MB")
+    _cp.get_default_memory_pool().free_all_blocks()
+    print(f"after the device pool is freed: {_rss_growth_mb():.0f} MB")
+except Exception as exc:  # no cupy
+    print("pool release unavailable:", exc)
 try:
     import cupy as _cp
 
@@ -106,7 +125,7 @@ print(f"peak RSS growth {(peak[0] - base) / 1e6:.0f} MB = {(peak[0] - base) / 1e
 for when, mb, where in events:
     print(f"  t={when:7.1f}s +{mb:7.0f} MB  {where}")
 
-for rss, mb, stats in snapshots[-3:]:
+for rss, mb, stats in snapshots[-2:]:
     print(f"--- tracemalloc at RSS growth {mb:.0f} MB: the largest live allocations")
     for st in stats:
         print(f"  {st.size / 1e6:8.0f} MB in {st.count} blocks")
