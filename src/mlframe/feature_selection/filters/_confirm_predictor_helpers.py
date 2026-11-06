@@ -199,7 +199,7 @@ def _fleuret_confidence_prange_or_none(cd, cnb, cx, cy, csel, npermutations, gai
 
     return fleuret_confidence_prange(cd, cnb, cx, cy, csel, int(npermutations), float(gain), max_failed, nexisting, mrmr_relevance_algo=relevance_algo,
                                      mrmr_redundancy_algo=redundancy_algo, max_veteranes_interactions_order=max_order, extra_x_shuffling=extra_x_shuffling,
-                                     base_seed=np.uint64(base_seed))
+                                     base_seed=np.uint64(base_seed))  # type: ignore[arg-type]  # the numba kernel is compiled for an unsigned seed
 
 
 def _compact_confidence_inputs(data_copy: np.ndarray, factors_nbins: np.ndarray, X: Any, y: Any, selected_vars: Any, entropy_cache: Any) -> tuple:

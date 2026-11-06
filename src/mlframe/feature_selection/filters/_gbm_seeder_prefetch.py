@@ -26,7 +26,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-_PENDING: "dict[int, tuple[Any, Any, Any, tuple, Future]]" = {}
+_PENDING: "dict[int, tuple[Any, Any, Future]]" = {}
 _LOCK = threading.Lock()
 _EXECUTOR: "Optional[ThreadPoolExecutor]" = None
 
