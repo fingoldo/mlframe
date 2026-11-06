@@ -1,11 +1,10 @@
 {
- "training/ranking/test_bizvalue_ranking.py": 7,
+ "training/ranking/test_bizvalue_ranking.py": 6,
  "training/test_all_models.py": 30,
  "training/test_biz_val_training_core.py": 4,
- "training/test_core.py": 103,
- "training/test_core_coverage.py": 30,
+ "training/test_core.py": 99,
+ "training/test_core_coverage.py": 25,
  "training/test_diagnostics_suite_integration.py": 11,
- "training/test_evaluation_diagnostics_suite_wiring.py": 0,
  "training/test_feature_drift_auto_action_e2e.py": 4,
  "training/test_feature_selection.py": 10,
  "training/test_integration_prod_like_polars.py": 6,
@@ -13,6 +12,5 @@
  "training/test_prod_log_review_regression_sensors.py": 3,
  "training/test_splitting.py": 6,
  "training/test_stress.py": 13,
- "training/test_suite_coverage_gaps.py": 21,
- "training/test_train_mlframe_models_suite_error_paths.py": 9
+ "training/test_suite_coverage_gaps.py": 21
 }

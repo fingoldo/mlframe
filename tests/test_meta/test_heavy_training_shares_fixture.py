@@ -23,11 +23,28 @@ _SUITE_CALLS = frozenset({"train_mlframe_models_suite"})
 _THRESHOLD = 3
 
 
+def _is_raises_block(node: ast.AST) -> bool:
+    """True for ``with pytest.raises(...)``: the suite call inside it fails in input validation, before any model is fit."""
+    return isinstance(node, ast.With) and any(
+        isinstance(item.context_expr, ast.Call) and getattr(item.context_expr.func, "attr", getattr(item.context_expr.func, "id", None)) == "raises"
+        for item in node.items
+    )
+
+
+def _is_trainer_call(node: ast.AST) -> bool:
+    """True for a call to the suite trainer, by name or attribute."""
+    return isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", None)) in _SUITE_CALLS
+
+
 def direct_suite_trainings(tree: ast.Module) -> list[str]:
-    """Names of the test functions that call the suite themselves (a fixture that does it is the fix, not a finding)."""
+    """Names of the test functions that train through the suite themselves (a fixture that does it is the fix, not a finding).
+
+    A suite call inside ``pytest.raises`` is an error-path probe that never reaches training, so it is not counted.
+    """
     out = []
     for func in (n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name.startswith("test_")):
-        if any(isinstance(c, ast.Call) and getattr(c.func, "id", getattr(c.func, "attr", None)) in _SUITE_CALLS for c in ast.walk(func)):
+        probes = {id(c) for w in ast.walk(func) if _is_raises_block(w) for c in ast.walk(w)}
+        if any(_is_trainer_call(c) and id(c) not in probes for c in ast.walk(func)):
             out.append(func.name)
     return out
 
@@ -75,3 +92,16 @@ def test_the_scan_counts_direct_calls_and_not_the_fixture():
         "    core.train_mlframe_models_suite(df=2)\n"
     )
     assert direct_suite_trainings(ast.parse(src)) == ["test_a", "test_c"]
+
+
+def test_the_scan_ignores_suite_calls_inside_pytest_raises():
+    """Canary: an input-validation probe (the suite call inside ``pytest.raises``) never trains, so it is not counted; a real training is."""
+    src = (
+        "import pytest\n"
+        "def test_probe_only():\n"
+        "    with pytest.raises(TypeError):\n"
+        "        train_mlframe_models_suite([[1]], 'y', 'm')\n"
+        "def test_real_training():\n"
+        "    train_mlframe_models_suite(df=1)\n"
+    )
+    assert direct_suite_trainings(ast.parse(src)) == ["test_real_training"]
