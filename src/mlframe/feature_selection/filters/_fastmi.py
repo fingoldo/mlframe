@@ -54,7 +54,7 @@ def _rank_to_uniform(x: np.ndarray) -> np.ndarray:
 
     # Average ranks: tied values share one uniform instead of being split by input order. Intentional float64: ranks exceed exact float32 range beyond 2**24 rows.
     ranks = rankdata(x, method="average").astype(np.float64, copy=False)
-    return ranks / (n + 1.0)
+    return np.asarray(ranks / (n + 1.0))
 
 
 def _probit(u: np.ndarray) -> np.ndarray:

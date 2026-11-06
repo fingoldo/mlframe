@@ -160,6 +160,12 @@ def _read_verified_model_payload(model_file: str, featureset: str) -> Optional[b
     return payload
 
 
+def _warn_short_ensemble(featureset: str, served: int, candidates: int, skipped: list) -> None:
+    """Say how many model files a featureset served out of the candidates: the per-file messages go by unnoticed, the count does not."""
+    if skipped:
+        logger.warning("read_trained_models: featureset %s served %d of %d model file(s); skipped %s.", featureset, served, candidates, sorted(skipped))
+
+
 def read_trained_models(
     featureset: str,
     X: pd.DataFrame,
@@ -289,9 +295,7 @@ def read_trained_models(
 
         models[splitext(model_name)[0]] = model
 
-    if skipped:
-        # The per-file messages go by unnoticed; the count is what tells a caller the ensemble is short of members.
-        logger.warning("read_trained_models: featureset %s served %d of %d model file(s); skipped %s.", featureset, len(models), n_candidates, sorted(skipped))
+    _warn_short_ensemble(featureset, len(models), n_candidates, skipped)
     return models, X
 
 

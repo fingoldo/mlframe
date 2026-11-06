@@ -108,7 +108,8 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         if isinstance(self.compute_fn, str):
             from mlframe.feature_engineering import transformer as _pkg
 
-            return getattr(_pkg, self.compute_fn)
+            fn: Callable[..., pl.DataFrame] = getattr(_pkg, self.compute_fn)
+            return fn
         return self.compute_fn
 
     def fit(self, X, y=None):
