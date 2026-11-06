@@ -36,7 +36,8 @@ multi-fidelity closures.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Optional
+from collections.abc import Sequence
 
 import numpy as np
 
