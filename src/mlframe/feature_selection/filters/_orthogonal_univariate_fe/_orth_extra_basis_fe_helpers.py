@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import cast
 
 from mlframe.utils.log_throttle import log_throttle
 
@@ -366,8 +367,8 @@ _ORDER_CACHE_LOCK = __import__("threading").Lock()
 def _stable_order(x: np.ndarray) -> np.ndarray:
     """``np.argsort(x, kind="stable")``: for a finite 1-D float32 / float64 vector the radix order, the same permutation about 7 times faster; anything else (NaN, other types) the comparison sort."""
     if x.ndim == 1 and x.size and x.dtype in (np.float32, np.float64) and bool(np.isfinite(x).all()):  # Intentional float64: dtype identity check
-        return radix_order_f32(np.ascontiguousarray(x)) if x.dtype == np.float32 else radix_order_f64(np.ascontiguousarray(x))
-    return np.argsort(x, kind="stable")
+        return cast("np.ndarray", radix_order_f32(np.ascontiguousarray(x)) if x.dtype == np.float32 else radix_order_f64(np.ascontiguousarray(x)))
+    return cast("np.ndarray", np.argsort(x, kind="stable"))
 
 
 def cached_stable_argsort(x: np.ndarray) -> np.ndarray:

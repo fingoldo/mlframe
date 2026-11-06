@@ -264,7 +264,7 @@ def categorical_group_tokens(col: pd.Series) -> np.ndarray:
     toks = np.empty(len(cats) + 1, dtype=object)
     toks[:-1] = [canonical_group_token(v) for v in cats]
     toks[-1] = canonical_group_token(float("nan"))
-    return toks[col.cat.codes.to_numpy().astype(np.int64)]
+    return cast("np.ndarray", toks[col.cat.codes.to_numpy().astype(np.int64)])
 
 def group_key_strings(col: pd.Series) -> np.ndarray:
     """Object array of per-row canonical group keys (int<->float drift safe).
