@@ -165,7 +165,9 @@ def _null_max_strict_gpu(X: np.ndarray, y: np.ndarray, permutations: "list[np.nd
         from .._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 
         # Intentional float64: GPU f64 MI path, the same upload the per-call STRICT route makes.
-        Xd = cp.asarray(np.ascontiguousarray(np.asarray(X, dtype=np.float64)))
+        from .._device_upload_f64 import upload_as_float64
+
+        Xd = upload_as_float64(cp, X)
         cache: dict = {}
         y_arr = np.asarray(y)
         batched = _strict_null_max_batched(cp, Xd, y_arr, permutations, int(nbins), cache)

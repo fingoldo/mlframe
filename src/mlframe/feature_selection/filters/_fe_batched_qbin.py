@@ -77,7 +77,9 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     """
     import cupy as cp
 
-    Xd = x_cols if isinstance(x_cols, cp.ndarray) else cp.asarray(np.ascontiguousarray(np.asarray(x_cols, dtype=np.float64)))  # Intentional float64: GPU MI operand upload; kernel contract is float64
+    from ._device_upload_f64 import upload_as_float64
+
+    Xd = x_cols if isinstance(x_cols, cp.ndarray) else upload_as_float64(cp, x_cols)  # float64 operand; float32 is widened on the device
     if Xd.ndim == 1:
         Xd = Xd[:, None]
     Xd = Xd.astype(cp.float64, copy=False)  # Intentional float64: GPU MI operand upload; kernel contract is float64
