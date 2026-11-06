@@ -72,13 +72,16 @@ def device_supported(n_x: np.ndarray, n_y: int) -> bool:
 
 def family_null_max_device(cols: np.ndarray, n_x: np.ndarray, perms: np.ndarray, n_y: int) -> np.ndarray:
     """Per-permutation maximum MI over the columns, computed on the GPU (see module docstring)."""
+    B = int(perms.shape[0])
+    K = int(cols.shape[0])
+    if K == 0 or B == 0:
+        # An empty family has no MI to maximise; the CPU twin returns zeros, and a zero-width launch fails on the device.
+        return np.zeros(B, dtype=np.float64)
     import cupy as cp
 
     from mlframe.utils.cupy_pinned import install_pinned_policy
 
     install_pinned_policy()
-    B = int(perms.shape[0])
-    K = int(cols.shape[0])
     # Codes are uploaded in their own (int16) width: a (K, n) int64 copy of a wide family was 4x the bytes for the same values.
     cols_d = cp.asarray(np.ascontiguousarray(np.asarray(cols).T))
     nx_d = cp.asarray(np.ascontiguousarray(n_x, dtype=np.int64))
