@@ -100,3 +100,48 @@ def _get_radix_select_f32_v4_kernel():
             log_throttle(logging.getLogger(__name__), "gpu_select.f32_v4_compile", logging.WARNING, "f32 v4 compaction kernel compile failed; v3", exc_info=True)
             _RADIX_SELECT_F32_V4_KERNEL = False
     return _RADIX_SELECT_F32_V4_KERNEL or None
+
+
+# V5 = v4 with four independent global loads in flight per thread in the full-scan loop. nvprof on v4: 31 percent of the issue stalls wait for data, memory
+# utilisation 4 to 5 of 10, because each thread issues one dependent load per iteration; here a thread loads four elements (strided by the block width, so the warp
+# reads stay coalesced) before it bins any of them. The bins receive the same elements, so the order statistics are bit-identical to v4. Off switch MLFRAME_RADIX_F32_V5=0.
+_V5_HEAD_OLD = """            for(long long i=tid;i<n;i+=nt){
+                float d=data[(long long)col*n+i];unsigned int u;memcpy(&u,&d,4);  // COLUMN-MAJOR: coalesced
+"""
+_V5_HEAD_NEW = """            for(long long i0=tid;i0<n;i0+=4LL*nt){
+              float dv[4];
+              #pragma unroll
+              for(int k=0;k<4;++k){long long ii=i0+(long long)k*nt;dv[k]=(ii<n)?data[(long long)col*n+ii]:0.0f;}  // COLUMN-MAJOR: coalesced, four loads in flight
+              #pragma unroll
+              for(int k=0;k<4;++k){
+                long long i=i0+(long long)k*nt;
+                if(i<n){
+                float d=dv[k];unsigned int u;memcpy(&u,&d,4);
+"""
+_V5_TAIL_OLD = """                        if(slot<(unsigned long long)cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
+            }
+        } else {"""
+_V5_TAIL_NEW = """                        if(slot<(unsigned long long)cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
+                }
+              }
+            }
+        } else {"""
+assert _RADIX_SELECT_F32_V4_SRC.count(_V5_HEAD_OLD) == 1 and _RADIX_SELECT_F32_V4_SRC.count(_V5_TAIL_OLD) == 1
+_RADIX_SELECT_F32_V5_SRC = _RADIX_SELECT_F32_V4_SRC.replace("radix_select_f32_v4", "radix_select_f32_v5").replace(_V5_HEAD_OLD, _V5_HEAD_NEW, 1).replace(_V5_TAIL_OLD, _V5_TAIL_NEW, 1)
+_RADIX_SELECT_F32_V5_KERNEL = None
+
+
+def _get_radix_select_f32_v5_kernel():
+    """The four-loads-in-flight f32 radix select (``None`` when ``MLFRAME_RADIX_F32_V5=0`` or it does not compile); bit-identical order statistics to v4."""
+    global _RADIX_SELECT_F32_V5_KERNEL
+    import cupy as cp
+
+    if os.environ.get("MLFRAME_RADIX_F32_V5", "1").strip().lower() not in ("1", "true", "on", "yes"):
+        return None
+    if _RADIX_SELECT_F32_V5_KERNEL is None:
+        try:
+            _RADIX_SELECT_F32_V5_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_V5_SRC, "radix_select_f32_v5")
+        except Exception:
+            log_throttle(logging.getLogger(__name__), "gpu_select.f32_v5_compile", logging.WARNING, "f32 v5 four-loads kernel compile failed; v4", exc_info=True)
+            _RADIX_SELECT_F32_V5_KERNEL = False
+    return _RADIX_SELECT_F32_V5_KERNEL or None
