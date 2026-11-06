@@ -290,26 +290,8 @@ def _null_device_wanted(cols: np.ndarray, y: np.ndarray, n_perm: int) -> bool:
     return _family_null_backend(int(y.shape[0]), int(cols.shape[0]), _work) == "device"
 
 
-def family_null_max(
-    cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, n_perm: int, rng: np.random.Generator, block: int = 256, acc: Any = None, prep_cache: "dict | None" = None
-) -> np.ndarray | None:
-    """Null maxima over ``n_perm`` label permutations drawn from ``rng`` in the same order as a per-permutation loop (results are identical).
-
-    ``acc``: an optional device double vector of length ``n_perm``. The maxima are folded into it (elementwise, in place) and the
-    function returns ``None``, so a caller that scores several column groups against the same draw reads the result back once.
-
-    ``prep_cache``: a dict a caller keeps for the calls that score the SAME columns (the blocks of one exact test): the column bit sets, host and device, are built by the first call and read from it by the rest."""
-    out = np.empty(int(n_perm), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, or AUTO at scale) runs the null on the device; the permutations are drawn on the host in
-    # the same order either way, so the decisions do not depend on the path.
-    from ._family_maxt_cuda import device_supported, family_null_max_device
-
-    # Size-gated device dispatch: the null costs B*K*n count updates, so a large family goes to the device even outside STRICT (the
-    # pair family gate runs 9999 permutations; on the CPU an n=30000 fit exceeded the 600 s test watchdog). The floor is a measured
-    # crossover on the dev GPU and belongs in the kernel-tuning cache; TODO(KTC).
-    want_device = _null_device_wanted(cols, y, n_perm)
-    # Bin x class counts as popcounts of bit sets (host and device): the column bit sets are built once per call and reused by every block;
-    # columns with many bins or labels with many classes keep the histogram kernels.
+def _family_bit_prep(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, want_device: bool, prep_cache: "dict | None") -> tuple:
+    """``(bit_prep, dev_bits)`` of a family: the host bit-set groups (``None`` when the family keeps the histogram kernels) and their device copy (``None`` on the host path)."""
     bit_prep = None
     dev_bits = None
     if cols.shape[0] and int(n_x.max()) <= BITSET_MAX_BINS and int(n_y) <= BITSET_MAX_CLASSES:
@@ -334,13 +316,42 @@ def family_null_max(
         if dev_bits is None and not bit_prep[3]:
             with parallel_kernel_entry():  # the groups went to a device that then failed, or were released: the host path needs them
                 cache["bit_prep"] = bit_prep = bitset_groups(cols, n_x)
+    return bit_prep, dev_bits
+
+
+def _budgeted_perm_block(block: int, n: int) -> int:
+    """``block`` permutations narrowed so one block of indices (2 bytes a row up to 65535 rows, else 4) stays inside ``_PERM_BLOCK_BUDGET_BYTES``."""
+    return max(1, min(int(block), _PERM_BLOCK_BUDGET_BYTES // max(1, n * (2 if n <= np.iinfo(np.uint16).max else 4))))
+
+
+def family_null_max(
+    cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, n_perm: int, rng: np.random.Generator, block: int = 256, acc: Any = None, prep_cache: "dict | None" = None
+) -> np.ndarray | None:
+    """Null maxima over ``n_perm`` label permutations drawn from ``rng`` in the same order as a per-permutation loop (results are identical).
+
+    ``acc``: an optional device double vector of length ``n_perm``. The maxima are folded into it (elementwise, in place) and the
+    function returns ``None``, so a caller that scores several column groups against the same draw reads the result back once.
+
+    ``prep_cache``: a dict a caller keeps for the calls that score the SAME columns (the blocks of one exact test): the column bit sets, host and device, are built by the first call and read from it by the rest."""
+    out = np.empty(int(n_perm), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, or AUTO at scale) runs the null on the device; the permutations are drawn on the host in
+    # the same order either way, so the decisions do not depend on the path.
+    from ._family_maxt_cuda import device_supported, family_null_max_device
+
+    # Size-gated device dispatch: the null costs B*K*n count updates, so a large family goes to the device even outside STRICT (the
+    # pair family gate runs 9999 permutations; on the CPU an n=30000 fit exceeded the 600 s test watchdog). The floor is a measured
+    # crossover on the dev GPU and belongs in the kernel-tuning cache; TODO(KTC).
+    want_device = _null_device_wanted(cols, y, n_perm)
+    # Bin x class counts as popcounts of bit sets (host and device): the column bit sets are built once per call and reused by every block;
+    # columns with many bins or labels with many classes keep the histogram kernels.
+    bit_prep, dev_bits = _family_bit_prep(cols, n_x, y, n_y, want_device, prep_cache)
     use_device = want_device and bit_prep is None and device_supported(n_x, int(n_y))
     py_const = _label_const(bit_prep[0], y, int(n_y)) if (dev_bits is not None and bit_prep is not None) else 0.0
     words = (int(y.shape[0]) + 63) // 64
     py_counts = np.bincount(np.asarray(y, dtype=np.int64), minlength=int(n_y)).astype(np.int64)
     # a block of permutation indices is (block, n) ints: at a million rows 256 permutations are a gigabyte, and the block cache holds another; the block is narrowed to the budget
     # (a fit up to ~190000 rows keeps 256, so its permutation stream is unchanged)
-    block = max(1, min(int(block), _PERM_BLOCK_BUDGET_BYTES // max(1, int(y.shape[0]) * (2 if int(y.shape[0]) <= np.iinfo(np.uint16).max else 4))))
+    block = _budgeted_perm_block(block, int(y.shape[0]))
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
         perm_idx = _permutation_block(rng, y, m)

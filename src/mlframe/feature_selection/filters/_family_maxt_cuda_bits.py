@@ -150,7 +150,7 @@ class DeviceBitsets:
         self.c_a = cp.asarray(c_a, dtype=self.table.dtype)
         self.px = cp.asarray(px)
         self.n_x = cp.asarray(np.ascontiguousarray(n_x, dtype=np.int64))
-        self.groups = []
+        self.groups: list = []
         for lo, hi, bits in groups:  # a generator is consumed one group at a time: the host bit sets of a group are dropped once it is on the device
             if not self.groups:
                 self.cap = int(bits.shape[1])

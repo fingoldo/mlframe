@@ -147,7 +147,7 @@ def _quantize_for_su(X) -> tuple:
 
         def get(ci: int) -> np.ndarray:
             """Column ``ci`` of the frame in the criterion dtype."""
-            return X[col_iter[ci]].to_numpy(dtype=_crit_np_dtype(), copy=False)
+            return np.asarray(X[col_iter[ci]].to_numpy(dtype=_crit_np_dtype(), copy=False))
 
         n = len(X)
     else:
