@@ -44,7 +44,7 @@ def main():
 
     # 1. round-trip the float through extra (and a pickle to confirm serialisability)
     import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
-    rec2 = pickle.loads(pickle.dumps(rec))  # nosec B301 - round-trips a same-process object, no external input
+    rec2 = pickle.loads(pickle.dumps(rec))  # nosec B301  # deserialize-ok: round-trips a same-process object, no external input
     if not (rec2.extra["gate_med_a_median"] == med_a):
         raise AssertionError("median did not round-trip")
     print(f"[1] extra float round-trip OK: median={rec2.extra['gate_med_a_median']:.6f}")

@@ -75,7 +75,7 @@ def fit_hybrid_cached(bed, X, y, seed):
     key = _cache_key(bed, seed, X.shape)
     if os.path.exists(key):
         with open(key, "rb") as f:
-            return pickle.load(f)  # nosec B301 - dev-only benchmark cache; local file this script itself wrote
+            return pickle.load(f)  # nosec B301  # deserialize-ok: dev-only benchmark cache; local file this script itself wrote
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=seed, stratify=y)
     t0 = time.time()
     h = HybridSelector(vote=1, use_fe=True, random_state=seed).fit(Xtr, ytr)
