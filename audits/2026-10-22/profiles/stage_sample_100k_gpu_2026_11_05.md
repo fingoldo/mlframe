@@ -120,3 +120,7 @@ That profile ran with the device hidden (`CUDA_VISIBLE_DEVICES=-1`), so it measu
 ## Edge-pool width (MLFRAME_EDGE_JOBS), 100000 x 100, one process per value
 
 Width 4: wall 71.1 s; width 16: 72.1 s; the default (8 logical cores): 70.4 s in the earlier selection run. The selection is the same 7 features at every width. The wall does not depend on the width of the Python-side edge pools in this range, so the pools are neither too narrow nor oversubscribed; the CPU under-use is not a pool-size setting.
+
+## early_a beside the other three cascades (MLFRAME_FE_STAGE_CONCURRENCY_EARLY_A=1), 100000 x 100, final tree, one run
+
+Wall 194.1 s against 70 to 83 s with early_a first; the same 7 selected features. The log carries 22 "streamed GPU MI: pinned staging unavailable (cudaErrorMemoryAllocation: out of memory); uploading blocks from pageable memory" lines: four stages at once exhaust the pinned host memory and the streamed MI falls back to pageable uploads. A second run was started and stopped. The option stays off, as the comment in `_fe_stage_cascade_run.py` already says; the earlier inconclusive pair (91.5 / 115.5 s against 94.1 / 101.4 s) is settled the same way by this one run.
