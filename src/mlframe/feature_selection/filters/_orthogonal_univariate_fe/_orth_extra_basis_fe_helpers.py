@@ -13,6 +13,7 @@ from mlframe._numerical_floors import VARIANCE_FLOOR
 from numba import prange
 
 from ._fourier_core_cycles import freq_is_tail_aliased
+from .._numba_utils_shared import radix_order_f32, radix_order_f64
 
 logger = logging.getLogger(__name__)
 
@@ -362,10 +363,17 @@ _ORDER_CACHE_MAX_BYTES = 64 << 20
 _ORDER_CACHE_LOCK = __import__("threading").Lock()
 
 
+def _stable_order(x: np.ndarray) -> np.ndarray:
+    """``np.argsort(x, kind="stable")``: for a finite 1-D float32 / float64 vector the radix order, the same permutation about 7 times faster; anything else (NaN, other types) the comparison sort."""
+    if x.ndim == 1 and x.size and x.dtype in (np.float32, np.float64) and bool(np.isfinite(x).all()):  # Intentional float64: dtype identity check
+        return radix_order_f32(np.ascontiguousarray(x)) if x.dtype == np.float32 else radix_order_f64(np.ascontiguousarray(x))
+    return np.argsort(x, kind="stable")
+
+
 def cached_stable_argsort(x: np.ndarray) -> np.ndarray:
     """``np.argsort(x, kind="stable")`` of a 1-D array, shared between callers that sort the same content when ``MLFRAME_EXTRA_BASIS_ORDER_CACHE=1`` (off by default)."""
     if os.environ.get("MLFRAME_EXTRA_BASIS_ORDER_CACHE", "0").strip() != "1" or x.ndim != 1:
-        return np.argsort(x, kind="stable")
+        return _stable_order(x)
     from mlframe.utils.disk_cache import hash_array_content
 
     key = (x.size, str(x.dtype), hash_array_content(np.ascontiguousarray(x)))
