@@ -171,3 +171,12 @@ url  # tests/scripts/test_ci_version_matrix.py (urlopen stub)
 host_only  # tests/feature_selection/mrmr/core/test_prescan_block_pairs.py
 cap_enabled  # tests/training/test_hgb_thread_cap.py
 prune_only  # tests/feature_selection/regression/test_regression_pgn_cap_selected_vars.py (stand-in residual-rescue signature)
+
+# --- 2026-11-06 CI sweep (vulture 2.16, lint-blocking): fixture side effects and stub signature parity. ---
+_reset_module_state  # tests/conftest.py -- autouse fixture imported for its setup/teardown side effect
+batch_rows  # tests/feature_engineering/transformer/test_gpu_memory_released_on_failure.py -- rff_matmul_cupy stub signature parity
+async_sweep  # tests/inference/test_logical_constraints_ktc_key_includes_rule_count.py -- fake get_or_tune signature parity
+euid  # tests/utils/test_private_temp_dir.py -- _is_private monkeypatch signature parity
+base_f64  # tests/feature_selection/filters/test_usability_pair_candidates_bounded.py -- ranking-step spy signature parity
+max_pairs  # tests/feature_selection/filters/test_usability_pair_candidates_bounded.py -- ranking-step spy signature parity
+rank_pairs_by_joint_mi  # tests/feature_selection/filters/test_usability_pair_candidates_bounded.py -- ranking-step spy signature parity
