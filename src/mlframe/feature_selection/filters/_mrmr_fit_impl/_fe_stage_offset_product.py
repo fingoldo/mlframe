@@ -58,4 +58,7 @@ def _stage_offset_product(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe,
             return X_op
     except Exception as _op_exc:
         logger.warning("MRMR.fit offset_product FE raised %s: %s; continuing without offset-product columns.", type(_op_exc).__name__, _op_exc)
+        from .._fe_rejection_ledger import record_family_failure
+
+        record_family_failure(self, "offset_product", _op_exc)
     return X

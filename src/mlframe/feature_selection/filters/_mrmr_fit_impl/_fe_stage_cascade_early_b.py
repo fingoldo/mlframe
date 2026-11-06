@@ -746,6 +746,9 @@ def _stage_binned_numeric_agg(self, _fe_family_on, X, y, _binned_agg_pre_recipes
                 "MRMR.fit binned_numeric_agg FE raised %s: %s; continuing without binned-agg columns.",
                 type(_ba_exc).__name__, _ba_exc,
             )
+            from .._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "binned_numeric_agg", _ba_exc)
     return X
 
 

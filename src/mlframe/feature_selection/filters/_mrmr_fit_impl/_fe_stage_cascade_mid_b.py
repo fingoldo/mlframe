@@ -461,6 +461,9 @@ def _stage_conditional_dispersion(self, _fe_family_on, X, _y_np, _raw_input_cols
                     type(_cd_exc).__name__,
                     _cd_exc,
                 )
+                from .._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "conditional_dispersion", _cd_exc)
     return X
 
 
