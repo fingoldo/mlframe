@@ -14,10 +14,24 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from mlframe._numerical_floors import VARIANCE_FLOOR
+from mlframe.feature_selection.filters._kernel_types import render
 from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
 
 _SRC_TEMPLATE = r"""
+// sin / cos of w * z. A float z: the argument is reduced to [-pi, pi] in double (a few double operations) and the sine and cosine are taken in float, the full double sincos
+// being ~30 times slower on the cards this runs on; a double z keeps the double sincos. Outside the extern "C" block: C linkage cannot overload.
+__device__ __forceinline__ void trig(const double w, const float z, double* s, double* c) {
+    const double a = w * (double)z;
+    const double r = a - 6.283185307179586 * rint(a * 0.15915494309189535);
+    float sf, cf;
+    sincosf((float)r, &sf, &cf);
+    *s = (double)sf;
+    *c = (double)cf;
+}
+__device__ __forceinline__ void trig(const double w, const double z, double* s, double* c) { sincos(w * z, s, c); }
 extern "C" {
 __device__ __forceinline__ double power_term(double sv, double vv, double vy, double n, double y_ss) {
     const double v_ss = vv - sv * sv / n;
@@ -30,7 +44,7 @@ __global__ void periodogram_power(const {REAL}* z, const {REAL}* yc, const doubl
     double ss = 0.0, sc = 0.0, vvs = 0.0, vvc = 0.0, vys = 0.0, vyc = 0.0;
     for (long long i = threadIdx.x; i < n; i += blockDim.x) {
         double s, c;
-        sincos(w * z[i], &s, &c);
+        trig(w, z[i], &s, &c);
         const double y = yc[i];
         ss += s; sc += c; vvs += s * s; vvc += c * c; vys += s * y; vyc += c * y;
     }
@@ -59,7 +73,7 @@ __global__ void sincos_gram(const {REAL}* z, const {REAL}* y, const double f, do
     const double w = 6.283185307179586 * f;
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
         double s, c;
-        sincos(w * z[i], &s, &c);
+        trig(w, z[i], &s, &c);
         const double yi = y[i];
         acc[0] += 1.0; acc[1] += s; acc[2] += c; acc[3] += s * s; acc[4] += s * c; acc[5] += c * c;
         acc[6] += yi; acc[7] += s * yi; acc[8] += c * yi;
@@ -80,7 +94,7 @@ __global__ void sincos_gram(const {REAL}* z, const {REAL}* y, const double f, do
         part[(long long)blockIdx.x * 9 + threadIdx.x] = t;
     }
 }
-__global__ void solve3(const double* part, const int nblocks, double* coef) {
+__global__ void solve3(const {ACC}* part, const int nblocks, {ACC}* coef) {
     __shared__ double tot[9];
     if (threadIdx.x < 9) {
         double s = 0.0, comp = 0.0;
@@ -111,7 +125,7 @@ __global__ void apply_deflate(const {REAL}* z, const {REAL}* y, const double* co
     const double c0 = coef[0], c1 = coef[1], c2 = coef[2];
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
         double s, c;
-        sincos(w * z[i], &s, &c);
+        trig(w, z[i], &s, &c);
         out[i] = y[i] - (c0 + c1 * s + c2 * c);
     }
 }
@@ -120,7 +134,7 @@ __global__ void apply_deflate(const {REAL}* z, const {REAL}* y, const double* co
 
 
 # The variance floor is filled in from the shared constant so the kernel and the host agree.
-_SRC = _SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR))
+_SRC = render(_SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR)))  # {ACC} is float64; {REAL} stays for the per-type modules
 # One module per input element type: the samples arrive in the critical dtype (float32 by default) and the kernels read them as that type; the sums accumulate in double.
 _MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float"))}
 
@@ -137,7 +151,8 @@ def power_sincos(cp: Any, z: Any, yc: Any, y_ss: float, freqs: Any) -> Any:
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = cp.empty(int(f.shape[0]), dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-    _modules_for(z).get(cp).get_function("periodogram_power")((int(f.shape[0]),), (256,), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss)))
+    power = _modules_for(z).get(cp).get_function("periodogram_power")
+    power((int(f.shape[0]),), (block_size_for(power, work_items=int(z.shape[0]), max_width=1024),), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss)))
     return out
 
 
@@ -149,7 +164,10 @@ def deflate_sincos(cp: Any, z: Any, y: Any, freq: float) -> Optional[Any]:
 
     n = int(z.shape[0])
     mod = _modules_for(z).get(cp)
-    blocks = max(1, min(64, (n + 255) // 256))
+    gram = mod.get_function("sincos_gram")
+    deflate = mod.get_function("apply_deflate")
+    gram_threads = block_size_for(gram, work_items=n, max_width=1024)  # one partial per warp in a shared array of 32 rows: any warp multiple up to 1024
+    blocks = max(1, min(64, (n + gram_threads - 1) // gram_threads))
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     part = cp.empty((blocks, 9), dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
@@ -157,10 +175,10 @@ def deflate_sincos(cp: Any, z: Any, y: Any, freq: float) -> Optional[Any]:
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = cp.empty(n, dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-    mod.get_function("sincos_gram")((blocks,), (256,), (z, y, cp.float64(freq), part, cp.int64(n)))
-    mod.get_function("solve3")((1,), (32,), (part, cp.int32(blocks), coef))
+    gram((blocks,), (gram_threads,), (z, y, cp.float64(freq), part, cp.int64(n)))
+    mod.get_function("solve3")((1,), (32,), (part, cp.int32(blocks), coef))  # launch-ok: one warp: threads 0-8 fold the nine partial sums, thread 0 solves the 3x3 system; a wider block adds nothing
     if not np.all(np.isfinite(cp.asnumpy(coef))):
         return None
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-    mod.get_function("apply_deflate")((blocks,), (256,), (z, y, coef, cp.float64(freq), out, cp.int64(n)))
+    deflate((blocks,), (block_size_for(deflate, work_items=n),), (z, y, coef, cp.float64(freq), out, cp.int64(n)))
     return out

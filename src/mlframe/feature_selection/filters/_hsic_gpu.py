@@ -14,6 +14,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 logger = logging.getLogger(__name__)
 
 _SRC = r"""
@@ -48,7 +50,7 @@ extern "C" __global__ void hsic_biased_cols(const {REAL}* __restrict__ xs, const
 }
 """
 
-_THREADS = 256
+_MAX_BLOCK = 256  # widest block the kernel's dynamic scratch allows
 _MAX_M = 4096  # the column's values live in shared memory (16 KB float32 / 32 KB double)
 _MODULES: dict = {}
 # k * m * m pair terms from which the device wins when the kernel-tuning cache has no measurement on this host (GTX 1050 Ti, m=500: about 5 columns)
@@ -90,13 +92,16 @@ def hsic_biased_columns_gpu(xs_rows: np.ndarray, lc: np.ndarray, sigmas: np.ndar
         inv = np.ascontiguousarray(1.0 / (2.0 * s * s), dtype=np.float64)  # Intentional float64: the bandwidth term is formed in double, as on the host
         free = int(cp.cuda.Device().mem_info[0])
         width = max(1, min(k, (free // 4) // max(1, m * np.dtype(dt).itemsize)))
-        shared = ((m * np.dtype(dt).itemsize + 7) // 8) * 8 + _THREADS * 8
+        values_bytes = ((m * np.dtype(dt).itemsize + 7) // 8) * 8
+        # the reduction halves blockDim.x over a dynamic scratch of one double per thread: a power of two; 256 keeps the scratch within the 48 KB block limit at m = 4096
+        threads = block_size_for(kern, dyn_smem=values_bytes + _MAX_BLOCK * 8, work_items=m, pow2=True, max_width=_MAX_BLOCK)
+        shared = values_bytes + threads * 8
         out = np.empty(k, dtype=np.float64)  # Intentional float64: HSIC score vector (output contract of the host kernel)
         for start in range(0, k, width):
             stop = min(k, start + width)
             xs_d = cp.asarray(np.ascontiguousarray(xs_rows[start:stop]).astype(dt, copy=False))
             tot = cp.empty(stop - start, dtype=cp.float64)  # Intentional float64: {ACC} sums
-            kern((stop - start,), (_THREADS,), (xs_d, lc_d, cp.asarray(inv[start:stop]), np.int32(m), np.int32(stop - start), tot), shared_mem=shared)
+            kern((stop - start,), (threads,), (xs_d, lc_d, cp.asarray(inv[start:stop]), np.int32(m), np.int32(stop - start), tot), shared_mem=shared)
             out[start:stop] = (diag + 2.0 * tot.get()) / float(denom)
         out[(out < 0.0) & (out > -1e-12)] = 0.0
         return out

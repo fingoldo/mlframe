@@ -14,6 +14,8 @@ from typing import Any
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._fe_batched_mi import (
     _MI_FROM_CODES_MAX_SHARED,
     _MI_MM_FROM_VALUES_NEK_F32_SRC,
@@ -74,8 +76,10 @@ def binned_mm_mi_from_cm_gpu(
     ne_k = cp.empty(K, dtype=cp.int32)
     _launch_dedup_edges(E, cmin, cmax, ne, K, Ec, ne_k)
     mi_out = cp.empty(K, dtype=cp.float64)  # Intentional float64: MI kernel output contract (double*)
-    _kernel(cp, is_f32)(
-        (K,), (256,),
+    mm_kernel = _kernel(cp, is_f32)
+    threads = block_size_for(mm_kernel, dyn_smem=int(nbins) * Ky * 4, work_items=n)
+    mm_kernel(
+        (K,), (threads,),
         # Intentional float64: RawKernel scalar args are declared double; the kernel signature requires f64 here.
         (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)), ne_k, mi_out),
         shared_mem=int(nbins) * Ky * 4,

@@ -19,6 +19,8 @@ import os
 from typing import Optional, Sequence
 
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 import pandas as pd
 
 from ._raw_module_cache import RawModuleCache
@@ -30,6 +32,7 @@ _BYTES_PER_SOURCE_ROW = 8  # one double source value per row and source column
 _BUDGET_FRACTION = 0.2
 
 _SRC = r"""
+// dtype-ok: reviewed 2026-11-05: float64 on purpose, floor(v / p) of a timestamp (~1.6e9) is noise at float32 resolution 128; the host uploads float64 explicitly.
 extern "C" __global__ void modular_all_ops(const double* __restrict__ S, const double* __restrict__ P, const long long n, const int n_periods, float* __restrict__ out) {
     const int src = blockIdx.y / n_periods;
     const int ip = blockIdx.y - src * n_periods;
@@ -114,7 +117,8 @@ def modular_family_codes_gpu(X: pd.DataFrame, cols: Sequence[str], periods: Sequ
             # Intentional float64: input of the residue v - p*floor(v/p); a float32 timestamp (~1.6e9) has resolution 128, so mod 7 would be noise.
             src = cp.asarray(np.ascontiguousarray(X[part].to_numpy(dtype=np.float64).T))
             out = cp.empty((len(part) * per_source, n), dtype=cp.float32)
-            kernel((min(1024, (n + THREADS - 1) // THREADS), len(part) * len(periods)), (THREADS,), (src, p_dev, np.int64(n), np.int32(len(periods)), out))
+            threads = block_size_for(kernel, work_items=n)
+            kernel((min(1024, (n + threads - 1) // threads), len(part) * len(periods)), (threads,), (src, p_dev, np.int64(n), np.int32(len(periods)), out))
             del src
             r0 = s0 * per_source
             quantile_codes_resident_f32(cp, out, int(n_bins), codes[r0 : r0 + out.shape[0]], nx[r0 : r0 + out.shape[0]])

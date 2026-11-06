@@ -19,6 +19,7 @@ from ._fe_stage_cascade_early_a import _fe_stage_cascade_early_a
 from ._fe_stage_cascade_early_b import _fe_stage_cascade_early_b
 from ._fe_stage_cascade_mid_a import _fe_stage_cascade_mid_a
 from ._fe_stage_cascade_mid_b import _fe_stage_cascade_mid_b
+from ._fe_stage_cascade_mid_a import _stage_grouped_quantile
 from ._fe_stage_merge import _fe_merge_new_columns
 from ._fe_stage_concurrency import STAGE_WEIGHTS_WITH_EARLY_A, concurrency_enabled, run_stages_concurrently
 from .._fe_dominant_candidate import dominant_candidate
@@ -86,7 +87,7 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
 
     def _stage_early_b(stage_self):
         """Run the early_b cascade on the given estimator (the real one, or a private copy when the cascades run together)."""
-        return _fe_stage_cascade_early_b(
+        out_b = _fe_stage_cascade_early_b(
             stage_self, X=_X_step_input, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
             _fit_entry_nan_mask=_fit_entry_nan_mask, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,
             _kfold_te_pre_recipes=recipes.kfold_te, _binned_agg_pre_recipes=recipes.binned_agg,
@@ -96,6 +97,10 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
             _miss_pat_pre_recipes=recipes.miss_pat,
             _ratio_pre_recipes=recipes.ratio, _log_ratio_pre_recipes=recipes.log_ratio,
             _grouped_delta_pre_recipes=recipes.grouped_delta, _lagged_diff_pre_recipes=recipes.lagged_diff,
+        )
+        # the grouped-quantile family (formerly the third family of mid_a) shares early_b's slot: mid_a is the longest concurrent cascade and early_b ends 13 s before it
+        return _fe_merge_new_columns(
+            out_b, _stage_grouped_quantile(stage_self, _fe_family_on, _X_step_input, _y_np, _raw_input_cols_pre_fe, recipes.grouped_quantile, verbose), _X_step_input
         )
 
     def _stage_mid_a(stage_self):

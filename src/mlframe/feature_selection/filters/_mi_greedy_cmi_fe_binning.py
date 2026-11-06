@@ -118,16 +118,15 @@ def _quantile_bin_gpu(a: np.ndarray, nbins: int):
     This mirrors the numpy ``np.unique(np.quantile(a,qs))`` + ``searchsorted(edges[1:-1], a, 'right')`` exactly
     (cp.percentile uses [0,100] vs np.quantile's [0,1] - same linear-interpolation edges)."""
     try:
-        import cupy as cp
 
-        from ._fe_resident_operands import resident_qbin_codes
+        from ._fe_resident_operands import resident_qbin_codes_host
         # The same candidate column is re-binned across greedy steps with identical content (H2D audit of a 1M
         # strict-resident fit: 42 calls / 20 distinct). resident_qbin_codes content-caches BOTH the float upload
         # (via resident_operand) AND the codes, so a repeat bin of identical content skips the re-upload AND the
         # O(n log n) sort (the cub DeviceMergeSort hotspot); bit-identical (same values -> same edges -> same
         # codes). Distinct columns compute once (genuine data).
         # sync-free device dedup (was cp.unique + size check, two D2H syncs); only the bulk (n,) result copies.
-        return cp.asnumpy(resident_qbin_codes(a, nbins, _qbin_float_dtype(), _sync_free_qbin_codes))
+        return resident_qbin_codes_host(a, nbins, _qbin_float_dtype(), _sync_free_qbin_codes)  # int16 over the bus, host-cached by content
     except Exception:
         logger.debug("GPU _quantile_bin failed; numpy fallback", exc_info=True)
         return None

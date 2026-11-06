@@ -14,6 +14,8 @@ from typing import Any, cast
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 logger = logging.getLogger(__name__)
 
 _SOURCE = r"""
@@ -45,7 +47,6 @@ extern "C" __global__ void family_null_bits(const unsigned long long* __restrict
 
 _kernels: dict = {}
 _KERNEL_CACHE_LOCK = threading.RLock()
-_THREADS = 128
 
 # One block per (permutation, tile of columns). The permutation's class bit sets sit in shared memory (every thread of the block reads the same word: a broadcast), and each thread reads a word of its
 # column's bin bit set ONCE and ANDs it against every class, accumulating the joint counts in registers. The first kernel re-read the bin words once per class and the class words from global memory;
@@ -94,7 +95,7 @@ def v2_block_width(kern, shared_bytes: int, columns: int) -> int:
     forced = os.environ.get("MLFRAME_GPU_BLOCK_FAMILY_BITS", "").strip()
     if forced.isdigit() and 32 <= int(forced) <= 1024 and int(forced) % 32 == 0:
         return int(forced)
-    from ._gpu_hw_launch import fixed_shared_block_size
+    from pyutilz.performance.gpu_hw_launch import fixed_shared_block_size
 
     try:
         width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kern.num_regs), static_smem=int(kern.shared_size_bytes), min_width=32, max_width=1024, work_items=columns)
@@ -212,9 +213,10 @@ def _run(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray, reduce_m
                 shared_mem=(n_y - 1) * dev.words * 8,
             )
         else:
+            flat_threads = block_size_for(kern, work_items=B * k)
             kern(
-                ((B * k + _THREADS - 1) // _THREADS,),
-                (_THREADS,),
+                ((B * k + flat_threads - 1) // flat_threads,),
+                (flat_threads,),
                 (
                     bits,
                     dev.n_x[lo:hi],

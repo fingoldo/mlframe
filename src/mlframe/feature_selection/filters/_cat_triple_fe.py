@@ -66,10 +66,12 @@ from itertools import combinations
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._internals import unique_inverse_dense
 from numpy.typing import ArrayLike
 import pandas as pd
 
-from ._target_encoding_fe import _column_to_str, column_string_codes
+from ._target_encoding_fe import _column_to_str, column_string_codes, sorted_string_codes
 from ._cat_pair_fe import (
     _bin_target,
     _cross_too_high_card,
@@ -122,7 +124,7 @@ def _join_codes(*code_arrays: np.ndarray) -> np.ndarray:
         c64 = np.asarray(c, dtype=np.int64)
         cmax = int(c64.max()) + 1 if c64.size else 1
         key = key * cmax + c64
-    _, codes = np.unique(key, return_inverse=True)
+    _, codes = unique_inverse_dense(key)
     return codes.astype(np.int64)
 
 def triple_interaction_information(
@@ -190,19 +192,19 @@ def _encode_triple(
     if precomputed_a is not None:
         uniq_a, inv_a = precomputed_a
     elif cats_a is not None:
-        uniq_a, inv_a = np.unique(cats_a, return_inverse=True)
+        uniq_a, inv_a = sorted_string_codes(cats_a)
     else:
         raise ValueError("_encode_triple: need either cats_a or precomputed_a")
     if precomputed_b is not None:
         uniq_b, inv_b = precomputed_b
     elif cats_b is not None:
-        uniq_b, inv_b = np.unique(cats_b, return_inverse=True)
+        uniq_b, inv_b = sorted_string_codes(cats_b)
     else:
         raise ValueError("_encode_triple: need either cats_b or precomputed_b")
     if precomputed_c is not None:
         uniq_c, inv_c = precomputed_c
     elif cats_c is not None:
-        uniq_c, inv_c = np.unique(cats_c, return_inverse=True)
+        uniq_c, inv_c = sorted_string_codes(cats_c)
     else:
         raise ValueError("_encode_triple: need either cats_c or precomputed_c")
     n = len(inv_a)
@@ -211,7 +213,7 @@ def _encode_triple(
     nb = len(uniq_b)
     nc = len(uniq_c)
     combined = inv_a.astype(np.int64) * (nb * nc) + inv_b.astype(np.int64) * nc + inv_c.astype(np.int64)
-    uniq_keys, codes = np.unique(combined, return_inverse=True)
+    uniq_keys, codes = unique_inverse_dense(combined)
     codes = codes.astype(np.int64, copy=False)
     mapping: dict[tuple, int] = {}
     for code, key in enumerate(uniq_keys):

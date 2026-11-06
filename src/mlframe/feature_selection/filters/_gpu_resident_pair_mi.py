@@ -24,6 +24,8 @@ from collections.abc import Sequence
 
 from mlframe.utils.log_throttle import log_throttle
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 if TYPE_CHECKING:
@@ -534,8 +536,9 @@ def _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins,
     # ONE BLOCK PER CANDIDATE: shared-mem histogram is (P1, nbins, K_y) int32. Check it fits this device's
     # per-block shared-memory limit; if not, the caller must fall back (the host gates on this).
     hist_bytes = P1 * int(nbins) * int(K_y) * 4
-    threads = 256
-    _get_fused_gen_bin_hist_kernel()(
+    hist_kernel = _get_fused_gen_bin_hist_kernel()
+    threads = block_size_for(hist_kernel, dyn_smem=hist_bytes, work_items=n)
+    hist_kernel(
         (K,),
         (threads,),
         (

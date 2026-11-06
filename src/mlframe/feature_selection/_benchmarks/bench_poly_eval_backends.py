@@ -20,6 +20,8 @@ from pathlib import Path
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 # module-level filter removed; gated under __main__ below.
 
 
@@ -264,6 +266,7 @@ if _CUPY_AVAILABLE:
     # Custom CUDA RawKernel: one thread per output element, registers for
     # recurrence state (no extra memory traffic).
     _HERMEVAL_CUDA_KERNEL = cp.RawKernel(r"""
+// dtype-ok: reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.
 extern "C" __global__
 void hermeval_kernel(const double* __restrict__ x,
                      const double* __restrict__ c,
@@ -289,6 +292,7 @@ void hermeval_kernel(const double* __restrict__ x,
 """, "hermeval_kernel")
 
     _LEGVAL_CUDA_KERNEL = cp.RawKernel(r"""
+// dtype-ok: reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.
 extern "C" __global__
 void legval_kernel(const double* __restrict__ x,
                     const double* __restrict__ c,
@@ -317,6 +321,7 @@ void legval_kernel(const double* __restrict__ x,
 """, "legval_kernel")
 
     _CHEBVAL_CUDA_KERNEL = cp.RawKernel(r"""
+// dtype-ok: reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.
 extern "C" __global__
 void chebval_kernel(const double* __restrict__ x,
                      const double* __restrict__ c,
@@ -342,6 +347,7 @@ void chebval_kernel(const double* __restrict__ x,
 """, "chebval_kernel")
 
     _LAGVAL_CUDA_KERNEL = cp.RawKernel(r"""
+// dtype-ok: reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.
 extern "C" __global__
 void lagval_kernel(const double* __restrict__ x,
                     const double* __restrict__ c,
@@ -372,7 +378,7 @@ void lagval_kernel(const double* __restrict__ x,
     def _hermeval_cuda(x_gpu, c_gpu):
         n = x_gpu.shape[0]
         out = cp.empty(n, dtype=cp.float64)
-        block = 256
+        block = block_size_for(_HERMEVAL_CUDA_KERNEL, work_items=n)
         grid = (n + block - 1) // block
         _HERMEVAL_CUDA_KERNEL((grid,), (block,), (x_gpu, c_gpu, c_gpu.shape[0], n, out))
         return out
@@ -380,7 +386,7 @@ void lagval_kernel(const double* __restrict__ x,
     def _legval_cuda(x_gpu, c_gpu):
         n = x_gpu.shape[0]
         out = cp.empty(n, dtype=cp.float64)
-        block = 256
+        block = block_size_for(_LEGVAL_CUDA_KERNEL, work_items=n)
         grid = (n + block - 1) // block
         _LEGVAL_CUDA_KERNEL((grid,), (block,), (x_gpu, c_gpu, c_gpu.shape[0], n, out))
         return out
@@ -388,7 +394,7 @@ void lagval_kernel(const double* __restrict__ x,
     def _chebval_cuda(x_gpu, c_gpu):
         n = x_gpu.shape[0]
         out = cp.empty(n, dtype=cp.float64)
-        block = 256
+        block = block_size_for(_CHEBVAL_CUDA_KERNEL, work_items=n)
         grid = (n + block - 1) // block
         _CHEBVAL_CUDA_KERNEL((grid,), (block,), (x_gpu, c_gpu, c_gpu.shape[0], n, out))
         return out
@@ -396,7 +402,7 @@ void lagval_kernel(const double* __restrict__ x,
     def _lagval_cuda(x_gpu, c_gpu):
         n = x_gpu.shape[0]
         out = cp.empty(n, dtype=cp.float64)
-        block = 256
+        block = block_size_for(_LAGVAL_CUDA_KERNEL, work_items=n)
         grid = (n + block - 1) // block
         _LAGVAL_CUDA_KERNEL((grid,), (block,), (x_gpu, c_gpu, c_gpu.shape[0], n, out))
         return out

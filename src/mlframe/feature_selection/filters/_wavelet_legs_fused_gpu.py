@@ -12,6 +12,8 @@ fractional part with exactly the comparisons the ``where`` chain makes.
 
 from __future__ import annotations
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from typing import Any, Optional
 
 from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
@@ -70,8 +72,10 @@ def leg_code_matrices(cp: Any, z_g: Any, max_scale: int, min_half_rows: int) -> 
     n_legs_all = (1 << (int(max_scale) + 1)) - 1
     mod = _MODULES_BY_REAL["float" if z.dtype.itemsize == 4 else "double"].get(cp)  # the kernels read ``z`` at its own dtype and compare in double precision
     counts = cp.zeros(2 * n_legs_all, dtype=cp.int32)
-    blocks = max(1, min(4096, (n + 255) // 256))
-    mod.get_function("leg_supports")((blocks,), (256,), (z, cp.int64(n), cp.int32(max_scale), counts))
+    supports = mod.get_function("leg_supports")
+    support_threads = block_size_for(supports, work_items=n)
+    blocks = max(1, min(4096, (n + support_threads - 1) // support_threads))
+    supports((blocks,), (support_threads,), (z, cp.int64(n), cp.int32(max_scale), counts))
     host = cp.asnumpy(counts).reshape(n_legs_all, 2)
     elig = np.flatnonzero((host[:, 0] >= min_half_rows) & (host[:, 1] >= min_half_rows))
     if elig.size == 0:
@@ -84,5 +88,7 @@ def leg_code_matrices(cp: Any, z_g: Any, max_scale: int, min_half_rows: int) -> 
     va = cp.empty((n_va, int(elig.size)), dtype=cp.int64)
     ej = cp.asarray(levels.astype(np.int32))
     ek = cp.asarray(cells.astype(np.int32))
-    mod.get_function("leg_codes")((blocks,), (256,), (z, cp.int64(n), ej, ek, cp.int32(elig.size), tr, va))
+    codes_kernel = mod.get_function("leg_codes")
+    code_threads = block_size_for(codes_kernel, work_items=n)
+    codes_kernel((max(1, min(4096, (n + code_threads - 1) // code_threads)),), (code_threads,), (z, cp.int64(n), ej, ek, cp.int32(elig.size), tr, va))
     return [(int(j), int(k)) for j, k in zip(levels, cells)], tr, va

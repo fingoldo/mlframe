@@ -44,6 +44,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import assert_kernel_buffers, crit_float_dtype
 
 from numba import njit, prange
@@ -455,11 +457,14 @@ def conditional_mi_batched_cuda(
     try:
         cmi_t = crit_float_dtype()
         cmi_g = cp.empty(p, dtype=cmi_t)
-        red_threads = 256
-        shmem_bytes = red_threads * 8 + (nbins_x * nbins_z + nbins_y * nbins_z + nbins_z) * 4
+        marginal_bytes = (nbins_x * nbins_z + nbins_y * nbins_z + nbins_z) * 4
         _real = "float" if cmi_t == cp.float32 else "double"
         assert_kernel_buffers("cmi_from_joint", _real, cmi_out=cmi_g)
-        _get_cmi_from_joint_kernel(_real)(
+        cmi_kernel = _get_cmi_from_joint_kernel(_real)
+        # the reduction halves blockDim.x over a dynamic scratch of one double per thread: a power of two
+        red_threads = block_size_for(cmi_kernel, dyn_smem=256 * 8 + marginal_bytes, work_items=joint_size, pow2=True, max_width=256)
+        shmem_bytes = red_threads * 8 + marginal_bytes
+        cmi_kernel(
             (p,), (red_threads,),
             (joint, 1.0 / float(n), np.int32(p), np.int32(nbins_x), np.int32(nbins_y), np.int32(nbins_z), cmi_g),
             shared_mem=shmem_bytes,

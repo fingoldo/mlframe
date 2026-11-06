@@ -17,10 +17,13 @@ import threading
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 # Parent-of-the-FE-block name consumed at module scope (defined in _gpu_resident_fe before it imports the
 # select parent, so this top import resolves during the partial-init import chain - same pattern as the parent).
 from ._gpu_resident_shared import _quantile_levels_dev
 from mlframe.feature_selection.filters._device_sort_safe import device_percentile  # thrust aborts the process on a short pool
+from ._kernel_types import render
 
 # FUSED PER-COLUMN BINNING (nvprof-driven). The per-column ``for j in range(K): out[:,j] =
 # cp.searchsorted(edges[:,j], col, 'right')`` loop fired K separate searchsorted launches PLUS K int64->
@@ -55,13 +58,13 @@ from mlframe.feature_selection.filters._device_sort_safe import device_percentil
 # Pascal. VERDICT: at its practical floor for this card.
 _BIN_CODES_SRC = r"""
 extern "C" __global__
-void bin_codes_TYPENAME(const TYPE* __restrict__ cand, const double* __restrict__ edges,
+void bin_codes_TYPENAME(const TYPE* __restrict__ cand, const {EDGE}* __restrict__ edges,
                         const long long n, const int K, const int ne, OUTTYPE* __restrict__ out) {
     long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n * (long long)K;
     if (idx >= total) return;
     int col = (int)(idx % (long long)K);
-    double v = (double)cand[idx];
+    {EDGE} v = ({EDGE})cand[idx];
     int lo = 0, hi = ne;                       // upper_bound over this column's interior edges
     while (lo < hi) {
         int mid = (lo + hi) >> 1;
@@ -106,7 +109,7 @@ def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
             .replace("OUTTYPE", out_ctype)  # MUST precede the TYPE replace (TYPE is a substring of OUTTYPE)
             .replace("TYPE", ctype)
         )
-        k = cp.RawKernel(src, sym)
+        k = cp.RawKernel(render(src, edge=np.float64), sym)  # the edges and the comparison are float64: a float32 candidate is promoted, the codes are the double comparison's
         with _BIN_CODES_KERNELS_LOCK:
             k = _BIN_CODES_KERNELS.setdefault(cache_key, k)
     return k
@@ -171,7 +174,7 @@ def _bin_codes_f32e(cp, cand_c, edges_f64, out):
     gx = (K + 31) // 32
     rows_per_block = 8
     gy = max(1, min((n + rows_per_block - 1) // rows_per_block, max(1, 2048 // gx)))
-    _bin_codes_f32e_kernel(out.dtype.name)((gx, gy), (32, rows_per_block), (cand_c, edges32, np.int64(n), np.int32(K), np.int32(ne), out))
+    _bin_codes_f32e_kernel(out.dtype.name)((gx, gy), (32, rows_per_block), (cand_c, edges32, np.int64(n), np.int32(K), np.int32(ne), out))  # launch-ok: the 2-D block is the tile the kernel is written for (columns x row lanes), its shared arrays are sized by it
     return True
 
 
@@ -200,9 +203,10 @@ def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None):
         if n > 0 and K > 0 and _bin_codes_f32e(cp, cand_c, edges_c, out):
             return out
         total = n * K
-        threads = 256
+        bin_codes = _get_bin_codes_kernel(cand_c.dtype, _od.name)
+        threads = block_size_for(bin_codes, work_items=total)
         blocks = (total + threads - 1) // threads
-        _get_bin_codes_kernel(cand_c.dtype, _od.name)(
+        bin_codes(
             (blocks,),
             (threads,),
             (cand_c, edges_c, np.int64(n), np.int32(K), np.int32(ne), out),

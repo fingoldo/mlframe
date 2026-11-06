@@ -50,6 +50,7 @@ from typing import Sequence
 import numba
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._internals import stable_argsort_codes
 
 # Intentional float64: running means / variances and epoch-scale values (a 1.7e9 timestamp resolves only to 128 in float32, which erases the variance); the statistic path never uses the critical dtype.
 _STAT_DTYPE = np.float64
@@ -177,7 +178,7 @@ def _group_row_slices(codes_sorted: np.ndarray, n_codes: int) -> list[np.ndarray
     path's ``codes_sorted == g`` selection."""
     if codes_sorted.size == 0 or n_codes == 0:
         return []
-    perm = np.argsort(codes_sorted, kind="stable")
+    perm = stable_argsort_codes(codes_sorted, int(n_codes))
     counts = np.bincount(codes_sorted, minlength=n_codes)
     bounds = np.cumsum(counts)
     out: list[np.ndarray] = []

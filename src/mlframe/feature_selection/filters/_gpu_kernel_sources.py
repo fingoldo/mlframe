@@ -1,4 +1,5 @@
 """CUDA C source strings for the ``RawKernel`` objects built by ``mlframe.feature_selection.filters.gpu.init_kernels``."""
+from ._kernel_types import render
 
 COMPUTE_JOINT_HIST_CUDA_SRC: str = r"""
     extern "C" __global__
@@ -157,9 +158,9 @@ COMPUTE_JOINT_HIST_MULTI_PAIR_SHARED_CUDA_SRC: str = r"""
     """
 
 # Intentional float64: the class frequency vectors of the MI formula are bound to double* and every caller uploads them as float64 (statistic vectors, one entry per class).
-COMPUTE_MI_FROM_CLASSES_CUDA_SRC: str = r"""
+COMPUTE_MI_FROM_CLASSES_CUDA_SRC: str = render(r"""
     extern "C" __global__
-    void compute_mi_from_classes_cuda(const int *classes_x, const double *freqs_x,const int *classes_y, const double *freqs_y, int *joint_counts, double *totals, int n,int nbins_x,int nbins_y) {
+    void compute_mi_from_classes_cuda(const int *classes_x, const {ACC} *freqs_x,const int *classes_y, const {ACC} *freqs_y, int *joint_counts, {ACC} *totals, int n,int nbins_x,int nbins_y) {
         int tid = blockDim.x * blockIdx.x + threadIdx.x;
         if (tid==0){
             // joint_counts is a (nbins_x, nbins_y) row-major histogram written by
@@ -170,16 +171,16 @@ COMPUTE_MI_FROM_CLASSES_CUDA_SRC: str = r"""
             // regression y with nbins_y up to 10) it read the WRONG cells, yielding
             // garbage permutation-null MIs that systematically over-rejected genuine
             // candidates - silently diverging the GPU selection from the CPU path.
-            // Use double throughout (no float32 narrowing) to match the bit-exact
+            // Use {ACC} throughout (no float32 narrowing) to match the bit-exact
             // CPU njit compute_mi_from_classes.
-            double total = 0.0;
+            {ACC} total = 0.0;
             for (int i=0;i<nbins_x;++i){
-                double prob_x = freqs_x[i];
+                {ACC} prob_x = freqs_x[i];
                 for (int j=0;j<nbins_y;++j){
                     int jc = joint_counts[i*nbins_y+j];
                     if (jc>0){
-                        double prob_y = freqs_y[j];
-                        double jf=(double)jc/ (double)n;
+                        {ACC} prob_y = freqs_y[j];
+                        {ACC} jf=({ACC})jc/ ({ACC})n;
                         total += jf* log(jf / (prob_x * prob_y));
                     }
                 }
@@ -187,4 +188,4 @@ COMPUTE_MI_FROM_CLASSES_CUDA_SRC: str = r"""
             totals[0]=total;
         }
     }
-    """
+    """)

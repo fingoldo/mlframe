@@ -16,6 +16,8 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from ._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
@@ -34,6 +36,35 @@ def _device_codes(batches: Sequence[Any]) -> "Optional[list]":
             return None
         out.append(dev)
     return out
+
+
+def _observed_from_noise_gate(batches: Sequence[Any], y: np.ndarray) -> "Optional[np.ndarray]":
+    """The observed MI of every one-column batch as the noise gate already computed it for the chunk the columns come from, or ``None`` (every column must be a lazy column of a chunk whose
+    resident codes the noise gate scored against these labels). The same kernel produced the numbers, so they are the values ``_FamilyOnDevice.observed`` would compute and copy."""
+    try:
+        from ._batch_mi_noise_gate_bits import labels_key, recall_observed
+        from ._feature_engineering_pairs._pairs_chunk_codes import LazyCodeColumn
+
+        if not all(isinstance(b, LazyCodeColumn) for b in batches):  # an isinstance test: ``getattr`` on a ``LazyHostCodes`` batch would copy the whole array to the host
+            return None
+        key = labels_key(y)
+        by_chunk: dict = {}
+        out = np.empty(len(batches), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+        for i, b in enumerate(batches):
+            dev, j = b.chunk._dev, b.j
+            if dev is None:
+                return None
+            vec = by_chunk.get(id(dev))
+            if vec is None:
+                vec = recall_observed(dev, key)
+                if vec is None or int(vec.shape[0]) != int(dev.shape[1]):
+                    return None
+                by_chunk[id(dev)] = vec
+            out[i] = vec[int(j)]
+        return out
+    except Exception as exc:
+        logger.debug("the noise gate's observed MI is not usable for the family gate (%s: %s); computing it", type(exc).__name__, exc)
+        return None
 
 
 class _FamilyOnDevice:
@@ -55,9 +86,8 @@ class _FamilyOnDevice:
         k_total = int(codes.shape[1])
         self.n, self.k_total = n, k_total
         n_x = (codes.max(axis=0) + 1).astype(cp.int64)
-        # The level counts of int8 codes are at most 128, so they cross to the host as int16 and are widened there (same values, a quarter of the bytes).
-        host_nx = cp.asnumpy(n_x.astype(cp.int16)).astype(np.int64) if codes.dtype.itemsize == 1 else cp.asnumpy(n_x)
-        cap = int(host_nx.max()) if host_nx.size else 0
+        # The host needs only the largest level count (the bit-set depth): one scalar crosses the bus, not the per-column vector (the same vector was copied once per family).
+        cap = int(n_x.max()) if k_total else 0
         words = (n + 63) // 64
         if n == 0 or k_total == 0 or not 1 <= cap <= MAX_BINS or not _v2_applies(cp, self.n_y, words):
             raise _NotApplicableError("shape outside the bit-set kernels")
@@ -76,15 +106,17 @@ class _FamilyOnDevice:
         group = max(1, int(min(_BUDGET_CAP_BYTES, free_bytes // 4) // (cap * words * 8)))
         self.groups = []
         occupied = []
+        pack_bins = mod.get_function("pack_bins")
         for lo in range(0, k_total, group):
             hi = min(lo + group, k_total)
             kg = hi - lo
             bits = cp.empty((cap, words, kg), dtype=cp.uint64)
             px = cp.zeros((kg, cap), dtype=cp.int64)
-            mod.get_function("pack_bins")(((kg + 127) // 128, words), (128,), (codes, np.int64(n), np.int32(k_total), np.int32(lo), np.int32(kg), np.int32(words), bits, px))
+            bins_block = block_size_for(pack_bins, work_items=kg)
+            pack_bins(((kg + bins_block - 1) // bins_block, words), (bins_block,), (codes, np.int64(n), np.int32(k_total), np.int32(lo), np.int32(kg), np.int32(words), bits, px))
             self.groups.append((lo, hi, bits, px, self.table[px].sum(axis=1)))
             occupied.append((px > 0).sum(axis=1))
-        self.nx_occ = cp.asnumpy(cp.concatenate(occupied)).astype(np.int64)
+        self.nx_occ = cp.asnumpy(cp.concatenate(occupied).astype(cp.int16)).astype(np.int64)  # occupied-level counts are at most MAX_BINS: int16 over the bus
 
     def _parts(self, cls_host: np.ndarray):
         """The ``(B, kg)`` MI block of every column group against the ``B`` label bit-set rows of ``cls_host``."""
@@ -146,7 +178,9 @@ def family_pass_batches_device(batches: Sequence[Any], y_codes: np.ndarray, alph
         fam = _FamilyOnDevice(cp, devs, y, n_y)
         widths = [int(d.shape[1]) for d in devs]
         starts = np.cumsum([0, *widths])
-        observed = fam.observed()
+        observed = _observed_from_noise_gate(batches, y)
+        if observed is None:
+            observed = fam.observed()
         n_batches = len(widths)
         # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         observed_max = np.array([float(observed[starts[j] : starts[j + 1]].max()) if widths[j] else 0.0 for j in range(n_batches)], dtype=np.float64)

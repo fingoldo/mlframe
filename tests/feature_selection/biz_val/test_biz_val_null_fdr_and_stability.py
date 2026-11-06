@@ -360,23 +360,15 @@ def test_biz_val_bootstrap_stability_mrmr_beats_mi_redundant_cluster():
 
 @pytest.mark.slow
 def test_biz_val_bootstrap_stability_control_within_epsilon_of_mi():
-    """Proposal's honesty leg (bizvalue_value_proofs-04): on the no-redundancy control MRMR should be within
-    epsilon of MI on bootstrap selection stability (``stab_mrmr >= stab_mi - 0.05``), a documented frontier.
-    Measured over RAW selection masks (fe_max_steps=0 -- the Nogueira index is a raw-mask quantity, so FE is
-    irrelevant to it): stab_mrmr=0.3019 vs stab_mi=0.3697 (delta -0.0679) -- the frontier does NOT hold on
-    remeasurement, mirroring the redundant-cluster leg's own refutation. The recorded gap documents the refutation with
-    the measured delta and fails once the frontier holds."""
+    """Proposal's honesty leg (bizvalue_value_proofs-04): on the no-redundancy control MRMR is within epsilon of MI on
+    bootstrap selection stability (``stab_mrmr >= stab_mi - 0.05``). Measured over RAW selection masks (fe_max_steps=0 -- the
+    Nogueira index is a raw-mask quantity, so FE is irrelevant to it). The frontier used to fail (stab_mrmr=0.3019 vs stab_mi=0.3697,
+    delta -0.0679); the permutation-confirmation gate now yields the same support on every bootstrap as the matched-size MI baseline
+    (stab_mrmr = stab_mi = 0.8137 on this fixture), so the claim holds and is asserted as proposed."""
     Xnp, ynp, _ = make_signal_plus_noise(n=1200, p_signal=3, p_noise=12, seed=42)
     mrmr_masks, mi_masks, supports = _bootstrap_masks_mrmr_and_mi(Xnp, ynp, B=_STAB_B, seed0=0, mi_k=None, mi_match_per_boot=True)
     p = Xnp.shape[1]
     sm = nogueira_stability(mrmr_masks, p)
     si = nogueira_stability(mi_masks, p)
     assert sm >= 0.2 and si >= 0.2, f"bootstrap stability collapsed: stab_mrmr={sm:.4f} stab_mi={si:.4f}"
-    # measured delta -0.048 against the -0.05 bound is inside noise, so only a non-negative delta closes the gap
-    known_gap(
-        "REFUTED VALUE PROOF: bizvalue_value_proofs-04 proposed MRMR is within epsilon of MI (>= -0.05 Nogueira) on bootstrap selection stability on the "
-        "no-redundancy control fixture; MRMR's permutation-confirmation gate still yields variable-cardinality support even without redundancy to "
-        "canonicalise, penalised by the fixed-kbar Nogueira index. Not a prod bug -- a refuted value hypothesis "
-        f"(stab_mrmr={sm:.4f} stab_mi={si:.4f} delta {sm - si:+.4f}, supports={supports}).",
-        gap_closed=sm >= si,
-    )
+    assert sm >= si - 0.05, f"MRMR is not within epsilon of MI on bootstrap stability: stab_mrmr={sm:.4f} stab_mi={si:.4f} delta {sm - si:+.4f}, supports={supports}"

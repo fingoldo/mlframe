@@ -103,21 +103,22 @@ def _count_kernel(cp):
     """Elementwise kernel: ``out[j, i]`` = number of ``kept[j, :]`` entries ``<= (double) x[j, i]``."""
     with _COUNT_KERNELS_LOCK:
         kern = _COUNT_KERNELS.get("k")
-        if kern is None:
-            kern = cp.ElementwiseKernel(
-                "raw X x, raw float64 kept, int64 n, int32 ne",
-                "raw int64 out",
-                """
-                const long long j = i / n;
-                const double v = (double)x[i];
-                long long c = 0;
-                for (int t = 0; t < ne; ++t) c += (kept[j * ne + t] <= v) ? 1 : 0;
-                out[i] = c;
-                """,
-                "qbin_count_kept_edges",
-            )
-            _COUNT_KERNELS["k"] = kern
-        return kern
+        if kern is not None:
+            return kern
+        kern = cp.ElementwiseKernel(
+            "raw X x, raw float64 kept, int64 n, int32 ne",
+            "raw int64 out",
+            """
+            const long long j = i / n;
+            const double v = (double)x[i];
+            long long c = 0;
+            for (int t = 0; t < ne; ++t) c += (kept[j * ne + t] <= v) ? 1 : 0;
+            out[i] = c;
+            """,
+            "qbin_count_kept_edges",
+        )
+        _COUNT_KERNELS["k"] = kern
+    return kern
 
 
 def _block_columns(cp, n_rows: int, n_cols: int) -> int:

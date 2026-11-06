@@ -49,7 +49,7 @@ from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from ._fold_cell_stats import fold_cell_sum_cnt
-from ._target_encoding_fe import _column_to_str, _smooth
+from ._target_encoding_fe import _column_to_str, _smooth, sorted_string_codes
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -119,9 +119,8 @@ def count_encode_fit(
     recipes: dict[str, dict] = {}
     for col in cat_cols:
         cats = _column_to_str(X[col])
-        unique_cats, inverse, counts = np.unique(
-            cats, return_inverse=True, return_counts=True,
-        )
+        unique_cats, inverse = sorted_string_codes(cats)
+        counts = np.bincount(inverse, minlength=unique_cats.size)
         # Per-row count: inverse maps each row to its category code; counts
         # is the per-category count. counts[inverse] is one int per row.
         row_counts = counts[inverse].astype(np.int64, copy=False)
@@ -154,9 +153,8 @@ def frequency_encode_fit(
     recipes: dict[str, dict] = {}
     for col in cat_cols:
         cats = _column_to_str(X[col])
-        unique_cats, inverse, counts = np.unique(
-            cats, return_inverse=True, return_counts=True,
-        )
+        unique_cats, inverse = sorted_string_codes(cats)
+        counts = np.bincount(inverse, minlength=unique_cats.size)
         # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         freqs = counts.astype(np.float64) / float(n)
         row_freqs = freqs[inverse]
@@ -316,7 +314,7 @@ def cat_num_interaction_fit(
 
     if cats is None or unique_cats is None or inverse is None or n_cats is None:
         cats = _column_to_str(X[cat_col])
-        unique_cats, inverse = np.unique(cats, return_inverse=True)
+        unique_cats, inverse = sorted_string_codes(cats)
         n_cats = unique_cats.shape[0]
 
     if fold_ids is None:
@@ -541,7 +539,7 @@ def cat_num_interaction_with_recipes(
     for cat in cat_cols:
         # cats/unique_cats/inverse/n_cats depend only on cat (not num); hoist out of the inner num loop.
         cats = _column_to_str(X[cat])
-        unique_cats, inverse = np.unique(cats, return_inverse=True)
+        unique_cats, inverse = sorted_string_codes(cats)
         n_cats = unique_cats.shape[0]
         for num in num_cols:
             name = engineered_name_cat_num_residual(cat, num)

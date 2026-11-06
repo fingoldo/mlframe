@@ -15,6 +15,8 @@ from typing import Any
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
 
 from ._nonpoly_cells import MAX_CENTRE_DEGREE, NONPOLY_BASES
@@ -163,9 +165,9 @@ def nonpoly_block_gpu(cp: Any, M: Any, basis: str, degrees: "list[int]") -> "tup
     par = cp.ascontiguousarray(cp.concatenate(par_blocks, axis=0), dtype=f64)
     C = int(cell_col.shape[0])
     out = cp.empty((n, C), dtype=M.dtype)
-    threads = 256
-    blocks = max(1, min((n * C + threads - 1) // threads, 65535 * 4))
     kernel = _module_for(M).get(cp).get_function("nonpoly_cells")
+    threads = block_size_for(kernel, work_items=n * C)
+    blocks = max(1, min((n * C + threads - 1) // threads, 65535 * 4))
     kernel((blocks,), (threads,), (cp.ascontiguousarray(M), par, cell_col, cell_kind, cell_deg, np.int64(n), np.int32(K), np.int32(C), out))
     cells = [(int(c), int(d)) for d, c in zip(np.concatenate(deg_of_cell), np.concatenate(cols_of_cell))]
     return out, cells

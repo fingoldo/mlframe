@@ -21,6 +21,8 @@ from collections import OrderedDict
 from typing import Any
 
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -246,8 +248,6 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block, ret
     b_g = cp.asarray(b_cols_block, dtype=cp.int64)
     ops_g = cp.asarray(ops_block, dtype=cp.int8)
     total = n * K
-    threads = 256
-    blocks = (total + threads - 1) // threads
 
     # COALESCED column-major path (coalescing audit, ~2x net): materialise into a (K, n) column-major buffer
     # from the (n_operands, n) column-major operand table (coalesced operand gathers + coalesced write), then
@@ -257,8 +257,10 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block, ret
         try:
             tv_cm = _operand_table_cm(cp, tv_gpu)  # (n_operands, n) C-order, once/step (cached)
             cm_out = cp.empty((K, n), dtype=cp.float32)
-            _get_fe_materialise_cm_kernel()(
-                (blocks,),
+            materialise_cm = _get_fe_materialise_cm_kernel()
+            threads = block_size_for(materialise_cm, work_items=total)
+            materialise_cm(
+                ((total + threads - 1) // threads,),
                 (threads,),
                 (tv_cm, a_g, b_g, ops_g, np.int64(n), np.int64(n_operands), np.int32(K), cm_out),
             )
@@ -272,8 +274,10 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block, ret
             logging.getLogger(__name__).debug("column-major fe_materialise failed; row-major fallback", exc_info=True)
 
     out = cp.empty((n, K), dtype=cp.float32)
-    _get_fe_materialise_kernel()(
-        (blocks,),
+    materialise = _get_fe_materialise_kernel()
+    threads = block_size_for(materialise, work_items=total)
+    materialise(
+        ((total + threads - 1) // threads,),
         (threads,),
         (tv_gpu, a_g, b_g, ops_g, np.int64(n), np.int64(n_operands), np.int32(K), out),
     )
@@ -508,7 +512,7 @@ def _resident_operand_table(cp, transformed_vars):
 from ._gpu_resident_operand_build import (  # noqa: F401  -- carved sibling, re-exported
     _BATCH_UNARY_OPS,
     _BATCH_UNARY_SRC,
-    _BATCH_UNARY_KERNEL,
+    _BATCH_UNARY_KERNELS,
     _get_batch_unary_kernel,
     build_resident_operand_table,
 )

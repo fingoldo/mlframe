@@ -28,12 +28,15 @@ from typing import Any
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 logger = logging.getLogger(__name__)
 
 
 # The device-code range guard lives in a sibling (file-size carve only); re-exported because the parent is
 # its only caller and the kernels below reference it by this name.
 from ._fe_batched_mi_guards import _assert_codes_in_range
+from ._kernel_types import render
 
 # FUSED MI-FROM-CODES RawKernel (launch-reduction rewrite). ONE launch computes plug-in
 # MI(col_k; y) for EVERY column of an (n,K) int code matrix, replacing the cupy chain bincount + reshape
@@ -43,12 +46,12 @@ from ._fe_batched_mi_guards import _assert_codes_in_range
 # and atomicAdd; then a single-thread reduction computes the plug-in MI from the small joint table. The
 # math is identical to ``batched_binned_mi_gpu`` (plain plug-in MI, no MM bias) -> selection-equivalent
 # (fp reduction order ~1e-15). Used only when the shared tile (Kx*Ky int32) fits; else the cupy path.
-_MI_FROM_CODES_SRC = r"""
+_MI_FROM_CODES_SRC = render(r"""
 extern "C" __global__
 void mi_from_codes(const long long* __restrict__ codes,   // (n, K) row-major int codes in [0,Kx)
                    const long long* __restrict__ y,        // (n,) int codes in [0,Ky)
                    const long long n, const int K, const int Kx, const int Ky,
-                   const double inv_n, double* __restrict__ mi_out) {
+                   const {ACC} inv_n, {ACC}* __restrict__ mi_out) {
     extern __shared__ int sh[];          // (Kx*Ky) joint histogram for this column
     int c = blockIdx.x;
     if (c >= K) return;
@@ -63,12 +66,12 @@ void mi_from_codes(const long long* __restrict__ codes,   // (n, K) row-major in
     }
     __syncthreads();
     if (tid == 0) {
-        double mi = 0.0;
+        {ACC} mi = 0.0;
         for (int xx = 0; xx < Kx; ++xx) {
             long long rx = 0;
             for (int yy = 0; yy < Ky; ++yy) rx += sh[xx * Ky + yy];
             if (rx == 0) continue;
-            double px = (double)rx * inv_n;
+            {ACC} px = ({ACC})rx * inv_n;
             for (int yy = 0; yy < Ky; ++yy) {
                 long long nxy = sh[xx * Ky + yy];
                 if (nxy == 0) continue;
@@ -78,59 +81,59 @@ void mi_from_codes(const long long* __restrict__ codes,   // (n, K) row-major in
                 // n-row atomicAdd histogram and is immeasurable vs it (doubling Kx/Ky moves the wall <4%,
                 // that being histogram size not the reduce). See _benchmarks/bench_mi_from_codes_ymarginal_hoist.py.
                 for (int xx2 = 0; xx2 < Kx; ++xx2) ry += sh[xx2 * Ky + yy];
-                double pxy = (double)nxy * inv_n;
-                double py = (double)ry * inv_n;
+                {ACC} pxy = ({ACC})nxy * inv_n;
+                {ACC} py = ({ACC})ry * inv_n;
                 mi += pxy * log(pxy / (px * py));
             }
         }
         mi_out[c] = mi > 0.0 ? mi : 0.0;
     }
 }
-"""
+""")
 # FUSED VALUES->BIN->HIST->MI RawKernel (mega-fusion). For an (n,K) FLOAT matrix + per-column
 # interior quantile edges, ONE launch bins each value in-kernel (binary-search upper_bound == cp.searchsorted
 # side='right') AND builds the joint histogram AND computes plug-in MI - replacing the separate
 # _searchsorted_codes kernel + the (n,K) int code array + binned_mi_from_codes_gpu. One block per column,
 # shared (nbins*Ky) int hist. Bin codes equal _searchsorted_codes bit-for-bit (same f64 edges, same
 # side='right') -> selection-equivalent. edges: (nbins-1, K) row-major (interior); X: (n,K) row-major.
-_MI_FROM_VALUES_SRC = r"""
+_MI_FROM_VALUES_TEMPLATE = r"""
 #define EDGE_CACHE 256
 extern "C" __global__
-void mi_from_values(const double* __restrict__ X, const double* __restrict__ edges,
+void mi_from_values(const {REAL}* __restrict__ X, const {REAL}* __restrict__ edges,
                     const long long* __restrict__ y, const long long n, const int K,
-                    const int nbins, const int Ky, const double inv_n, double* __restrict__ mi_out) {
+                    const int nbins, const int Ky, const {ACC} inv_n, {ACC}* __restrict__ mi_out) {
     extern __shared__ int sh[];          // (nbins*Ky) joint histogram for this column
     int c = blockIdx.x;
     if (c >= K) return;
     int ne = nbins - 1, M = nbins * Ky;
     int tid = threadIdx.x, nt = blockDim.x;
     for (int s = tid; s < M; s += nt) sh[s] = 0;
-    __shared__ double se[EDGE_CACHE];   // this column's interior edges: the binary search reads them per value, strided by K in global memory
+    __shared__ {REAL} se[EDGE_CACHE];   // this column's interior edges: the binary search reads them per value, strided by K in global memory
     const bool cached = ne <= EDGE_CACHE;
     if (cached) for (int s = tid; s < ne; s += nt) se[s] = edges[(long long)s * K + c];
     __syncthreads();
-    const double* Xc = X + (long long)c * n;          // COLUMN-MAJOR (K,n): coalesced across threads (nvprof
+    const {REAL}* Xc = X + (long long)c * n;          // COLUMN-MAJOR (K,n): coalesced across threads (nvprof
     for (long long i = tid; i < n; i += nt) {          // 2026-07-02: row-major X[i*K+c] was gld_efficiency 28.9%)
-        double v = Xc[i];
-        int lo = 0, hi = ne;
+        const {REAL} v = Xc[i];
+        int lo = 0, hi = ne;                          // upper_bound: count of interior edges <= v
         if (v != v) lo = hi;                        // NaN sorts last: the last bin, as cp.searchsorted does
         while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
         atomicAdd(&sh[lo * Ky + y[i]], 1);
     }
     __syncthreads();
     if (tid == 0) {
-        double mi = 0.0;
+        {ACC} mi = 0.0;
         for (int xx = 0; xx < nbins; ++xx) {
             long long rx = 0;
             for (int yy = 0; yy < Ky; ++yy) rx += sh[xx * Ky + yy];
             if (rx == 0) continue;
-            double px = (double)rx * inv_n;
+            {ACC} px = ({ACC})rx * inv_n;
             for (int yy = 0; yy < Ky; ++yy) {
                 long long nxy = sh[xx * Ky + yy];
                 if (nxy == 0) continue;
                 long long ry = 0;
                 for (int xx2 = 0; xx2 < nbins; ++xx2) ry += sh[xx2 * Ky + yy];
-                mi += (double)nxy * inv_n * log(((double)nxy * inv_n) / (px * ((double)ry * inv_n)));
+                mi += ({ACC})nxy * inv_n * log((({ACC})nxy * inv_n) / (px * (({ACC})ry * inv_n)));
             }
         }
         mi_out[c] = mi > 0.0 ? mi : 0.0;
@@ -143,7 +146,7 @@ void mi_from_values(const double* __restrict__ X, const double* __restrict__ edg
 // blocks fill the SMs. Phase B (grid (K,)): plug-in MI per column from the merged counts. Same bin codes
 // (same f64 edges, upper_bound) + same plug-in formula -> selection-equivalent to mi_from_values.
 extern "C" __global__
-void mi_hist_split(const double* __restrict__ X, const double* __restrict__ edges,
+void mi_hist_split(const {REAL}* __restrict__ X, const {REAL}* __restrict__ edges,
                    const long long* __restrict__ y, const long long n, const int K,
                    const int nbins, const int Ky, const int S, int* __restrict__ gcounts) {
     extern __shared__ int sh[];
@@ -151,15 +154,15 @@ void mi_hist_split(const double* __restrict__ X, const double* __restrict__ edge
     if (c >= K || seg >= S) return;
     int ne = nbins - 1, M = nbins * Ky, tid = threadIdx.x, nt = blockDim.x;
     for (int s = tid; s < M; s += nt) sh[s] = 0;
-    __shared__ double se[EDGE_CACHE];
+    __shared__ {REAL} se[EDGE_CACHE];
     const bool cached = ne <= EDGE_CACHE;
     if (cached) for (int s = tid; s < ne; s += nt) se[s] = edges[(long long)s * K + c];
     __syncthreads();
     long long seg_len = (n + S - 1) / S, lo = (long long)seg * seg_len, hi = lo + seg_len;
     if (hi > n) hi = n;
-    const double* Xc = X + (long long)c * n;          // COLUMN-MAJOR (K,n): coalesced load (see mi_from_values)
+    const {REAL}* Xc = X + (long long)c * n;          // COLUMN-MAJOR (K,n): coalesced load (see mi_from_values)
     for (long long i = lo + tid; i < hi; i += nt) {
-        double v = Xc[i];
+        const {REAL} v = Xc[i];
         int a = 0, b = ne;
         while (a < b) { int mid = (a + b) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) a = mid + 1; else b = mid; }
         atomicAdd(&sh[a * Ky + y[i]], 1);
@@ -170,23 +173,23 @@ void mi_hist_split(const double* __restrict__ X, const double* __restrict__ edge
 }
 extern "C" __global__
 void mi_from_counts_col(const int* __restrict__ gcounts, const int K, const int nbins, const int Ky,
-                        const double inv_n, double* __restrict__ mi_out) {
+                        const {ACC} inv_n, {ACC}* __restrict__ mi_out) {
     int c = blockIdx.x;
     if (c >= K) return;
     const int* gc = gcounts + (long long)c * (nbins * Ky);
     if (threadIdx.x != 0) return;                 // M = nbins*Ky ~ 100: single-thread reduce is trivial
-    double mi = 0.0;
+    {ACC} mi = 0.0;
     for (int xx = 0; xx < nbins; ++xx) {
         long long rx = 0;
         for (int yy = 0; yy < Ky; ++yy) rx += gc[xx * Ky + yy];
         if (rx == 0) continue;
-        double px = (double)rx * inv_n;
+        {ACC} px = ({ACC})rx * inv_n;
         for (int yy = 0; yy < Ky; ++yy) {
             long long nxy = gc[xx * Ky + yy];
             if (nxy == 0) continue;
             long long ry = 0;
             for (int xx2 = 0; xx2 < nbins; ++xx2) ry += gc[xx2 * Ky + yy];
-            mi += (double)nxy * inv_n * log(((double)nxy * inv_n) / (px * ((double)ry * inv_n)));
+            mi += ({ACC})nxy * inv_n * log((({ACC})nxy * inv_n) / (px * (({ACC})ry * inv_n)));
         }
     }
     mi_out[c] = mi > 0.0 ? mi : 0.0;
@@ -206,16 +209,11 @@ _MI_SPLIT_KERNELS = None
 # EDGES stay ``const double*`` (the interp emits f64; kept f64 so the comparison is byte-for-byte the f64
 # path's). Only X's storage/transpose dtype changes: the (n,K) upcast is gone and the transpose runs in
 # f32 (transpose_f32, half the bytes). Everything else (histogram int32, MI f64 math) is unchanged.
+_MI_FROM_VALUES_SRC = render(_MI_FROM_VALUES_TEMPLATE, real=np.float64)
+# float32 twin: X and the edges are float32 (the caller passes each double edge rounded UP to float32): for a float32 value x, ``edge <= (double)x`` holds exactly when
+# ``ceil_f32(edge) <= x``, so the binary search runs in float32 (double compares are 1/32 rate on the target cards) and the codes are the same.
 _MI_FROM_VALUES_F32_SRC = (
-    _MI_FROM_VALUES_SRC.replace(
-        "const double* __restrict__ X, const double* __restrict__ edges,", "const float* __restrict__ X, const double* __restrict__ edges,"
-    )
-    .replace("const double* Xc = X", "const float* Xc = X")
-    # float32 edges (the caller passes each double edge rounded UP to float32): for a float32 value x, ``edge <= (double)x`` holds exactly when
-    # ``ceil_f32(edge) <= x``, so the binary search runs in float32 (double compares are 1/32 rate on the target cards) and the codes are the same
-    .replace("const float* __restrict__ X, const double* __restrict__ edges,", "const float* __restrict__ X, const float* __restrict__ edges,")
-    .replace("double v = Xc[i];", "const float v = Xc[i];")
-    .replace("__shared__ double se[EDGE_CACHE];", "__shared__ float se[EDGE_CACHE];")
+    render(_MI_FROM_VALUES_TEMPLATE, real=np.float32)
     .replace("void mi_from_values(", "void mi_from_values_f32(")
     .replace("void mi_hist_split(", "void mi_hist_split_f32(")
     .replace("void mi_from_counts_col(", "void mi_from_counts_col_f32(")
@@ -230,42 +228,42 @@ _MI_SPLIT_F32_KERNELS = None
 # sync-free, batched, MM-correct kernel the resident pair-combo MI table needs (replaces the per-row
 # cp.bincount + .max() sync loop in _gpu_marginal_mi). Selection-equivalent to the njit table (plug-in
 # entropies in fp64; reduction-order ~1e-15).
-_MI_MM_FROM_VALUES_SRC = r"""
+_MI_MM_FROM_VALUES_TEMPLATE = r"""
 extern "C" __global__
-void mi_mm_from_values(const double* __restrict__ X, const double* __restrict__ edges,
+void mi_mm_from_values(const {REAL}* __restrict__ X, const {EDGE}* __restrict__ edges,
                        const long long* __restrict__ y, const long long n, const int K, const int nbins,
-                       const int Ky, const double inv_n, const double h_y, const int k_y,
-                       double* __restrict__ mi_out) {
+                       const int Ky, const {ACC} inv_n, const {ACC} h_y, const int k_y,
+                       {ACC}* __restrict__ mi_out) {
     extern __shared__ int sh[];          // (nbins*Ky) joint histogram for this column
     int c = blockIdx.x;
     if (c >= K) return;
     int ne = nbins - 1, M = nbins * Ky;
     int tid = threadIdx.x, nt = blockDim.x;
     for (int s = tid; s < M; s += nt) sh[s] = 0;
-    __shared__ double se[256];   // this column's interior edges, read per value by the search
+    __shared__ {EDGE} se[256];   // this column's interior edges, read per value by the search
     const bool cached = ne <= 256;
     if (cached) for (int s = threadIdx.x; s < ne; s += blockDim.x) se[s] = edges[(long long)s * K + c];
     __syncthreads();
     for (long long i = tid; i < n; i += nt) {
-        double v = X[i * (long long)K + c];
-        int lo = 0, hi = ne;
+        {REAL} v = X[i * (long long)K + c];
+        int lo = 0, hi = ne;                          // upper_bound == cp.searchsorted side='right'
         if (v != v) lo = hi;                        // NaN sorts last: the last bin, as cp.searchsorted does
         while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
         atomicAdd(&sh[lo * Ky + y[i]], 1);
     }
     __syncthreads();
     if (tid == 0) {
-        double hx = 0.0, hxy = 0.0;
+        {ACC} hx = 0.0, hxy = 0.0;
         int kx_occ = 0, kxy = 0;
         for (int xx = 0; xx < nbins; ++xx) {
             long long rx = 0;
             for (int yy = 0; yy < Ky; ++yy) { int nxy = sh[xx * Ky + yy]; rx += nxy; if (nxy > 0) kxy++; }
             if (rx == 0) continue;
             kx_occ++;
-            double px = (double)rx * inv_n; hx -= px * log(px);
-            for (int yy = 0; yy < Ky; ++yy) { int nxy = sh[xx * Ky + yy]; if (nxy > 0) { double pxy = (double)nxy * inv_n; hxy -= pxy * log(pxy); } }
+            {ACC} px = ({ACC})rx * inv_n; hx -= px * log(px);
+            for (int yy = 0; yy < Ky; ++yy) { int nxy = sh[xx * Ky + yy]; if (nxy > 0) { {ACC} pxy = ({ACC})nxy * inv_n; hxy -= pxy * log(pxy); } }
         }
-        double mi = hx + h_y - hxy + ((double)(kx_occ + k_y - kxy - 1)) * 0.5 * inv_n;
+        {ACC} mi = hx + h_y - hxy + (({ACC})(kx_occ + k_y - kxy - 1)) * 0.5 * inv_n;
         mi_out[c] = mi > 0.0 ? mi : 0.0;
     }
 }
@@ -327,30 +325,31 @@ def _launch_dedup_edges(E, cmin, cmax, ne: int, K: int, Ec, ne_k) -> None:
     import cupy as cp
 
     real_t = "float" if E.dtype == cp.float32 else "double"
-    threads = 256
-    _get_dedup_edges_kernel(real_t)(((K + threads - 1) // threads,), (threads,), (E, cmin, cmax, np.int32(ne), np.int32(K), Ec, ne_k))
+    dedup = _get_dedup_edges_kernel(real_t)
+    threads = block_size_for(dedup, work_items=K)
+    dedup(((K + threads - 1) // threads,), (threads,), (E, cmin, cmax, np.int32(ne), np.int32(K), Ec, ne_k))
 
 
 # Length-aware twin of mi_mm_from_values: each column binary-searches only its VALID prefix ne_k[c] of the
 # (dedup'd) interior edges - everything else is byte-for-byte the mi_mm_from_values kernel. When ne_k[c] ==
 # nbins-1 (continuous columns, no dup/boundary edges) it is bit-identical to mi_mm_from_values.
-_MI_MM_FROM_VALUES_NEK_SRC = (
-    _MI_MM_FROM_VALUES_SRC.replace("void mi_mm_from_values(", "void mi_mm_from_values_nek(")
+_MI_MM_FROM_VALUES_SRC = render(_MI_MM_FROM_VALUES_TEMPLATE, real=np.float64, edge=np.float64)
+_MI_MM_FROM_VALUES_NEK_TEMPLATE = (
+    _MI_MM_FROM_VALUES_TEMPLATE.replace("void mi_mm_from_values(", "void mi_mm_from_values_nek(")
     .replace(
-        "const double h_y, const int k_y,\n                       double* __restrict__ mi_out) {",
-        "const double h_y, const int k_y,\n                       const int* __restrict__ ne_k, double* __restrict__ mi_out) {")
+        "const {ACC} h_y, const int k_y,\n                       {ACC}* __restrict__ mi_out) {",
+        "const {ACC} h_y, const int k_y,\n                       const int* __restrict__ ne_k, {ACC}* __restrict__ mi_out) {")
     .replace("    int ne = nbins - 1, M = nbins * Ky;", "    int ne = ne_k[c], M = nbins * Ky;")
 )
+assert "ne_k" in _MI_MM_FROM_VALUES_NEK_TEMPLATE and "int ne = ne_k[c]" in _MI_MM_FROM_VALUES_NEK_TEMPLATE
+_MI_MM_FROM_VALUES_NEK_SRC = render(_MI_MM_FROM_VALUES_NEK_TEMPLATE, real=np.float64, edge=np.float64)
 _MI_MM_FROM_VALUES_NEK_KERNEL = None
 
 # f32-X twin of the length-aware MM kernel (dtype-churn kill). Same rationale as the f32
 # mi_from_values twin: the only use of X is ``double v = X[i*K+c]`` (widening float->double promotion), so
 # reading X as f32 and promoting per-element yields the exact f64 the f64 path stored via X.astype(f64) ->
 # BIT-IDENTICAL codes/MM-MI. Edges stay f64. Kills the (n,K) f32->f64 upcast on the pair-combo MM path.
-_MI_MM_FROM_VALUES_NEK_F32_SRC = _MI_MM_FROM_VALUES_NEK_SRC.replace(
-    "void mi_mm_from_values_nek(const double* __restrict__ X, const double* __restrict__ edges,",
-    "void mi_mm_from_values_nek_f32(const float* __restrict__ X, const double* __restrict__ edges,",
-)
+_MI_MM_FROM_VALUES_NEK_F32_SRC = render(_MI_MM_FROM_VALUES_NEK_TEMPLATE, real=np.float32, edge=np.float64).replace("void mi_mm_from_values_nek(", "void mi_mm_from_values_nek_f32(")
 _MI_MM_FROM_VALUES_NEK_F32_KERNEL = None
 
 
@@ -430,7 +429,8 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     ne_k = cp.empty(K, dtype=cp.int32)
     _launch_dedup_edges(E, cmin, cmax, ne, K, Ec, ne_k)
     _mm_nek = _get_mi_mm_from_values_nek_f32_kernel() if _is_f32 else _get_mi_mm_from_values_nek_kernel()
-    _mm_nek((K,), (256,),
+    mm_threads = block_size_for(_mm_nek, dyn_smem=int(nbins) * Ky * 4, work_items=n)
+    _mm_nek((K,), (mm_threads,),
         (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(int(nbins)),
          np.int32(Ky), np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)),  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
          ne_k, mi_out),
@@ -554,14 +554,16 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
             M = int(nbins) * Ky
             gcounts = cp.zeros(K * M, dtype=cp.int32)
             _hist, _mi = _get_mi_split_f32_kernels(cp) if _is_f32 else _get_mi_split_kernels(cp)
-            _hist((K, S), (256,), (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), np.int32(S), gcounts), shared_mem=M * 4)
-            _mi((K,), (32,), (gcounts, np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out))
+            hist_threads = block_size_for(_hist, dyn_smem=M * 4, work_items=n)
+            _hist((K, S), (hist_threads,), (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), np.int32(S), gcounts), shared_mem=M * 4)
+            _mi((K,), (32,), (gcounts, np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out))  # launch-ok: only thread 0 of each block works (a ~100-cell serial reduce), the block width has no effect
             return np.asarray(cp.asnumpy(mi_out))
         except Exception:
             import logging
             logging.getLogger(__name__).debug("mi split-n path failed; single-launch mi_from_values", exc_info=True)
     _single = _get_mi_from_values_f32_kernel() if _is_f32 else _get_mi_from_values_kernel()
-    _single((K,), (256,), (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out), shared_mem=int(nbins) * Ky * 4)
+    single_threads = block_size_for(_single, dyn_smem=int(nbins) * Ky * 4, work_items=n)
+    _single((K,), (single_threads,), (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out), shared_mem=int(nbins) * Ky * 4)
     return np.asarray(cp.asnumpy(mi_out))
 
 
@@ -579,12 +581,12 @@ _MI_FROM_CODES_MAX_SHARED = 44000  # bytes; stay under the 48KB default shared c
 # "excessive" L1 wavefronts are served from L2 (no DRAM amplification); the real limiter is the shared-memory
 # histogram atomics, which every variant pays identically. The row-major one-kernel form is the measured
 # optimum; v2 stays as a runnable option for future hardware where L2 no longer absorbs the broadcast.
-_MI_FROM_CODES_V2_SRC = r"""
+_MI_FROM_CODES_V2_SRC = render(r"""
 extern "C" __global__
 void mi_from_codes_cm_i16(const short* __restrict__ codes_cm,  // (K, n) C-order: column c contiguous
                           const short* __restrict__ y,          // (n,) int16 codes in [0,Ky)
                           const long long n, const int K, const int Kx, const int Ky,
-                          const double inv_n, double* __restrict__ mi_out) {
+                          const {ACC} inv_n, {ACC}* __restrict__ mi_out) {
     extern __shared__ int sh[];
     int c = blockIdx.x;
     if (c >= K) return;
@@ -598,26 +600,26 @@ void mi_from_codes_cm_i16(const short* __restrict__ codes_cm,  // (K, n) C-order
     }
     __syncthreads();
     if (tid == 0) {
-        double mi = 0.0;
+        {ACC} mi = 0.0;
         for (int xx = 0; xx < Kx; ++xx) {
             long long rx = 0;
             for (int yy = 0; yy < Ky; ++yy) rx += sh[xx * Ky + yy];
             if (rx == 0) continue;
-            double px = (double)rx * inv_n;
+            {ACC} px = ({ACC})rx * inv_n;
             for (int yy = 0; yy < Ky; ++yy) {
                 long long nxy = sh[xx * Ky + yy];
                 if (nxy == 0) continue;
                 long long ry = 0;
                 for (int xx2 = 0; xx2 < Kx; ++xx2) ry += sh[xx2 * Ky + yy];
-                double pxy = (double)nxy * inv_n;
-                double py = (double)ry * inv_n;
+                {ACC} pxy = ({ACC})nxy * inv_n;
+                {ACC} py = ({ACC})ry * inv_n;
                 mi += pxy * log(pxy / (px * py));
             }
         }
         mi_out[c] = mi > 0.0 ? mi : 0.0;
     }
 }
-"""
+""")
 _MI_FROM_CODES_V2_KERNELS = None
 
 
@@ -701,19 +703,20 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
         out = batched_binned_mi_gpu(C, y, kx_per_col=kx_per_col, ky=Ky)
         return cp.asarray(out) if as_device else out
     mi_out = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI output accumulator
-    threads = 256
     v2 = _get_mi_from_codes_v2_kernels()
     if v2 is not None and Kx < 32768 and Ky < 32768:
         try:
             from ._gpu_resident_select import transpose_codes_to_cm
             codes_cm = transpose_codes_to_cm(cp.ascontiguousarray(C.astype(cp.int16, copy=False)))  # (K, n)
             y16 = y.astype(cp.int16, copy=False)
+            threads = block_size_for(v2, dyn_smem=Kx * Ky * 4, work_items=n)
             v2((K,), (threads,), (codes_cm, y16, np.int64(n), np.int32(K), np.int32(Kx), np.int32(Ky),
                                   np.float64(1.0 / float(max(1, n))), mi_out), shared_mem=Kx * Ky * 4)  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
             return mi_out if as_device else np.asarray(cp.asnumpy(mi_out))
         except Exception:
             logger.debug("mi_from_codes v2 launch failed; one-kernel fallback", exc_info=True)
     self_kernel = _get_mi_from_codes_kernel()
+    threads = block_size_for(self_kernel, dyn_smem=Kx * Ky * 4, work_items=n)
     self_kernel((K,), (threads,), (C.ravel(), y, np.int64(n), np.int32(K), np.int32(Kx), np.int32(Ky),
                                    np.float64(1.0 / float(max(1, n))), mi_out),  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
                 shared_mem=Kx * Ky * 4)

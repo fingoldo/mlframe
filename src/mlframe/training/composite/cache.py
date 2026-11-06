@@ -6,7 +6,7 @@ from typing import cast
 import hashlib
 import json
 import logging
-import os
+from mlframe.utils.env_flags import env_int
 from typing import Any, Dict, NewType, Optional, Sequence
 
 # The disk-backed ``DiscoveryCache`` store (which owns the pickle / filelock / tempfile / glob
@@ -401,12 +401,7 @@ _PREBIN_CACHE_MAX_ENTRIES_DEFAULT: int = 32  # FIFO/LRU cap on stored code matri
 
 def _prebin_cache_max_bytes() -> int:
     """Per-entry byte ceiling for the prebin code cache (env-overridable)."""
-    raw = os.environ.get("MLFRAME_PREBIN_CACHE_MAX_BYTES")
-    try:
-        return int(raw) if raw is not None else _PREBIN_CACHE_MAX_BYTES_DEFAULT
-    except (TypeError, ValueError) as _exc:
-        logger.warning("_prebin_cache_max_bytes fell back to its default after %s", type(_exc).__name__)
-        return _PREBIN_CACHE_MAX_BYTES_DEFAULT
+    return env_int("MLFRAME_PREBIN_CACHE_MAX_BYTES", _PREBIN_CACHE_MAX_BYTES_DEFAULT)
 
 
 def prebin_matrix_signature(feature_matrix: np.ndarray, nbins: int) -> str:

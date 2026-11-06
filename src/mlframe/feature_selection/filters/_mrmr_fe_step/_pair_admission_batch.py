@@ -50,9 +50,10 @@ def _block_analytic_nulls(n: int, k_z: Any, k_xz: Any, k_yz: Any, k_xyz: Any, qu
     return floor, mean, applies
 
 
-def _block_verdicts(data_dev: Any, cols: list, y: np.ndarray, z_col: int, seeds: list) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
+def _block_verdicts(data_dev: Any, data_host: np.ndarray, cols: list, y: np.ndarray, z_col: int, seeds: list) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
     """``(cmi, floor, null_mean)`` of the candidate columns ``cols`` given the support column ``z_col``: one batched CMI on the device-resident codes, the
-    analytic null of the whole block, the per-pair null (host column) only where the analytic one does not apply."""
+    analytic null of the whole block, the per-pair null only where the analytic one does not apply. ``data_host`` is the same (strided) code matrix as ``data_dev``: the
+    columns the per-pair null needs are read from it, not copied back from the device (the same column was fetched once per block that met it)."""
     import cupy as cp
 
     from mlframe.feature_selection.filters._fe_batched_mi import batched_cmi_gpu
@@ -63,9 +64,9 @@ def _block_verdicts(data_dev: Any, cols: list, y: np.ndarray, z_col: int, seeds:
     cmi, k_z, k_xz, k_yz, k_xyz = batched_cmi_gpu(cp.ascontiguousarray(x), y, z, return_cards=True)
     floor, mean, applies = _block_analytic_nulls(int(y.shape[0]), k_z, k_xz, k_yz, k_xyz, _CMI_QUANTILE)
     if not applies.all():
-        z_h = np.ascontiguousarray(cp.asnumpy(z))
+        z_h = np.ascontiguousarray(data_host[:, z_col], dtype=np.int64)
         for j in np.flatnonzero(~applies):
-            x_j = np.ascontiguousarray(cp.asnumpy(x[:, int(j)]), dtype=np.int64)
+            x_j = np.ascontiguousarray(data_host[:, cols[int(j)]], dtype=np.int64)
             floor[j], mean[j] = _conditional_perm_null(x_j, y, z_h, seed=seeds[j], precomp_cards=(int(k_z), int(k_xz[j]), int(k_yz), int(k_xyz[j])))
     return np.asarray(cmi, dtype=np.float64), floor, mean  # Intentional float64: statistic vectors
 
@@ -114,13 +115,14 @@ def _score_groups(self: Any, groups: dict, cached_MIs: dict, data: np.ndarray, c
     excess_frac = float(getattr(self, "fe_pair_perm_null_excess_frac", 0.05))
     seed0 = int(getattr(self, "random_seed", 0) or 0)
     data_dev = _resident_codes(data, stride)
+    data_host = data[::stride]
     out: dict = {}
     for anchor, members in groups.items():
         anchor_mi = float(cached_MIs[(anchor,)])
         for b0 in range(0, len(members), _BLOCK_COLUMNS):
             block = members[b0 : b0 + _BLOCK_COLUMNS]
             seeds = [seed0 + 7919 * int(pair[0]) + int(pair[1]) for pair, _ in block]
-            cmi, floor, mean = _block_verdicts(data_dev, [c for _, c in block], y, int(anchor), seeds)
+            cmi, floor, mean = _block_verdicts(data_dev, data_host, [c for _, c in block], y, int(anchor), seeds)
             for j, (pair, _cand) in enumerate(block):
                 obs = float(cmi[j])
                 out[pair] = bool(obs > floor[j] and (obs - mean[j]) >= excess_frac * max(anchor_mi, 1e-9))
@@ -156,12 +158,13 @@ def batched_asymmetric_relax_verdicts(self: Any, pairs: list, synergy_added_idx:
         y = np.ascontiguousarray(np.asarray(classes_y, dtype=np.int64)[::stride])
         seed0 = int(getattr(self, "random_seed", 0) or 0)
         data_dev = _resident_codes(data, stride)
+        data_host = data[::stride]
         out: dict = {}
         for partner, members in groups.items():
             for b0_ in range(0, len(members), _BLOCK_COLUMNS):
                 block = members[b0_ : b0_ + _BLOCK_COLUMNS]
                 seeds = [seed0 + 6271 * boot + partner for _, boot in block]
-                cmi, floor, mean = _block_verdicts(data_dev, [b for _, b in block], y, int(partner), seeds)
+                cmi, floor, mean = _block_verdicts(data_dev, data_host, [b for _, b in block], y, int(partner), seeds)
                 for j, (pair, _boot) in enumerate(block):
                     obs = float(cmi[j])
                     out[pair] = bool(obs > floor[j] and (obs - mean[j]) >= floor[j])

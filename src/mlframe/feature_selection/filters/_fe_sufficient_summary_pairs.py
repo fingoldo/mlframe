@@ -18,6 +18,8 @@ import threading
 from typing import Any, Callable, Optional
 
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from numba import njit, prange
 
 from mlframe.utils.log_throttle import log_throttle
@@ -275,7 +277,6 @@ void pair_mi_block_v2(const signed char* A, const signed char* B, const int* R, 
 """
 _FUSED_NAMES = {"v1": (_FUSED_SRC, "pair_mi_block"), "v2": (_FUSED_SRC_V2, "pair_mi_block_v2")}
 FUSED_VERSION = "v2"  # v1: a thread per cell group, tree reduction with 7 barriers; v2: a thread per cell, warp-shuffle reduction. v2 is the default (see the profile record)
-_FUSED_THREADS = 128  # one block per pair; a multiple of 32 because of the warp shuffle
 _FUSED_KERNELS: dict = {}
 _FUSED_LOCK = threading.Lock()  # compile-once get-or-create of the kernels is one critical section
 _ACC_TYPE = "double"  # Intentional float64: the MI sum and the counts it divides by are statistics compared with a threshold; only the per-cell terms use the crit type
@@ -328,7 +329,10 @@ def _block_best_gpu_fused(a_dev, b_dev, r_dev, cr_dev, k: int, kr: int, same: bo
     # Intentional float64: score accumulator of the device reduction
     out = cp.empty(pa * pb, dtype=cp.float64)
     shared = k * k * kr * 4
-    _fused_kernel(real, version)((pb, pa), (_FUSED_THREADS,), (a_dev, b_dev, r_dev, out, cr_dev, pa, pb, n, k, kr, int(same)), shared_mem=shared)
+    fused = _fused_kernel(real, version)
+    # the first version halves blockDim.x over a 128-wide scratch: a power of two, at most 128 (the second keeps one partial per warp, any such width fits)
+    threads = block_size_for(fused, dyn_smem=shared, work_items=n, pow2=True, max_width=128)
+    fused((pb, pa), (threads,), (a_dev, b_dev, r_dev, out, cr_dev, pa, pb, n, k, kr, int(same)), shared_mem=shared)
     m = int(cp.argmax(out))
     return float(out[m]), (m // pb, m % pb)
 

@@ -179,6 +179,34 @@ def smart_log(x: np.ndarray) -> np.ndarray:
             return np.asarray(np.log(x))
         return np.asarray(np.log(x + (1e-5 - x_min)))
 
+def unique_inverse_dense(values: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+    """``np.unique(values, return_inverse=True)`` for an integer vector whose value range is small: the sorted distinct values and the inverse codes from one counting pass
+    (``bincount`` of the shifted values, a rank table over the occupied slots) instead of a comparison sort of every row. Identical output; a range above ``4 * len(values) + 1024``
+    (or any non-integer input) takes ``np.unique``."""
+    values = np.asarray(values)
+    if values.ndim == 1 and values.size and values.dtype.kind in "iu":
+        lo = int(values.min())
+        span = int(values.max()) - lo + 1
+        if span <= 4 * values.size + 1024:
+            shifted = (values.astype(np.int64) - lo) if lo else values.astype(np.int64)
+            occupied = np.bincount(shifted, minlength=span) > 0
+            rank = np.cumsum(occupied, dtype=np.int64) - 1
+            return np.flatnonzero(occupied).astype(values.dtype) + values.dtype.type(lo), rank[shifted]
+    uniq, inverse = np.unique(values, return_inverse=True)
+    return uniq, inverse.reshape(-1)
+
+def stable_argsort_codes(codes: np.ndarray, n_codes: int) -> np.ndarray:
+    """``np.argsort(codes, kind="stable")`` for integer ``codes`` in ``[0, n_codes)``, through the narrowest unsigned type that holds them.
+
+    numpy sorts 8 and 16 bit integers with a radix sort when the sort is stable (several times faster than the comparison sort of a 64 bit key on 100000 rows); the order is the
+    same, since a stable sort of equal keys is unique. ``n_codes`` above 65536 keeps the input dtype."""
+    codes = np.asarray(codes)
+    if n_codes <= 256:
+        codes = codes.astype(np.uint8, copy=False)
+    elif n_codes <= 65536:
+        codes = codes.astype(np.uint16, copy=False)
+    return np.argsort(codes, kind="stable")
+
 def canonical_group_token(value: object) -> str:
     """Stable per-value group/category key robust to int<->float dtype drift.
 
@@ -228,6 +256,16 @@ def canonical_group_tokens(values: np.ndarray) -> np.ndarray:
         toks[i] = canonical_group_token(values[i])
     return toks
 
+def categorical_group_tokens(col: pd.Series) -> np.ndarray:
+    """Object array of per-row canonical group keys of a categorical column, from one token per CATEGORY and a gather by the category codes.
+
+    The same strings ``col.astype(object).map(canonical_group_token)`` gives: a missing value (code -1) is the token of a float NaN, ``'nan'``."""
+    cats = col.cat.categories
+    toks = np.empty(len(cats) + 1, dtype=object)
+    toks[:-1] = [canonical_group_token(v) for v in cats]
+    toks[-1] = canonical_group_token(float("nan"))
+    return cast("np.ndarray", toks[col.cat.codes.to_numpy().astype(np.int64)])
+
 def group_key_strings(col: pd.Series) -> np.ndarray:
     """Object array of per-row canonical group keys (int<->float drift safe).
 
@@ -239,6 +277,10 @@ def group_key_strings(col: pd.Series) -> np.ndarray:
     so a fit-int / predict-float dtype drift still hits the per-group entry
     instead of falling through to the global value. NaN -> ``'nan'``,
     None -> ``'None'`` (unchanged); non-integral floats keep their repr."""
+    import pandas as pd
+
+    if isinstance(col.dtype, pd.CategoricalDtype):
+        return categorical_group_tokens(col)
     arr = col.to_numpy()
     if arr.dtype.kind in ("i", "u", "b"):
         # Integral / bool: native dtype already collapses 1 and 1.0 to "1" via
@@ -252,6 +294,11 @@ def group_key_strings(col: pd.Series) -> np.ndarray:
         # fit/predict counterpart that arrived as integer dtype.
         uniq, inv = np.unique(arr, return_inverse=True)
         return np.asarray(canonical_group_tokens(uniq)[inv])
+    import pandas as pd
+
+    if pd.api.types.infer_dtype(col, skipna=False) == "string":
+        # every value is a str (no missing value, no mixed types): its canonical token is the string itself, so no per-row call is needed
+        return np.asarray(col.astype(object).to_numpy())
     # object / categorical / string: per-value canonical (handles mixed dtypes,
     # python ints/floats embedded in object arrays, NaN sentinels via str()).
     return np.asarray(col.astype(object).map(canonical_group_token).to_numpy())

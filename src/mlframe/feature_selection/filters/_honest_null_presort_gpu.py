@@ -59,16 +59,28 @@ def presort_and_ties_gpu(raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
     tie = np.zeros((k, n), dtype=np.uint8)
     try:
         block = _column_block(cp, n)
-        for c0 in range(0, k, block):
+        c0 = 0
+        while c0 < k:
             c1 = min(k, c0 + block)
-            cols = cp.asarray(np.ascontiguousarray(raw_cont[:, c0:c1].T))  # one contiguous row per column
-            idx = device_argsort(cols, axis=1)
-            sv = cp.take_along_axis(cols, idx, axis=1)
-            tie_dev = cp.zeros((c1 - c0, n), dtype=cp.uint8)
-            tie_dev[:, : n - 1] = (sv[:, :-1] == sv[:, 1:]).astype(cp.uint8)
-            order[c0:c1] = cp.asnumpy(idx.astype(cp.int32))
-            tie[c0:c1] = cp.asnumpy(tie_dev)
-            del cols, idx, sv, tie_dev
+            cols = idx = sv = tie_dev = None
+            try:
+                cols = cp.asarray(np.ascontiguousarray(raw_cont[:, c0:c1].T))  # one contiguous row per column
+                idx = device_argsort(cols, axis=1)
+                sv = cp.take_along_axis(cols, idx, axis=1)
+                tie_dev = cp.zeros((c1 - c0, n), dtype=cp.uint8)
+                tie_dev[:, : n - 1] = (sv[:, :-1] == sv[:, 1:]).astype(cp.uint8)
+                order[c0:c1] = cp.asnumpy(idx.astype(cp.int32))
+                tie[c0:c1] = cp.asnumpy(tie_dev)
+            except cp.cuda.memory.OutOfMemoryError:
+                # concurrent FE stages draw from the same capped pool, so the room measured when the block was sized can be gone when it is allocated: the block is halved and retried
+                # before the whole sort is given up to the host
+                cols = idx = sv = tie_dev = None  # the failed block's buffers go back to the pool before the retry
+                if block <= 4:
+                    raise
+                block = max(4, block // 2)
+                logger.info("device presort: out of memory on %d columns; retrying with blocks of %d", c1 - c0, block)
+                continue
+            c0 = c1
         cp.get_default_memory_pool().free_all_blocks()
     except Exception as exc:
         logger.warning("device presort of the honest-null columns failed (%s: %s); sorting on the host", type(exc).__name__, exc)

@@ -21,6 +21,7 @@ from typing import Optional
 
 import numpy as np
 
+from ._kernel_types import render
 from ._raw_module_cache import RawModuleCache
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ _SRC = r"""
 #define PRIV_LEVELS 64
 extern "C" __global__ void tied_replicate_mi(const short* __restrict__ rk, const int* __restrict__ idx, const short* __restrict__ binpos, const int* __restrict__ ycode,
                                              const int* __restrict__ lens, const int* __restrict__ nlev, const long long n, const int m_max, const int B,
-                                             const int nbins, const int ncls, double* __restrict__ out) {
+                                             const int nbins, const int ncls, {ACC}* __restrict__ out) {
     extern __shared__ int sh[];
     const int j = blockIdx.x / B;
     const int b = blockIdx.x - j * B;
@@ -147,15 +148,15 @@ extern "C" __global__ void tied_replicate_mi(const short* __restrict__ rk, const
         for (int c = 0; c < ncls; ++c) hy[c] = 0;
         for (int u = 0; u < cells; ++u) { int c = 0; for (int w = 0; w < nw; ++w) c += whist[w * cells + u]; whist[u] = c; }
         for (int bb = 0; bb < nbins; ++bb) for (int c = 0; c < ncls; ++c) { hx[bb] += whist[bb * ncls + c]; hy[c] += whist[bb * ncls + c]; }
-        const double log_n = log((double)m);
-        double mi = 0.0;
+        const {ACC} log_n = log(({ACC})m);
+        {ACC} mi = 0.0;
         for (int bb = 0; bb < nbins; ++bb) {
             if (hx[bb] == 0) continue;
-            const double log_hx = log((double)hx[bb]);
+            const {ACC} log_hx = log(({ACC})hx[bb]);
             for (int c = 0; c < ncls; ++c) {
                 const long long nxy = whist[bb * ncls + c];
                 if (nxy == 0 || hy[c] == 0) continue;
-                mi += ((double)nxy / (double)m) * (log((double)nxy) + log_n - log_hx - log((double)hy[c]));
+                mi += (({ACC})nxy / ({ACC})m) * (log(({ACC})nxy) + log_n - log_hx - log(({ACC})hy[c]));
             }
         }
         out[(long long)b * gridDim.x / B + j] = mi < 0.0 ? 0.0 : mi;
@@ -163,7 +164,7 @@ extern "C" __global__ void tied_replicate_mi(const short* __restrict__ rk, const
 }
 """
 
-_MODULE = RawModuleCache(_SRC)
+_MODULE = RawModuleCache(render(_SRC))
 
 
 def use_device_tied(n_rows: int) -> bool:
@@ -246,7 +247,7 @@ def _shared_bytes(n_levels: int, n_warps: int, n_bins: int, n_classes: int) -> i
 
 def _block_width(kernel, shared_bytes: int, m: int) -> int:
     """Threads per block from the device limits (``fixed_shared_block_size``: the level table is fixed per block), 256 without device information."""
-    from ._gpu_hw_launch import fixed_shared_block_size
+    from pyutilz.performance.gpu_hw_launch import fixed_shared_block_size
 
     try:
         width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kernel.num_regs), static_smem=int(kernel.shared_size_bytes), min_width=64, max_width=256, work_items=m)  # the shared size is computed for 8 warps

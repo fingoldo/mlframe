@@ -234,6 +234,7 @@ _GRAM4_SRC = r"""
 #define NACC 14
 extern "C" {
 // grid = (NBLK, K); block = 256.  Thread (b,tid) walks i = b*256+tid, += NBLK*256 (fixed order, no atomics).
+// dtype-ok: reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.
 __global__ void gram4_partials(const double* U, const double* V, const double* yr, const double* mu /*K x 3: mu_u, mu_v, mu_y*/,
                                const long long n, double* part /*K x NBLK x NACC*/) {
     const int k = blockIdx.y;
@@ -265,6 +266,7 @@ __global__ void gram4_partials(const double* U, const double* V, const double* y
     }
 }
 // grid = K, block = 32: lanes 0..13 Neumaier-merge the NBLK partials, lane 0 solves the 4x4 (partial pivoting), writes t.
+// dtype-ok: reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.
 __global__ void solve4_shift(const double* part, const int nblk, const double* mu, const double sing_rel_tol, double* t_out) {
     __shared__ double tot[NACC];
     const int k = blockIdx.x;
@@ -297,6 +299,7 @@ __global__ void solve4_shift(const double* part, const int nblk, const double* m
     t_out[k] = (coef[3] != 0.0) ? coef[2] / coef[3] - mu[k * 3] : nan("");
 }
 // replay / candidate generation, column-major (C = K*G rows): out[c*n+i] = scrub((U[k]+T[c])*V[k]), k = c / G
+// dtype-ok: reviewed 2026-11-05: benchmark / prototype code, not on the MRMR fit path. The kernel and the float64 buffers it reads are allocated in the same file (the file never creates a float32 array), so no float32 buffer can reach the double* parameters; the tests that pin the prototypes (test_closed_form, test_fused_emulation) check the double algorithm.
 __global__ void offset_gen_cm(const double* U, const double* V, const double* T, const long long n, const int G, const int C, double* out) {
     const long long total = (long long)C * n;
     for (long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += (long long)gridDim.x * blockDim.x) {

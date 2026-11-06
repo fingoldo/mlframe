@@ -62,7 +62,8 @@ except ImportError:  # numba is an optional dep; fall back to scipy below.
     _HAVE_NUMBA = False
 
 from ._grouped_coerce_shared import auto_detect_group_cols, auto_detect_num_cols_plain as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
-from ._internals import group_key_strings
+from ._internals import group_key_strings, stable_argsort_codes
+from ._numba_utils_shared import radix_order_f64
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -190,7 +191,7 @@ def _wasserstein1_all_groups(x: np.ndarray, fin_order: np.ndarray, gid: np.ndarr
     column shared by every group column) are stable-sorted by group id, so each group's values come out contiguous and sorted, the same values the per-group
     ``np.sort`` gives (the W1 integral depends only on the sorted multiset)."""
     gsorted = gid[fin_order]
-    perm = np.argsort(gsorted, kind="stable")
+    perm = stable_argsort_codes(gsorted, n_groups)
     vals = np.ascontiguousarray(x[fin_order][perm], dtype=np.float64)  # Intentional float64: KS statistic sorted operand, as the per-group path casts it
     offsets = np.zeros(n_groups + 1, dtype=np.int64)
     np.cumsum(np.bincount(gsorted, minlength=n_groups), out=offsets[1:])
@@ -271,9 +272,11 @@ def _group_distance_global_stats(X: pd.DataFrame, num_col: str) -> tuple:
         if hi <= lo:
             hi = lo + 1.0
         global_edges = np.linspace(lo, hi, _DIST_NBINS + 1)
-        global_hist, _ = np.histogram(finite_all, bins=global_edges)
-        global_hist = global_hist.astype(np.float64)  # Intentional float64: global histogram statistic
         global_sorted = np.sort(finite_all)
+        # the histogram from the sorted column: bins are [edge_i, edge_i+1) and the last one is closed, as in np.histogram, which would sort the column again
+        _cuts = np.searchsorted(global_sorted, global_edges, side="left")
+        _cuts[-1] = np.searchsorted(global_sorted, global_edges[-1], side="right")
+        global_hist = np.diff(_cuts).astype(np.float64)  # Intentional float64: global histogram statistic
     bin_idx = _global_bin_index(x, global_edges) if global_edges.size >= 2 else None
     return (x, global_mean, global_std, global_edges, global_hist, global_sorted, bin_idx)
 
@@ -341,8 +344,9 @@ def generate_group_distance_features(
             with _ORDER_LOCK:
                 order = _fin_order.get(num_col)
             if order is None:
-                order = np.argsort(x, kind="stable")
-                order = order[np.isfinite(x[order])]
+                # the finite rows in ascending value order, ties in row order: a radix order of the finite values (3x a stable comparison argsort, NaN and inf never enter it)
+                finite_rows = np.flatnonzero(np.isfinite(x))
+                order = finite_rows[radix_order_f64(np.ascontiguousarray(x[finite_rows], dtype=np.float64))]
                 with _ORDER_LOCK:
                     _fin_order[num_col] = order
             w_all = _wasserstein1_all_groups(x, order, gid, len(group_rows), global_sorted)

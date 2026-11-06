@@ -10,14 +10,16 @@ and ``discretize_2d_array``'s own CUDA-fastpath call) keeps resolving unchanged.
 from __future__ import annotations
 
 import logging
-import sys
 import threading
 from typing import Any, Optional
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._code_dtype import _safe_code_dtype
 from mlframe.feature_selection.filters._device_sort_safe import device_percentile  # thrust aborts the process on a short pool
+from .._kernel_types import ctype_of, render
 
 logger = logging.getLogger(__name__)
 
@@ -367,10 +369,10 @@ def discretize_2d_array_cuda_row_chunked(
     return _redo_flushed_columns(arr, out, flat_cols, n_bins, dtype)
 
 
-_SEARCHSORTED_RIGHT_2D_SRC = r"""
+_SEARCHSORTED_RIGHT_2D_TEMPLATE = r"""
 extern "C" __global__ void searchsorted_right_2d(
-    const double* __restrict__ arr,    // (n_rows, n_cols) C-order
-    const double* __restrict__ cuts,    // (n_cols, n_cuts) C-order
+    const {REAL}* __restrict__ arr,    // (n_rows, n_cols) C-order, float32 or float64
+    const {EDGE}* __restrict__ cuts,    // (n_cols, n_cuts) C-order, float64: the comparison sees the double cut
     int* __restrict__ out,              // (n_rows, n_cols)
     const long long n_rows, const long long n_cols, const int n_cuts
 ){
@@ -379,7 +381,7 @@ extern "C" __global__ void searchsorted_right_2d(
     if (gid >= total) return;
     long long row = gid / n_cols;
     long long col = gid % n_cols;
-    double v = arr[gid];
+    {EDGE} v = arr[gid];                // a float32 value is promoted: the same comparison as on a float64 copy
     // searchsorted side='right': bin = first index i s.t. cuts[i] > v,
     // OR n_cuts if every cut <= v.
     int lo = 0, hi = n_cuts;
@@ -391,12 +393,12 @@ extern "C" __global__ void searchsorted_right_2d(
     out[gid] = lo;
 }
 """
-_searchsorted_right_2d_cuda = None
+_searchsorted_right_2d_cuda: dict = {}  # element type name of ``arr`` -> compiled kernel
 _DISCRETIZE_KERNEL_LOCK = threading.Lock()
 
 
-def _get_searchsorted_right_2d_kernel():
-    """Build (idempotently) and return the fused per-column searchsorted RawKernel.
+def _get_searchsorted_right_2d_kernel(real: Any = None):
+    """Build (idempotently) and return the fused per-column searchsorted RawKernel for the element type ``real`` of the values (float32 or float64; the cuts are float64).
 
     Mirrors ``info_theory._cmi_cuda._get_kernel``'s module-level-singleton pattern. ``cp.RawKernel`` used
     to be rebuilt from CUDA source text on EVERY call to ``_discretize_quantile_rawkernel`` - which
@@ -404,20 +406,18 @@ def _get_searchsorted_right_2d_kernel():
     times per large discretize call) - so the source was recompiled that many times per fit instead of
     once for the whole process lifetime.
     """
-    global _searchsorted_right_2d_cuda
-    if _searchsorted_right_2d_cuda is not None:
-        return _searchsorted_right_2d_cuda
     import cupy as cp
 
+    real = np.float64 if real is None else real
+    key = ctype_of(real)
     with _DISCRETIZE_KERNEL_LOCK:
-        if _searchsorted_right_2d_cuda is not None:
-            return _searchsorted_right_2d_cuda
-        module = sys.modules[__name__]
-        module._searchsorted_right_2d_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-            _SEARCHSORTED_RIGHT_2D_SRC,
-            "searchsorted_right_2d",
-        )
-        return module._searchsorted_right_2d_cuda
+        kernel = _searchsorted_right_2d_cuda.get(key)
+        if kernel is None:
+            kernel = _searchsorted_right_2d_cuda[key] = cp.RawKernel(
+                render(_SEARCHSORTED_RIGHT_2D_TEMPLATE, real=real, edge=np.float64),
+                "searchsorted_right_2d",
+            )
+        return kernel
 
 
 _MAX_GRID_X_BLOCKS = 2**31 - 1
@@ -453,14 +453,15 @@ def _discretize_quantile_rawkernel(d_arr, cuts, n_bins, out_cp_dtype):
 
     n_rows, n_cols = d_arr.shape
     out_int32 = cp.empty((n_rows, n_cols), dtype=cp.int32)
-    kernel = _get_searchsorted_right_2d_kernel()
-    threads = 256
+    values = d_arr if d_arr.dtype in (cp.float32, cp.float64) else d_arr.astype(cp.float64)  # the kernel reads float32 or float64 as they are
+    kernel = _get_searchsorted_right_2d_kernel(np.float32 if values.dtype == cp.float32 else np.float64)
+    threads = block_size_for(kernel, work_items=n_rows * n_cols)
     blocks = _searchsorted_launch_blocks(n_rows, n_cols, threads)
     kernel(
         (blocks,),
         (threads,),
         (
-            d_arr.astype(cp.float64, copy=False),  # Intentional float64: bin-edge / cut vector, compared against values at full precision
+            values,
             cuts.astype(cp.float64, copy=False),  # Intentional float64: bin-edge / cut vector, compared against values at full precision
             out_int32,
             np.int64(n_rows),
