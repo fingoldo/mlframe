@@ -53,7 +53,7 @@ Four read-only audits covered the remaining GPU-kernel files (reports `kernel_pa
 | PARG4-4 | Medium | OPEN | GPU subset scan breaks ties at top-N arbitrarily and returns float32 losses |
 | PARG4-5 | Medium | OPEN | Row attention switches njit/GPU by batch size; different precision per batch |
 | PARG1-3 | Medium | RESOLVED | `d0d07877f` device row max and min propagate NaN from any operand, as numpy; test `test_candidate_row_extrema_propagate_nan.py` |
-| PARG1-4 | Medium | OPEN | Radix select orders NaN with the sign bit below -inf |
+| PARG1-4 | Medium | RESOLVED | radix entry points canonicalise NaN to the positive quiet NaN, so a sign-bit NaN sorts last; reproduced on HEAD (rank 0 was NaN, sorted 0.0); test `test_radix_select_orders_sign_bit_nan_last.py`; 85 existing radix/quantile GPU tests pass |
 | PARG1-5 | Medium | RESOLVED | `d38ed8df8` block count gives a NaN row the edge count, as the per-column binner; test `test_qbin_block_nan_code_matches_single_column.py` |
 | PARG1-6 | Medium | RESOLVED | `7d08849ca` four-entropy CMI fallback reduces in float64; test `test_cmi_entropy_fallback_is_double.py` |
 | PARG2-3 | Medium | OPEN | Cupy polynom optimiser builds basis in float32; high degree overflows where numba float64 scores it |
