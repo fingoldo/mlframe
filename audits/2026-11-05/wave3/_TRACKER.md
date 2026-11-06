@@ -58,7 +58,7 @@ Four read-only audits covered the remaining GPU-kernel files (reports `kernel_pa
 | PARG1-6 | Medium | OPEN | Fused CMI fallback computes entropies in float32; CMI error about 1e-6 nats |
 | PARG2-3 | Medium | OPEN | Cupy polynom optimiser builds basis in float32; high degree overflows where numba float64 scores it |
 | PARG2-4 | Medium | OPEN | `gpu_pairs_fe_mi` casts candidates to float32 before binning |
-| PARG3-3 | Medium | OPEN | Fused binning kernels put NaN in bin 0; CPU and fallback put it rightmost; a docstring is also wrong. Check whether callers scrub NaN first. |
+| PARG3-3 | Medium | RESOLVED | `2d2271bfe` fused bin-code kernels send a NaN row past every edge, as the fallback and CPU; test `test_discretize_fused_nan_code_is_the_last_bin.py` |
 | PARG3-4 | Medium | RESOLVED | `99fa73344` device HSIC centres rows in float64 before narrowing; test `test_hsic_device_is_offset_invariant.py` |
 | PARG2-6 | Low | RESOLVED | `b4bc25fcb` fused gate clamps MI at zero as the host; reproduced at -6.5e-16 on HEAD; test `test_fused_su_gate_clamps_negative_mi.py` |
 | PARG2-7 | Low | RESOLVED | `a6be24ee2` negative target codes go to the generic path; test `test_analytic_gate_refuses_negative_target_codes.py` |
