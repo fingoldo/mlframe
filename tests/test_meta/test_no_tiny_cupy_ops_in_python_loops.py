@@ -261,9 +261,8 @@ def tiny_cupy_loops(source: str, rel: "tuple[str, ...] | None" = None, root: Pat
     return hits
 
 
-def _current_hits() -> "dict[str, str]":
-    """``{"<module path>::<function>": severity}`` over the package source; a function with any high hit is high."""
-    found: dict[str, str] = {}
+def _scan_hits():
+    """Yield ``(<module path>::<function>, severity, line)`` for every flagged loop over the package source."""
     files = sorted(SRC_ROOT.rglob("*.py"))
     assert_scanned_enough(len(files), str(SRC_ROOT))
     for path in files:
@@ -276,11 +275,25 @@ def _current_hits() -> "dict[str, str]":
         except SyntaxError:
             continue
         rel = str(path.relative_to(SRC_ROOT.parent.parent)).replace("\\", "/")
-        for func, _, severity in hits:
-            key = f"{rel}::{func}"
-            if found.get(key) != "high":
-                found[key] = severity
+        for func, line, severity in hits:
+            yield f"{rel}::{func}", severity, line
+
+
+def _current_hits() -> "dict[str, str]":
+    """``{"<module path>::<function>": severity}`` over the package source; a function with any high hit is high."""
+    found: dict[str, str] = {}
+    for key, severity, _ in _scan_hits():
+        if found.get(key) != "high":
+            found[key] = severity
     return found
+
+
+def _current_hit_lines() -> "dict[str, list[int]]":
+    """``{"<module path>::<function>": [loop lines]}`` so a failure names the exact loops to review."""
+    lines: dict[str, list[int]] = {}
+    for key, _, line in _scan_hits():
+        lines.setdefault(key, []).append(line)
+    return lines
 
 
 def _current() -> "set[str]":
@@ -297,7 +310,8 @@ def test_no_new_launch_bound_cupy_loops():
     """A launch-bound cupy loop outside the reviewed baseline fails the test; batch it into one kernel or a vectorised expression."""
     hits = _current_hits()
     new = sorted(key for key in hits if key not in _baseline())
-    detail = [f"{key} [{hits[key]}]" for key in new]
+    lines = _current_hit_lines()
+    detail = [f"{key} [{hits[key]}] at line(s) {lines[key]}" for key in new]
     assert not new, f"Python loops of small cupy calls outside the baseline (batch them into one kernel / vectorised op, or review and baseline): {detail}"
 
 
