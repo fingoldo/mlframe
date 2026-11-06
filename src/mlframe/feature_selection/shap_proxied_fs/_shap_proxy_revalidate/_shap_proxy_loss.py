@@ -17,6 +17,7 @@ from sklearn.metrics import (
     log_loss, roc_auc_score, root_mean_squared_error,
 )
 from mlframe.metrics.core import fast_brier_score_loss, fast_log_loss, fast_roc_auc, fast_mean_absolute_error
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +275,14 @@ _positive_class_proba = _classification_proba
 
 
 def _loss_from_predictions(p_or_pred, y_ev, classification, metric):
+    """Holdout loss from a precomputed prediction vector, scored inside the numba parallel guard.
+
+    The revalidation pool runs this on several threads, and the size-dispatched metrics enter prange reductions at n >= 100k."""
+    with parallel_kernel_entry():
+        return _loss_from_predictions_body(p_or_pred, y_ev, classification, metric)
+
+
+def _loss_from_predictions_body(p_or_pred, y_ev, classification, metric):
     """Compute the holdout loss from a precomputed prediction vector (no fit, no slicing).
 
     Exposed so :func:`_permutation_importance_ranking` can reuse the loss-aggregation branches
