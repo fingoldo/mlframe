@@ -27,11 +27,12 @@ def sampler():
         prev_me, prev_t = ct, now
 th = threading.Thread(target=sampler, daemon=True); th.start()
 MRMR._FIT_CACHE.clear()
-t = time.perf_counter(); MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*data); w = time.perf_counter() - t
-stop.set(); th.join()
+ct0 = me.cpu_times(); t = time.perf_counter(); MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*data); w = time.perf_counter() - t
+ct1 = me.cpu_times(); stop.set(); th.join()
 import statistics as S
 own = [s[1] for s in samples]; tot = [s[2] for s in samples]
 print("WALL", round(w, 1), "samples", len(samples))
+print("cpu user %.1f s  system %.1f s  (system share %.0f%%)" % (ct1.user - ct0.user, ct1.system - ct0.system, 100 * (ct1.system - ct0.system) / max(1e-9, (ct1.user - ct0.user) + (ct1.system - ct0.system))))
 print("own cores avg %.2f p90 %.2f | system cores busy avg %.2f | others avg %.2f" % (S.mean(own), sorted(own)[int(.9 * len(own))], S.mean(tot), S.mean([max(0, t_ - o) for t_, o in zip(tot, own)])))
 print("available MB min %.0f avg %.0f | swap used MB max %.0f | rss MB max %.0f" % (min(s[3] for s in samples), S.mean(s[3] for s in samples), max(s[4] for s in samples), max(s[5] for s in samples)))
 pf = [s[6] for s in samples]; print("page faults total %d" % (pf[-1] - pf[0]))
