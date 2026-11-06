@@ -147,6 +147,24 @@ def _binned_mi(x: np.ndarray, y_codes: np.ndarray, nbins: int, y_terms: Any = No
 # residency win (the MI runs on-device under the flag), not necessarily a wall win at the FE-subsample n.
 
 
+_MAX_BASE_PAIR_CANDIDATES = 200_000
+
+
+def _bounded_base_pairs(base_names: Sequence[str], base_mi: dict, max_pair_candidates: int) -> list:
+    """Every pair of ``base_names`` while there are at most ``max_pair_candidates`` of them; above that, the pairs among the base columns with
+    the largest marginal MI. Columns with no recorded MI (constant ones) rank last; the original order is kept among the chosen columns."""
+    names = list(base_names)
+    n = len(names)
+    if n * (n - 1) // 2 <= max_pair_candidates:
+        return list(itertools.combinations(names, 2))
+    m = 2
+    while (m + 1) * m // 2 <= max_pair_candidates:
+        m += 1
+    ranked = sorted(range(n), key=lambda i: (-base_mi.get(names[i], float("-inf")), i))
+    keep = sorted(ranked[:m])
+    return list(itertools.combinations([names[i] for i in keep], 2))
+
+
 def build_usability_candidate_pool(
     X_df: "Any",
     y_cont: np.ndarray,
@@ -229,14 +247,17 @@ def build_usability_candidate_pool(
     st.base_f64 = {nm: _scrub(st.raw_np[nm]) for nm in base_names}
 
     st.pool = []
+    base_mi: dict = {}
     # raw columns are always candidates (a linear model often wants a raw operand too).
     for nm in base_names:
         col = _scrub(st.raw_np[nm], feature_dtype)
         if float(np.std(col)) <= 1e-9:
             continue
-        st.pool.append(UsableCandidate(nm, col, _binned_mi(col, st.y_codes, quantization_nbins, st.y_terms), None, (nm,), ()))
+        mi = _binned_mi(col, st.y_codes, quantization_nbins, st.y_terms)
+        base_mi[nm] = float(mi)
+        st.pool.append(UsableCandidate(nm, col, mi, None, (nm,), ()))
 
-    st.pairs = list(itertools.combinations(base_names, 2))
+    st.pairs = _bounded_base_pairs(base_names, base_mi, _MAX_BASE_PAIR_CANDIDATES)
     st.pairs = _build_usability_cand_step1_rank_pairs_joint(rank_pairs_by_joint_mi, base_names, st.base_f64, quantization_nbins, st.y_terms, st._seleq, st.pairs, st.y_codes, st._mi_key, max_pairs)
 
     # FUSED njit PER-PAIR ENUMERATION (retention path only). On the retention path
