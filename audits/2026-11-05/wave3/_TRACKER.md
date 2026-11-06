@@ -60,8 +60,8 @@ Four read-only audits covered the remaining GPU-kernel files (reports `kernel_pa
 | PARG2-4 | Medium | OPEN | `gpu_pairs_fe_mi` casts candidates to float32 before binning |
 | PARG3-3 | Medium | OPEN | Fused binning kernels put NaN in bin 0; CPU and fallback put it rightmost; a docstring is also wrong. Check whether callers scrub NaN first. |
 | PARG3-4 | Medium | RESOLVED | `99fa73344` device HSIC centres rows in float64 before narrowing; test `test_hsic_device_is_offset_invariant.py` |
-| PARG2-6 | Low | OPEN | Fused SU gate does not clamp a negative MI to 0 |
-| PARG2-7 | Low | OPEN | Fused analytic gate does not check negative target codes |
+| PARG2-6 | Low | RESOLVED | `b4bc25fcb` fused gate clamps MI at zero as the host; reproduced at -6.5e-16 on HEAD; test `test_fused_su_gate_clamps_negative_mi.py` |
+| PARG2-7 | Low | RESOLVED | `a6be24ee2` negative target codes go to the generic path; test `test_analytic_gate_refuses_negative_target_codes.py` |
 | PARG3-5 | Low | OPEN | Opt-in on-device entropy runs in float32 although the docstring claims float64 |
 | PARG3-6 | Low | RESOLVED | `330ac70ff` device sign of NaN is NaN, as the twins; test `test_unary_sign_keeps_nan.py` |
 | PARG3-7 | Low | RESOLVED | `0ee82cc02` empty family returns zeros before any launch; test `test_family_null_max_empty_family.py` |
