@@ -297,3 +297,7 @@ After the lane-private first pass (0.76 to 0.81x) and the warp-aggregated first 
 | 8 | 0.85x | 0.80x | 0.93x |
 
 Eight in flight loses (register pressure, fewer resident warps); four is the best on all three distributions across three repeated runs. The kernel is 12.5 percent of the fit's device time (2.96 s), so the gain is about 0.2 s of a fit; it is kept because it is a pure ordering change of the loads (the bins receive the same elements, and `test_radix_select_four_loads_identical.py` pins equality for row counts that are and are not multiples of the stride, ties, a constant column and signed zeros). `MLFRAME_RADIX_F32_V5=0` restores v4.
+
+## State after the push of the meta-gate, code-audit, tracker and kernel work (2026-11-07)
+
+`gpu_walls.py 100000 100 gpu`, one process, warm-up fit then the timed fit, `PYUTILZ_KERNEL_DISABLE_SWEEP=1`, origin/master merged: wall 79.7 s, no device out-of-memory line. The same code measured 105.1, 102.2 and 89.4 s (the last under nvprof) on other runs of the same day, so the honest statement is 80 to 105 s on this loaded 16 GB laptop, against the 100 s target. The changes since the last measurement are small ones (CMIM code guard, pure-form side pool, radix v5, group distance and usability findings that came out negative); none of them is large enough to separate from the spread.
