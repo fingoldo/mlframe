@@ -89,6 +89,17 @@ class PermutedTargetBinner:
                         break
                     self._out_fixed[i] = slot
 
+    def __getstate__(self) -> dict:
+        """The binner's state without its lock, which does not pickle."""
+        state = self.__dict__.copy()
+        state.pop("_lock", None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the state and give the binner a fresh lock."""
+        self.__dict__.update(state)
+        self._lock = threading.Lock()
+
     @staticmethod
     def supported(df: Any) -> bool:
         """Whether ``df`` is a pandas frame with numeric columns only, at least one row and one column."""

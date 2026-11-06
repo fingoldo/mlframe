@@ -15,10 +15,11 @@ from typing import Any
 
 import numpy as np
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
-_BYTES_PER_COLUMN_ROW = 40  # float64 block, its sorted copy, the sort workspace and the comparison temporaries
+_BYTES_PER_COLUMN_ROW = 40  # Intentional float64: float64 block, its sorted copy, the sort workspace and the comparison temporaries
 _BUDGET_FRACTION = 0.2
 _COMPARE_COLUMNS = 8
 
@@ -31,13 +32,13 @@ def _block_columns(cp: Any, n_rows: int, n_cols: int) -> int:
         limit = int(pool.get_limit())
         room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))
     except Exception as exc:
-        logger.debug("nan quantile codes: free memory unknown (%s)", exc)
+        log_throttle(logger, "_gpu_nan_quantile_codes.except_33", logging.INFO, "nan quantile codes: free memory unknown (%s)", exc)
         return 16
     return int(max(4, min(n_cols, (_BUDGET_FRACTION * room) // (_BYTES_PER_COLUMN_ROW * max(1, n_rows)))))
 
 
 def nan_aware_quantile_codes_gpu(cand: Any, nbins: int) -> Any:
-    """``(n, K)`` int32 codes (resident) of the columns of the resident float64 matrix ``cand`` ``(n, K)``, NaN-aware as the host binner; ``None`` when a column has fewer than two non-NaN values or an infinite one."""
+    """``(n, K)`` int32 codes (resident) of the columns of the resident double matrix ``cand`` ``(n, K)``, NaN-aware as the host binner; ``None`` when a column has fewer than two non-NaN values or an infinite one."""
     import cupy as cp
 
     n, k = int(cand.shape[0]), int(cand.shape[1])
@@ -55,7 +56,7 @@ def nan_aware_quantile_codes_gpu(cand: Any, nbins: int) -> Any:
         if bool(cp.any(cp.isinf(xb))) or int(valid.min()) < 2:
             return None
         xs = device_sort(xb, axis=1)
-        pos = (valid - 1)[:, None].astype(cp.float64) * qs[None, :]  # (kb, n_edges)
+        pos = (valid - 1)[:, None].astype(cp.float64) * qs[None, :]  # Intentional float64: (kb, n_edges)
         lo = cp.floor(pos).astype(cp.int64)
         gamma = pos - lo
         a = cp.take_along_axis(xs, lo, axis=1)

@@ -62,7 +62,7 @@ def _basis_matrix_gpu(cp, x, degree: int, basis_id: int):
         return B
     # float32 overflows past about 3.4e38 (a |z|=40 operand at degree 25 is already inf there, and the candidate would be dropped); the same
     # recurrence in float64 keeps it finite, so the basis is rebuilt in double only when float32 cannot represent it.
-    return _build_basis(cp, x, degree, basis_id, cp.float64)
+    return _build_basis(cp, x, degree, basis_id, cp.float64)  # Intentional float64: the polynomial basis is built in double, as the host optimiser does
 
 
 def _build_basis(cp, x, degree: int, basis_id: int, dtype):

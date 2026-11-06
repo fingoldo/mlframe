@@ -25,7 +25,7 @@ def test_converted_operand_is_served_from_the_cache(monkeypatch):
     monkeypatch.setattr(ro, "_content_hash_memoized", counting)
     first = ro.resident_operand(col, ("gate_op", "c"), dtype=cp.float64)
     again = [ro.resident_operand(col, ("gate_op", "c"), dtype=cp.float64) for _ in range(2)]
-    assert all(g is first for g in again)
+    assert len(again) > 0 and all(g is first for g in again)
     assert first.dtype == cp.float64
     np.testing.assert_array_equal(cp.asnumpy(first), col.astype(np.float64))
     assert all(hashed)  # the caller's array is what gets hashed, so the memo can serve it

@@ -57,6 +57,7 @@ import pandas as pd
 from ._internals import group_key_strings
 from ._y_encoding import encode_y_for_classif_mi
 from typing import TYPE_CHECKING
+from mlframe.utils.log_throttle import log_throttle
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -249,7 +250,7 @@ def generate_grouped_quantile_features(
                 if fin.size >= _MIN_GROUP_SIZE:
                     # one stable argsort gives the sorted values AND the rank position of every member, so the group's own values need no binary search
                     # (a radix order of the finite values: the same permutation as the stable comparison argsort, about 3 times faster)
-                    order = radix_order_f64(np.ascontiguousarray(fin, dtype=np.float64))
+                    order = radix_order_f64(np.ascontiguousarray(fin, dtype=np.float64))  # Intentional float64: radix_order_f64 takes float64 keys
                     sv = fin[order]
                     pct_vals = _member_pct_ranks(order, sv, vals, finite)
                     # Same linear-interpolation quantiles as np.quantile(fin, q), read off the sorted array (exact, no second partition per call).
@@ -644,7 +645,7 @@ def _grouped_quantile_mi_device(eng_X: pd.DataFrame, eng_cols: list, y_bin: np.n
             del Xd
         return out
     except Exception as exc:
-        logger.debug("grouped-quantile device MI not used (%s: %s); host binner", type(exc).__name__, exc)
+        log_throttle(logger, "_grouped_quantile_fe.except_646", logging.WARNING, "grouped-quantile device MI not used (%s: %s); host binner", type(exc).__name__, exc)
         return {}
 
 
@@ -767,7 +768,7 @@ def _grouped_quantile_block_cols(X: pd.DataFrame, group_cols, num_cols) -> "int 
 
         budget = int(psutil.virtual_memory().available) // 4
     except Exception as exc:
-        logger.debug("grouped quantile blocks: available RAM unreadable (%r); one block", exc)
+        log_throttle(logger, "_grouped_quantile_fe.except_769", logging.INFO, "grouped quantile blocks: available RAM unreadable (%r); one block", exc)
         return None
     if len(group_cols) * len(num_cols) * per_num <= budget:
         return None

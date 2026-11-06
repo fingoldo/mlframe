@@ -31,10 +31,10 @@ def smart_log_anchor(src_name: str, nested: Any, X: Any, memo: dict) -> Optional
             parent = nested
             if getattr(parent, "quantization", None) is not None:
                 parent = dataclasses.replace(parent, quantization=None)
-            operand = np.asarray(apply_recipe(parent, X), dtype=np.float64)
+            operand = np.asarray(apply_recipe(parent, X), dtype=np.float64)  # Intentional float64: replay shifts the float64 operand
         else:
             col = X[src_name]
-            operand = np.asarray(col.values if hasattr(col, "values") else col, dtype=np.float64)  # float64: replay shifts the float64 operand, a float32 minimum is off by more than the 1e-5 margin
+            operand = np.asarray(col.values if hasattr(col, "values") else col, dtype=np.float64)  # Intentional float64: float64: replay shifts the float64 operand, a float32 minimum is off by more than the 1e-5 margin
         mn = float(np.nanmin(operand))
         value = (1e-5 - mn) if mn <= 0 else 0.0
     except Exception as e:

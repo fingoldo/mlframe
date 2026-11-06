@@ -376,7 +376,7 @@ def test_mrmr_real_100k(tmp_path):
     #    that it RETURNS a usable selection rather than running unbounded at 10k
     #    columns.
     max_allowed_s = budget_mins * 60 * 2.5 + 120
-    assert fit_s <= max_allowed_s, f"MRMR fit took {fit_s:.0f}s, exceeding bounded budget {max_allowed_s:.0f}s"
+    assert fit_s <= max_allowed_s, f"MRMR fit took {fit_s:.0f}s, exceeding bounded budget {max_allowed_s:.0f}s"  # audit-exempt: wall_clock_assertion -- the contract under test is a bounded runtime for a soft max_runtime_mins budget, with a 2.5x allowance
     # 2) non-empty and PARSIMONIOUS (<< n_cols).
     assert n_sel >= 1, "MRMR selected nothing"
     assert n_sel <= max(50, n_cols // 100), f"MRMR not parsimonious: selected {n_sel} of {n_cols}"

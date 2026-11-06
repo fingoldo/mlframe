@@ -28,4 +28,4 @@ def test_gpu_busy_probe_never_starts_a_bare_nvidia_smi(monkeypatch, tmp_path):
     result = utilization._gpu_busy_percent()
 
     assert math.isnan(result)
-    assert all(os.path.isabs(exe) for exe in started), started
+    assert not [exe for exe in started if not os.path.isabs(exe)], started  # no process may start by a bare name (none starting at all is fine)

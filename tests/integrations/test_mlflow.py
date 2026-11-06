@@ -263,7 +263,7 @@ def test_embed_website_to_mlflow_replaces_a_symlink_instead_of_following_it(tmp_
     victim = tmp_path / "victim.txt"
     victim.write_text("keep", encoding="utf-8")
     link = tmp_path / "embed.html"
-    try:
+    try:  # audit-exempt: except_skip_masks_call_under_test -- only the symlink creation is guarded, the skip names a host without symlink rights
         os.symlink(victim, link)
     except (OSError, NotImplementedError):
         pytest.skip("symlinks are not available here")

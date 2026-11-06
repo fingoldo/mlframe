@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 
 from ._linear_cv_loss import cv_loss
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ def drop_forms_not_beating_their_sides(candidates: list, X: Any, y: np.ndarray, 
             form_loss = cv_loss(cand.values, y, classification, n_folds, seed)
             side_loss = min(cv_loss(s, y, classification, n_folds, seed) for s in sides)
         except Exception as exc:
-            logger.warning("pure-form side check skipped for %s, so the candidate is kept unchecked: %s", getattr(cand, "name", "?"), exc)
+            log_throttle(logger, "fe_pure_form_sides.check_skipped", logging.WARNING, "pure-form side check skipped for %s, so the candidate is kept unchecked: %s", getattr(cand, "name", "?"), exc)
             keep.append(True)
             continue
         beats = form_loss < (1.0 - improve_rel) * side_loss

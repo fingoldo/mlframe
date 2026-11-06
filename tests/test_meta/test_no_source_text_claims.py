@@ -27,10 +27,7 @@ _BASELINE_PATH = Path(__file__).resolve().parent / "_source_text_baseline.json"
 
 # File -> why its source-text checks are accepted as a whole. Carried over from test_no_inspect_getsource's WHITELIST
 # with each group's reason; files that no longer read source were dropped.
-_ALLOWLIST: dict[str, str] = {
-    "feature_selection/mrmr/test_audit_verification_gaps.py": "Documented known-debt (148 call sites across 28 files, 2026-07): each asserts on prod source text -- comment-marker presence/count, exact log-message wording, or the literal shape of a closure body -- rather than runtime behaviour. 34 sibling sites in this same audit-file family were already converted to behavioural tests with empirical bug-reproduction verification; these remaining sites need either heavy fixtures (Lightning networks, thread-pool Futures in a specific pending state) or have no behavioural equivalent at all (a pure comment-marker-count check). Listed explicitly, mirroring SOURCE_POSITION_PROXY_WHITELIST below, so the gate stays live for NEW test files while tracking this remainder rather than silently passing.",
-    "training/test_audit_numpy_view_copy_contracts.py": "Documented known-debt (148 call sites across 28 files, 2026-07): each asserts on prod source text -- comment-marker presence/count, exact log-message wording, or the literal shape of a closure body -- rather than runtime behaviour. 34 sibling sites in this same audit-file family were already converted to behavioural tests with empirical bug-reproduction verification; these remaining sites need either heavy fixtures (Lightning networks, thread-pool Futures in a specific pending state) or have no behavioural equivalent at all (a pure comment-marker-count check). Listed explicitly, mirroring SOURCE_POSITION_PROXY_WHITELIST below, so the gate stays live for NEW test files while tracking this remainder rather than silently passing.",
-}
+_ALLOWLIST: dict[str, str] = {}
 
 
 def test_no_new_source_text_claims():

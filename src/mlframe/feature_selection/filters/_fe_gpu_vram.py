@@ -114,7 +114,7 @@ def _own_pool_free_bytes() -> int:
 
         return int(cp.get_default_memory_pool().free_bytes())
     except Exception as exc:
-        logger.debug("cupy pool free bytes unreadable (%r); 0", exc)
+        log_throttle(logger, "_fe_gpu_vram.except_116", logging.INFO, "cupy pool free bytes unreadable (%r); 0", exc)
         return 0
 
 
@@ -295,3 +295,21 @@ __all__ = [
     "fe_gpu_has_vram_cushion",
     "ensure_fe_gpu_pool_limit",
 ]
+
+
+def pool_column_block(cp, n_rows: int, *, bytes_per_column_row: int, budget_fraction: float, min_block: int, fallback: int, what: str, max_block: "int | None" = None) -> int:
+    """Columns per launch such that a block's temporaries (``bytes_per_column_row`` per row of a column) stay within ``budget_fraction`` of what the memory pool can still
+    hand out (the smaller of the device's free memory plus the pool's cached bytes, and the pool limit minus its used bytes); at least ``min_block`` and, when given, at
+    most ``max_block``. ``fallback`` is returned when the device's memory cannot be read; ``what`` names the caller in that debug line."""
+    try:
+        pool = cp.get_default_memory_pool()
+        free_device = int(cp.cuda.runtime.memGetInfo()[0]) + int(pool.free_bytes())
+        limit = int(pool.get_limit())
+        room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))
+    except Exception as exc:
+        logger.debug("%s: free memory unknown (%s); small blocks", what, exc)
+        return fallback
+    width = (budget_fraction * room) // (bytes_per_column_row * max(1, n_rows))
+    if max_block is not None:
+        width = min(max_block, width)
+    return int(max(min_block, width))

@@ -88,7 +88,9 @@ def per_fold_stability_select(
             weighted[f] += w
         per_fold.append(dict(fold=fold, selected=list(chosen), fidelity=fidelities[fold]))
 
-    total_w = float(sum(weights)) or 1.0
+    total_w = float(sum(weights))
+    if total_w == 0.0:
+        total_w = 1.0
     frequency = {f: v / total_w for f, v in weighted.items()}
     ensemble = sorted([f for f, fr in frequency.items() if fr >= vote_threshold])
     return dict(frequency=frequency, ensemble=ensemble, per_fold=per_fold, n_folds=n_folds)

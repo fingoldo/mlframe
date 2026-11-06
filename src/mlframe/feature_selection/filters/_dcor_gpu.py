@@ -13,11 +13,12 @@ from typing import Any, Optional
 import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
 _SRC = r"""
-// dtype-ok: reviewed 2026-11-05: float32 values with double sums measured 45 ms against 46-49 ms (no gain, the double accumulations set the time); the host loads float64 on purpose (dvar2_x is a cancellation).
+// dtype-ok: Intentional float64, reviewed 2026-11-05: float32 values with double sums measured 45 ms against 46-49 ms (no gain, the double accumulations set the time); the host loads float64 on purpose (dvar2_x is a cancellation).
 extern "C" __global__ void dcor_cols(const double* __restrict__ xs, const double* __restrict__ b, const int m, const int k, double* __restrict__ sums) {
     extern __shared__ double sm[];
     double* sx = sm;                     // this column's m values
@@ -101,7 +102,7 @@ def dcor_columns_gpu(xs: np.ndarray, b: np.ndarray) -> "Optional[tuple[np.ndarra
             dvar2[start:stop] = (sq - 2.0 * m * sum_r2 + mm * g * g) / mm  # moment-ok: distances are translation-invariant, as in the host kernel
         return dcov2, dvar2
     except Exception as exc:
-        logger.debug("device dCor not used (%s: %s); host kernel", type(exc).__name__, exc)
+        log_throttle(logger, "_dcor_gpu.except_103", logging.WARNING, "device dCor not used (%s: %s); host kernel", type(exc).__name__, exc)
         return None
 
 
@@ -120,7 +121,7 @@ def dcor_backend(m: int, k: int) -> str:
         if cp.cuda.runtime.getDeviceCount() < 1:
             return "cpu"
     except Exception as _silent_exc:
-        logger.debug("_dcor_gpu.py: suppressed %r", _silent_exc)
+        log_throttle(logger, "_dcor_gpu.except_122", logging.INFO, "_dcor_gpu.py: suppressed %r", _silent_exc)
         return "cpu"
     fallback = "device" if int(k) * int(m) * int(m) >= _DCOR_DEVICE_MIN_WORK else "cpu"
     try:
@@ -168,7 +169,7 @@ def _run_dcor_sweep():
         """Random columns and a double-centred binary-label distance matrix."""
         m, k = int(dims["m"]), int(dims["k"])
         rng = np.random.default_rng(0)
-        return (np.ascontiguousarray(rng.standard_normal((k, m))), np.ascontiguousarray(_u_centered_distance_matrix(rng.integers(0, 2, m).astype(np.float64))))
+        return (np.ascontiguousarray(rng.standard_normal((k, m))), np.ascontiguousarray(_u_centered_distance_matrix(rng.integers(0, 2, m).astype(np.float64))))  # Intentional float64: the statistic is computed in double
 
     return list(
         sweep_backend_grid(

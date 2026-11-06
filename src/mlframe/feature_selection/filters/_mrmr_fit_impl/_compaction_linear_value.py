@@ -16,6 +16,7 @@ from typing import Any, Optional
 import numpy as np
 
 from .._linear_cv_loss import cv_loss
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,6 @@ def make_linear_value_check(self: Any, X: Any, recipes_by_name: dict, seed: int 
         if is_clf and classes.size < 2:
             return None
     except Exception as exc:
-        logger.debug("compaction linear-value check unavailable: %s", exc)
+        log_throttle(logger, "_compaction_linear_value.except_115", logging.INFO, "compaction linear-value check unavailable: %s", exc)
         return None
     return LinearValueCheck(X, recipes_by_name, y, rows, is_clf, seed, n_folds, replay_candidate_continuous, apply_recipe)

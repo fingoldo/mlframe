@@ -179,7 +179,7 @@ def _count_within_eps(arr_1d: np.ndarray, eps: np.ndarray) -> np.ndarray:
 
 def _jitter_ties(v: np.ndarray, intens: float, rng: np.random.Generator) -> np.ndarray:
     """``v`` centred, with tie-breaking noise of relative size ``intens`` (MI is invariant to the shift)."""
-    centred = np.asarray(v, dtype=np.float64) - float(np.mean(v))
+    centred = np.asarray(v, dtype=np.float64) - float(np.mean(v))  # Intentional float64: the KSG distances are computed in double
     spread = float(np.std(centred))
     return centred + intens * (spread if spread > 0.0 else 1.0) * rng.standard_normal(centred.shape[0])
 

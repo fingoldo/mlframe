@@ -22,7 +22,7 @@ import numpy as np
 
 _RADIX_SELECT_F64_SRC = r"""
 #define MAXR 64
-// dtype-ok: reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.
+// dtype-ok: Intentional float64, reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.
 extern "C" __global__
 void radix_select_f64(const double* __restrict__ data, const long long n, const int K,
                       const long long* __restrict__ ranks, const int R, double* __restrict__ out){
@@ -358,7 +358,7 @@ def tiled_transpose_blocks(n: int, K: int) -> int:
 # cp.ascontiguousarray(cand.T) fallback below at ~0.5 GB/s (uncoalesced on both sides). Same 32x33 padded
 # tile as the f32 kernel; bit-identical bytes, ~2 orders of magnitude faster on that shape.
 _TRANSPOSE_F64_SRC = r"""
-// dtype-ok: reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.
+// dtype-ok: Intentional float64, reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.
 extern "C" __global__
 void transpose_f64(const double* __restrict__ in, double* __restrict__ out,
                    const long long n, const int K) {
@@ -537,7 +537,7 @@ def _get_radix_select_kernel(is_f32: bool):
 # _radix_select_interior_edges path; the f32 variants + the cp.percentile fallback keep the two-kernel route.
 _RADIX_SELECT_INTERP_F64_SRC = r"""
 #define MAXR 64
-// dtype-ok: reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.
+// dtype-ok: Intentional float64, reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.
 extern "C" __global__
 void radix_select_interp_f64(const double* __restrict__ data, const long long n, const int K,
                       const long long* __restrict__ ranks, const int R,
@@ -599,7 +599,7 @@ _RADIX_SELECT_INTERP_F64_KERNEL = None
 # -> BIT-IDENTICAL interior edges. Original kept as the automatic fallback on any compile/launch failure.
 _RADIX_SELECT_INTERP_F64_V2_SRC = r"""
 #define MAXR 64
-// dtype-ok: reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.
+// dtype-ok: Intentional float64, reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.
 extern "C" __global__
 void radix_select_interp_f64_v2(const double* __restrict__ data, const long long n, const int K,
                       const long long* __restrict__ ranks, const int R,
@@ -671,7 +671,7 @@ _RADIX_SELECT_INTERP_F64_V2_KERNEL = None
 # on compile/launch/alloc failure and via MLFRAME_RADIX_F64_V3=0.
 _RADIX_SELECT_INTERP_F64_V3_SRC = r"""
 #define MAXR 64
-// dtype-ok: reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.
+// dtype-ok: Intentional float64, reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.
 extern "C" __global__
 void radix_select_interp_f64_v3(const double* __restrict__ data, const long long n, const int K,
                       const long long* __restrict__ ranks, const int R,
@@ -896,7 +896,7 @@ def radix_interp_get_or_build(key: tuple, build: Callable[[], Any]) -> Any:
 
 
 _RADIX_INTERP_SRC = r"""
-// dtype-ok: reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.
+// dtype-ok: Intentional float64, reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.
 extern "C" __global__
 void radix_interp(const double* __restrict__ osv, const long long* __restrict__ bi,
                   const long long* __restrict__ ai, const double* __restrict__ w,

@@ -19,6 +19,7 @@ import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 from ._fe_usability_signal import _crit_np_dtype
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ def _observed_from_noise_gate(batches: Sequence[Any], y: np.ndarray) -> "Optiona
             out[i] = vec[int(j)]
         return out
     except Exception as exc:
-        logger.debug("the noise gate's observed MI is not usable for the family gate (%s: %s); computing it", type(exc).__name__, exc)
+        log_throttle(logger, "_family_maxt_gate_device.except_65", logging.WARNING, "the noise gate's observed MI is not usable for the family gate (%s: %s); computing it", type(exc).__name__, exc)
         return None
 
 

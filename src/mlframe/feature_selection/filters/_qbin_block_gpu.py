@@ -16,6 +16,7 @@ from collections.abc import Sequence
 import numpy as np
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 from typing import Any
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ def sync_free_qbin_codes_block(cp: Any, xd: Any, nbins: int) -> "Any":
     excl = (e == emin) | dup | (has_interior & (e == emax))
     kept = cp.where(excl, cp.inf, e)
     out = cp.empty((k, n), dtype=cp.int64)
-    if kept.dtype == cp.float64 and xd.dtype in (cp.float32, cp.float64):
+    if kept.dtype == cp.float64 and xd.dtype in (cp.float32, cp.float64):  # Intentional float64: the quantile-bin block kernel reads float32 or float64 columns
         # one thread per value counts the kept edges <= x (the comparison in double precision, as the broadcast below does after its cast): the same integer,
         # without the (columns, edges, rows) boolean temporary and its reduction
         _count_kernel(cp)(cp.ascontiguousarray(xd), cp.ascontiguousarray(kept), np.int64(n), np.int32(kept.shape[1]), out, size=k * n)  # Intentional float64: the kept edges are double
@@ -69,7 +70,7 @@ def _order_statistics_rows(cp, xd, n: int, nbins: int):
     The ranks are formed on the host with the device expression's formula, so no value is read back; ``MLFRAME_QBIN_BLOCK_RADIX=0`` keeps the sort."""
     import os
 
-    if os.environ.get("MLFRAME_QBIN_BLOCK_RADIX", "1").strip() == "0" or xd.dtype not in (cp.float32, cp.float64) or not xd.flags.c_contiguous or n < 1:
+    if os.environ.get("MLFRAME_QBIN_BLOCK_RADIX", "1").strip() == "0" or xd.dtype not in (cp.float32, cp.float64) or not xd.flags.c_contiguous or n < 1:  # Intentional float64: the quantile-bin block kernel reads float32 or float64 columns
         return None
     try:
         from ._gpu_resident_select_kernels import _RADIX_SELECT_MAXR, _RADIX_STATIC_SHARED_BYTES, _get_radix_select_f32_dispatch, _get_radix_select_kernel, _resolve_radix_threads
@@ -93,7 +94,7 @@ def _order_statistics_rows(cp, xd, n: int, nbins: int):
         hi_rows = cp.asarray([row[int(v)] for v in hi], dtype=cp.int64)
         return osv[lo_rows].T, osv[hi_rows].T
     except Exception as exc:
-        logger.debug("radix order statistics for the qbin block not used (%s: %s); sorting", type(exc).__name__, exc)
+        log_throttle(logger, "_qbin_block_gpu.except_95", logging.INFO, "radix order statistics for the qbin block not used (%s: %s); sorting", type(exc).__name__, exc)
         return None
 
 
@@ -108,7 +109,7 @@ def _count_kernel(cp):
         if kern is not None:
             return kern
         kern = cp.ElementwiseKernel(
-            "raw X x, raw float64 kept, int64 n, int32 ne",
+            "raw X x, raw float64 kept, int64 n, int32 ne",  # Intentional float64: the quantile-bin block kernel reads float32 or float64 columns
             "raw int64 out",
             """
             const long long j = i / n;
@@ -131,7 +132,7 @@ def _block_columns(cp, n_rows: int, n_cols: int) -> int:
         limit = int(pool.get_limit())
         room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))
     except Exception as exc:
-        logger.debug("qbin block: free memory unknown (%s); small blocks", exc)
+        log_throttle(logger, "_qbin_block_gpu.except_133", logging.INFO, "qbin block: free memory unknown (%s); small blocks", exc)
         return 8
     return int(max(1, min(n_cols, (0.25 * room) // (_SORT_BYTES_PER_ROW_COLUMN * max(1, n_rows)))))
 
@@ -177,7 +178,7 @@ def resident_qbin_codes_block(columns: Sequence[np.ndarray], nbins: int, dtype: 
                         ro._FE_RESIDENT_QBIN_CODES.popitem(last=False)
             del block, narrow
     except Exception:
-        logger.debug("batched device quantile binning failed; per-column path", exc_info=True)
+        log_throttle(logger, "_qbin_block_gpu.except_179", logging.WARNING, "batched device quantile binning failed; per-column path", exc_info=True)
         return None
     return codes
 
@@ -208,7 +209,7 @@ def group_mi_block_gpu(columns: Sequence[np.ndarray], y_codes: np.ndarray, nbins
         mi = binned_mi_from_values_gpu(None, edges, cp.asarray(y), int(nbins), int(y.max()) + 1, x_cm=xd)
         return None if mi is None else np.asarray(mi, dtype=np.float64)  # Intentional float64: MI statistic vector
     except Exception:
-        logger.debug("batched device group MI failed; per-column path", exc_info=True)
+        log_throttle(logger, "_qbin_block_gpu.except_210", logging.WARNING, "batched device group MI failed; per-column path", exc_info=True)
         return None
 
 

@@ -34,7 +34,7 @@ def test_lazy_columns_match_device_codes_without_filling_host():
     host, ref, chunk = _deferred_chunk()
     assert isinstance(chunk, ChunkCodes)
     cols = [code_column(chunk, j) for j in (5, 1, 5)]
-    assert all(isinstance(c, LazyCodeColumn) and c.shape == (40, 1) for c in cols)
+    assert len(cols) > 0 and all(isinstance(c, LazyCodeColumn) and c.shape == (40, 1) for c in cols)
     got = resolve_code_columns(cols)
     for g, j in zip(got, (5, 1, 5)):
         np.testing.assert_array_equal(g, ref[:, j : j + 1])

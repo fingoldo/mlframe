@@ -35,7 +35,7 @@ def test_a_symlink_is_not_followed_for_deletion(tmp_path):
     td = tmp_path / "td"
     td.mkdir()
     link = td / "snap.cbsnapshot"
-    try:
+    try:  # audit-exempt: except_skip_masks_call_under_test -- only the symlink creation is guarded, the skip names a host without symlink rights
         os.symlink(target, link)
     except (OSError, NotImplementedError):
         pytest.skip("symlinks are not available here")

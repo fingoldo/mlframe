@@ -126,7 +126,7 @@ def brute_force_top_n_cpu_ref(
     ``brute_force_top_n``; used to assert GPU/CPU bit-identity and as the OOM fallback that matches the
     GPU kernel exactly. The faster default CPU path remains the incremental ``brute_force_top_n``.
 
-    This scan always accumulates in float64, like the GPU kernel. ``brute_force_top_n`` accumulates in the configured criterion dtype
+    This scan always accumulates in double, like the GPU kernel. ``brute_force_top_n`` accumulates in the configured criterion dtype
     (float32 by default), so the two agree to float32 rounding and may order near-tied subsets differently; only this function is bit-identical to the GPU."""
     metric_name = resolve_metric(classification, metric)
     if metric_name == "auc":

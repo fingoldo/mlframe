@@ -31,18 +31,20 @@ def test_quantile_is_exact_without_a_stop_and_a_bound_with_one():
     rng = np.random.default_rng(5)
     strong, noise, y, s = _codes(rng)
     n_perm, quantile = 400, 1.0 - 0.01 / 20
-    for x, expect_stop in ((strong, False), (noise, True)):
+
+    def _run(x):
+        """``(cmi, bound-or-quantile, quantile of the full null)`` of one candidate."""
         cmi = T._stratified_cmi(x, y, s)
         seed = permutation_seed(np.random.default_rng([1, 2]))
         full = stratified_cmi_null(x, y, s, permutation_sources_chunk(s, 0, n_perm, seed), 30)
-        full_q = float(np.quantile(full, quantile))
-        got = T._null_quantile_or_bound(x, y, s, s, cmi, n_perm, quantile, seed)
-        if expect_stop:
-            assert got >= cmi
-            assert (cmi - got) <= 0.0 and (cmi - full_q) <= 1e-12  # the full null gives a non-positive gain too
-        else:
-            assert got == full_q
-            assert cmi - full_q > 0.0
+        return cmi, T._null_quantile_or_bound(x, y, s, s, cmi, n_perm, quantile, seed), float(np.quantile(full, quantile))
+
+    cmi, got, full_q = _run(strong)
+    assert got == full_q
+    assert cmi - full_q > 0.0
+    cmi, got, full_q = _run(noise)
+    assert got >= cmi
+    assert (cmi - got) <= 0.0 and (cmi - full_q) <= 1e-12  # the full null gives a non-positive gain too
 
 
 def test_winners_match_the_full_null():

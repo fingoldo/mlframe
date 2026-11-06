@@ -99,6 +99,9 @@ def test_sec2_deserialize_propagates_io_error_not_pickle_fallback(tmp_path, monk
 
     payload = tmp_path / "cached.npz"
     payload.write_bytes(b"placeholder")
+    from mlframe.utils.safe_pickle import write_sidecar
+
+    write_sidecar(str(payload))  # the read is verified before np.load runs
 
     def _raise(*args, **kwargs):
         """Stand-in for np.load that fails with the parametrised I/O error."""

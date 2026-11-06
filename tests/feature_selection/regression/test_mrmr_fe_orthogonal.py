@@ -778,17 +778,38 @@ def test_regression_build_raw_redundancy_anchors_no_engineered_survivors_early_r
 def test_regression_polynom_pair_fe_x_assignment_before_list_append():
     """Post-fix: the X column assignment happens BEFORE _new_data_cols.append, so a raise during
     assignment leaves the survivor lists untouched (no orphaned column baked into data/nbins)."""
-    import inspect
+    import ast
     import sys
 
     from mlframe.feature_selection.filters.polynom_pair_fe import run_polynom_pair_fe
 
-    src = inspect.getsource(
-        sys.modules[run_polynom_pair_fe.__module__]
-    )  # the step is split into module-level helpers; the pinned statement lives in one of them
-    assign_pos = src.index("X[_new_col_name] = _t_vals")
-    append_pos = src.index("_new_data_cols.append(_new_binned)")
-    assert assign_pos < append_pos, "X column assignment must happen before the survivor-list append"
+    # the step is split into module-level helpers; the pinned statements live in one of them
+    with open(sys.modules[run_polynom_pair_fe.__module__].__file__, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    checked = 0
+    for fn in (n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
+        assigns = [
+            n.lineno
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Assign)
+            and any(isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name) and t.value.id == "X" and isinstance(t.slice, ast.Name) and t.slice.id == "_new_col_name" for t in n.targets)
+        ]
+        appends = [
+            n.lineno
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "append"
+            and isinstance(n.func.value, ast.Name)
+            and n.func.value.id == "_new_data_cols"
+            and n.args
+            and isinstance(n.args[0], ast.Name)
+            and n.args[0].id == "_new_binned"
+        ]
+        if assigns and appends:
+            checked += 1
+            assert max(assigns) < min(appends), "X column assignment must happen before the survivor-list append"
+    assert checked, "the assignment and the survivor-list append were not found in one function"
 
 
 # ---------------------------------------------------------------------------

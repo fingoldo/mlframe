@@ -439,7 +439,7 @@ def fit_binned_numeric_agg(
         if fe_deadline_passed():
             break
         # Float64 for binning: the device path bins at float64, and float32 collapses nearby group values onto one edge.
-        gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)
+        gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)  # Intentional float64: the group and aggregated columns keep the float64 the host binner reads
         if not np.isfinite(gvals).all():
             continue  # v1 skips NaN-bearing group columns (quantile-edge replay has no NaN bin)
         nbins, kept_stats = resolve_nbins_and_stats(n, stats, nbins_base, k=1)
@@ -457,7 +457,7 @@ def fit_binned_numeric_agg(
                 continue  # PRE-CAP: only compute OOF for the kept top-max_pairs (bit-identical output)
             _avc = _av_cache.get(acol)
             if _avc is None:
-                av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
+                av = np.asarray(X[acol].to_numpy(), dtype=np.float64)  # Intentional float64: the group and aggregated columns keep the float64 the host binner reads
                 finite = np.isfinite(av)
                 finite_count = int(np.count_nonzero(finite))
                 _av_cache[acol] = (av, finite, finite_count)

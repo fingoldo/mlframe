@@ -15,6 +15,8 @@ from typing import cast
 
 import numpy as np
 
+from ._ktc_fallback import device_from_rows
+
 logger = logging.getLogger(__name__)
 
 #: Fallback crossover when the cache has no entry: the MI binning of the device (edge selection) and of the host differ visibly on frames of a few hundred rows; speed favours the device from 2000 rows.
@@ -76,9 +78,9 @@ def _run_sweep() -> list:
     )
 
 
-def _fallback_choice(n_samples: int) -> str:
+def _basis_cells_fallback_choice(n_samples: int) -> str:
     """Pre-sweep fallback: the measured crossover."""
-    return "device" if int(n_samples) >= BASIS_CELLS_DEVICE_FALLBACK_ROWS else "host"
+    return device_from_rows(n_samples, BASIS_CELLS_DEVICE_FALLBACK_ROWS)
 
 
 try:
@@ -89,7 +91,7 @@ try:
         variant_fns=(),  # GPU-only cupy path; covered by salt
         tuner=_run_sweep,
         axes={"n_samples": list(_SWEEP_ROWS)},
-        fallback=_fallback_choice,
+        fallback=_basis_cells_fallback_choice,
         gpu_capable=True,
         salt=_SALT,
         cli_label="fe_basis_cells_device",
@@ -105,9 +107,9 @@ def use_device_cells(n_rows: int) -> bool:
     if forced in ("0", "1"):
         return forced == "1"
     if _SPEC is None:
-        return _fallback_choice(n_rows) == "device"
+        return _basis_cells_fallback_choice(n_rows) == "device"
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
         logger.debug("fe_basis_cells_device: KTC choose() failed, using the fallback: %s", exc)
-        return _fallback_choice(n_rows) == "device"
+        return _basis_cells_fallback_choice(n_rows) == "device"

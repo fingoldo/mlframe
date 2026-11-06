@@ -305,7 +305,7 @@ def _conditioning_is_all_singletons(z_joint: Any, n_rows: int) -> bool:
         z = np.asarray(z_joint.get() if hasattr(z_joint, "get") else z_joint).ravel()
         return int(z.shape[0]) == n_rows and int(np.unique(z).size) == n_rows
     except Exception as exc:
-        logger.debug("conditioning-support check failed (%s); scoring on the device", exc)
+        log_throttle(logger, "_mi_greedy_cmi_fe.except_307", logging.WARNING, "conditioning-support check failed (%s); scoring on the device", exc)
         return False
 
 

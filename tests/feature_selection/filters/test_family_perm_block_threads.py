@@ -24,7 +24,7 @@ def test_rows_are_permutations_and_thread_count_is_irrelevant():
     finally:
         numba.set_num_threads(many)
     np.testing.assert_array_equal(one, par)
-    assert all(np.array_equal(np.sort(row), np.arange(700)) for row in par)
+    assert len(par) > 0 and all(np.array_equal(np.sort(row), np.arange(700)) for row in par)
     assert not np.array_equal(par[0], par[1])
 
 

@@ -32,5 +32,6 @@ def test_equals_percentile(dtype, n_bins, k):
 def test_single_launch_declines_many_bins():
     """The reason for the grouping: one radix launch does not take 64 bins on a 48 KB shared-memory card."""
     X = cp.asarray(np.random.default_rng(0).standard_normal((5000, 3)).astype(np.float32))
-    if int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024)) <= 48 * 1024:
-        assert _radix_select_interior_edges(X, 64) is None
+    if int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024)) > 48 * 1024:
+        pytest.skip("the card has more than 48 KB of shared memory per block, so one launch takes 64 bins")
+    assert _radix_select_interior_edges(X, 64) is None

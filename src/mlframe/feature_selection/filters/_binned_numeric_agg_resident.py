@@ -254,14 +254,14 @@ _OOF_GATHER_INTO_KERNELS_LOCK = threading.Lock()
 
 
 def _oof_gather_into_kernel(cp, out_dtype):
-    """Elementwise kernel of the gather above that writes the cast result into a caller-owned output of ``out_dtype`` (float32 or float64): one launch per column
-    where gather-then-assign was two (the gather, then a float64 -> block-dtype copy), and no float64 temporary per column."""
+    """Elementwise kernel of the gather above that writes the cast result into a caller-owned output of ``out_dtype`` (float32 or double): one launch per column
+    where gather-then-assign was two (the gather, then a double -> block-dtype copy), and no double temporary per column."""
     key = cp.dtype(out_dtype).name
     with _OOF_GATHER_INTO_KERNELS_LOCK:
         kern = _OOF_GATHER_INTO_KERNELS.get(key)
         if kern is not None:
             return kern
-        ctype = {"float32": "float", "float64": "double"}[key]
+        ctype = {"float32": "float", "float64": "double"}[key]  # Intentional float64: the statistic is computed in double
         kern = cp.ElementwiseKernel(
             # Intentional float64: the stat table and the fallback keep the table's width; only the written column takes the block dtype
             "int64 idx, raw float64 table, float64 fallback",
@@ -425,7 +425,7 @@ def build_binagg_oof_matrix_gpu(
             fold_stat_cache["tables"] = tables
         row_index = _row_cell_index(cp, code_cache, gcol, fold_g, codes_g, n_cells)
         assert block is not None  # allocated before the first column is written
-        if cp.dtype(dt).name in ("float32", "float64"):
+        if cp.dtype(dt).name in ("float32", "float64"):  # Intentional float64: the statistic is computed in double
             # one launch writes the cast column into its place in the block (the columns ARE the rows of the (K, n) block when column_major: contiguous, nothing to transpose)
             _oof_gather_into_kernel(cp, dt)(row_index, tables[stat].reshape(-1), glob, block[out_i] if column_major else block[:, out_i])
             continue

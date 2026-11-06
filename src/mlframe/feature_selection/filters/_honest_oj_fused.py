@@ -25,6 +25,7 @@ from ._adaptive_nbins import _plug_in_mi_njit
 from ._numba_utils_cross_module import _n_unique_codes, _permuted_codes, _pool_max
 from ._numba_utils_shared import seeded_permutation
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ def _minority_rows(vy, nv, ky):
 @njit(cache=True)
 def _mi_from_minority(xrow, vy_f, rows, n_rows, px, k_x, k_y, cmax, n):
     """``_plug_in_mi_njit(xrow, vy_f, k_x, k_y, False)`` bit for bit: the joint counts of the majority class column are the bin counts ``px`` minus the
-    other classes' (exact integers in float64), so only the minority rows are scattered; Px, Py and the MI sum run in the same order."""
+    other classes' (exact integers in double), so only the minority rows are scattered; Px, Py and the MI sum run in the same order."""
     joint = np.zeros((k_x, k_y), dtype=np.float64)  # Intentional float64: joint-count accumulator for the MI statistic
     for r in range(n_rows):
         i = rows[r]
@@ -263,7 +264,7 @@ def oj_fused_floor(honest_codes_fn: Any, factors_data: np.ndarray, factors_nbins
         floor: Optional[float] = _floor(honest_codes_fn, binner, np.asarray(y_raw), factors_data, factors_nbins, y_idx, cols, n_permutations, quantile, base_seed, eval_rows)
         return floor
     except Exception as exc:
-        logger.debug("fused optimal_joint honest floor not used (%s: %s); per-permutation path", type(exc).__name__, exc)
+        log_throttle(logger, "_honest_oj_fused.except_265", logging.WARNING, "fused optimal_joint honest floor not used (%s: %s); per-permutation path", type(exc).__name__, exc)
         return None
 
 

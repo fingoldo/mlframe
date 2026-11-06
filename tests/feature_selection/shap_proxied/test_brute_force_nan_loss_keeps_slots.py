@@ -24,4 +24,4 @@ def test_nan_feature_loss_does_not_displace_finite_candidates():
 
     combos = sorted(comb for _, comb in result)
     assert combos == [(1,), (2,), (3,)], combos
-    assert all(np.isfinite(loss) for loss, _ in result)
+    assert len(result) > 0 and all(np.isfinite(loss) for loss, _ in result)

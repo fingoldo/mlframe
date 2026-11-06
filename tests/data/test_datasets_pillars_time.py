@@ -43,7 +43,7 @@ def test_the_proxies_are_decoys_and_not_part_of_the_answer_key(conjunction) -> N
     """A proxy is a child of its operand and of nothing else, so the answer key is exactly the three operands."""
     members = set(conjunction.truth.primary_target_set().members)
     assert members == {"A", "B", "C"}
-    assert all(not name.startswith("dec") for name in members)
+    assert len(members) > 0 and all(not name.startswith("dec") for name in members)
     assert sum(1 for c in conjunction.frame.columns if c.startswith("dec")) == 3 * N_PROXY
 
 

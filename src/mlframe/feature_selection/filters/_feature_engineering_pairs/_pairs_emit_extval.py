@@ -33,7 +33,7 @@ _PACKED_FACTORS_LOCK = threading.Lock()
 
 
 def _packed_factor_matrix(factors: Sequence[np.ndarray], n_rows: int) -> np.ndarray:
-    """``(n_rows, E)`` C-contiguous float64 matrix whose column ``e`` is ``factors[e]``.
+    """``(n_rows, E)`` C-contiguous double matrix whose column ``e`` is ``factors[e]``.
 
     The factors of consecutive pairs are the same memoised arrays (24 calls of a 100000 x 100 fit used 5 distinct sets of 106, each set called back to back), so the last matrix is reused when every factor is the identical object. Filling goes through
     contiguous rows of the transpose and one copy: writing each factor as a column of the C-ordered matrix strides over every row (252 factors of 100000 rows: 264 ms against 144 ms)."""

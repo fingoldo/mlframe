@@ -28,6 +28,7 @@ from numba import njit, prange
 from ._numba_utils_cross_module import _few_distinct_levels
 from ._raw_module_cache import RawModuleCache
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
+from ._fe_gpu_vram import pool_column_block
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -188,17 +189,9 @@ def _edge_positions(n: int, n_bins: int) -> "tuple[np.ndarray, np.ndarray, np.nd
     return i0, i1, gamma
 
 
-def _column_block(cp, n_rows: int) -> int:
+def _quantile_codes_column_block(cp, n_rows: int) -> int:
     """Columns per launch within ``_BUDGET_FRACTION`` of what the memory pool can still hand out (at least 4)."""
-    try:
-        pool = cp.get_default_memory_pool()
-        free_device = int(cp.cuda.runtime.memGetInfo()[0]) + int(pool.free_bytes())
-        limit = int(pool.get_limit())
-        room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))
-    except Exception as exc:
-        logger.debug("device quantile codes: free memory unknown (%s); small blocks", exc)
-        return 16
-    return int(max(4, (_BUDGET_FRACTION * room) // (_BYTES_PER_COLUMN_ROW * max(1, n_rows))))
+    return pool_column_block(cp, n_rows, bytes_per_column_row=_BYTES_PER_COLUMN_ROW, budget_fraction=_BUDGET_FRACTION, min_block=4, fallback=16, what="device quantile codes")
 
 
 def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray, method: str = "radix") -> bool:
@@ -217,7 +210,7 @@ def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: 
     i0_dev, i1_dev, gamma_dev = cp.asarray(i0), cp.asarray(i1), cp.asarray(gamma)
     nb1 = int(n_bins) + 1
     w_unique = np.unique(np.concatenate([i0, i1]))
-    block = min(_column_block(cp, n), 256)
+    block = min(_quantile_codes_column_block(cp, n), 256)
     for c0 in range(0, k, block):
         c1 = min(k, c0 + block)
         v_dev = cp.asarray(np.ascontiguousarray(v[c0:c1]))
@@ -272,7 +265,7 @@ def quantile_codes_resident_f32(cp: Any, v_dev: Any, n_bins: int, codes: np.ndar
     nb1 = int(n_bins) + 1
     w_unique = np.unique(np.concatenate([i0, i1]))
     lo_idx, hi_idx = cp.asarray(np.searchsorted(w_unique, i0)), cp.asarray(np.searchsorted(w_unique, i1))
-    block = min(_column_block(cp, n), 256)
+    block = min(_quantile_codes_column_block(cp, n), 256)
     for c0 in range(0, k, block):
         c1 = min(k, c0 + block)
         vb = v_dev[c0:c1]

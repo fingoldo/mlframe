@@ -20,6 +20,7 @@ import pytest
 
 import mlframe
 
+from tests.test_meta._scan_guard import assert_scanned_enough
 from tests.test_meta._shared_ast_cache import parsed_ast, source_text
 
 MLFRAME_DIR = Path(mlframe.__file__).resolve().parent
@@ -95,7 +96,9 @@ def _candidate_files() -> list[Path]:
 def _build_offending_set() -> set[str]:
     """Every hit under ``src/mlframe`` outside the exempt folders."""
     out: set[str] = set()
-    for py in _candidate_files():
+    files = _candidate_files()
+    assert_scanned_enough(len(files), "src/mlframe")
+    for py in files:
         src = source_text(py)
         if src is None or parsed_ast(py) is None:
             continue

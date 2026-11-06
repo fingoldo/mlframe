@@ -355,7 +355,7 @@ def _percentiles_like_numpy(values: np.ndarray, quantiles: np.ndarray) -> np.nda
     """
     col = np.sort(values)
     n = col.shape[0]
-    out = np.empty(quantiles.shape[0], dtype=np.float64)
+    out = np.empty(quantiles.shape[0], dtype=np.float64)  # Intentional float64: quantile edges are returned as float64
     for qi in range(quantiles.shape[0]):
         v = (quantiles[qi] / 100.0) * (n - 1)
         lo = math.floor(v)

@@ -33,7 +33,7 @@ def use_device_cqr(n_rows: int) -> bool:
 
 
 def _rank_device(x_i: np.ndarray, x_j_bins: np.ndarray, with_sorted_bins: bool) -> "tuple[np.ndarray, list[np.ndarray]] | None":
-    """The within-bin percentile rank of ``x_i`` per ``x_j_bins`` value, float64 in ``[0, 1]`` (NaN for a non-finite row); ``None`` on a device fault.
+    """The within-bin percentile rank of ``x_i`` per ``x_j_bins`` value, double in ``[0, 1]`` (NaN for a non-finite row); ``None`` on a device fault.
 
     The result is ``(ranks, sorted_bins)``: ``sorted_bins[c]`` holds the sorted finite values of bin id ``c`` for ``c`` in ``0 .. x_j_bins.max()``, the reference a
     recipe stores (empty for a bin without finite values; the list is empty unless ``with_sorted_bins``)."""
@@ -45,7 +45,7 @@ def _rank_device(x_i: np.ndarray, x_j_bins: np.ndarray, with_sorted_bins: bool) 
         xv = cp.asarray(x_i)
         n = int(xv.shape[0])
         if n == 0:
-            return np.empty(0, dtype=np.float64), []
+            return np.empty(0, dtype=np.float64), []  # Intentional float64: the rank is a ratio of integer counts, exact in double, and the CPU twin returns float64
         finite = cp.isfinite(xv)
         codes = cp.asarray(x_j_bins).astype(cp.int64)
         cmin = codes.min()
@@ -63,7 +63,7 @@ def _rank_device(x_i: np.ndarray, x_j_bins: np.ndarray, with_sorted_bins: bool) 
         end_of_pos = run_ends[run_id]
         counts = cp.bincount(b)
         starts = cp.cumsum(counts) - counts
-        rank_sorted = (end_of_pos - starts[sb]).astype(cp.float64) / counts[sb].astype(cp.float64)
+        rank_sorted = (end_of_pos - starts[sb]).astype(cp.float64) / counts[sb].astype(cp.float64)  # Intentional float64: the rank is a ratio of integer counts, exact in double, and the CPU twin returns float64
         out = cp.empty(n, dtype=cp.float64)
         out[order] = rank_sorted
         out = cp.where(finite, cp.clip(out, 0.0, 1.0), cp.nan)
@@ -82,7 +82,7 @@ def _rank_device(x_i: np.ndarray, x_j_bins: np.ndarray, with_sorted_bins: bool) 
 
 
 def conditional_quantile_rank_device(x_i: np.ndarray, x_j_bins: np.ndarray) -> "np.ndarray | None":
-    """The within-bin percentile rank of ``x_i`` per ``x_j_bins`` value, float64 in ``[0, 1]`` (NaN for a non-finite row); ``None`` on a device fault."""
+    """The within-bin percentile rank of ``x_i`` per ``x_j_bins`` value, double in ``[0, 1]`` (NaN for a non-finite row); ``None`` on a device fault."""
     out = _rank_device(x_i, x_j_bins, False)
     return None if out is None else out[0]
 

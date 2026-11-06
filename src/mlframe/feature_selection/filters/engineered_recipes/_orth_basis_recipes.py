@@ -772,7 +772,7 @@ def freeze_orth_fit_stats(recipes: Any, X: Any) -> int:
         if "nan_fill" in rec.extra:
             continue
         try:
-            col = np.asarray(_extract_column(X, rec.src_names[0]), dtype=np.float64)
+            col = np.asarray(_extract_column(X, rec.src_names[0]), dtype=np.float64)  # Intentional float64: the orthogonal basis recipe is replayed in double
         except (KeyError, ValueError, TypeError):
             continue
         finite = np.isfinite(col)

@@ -104,7 +104,7 @@ def tail_dependence_columns(cols_rows: np.ndarray, y: np.ndarray, *, q: float = 
     with parallel_kernel_entry():
         rows = np.ascontiguousarray(cols_rows)
         _tail_dep_columns_njit(
-            rows, np.ascontiguousarray(v, dtype=np.float64), float(q), out, rows.dtype == np.float32
+            rows, np.ascontiguousarray(v, dtype=np.float64), float(q), out, rows.dtype == np.float32  # Intentional float64: the tail-dependence kernel takes float64 values
         )  # Intentional float64: ranks in double precision
     return out
 

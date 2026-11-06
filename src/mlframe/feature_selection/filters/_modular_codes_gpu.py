@@ -24,6 +24,7 @@ from pyutilz.performance.gpu_hw_launch import block_size_for
 import pandas as pd
 
 from ._raw_module_cache import RawModuleCache
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ _BYTES_PER_SOURCE_ROW = 8  # one double source value per row and source column
 _BUDGET_FRACTION = 0.2
 
 _SRC = r"""
-// dtype-ok: reviewed 2026-11-05: float64 on purpose, floor(v / p) of a timestamp (~1.6e9) is noise at float32 resolution 128; the host uploads float64 explicitly.
+// dtype-ok: Intentional float64, reviewed 2026-11-05: float64 on purpose, floor(v / p) of a timestamp (~1.6e9) is noise at float32 resolution 128; the host uploads float64 explicitly.
 extern "C" __global__ void modular_all_ops(const double* __restrict__ S, const double* __restrict__ P, const long long n, const int n_periods, float* __restrict__ out) {
     const int src = blockIdx.y / n_periods;
     const int ip = blockIdx.y - src * n_periods;
@@ -83,7 +84,7 @@ def _sources_per_block(cp, n_rows: int, per_source: int) -> int:
         limit = int(pool.get_limit())
         room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))
     except Exception as exc:
-        logger.debug("modular device codes: free memory unknown (%s)", exc)
+        log_throttle(logger, "_modular_codes_gpu.except_85", logging.WARNING, "modular device codes: free memory unknown (%s)", exc)
         return 4
     per = (_BYTES_PER_SOURCE_ROW + 4 * per_source) * max(1, n_rows)
     return int(max(1, (_BUDGET_FRACTION * room) // per))

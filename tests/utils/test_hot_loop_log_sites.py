@@ -36,9 +36,9 @@ _AUDITED_FILES = [
 ]
 
 
-def _bare_warning_calls_in_loops(source: str) -> list[int]:
+def _bare_warning_calls_in_loops(path) -> list[int]:
     """Return the line numbers of bare logger/log .warning calls nested inside a loop body."""
-    tree = ast.parse(source)
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     hits: list[int] = []
     for loop in ast.walk(tree):
         if not isinstance(loop, (ast.For, ast.While, ast.AsyncFor)):
@@ -58,8 +58,7 @@ def _bare_warning_calls_in_loops(source: str) -> list[int]:
 @pytest.mark.parametrize("rel_path", _AUDITED_FILES)
 def test_no_bare_warning_inside_loop(rel_path: str) -> None:
     """Audited modules route in-loop warnings through log_throttle."""
-    source = (_REPO / rel_path).read_text(encoding="utf-8")
-    assert _bare_warning_calls_in_loops(source) == [], f"{rel_path}: bare logger.warning inside a loop, route it through log_throttle"
+    assert _bare_warning_calls_in_loops(_REPO / rel_path) == [], f"{rel_path}: bare logger.warning inside a loop, route it through log_throttle"
 
 
 def test_throttle_caps_repeated_hot_loop_warning(caplog: pytest.LogCaptureFixture) -> None:

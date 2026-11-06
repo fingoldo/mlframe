@@ -131,7 +131,7 @@ def _canonical_nan(cand_gpu):
     if cand_gpu.dtype.kind != "f":
         return cand_gpu
     key = cand_gpu.dtype.name
-    quiet = {"float32": "__int_as_float(0x7fc00000)", "float64": "__longlong_as_double(0x7ff8000000000000LL)"}.get(key)
+    quiet = {"float32": "__int_as_float(0x7fc00000)", "float64": "__longlong_as_double(0x7ff8000000000000LL)"}.get(key)  # Intentional float64: the NaN canonicalisation has a kernel per float type
     if quiet is None:
         return cand_gpu
     with _CANONICAL_NAN_KERNELS_LOCK:
@@ -373,7 +373,7 @@ def radix_order_statistics(cand_gpu: Any, ranks: Any) -> "Any":
 
     from ._gpu_resident_select_kernels import _get_radix_select_f32_dispatch, _get_radix_select_kernel, _resolve_radix_threads
 
-    if cand_gpu.ndim != 2 or cand_gpu.dtype not in (cp.float32, cp.float64):
+    if cand_gpu.ndim != 2 or cand_gpu.dtype not in (cp.float32, cp.float64):  # Intentional float64: the NaN canonicalisation has a kernel per float type
         return None
     n, K = int(cand_gpu.shape[0]), int(cand_gpu.shape[1])
     uniq = np.unique(np.asarray(ranks, dtype=np.int64))

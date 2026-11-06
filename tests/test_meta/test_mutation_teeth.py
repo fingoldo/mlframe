@@ -25,6 +25,8 @@ from py_ci_shared.baseline_ratchet import Baseline
 from py_ci_shared.git_changed_lines import changed_lines, lines_for
 from py_ci_shared.mutation_teeth import assert_no_new_surviving_mutant
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TESTS_DIR = REPO_ROOT / "tests"
 BASE_REV = os.environ.get("MLFRAME_MUTATION_BASE", "HEAD~1")
@@ -51,11 +53,14 @@ def _suites_for(module: Path) -> list[Path]:
     """
     dotted = ".".join(module.with_suffix("").parts[1:])
     found = []
+    scanned = 0
     for path in TESTS_DIR.rglob("test_*.py"):
+        scanned += 1
         if "test_meta" in path.relative_to(TESTS_DIR).parts:
             continue
         if dotted in path.read_text(encoding="utf-8", errors="replace"):
             found.append(path)
+    assert_scanned_enough(scanned, "tests")
     found.sort(key=lambda p: (len(p.parts), p.as_posix()))
     extra = [REPO_ROOT / p for p in _EXTRA_SUITES.get(module.as_posix(), []) if REPO_ROOT / p not in found]
     return [p.relative_to(REPO_ROOT) for p in found + extra]

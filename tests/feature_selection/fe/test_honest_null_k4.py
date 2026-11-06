@@ -27,13 +27,10 @@ def _run(n, kc, B, p1):
     tail = (cp.asarray(counts.astype(np.int64)), np.int32(n), np.int32(B), np.int32(kc), np.int32(60), np.float64(h_full), np.int32(ybits.shape[1]))
     small, full = cp.asarray(xlogx_table(XLOGX_TABLE_SIZE)), cp.asarray(xlogx_table(n))
     outs = {}
-    try:
-        for name, kernel, tab in (("k2", _get_kernel_k2(cp), small), ("k4", get_kernel_k4(cp), full), ("k4f", get_kernel_k4f(cp), small), ("k5", get_kernel_k5(cp), small)):
-            g, c, i = cp.empty(B * kc, dtype=cp.float64), cp.empty(B * kc, dtype=cp.int32), cp.empty(B * kc, dtype=cp.int32)
-            kernel(((B * kc + 127) // 128,), (128,), (*common, tab, *tail, g, c, i))
-            outs[name] = (cp.asnumpy(g), cp.asnumpy(c), cp.asnumpy(i))
-    except Exception as exc:  # pragma: no cover - no usable device
-        pytest.skip(f"needs a usable CUDA device: {exc}")
+    for name, kernel, tab in (("k2", _get_kernel_k2(cp), small), ("k4", get_kernel_k4(cp), full), ("k4f", get_kernel_k4f(cp), small), ("k5", get_kernel_k5(cp), small)):
+        g, c, i = cp.empty(B * kc, dtype=cp.float64), cp.empty(B * kc, dtype=cp.int32), cp.empty(B * kc, dtype=cp.int32)
+        kernel(((B * kc + 127) // 128,), (128,), (*common, tab, *tail, g, c, i))
+        outs[name] = (cp.asnumpy(g), cp.asnumpy(c), cp.asnumpy(i))
     return outs
 
 

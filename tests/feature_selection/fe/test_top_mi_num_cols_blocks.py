@@ -36,8 +36,8 @@ def test_blocks_are_bounded_and_float32(monkeypatch):
     monkeypatch.setattr(orth, "_mi_classif_batch", spy)
     fam._top_mi_num_cols(X, list(X.columns), y, max_cols=10)
 
-    assert all(shape[1] <= fam._TOP_MI_CHUNK_COLS for shape in seen_shapes)
-    assert all(dtype == np.float32 for dtype in seen_dtypes)
+    assert len(seen_shapes) > 0 and all(shape[1] <= fam._TOP_MI_CHUNK_COLS for shape in seen_shapes)
+    assert len(seen_dtypes) > 0 and all(dtype == np.float32 for dtype in seen_dtypes)
     assert sum(shape[1] for shape in seen_shapes) == X.shape[1]
 
 

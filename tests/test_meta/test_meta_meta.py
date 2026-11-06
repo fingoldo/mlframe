@@ -37,6 +37,9 @@ _TEST_META_DIR = Path(__file__).resolve().parent
 # Imports of a production private symbol from a meta-test that are
 # legitimate. Each entry is "test_meta_filename::imported_dotted_name".
 _PERMITTED_PRIVATE_IMPORTS: set[str] = {
+    # The nested-parallel gate tests the guard itself: it calls parallel_kernel_entry and resets the guard's cached concurrency probe, so the private guard
+    # module is the surface under test (the module has no public alias, it is the primitive every shared dispatcher enters).
+    "test_no_unguarded_nested_parallel::mlframe._numba_parallel_guard",
     # mlframe meta-tests touching internal helpers — these are the
     # surface under audit, so importing the underscore-prefixed name
     # is part of the test's purpose.

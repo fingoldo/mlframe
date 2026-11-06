@@ -16,7 +16,7 @@ def test_ordinary_names_pass_through_unchanged(name):
     assert safe_file_stem(name) == name
 
 
-@pytest.mark.parametrize("name", ["lgb/v2", "..\\x", "C:\\x", "a:b", "x*y?", 'q"r', "p|q", "a\x00b"])
+@pytest.mark.parametrize("name", ["lgb/v2", "..\\x", "C:\\x", "a:b", "x*y?", 'q"r', "p|q", "a\x00b"])  # audit-exempt: hardcoded_absolute_path_in_test -- the string is hostile INPUT for the name sanitiser, never opened as a path
 def test_separators_drive_colons_and_wildcards_are_replaced(name):
     """No path separator, colon or wildcard survives."""
     stem = safe_file_stem(name)
@@ -29,7 +29,7 @@ def test_reserved_device_names_are_prefixed(name):
     assert safe_file_stem(name).startswith("_")
 
 
-@pytest.mark.parametrize("name", ["lgb/v2", "..\\..\\escape", "C:\\Windows\\x", "/abs/path", "CON"])
+@pytest.mark.parametrize("name", ["lgb/v2", "..\\..\\escape", "C:\\Windows\\x", "/abs/path", "CON"])  # audit-exempt: hardcoded_absolute_path_in_test -- the string is hostile INPUT for the name sanitiser, never opened as a path
 def test_the_model_file_path_stays_inside_the_models_directory(tmp_path, name):
     """For hostile model names the built ``.dump`` path is a direct child of data_dir/models, never outside it."""
     _, _, _, _, model_file_name = _setup_model_info_and_paths(None, name, "", "", str(tmp_path), "models")
