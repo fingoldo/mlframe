@@ -66,6 +66,7 @@ void bin_codes_TYPENAME(const TYPE* __restrict__ cand, const {EDGE}* __restrict_
     int col = (int)(idx % (long long)K);
     {EDGE} v = ({EDGE})cand[idx];
     int lo = 0, hi = ne;                       // upper_bound over this column's interior edges
+    if (v != v) lo = hi;                       // NaN sorts after every edge, as searchsorted(side='right') gives
     while (lo < hi) {
         int mid = (lo + hi) >> 1;
         if (edges[(long long)mid * K + col] <= v) lo = mid + 1; else hi = mid;
@@ -136,6 +137,7 @@ void bin_codes_f32e_OUTNAME(const float* __restrict__ cand, const float* __restr
     for (long long i = (long long)blockIdx.y * blockDim.y + threadIdx.y; i < n; i += (long long)gridDim.y * blockDim.y) {
         const float v = cand[i * K + col];
         int lo = 0, hi = ne;                   // upper_bound: #(edges <= v)
+        if (v != v) lo = hi;                   // NaN sorts after every edge, as searchsorted(side='right') gives
         while (lo < hi) {
             const int mid = (lo + hi) >> 1;
             if (se[mid * 32 + tx] <= v) lo = mid + 1; else hi = mid;
