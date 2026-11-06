@@ -1,4 +1,9 @@
 {
+  "src/mlframe/feature_selection/filters/_dcd_pair_su_batch.py::pair_su_batch::admit_on_error": "a pair that is not an index pair scores 0.0 (no admission) and logs at WARNING; the rule reads the constant store out[i] = 0.0 as keeping the element",
+  "src/mlframe/feature_selection/filters/_gpu_resident_operand_build.py::_upload_dtype_groups::admit_on_error": "a failed dtype-group upload stores None under the group key (its columns take the per-column path) and logs at WARNING; no element is admitted",
+  "src/mlframe/feature_selection/filters/_mrmr_fingerprints.py::_replay_fitted_state::admit_on_error": "a non-deepcopyable fitted attribute is shared with the cached source (documented read-only sharing) and logs at WARNING; the store is an attribute, not an admission",
+  "src/mlframe/feature_selection/filters/polynom_pair_fe.py::_run_polynom_pair_f_same_pairs_old_per::admit_on_error": "an uncoercible column is marked in the exclusion mask and filled with NaN, so it never enters a pair; logs at WARNING",
   "src/mlframe/training/composite/discovery/_fit_multibase.py::apply_multi_base_forward_stepwise::admit_on_error": "keeps the single-base spec, which already passed every gate, when only the optional multi-base extension fails (logged at WARNING)",
-  "src/mlframe/training/composite/discovery/_tiny_rerank_waic.py::apply_honest_oof_floor::finite_guarded_reject": "a NaN honest-OOF measurement is degenerate and keeps its CV rank by design; an inf (collapse) score is rejected afterwards by _reject_unscored_specs"
+  "src/mlframe/training/composite/discovery/_tiny_rerank_waic.py::apply_honest_oof_floor::finite_guarded_reject": "a NaN honest-OOF measurement is degenerate and keeps its CV rank by design; an inf (collapse) score is rejected afterwards by _reject_unscored_specs",
+  "src/mlframe/training/composite/ensemble/__init__.py::env_signature::admit_on_error": "a library with no distribution metadata records None as its version and logs at WARNING; the store is a version field, not an admission"
 }

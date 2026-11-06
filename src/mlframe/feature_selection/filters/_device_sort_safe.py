@@ -45,17 +45,19 @@ def _room(cp: Any, pool: Any) -> int:
     return room
 
 
-_POOL_LOCKS: "dict[int, threading.Lock]" = {}
+_POOL_LOCKS: "dict[int, tuple[Any, threading.Lock]]" = {}
 _POOL_LOCKS_GUARD = threading.Lock()
 
 
 def _pool_lock(pool: Any) -> "threading.Lock":
-    """One lock per memory pool: threads that allocate from the same pool take turns between reserving a sort's room and the sort itself."""
+    """One lock per memory pool: threads that allocate from the same pool take turns between reserving a sort's room and the sort itself.
+
+    The entry holds the pool itself, so its ``id`` cannot be reused by another pool while the entry lives, and a lookup checks identity."""
     with _POOL_LOCKS_GUARD:
-        lock = _POOL_LOCKS.get(id(pool))
-        if lock is None:
-            lock = _POOL_LOCKS[id(pool)] = threading.Lock()
-        return lock
+        entry = _POOL_LOCKS.get(id(pool))
+        if entry is None or entry[0] is not pool:
+            entry = _POOL_LOCKS[id(pool)] = (pool, threading.Lock())
+        return entry[1]
 
 
 @contextlib.contextmanager

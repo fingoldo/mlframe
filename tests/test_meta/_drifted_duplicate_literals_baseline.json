@@ -68,9 +68,9 @@
       "count": 1,
       "note": "per-kernel measurement grids for independent CPU/GPU kernels that share round grid points"
     },
-    "literal-set::(2000, 20000)::data_valuation/_propagate_gpu_ktc.py feature_selection/filters/friend_graph_gpu.py models/ensembling/per_member_tuning.py training/composite/discovery/_ktc_dispatch.py": {
+    "literal-set::(2000, 20000)::data_valuation/_propagate_gpu_ktc.py feature_selection/filters/_basis_cells_ktc.py feature_selection/filters/_lof_gpu.py feature_selection/filters/friend_graph_gpu.py models/ensembling/per_member_tuning.py training/composite/discovery/_ktc_dispatch.py": {
       "count": 1,
-      "note": "independent per-kernel sweep ranges and clamps"
+      "note": "independent per-kernel sweep ranges and clamps; the basis-cell, LOF, GPU-KTC and per-member sweeps size their own grids the same way"
     },
     "literal-set::(2000, 5000, 10000)::models/ensembling/per_member_tuning.py preprocessing/cleaning.py": {
       "count": 1,
@@ -96,7 +96,7 @@
       "count": 1,
       "note": "the seasonal period grid in the transform and its registry description; a docs-sync concern only"
     },
-    "literal-set::(7, 9, 11, 13, 14, 15)::feature_selection/filters/_gpu_resident_operand_build.py feature_selection/filters/_numba_utils_usability.py feature_selection/filters/_unary_stack_cuda.py feature_selection/filters/_usability_njit_pool.py": {
+    "literal-set::(9, 11, 13, 14, 15)::feature_selection/filters/_gpu_resident_operand_build.py feature_selection/filters/_numba_utils_usability.py feature_selection/filters/_unary_stack_cuda.py": {
       "count": 1,
       "note": "Unary op-code ids shared by the numba ladder, the CUDA source and the CPU dispatch that map an integer code to the same operation; a renumbering must change every site together, so the list is kept in step by hand (a single source of truth is the follow-up)."
     }

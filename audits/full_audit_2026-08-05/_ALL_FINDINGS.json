@@ -414,7 +414,7 @@
       "file": "src/mlframe/feature_selection/_benchmarks/wide_data_scaling/_progress_shared.py",
       "line": "8,13",
       "category": "robustness",
-      "summary": "ck() writes to a hardcoded D:/Temp/synergy_scale_bench/progress.txt with no directory creation, so it crashes with FileNotFoundError on any host/session where that folder does not already exist, aborting long h1_bench.py/h2_bench.py sweeps immediately.",
+      "summary": "ck() writes to a hardcoded <scratch dir>/synergy_scale_bench/progress.txt with no directory creation, so it crashes with FileNotFoundError on any host/session where that folder does not already exist, aborting long h1_bench.py/h2_bench.py sweeps immediately.",
       "suggested_fix": "os.makedirs(os.path.dirname(PROG), exist_ok=True) at import time (or lazily in ck()), and make PROG overridable via an env var instead of a hardcoded D: path.",
       "meta_test_idea": "Grep-based scanner: flag any module-level string literal passed to open(..., \"a\"/\"w\") whose containing function has no reachable os.makedirs/Path.mkdir call."
     },
@@ -1206,7 +1206,7 @@
       "file": "src/mlframe/feature_selection/_benchmarks/wide_data_scaling/h1_bench.py",
       "line": "10-11",
       "category": "correctness-risk",
-      "summary": "h1_bench.py, h1_gpu_large.py, and h2_bench.py all sys.path.insert(0, r\"D:/Upd/Programming/PythonCodeRepository/mlframe/src\") — a dev-machine-specific absolute path that, if present but stale on some machine, silently shadows the properly installed mlframe package for the whole process.",
+      "summary": "h1_bench.py, h1_gpu_large.py, and h2_bench.py all sys.path.insert(0, r\"<dev checkout>/mlframe/src\") — a dev-machine-specific absolute path that, if present but stale on some machine, silently shadows the properly installed mlframe package for the whole process.",
       "suggested_fix": "Remove the hardcoded sys.path insert; rely on the installed/editable package like every other _benchmarks script.",
       "meta_test_idea": "Grep scanner for sys.path.insert/append calls with an absolute drive-lettered or home-directory path literal."
     },
@@ -2374,7 +2374,7 @@
       "category": "hygiene",
       "summary": "Hardcoded absolute, session-specific worktree/temp paths make this script non-portable and almost certainly broken today.",
       "suggested_fix": "Rewrite to load the OLD baseline via git show HEAD:<path>, the pattern every other A/B bench in this directory follows.",
-      "meta_test_idea": "Repo-wide grep for hardcoded personal absolute paths (e.g. C:/Users/Admin) outside this one file."
+      "meta_test_idea": "Repo-wide grep for hardcoded personal absolute paths (e.g. a home-directory path) outside this one file."
     },
     {
       "cluster": "fe_root_b",
