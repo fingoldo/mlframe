@@ -266,13 +266,13 @@ def test_screen_use_gpu_false_explicit():
     assert out[0] == [0]
 
 
-def test_postprocess_candidates_callable():
-    """postprocess_candidates body is commented out in the legacy code but the function still imports + is callable."""
-    # Just verify import + that calling it with empty inputs doesn't crash. If the body is fully commented, returns None.
-    try:
-        result = postprocess_candidates([], {}, [])
-    except TypeError:
-        # Signature differs; accept that the function exists in module namespace.
-        result = None
-    # Either result is None (commented body) or a value -- both fine.
-    assert result is None or result is not None
+def test_postprocess_candidates_builds_the_friend_graph_of_the_selected_columns(monkeypatch):
+    """postprocess_candidates returns a friend graph with one node per selected column, and the signal column carries far more target relevance than a noise one."""
+    monkeypatch.setenv("PYUTILZ_KERNEL_DISABLE_SWEEP", "1")  # a cold tuning cache would otherwise sweep kernel grids inside this call
+    fd, fn, td, tn = _make_data(seed=20)
+    full = np.hstack([fd, td])
+    nbins = np.concatenate([fn, tn])
+    graph = postprocess_candidates([0, 1], full, np.array([fd.shape[1]]), nbins)
+    assert [node.idx for node in graph.nodes] == [0, 1]
+    relevance = {node.idx: node.relevance for node in graph.nodes}
+    assert relevance[0] > 10 * max(relevance[1], 1e-9)

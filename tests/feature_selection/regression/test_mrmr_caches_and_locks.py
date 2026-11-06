@@ -442,3 +442,41 @@ def test_regression_resident_operand_cache_has_lock():
         assert contender_got_it == [False]
     finally:
         _FE_RESIDENT_OPERANDS_LOCK.release()
+
+
+def test_regression_operand_table_cache_concurrent_chunk_threads_get_their_own_table():
+    """FE_PAIRS_CORE-1: the chunk-pipeline producer and the consumer thread request operand tables at once; every call returns the table of ITS host array and the cache stays within its cap."""
+    import threading
+
+    import numpy as np
+
+    from tests._cuda_require import require_cuda_device
+
+    require_cuda_device()
+    import cupy as cp
+
+    from mlframe.feature_selection.filters import _gpu_resident_materialise as mod
+
+    hosts = [np.full((64, 3), float(i), dtype=np.float32) for i in range(12)]
+    errors: list = []
+
+    def worker(offset: int) -> None:
+        """Request every table several times, starting at a different array per thread."""
+        try:
+            for _rep in range(6):
+                for k in range(len(hosts)):
+                    h = hosts[(k + offset) % len(hosts)]
+                    got = cp.asnumpy(mod._resident_operand_table(cp, h))
+                    if not np.array_equal(got, h):
+                        errors.append(("wrong table", offset, k))
+        except Exception as exc:  # collected so the main thread can fail with it
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i * 3,)) for i in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    assert len(mod._OPERAND_TABLE_CACHE) <= mod._OPERAND_TABLE_CACHE_MAX
+    mod.clear_gpu_operand_table_caches()

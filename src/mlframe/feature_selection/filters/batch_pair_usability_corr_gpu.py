@@ -309,6 +309,8 @@ def _cuda_kernel_factory():
 _CUDA_KERNELS_WARP: dict = {}  # float type -> compiled warp kernel
 _CUDA_KERNELS_WARP_LOCK = threading.Lock()
 _WARP_SIZE = 32
+#: Threads per block of the warp kernel (a whole number of warps; one warp per (pair, form)). Measured by usability_warp_block_ab.py.
+_WARP_BLOCK_THREADS = 128
 
 
 def _form_device(ft=np.float64):  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
@@ -518,7 +520,7 @@ def batch_pair_usability_corr_cuda_warp(y: np.ndarray, operand_matrix: np.ndarra
     out_d = _nb_cuda.device_array((n_pairs, n_forms), dtype=ft)
 
     total_warps = n_pairs * n_forms
-    threads_per_block = 128  # 4 warps/block
+    threads_per_block = _WARP_BLOCK_THREADS
     warps_per_block = threads_per_block // _WARP_SIZE
     blocks = (total_warps + warps_per_block - 1) // warps_per_block
     kernel[blocks, threads_per_block](y_d, operand_d, pair_a_d, pair_b_d, form_ids_d, ft(_EPS_DENOM_FLOOR), ft(_CV2_DEGENERATE_FLOOR), out_d)
