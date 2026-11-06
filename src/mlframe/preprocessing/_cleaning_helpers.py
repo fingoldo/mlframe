@@ -240,21 +240,14 @@ def _binary_column_replacement_value(real_val: Any, col_is_numeric: bool, col_is
 
 def _rarevals_cleaning_applies(col_is_numeric, col_is_boolean, col_is_datetime, col_is_continuous, col_is_discrete, nunique, clean_nonnumeric_rarevals, clean_numeric_continuous_rarevals, max_cont_col_nuniques_for_rarevals_cleaning, clean_numeric_discrete_rarevals, max_discrete_col_nuniques_for_rarevals_cleaning):
     """Whether the rare-values merge applies to a column: non-numeric, continuous or discrete numeric, each under its enable flag and its unique-count cap."""
-    return (
-        ((clean_nonnumeric_rarevals and not col_is_numeric) and not (col_is_boolean or col_is_datetime))
-        or (
-            clean_numeric_continuous_rarevals
-            and col_is_numeric
-            and col_is_continuous
-            and (max_cont_col_nuniques_for_rarevals_cleaning <= 0 or max_cont_col_nuniques_for_rarevals_cleaning >= nunique)
-        )
-        or (
-            clean_numeric_discrete_rarevals
-            and col_is_numeric
-            and col_is_discrete
-            and (max_discrete_col_nuniques_for_rarevals_cleaning <= 0 or max_discrete_col_nuniques_for_rarevals_cleaning >= nunique)
-        )
-    )
+    if clean_nonnumeric_rarevals and not col_is_numeric and not col_is_boolean and not col_is_datetime:
+        return True
+    if clean_numeric_continuous_rarevals and col_is_numeric and col_is_continuous:
+        if max_cont_col_nuniques_for_rarevals_cleaning <= 0 or max_cont_col_nuniques_for_rarevals_cleaning >= nunique:
+            return True
+    if clean_numeric_discrete_rarevals and col_is_numeric and col_is_discrete:
+        return max_discrete_col_nuniques_for_rarevals_cleaning <= 0 or max_discrete_col_nuniques_for_rarevals_cleaning >= nunique
+    return False
 
 
 def _rare_value_replacements(to_be_merged, features_transforms, col, default_na_val):

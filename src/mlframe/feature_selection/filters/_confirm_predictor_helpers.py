@@ -158,7 +158,7 @@ def fleuret_conditional_recheck(ctx: Any, X: tuple, next_best_gain: float, boots
                 x=_cx,
                 y=_cy,
                 selected_vars=_csel,
-                bootstrapped_gain=float(next_best_gain),  # one float type: float32 / float64 gains compiled the kernel twice
+                bootstrapped_gain=float(next_best_gain),  # Intentional float64: one float type: float32 / float64 gains compiled the kernel twice
                 npermutations=full_npermutations,
                 max_failed=max_failed,
                 nexisting=nexisting,

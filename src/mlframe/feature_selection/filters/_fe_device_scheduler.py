@@ -17,6 +17,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from typing import Any, Iterator, Sequence
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ def plan_stage_slots(
 
             facts = _device_facts(cp, device_ids)
         except Exception as exc:
-            logger.debug("stage scheduler: no usable device (%s: %s)", type(exc).__name__, exc)
+            log_throttle(logger, "_fe_device_scheduler.except_75", logging.WARNING, "stage scheduler: no usable device (%s: %s)", type(exc).__name__, exc)
             return None
     if not facts:
         return None

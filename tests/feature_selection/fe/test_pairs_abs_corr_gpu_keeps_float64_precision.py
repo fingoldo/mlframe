@@ -9,7 +9,7 @@ from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_abs_cor
 
 def _need_cuda():
     """Skip when no CUDA device is usable."""
-    try:
+    try:  # audit-exempt: except_skip_masks_call_under_test -- the guarded call is a one-element allocation that probes for a usable CUDA device; nothing under test runs in the try
         cp.zeros(1).get()
     except Exception as exc:  # no device or driver
         pytest.skip(f"no usable CUDA device: {exc}")

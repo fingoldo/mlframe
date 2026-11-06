@@ -26,40 +26,43 @@ view-vs-copy class is at risk of resurfacing.
 
 from __future__ import annotations
 
-import importlib
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
+def test_mps_nan_to_num_does_not_write_back_into_view(monkeypatch) -> None:
+    """mps.py optimal-profit scrub must not mutate the source 'profits' array the optimizer returned."""
+    import numpy as np
+    import polars as pl
 
+    from mlframe.feature_engineering import mps
 
-def _read(rel: str) -> str:
-    """Reads an mlframe source file's text for source-level mutation-safety assertions."""
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    returned = {}
 
+    def fake_find_best_mps_sequence(prices, **_kwargs):
+        """Hand back a profits array holding NaN and +inf, and keep a reference to it."""
+        n = len(prices)
+        profits = np.full(n, 1.5)
+        profits[1] = np.nan
+        profits[2] = np.inf
+        returned["profits"] = profits
+        return np.zeros(n - 1, dtype=np.int64), profits
 
-def test_mps_nan_to_num_does_not_write_back_into_view() -> None:
-    """mps.py optimal-profit scrub must not mutate the source 'profits' array."""
-    src = _read("feature_engineering/mps.py")
-    # No copy=False on the np.nan_to_num call for OPTIMAL_PROFIT.
-    assert (
-        "np.nan_to_num(profits[:-1], copy=False" not in src
-    ), "feature_engineering/mps.py: np.nan_to_num(profits[:-1], copy=False, ...) writes scrubbed values back into the source 'profits' slice; drop copy=False."
-    # The fixed form must be present.
-    assert (
-        "np.nan_to_num(profits[:-1], nan=0.0, posinf=0.0, neginf=0.0)" in src
-    ), "feature_engineering/mps.py: expected np.nan_to_num(profits[:-1], nan=0.0, ...) (without copy=False) so a fresh array is returned."
+    monkeypatch.setattr(mps, "find_best_mps_sequence", fake_find_best_mps_sequence)
+    fo_df = pl.DataFrame({"ts": list(range(6)), "secid": ["a"] * 6, "pr_close": [1.0, 2.0, 3.0, 2.0, 4.0, 5.0]})
+    out = mps.compute_mps_targets(fo_df=fo_df, sma_size=0, ewm_alpha=0.0)
+    assert out is not None
+    scrubbed = out["OPTIMAL_PROFIT"].to_numpy()
+    assert np.all(np.isfinite(scrubbed))
+    assert np.isnan(returned["profits"][1]) and np.isposinf(returned["profits"][2])
 
 
 def test_extract_column_array_documents_read_only_contract() -> None:
     """composite_screening._extract_column_array must document its zero-copy contract."""
-    src = _read("training/composite/discovery/screening.py")
-    # The docstring must warn about read-only contract.
-    assert (
-        "read-only" in src.lower()
-    ), "training/composite_screening.py: _extract_column_array returns a zero-copy view when dtype matches; docstring must warn callers."
+    from mlframe.training.composite.discovery.screening import _extract_column_array
+
+    doc = _extract_column_array.__doc__ or ""
+    assert "read-only" in doc.lower(), "training/composite_screening.py: _extract_column_array returns a zero-copy view when dtype matches; docstring must warn callers."
 
 
 def test_coerce_y_to_float64_documents_read_only_contract() -> None:

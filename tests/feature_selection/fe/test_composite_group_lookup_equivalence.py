@@ -29,7 +29,7 @@ def test_lookups_match_the_items_comprehension_reference():
     def same(got, want):
         """Equal key sets and equal values per key, NaN equal to NaN (the dictionary order follows the group codes, not first appearance)."""
         assert set(got) == set(want)
-        assert all((got[k] == want[k]) or (np.isnan(got[k]) and np.isnan(want[k])) for k in want)
+        assert len(want) > 0 and all((got[k] == want[k]) or (np.isnan(got[k]) and np.isnan(want[k])) for k in want)
 
     same(r_mean["group_lookup_dict"], want_mean_stat)
     same(r_mean["lookup_mean"], want_mean)

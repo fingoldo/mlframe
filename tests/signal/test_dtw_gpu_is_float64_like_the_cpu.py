@@ -19,7 +19,7 @@ def _need_cupy():
     """Skip when no CUDA device is usable."""
     if not dtw._HAS_CUPY:
         pytest.skip("no cupy")
-    try:
+    try:  # audit-exempt: except_skip_masks_call_under_test -- the guarded call is a one-element allocation that probes for a usable CUDA device; nothing under test runs in the try
         dtw.cp.zeros(1)
     except Exception as exc:
         pytest.skip(f"no CUDA device: {exc}")

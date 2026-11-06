@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from .._cache_release import register_cache_releaser
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -63,5 +64,5 @@ def _basis_memo_key(X: pd.DataFrame, cols: Any, degrees: Any, basis: str, dedup:
             hy = new_hash(np.ascontiguousarray(np.asarray(y)).view(np.uint8).data).hexdigest()
         return (h.hexdigest(), tuple(map(str, names)), tuple(int(d) for d in degrees), str(basis), bool(dedup), float(thr), hy, str(routing), len(X))
     except Exception as exc:
-        logger.debug("basis memo key failed (%s); computing without the memo", exc)
+        log_throttle(logger, "_orth_basis_memo.except_65", logging.WARNING, "basis memo key failed (%s); computing without the memo", exc)
         return None

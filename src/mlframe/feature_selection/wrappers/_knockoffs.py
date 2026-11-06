@@ -208,7 +208,7 @@ def _knockoffs_and_swap_seed(X_arr: np.ndarray, random_state: int | None) -> tup
     """
     knockoff_seed, swap_seed = np.random.SeedSequence(random_state).spawn(2)
     X_tilde = make_gaussian_knockoffs(X_arr, random_state=int(knockoff_seed.generate_state(1)[0]))
-    X_f = X_arr.astype(np.float64, copy=False)
+    X_f = X_arr.astype(np.float64, copy=False)  # Intentional float64: the knockoff construction is solved in double
     if np.isnan(X_f).any():
         X_arr = np.where(np.isnan(X_f), np.nanmean(X_f, axis=0), X_arr)
     return X_arr, X_tilde, swap_seed

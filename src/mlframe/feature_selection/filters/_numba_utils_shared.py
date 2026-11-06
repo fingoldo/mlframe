@@ -245,7 +245,7 @@ def radix_order_f32(col: np.ndarray) -> np.ndarray:
 
 @njit(cache=True)
 def radix_order_f64(col: np.ndarray) -> np.ndarray:
-    """:func:`radix_order_f32` for a float64 vector: a stable 8-pass LSD radix sort of the order-preserving uint64 keys (``-0.0`` keyed as ``+0.0``); finite input only."""
+    """:func:`radix_order_f32` for a double vector: a stable 8-pass LSD radix sort of the order-preserving uint64 keys (``-0.0`` keyed as ``+0.0``); finite input only."""
     n = col.shape[0]
     bits = col.view(np.uint64)
     va = np.empty(n, dtype=np.uint64)

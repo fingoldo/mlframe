@@ -23,6 +23,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ def take_prefetched(self: Any, data: Any, classes_y: Any, cand: Sequence[int], k
     try:
         return fut.result()
     except Exception as exc:
-        logger.debug("surrogate seeder prefetch failed (%s); the seeder runs in place", exc)
+        log_throttle(logger, "_gbm_seeder_prefetch.except_129", logging.WARNING, "surrogate seeder prefetch failed (%s); the seeder runs in place", exc)
         return None
 
 

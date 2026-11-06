@@ -47,6 +47,7 @@ from typing import Any, Optional
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.utils.frame_rows import take_rows
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -204,7 +205,7 @@ def _replay_codes_on_device(recipe: Any, X_fold: Any, nbins: int) -> Optional[np
         codes = _sync_free_qbin_codes(cp, column, int(nbins))
         return np.asarray(cp.asnumpy(codes.astype(cp.int16))).astype(np.int64)
     except Exception as exc:
-        logger.debug("Stability vote: the device replay of a recipe failed (%s: %s); replaying on the host.", type(exc).__name__, exc)
+        log_throttle(logger, "_fe_stability_vote.except_206", logging.WARNING, "Stability vote: the device replay of a recipe failed (%s: %s); replaying on the host.", type(exc).__name__, exc)
         return None
 
 

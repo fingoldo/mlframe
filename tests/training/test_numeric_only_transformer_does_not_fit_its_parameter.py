@@ -9,6 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
+import pytest
+from sklearn.exceptions import NotFittedError
 from sklearn.utils.validation import check_is_fitted
 
 from mlframe.training.strategies.base import _NumericOnlyTransformer
@@ -20,12 +22,8 @@ def test_fit_leaves_the_inner_parameter_unfitted():
     X = pd.DataFrame({"num": [1.0, 2.0, 3.0, 4.0], "cat": ["a", "b", "a", "b"]})
     t = _NumericOnlyTransformer(inner=scaler, cat_features=["cat"]).fit(X)
     assert not hasattr(scaler, "mean_")
-    try:
+    with pytest.raises(NotFittedError):
         check_is_fitted(scaler)
-        raised = False
-    except Exception:
-        raised = True
-    assert raised
     assert hasattr(t, "_fitted_inner")
 
 

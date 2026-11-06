@@ -4,6 +4,7 @@ The clause pattern used to overlap its whitespace quantifiers with a class that 
 inside an unterminated bracket was scanned from every starting position.
 """
 
+import dataclasses
 import time
 
 import pytest
@@ -15,6 +16,7 @@ def test_clause_with_spaces_between_formats_still_parses():
     """Whitespace around the brackets and between formats is accepted as before."""
     spec = parse_plot_output_dsl("plotly[html, png]")
     assert spec is not None
+    assert dataclasses.replace(spec, raw="plotly[html,png]") == parse_plot_output_dsl("plotly[html,png]")
 
 
 def test_unknown_format_is_still_rejected():

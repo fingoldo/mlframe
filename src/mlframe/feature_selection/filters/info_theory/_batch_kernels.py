@@ -757,24 +757,6 @@ def batch_mi_with_noise_gate(
 
 
 @njit(cache=True, nogil=True)
-def _permutation_locals_mat(classes_y_safe, npermutations, base_seed):
-    """Seeded Fisher-Yates shuffles of ``classes_y_safe``, one row per permutation; the shuffle stream the noise gate relies on."""
-    ny = classes_y_safe.shape[0]
-    locals_mat = np.empty((npermutations, ny), dtype=classes_y_safe.dtype)
-    for i in range(npermutations):
-        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(i + 1)
-        local = classes_y_safe.copy()
-        for j in range(ny - 1, 0, -1):
-            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
-            kk = int(state >> np.uint64(33)) % (j + 1)
-            tmp = local[j]
-            local[j] = local[kk]
-            local[kk] = tmp
-        locals_mat[i] = local
-    return locals_mat
-
-
-@njit(cache=True, nogil=True)
 def _max_nbins_checked(factors_nbins, K, classes_dtype):
     """Largest per-column bin count, raising when ``classes_dtype`` cannot store the dense code range."""
     max_nbins = 1
@@ -878,7 +860,7 @@ def batch_mi_with_noise_gate_v2(
 
     nfailed = np.zeros(K, dtype=np.int64)
 
-    locals_mat = _permutation_locals_mat(classes_y_safe, npermutations, base_seed)
+    locals_mat = _shuffled_y_matrix(classes_y_safe, npermutations, base_seed)
 
     for k in prange(K):
         if original_mi[k] <= 0.0:

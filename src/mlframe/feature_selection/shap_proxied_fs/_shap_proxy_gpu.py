@@ -126,7 +126,7 @@ def brute_force_top_n_gpu(
 
     # Float64 buffers: float32 losses turn near-equal subsets into ties, and the ranking then depends on the kernel's reduction order.
     _real = "double"
-    buf_t = cp.float64
+    buf_t = cp.float64  # Intentional float64: the SHAP-proxy scan accumulates in double, like the CPU scan
     kernel = _ensure_kernel(_real)
     block = _block_size()
 

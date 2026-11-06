@@ -266,7 +266,7 @@ _INFONET_CACHE_DIR: "Path | None" = None
 
 def _infonet_cache_dir() -> Path:
     """The InfoNet checkpoint directory, resolved per call so the environment can change after import."""
-    if _INFONET_CACHE_DIR is not None:
+    if _INFONET_CACHE_DIR is not None:  # audit-exempt: guard_decidable_from_constants -- the module global is a seam that tests rebind with monkeypatch; the source never assigns it
         return Path(_INFONET_CACHE_DIR)
     return Path(os.environ.get("MLFRAME_INFONET_CACHE", str(Path.home() / ".cache" / "mlframe" / "infonet")))
 _INFONET_MODEL_CACHE: dict = {}

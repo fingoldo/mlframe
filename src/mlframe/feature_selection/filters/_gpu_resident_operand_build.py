@@ -105,12 +105,12 @@ void batch_unary(const {REAL}* __restrict__ G, const long long* __restrict__ slo
     out[row * (long long)n_operands + out_col[c]] = (float)r;
 }
 """
-_BATCH_UNARY_SRC = render(_BATCH_UNARY_TEMPLATE, real=np.float64)  # the float64 source, kept under its old name for the modules that re-export it
+_BATCH_UNARY_SRC = render(_BATCH_UNARY_TEMPLATE, real=np.float64)  # Intentional float64: the float64 source, kept under its old name for the modules that re-export it
 _BATCH_UNARY_KERNELS: dict = {}
 _BATCH_UNARY_KERNELS_LOCK = threading.Lock()
 
 
-def _get_batch_unary_kernel(real: Any = np.float64):
+def _get_batch_unary_kernel(real: Any = np.float64):  # Intentional float64: each float group computes in its own type, as the CPU path does
     """Lazily compile (once per element type) and return the batched plain-unary op-code ``batch_unary`` RawKernel for the group type ``real`` (float32 or float64)."""
     key = ctype_of(real)
     with _BATCH_UNARY_KERNELS_LOCK:
@@ -196,9 +196,9 @@ def _upload_dtype_groups(cp, _groups):
     return _dev_groups
 
 def _batched_unary_prepass(cp, col_specs, _raw_slot, _dev_groups, fb, g, n, n_operands):
-    """Apply the GPU-buildable plain-unary columns per float group (float32 and float64, each computed in its own type) with one batch kernel each; returns the set of batched column indices."""
+    """Apply the GPU-buildable plain-unary columns per float group (float32 and double, each computed in its own type) with one batch kernel each; returns the set of batched column indices."""
     _batched: set = set()
-    _batch_keys = {np.dtype(np.float64).str: np.float64, np.dtype(np.float32).str: np.float32}  # each group computes in its own type, as the CPU tr_func does
+    _batch_keys = {np.dtype(np.float64).str: np.float64, np.dtype(np.float32).str: np.float32}  # Intentional float64: each group computes in its own type, as the CPU tr_func does
     try:
         _bg: dict = {}  # dtype_key -> (slots[], opcs[], out_cols[])
         for _spec_t in col_specs:

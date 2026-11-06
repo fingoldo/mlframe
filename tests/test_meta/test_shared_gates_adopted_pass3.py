@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_meta._scan_guard import assert_scanned_enough
 from py_ci_shared.caller_frame_mutation import assert_caller_frame_mutation
 from py_ci_shared.checkout_resolution import assert_modules_resolve_to_checkout
 from py_ci_shared.ci_pin_version_skew import assert_installed_matches_ci_pin
@@ -147,7 +148,9 @@ def test_predictable_tmp_paths_carry_a_per_user_component():
 
 def test_no_order_losing_filter_selects_rows_by_an_index_built_mask():
     """A row selection by an index-built mask returns rows in index order where its positional twin keeps the caller's order."""
-    assert_no_order_losing_filters(sorted(SRC.rglob("*.py")), REPO_ROOT, min_files=MIN_SRC_FILES)
+    files = sorted(SRC.rglob("*.py"))
+    assert_scanned_enough(len(files), "src/mlframe")
+    assert_no_order_losing_filters(files, REPO_ROOT, min_files=MIN_SRC_FILES)
 
 
 def test_scripts_register_no_module_and_do_not_put_the_cwd_on_sys_path():

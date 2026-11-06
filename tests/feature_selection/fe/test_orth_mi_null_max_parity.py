@@ -30,7 +30,7 @@ def test_cpu_rank_shortcut_is_bit_identical_to_repeated_calls(monkeypatch):
     monkeypatch.delenv("MLFRAME_FE_IMBALANCE_MI", raising=False)
     X, y, perms = _frame()
     assert _takes_cpu_rank_path(X, 10)  # the shortcut, not the fallback loop, produced the values
-    np.testing.assert_array_equal(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10))
+    assert np.array_equal(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10), equal_nan=True)
 
 
 def test_a_nan_column_takes_the_repeated_calls_and_matches(monkeypatch):
@@ -39,7 +39,7 @@ def test_a_nan_column_takes_the_repeated_calls_and_matches(monkeypatch):
     X, y, perms = _frame()
     X[5, 2] = np.nan
     assert not _takes_cpu_rank_path(X, 10)
-    np.testing.assert_array_equal(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10))
+    assert np.array_equal(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10), equal_nan=True)
 
 
 def test_strict_gpu_branch_equals_repeated_strict_calls(monkeypatch):
@@ -52,7 +52,7 @@ def test_strict_gpu_branch_equals_repeated_strict_calls(monkeypatch):
     if not fe_gpu_strict_enabled(n=X.shape[0], p=X.shape[1]):
         pytest.skip("STRICT GPU mode is not available for this shape on this host")
     assert _null_max_strict_gpu(X, y, perms, 10) is not None  # the resident branch ran, it did not fall back to the loop
-    np.testing.assert_allclose(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10), rtol=0, atol=0)
+    assert np.allclose(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10), rtol=0, atol=0, equal_nan=True)
 
 
 def test_streamed_gpu_branch_equals_repeated_streamed_calls(monkeypatch):
@@ -80,8 +80,8 @@ def test_streamed_gpu_branch_equals_repeated_streamed_calls(monkeypatch):
     X, y, perms = _frame()
     fast = _null_max_streamed_path(X, y, perms, 10)
     assert fast is not None, "the streamed GPU path returned None on a host with a CUDA device"
-    np.testing.assert_allclose(fast, _repeated(X, y, perms, 10), rtol=0, atol=0)
-    np.testing.assert_allclose(null_max_mi(X, y, perms, 10, _mi_classif_batch), fast, rtol=0, atol=0)
+    assert np.allclose(fast, _repeated(X, y, perms, 10), rtol=0, atol=0, equal_nan=True)
+    assert np.allclose(null_max_mi(X, y, perms, 10, _mi_classif_batch), fast, rtol=0, atol=0, equal_nan=True)
 
 
 def test_a_substituted_scorer_is_honoured_not_shortcut(monkeypatch):
@@ -118,7 +118,7 @@ def test_a_matrix_with_missing_columns_keeps_the_shortcut_for_the_finite_ones(mo
     calls = []
     real = M._rank_codes_cols_njit
     monkeypatch.setattr(M, "_rank_codes_cols_njit", lambda *a: (calls.append(1), real(*a))[1])
-    np.testing.assert_array_equal(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10))
+    assert np.array_equal(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10), equal_nan=True)
     assert len(calls) == 1, "the finite columns must be rank-binned once, not once per permutation"
 
 
@@ -128,7 +128,7 @@ def test_a_matrix_whose_every_column_has_a_missing_value_matches(monkeypatch):
     monkeypatch.delenv("MLFRAME_FE_IMBALANCE_MI", raising=False)
     X, y, perms = _frame(k=4)
     X[3, :] = np.nan
-    np.testing.assert_array_equal(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10))
+    assert np.array_equal(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10), equal_nan=True)
 
 
 def test_a_matrix_scored_in_column_blocks_is_binned_once_per_block(monkeypatch):
@@ -144,5 +144,5 @@ def test_a_matrix_scored_in_column_blocks_is_binned_once_per_block(monkeypatch):
     calls = []
     real = M._rank_codes_cols_njit
     monkeypatch.setattr(M, "_rank_codes_cols_njit", lambda *a: (calls.append(1), real(*a))[1])
-    np.testing.assert_array_equal(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10))
+    assert np.array_equal(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10), equal_nan=True)
     assert len(calls) == 3, "13 columns in blocks of 5 are three blocks, each binned once for all permutations"

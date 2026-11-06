@@ -25,7 +25,11 @@ def _halves(scale_b: float, n: int = 6000, seed: int = 0):
 def test_halves_on_similar_scales_are_fused():
     """With both halves on one scale the unweighted sum keeps both terms, so the fusion is admitted."""
     me, ha, hb, y_dense = _halves(scale_b=1.0)
-    assert _evaluate_fusion_pair(me, ha, hb, y_dense, 10, len(y_dense), 1.0) is not None
+    got = _evaluate_fusion_pair(me, ha, hb, y_dense, 10, len(y_dense), 1.0)
+    assert got is not None
+    binary, values, _binned, _mi, weights = got
+    assert weights is None or weights == (1.0, 1.0)
+    assert np.allclose(values, ha["vals"] + hb["vals"] if binary == "add" else ha["vals"] - hb["vals"])
 
 
 def test_a_half_on_a_much_smaller_scale_is_fused_on_the_normalised_sum():

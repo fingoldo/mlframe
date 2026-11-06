@@ -671,7 +671,9 @@ class IdentityEstimator(BaseEstimator):
         """Record the input width (and names, for a frame), plus sorted ``classes_`` from ``y`` when acting as a classifier."""
         if hasattr(X, "columns"):
             self.feature_names_in_ = np.asarray(X.columns, dtype=object)
-        _shape = getattr(X, "shape", None) or np.shape(X)
+        _shape = getattr(X, "shape", None)
+        if _shape is None:
+            _shape = np.shape(X)
         if len(_shape) == 2:
             self.n_features_in_ = int(_shape[1])
         if isinstance(self, ClassifierMixin):

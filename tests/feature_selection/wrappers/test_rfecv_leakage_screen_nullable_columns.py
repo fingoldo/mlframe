@@ -1,5 +1,6 @@
 """The RFECV leakage screen keeps scanning after a nullable column and still flags a leaky one behind it (tracker 2026-11-02 wave 9, EXC9-1)."""
 
+import contextlib
 import numpy as np
 import pandas as pd
 
@@ -21,8 +22,6 @@ def test_leaky_column_after_a_nullable_int_column_is_flagged():
     nullable[::7] = pd.NA
     X = pd.DataFrame({"a_nullable": nullable, "z_leak": y + rng.normal(scale=0.01, size=n)})
     found = []
-    try:
+    with contextlib.suppress(Exception):  # the screen may raise on its configured action; the finding list is what counts
         _screen_target_leakage(_Stub(), X, y, found)
-    except Exception:  # the screen may raise on its configured action; the finding list is what counts
-        pass
     assert [c for c, _ in found] == ["z_leak"]

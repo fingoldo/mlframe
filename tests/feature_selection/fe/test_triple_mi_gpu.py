@@ -10,7 +10,7 @@ from mlframe.feature_selection.filters import _orthogonal_triplet_fe as T
 def _gpu_or_skip():
     """The device module, or a skip without a usable CUDA device."""
     cp = pytest.importorskip("cupy")
-    try:
+    try:  # audit-exempt: except_skip_masks_call_under_test -- the guarded call only asks the runtime for a CUDA device; nothing under test runs in the try
         cp.cuda.runtime.getDeviceCount()
     except Exception:
         pytest.skip("no CUDA device")
@@ -31,8 +31,8 @@ def test_scores_equal_the_host_kernel(n, p, n_y, base):
     want = T._triple_mi_kernel(codes, y, base, n_y)
     assert got is not None
     for a, b in zip(got[:3], want[:3]):
-        np.testing.assert_array_equal(a, b)
-    np.testing.assert_allclose(got[3], want[3], rtol=0, atol=1e-12)
+        assert np.array_equal(a, b, equal_nan=True)
+    assert np.allclose(got[3], want[3], rtol=0, atol=1e-12, equal_nan=True)
 
 
 def test_oversized_table_falls_back():

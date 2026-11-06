@@ -493,7 +493,9 @@ def _generate_univariate_basis_features_impl(
         # verdict only when the stored array IS x). Cleared at column exit, so no cross-column ref retention.
         from mlframe.feature_selection.filters.hermite_fe.shared import heavy_tail_memo_scope
         with heavy_tail_memo_scope():
-            chosen_basis = _device_basis.get(col) or _choose_univariate_basis(x, y, basis, basis_routing, degrees, aux_col)
+            chosen_basis = _device_basis.get(col)
+            if not chosen_basis:
+                chosen_basis = _choose_univariate_basis(x, y, basis, basis_routing, degrees, aux_col)
             if chosen_basis not in _POLY_BASES:
                 log_throttle(
                     logger, "univariate_basis_unknown_basis", logging.WARNING,

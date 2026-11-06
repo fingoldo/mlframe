@@ -43,16 +43,16 @@ _FINITE_MAX = 256
 
 
 def row_argmax_cm(cp: Any, columns: Sequence[Any]) -> Any:
-    """Double ``(n,)`` index of the first maximum across ``columns`` (resident float32 or float64 ``(n,)`` arrays; mixed types are promoted)."""
+    """Double ``(n,)`` index of the first maximum across ``columns`` (resident float32 or double ``(n,)`` arrays; mixed types are promoted)."""
     n = int(columns[0].shape[0])
     M = cp.ascontiguousarray(cp.stack(columns, axis=0))  # (m, n)
-    if M.dtype not in (cp.float32, cp.float64):
+    if M.dtype not in (cp.float32, cp.float64):  # Intentional float64: mixed float types are promoted to double
         M = M.astype(cp.float64)
     real = "float" if M.dtype == cp.float32 else "double"
     with _LOCK:
         kernel = _KERNELS.get(real)
         if kernel is None:
-            kernel = _KERNELS[real] = cp.RawKernel(render(_SRC, np.float32 if real == "float" else np.float64), "row_argmax")
+            kernel = _KERNELS[real] = cp.RawKernel(render(_SRC, np.float32 if real == "float" else np.float64), "row_argmax")  # Intentional float64: mixed float types are promoted to double
     out = cp.empty(n, dtype=cp.float64)  # Intentional float64: index output matches the caller's float64 cast contract
     threads = block_size_for(kernel, work_items=n)
     blocks = max(1, min(4096, (n + threads - 1) // threads))

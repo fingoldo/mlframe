@@ -10,7 +10,7 @@ from mlframe.feature_selection.filters import _parity_fe as P
 def _device_or_skip():
     """The device module, or a skip without a usable CUDA device."""
     cp = pytest.importorskip("cupy")
-    try:
+    try:  # audit-exempt: except_skip_masks_call_under_test -- the guarded call only asks the runtime for a CUDA device; nothing under test runs in the try
         cp.cuda.runtime.getDeviceCount()
     except Exception:
         pytest.skip("no CUDA device")

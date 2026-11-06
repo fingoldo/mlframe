@@ -12,7 +12,7 @@ from mlframe.feature_selection.filters.discretization._discretization_cuda impor
 def _gpu():
     """Skip when no CUDA device is usable."""
     cp = pytest.importorskip("cupy")
-    try:
+    try:  # audit-exempt: except_skip_masks_call_under_test -- the guarded call is a one-element allocation that probes for a usable CUDA device; nothing under test runs in the try
         cp.zeros(1)
     except Exception as exc:  # no device or driver
         pytest.skip(f"no CUDA device: {exc}")

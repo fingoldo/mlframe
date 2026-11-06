@@ -1,5 +1,6 @@
 """Pass-2 stacked discovery builds its OOF columns with the group ids pass 1 honours (tracker 2026-11-02 wave 15, LEAK15-6)."""
 
+import contextlib
 from types import SimpleNamespace
 
 import numpy as np
@@ -27,9 +28,7 @@ def test_oof_receives_the_train_slice_of_the_group_ids(monkeypatch):
         _group_ids_for_rerank=np.repeat(np.arange(8), 5),
     )
     train_idx = np.arange(10, 30)
-    try:
+    with contextlib.suppress(Exception):
         _stacked.fit_stacked(fake, df, "y", ["a"], train_idx)
-    except Exception:
-        pass
     assert seen["groups"] is not None
-    np.testing.assert_array_equal(seen["groups"], np.repeat(np.arange(8), 5)[train_idx])
+    assert np.array_equal(seen["groups"], np.repeat(np.arange(8), 5)[train_idx], equal_nan=True)

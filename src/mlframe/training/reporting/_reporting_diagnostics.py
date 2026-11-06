@@ -41,7 +41,7 @@ def _read_evals_result(est):
             r = est.evals_result()
             return r if r else None
     except Exception:
-        logger.debug("training-curve: evals_result extraction raised; skipping curves for this model.", exc_info=True)
+        log_throttle(logger, "_reporting_diagnostics.except_43", logging.INFO, "training-curve: evals_result extraction raised; skipping curves for this model.", exc_info=True)
         return None
     return None
 
@@ -61,7 +61,7 @@ def _transpose_split_major(raw):
                     continue
                 by_metric.setdefault(str(metric), {}).setdefault(split_key, list(series))
     except Exception:
-        logger.debug("training-curve: evals_result had an unexpected shape; skipping.", exc_info=True)
+        log_throttle(logger, "_reporting_diagnostics.except_63", logging.INFO, "training-curve: evals_result had an unexpected shape; skipping.", exc_info=True)
         return None
     return by_metric
 

@@ -55,6 +55,7 @@ import logging
 from typing import Any, Iterable, Optional
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -304,7 +305,7 @@ def pair_su_batch(
         if _joint_cache is not None:
             state._joint_entropy_batch_cache = None
     for i in unreadable_pairs:
-        logger.warning("pair %d is not an index pair; its score is 0.0", i)
+        log_throttle(logger, "dcd_pair_su_batch.unreadable_pair", logging.WARNING, "pair %d is not an index pair; its score is 0.0", i)
         out[i] = 0.0
     return out
 

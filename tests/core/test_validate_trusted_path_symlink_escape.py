@@ -14,7 +14,7 @@ from mlframe.core.helpers import validate_trusted_path
 def _make_escaping_link(root, outside):
     """Create ``root/link`` pointing at ``outside``; skip when the platform will not create symlinks for this user."""
     link = root / "link"
-    try:
+    try:  # audit-exempt: except_skip_masks_call_under_test -- only the symlink creation is guarded, the skip names a host without symlink rights
         os.symlink(outside, link, target_is_directory=True)
     except (OSError, NotImplementedError) as exc:
         pytest.skip(f"cannot create symlinks on this host: {exc}")

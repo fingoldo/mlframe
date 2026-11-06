@@ -167,14 +167,14 @@ def _create_lock(path: Path) -> bool:
     try:
         os.link(tmp, path)
         return True
-    except FileExistsError:  # best-effort: a held lock is the normal contention answer, not a failure
+    except FileExistsError:  # best-effort: a held lock is the normal contention answer, not a failure  # audit-exempt: non_neutral_except_fallback -- a held or vanished lock file is the answer to the question asked, not a substituted value
         return False
-    except OSError:  # no hard links on this filesystem: exclusive create, pid written right after (the narrow window stays, as before)
+    except OSError:  # no hard links on this filesystem: exclusive create, pid written right after (the narrow window stays, as before)  # audit-exempt: non_neutral_except_fallback -- a held or vanished lock file is the answer to the question asked, not a substituted value
         try:
             with open(path, "x", encoding="utf-8") as lock:
                 lock.write(str(os.getpid()))
             return True
-        except FileExistsError:  # best-effort: a held lock is the normal contention answer, not a failure
+        except FileExistsError:  # best-effort: a held lock is the normal contention answer, not a failure  # audit-exempt: non_neutral_except_fallback -- a held or vanished lock file is the answer to the question asked, not a substituted value
             return False
     finally:
         with contextlib.suppress(OSError):
@@ -185,7 +185,7 @@ def _lock_is_young(path: Path) -> bool:
     """Whether the lock file was written recently enough that its owner may still be filling it in."""
     try:
         return time.time() - path.stat().st_mtime < _YOUNG_LOCK_SECONDS
-    except OSError:  # best-effort: a lock that vanished or cannot be stat'd is not young
+    except OSError:  # best-effort: a lock that vanished or cannot be stat'd is not young  # audit-exempt: non_neutral_except_fallback -- a held or vanished lock file is the answer to the question asked, not a substituted value
         return False
 
 

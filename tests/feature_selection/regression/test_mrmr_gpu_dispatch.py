@@ -518,12 +518,24 @@ def test_regression_fe_batch_mi_logs_gpu_fallback(caplog, monkeypatch):
 
 def test_regression_fe_cmi_perm_null_gpu_no_dead_resident_y_isinstance_check():
     """Post-fix: the dead `isinstance(y_h, cp.ndarray)` branches are removed."""
-    import inspect
+    import ast
 
     from mlframe.feature_selection.filters import _fe_cmi_perm_null_gpu as cmi_gpu
 
-    src = inspect.getsource(cmi_gpu)
-    assert not any(line.strip().startswith("if isinstance(y_h, cp.ndarray)") for line in src.splitlines())
+    with open(cmi_gpu.__file__, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    dead = [
+        n.lineno
+        for n in ast.walk(tree)
+        if isinstance(n, ast.If)
+        and isinstance(n.test, ast.Call)
+        and isinstance(n.test.func, ast.Name)
+        and n.test.func.id == "isinstance"
+        and n.test.args
+        and isinstance(n.test.args[0], ast.Name)
+        and n.test.args[0].id == "y_h"
+    ]
+    assert not dead, f"isinstance(y_h, ...) branch back at lines {dead}"
 
 
 # ---------------------------------------------------------------------------

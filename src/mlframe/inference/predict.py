@@ -275,7 +275,8 @@ def read_trained_models(
             _vlms(model_file, strict=False)
         except Exception as _meta_e:
             # A failing version check means the library-version drift warning did not run: say so, since the load goes ahead without it.
-            logger.warning(
+            log_throttle(
+                logger, "predict.sidecar_validation:" + str(model_file), logging.WARNING,
                 "inference.read_trained_models: sidecar validation raised "
                 "for %s: %s; proceeding with load without the version check.", model_file, _meta_e,
             )
@@ -285,7 +286,7 @@ def read_trained_models(
             # dill bundles, so infer/ models get the RCE-surface restriction, not just the integrity gate.
             model = safe_joblib_load_bytes(_model_payload, model_file)
         except Exception as e:
-            logger.warning("Could not read model file %s of featureset %s: %s", model_file, featureset, e)  # per file, see the sha256 branch above
+            log_throttle(logger, "predict.read_model:" + str(model_file), logging.WARNING, "Could not read model file %s of featureset %s: %s", model_file, featureset, e)  # per file, see the sha256 branch above
             skipped.append(model_name)
             continue
 

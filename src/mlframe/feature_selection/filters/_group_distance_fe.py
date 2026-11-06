@@ -348,7 +348,7 @@ def generate_group_distance_features(
             if order is None:
                 # the finite rows in ascending value order, ties in row order: a radix order of the finite values (3x a stable comparison argsort, NaN and inf never enter it)
                 finite_rows = np.flatnonzero(np.isfinite(x))
-                order = finite_rows[radix_order_f64(np.ascontiguousarray(x[finite_rows], dtype=np.float64))]
+                order = finite_rows[radix_order_f64(np.ascontiguousarray(x[finite_rows], dtype=np.float64))]  # Intentional float64: radix_order_f64 takes float64 keys
                 with _ORDER_LOCK:
                     _fin_order[num_col] = order
             w_all = _wasserstein1_all_groups(x, order, gid, len(group_rows), global_sorted)

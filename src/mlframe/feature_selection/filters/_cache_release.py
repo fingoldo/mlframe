@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import threading
 from typing import Callable
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ def _run_releaser(release: "Callable[[], int]") -> int:
     try:
         return int(release() or 0)
     except Exception as exc:
-        logger.debug("cache releaser %r failed: %s", release, exc)
+        log_throttle(logger, "_cache_release.except_32", logging.INFO, "cache releaser %r failed: %s", release, exc)
         return 0
 
 

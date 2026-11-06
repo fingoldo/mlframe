@@ -24,7 +24,7 @@ _DEVICE_QUANTILE_MIN_N = 200_000
 def quantile_edges(x: np.ndarray, nbins: int) -> np.ndarray:
     """Inner quantile cut points (unique-deduped); code = searchsorted(edges, v, side='right')."""
     qs = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
-    x = np.asarray(x, dtype=np.float64)
+    x = np.asarray(x, dtype=np.float64)  # Intentional float64: the group and operand columns are binned by exact quantile edges from the host float64 values
     if x.size >= _DEVICE_QUANTILE_MIN_N:
         # Large column under the strict-resident path: one device sort + the order statistics numpy would read, bit-identical to np.quantile (~115 ms
         # per 1M-row column on the host).
@@ -45,7 +45,7 @@ def quantile_edges(x: np.ndarray, nbins: int) -> np.ndarray:
 def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> float:
     """Cheap MI(qbin(col); y_codes) via a bincount joint histogram - the relevance proxy for GROUP pre-selection.
     A group column only helps if its quantile cells separate y; this scores exactly that in O(n)."""
-    cv = np.asarray(col, dtype=np.float64)
+    cv = np.asarray(col, dtype=np.float64)  # Intentional float64: the group and operand columns are binned by exact quantile edges from the host float64 values
     # min != max on an all-finite column == unique().size >= 2 without the full-n unique SORT.
     if not np.isfinite(cv).all() or float(np.min(cv)) == float(np.max(cv)):
         return 0.0
@@ -112,7 +112,7 @@ def _cheap_mi_group_selection_device(X: pd.DataFrame, gcands: Sequence[str], y_c
     names: list = []
     cols: list = []
     for g in gcands:
-        cv = np.asarray(X[g].to_numpy(), dtype=np.float64)
+        cv = np.asarray(X[g].to_numpy(), dtype=np.float64)  # Intentional float64: the group and operand columns are binned by exact quantile edges from the host float64 values
         if not np.isfinite(cv).all() or float(np.min(cv)) == float(np.max(cv)):
             out[g] = 0.0
             continue
@@ -145,7 +145,7 @@ def _cheap_mi_group_selection(X: pd.DataFrame, gcands: Sequence[str], y_codes: n
     valid_names: list = []
     valid_cols: list = []
     for g in gcands:
-        cv = np.asarray(X[g].to_numpy(), dtype=np.float64)
+        cv = np.asarray(X[g].to_numpy(), dtype=np.float64)  # Intentional float64: the group and operand columns are binned by exact quantile edges from the host float64 values
         if not np.isfinite(cv).all() or float(np.min(cv)) == float(np.max(cv)):
             out[g] = 0.0
             continue

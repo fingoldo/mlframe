@@ -85,4 +85,7 @@ def test_empty_network_renders_on_matplotlib():
         figsize=(6.0, 4.0),
     )
     fig = MatplotlibRenderer().render(spec)
-    plt.close(fig)
+    try:
+        assert len(fig.axes) == 1
+    finally:
+        plt.close(fig)

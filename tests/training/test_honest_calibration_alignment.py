@@ -39,6 +39,6 @@ def test_the_plot_file_name_for_a_hostile_target_name_stays_in_out_dir(tmp_path)
     out_dir = tmp_path / "reports"
     _calibration_block(_entry(300, 300), "price>100/a:b", str(out_dir), rng_seed=0)
     pngs = list(out_dir.rglob("*.png"))
-    assert all(p.parent == out_dir for p in pngs)
+    assert len(pngs) > 0 and all(p.parent == out_dir for p in pngs)
     unsafe = '<>:"/\\|?*'
     assert not any(ch in p.name for p in pngs for ch in unsafe)

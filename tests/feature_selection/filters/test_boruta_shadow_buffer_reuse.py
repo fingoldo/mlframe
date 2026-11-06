@@ -34,7 +34,7 @@ def test_same_buffer_object_is_reused_across_rounds_for_a_single_dtype_frame():
     """The frame given to importance_fn is the same object every round (its buffer refilled in place), and the draws still match."""
     X = pd.DataFrame(np.random.default_rng(1).normal(size=(40, 3)), columns=list("abc"))
     seen = _run(X)
-    assert all(frame is seen[0][1] for _, frame in seen)
+    assert len(seen) > 0 and all(frame is seen[0][1] for _, frame in seen)
     rng = np.random.default_rng(3)
     for snapshot, _ in seen:
         np.testing.assert_array_equal(snapshot[:, 3:], rng.permuted(X.to_numpy(), axis=0))

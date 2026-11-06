@@ -17,6 +17,7 @@ import numpy as np
 
 from ._kernel_types import render
 from ._raw_module_cache import RawModuleCache
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -148,15 +149,15 @@ def _bits_width(kernel: Any, shared_bytes: int, n: int) -> int:
     try:
         width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kernel.num_regs), static_smem=int(kernel.shared_size_bytes), min_width=64, max_width=1024, work_items=(n + 31) // 32 * 32)
     except Exception as exc:  # best-effort: only the launch width changes, never a result
-        logger.debug("null max bitset kernel: device limits unavailable (%s)", exc)
+        log_throttle(logger, "_null_max_perm_gpu.block_width", logging.INFO, "null max bitset kernel: device limits unavailable (%s)", exc)
         width = 0
-    return width or 256
+    return width if width > 0 else 256
 
 
 def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, perms: np.ndarray, nbins: int, n_classes: int) -> Optional[np.ndarray]:
-    """``(P,)`` maximum over the candidates of the plug-in MI against ``y_shifted[perms[p]]``, for the float32 or float64 ``(K, n)`` C-order candidate block ``x_cm`` binned by
+    """``(P,)`` maximum over the candidates of the plug-in MI against ``y_shifted[perms[p]]``, for the float32 or double ``(K, n)`` C-order candidate block ``x_cm`` binned by
     ``interior`` (``(nbins - 1, K)``, the edges ``binned_mi_from_values_gpu`` uses); ``None`` when the path does not apply (the caller keeps one launch per permutation)."""
-    if x_cm.dtype not in (cp.float32, cp.float64) or not x_cm.flags.c_contiguous or int(n_classes) > 255:
+    if x_cm.dtype not in (cp.float32, cp.float64) or not x_cm.flags.c_contiguous or int(n_classes) > 255:  # Intentional float64: the kernel reads float32 or float64 candidates
         return None
     module = _MODULES_BY_X["float" if x_cm.dtype == cp.float32 else "double"]
     k, n = int(x_cm.shape[0]), int(x_cm.shape[1])
@@ -182,7 +183,7 @@ def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, per
             del yp, padded
             res = cp.empty((len(block), k), dtype=cp.float64)  # Intentional float64: MI accumulator, as the per-permutation kernel's
             shared = (len(block) * int(nbins) + int(nbins)) * 4
-            bits_kernel((k,), (_bits_width(bits_kernel, shared, n),), (x_cm, edges, ybits, np.int64(n), np.int32(words), np.int32(k), np.int32(nbins), np.int32(len(block)), np.float64(1.0 / float(max(1, n))), res), shared_mem=shared)
+            bits_kernel((k,), (_bits_width(bits_kernel, shared, n),), (x_cm, edges, ybits, np.int64(n), np.int32(words), np.int32(k), np.int32(nbins), np.int32(len(block)), np.float64(1.0 / float(max(1, n))), res), shared_mem=shared)  # Intentional float64: the kernel reads float32 or float64 candidates
             out[p0 : p0 + len(block)] = cp.asnumpy(cp.nanmax(res, axis=1))
             del ybits, res
         return out

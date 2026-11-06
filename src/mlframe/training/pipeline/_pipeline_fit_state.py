@@ -230,7 +230,7 @@ def _empty_selection_output(arg):
     return np.empty((len(arg), 0))
 
 
-def _row_count(obj):
+def _leading_dim(obj):
     """Leading dimension of ``obj``, or None when it has no shape."""
     shape: tuple[int, ...] = getattr(obj, "shape", ())
     return shape[0] if len(shape) >= 1 else None
@@ -238,8 +238,8 @@ def _row_count(obj):
 
 def _check_row_preserving(out, held) -> None:
     """Raise the shared actionable error when a resampler changed the row count, which would misalign the positional re-attach."""
-    out_n = _row_count(out)
-    held_n = _row_count(held)
+    out_n = _leading_dim(out)
+    held_n = _leading_dim(held)
     if out_n is not None and held_n is not None and out_n != held_n:
         _raise_pre_pipeline_rowcount_change(held_n, out_n)
 

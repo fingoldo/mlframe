@@ -209,7 +209,7 @@ _MI_SPLIT_KERNELS = None
 # EDGES stay ``const double*`` (the interp emits f64; kept f64 so the comparison is byte-for-byte the f64
 # path's). Only X's storage/transpose dtype changes: the (n,K) upcast is gone and the transpose runs in
 # f32 (transpose_f32, half the bytes). Everything else (histogram int32, MI f64 math) is unchanged.
-_MI_FROM_VALUES_SRC = render(_MI_FROM_VALUES_TEMPLATE, real=np.float64)
+_MI_FROM_VALUES_SRC = render(_MI_FROM_VALUES_TEMPLATE, real=np.float64)  # Intentional float64: the MI accumulators of these kernels are double
 # float32 twin: X and the edges are float32 (the caller passes each double edge rounded UP to float32): for a float32 value x, ``edge <= (double)x`` holds exactly when
 # ``ceil_f32(edge) <= x``, so the binary search runs in float32 (double compares are 1/32 rate on the target cards) and the codes are the same.
 _MI_FROM_VALUES_F32_SRC = (
@@ -333,7 +333,7 @@ def _launch_dedup_edges(E, cmin, cmax, ne: int, K: int, Ec, ne_k) -> None:
 # Length-aware twin of mi_mm_from_values: each column binary-searches only its VALID prefix ne_k[c] of the
 # (dedup'd) interior edges - everything else is byte-for-byte the mi_mm_from_values kernel. When ne_k[c] ==
 # nbins-1 (continuous columns, no dup/boundary edges) it is bit-identical to mi_mm_from_values.
-_MI_MM_FROM_VALUES_SRC = render(_MI_MM_FROM_VALUES_TEMPLATE, real=np.float64, edge=np.float64)
+_MI_MM_FROM_VALUES_SRC = render(_MI_MM_FROM_VALUES_TEMPLATE, real=np.float64, edge=np.float64)  # Intentional float64: the MI accumulators of these kernels are double
 _MI_MM_FROM_VALUES_NEK_TEMPLATE = (
     _MI_MM_FROM_VALUES_TEMPLATE.replace("void mi_mm_from_values(", "void mi_mm_from_values_nek(")
     .replace(
@@ -342,14 +342,14 @@ _MI_MM_FROM_VALUES_NEK_TEMPLATE = (
     .replace("    int ne = nbins - 1, M = nbins * Ky;", "    int ne = ne_k[c], M = nbins * Ky;")
 )
 assert "ne_k" in _MI_MM_FROM_VALUES_NEK_TEMPLATE and "int ne = ne_k[c]" in _MI_MM_FROM_VALUES_NEK_TEMPLATE
-_MI_MM_FROM_VALUES_NEK_SRC = render(_MI_MM_FROM_VALUES_NEK_TEMPLATE, real=np.float64, edge=np.float64)
+_MI_MM_FROM_VALUES_NEK_SRC = render(_MI_MM_FROM_VALUES_NEK_TEMPLATE, real=np.float64, edge=np.float64)  # Intentional float64: the MI accumulators of these kernels are double
 _MI_MM_FROM_VALUES_NEK_KERNEL = None
 
 # f32-X twin of the length-aware MM kernel (dtype-churn kill). Same rationale as the f32
 # mi_from_values twin: the only use of X is ``double v = X[i*K+c]`` (widening float->double promotion), so
 # reading X as f32 and promoting per-element yields the exact f64 the f64 path stored via X.astype(f64) ->
 # BIT-IDENTICAL codes/MM-MI. Edges stay f64. Kills the (n,K) f32->f64 upcast on the pair-combo MM path.
-_MI_MM_FROM_VALUES_NEK_F32_SRC = render(_MI_MM_FROM_VALUES_NEK_TEMPLATE, real=np.float32, edge=np.float64).replace("void mi_mm_from_values_nek(", "void mi_mm_from_values_nek_f32(")
+_MI_MM_FROM_VALUES_NEK_F32_SRC = render(_MI_MM_FROM_VALUES_NEK_TEMPLATE, real=np.float32, edge=np.float64).replace("void mi_mm_from_values_nek(", "void mi_mm_from_values_nek_f32(")  # Intentional float64: the MI accumulators of these kernels are double
 _MI_MM_FROM_VALUES_NEK_F32_KERNEL = None
 
 

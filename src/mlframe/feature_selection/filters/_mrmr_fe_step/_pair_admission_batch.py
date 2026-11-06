@@ -20,6 +20,7 @@ import numpy as np
 from mlframe.utils.env_flags import env_int
 
 from .._fe_cmi_redundancy_null import _CMI_FLOOR_QUANTILE as _CMI_QUANTILE
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +39,14 @@ def _block_analytic_nulls(n: int, k_z: Any, k_xz: Any, k_yz: Any, k_xyz: Any, qu
     df = k_xyz + int(k_z) - k_xz - int(k_yz)
     nf = float(max(1, n))
     cells = np.maximum(1, k_xyz)
-    applies = (df > 0) & ((nf / cells.astype(np.float64)) >= _min_expected_cell())
+    applies = (df > 0) & ((nf / cells.astype(np.float64)) >= _min_expected_cell())  # Intentional float64: the chi-square quantile and the cell counts are double, as in the scalar gate
     if not (_HAVE_CHI2 and analytic_null_enabled() and n >= _cmi_analytic_null_min_n()):
         applies[:] = False
     floor = np.zeros(df.shape, dtype=np.float64)  # Intentional float64: null statistic
     mean = np.zeros(df.shape, dtype=np.float64)  # Intentional float64: null statistic
     if applies.any():
         d = df[applies]
-        floor[applies] = np.maximum(np.asarray(_chi2.ppf(float(_CMI_QUANTILE), d), dtype=np.float64) / (2.0 * nf), 0.0)
+        floor[applies] = np.maximum(np.asarray(_chi2.ppf(float(_CMI_QUANTILE), d), dtype=np.float64) / (2.0 * nf), 0.0)  # Intentional float64: the chi-square quantile and the cell counts are double, as in the scalar gate
         mean[applies] = d / (2.0 * nf)
     return floor, mean, applies
 
@@ -105,7 +106,7 @@ def batched_perm_null_admissions(self: Any, gate_cache: dict, cached_MIs: dict, 
     try:
         return _score_groups(self, groups, cached_MIs, data, classes_y, stride)
     except Exception as exc:
-        logger.debug("batched pair admission failed (%s); the pairs are scored one by one", exc)
+        log_throttle(logger, "_pair_admission_batch.except_107", logging.INFO, "batched pair admission failed (%s); the pairs are scored one by one", exc)
         return {}
 
 
@@ -170,7 +171,7 @@ def batched_asymmetric_relax_verdicts(self: Any, pairs: list, synergy_added_idx:
                     out[pair] = bool(obs > floor[j] and (obs - mean[j]) >= floor[j])
         return out
     except Exception as exc:
-        logger.debug("batched asymmetric-synergy relaxation failed (%s); the gate scores the pairs one by one", exc)
+        log_throttle(logger, "_pair_admission_batch.except_172", logging.INFO, "batched asymmetric-synergy relaxation failed (%s); the gate scores the pairs one by one", exc)
         return {}
 
 

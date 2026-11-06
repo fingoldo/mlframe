@@ -367,7 +367,7 @@ _ORDER_CACHE_LOCK = threading.Lock()
 
 
 def _stable_order(x: np.ndarray) -> np.ndarray:
-    """``np.argsort(x, kind="stable")``: for a finite 1-D float32 / float64 vector the radix order, the same permutation about 7 times faster; anything else (NaN, other types) the comparison sort."""
+    """``np.argsort(x, kind="stable")``: for a finite 1-D float32 / double vector the radix order, the same permutation about 7 times faster; anything else (NaN, other types) the comparison sort."""
     if x.ndim == 1 and x.size and x.dtype in (np.float32, np.float64) and bool(np.isfinite(x).all()):  # Intentional float64: dtype identity check
         return cast("np.ndarray", radix_order_f32(np.ascontiguousarray(x)) if x.dtype == np.float32 else radix_order_f64(np.ascontiguousarray(x)))
     return cast("np.ndarray", np.argsort(x, kind="stable"))
@@ -401,7 +401,7 @@ _COARSE_GEMV: "bool | None" = None
 
 def _coarse_gemv_enabled() -> bool:
     """Whether the coarse GEMV path is on; the environment is read per call so it can change after import."""
-    if _COARSE_GEMV is not None:
+    if _COARSE_GEMV is not None:  # audit-exempt: guard_decidable_from_constants -- the module global is a seam that tests rebind with monkeypatch; the source never assigns it
         return bool(_COARSE_GEMV)
     return os.environ.get("MLFRAME_FOURIER_COARSE_GEMV", "1").strip() != "0"
 

@@ -17,10 +17,13 @@ from typing import cast
 
 import numpy as np
 
+from ._ktc_fallback import device_from_rows
+
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
 from ._raw_module_cache import RawModuleCache
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
+from ._fe_gpu_vram import pool_column_block
 from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
@@ -84,17 +87,11 @@ _BYTES_PER_COLUMN_ROW = 32
 _BUDGET_FRACTION = 0.3
 
 
-def _column_block(cp, n_rows: int) -> int:
-    """Columns per launch such that a block's temporaries stay within ``_BUDGET_FRACTION`` of what the memory pool can still hand out (the smaller of the device's free memory and the pool limit minus its used bytes), at least 8 and at most ``_COLUMN_BLOCK``."""
-    try:
-        pool = cp.get_default_memory_pool()
-        free_device = int(cp.cuda.runtime.memGetInfo()[0]) + int(pool.free_bytes())
-        limit = int(pool.get_limit())
-        room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))
-    except Exception as exc:
-        logger.debug("device bootstrap walk: free memory unknown (%s); small blocks", exc)
-        return 32
-    return int(max(8, min(_COLUMN_BLOCK, (_BUDGET_FRACTION * room) // (_BYTES_PER_COLUMN_ROW * max(1, n_rows)))))
+def _bootstrap_walk_column_block(cp, n_rows: int) -> int:
+    """Columns per launch such that a block's temporaries stay within ``_BUDGET_FRACTION`` of what the memory pool can still hand out, at least 8 and at most ``_COLUMN_BLOCK``."""
+    return pool_column_block(
+        cp, n_rows, bytes_per_column_row=_BYTES_PER_COLUMN_ROW, budget_fraction=_BUDGET_FRACTION, min_block=8, max_block=_COLUMN_BLOCK, fallback=32, what="device bootstrap walk"
+    )
 
 
 def _release_pool_cache(cp) -> None:
@@ -128,7 +125,7 @@ def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.nda
         lens = cp.asarray(np.ascontiguousarray(prep["lens"], dtype=np.int32))
         mi = np.zeros((n_rep, k), dtype=np.float64)  # Intentional float64: MI statistic matrix
         done = np.zeros(k, dtype=bool)
-        block_cols = _column_block(cp, n)
+        block_cols = _bootstrap_walk_column_block(cp, n)
         for c0 in range(0, k, block_cols):
             c1 = min(k, c0 + block_cols)
             block = cp.asarray(np.ascontiguousarray(arr[:, c0:c1]))
@@ -236,10 +233,10 @@ def _run_sweep() -> list:
 DEVICE_WALK_FALLBACK_ROWS = 30_000
 
 
-def _fallback_choice(n_samples: int) -> str:
+def _bootstrap_walk_fallback_choice(n_samples: int) -> str:
     """Pre-sweep fallback: the device walk from ``DEVICE_WALK_FALLBACK_ROWS`` rows. Re-measured 2026-11-01 on the development GPU (105 columns, 10 resamples, min of 5): 30000 rows host 0.05 s / device 0.04 s,
     100000 rows host 0.29 s / device 0.15 s. (The earlier note that the host walk won, 0.24 against 0.56 s, was taken under contention and does not reproduce.)"""
-    return "device" if int(n_samples) >= DEVICE_WALK_FALLBACK_ROWS else "host"
+    return device_from_rows(n_samples, DEVICE_WALK_FALLBACK_ROWS)
 
 
 try:
@@ -250,7 +247,7 @@ try:
         variant_fns=(),  # GPU-only cupy path; covered by salt
         tuner=_run_sweep,
         axes={"n_samples": list(_SWEEP_ROWS)},
-        fallback=_fallback_choice,
+        fallback=_bootstrap_walk_fallback_choice,
         gpu_capable=True,
         salt=_SALT,
         cli_label="fe_bootstrap_rank_device",

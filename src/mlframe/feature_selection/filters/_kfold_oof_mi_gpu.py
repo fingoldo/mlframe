@@ -13,6 +13,7 @@ import os
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ def kfold_oof_mi_device_enabled(n_rows: int, n_cols: int) -> bool:
 
         return scorer_device_choice("kfold_oof_mi", int(n_rows), int(n_cols), sweep=_sweep_kfold)
     except Exception as exc:
-        logger.debug("k-fold OOF MI device check failed (%s); host", exc)
+        log_throttle(logger, "_kfold_oof_mi_gpu.except_40", logging.WARNING, "k-fold OOF MI device check failed (%s); host", exc)
         return False
 
 
@@ -91,5 +92,5 @@ def fold_mi_device(arr: np.ndarray, train_idx: np.ndarray, test_idx: np.ndarray,
         mi = cp.where(ok, mi - bias, mi)
         return np.asarray(cp.asnumpy(mi), dtype=np.float64)  # Intentional float64: score statistic output contract
     except Exception as exc:
-        logger.debug("k-fold OOF MI fold on the device failed (%s: %s); host", type(exc).__name__, exc)
+        log_throttle(logger, "_kfold_oof_mi_gpu.except_93", logging.WARNING, "k-fold OOF MI fold on the device failed (%s: %s); host", type(exc).__name__, exc)
         return None

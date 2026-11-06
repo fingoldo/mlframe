@@ -168,7 +168,7 @@ def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None], *, fs
     tmp_path = os.path.join(target_dir, _tmp_basename)
     # O_EXCL is the exclusive create the mkstemp replacement needs; a direct os.open keeps it on the same syscall path as the rest of the writer.
     try:
-        fd = os.open(tmp_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0))
+        fd = os.open(tmp_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0))  # audit-exempt: resource_handle_safety -- os.open is an exclusive create whose descriptor goes straight into os.fdopen in the with on the next line
         with os.fdopen(fd, "wb") as f:
             writer_fn(f)
             if fsync:
@@ -584,7 +584,7 @@ def _verify_bundle_digest(bundle_path: str, handle=None) -> None:
 def _open_verified_bundle(file: str):
     """Open ``file`` once and verify its digest against that handle; the handle is returned for the load, or ``None`` when the file is missing."""
     try:
-        fh = open(file, "rb")
+        fh = open(file, "rb")  # audit-exempt: resource_handle_safety -- the handle is returned to the caller, which owns closing it; the failure path below closes it
     except OSError:
         fh = None  # a missing or unreadable bundle fails in the load below, as before
     try:

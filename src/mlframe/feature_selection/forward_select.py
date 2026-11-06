@@ -100,7 +100,7 @@ def _paired_significance(best_fold_scores: np.ndarray, current_fold_scores: np.n
     """
     from scipy.stats import t as _t_dist
 
-    diff = np.asarray(best_fold_scores, dtype=np.float64) - np.asarray(current_fold_scores, dtype=np.float64)
+    diff = np.asarray(best_fold_scores, dtype=np.float64) - np.asarray(current_fold_scores, dtype=np.float64)  # Intentional float64: fold score differences are taken in double
     k = diff.shape[0]
     if k < 2 or np.allclose(diff, 0.0):
         return 1.0, False

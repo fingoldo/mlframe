@@ -10,7 +10,7 @@ cp = pytest.importorskip("cupy")
 
 def _require_device():
     """Skip without a usable device."""
-    try:
+    try:  # audit-exempt: except_skip_masks_call_under_test -- the guarded call is a one-element allocation that probes for a usable CUDA device; nothing under test runs in the try
         cp.zeros(1)
     except Exception:
         pytest.skip("no usable CUDA device")

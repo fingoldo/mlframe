@@ -15,6 +15,8 @@ from typing import cast
 
 import numpy as np
 
+from ._ktc_fallback import device_from_rows
+
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
 from ._raw_module_cache import RawModuleCache
@@ -146,9 +148,9 @@ def _run_sweep() -> list:
     )
 
 
-def _fallback_choice(n_samples: int) -> str:
+def _lof_fallback_choice(n_samples: int) -> str:
     """Pre-sweep fallback: the measured crossover."""
-    return "device" if int(n_samples) >= LOF_DEVICE_FALLBACK_ROWS else "host"
+    return device_from_rows(n_samples, LOF_DEVICE_FALLBACK_ROWS)
 
 
 try:
@@ -159,7 +161,7 @@ try:
         variant_fns=(),  # GPU-only cupy path; covered by salt
         tuner=_run_sweep,
         axes={"n_samples": list(_SWEEP_ROWS)},
-        fallback=_fallback_choice,
+        fallback=_lof_fallback_choice,
         gpu_capable=True,
         salt=_SALT,
         cli_label="fe_lof_device",

@@ -40,5 +40,5 @@ def test_the_device_gate_copies_back_no_codes_and_declines_host_batches():
     batches, y = _family(3)
     lazy = [LazyHostCodes(cp.asarray(b), np.int8) for b in batches]
     assert family_pass_batches_device(lazy, y, 0.01, 999, 0) is not None
-    assert all(lz._host is None for lz in lazy)
+    assert len(lazy) > 0 and all(lz._host is None for lz in lazy)
     assert family_pass_batches_device(batches, y, 0.01, 999, 0) is None

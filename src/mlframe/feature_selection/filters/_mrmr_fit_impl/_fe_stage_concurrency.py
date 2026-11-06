@@ -30,6 +30,7 @@ import numpy as np
 
 from .._fe_deadline import _state as _deadline_state
 from .._fe_deadline import fe_deadline_scope
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ def _same(a: Any, b: Any) -> bool:
         return type(a) is type(b) and len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
     try:
         return bool(a == b)
-    except Exception as exc:  # best-effort: a comparison that raises is reported as unequal, the conservative answer
+    except Exception as exc:  # best-effort: a comparison that raises is reported as unequal, the conservative answer  # audit-exempt: non_neutral_except_fallback -- unequal is the conservative answer for a comparison that raised, and the cause is on the debug line
         logger.debug("stage-state comparison raised %s: %s; reported as unequal", type(exc).__name__, exc)
         return False
 
@@ -150,7 +151,7 @@ def _stages_fit_device(vram_weights: "Sequence[float]", n_rows: int) -> bool:
             # the fit caps the pool (``fe_gpu_pool``): memory above the cap is not usable by the stages even when the device has it free
             avail = min(avail, max(0, limit - int(pool.used_bytes())))  # the cap less what is in use: the pool's cached blocks are reusable inside it
     except Exception as exc:
-        logger.debug("stage concurrency: device memory unreadable (%r); stages run concurrently", exc)
+        log_throttle(logger, "_fe_stage_concurrency.except_152", logging.WARNING, "stage concurrency: device memory unreadable (%r); stages run concurrently", exc)
         return True
     if need > avail:
         logger.info("FE stage concurrency: the stages' scaled peak VRAM (%.1f GB at %d rows) exceeds the %.1f GB available; running the cascades one by one", need / 2**30, n_rows, avail / 2**30)

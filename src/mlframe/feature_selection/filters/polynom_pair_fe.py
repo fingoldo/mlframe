@@ -779,7 +779,7 @@ def _run_polynom_pair_f_same_pairs_old_per(X_ndarr, _uncoercible):
             except (ValueError, TypeError):  # noqa: PERF203 - per-column coercion needs its own try; runs once per FE round, not hot
                 unreadable_columns.append(_j)
         for _j in unreadable_columns:
-            logger.warning("polynom pair FE: column %d cannot be coerced to float; it is excluded from the pairs", _j)
+            log_throttle(logger, "polynom_pair_fe.uncoercible_column", logging.WARNING, "polynom pair FE: column %d cannot be coerced to float; it is excluded from the pairs", _j)
             _Xf[:, _j] = np.nan
             _uncoercible[_j] = True
         X_ndarr = _Xf

@@ -14,6 +14,23 @@ from types import ModuleType
 from typing import Callable, Iterator, Sequence
 
 
+class _Finalizers:
+    """The restores to run at exit, in reverse order (the shape of pytest's ``request.addfinalizer``)."""
+
+    def __init__(self) -> None:
+        """Start with no restores."""
+        self._calls: list[Callable[[], object]] = []
+
+    def addfinalizer(self, call: Callable[[], object]) -> None:
+        """Run ``call`` when the guard exits."""
+        self._calls.append(call)
+
+    def run(self) -> None:
+        """Run every registered restore, last registered first."""
+        while self._calls:
+            self._calls.pop()()
+
+
 @contextlib.contextmanager
 def reload_guard(prefixes: Sequence[str] = ("mlframe",)) -> Iterator["dict[str, tuple[ModuleType, dict]]"]:
     """Record the first-seen bindings of every reloaded module under ``prefixes`` and restore them on exit.
@@ -22,12 +39,15 @@ def reload_guard(prefixes: Sequence[str] = ("mlframe",)) -> Iterator["dict[str, 
     """
     real_reload: Callable[[ModuleType], ModuleType] = importlib.reload
     saved: dict[str, tuple[ModuleType, dict]] = {}
+    finalizers = _Finalizers()
 
     def guarded(module: ModuleType) -> ModuleType:
-        """Snapshot the module namespace once, then reload."""
+        """Snapshot the module namespace once, register its restore, then reload."""
         name = getattr(module, "__name__", "")
         if name not in saved and any(name == p or name.startswith(p + ".") for p in prefixes):
-            saved[name] = (module, dict(module.__dict__))
+            namespace = dict(module.__dict__)
+            saved[name] = (module, namespace)
+            finalizers.addfinalizer(lambda: (module.__dict__.clear(), module.__dict__.update(namespace)))
         return real_reload(module)
 
     importlib.reload = guarded  # type: ignore[assignment]
@@ -35,6 +55,4 @@ def reload_guard(prefixes: Sequence[str] = ("mlframe",)) -> Iterator["dict[str, 
         yield saved
     finally:
         importlib.reload = real_reload  # type: ignore[assignment]
-        for module, namespace in saved.values():
-            module.__dict__.clear()
-            module.__dict__.update(namespace)
+        finalizers.run()

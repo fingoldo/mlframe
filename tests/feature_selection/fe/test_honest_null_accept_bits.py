@@ -7,7 +7,7 @@ import pytest
 def _setup(n, kc, n_perm, p1, ties, planted, seed):
     """Sorted orders, tie flags, permuted targets (a subset planted to depend on a column, same number of ones) and the exact k4 reference output."""
     cp = pytest.importorskip("cupy")
-    try:
+    try:  # audit-exempt: except_skip_masks_call_under_test -- the guarded call only asks the runtime for a CUDA device; nothing under test runs in the try
         cp.cuda.runtime.getDeviceCount()
     except Exception:
         pytest.skip("no CUDA device")

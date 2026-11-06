@@ -9,22 +9,19 @@ import pytest
 from mlframe.training.core._main_train_suite import train_mlframe_models_suite
 
 
-def test_lazyframe_asks_for_collect():
-    """A LazyFrame used to fail with 'LazyFrame is not subscriptable ... use select()'."""
-    with pytest.raises(TypeError, match="collect"):
-        train_mlframe_models_suite(pl.DataFrame({"y": [0, 1]}).lazy(), "y", "m")
-
-
-def test_list_input_is_a_type_error_naming_the_accepted_types():
-    """A list used to fail with \"'list' object has no attribute 'columns'\"."""
-    with pytest.raises(TypeError, match="DataFrame"):
-        train_mlframe_models_suite([[1, 2], [3, 4]], "y", "m")
-
-
-def test_csv_path_is_rejected_with_the_parquet_message():
-    """A .csv path used to reach pl.read_parquet and fail with a decode or file error."""
-    with pytest.raises(ValueError, match="parquet"):
-        train_mlframe_models_suite(pathlib.Path("data.csv"), "y", "m")
+@pytest.mark.parametrize(
+    "bad_input,error,match",
+    [
+        (pl.DataFrame({"y": [0, 1]}).lazy(), TypeError, "collect"),  # used to fail with 'LazyFrame is not subscriptable ... use select()'
+        ([[1, 2], [3, 4]], TypeError, "DataFrame"),  # used to fail with "'list' object has no attribute 'columns'"
+        (pathlib.Path("data.csv"), ValueError, "parquet"),  # used to reach pl.read_parquet and fail with a decode or file error
+    ],
+    ids=["lazyframe", "list", "csv_path"],
+)
+def test_bad_df_argument_gets_an_actionable_error(bad_input, error, match):
+    """A LazyFrame, a list and a .csv path are refused with a message that names the accepted input, not an AttributeError or a decode error."""
+    with pytest.raises(error, match=match):
+        train_mlframe_models_suite(bad_input, "y", "m")
 
 
 def test_missing_target_in_a_parquet_file_lists_the_columns(tmp_path):

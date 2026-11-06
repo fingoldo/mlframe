@@ -33,6 +33,7 @@ from ._optimization_shared import (
     generate_fibonacci,
     plot_search_state,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -668,7 +669,7 @@ class MBHOptimizer:
                 new_evaluations_batch.append(next_evaluation)
             else:
                 # a failed evaluation (NaN/inf) must not reach the surrogate refit: CatBoost and ExtraTrees raise on a non-finite target
-                logger.warning("Optimizer: candidate %r returned a non-finite evaluation (%s); it is recorded but excluded from the surrogate's training data.", next_candidate, next_evaluation)
+                log_throttle(logger, "optimization_search.nonfinite_evaluation", logging.WARNING, "Optimizer: candidate %r returned a non-finite evaluation (%s); it is recorded but excluded from the surrogate's training data.", next_candidate, next_evaluation)
 
             if next_candidate in self.pre_seeded_candidates:
                 self.pre_seeded_candidates.remove(next_candidate)

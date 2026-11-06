@@ -157,17 +157,17 @@ __global__ void solve_small(const {ACC}* part, const int nblocks, {ACC}* coef) {
 """
 
 
-_MODULES_BY_REAL = {np.dtype(t): RawModuleCache(render(_SRC, real=t)) for t in (np.float32, np.float64)}  # one module per design element type
+_MODULES_BY_REAL = {np.dtype(t): RawModuleCache(render(_SRC, real=t)) for t in (np.float32, np.float64)}  # Intentional float64: one module per design element type
 
 
 def als_sweep_fused(cp: Any, Ba: Any, Bb: Any, yc: Any, iters: int) -> Optional[tuple]:
     """Both coefficient vectors of the alternating sweep as host arrays, or ``None`` when the fused path cannot give a finite answer (the caller runs the original path).
 
-    ``Ba``/``Bb`` are C-contiguous ``(n, d)`` float32 or float64 designs (read in their own type) with the same ``d <= 12``, ``yc`` the centred target."""
+    ``Ba``/``Bb`` are C-contiguous ``(n, d)`` float32 or double designs (read in their own type) with the same ``d <= 12``, ``yc`` the centred target."""
     n, d = Ba.shape
     if Bb.shape != Ba.shape or d > 12 or n < 2:
         return None
-    real = np.dtype(np.float32) if Ba.dtype == cp.float32 else np.dtype(np.float64)  # the designs are read in their own type; the sums, the Gram and the coefficients stay float64
+    real = np.dtype(np.float32) if Ba.dtype == cp.float32 else np.dtype(np.float64)  # Intentional float64: the designs are read in their own type; the sums, the Gram and the coefficients stay float64
     ba = cp.ascontiguousarray(Ba, dtype=real)
     bb = cp.ascontiguousarray(Bb, dtype=real)
     y = cp.ascontiguousarray(yc, dtype=real)
