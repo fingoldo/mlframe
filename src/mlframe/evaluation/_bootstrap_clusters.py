@@ -48,6 +48,15 @@ def block_resample_indices(rng: np.random.Generator, n: int, block_length: int) 
     return (starts[:, None] + np.arange(block_length)[None, :]).ravel()[:n]
 
 
+def _warn_if_many_dropped(name: str, dropped: int, n_bootstrap: int) -> None:
+    """Warn when more than a quarter of the clustered resamples of ``name`` were dropped (failed or non-finite)."""
+    if dropped > 0.25 * n_bootstrap:
+        logger.warning(
+            "clustered bootstrap for %r: %d of %d resamples dropped (failed or non-finite); the interval is built on the rest.",
+            name, dropped, n_bootstrap,
+        )
+
+
 def bootstrap_metrics_clustered(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -115,11 +124,7 @@ def bootstrap_metrics_clustered(
         arr = np.asarray(samples[name], dtype=np.float64)
         # A resample the metric could not score is left out of the interval; past a quarter of them the interval is built on a
         # biased subset, so say so as the ordinary bootstrap does.
-        if n_dropped[name] > 0.25 * n_bootstrap:
-            logger.warning(
-                "clustered bootstrap for %r: %d of %d resamples dropped (failed or non-finite); the interval is built on the rest.",
-                name, n_dropped[name], n_bootstrap,
-            )
+        _warn_if_many_dropped(name, n_dropped[name], n_bootstrap)
         if arr.size == 0:
             results[name] = {"error": f"all {n_bootstrap} clustered resamples failed", "n_dropped": n_dropped[name]}
             continue

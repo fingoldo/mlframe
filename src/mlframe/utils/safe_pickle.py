@@ -52,4 +52,3 @@ def verify_sidecar_payload(path: str, payload: bytes, *, allow_unverified: Optio
 def safe_load(path: str, *, allow_unverified: Optional[bool] = None) -> Any:
     """Verify then unpickle ``path``, honoring mlframe's ``MLFRAME_ALLOW_UNVERIFIED_PICKLE`` env var. See ``pyutilz.core.safe_pickle.safe_load``."""
     return _pyutilz_safe_load(path, allow_unverified=allow_unverified, env_var=UNVERIFIED_ENV_VAR)
-
