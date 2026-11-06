@@ -114,13 +114,30 @@ def _launch_radix_f32_v4(cp, data_cm, n: int, K: int, ranks_g, R: int, osv, thre
         return False
 
 
+_CANONICAL_NAN_KERNELS: dict = {}
+
+
 def _canonical_nan(cand_gpu):
-    """``cand_gpu`` with every NaN replaced by the positive quiet NaN, so the radix key transform puts it last as sorting does."""
+    """``cand_gpu`` with every NaN rewritten, in place, to the positive quiet NaN, so the radix key transform puts it last as sorting does.
+
+    One elementwise pass over the matrix and no second matrix: the first version built ``cp.where(isnan(x), nan, x)``, a full copy of the candidate block on the device, which
+    went over the memory pool's limit when the FE stages run together (a 406 MB block next to the 865 MB already held, limit 1.06 GB) and sent the edge computation to the
+    CPU path. Only the payload of a NaN changes, never a value, so a caller that holds the same array sees the same numbers.
+    """
     import cupy as cp
 
     if cand_gpu.dtype.kind != "f":
         return cand_gpu
-    return cp.where(cp.isnan(cand_gpu), cp.asarray(np.nan, dtype=cand_gpu.dtype), cand_gpu)
+    key = cand_gpu.dtype.name
+    kern = _CANONICAL_NAN_KERNELS.get(key)
+    if kern is None:
+        quiet = {"float32": "__int_as_float(0x7fc00000)", "float64": "__longlong_as_double(0x7ff8000000000000LL)", "float16": "x"}.get(key)
+        if quiet is None or key == "float16":
+            return cand_gpu
+        kern = cp.ElementwiseKernel(f"{key} x", f"{key} y", f"y = isnan(x) ? {quiet} : x", f"canonical_nan_{key}")
+        _CANONICAL_NAN_KERNELS[key] = kern
+    kern(cand_gpu, cand_gpu)
+    return cand_gpu
 
 
 def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extremes: bool = False, data_is_cm: bool = False):
