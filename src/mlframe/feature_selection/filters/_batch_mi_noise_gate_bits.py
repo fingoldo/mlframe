@@ -131,7 +131,7 @@ def remember_observed(codes: Any, key: str, observed: np.ndarray) -> None:
     with _OBSERVED_LOCK:
         _OBSERVED[ident] = (ref, key, observed)
         while len(_OBSERVED) > _OBSERVED_MAX:
-            _OBSERVED.pop(next(iter(_OBSERVED)))
+            _OBSERVED.pop(next(iter(_OBSERVED)))  # evict-ok: a miss makes the family gate compute its own observed MI
 
 
 def recall_observed(codes: Any, key: str) -> Optional[np.ndarray]:

@@ -66,3 +66,34 @@ def test_off_switch_and_later_steps(monkeypatch):
     monkeypatch.setenv("MLFRAME_GBM_SEEDER_PREFETCH", "0")
     P.prefetch_surrogate_seeds(est, num_fs_steps=0, data=data, cols=cols, X=X, target_indices=[3], categorical_vars=[], classes_y=y)
     assert calls == [] and P.take_prefetched(est, data, y, [0, 1, 2], P.seeder_kwargs(est)) is None
+
+
+def test_same_values_in_a_new_matrix_object_take_the_result(monkeypatch):
+    """The match is by value: the screening may hand the step a new matrix object with the same candidate columns and target, and the result is used."""
+    calls, cols, X, data, y = _setup(monkeypatch)
+    est = _Est(cols[:3])
+    P.prefetch_surrogate_seeds(est, num_fs_steps=0, data=data, cols=cols, X=X, target_indices=[3], categorical_vars=[], classes_y=y)
+    cand = P.seeder_candidates(est, cols, [3], [], set())
+    wider = np.hstack([data, np.ones((2, 2), dtype=np.int32)])  # extra engineered columns after the raw ones
+    got = P.take_prefetched(est, wider, y.copy(), cand, P.seeder_kwargs(est))
+    assert got == ([(0, 1)], [], {"n": 3}) and len(calls) == 1
+
+
+def test_changed_candidate_values_or_target_fall_back(monkeypatch):
+    """A matrix whose candidate columns differ, or another target, gets None."""
+    _calls, cols, X, data, y = _setup(monkeypatch)
+    est = _Est(cols[:3])
+    cand = P.seeder_candidates(est, cols, [3], [], set())
+    for other_data, other_y in ((data + 1, y), (data, y[::-1].copy() + 1)):
+        P.prefetch_surrogate_seeds(est, num_fs_steps=0, data=data, cols=cols, X=X, target_indices=[3], categorical_vars=[], classes_y=y)
+        assert P.take_prefetched(est, other_data, other_y, cand, P.seeder_kwargs(est)) is None
+
+
+def test_the_step_entry_call_does_not_resubmit_an_early_start(monkeypatch):
+    """The early start and the step-entry call carry the same values: the fits run once."""
+    calls, cols, X, data, y = _setup(monkeypatch)
+    est = _Est(cols[:3])
+    P.prefetch_surrogate_seeds(est, num_fs_steps=0, data=data, cols=cols, X=X, target_indices=[3], categorical_vars=[], classes_y=y)
+    P.prefetch_surrogate_seeds(est, num_fs_steps=0, data=data.copy(), cols=cols, X=X, target_indices=[3], categorical_vars=[], classes_y=y.copy())
+    cand = P.seeder_candidates(est, cols, [3], [], set())
+    assert P.take_prefetched(est, data, y, cand, P.seeder_kwargs(est)) is not None and len(calls) == 1
