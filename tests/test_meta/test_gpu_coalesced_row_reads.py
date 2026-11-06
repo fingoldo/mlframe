@@ -38,18 +38,25 @@ def _kernel_bodies(text: str) -> "list[tuple[str, str]]":
     """``[(kernel name, body text)]`` for every ``__global__`` function in ``text`` (brace-matched)."""
     out: list[tuple[str, str]] = []
     for m in _KERNEL_RE.finditer(text):
-        open_at = text.find("{", m.end())
+        # Comments are stripped first: a comment in the parameter list can hold an unbalanced ")" such as "[0,Kx)".
+        seg = _COMMENT_RE.sub(" ", text[m.end() :])
+        # Skip the parameter list: templated kernels carry ``{ACC}``-style placeholders in it, which are not the body.
+        depth, i = 1, 0
+        while i < len(seg) and depth:
+            depth += (seg[i] == "(") - (seg[i] == ")")
+            i += 1
+        open_at = seg.find("{", i)
         if open_at < 0:
             continue
-        depth, i = 0, open_at
-        while i < len(text):
-            ch = text[i]
+        depth, j = 0, open_at
+        while j < len(seg):
+            ch = seg[j]
             depth += ch == "{"
             depth -= ch == "}"
             if depth == 0:
                 break
-            i += 1
-        out.append((m.group(1), _COMMENT_RE.sub(" ", text[open_at : i + 1])))
+            j += 1
+        out.append((m.group(1), seg[open_at : j + 1]))
     return out
 
 
