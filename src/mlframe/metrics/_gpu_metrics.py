@@ -351,7 +351,7 @@ def _gpu_binary_labels(actual: Any) -> np.ndarray:
     from ._auc_labels import _binary_labels_01
 
     host = actual.get() if hasattr(actual, "get") else np.asarray(actual)
-    return _binary_labels_01(host)
+    return np.asarray(_binary_labels_01(host))
 
 
 def gpu_multiple_roc_auc_scores(actual: Any, predicted: Any) -> Any:

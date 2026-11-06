@@ -75,7 +75,7 @@ def check_pairwise_score_correlation(
     n = a.shape[0]
     def _ranks(v: np.ndarray) -> np.ndarray:
         """Rank of each element in ``v`` (ascending), tied scores sharing their average rank so a tie is not scored as a disagreement."""
-        return rankdata(v)
+        return np.asarray(rankdata(v))
 
     rank_a, rank_b = _ranks(a), _ranks(b)
     if n > _PAIRWISE_MATRIX_WARN_N:
