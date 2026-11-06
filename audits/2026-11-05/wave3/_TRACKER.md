@@ -62,7 +62,7 @@ Four read-only audits covered the remaining GPU-kernel files (reports `kernel_pa
 | PARG3-4 | Medium | RESOLVED | `99fa73344` device HSIC centres rows in float64 before narrowing; test `test_hsic_device_is_offset_invariant.py` |
 | PARG2-6 | Low | RESOLVED | `b4bc25fcb` fused gate clamps MI at zero as the host; reproduced at -6.5e-16 on HEAD; test `test_fused_su_gate_clamps_negative_mi.py` |
 | PARG2-7 | Low | RESOLVED | `a6be24ee2` negative target codes go to the generic path; test `test_analytic_gate_refuses_negative_target_codes.py` |
-| PARG3-5 | Low | OPEN | Opt-in on-device entropy runs in float32 although the docstring claims float64 |
+| PARG3-5 | Low | RESOLVED | `3057db77a` on-device segment entropies computed and returned in float64, as documented; test `test_friend_entropy_is_double.py` |
 | PARG3-6 | Low | RESOLVED | `330ac70ff` device sign of NaN is NaN, as the twins; test `test_unary_sign_keeps_nan.py` |
 | PARG3-7 | Low | RESOLVED | `0ee82cc02` empty family returns zeros before any launch; test `test_family_null_max_empty_family.py` |
 | PARG1-7..PARG1-11 | Low | OPEN | Interpolation mismatch, negative codes as indices, rounding, docstring overstatement, undocumented last-bit difference (see g1 report) |
