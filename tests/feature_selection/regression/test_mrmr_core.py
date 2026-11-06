@@ -796,10 +796,12 @@ def test_regression_pyproject_pins_pyutilz_commit():
 def test_regression_no_stale_self_referential_log_line_numbers(modname):
     """Post-fix: none of the 6 files' debug-log messages embed a self-referential '<file>.py:<N>' string
     that can go stale relative to the file's actual current length."""
+    import ast
     import importlib
-    import inspect
     import re
 
     mod = importlib.import_module(f"mlframe.feature_selection.filters.{modname}")
-    src = inspect.getsource(mod)
-    assert not re.search(r"suppressed in \S+\.py:\d+", src), f"{modname} still has a stale line-number log string"
+    with open(mod.__file__, encoding="utf-8") as fh:
+        literals = [n.value for n in ast.walk(ast.parse(fh.read())) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    stale = [s for s in literals if re.search(r"suppressed in \S+\.py:\d+", s)]
+    assert not stale, f"{modname} still has a stale line-number log string: {stale}"
