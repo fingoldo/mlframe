@@ -74,12 +74,19 @@ def _thread_vars(body: str) -> "set[str]":
 
 
 _SHARED_RE = re.compile(r"__shared__[^;(]*?(\w+)\s*\[")
+# A statically sized ``__shared__`` buffer (``se[EDGE_CACHE]``) has a fixed footprint, so a fill of it from global memory is bounded
+# by its declared size. A dynamic ``extern __shared__`` array (its size comes from the launch) has no such bound and is not exempt.
+_STATIC_SHARED_RE = re.compile(r"(?<!extern )__shared__[^;(]*?(\w+)\s*\[[^\]\s]+\]")
 
 
 def _without_shared_subscripts(body: str) -> str:
-    """``body`` with every subscript of a ``__shared__`` array blanked: shared memory is not a global read."""
-    names = set(_SHARED_RE.findall(body))
-    for name in names:
+    """``body`` with every ``__shared__`` array access blanked: shared memory is not a global read.
+
+    A store into a statically sized shared buffer is dropped as a whole statement, since its global read is bounded by the buffer size.
+    """
+    for name in set(_STATIC_SHARED_RE.findall(body)):
+        body = re.sub(rf"\b{re.escape(name)}\s*\[[^\]]*\]\s*=(?!=)[^;]*;", ";", body)
+    for name in set(_SHARED_RE.findall(body)):
         body = re.sub(rf"\b{re.escape(name)}\s*\[[^\]]*\]", "0", body)
     return body
 
@@ -156,3 +163,26 @@ def test_checker_flags_row_major_stride_and_accepts_column_major_read():
     )
     assert uncoalesced_kernels(bad) == ["k"]
     assert not uncoalesced_kernels(good)
+
+
+def test_static_shared_fill_is_exempt_and_dynamic_shared_fill_is_flagged():
+    """A fill of a statically sized shared buffer is bounded by its size, so it is not flagged; a dynamic ``extern __shared__`` fill is."""
+    static_fill = """
+extern "C" __global__ void fill_static(const double* __restrict__ edges, const int K, const int c, const int ne) {
+    __shared__ double se[256];
+    for (int s = threadIdx.x; s < ne; s += blockDim.x) se[s] = edges[(long long)s * K + c];
+    __syncthreads();
+    double acc = 0.0;
+    for (int b = 0; b < 4; ++b) acc += se[b];
+    (void)acc;
+}
+"""
+    dynamic_fill = """
+extern "C" __global__ void fill_dynamic(const double* __restrict__ yb, const long long words, const int B, const int b) {
+    extern __shared__ unsigned int sy[];
+    for (long long w = threadIdx.x; w < words; w += blockDim.x) sy[w] = yb[(long long)w * B + b];
+    __syncthreads();
+}
+"""
+    assert uncoalesced_kernels(static_fill) == []
+    assert uncoalesced_kernels(dynamic_fill) == ["fill_dynamic"]
