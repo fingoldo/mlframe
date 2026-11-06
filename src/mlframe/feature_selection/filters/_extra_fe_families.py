@@ -598,8 +598,12 @@ def _top_mi_num_cols(
     # MI is computed per column, so scoring column blocks gives the same value per column as one full matrix.
     # One copy of the whole numeric block is the frame's size (1M rows x 500 cols = 1.9 GB even in float32), so blocks keep the peak small.
     mi = np.empty(len(num_cols), dtype=np.float64)  # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
-    for start in range(0, len(num_cols), _TOP_MI_CHUNK_COLS):
-        block = X[num_cols[start : start + _TOP_MI_CHUNK_COLS]].to_numpy(dtype=_crit_np_dtype())
+    # a block of a fixed 64 columns is 2.5 GB at 10M rows (and the batch MI copies it again): the width is the smaller of 64 and what the free host memory allows
+    from ._binned_numeric_agg_batches import _free_host_bytes, rows_per_batch
+
+    width = max(1, min(_TOP_MI_CHUNK_COLS, rows_per_batch(len(X), int(np.dtype(_crit_np_dtype()).itemsize), _free_host_bytes(), None)))
+    for start in range(0, len(num_cols), width):
+        block = X[num_cols[start : start + width]].to_numpy(dtype=_crit_np_dtype())
         mi[start : start + block.shape[1]] = np.asarray(_mi_classif_batch(block, y_bin, nbins=10), dtype=_crit_np_dtype())
     order = np.argsort(-mi, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
     return [num_cols[i] for i in order[: int(max_cols)]]

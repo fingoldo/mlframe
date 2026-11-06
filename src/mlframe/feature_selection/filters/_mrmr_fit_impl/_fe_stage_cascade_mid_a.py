@@ -70,6 +70,9 @@ def _stage_layer87_grouped_agg(self, X_acc, X, _y_np, _grouped_agg_pre_recipes, 
             type(_ga_exc).__name__,
             _ga_exc,
         )
+        from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+        record_family_failure(self, "grouped_agg", _ga_exc)
     return X_acc
 
 
@@ -295,6 +298,9 @@ def _fe_stage_cascade_mid_a_part1(
                     type(_il_exc).__name__,
                     _il_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "integer_lattice", _il_exc)
     return X_acc, _discrete_fe_master, _y_class_mi_applicable, _y_class_mi_binned
 
 def _stage_composite_group_agg(self, _fe_family_on, X, _y_np, _composite_group_agg_pre_recipes, verbose):
@@ -360,6 +366,9 @@ def _stage_composite_group_agg(self, _fe_family_on, X, _y_np, _composite_group_a
                     type(_cga_exc).__name__,
                     _cga_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "composite_group_agg", _cga_exc)
     return X
 
 def _stage_grouped_quantile(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _grouped_quantile_pre_recipes, verbose):
@@ -432,6 +441,9 @@ def _stage_grouped_quantile(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_f
                     type(_gq_exc).__name__,
                     _gq_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "grouped_quantile", _gq_exc)
     return X
 
 def _stage_cat_pair(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_pair_pre_recipes, verbose):
@@ -500,6 +512,9 @@ def _stage_cat_pair(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_
                     type(_cp_exc).__name__,
                     _cp_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "cat_pair", _cp_exc)
     return X
 
 def _stage_cat_triple(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_triple_pre_recipes, verbose):
@@ -563,6 +578,9 @@ def _stage_cat_triple(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _ca
                     type(_ct_exc).__name__,
                     _ct_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "cat_triple", _ct_exc)
     return X
 
 def _stage_numeric_decompose(self, _fe_family_on, X, _y_np, _numeric_decompose_pre_recipes, verbose):
@@ -617,6 +635,9 @@ def _stage_numeric_decompose(self, _fe_family_on, X, _y_np, _numeric_decompose_p
                     type(_nd_exc).__name__,
                     _nd_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "numeric_decompose", _nd_exc)
     return X
 
 def _stage_modular(self, _fe_family_on, X, _y_np, _modular_pre_recipes, verbose):
@@ -665,6 +686,9 @@ def _stage_modular(self, _fe_family_on, X, _y_np, _modular_pre_recipes, verbose)
                     type(_md_exc).__name__,
                     _md_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "modular", _md_exc)
         # Floor-parity family rides on the same flag: a square wave of one column with a scanned period. The period scan
         # scores candidates by discrete MI, so it runs only on a classification-like target (few distinct values).
         if isinstance(X, pd.DataFrame) and len(np.unique(_y_np)) <= 10:
@@ -683,6 +707,9 @@ def _stage_modular(self, _fe_family_on, X, _y_np, _modular_pre_recipes, verbose)
                         logger.info("MRMR.fit parity: appended %d engineered column(s): %s", len(_par_appended), _par_appended[:8])
             except Exception as _par_exc:
                 logger.warning("MRMR.fit parity FE raised %s: %s; continuing without parity columns.", type(_par_exc).__name__, _par_exc)
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "parity", _par_exc)
     return X
 
 def _stage_pairwise_modular(self, X, _y_class_mi_applicable, _y_class_mi_binned, _pairwise_modular_pre_recipes, verbose):
@@ -748,6 +775,9 @@ def _stage_pairwise_modular(self, X, _y_class_mi_applicable, _y_class_mi_binned,
                 type(_pm_exc).__name__,
                 _pm_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "pairwise_modular", _pm_exc)
     return X
 
 def _stage_row_argmax(self, X, _y_class_mi_applicable, _y_class_mi_binned, _row_argmax_pre_recipes, verbose):
@@ -813,6 +843,9 @@ def _stage_row_argmax(self, X, _y_class_mi_applicable, _y_class_mi_binned, _row_
                 type(_am_exc).__name__,
                 _am_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "row_argmax", _am_exc)
     return X
 
 def _stage_conditional_gate(self, _discrete_fe_master, _fe_family_on, X, _y_class_mi_applicable, _y_class_mi_binned, _conditional_gate_pre_recipes, verbose):
@@ -894,4 +927,7 @@ def _stage_conditional_gate(self, _discrete_fe_master, _fe_family_on, X, _y_clas
                     type(_cg_exc).__name__,
                     _cg_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "conditional_gate", _cg_exc)
     return X

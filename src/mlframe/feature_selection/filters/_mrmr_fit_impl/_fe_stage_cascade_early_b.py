@@ -132,6 +132,9 @@ def _fe_stage_cascade_early_b(
                 type(_te_exc).__name__,
                 _te_exc,
             )
+            from .._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "kfold_te", _te_exc)
 
     # GROUPED AGGREGATION OVER QUANTILE-BINNED NUMERIC CELLS. Appends leak-safe per-cell
     # mean/std/skew/kurt of numeric columns grouped by quantile-binned cells of other numerics. Runs in the
@@ -233,6 +236,9 @@ def _fe_stage_cascade_early_b_part1(
                         type(_cnt_exc).__name__,
                         _cnt_exc,
                     )
+                    from .._fe_rejection_ledger import record_family_failure
+
+                    record_family_failure(self, "count_encoding", _cnt_exc)
 
             # ----- Frequency encoding ------------------------------------
             X_acc = _fe_merge_new_columns(X_acc, _stage_frequency_encoding(self, _fe_family_on, _engineered_seen_l34, X, _y_np, _l34_reject_sink, _freq_enc_pre_recipes, verbose), X)
@@ -421,6 +427,9 @@ def _missingness_indicator_block(self, _resolve_missing_cols, X, _y_np, _miss_fr
                 type(_ind_exc).__name__,
                 _ind_exc,
             )
+            from .._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "missingness_indicator", _ind_exc)
     return X
 
 
@@ -457,6 +466,9 @@ def _missingness_count_block(self, _resolve_missing_cols, X, _miss_frame, _miss_
                 type(_mc_exc).__name__,
                 _mc_exc,
             )
+            from .._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "missingness_count", _mc_exc)
     return X
 
 
@@ -494,6 +506,9 @@ def _missingness_pattern_block(self, _resolve_missing_cols, X, _miss_frame, _mis
                 type(_pat_exc).__name__,
                 _pat_exc,
             )
+            from .._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "missingness_pattern", _pat_exc)
     return X
 
 
@@ -581,6 +596,9 @@ def _ratio_block(self, _fe_family_on, X, _l38_mi_gate, _l38_mi_gate_top_k, _y_fo
                 type(_r_exc).__name__,
                 _r_exc,
             )
+            from .._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "pairwise_ratio", _r_exc)
     return X
 
 
@@ -621,6 +639,9 @@ def _log_ratio_block(self, _fe_family_on, X, _l38_mi_gate, _l38_mi_gate_top_k, _
                 type(_lr_exc).__name__,
                 _lr_exc,
             )
+            from .._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "pairwise_log_ratio", _lr_exc)
     return X
 
 
@@ -661,6 +682,9 @@ def _grouped_delta_block(self, _fe_family_on, X, _l38_mi_gate, _l38_mi_gate_top_
                 type(_gd_exc).__name__,
                 _gd_exc,
             )
+            from .._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "grouped_delta", _gd_exc)
     return X
 
 
@@ -703,6 +727,9 @@ def _lagged_diff_block(self, _fe_family_on, X, _l38_mi_gate, _l38_mi_gate_top_k,
                 type(_ld_exc).__name__,
                 _ld_exc,
             )
+            from .._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "lagged_diff", _ld_exc)
     return X
 
 
@@ -746,6 +773,9 @@ def _stage_binned_numeric_agg(self, _fe_family_on, X, y, _binned_agg_pre_recipes
                 "MRMR.fit binned_numeric_agg FE raised %s: %s; continuing without binned-agg columns.",
                 type(_ba_exc).__name__, _ba_exc,
             )
+            from .._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "binned_numeric_agg", _ba_exc)
     return X
 
 
@@ -795,6 +825,9 @@ def _stage_frequency_encoding(self, _fe_family_on, _engineered_seen_l34, X, _y_n
                 type(_freq_exc).__name__,
                 _freq_exc,
             )
+            from .._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "frequency_encoding", _freq_exc)
     return X
 
 
@@ -846,4 +879,7 @@ def _stage_cat_num_interaction(self, _fe_family_on, X, _y_np, _l34_reject_sink, 
                 type(_cn_exc).__name__,
                 _cn_exc,
             )
+            from .._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "cat_num_interaction", _cn_exc)
     return X

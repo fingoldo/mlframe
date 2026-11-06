@@ -84,6 +84,8 @@ FE_GATE_LABELS = (
     "residual_rescue_prune",  # residual rescue: a raw or engineered column without held-out gain given the rest of the selection
     "final_subsumption",  # end-of-fit pass: a column carrying no information beyond the compounds
     "raw_redundancy_drop",  # raw operand conditionally subsumed by a surviving engineered child
+    "selection_compaction",  # end-of-fit selection compaction: an engineered column that was redundant, or replaced by another one the reason names
+    "family_failed",  # a whole FE family raised and the fit went on without its columns (the exception type and message are in ``reason``)
     "ledger_capped",  # synthetic marker: records dropped past the memory cap
 )
 
@@ -184,6 +186,21 @@ def record_raw_redundancy_drop(mrmr_self: Any, name: str, cmi: float, floor: flo
     record_fe_rejection(
         mrmr_self, gate="raw_redundancy_drop", candidate=name, operator="raw", observed=excess, threshold=marginal_excess,
         reason=f"conditional MI {cmi:.5f} against permutation floor {floor:.5f}: subsumed by a surviving engineered child",
+    )
+
+
+def record_family_failure(mrmr_self: Any, family: str, exc: BaseException) -> None:
+    """Record that the FE family ``family`` raised ``exc`` and the fit continued without its columns, as one ``family_failed`` row of the rejection ledger.
+
+    A family that cannot run (out of memory, a device fault) otherwise leaves only a log line; the row makes the drop visible in ``fe_rejection_ledger_`` next to the candidates the gates
+    rejected. Pure-record: the caller keeps its own log line and its own recovery."""
+    record_fe_rejection(
+        mrmr_self,
+        gate="family_failed",
+        candidate=f"<family {family}>",
+        operator=family,
+        reason=f"{type(exc).__name__}: {str(exc)[:200]}",
+        step=int(getattr(mrmr_self, "_fe_steps_executed_", -1)),
     )
 
 

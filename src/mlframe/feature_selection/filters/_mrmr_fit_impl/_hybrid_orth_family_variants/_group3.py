@@ -99,6 +99,9 @@ def _hybrid_orth_family_variants_group3(
                 type(_copula_exc).__name__,
                 _copula_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_copula_MI", _copula_exc)
     _ret_hybrid_orth_family_variants_group3_part3 = _hybrid_orth_family_variants_group3_part3(_fe_family_on, _y_np, self, X, _hybrid_orth_pre_recipes, verbose)
     if _ret_hybrid_orth_family_variants_group3_part3[0]:
         return _ret_hybrid_orth_family_variants_group3_part3[1]
@@ -191,6 +194,9 @@ def _hybrid_orth_family_variants_group3_part3(
                 type(_dcor_exc).__name__,
                 _dcor_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_dCor", _dcor_exc)
     _ret_hybrid_orth_family_variants_group3_part2 = _hybrid_orth_family_variants_group3_part2(_fe_family_on, _y_np, self, X, _hybrid_orth_pre_recipes, verbose)
     if _ret_hybrid_orth_family_variants_group3_part2[0]:
         return True, (_ret_hybrid_orth_family_variants_group3_part2[1])
@@ -290,6 +296,9 @@ def _hybrid_orth_family_variants_group3_part2(
                 type(_hsic_exc).__name__,
                 _hsic_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_HSIC", _hsic_exc)
     _ret_hybrid_orth_family_variants_group3_part1 = _hybrid_orth_family_variants_group3_part1(_fe_family_on, _y_np, self, X, _hybrid_orth_pre_recipes, verbose)
     if _ret_hybrid_orth_family_variants_group3_part1[0]:
         return True, (_ret_hybrid_orth_family_variants_group3_part1[1])
@@ -377,6 +386,9 @@ def _hybrid_orth_family_variants_group3_part1(
                 type(_jmim_exc).__name__,
                 _jmim_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_JMIM", _jmim_exc)
     # Layer 73 — Total Correlation (Watanabe 1960) multivariate-
     # redundancy ranking for hybrid orth-poly FE (independent opt-in; does
     # NOT require fe_hybrid_orth_enable). Each engineered candidate is
@@ -472,4 +484,7 @@ def _stage_tc(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose):
                 type(_tc_exc).__name__,
                 _tc_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_TC", _tc_exc)
     return X

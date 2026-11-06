@@ -141,7 +141,12 @@ def _stages_fit_device(vram_weights: "Sequence[float]", n_rows: int) -> bool:
     try:
         import cupy as cp
 
-        avail = int(cp.cuda.Device().mem_info[0]) + int(cp.get_default_memory_pool().free_bytes())
+        pool = cp.get_default_memory_pool()
+        avail = int(cp.cuda.Device().mem_info[0]) + int(pool.free_bytes())
+        limit = int(pool.get_limit())
+        if limit > 0:
+            # the fit caps the pool (``fe_gpu_pool``): memory above the cap is not usable by the stages even when the device has it free
+            avail = min(avail, max(0, limit - int(pool.used_bytes())))  # the cap less what is in use: the pool's cached blocks are reusable inside it
     except Exception as exc:
         logger.debug("stage concurrency: device memory unreadable (%r); stages run concurrently", exc)
         return True

@@ -93,6 +93,9 @@ def _hybrid_orth_family_variants_group2(
                 type(_df_exc).__name__,
                 _df_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_diff_basis", _df_exc)
     _ret_hybrid_orth_family_variants_group2_part1 = _hybrid_orth_family_variants_group2_part1(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
     if _ret_hybrid_orth_family_variants_group2_part1[0]:
         return _ret_hybrid_orth_family_variants_group2_part1[1]
@@ -212,6 +215,9 @@ def _hybrid_orth_family_variants_group2_part1(
                 type(_tg_exc).__name__,
                 _tg_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_three_gate", _tg_exc)
     # Layer 65 — KSG / k-NN MI ranking for the hybrid orth-poly
     # FE (independent opt-in; does NOT require fe_hybrid_orth_enable).
     # Replaces the Layer 21 plug-in quantile-binned MI estimator with the
@@ -327,6 +333,9 @@ def _stage_cluster_basis(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes
                 type(_cb_exc).__name__,
                 _cb_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_cluster_basis", _cb_exc)
     return X
 
 
@@ -396,6 +405,9 @@ def _stage_bootstrap(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, ve
                 type(_boot_exc).__name__,
                 _boot_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_bootstrap_stable", _boot_exc)
     return X
 
 
@@ -470,4 +482,7 @@ def _stage_ksg(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
                 type(_ksg_exc).__name__,
                 _ksg_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_KSG_MI", _ksg_exc)
     return X

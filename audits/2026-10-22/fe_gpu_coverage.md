@@ -142,3 +142,11 @@ Profilers on the development host (GTX 1050 Ti, Pascal sm_61): `nsys` (Nsight Sy
 | `polynom_pair_fe` | module | 3 | 2 | 772 | GPU code + dispatcher |
 
 118 modules: no GPU marker=78, GPU code, no dispatcher=29, GPU code + dispatcher=11
+
+## Which of the no-GPU-marker families would repay a kernel (2026-11-06)
+
+Measured per-family walls inside the 100000 x 100 GPU fit (per-family walls in `profiles/stage_sample_100k_gpu_2026_11_05.md` and the per-module notes): `_cat_pair_fe` about 0.3 s, `_cat_triple_fe` about 0.75 s, `_count_freq_interaction_fe` and count encoding well under 0.3 s after the factorisation changes, `_conditional_quantile_rank_fe` and the other `mid_b` host families 20 s together on four stage threads that overlap with the GPU stages. A device kernel for the first three would save under 1 s of a 70 to 83 s fit and would add host-to-device copies of string-derived codes; the `mid_b` families do not shorten when given more host threads (prefetch experiment, same note), so their time is shared with other host work and a kernel is the only lever left for them. That makes `_conditional_quantile_rank_fe` (per-bin sort plus row-level `searchsorted`, the kind of kernel the repo already has for modular and quantile codes) the first candidate if a kernel is written; the cat-pair, cat-triple and count-frequency families are left on the host path.
+
+### group_distance is not a kernel candidate (2026-11-06)
+
+Standalone, host path with the numba prange kernels, 100000 rows, 3 group columns x 8 numeric columns (24 pairs): 0.38 s wall (a first check that passed the arguments in the wrong order grouped by float columns and took 167 s; the signature is `(X, group_cols, num_cols)`). The 5.64 s the family takes inside the 100000 x 100 fit comes from its pair count and from sharing the host threads with the other `mid_b` families, not from per-pair cost, so a segmented-merge Wasserstein kernel would not shorten it; the fit-level lever is the number of pairs it evaluates. The next families by fit wall that have no device twin and a per-call cost worth a kernel are `binned_numeric_agg` (9.4 s), `grouped_quantile` (5.9 s) and `modular` (4.6 s, which has a device path for the codes already).
