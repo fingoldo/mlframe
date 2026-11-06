@@ -49,7 +49,7 @@ Four read-only audits covered the remaining GPU-kernel files (reports `kernel_pa
 | PARG3-1 | High | RESOLVED | `ec13aee95` rank binning uses float64 only for offset-dominated columns (offset above 1000x spread); float32 stays the default; tests `test_hermite_rank_bin_keeps_distinct_offset_values.py` |
 | PARG3-2 | High | RESOLVED | `2029d5326` both fused preprocess paths centre in float64 before narrowing; test `test_basis_preprocess_centres_before_narrowing.py` |
 | PARG2-2 | High (if modulus > 127) | OPEN | Default modular-rank kernels store residues as int8; shared-memory gate allows moduli above 127 |
-| PARG4-3 | Medium | OPEN | DTW GPU kernels use finite 1e18 for unreachable cells; costs above 1e18 reach invalid cells |
+| PARG4-3 | Medium | OPEN | DTW GPU kernels use finite 1e18 for unreachable cells; costs above 1e18 reach invalid cells. Checked on HEAD 2026-11-06: the report's example (x=[0,0,0], y=[2e9]*3) gives the same distance on GPU and CPU, so it does not discriminate. The CPU twin `dtw_cpu` (dtw.py:115,143,144) uses the same 1e18 sentinel, so the defect is shared, not a GPU-only mismatch. A fix must change both twins and needs a discriminating input before it is claimed. |
 | PARG4-4 | Medium | OPEN | GPU subset scan breaks ties at top-N arbitrarily and returns float32 losses |
 | PARG4-5 | Medium | OPEN | Row attention switches njit/GPU by batch size; different precision per batch |
 | PARG1-3 | Medium | RESOLVED | `d0d07877f` device row max and min propagate NaN from any operand, as numpy; test `test_candidate_row_extrema_propagate_nan.py` |
