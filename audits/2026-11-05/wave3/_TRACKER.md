@@ -69,7 +69,9 @@ Four read-only audits covered the remaining GPU-kernel files (reports `kernel_pa
 | PARG4-6 | Low | REJECTED (not reproduced on HEAD) | njit `batch_weighted_std` (`_aggregation.py:100-123`, fastmath) returns 0.0 for a NaN value, the same as the cupy kernel the report uses as reference; the fastmath concern stays a note, no defect shown |
 | PARG4-7 | Low | DOC | float32 GPU stage-4 by design (outputs float32 on both paths); documented in the `compute_row_attention` docstring |
 | PARG4-11 | Low | RESOLVED | `ef4554515` `dtw_cupy_full` and `dtw_cupy_banded` delegate unequal lengths to `dtw_cpu`; reproduced on HEAD (GPU 1e9 vs CPU 24.14 for lengths 1000 and 1300); test `test_dtw_cupy_unequal_lengths_match_cpu.py`; 2 existing DTW GPU tests pass |
-| PARG4-8..PARG4-10 | Low | OPEN | fastmath NaN guards, float32 casts, dtype differences, frac-diff division, DTW cupy checks (see g4 report) |
+| PARG4-8 | Low | DOC | RFF cuBLAS-broken fallback computes in float64 while the healthy GPU and njit paths round to float32; the fallback is the more accurate result. Note placed at the `cublas_matmul_ok()` branch. |
+| PARG4-9 | Low | DOC | Per-member MAE/std: numpy float32 path returns float32 and the njit twin float64. The equivalence sweep only uses float64 inputs; the dtype difference is documented, not changed. |
+| PARG4-10 | Low | RESOLVED | Python frac-diff prefix fallback divided by `weights[0]` per step; now uses the same reciprocal-multiply as the njit kernel. Test `tests/training/composite/transforms/test_frac_diff_prefix_fallback_matches_njit.py` fails on the old code (205/400 elements differ), passes after; 17 frac-diff tests pass. |
 | PARG2-5, PARG2-8..11 | DOC / Info | DOC | Honest-null threshold margin, equal-MI counting, prewarp rounding, polynom ties, pair-residual float32 near-ties (see g2 report) |
 | PARG3-8, PARG3-9 | DOC | DOC | Offset-product summation order; col_minmax NaN skip (inputs documented finite) |
 | PARG4-12 | Info | REJECTED | GPU RMSE run-to-run reproducibility already documented |
