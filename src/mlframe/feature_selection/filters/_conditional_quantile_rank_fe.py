@@ -139,7 +139,7 @@ def generate_conditional_quantile_rank_features(
     if len(num_cols) < 2:
         return pd.DataFrame(index=X.index), raw_recipes
 
-    from ._conditional_quantile_rank_gpu import conditional_quantile_rank_device, use_device_cqr
+    from ._conditional_quantile_rank_gpu import conditional_quantile_rank_device_with_bins, use_device_cqr
     from ._extra_fe_families import _digitize_with_edges, _quantile_edges  # lazy: break parent<->sibling cycle
 
     col_vals = {c: np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype()) for c in num_cols}
@@ -153,7 +153,7 @@ def generate_conditional_quantile_rank_features(
             xi = col_vals[x_i]
             device_out = None
             if use_device_cqr(len(xi)):
-                device_out = conditional_quantile_rank_device(xi, codes_j, with_sorted_bins=True)
+                device_out = conditional_quantile_rank_device_with_bins(xi, codes_j)
             vals = device_out[0] if device_out is not None else conditional_quantile_rank_fe(xi, codes_j)
             # Skip a degenerate constant emission (every row lands in the same rank, e.g. all-tied
             # x_i within every bin) - it carries no information and only burdens the screen.

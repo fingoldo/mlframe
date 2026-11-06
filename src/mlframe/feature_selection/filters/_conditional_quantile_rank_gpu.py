@@ -32,11 +32,11 @@ def use_device_cqr(n_rows: int) -> bool:
     return forced == "1" or int(n_rows) >= DEVICE_MIN_ROWS
 
 
-def conditional_quantile_rank_device(x_i: np.ndarray, x_j_bins: np.ndarray, *, with_sorted_bins: bool = False) -> "np.ndarray | tuple | None":
+def _rank_device(x_i: np.ndarray, x_j_bins: np.ndarray, with_sorted_bins: bool) -> "tuple[np.ndarray, list[np.ndarray]] | None":
     """The within-bin percentile rank of ``x_i`` per ``x_j_bins`` value, float64 in ``[0, 1]`` (NaN for a non-finite row); ``None`` on a device fault.
 
-    With ``with_sorted_bins`` the result is ``(ranks, sorted_bins)``: ``sorted_bins[c]`` holds the sorted finite values of bin id ``c`` for ``c`` in
-    ``0 .. x_j_bins.max()``, the reference a recipe stores (empty for a bin without finite values)."""
+    The result is ``(ranks, sorted_bins)``: ``sorted_bins[c]`` holds the sorted finite values of bin id ``c`` for ``c`` in ``0 .. x_j_bins.max()``, the reference a
+    recipe stores (empty for a bin without finite values; the list is empty unless ``with_sorted_bins``)."""
     try:
         import cupy as cp
 
@@ -45,7 +45,7 @@ def conditional_quantile_rank_device(x_i: np.ndarray, x_j_bins: np.ndarray, *, w
         xv = cp.asarray(x_i)
         n = int(xv.shape[0])
         if n == 0:
-            return np.empty(0, dtype=np.float64)
+            return np.empty(0, dtype=np.float64), []
         finite = cp.isfinite(xv)
         codes = cp.asarray(x_j_bins).astype(cp.int64)
         cmin = codes.min()
@@ -69,7 +69,7 @@ def conditional_quantile_rank_device(x_i: np.ndarray, x_j_bins: np.ndarray, *, w
         out = cp.where(finite, cp.clip(out, 0.0, 1.0), cp.nan)
         ranks = cp.asnumpy(out)
         if not with_sorted_bins:
-            return ranks
+            return ranks, []
         host_sorted = cp.asnumpy(sv[int(counts[0]) :])
         per_bin = np.split(host_sorted, np.cumsum(cp.asnumpy(counts[1:]))[:-1]) if counts.size > 1 else []
         first = int(cmin)
@@ -79,3 +79,14 @@ def conditional_quantile_rank_device(x_i: np.ndarray, x_j_bins: np.ndarray, *, w
     except Exception as exc:
         logger.warning("device conditional quantile rank failed (%s: %s); host path", type(exc).__name__, exc)
         return None
+
+
+def conditional_quantile_rank_device(x_i: np.ndarray, x_j_bins: np.ndarray) -> "np.ndarray | None":
+    """The within-bin percentile rank of ``x_i`` per ``x_j_bins`` value, float64 in ``[0, 1]`` (NaN for a non-finite row); ``None`` on a device fault."""
+    out = _rank_device(x_i, x_j_bins, False)
+    return None if out is None else out[0]
+
+
+def conditional_quantile_rank_device_with_bins(x_i: np.ndarray, x_j_bins: np.ndarray) -> "tuple[np.ndarray, list[np.ndarray]] | None":
+    """:func:`conditional_quantile_rank_device` plus the per-bin sorted finite values a recipe stores; ``None`` on a device fault."""
+    return _rank_device(x_i, x_j_bins, True)
