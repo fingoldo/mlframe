@@ -1,5 +1,8 @@
 """Single-launch, full-pass CuPy ``RawKernel`` pair-MI backend using OPT-IN extended dynamic shared memory.
 
+Numerics: the per-cell terms of the MI are reduced by a warp shuffle tree and the warp partials then in a serial sum, while the CPU finalize sums
+sequentially. The two agree to the last ulp, so an exact-equality argmax over pairs can break a tie differently on the device.
+
 Motivation (2026-07-16, wellbore-100k profiling, quiet machine): the production shape (n_classes_y=20,
 max_joint up to 441 for a 21x21 numeric-numeric pair) exceeds ``MAX_JOINT_BINS_CUDA=256`` /
 ``MAX_Y_BINS_CUDA=16`` - compile-time caps on :func:`batch_pair_mi_cuda`'s STATIC (``cuda.shared.array``
