@@ -107,6 +107,9 @@ def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int) -> "
     if lo < 0:
         return None
     kx = hi + 1
+    if yc.size and int(yc.min()) < 0:
+        # A negative target code would index the shared histogram below zero (into a neighbouring column's cells); the generic path handles it.
+        return None
     ky_eff = max(int(ky), int(yc.max()) + 1 if yc.size else 1)
     tile = _tile_for(kx * ky_eff)
     if tile == 0:
