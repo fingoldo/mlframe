@@ -21,8 +21,10 @@ import numpy as np
 
 def _gpu_busy_percent() -> float:
     """GPU utilisation (percent) of device 0 from ``nvidia-smi``, NaN when it cannot be read."""
+    from mlframe.training._gpu_state_probe import _resolve_smi
+
     try:
-        out = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5, check=False).stdout
+        out = subprocess.run([_resolve_smi(), "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5, check=False).stdout
         return float(out.strip().splitlines()[0])
     except Exception:
         return float("nan")

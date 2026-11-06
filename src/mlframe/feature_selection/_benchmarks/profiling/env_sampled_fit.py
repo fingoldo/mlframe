@@ -13,7 +13,8 @@ me = psutil.Process()
 samples = []; stop = threading.Event()
 def gpu_util():
     try:
-        return int(subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5).stdout.strip().split()[0])
+        from mlframe.training._gpu_state_probe import _resolve_smi
+        return int(subprocess.run([_resolve_smi(), "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5).stdout.strip().split()[0])
     except Exception:
         return -1
 def sampler():
