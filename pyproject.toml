@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=78.1.1,<82", "wheel"]  # PYSEC-2025-49 fixed in 78.1.1; torch pins setuptools<82
+requires = ["setuptools>=84.2.1,<85", "wheel"]  # PYSEC-2025-49 fixed in 78.1.1; torch pins setuptools<82
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -293,7 +293,7 @@ neural = [
     "captum>=0.7",
     # Not imported directly; floors torch's own transitive setuptools resolution above the
     # patched version for PYSEC-2025-49 (torch itself caps setuptools<82).
-    "setuptools>=78.1.1,<82",
+    "setuptools>=84.2.1,<85",
     # Frozen text-embedding path for neural models (HuggingFaceProvider: AutoTokenizer + AutoModel -> pooled vectors).
     "transformers>=4.30",
     # transformers >=5 builds the fast (Rust) tokenizer and converts slow tokenizers via sentencepiece;
