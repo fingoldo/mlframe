@@ -38,3 +38,29 @@ def test_device_equals_host(monkeypatch):
     assert list(got["engineered_col"]) == list(want["engineered_col"])
     np.testing.assert_allclose(got["engineered_mi"].to_numpy(), want["engineered_mi"].to_numpy(), rtol=1e-9, atol=1e-12)
     assert (want["engineered_mi"] > 0).sum() >= 2
+
+
+def test_cmim_device_scorer_declines_codes_outside_the_histogram(monkeypatch):
+    """The scorer checks its codes once before the reference loop; a negative candidate code sends the call to the host loop (None) instead of reaching a kernel."""
+    import numpy as np
+
+    from tests._cuda_require import require_cuda_device
+
+    require_cuda_device()
+    from mlframe.feature_selection.filters import _orthogonal_cmim_fe as cmim
+    from mlframe.feature_selection.filters import _scorer_device_dispatch as dispatch
+
+    monkeypatch.setattr(dispatch, "scorer_device_choice", lambda *a, **k: True)  # a 200-row call would otherwise take the tuned host choice
+    rng = np.random.default_rng(0)
+    n, k, nb = 200, 4, 5
+    eng = rng.integers(0, nb, (k, n))
+    y = rng.integers(0, 2, n)
+    sel = [rng.integers(0, nb, n) for _ in range(2)]
+    names, src = ["s0", "s1"], [f"e{i}" for i in range(k)]
+    assert cmim._cmim_scores_device(eng, y, sel, names, src, nb) is not None
+    bad = eng.copy()
+    bad[1, 7] = -1
+    assert cmim._cmim_scores_device(bad, y, sel, names, src, nb) is None
+    too_big = eng.copy()
+    too_big[0, 3] = nb
+    assert cmim._cmim_scores_device(too_big, y, sel, names, src, nb) is None
