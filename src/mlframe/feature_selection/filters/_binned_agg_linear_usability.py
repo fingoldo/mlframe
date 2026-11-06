@@ -34,6 +34,8 @@ import math
 import zlib
 
 import numpy as np
+
+from mlframe.feature_selection.filters._internals import stable_argsort_codes
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 _MAX_ROWS = 100_000
@@ -72,7 +74,7 @@ def _solve_batch(gram: np.ndarray, rhs: np.ndarray) -> np.ndarray:
 
 def _prepare(base: np.ndarray, Y: np.ndarray, folds: np.ndarray) -> dict:
     """Fold-sorted base design and targets with every per-fold quantity that does not depend on the candidate, including the base out-of-fold errors."""
-    order = np.argsort(folds, kind="stable")
+    order = stable_argsort_codes(folds, int(folds.max()) + 1 if folds.size else 1)  # fold ids are small integers: the radix order, the same permutation as the stable comparison sort
     base_s, Y_s = base[order], Y[order]
     starts = np.concatenate([[0], np.cumsum(np.bincount(folds))])[:-1]
     bounds = np.concatenate([starts, [base_s.shape[0]]])
