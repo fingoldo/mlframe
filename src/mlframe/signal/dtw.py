@@ -112,7 +112,7 @@ if _HAS_NB_CUDA:
         i = i_min + tid
         j = k - i
         if abs(i - j) > w:
-            cost[i, j] = 1e18
+            cost[i, j] = np.inf
             return
         d = x[i - 1] - y[j - 1]
         d2 = d * d
@@ -140,8 +140,8 @@ if _HAS_NB_CUDA:
         if b < 0 or b >= bw:
             return
         c_diag = band[i - 1, b]
-        c_up = band[i - 1, b + 1] if b + 1 < bw else np.float64(1e18)
-        c_left = band[i, b - 1] if b > 0 else np.float64(1e18)
+        c_up = band[i - 1, b + 1] if b + 1 < bw else np.float64(np.inf)
+        c_left = band[i, b - 1] if b > 0 else np.float64(np.inf)
         d = x[i - 1] - y[j - 1]
         best = c_diag if c_diag <= c_up else c_up
         if c_left < best:
@@ -176,7 +176,7 @@ def dtw_cuda(
     bw = 2 * w + 1
     x_d = _nb_cuda.to_device(np.ascontiguousarray(x, dtype=np.float64))
     y_d = _nb_cuda.to_device(np.ascontiguousarray(y, dtype=np.float64))
-    band_h = np.full((n + 1, bw), np.float64(1e18), dtype=np.float64)
+    band_h = np.full((n + 1, bw), np.float64(np.inf), dtype=np.float64)
     band_h[0, w] = np.float64(0.0)  # cost[0,0] -> band[0, w]
     band_d = _nb_cuda.to_device(band_h)
     threads = 256
@@ -217,7 +217,7 @@ void dtw_diagonal(const double* __restrict__ x, const double* __restrict__ y,
     int j = k - i;
     int stride = m + 1;
     if (abs(i - j) > w) {
-        cost[i * stride + j] = 1e18;
+        cost[i * stride + j] = (1.0e308 * 10.0);
         return;
     }
     double d = x[i - 1] - y[j - 1];
@@ -239,7 +239,7 @@ void dtw_diagonal(const double* __restrict__ x, const double* __restrict__ y,
 # force an anti-diagonal (k = i+j) sweep, so this keeps one launch per anti-diagonal
 # (the launch-fusion variant is left for FUTURE; the memory reduction is the primary
 # win and is unconditional). Numerics are identical to the full-matrix kernel: same
-# squared diff, same min-of-three with the diag<=up<=left tie order, same 1e18
+# squared diff, same min-of-three with the diag<=up<=left tie order, same infinite
 # out-of-band sentinel, single final sqrt -- only the cost-buffer indexing changes.
 _CUPY_BANDED_KERNEL_SRC = r"""
 // dtype-ok: reviewed 2026-11-05: as dtw_diagonal.
@@ -257,8 +257,8 @@ void dtw_banded_diagonal(const double* __restrict__ x, const double* __restrict_
     int b = j - i + w;                 // band column for (i,j)
     if (b < 0 || b >= bw) return;      // outside the live band -> never reachable
     double c_diag = band[(i - 1) * bw + b];                        // cost[i-1][j-1]
-    double c_up   = (b + 1 < bw) ? band[(i - 1) * bw + (b + 1)] : 1e18; // cost[i-1][j]
-    double c_left = (b > 0) ? band[i * bw + (b - 1)] : 1e18;      // cost[i][j-1]
+    double c_up   = (b + 1 < bw) ? band[(i - 1) * bw + (b + 1)] : (1.0e308 * 10.0); // cost[i-1][j]
+    double c_left = (b > 0) ? band[i * bw + (b - 1)] : (1.0e308 * 10.0);      // cost[i][j-1]
     double d = x[i - 1] - y[j - 1];
     double best = (c_diag <= c_up) ? c_diag : c_up;
     if (c_left < best) best = c_left;
@@ -294,22 +294,22 @@ def _get_cupy_banded_kernel():
 
 
 def _band_endpoint(band: np.ndarray, n: int, m: int, w: int) -> float:
-    """cost[n,m] from the banded buffer; 1e18 sentinel when (n,m) falls outside
+    """cost[n,m] from the banded buffer; infinity when (n,m) falls outside
     the Sakoe-Chiba band (|n-m| > window), matching the unreachable-endpoint
     value the full-matrix sweep returned."""
     b = m - n + w
     if 0 <= b < band.shape[1]:
         return float(band[n, b])
-    return 1e18
+    return np.inf
 
 
 def _backtrace_band(
     band: np.ndarray, n: int, m: int, w: int,
 ) -> List[Tuple[int, int]]:
     """Banded-coordinate backtrace. ``band[i, j - i + w]`` mirrors ``cost[i, j]``;
-    out-of-band neighbours read as the 1e18 sentinel so the path policy
+    out-of-band neighbours read as infinity so the path policy
     (diag<=up<=left) is bit-identical to the full-matrix ``_backtrace_path``."""
-    INF = np.float64(1e18)
+    INF = np.float64(np.inf)
 
     def C(i: int, j: int) -> float:
         """Banded-coordinate cost lookup at (i, j), returning the out-of-band sentinel when the offset falls outside the stored band width."""
@@ -373,7 +373,7 @@ def dtw_cupy_banded(
     bw = 2 * w + 1
     x_d = cp.asarray(x, dtype=cp.float64)
     y_d = cp.asarray(y, dtype=cp.float64)
-    band_d = cp.full((n + 1, bw), cp.float64(1e18))
+    band_d = cp.full((n + 1, bw), cp.float64(np.inf))
     # cost[0,0] = 0 lives at band[0, 0 - 0 + w] = band[0, w].
     band_d[0, w] = cp.float64(0.0)
     threads = block_size_for(kernel, work_items=min(n, m))  # one thread per cell of an anti-diagonal, at most min(n, m) cells
@@ -431,7 +431,7 @@ def dtw_cupy_full(
     m = len(y)
     x_d = cp.asarray(x, dtype=cp.float64)
     y_d = cp.asarray(y, dtype=cp.float64)
-    cost_d = cp.full((n + 1, m + 1), cp.float64(1e18))
+    cost_d = cp.full((n + 1, m + 1), cp.float64(np.inf))
     cost_d[0, 0] = cp.float64(0.0)
     threads = block_size_for(kernel, work_items=min(n, m))  # one thread per cell of an anti-diagonal, at most min(n, m) cells
     for k in range(1, n + m + 1):
