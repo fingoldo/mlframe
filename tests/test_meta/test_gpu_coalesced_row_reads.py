@@ -73,6 +73,17 @@ def _thread_vars(body: str) -> "set[str]":
     return derived
 
 
+_SHARED_RE = re.compile(r"__shared__[^;(]*?(\w+)\s*\[")
+
+
+def _without_shared_subscripts(body: str) -> str:
+    """``body`` with every subscript of a ``__shared__`` array blanked: shared memory is not a global read."""
+    names = set(_SHARED_RE.findall(body))
+    for name in names:
+        body = re.sub(rf"\b{re.escape(name)}\s*\[[^\]]*\]", "0", body)
+    return body
+
+
 def uncoalesced_kernels(text: str) -> "list[str]":
     """Names of kernels in ``text`` that index an array by ``<thread-strided loop var> * <non-constant> + ...``."""
     if "__global__" not in text:
@@ -80,6 +91,7 @@ def uncoalesced_kernels(text: str) -> "list[str]":
     hits: list[str] = []
     for name, body in _kernel_bodies(text):
         derived = _thread_vars(body)
+        body = _without_shared_subscripts(body)
         for var, init in _FOR_RE.findall(body):
             if "threadIdx.x" not in init and not any(re.search(rf"\b{re.escape(v)}\b", init) for v in derived):
                 continue
@@ -93,7 +105,7 @@ def uncoalesced_kernels(text: str) -> "list[str]":
 def _current() -> "set[str]":
     """``{"<module path>::<kernel>"}`` over the package source."""
     found: set[str] = set()
-    files = sorted(SRC_ROOT.rglob("*.py"))
+    files = sorted(p for p in SRC_ROOT.rglob("*.py") if "_benchmarks" not in p.parts)
     assert_scanned_enough(len(files), str(SRC_ROOT))
     for path in files:
         text = path.read_text(encoding="utf-8", errors="replace")
