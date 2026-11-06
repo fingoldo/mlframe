@@ -164,6 +164,8 @@ class Tabular1DCNNRegressor(RegressorMixin, BaseEstimator):
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "Tabular1DCNNRegressor":
         """Correlation-order features, then train the 1D-CNN regressor with full-batch Adam/MSE."""
+        if np.ndim(X) == 2:
+            self.n_features_in_ = int(np.shape(X)[1])
         X_arr = _finite_float32(X)
         y_arr = np.asarray(y, dtype=np.float32).reshape(-1)
 
@@ -191,6 +193,8 @@ class Tabular1DCNNRegressor(RegressorMixin, BaseEstimator):
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict continuous targets for X (applies the fitted feature order first)."""
         check_is_fitted(self)
+        if np.ndim(X) == 2 and np.shape(X)[1] != self.n_features_in_:
+            raise ValueError(f"Tabular1DCNNRegressor: X has {np.shape(X)[1]} features, but the estimator was fitted with {self.n_features_in_}.")
         X_arr = _finite_float32(X)[:, self.feature_order_]
         self.model_.eval()
         with torch.no_grad():
@@ -229,6 +233,8 @@ class Tabular1DCNNClassifier(ClassifierMixin, BaseEstimator):
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "Tabular1DCNNClassifier":
         """Correlation-order features, then train the 1D-CNN classifier with full-batch Adam/cross-entropy."""
+        if np.ndim(X) == 2:
+            self.n_features_in_ = int(np.shape(X)[1])
         X_arr = _finite_float32(X)
 
         self.label_encoder_ = LabelEncoder()
@@ -264,6 +270,8 @@ class Tabular1DCNNClassifier(ClassifierMixin, BaseEstimator):
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         """Per-class probabilities for X (applies the fitted feature order first)."""
         check_is_fitted(self)
+        if np.ndim(X) == 2 and np.shape(X)[1] != self.n_features_in_:
+            raise ValueError(f"Tabular1DCNNClassifier: X has {np.shape(X)[1]} features, but the estimator was fitted with {self.n_features_in_}.")
         X_arr = _finite_float32(X)[:, self.feature_order_]
         self.model_.eval()
         with torch.no_grad():
@@ -274,6 +282,8 @@ class Tabular1DCNNClassifier(ClassifierMixin, BaseEstimator):
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict the most likely class label for X."""
         check_is_fitted(self)
+        if np.ndim(X) == 2 and np.shape(X)[1] != self.n_features_in_:
+            raise ValueError(f"Tabular1DCNNClassifier: X has {np.shape(X)[1]} features, but the estimator was fitted with {self.n_features_in_}.")
         proba = self.predict_proba(X)
         idx = np.argmax(proba, axis=-1)
         labels: np.ndarray = self.label_encoder_.inverse_transform(idx)

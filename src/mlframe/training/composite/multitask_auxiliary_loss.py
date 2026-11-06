@@ -88,6 +88,8 @@ class MultiTaskAuxiliaryLossRegressor(RegressorMixin, BaseEstimator):
         y_aux_regression: Optional[np.ndarray] = None,
     ) -> "MultiTaskAuxiliaryLossRegressor":
         """Train the shared trunk jointly on the primary loss plus any weighted auxiliary-task losses."""
+        if np.ndim(X) == 2:
+            self.n_features_in_ = int(np.shape(X)[1])
         import torch
         import torch.nn as nn
 
@@ -163,6 +165,8 @@ class MultiTaskAuxiliaryLossRegressor(RegressorMixin, BaseEstimator):
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict the primary task's target via the trunk and primary head only."""
         check_is_fitted(self)
+        if np.ndim(X) == 2 and np.shape(X)[1] != self.n_features_in_:
+            raise ValueError(f"MultiTaskAuxiliaryLossRegressor: X has {np.shape(X)[1]} features, but the estimator was fitted with {self.n_features_in_}.")
         import torch
 
         X_t = torch.from_numpy(np.asarray(X, dtype=np.float32))

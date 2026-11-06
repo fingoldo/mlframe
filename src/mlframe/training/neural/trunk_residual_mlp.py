@@ -89,6 +89,8 @@ class TrunkResidualMLPRegressor(RegressorMixin, BaseEstimator):
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "TrunkResidualMLPRegressor":
         """Train the trunk-residual MLP module with full-batch Adam."""
+        if np.ndim(X) == 2:
+            self.n_features_in_ = int(np.shape(X)[1])
         X_arr = np.asarray(X, dtype=np.float32)
         y_arr = np.asarray(y, dtype=np.float32).reshape(-1)
 
@@ -153,11 +155,15 @@ class TrunkResidualMLPRegressor(RegressorMixin, BaseEstimator):
     def predict_ensemble_mean(self, X: np.ndarray) -> np.ndarray:
         """Seed-averaged point estimate across ``ensemble_members_`` (lower variance than any single seed)."""
         check_is_fitted(self)
+        if np.ndim(X) == 2 and np.shape(X)[1] != self.n_features_in_:
+            raise ValueError(f"TrunkResidualMLPRegressor: X has {np.shape(X)[1]} features, but the estimator was fitted with {self.n_features_in_}.")
         return np.asarray(self._ensemble_predictions(X).mean(axis=0))
 
     def predict_std(self, X: np.ndarray) -> np.ndarray:
         """Per-row across-seed prediction std (population, ddof=0) -- an epistemic/seed-sensitivity signal."""
         check_is_fitted(self)
+        if np.ndim(X) == 2 and np.shape(X)[1] != self.n_features_in_:
+            raise ValueError(f"TrunkResidualMLPRegressor: X has {np.shape(X)[1]} features, but the estimator was fitted with {self.n_features_in_}.")
         return np.asarray(self._ensemble_predictions(X).std(axis=0, ddof=0))
 
     @staticmethod
