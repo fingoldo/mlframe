@@ -105,4 +105,7 @@ def _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes, _
                     type(_ta_exc).__name__,
                     _ta_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "temporal_agg", _ta_exc)
     return X

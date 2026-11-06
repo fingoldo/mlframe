@@ -93,6 +93,9 @@ def _hybrid_orth_family_variants_group4(
                 type(_cmim_exc).__name__,
                 _cmim_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_CMIM", _cmim_exc)
     _ret_hybrid_orth_family_variants_group4_part3 = _hybrid_orth_family_variants_group4_part3(_fe_family_on, _y_np, self, X, _hybrid_orth_pre_recipes, verbose, y)
     if _ret_hybrid_orth_family_variants_group4_part3[0]:
         return _ret_hybrid_orth_family_variants_group4_part3[1]
@@ -183,6 +186,9 @@ def _hybrid_orth_family_variants_group4_part3(
                 type(_auto_exc).__name__,
                 _auto_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_auto_scorer", _auto_exc)
     _ret_hybrid_orth_family_variants_group4_part2 = _hybrid_orth_family_variants_group4_part2(_fe_family_on, y, self, X, _hybrid_orth_pre_recipes, verbose, _y_np)
     if _ret_hybrid_orth_family_variants_group4_part2[0]:
         return True, (_ret_hybrid_orth_family_variants_group4_part2[1])
@@ -282,6 +288,9 @@ def _hybrid_orth_family_variants_group4_part2(
                 type(_ens_exc).__name__,
                 _ens_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_ensemble", _ens_exc)
     _ret_hybrid_orth_family_variants_group4_part1 = _hybrid_orth_family_variants_group4_part1(_fe_family_on, _y_np, self, X, _hybrid_orth_pre_recipes, verbose)
     if _ret_hybrid_orth_family_variants_group4_part1[0]:
         return True, (_ret_hybrid_orth_family_variants_group4_part1[1])
@@ -380,5 +389,8 @@ def _hybrid_orth_family_variants_group4_part1(
                 type(_meta_exc).__name__,
                 _meta_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_meta_scorer", _meta_exc)
 
     return True, (X)

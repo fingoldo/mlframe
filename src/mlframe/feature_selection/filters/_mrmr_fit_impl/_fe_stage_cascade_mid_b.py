@@ -78,6 +78,9 @@ def _stage_rare_category(self, X_acc, X, _y_np, _raw_input_cols_pre_fe, _rare_ca
             type(_rc_exc).__name__,
             _rc_exc,
         )
+        from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+        record_family_failure(self, "rare_category", _rc_exc)
     return X_acc
 
 
@@ -316,6 +319,9 @@ def _stage_group_distance(self, _fe_family_on, X, _y_np, _group_distance_pre_rec
                     type(_gd_exc).__name__,
                     _gd_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "group_distance", _gd_exc)
     return X
 
 
@@ -386,6 +392,9 @@ def _stage_conditional_residual(self, _fe_family_on, X, _y_np, _raw_input_cols_p
                     type(_cr_exc).__name__,
                     _cr_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "conditional_residual", _cr_exc)
     return X
 
 
@@ -530,6 +539,9 @@ def _stage_conditional_quantile_rank(self, _fe_family_on, X, _y_np, _raw_input_c
                     type(_cqr_exc).__name__,
                     _cqr_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "conditional_quantile_rank", _cqr_exc)
     return X
 
 
@@ -598,6 +610,9 @@ def _stage_ordinal_pattern(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe
                     type(_opat_exc).__name__,
                     _opat_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "ordinal_pattern", _opat_exc)
     return X
 
 
@@ -665,6 +680,9 @@ def _stage_random_fourier(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe,
                     type(_rff_exc).__name__,
                     _rff_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "random_fourier", _rff_exc)
     return X
 
 
@@ -732,6 +750,9 @@ def _stage_sir_direction(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, 
                     type(_sir_exc).__name__,
                     _sir_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "sir_direction", _sir_exc)
     return X
 
 
@@ -798,6 +819,9 @@ def _stage_lof(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _lof_pre_r
                     type(_lof_exc).__name__,
                     _lof_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "lof", _lof_exc)
     return X
 
 
@@ -864,6 +888,9 @@ def _stage_mahalanobis_density(self, _fe_family_on, X, _y_np, _raw_input_cols_pr
                     type(_mahal_exc).__name__,
                     _mahal_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "mahalanobis_density", _mahal_exc)
     return X
 
 
@@ -940,6 +967,9 @@ def _stage_wavelet(self, _fe_family_on, _fe_budget_ok, X, _y_np, _raw_input_cols
                     type(_wv_exc).__name__,
                     _wv_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "Haar_wavelet", _wv_exc)
     return X
 
 
@@ -996,4 +1026,7 @@ def _stage_rankgauss(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _ran
                     type(_rg_exc).__name__,
                     _rg_exc,
                 )
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+                record_family_failure(self, "rankgauss", _rg_exc)
     return X

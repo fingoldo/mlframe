@@ -96,6 +96,9 @@ def _hybrid_orth_family_variants_group1(
                 type(_ad_exc).__name__,
                 _ad_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_adaptive_degree", _ad_exc)
     # Layer 58 — CONDITIONAL BASIS ROUTING FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
     # active, we try every (pre_transform, basis, degree) cell per source
@@ -229,6 +232,9 @@ def _hybrid_orth_family_variants_group1_part1(
                 type(_t_exc).__name__,
                 _t_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_triplet", _t_exc)
     # Layer 77 — QUADRUPLET (4-way) cross-basis FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable): captures
     # genuine 4-way interactions like 4-way XOR (every triplet marginal MI
@@ -318,6 +324,9 @@ def _stage_quadruplet(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, v
                 type(_q_exc).__name__,
                 _q_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_quadruplet", _q_exc)
     return X
 
 
@@ -387,6 +396,9 @@ def _stage_adaptive_arity(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipe
                 type(_aa_exc).__name__,
                 _aa_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_adaptive_arity", _aa_exc)
     return X
 
 
@@ -464,4 +476,7 @@ def _stage_conditional_routing(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_r
                 type(_rt_exc).__name__,
                 _rt_exc,
             )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+            record_family_failure(self, "hybrid_orth_conditional_routing", _rt_exc)
     return X

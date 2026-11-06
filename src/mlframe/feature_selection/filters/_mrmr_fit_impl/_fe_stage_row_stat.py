@@ -57,4 +57,7 @@ def _stage_row_stat(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _row_
             return X_rs
     except Exception as _rs_exc:
         logger.warning("MRMR.fit row_stat FE raised %s: %s; continuing without row-statistic columns.", type(_rs_exc).__name__, _rs_exc)
+        from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+        record_family_failure(self, "row_stat", _rs_exc)
     return X

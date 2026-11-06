@@ -57,4 +57,7 @@ def _stage_oof_warp(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _oof_
             return X_ow
     except Exception as _ow_exc:
         logger.warning("MRMR.fit oof_warp FE raised %s: %s; continuing without warp columns.", type(_ow_exc).__name__, _ow_exc)
+        from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
+
+        record_family_failure(self, "oof_warp", _ow_exc)
     return X
