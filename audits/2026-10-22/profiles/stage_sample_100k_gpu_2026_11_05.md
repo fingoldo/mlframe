@@ -353,3 +353,15 @@ Fixed cost: a 20000 x 100 fit grows the process by 900 MB (CUDA context, numba a
 Live numpy allocations at the peak (2.0 GB of the 3.3 GB growth is visible to tracemalloc; numba and device-driver allocations are not): the honest-null permuted labels 500 MB (1000 permutations x 500000 rows, int8, kept by `_permuted_labels_cached` so the next call does not redraw them); the honest-spec raw matrix 444 MB (float32, every candidate column of the screening frame, 222 columns); the cluster hierarchy's code matrix 244 MB and its 128 MB blocks (134 + 134 + 67 MB of block temporaries); the discretised data matrix 244 MB and a second 244 MB from `np.append(data, fused codes)` in `_step_score_parts2.py:662` (a full copy of `(n, p)` for the few fused columns); the permutation index block 64 MB.
 
 What these say: no single array is left that is more than 25 percent of the peak, and the three largest (labels, spec raw, data) are structures of the algorithm that scale with `rows x columns` by design. Two directions remain that keep the algorithm and stream it: (1) the permuted labels of a binary target as bit sets (n / 8 bytes per permutation, 62 MB instead of 500 MB), which the device acceptance kernel already builds (`_pack_bits`) and the njit kernel reads one label at a time; (2) the honest-spec raw matrix restricted to the continuous columns (the other columns' codes are held elsewhere) and not copied at all when the frame is one float32 block. Neither changes a value. At 10M rows x 80 columns even these leave the working set near 40 GB; the structures themselves would have to live in column blocks that are built when a stage needs them.
+
+## 2026-11-07 memory ramp after the permuted-label cache cap (a sixteenth of free memory)
+
+`rss_scale_fit.py` default mode, float32 frame, same machine, no other heavy job:
+
+| rows x cols | status | wall | peak RSS growth | x frame |
+|---|---|---|---|---|
+| 500000 x 100 | ok | 153 s | 2728 MB | 13.6 |
+| 1000000 x 100 | ok | 388 s | 4755 MB | 11.9 |
+
+Largest live blocks at the 500k peak (tracemalloc): honest-spec raw matrix 444 MB (two live copies at the build), cluster-hierarchy code matrix 244 MB, `np.append` of the fused codes 244 MB (old and new data together), permuted labels 500 MB before the cap change.
+Open: the honest-spec raw matrix duplicates the float32 frame (a lazy column view would drop it, but the spec would then hold the frame, which matters for pickling); the 10M x 80 target still needs the label, raw and code structures built per column block on demand.
