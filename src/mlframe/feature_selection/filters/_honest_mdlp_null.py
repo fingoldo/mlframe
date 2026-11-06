@@ -113,7 +113,9 @@ def _permuted_labels_cached(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, 
     # one byte per label per permutation when the codes are the raw labels (one shared matrix), two otherwise; the cap is a fixed budget, widened to a quarter of the free memory (at most 2 GiB)
     # so that a million-row draw (about 1 GB) is kept for the next call instead of redrawn
     draw_bytes = n_permutations * n * (1 if np.array_equal(y_raw, y_codes) else 2)
-    cap = max(_PERM_LABELS_CACHE_MAX_BYTES, min(2 * 1024**3, _free_memory_bytes() // 4))
+    # a sixteenth of the free memory (it was a quarter): the matrix is needed while the null is computed, and a kept copy stays on the spec for the rest of the fit, through the stages that
+    # follow it (500 MB at 500000 rows was live at the fit's peak); the null is asked for twice per fit, so a redraw costs 2.7 s per 1000 permutations at 500000 rows
+    cap = max(_PERM_LABELS_CACHE_MAX_BYTES, min(2 * 1024**3, _free_memory_bytes() // 16))
     if draw_bytes > cap:
         log_throttle(
             logger, "honest_null_perm_labels_cache_too_large", logging.INFO,
