@@ -203,8 +203,9 @@ def env_signature() -> dict[str, str | None]:
     from importlib.metadata import version, PackageNotFoundError
     # Read versions via dist metadata, NOT __import__: catboost/lgb/xgb cold-import is ~0.5-3s each and this runs on the predict-path drift check (keeps cold-import off the predict path).
     distmap = {"sklearn": "scikit-learn"}
-    sig: dict[str, str | None] = {}
-    for libname in ("numpy", "pandas", "polars", "sklearn", "lightgbm", "xgboost", "catboost", "scipy", "dill"):
+    libraries = ("numpy", "pandas", "polars", "sklearn", "lightgbm", "xgboost", "catboost", "scipy", "dill")
+    sig: dict[str, str | None] = dict.fromkeys(libraries)  # a library that is not installed keeps None
+    for libname in libraries:
         try:
             sig[libname] = version(distmap.get(libname, libname))
         except PackageNotFoundError:  # noqa: PERF203 -- per-package isolation: one unreadable distribution must not cost the others their line

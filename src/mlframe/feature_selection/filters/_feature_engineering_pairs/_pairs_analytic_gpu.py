@@ -12,6 +12,7 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
+from .._kernel_types import render
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +26,11 @@ _SHARED_BUDGET = 48 * 1024
 # (row group, column) so a warp reads TILE consecutive code bytes of one row (coalesced) and the joint histograms live in shared memory, so the matrix is
 # read once, as int8, and nothing wider than the (K,) results is written. The plug-in MI formula and its terms are those of ``mi_from_codes``
 # (``_fe_batched_mi``); the occupied-bin count is the number of non-empty x rows of the histogram, which equals ``_occupied_bins_per_col``.
-_FUSED_SRC = r"""
+_FUSED_SRC = render(r"""
 extern "C" __global__
 void analytic_obs_mi_bins_i8(const signed char* __restrict__ codes, const int* __restrict__ y, const long long n, const int K,
-                             const int Kx, const int Ky, const int tile, const double inv_n,
-                             double* __restrict__ mi_out, int* __restrict__ bins_out) {
+                             const int Kx, const int Ky, const int tile, const {ACC} inv_n,
+                             {ACC}* __restrict__ mi_out, int* __restrict__ bins_out) {
     extern __shared__ int sh[];                       // (tile, Kx*Ky) joint histograms
     const int M = Kx * Ky;
     const long long col0 = (long long)blockIdx.x * tile;
@@ -49,21 +50,21 @@ void analytic_obs_mi_bins_i8(const signed char* __restrict__ codes, const int* _
     __syncthreads();
     if (rg == 0 && col < K) {
         const int* h = sh + cj * M;
-        double mi = 0.0;
+        {ACC} mi = 0.0;
         int occupied = 0;
         for (int xx = 0; xx < Kx; ++xx) {
             long long rx = 0;
             for (int yy = 0; yy < Ky; ++yy) rx += h[xx * Ky + yy];
             if (rx == 0) continue;
             occupied += 1;
-            double px = (double)rx * inv_n;
+            {ACC} px = ({ACC})rx * inv_n;
             for (int yy = 0; yy < Ky; ++yy) {
                 long long nxy = h[xx * Ky + yy];
                 if (nxy == 0) continue;
                 long long ry = 0;
                 for (int xx2 = 0; xx2 < Kx; ++xx2) ry += h[xx2 * Ky + yy];
-                double pxy = (double)nxy * inv_n;
-                double py = (double)ry * inv_n;
+                {ACC} pxy = ({ACC})nxy * inv_n;
+                {ACC} py = ({ACC})ry * inv_n;
                 mi += pxy * log(pxy / (px * py));
             }
         }
@@ -71,7 +72,7 @@ void analytic_obs_mi_bins_i8(const signed char* __restrict__ codes, const int* _
         bins_out[col] = occupied;
     }
 }
-"""
+""")
 
 _FUSED_KERNEL = None
 

@@ -77,11 +77,11 @@ jobs:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@3b078699a61657bc87557abc0311c025e4dc6f3e  # v1.23.8 + meta_test_utils move, untagged  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
-          pyutilz-ref: 38532cd5c943e4624bdb687c1c5fc4381779c573  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: 6b512f2b6f7c9e353ee1831d0130b8b194c1706d  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Price the run before paying for it
         run: |

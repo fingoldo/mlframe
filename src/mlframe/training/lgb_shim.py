@@ -67,18 +67,16 @@ process).
 from __future__ import annotations
 
 import logging
-import threading
 import os as _os
+import threading
 import sys as _sys
 from typing import Any
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
+_VAL_CACHE_LOCK = threading.Lock()  # one step for the test and the write of an estimator's val-Dataset cache (a lock on the estimator would break clone / pickle)
 
-# One lock for the val-Dataset lookup and store: the check and the write of a cache entry happen under the same hold, and a concurrent
-# fit cannot insert the same key between them.
-_VAL_DATASET_CACHE_LOCK = threading.RLock()
+logger = logging.getLogger(__name__)
 
 # macOS-only: LightGBM's Dataset construction opens an OpenMP parallel region
 # (via __kmpc_fork_call) whose thread-pool initialisation crashes inside
@@ -488,6 +486,17 @@ class _DatasetReuseMixin:
 
         return self
 
+    def _remember_val_dataset(self, val_key, dval) -> None:
+        """Store ``dval`` under ``val_key`` as the most recent entry of the instance's val-Dataset cache and trim it to ``_VAL_DATASET_SLOTS_CAP``.
+
+        The check for an existing entry and the write are one step under a module lock, so two threads sharing an estimator never interleave them."""
+        with _VAL_CACHE_LOCK:
+            if self._cached_val_datasets.get(val_key) is not dval:
+                self._cached_val_datasets[val_key] = dval
+            self._cached_val_datasets.move_to_end(val_key)
+            while len(self._cached_val_datasets) > self._VAL_DATASET_SLOTS_CAP:
+                self._cached_val_datasets.popitem(last=False)
+
     def _build_eval_datasets(self, eval_set, X, eval_sample_weight, eval_init_score, categorical_feature, train_key, dtrain, feature_name, valid_sets, eval_names, valid_names, _iter_metrics_Xval, _iter_metrics_yval):
         """Build the validation datasets of the eval set."""
         if eval_set:
@@ -518,50 +527,43 @@ class _DatasetReuseMixin:
                 # dict slot (multi-eval-set safe, unlike the old single-pair slot that only ever
                 # cached the LAST eval-set entry -- see F2) -> module cache (cross-clone reuse,
                 # see F1) -> fresh build.
-                with _VAL_DATASET_CACHE_LOCK:
-                    val_key = (_signature_of(X_val, categorical_feature), train_key)
-                    dval = self._cached_val_datasets.get(val_key)
-                    _val_source = "instance" if dval is not None else "miss"
-                    if dval is None:
-                        dval = _lgb_cache_get(val_key)
-                        if dval is not None:
-                            _val_source = "module"
+                val_key = (_signature_of(X_val, categorical_feature), train_key)
+                dval = self._cached_val_datasets.get(val_key)
+                _val_source = "instance" if dval is not None else "miss"
+                if dval is None:
+                    dval = _lgb_cache_get(val_key)
                     if dval is not None:
-                        dval.set_label(np.asarray(y_val))
-                        if w_val is not None:
-                            dval.set_weight(np.asarray(w_val))
-                        else:
-                            # Asymmetric with the train-Dataset cache-hit path above (which explicitly
-                            # resets to uniform ones when sample_weight is omitted): a later call that
-                            # omits the eval-set weight after an earlier call supplied one used to
-                            # silently keep the STALE weight on this cached val Dataset instead of
-                            # resetting to uniform. Mirror the train path's reset here too.
-                            _reset_weight_to_uniform(dval)
-                        self._cached_val_datasets[val_key] = dval
-                        self._cached_val_datasets.move_to_end(val_key)
-                        while len(self._cached_val_datasets) > self._VAL_DATASET_SLOTS_CAP:
-                            self._cached_val_datasets.popitem(last=False)
-                        logger.debug(
-                            "[lgb-shim] reused %s cached val Dataset (id=%d)",
-                            _val_source, id(dval),
-                        )
+                        _val_source = "module"
+                if dval is not None:
+                    dval.set_label(np.asarray(y_val))
+                    if w_val is not None:
+                        dval.set_weight(np.asarray(w_val))
                     else:
-                        dval = _build_dataset(
-                            X_val, y_val, w_val,
-                            reference=dtrain,  # share bin mapping
-                            categorical_feature=categorical_feature,
-                            feature_name=feature_name,
-                            init_score=init_val,
-                        )
-                        self._cached_val_datasets[val_key] = dval
-                        self._cached_val_datasets.move_to_end(val_key)
-                        while len(self._cached_val_datasets) > self._VAL_DATASET_SLOTS_CAP:
-                            self._cached_val_datasets.popitem(last=False)
-                        _lgb_cache_put(val_key, dval)
-                        logger.debug(
-                            "[lgb-shim] built fresh val Dataset (id=%d); stored in module cache for cross-clone reuse",
-                            id(dval),
-                        )
+                        # Asymmetric with the train-Dataset cache-hit path above (which explicitly
+                        # resets to uniform ones when sample_weight is omitted): a later call that
+                        # omits the eval-set weight after an earlier call supplied one used to
+                        # silently keep the STALE weight on this cached val Dataset instead of
+                        # resetting to uniform. Mirror the train path's reset here too.
+                        _reset_weight_to_uniform(dval)
+                    self._remember_val_dataset(val_key, dval)
+                    logger.debug(
+                        "[lgb-shim] reused %s cached val Dataset (id=%d)",
+                        _val_source, id(dval),
+                    )
+                else:
+                    dval = _build_dataset(
+                        X_val, y_val, w_val,
+                        reference=dtrain,  # share bin mapping
+                        categorical_feature=categorical_feature,
+                        feature_name=feature_name,
+                        init_score=init_val,
+                    )
+                    self._remember_val_dataset(val_key, dval)
+                    _lgb_cache_put(val_key, dval)
+                    logger.debug(
+                        "[lgb-shim] built fresh val Dataset (id=%d); stored in module cache for cross-clone reuse",
+                        id(dval),
+                    )
                 valid_sets.append(dval)
                 if i == 0:
                     _iter_metrics_Xval = X_val

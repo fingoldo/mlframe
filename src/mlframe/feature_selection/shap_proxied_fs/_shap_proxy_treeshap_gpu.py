@@ -52,6 +52,7 @@ _MAX_SUPPORTED_DEPTH = 24
 _DEFAULT_BLOCK_SIZE = 128
 
 _KERNEL_SRC = r"""
+// dtype-ok: reviewed 2026-11-05: the separate SHAP-proxy selector (shap_proxied_fs), not on the MRMR fit path, no GPU profile exists for it. The path-dependent TreeSHAP weight recurrences (unwound sums with divisions and subtractions) are double on purpose and the host uploads float64 explicitly (val, cover, phi). Open item: an A/B of float32 SHAP values against the double run on the SHAP rank before changing it.
 extern "C" __global__
 void treeshap(const float* X, const int n, const int f,
               const int* cl, const int* cr, const int* cd,

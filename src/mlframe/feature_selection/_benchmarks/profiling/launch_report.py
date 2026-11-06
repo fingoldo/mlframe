@@ -1,4 +1,4 @@
-"""Report how the launch geometry of the new device kernels sits on THIS GPU: device limits, registers and shared memory of each kernel, the constant block width it uses today, the width ``_gpu_hw_launch`` derives and the resident threads per SM at every width.
+"""Report how the launch geometry of the new device kernels sits on THIS GPU: device limits, registers and shared memory of each kernel, the constant block width it uses today, the width ``pyutilz.performance.gpu_hw_launch`` derives and the resident threads per SM at every width.
 
 Run it on a new card before trusting the launch constants: ``python -m mlframe.feature_selection._benchmarks.profiling.launch_report``. It compiles each kernel (a few seconds), launches nothing and times nothing.
 """
@@ -36,7 +36,7 @@ def main() -> int:
     except Exception as exc:
         print(f"no cupy / CUDA: {exc}")
         return 1
-    from mlframe.feature_selection.filters import _gpu_hw_launch as hw
+    from pyutilz.performance import gpu_hw_launch as hw
 
     props = hw.device_props()
     if not props:

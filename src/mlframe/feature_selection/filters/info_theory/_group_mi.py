@@ -19,6 +19,8 @@ import math
 from typing import Any
 
 import numpy as np
+
+from mlframe.feature_selection.filters._internals import stable_argsort_codes
 from numba import njit
 
 
@@ -32,7 +34,7 @@ def prepare_group_segments(groups: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     g = np.asarray(groups)
     _uniq, inv = np.unique(g, return_inverse=True)
     inv = inv.astype(np.int64, copy=False)
-    sort_idx = np.argsort(inv, kind="stable").astype(np.int64)
+    sort_idx = stable_argsort_codes(inv, int(_uniq.size)).astype(np.int64)
     counts = np.bincount(inv, minlength=_uniq.size).astype(np.int64)
     offsets = np.zeros(_uniq.size + 1, dtype=np.int64)
     np.cumsum(counts, out=offsets[1:])

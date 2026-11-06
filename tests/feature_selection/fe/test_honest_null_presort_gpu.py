@@ -46,3 +46,30 @@ def test_non_finite_columns_stay_on_the_host():
     assert presort_and_ties_gpu(raw) is None
     raw[3, 2] = np.inf
     assert presort_and_ties_gpu(raw) is None
+
+
+def test_an_out_of_memory_block_is_halved_and_retried_not_given_up(monkeypatch):
+    """Concurrent stages can take the room a block was sized for: the first allocation fails, the block is halved, and the result still equals the host's (it was ``None`` before, a whole sort on the host)."""
+    cp = _cupy_or_skip()
+    import mlframe.feature_selection.filters._honest_null_presort_gpu as presort
+    from mlframe.feature_selection.filters._mdlp_honest_njit import _presort_columns
+
+    rng = np.random.default_rng(7)
+    raw = rng.normal(size=(5000, 40)).astype(np.float64)
+    real_argsort = presort.device_argsort
+    calls = {"n": 0, "widths": []}
+
+    def flaky(cols, axis):
+        """The first call fails as a full pool does; later calls sort for real."""
+        calls["n"] += 1
+        calls["widths"].append(int(cols.shape[0]))
+        if calls["n"] == 1:
+            raise cp.cuda.memory.OutOfMemoryError(1 << 30, 1 << 20)
+        return real_argsort(cols, axis=axis)
+
+    monkeypatch.setattr(presort, "device_argsort", flaky)
+    monkeypatch.setattr(presort, "_column_block", lambda _cp, _n: 32)
+    got = presort.presort_and_ties_gpu(raw)
+    assert got is not None
+    np.testing.assert_array_equal(got[0], _presort_columns(raw))
+    assert calls["widths"][0] == 32 and calls["widths"][1] == 16, calls["widths"]

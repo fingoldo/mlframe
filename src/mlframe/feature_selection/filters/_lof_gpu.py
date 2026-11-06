@@ -15,6 +15,8 @@ from typing import cast
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._raw_module_cache import RawModuleCache
 
 logger = logging.getLogger(__name__)
@@ -82,7 +84,8 @@ def lof_transform_gpu(X_new: np.ndarray, X_ref: np.ndarray, lrd_ref: np.ndarray,
     for s in range(0, n, block):
         part = cp.asarray(np.ascontiguousarray(X_new[s : s + block], dtype=dt))
         res = cp.empty(part.shape[0], dtype=dt)
-        kernel(((part.shape[0] + 127) // 128,), (128,), (part, ref, kd, lrd, np.int64(part.shape[0]), np.int32(ref.shape[0]), np.int32(p), np.int32(int(k_eff)), res))
+        threads = block_size_for(kernel, work_items=part.shape[0])
+        kernel(((part.shape[0] + threads - 1) // threads,), (threads,), (part, ref, kd, lrd, np.int64(part.shape[0]), np.int32(ref.shape[0]), np.int32(p), np.int32(int(k_eff)), res))
         out[s : s + block] = cp.asnumpy(res)
     return cast(np.ndarray, out)
 

@@ -9,33 +9,36 @@ import os
 import threading
 
 import numpy as np
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
+from ._kernel_types import render
 
 # LOOKUP-TABLE variant (profiled on a GTX 1050 Ti, 1500 candidates x 200000 / 400000 int32 cells per row, n = 20000): rows_ent_nnz_i32 was 66 percent of the device
 # CMI batch (nvprof: occupancy 0.99, SM efficiency 98 percent, DRAM utilisation low, IPC 0.31, 55 to 68 percent of the stalls on execution dependency). The counts are
 # sparse (at most n of the M cells are occupied) but a warp always holds an occupied lane, so every warp ran the double precision log (1/32 rate on Pascal) for all cells.
 # Counts are integers <= n, so c*ln(c) comes from a table built once per n, and with p = c/n the row entropy is (ln(n) * sum(c) - sum(c ln c)) / n. It is the same entropy
 # up to rounding (max difference 8.9e-15, occupied-cell counts identical); 19x (M = 200000) and 3x (M = 400000) faster on this card. rows_ent_nnz_i32 stays as the fallback.
-_ROWS_ENT_NNZ_LUT_SRC = r"""
+_ROWS_ENT_NNZ_LUT_SRC = render(r"""
 extern "C" __global__
-void rows_ent_nnz_i32_lut4(const int* __restrict__ counts, const double* __restrict__ xlogx, const int nmax,
-                           const double inv_n, const double log_n, const int K, const long long M,
-                           double* __restrict__ out_h, long long* __restrict__ out_k) {
+void rows_ent_nnz_i32_lut4(const int* __restrict__ counts, const {ACC}* __restrict__ xlogx, const int nmax,
+                           const {ACC} inv_n, const {ACC} log_n, const int K, const long long M,
+                           {ACC}* __restrict__ out_h, long long* __restrict__ out_k) {
     int row = blockIdx.x;
     if (row >= K) return;
     const int4* cr4 = reinterpret_cast<const int4*>(counts + (long long)row * M);
     const long long M4 = M >> 2;
     int tid = threadIdx.x;
-    double sloc = 0.0; long long cloc = 0; int kloc = 0;
+    {ACC} sloc = 0.0; long long cloc = 0; int kloc = 0;
     for (long long i = tid; i < M4; i += blockDim.x) {
         int4 v = cr4[i];
         if ((v.x | v.y | v.z | v.w) != 0) {
-            if (v.x > 0) { sloc += (v.x <= nmax) ? xlogx[v.x] : (double)v.x * log((double)v.x); cloc += v.x; kloc++; }
-            if (v.y > 0) { sloc += (v.y <= nmax) ? xlogx[v.y] : (double)v.y * log((double)v.y); cloc += v.y; kloc++; }
-            if (v.z > 0) { sloc += (v.z <= nmax) ? xlogx[v.z] : (double)v.z * log((double)v.z); cloc += v.z; kloc++; }
-            if (v.w > 0) { sloc += (v.w <= nmax) ? xlogx[v.w] : (double)v.w * log((double)v.w); cloc += v.w; kloc++; }
+            if (v.x > 0) { sloc += (v.x <= nmax) ? xlogx[v.x] : ({ACC})v.x * log(({ACC})v.x); cloc += v.x; kloc++; }
+            if (v.y > 0) { sloc += (v.y <= nmax) ? xlogx[v.y] : ({ACC})v.y * log(({ACC})v.y); cloc += v.y; kloc++; }
+            if (v.z > 0) { sloc += (v.z <= nmax) ? xlogx[v.z] : ({ACC})v.z * log(({ACC})v.z); cloc += v.z; kloc++; }
+            if (v.w > 0) { sloc += (v.w <= nmax) ? xlogx[v.w] : ({ACC})v.w * log(({ACC})v.w); cloc += v.w; kloc++; }
         }
     }
-    __shared__ double sh_s[256];
+    __shared__ {ACC} sh_s[256];
     __shared__ long long sh_c[256];
     __shared__ int sh_k[256];
     sh_s[tid] = sloc; sh_c[tid] = cloc; sh_k[tid] = kloc;
@@ -44,22 +47,22 @@ void rows_ent_nnz_i32_lut4(const int* __restrict__ counts, const double* __restr
         if (tid < s) { sh_s[tid] += sh_s[tid + s]; sh_c[tid] += sh_c[tid + s]; sh_k[tid] += sh_k[tid + s]; }
         __syncthreads();
     }
-    if (tid == 0) { out_h[row] = (log_n * (double)sh_c[0] - sh_s[0]) * inv_n; out_k[row] = (long long)sh_k[0]; }
+    if (tid == 0) { out_h[row] = (log_n * ({ACC})sh_c[0] - sh_s[0]) * inv_n; out_k[row] = (long long)sh_k[0]; }
 }
 extern "C" __global__
-void rows_ent_nnz_i32_lut1(const int* __restrict__ counts, const double* __restrict__ xlogx, const int nmax,
-                           const double inv_n, const double log_n, const int K, const long long M,
-                           double* __restrict__ out_h, long long* __restrict__ out_k) {
+void rows_ent_nnz_i32_lut1(const int* __restrict__ counts, const {ACC}* __restrict__ xlogx, const int nmax,
+                           const {ACC} inv_n, const {ACC} log_n, const int K, const long long M,
+                           {ACC}* __restrict__ out_h, long long* __restrict__ out_k) {
     int row = blockIdx.x;
     if (row >= K) return;
     const int* cr = counts + (long long)row * M;
     int tid = threadIdx.x;
-    double sloc = 0.0; long long cloc = 0; int kloc = 0;
+    {ACC} sloc = 0.0; long long cloc = 0; int kloc = 0;
     for (long long i = tid; i < M; i += blockDim.x) {
         int c = cr[i];
-        if (c > 0) { sloc += (c <= nmax) ? xlogx[c] : (double)c * log((double)c); cloc += c; kloc++; }
+        if (c > 0) { sloc += (c <= nmax) ? xlogx[c] : ({ACC})c * log(({ACC})c); cloc += c; kloc++; }
     }
-    __shared__ double sh_s[256];
+    __shared__ {ACC} sh_s[256];
     __shared__ long long sh_c[256];
     __shared__ int sh_k[256];
     sh_s[tid] = sloc; sh_c[tid] = cloc; sh_k[tid] = kloc;
@@ -68,9 +71,9 @@ void rows_ent_nnz_i32_lut1(const int* __restrict__ counts, const double* __restr
         if (tid < s) { sh_s[tid] += sh_s[tid + s]; sh_c[tid] += sh_c[tid + s]; sh_k[tid] += sh_k[tid + s]; }
         __syncthreads();
     }
-    if (tid == 0) { out_h[row] = (log_n * (double)sh_c[0] - sh_s[0]) * inv_n; out_k[row] = (long long)sh_k[0]; }
+    if (tid == 0) { out_h[row] = (log_n * ({ACC})sh_c[0] - sh_s[0]) * inv_n; out_k[row] = (long long)sh_k[0]; }
 }
-"""
+""")
 _ROWS_ENT_NNZ_LUT_KERNELS = None
 _XLOGX_TABLES: dict = {}
 _XLOGX_TABLES_LOCK = threading.Lock()
@@ -117,7 +120,9 @@ def _rows_entropy_lut(cp, c, inv_n: float):
     out_h = cp.empty(K, dtype=cp.float64)
     out_k = cp.empty(K, dtype=cp.int64)
     ker = lut4 if (M % 4 == 0) else lut1
-    ker((K,), (256,), (c, tab, np.int32(n_int), float(inv_n), float(np.log(n_int)), np.int32(K), np.int64(M), out_h, out_k))
+    # the block reduction halves blockDim.x over 256-wide shared scratch: a power of two, at most 256
+    threads = block_size_for(ker, work_items=M, pow2=True, max_width=256)
+    ker((K,), (threads,), (c, tab, np.int32(n_int), float(inv_n), float(np.log(n_int)), np.int32(K), np.int64(M), out_h, out_k))
     return out_h, out_k
 
 

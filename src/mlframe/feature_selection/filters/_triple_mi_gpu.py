@@ -14,19 +14,21 @@ import os
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._raw_module_cache import RawModuleCache
+from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
 
-THREADS = 256
 SHARED_BUDGET_BYTES = 40 * 1024
 #: Rows x triples from which the device is the default choice (the host kernel is memory-latency bound well below this).
 DEVICE_MIN_WORK = 5_000_000
 TRIPLES_PER_LAUNCH = 1 << 20
 
-_SRC = r"""
+_SRC = render(r"""
 extern "C" __global__ void triple_mi(const signed char* __restrict__ codes, const unsigned char* __restrict__ Y, const int* __restrict__ TI, const int* __restrict__ TJ,
-                                     const int* __restrict__ TK, const long long n, const int base, const int n_y, const int n_cells, double* __restrict__ out) {
+                                     const int* __restrict__ TK, const long long n, const int base, const int n_y, const int n_cells, {ACC}* __restrict__ out) {
     extern __shared__ int sh[];                       // (n_cells, n_y) joint table, cell-major
     const int t = blockIdx.x;
     const signed char* ci = codes + (long long)TI[t] * n;
@@ -42,35 +44,35 @@ extern "C" __global__ void triple_mi(const signed char* __restrict__ codes, cons
     __syncthreads();
     // The MI tail is spread over the block: class totals, then one term per cell, then a short ordered sum.
     __shared__ long long pys[16];
-    __shared__ double term[1024];
+    __shared__ {ACC} term[1024];
     if (threadIdx.x < n_y) {
         long long tot = 0;
         for (int c = 0; c < n_cells; ++c) tot += sh[c * n_y + threadIdx.x];
         pys[threadIdx.x] = tot;
     }
     __syncthreads();
-    const double nn = (double)n;
+    const {ACC} nn = ({ACC})n;
     for (int c = threadIdx.x; c < n_cells; c += blockDim.x) {
         long long px = 0;
         for (int v = 0; v < n_y; ++v) px += sh[c * n_y + v];
-        double tc = 0.0;
+        {ACC} tc = 0.0;
         if (px != 0) {
             for (int v = 0; v < n_y; ++v) {
                 const long long cnt = sh[c * n_y + v];
                 if (cnt == 0) continue;
-                tc += ((double)cnt / nn) * log(((double)cnt * nn) / ((double)px * (double)pys[v]));
+                tc += (({ACC})cnt / nn) * log((({ACC})cnt * nn) / (({ACC})px * ({ACC})pys[v]));
             }
         }
         term[c] = tc;
     }
     __syncthreads();
     if (threadIdx.x == 0) {
-        double mi = 0.0;
+        {ACC} mi = 0.0;
         for (int c = 0; c < n_cells; ++c) mi += term[c];
         out[t] = mi;
     }
 }
-"""
+""")
 
 _MODULE = RawModuleCache(_SRC)
 
@@ -107,11 +109,12 @@ def triple_mi_gpu(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> "tup
     codes_dev = cp.asarray(np.ascontiguousarray(codes, dtype=np.int8))
     y_dev = cp.asarray(np.ascontiguousarray(y, dtype=np.uint8))
     out = np.empty(m, dtype=np.float64)  # Intentional float64: MI statistic vector compared with the host's
+    threads = block_size_for(kernel, dyn_smem=n_cells * n_y * 4, work_items=n)
     for s in range(0, m, TRIPLES_PER_LAUNCH):
         e = min(m, s + TRIPLES_PER_LAUNCH)
         # Intentional float64: MI statistic vector compared with the host's
         d_out = cp.empty(e - s, dtype=cp.float64)
-        kernel((e - s,), (THREADS,), (codes_dev, y_dev, cp.asarray(ti[s:e]), cp.asarray(tj[s:e]), cp.asarray(tk[s:e]), np.int64(n), np.int32(base), np.int32(n_y), np.int32(n_cells), d_out), shared_mem=n_cells * n_y * 4)
+        kernel((e - s,), (threads,), (codes_dev, y_dev, cp.asarray(ti[s:e]), cp.asarray(tj[s:e]), cp.asarray(tk[s:e]), np.int64(n), np.int32(base), np.int32(n_y), np.int32(n_cells), d_out), shared_mem=n_cells * n_y * 4)
         out[s:e] = cp.asnumpy(d_out)
     return ti.astype(np.int64), tj.astype(np.int64), tk.astype(np.int64), out
 

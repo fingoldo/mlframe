@@ -21,6 +21,8 @@ import logging
 import os
 
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from numba import njit, prange
 
 from ._numba_utils_cross_module import _few_distinct_levels
@@ -210,8 +212,6 @@ def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: 
         return False
     from ._numba_utils import quantile_codes_block
 
-    real = "float" if v.dtype == np.float32 else "double"
-    kernel = _MODULES[real].get(cp).get_function("quantile_codes_f32" if real == "float" else "quantile_codes_f64")
     i0, i1, gamma = _edge_positions(n, int(n_bins))
     i0_dev, i1_dev, gamma_dev = cp.asarray(i0), cp.asarray(i1), cp.asarray(gamma)
     nb1 = int(n_bins) + 1
@@ -220,6 +220,8 @@ def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: 
     for c0 in range(0, k, block):
         c1 = min(k, c0 + block)
         v_dev = cp.asarray(np.ascontiguousarray(v[c0:c1]))
+        real = "float" if v_dev.dtype == cp.float32 else "double"  # the kernel type follows the buffer that is launched
+        kernel = _MODULES[real].get(cp).get_function("quantile_codes_f32" if real == "float" else "quantile_codes_f64")
         if method == "radix" and v.dtype == np.float32:
             few = np.flatnonzero(_few_levels_mask(np.ascontiguousarray(v[c0:c1]), int(n_bins)))
             vals = _order_statistics_f32(cp, v_dev, w_unique)  # (cb, T) values at the ranks the edges read
@@ -286,7 +288,8 @@ def quantile_codes_resident_f32(cp, v_dev, n_bins: int, codes: np.ndarray, nx: n
         keep[:, 1:] = (edges[:, 1:] != edges[:, :-1]).astype(cp.uint8)
         hi_code = cp.maximum(keep.sum(axis=1).astype(cp.int32) - 2, 0).astype(cp.int32)
         out = cp.empty((c1 - c0, n), dtype=cp.int16)
-        kernel((min(1024, (n + THREADS - 1) // THREADS), c1 - c0), (THREADS,), (vb, cp.ascontiguousarray(edges), keep, hi_code, np.int64(n), np.int32(nb1), out))
+        threads = block_size_for(kernel, work_items=n)
+        kernel((min(1024, (n + threads - 1) // threads), c1 - c0), (threads,), (vb, cp.ascontiguousarray(edges), keep, hi_code, np.int64(n), np.int32(nb1), out))
         codes[c0:c1] = cp.asnumpy(out)
         nx[c0:c1] = cp.asnumpy(out.max(axis=1)).astype(np.int64) + 1
         if maybe_few.size:

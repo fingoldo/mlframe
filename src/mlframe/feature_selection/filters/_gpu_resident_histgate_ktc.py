@@ -11,7 +11,7 @@ MI-gate hist ``_kernel_bs`` = the #2 kernel (~2375ms, 32 launches). More threads
 parallel per block.
 
 Per ``feedback_use_kernel_tuning_cache_for_gpu`` + the HW-spec request: the candidate threads/block SET is
-DERIVED from device occupancy (warp-multiples that fill the SM, via ``_gpu_hw_launch.occupancy_block_candidates``)
+DERIVED from device occupancy (warp-multiples that fill the SM, via ``pyutilz.performance.gpu_hw_launch.occupancy_block_candidates``)
 so a different card sweeps its own HW-valid points, and the KTC empirically picks the measured-best among them
 (keyed on n_rows). The histogram COUNTS are integer + commutative -> identical for any thread count, so MI and
 the gate decision are BIT-IDENTICAL for every block size; the sweep ranks by WALL only. 128 stays the
@@ -39,7 +39,7 @@ def _histgate_threads_variants() -> list:
     - pass a tiny dyn_smem). Falls back to the seed list when no HW info (no cupy)."""
     seed = list(_HISTGATE_THREADS_SEED)
     try:
-        from ._gpu_hw_launch import device_props, occupancy_block_candidates
+        from pyutilz.performance.gpu_hw_launch import device_props, occupancy_block_candidates
 
         if not device_props():
             return seed

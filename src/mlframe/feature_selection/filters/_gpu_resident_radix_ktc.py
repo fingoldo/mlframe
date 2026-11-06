@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Candidate threads/block to sweep. HW-AWARE: instead of fixed magic constants the candidate
 # SET is now derived from the device occupancy (warp-multiple block sizes that achieve >=2 active blocks/SM
-# for THIS kernel's register + shared usage, see _gpu_hw_launch.occupancy_block_candidates) so a different
+# for THIS kernel's register + shared usage, see pyutilz.performance.gpu_hw_launch.occupancy_block_candidates) so a different
 # card sweeps its own HW-valid points. The seed list below (powers + 768, spanning the GTX 1050 Ti measured
 # curve) is intersected with / falls back to the derived set; 512 = the historical hardcoded default + the
 # pre-sweep / no-cupy / lookup-failure fallback. Block size NEVER changes the order statistics (sum-reduction
@@ -47,7 +47,7 @@ def _radix_threads_variants() -> list:
     Always includes the default 512 so the reference variant exists."""
     seed = list(_RADIX_THREADS_SEED)
     try:
-        from ._gpu_hw_launch import device_props, occupancy_block_candidates
+        from pyutilz.performance.gpu_hw_launch import device_props, occupancy_block_candidates
         from ._gpu_resident_select import _get_radix_select_kernel
 
         if not device_props():

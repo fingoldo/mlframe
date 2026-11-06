@@ -17,6 +17,8 @@ from typing import Any
 import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
+from ._kernel_types import render
+from pyutilz.performance.gpu_hw_launch import block_size_for
 
 # bench-attempt-rejected: fit-amortised reuse of the joint-histogram atomicAdd count buffers in
 # joint_counts_gpu (227 calls/fit, ~22M int64) and _batched_joint_counts2 (15 calls, up to ~320M int64) - one
@@ -41,21 +43,21 @@ _XLOGX_ROWS_EK = None
 # out_h[row] (negated) + out_k[row]. ONE launch; out_h/out_k are cp.empty (cudaMalloc, not a cuLaunchKernel).
 # One-block-per-row -> deterministic tree-order sum (no cross-block atomics); same float64 plug-in entropy /
 # occupied-cell definition -> selection-equivalent.
-_ROWS_ENT_NNZ_SRC = r"""
+_ROWS_ENT_NNZ_SRC = render(r"""
 extern "C" __global__
-void rows_ent_nnz(const double* __restrict__ counts, const double inv_n, const int K, const long long M,
-                  double* __restrict__ out_h, long long* __restrict__ out_k) {
+void rows_ent_nnz(const {ACC}* __restrict__ counts, const {ACC} inv_n, const int K, const long long M,
+                  {ACC}* __restrict__ out_h, long long* __restrict__ out_k) {
     int row = blockIdx.x;
     if (row >= K) return;
-    const double* cr = counts + (long long)row * M;
+    const {ACC}* cr = counts + (long long)row * M;
     int tid = threadIdx.x;
-    double hloc = 0.0, kloc = 0.0;
+    {ACC} hloc = 0.0, kloc = 0.0;
     for (long long i = tid; i < M; i += blockDim.x) {
-        double ci = cr[i];
-        if (ci > 0.0) { double p = ci * inv_n; hloc += p * log(p); kloc += 1.0; }
+        {ACC} ci = cr[i];
+        if (ci > 0.0) { {ACC} p = ci * inv_n; hloc += p * log(p); kloc += 1.0; }
     }
-    __shared__ double sh_h[256];
-    __shared__ double sh_k[256];
+    __shared__ {ACC} sh_h[256];
+    __shared__ {ACC} sh_k[256];
     sh_h[tid] = hloc; sh_k[tid] = kloc;
     __syncthreads();
     for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
@@ -65,24 +67,24 @@ void rows_ent_nnz(const double* __restrict__ counts, const double inv_n, const i
     if (tid == 0) { out_h[row] = -sh_h[0]; out_k[row] = (long long)(sh_k[0] + 0.5); }
 }
 // INT32-counts variant (bandwidth fix, 2026-07-02): nsys at the 1M fit put rows_ent_nnz at 9.35s (34% of
-// GPU time) reading double precision cells of a huge mostly-zero counts matrix, PLUS 2.2s of cupy_copy for the
-// int64->double precision .astype the callers did first. Counts are exact small ints (<= n < 2^31): read them as
+// GPU time) reading {ACC} precision cells of a huge mostly-zero counts matrix, PLUS 2.2s of cupy_copy for the
+// int64->{ACC} precision .astype the callers did first. Counts are exact small ints (<= n < 2^31): read them as
 // int32 (4B/cell, no astype copy at all) and cast in-register - identical entropy/nnz values, ~6x less
 // memory traffic (astype read8+write8 + reduce read8 -> reduce read4).
 extern "C" __global__
-void rows_ent_nnz_i32(const int* __restrict__ counts, const double inv_n, const int K, const long long M,
-                      double* __restrict__ out_h, long long* __restrict__ out_k) {
+void rows_ent_nnz_i32(const int* __restrict__ counts, const {ACC} inv_n, const int K, const long long M,
+                      {ACC}* __restrict__ out_h, long long* __restrict__ out_k) {
     int row = blockIdx.x;
     if (row >= K) return;
     const int* cr = counts + (long long)row * M;
     int tid = threadIdx.x;
-    double hloc = 0.0, kloc = 0.0;
+    {ACC} hloc = 0.0, kloc = 0.0;
     for (long long i = tid; i < M; i += blockDim.x) {
         int ci = cr[i];
-        if (ci > 0) { double p = (double)ci * inv_n; hloc += p * log(p); kloc += 1.0; }
+        if (ci > 0) { {ACC} p = ({ACC})ci * inv_n; hloc += p * log(p); kloc += 1.0; }
     }
-    __shared__ double sh_h[256];
-    __shared__ double sh_k[256];
+    __shared__ {ACC} sh_h[256];
+    __shared__ {ACC} sh_k[256];
     sh_h[tid] = hloc; sh_k[tid] = kloc;
     __syncthreads();
     for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
@@ -97,9 +99,9 @@ void rows_ent_nnz_i32(const int* __restrict__ counts, const double inv_n, const 
 // the tiny finish kernel folds the S partials per row. Fixed S -> deterministic summation order (partials
 // folded in segment order) -> same ~1e-15 fp class as any tree-order change: selection-equivalent.
 extern "C" __global__
-void rows_ent_nnz_i32_split(const int* __restrict__ counts, const double inv_n, const int K,
+void rows_ent_nnz_i32_split(const int* __restrict__ counts, const {ACC} inv_n, const int K,
                             const long long M, const int S,
-                            double* __restrict__ part_h, double* __restrict__ part_k) {
+                            {ACC}* __restrict__ part_h, {ACC}* __restrict__ part_k) {
     int row = blockIdx.x;
     int seg = blockIdx.y;
     if (row >= K || seg >= S) return;
@@ -108,13 +110,13 @@ void rows_ent_nnz_i32_split(const int* __restrict__ counts, const double inv_n, 
     long long hi = lo + seg_len; if (hi > M) hi = M;
     const int* cr = counts + (long long)row * M;
     int tid = threadIdx.x;
-    double hloc = 0.0, kloc = 0.0;
+    {ACC} hloc = 0.0, kloc = 0.0;
     for (long long i = lo + tid; i < hi; i += blockDim.x) {
         int ci = cr[i];
-        if (ci > 0) { double p = (double)ci * inv_n; hloc += p * log(p); kloc += 1.0; }
+        if (ci > 0) { {ACC} p = ({ACC})ci * inv_n; hloc += p * log(p); kloc += 1.0; }
     }
-    __shared__ double sh_h[256];
-    __shared__ double sh_k[256];
+    __shared__ {ACC} sh_h[256];
+    __shared__ {ACC} sh_k[256];
     sh_h[tid] = hloc; sh_k[tid] = kloc;
     __syncthreads();
     for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
@@ -124,16 +126,16 @@ void rows_ent_nnz_i32_split(const int* __restrict__ counts, const double inv_n, 
     if (tid == 0) { part_h[row * S + seg] = sh_h[0]; part_k[row * S + seg] = sh_k[0]; }
 }
 extern "C" __global__
-void rows_ent_nnz_finish(const double* __restrict__ part_h, const double* __restrict__ part_k,
+void rows_ent_nnz_finish(const {ACC}* __restrict__ part_h, const {ACC}* __restrict__ part_k,
                          const int K, const int S,
-                         double* __restrict__ out_h, long long* __restrict__ out_k) {
+                         {ACC}* __restrict__ out_h, long long* __restrict__ out_k) {
     int row = (int)((long long)blockIdx.x * blockDim.x + threadIdx.x);
     if (row >= K) return;
-    double h = 0.0, k = 0.0;
+    {ACC} h = 0.0, k = 0.0;
     for (int s = 0; s < S; ++s) { h += part_h[row * S + s]; k += part_k[row * S + s]; }
     out_h[row] = -h; out_k[row] = (long long)(k + 0.5);
 }
-"""
+""")
 _ROWS_ENT_NNZ_KERNEL = None
 _ROWS_ENT_NNZ_I32_KERNEL = None
 _ROWS_ENT_NNZ_SPLIT_KERNELS = None
@@ -173,6 +175,11 @@ from ._fe_batched_mi_cmi_lut import (  # noqa: F401 -- carved lookup-table entro
 )
 
 
+def _tree_block(kernel, dyn_smem: int, work: int) -> int:
+    """Threads per block for a kernel whose block reduction halves ``blockDim.x`` down to 1 over 256-wide static scratch: a power of two, at most 256, derived from the device."""
+    return block_size_for(kernel, dyn_smem=int(dyn_smem), work_items=int(work), pow2=True, max_width=256)
+
+
 def _rows_entropy_and_k(counts, inv_n):
     """Per-row (per-candidate) plug-in entropy + occupied-cell count from a (K, M) device count matrix.
 
@@ -197,7 +204,6 @@ def _rows_entropy_and_k(counts, inv_n):
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out_h = cp.empty(K, dtype=cp.float64)
         out_k = cp.empty(K, dtype=cp.int64)
-        threads = 256
         # SPLIT-K when the one-block-per-row grid cannot fill the SMs (narrow perm chunk, huge M): a 6-SM card
         # runs ~48 resident blocks, so K < ~48 with a multi-million-cell M leaves most SMs idle for the whole
         # 15-30ms reduction. Split each row's M cells across S segment blocks (K*S ~ a few hundred blocks) +
@@ -205,17 +211,20 @@ def _rows_entropy_and_k(counts, inv_n):
         if counts.dtype == cp.int32 and K < 48 and M >= (1 << 20):
             S = max(2, min(64, (48 + K - 1) // max(1, K)))
             _split, _finish = _get_rows_ent_nnz_split_kernels(cp)
+            threads = _tree_block(_split, 0, M)
             # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             part_h = cp.empty(K * S, dtype=cp.float64)
             # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             part_k = cp.empty(K * S, dtype=cp.float64)
             _split((K, S), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), np.int32(S), part_h, part_k))
-            _finish(((K + 255) // 256,), (256,), (part_h, part_k, np.int32(K), np.int32(S), out_h, out_k))
+            finish_threads = block_size_for(_finish, work_items=K)
+            _finish(((K + finish_threads - 1) // finish_threads,), (finish_threads,), (part_h, part_k, np.int32(K), np.int32(S), out_h, out_k))
             return out_h, out_k
         if counts.dtype == cp.int32:
             _lut = _rows_entropy_lut(cp, c, inv_n)
             if _lut is not None:
                 return _lut
+        threads = _tree_block(_ker, 0, M)
         _ker((K,), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), out_h, out_k))
         return out_h, out_k
     except Exception as e:
@@ -374,7 +383,7 @@ def _batched_joint_counts2(X, b, Kx, Kb):
     # entropy-reduce traffic + the buffer VRAM (2x perms per perm-null chunk). Identical counts.
     counts = cp.zeros(int(K) * int(Kx) * int(Kb), dtype=cp.int32)
     h2 = _get_batched_joint_hist_kernels()[3]
-    threads = 256
+    threads = block_size_for(h2, work_items=n * K)
     blocks = (n * K + threads - 1) // threads
     h2((blocks,), (threads,), (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), counts))
     return counts.reshape(K, int(Kx) * int(Kb))
@@ -389,7 +398,7 @@ def _batched_marginal_counts(X, Kx):
     # int32 counts: same bandwidth fix as _batched_joint_counts2 (identical counts, half the traffic).
     counts = cp.zeros(int(K) * int(Kx), dtype=cp.int32)
     h1 = _get_batched_joint_hist_kernels()[2]
-    threads = 256
+    threads = block_size_for(h1, work_items=n * K)
     blocks = (n * K + threads - 1) // threads
     h1((blocks,), (threads,), (X, np.int32(int(Kx)), np.int64(n), np.int32(K), counts))
     return counts.reshape(K, int(Kx))
@@ -403,11 +412,11 @@ def _batched_marginal_counts(X, Kx):
 # Counts are identical (same flat key (col,x,b)->x*Kb+b): the same nnz, and entropies within a few ULP of the count-then-reduce path (the cells are summed in
 # another order; relative <= 4.4e-16 measured). Over the shared-memory limit ``batched_joint_entropy2_g`` keeps the same loop and reduction with each
 # block's histogram in a global scratch slice (G x M instead of the K x M count buffer), reused column after column so it stays in L2.
-_BATCHED_JOINT_ENTROPY_SRC = r"""
+_BATCHED_JOINT_ENTROPY_SRC = render(r"""
 extern "C" __global__
 void batched_joint_entropy2(const long long* __restrict__ X, const long long* __restrict__ b,
                             const int Kx, const int Kb, const long long n, const int K, const int M,
-                            const double inv_n, double* __restrict__ out_h, long long* __restrict__ out_k) {
+                            const {ACC} inv_n, {ACC}* __restrict__ out_h, long long* __restrict__ out_k) {
     extern __shared__ unsigned int hist[];
     int col = blockIdx.x;
     if (col >= K) return;
@@ -419,9 +428,9 @@ void batched_joint_entropy2(const long long* __restrict__ X, const long long* __
         atomicAdd(&hist[(unsigned int)(xv * Kb + b[i])], 1u);
     }
     __syncthreads();
-    double hloc = 0.0, kloc = 0.0;
-    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { double p = (double)v * inv_n; hloc += p * log(p); kloc += 1.0; } }
-    __shared__ double sh_h[256]; __shared__ double sh_k[256];
+    {ACC} hloc = 0.0, kloc = 0.0;
+    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { {ACC} p = ({ACC})v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+    __shared__ {ACC} sh_h[256]; __shared__ {ACC} sh_k[256];
     sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
     for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
     if (tid == 0) { out_h[col] = -sh_h[0]; out_k[col] = (long long)(sh_k[0] + 0.5); }
@@ -429,10 +438,10 @@ void batched_joint_entropy2(const long long* __restrict__ X, const long long* __
 extern "C" __global__
 void batched_joint_entropy2_g(const long long* __restrict__ X, const long long* __restrict__ b,
                               const int Kx, const int Kb, const long long n, const int K, const int M,
-                              const double inv_n, unsigned int* __restrict__ scratch, double* __restrict__ out_h, long long* __restrict__ out_k) {
+                              const {ACC} inv_n, unsigned int* __restrict__ scratch, {ACC}* __restrict__ out_h, long long* __restrict__ out_k) {
     unsigned int* hist = scratch + (long long)blockIdx.x * M;      // this block's slice, reused for every column it owns
     int tid = threadIdx.x, nt = blockDim.x;
-    __shared__ double sh_h[256]; __shared__ double sh_k[256];
+    __shared__ {ACC} sh_h[256]; __shared__ {ACC} sh_k[256];
     for (int col = blockIdx.x; col < K; col += gridDim.x) {
         for (int i = tid; i < M; i += nt) hist[i] = 0u;
         __syncthreads();
@@ -441,15 +450,15 @@ void batched_joint_entropy2_g(const long long* __restrict__ X, const long long* 
             atomicAdd(&hist[(unsigned int)(xv * Kb + b[i])], 1u);
         }
         __syncthreads();
-        double hloc = 0.0, kloc = 0.0;
-        for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { double p = (double)v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+        {ACC} hloc = 0.0, kloc = 0.0;
+        for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { {ACC} p = ({ACC})v * inv_n; hloc += p * log(p); kloc += 1.0; } }
         sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
         for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
         if (tid == 0) { out_h[col] = -sh_h[0]; out_k[col] = (long long)(sh_k[0] + 0.5); }
         __syncthreads();
     }
 }
-"""
+""")
 _BATCHED_JOINT_ENTROPY_KERNEL = None
 _BATCHED_JOINT_ENTROPY_G_KERNEL: list = []
 
@@ -467,7 +476,8 @@ def batched_joint_entropy_global(X, b, Kx, Kb, inv_n, blocks: int):
     scratch = cp.empty(g * M, dtype=cp.uint32)
     out_h = cp.empty(K, dtype=cp.float64)  # Intentional float64: entropies, as the fused kernel writes them
     out_k = cp.empty(K, dtype=cp.int64)
-    _BATCHED_JOINT_ENTROPY_G_KERNEL[0]((g,), (256,), (cp.ascontiguousarray(X), b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), scratch, out_h, out_k))
+    g_threads = _tree_block(_BATCHED_JOINT_ENTROPY_G_KERNEL[0], 0, n)
+    _BATCHED_JOINT_ENTROPY_G_KERNEL[0]((g,), (g_threads,), (cp.ascontiguousarray(X), b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), scratch, out_h, out_k))
     return out_h, out_k
 _BATCHED_JOINT_ENTROPY_SH_LIMIT = None
 
@@ -538,7 +548,7 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out_h = cp.empty(K, dtype=cp.float64)
         out_k = cp.empty(K, dtype=cp.int64)
-        threads = 256
+        threads = _tree_block(ker, M * 4, n)
         ker(
             (K,), (threads,), (Xc, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), out_h, out_k), shared_mem=M * 4
         )
@@ -555,19 +565,19 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
 # atomicAdd joint_counts_gpu (one launch, no bincount) and reducing it with this grid-stride kernel (one
 # launch, out is cp.zeros(2)=memset) collapses each scalar term to two launches. Same float64 plug-in
 # entropy / occupied-cell -> selection-equivalent.
-_ENT_NNZ_1D_SRC = r"""
+_ENT_NNZ_1D_SRC = render(r"""
 extern "C" __global__
-void ent_nnz_1d(const long long* __restrict__ c, const double inv_n, const long long M,
-                double* __restrict__ out) {
+void ent_nnz_1d(const long long* __restrict__ c, const {ACC} inv_n, const long long M,
+                {ACC}* __restrict__ out) {
     long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long stride = (long long)gridDim.x * blockDim.x;
-    double hloc = 0.0, kloc = 0.0;
+    {ACC} hloc = 0.0, kloc = 0.0;
     for (long long i = t; i < M; i += stride) {
         long long ci = c[i];
-        if (ci > 0) { double p = (double)ci * inv_n; hloc += p * log(p); kloc += 1.0; }
+        if (ci > 0) { {ACC} p = ({ACC})ci * inv_n; hloc += p * log(p); kloc += 1.0; }
     }
-    __shared__ double sh_h[256];
-    __shared__ double sh_k[256];
+    __shared__ {ACC} sh_h[256];
+    __shared__ {ACC} sh_k[256];
     int tid = threadIdx.x;
     sh_h[tid] = hloc; sh_k[tid] = kloc;
     __syncthreads();
@@ -577,7 +587,7 @@ void ent_nnz_1d(const long long* __restrict__ c, const double inv_n, const long 
     }
     if (tid == 0) { atomicAdd(&out[0], sh_h[0]); atomicAdd(&out[1], sh_k[0]); }
 }
-"""
+""")
 _ENT_NNZ_1D_KERNEL = None
 
 
@@ -593,7 +603,7 @@ def _ent_nnz_1d(c, inv_n):
         M = int(c.size)
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.zeros(2, dtype=cp.float64)  # cudaMemsetAsync, not a cuLaunchKernel
-        threads = 256
+        threads = _tree_block(_ENT_NNZ_1D_KERNEL, 0, M)
         blocks = min(1024, max(1, (M + threads - 1) // threads))
         _ENT_NNZ_1D_KERNEL((blocks,), (threads,), (c, float(inv_n), np.int64(M), out))
         h_k = cp.asnumpy(out)
@@ -618,9 +628,9 @@ def joint_counts_gpu(codes: Any, cards: Any) -> Any:
     for kc in cards:
         M *= int(kc)
     counts = cp.zeros(int(max(M, 1)), dtype=cp.int64)
-    threads = 256
-    blocks = (n + threads - 1) // threads
     h1, h2, h3 = _get_joint_hist_kernels()
+    threads = block_size_for(h1 if len(codes) == 1 else h2 if len(codes) == 2 else h3, work_items=n)
+    blocks = (n + threads - 1) // threads
     if len(codes) == 1:
         h1((blocks,), (threads,), (codes[0], np.int64(n), counts))
     elif len(codes) == 2:
@@ -637,35 +647,35 @@ def joint_counts_gpu(codes: Any, cards: Any) -> Any:
 # launch. out[0] = sum xlogx (h = -out[0]), out[1] = nnz. Same float64 plug-in entropy / occupied-cell
 # definition -> selection-equivalent (exact integer counts; reduction-order ~1e-14). Falls back to the
 # two-kernel path (joint_counts_gpu + ent_nnz_1d) when M is over the shared-memory budget.
-_JOINT_ENTROPY_SRC = r"""
+_JOINT_ENTROPY_SRC = render(r"""
 extern "C" __global__
 void joint_entropy1(const long long* __restrict__ a, const long long n, const int M,
-                    const double inv_n, double* __restrict__ out) {
+                    const {ACC} inv_n, {ACC}* __restrict__ out) {
     extern __shared__ unsigned int hist[];
     int tid = threadIdx.x, nt = blockDim.x;
     for (int i = tid; i < M; i += nt) hist[i] = 0u;
     __syncthreads();
     for (long long i = tid; i < n; i += nt) atomicAdd(&hist[a[i]], 1u);
     __syncthreads();
-    double hloc = 0.0, kloc = 0.0;
-    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { double p = (double)v * inv_n; hloc += p * log(p); kloc += 1.0; } }
-    __shared__ double sh_h[256]; __shared__ double sh_k[256];
+    {ACC} hloc = 0.0, kloc = 0.0;
+    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { {ACC} p = ({ACC})v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+    __shared__ {ACC} sh_h[256]; __shared__ {ACC} sh_k[256];
     sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
     for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
     if (tid == 0) { out[0] = sh_h[0]; out[1] = sh_k[0]; }
 }
 extern "C" __global__
 void joint_entropy2(const long long* __restrict__ a, const long long* __restrict__ b, const int Kb,
-                    const long long n, const int M, const double inv_n, double* __restrict__ out) {
+                    const long long n, const int M, const {ACC} inv_n, {ACC}* __restrict__ out) {
     extern __shared__ unsigned int hist[];
     int tid = threadIdx.x, nt = blockDim.x;
     for (int i = tid; i < M; i += nt) hist[i] = 0u;
     __syncthreads();
     for (long long i = tid; i < n; i += nt) atomicAdd(&hist[a[i] * Kb + b[i]], 1u);
     __syncthreads();
-    double hloc = 0.0, kloc = 0.0;
-    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { double p = (double)v * inv_n; hloc += p * log(p); kloc += 1.0; } }
-    __shared__ double sh_h[256]; __shared__ double sh_k[256];
+    {ACC} hloc = 0.0, kloc = 0.0;
+    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { {ACC} p = ({ACC})v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+    __shared__ {ACC} sh_h[256]; __shared__ {ACC} sh_k[256];
     sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
     for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
     if (tid == 0) { out[0] = sh_h[0]; out[1] = sh_k[0]; }
@@ -673,21 +683,21 @@ void joint_entropy2(const long long* __restrict__ a, const long long* __restrict
 extern "C" __global__
 void joint_entropy3(const long long* __restrict__ a, const long long* __restrict__ b,
                     const long long* __restrict__ c, const int Kb, const int Kc, const long long n,
-                    const int M, const double inv_n, double* __restrict__ out) {
+                    const int M, const {ACC} inv_n, {ACC}* __restrict__ out) {
     extern __shared__ unsigned int hist[];
     int tid = threadIdx.x, nt = blockDim.x;
     for (int i = tid; i < M; i += nt) hist[i] = 0u;
     __syncthreads();
     for (long long i = tid; i < n; i += nt) atomicAdd(&hist[(a[i] * Kb + b[i]) * Kc + c[i]], 1u);
     __syncthreads();
-    double hloc = 0.0, kloc = 0.0;
-    for (int cc = tid; cc < M; cc += nt) { unsigned int v = hist[cc]; if (v > 0u) { double p = (double)v * inv_n; hloc += p * log(p); kloc += 1.0; } }
-    __shared__ double sh_h[256]; __shared__ double sh_k[256];
+    {ACC} hloc = 0.0, kloc = 0.0;
+    for (int cc = tid; cc < M; cc += nt) { unsigned int v = hist[cc]; if (v > 0u) { {ACC} p = ({ACC})v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+    __shared__ {ACC} sh_h[256]; __shared__ {ACC} sh_k[256];
     sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
     for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
     if (tid == 0) { out[0] = sh_h[0]; out[1] = sh_k[0]; }
 }
-"""
+""")
 _JOINT_ENTROPY_KERNELS = None
 _JOINT_ENTROPY_SH_LIMIT = None
 
@@ -729,12 +739,13 @@ def joint_entropy_gpu(codes: Any, cards: Any, inv_n: float) -> tuple[float, int]
             # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             out = cp.zeros(2, dtype=cp.float64)
             shmem = M * 4
+            tree_threads = _tree_block(kers[min(len(codes), 3) - 1], shmem, n)
             if len(codes) == 1:
-                kers[0]((1,), (256,), (codes[0], np.int64(n), np.int32(M), float(inv_n), out), shared_mem=shmem)
+                kers[0]((1,), (tree_threads,), (codes[0], np.int64(n), np.int32(M), float(inv_n), out), shared_mem=shmem)
             elif len(codes) == 2:
-                kers[1]((1,), (256,), (codes[0], codes[1], np.int32(int(cards[1])), np.int64(n), np.int32(M), float(inv_n), out), shared_mem=shmem)
+                kers[1]((1,), (tree_threads,), (codes[0], codes[1], np.int32(int(cards[1])), np.int64(n), np.int32(M), float(inv_n), out), shared_mem=shmem)
             else:
-                kers[2]((1,), (256,), (codes[0], codes[1], codes[2], np.int32(int(cards[1])),
+                kers[2]((1,), (tree_threads,), (codes[0], codes[1], codes[2], np.int32(int(cards[1])),
                                        np.int32(int(cards[2])), np.int64(n), np.int32(M), float(inv_n), out),
                         shared_mem=shmem)
             hk = cp.asnumpy(out)
@@ -756,11 +767,11 @@ def joint_entropy_gpu(codes: Any, cards: Any, inv_n: float) -> tuple[float, int]
 # SAME condition under which joint_entropy_gpu took its fast single-launch path for x,y,z), else the caller
 # uses the per-joint path. Same f64 plug-in entropy, same occupied-cell (c>0) definition, same cell-index
 # reduction order as joint_entropy1/2/3 -> the assembled CMI is bit-identical.
-_CMI_JOINT_ENTROPIES_SRC = r"""
+_CMI_JOINT_ENTROPIES_SRC = render(r"""
 extern "C" __global__
 void cmi_joint_entropies(const long long* __restrict__ x, const long long* __restrict__ y,
                          const long long* __restrict__ z, const int Kx, const int Ky, const int Kz,
-                         const long long n, const double inv_n, double* __restrict__ out) {
+                         const long long n, const {ACC} inv_n, {ACC}* __restrict__ out) {
     extern __shared__ unsigned int hist[];
     int blk = blockIdx.x, tid = threadIdx.x, nt = blockDim.x;
     int M;
@@ -780,14 +791,14 @@ void cmi_joint_entropies(const long long* __restrict__ x, const long long* __res
         atomicAdd(&hist[idx], 1u);
     }
     __syncthreads();
-    double hloc = 0.0, kloc = 0.0;
-    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { double p = (double)v * inv_n; hloc += p * log(p); kloc += 1.0; } }
-    __shared__ double sh_h[256]; __shared__ double sh_k[256];
+    {ACC} hloc = 0.0, kloc = 0.0;
+    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { {ACC} p = ({ACC})v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+    __shared__ {ACC} sh_h[256]; __shared__ {ACC} sh_k[256];
     sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
     for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
     if (tid == 0) { out[blk * 2] = -sh_h[0]; out[blk * 2 + 1] = sh_k[0]; }
 }
-"""
+""")
 _CMI_JOINT_ENTROPIES_KERNEL = None
 
 
@@ -810,7 +821,7 @@ def cmi_joint_entropies_gpu(dx: Any, dy: Any, dz: Any, Kx: int, ky: int, kz: int
         n = int(dz.size)
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.zeros(8, dtype=cp.float64)
-        _CMI_JOINT_ENTROPIES_KERNEL((4,), (256,), (dx, dy, dz, np.int32(int(Kx)), np.int32(int(ky)),
+        _CMI_JOINT_ENTROPIES_KERNEL((4,), (_tree_block(_CMI_JOINT_ENTROPIES_KERNEL, Mmax * 4, n),), (dx, dy, dz, np.int32(int(Kx)), np.int32(int(ky)),
                                     np.int32(int(kz)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
         hk = cp.asnumpy(out)
         return ((float(hk[0]), round(hk[1])), (float(hk[2]), round(hk[3])), (float(hk[4]), round(hk[5])), (float(hk[6]), round(hk[7])))
@@ -838,11 +849,11 @@ def cmi_joint_entropies_gpu(dx: Any, dy: Any, dz: Any, Kx: int, ky: int, kz: int
 # four-block conditional fusion - not the rejected two-block fixed-yz split. Engages when the (x,y) joint
 # fits the per-block shared limit (it is tiny: Kx*Ky). Same f64 plug-in entropy, occupied-cell definition,
 # and cell-index reduction order -> bit-identical.
-_MARGINAL_MI_ENTROPIES_SRC = r"""
+_MARGINAL_MI_ENTROPIES_SRC = render(r"""
 extern "C" __global__
 void marginal_mi_entropies(const long long* __restrict__ x, const long long* __restrict__ y,
-                           const int Kx, const int Ky, const long long n, const double inv_n,
-                           double* __restrict__ out) {
+                           const int Kx, const int Ky, const long long n, const {ACC} inv_n,
+                           {ACC}* __restrict__ out) {
     extern __shared__ unsigned int hist[];
     int blk = blockIdx.x, tid = threadIdx.x, nt = blockDim.x;
     int M = (blk == 0) ? Kx : (blk == 1) ? Ky : (Kx * Ky);
@@ -854,14 +865,14 @@ void marginal_mi_entropies(const long long* __restrict__ x, const long long* __r
         atomicAdd(&hist[idx], 1u);
     }
     __syncthreads();
-    double hloc = 0.0, kloc = 0.0;
-    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { double p = (double)v * inv_n; hloc += p * log(p); kloc += 1.0; } }
-    __shared__ double sh_h[256]; __shared__ double sh_k[256];
+    {ACC} hloc = 0.0, kloc = 0.0;
+    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { {ACC} p = ({ACC})v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+    __shared__ {ACC} sh_h[256]; __shared__ {ACC} sh_k[256];
     sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
     for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
     if (tid == 0) { out[blk * 2] = -sh_h[0]; out[blk * 2 + 1] = sh_k[0]; }
 }
-"""
+""")
 _MARGINAL_MI_ENTROPIES_KERNEL = None
 
 
@@ -883,7 +894,7 @@ def marginal_mi_entropies_gpu(dx: Any, dy: Any, Kx: int, ky: int, inv_n: float) 
         n = int(dx.size)
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.zeros(6, dtype=cp.float64)
-        _MARGINAL_MI_ENTROPIES_KERNEL((3,), (256,), (dx, dy, np.int32(int(Kx)), np.int32(int(ky)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
+        _MARGINAL_MI_ENTROPIES_KERNEL((3,), (_tree_block(_MARGINAL_MI_ENTROPIES_KERNEL, Mmax * 4, n),), (dx, dy, np.int32(int(Kx)), np.int32(int(ky)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
         hk = cp.asnumpy(out)
         return ((float(hk[0]), round(hk[1])), (float(hk[2]), round(hk[3])), (float(hk[4]), round(hk[5])))
     except Exception:
@@ -897,17 +908,17 @@ def marginal_mi_entropies_gpu(dx: Any, dy: Any, Kx: int, ky: int, inv_n: float) 
 # max(cmi - bias, 0) - ~7 launches. Both the conditional and marginal forms reduce to
 #   out[i] = max( he1[i] - he2[i] + hc - (kc1[i] - kc2[i] + kc) * inv2n , 0 )
 # so one (K,) kernel emits the result. Same f64 ops -> bit-identical.
-_CMI_ASSEMBLE_SRC = r"""
+_CMI_ASSEMBLE_SRC = render(r"""
 extern "C" __global__
-void cmi_assemble(const double* __restrict__ he1, const double* __restrict__ he2, const double hc,
-                  const long long* __restrict__ kc1, const long long* __restrict__ kc2, const double kc,
-                  const double inv2n, const int K, double* __restrict__ out) {
+void cmi_assemble(const {ACC}* __restrict__ he1, const {ACC}* __restrict__ he2, const {ACC} hc,
+                  const long long* __restrict__ kc1, const long long* __restrict__ kc2, const {ACC} kc,
+                  const {ACC} inv2n, const int K, {ACC}* __restrict__ out) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= K) return;
-    double v = (he1[i] - he2[i] + hc) - ((double)(kc1[i] - kc2[i]) + kc) * inv2n;
+    {ACC} v = (he1[i] - he2[i] + hc) - (({ACC})(kc1[i] - kc2[i]) + kc) * inv2n;
     out[i] = v > 0.0 ? v : 0.0;
 }
-"""
+""")
 _CMI_ASSEMBLE_KERNEL = None
 
 
@@ -924,7 +935,7 @@ def _cmi_assemble(he1, he2, hc, kc1, kc2, kc, inv2n):
         K = int(he1.shape[0])
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.empty(K, dtype=cp.float64)
-        threads = 128
+        threads = block_size_for(_CMI_ASSEMBLE_KERNEL, work_items=K)
         _CMI_ASSEMBLE_KERNEL(((K + threads - 1) // threads,), (threads,),
                              # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
                              (cp.ascontiguousarray(he1.astype(cp.float64, copy=False)),
@@ -966,9 +977,9 @@ def joint_nnz_gpu(codes: Any, cards: Any) -> int:
         M *= int(kc)
     counts = cp.zeros(int(max(M, 1)), dtype=cp.int64)  # cudaMemsetAsync, not a cuLaunchKernel
     nnz = cp.zeros(1, dtype=cp.uint64)  # cudaMemsetAsync, not a cuLaunchKernel
-    threads = 256
-    blocks = (n + threads - 1) // threads
     h1, h2, h3 = _get_joint_nnz_kernels()
+    threads = block_size_for(h1 if len(codes) == 1 else h2 if len(codes) == 2 else h3, work_items=n)
+    blocks = (n + threads - 1) // threads
     if len(codes) == 1:
         h1((blocks,), (threads,), (codes[0], np.int64(n), counts, nnz))
     elif len(codes) == 2:

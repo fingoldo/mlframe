@@ -14,36 +14,37 @@ from typing import Any
 import numpy as np
 
 from ._raw_module_cache import RawModuleCache
+from ._kernel_types import render
 
-_SRC = r"""
+_SRC = render(r"""
 extern "C" __global__ void abs_corr_tiled(const {REAL}* __restrict__ cand, const {REAL}* __restrict__ yc, const {REAL}* __restrict__ mu, const long long n, const int m,
-                                          const long long rows_per_chunk, double* __restrict__ part) {
-    __shared__ double sh_cc[8][32];
-    __shared__ double sh_cy[8][32];
+                                          const long long rows_per_chunk, {ACC}* __restrict__ part) {
+    __shared__ {ACC} sh_cc[8][32];
+    __shared__ {ACC} sh_cy[8][32];
     const int col = blockIdx.x * 32 + threadIdx.x;
     const int ly = threadIdx.y;
     const long long start = (long long)blockIdx.y * rows_per_chunk;
     long long stop = start + rows_per_chunk;
     if (stop > n) stop = n;
-    double scc = 0.0, scy = 0.0;
+    {ACC} scc = 0.0, scy = 0.0;
     if (col < m) {
-        const double muc = (double)mu[col];
+        const {ACC} muc = ({ACC})mu[col];
         for (long long i = start + ly; i < stop; i += 8) {
-            const double d = (double)cand[i * (long long)m + col] - muc;
+            const {ACC} d = ({ACC})cand[i * (long long)m + col] - muc;
             scc += d * d;
-            scy += d * (double)yc[i];
+            scy += d * ({ACC})yc[i];
         }
     }
     sh_cc[ly][threadIdx.x] = scc; sh_cy[ly][threadIdx.x] = scy;
     __syncthreads();
     if (ly == 0 && col < m) {
-        double a = sh_cc[0][threadIdx.x], b = sh_cy[0][threadIdx.x];
+        {ACC} a = sh_cc[0][threadIdx.x], b = sh_cy[0][threadIdx.x];
         for (int l = 1; l < 8; ++l) { a += sh_cc[l][threadIdx.x]; b += sh_cy[l][threadIdx.x]; }   // fixed merge order
         const long long o = ((long long)blockIdx.y * m + col) * 2;
         part[o] = a; part[o + 1] = b;
     }
 }
-"""
+""")
 
 _MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float"))}
 _ROWS_PER_CHUNK = 8192
@@ -57,7 +58,7 @@ def abs_corr_tiled(cp: Any, cand: Any, yc: Any, mu: Any, syy: float) -> Any:
     # Intentional float64: device accumulator for the tiled correlation sums
     part = cp.zeros((chunks, m, 2), dtype=cp.float64)
     module = _MODULES_BY_REAL["float" if cand.dtype.itemsize == 4 else "double"].get(cp)
-    module.get_function("abs_corr_tiled")(((m + 31) // 32, chunks), (32, 8), (cand, yc, mu, np.int64(n), np.int32(m), np.int64(_ROWS_PER_CHUNK), part))
+    module.get_function("abs_corr_tiled")(((m + 31) // 32, chunks), (32, 8), (cand, yc, mu, np.int64(n), np.int32(m), np.int64(_ROWS_PER_CHUNK), part))  # launch-ok: the 2-D block is the tile the kernel is written for (columns x row lanes), its shared arrays are sized by it
     host = cp.asnumpy(part)
     scc = host[0, :, 0].copy()
     scy = host[0, :, 1].copy()

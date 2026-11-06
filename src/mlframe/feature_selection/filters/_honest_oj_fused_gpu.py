@@ -23,29 +23,32 @@ import os
 from typing import Any, Optional
 
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from numba import njit, prange
 
 from ._honest_oj_fused import _permuted_codes, _pool_max
+from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
 
-_KERNEL = r"""
-__device__ double cell_mi(const int* hist, int n, int k_x, int k_y)
+_KERNEL = render(r"""
+__device__ {ACC} cell_mi(const int* hist, int n, int k_x, int k_y)
 {
-    // the loops of _plug_in_mi_njit (miller_madow=False), same order, double precision
-    double mi = 0.0;
+    // the loops of _plug_in_mi_njit (miller_madow=False), same order, {ACC} precision
+    {ACC} mi = 0.0;
     if (n > 0 && k_y >= 1) {
-        double px[64]; double py[64];
+        {ACC} px[64]; {ACC} py[64];
         for (int a = 0; a < k_x; ++a) px[a] = 0.0;
         for (int q = 0; q < k_y; ++q) py[q] = 0.0;
-        for (int a = 0; a < k_x; ++a) for (int q = 0; q < k_y; ++q) { double v = (double)hist[a * k_y + q]; px[a] += v; py[q] += v; }
-        const double nf = (double)n;
+        for (int a = 0; a < k_x; ++a) for (int q = 0; q < k_y; ++q) { {ACC} v = ({ACC})hist[a * k_y + q]; px[a] += v; py[q] += v; }
+        const {ACC} nf = ({ACC})n;
         for (int a = 0; a < k_x; ++a) {
             if (px[a] <= 0.0) continue;
             for (int q = 0; q < k_y; ++q) {
-                double v = (double)hist[a * k_y + q];
+                {ACC} v = ({ACC})hist[a * k_y + q];
                 if (v <= 0.0 || py[q] <= 0.0) continue;
-                double p = v / nf;
+                {ACC} p = v / nf;
                 mi += p * log(p * nf / (px[a] * py[q] / nf));
             }
         }
@@ -56,7 +59,7 @@ __device__ double cell_mi(const int* hist, int n, int k_x, int k_y)
 // one block per (cell, permutation); per-warp shared histograms with atomics
 extern "C" __global__ void oj_cell_mi(const signed char* __restrict__ xb, const int* __restrict__ vy, const long long* __restrict__ kx,
                                       const long long* __restrict__ nv, const int* __restrict__ ky, int F, int PM, int NV, int KXMAX, int KYMAX,
-                                      double* __restrict__ out)
+                                      {ACC}* __restrict__ out)
 {
     extern __shared__ unsigned char smem[];
     int* hist = (int*)smem;
@@ -85,7 +88,7 @@ extern "C" __global__ void oj_cell_mi(const signed char* __restrict__ xb, const 
 // private 16-bit counters per thread, laid out [bin][thread]: no atomics; valid while k_x * k_y <= 64 and every thread sees at most 65535 rows
 extern "C" __global__ void oj_cell_mi_private(const signed char* __restrict__ xb, const int* __restrict__ vy, const long long* __restrict__ kx,
                                               const long long* __restrict__ nv, const int* __restrict__ ky, int F, int PM, int NV, int KXMAX, int KYMAX,
-                                              double* __restrict__ out)
+                                              {ACC}* __restrict__ out)
 {
     extern __shared__ unsigned char smem[];
     unsigned short* cnt = (unsigned short*)smem;
@@ -181,7 +184,7 @@ extern "C" __global__ void oj_count_ones(const unsigned int* __restrict__ masks,
 // the cell MI of every (permutation, cell) from the ones and the fixed bin counts: hist[x, 1] = ones, hist[x, 0] = px - ones (exact integers)
 extern "C" __global__ void oj_mi_from_ones(const int* __restrict__ c1, const int* __restrict__ px, const long long* __restrict__ kx,
                                            const long long* __restrict__ nv, const int* __restrict__ ky, int B, int C, int F, int PM, int KXMAX,
-                                           double* __restrict__ out)
+                                           {ACC}* __restrict__ out)
 {
     const long long g = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (g >= (long long)B * C) return;
@@ -201,7 +204,7 @@ extern "C" __global__ void oj_mi_from_ones(const int* __restrict__ c1, const int
 // pool MI of every (permutation, pool column, candidate count) cell, the loops of _mi_codes_njit with integer counts: ones from the popcounts,
 // zeros = fixed bin count - ones; py = (rows - ones total, ones total) of the permutation
 extern "C" __global__ void oj_pool_mi(const int* __restrict__ c1, const int* __restrict__ px, const long long* __restrict__ kx, const int* __restrict__ ones,
-                                      int B, int C, int KXMAX, long long n, double* __restrict__ out)
+                                      int B, int C, int KXMAX, long long n, {ACC}* __restrict__ out)
 {
     const long long g = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (g >= (long long)B * C) return;
@@ -209,18 +212,18 @@ extern "C" __global__ void oj_pool_mi(const int* __restrict__ c1, const int* __r
     const int k_x = (int)kx[c];
     if (k_x == 0) { out[g] = 0.0; return; }
     const long long py1 = ones[b], py0 = n - py1;
-    double mi = 0.0;
+    {ACC} mi = 0.0;
     for (int a = 0; a < k_x; ++a) {
         const long long all = px[(long long)c * KXMAX + a];
         if (all == 0) continue;
         const long long n1 = c1[g * KXMAX + a];
         const long long n0 = all - n1;
-        if (n0 != 0) mi += ((double)n0 / (double)n) * log((double)(n0 * n) / (double)(all * py0));
-        if (n1 != 0) mi += ((double)n1 / (double)n) * log((double)(n1 * n) / (double)(all * py1));
+        if (n0 != 0) mi += (({ACC})n0 / ({ACC})n) * log(({ACC})(n0 * n) / ({ACC})(all * py0));
+        if (n1 != 0) mi += (({ACC})n1 / ({ACC})n) * log(({ACC})(n1 * n) / ({ACC})(all * py1));
     }
     out[g] = mi;
 }
-"""
+""")
 _MAX_BINS = 64  # the kernels' per-thread marginal arrays; wider codes or targets stay on the CPU
 _cache: dict = {}
 
@@ -244,6 +247,13 @@ def _pool_block(perms, picks, yc, rows, pool_dep, pool_rc, pool_nb, pool_kxe, n_
     for b in prange(perms.shape[0]):
         ycp, ny, ky_eff = _permuted_codes(perms[b], yc, rows)
         out[b] = _pool_max(picks[b], ycp, ny, ky_eff, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff)
+
+
+def _launch_flat(cp: Any, name: str, n_work: int, args: tuple) -> None:
+    """Launch the one-thread-per-item kernel ``name`` over ``n_work`` items with the block size the device and the kernel's register use call for."""
+    kernel = _kernel(cp, name)
+    threads = block_size_for(kernel, work_items=n_work)
+    kernel(((n_work + threads - 1) // threads,), (threads,), args)
 
 
 class DeviceWinners:
@@ -275,7 +285,7 @@ class DeviceWinners:
         self.masks = cp.zeros((int(kxc.sum()) * self.NW,), dtype=cp.uint32)
         total = self.C * self.NV
         args = (self.xb, self.off, self.kx, self.nv, np.int32(self.C), np.int32(self.P * self.M), np.int32(self.NV), np.int32(self.NW), self.masks)
-        _kernel(cp, "oj_build_masks")(((total + 255) // 256,), (256,), args)
+        _launch_flat(cp, "oj_build_masks", total, args)
         self.px = cp.asarray(np.ascontiguousarray(self.px_h.reshape(self.C, -1)[:, : self.kxmax], dtype=np.int32))
 
     def _cell_mi_bitmask(self, vy: Any, ky: Any, b_n: int) -> Any:
@@ -285,7 +295,7 @@ class DeviceWinners:
             self._build_masks()
         n_y = b_n * self.F * self.NW
         ybits = cp.empty((n_y,), dtype=cp.uint32)
-        _kernel(cp, "oj_build_ybits")(((n_y + 255) // 256,), (256,), (vy, self.nv, np.int32(b_n), np.int32(self.F), np.int32(self.NV), np.int32(self.NW), ybits))
+        _launch_flat(cp, "oj_build_ybits", n_y, (vy, self.nv, np.int32(b_n), np.int32(self.F), np.int32(self.NV), np.int32(self.NW), ybits))
         c1 = cp.zeros((b_n * self.C * self.kxmax,), dtype=cp.int32)
         pm = np.int32(self.P * self.M)
         args = (self.masks, ybits, self.off, self.kx, np.int32(b_n), np.int32(self.C), np.int32(self.F), pm, np.int32(self.NW), np.int32(self.kxmax), c1)
@@ -451,13 +461,13 @@ class DevicePool:
         ones = vy.sum(axis=1).astype(cp.int32)
         n_y = b_n * self.NW
         ybits = cp.empty((n_y,), dtype=cp.uint32)
-        _kernel(cp, "oj_build_ybits")(((n_y + 255) // 256,), (256,), (vy, self.nv, np.int32(b_n), np.int32(1), np.int32(self.R), np.int32(self.NW), ybits))
+        _launch_flat(cp, "oj_build_ybits", n_y, (vy, self.nv, np.int32(b_n), np.int32(1), np.int32(self.R), np.int32(self.NW), ybits))
         c1 = cp.zeros((b_n * self.C * self.kxmax,), dtype=cp.int32)
         args = (self.masks, ybits, self.off, self.kx, np.int32(b_n), np.int32(self.C), np.int32(1), np.int32(self.C), np.int32(self.NW), np.int32(self.kxmax), c1)
         _kernel(cp, "oj_count_ones")((self.C, (b_n + 7) // 8), (128,), args)
         mi = cp.empty((b_n, self.T, self.M), dtype=cp.float64)  # Intentional float64: MI statistic
         n_o = b_n * self.C
-        _kernel(cp, "oj_pool_mi")(((n_o + 127) // 128,), (128,), (c1, self.px, self.kx, ones, np.int32(b_n), np.int32(self.C), np.int32(self.kxmax), np.int64(self.R), mi))
+        _launch_flat(cp, "oj_pool_mi", n_o, (c1, self.px, self.kx, ones, np.int32(b_n), np.int32(self.C), np.int32(self.kxmax), np.int64(self.R), mi))
         # the candidate of every pool column under every permutation: the column's winner, 0 for a fixed column
         dep = self.dep
         m_idx = np.zeros((b_n, self.T), dtype=np.int64)

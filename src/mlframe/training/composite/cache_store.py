@@ -20,7 +20,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from mlframe.utils.env_flags import env_flag
+from mlframe.utils.env_flags import env_flag, env_float, env_int
 from mlframe.utils.safe_pickle import (
     safe_load as _safe_pickle_load,
     write_sidecar as _safe_pickle_write_sidecar,
@@ -344,11 +344,7 @@ class DiscoveryCache:
         # discovery starts its own allocations. Treat oversize as a miss so the
         # caller falls back to a fresh recompute; the stale entry is left on disk
         # so the operator can inspect / delete it.
-        try:
-            _max_bytes_raw = os.environ.get("MLFRAME_DISCOVERY_CACHE_MAX_BYTES")
-            _max_bytes = int(_max_bytes_raw) if _max_bytes_raw is not None else 1024 * 1024 * 1024
-        except (TypeError, ValueError):
-            _max_bytes = 1024 * 1024 * 1024
+        _max_bytes = env_int("MLFRAME_DISCOVERY_CACHE_MAX_BYTES", 1024 * 1024 * 1024)
         try:
             _file_size = os.path.getsize(path)
         except OSError as _exc:
@@ -475,11 +471,7 @@ class DiscoveryCache:
         ``_ORPHAN_TMP_MIN_AGE_S`` so an in-flight write in a sibling process is never yanked.
         Returns the number of files removed.
         """
-        try:
-            _age_raw = os.environ.get("MLFRAME_DISCOVERY_CACHE_TMP_AGE_S")
-            min_age = float(_age_raw) if _age_raw is not None else self._ORPHAN_TMP_MIN_AGE_S
-        except (TypeError, ValueError):
-            min_age = self._ORPHAN_TMP_MIN_AGE_S
+        min_age = env_float("MLFRAME_DISCOVERY_CACHE_TMP_AGE_S", self._ORPHAN_TMP_MIN_AGE_S)
         now = time.time()
         removed = 0
         for path in glob.glob(os.path.join(self.cache_dir, "*.tmp")):

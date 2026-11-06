@@ -37,14 +37,14 @@ jobs:
   mypy-full:
     permissions:
       contents: read
-    uses: fingoldo/py-ci-shared/.github/workflows/mypy-full.yml@3b078699a61657bc87557abc0311c025e4dc6f3e  # v1.23.8 + meta_test_utils move, untagged  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/mypy-full.yml@ebec85badef0e921fdd0c0314e382c9641094f10  # v1.23.7+ddl_lock_safety  # pragma: allowlist secret
     with:
       package-name: mlframe
       mypy-version: "2.1.0"
       advisory: false
       install-command: |
         git clone https://github.com/fingoldo/pyutilz.git
-        git -C pyutilz checkout 38532cd5c943e4624bdb687c1c5fc4381779c573  # see X_CICD_DEPENDENCIES-1 for why this is pinned -- narrowed code_audit scanners + the private-assertion-helper fix
+        git -C pyutilz checkout 6b512f2b6f7c9e353ee1831d0130b8b194c1706d  # see X_CICD_DEPENDENCIES-1 for why this is pinned -- narrowed code_audit scanners + the private-assertion-helper fix
         # UV_NO_SOURCES: [tool.uv.sources] points pyutilz at git and this line installs it from the
         # clone above; without it uv refuses on conflicting URLs for the same package. A reusable
         # workflow call cannot carry `env:`, so it is set on the command.

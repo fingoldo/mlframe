@@ -17,8 +17,11 @@ from typing import cast
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._raw_module_cache import RawModuleCache
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
+from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +29,11 @@ MAX_CLASSES = 16
 MAX_BINS = 32
 _COLUMN_BLOCK = 256
 
-_SRC = r"""
+_SRC = render(r"""
 #define KMAX 16
 #define BMAX 32
 extern "C" __global__ void bootstrap_rank_walk(const int* __restrict__ ord, const int* __restrict__ counts, const int* __restrict__ ycode, const int* __restrict__ cum,
-                                               const int* __restrict__ lens, const int n, const int kc, const int B, const int nbins, const int ncls, double* __restrict__ out) {
+                                               const int* __restrict__ lens, const int n, const int kc, const int B, const int nbins, const int ncls, {ACC}* __restrict__ out) {
     const long long t = blockIdx.x * (long long)blockDim.x + threadIdx.x;
     if (t >= (long long)kc * B) return;
     const int j = (int)(t / B);
@@ -58,20 +61,20 @@ extern "C" __global__ void bootstrap_rank_walk(const int* __restrict__ ord, cons
     for (int c = 0; c < ncls; ++c) hy[c] = 0;
     for (int u = 0; u < nbins; ++u) for (int c = 0; c < ncls; ++c) { hx[u] += hist[u * ncls + c]; hy[c] += hist[u * ncls + c]; }
     const int m = pos;
-    const double log_n = log((double)m);
-    double mi = 0.0;
+    const {ACC} log_n = log(({ACC})m);
+    {ACC} mi = 0.0;
     for (int u = 0; u < nbins; ++u) {
         if (hx[u] == 0) continue;
-        const double log_hx = log((double)hx[u]);
+        const {ACC} log_hx = log(({ACC})hx[u]);
         for (int c = 0; c < ncls; ++c) {
             const long long nxy = hist[u * ncls + c];
             if (nxy == 0 || hy[c] == 0) continue;
-            mi += ((double)nxy / (double)m) * (log((double)nxy) + log_n - log_hx - log((double)hy[c]));
+            mi += (({ACC})nxy / ({ACC})m) * (log(({ACC})nxy) + log_n - log_hx - log(({ACC})hy[c]));
         }
     }
     out[(long long)b * kc + j] = mi < 0.0 ? 0.0 : mi;
 }
-"""
+""")
 
 _MODULE = RawModuleCache(_SRC)
 
@@ -139,7 +142,7 @@ def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.nda
             ord_t = cp.ascontiguousarray(order[:, cp.asarray(ok)].T.astype(cp.int32))
             # Intentional float64: device MI statistic matrix, same element type as the host array
             out = cp.zeros((n_rep, ok.size), dtype=cp.float64)
-            threads = 128
+            threads = block_size_for(kernel, work_items=int(ok.size) * n_rep)
             grid = (int(ok.size) * n_rep + threads - 1) // threads
             kernel((grid,), (threads,), (ord_t, counts, ycode, cum, lens, np.int32(n), np.int32(ok.size), np.int32(n_rep), np.int32(n_bins), np.int32(n_classes), out))
             mi[:, c0 + ok] = cp.asnumpy(out)

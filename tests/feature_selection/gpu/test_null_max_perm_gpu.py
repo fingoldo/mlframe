@@ -38,3 +38,18 @@ def test_null_maxima_equal_one_launch_per_permutation(n_classes, nbins, n_perm):
     got = null_max_mi_perms_gpu(cp, x_cm, interior, y, perms, nbins, n_classes)
     assert got is not None
     assert np.array_equal(got, want)
+
+
+@pytest.mark.parametrize("n_classes", [2, 3])
+def test_float32_edges_bin_like_the_double_comparison(n_classes):
+    """The float32 path compares float32 values with the edges rounded up to float32; its maxima equal the double path's on the same values."""
+    rng = np.random.default_rng(7 + n_classes)
+    n, nbins, n_perm = 4099, 10, 9
+    mat = _block(n, rng)
+    y = cp.asarray(rng.integers(0, n_classes, n).astype(np.int64))
+    perms = np.stack([rng.permutation(n) for _ in range(n_perm)])
+    _x, _cm, x_cm, interior = _resident_mi_candidates(mat, nbins, keep_dtype=True, relax_binning=True, x_is_cm=True)
+    got32 = null_max_mi_perms_gpu(cp, x_cm, interior, y, perms, nbins, n_classes)
+    got64 = null_max_mi_perms_gpu(cp, cp.ascontiguousarray(x_cm.astype(cp.float64)), interior, y, perms, nbins, n_classes)
+    assert got32 is not None and got64 is not None
+    assert np.array_equal(got32, got64)

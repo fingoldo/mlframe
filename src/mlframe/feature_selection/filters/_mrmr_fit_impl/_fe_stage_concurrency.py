@@ -22,7 +22,6 @@ from __future__ import annotations
 import copy
 import logging
 import os
-import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Sequence
@@ -86,6 +85,16 @@ def _same(a: Any, b: Any) -> bool:
         return bool(a == b)
     except Exception:  # best-effort: a comparison that raises is reported as unequal, the conservative answer
         return False
+
+
+def _synchronize_device(device_id: int) -> None:
+    """Wait for all work queued on ``device_id`` so a timer stopped after it measures completion; a host without cupy has nothing to wait for."""
+    try:
+        import cupy as cp
+    except ImportError:  # best-effort: no cupy means no device work to wait for
+        return
+    with cp.cuda.Device(device_id):
+        cp.cuda.Device().synchronize()
 
 
 def merge_stage_state(target: Any, base: "dict[str, Any]", stage_copies: Sequence[Any]) -> None:
@@ -176,9 +185,7 @@ def run_stages_concurrently(
             with fe_deadline_scope(deadline), fit_context_scope(context), stage_device_slot(slots[i], i):
                 return stages[i](copies[i])
         finally:
-            _cp = sys.modules.get("cupy")
-            if _cp is not None:
-                _cp.cuda.Device().synchronize()  # the clock stops at completion, not at the kernel launch
+            _synchronize_device(slots[i].device_id)  # the wall is the stage's work, not the launch of its last kernel
             walls[i] = time.perf_counter() - t0
 
     from .._edge_pool import concurrent_stages

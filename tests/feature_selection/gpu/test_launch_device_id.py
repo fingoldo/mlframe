@@ -6,7 +6,7 @@ import pytest
 
 cp = pytest.importorskip("cupy")
 
-from mlframe.feature_selection.filters import _gpu_hw_launch as hw
+from pyutilz.performance import gpu_hw_launch as hw
 
 
 def test_launch_device_id_is_the_current_device():

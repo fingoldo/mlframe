@@ -2,7 +2,7 @@
 
 ``cp.argmax(cp.stack(columns, axis=1), axis=1)`` interleaves the columns into an ``(n, m)`` matrix, runs cupy's segmented cub reduction over ``n`` segments of ``m`` elements (about
 15 ms per call at one million rows, for ``m = 3``) and the caller then casts the index to double. The kernel here reads the ``m`` columns once and writes the double index of the
-first maximum; ``>`` is strict, so ties resolve to the lowest operand index exactly as ``argmax`` does. NaN rows must be excluded by the caller (the host check that already guards the
+first maximum, reading the columns in their own element type (``{REAL}``: the crit dtype is float32 by default, and a kernel that read float32 columns as ``double`` ran past the end of the stack and faulted with an illegal address); ``>`` is strict, so ties resolve to the lowest operand index exactly as ``argmax`` does. NaN rows must be excluded by the caller (the host check that already guards the
 device path), since ``argmax`` and a comparison chain treat NaN differently.
 
 The finiteness of a host operand column is asked about once per triple that contains it; a column does not change between triples, so the answer is remembered per array object.
@@ -12,42 +12,51 @@ from __future__ import annotations
 
 import threading
 import weakref
-from typing import Any, Optional, Sequence
+from typing import Any, Sequence
 
 import numpy as np
+
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
+from ._kernel_types import render
 import logging
 
 logger = logging.getLogger(__name__)
 
 _SRC = r"""
-extern "C" __global__ void row_argmax(const double* __restrict__ M, const long long n, const int m, double* __restrict__ out) {
+extern "C" __global__ void row_argmax(const {REAL}* __restrict__ M, const long long n, const int m, {ACC}* __restrict__ out) {
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
-        double best = M[i];
+        {REAL} best = M[i];
         int bi = 0;
         for (int q = 1; q < m; ++q) {
-            const double v = M[(long long)q * n + i];
+            const {REAL} v = M[(long long)q * n + i];
             if (v > best) { best = v; bi = q; }
         }
-        out[i] = (double)bi;
+        out[i] = ({ACC})bi;
     }
 }
 """
-_KERNEL: Optional[Any] = None
+_KERNELS: dict = {}  # element type name ("float" | "double") -> compiled kernel, one per type
 _LOCK = threading.Lock()
 _FINITE: dict = {}  # id(array) -> (weakref to the array, all finite)
 _FINITE_MAX = 256
 
 
 def row_argmax_cm(cp: Any, columns: Sequence[Any]) -> Any:
-    """Double ``(n,)`` index of the first maximum across ``columns`` (resident double ``(n,)`` arrays)."""
-    global _KERNEL
-    if _KERNEL is None:
-        _KERNEL = cp.RawKernel(_SRC, "row_argmax")
+    """Double ``(n,)`` index of the first maximum across ``columns`` (resident float32 or float64 ``(n,)`` arrays; mixed types are promoted)."""
     n = int(columns[0].shape[0])
     M = cp.ascontiguousarray(cp.stack(columns, axis=0))  # (m, n)
+    if M.dtype not in (cp.float32, cp.float64):
+        M = M.astype(cp.float64)
+    real = "float" if M.dtype == cp.float32 else "double"
+    with _LOCK:
+        kernel = _KERNELS.get(real)
+        if kernel is None:
+            kernel = _KERNELS[real] = cp.RawKernel(render(_SRC, np.float32 if real == "float" else np.float64), "row_argmax")
     out = cp.empty(n, dtype=cp.float64)  # Intentional float64: index output matches the caller's float64 cast contract
-    blocks = max(1, min(4096, (n + 255) // 256))
-    _KERNEL((blocks,), (256,), (M, np.int64(n), np.int32(len(columns)), out))
+    threads = block_size_for(kernel, work_items=n)
+    blocks = max(1, min(4096, (n + threads - 1) // threads))
+    kernel((blocks,), (threads,), (M, np.int64(n), np.int32(len(columns)), out))
     return out
 
 

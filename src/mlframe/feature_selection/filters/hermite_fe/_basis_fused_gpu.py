@@ -10,6 +10,8 @@ elementwise kernels round and the result is bit-identical to the loop it replace
 
 from __future__ import annotations
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from typing import Any, Optional
 
 from .._gpu_raw_module import LazyRawModule
@@ -67,6 +69,8 @@ def build_basis_fused(cp: Any, basis: str, x: Any, n_columns: int) -> Optional[A
         return None
     n = int(x.shape[0])
     B = cp.empty((n, n_columns), dtype=x.dtype)
-    blocks = max(1, min(4096, (n + 255) // 256))
-    _KERNELS_BY_REAL["float" if x.dtype.itemsize == 4 else "double"].get(cp).get_function("build_basis")((blocks,), (256,), (x, B, cp.int64(n), cp.int32(n_columns), cp.int32(code)))
+    build = _KERNELS_BY_REAL["float" if x.dtype.itemsize == 4 else "double"].get(cp).get_function("build_basis")
+    threads = block_size_for(build, work_items=n)
+    blocks = max(1, min(4096, (n + threads - 1) // threads))
+    build((blocks,), (threads,), (x, B, cp.int64(n), cp.int32(n_columns), cp.int32(code)))
     return B

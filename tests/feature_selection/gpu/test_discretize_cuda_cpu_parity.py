@@ -90,7 +90,7 @@ def test_discretize_quantile_rawkernel_built_once_across_calls():
     # built, and the RawKernel counter below saw zero constructions because nothing was ever rebuilt.
     from mlframe.feature_selection.filters.discretization import _discretization_cuda as disc_mod
 
-    disc_mod._searchsorted_right_2d_cuda = None  # force a fresh build for this test, regardless of import order
+    disc_mod._searchsorted_right_2d_cuda.clear()  # force a fresh build for this test, regardless of import order (one kernel per value type)
     k1 = disc_mod._get_searchsorted_right_2d_kernel()
     k2 = disc_mod._get_searchsorted_right_2d_kernel()
     assert k1 is k2, "the RawKernel singleton getter built a NEW kernel on the second call"
@@ -118,3 +118,20 @@ def test_discretize_quantile_rawkernel_built_once_across_calls():
         "singleton was already built -- the kernel should have been reused, not recompiled"
     )
     assert disc_mod._get_searchsorted_right_2d_kernel() is k1, "the module-level kernel singleton object changed"
+
+
+def test_float32_values_are_binned_like_their_float64_copy_without_the_copy():
+    """The fused searchsorted reads a float32 matrix as it is and promotes each value to the double cut: the codes equal those of the float64 copy."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters.discretization import _discretization_cuda as disc_mod
+
+    rng = np.random.default_rng(3)
+    x32 = rng.standard_normal((5000, 17)).astype(np.float32)
+    x32[::13, 3] = 0.0
+    cuts = np.sort(np.quantile(x32.astype(np.float64), np.linspace(0, 1, 11)[1:-1], axis=0), axis=0).T
+    cuts_d = cp.asarray(np.ascontiguousarray(cuts))
+    got32 = disc_mod._discretize_quantile_rawkernel(cp.asarray(x32), cuts_d, 10, cp.int32).get()
+    got64 = disc_mod._discretize_quantile_rawkernel(cp.asarray(x32.astype(np.float64)), cuts_d, 10, cp.int32).get()
+    assert np.array_equal(got32, got64)
+    want = np.stack([np.searchsorted(cuts[j], x32[:, j].astype(np.float64), side="right") for j in range(x32.shape[1])], axis=1)
+    assert np.array_equal(got32, want)

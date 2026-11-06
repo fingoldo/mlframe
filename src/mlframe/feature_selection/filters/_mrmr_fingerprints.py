@@ -722,12 +722,13 @@ def _replay_fitted_state(target: MRMR, source: MRMR) -> int:
             # Everything else (dict / list / set, pandas DataFrame/Series, dataclasses like CatFEState, friend_graph_, dict-of-arrays replay state,
             # any other object carrying mutable state) is deep-copied so a mutation on the replayed instance never reaches back to the cached source.
             try:
-                target.__dict__[k] = _deepcopy_mod.deepcopy(v)
+                replayed = _deepcopy_mod.deepcopy(v)
             except Exception as e:
                 # A non-deepcopyable fitted artefact (e.g. a live framework handle) falls back to the legacy shared assignment rather than failing
                 # the whole replay; such objects are rare and treated as read-only by callers.
                 log_throttle(logger, "mrmr_fp.replay_deepcopy", logging.WARNING, "MRMR replay: deepcopy of fitted attribute %r failed (%s), the replayed instance shares it with the cached source", k, e)
-                target.__dict__[k] = v
+                replayed = v
+            target.__dict__[k] = replayed
         n_replayed += 1
     return n_replayed
 

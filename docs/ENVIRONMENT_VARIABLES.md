@@ -161,7 +161,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_FE_GPU_USABILITY` | `''` | [src/mlframe/feature_selection/filters/_usability_gpu.py](../src/mlframe/feature_selection/filters/_usability_gpu.py#L62) |
 | `MLFRAME_FE_HINGE_GPU` | `'1'` | [src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py](../src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py#L42) |
 | `MLFRAME_FE_HOIST_HEADROOM_OVERHEAD` | — | [src/mlframe/feature_selection/filters/_feature_engineering_mem_budget.py](../src/mlframe/feature_selection/filters/_feature_engineering_mem_budget.py#L166) |
-| `MLFRAME_FE_HYBRID_VARIANT_CONCURRENCY` | `'1'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_hybrid_orth_family_variants/_concurrent.py](../src/mlframe/feature_selection/filters/_mrmr_fit_impl/_hybrid_orth_family_variants/_concurrent.py#L24) |
+| `MLFRAME_FE_HYBRID_VARIANT_CONCURRENCY` | `'1'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_hybrid_orth_family_variants/_concurrent.py](../src/mlframe/feature_selection/filters/_mrmr_fit_impl/_hybrid_orth_family_variants/_concurrent.py#L30) |
 | `MLFRAME_FE_IMBALANCE_MI` | `''` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_imbalance_mi.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_imbalance_mi.py#L96) |
 | `MLFRAME_FE_IMBALANCE_N_RARE` | `150` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_imbalance_mi.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_imbalance_mi.py#L171) |
 | `MLFRAME_FE_IMBALANCE_PRIOR` | `0.3` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_imbalance_mi.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_imbalance_mi.py#L169) |
@@ -334,6 +334,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_SHAP_SUBSETRANK_GPU_MIN_SUBSETS` | `''` | [src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_subsetrank.py](../src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_subsetrank.py#L174) |
 | `MLFRAME_SKIP_NUMBA_PREWARM` | `''` | [src/mlframe/metrics/_core_numba_warmup.py](../src/mlframe/metrics/_core_numba_warmup.py#L127) |
 | `MLFRAME_SKIP_NUMBA_WARMUP` | — | [src/mlframe/feature_selection/filters/_numba_warmup.py](../src/mlframe/feature_selection/filters/_numba_warmup.py#L36) |
+| `MLFRAME_SORT_ROOM_TRACE` | `''` | [src/mlframe/feature_selection/filters/_device_sort_safe.py](../src/mlframe/feature_selection/filters/_device_sort_safe.py#L66) |
 | `MLFRAME_STABILITY_CLUSTER_MAX_FEATURES` | `'4000'` | [src/mlframe/feature_selection/filters/_stability_cluster.py](../src/mlframe/feature_selection/filters/_stability_cluster.py#L53) |
 | `MLFRAME_STRICT_NULL_BATCHED` | `'1'` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_null_max.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_null_max.py#L132) |
 | `MLFRAME_SUITE_CACHE_DIR` | `''` | [src/mlframe/training/suite_artefact_cache.py](../src/mlframe/training/suite_artefact_cache.py#L71) |

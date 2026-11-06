@@ -228,6 +228,8 @@ def _engineered_only(mrmr, X_ho, names_in):
 def _downstream_auc(eng: np.ndarray, y_target: np.ndarray) -> float:
     """Downstream auc."""
     eng = np.nan_to_num(eng.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+    # standardised: one engineered column on the scale of exp(x) next to unit-scale ones leaves the lbfgs fit unconverged, and the AUC then reads the optimiser, not the columns
+    eng = (eng - eng.mean(axis=0)) / np.where(eng.std(axis=0) > 0.0, eng.std(axis=0), 1.0)
     clf = LogisticRegression(max_iter=400)
     clf.fit(eng, y_target)
     return float(roc_auc_score(y_target, clf.predict_proba(eng)[:, 1]))

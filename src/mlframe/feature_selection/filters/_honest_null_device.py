@@ -25,6 +25,7 @@ from numba import njit, prange
 from ._mdlp_honest_bycol_njit import _cuts_tie_free
 from ._numba_utils import _codes_at_rows
 from ._mdlp_honest_njit import _analytic_p_value, _mdlp_cuts_presorted, _mi_codes, _n_unique_codes, _supervised_edges
+from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +33,10 @@ MAX_CLASSES = 16
 MAX_BINS = 32
 XLOGX_TABLE_SIZE = 32768  # the host kernel's table size: larger counts take k * log(k) directly
 
-_SOURCE = r"""
+_SOURCE = render(r"""
 extern "C" __global__ void root_split_stats(const int* __restrict__ order, const unsigned char* __restrict__ tie, const signed char* __restrict__ ylab,
-                                            const double* __restrict__ tab, const long long* __restrict__ ctot, const int K, const int n, const int B,
-                                            const int Kc, const int min_split, const double h_full, double* __restrict__ out_gain, int* __restrict__ out_ncand,
+                                            const {ACC}* __restrict__ tab, const long long* __restrict__ ctot, const int K, const int n, const int B,
+                                            const int Kc, const int min_split, const {ACC} h_full, {ACC}* __restrict__ out_gain, int* __restrict__ out_ncand,
                                             int* __restrict__ out_idx) {
     const long long idx = (long long)blockDim.x * blockIdx.x + threadIdx.x;
     if (idx >= (long long)B * Kc) return;
@@ -45,16 +46,16 @@ extern "C" __global__ void root_split_stats(const int* __restrict__ order, const
     const unsigned char* tj = tie + (long long)j * n;
     long long cl[16], cr[16];
     for (int c = 0; c < K; ++c) { cl[c] = 0; cr[c] = ctot[c]; }
-    double s_left = 0.0, s_right = 0.0;
-    for (int c = 0; c < K; ++c) { const long long v = cr[c]; s_right += (v < 32768) ? tab[v] : (double)v * log((double)v); }
-    const double n_f = (double)n;
-    double best_gain = -1e300;
+    {ACC} s_left = 0.0, s_right = 0.0;
+    for (int c = 0; c < K; ++c) { const long long v = cr[c]; s_right += (v < 32768) ? tab[v] : ({ACC})v * log(({ACC})v); }
+    const {ACC} n_f = ({ACC})n;
+    {ACC} best_gain = -1e300;
     int best_idx = -1, ncand = 0;
     for (int i = 0; i < n - 1; ++i) {
         const int yi = ylab[(long long)ord[i] * B + b];
         const long long c_l = cl[yi], c_r = cr[yi];
-        s_left += ((c_l + 1 < 32768) ? tab[c_l + 1] : (double)(c_l + 1) * log((double)(c_l + 1))) - ((c_l < 32768) ? tab[c_l] : (double)c_l * log((double)c_l));
-        s_right += ((c_r - 1 < 32768) ? tab[c_r - 1] : (double)(c_r - 1) * log((double)(c_r - 1))) - ((c_r < 32768) ? tab[c_r] : (double)c_r * log((double)c_r));
+        s_left += ((c_l + 1 < 32768) ? tab[c_l + 1] : ({ACC})(c_l + 1) * log(({ACC})(c_l + 1))) - ((c_l < 32768) ? tab[c_l] : ({ACC})c_l * log(({ACC})c_l));
+        s_right += ((c_r - 1 < 32768) ? tab[c_r - 1] : ({ACC})(c_r - 1) * log(({ACC})(c_r - 1))) - ((c_r < 32768) ? tab[c_r] : ({ACC})c_r * log(({ACC})c_r));
         cl[yi] = c_l + 1;
         cr[yi] = c_r - 1;
         const int n_l = i + 1, n_r = n - n_l;
@@ -62,21 +63,21 @@ extern "C" __global__ void root_split_stats(const int* __restrict__ order, const
         if (yi == (int)ylab[(long long)ord[i + 1] * B + b]) continue;
         if (tj[i]) continue;
         ++ncand;
-        const double xl_l = (n_l < 32768) ? tab[n_l] : (double)n_l * log((double)n_l);
-        const double xl_r = (n_r < 32768) ? tab[n_r] : (double)n_r * log((double)n_r);
-        const double gain = h_full - (xl_l - s_left + xl_r - s_right) / n_f;
+        const {ACC} xl_l = (n_l < 32768) ? tab[n_l] : ({ACC})n_l * log(({ACC})n_l);
+        const {ACC} xl_r = (n_r < 32768) ? tab[n_r] : ({ACC})n_r * log(({ACC})n_r);
+        const {ACC} gain = h_full - (xl_l - s_left + xl_r - s_right) / n_f;
         if (gain > best_gain) { best_gain = gain; best_idx = i; }
     }
     out_gain[idx] = best_gain;
     out_ncand[idx] = ncand;
     out_idx[idx] = best_idx;
 }
-"""
+""", real=np.float32)
 
-_SOURCE_V2 = r"""
+_SOURCE_V2 = render(r"""
 extern "C" __global__ void root_split_stats_v2(const int* __restrict__ order, const unsigned char* __restrict__ tie, const signed char* __restrict__ ylab,
-                                            const double* __restrict__ tab, const long long* __restrict__ ctot, const int K, const int n, const int B,
-                                            const int Kc, const int min_split, const double h_full, double* __restrict__ out_gain, int* __restrict__ out_ncand,
+                                            const {ACC}* __restrict__ tab, const long long* __restrict__ ctot, const int K, const int n, const int B,
+                                            const int Kc, const int min_split, const {ACC} h_full, {ACC}* __restrict__ out_gain, int* __restrict__ out_ncand,
                                             int* __restrict__ out_idx) {
     const long long idx = (long long)blockDim.x * blockIdx.x + threadIdx.x;
     if (idx >= (long long)B * Kc) return;
@@ -86,10 +87,10 @@ extern "C" __global__ void root_split_stats_v2(const int* __restrict__ order, co
     const unsigned char* tj = tie + (long long)j * n;
     long long cl[16], cr[16];
     for (int c = 0; c < K; ++c) { cl[c] = 0; cr[c] = ctot[c]; }
-    double s_left = 0.0, s_right = 0.0;
-    for (int c = 0; c < K; ++c) { const long long v = cr[c]; s_right += (v < 32768) ? tab[v] : (double)v * log((double)v); }
-    const double n_f = (double)n;
-    double best_gain = -1e300;
+    {ACC} s_left = 0.0, s_right = 0.0;
+    for (int c = 0; c < K; ++c) { const long long v = cr[c]; s_right += (v < 32768) ? tab[v] : ({ACC})v * log(({ACC})v); }
+    const {ACC} n_f = ({ACC})n;
+    {ACC} best_gain = -1e300;
     int best_idx = -1, ncand = 0;
     // The label of row i + 1 is both the boundary test of step i and the label of step i + 1: it is read once, one step ahead, so the dependent
     // ord -> ylab load chain is off the critical path of the count / table updates. The arithmetic is unchanged.
@@ -98,8 +99,8 @@ extern "C" __global__ void root_split_stats_v2(const int* __restrict__ order, co
         const int yi = ycur;
         ycur = ylab[(long long)ord[i + 1] * B + b];
         const long long c_l = cl[yi], c_r = cr[yi];
-        s_left += ((c_l + 1 < 32768) ? tab[c_l + 1] : (double)(c_l + 1) * log((double)(c_l + 1))) - ((c_l < 32768) ? tab[c_l] : (double)c_l * log((double)c_l));
-        s_right += ((c_r - 1 < 32768) ? tab[c_r - 1] : (double)(c_r - 1) * log((double)(c_r - 1))) - ((c_r < 32768) ? tab[c_r] : (double)c_r * log((double)c_r));
+        s_left += ((c_l + 1 < 32768) ? tab[c_l + 1] : ({ACC})(c_l + 1) * log(({ACC})(c_l + 1))) - ((c_l < 32768) ? tab[c_l] : ({ACC})c_l * log(({ACC})c_l));
+        s_right += ((c_r - 1 < 32768) ? tab[c_r - 1] : ({ACC})(c_r - 1) * log(({ACC})(c_r - 1))) - ((c_r < 32768) ? tab[c_r] : ({ACC})c_r * log(({ACC})c_r));
         cl[yi] = c_l + 1;
         cr[yi] = c_r - 1;
         const int n_l = i + 1, n_r = n - n_l;
@@ -107,16 +108,16 @@ extern "C" __global__ void root_split_stats_v2(const int* __restrict__ order, co
         if (yi == ycur) continue;
         if (tj[i]) continue;
         ++ncand;
-        const double xl_l = (n_l < 32768) ? tab[n_l] : (double)n_l * log((double)n_l);
-        const double xl_r = (n_r < 32768) ? tab[n_r] : (double)n_r * log((double)n_r);
-        const double gain = h_full - (xl_l - s_left + xl_r - s_right) / n_f;
+        const {ACC} xl_l = (n_l < 32768) ? tab[n_l] : ({ACC})n_l * log(({ACC})n_l);
+        const {ACC} xl_r = (n_r < 32768) ? tab[n_r] : ({ACC})n_r * log(({ACC})n_r);
+        const {ACC} gain = h_full - (xl_l - s_left + xl_r - s_right) / n_f;
         if (gain > best_gain) { best_gain = gain; best_idx = i; }
     }
     out_gain[idx] = best_gain;
     out_ncand[idx] = ncand;
     out_idx[idx] = best_idx;
 }
-"""
+""", real=np.float32)
 
 
 _kernel = None
@@ -138,16 +139,16 @@ def _get_kernel(cp):
     return _kernel
 
 
-_SOURCE_K2 = r"""
-#define XL(v) (((v) < 32768) ? tab[(v)] : (double)(v) * log((double)(v)))
+_SOURCE_K2 = render(r"""
+#define XL(v) (((v) < 32768) ? tab[(v)] : ({ACC})(v) * log(({ACC})(v)))
 // n * binary entropy of a side with m rows of which c are class 1: m ln m - c ln c - (m - c) ln(m - c), evaluated as m * h(c / m) so every term stays below n ln 2
 #define ENT2(m, c) (((c) > 0.f && (c) < (m)) ? -((c) * __logf((c) / (m)) + ((m) - (c)) * __logf(((m) - (c)) / (m))) : 0.f)
-// Two passes over the sorted rows. Pass 1 scores every candidate cut with the float32 entropy sums (no double arithmetic: the device has 1/32 double throughput, and the scan was bound
-// by the dependency chain of the double additions) and keeps the smallest. Pass 2 evaluates the exact double gain only for the candidates whose float score is within the float error
-// bound (0.5 nats of row-weighted entropy; the float error of one score is about 0.02 at 50 000 rows) of that minimum, with the host kernel's tie rule (the first strictly greater gain wins).
+// Two passes over the sorted rows. Pass 1 scores every candidate cut with the float32 entropy sums (no {ACC} arithmetic: the device has 1/32 {ACC} throughput, and the scan was bound
+// by the dependency chain of the {ACC} additions) and keeps the smallest. Pass 2 evaluates the exact {ACC} gain only for the candidates whose {REAL} score is within the {REAL} error
+// bound (0.5 nats of row-weighted entropy; the {REAL} error of one score is about 0.02 at 50 000 rows) of that minimum, with the host kernel's tie rule (the first strictly greater gain wins).
 extern "C" __global__ void root_split_stats_k2(const int* __restrict__ order, const unsigned char* __restrict__ tie, const unsigned char* __restrict__ ybits,
-                                               const double* __restrict__ tab, const long long* __restrict__ ctot, const int n, const int B,
-                                               const int Kc, const int min_split, const double h_full, const int words, double* __restrict__ out_gain,
+                                               const {ACC}* __restrict__ tab, const long long* __restrict__ ctot, const int n, const int B,
+                                               const int Kc, const int min_split, const {ACC} h_full, const int words, {ACC}* __restrict__ out_gain,
                                                int* __restrict__ out_ncand, int* __restrict__ out_idx) {
     const long long idx = (long long)blockDim.x * blockIdx.x + threadIdx.x;
     if (idx >= (long long)B * Kc) return;
@@ -156,14 +157,14 @@ extern "C" __global__ void root_split_stats_k2(const int* __restrict__ order, co
     const int* ord = order + (long long)j * n;
     const unsigned char* tj = tie + (long long)j * n;
     const unsigned int* yb = (const unsigned int*)ybits;
-    const double n_f = (double)n;
+    const {ACC} n_f = ({ACC})n;
     const int TILE = 8;
     int ybuf[TILE + 1];
-    float w_min = 3.0e38f;
+    {REAL} w_min = 3.0e38f;
     int ncand = 0;
     for (int pass = 0; pass < 2; ++pass) {
         long long l0 = 0, l1 = 0, r0 = ctot[0], r1 = ctot[1];
-        double best_gain = -1e300;
+        {ACC} best_gain = -1e300;
         int best_idx = -1;
         for (int i0 = 0; i0 < n - 1; i0 += TILE) {
             const int cnt = min(TILE + 1, n - i0);
@@ -177,12 +178,12 @@ extern "C" __global__ void root_split_stats_k2(const int* __restrict__ order, co
                 if (yi) { ++l1; --r1; } else { ++l0; --r0; }
                 const int n_l = i + 1, n_r = n - n_l;
                 if (n_l >= min_split && n_r >= min_split && yi != ybuf[t + 1] && !tj[i]) {
-                    const float w_f = ENT2((float)n_l, (float)l1) + ENT2((float)n_r, (float)r1);
+                    const {REAL} w_f = ENT2(({REAL})n_l, ({REAL})l1) + ENT2(({REAL})n_r, ({REAL})r1);
                     if (pass == 0) {
                         ++ncand;
                         if (w_f < w_min) w_min = w_f;
                     } else if (w_f <= w_min + 0.5f) {
-                        const double gain = h_full - (XL(n_l) - (XL(l0) + XL(l1)) + XL(n_r) - (XL(r0) + XL(r1))) / n_f;
+                        const {ACC} gain = h_full - (XL(n_l) - (XL(l0) + XL(l1)) + XL(n_r) - (XL(r0) + XL(r1))) / n_f;
                         if (gain > best_gain) { best_gain = gain; best_idx = i; }
                     }
                 }
@@ -195,7 +196,7 @@ extern "C" __global__ void root_split_stats_k2(const int* __restrict__ order, co
         }
     }
 }
-"""
+""", real=np.float32)
 
 # bench-attempt-rejected (2026-11-01, GTX 1050 Ti, 60 columns x 200 permutations x 100000 rows, 559 ms): tile sizes 4 / 16 / 32 (570 / 581 / 730 ms) and block sizes 64 / 256 / 512 (562 / 550 / 553 ms), outputs
 # identical. The kernel does ~2.1 G scan steps per second whatever the tiling: it is bound by the random gather of label bits (the (words, permutations) table is 2.5 MB against a 1 MB L2), not by

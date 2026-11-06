@@ -30,7 +30,7 @@ from mlframe.feature_selection.wrappers.rfecv._benchmarks.bench_rfecv_one_se_rul
 
 logger = logging.getLogger(__name__)
 RESULTS_DIR = Path(__file__).parent / "_results"
-GRID = tuple(itertools.product(("full", "pick"), (3, 5, 7), (0.01, 0.05, 0.2), (0.0, 0.1, 0.25)))  # (anchor, min_iters, alpha, patience_frac)
+GRID = tuple(itertools.product(("full", "pick"), (3, 5, 7), (0.01, 0.05, 0.2), (0.0, 0.1, 0.25)))  # (anchor, min_iters, alpha, patience_frac)  # launch-ok: not a kernel launch, a Cartesian product of benchmark settings (released py-ci-shared versions take its tuples for a grid and a block)
 
 
 # Production-like arm: many rows (tiny SE), every column carries signal or is a weak decoy, tree ensemble -- the regime where the full set is the pick.
