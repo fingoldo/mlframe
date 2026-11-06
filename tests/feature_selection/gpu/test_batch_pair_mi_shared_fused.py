@@ -242,3 +242,31 @@ class TestCupyResidentUploadRegression:
 
         mi_cpu = batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
         np.testing.assert_allclose(np.concatenate([mi1, mi2]), mi_cpu, atol=_CUPY_TOL * float(np.max(mi_cpu)), rtol=_CUPY_TOL)
+
+
+def test_validate_pair_codes_names_the_first_bad_referenced_column_and_ignores_unreferenced_ones():
+    """The code check reduces the matrix once per bound; it still raises for a referenced column outside [0, nbins) and does not look at columns no pair uses."""
+    import numpy as np
+
+    from mlframe.feature_selection.filters._batch_pair_mi_cuda_shared_fused import validate_pair_codes
+
+    rng = np.random.default_rng(0)
+    n, nf, nb = 500, 6, 5
+    factors = rng.integers(0, nb, (n, nf)).astype(np.int32)
+    y = rng.integers(0, 2, n).astype(np.int32)
+    nbins = np.full(nf, nb, dtype=np.int32)
+    pa, pb = np.array([0, 1], dtype=np.int64), np.array([2, 3], dtype=np.int64)
+    validate_pair_codes(factors, pa, pb, nbins, y, 2)
+    unreferenced = factors.copy()
+    unreferenced[7, 5] = -1  # column 5 is in no pair
+    validate_pair_codes(unreferenced, pa, pb, nbins, y, 2)
+    too_big = factors.copy()
+    too_big[7, 3] = nb
+    with pytest.raises(ValueError, match=r"factors_data\[:, 3\]"):
+        validate_pair_codes(too_big, pa, pb, nbins, y, 2)
+    negative = factors.copy()
+    negative[9, 0] = -1
+    with pytest.raises(ValueError, match=r"factors_data\[:, 0\]"):
+        validate_pair_codes(negative, pa, pb, nbins, y, 2)
+    with pytest.raises(ValueError, match="classes_y"):
+        validate_pair_codes(factors, pa, pb, nbins, np.full(n, 2, dtype=np.int32), 2)
