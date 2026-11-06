@@ -55,7 +55,7 @@ def _insert_top(top_losses: np.ndarray, top_combos: np.ndarray, loss: float, com
     """Insert (loss, comb) into an ascending-by-loss top-N buffer; drop the current worst."""
     top_n = top_losses.shape[0]
     r = comb.shape[0]
-    if loss >= top_losses[top_n - 1]:
+    if not loss < top_losses[top_n - 1]:  # NaN fails the comparison and is rejected instead of taking the last slot
         return
     top_losses[top_n - 1] = loss
     for k in range(r):
