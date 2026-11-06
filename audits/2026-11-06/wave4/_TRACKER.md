@@ -4,7 +4,7 @@ Eight read-only Opus 5.5 (low effort) audits, one per attack class. Reports sit 
 
 | ID | Sev | Status | Location | Note |
 |---|---|---|---|---|
-| W4-INP-01 | Medium | OPEN | `feature_engineering/categorical_powerset_concat.py:78,83-88` | Default `max_order=None` enumerates 2^n-n-1 subsets with no cap; n=20 gives about 1M composite columns. |
+| W4-INP-01 | Medium | RESOLVED | `feature_engineering/categorical_powerset_concat.py:78,83-88` | Default `max_order=None` enumerated 2^n-n-1 subsets with no cap; n=20 gave about 1M composite columns. Now `max_subsets=4096` (default) refuses above the cap before any column is built; test `tests/feature_engineering/test_categorical_powerset_subset_cap.py` fails on the old behaviour (the concat helper was reached) and passes now; the 4 existing powerset biz-value tests pass. Production calls use `max_order=2` and are unaffected. |
 | W4-INP-02 | Medium | OPEN | `feature_selection/shap_proxied_fs/_shap_proxy_interactions.py:253,267-269` | Exhaustive P<=16 pass copies an n x r x r slice per subset; n=100k gives tens of minutes single-threaded. |
 | W4-INP-03 | Low | FUTURE | `feature_selection/filters/_usability_aware_selection.py:239` | Full pair list is built before `max_pairs` caps it; needs a streamed or ranked selection. |
 | W4-SUB-01 | Low | OPEN | `feature_selection/_benchmarks/profiling/env_sampled_fit.py:16`, `utilization.py:25` | `nvidia-smi` called by bare name; reuse `training/_gpu_state_probe._resolve_smi()`. |

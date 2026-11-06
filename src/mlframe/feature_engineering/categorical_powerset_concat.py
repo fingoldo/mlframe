@@ -23,6 +23,7 @@ composites whose encoded-score AUC sits within ``min_score`` of chance.
 """
 from __future__ import annotations
 
+import math
 from itertools import combinations
 from typing import List, Optional, Sequence, Tuple
 
@@ -39,6 +40,7 @@ def categorical_powerset_concat(
     max_order: int | None = None,
     prune_against_target: Optional[Tuple[np.ndarray, float]] = None,
     prune_smoothing: float = 5.0,
+    max_subsets: Optional[int] = 4096,
 ) -> pd.DataFrame:
     """Append one composite categorical column per non-empty subset of ``columns`` (2^n - 1 total).
 
@@ -78,6 +80,14 @@ def categorical_powerset_concat(
     upper = len(columns) if max_order is None else min(max_order, len(columns))
     if upper < 2:
         raise ValueError("categorical_powerset_concat: max_order must be >= 2 to produce any composite column")
+
+    # Count before enumerating: each subset is a full-length string column, so 2^n materialises before any memory check could run.
+    n_subsets = sum(math.comb(len(columns), order) for order in range(2, upper + 1))
+    if max_subsets is not None and n_subsets > max_subsets:
+        raise ValueError(
+            f"categorical_powerset_concat: {n_subsets} composite subsets over {len(columns)} columns exceeds max_subsets={max_subsets}; "
+            "pass a smaller max_order or raise max_subsets explicitly"
+        )
 
     out = df.copy(deep=False)
     subsets: List[Sequence[str]] = [subset for order in range(2, upper + 1) for subset in combinations(columns, order)]
