@@ -56,11 +56,13 @@ from itertools import combinations
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._internals import unique_inverse_dense
 from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from ._fold_cell_stats import fold_cell_sum_cnt
-from ._target_encoding_fe import _column_to_str, _smooth, column_string_codes
+from ._target_encoding_fe import _column_to_str, _smooth, column_string_codes, sorted_string_codes
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -120,13 +122,13 @@ def _encode_pair(
     if precomputed_i is not None:
         uniq_i, inv_i = precomputed_i
     elif cats_i is not None:
-        uniq_i, inv_i = np.unique(cats_i, return_inverse=True)
+        uniq_i, inv_i = sorted_string_codes(cats_i)
     else:
         raise ValueError("_encode_pair: need either cats_i or precomputed_i")
     if precomputed_j is not None:
         uniq_j, inv_j = precomputed_j
     elif cats_j is not None:
-        uniq_j, inv_j = np.unique(cats_j, return_inverse=True)
+        uniq_j, inv_j = sorted_string_codes(cats_j)
     else:
         raise ValueError("_encode_pair: need either cats_j or precomputed_j")
     n = len(inv_i)
@@ -141,7 +143,7 @@ def _encode_pair(
     # / target-encoded), and replay maps via the stored value-pair lookup, so
     # the ordering convention does not affect correctness.
     combined = inv_i.astype(np.int64) * (len(uniq_j)) + inv_j.astype(np.int64)
-    uniq_pairs, codes = np.unique(combined, return_inverse=True)
+    uniq_pairs, codes = unique_inverse_dense(combined)
     codes = codes.astype(np.int64, copy=False)
     # Reconstruct the (str_i, str_j) -> code mapping from the surviving unique
     # combined keys only (one entry per cell, not per row).

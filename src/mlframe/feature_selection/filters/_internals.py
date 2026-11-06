@@ -179,6 +179,22 @@ def smart_log(x: np.ndarray) -> np.ndarray:
             return np.asarray(np.log(x))
         return np.asarray(np.log(x + (1e-5 - x_min)))
 
+def unique_inverse_dense(values: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+    """``np.unique(values, return_inverse=True)`` for an integer vector whose value range is small: the sorted distinct values and the inverse codes from one counting pass
+    (``bincount`` of the shifted values, a rank table over the occupied slots) instead of a comparison sort of every row. Identical output; a range above ``4 * len(values) + 1024``
+    (or any non-integer input) takes ``np.unique``."""
+    values = np.asarray(values)
+    if values.ndim == 1 and values.size and values.dtype.kind in "iu":
+        lo = int(values.min())
+        span = int(values.max()) - lo + 1
+        if span <= 4 * values.size + 1024:
+            shifted = (values.astype(np.int64) - lo) if lo else values.astype(np.int64)
+            occupied = np.bincount(shifted, minlength=span) > 0
+            rank = np.cumsum(occupied, dtype=np.int64) - 1
+            return np.flatnonzero(occupied).astype(values.dtype) + values.dtype.type(lo), rank[shifted]
+    uniq, inverse = np.unique(values, return_inverse=True)
+    return uniq, inverse.reshape(-1)
+
 def stable_argsort_codes(codes: np.ndarray, n_codes: int) -> np.ndarray:
     """``np.argsort(codes, kind="stable")`` for integer ``codes`` in ``[0, n_codes)``, through the narrowest unsigned type that holds them.
 
