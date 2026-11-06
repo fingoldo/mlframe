@@ -44,3 +44,15 @@ Decomposition family warm wall 3.95 -> 2.82 s, same five columns. Dispatch: KTC 
 | local_store_transactions | 4.2e3 | 6.6e5 | 3.06e6 |
 
 Reading: the multiprocessors are active almost all of the time (98 %) but issue an instruction in only 17.5 % of the slots, and four fifths of the stalls are waits for data. The data is the random gather `rj[ib[t]]` of a 2-byte rank at a resample's draw (15 % load efficiency: each 32-byte sector carries one useful value; inherent to a bootstrap draw unless the draws of a resample are processed in rank order, which is what the host's counting sort does with two passes), then `ycode[r]` and `bp[...]` of the same row. Occupancy is 38 % because the dynamic shared table (levels, per-warp histograms and level counts) limits the resident blocks; shared efficiency of 2 % comes from the per-warp atomics on a tiny `(bin, class)` table (bank conflicts on a 20-cell histogram). One million local-memory transactions in the heavier launches are register or array spills, from the per-thread loops over straddling levels. Candidates, to be tried with a same-process A/B: prefetching `ib[t]` / `ycode` in a block of lanes before the dependent loads (more loads in flight), a smaller `PRIV_LEVELS` or per-warp tables to lift occupancy, and removing the spill array. None applied.
+
+### Same-process A/B of three kernel changes (2026-11-06, `tied_ab.py`: 256 columns x 100000 rows with ties, 10 resamples of 80000 draws, `tied_replicate_mi_stream` including the host dense ranks, warm, 3 repeats)
+
+Upper bound: replacing the random reads `rj[ib[t]]` and `ycode[r]` by sequential ones (wrong results, timing only) takes 0.77 s to 0.49 s, so the random gather is about a third of the stream's time at most. Tried, all with results equal to the base kernel (`array_equal`):
+
+| change | base | variant |
+|---|---|---|
+| count pass unrolled by 4 (four independent gathers in flight) | 0.82 s | 0.81 s |
+| software prefetch of the next draw's `ib` / `rj` / `ycode` in both walks | 0.77 s | 0.84 s (slower: more registers per thread) |
+| `PRIV_LEVELS` 64 -> 0 (no per-warp level tables, atomics on the shared starts) | 0.76 s (about 300 levels), ~0.76 s (about 20 levels) | 0.76 s, 0.72 s (inside the run-to-run spread) |
+
+None shipped. What is left of the counter reading is the gather itself: the only change that removes it is a coalesced pre-gather of the levels (and y codes) of each resample into a device scratch of 2 to 4 bytes per draw (205 to 410 MB for a 128-column block), which competes for the 2.58 GB pool with the concurrent stages; not tried.
