@@ -79,3 +79,12 @@ Four read-only audits covered the remaining GPU-kernel files (reports `kernel_pa
 Decision (2026-11-06, owner): speed matters more than extra precision, so `crit_dtype_relaxed()` stays on (float32 by default). Fixes are targeted: the places where centring or ranking loses information centre or rank in float64 first and only then narrow (PARG3-1, PARG3-2, PARG3-4).
 
 The common cause of PARG1-1, PARG3-1, PARG3-2, PARG3-4, PARG2-3 and PARG2-4 is `crit_dtype_relaxed()`, which is on by default and makes `crit_float_dtype()` float32. A single decision on that default, with a float64 path for centring and ranking, would close most of the open High items at once. That choice is the owner's: it trades speed against accuracy.
+
+## Owner decision on the float32 default (2026-11-07)
+
+Owner decision: keep `crit_dtype_relaxed()` ON by default. Speed takes priority over float64 accuracy, provided the quality is comparable.
+The affected High items (PARG1-1, PARG3-1, PARG3-2, PARG3-4, PARG2-3, PARG2-4) are closed as DOC: accepted trade-off, not a defect.
+
+- Strict path stays available for every caller: `MLFRAME_CRIT_DTYPE_RELAXED=0` restores float64 (`_fe_gpu_batch/_devices.py`, `crit_dtype_relaxed`).
+- The default's own docstring records the validation it rests on (per-stage selection equivalence on F2 across distributions, and the stage biz suites).
+- No speed or accuracy benchmark was rerun for this decision; the owner accepted the existing validation.
