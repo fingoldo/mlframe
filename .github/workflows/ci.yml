@@ -251,15 +251,16 @@ jobs:
       # collection from blowing up on ModuleNotFoundError) in a SINGLE `uv pip install`. Extracted 2026-07-18
       # to py-ci-shared's install-pyutilz composite action -- this exact clone+uv-install pair was
       # duplicated near-verbatim across 6 workflows in this repo.
+      # The revision comes from uv.lock (the single source; see scripts/read_pyutilz_pin.py), not a hand-copied SHA.
+      - name: Read the pyutilz revision from uv.lock
+        id: pyutilz-pin
+        run: echo "sha=$(python3 scripts/read_pyutilz_pin.py uv.lock)" >> "$GITHUB_OUTPUT"
+
       - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
-          # This was the ONLY pyutilz-cloning workflow in the repo with no actual pin (the action
-          # itself had no way to honour one until pyutilz-ref was added) -- every other workflow's
-          # inline "git -C pyutilz checkout <sha>" line already matched this SHA; see
-          # X_CICD_DEPENDENCIES-1 for why pinning matters here.
-          pyutilz-ref: 6b512f2b6f7c9e353ee1831d0130b8b194c1706d  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: ${{ steps.pyutilz-pin.outputs.sha }}
 
       - name: Install contributor tooling not declarable in [dev]
         run: |
@@ -497,11 +498,15 @@ jobs:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
+      - name: Read the pyutilz revision from uv.lock
+        id: pyutilz-pin
+        run: echo "sha=$(python3 scripts/read_pyutilz_pin.py uv.lock)" >> "$GITHUB_OUTPUT"
+
       - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
-          pyutilz-ref: 6b512f2b6f7c9e353ee1831d0130b8b194c1706d  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: ${{ steps.pyutilz-pin.outputs.sha }}
 
       - name: Restore numba JIT cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
