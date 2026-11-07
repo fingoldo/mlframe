@@ -30,22 +30,22 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 THREADS = 256
-_BYTES_PER_SOURCE_ROW = 8  # one double source value per row and source column
+_BYTES_PER_SOURCE_ROW = 8  # one double source value per row and source column (the float32 mode needs 4)
 _BUDGET_FRACTION = 0.2
 
 _SRC = r"""
 // dtype-ok: Intentional float64, reviewed 2026-11-05: float64 on purpose, floor(v / p) of a timestamp (~1.6e9) is noise at float32 resolution 128; the host uploads float64 explicitly.
-extern "C" __global__ void modular_all_ops(const double* __restrict__ S, const double* __restrict__ P, const long long n, const int n_periods, float* __restrict__ out) {
+extern "C" __global__ void modular_all_ops(const SRC_T* __restrict__ S, const double* __restrict__ P, const long long n, const int n_periods, float* __restrict__ out) {
     const int src = blockIdx.y / n_periods;
     const int ip = blockIdx.y - src * n_periods;
     const double p = P[ip];
     const double k = 2.0 * 3.141592653589793 / p;
-    const double* s = S + (long long)src * n;
+    const SRC_T* s = S + (long long)src * n;
     float* o_mod = out + ((long long)blockIdx.y * 3) * n;
     float* o_sin = o_mod + n;
     float* o_cos = o_sin + n;
     for (long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
-        const double v = s[i];
+        const double v = (double)s[i];  // a float32 source widens exactly; the residue below is still double
         if (!isfinite(v)) { o_mod[i] = 0.0f; o_sin[i] = 0.0f; o_cos[i] = 0.0f; continue; }
         const double r = v - p * floor(v / p);
         double sn, cs;
@@ -57,7 +57,8 @@ extern "C" __global__ void modular_all_ops(const double* __restrict__ S, const d
 }
 """
 
-_MODULE = RawModuleCache(_SRC)
+_MODULE = RawModuleCache("#define SRC_T double\n" + _SRC)  # source columns uploaded as float64
+_MODULE_F32 = RawModuleCache("#define SRC_T float\n" + _SRC)  # source columns that are float32 already are uploaded as they are (half the copy and the transfer)
 
 
 def _use_device(n_elements: int) -> bool:
@@ -77,7 +78,7 @@ def _use_device(n_elements: int) -> bool:
     return bool(np.dtype(_crit_np_dtype()) == np.float32 and n_elements >= _device_min_elements())
 
 
-def _sources_per_block(cp, n_rows: int, per_source: int) -> int:
+def _sources_per_block(cp, n_rows: int, per_source: int, source_bytes: int = _BYTES_PER_SOURCE_ROW) -> int:
     """Source columns per launch: the double source block and its float32 candidates within ``_BUDGET_FRACTION`` of what the pool can hand out (at least 1)."""
     try:
         pool = cp.get_default_memory_pool()
@@ -87,7 +88,7 @@ def _sources_per_block(cp, n_rows: int, per_source: int) -> int:
     except Exception as exc:
         log_throttle(logger, "_modular_codes_gpu.except_85", logging.WARNING, "modular device codes: free memory unknown (%s)", exc)
         return 4
-    per = (_BYTES_PER_SOURCE_ROW + 4 * per_source) * max(1, n_rows)
+    per = (source_bytes + 4 * per_source) * max(1, n_rows)
     return int(max(1, (_BUDGET_FRACTION * room) // per))
 
 
@@ -109,16 +110,18 @@ def modular_family_codes_gpu(X: pd.DataFrame, cols: Sequence[str], periods: Sequ
 
         from ._quantile_codes_gpu import quantile_codes_resident_f32
 
-        kernel = _MODULE.get(cp).get_function("modular_all_ops")
+        # float32 sources (the project dtype) go up as float32: every value widens exactly to the double the residue is computed in, so the codes are the same
+        src_dtype = np.float32 if all(np.dtype(X[c].dtype) == np.float32 for c in cols) else np.float64
+        kernel = (_MODULE_F32 if src_dtype == np.float32 else _MODULE).get(cp).get_function("modular_all_ops")
         p_dev = cp.asarray(np.asarray(periods, dtype=np.float64))  # Intentional float64: the residue is computed in double precision, as on the host
         codes = np.empty((len(cols) * per_source, n), dtype=np.int16)
         nx = np.empty(len(cols) * per_source, dtype=np.int64)
-        step = _sources_per_block(cp, n, per_source)
+        step = _sources_per_block(cp, n, per_source, np.dtype(src_dtype).itemsize)
 
         def _host_block(s0: int) -> np.ndarray:
             """Source columns ``s0:s0+step`` as a contiguous (columns, rows) block."""
-            # Intentional float64: input of the residue v - p*floor(v/p); a float32 timestamp (~1.6e9) has resolution 128, so mod 7 would be noise.
-            return np.ascontiguousarray(X[cols[s0 : s0 + step]].to_numpy(dtype=np.float64).T)
+            # the residue v - p*floor(v/p) is double inside the kernel (a float32 timestamp ~1.6e9 has resolution 128); only the upload follows the column dtype
+            return np.ascontiguousarray(X[cols[s0 : s0 + step]].to_numpy(dtype=src_dtype).T)
 
         starts = list(range(0, len(cols), step))
         prefetch = ThreadPoolExecutor(max_workers=1)  # the next block is prepared on the host while the device scores the current one
