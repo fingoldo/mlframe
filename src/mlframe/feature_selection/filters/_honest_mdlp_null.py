@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -90,15 +91,10 @@ def _device_honest_null_enabled() -> bool:
 _PERM_LABELS_CACHE_MAX_BYTES = 256 * 1024 * 1024  # per spec: the permuted-label matrices of one (seed, rows, permutations) draw; larger draws are regenerated each call
 
 
-def _free_memory_bytes() -> int:
-    """Free physical memory in bytes (0 when it cannot be read)."""
-    try:
-        import psutil
-
-        return int(psutil.virtual_memory().available)
-    except Exception as exc:  # a missing probe keeps the fixed cap
-        log_throttle(logger, "_honest_mdlp_null.except_99", logging.INFO, "free-memory probe unavailable (%s); keeping the fixed cap", exc)
-        return 0
+def _labels_cache_cap() -> int:
+    """Bytes of permuted labels a spec keeps between calls. The fixed budget only: a kept matrix stays live through every later stage (500 MB at 500000 rows was in the fit's peak, and a quarter or a
+    sixteenth of the free memory made the cap, and so the peak, depend on what else the machine ran), the null is asked for twice per fit, and a redraw costs 2.7 s per 1000 permutations at 500000 rows."""
+    return _PERM_LABELS_CACHE_MAX_BYTES
 
 
 def _permuted_labels_cached(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, rng, n: int, n_permutations: int, seed_key: int):
@@ -113,9 +109,7 @@ def _permuted_labels_cached(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, 
     # one byte per label per permutation when the codes are the raw labels (one shared matrix), two otherwise; the cap is a fixed budget, widened to a quarter of the free memory (at most 2 GiB)
     # so that a million-row draw (about 1 GB) is kept for the next call instead of redrawn
     draw_bytes = n_permutations * n * (1 if np.array_equal(y_raw, y_codes) else 2)
-    # a sixteenth of the free memory (it was a quarter): the matrix is needed while the null is computed, and a kept copy stays on the spec for the rest of the fit, through the stages that
-    # follow it (500 MB at 500000 rows was live at the fit's peak); the null is asked for twice per fit, so a redraw costs 2.7 s per 1000 permutations at 500000 rows
-    cap = max(_PERM_LABELS_CACHE_MAX_BYTES, min(2 * 1024**3, _free_memory_bytes() // 16))
+    cap = _labels_cache_cap()
     if draw_bytes > cap:
         log_throttle(
             logger, "honest_null_perm_labels_cache_too_large", logging.INFO,
@@ -137,6 +131,56 @@ def _permuted_labels_cached(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, 
 _NULL_COLUMNS_BLOCK_BYTES = 192 * 1024 * 1024
 
 
+def _bycol_null_block(args: Any, nan_cont: np.ndarray):
+    """``(plain, corrected)`` of one block of permutations: the device path when it applies, else the column-parallel host kernel."""
+    from ._mdlp_honest_bycol_njit import honest_null_columns_bycol
+
+    if _device_honest_null_enabled():
+        from ._honest_null_device import honest_null_columns_device
+
+        full_args: Any = (*args, nan_cont)
+        on_device = honest_null_columns_device(*full_args)
+        if on_device is not None:
+            return on_device
+    return honest_null_columns_bycol(*args, nan_cont, os.environ.get("MLFRAME_HONEST_ROOT_PRECHECK", "1") != "0")
+
+
+_PERM_LABELS_BLOCK_BYTES = 256 * 1024 * 1024  # one block of permuted labels when the whole draw is too large to keep
+
+
+def _permuted_label_blocks(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, rng, n: int, n_permutations: int, seed_key: int):
+    """The permuted labels of :func:`_permuted_labels_cached` as a list of ``(raw, codes)`` blocks of consecutive permutations.
+
+    A draw that fits the cache is one block (the cached matrix). A larger draw (a million rows by 999 permutations is a gigabyte) is generated block by block from the same seed: permutation ``b`` is
+    seeded ``base + b``, so the blocks laid one after the other are the matrix a single draw makes, and only one block is alive at a time (the caller consumes the generator lazily).
+    """
+    from ._mdlp_honest_bycol_njit import permuted_labels_seeded
+
+    per_label = 1 if np.array_equal(y_raw, y_codes) else 2
+    draw_bytes = int(n_permutations) * n * per_label
+    cap = _labels_cache_cap()
+    if draw_bytes <= cap:
+        yield _permuted_labels_cached(spec, y_raw, y_codes, rng, n, n_permutations, seed_key)
+        return
+    base = int(rng.integers(0, 2**31 - 1))
+    step = max(1, _PERM_LABELS_BLOCK_BYTES // max(1, n * per_label))
+    starts = list(range(0, int(n_permutations), step))
+
+    def draw(start: int):
+        """The labels of the permutations ``start`` onward (one block)."""
+        return permuted_labels_seeded(y_raw, y_codes, min(step, int(n_permutations) - start), base + start)
+
+    # the next block is drawn on the host while the caller scores the current one on the device (4.7 s of host draws against a device that sat idle at 2000000 rows); two blocks are alive at most
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="perm_labels") as pool:
+        pending: Any = pool.submit(draw, starts[0])
+        for i in range(len(starts)):
+            block = pending.result()
+            pending = pool.submit(draw, starts[i + 1]) if i + 1 < len(starts) else None
+            yield block
+
+
 def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, cols, n_permutations: int, seed_key: int, eval_rows=None):
     """Per-permutation null MI of ``cols`` (no cache): ``(plain, corrected)`` each ``(n_permutations, len(cols))``, from ``honest_null_columns``.
 
@@ -149,12 +193,26 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
     width = max(1, _NULL_COLUMNS_BLOCK_BYTES // max(1, per_column))
     if len(cols) <= width:
         return _njit_null_columns_block(spec, factors_data, factors_nbins, y_idx, cols, n_permutations, seed_key, eval_rows)
-    parts = [_njit_null_columns_block(spec, factors_data, factors_nbins, y_idx, cols[start : start + width], n_permutations, seed_key, eval_rows) for start in range(0, len(cols), width)]
-    return np.concatenate([p[0] for p in parts], axis=1), np.concatenate([p[1] for p in parts], axis=1)
+    if spec.get("method") == "oos":
+        parts = [_njit_null_columns_block(spec, factors_data, factors_nbins, y_idx, cols[start : start + width], n_permutations, seed_key, eval_rows) for start in range(0, len(cols), width)]
+        return np.concatenate([p[0] for p in parts], axis=1), np.concatenate([p[1] for p in parts], axis=1)
+    # Permutation blocks outside, column blocks inside: a draw above the label cache is generated block by block, and every column block of a permutation block reads the same labels
+    # (drawing them for each column block again was 10 draws of a gigabyte per call at 2000000 rows by 80 columns).
+    y_codes = np.ascontiguousarray(np.asarray(factors_data[:, int(y_idx)]).astype(np.int64))
+    rng = np.random.default_rng(seed_key)
+    by_perm = []
+    for blk in _permuted_label_blocks(spec, np.asarray(spec["y_enc"]), y_codes, rng, n, int(n_permutations), seed_key):
+        col_parts = [_njit_null_columns_block(spec, factors_data, factors_nbins, y_idx, cols[start : start + width], n_permutations, seed_key, eval_rows, label_blocks=[blk]) for start in range(0, len(cols), width)]
+        by_perm.append((np.concatenate([p[0] for p in col_parts], axis=1), np.concatenate([p[1] for p in col_parts], axis=1)))
+    if len(by_perm) == 1:
+        return by_perm[0]
+    return np.concatenate([p[0] for p in by_perm], axis=0), np.concatenate([p[1] for p in by_perm], axis=0)
 
 
-def _njit_null_columns_block(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, cols, n_permutations: int, seed_key: int, eval_rows=None):
-    """Per-permutation null MI of ``cols`` (no cache): ``(plain, corrected)`` each ``(n_permutations, len(cols))``, from ``honest_null_columns``."""
+def _njit_null_columns_block(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, cols, n_permutations: int, seed_key: int, eval_rows=None, label_blocks=None):
+    """Per-permutation null MI of ``cols`` (no cache): ``(plain, corrected)`` each ``(n_permutations, len(cols))``, from ``honest_null_columns``.
+
+    ``label_blocks``: the ``(raw, codes)`` permuted-label blocks to score, when the caller shares them between column blocks (the permutations then are those blocks')."""
     from ._mdlp_oos_honest_njit import honest_validated_null_columns
     from ._analytic_mi_null import analytic_null_min_n, analytic_null_min_n_lowered, _min_expected_cell
 
@@ -211,17 +269,9 @@ def _njit_null_columns_block(spec: dict, factors_data: np.ndarray, factors_nbins
     ev = np.arange(n, dtype=np.int64) if eval_rows is None else np.ascontiguousarray(np.asarray(eval_rows, dtype=np.int64))
     if spec.get("method") != "oos":
         # Column-parallel kernel: the permutations are applied to the labels one row at a time, so the (permutations, n) int64 permutation matrix is never built.
-        from ._mdlp_honest_bycol_njit import honest_null_columns_bycol
-
         y_raw = np.asarray(spec["y_enc"])
-        y_raw_perm, y_codes_perm = _permuted_labels_cached(spec, y_raw, y_codes, rng, n, int(n_permutations), seed_key)
-        args = (
-            raw_cont,
-            is_cont,
-            fixed,
-            fixed_nb,
-            y_raw_perm,
-            y_codes_perm,
+        static_head = (raw_cont, is_cont, fixed, fixed_nb)
+        static_tail = (
             int(spec["n_classes_total"]),
             int(spec["min_split_size"]),
             int(spec["max_depth"]),
@@ -237,13 +287,13 @@ def _njit_null_columns_block(spec: dict, factors_data: np.ndarray, factors_nbins
             ev,
             col_slot,
         )
-        if _device_honest_null_enabled():
-            from ._honest_null_device import honest_null_columns_device
-
-            on_device = honest_null_columns_device(*args, nan_cont)
-            if on_device is not None:
-                return on_device
-        return honest_null_columns_bycol(*args, nan_cont, os.environ.get("MLFRAME_HONEST_ROOT_PRECHECK", "1") != "0")
+        parts = [
+            _bycol_null_block((*static_head, y_raw_perm, y_codes_perm, *static_tail), nan_cont)
+            for y_raw_perm, y_codes_perm in (label_blocks if label_blocks is not None else _permuted_label_blocks(spec, y_raw, y_codes, rng, n, int(n_permutations), seed_key))
+        ]
+        if len(parts) == 1:
+            return parts[0]
+        return np.concatenate([p[0] for p in parts], axis=0), np.concatenate([p[1] for p in parts], axis=0)
     perms = np.stack([rng.permutation(n) for _ in range(int(n_permutations))]).astype(np.int64)
     if spec.get("method") == "oos":
         return honest_validated_null_columns(

@@ -135,7 +135,7 @@ def _quantize_for_su(X) -> tuple:
 
     Returns ``(factors_data, factors_nbins, col_names)``.
 
-    The int32 code matrix is allocated once and filled a block of columns at a time: the per-column code arrays, the list of them kept for the finite columns and the ``column_stack`` copy of
+    The code matrix (int8) is allocated once and filled a block of columns at a time: the per-column code arrays, the list of them kept for the finite columns and the ``column_stack`` copy of
     that list were three ``(n, p)`` int32 arrays at once (1.2 GB at a million rows x 100 columns).
     """
     if X is None:
@@ -164,7 +164,8 @@ def _quantize_for_su(X) -> tuple:
     p = len(names)
     if p == 0:
         return None, None, []
-    factors_data = np.empty((n, p), dtype=np.int32)
+    # the codes are below n_bins (10): one byte each, a quarter of the int32 matrix (400 MB less at a million rows x 100 columns); the SU kernels read the narrow codes the fit's own matrix holds
+    factors_data = np.empty((n, p), dtype=np.int8 if n_bins <= 127 else np.int32)
     nbins = np.empty(p, dtype=np.int64)
     # a block of columns is binned together by the parallel block quantiser; the block holds at most 128 MB of values
     block = max(1, (128 << 20) // (np.dtype(_crit_np_dtype()).itemsize * max(n, 1)))

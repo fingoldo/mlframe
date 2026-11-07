@@ -60,11 +60,8 @@ def test_a_different_seed_or_label_vector_is_a_different_entry():
     assert c_rng.draws == 1
 
 
-def test_a_draw_above_the_byte_cap_is_not_kept_and_says_so(caplog, monkeypatch):
-    """Beyond the cap the matrices are regenerated each call, nothing is stored on the spec, and the skipped cache is logged (distinct codes: two bytes per label; no free-memory widening of the cap)."""
-    import mlframe.feature_selection.filters._honest_mdlp_null as hn
-
-    monkeypatch.setattr(hn, "_free_memory_bytes", lambda: 0)
+def test_a_draw_above_the_byte_cap_is_not_kept_and_says_so(caplog):
+    """Beyond the cap the matrices are regenerated each call, nothing is stored on the spec, and the skipped cache is logged (distinct codes: two bytes per label)."""
     y_raw, _ = _labels(200)
     y_codes = y_raw + 1
     count = _PERM_LABELS_CACHE_MAX_BYTES // (2 * len(y_raw)) + 1

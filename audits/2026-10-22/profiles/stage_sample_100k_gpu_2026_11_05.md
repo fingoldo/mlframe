@@ -353,3 +353,56 @@ Fixed cost: a 20000 x 100 fit grows the process by 900 MB (CUDA context, numba a
 Live numpy allocations at the peak (2.0 GB of the 3.3 GB growth is visible to tracemalloc; numba and device-driver allocations are not): the honest-null permuted labels 500 MB (1000 permutations x 500000 rows, int8, kept by `_permuted_labels_cached` so the next call does not redraw them); the honest-spec raw matrix 444 MB (float32, every candidate column of the screening frame, 222 columns); the cluster hierarchy's code matrix 244 MB and its 128 MB blocks (134 + 134 + 67 MB of block temporaries); the discretised data matrix 244 MB and a second 244 MB from `np.append(data, fused codes)` in `_step_score_parts2.py:662` (a full copy of `(n, p)` for the few fused columns); the permutation index block 64 MB.
 
 What these say: no single array is left that is more than 25 percent of the peak, and the three largest (labels, spec raw, data) are structures of the algorithm that scale with `rows x columns` by design. Two directions remain that keep the algorithm and stream it: (1) the permuted labels of a binary target as bit sets (n / 8 bytes per permutation, 62 MB instead of 500 MB), which the device acceptance kernel already builds (`_pack_bits`) and the njit kernel reads one label at a time; (2) the honest-spec raw matrix restricted to the continuous columns (the other columns' codes are held elsewhere) and not copied at all when the frame is one float32 block. Neither changes a value. At 10M rows x 80 columns even these leave the working set near 40 GB; the structures themselves would have to live in column blocks that are built when a stage needs them.
+
+## 2026-11-07 memory ramp after the permuted-label cache cap (a sixteenth of free memory)
+
+`rss_scale_fit.py` default mode, float32 frame, same machine, no other heavy job:
+
+| rows x cols | status | wall | peak RSS growth | x frame |
+|---|---|---|---|---|
+| 500000 x 100 | ok | 153 s | 2728 MB | 13.6 |
+| 1000000 x 100 | ok | 388 s | 4755 MB | 11.9 |
+
+Largest live blocks at the 500k peak (tracemalloc): honest-spec raw matrix 444 MB (two live copies at the build), cluster-hierarchy code matrix 244 MB, `np.append` of the fused codes 244 MB (old and new data together), permuted labels 500 MB before the cap change.
+Open: the honest-spec raw matrix duplicates the float32 frame (a lazy column view would drop it, but the spec would then hold the frame, which matters for pickling); the 10M x 80 target still needs the label, raw and code structures built per column block on demand.
+
+## 2026-11-07 1M x 100: streamed modular family test and the permutation draw it repeated
+
+`rss_scale_fit.py 1000000 100 default` (RSS_TICK_S=20 timeline of the main thread):
+
+| state | wall | peak RSS growth |
+|---|---|---|
+| before the memory series (single-buffer modular family, labels cached by free memory) | 410 s | 4668 MB |
+| modular family regenerated group by group | 730 s | 3770 MB |
+| plus packed class bit sets cached per permutation block | 436 s | 3982 MB |
+
+The streamed family test scores each group of columns against the same draw, so the permutation indices of every block were drawn again for every group (28 groups of 54 columns, `_permutation_block` and `family_null_max` hold the main thread from 120 s to 460 s in the timeline). The class bit sets a block yields are one bit per row and class (125 KB per permutation at a million rows) against four bytes per row for the indices, so they are cached under the generator state, row count, class count and a hash of the labels (256 MB LRU, released under memory pressure); later groups read them.
+Remaining at 1M: the honest null redraws its permuted labels in 256 MB blocks (270 s to 360 s in the timeline, `permuted_labels_seeded`), the cluster-hierarchy codes (`_quantize_for_su`) and the honest-null pack at the end.
+
+## 2026-11-07 check of the 100k x 100 all-families fit after the memory series
+
+`stack_timeline.py` (warm 20000-row fit, then the 100000 x 100 all-families fit, one process): WALL 77.4 s, against the 79.7 s to 105 s of the earlier runs. The label-cache cap, the frame-backed honest spec, the label bit-set cache and the streamed modular family test only act above their size thresholds (256 MB of labels or codes), so the 100k path is unchanged.
+The six-second buckets show the stage cascades at 4 to 5 live worker threads from 24 s to 42 s, the honest null at 54 to 60 s, and a serial tail (cluster-hierarchy quantisation, edge pool) in the last bucket.
+
+## 2026-11-07 scale ramp after the column-block and permutation-block work
+
+| rows x cols | wall | peak RSS growth | note |
+|---|---|---|---|
+| 1000000 x 100 | 372 s | 3774 MB | was 410 s / 4668 MB before the series |
+| 2000000 x 80 | 1420 s | 6967 MB | measured before the lazy double cast in `per_feature_edges` and the permutation-outside loop of the honest null |
+
+At 2M the main thread spent about 540 s in `bootstrap_rank_mi` and about 600 s in the honest null (a permuted-label draw per column block, 10 draws of a gigabyte per call); the 6.3 GB peak was `per_feature_edges` holding the whole frame as doubles (2.6 GB there, 10 GB at 10M x 80). Both are fixed; the 1M fit above is the first measurement with them.
+Growth is linear at about 3.5 GB per million rows, so 10M x 80 would still need about 35 GB: the structures that grow with the rows (discretised data, engineered columns, the cluster-hierarchy codes, the bootstrap tables) have to be built per column block on demand.
+
+## 2026-11-07 open test failures found while checking the cluster-hierarchy codes
+
+`tests/feature_selection/clustering`: `test_dcd_swap_null_default_npermutations.py` (3 tests: no swap fires on the 3-duplicate fixture at the default permutation count) and `test_synergy_auto_aggregator.py` (3 tests: the additive-signal detector and gate) fail on the current master line (`bfe4286fa`) and with the cluster-hierarchy code matrix at int32 or int8 alike. A `git bisect` of the swap test from the old base `7d0d46b4e` ends on the first commit of the merged line (`8300ec4d0`, an unrelated transformer change), so the cause is a merge-line difference rather than one commit and needs a read of the swap null (`_dynamic_cluster_discovery`) against the test, not a bisect.
+
+## 2026-11-07 utilisation of the 1M and 2M fits (CPU and GPU percent per 15 s of the main thread)
+
+User observation on the 2000000 x 80 fit: GPU near 0 and the CPU about 12 to 30 percent. Found and fixed:
+- `_bootstrap_rank_mi_f32` split the columns into tiles of 16 per thread, so a 16-column call was one tile, one thread: 31 s -> 10 s on a 16-column block at 2000000 rows (`_tile_for`).
+- the honest null's device path ran 256 serial `bincount`s of the permuted labels to get class counts that are the same for every permutation (2.4 s of 14 s), and drew its permuted-label blocks on the host with the device idle (the next block is now drawn while the current one is scored).
+- the family null on the device drew each permutation block on the host before scoring it on the device (GPU 0 to 15 percent in the 1M timeline at 75 to 150 s); the draw of the next block now overlaps the scoring, which runs outside the numba guard.
+Measured and left opt-in: a device Fisher-Yates draw of the class bit sets (`_perm_labels_device.py`, `MLFRAME_PERM_LABELS_DEVICE=1`) is bit-identical but only 0.59 s against 0.71 s for 48 permutations at 1M rows (one thread per permutation, latency-bound), so it does not replace the overlapped host draw.
+1M x 100 wall after these: 402 s (was 410 s); the remaining idle stretches in its timeline are the host-only bootstrap rank-MI walk (CPU 86 to 100, GPU 3 to 7), `_parity_fe._raw_mi`, `_adaptive_nbins` edges and the honest-null host draws and pack.

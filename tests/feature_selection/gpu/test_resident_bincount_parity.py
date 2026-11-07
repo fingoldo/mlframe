@@ -51,8 +51,8 @@ class TestUnweightedBitIdenticalToCupyBincount:
 
 
 class TestWeightedMatchesCupyBincountWithinTolerance:
-    """Weighted resident_bincount must agree with cupy.bincount(x, weights, minlength=nc) within the
-    documented ~1e-13 atomic-accumulation reduction-order tolerance."""
+    """Weighted resident_bincount must agree with cupy.bincount(x, weights, minlength=nc) within the accumulation tolerance of its output
+    dtype: the fit's criterion float width (float32 by default, so about 1e-7 relative; ~1e-13 only when the criterion dtype is float64)."""
 
     @pytest.mark.parametrize("seed", [0, 1, 2])
     def test_weighted_matches_within_tolerance(self, seed):
@@ -67,12 +67,13 @@ class TestWeightedMatchesCupyBincountWithinTolerance:
         got = resident_bincount(cp, x, nc, weights=w)
         expected = cp.bincount(x, weights=w, minlength=nc)[:nc]
 
-        max_abs_diff = float(cp.max(cp.abs(got - expected)))
-        assert max_abs_diff < 1e-9, f"weighted resident_bincount diverged from cupy.bincount by {max_abs_diff:.3e} (docstring claims ~1e-13)"
+        max_abs_diff = float(cp.max(cp.abs(got.astype(cp.float64) - expected)))
+        tol = 1e-9 if got.dtype == cp.float64 else 5e-6 * float(cp.max(cp.abs(expected)))  # float32: ~40 eps of the largest bin sum
+        assert max_abs_diff < tol, f"weighted resident_bincount diverged from cupy.bincount by {max_abs_diff:.3e} (tolerance {tol:.1e}, dtype {got.dtype})"
 
 
 class TestDtypeContract:
-    """Default dtype is int32 for unweighted counts, float64 for weighted sums; an explicit dtype override is honoured."""
+    """Default dtype is int32 for unweighted counts, the criterion float dtype for weighted sums; an explicit dtype override is honoured."""
 
     def test_unweighted_default_dtype_is_int32(self):
         """Unweighted default dtype is int32."""
@@ -80,12 +81,14 @@ class TestDtypeContract:
         out = resident_bincount(cp, x, 3)
         assert out.dtype == cp.int32
 
-    def test_weighted_default_dtype_is_float64(self):
-        """Weighted default dtype is float64."""
+    def test_weighted_default_dtype_is_the_criterion_float_dtype(self):
+        """Weighted default dtype is the fit's criterion float dtype (float32 by default)."""
+        from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
         x = cp.asarray(np.array([0, 1, 2], dtype=np.int32))
         w = cp.asarray(np.array([1.0, 2.0, 3.0], dtype=np.float64))
         out = resident_bincount(cp, x, 3, weights=w)
-        assert out.dtype == cp.float64
+        assert out.dtype == _crit_np_dtype()
 
     def test_explicit_dtype_override_is_honoured(self):
         """An explicit dtype argument overrides the default for both the weighted and unweighted paths."""

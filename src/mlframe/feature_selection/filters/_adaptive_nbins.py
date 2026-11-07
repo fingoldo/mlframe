@@ -696,10 +696,12 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
     edges_list: list = [None] * n_features
     _miss_keys: list = [None] * n_features  # cache key per missed col (None => don't cache)
     _miss_cols: list = []  # indices needing compute, in ascending order
-    _cols: list = [None] * n_features  # double view per column (reused by phase 2)
+    def _col_of(j: int) -> np.ndarray:
+        """Column ``j`` as a double view; made when asked for, so a float32 frame is never held as a whole double copy (10.2 GB at 10000000 x 80, 1.3 GB at 2000000 x 80)."""
+        return np.asarray(X[:, j].astype(np.float64, copy=False))  # Intentional float64: per-column float64 view consumed by the statistic loop
+
     for j in range(n_features):
-        col = X[:, j].astype(np.float64, copy=False)  # Intentional float64: per-column float64 view consumed by the statistic loop
-        _cols[j] = col
+        col = _col_of(j)
         _col_cache_key = None
         if _cache is not None:
             try:
@@ -764,7 +766,7 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
             _warm, _rest = None, list(_miss_cols)
         else:
             _warm, _rest = _miss_cols[0], _miss_cols[1:]
-            _warm_edges, _ = _compute_col_edges(_cols[_warm])
+            _warm_edges, _ = _compute_col_edges(_col_of(_warm))
             edges_list[_warm] = _warm_edges
         if _rest:
             # One task per worker (strided so that neighbouring, similarly expensive columns spread out) on a pool that lives as long as the process: a call that bins a dozen
@@ -774,7 +776,7 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
 
             def _run_chunk(chunk):
                 """Edges of the columns in ``chunk``, as ``(column index, edges)`` pairs."""
-                return [(j, _compute_col_edges(_cols[j])[0]) for j in chunk]
+                return [(j, _compute_col_edges(_col_of(j))[0]) for j in chunk]
 
             for _pairs in _edge_pool(_resolved_jobs).map(_run_chunk, _chunks):
                 for j, edges in _pairs:
@@ -782,7 +784,7 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
         _EDGES_WARMED = True
     else:
         for j in _miss_cols:
-            edges, _was_lc = _compute_col_edges(_cols[j])
+            edges, _was_lc = _compute_col_edges(_col_of(j))
             edges_list[j] = edges
 
     # ---- Phase 3 (serial): cache PUT for the misses. ----

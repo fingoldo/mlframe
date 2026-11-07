@@ -49,6 +49,7 @@ def test_the_first_column_is_computed_before_any_pool_thread_starts(monkeypatch)
 
     monkeypatch.setattr(_adaptive_nbins, "edges_fayyad_irani", _record)
     monkeypatch.setattr(_adaptive_nbins, "_PARALLEL_EDGES_MIN_COLS", 2, raising=False)
+    monkeypatch.setattr(_adaptive_nbins, "_EDGES_WARMED", False)  # a cold process: any earlier fit in the session has already warmed the kernels and skips the serial column
     _adaptive_nbins.per_feature_edges(cols, y, method="fayyad_irani", n_jobs=4)
 
     assert threads, "no column was computed; the fixture no longer reaches the per-column path"
