@@ -525,7 +525,7 @@ class _LazyCandidate:
     def __getitem__(self, key: tuple) -> np.ndarray:
         """The column as ``(n, 1)`` for a ``[:, a:b]`` read."""
         _rows, cols = key
-        return self.chunks.codes(self.k)[self.row : self.row + 1].T[:, cols]
+        return np.asarray(self.chunks.codes(self.k)[self.row : self.row + 1].T[:, cols])
 
     def max(self) -> int:
         """Largest code of the column."""
