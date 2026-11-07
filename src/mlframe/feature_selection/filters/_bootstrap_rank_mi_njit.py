@@ -324,6 +324,9 @@ def _bootstrap_rank_mi_generic(arr: np.ndarray, y_codes: np.ndarray, n_classes: 
     return out, ok
 
 
+#: Bytes of resample tables built at once (see ``bootstrap_rank_mi``).
+_RESAMPLE_TABLE_BYTES = 512 * 1024 * 1024
+
 _PREP_CACHE_LOCK = threading.Lock()
 _PREP_CACHE: dict = {}  # the latest resample tables, with the resample list they were built from
 
@@ -396,6 +399,13 @@ def bootstrap_rank_mi(arr: np.ndarray, y: np.ndarray, rep_rows: "list[np.ndarray
     n = arr.shape[0]
     y_arr = np.asarray(y).ravel()
     n_rep = len(rep_rows)
+    # The resample tables of all resamples at once are about (8 n + 10 m) bytes per resample: 1.6 GB for 10 resamples of 10 million rows. Every resample's MI is
+    # independent of the others, so above the budget the resamples are scored a block at a time and the rows stacked (the same values).
+    per_rep = 8 * n + 10 * max((len(r) for r in rep_rows), default=0)
+    block = max(1, _RESAMPLE_TABLE_BYTES // max(1, per_rep))
+    if n_rep > block:
+        parts = [bootstrap_rank_mi(arr, y, rep_rows[r0 : r0 + block], n_bins, try_tied_device) for r0 in range(0, n_rep, block)]
+        return np.concatenate([p_[0] for p_ in parts], axis=0), parts[0][1]
     # The resample-side tables depend on the resamples and the labels, not on the columns: a caller that scores many column blocks against the same resamples (the same list object) shares them.
     from mlframe.utils.disk_cache import hash_array_content
 
