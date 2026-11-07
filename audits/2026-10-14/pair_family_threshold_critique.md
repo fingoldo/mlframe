@@ -44,7 +44,7 @@ Source: read-only critique agent, 2026-10-14. Scope: `src/mlframe/feature_select
 - `default_rng(seed)` is reproducible for a fixed seed. Derive the seed from the pair index and n, so the result does not depend on processing order.
 
 ### F09 - Analytic bound as a cheap pre-filter
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. The chi-square bound is already in use as the pair noise gate: `analytic_batch_noise_gate` is called from `_pairs_dispatch.py:302` and `_pairs_analytic_gpu.py:166`, and it only applies when `analytic_null_applicable` passes (min n and min expected cell, `_analytic_mi_null.py:142-179`). Not yet done: the check against the permutation threshold on several realisations that the finding requires. No test or benchmark in the repo records that comparison, so this stays PARTIAL.
 - A Bonferroni chi-square bound (`2n*MI >= chi2_{1-alpha/K}((bx-1)(by-1))`) is O(K) but asymptotic and conservative. Must be checked against the permutation threshold on several realisations before use.
 
 ### F10 - Sequential stopping rule for borderline pairs
