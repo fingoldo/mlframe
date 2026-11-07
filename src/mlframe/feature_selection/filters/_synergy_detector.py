@@ -58,6 +58,9 @@ def _pair_mm_mi(code_x: np.ndarray, code_y: np.ndarray, yc: np.ndarray, min_rows
 # kernel_tuning_cache key + conservative default multiple of the permuted-null scale.
 _TUNING_KEY = "mrmr_synergy_auto_excess_null_mult"
 _DEFAULT_NULL_MULT = 3.0
+#: A pair counts as synergistic only if the interaction is at least this share of its joint information. A saturating (logistic) link makes even additive drivers carry a small
+#: real interaction (about 0.015 nats against 0.17 joint, ~9%), which the bias-free estimator now resolves above the permuted-null scale; XOR-type synergy is ~100% of the joint.
+_MIN_SYNERGY_SHARE = 0.25
 
 
 def _quantize(col: np.ndarray, nbins: int, rng: np.random.Generator) -> np.ndarray:
@@ -88,7 +91,7 @@ def _excess_for_pairs(codes: list[np.ndarray], marg: list[float], yc: np.ndarray
     for i, j in pairs:
         joint = _pair_mm_mi(codes[i], codes[j], yc)
         exc = joint - marg[i] - marg[j]
-        if exc > best:
+        if exc > best and exc >= _MIN_SYNERGY_SHARE * joint:
             best = exc
     return float(best)
 
