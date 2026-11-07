@@ -76,3 +76,14 @@ Done from the plan so far: item 1 (codes allocated int8/int16, MDLP edge workers
 | CMIM codes and binned-agg source-bin cache at int16, binned-agg device caches bounded in bytes | 229 to 233 s |
 
 The remaining limit is not a spike: the RSS growth climbs from about 0.9 GB to 3.2 GB between 22 s and 31 s while the recipes of the engineered columns are replayed at full n and appended as float columns (`_apply_orth_fourier`, `_apply_hinge_basis`, `_apply_orth_triplet_cross`, `_apply_zscore`, `fe_append_columns`), and that state lives to the end of the fit; the binned-agg family adds about 2.5 GB on top. Item 7 (closed-form engineered columns kept as codes, recomputed from the recipe when a float is needed) is the change that addresses it.
+
+### 10M x 80, continued (2026-11-08)
+
+| change | abort time |
+|---|---|
+| full-n replayed engineered columns stored at float32 | 241 s (growth by 32 s: 3.19 GB to 2.16 GB) |
+| resident-operand cache bounded in device bytes | 291.7 s |
+| binned-agg usability: at most jobs + 1 pairs in flight, subsampled rows taken on the device | 393.2 s |
+| bootstrap resample rows int32, two-class check without a sort (plus the tie-rule fix) | 456.5 s |
+
+Each spike removed moves the abort by 60 to 100 s; the limit now is the resident growth of about 5.4 GB that the fit holds by 440 s on top of the 3.2 GB frame (16 GB machine, about 6 GB used by other applications). The bootstrap resample tables (about 1.6 GB at 10M rows, 10 resamples) are the last spike seen. The next step is structural: item 7 (engineered columns as codes) and building the resample tables per block of resamples instead of all at once.
