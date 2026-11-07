@@ -190,7 +190,13 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
             w = cp.asarray(np.ascontiguousarray(idx - bel))  # double weight_above = idx - floor(idx)
             return (bi, ai, w, ranks_g, int(R), int(shmem))
 
-    _ic = radix_interp_get_or_build(_ik, _build_interp_entry)
+    def _build_in_default_pool():
+        """The entry built in the default pool: it is kept by a process-global cache, and an array allocated inside a stage slot's pool can end up overlapping another pool's memory once the stage ends"""
+        # (measured: a cached index vector shared its address with a fresh buffer of another stage, and the next select kernel overwrote it; the default pool keeps its chunks)
+        with cp.cuda.using_allocator(cp.get_default_memory_pool().malloc):
+            return _build_interp_entry()
+
+    _ic = radix_interp_get_or_build(_ik, _build_in_default_pool)
     if _ic is None:
         return None  # cached: radix inapplicable -> cp.percentile
     bi, ai, w, ranks_g, R, shmem = _ic

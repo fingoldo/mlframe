@@ -90,6 +90,9 @@ def _make_mrmr(**overrides):
         # The default-on modular family also describes this square signal (periodic residues of x) and its columns are appended first, so
         # the CMI-greedy stage correctly finds nothing left to add; isolate it for the same reason as the basis FE above.
         fe_modular_enable=False,
+        # The default-on hybrid orth family (x__pade3 and the other basis columns of x) selects the square signal first, so the CMI-greedy picks are redundant and dropped;
+        # isolate it for the same reason as the families above.
+        fe_hybrid_orth_enable=False,
     )
     kwargs.update(overrides)
     return MRMR(**kwargs)
