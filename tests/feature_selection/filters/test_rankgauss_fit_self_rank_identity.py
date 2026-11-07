@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 
 from mlframe.feature_selection.filters import _extra_fe_families as fam
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._extra_fe_families import (
     _self_avg_tie_rank,
     _avg_tie_rank,
@@ -62,7 +63,7 @@ def test_generate_rankgauss_fit_bit_identical_and_no_searchsorted(monkeypatch):
     # Reference outputs via the exact two-sweep fit path.
     ref = {}
     for c in df.columns:
-        x = np.asarray(df[c].to_numpy(), dtype=np.float64)
+        x = np.asarray(df[c].to_numpy(), dtype=_crit_np_dtype())  # the fit path works in the criterion float dtype (float32 by default)
         fin = np.isfinite(x)
         fs = np.sort(x[fin]) if fin.any() else np.array([0.0])
         nf = int(fs.size)
