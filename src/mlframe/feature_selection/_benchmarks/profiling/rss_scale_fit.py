@@ -6,6 +6,7 @@ process RSS every 0.2 s; a new peak is attributed to the main thread's innermost
 import os
 import sys
 import threading
+import types
 import time
 import warnings
 
@@ -40,7 +41,7 @@ import tracemalloc
 TRACE = os.environ.get("RSS_TRACEMALLOC") == "1"
 if TRACE:
     tracemalloc.start(6)
-snapshots = []
+trace = types.SimpleNamespace(snapshots=[])  # the sampler thread appends its tracemalloc snapshots here
 proc = psutil.Process()
 TICK = float(os.environ.get("RSS_TICK_S", "0"))  # seconds between timeline lines of the main thread's step (0: off)
 ticks = []
@@ -94,9 +95,9 @@ def sampler():
             ticks.append((time.perf_counter() - t0, (rss - base) / 1e6, f"cpu {proc_cpu():3.0f}% gpu {gpu_util():>3}% " + innermost(sys._current_frames().get(main_id))))
         if rss > peak[0]:
             peak[0] = rss
-            if TRACE and rss - base > float(os.environ.get("RSS_SNAP_FIRST_MB", "600")) * 1e6 and (not snapshots or rss - snapshots[-1][0] > float(os.environ.get("RSS_SNAP_STEP_MB", "400")) * 1e6):
+            if TRACE and rss - base > float(os.environ.get("RSS_SNAP_FIRST_MB", "600")) * 1e6 and (not trace.snapshots or rss - trace.snapshots[-1][0] > float(os.environ.get("RSS_SNAP_STEP_MB", "400")) * 1e6):
                 snap = tracemalloc.take_snapshot()
-                snapshots.append((rss, (rss - base) / 1e6, snap.statistics("traceback")[:14]))
+                trace.snapshots.append((rss, (rss - base) / 1e6, snap.statistics("traceback")[:14]))
             if rss - last_logged > 50e6:
                 last_logged = rss
                 events.append((time.perf_counter() - t0, (rss - base) / 1e6, innermost(sys._current_frames().get(main_id))))
@@ -148,7 +149,7 @@ if ticks:
     for when, mb, where in ticks:
         print(f"  tick t={when:7.1f}s +{mb:7.0f} MB  {where}")
 
-for rss, mb, stats in snapshots[-2:]:
+for rss, mb, stats in trace.snapshots[-2:]:
     print(f"--- tracemalloc at RSS growth {mb:.0f} MB: the largest live allocations")
     for st in stats:
         print(f"  {st.size / 1e6:8.0f} MB in {st.count} blocks")
