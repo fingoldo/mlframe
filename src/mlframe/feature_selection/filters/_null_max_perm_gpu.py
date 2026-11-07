@@ -154,6 +154,34 @@ def _bits_width(kernel: Any, shared_bytes: int, n: int) -> int:
     return width if width > 0 else 256
 
 
+class PermutationBlocks:
+    """The ``count`` row permutations of a null, handed out as consecutive ``(rows, n)`` int32 blocks instead of one ``(count, n)`` int64 stack (200 permutations of 10 million
+    rows were 16 GB of host memory). ``draw(i)`` gives permutation ``i``; the blocks must be asked for in order, so a generator-backed ``draw`` is consumed in the same order as the
+    eager stack consumed it. ``drain()`` draws the ones not asked for, leaving a generator where the eager stack left it."""
+
+    def __init__(self, draw: Any, count: int) -> None:
+        self._draw = draw
+        self._count = int(count)
+        self._next = 0
+
+    def __len__(self) -> int:
+        return self._count
+
+    def __getitem__(self, sl: slice) -> np.ndarray:
+        start, stop = int(sl.start or 0), min(int(sl.stop if sl.stop is not None else self._count), self._count)
+        if start != self._next:
+            raise IndexError(f"permutation blocks are read in order: asked for {start}, next is {self._next}")
+        block = np.stack([np.asarray(self._draw(i), dtype=np.int32) for i in range(start, stop)]) if stop > start else np.empty((0, 0), dtype=np.int32)
+        self._next = stop
+        return block
+
+    def drain(self) -> None:
+        """Draw the permutations not asked for yet (the generator ends where the eager stack left it)."""
+        for i in range(self._next, self._count):
+            self._draw(i)
+        self._next = self._count
+
+
 def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, perms: np.ndarray, nbins: int, n_classes: int) -> Optional[np.ndarray]:
     """``(P,)`` maximum over the candidates of the plug-in MI against ``y_shifted[perms[p]]``, for the float32 or double ``(K, n)`` C-order candidate block ``x_cm`` binned by
     ``interior`` (``(nbins - 1, K)``, the edges ``binned_mi_from_values_gpu`` uses); ``None`` when the path does not apply (the caller keeps one launch per permutation)."""

@@ -145,7 +145,10 @@ def _strict_null_max_batched(
         if x_cm is None:
             x_cm = x_gpu if is_cm else cp.ascontiguousarray(x_gpu.T)
         y_shift = yd.astype(cp.int64) - int(y_min) if y_min else yd.astype(cp.int64)
-        return null_max_mi_perms_gpu(cp, x_cm, interior, y_shift, np.stack([np.asarray(p) for p in permutations]), int(nbins), int(n_classes))
+        from .._null_max_perm_gpu import PermutationBlocks
+
+        # the permutations are stacked one block at a time, not into one (count, n) int64 matrix
+        return null_max_mi_perms_gpu(cp, x_cm, interior, y_shift, PermutationBlocks(lambda i: permutations[i], len(permutations)), int(nbins), int(n_classes))
     except Exception as exc:
         log_throttle(logger, "orth_strict_null_max_fallback", logging.WARNING, "batched STRICT null max not used (%s); one launch per permutation", exc)
         return None

@@ -455,14 +455,18 @@ def _batched_null_max(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.ndarray, _ymin:
         return None
     try:
         from ._hermite_fe_mi import _resident_mi_candidates, _shifted_y_cached
-        from ._null_max_perm_gpu import null_max_mi_perms_gpu
+        from ._null_max_perm_gpu import PermutationBlocks, null_max_mi_perms_gpu
         from ._unified_fe_gate import _LOCAL_GATE_NULL_PERMUTATIONS
 
-        perms = np.stack([rng.permutation(_yi.size) for _ in range(_LOCAL_GATE_NULL_PERMUTATIONS)])
-        _x, _is_cm, x_cm, interior = _resident_mi_candidates(mat_gpu, int(nbins), keep_dtype=True, relax_binning=True, x_is_cm=True)
-        y0 = y_gpu.astype(cp.int64)
-        y_shift = _shifted_y_cached(y0, int(_ymin)) if _ymin else y0
-        return null_max_mi_perms_gpu(cp, x_cm, interior, y_shift, perms, int(nbins), int(_ncls))
+        # the same permutations in the same order as the eager stack drew them, but one block at a time (the stack was 16 GB at 10 million rows)
+        perms = PermutationBlocks(lambda _i: rng.permutation(_yi.size), _LOCAL_GATE_NULL_PERMUTATIONS)
+        try:
+            _x, _is_cm, x_cm, interior = _resident_mi_candidates(mat_gpu, int(nbins), keep_dtype=True, relax_binning=True, x_is_cm=True)
+            y0 = y_gpu.astype(cp.int64)
+            y_shift = _shifted_y_cached(y0, int(_ymin)) if _ymin else y0
+            return null_max_mi_perms_gpu(cp, x_cm, interior, y_shift, perms, int(nbins), int(_ncls))
+        finally:
+            perms.drain()  # the generator advances exactly as the eager stack advanced it, whatever happened above
     except Exception as exc:
         log_throttle(logger, "binagg_batched_null_fallback", logging.WARNING, "batched binagg null failed (%s); one launch per permutation", exc)
         return None
