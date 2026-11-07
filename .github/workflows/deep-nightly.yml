@@ -83,11 +83,15 @@ jobs:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
+      - name: Read the pyutilz revision from uv.lock
+        id: pyutilz-pin
+        run: echo "sha=$(python3 scripts/read_pyutilz_pin.py uv.lock)" >> "$GITHUB_OUTPUT"
+
       - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
-          pyutilz-ref: 6b512f2b6f7c9e353ee1831d0130b8b194c1706d  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: ${{ steps.pyutilz-pin.outputs.sha }}
 
       - name: Install contributor tooling not declarable in [dev]
         run: |
@@ -178,11 +182,15 @@ jobs:
 
       # Installs pyutilz AND this project in one uv call, exactly as ci.yml does -- the extras are what
       # the action installs, so leaving them empty asks it to install nothing.
+      - name: Read the pyutilz revision from uv.lock
+        id: pyutilz-pin
+        run: echo "sha=$(python3 scripts/read_pyutilz_pin.py uv.lock)" >> "$GITHUB_OUTPUT"
+
       - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
-          pyutilz-ref: 6b512f2b6f7c9e353ee1831d0130b8b194c1706d  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: ${{ steps.pyutilz-pin.outputs.sha }}
 
       - name: Install contributor tooling not declarable in [dev]
         run: |
