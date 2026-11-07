@@ -8,10 +8,11 @@ parent is reintroduced.
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import pytest
+from py_ci_shared._core import DEFAULT_EXCLUDE, scan_python
+from py_ci_shared.import_cycles import build_import_graph
 
 import mlframe
 
@@ -41,42 +42,18 @@ _CHILD_PARENT_EDGES = [
 ]
 
 
-def _top_level_imported_modules(path: Path, dotted: str) -> set[str]:
-    """Absolute dotted names bound at import time: module body and ``if`` blocks, except ``TYPE_CHECKING`` bodies; defs excluded."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    pkg_parts = dotted.split(".")[:-1]
-    out: set[str] = set()
-    stack = list(tree.body)
-    while stack:
-        node = stack.pop()
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            continue
-        if isinstance(node, ast.If):
-            if isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING":
-                stack.extend(node.orelse)
-                continue
-            stack.extend(node.body)
-            stack.extend(node.orelse)
-            continue
-        if isinstance(node, ast.Import):
-            out.update(a.name for a in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            if node.level:
-                base = pkg_parts[: len(pkg_parts) - (node.level - 1)] if node.level > 1 else pkg_parts
-                target = ".".join(base + ([node.module] if node.module else []))
-            else:
-                target = node.module or ""
-            out.add(target)
-            out.update(f"{target}.{a.name}" for a in node.names)
-    return out
+@pytest.fixture(scope="module")
+def _import_graph():
+    """Load-time import graph of the package from py_ci_shared (defs, ``TYPE_CHECKING`` and ``__main__`` bodies excluded)."""
+    return build_import_graph(scan_python(MLFRAME_DIR, exclude=DEFAULT_EXCLUDE), MLFRAME_DIR, "mlframe")
 
 
 @pytest.mark.parametrize("child_rel, parent_dotted", _CHILD_PARENT_EDGES, ids=[c for c, _ in _CHILD_PARENT_EDGES])
-def test_child_does_not_import_parent_at_module_top(child_rel, parent_dotted):
+def test_child_does_not_import_parent_at_module_top(child_rel, parent_dotted, _import_graph):
     """The child module must not bind its parent at import time."""
-    child = MLFRAME_DIR / child_rel
     child_dotted = "mlframe." + child_rel[:-3].replace("/", ".")
-    if child.name == "__init__.py":
-        child_dotted = "mlframe." + child_rel[: -len("/__init__.py")].replace("/", ".") + ".__init__"
-    imported = _top_level_imported_modules(child, child_dotted)
+    if child_rel.endswith("/__init__.py"):
+        child_dotted = "mlframe." + child_rel[: -len("/__init__.py")].replace("/", ".")
+    assert child_dotted in _import_graph, f"{child_rel} is not in the scanned package"
+    imported = {event.target for event in _import_graph[child_dotted].events}
     assert parent_dotted not in imported, f"{child_rel} imports {parent_dotted} at module top-level again: this closes an import cycle"

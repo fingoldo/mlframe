@@ -38,18 +38,15 @@ import sys
 # Rough resident cost of one meta-test xdist worker (interpreter + collected test modules). Measured-ish, not profiled;
 # it only caps the worker count on a machine with little free RAM, so a low-memory box does not swap.
 _GB_PER_WORKER = 1.0
-_FALLBACK_WORKERS = "8"
 
 
 def _default_workers() -> str:
     """Worker count when ``MLFRAME_META_TESTS_WORKERS`` is unset: the free-core budget from py-ci-shared, capped by free RAM.
 
-    Falls back to the fixed default when py-ci-shared is not installed, so a checkout without it still runs.
+    py-ci-shared is required: ``main`` exits non-zero with a message when it cannot be imported.
     """
-    try:
-        from py_ci_shared.worker_budget import available_workers
-    except ImportError:
-        return _FALLBACK_WORKERS
+    from py_ci_shared.worker_budget import available_workers
+
     budget = available_workers()
     try:
         import psutil  # type: ignore[import-not-found]
@@ -72,7 +69,11 @@ def main() -> int:
     env.setdefault("NUMBA_DISABLE_JIT", "1")
     env.setdefault("MLFRAME_SKIP_NUMBA_PREWARM", "1")
     env.setdefault("CUDA_VISIBLE_DEVICES", "")
-    workers = os.environ.get("MLFRAME_META_TESTS_WORKERS", "").strip() or _default_workers()
+    try:
+        workers = os.environ.get("MLFRAME_META_TESTS_WORKERS", "").strip() or _default_workers()
+    except ImportError as exc:
+        print(f"py-ci-shared is required to run the meta-tests and cannot be imported: {exc}", file=sys.stderr)
+        return 2
     xdist_args = [] if workers == "0" else ["-n", workers, "--dist=loadscope"]
     cmd = [
         sys.executable,

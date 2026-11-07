@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from py_ci_shared.swallowed_exceptions import is_silent_handler
 
 import mlframe
 
@@ -121,7 +122,7 @@ def _handler_is_effectively_silent(handler: ast.ExceptHandler) -> bool:
     for sub in ast.walk(handler):
         if isinstance(sub, ast.Raise):
             return False
-    return not _handler_has_unconditional_log(handler)
+    return is_silent_handler(handler) or not _handler_has_unconditional_log(handler)
 
 
 def _build_verbose_gated_offending_set() -> set[str]:

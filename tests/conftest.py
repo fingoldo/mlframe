@@ -1129,14 +1129,15 @@ def _restore_closed_standard_streams(request):
             setattr(sys, _name, _real)
             _warnings.warn(f"sys.{_name} was left closed (a {type(_stream).__name__}) after {_PREVIOUS_TEST[0]}; reset to the real stream", stacklevel=1)
     _PREVIOUS_TEST[0] = request.node.nodeid
-    _before = (sys.stdout, sys.stderr)
+    from py_ci_shared.resource_leak_checks import restore_state, state_leaks, take_state
+
+    _before = take_state(("streams",))
     yield
-    # This fixture is set up before any capsys/capfd the test requests, so it is torn down after they restore the streams:
-    # anything other than the setup objects here was left behind by the test itself (or by a helper it ran).
-    _leaked = [n for n, s, b in (("stdout", sys.stdout, _before[0]), ("stderr", sys.stderr, _before[1])) if s is not b]
-    if _leaked:
-        sys.stdout, sys.stderr = _before
-        pytest.fail(f"test left sys.{', sys.'.join(_leaked)} replaced; a helper restored a stale stream or never restored it", pytrace=False)
+    # Set up before any capsys/capfd the test requests, so torn down after they restore the streams: a stream that differs here was left by the test.
+    _leaks = state_leaks(_before)
+    if _leaks:
+        restore_state(_before)
+        pytest.fail("test left the standard streams replaced; a helper restored a stale stream or never restored it: " + "; ".join(_leaks), pytrace=False)
 
 
 @pytest.fixture(autouse=True)
