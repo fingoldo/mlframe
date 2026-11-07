@@ -30,8 +30,8 @@ Coverage: the audit read 2 of about 60 GPU-kernel files. Not yet read: the MI an
 | Test | Status |
 |---|---|
 | `test_mrmr_then_shap_proxied_fs_reuses_artifacts_e2e`: prefilter does not switch to `precomputed_su` | RESOLVED (test reframed, not code). The selector's leakage guard is correct: MRMR scored all 2000 rows, the search uses 1500, and `_precomputed_su_matches_search_rows` refuses the SU ranking and recomputes the prefilter (`method != precomputed_su`). The test asserted reuse. It now asserts the guard. Passes on HEAD in 218 s. |
-| `test_column_major_speedup_vs_row_major_reference`: ratio 1.23x vs 1.70x | Timing assertion, labelled load-sensitive in the test. Re-run on a quiet machine. |
-| `test_biz_value_revalidation_cap_faster_recovery_preserved`: 1.05x vs 1.30x | Timing assertion. Re-run on a quiet machine. |
+| `test_column_major_speedup_vs_row_major_reference`: ratio 1.23x vs 1.70x | OPEN. Re-run on HEAD three times: 1.06x, 0.96x, 1.41x (need >= 1.70x). The speedup does not reproduce on this host. Needs a multi-size A/B (width and n sweep, paired, process-isolated) before the claim or the threshold is changed. |
+| `test_biz_value_revalidation_cap_faster_recovery_preserved`: 1.05x vs 1.30x | RESOLVED on re-run: passes on HEAD (`test_shap_proxy_revalidate.py`, 140 s). |
 | `test_treeshap_gpu_matches_numba[True]`, `[False]`: max rel. diff 1.1e-4 | RESOLVED on HEAD: both parametrisations pass at atol=1e-9 (2 passed in 26.7 s, `test_shap_proxy_treeshap.py`). The 1.1e-4 figure was from an earlier state, not HEAD. |
 | `test_shap_proxied_fs_default_cap_uses_module_default` | Caused by API3-1: the test pinned the old contract. Reframed to the effective-width helper. RESOLVED in `251dc4a4c`. |
 
