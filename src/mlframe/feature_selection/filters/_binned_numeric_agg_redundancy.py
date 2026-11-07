@@ -205,8 +205,18 @@ def _keep_linearly_usable(cands, raw, X, _src_bins, nbins_base, y_cls, rejected,
     jobs = _resolve_edge_jobs(None, len(by_pair))
     if jobs > 1 and len(by_pair) > 3:
         with ThreadPoolExecutor(max_workers=jobs) as pool:
-            futures = [pool.submit(_run, t) for t in tasks]
-            results = [f.result() for f in futures]
+            # at most ``jobs + 1`` pairs in flight: submitting every task at once drained the lazy generator, so every pair's host codes existed together (gigabytes at
+            # 10 million rows); the results keep the pairs' order
+            from collections import deque
+
+            results = []
+            pending: "deque" = deque()
+            for t in tasks:
+                pending.append(pool.submit(_run, t))
+                if len(pending) > jobs:
+                    results.append(pending.popleft().result())
+            while pending:
+                results.append(pending.popleft().result())
     else:
         results = [_run(t) for t in tasks]
     for kept in results:
