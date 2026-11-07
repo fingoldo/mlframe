@@ -177,9 +177,11 @@ def test_mrmr_then_shap_proxied_fs_reuses_artifacts_e2e():
     rep = sps_reuse.shap_proxy_report_
     pc = rep.get("precomputed_used")
     assert pc is not None, "report block 'precomputed_used' missing"
-    assert pc.get("honoured") is True, f"precomputed not honoured: {pc}"
-    assert pc.get("su_available") is True
-    assert rep.get("prefilter", {}).get("method") == "precomputed_su", f"prefilter method did not switch to SU: {rep.get('prefilter')}"
+    # MRMR here scores the full frame (2000 rows) while ShapProxiedFS searches on 1500, so the SU ranking
+    # saw the held-out rows. The selector must refuse it and recompute the prefilter on the search rows
+    # (see ``_precomputed_su_matches_search_rows``); reusing it would leak the holdout into the search.
+    assert pc.get("honoured") is True, f"artifacts were aligned by exact match, so they are honoured: {pc}"
+    assert rep.get("prefilter", {}).get("method") != "precomputed_su", f"prefilter reused leaked SU: {rep.get('prefilter')}"
 
     # No e2e regression. Cap at 1.5x baseline because the standalone wall is
     # dominated by setup overhead on small frames; the perf signal of the

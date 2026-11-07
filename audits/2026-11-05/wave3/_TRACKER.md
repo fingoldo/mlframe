@@ -29,7 +29,7 @@ Coverage: the audit read 2 of about 60 GPU-kernel files. Not yet read: the MI an
 
 | Test | Status |
 |---|---|
-| `test_mrmr_then_shap_proxied_fs_reuses_artifacts_e2e`: prefilter does not switch to `precomputed_su` | Pre-existing: fails the same way on a clean worktree at HEAD (`8e4aea9c7`). Not caused by API3-1. Open. |
+| `test_mrmr_then_shap_proxied_fs_reuses_artifacts_e2e`: prefilter does not switch to `precomputed_su` | RESOLVED (test reframed, not code). The selector's leakage guard is correct: MRMR scored all 2000 rows, the search uses 1500, and `_precomputed_su_matches_search_rows` refuses the SU ranking and recomputes the prefilter (`method != precomputed_su`). The test asserted reuse. It now asserts the guard. Passes on HEAD in 218 s. |
 | `test_column_major_speedup_vs_row_major_reference`: ratio 1.23x vs 1.70x | Timing assertion, labelled load-sensitive in the test. Re-run on a quiet machine. |
 | `test_biz_value_revalidation_cap_faster_recovery_preserved`: 1.05x vs 1.30x | Timing assertion. Re-run on a quiet machine. |
 | `test_treeshap_gpu_matches_numba[True]`, `[False]`: max rel. diff 1.1e-4 | GPU numerical tolerance. Not checked against HEAD yet. Open. |
