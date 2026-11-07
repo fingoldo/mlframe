@@ -54,6 +54,15 @@ def _to_host(a) -> np.ndarray:
     return np.asarray(a.get() if hasattr(a, "get") else a, dtype=_crit_np_dtype())
 
 
+def _rows_to_host(a: Any, rows: Any) -> np.ndarray:
+    """``_to_host(a)[rows]`` with the rows taken first: a device array is indexed on the device, so only the subsampled rows cross to the host (not the full column)."""
+    if hasattr(a, "get"):
+        import cupy as cp
+
+        return np.asarray(a[cp.asarray(rows)].get(), dtype=_crit_np_dtype())
+    return _to_host(a)[rows]
+
+
 def _standardised(col: np.ndarray) -> np.ndarray:
     """``col`` centred and scaled, non-finite entries set to the mean; a constant column becomes all zeros."""
     finite = np.isfinite(col)
@@ -199,7 +208,7 @@ def linear_usability_keeps(X: Any, srcs: Any, cands: dict, y_cls: Any, cell_ids:
     names, gains, means = [], [], []
     cell_counts = np.maximum(np.bincount(cells_s, minlength=n_cells), 1)
     for name, codes in cands.items():
-        cand = _standardised(_to_host(codes)[state["rows"]])
+        cand = _standardised(_rows_to_host(codes, state["rows"]))
         if not cand.any():
             continue
         cand_s = cand[prep["order"]]

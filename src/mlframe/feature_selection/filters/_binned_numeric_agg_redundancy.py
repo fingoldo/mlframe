@@ -170,7 +170,9 @@ def _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_c
 def _pair_usability_tasks(cands, rejected, by_pair, nbins_base, src_bins):
     """Yield ``(names, source columns, host codes, cell ids, pair key)`` of each (group, agg) pair, building the pair's device codes when it is asked for."""
     for (group_col, agg_col), names in by_pair.items():
-        codes = {nm: (lambda c: c.get() if hasattr(c, "get") else c)(cands.codes(nm, nbins_base)) for nm in names}
+        # the codes stay where ``cands`` built them (the test reads only its subsampled rows, so a device array is indexed there); copying every full column to the host
+        # here held 80 MB per column of every pair in flight at 10 million rows
+        codes = {nm: cands.codes(nm, nbins_base) for nm in names}
         yield names, rejected[names[0]][0], codes, src_bins(group_col), f"{group_col}|{agg_col}"
 
 
