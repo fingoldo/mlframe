@@ -16,6 +16,9 @@ from typing import Any, Iterator
 
 import pytest
 
+# ``_fe_device_scheduler._SLOT_POOLS`` is deliberately absent: the stage slots' memory pools live for the whole process because device arrays allocated in them are held by
+# process-global caches (radix interpolation entries, operand tables); restoring the dict dropped the pools a test created, cupy freed their in-use chunks, and the next test's
+# cached arrays dangled (cudaErrorIllegalAddress in the next kernel that read one).
 _MODULE_STATE = (
     ("mlframe", "_lazy_toplevel_cache"),
     ("mlframe._numba_cache_deps", "_DEPENDENCY_FILES"),
@@ -31,7 +34,6 @@ _MODULE_STATE = (
     ("mlframe.feature_selection.filters._fe_batched_mi_cmi_lut", "_XLOGX_TABLES"),
     ("mlframe.feature_selection.filters._fe_cmi_redundancy_gate", "_Y_DENSE_MEMO"),
     ("mlframe.feature_selection.filters._fe_content_memo", "_STORES"),
-    ("mlframe.feature_selection.filters._fe_device_scheduler", "_SLOT_POOLS"),
     ("mlframe.feature_selection.filters._fe_family_timing", "_FE_FAMILY_WALL"),
     ("mlframe.feature_selection.filters._fe_resident_operands", "_FE_RESIDENT_QBIN_CODES"),
     ("mlframe.feature_selection.filters._fe_sufficient_summary_pairs", "_FUSED_KERNELS"),
