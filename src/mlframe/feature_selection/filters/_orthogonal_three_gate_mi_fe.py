@@ -63,6 +63,8 @@ from __future__ import annotations
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Sequence
 
 from typing import Any
@@ -574,14 +576,28 @@ def _quantile_bin_batched(mat: np.ndarray, nbins: int) -> np.ndarray:
     qs = np.linspace(0.0, 1.0, int(nbins) + 1)
     if dense_idx.size:
         dense_mat = mat[:, dense_idx] if dense_idx.size != p else mat
-        edges_all = np.quantile(dense_mat, qs, axis=0)  # (nbins + 1, len(dense_idx))
-        for k, j in enumerate(dense_idx):
-            edges = np.unique(edges_all[:, k])
-            if edges.size <= 2:
-                if edges.size == 2:
-                    out[:, j] = (dense_mat[:, k] >= edges[1]).astype(np.int64)
-                continue
-            out[:, j] = np.searchsorted(edges[1:-1], dense_mat[:, k], side="right").astype(np.int64)
+
+        def _bin_chunk(lo: int, hi: int) -> None:
+            """Edges and codes of dense columns ``lo:hi`` (sort and searchsorted release the GIL; columns are independent)."""
+            edges_all = np.quantile(dense_mat[:, lo:hi], qs, axis=0)  # (nbins + 1, hi - lo)
+            for k in range(lo, hi):
+                j = dense_idx[k]
+                edges = np.unique(edges_all[:, k - lo])
+                if edges.size <= 2:
+                    if edges.size == 2:
+                        out[:, j] = (dense_mat[:, k] >= edges[1]).astype(np.int64)
+                    continue
+                out[:, j] = np.searchsorted(edges[1:-1], dense_mat[:, k], side="right").astype(np.int64)
+
+        n_dense = int(dense_idx.size)
+        n_workers = min(os.cpu_count() or 1, max(1, n_dense // 4)) if n_rows >= 20_000 else 1
+        if n_workers <= 1:
+            _bin_chunk(0, n_dense)
+        else:
+            bounds = np.linspace(0, n_dense, n_workers + 1).astype(int)
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                for f in [pool.submit(_bin_chunk, int(a), int(b)) for a, b in zip(bounds[:-1], bounds[1:])]:
+                    f.result()
     for j in partial_idx:
         out[:, j] = _quantile_bin(mat[:, j], nbins=nbins)
     return out
