@@ -53,3 +53,14 @@ Dropped: the float `ColumnArena` wired into stages (kept as an unused, tested ut
 ## Constraints at every step
 
 pandas input keeps today's results; float64 only where a kernel contract or measured selection change requires it; every new path has a CPU twin, a column-block budget and a test against the in-memory path; slow paths log; the four cascades must give the same output whatever the thread timing.
+
+## Phase 0 baseline (2026-11-07, `rss_scale_fit.py ... default`, GPU strict-resident, about 6 GB free RAM)
+
+| size | wall | peak RSS growth |
+|---|---|---|
+| 1M x 100 | 448.4 s | 3304 MB (8.3x the 400 MB frame) |
+| 10M x 80 | aborted at 46.6 s by the 1.5 GB free-RAM guard | 2375 MB (0.7x the 3.2 GB frame) at the abort |
+
+10M x 80 does not get past the start of the fit on this machine: the frame plus its first copies exhaust the free RAM. Items 6 and 7 (do not hold the raw frame after binning; engineered columns as codes) are the ones that address it.
+
+Done from the plan so far: item 1 (codes allocated int8/int16, MDLP edge workers capped by memory), item 2 (codes uploaded at their own width, widened on the device), large-n traps for integers above 2^24 (`categorize_dataset` shift, nullable Int64 densified to float64), the selection snapshot gate. Item 4 dropped (pandas 3 is the target). Item 5 low value (the int64 per-permutation matrix is on the fallback path only). Rank target in float32 above 16.7M rows: relative error about 6e-8 on an auxiliary FE target, left as is.

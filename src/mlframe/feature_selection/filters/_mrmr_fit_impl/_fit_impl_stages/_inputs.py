@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 # --- imports (managed) ---
+from typing import Any
+
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
@@ -21,6 +23,17 @@ def _is_nominal_multiclass_target(y) -> bool:
     if arr.ndim != 1 or arr.dtype.kind not in "iub":
         return False
     return 3 <= int(np.unique(arr).size) <= _NOMINAL_TARGET_MAX_CLASSES
+
+
+def _densify_dtype(col: "pd.Series") -> Any:
+    """Float dtype a nullable column is densified to: the fit's float dtype, or float64 for an integer column with values above 2^24, which float32 would merge (epoch
+    timestamps or ids one apart becoming one value; ``categorize_dataset`` keeps such integers distinct only while they are still integers)."""
+    dt = _crit_np_dtype()
+    if np.dtype(dt).itemsize < 8 and getattr(col.dtype, "kind", "O") in ("i", "u"):
+        lo, hi = col.min(), col.max()
+        if lo is not pd.NA and hi is not pd.NA and lo == lo and max(abs(int(lo)), abs(int(hi))) > 2**24:
+            return np.float64  # Intentional float64: integers above 2^24 are not exact in float32
+    return dt
 
 
 def _stash_fe_targets(self, _y_np, X):
@@ -166,10 +179,10 @@ def _prepare_input_frame(self, X, verbose):
             # each intermediate frame is freed and peak extra RAM stays ~one column. ``assign`` returns a new frame
             # either way, so the caller's frame is never mutated - the densification stays RAM-safe on 100+ GB frames.
             if len(X) * len(_nullable_num) * 8 <= _NULLABLE_DENSIFY_EAGER_MAX_BYTES:
-                X = X.assign(**{c: X[c].astype(_crit_np_dtype()) for c in _nullable_num})
+                X = X.assign(**{c: X[c].astype(_densify_dtype(X[c])) for c in _nullable_num})
             else:
                 for _nc in _nullable_num:
-                    X = X.assign(**{_nc: X[_nc].astype(_crit_np_dtype())})
+                    X = X.assign(**{_nc: X[_nc].astype(_densify_dtype(X[_nc]))})
             if verbose:
                 logger.info(
                     "MRMR.fit: densified %d nullable masked column(s) to float (NaN-preserving): %s",

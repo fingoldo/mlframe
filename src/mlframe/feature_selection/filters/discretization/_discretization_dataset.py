@@ -377,6 +377,13 @@ def _discretize_with_nbins_strategy(
 _FLOAT32_EXACT_INT = 2**24  # integers above this are not all representable in float32
 
 
+def pl_float64():
+    """polars Float64 (imported lazily)."""
+    import polars as pl
+
+    return pl.Float64
+
+
 def _exact_integer_columns(df, numerical_cols: list, dt, is_polars: bool):
     """``(df, dt)`` such that casting the integer columns of ``df`` to ``dt`` keeps every distinct value distinct.
 
@@ -390,18 +397,26 @@ def _exact_integer_columns(df, numerical_cols: list, dt, is_polars: bool):
     for c in numerical_cols:
         col = df[c] if not is_polars else df.get_column(c)
         if is_polars:
-            if not col.dtype.is_integer():
+            is_int = col.dtype.is_integer()
+            if not (is_int or col.dtype == pl_float64()):
                 continue
             lo, hi = col.min(), col.max()
         else:
-            if col.dtype.kind not in "iu" and not str(col.dtype).startswith(("Int", "UInt")):
+            is_int = col.dtype.kind in "iu" or str(col.dtype).startswith(("Int", "UInt"))
+            if not (is_int or col.dtype == np.float64):
                 continue
             lo, hi = col.min(), col.max()
-        if lo is None or hi is None or (isinstance(lo, float) and np.isnan(lo)):
+        if lo is None or hi is None or (isinstance(lo, float) and not np.isfinite(lo)) or (isinstance(hi, float) and not np.isfinite(hi)):
             continue
+        if max(abs(float(lo)), abs(float(hi))) <= _FLOAT32_EXACT_INT:
+            continue
+        if not is_int:
+            # a float64 column holding integers (a densified nullable Int64 id, an epoch time read as float) collides the same way; other large floats are the accepted float32 relaxation
+            vals = col.to_numpy() if is_polars else col.to_numpy(dtype=np.float64, na_value=np.nan)
+            fin = vals[np.isfinite(vals)]
+            if fin.size == 0 or not np.array_equal(fin, np.floor(fin)) or float(hi) - float(lo) >= 2.0**53:
+                continue
         lo, hi = int(lo), int(hi)
-        if max(abs(lo), abs(hi)) <= _FLOAT32_EXACT_INT:
-            continue
         if hi - lo > _FLOAT32_EXACT_INT:
             logger.info("categorize_dataset: integer column %r spans more than 2^24; binning the numeric block in float64 so its values stay distinct", c)
             return df, np.float64  # Intentional float64: the integer range does not fit float32's exact range
@@ -411,11 +426,15 @@ def _exact_integer_columns(df, numerical_cols: list, dt, is_polars: bool):
     if is_polars:
         import polars as pl
 
-        df = df.with_columns([(pl.col(c).cast(pl.Int64) - lo).alias(c) for c, lo in shifts.items()])
+        df = df.with_columns([((pl.col(c).cast(pl.Int64) if df.schema[c].is_integer() else pl.col(c)) - lo).alias(c) for c, lo in shifts.items()])
     else:
         df = df.copy(deep=False)
         for c, lo in shifts.items():
-            df[c] = df[c].astype("Int64" if str(df[c].dtype).startswith(("Int", "UInt")) else np.int64) - lo
+            col = df[c]
+            if col.dtype == np.float64:
+                df[c] = col - float(lo)  # exact: integers below 2^53 and their differences are exact in float64
+            else:
+                df[c] = col.astype("Int64" if str(col.dtype).startswith(("Int", "UInt")) else np.int64) - lo
     return df, dt
 
 
