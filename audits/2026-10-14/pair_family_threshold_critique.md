@@ -5,7 +5,7 @@ Source: read-only critique agent, 2026-10-14. Scope: `src/mlframe/feature_select
 ## Findings
 
 ### F01 - Per-pair exact threshold does not control FWER over all pairs
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED. `_check_prospective_fe_pairs_part5` (`_pairs_core_parts.py`) sets `_pair_family_alpha = 0.001 / len(prospective_pairs)`, a Bonferroni division over the pool, and the caller passes it to the per-pair family gate. Pinned by `tests/feature_selection/filters/test_pair_family_bonferroni_alpha.py` (removing the division fails it).
 - Each pair is gated independently. At alpha 0.01 over 28 pairs (8 columns) the chance of at least one false pass is about 0.25.
 - Fix direction: a family of all pairs x configurations for the final FWER, not only per-pair.
 - Evidence: `_pairs_emit.py:170` (K = `len(var_pairs_perf)`).
