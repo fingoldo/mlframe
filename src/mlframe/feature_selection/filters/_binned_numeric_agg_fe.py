@@ -622,15 +622,16 @@ def _redundancy_gate_binagg(
     if _warm_srcs:
         from ._mi_greedy_cmi_fe import quantile_bin_columns
 
-        _src_bin_cache.update(zip(_warm_srcs, quantile_bin_columns(X[_warm_srcs].to_numpy(dtype=_crit_np_dtype()), nbins_base)))
+        _src_bin_cache.update(zip(_warm_srcs, quantile_bin_columns(X[_warm_srcs].to_numpy(dtype=_crit_np_dtype()), nbins_base, dtype=np.int16)))
 
     def _src_bins(col: str) -> np.ndarray:
         """Quantile-bin codes for a raw source column, memoized in ``_src_bin_cache`` since the same source column conditions many candidate binagg columns."""
         b = _src_bin_cache.get(col)
         if b is None:
-            b = _quantile_bin(X[col].to_numpy(dtype=_crit_np_dtype()), nbins=nbins_base)
-            _src_bin_cache[col] = b
-        return b
+            b = np.asarray(_quantile_bin(X[col].to_numpy(dtype=_crit_np_dtype()), nbins=nbins_base))
+            _src_bin_cache[col] = b.astype(np.int16) if b.size and int(b.max()) < 32767 and int(b.min()) >= -32768 else b
+        # the cache holds int16 codes (2 bytes a value: the int64 vectors of every source were gigabytes at 10 million rows); callers get the int64 codes they always got
+        return b.astype(np.int64, copy=False)
 
     kept_cols: list[Any] = []
     _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink, linear_usability)
