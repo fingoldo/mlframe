@@ -206,3 +206,9 @@ Still open as DOC, not yet verified: DESER-01, DESER-03, DESER-04, DESER-05, DES
 - DESER-08: `training/feature_handling/cache.py` (around line 373) documents that the pickle fallback is reached only when `CacheConfig.allow_pickle` is set, which defaults to False.
 
 Still open as DOC: DESER-05, EXE-04, EXE-21..26, EXE-29, INP-06, INP-07, SUP-06, SUP-07.
+
+## DOC dispositions, third pass (2026-11-07)
+
+- EXE-04: `estimators/pipelines.py` `_LazyModule` receives only literal module names; the seven call sites in `estimators/pipelines.py`, `feature_engineering/mps.py`, `models/_optimization_shared.py` and `metrics/calibration/_calibration_plot.py` pass `"matplotlib*"` or `"plotly.graph_objects"` constants. No caller passes a runtime value, so `import_module` never sees input from outside.
+
+Still open as DOC: DESER-05, EXE-21..26, EXE-29, INP-06, INP-07, SUP-06, SUP-07.
