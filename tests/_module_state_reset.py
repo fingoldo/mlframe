@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import importlib
 import sys
-from collections.abc import MutableMapping, MutableSequence, MutableSet
-from typing import Any, Iterator
+from collections.abc import Iterator, MutableMapping, MutableSequence, MutableSet
+from typing import Any
 
 import pytest
 
+# ``_fe_device_scheduler._SLOT_POOLS`` is deliberately absent: the stage slots' memory pools live for the whole process because device arrays allocated in them are held by
+# process-global caches (radix interpolation entries, operand tables); restoring the dict dropped the pools a test created, cupy freed their in-use chunks, and the next test's
+# cached arrays dangled (cudaErrorIllegalAddress in the next kernel that read one).
 _MODULE_STATE = (
     ("mlframe", "_lazy_toplevel_cache"),
     ("mlframe._numba_cache_deps", "_DEPENDENCY_FILES"),
@@ -26,12 +29,19 @@ _MODULE_STATE = (
     ("mlframe.feature_selection.filters._analytic_mi_null", "_min_n_overrides"),
     ("mlframe.feature_selection.filters._dcor_gpu", "_KERNEL"),
     ("mlframe.feature_selection.filters._family_maxt_cuda_bits", "_kernels_v2"),
+    ("mlframe.feature_selection.filters._batch_mi_noise_gate_bits", "_OBSERVED"),
+    ("mlframe.feature_selection.filters._binned_numeric_agg_resident", "_OOF_GATHER_INTO_KERNELS"),
+    ("mlframe.feature_selection.filters._device_sort_safe", "_POOL_LOCKS"),
+    ("mlframe.feature_selection.filters._edge_pool", "_ACTIVE_STAGES"),
+    ("mlframe.feature_selection.filters._fe_resident_operands", "_QBIN_HOST_CODES"),
+    ("mlframe.feature_selection.filters._gpu_resident_operand_build", "_BATCH_UNARY_KERNELS"),
+    ("mlframe.feature_selection.filters._optimal_joint_edges", "_FOLD_MASKS"),
+    ("mlframe.feature_selection.filters._family_maxt_gate", "_label_bits_cache"),
     ("mlframe.feature_selection.filters._fe_batched_mi", "_DEDUP_EDGES_KERNELS"),
     ("mlframe.feature_selection.filters._fe_batched_mi_cmi", "_BATCHED_JOINT_ENTROPY_G_KERNEL"),
     ("mlframe.feature_selection.filters._fe_batched_mi_cmi_lut", "_XLOGX_TABLES"),
     ("mlframe.feature_selection.filters._fe_cmi_redundancy_gate", "_Y_DENSE_MEMO"),
     ("mlframe.feature_selection.filters._fe_content_memo", "_STORES"),
-    ("mlframe.feature_selection.filters._fe_device_scheduler", "_SLOT_POOLS"),
     ("mlframe.feature_selection.filters._fe_family_timing", "_FE_FAMILY_WALL"),
     ("mlframe.feature_selection.filters._fe_resident_operands", "_FE_RESIDENT_QBIN_CODES"),
     ("mlframe.feature_selection.filters._fe_sufficient_summary_pairs", "_FUSED_KERNELS"),

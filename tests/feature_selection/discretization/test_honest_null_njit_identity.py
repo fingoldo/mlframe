@@ -172,3 +172,51 @@ def test_column_blocks_give_the_values_of_one_call(monkeypatch):
         assert plain.shape == plain_b.shape
         np.testing.assert_array_equal(plain, plain_b)
         np.testing.assert_array_equal(corr, corr_b)
+
+
+def test_permutation_blocks_equal_the_single_draw(monkeypatch):
+    """A draw too large for the label cache is made block by block from the same seed: the null equals the single-draw null, row for row."""
+    from mlframe.feature_selection.filters import _honest_mdlp_null as hn
+    from mlframe.feature_selection.filters._honest_spec import build_honest_spec
+
+    rng = np.random.default_rng(11)
+    n = 700
+    X = pd.DataFrame(rng.standard_normal((n, 4)).astype(np.float32), columns=list("abcd"))
+    y = (X["a"].to_numpy() + 0.7 * rng.standard_normal(n) > 0).astype(np.int8)
+    spec = build_honest_spec(X, list(X.columns), y, 6)
+    codes = np.zeros((n, 5), dtype=np.int8)
+    codes[:, 4] = y
+    nbins = np.full(5, 8, dtype=np.int64)
+    whole = hn._njit_null_columns(spec, codes, nbins, 4, [0, 1, 2, 3], 37, 9)
+    spec2 = build_honest_spec(X, list(X.columns), y, 6)
+    monkeypatch.setattr(hn, "_PERM_LABELS_CACHE_MAX_BYTES", 1)
+    monkeypatch.setattr(hn, "_PERM_LABELS_BLOCK_BYTES", 10 * n)
+    blocks = hn._njit_null_columns(spec2, codes, nbins, 4, [0, 1, 2, 3], 37, 9)
+    assert len(list(hn._permuted_label_blocks(spec2, np.asarray(spec2["y_enc"]), codes[:, 4].astype(np.int64), np.random.default_rng(9), n, 37, 9))) == 4
+    assert np.array_equal(whole[0], blocks[0]) and np.array_equal(whole[1], blocks[1])
+
+
+def test_column_blocks_share_the_permutation_blocks(monkeypatch):
+    """Column blocks inside permutation blocks: both axes cut small, the null equals the single call, and a permutation block is drawn once however many column blocks read it."""
+    from mlframe.feature_selection.filters import _honest_mdlp_null as hn
+    from mlframe.feature_selection.filters._honest_spec import build_honest_spec
+
+    rng = np.random.default_rng(5)
+    n = 700
+    X = pd.DataFrame(rng.standard_normal((n, 6)).astype(np.float32), columns=list("abcdef"))
+    y = (X["a"].to_numpy() + 0.7 * rng.standard_normal(n) > 0).astype(np.int8)
+    codes = np.zeros((n, 7), dtype=np.int8)
+    codes[:, 6] = y
+    nbins = np.full(7, 8, dtype=np.int64)
+    whole = hn._njit_null_columns(build_honest_spec(X, list(X.columns), y, 6), codes, nbins, 6, list(range(6)), 37, 9)
+    monkeypatch.setattr(hn, "_PERM_LABELS_CACHE_MAX_BYTES", 1)
+    monkeypatch.setattr(hn, "_PERM_LABELS_BLOCK_BYTES", 10 * n)
+    monkeypatch.setattr(hn, "_NULL_COLUMNS_BLOCK_BYTES", 2 * 12 * n)
+    draws = []
+    from mlframe.feature_selection.filters import _mdlp_honest_bycol_njit as bj
+
+    real = bj.permuted_labels_seeded
+    monkeypatch.setattr(bj, "permuted_labels_seeded", lambda *a, **k: (draws.append(a[2]), real(*a, **k))[1])
+    got = hn._njit_null_columns(build_honest_spec(X, list(X.columns), y, 6), codes, nbins, 6, list(range(6)), 37, 9)
+    assert sum(draws) == 37, "each permutation must be drawn once, not once per column block"
+    assert np.array_equal(whole[0], got[0]) and np.array_equal(whole[1], got[1])

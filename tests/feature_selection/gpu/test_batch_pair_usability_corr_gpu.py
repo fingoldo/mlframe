@@ -9,6 +9,8 @@ cases (a near-constant column, NaN/inf rows). The CUDA test auto-skips when CUDA
 from __future__ import annotations
 
 import numpy as np
+
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 import pytest
 
 from mlframe.feature_selection.filters._fe_usability_signal import (
@@ -107,7 +109,7 @@ def test_dispatcher_preserves_caller_dtype_instead_of_forcing_float64():
 
     dispatched32, backend = dispatch_batch_pair_usability_corr(y32, operand32, pair_a, pair_b, form_ids=ALL_FORM_IDS, force_backend="cpu")
     assert backend == "cpu"
-    np.testing.assert_array_equal(dispatched32, result32)
+    np.testing.assert_array_equal(dispatched32, result32.astype(crit_float_dtype()))
 
     # The dtype-preservation itself: pre-fix, the dispatcher unconditionally re-cast y/operand_matrix to
     # float64 before calling the njit backend, discarding the caller's float32 -- assert on the ACTUAL
@@ -177,7 +179,9 @@ def test_dispatcher_cpu_force_matches_direct_call():
     direct = batch_pair_usability_corr_njit_parallel(y, operand_matrix, pair_a, pair_b, ALL_FORM_IDS)
     dispatched, backend = dispatch_batch_pair_usability_corr(y, operand_matrix, pair_a, pair_b, force_backend="cpu")
     assert backend == "cpu"
-    assert np.array_equal(direct, dispatched)
+    # the dispatcher returns the table in the criterion float dtype whichever backend ran (the CPU kernel itself is double)
+    assert dispatched.dtype == crit_float_dtype()
+    assert np.array_equal(direct.astype(crit_float_dtype()), dispatched)
 
 
 def test_dispatcher_defaults_to_all_forms_when_omitted():

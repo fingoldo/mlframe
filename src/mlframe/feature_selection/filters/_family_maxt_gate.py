@@ -9,6 +9,7 @@ the number of permutations. Under the null the pass probability is at most alpha
 from __future__ import annotations
 
 from mlframe.utils.env_flags import env_int
+import os
 import threading
 from collections import OrderedDict
 
@@ -259,6 +260,103 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
     return idx
 
 
+_NO_LABELS = np.empty((0, 0, 0), dtype=np.uint64)  # placeholders of the block that a path does not read
+_NO_INDEX = np.empty((0, 0), dtype=np.int32)
+_LABEL_BITS_CACHE_BYTES = 256 * 1024 * 1024  # packed class bit sets of recent permutation blocks
+_label_bits_cache: "OrderedDict[tuple, tuple]" = OrderedDict()
+_label_bits_cache_bytes = 0
+
+
+def _release_label_bits_cache() -> int:
+    """Drop the cached label bit sets (registered for release under memory pressure); returns the bytes freed."""
+    global _label_bits_cache_bytes
+    with _perm_block_cache_lock:
+        freed = _label_bits_cache_bytes
+        _label_bits_cache.clear()
+        _label_bits_cache_bytes = 0
+    return int(freed)
+
+
+register_cache_releaser(_release_label_bits_cache)
+
+
+_DEVICE_LABELS_MIN_ROWS = 200_000  # below it the host draw is as fast as the launch
+# Opt-in (MLFRAME_PERM_LABELS_DEVICE=1): measured against the host draw at 1000000 rows x 48 permutations the device draw is bit-identical and 0.59 s against 0.71 s (a Fisher-Yates stream is
+# sequential per permutation, so the device is latency-bound with one thread each), too small a gain to take the device's time from the scoring that runs on it; the host draw overlaps it instead.
+
+
+def _device_label_bits_or_none(rng: np.random.Generator, y: np.ndarray, m: int, n_y: int, words: int) -> "np.ndarray | None":
+    """The class bit sets of the next ``m`` permutations drawn on the device (same Fisher-Yates streams, so the same bits), or ``None`` to draw on the host.
+
+    The generator is advanced by the one block seed a host draw takes, so the stream the caller sees is unchanged; ``None`` leaves it untouched."""
+    if int(y.shape[0]) < _DEVICE_LABELS_MIN_ROWS or os.environ.get("MLFRAME_PERM_LABELS_DEVICE", "0").strip() != "1":
+        return None
+    from ._perm_labels_device import device_label_bits
+
+    state = rng.bit_generator.state
+    labels = device_label_bits(y, int(m), int(rng.integers(0, 2**31 - 1)), int(n_y), int(words))
+    if labels is None:
+        rng.bit_generator.state = state
+    return labels
+
+
+def _label_bits_block(rng: np.random.Generator, y: np.ndarray, m: int, n_y: int, words: int, y_key: int, on_device: bool = False) -> np.ndarray:
+    """The packed class bit sets ``(m, n_y, words)`` of the next ``m`` label permutations of the stream of ``rng`` (the generator ends where a fresh draw leaves it).
+
+    A permutation block is a function of the generator state and the row count; its bit sets also of the labels. They are one bit per row and class (125 KB per permutation at a million rows),
+    where the index matrix is four bytes per row, so a family scored in groups finds the block of every later group here instead of drawing it again.
+    """
+    global _label_bits_cache_bytes
+    state_before = repr(rng.bit_generator.state)
+    key = (int(y.shape[0]), int(m), int(n_y), state_before, y_key)
+    with _perm_block_cache_lock:
+        hit = _label_bits_cache.get(key)
+        if hit is not None:
+            _label_bits_cache.move_to_end(key)
+            rng.bit_generator.state = hit[1]
+            cached: np.ndarray = hit[0]
+            return cached
+    labels = _device_label_bits_or_none(rng, y, m, n_y, words) if on_device else None
+    if labels is None:
+        labels = label_bitsets_from_index(y, _permutation_block(rng, y, m), n_y, words)
+    with _perm_block_cache_lock:
+        _label_bits_cache[key] = (labels, rng.bit_generator.state)
+        _label_bits_cache_bytes += labels.nbytes
+        while _label_bits_cache_bytes > _LABEL_BITS_CACHE_BYTES and len(_label_bits_cache) > 1:
+            _, (old, _) = _label_bits_cache.popitem(last=False)
+            _label_bits_cache_bytes -= old.nbytes
+    return labels
+
+
+def _family_null_max_device_bits(dev_bits, rng, y, n_y: int, n_perm: int, block: int, words: int, y_key: int, py_const: float, out: np.ndarray, acc: Any) -> "np.ndarray | None":
+    """The device bit-set null over all permutation blocks, the next block's class bit sets drawn on the host while the current one is scored on the device.
+
+    The draws are host numba kernels (entered through the parallel guard); the device scoring is cupy only and runs outside the guard, so the two overlap (the device sat idle through every
+    host draw: 3 percent GPU in the timeline of a 1000000-row fit). Blocks are drawn in order by one worker, so the generator ends where a sequential run leaves it."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ._family_maxt_cuda_bits import null_max_bits_device
+
+    starts = list(range(0, n_perm, block))
+
+    def draw(start: int):
+        """The class bit sets of the permutation block that begins at ``start``."""
+        m = min(block, n_perm - start)
+        with parallel_kernel_entry():
+            return m, _label_bits_block(rng, y, m, n_y, words, y_key, on_device=True)
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="null_labels") as pool:
+        pending: Any = pool.submit(draw, starts[0])
+        for i, start in enumerate(starts):
+            m, labels = pending.result()
+            pending = pool.submit(draw, starts[i + 1]) if i + 1 < len(starts) else None
+            if acc is not None:
+                null_max_bits_device(dev_bits, labels, py_const, acc=acc[start : start + m])
+            else:
+                out[start : start + m] = null_max_bits_device(dev_bits, labels, py_const)
+    return None if acc is not None else out
+
+
 def _device_null_oom_errors() -> tuple[type[BaseException], ...]:
     """Exceptions that mean the device could not hold this null block (pool limit or allocation failure), so the host kernel takes over.
 
@@ -352,25 +450,22 @@ def family_null_max(
     # a block of permutation indices is (block, n) ints: at a million rows 256 permutations are a gigabyte, and the block cache holds another; the block is narrowed to the budget
     # (a fit up to ~190000 rows keeps 256, so its permutation stream is unchanged)
     block = _budgeted_perm_block(block, int(y.shape[0]))
+    y_key = hash(np.asarray(y).tobytes()) if (dev_bits is not None or bit_prep is not None) else 0
+    if dev_bits is not None:
+        return _family_null_max_device_bits(dev_bits, rng, y, int(n_y), int(n_perm), block, words, y_key, py_const, out, acc)
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
-        perm_idx = _permutation_block(rng, y, m)
+        bits_path = dev_bits is not None or bit_prep is not None
+        # the bit-set paths read the packed class bit sets only: those are cached per block (a streamed family scores every group against the same draw, and drawing the indices again for each
+        # group was 360 s of a 730 s fit at 1000000 rows); the other paths need the index matrix
+        labels = _label_bits_block(rng, y, m, int(n_y), words, y_key) if bits_path else _NO_LABELS
+        perm_idx = _NO_INDEX if bits_path else _permutation_block(rng, y, m)
         # The bitset / njit branches run parallel=True prange kernels; the GPU branches do not, but holding the guard
         # across the whole block keeps the null's kernel entries serialised with every other FE fan-out thread.
         with parallel_kernel_entry():
-            if dev_bits is not None:
-                from ._family_maxt_cuda_bits import null_max_bits_device
-
-                # The class bit sets are packed straight from the permutation indices: the (block, n) matrix of permuted labels is never built.
-                labels = label_bitsets_from_index(y, perm_idx, int(n_y), words)
-                if acc is not None:
-                    null_max_bits_device(dev_bits, labels, py_const, acc=acc[start : start + m])
-                    continue
-                out[start : start + m] = null_max_bits_device(dev_bits, labels, py_const)
-                continue
             if bit_prep is not None:
                 # the class bit sets are packed straight from the permutation indices: the (block, n) matrix of permuted labels is never built
-                out[start : start + m] = null_max_bitsets_from_classes(bit_prep, n_x, label_bitsets_from_index(y, perm_idx, int(n_y), words), int(y.shape[0]), py_counts)
+                out[start : start + m] = null_max_bitsets_from_classes(bit_prep, n_x, labels, int(y.shape[0]), py_counts)
             elif use_device:
                 perms = y[perm_idx]
                 try:

@@ -1,11 +1,12 @@
 """Peak resident memory of one MRMR fit at a given row count, with a timeline of the main thread's innermost mlframe function at each new peak.
 
-Usage: rss_scale_fit.py ROWS [COLS] [all|default]. The frame is a float32 DataFrame (the project dtype), the target a noisy function of five columns. The sampler records the
+Usage: rss_scale_fit.py ROWS [COLS] [all|default]; RSS_TICK_S=20 adds a timeline line of the main thread every 20 s. The frame is a float32 DataFrame (the project dtype), the target a noisy function of five columns. The sampler records the
 process RSS every 0.2 s; a new peak is attributed to the main thread's innermost mlframe frame, which names the step that allocated.
 """
 import os
 import sys
 import threading
+import types
 import time
 import warnings
 
@@ -40,14 +41,31 @@ import tracemalloc
 TRACE = os.environ.get("RSS_TRACEMALLOC") == "1"
 if TRACE:
     tracemalloc.start(6)
-snapshots = []
+trace = types.SimpleNamespace(snapshots=[])  # the sampler thread appends its tracemalloc snapshots here
 proc = psutil.Process()
+TICK = float(os.environ.get("RSS_TICK_S", "0"))  # seconds between timeline lines of the main thread's step (0: off)
+ticks = []
 MIN_AVAILABLE = float(os.environ.get("RSS_MIN_AVAILABLE_GB", "1.0")) * 1e9
 base = proc.memory_info().rss
 peak = [base]
 events = []
 stop = threading.Event()
 main_id = threading.main_thread().ident
+
+
+def proc_cpu() -> float:
+    """System CPU percent since the previous call."""
+    return psutil.cpu_percent(interval=None)
+
+
+def gpu_util() -> str:
+    """GPU utilisation percent from nvidia-smi, or ``?``."""
+    import subprocess
+
+    try:
+        return subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5).stdout.strip() or "?"
+    except Exception:  # no nvidia-smi: the column stays unknown
+        return "?"
 
 
 def innermost(frame):
@@ -73,11 +91,13 @@ def sampler():
                 print(f"  t={when:7.1f}s +{mb:7.0f} MB  {where}", flush=True)
             print(f"  now: {innermost(sys._current_frames().get(main_id))}", flush=True)
             os._exit(3)
+        if TICK and (not ticks or time.perf_counter() - t0 - ticks[-1][0] >= TICK):
+            ticks.append((time.perf_counter() - t0, (rss - base) / 1e6, f"cpu {proc_cpu():3.0f}% gpu {gpu_util():>3}% " + innermost(sys._current_frames().get(main_id))))
         if rss > peak[0]:
             peak[0] = rss
-            if TRACE and rss - base > float(os.environ.get("RSS_SNAP_FIRST_MB", "600")) * 1e6 and (not snapshots or rss - snapshots[-1][0] > float(os.environ.get("RSS_SNAP_STEP_MB", "400")) * 1e6):
+            if TRACE and rss - base > float(os.environ.get("RSS_SNAP_FIRST_MB", "600")) * 1e6 and (not trace.snapshots or rss - trace.snapshots[-1][0] > float(os.environ.get("RSS_SNAP_STEP_MB", "400")) * 1e6):
                 snap = tracemalloc.take_snapshot()
-                snapshots.append((rss, (rss - base) / 1e6, snap.statistics("traceback")[:14]))
+                trace.snapshots.append((rss, (rss - base) / 1e6, snap.statistics("traceback")[:14]))
             if rss - last_logged > 50e6:
                 last_logged = rss
                 events.append((time.perf_counter() - t0, (rss - base) / 1e6, innermost(sys._current_frames().get(main_id))))
@@ -124,8 +144,12 @@ print(f"rows={rows} cols={cols} mode={mode} frame={frame_mb:.0f} MB status={stat
 print(f"peak RSS growth {(peak[0] - base) / 1e6:.0f} MB = {(peak[0] - base) / 1e6 / frame_mb:.2f} x the frame; RSS before the fit {base / 1e6:.0f} MB")
 for when, mb, where in events:
     print(f"  t={when:7.1f}s +{mb:7.0f} MB  {where}")
+if ticks:
+    print("--- timeline of the main thread")
+    for when, mb, where in ticks:
+        print(f"  tick t={when:7.1f}s +{mb:7.0f} MB  {where}")
 
-for rss, mb, stats in snapshots[-2:]:
+for rss, mb, stats in trace.snapshots[-2:]:
     print(f"--- tracemalloc at RSS growth {mb:.0f} MB: the largest live allocations")
     for st in stats:
         print(f"  {st.size / 1e6:8.0f} MB in {st.count} blocks")
