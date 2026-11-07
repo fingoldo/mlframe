@@ -733,8 +733,10 @@ def _avg_tie_rank(fit_sorted: np.ndarray, vals: np.ndarray) -> np.ndarray:
             return (lo + hi - 1) / 2.0
     return lo - 0.5
 
-def _self_avg_tie_rank(fit_finite: np.ndarray) -> np.ndarray:
-    """Average (mid) 0-based rank of each element of ``fit_finite`` AMONG ITSELF.
+def _self_avg_tie_rank_and_sorted(fit_finite: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+    """``(average rank, sorted values)`` of ``fit_finite``: the sorted copy the rank already needs is returned as well, so the caller does not sort the column a second time.
+
+    Average (mid) 0-based rank of each element of ``fit_finite`` AMONG ITSELF.
 
     Bit-identical to ``_avg_tie_rank(np.sort(fit_finite), fit_finite)`` but avoids the two ``searchsorted`` sweeps over
     the full array - at FIT time the query set IS the reference set, so a single ``argsort`` + a run-length mid-rank
@@ -754,7 +756,12 @@ def _self_avg_tie_rank(fit_finite: np.ndarray) -> np.ndarray:
     # Intentional float64: output / recipe contract kept f64
     out = np.empty(n, dtype=np.float64)
     out[order] = mid[grp_id]
-    return out
+    return out, sx
+
+def _self_avg_tie_rank(fit_finite: np.ndarray) -> np.ndarray:
+    """Average (mid) 0-based rank of each element of ``fit_finite`` among itself (see :func:`_self_avg_tie_rank_and_sorted`)."""
+    return _self_avg_tie_rank_and_sorted(fit_finite)[0]
+
 
 def generate_rankgauss_features(
     X: pd.DataFrame,
@@ -784,27 +791,30 @@ def generate_rankgauss_features(
     if not num_cols:
         return pd.DataFrame(index=X.index), raw_recipes
 
-    for col in num_cols:
+    def _one(col):
+        """The RankGauss column of ``col`` and its sorted finite fit values (one sort per column)."""
         x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
         finite = np.isfinite(x)
-        fit_sorted = np.sort(x[finite]) if finite.any() else np.array([0.0])
-        n_fit = int(fit_sorted.size)
-        # Fit-time output: rank each value among the finite sorted fit values
-        # (average rank for ties via searchsorted left/right midpoint), then
-        # map to Gaussian. NaN rows -> 0.0 (the Gaussian centre).
+        # Fit-time output: rank each value among the finite sorted fit values (average rank for ties), then map to Gaussian. NaN rows -> 0.0 (the Gaussian centre).
         out = np.zeros_like(x)
-        if n_fit > 0 and finite.any():
-            # Fit-time ranks are the fit values' ranks among themselves -> argsort
-            # mid-rank, bit-identical to _avg_tie_rank(fit_sorted, x[finite]) but
-            # without the two full-array searchsorted sweeps (~3.4x at 1M).
-            avg_rank = _self_avg_tie_rank(x[finite])
-            out[finite] = _rank_to_gauss(avg_rank, n_fit)
+        if finite.any():
+            # the fit values' ranks among themselves: one argsort gives the mid-rank and the sorted copy the recipe stores (bit-identical to np.sort of the finite values)
+            avg_rank, fit_sorted = _self_avg_tie_rank_and_sorted(x[finite])
+            out[finite] = _rank_to_gauss(avg_rank, int(fit_sorted.size))
+        else:
+            fit_sorted = np.array([0.0])
+        return out, fit_sorted
+
+    from ._edge_pool import map_on_edge_pool
+
+    # the columns are independent and the sorts release the GIL: they run on the edge pool, results folded in column order
+    for col, (out, fit_sorted) in zip(num_cols, map_on_edge_pool(_one, list(num_cols))):
         name = engineered_name_rankgauss(col)
         encoded[name] = out
         raw_recipes[name] = {
             "src_col": col,
             "fit_sorted": fit_sorted,
-            "n_fit": n_fit,
+            "n_fit": int(fit_sorted.size),
         }
 
     return pd.DataFrame(encoded, index=X.index), raw_recipes
