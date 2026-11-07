@@ -21,11 +21,13 @@ _MIN_ROWS = 100
 def _rank(values: np.ndarray) -> np.ndarray:
     """Average ranks of ``values`` (ties share the mean rank)."""
     order = np.argsort(values, kind="stable")
-    ranks = np.empty(len(values), dtype=np.float64)  # Intentional float64: rank sums of up to n^2 / 2
-    ranks[order] = np.arange(1, len(values) + 1)
-    _, inverse, counts = np.unique(values, return_inverse=True, return_counts=True)
-    sums = np.bincount(inverse, weights=ranks)
-    averaged: np.ndarray = (sums / counts)[inverse]
+    sorted_values = values[order]
+    n = len(values)
+    starts = np.flatnonzero(np.concatenate(([True], sorted_values[1:] != sorted_values[:-1])))  # first sorted position of each tie group
+    ends = np.append(starts[1:], n)
+    group_mean = (starts + ends + 1) / 2.0  # mean of the 1-based positions starts+1 .. ends
+    averaged: np.ndarray = np.empty(n, dtype=np.float64)  # Intentional float64: rank sums of up to n^2 / 2
+    averaged[order] = np.repeat(group_mean, ends - starts)
     return averaged
 
 
