@@ -443,3 +443,9 @@ nvprof of `honest_null_columns_device` (1000000 rows, 8 columns, 256 permutation
 ## 2026-11-07 regression state before the push
 
 `tests/feature_selection/gpu` + `tests/feature_selection/fe/gpu` on the current code: 1758 passed, 6 skipped (29 minutes). Known failures kept outside this run and recorded above: six clustering tests (DCD swap null, synergy detector) that also fail with a clean numba cache, and two `fe` tests that also fail on the pre-session base (`test_uniform_quantization_code_table`, `test_poly_branch_overflow_no_runtime_warning`).
+
+## 2026-11-07 re-sample, 100000 x 100 all families (81 s wall, same-process stack sampler)
+
+- Workers alive average 3 to 5 during the staged phases; the only host-serial stretch was the orthogonal three-gate `_quantile_bin_batched` (24 to 30 s window, no workers): its dense columns now bin in parallel column chunks (2.3 s to 1.0 s at 100000 x 200, identical codes).
+- After the change the zero-worker windows left (66 to 84 s) are main-thread device work: `_honest_null_accept._continuous_accept_block:135` is `cp.asnumpy` waiting for the accept kernel, then the batched pair kernels. No serial host stage is left above 1.5 s at this size.
+- Leak-suspect `_rank` (one sort instead of argsort plus unique) and the conditional-maxT permutation draw (0.44 s at 300k rows, left as is) were checked in the 300k default timeline.
