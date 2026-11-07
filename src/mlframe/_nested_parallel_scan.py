@@ -69,6 +69,24 @@ def _guarded_call_nodes(node: ast.AST) -> Set[int]:
     return guarded
 
 
+def _starts_thread_pool(node: ast.AST) -> bool:
+    """True when a function starts a thread pool: a ``ThreadPoolExecutor``, or a joblib ``Parallel`` on the threading backend."""
+    if "ThreadPoolExecutor" in _called_names(node):
+        return True
+    for call in ast.walk(node):
+        if not isinstance(call, ast.Call):
+            continue
+        func = call.func
+        if (getattr(func, "id", None) or getattr(func, "attr", None)) != "Parallel":
+            continue
+        for kw in call.keywords:
+            if isinstance(kw.value, ast.Constant) and (
+                (kw.arg == "backend" and kw.value.value == "threading") or (kw.arg == "prefer" and kw.value.value == "threads")
+            ):
+                return True
+    return False
+
+
 def _called_names(node: ast.AST) -> Set[str]:
     """Every name called inside a function body that is NOT already under the guard.
 
@@ -78,6 +96,10 @@ def _called_names(node: ast.AST) -> Set[str]:
     """
     guarded = _guarded_call_nodes(node)
     out = {getattr(c.func, "id", None) or getattr(c.func, "attr", None) for c in ast.walk(node) if isinstance(c, ast.Call) and id(c) not in guarded}
+    # ``joblib.delayed(fn)`` hands fn to the pool worker, so a bare function name passed there is a callee even though it is not called here.
+    for c in ast.walk(node):
+        if isinstance(c, ast.Call) and (getattr(c.func, "id", None) or getattr(c.func, "attr", None)) == "delayed":
+            out |= {a.id for a in c.args if isinstance(a, ast.Name)}
     return {n for n in out if n}
 
 
@@ -148,7 +170,7 @@ class Package:
                 self.calls[(path, node.name)] = edges
                 if _is_parallel_kernel(node):
                     self.kernels.add(node.name)
-                if "ThreadPoolExecutor" in _called_names(node):
+                if _starts_thread_pool(node):
                     self.pools.append((path, node.name))
 
     def reachable_kernels(self, path: Path, fname: str) -> Dict[str, str]:
