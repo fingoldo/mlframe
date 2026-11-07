@@ -36,12 +36,16 @@ def _code_itemsize(mats: "list[np.ndarray]") -> int:
     return 1 if top <= 127 else (2 if top <= 32767 else 8)
 
 
-def plan_stream_groups(mats: "list[np.ndarray]", widths: "list[int]", n_rows: int) -> "list[list[tuple[int, int, int]]] | None":
-    """Groups of column pieces ``(batch, first, stop)`` whose stacked matrix fits the budget, or ``None`` when the whole family fits (the single-pass path then runs)."""
+def plan_stream_groups(mats: "list[np.ndarray]", widths: "list[int]", n_rows: int, max_group_bytes: "int | None" = None) -> "list[list[tuple[int, int, int]]] | None":
+    """Groups of column pieces ``(batch, first, stop)`` whose stacked matrix fits the budget, or ``None`` when the whole family fits (the single-pass path then runs).
+
+    ``max_group_bytes`` narrows the group to that many bytes of stacked codes (with their footprint) on top of the free-memory share: a caller whose columns are regenerated on demand streams even when the RAM is free."""
     from ._orthogonal_univariate_fe._streamed_gpu_mi import _host_free_bytes
 
     per_column = max(1, int(n_rows * _code_itemsize(mats) * _GROUP_FOOTPRINT_PER_CODE))
     budget_columns = max(1, int(_STACK_FREE_FRACTION * _host_free_bytes() // per_column))
+    if max_group_bytes is not None:
+        budget_columns = max(1, min(budget_columns, int(max_group_bytes) // per_column))
     if int(sum(widths)) <= budget_columns:
         return None
     groups: "list[list[tuple[int, int, int]]]" = [[]]
@@ -140,4 +144,20 @@ def family_pass_streamed(mats: "list[np.ndarray]", widths: "list[int]", y: np.nd
     return [bool(f) for f in flags]
 
 
-__all__ = ["family_pass_streamed", "plan_stream_groups", "streamed_null_max"]
+def family_pass_columns_streamed(mats: "list[Any]", y: np.ndarray, alpha: float, n_perm: int, seed: int, group_bytes: int) -> np.ndarray:
+    """Per-column pass flags of a family whose columns ``mats`` (each ``(n, 1)``, read through ``mats[i][:, a:b]``) are produced on demand; one group of at most ``group_bytes`` of codes is alive at a time.
+
+    The decisions are those of ``family_maxt_pass_codes`` on the stacked family: the label encoding is the same, every column is its own batch, and the groups are scored against one permutation draw."""
+    from ._y_encoding import encode_y_for_classif_mi
+
+    _, y_codes = np.unique(encode_y_for_classif_mi(np.asarray(y).ravel()), return_inverse=True)
+    y_codes = np.ascontiguousarray(y_codes.astype(np.int64).ravel())
+    n_y = int(y_codes.max()) + 1
+    widths = [1] * len(mats)
+    groups = plan_stream_groups(mats, widths, int(mats[0].shape[0]), max_group_bytes=group_bytes)
+    if groups is None:
+        groups = [[(i, 0, 1) for i in range(len(mats))]]
+    return np.asarray(family_pass_streamed(mats, widths, y_codes, n_y, alpha, n_perm, seed, groups), dtype=np.bool_)
+
+
+__all__ = ["family_pass_columns_streamed", "family_pass_streamed", "plan_stream_groups", "streamed_null_max"]
