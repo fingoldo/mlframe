@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import importlib
 import sys
-from collections.abc import MutableMapping, MutableSequence, MutableSet
-from typing import Any, Iterator
+from collections.abc import Iterator, MutableMapping, MutableSequence, MutableSet
+from typing import Any
 
 import pytest
 
@@ -29,6 +29,7 @@ _MODULE_STATE = (
     ("mlframe.feature_selection.filters._analytic_mi_null", "_min_n_overrides"),
     ("mlframe.feature_selection.filters._dcor_gpu", "_KERNEL"),
     ("mlframe.feature_selection.filters._family_maxt_cuda_bits", "_kernels_v2"),
+    ("mlframe.feature_selection.filters._family_maxt_gate", "_label_bits_cache"),
     ("mlframe.feature_selection.filters._fe_batched_mi", "_DEDUP_EDGES_KERNELS"),
     ("mlframe.feature_selection.filters._fe_batched_mi_cmi", "_BATCHED_JOINT_ENTROPY_G_KERNEL"),
     ("mlframe.feature_selection.filters._fe_batched_mi_cmi_lut", "_XLOGX_TABLES"),
