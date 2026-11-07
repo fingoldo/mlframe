@@ -24,5 +24,5 @@ def module_available(module: str) -> bool:
 
     try:
         return importlib.util.find_spec(module) is not None
-    except (ImportError, ValueError):  # audit-exempt: non_neutral_except_fallback -- the False IS the answer: the module cannot be found
+    except (ImportError, ValueError):  # audit-exempt: non_neutral_except_fallback -- the False IS the answer: the module cannot be found  # best-effort: False is the answer, not a fallback
         return False

@@ -23,7 +23,8 @@ def test_float32_spec_is_frame_backed_and_matches_the_dense_spec():
     dense = build_honest_spec(X32.astype(np.float64), cols, y, 6)
     assert isinstance(lazy["raw"], _FrameColumns)
     assert lazy["raw"].dtype == np.float32 and dense["raw"].dtype == np.float64
-    for j in range(len(cols)):
+    assert cols
+    for j, _ in enumerate(cols):
         assert np.array_equal(np.asarray(lazy["raw"][:, j], dtype=np.float64), dense["raw"][:, j])
     codes = np.zeros((600, len(cols)), dtype=np.int8)
     nbins = np.full(len(cols), 8, dtype=np.int64)

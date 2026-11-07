@@ -498,6 +498,10 @@ _CHECK_THEN_ACT_EXEMPT: dict[tuple[str, str], str] = {
     ("filters/_optimal_joint_edges.py", "fold_target"): (
         "binned validation target of one fold is a pure function of (y, fold). Part of edges_optimal_joint, measured 2.77x on 4 threads."
     ),
+    ("filters/_family_maxt_gate.py", "_label_bits_block"): (
+        "a label bit-set block is a pure function of (rows, m, classes, generator state, labels). The draw runs outside the lock because holding it would serialise the "
+        "permutation drawing of concurrent families; the write block re-checks the key under the lock, so a concurrent miss draws the block twice but stores and counts it once."
+    ),
     ("filters/_target_encoding_fe.py", "column_string_codes"): (
         "string coding of a column is a pure function of its content. Measured only 1.18x on 4 threads (GIL-bound), kept as an exemption "
         "by explicit owner choice to keep even that."
