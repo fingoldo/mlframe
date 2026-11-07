@@ -178,12 +178,26 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
     width = max(1, _NULL_COLUMNS_BLOCK_BYTES // max(1, per_column))
     if len(cols) <= width:
         return _njit_null_columns_block(spec, factors_data, factors_nbins, y_idx, cols, n_permutations, seed_key, eval_rows)
-    parts = [_njit_null_columns_block(spec, factors_data, factors_nbins, y_idx, cols[start : start + width], n_permutations, seed_key, eval_rows) for start in range(0, len(cols), width)]
-    return np.concatenate([p[0] for p in parts], axis=1), np.concatenate([p[1] for p in parts], axis=1)
+    if spec.get("method") == "oos":
+        parts = [_njit_null_columns_block(spec, factors_data, factors_nbins, y_idx, cols[start : start + width], n_permutations, seed_key, eval_rows) for start in range(0, len(cols), width)]
+        return np.concatenate([p[0] for p in parts], axis=1), np.concatenate([p[1] for p in parts], axis=1)
+    # Permutation blocks outside, column blocks inside: a draw above the label cache is generated block by block, and every column block of a permutation block reads the same labels
+    # (drawing them for each column block again was 10 draws of a gigabyte per call at 2000000 rows by 80 columns).
+    y_codes = np.ascontiguousarray(np.asarray(factors_data[:, int(y_idx)]).astype(np.int64))
+    rng = np.random.default_rng(seed_key)
+    by_perm = []
+    for blk in _permuted_label_blocks(spec, np.asarray(spec["y_enc"]), y_codes, rng, n, int(n_permutations), seed_key):
+        col_parts = [_njit_null_columns_block(spec, factors_data, factors_nbins, y_idx, cols[start : start + width], n_permutations, seed_key, eval_rows, label_blocks=[blk]) for start in range(0, len(cols), width)]
+        by_perm.append((np.concatenate([p[0] for p in col_parts], axis=1), np.concatenate([p[1] for p in col_parts], axis=1)))
+    if len(by_perm) == 1:
+        return by_perm[0]
+    return np.concatenate([p[0] for p in by_perm], axis=0), np.concatenate([p[1] for p in by_perm], axis=0)
 
 
-def _njit_null_columns_block(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, cols, n_permutations: int, seed_key: int, eval_rows=None):
-    """Per-permutation null MI of ``cols`` (no cache): ``(plain, corrected)`` each ``(n_permutations, len(cols))``, from ``honest_null_columns``."""
+def _njit_null_columns_block(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, cols, n_permutations: int, seed_key: int, eval_rows=None, label_blocks=None):
+    """Per-permutation null MI of ``cols`` (no cache): ``(plain, corrected)`` each ``(n_permutations, len(cols))``, from ``honest_null_columns``.
+
+    ``label_blocks``: the ``(raw, codes)`` permuted-label blocks to score, when the caller shares them between column blocks (the permutations then are those blocks')."""
     from ._mdlp_oos_honest_njit import honest_validated_null_columns
     from ._analytic_mi_null import analytic_null_min_n, analytic_null_min_n_lowered, _min_expected_cell
 
@@ -260,7 +274,7 @@ def _njit_null_columns_block(spec: dict, factors_data: np.ndarray, factors_nbins
         )
         parts = [
             _bycol_null_block((*static_head, y_raw_perm, y_codes_perm, *static_tail), nan_cont)
-            for y_raw_perm, y_codes_perm in _permuted_label_blocks(spec, y_raw, y_codes, rng, n, int(n_permutations), seed_key)
+            for y_raw_perm, y_codes_perm in (label_blocks if label_blocks is not None else _permuted_label_blocks(spec, y_raw, y_codes, rng, n, int(n_permutations), seed_key))
         ]
         if len(parts) == 1:
             return parts[0]
