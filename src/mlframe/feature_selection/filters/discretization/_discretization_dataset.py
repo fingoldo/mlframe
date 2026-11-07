@@ -271,6 +271,20 @@ def _assign_nan_bin_codes(
     data[_rows, _c] = nan_codes_per_col[_c].astype(data.dtype)
 
 
+def _narrow_code_dtype(dtype: type, max_bins: int) -> type:
+    """The dtype the numeric code matrix is allocated in: the smallest of int8 / int16 that holds every code (below ``max_bins``) and the dedicated NaN code (one past a column's highest
+    regular code, so at most ``max_bins``), when that is narrower than the requested ``dtype``; ``dtype`` itself with ``MLFRAME_MRMR_COMPACT_CODES=0``. ``MRMR.fit`` narrows the finished
+    matrix to the same type (``_compact_code_storage``); allocating it narrow removes the 4-byte-per-cell int32 matrix that exists only until then."""
+    import os
+
+    if os.environ.get("MLFRAME_MRMR_COMPACT_CODES", "1").strip().lower() in ("0", "false", "off", "no"):
+        return dtype
+    for narrow in (np.int8, np.int16):
+        if int(max_bins) <= np.iinfo(narrow).max and np.dtype(narrow).itemsize < np.dtype(dtype).itemsize:
+            return narrow
+    return dtype
+
+
 def _discretize_with_nbins_strategy(
     arr: np.ndarray, numerical_cols: list, nbins_strategy: str, nbins_strategy_kwargs: Optional[dict], y_for_strategy: "np.ndarray | pd.Series | None",
     cache_dir: Optional[str], dtype: type,
@@ -325,7 +339,7 @@ def _discretize_with_nbins_strategy(
             f"exceeds dtype {dtype} max {np.iinfo(dtype).max}. "
             f"Use a wider dtype or constrain the strategy (e.g. knuth_m_max_cap=64)."
         )
-    data: np.ndarray = np.empty((n_rows, n_cols), dtype=dtype)
+    data: np.ndarray = np.empty((n_rows, n_cols), dtype=_narrow_code_dtype(dtype, max_bins))
     # BATCHED: pad every column's interior-edge vector to the SAME length
     # (``n_edges_max``, already implied by ``max_bins`` above) with ``+inf`` sentinels, then run ONE
     # ``_searchsorted_2d_right_njit_parallel`` call over the padded (n_edges_max, n_cols) matrix instead

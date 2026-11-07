@@ -8,6 +8,9 @@ and again on the changed tree; ``compare`` then lists every difference::
 
     python -m tests.feature_selection.golden.selection_snapshot --compare REF.json NEW.json
 
+Take the reference in a CLEAN worktree (``git worktree add <dir> <commit>``): a tree with warm numba caches can give a different selection order from stale compiled kernels (seen: two reference runs agreed with each other and
+disagreed with a cold-cache run of the same commit), so a warm tree is not a reference.
+
 The snapshot holds, for a pandas input and for the same data as a polars frame: the selected feature names in order, the engineered column names in order, the ``transform`` output
 column names and a digest of its values rounded to 5 significant digits (float32 sums differ in the last bits between CPU/GPU runs, the selection must not).
 """

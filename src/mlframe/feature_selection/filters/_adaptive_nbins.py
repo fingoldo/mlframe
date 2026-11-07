@@ -651,6 +651,38 @@ def _edge_pool(workers: int) -> Any:
         return _EDGE_POOL
 
 
+#: Host bytes one in-flight column costs per row in the supervised edge kernels (sorted copy, order, labels and the cut search state; 13 MB per column at 200000 rows measured).
+_EDGE_BYTES_PER_ROW = 80
+#: Default cap on the memory the edge workers may hold together, and the share of the free RAM it may take (``MLFRAME_EDGE_RAM_GB`` overrides the cap).
+_EDGE_RAM_CAP_BYTES = 2 * 1024**3
+_EDGE_RAM_FREE_FRACTION = 0.25
+
+
+def _cap_jobs_by_memory(jobs: int, n_rows: int, bytes_per_row: int = _EDGE_BYTES_PER_ROW) -> int:
+    """``jobs`` limited so the columns in flight fit the edge memory budget: with one worker per core the in-flight columns hold ``jobs * n_rows * bytes_per_row`` bytes
+    (about 10 GB for 16 workers at 10 million rows), so a long frame gets fewer workers and a short one keeps all. Results are written by column index, so the edges do not depend on it."""
+    import os
+
+    cap = _EDGE_RAM_CAP_BYTES
+    forced = os.environ.get("MLFRAME_EDGE_RAM_GB", "").strip()
+    try:
+        if forced:
+            cap = int(float(forced) * 1024**3)
+    except ValueError:
+        pass
+    try:
+        import psutil
+
+        cap = min(cap, int(_EDGE_RAM_FREE_FRACTION * psutil.virtual_memory().available))
+    except Exception as exc:  # no psutil: the fixed cap stands
+        logger.debug("edge memory cap: free RAM unknown (%r)", exc)
+    per_column = max(1, int(n_rows)) * int(bytes_per_row)
+    capped = max(1, min(int(jobs), cap // per_column))
+    if capped < int(jobs):
+        logger.info("edge workers limited from %d to %d by memory (%d rows, %.0f MB per column in flight, budget %.1f GB)", jobs, capped, n_rows, per_column / 1e6, cap / 1e9)
+    return capped
+
+
 def _resolve_edge_jobs(n_jobs: Any, n_miss: int) -> int:
     """Worker-thread count for the edge computation: the logical core count when ``n_jobs`` is unset (``MLFRAME_EDGE_JOBS`` overrides; the pools run GIL-free kernels, which gain 15 to 25% from the second hardware thread of a core), capped at the number of columns that need computing. While FE stage cascades run concurrently (``_edge_pool.concurrent_stages``) an unset ``n_jobs`` takes its
     cascade's share of the cores, so the cascades' pools together do not oversubscribe them."""
@@ -731,7 +763,7 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
     #   p=2000: serial 10.10s -> parallel 3.20s (3.16x)
     #   p=50  : serial 0.28s -> parallel 0.22s  (gated to serial, no regression)
     # (see test_per_feature_edges_parallel.py; numbers refreshed if hardware changes.)
-    _resolved_jobs = _resolve_edge_jobs(n_jobs, len(_miss_cols))
+    _resolved_jobs = _cap_jobs_by_memory(_resolve_edge_jobs(n_jobs, len(_miss_cols)), int(X.shape[0]))
 
     # Bit-identity above assumes njit(nogil=True) kernels: numba's nopython-mode functions get their
     # own thread-isolated internal RNG state, so concurrent threads never see each other's draws even
