@@ -175,6 +175,13 @@ class PermutationBlocks:
         self._next = stop
         return block
 
+    def one(self, i: int) -> Any:
+        """Permutation ``i`` as ``draw`` gives it (a device array stays on the device); the permutations are asked for in order."""
+        if int(i) != self._next:
+            raise IndexError(f"permutation blocks are read in order: asked for {i}, next is {self._next}")
+        self._next = int(i) + 1
+        return self._draw(int(i))
+
     def drain(self) -> None:
         """Draw the permutations not asked for yet (the generator ends where the eager stack left it)."""
         for i in range(self._next, self._count):
@@ -189,7 +196,8 @@ def _permuted_labels(cp: Any, y8: Any, perms: Any, p0: int, p1: int, width: "int
     w = n if width is None else int(width)
     out = cp.zeros((p1 - p0, w), dtype=cp.uint8) if w > n else cp.empty((p1 - p0, n), dtype=cp.uint8)
     for r, p in enumerate(range(p0, p1)):
-        out[r, :n] = y8[cp.asarray(np.ascontiguousarray(perms[p : p + 1][0]))]
+        perm = perms.one(p) if isinstance(perms, PermutationBlocks) else perms[p]
+        out[r, :n] = y8[perm if isinstance(perm, cp.ndarray) else cp.asarray(np.ascontiguousarray(perm))]
     return out
 
 

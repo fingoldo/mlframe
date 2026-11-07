@@ -34,3 +34,23 @@ def test_out_of_order_read_is_refused():
     blocks[0:2]
     with pytest.raises(IndexError):
         blocks[4:6]
+
+
+def test_device_permutations_are_permutations_and_reproducible():
+    """Above the row threshold the binned-agg null draws device permutations from one seed of the caller's generator: valid permutations, the same for the same seed."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._null_max_perm_gpu import _permuted_labels
+
+    n = 5000
+    y8 = cp.asarray((np.arange(n) % 3).astype(np.uint8))
+
+    def labels(seed):
+        """The permuted labels of three device permutations drawn from ``seed``."""
+        rs = cp.random.RandomState(seed)
+        blocks = PermutationBlocks(lambda _i: rs.permutation(n), 3)
+        return cp.asnumpy(_permuted_labels(cp, y8, blocks, 0, 3))
+
+    a, b = labels(11), labels(11)
+    np.testing.assert_array_equal(a, b)
+    for row in a:
+        assert np.bincount(row, minlength=3).tolist() == np.bincount(np.arange(n) % 3, minlength=3).tolist()

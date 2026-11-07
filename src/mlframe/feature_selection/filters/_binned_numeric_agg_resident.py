@@ -446,6 +446,16 @@ def build_binagg_oof_matrix_gpu(
     return block
 
 
+def _device_perms_min_rows() -> int:
+    """Rows from which the binned-agg null draws its permutations on the device (``MLFRAME_BINAGG_DEVICE_PERMS_MIN_ROWS``, default 2 million; 0 always, a huge value never)."""
+    import os
+
+    try:
+        return int(os.environ.get("MLFRAME_BINAGG_DEVICE_PERMS_MIN_ROWS", "2000000"))
+    except ValueError:
+        return 2_000_000
+
+
 def _batched_null_max(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.ndarray, _ymin: int, _ncls: int, nbins: int, rng: Any) -> "Optional[np.ndarray]":
     """The per-permutation maxima of :func:`_binagg_null_calibrated_floor` with every permutation scored in one launch per block (``_null_max_perm_gpu``): the same
     permutations in the same order, the same candidate edges, equal MI. ``None`` when that path does not apply or fails (the caller loops one launch per permutation)."""
@@ -459,7 +469,14 @@ def _batched_null_max(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.ndarray, _ymin:
         from ._unified_fe_gate import _LOCAL_GATE_NULL_PERMUTATIONS
 
         # the same permutations in the same order as the eager stack drew them, but one block at a time (the stack was 16 GB at 10 million rows)
-        perms = PermutationBlocks(lambda _i: rng.permutation(_yi.size), _LOCAL_GATE_NULL_PERMUTATIONS)
+        n_rows = int(_yi.size)
+        if n_rows >= _device_perms_min_rows():
+            # long frames: the host draw (0.6 s per permutation of 10 million rows, one thread, the device idle) is the cost of this null; the permutations are drawn on the
+            # device from one seed taken from ``rng`` (0.12 s each). They are other permutations than the host stream's, so the null maxima differ by permutation noise.
+            dev_rs = cp.random.RandomState(int(rng.integers(0, 2**62)))
+            perms = PermutationBlocks(lambda _i: dev_rs.permutation(n_rows), _LOCAL_GATE_NULL_PERMUTATIONS)
+        else:
+            perms = PermutationBlocks(lambda _i: rng.permutation(n_rows), _LOCAL_GATE_NULL_PERMUTATIONS)
         try:
             _x, _is_cm, x_cm, interior = _resident_mi_candidates(mat_gpu, int(nbins), keep_dtype=True, relax_binning=True, x_is_cm=True)
             y0 = y_gpu.astype(cp.int64)
