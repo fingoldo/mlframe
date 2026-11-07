@@ -6,8 +6,11 @@ The budget is read once at import, so each case imports the module in a fresh in
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
+
+from mlframe.feature_selection.filters import _family_maxt_gate as gate
 
 _PROBE = "from mlframe.feature_selection.filters import _family_maxt_gate as g; print(g._PERM_BLOCK_CACHE_BYTES)"
 
@@ -17,6 +20,8 @@ def _budget_bytes(env_value):
     env = {k: v for k, v in os.environ.items() if k != "MLFRAME_PERM_BLOCK_CACHE_MB"}
     if env_value is not None:
         env["MLFRAME_PERM_BLOCK_CACHE_MB"] = env_value
+    # The child must import the same source tree this process imported, not an editable install elsewhere.
+    env["PYTHONPATH"] = str(Path(gate.__file__).resolve().parents[3])
     out = subprocess.run([sys.executable, "-c", _PROBE], env=env, capture_output=True, text=True, check=True, timeout=600)
     return int(out.stdout.strip().splitlines()[-1])
 
