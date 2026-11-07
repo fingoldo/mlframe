@@ -365,3 +365,16 @@ What these say: no single array is left that is more than 25 percent of the peak
 
 Largest live blocks at the 500k peak (tracemalloc): honest-spec raw matrix 444 MB (two live copies at the build), cluster-hierarchy code matrix 244 MB, `np.append` of the fused codes 244 MB (old and new data together), permuted labels 500 MB before the cap change.
 Open: the honest-spec raw matrix duplicates the float32 frame (a lazy column view would drop it, but the spec would then hold the frame, which matters for pickling); the 10M x 80 target still needs the label, raw and code structures built per column block on demand.
+
+## 2026-11-07 1M x 100: streamed modular family test and the permutation draw it repeated
+
+`rss_scale_fit.py 1000000 100 default` (RSS_TICK_S=20 timeline of the main thread):
+
+| state | wall | peak RSS growth |
+|---|---|---|
+| before the memory series (single-buffer modular family, labels cached by free memory) | 410 s | 4668 MB |
+| modular family regenerated group by group | 730 s | 3770 MB |
+| plus packed class bit sets cached per permutation block | 436 s | 3982 MB |
+
+The streamed family test scores each group of columns against the same draw, so the permutation indices of every block were drawn again for every group (28 groups of 54 columns, `_permutation_block` and `family_null_max` hold the main thread from 120 s to 460 s in the timeline). The class bit sets a block yields are one bit per row and class (125 KB per permutation at a million rows) against four bytes per row for the indices, so they are cached under the generator state, row count, class count and a hash of the labels (256 MB LRU, released under memory pressure); later groups read them.
+Remaining at 1M: the honest null redraws its permuted labels in 256 MB blocks (270 s to 360 s in the timeline, `permuted_labels_seeded`), the cluster-hierarchy codes (`_quantize_for_su`) and the honest-null pack at the end.
