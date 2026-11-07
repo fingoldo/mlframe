@@ -448,7 +448,11 @@ def honest_null_columns_device(
         words = (m + 63) // 64
         cls = label_bitsets_batch(ys, ny, words)
         prep = bitset_groups(np.ascontiguousarray(codes), nx)
-        counts_b = np.stack([np.bincount(ys[b], minlength=ny) for b in range(n_perm)])
+        if ys is y_codes_perm:
+            # every row of the full permuted-label matrix is a permutation of the same labels: one class-count vector serves all (256 serial bincounts of 2000000 labels were 2.4 s of a 14 s call)
+            counts_b = np.broadcast_to(np.bincount(ys[0], minlength=ny), (n_perm, ny))
+        else:
+            counts_b = np.stack([np.bincount(ys[b], minlength=ny) for b in range(n_perm)])
         tab_m = xlogx_table(m)
         const_b = tab_m[m] - tab_m[counts_b].sum(axis=1)
         mi = mi_matrix_bits_device(DeviceBitsets(cp, prep, nx, m), cls, const_b)
