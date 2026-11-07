@@ -123,6 +123,7 @@ except ImportError:
 
 from .reporting import report_model_perf, report_regression_model_perf, report_probabilistic_model_perf
 from mlframe.training.reporting.shared import canonical_multilabel_y as _canonical_multilabel_y  # noqa: F401
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 # Feature-importance helpers (~550 lines: 5 internal extractors + 2 public
 # entry points) carved into sibling ``_feature_importances.py`` to drop
 # this file below the 1k-LOC monolith threshold. Re-exported here so
@@ -615,6 +616,12 @@ __all__ = [
 
 
 def _compute_metric(metric: str, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Metric dispatch for ``compute_ml_perf_by_time``, scored inside the numba parallel guard (callers may run on threads)."""
+    with parallel_kernel_entry():
+        return _compute_metric_body(metric, y_true, y_pred)
+
+
+def _compute_metric_body(metric: str, y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Thin dispatcher used by compute_ml_perf_by_time.
 
     Accepts ``y_pred`` as either a 1-D vector of positive-class probabilities

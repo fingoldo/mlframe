@@ -27,6 +27,8 @@ import polars as pl
 
 from mlframe.feature_engineering.transformer.shared import knn_search
 
+_AGG_STATS = frozenset({"mean", "median", "min", "max", "sum", "std", "var"})
+
 
 def _snapshot_stats_for_k(
     vectors: np.ndarray,
@@ -51,6 +53,9 @@ def _snapshot_stats_for_k(
     dists_k = dists_sorted[:, :k]
     valid_k = idx_k >= 0  # False only at the self-match placeholder position (at most one per row, at the tail)
 
+    unsupported = [s for s in agg_stats if s not in _AGG_STATS]
+    if unsupported:
+        raise ValueError(f"cross-sectional neighbour features: unsupported agg_stats {unsupported}; allowed {sorted(_AGG_STATS)}")
     out: dict = {}
     for col_j, col in enumerate(feature_cols):
         neighbor_vals = vectors[idx_k, col_j]  # (n_snapshots, k)

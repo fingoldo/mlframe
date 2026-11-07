@@ -43,6 +43,8 @@ from typing import Any, Literal, Sequence
 import numpy as np
 import pandas as pd
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 logger = logging.getLogger(__name__)
 
 
@@ -224,7 +226,9 @@ def _compute_metric(
         # decide. Caller already guards on min sample size.
         if len(np.unique(y_true)) < 2:
             return float("nan")
-        return float(fast_roc_auc(y_true, y_pred))
+        # Ablation drops run on joblib threads and the AUC argsort is a prange kernel at n >= 200k: enter it through the guard.
+        with parallel_kernel_entry():
+            return float(fast_roc_auc(y_true, y_pred))
     raise ValueError(f"Unsupported metric: {metric_name}")
 
 
