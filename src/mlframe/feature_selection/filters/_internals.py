@@ -46,6 +46,7 @@ def suppress_numba_warnings() -> Iterator[None]:
     yield
 
 _NUMBA_CUDA_CAN_COMPILE: bool | None = None
+_NUMBA_CUDA_PROBE_LOCK = threading.Lock()  # one probe per process even when a background prewarm and the fit ask at the same time
 
 def _permanent_cuda_faults() -> tuple:
     """Exception types that mean numba.cuda can never work on this host, as opposed to not right now."""
@@ -74,6 +75,14 @@ def numba_cuda_can_compile() -> bool:
     falling back to cupy/CPU. This probe compiles + launches a trivial kernel ONCE (result
     cached) so callers can route around a numba.cuda stack that cannot actually run kernels.
     cupy is gated separately (it can work even when numba.cuda's NVVM cannot)."""
+    if _NUMBA_CUDA_CAN_COMPILE is not None:
+        return _NUMBA_CUDA_CAN_COMPILE
+    with _NUMBA_CUDA_PROBE_LOCK:
+        return _numba_cuda_can_compile_locked()
+
+
+def _numba_cuda_can_compile_locked() -> bool:
+    """Body of :func:`numba_cuda_can_compile`, run under its lock."""
     global _NUMBA_CUDA_CAN_COMPILE
     if _NUMBA_CUDA_CAN_COMPILE is not None:
         return _NUMBA_CUDA_CAN_COMPILE

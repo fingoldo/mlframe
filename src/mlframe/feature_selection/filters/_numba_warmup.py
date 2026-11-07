@@ -58,3 +58,34 @@ def warmup_typed_dict() -> None:
     except Exception as e:  # nosec B110 - non-trivial body; best-effort/optional path
         # Best-effort only; a warm-up failure must never affect a real fit.
         logger.debug("typed.Dict warm-up failed, first real fit will pay the JIT cost: %s", e)
+
+
+_BACKGROUND_STARTED = False
+
+
+def start_background_prewarm() -> None:
+    """Run the once-per-process warmups the first fit otherwise pays in the middle of its work (the typed.Dict suite, about 5 s, and the numba.cuda compile probe, about 5 s,
+    both seen as ticks with the CPU and the GPU idle in a cold 300k fit) on a daemon thread started at fit entry, so they overlap the fit's first stages. Both are idempotent and the
+    probe is locked, so a fit that reaches them first just waits for or repeats nothing. Opt-in: ``MLFRAME_FIT_BACKGROUND_PREWARM=1``.
+
+    bench-attempt-rejected (2026-11-07, 100000 x 100 all families, fresh process per run, alternating): off 77.6 / 77.7 s, on 77.0 / 78.6 s. No gain, so it is not the default."""
+    global _BACKGROUND_STARTED
+    if _BACKGROUND_STARTED or os.environ.get("MLFRAME_SKIP_NUMBA_WARMUP") == "1" or os.environ.get("MLFRAME_FIT_BACKGROUND_PREWARM", "0").strip() != "1":
+        return
+    _BACKGROUND_STARTED = True
+    import threading
+
+    def _run() -> None:
+        """The warmups, each failure logged and ignored (the fit's own call does the same work)."""
+        try:
+            warmup_typed_dict()
+        except Exception as exc:  # nosec B110 - best effort: the fit compiles on first use otherwise
+            logger.debug("background typed.Dict warmup failed: %r", exc)
+        try:
+            from ._internals import numba_cuda_can_compile
+
+            numba_cuda_can_compile()
+        except Exception as exc:  # nosec B110 - best effort: the fit probes on first use otherwise
+            logger.debug("background numba.cuda probe failed: %r", exc)
+
+    threading.Thread(target=_run, daemon=True, name="mlframe-fit-prewarm").start()

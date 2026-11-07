@@ -54,6 +54,9 @@ from ._fit_impl_core_parts import _MRMR_FIT_CACHE_LOCK, _fit_impl_part7, _fit_im
 
 def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
     """We run N selections on data subsets, and pick only features that appear in all selections"""
+    from .._numba_warmup import start_background_prewarm
+
+    start_background_prewarm()  # one-time numba warmups overlap the first stages instead of stalling the middle of the first fit
     _ret_fit_impl_part7 = _fit_impl_part7(
         y, self, X, groups,
     )
