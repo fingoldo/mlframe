@@ -21,7 +21,7 @@ import logging
 import numpy as np
 
 from ._kernel_types import render
-from ._honest_null_device import _pack_bits
+from ._honest_null_device import _pack_bits_cached
 from ._raw_module_cache import RawModuleCache
 from typing import Any
 from mlframe.utils.log_throttle import log_throttle
@@ -349,7 +349,7 @@ def root_split_accept_gpu(cp: Any, order: Any, tie: Any, y_raw_perm: Any, n: int
     d_order = cp.asarray(np.ascontiguousarray(order, dtype=np.int32))
     valid = cp.asarray(valid_cut_bits(tie, n, int(min_split)))
     thr = cp.asarray(threshold_table(int(n), float(alpha)))
-    ybits = cp.asarray(np.ascontiguousarray(_pack_bits(y_raw_perm)))  # (permutations, words): the row-space labels of every permutation
+    ybits = cp.asarray(np.ascontiguousarray(_pack_bits_cached(y_raw_perm)))  # (permutations, words): the row-space labels of every permutation
     if use_pre:
         return _launch_pre(cp, d_order, valid, ybits, tab_full, thr, n, words, m, n_perm, kc, h_full, d_gain, d_ncand, d_idx)
     if use_global:

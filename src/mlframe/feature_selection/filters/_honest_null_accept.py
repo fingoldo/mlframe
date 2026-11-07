@@ -11,7 +11,7 @@ from mlframe.feature_selection.filters._honest_null_device import _accepted
 from mlframe.feature_selection.filters._honest_null_device import _entropy
 from mlframe.feature_selection.filters._honest_null_device import _get_kernel
 from mlframe.feature_selection.filters._honest_null_device import _get_kernel_k2
-from mlframe.feature_selection.filters._honest_null_device import _pack_bits
+from mlframe.feature_selection.filters._honest_null_device import _pack_bits_cached
 from mlframe.feature_selection.filters._honest_null_device import _tie_flags
 from mlframe.feature_selection.filters._mdlp_honest_njit import _presort_columns
 # --- end imports ---
@@ -84,7 +84,7 @@ def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx
         if n_classes_total == 2 and _use_bitset_accept() and _bitset_accept(cp, order, tie, y_raw_perm, n, n_perm, kc, min_split_size, alpha, h_full, xlogx_table(n), d_gain, d_ncand, d_idx):
             pass
         elif n_classes_total == 2:
-            ybits = _pack_bits(y_raw_perm)
+            ybits = _pack_bits_cached(y_raw_perm)
             _kernel, _full_table = _root_split_kernel(cp)
             threads = block_size_for(_kernel, work_items=n_perm * kc)
             _kernel(

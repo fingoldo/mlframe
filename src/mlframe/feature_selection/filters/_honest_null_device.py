@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
+import weakref
+from typing import Any
 
 import numpy as np
 from numba import njit, prange
@@ -228,6 +231,29 @@ def _pack_bits(y_perm: np.ndarray) -> np.ndarray:
         buf[:, :n] = block == 1
         out[r : r + step] = np.packbits(buf, axis=1, bitorder="little").view(np.uint32)
     return out  # (permutations, words)
+
+
+_PACKED_LAST: "tuple[Any, np.ndarray] | None" = None
+_PACKED_LOCK = threading.Lock()
+
+
+def _pack_bits_cached(y_perm: np.ndarray) -> np.ndarray:
+    """``_pack_bits(y_perm)`` for the labels of one honest-null call, packed once: every block of columns of the call hands the SAME permuted-label array to the accept kernels, and packing it
+    (0.7 s for 500 permutations of a million rows, on one host thread while the device idles) used to repeat per block. One entry is kept (62 MB at that size), tied to the array object by a weak
+    reference, so a recycled id can never return another call's bits. The returned array must not be modified."""
+    global _PACKED_LAST
+    with _PACKED_LOCK:
+        last = _PACKED_LAST
+        if last is not None and last[0]() is y_perm:
+            return last[1]
+    packed = _pack_bits(y_perm)
+    try:
+        ref: Any = weakref.ref(y_perm)
+    except TypeError:  # an array view type that cannot be weakly referenced is not cached
+        return packed
+    with _PACKED_LOCK:
+        _PACKED_LAST = (ref, packed)
+    return packed
 
 
 @njit(cache=True, parallel=True)
