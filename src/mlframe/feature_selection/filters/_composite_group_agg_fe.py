@@ -490,19 +490,27 @@ def _emit_num_col_features(
     }
 
 
+_FRAME_CHUNK_COLUMNS = 128
+
+
 def _frame_of_columns(encoded: "dict[str, np.ndarray]", index: pd.Index) -> pd.DataFrame:
-    """``pd.DataFrame(encoded, index=index)`` built without holding two copies of every column: the columns are copied one at a time into a single
-    ``(columns, rows)`` block and freed from ``encoded`` as they go, so the peak is one set of columns, not the dict plus pandas' stacked copy (768 MB each at 100000 rows with 3000 candidates).
-    Columns of mixed dtype or length take pandas' own constructor."""
+    """``pd.DataFrame(encoded, index=index)`` built without ever holding the dict next to a full-size second copy: the columns are copied ``_FRAME_CHUNK_COLUMNS`` at a time into
+    ``(columns, rows)`` blocks and popped from ``encoded`` as they go, so the peak is the dict plus one chunk, not the dict plus pandas' stacked copy (768 MB each at 100000 rows with 3000
+    candidates). The chunk frames are joined without a copy (``concat(copy=False)`` keeps their blocks). Columns of mixed dtype or length take pandas' own constructor."""
     names = list(encoded)
     n = len(index)
     dtypes = {a.dtype for a in encoded.values()}
     if not names or len(dtypes) != 1 or any(a.shape != (n,) for a in encoded.values()):
         return pd.DataFrame(encoded, index=index)
-    block = np.empty((len(names), n), dtype=next(iter(dtypes)))
-    for i, name in enumerate(names):
-        block[i] = encoded.pop(name)
-    return pd.DataFrame(block.T, columns=names, index=index, copy=False)
+    dtype = next(iter(dtypes))
+    parts = []
+    for c0 in range(0, len(names), _FRAME_CHUNK_COLUMNS):
+        part = names[c0 : c0 + _FRAME_CHUNK_COLUMNS]
+        block = np.empty((len(part), n), dtype=dtype)
+        for i, name in enumerate(part):
+            block[i] = encoded.pop(name)
+        parts.append(pd.DataFrame(block.T, columns=part, index=index, copy=False))
+    return parts[0] if len(parts) == 1 else pd.concat(parts, axis=1, copy=False)
 
 
 def generate_composite_group_agg_features(

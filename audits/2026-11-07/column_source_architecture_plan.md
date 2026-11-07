@@ -1,51 +1,59 @@
-# Plan: block-wise column source, column arena and code store for MRMR
+# Plan v3: memory cuts first, then a subsample-fit mode with a streamed verification pass
 
-## Why
+Revised after four independent reviews (v1: correctness/concurrency and scale/polars; v2: feasibility/gates and statistics, Opus 5.5 medium). v1 and v2 assumed the fit could run on codes without raw data; the code says otherwise. What survives is smaller and more honest. Statements below were checked against the code by the reviewers (file:line given) unless marked (unverified).
 
-A fit at 1M x 100 peaks at 3.7 GB and 10M x 80 would need about 35 GB. A frame of a terabyte (mostly polars) cannot be fitted at all today. Measured causes:
+## What the code actually does (limits on any design)
 
-- the frame is rebuilt many times: 68 `pd.concat([X, ...])` sites, 42 `fe_append_columns` sites, 15 `fe_to_pandas` full conversions, 529 `.to_numpy(` calls in `filters/`. Every site decides copy and dtype on its own;
-- `pd.DataFrame(dict)` in `_composite_group_agg_fe` held the candidate dict next to pandas' stacked copy: 768 MB twice at 100000 rows (fixed, commit "Frame seam");
-- `categorize_dataset` materialises a full `(n, p)` int16 code matrix in RAM (`discretization/_discretization_dataset.py:363`, `_maybe_collect_lazy` at the boundary);
-- stages share one step-input frame and fold new columns by name (`_fe_stage_merge._fe_merge_new_columns`, `_fe_stage_cascade_run`), so any change to the frame type touches all four cascades.
+- The fit needs the full frame resident today: a `LazyFrame` is collected at fit entry (`mrmr/_mrmr_class_fit_helpers.py:178`, again in `discretization/__init__.py:141`); the FE cascades run before discretization and append float columns at full n (`_fit_impl_core_parts.py:585-610`); `transform` rebuilds every engineered column from the input X (`_mrmr_validate_transform.py:652-918`), so transform on a terabyte frame is unsolved by any fit-time change.
+- `fe_decide_on_subsample` already decides FE families on a 30k-row subsample by default (`mrmr/_mrmr_class.py:1040`) but then rebuilds every chosen column at full n (`_mrmr_fit_impl/_helpers.py:467-477`), skips out-of-fold families (`:370-381`), and returns `fe_append_columns(X, ...)` (a `concat` of all of X) which the caller appends to `X_acc` again: two full copies per family on pandas (`_fe_stage_cascade_early_a.py:56-71`).
+- Default binning is MDLP, which depends on the target; its honest null re-bins the whole raw frame per permutation (`_fit_impl_stages/_binning.py:216-247`). Codes are therefore not computable without the target, and the permutation null needs raw floats (or a subsample), not codes.
+- Codes today are int32 by default (`_mrmr_class.py:334`), signed, NaN shifted to 0 or to `n_bins` depending on the strategy (`_discretization_dataset.py:539-571`); numpy-level joint codes like `a*nb+b` overflow on uint8.
+- Engineered columns come back in mixed dtypes (some cast to float32, `_orth_basis_recipes.py:269`, `_binned_numeric_agg_fe.py:410`).
+- `self` holds frames in places: `_partial_fit_X_buffer_` (pickled, `_mrmr_partial_fit.py:235,264`), `_honest_null_codes_fn` closure (`_binning.py:310`), `_pandas_frame_for_target_cleanup` (`_inputs.py:241`).
+- Greedy selection is sequential: each round's conditional gain depends on the previous argmax, so scoring k features on full codes on disk costs about 2k passes plus retries, not 3.
+- A full-n permutation null is compute-bound (about B*K*n = 999*750*1e9 = 7e14 count updates at 1B rows), not I/O-bound.
 
-## Target architecture
+## Design that survives
 
-1. `ColumnSource` (reading seam, in `filters/_fe_frame_ops.py`): `fe_column_blocks(X, names, budget_bytes, dtype)` yields contiguous `(columns, rows)` blocks, one at a time. Done for pandas and polars. Extended to `pl.LazyFrame` (`scan_parquet`, `select(block).collect()`), never a whole-frame collect.
-2. `ColumnArena` (engineered-column store): a preallocated `(capacity, rows)` float32 array, memmap on disk above a byte threshold. Candidates are written once; names map to row indices; `X` is not rebuilt. A pandas/polars view is created only on demand for the few places that still need a frame.
-3. `CodeStore` (canonical form for MI): int8/int16 codes per column, filled block by block. Quantile edges come from one streaming pass (sketch, or the subsample the family already uses); the float column is read once. The existing MI kernels already work on codes.
-4. Large-frame policy: when the code store does not fit in RAM it is a memmap; kernels read column blocks within the VRAM limit (`_fe_gpu_vram.pool_column_block`); family candidate generation runs on a row subsample only after column and pair streaming is exhausted; the final significance pass is a full block-wise pass.
+**A. Memory cuts inside the current architecture** (no behaviour change, selection must be identical):
+1. `fe_decide_on_subsample` returns only the new columns; callers merge them once into `X_acc`. Drops one full-frame `concat` per family on pandas.
+2. Other `pd.DataFrame(dict)` builders get the single-copy builder (done for composite group-agg).
+3. Remove the 15 `fe_to_pandas` full conversions (block reads or numeric float32 view; the function stays as a size-guarded fallback).
+4. `CodeStore` with TODAY's code values and dtype, filled block by block (no narrowing yet).
 
-## Phases (each lands as separate local commits, selection and wall checked before the next)
+**B. Subsample-fit mode for frames beyond RAM** (new, opt-in by size):
+1. One streamed read of the target alone, then a hash-partitioned row split by `splitmix64(seed, row_id)` (or by group/entity hash, or time block when group ids or a time column are given): A (choose), D (exact counts for rare levels and class totals), C (certify). Class-aware: keep all minority rows up to a cap, Bernoulli-sample the rest at probability pi_c with weights 1/pi_c and Kish n_eff in the Miller-Madow terms. Whole groups sampled by hash for group-aware and time families; y shifted circularly for time series nulls.
+2. Run today's fit unchanged on A (in RAM): MDLP, honest null, FE, dedup, greedy selection.
+3. Freeze the selected path and recipes. One streamed pass over the rest builds codes for the selected columns only (edges frozen from A, a reserved code for unseen values) and certifies on C: G-test 2N*CMI ~ chi2(df from occupied cells on C) (`_analytic_mi_null.py`), Holm over k, an effect-size floor (lower confidence bound MI >= delta) at very large n. A failed step truncates the path; the suffix is re-selected on A and re-tested on C.
+4. Absolute MI floors calibrated at m rows are rescaled to the n they are applied at (bias is about df/2m).
 
-| # | Step | Main files | Gate |
-|---|------|-----------|------|
-| 0 | Measure: live-memory profile per stage at 100k/300k/1M (tracemalloc deep trace, `rss_scale_fit.py`) | `_benchmarks/profiling/` | peak and per-site table saved in `profiles/` |
-| 1 | `fe_column_blocks` + `fe_n_rows`; `fe_numeric_float32_view` on it (done) | `_fe_frame_ops.py`, `tests/feature_selection/test_fe_column_blocks.py` | block shapes, budget, values equal for pandas and polars |
-| 2 | Single-copy frame builders (`_frame_of_columns`, done) applied to the other `pd.DataFrame(dict)` sites found in step 0 | `_composite_group_agg_fe.py` and siblings | peak drops, frames equal, family tests green |
-| 3 | `ColumnArena` with the `append(name, col)`, `block(names)`, `as_frame()` surface; unit tests incl. memmap mode | new `filters/_column_arena.py` | arena frame equals `pd.concat` result bitwise |
-| 4 | Stage seam: `_fe_merge_new_columns` and `fe_append_columns` write into the arena; stages read through `fe_column_blocks`; pandas/polars frames stay as input only | `_fe_stage_merge.py`, `_fe_frame_ops.py`, the four cascades | same selection as before on the 100k all-families fit; peak lower |
-| 5 | Replace the 15 `fe_to_pandas` full conversions by block reads or the numeric float32 view; keep the function only as an explicit fallback with a size guard (`fe_polars_exceeds`) | `_fe_stage_cascade_early_b.py` and siblings | polars-input fit at 300k makes zero `to_pandas` calls |
-| 6 | `CodeStore`: `categorize_dataset` writes codes block by block into a preallocated (or memmap) matrix; `LazyFrame` is scanned per block, not collected | `discretization/_discretization_dataset.py`, `discretization/__init__.py` | codes bit-identical to the current matrix on the test sets |
-| 7 | Streaming edges: one pass per column block for quantile/MDLP inputs, reusing `_adaptive_nbins` edge cache | `_adaptive_nbins.py`, `discretization/` | edges identical to the in-memory path where deterministic, MI/selection unchanged |
-| 8 | Large-scale run: 1M x 100, then 5M x 80 with memmap codes, then a synthetic parquet larger than RAM through `scan_parquet` | `_benchmarks/profiling/rss_scale_fit.py` (+ parquet mode) | fit completes within the RAM guard; cpu/gpu timeline saved |
+Not claimed: transform on a terabyte frame (each engineered column is replayed from the input X; that needs block-wise replay, a separate item); streaming sketch edges (edges from a 2M-row subsample already give rank error about 0.0012; a t-digest is worse on tied values and inflates occupied-bin df; if exact edges are needed the radix histograms in `_order_statistics_f32` merge across row blocks in two or three raw passes).
 
-## Constraints kept at every step
+Dropped from v2: code-first engineered columns for out-of-fold families (impossible), uint8 codes before a cast audit, one-pass permutation null, a float arena wired into the stage seam (the existing `ColumnArena` stays unused until profiling shows `pd.concat` still dominates after A.1 to A.3).
 
-- pandas input behaves exactly as now (selection, recipes, `transform`); float32 is the storage dtype, float64 only where the kernel contract needs it (checked in the float64 audit).
-- engineered columns keep their names and recipes; `transform` replay does not read the arena.
-- every new path has a CPU twin, a column-block budget and a test against the in-memory path; slow-path gates log.
-- no row subsampling is introduced for the final pass; candidate generation subsampling stays as it is.
+## Phases
 
-## Verification
+| # | Step | Gate |
+|---|------|------|
+| 0 | Safety net. The "old vs new in one process" harness is impossible (two package versions cannot be imported together): extend `tests/feature_selection/golden/capture_baseline.py` and `_capture.py` to capture from a reference commit in a subprocess and compare; add polars input, `transform`, weights, categoricals, non-Range index, NaNs, pinned `MLFRAME_FE_STAGE_CONCURRENCY` and CPU vs GPU; golden dtype table per FE family; pickle/clone gate incl. a model pickled after `partial_fit` (size check); peak-RSS regression gate per scenario; hook counting full-frame `to_pandas`; rollback via the existing per-feature env switches (`_fe_env_switch.py`); profile: tracemalloc deep trace per stage at 100k/300k/1M | snapshots green on HEAD; tables saved in `profiles/` |
+| 1a | FIRST SLICE (about a day): `fe_decide_on_subsample` returns new columns only, callers merge once | golden snapshots equal; 300k peak lower |
+| 1b | Single-copy builders for the other `pd.DataFrame(dict)` sites | peak lower, frames equal |
+| 2 | Remove `fe_to_pandas` full conversions (`_fe_stage_cascade_early_b.py` and the `fe_decide_on_subsample` fallbacks `:414,440,460,474`); `fe_n_rows`/`fe_column_blocks` learn `LazyFrame` and row slices | polars-input fit: zero `to_pandas` calls |
+| 3 | Subsample-fit mode (B.1 to B.4), Pass A/C reading through `scan_parquet` row groups | 10M x 80 fits; below the size threshold nothing changes; certify-on-C p-values calibrated on a synthetic null set |
+| 4 | `CodeStore` with today's values, filled block by block, `LazyFrame` scanned per block | codes equal after explicit cast; peak lower |
+| 5 | Pass C for fixed-edge columns on the full data; prefetch/double buffering for block reads | GPU timeline (`RSS_TICK_S`) shows a fed device |
+| 6 | Narrow dtypes (per-column uint8/uint16, one NaN sentinel) behind a cast audit of every numpy-level joint-code site | selection equal, no overflow |
+| 7 | Block-wise transform replay for huge frames (separate design) | transform of a larger-than-RAM frame |
+| 8 | Scale runs 1M x 100, 5M x 80, parquet larger than RAM | completes inside the RAM guard; timeline saved |
 
-- unit tests per phase (`tests/feature_selection/...`), selection-equality test on a fixed 100k x 100 all-families fit against the previous commit, same process;
-- `rss_scale_fit.py` 100k / 300k / 1M with `RSS_TICK_S` for peak RSS and cpu/gpu timeline; tracemalloc deep trace for the per-site table;
-- polars-input fit with `pl.DataFrame.to_pandas` hooked to count full conversions (target: 0);
-- parquet larger than RAM through `scan_parquet` in phase 8.
+## Risks that stay open
 
-## Risks
+1. Codes cannot be computed without the target under default MDLP; mode B therefore does the target-dependent work on A only.
+2. Certification validity rests on C being disjoint from every choice made on A and D; any later use of C to tune breaks it.
+3. Uniform sampling fails for groups, time series and rare classes (hash by entity, class-aware weights, shifts).
+4. Concurrent stages and GPU make bit-level equality gates flaky; the gates compare selection (names, order, scores within tolerance), with concurrency pinned.
+5. `ColumnArena` flaws recorded for the day it is wired in: publish after write, owner by stage order (per-stage arenas, fixed-order merge), no lossy cast, positional index from `X`, local of `fit` never on `self`, `try/finally` cleanup.
 
-- the stage cascades run concurrently and share the step-input frame: arena appends need a lock or per-stage private regions merged in the fixed order;
-- code-store memmap I/O can starve the GPU: needs a read-ahead block (the same one-worker prefetch used in `_modular_codes_gpu`);
-- polars `LazyFrame` streaming engine support differs by version: a block read must fall back to `select(...).collect()` of that block only.
+## Constraints at every step
+
+pandas input keeps today's results; float64 stays where a kernel contract or a measured selection change requires it; every new path has a CPU twin, a column-block budget, a test against the in-memory path and a log when it takes a slow path; the four cascades must give the same output whatever the thread timing.
