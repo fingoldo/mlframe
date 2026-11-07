@@ -21,6 +21,6 @@ Nine read-only Opus 5.5 (low effort) audits, one per attack class. Reports sit n
 | NET5-01 | Info | DOC | `integrations/mlflow.py:95-97` vs `:106-110` | Same docstring issue as NET4-01 (still open in wave 4 as DOC). |
 | W5-INP-01 | Low | OPEN | `utils/_param_oracle.py:525-531` | `_all_combos` materialises the full Cartesian product: 8 knobs x 10 values is 1e8 dicts. Fix: iterate lazily or cap the count. |
 | W5-INP-02 | Info | DOC | `feature_selection/shap_proxied_fs/_shap_proxy_interactions.py:528,557-558` | Joint bincount length is `nb_a*nb_b` from data bins; bounded by the existing bin cap. |
-| W5-FS-01 | Info | OPEN | `utils/private_temp.py:36-45`, callers | Bookkeeping: FS-02..FS-05 in `audits/2026-10-31/_TRACKER.md` are already done on HEAD (`private_temp_dir`, `mkdtemp`) but still listed FUTURE; mark RESOLVED. |
+| W5-FS-01 | Info | REJECTED | `utils/private_temp.py:36-45`, callers | Rejected: the premise is wrong. FS-02..FS-05 in `audits/2026-10-31/_TRACKER.md` (rows at lines 109-112) are already RESOLVED; no FUTURE row remains there. |
 
 Checked and clean: subprocess (0), deserialization (0), secrets (0).
