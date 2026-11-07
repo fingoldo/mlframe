@@ -64,3 +64,15 @@ pandas input keeps today's results; float64 only where a kernel contract or meas
 10M x 80 does not get past the start of the fit on this machine: the frame plus its first copies exhaust the free RAM. Items 6 and 7 (do not hold the raw frame after binning; engineered columns as codes) are the ones that address it.
 
 Done from the plan so far: item 1 (codes allocated int8/int16, MDLP edge workers capped by memory), item 2 (codes uploaded at their own width, widened on the device), large-n traps for integers above 2^24 (`categorize_dataset` shift, nullable Int64 densified to float64), the selection snapshot gate. Item 4 dropped (pandas 3 is the target). Item 5 low value (the int64 per-permutation matrix is on the fallback path only). Rank target in float32 above 16.7M rows: relative error about 6e-8 on an auxiliary FE target, left as is.
+
+## 10M x 80 progress (2026-11-08, same machine, `default`, 1.5 GB free-RAM guard)
+
+| change | abort time |
+|---|---|
+| phase-0 baseline | 46.6 s (degenerate audit: 128 cached unit columns, 5 GB at 10M) |
+| degenerate unit cache bounded in bytes | 145.5 s (binned-agg null: all permutations stacked as int64) |
+| permutation blocks, then labels gathered per permutation, then packbits | 144 to 154 s (permuted-label block on the host, then the uint32 pack) |
+| permutations drawn on the device above 2M rows + packed labels cached across candidate blocks | 505.7 s once, 214 s once (CMIM / binned-agg codes as int64 vectors) |
+| CMIM codes and binned-agg source-bin cache at int16, binned-agg device caches bounded in bytes | 229 to 233 s |
+
+The remaining limit is not a spike: the RSS growth climbs from about 0.9 GB to 3.2 GB between 22 s and 31 s while the recipes of the engineered columns are replayed at full n and appended as float columns (`_apply_orth_fourier`, `_apply_hinge_basis`, `_apply_orth_triplet_cross`, `_apply_zscore`, `fe_append_columns`), and that state lives to the end of the fit; the binned-agg family adds about 2.5 GB on top. Item 7 (closed-form engineered columns kept as codes, recomputed from the recipe when a float is needed) is the change that addresses it.
