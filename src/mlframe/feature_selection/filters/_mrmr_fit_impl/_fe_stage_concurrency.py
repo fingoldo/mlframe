@@ -140,7 +140,11 @@ def _stages_fit_device(vram_weights: "Sequence[float]", n_rows: int) -> bool:
     """Whether the stages' peak pool use, scaled from the 50000-row measurement to ``n_rows``, fits the device memory the fit can still use (free device memory
     plus the default pool's cached blocks). Concurrent stages each get a slice of it; at 500000 rows the scaled peaks (8.4 GB) far exceed a 4 GB card, and the
     slots' out-of-memory errors sent stages to the host paths, so the cascades run one by one there and each stage has the whole card."""
-    need = sum(float(w) for w in vram_weights) * (1 << 20) * max(1.0, float(n_rows) / STAGE_VRAM_MEASURED_ROWS)
+    # MLFRAME_FE_STAGE_VRAM_MAX_ROWS caps the row count the peaks are scaled to: the stages stream their column blocks under the pool limit, so their peak stops growing with the rows, and the
+    # linear scaling made every fit above ~200000 rows run its cascades one after the other (host-bound and device-bound stages then never overlap)
+    cap = os.environ.get("MLFRAME_FE_STAGE_VRAM_MAX_ROWS", "").strip()
+    scaled_rows = min(float(n_rows), float(cap)) if cap.isdigit() and int(cap) > 0 else float(n_rows)
+    need = sum(float(w) for w in vram_weights) * (1 << 20) * max(1.0, scaled_rows / STAGE_VRAM_MEASURED_ROWS)
     try:
         import cupy as cp
 
