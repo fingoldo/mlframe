@@ -182,13 +182,14 @@ class PermutationBlocks:
         self._next = self._count
 
 
-def _permuted_labels(cp: Any, y8: Any, perms: Any, p0: int, p1: int) -> Any:
-    """``(p1 - p0, n)`` uint8 device matrix of the labels ``y8`` under permutations ``p0 .. p1 - 1``, filled one permutation at a time: the host holds one row of row ids
-    (40 MB at 10 million rows), not the whole block (64 x 10 million ids were 2.5 GB at int32)."""
+def _permuted_labels(cp: Any, y8: Any, perms: Any, p0: int, p1: int, width: "int | None" = None) -> Any:
+    """``(p1 - p0, width)`` uint8 device matrix of the labels ``y8`` under permutations ``p0 .. p1 - 1`` (columns past ``n`` zero; ``width`` defaults to ``n``), filled one
+    permutation at a time: the host holds one row of row ids (40 MB at 10 million rows), not the whole block (64 x 10 million ids were 2.5 GB at int32)."""
     n = int(y8.shape[0])
-    out = cp.empty((p1 - p0, n), dtype=cp.uint8)
+    w = n if width is None else int(width)
+    out = cp.zeros((p1 - p0, w), dtype=cp.uint8) if w > n else cp.empty((p1 - p0, n), dtype=cp.uint8)
     for r, p in enumerate(range(p0, p1)):
-        out[r] = y8[cp.asarray(np.ascontiguousarray(perms[p : p + 1][0]))]
+        out[r, :n] = y8[cp.asarray(np.ascontiguousarray(perms[p : p + 1][0]))]
     return out
 
 
@@ -213,12 +214,11 @@ def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, per
         words = (n + 31) // 32
         for p0 in range(0, len(perms), 64):  # PMAX_LANE x 32 permutations per launch
             block_len = min(64, len(perms) - p0)
-            yp = _permuted_labels(cp, y8, perms, p0, p0 + block_len)  # (P, n) permuted 0/1 labels, built on the device one permutation at a time
-            padded = cp.zeros((block_len, words * 32), dtype=cp.uint8)
-            padded[:, :n] = yp
-            # (P, words): bit i of word w = label of row 32 w + i (cupy packbits has no axis argument)
-            ybits = cp.ascontiguousarray((padded.reshape(block_len, words, 32).astype(cp.uint32) << cp.arange(32, dtype=cp.uint32)).sum(axis=2, dtype=cp.uint32))
-            del yp, padded
+            padded = _permuted_labels(cp, y8, perms, p0, p0 + block_len, width=words * 32)  # (P, 32 words) permuted 0/1 labels, zero padded, built on the device
+            # (P, words): bit i of word w = label of row 32 w + i. A row is a whole number of bytes, so packing the flat matrix little-endian packs each row on its own;
+            # the uint32 view of 4 packed bytes is that word (the former shift-and-sum widened the block to 4 bytes a label: 2.5 GB for 64 permutations of 10 million rows)
+            ybits = cp.ascontiguousarray(cp.packbits(padded.ravel(), bitorder="little").view(cp.uint32).reshape(block_len, words))
+            del padded
             res = cp.empty((block_len, k), dtype=cp.float64)  # Intentional float64: MI accumulator, as the per-permutation kernel's
             shared = (block_len * int(nbins) + int(nbins)) * 4
             bits_kernel((k,), (_bits_width(bits_kernel, shared, n),), (x_cm, edges, ybits, np.int64(n), np.int32(words), np.int32(k), np.int32(nbins), np.int32(block_len), np.float64(1.0 / float(max(1, n))), res), shared_mem=shared)  # Intentional float64: the kernel reads float32 or float64 candidates
