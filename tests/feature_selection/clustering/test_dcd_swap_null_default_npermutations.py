@@ -103,7 +103,7 @@ class TestSwapFiresAtDefaultNpermutations:
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=0.4,  # the pairwise SU of the three duplicates is 0.54 to 0.55 on 10 quantile bins and falls just under 0.5 on the supervised bins the fit uses, which left one duplicate out of the cluster
             dcd_cluster_size_threshold=2,
             # NOTE: full_npermutations is NOT overridden -> the shipped default
             # (3) that previously made every swap un-acceptable.
@@ -128,7 +128,7 @@ class TestSwapFiresAtDefaultNpermutations:
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=0.4,  # the pairwise SU of the three duplicates is 0.54 to 0.55 on 10 quantile bins and falls just under 0.5 on the supervised bins the fit uses, which left one duplicate out of the cluster
             dcd_cluster_size_threshold=2,
             dcd_swap_npermutations=3,  # structurally un-passable without the guard
             dcd_swap_alpha=0.05,
@@ -150,7 +150,7 @@ class TestSwapFiresAtDefaultNpermutations:
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=0.4,  # the pairwise SU of the three duplicates is 0.54 to 0.55 on 10 quantile bins and falls just under 0.5 on the supervised bins the fit uses, which left one duplicate out of the cluster
             dcd_cluster_size_threshold=2,
             full_npermutations=0,
             verbose=0,
