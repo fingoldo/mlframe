@@ -94,17 +94,53 @@ def _candidate_code_matrix(gathered: np.ndarray) -> "tuple[np.ndarray, np.ndarra
     return _shift_codes(codes)
 
 
+@njit(cache=True, parallel=True)
+def _row_range(codes: np.ndarray, low: np.ndarray, high: np.ndarray) -> None:
+    """Smallest and largest code of every row of ``codes`` (parallel over the rows)."""
+    for j in prange(codes.shape[0]):
+        lo = codes[j, 0]
+        hi = codes[j, 0]
+        for i in range(1, codes.shape[1]):
+            v = codes[j, i]
+            if v < lo:
+                lo = v
+            elif v > hi:
+                hi = v
+        low[j] = lo
+        high[j] = hi
+
+
+@njit(cache=True, parallel=True)
+def _shift_rows_int16(codes: np.ndarray, low: np.ndarray, out: np.ndarray) -> None:
+    """``out[j, i] = codes[j, i] - low[j]`` as int16 (parallel over the rows; every width fits int16 by the caller's check)."""
+    for j in prange(codes.shape[0]):
+        lo = low[j]
+        for i in range(codes.shape[1]):
+            out[j, i] = codes[j, i] - lo
+
+
 def _shift_codes(codes: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     """``(codes shifted so every row starts at 0, widths)``: int16 when every width fits, int64 otherwise."""
     n_cand = int(codes.shape[0])
-    low = codes.min(axis=1, keepdims=True).astype(np.int64)
-    widths = (codes.max(axis=1).astype(np.int64) - low[:, 0]) + 1
+    low = np.empty(n_cand, dtype=np.int64)
+    high = np.empty(n_cand, dtype=np.int64)
+    if codes.dtype.kind in "iu" and codes.dtype.itemsize <= 4:
+        with parallel_kernel_entry():
+            _row_range(codes, low, high)
+    else:
+        low[:] = codes.min(axis=1)
+        high[:] = codes.max(axis=1)
+    widths = (high - low) + 1
     if int(widths.max()) <= 32767:
         shifted = np.empty(codes.shape, dtype=np.int16)
-        for j0 in range(0, n_cand, 64):
-            shifted[j0 : j0 + 64] = codes[j0 : j0 + 64].astype(np.int64) - low[j0 : j0 + 64]
+        if codes.dtype.kind in "iu" and codes.dtype.itemsize <= 4:
+            with parallel_kernel_entry():
+                _shift_rows_int16(codes, low, shifted)
+        else:
+            for j0 in range(0, n_cand, 64):
+                shifted[j0 : j0 + 64] = codes[j0 : j0 + 64].astype(np.int64) - low[j0 : j0 + 64, None]
         return shifted, widths
-    return codes.astype(np.int64) - low, widths
+    return codes.astype(np.int64) - low[:, None], widths
 
 
 #: Candidate-matrix cells (columns x rows) from which the null runs on the device: below it the upload costs about what the host kernel does.
