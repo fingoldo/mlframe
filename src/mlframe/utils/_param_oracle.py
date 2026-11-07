@@ -445,6 +445,10 @@ from mlframe.utils.log_throttle import log_throttle
 # ParamOracle
 # ---------------------------------------------------------------------------
 
+#: Largest Cartesian grid ``_all_combos`` will materialise; a larger space is refused before any combination is built.
+_MAX_PARAM_COMBOS = 1_000_000
+
+
 class ParamOracle:
     """Universal adaptive-dispatch / learning-to-optimize cache.
 
@@ -528,6 +532,9 @@ class ParamOracle:
         if not keys:
             return [{}]
         grids = [self.param_space[k] for k in keys]
+        total = math.prod(len(g) for g in grids)
+        if total > _MAX_PARAM_COMBOS:
+            raise ValueError(f"ParamOracle: the param_space grid has {total} combinations, above the {_MAX_PARAM_COMBOS} cap; narrow it")
         return [dict(zip(keys, combo)) for combo in itertools.product(*grids)]
 
     # ----- objective comparison -----

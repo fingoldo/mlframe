@@ -19,7 +19,7 @@ Nine read-only Opus 5.5 (low effort) audits, one per attack class. Reports sit n
 | DYN5-2 | Info | DOC | `training/composite/_estimator_dispatch.py:68-79` | EXE-10 / DYN4-1 is RESOLVED on HEAD; restated for the record. |
 | DYN5-3 | Info | DOC | `training/feature_handling/hf_provider.py:230`, `providers.py:213` | `trust_remote_code` can be enabled by a URI query string. Operator-supplied configuration, documented. |
 | NET5-01 | Info | DOC | `integrations/mlflow.py:95-97` vs `:106-110` | Same docstring issue as NET4-01 (still open in wave 4 as DOC). |
-| W5-INP-01 | Low | OPEN | `utils/_param_oracle.py:525-531` | `_all_combos` materialises the full Cartesian product: 8 knobs x 10 values is 1e8 dicts. Fix: iterate lazily or cap the count. |
+| W5-INP-01 | Low | RESOLVED | `utils/_param_oracle.py:525-531` | `_all_combos` materialised the full Cartesian product. Fixed: the grid size is computed first and a product above `_MAX_PARAM_COMBOS` (1,000,000) raises ValueError. Test `tests/utils/test_param_oracle_refuses_huge_grid.py` fails on the old code (no error, 10,000 combinations built) and passes now; 11 ParamOracle tests pass. |
 | W5-INP-02 | Info | DOC | `feature_selection/shap_proxied_fs/_shap_proxy_interactions.py:528,557-558` | Joint bincount length is `nb_a*nb_b` from data bins; bounded by the existing bin cap. |
 | W5-FS-01 | Info | REJECTED | `utils/private_temp.py:36-45`, callers | Rejected: the premise is wrong. FS-02..FS-05 in `audits/2026-10-31/_TRACKER.md` (rows at lines 109-112) are already RESOLVED; no FUTURE row remains there. |
 
