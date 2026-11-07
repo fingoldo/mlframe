@@ -14,6 +14,8 @@ import numba
 import numpy as np
 from numba import njit, prange, types
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 from ._numba_utils import LARGE_CONST, _fleuret_shuffle_col_lcg, evaluate_gain
 from typing import Any
 
@@ -78,10 +80,12 @@ def fleuret_confidence_prange(data_copy: Any, factors_nbins: Any, x: Any, y: Any
     nfailed = 0
     for b0 in range(0, int(npermutations), block):
         b1 = min(int(npermutations), b0 + block)
-        flags = _block_flags(data_copy, factors_nbins, xs, ys, sel, b0, b1, float(bootstrapped_gain), int(nexisting), str(mrmr_relevance_algo),
-                             str(mrmr_redundancy_algo), int(max_veteranes_interactions_order), float(extra_knowledge_multipler), float(sink_threshold),
-                             bool(extra_x_shuffling), np.uint64(base_seed), int(perm_offset), bool(use_su), bool(use_mm), bool(use_jmim),
-                             bool(jmim_discount_only))
+        # The prange block runs on bootstrap-stability threads when MRMR fits concurrently: enter it through the guard.
+        with parallel_kernel_entry():
+            flags = _block_flags(data_copy, factors_nbins, xs, ys, sel, b0, b1, float(bootstrapped_gain), int(nexisting), str(mrmr_relevance_algo),
+                                 str(mrmr_redundancy_algo), int(max_veteranes_interactions_order), float(extra_knowledge_multipler), float(sink_threshold),
+                                 bool(extra_x_shuffling), np.uint64(base_seed), int(perm_offset), bool(use_su), bool(use_mm), bool(use_jmim),
+                                 bool(jmim_discount_only))
         for k in range(b1 - b0):
             if flags[k]:
                 nfailed += 1
