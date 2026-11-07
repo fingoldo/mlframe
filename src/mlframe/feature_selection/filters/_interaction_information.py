@@ -41,8 +41,11 @@ the prevalence ratio gate stay as the outer admission guards. II routing then, a
 from __future__ import annotations
 
 import logging
+import os
 
 import numpy as np
+from numba import njit, prange
+
 from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -99,6 +102,85 @@ def pair_interaction_information(
         mi_b = mi_b - _mm_bias(k_b, k_y, int(n))
         pair_mi = pair_mi - _mm_bias(k_j, k_y, int(n))
     return float(pair_mi - mi_a - mi_b)
+
+
+@njit(cache=True)
+def _plug_in_mi_occupied(x: np.ndarray, y: np.ndarray, x_mul: int, x2: np.ndarray, k_x: int, k_y: int, inv_n: float):
+    """``(I(X;Y), #occupied X bins)`` of the codes ``x * x_mul + x2`` (``x2`` is ignored when ``x_mul`` is 0) against ``y`` in one counting pass; the sums run over the occupied cells in row-major order
+    like :func:`_marginal_mi_codes`, so the values agree with it to rounding."""
+    n = x.shape[0]
+    counts = np.zeros((k_x, k_y), dtype=np.int64)
+    for i in range(n):
+        code = x[i] * x_mul + x2[i] if x_mul > 0 else x[i]
+        counts[code, y[i]] += 1
+    px = np.zeros(k_x, dtype=np.float64)  # Intentional float64: plug-in MI marginal accumulators
+    py = np.zeros(k_y, dtype=np.float64)  # Intentional float64
+    for a in range(k_x):
+        for b in range(k_y):
+            c = counts[a, b]
+            px[a] += c
+            py[b] += c
+    occupied = 0
+    for a in range(k_x):
+        px[a] *= inv_n
+        if px[a] > 0.0:
+            occupied += 1
+    for b in range(k_y):
+        py[b] *= inv_n
+    mi = 0.0
+    for a in range(k_x):
+        for b in range(k_y):
+            c = counts[a, b]
+            if c == 0:
+                continue
+            pj = c * inv_n
+            denom = px[a] * py[b]
+            if denom > 0.0:
+                mi += pj * np.log(pj / denom)
+    return mi, occupied
+
+
+@njit(cache=True, parallel=True)
+def _best_pair_ii(codes: np.ndarray, nb_col: np.ndarray, row_a: np.ndarray, row_b: np.ndarray, y: np.ndarray, k_y: int, inv_n: float, n: int, miller_madow: bool) -> float:
+    """Largest MM-corrected interaction information over the pairs under one label vector ``y`` (0.0 when none is positive), the columns and the pairs scored in parallel.
+
+    ``codes`` is ``(columns, rows)``; pair ``p`` joins ``codes[row_a[p]]`` and ``codes[row_b[p]]`` with the ``a * nb_b + b`` encoding. The marginal MIs of a column are computed once per label vector."""
+    m = codes.shape[0]
+    mi_col = np.zeros(m, dtype=np.float64)  # Intentional float64: plug-in MI per column
+    occ_col = np.zeros(m, dtype=np.int64)
+    dummy = np.zeros(1, dtype=codes.dtype)
+    for c in prange(m):
+        mi_c, occ_c = _plug_in_mi_occupied(codes[c], y, 0, dummy, nb_col[c], k_y, inv_n)
+        mi_col[c] = mi_c
+        occ_col[c] = occ_c
+    n_pairs = row_a.shape[0]
+    best = np.zeros(n_pairs, dtype=np.float64)  # Intentional float64: per-pair II
+    for p in prange(n_pairs):
+        a, b = row_a[p], row_b[p]
+        nb_b = nb_col[b]
+        pair_mi, k_j = _plug_in_mi_occupied(codes[a], y, nb_b, codes[b], nb_col[a] * nb_b, k_y, inv_n)
+        mi_a, mi_b = mi_col[a], mi_col[b]
+        if miller_madow:
+            mi_a -= _mm_bias_nb(occ_col[a], k_y, n)
+            mi_b -= _mm_bias_nb(occ_col[b], k_y, n)
+            pair_mi -= _mm_bias_nb(k_j, k_y, n)
+        best[p] = pair_mi - mi_a - mi_b
+    top = 0.0
+    for p in range(n_pairs):
+        if best[p] > top:
+            top = best[p]
+    return top
+
+
+@njit(cache=True)
+def _mm_bias_nb(k_x: int, k_y: int, n: int) -> float:
+    """:func:`_mm_bias` for numba."""
+    if n <= 0 or k_x < 2 or k_y < 2:
+        return 0.0
+    return (k_x - 1) * (k_y - 1) / (2.0 * n)
+
+
+_KERNEL_ENABLED = os.environ.get("MLFRAME_II_NULL_KERNEL", "1").strip().lower() not in ("0", "false", "off", "no")  # 0 keeps the numpy per-pair loop
 
 
 def pooled_pair_ii_null_floor(
@@ -163,6 +245,20 @@ def pooled_pair_ii_null_floor(
     y_perm = y0.copy()
     # Intentional float64: permutation-null maxima accumulator compared against the f64 observed value.
     maxes = np.empty(int(n_permutations), dtype=np.float64)
+    if _KERNEL_ENABLED:
+        # one parallel kernel per shuffle over the columns and the pairs (the Python loop below re-scored every pair with numpy temporaries: 8 s of a 300000-row all-families fit)
+        row_of = {int(c): r for r, c in enumerate(cols)}
+        codes = np.ascontiguousarray(np.stack([col_codes[int(c)] for c in cols]))
+        nb_col = np.ascontiguousarray(nb[cols]).astype(np.int64)
+        row_a = np.array([row_of[int(a)] for a in pa], dtype=np.int64)
+        row_b = np.array([row_of[int(b)] for b in pb], dtype=np.int64)
+        from mlframe._numba_parallel_guard import parallel_kernel_entry
+
+        for s in range(int(n_permutations)):
+            rng.shuffle(y_perm)
+            with parallel_kernel_entry():
+                maxes[s] = _best_pair_ii(codes, nb_col, row_a, row_b, y_perm, k_y, inv_n, n, bool(miller_madow))
+        return float(np.quantile(maxes, float(quantile)))
     for s in range(int(n_permutations)):
         rng.shuffle(y_perm)
         # y marginal counts are invariant under shuffle; entropy/H(y) cancels in MI so we score MI directly.
