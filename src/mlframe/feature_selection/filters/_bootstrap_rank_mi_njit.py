@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import threading
+from contextlib import contextmanager
 
 import numpy as np
 from numba import njit, prange
@@ -376,6 +377,29 @@ def _resample_tables(rep_rows: "list[np.ndarray]", y_arr: np.ndarray, n: int, n_
     return prep
 
 
+#: Host bytes one numba thread holds per row while it sorts a column (the tile copy, keys, the radix buffers and the rank vector).
+_SORT_BYTES_PER_ROW = 32
+
+
+@contextmanager
+def _memory_capped_threads(n_rows: int):
+    """numba threads limited for the block so the per-thread sort buffers fit the edge memory budget (``_adaptive_nbins._cap_jobs_by_memory``): eight threads at 10 million
+    rows held about 2.2 GB of buffers at once. The columns are independent, so the result does not depend on the thread count."""
+    import numba
+
+    from ._adaptive_nbins import _cap_jobs_by_memory
+
+    before = numba.get_num_threads()
+    capped = _cap_jobs_by_memory(before, int(n_rows), _SORT_BYTES_PER_ROW)
+    if capped < before:
+        numba.set_num_threads(capped)
+    try:
+        yield
+    finally:
+        if capped < before:
+            numba.set_num_threads(before)
+
+
 def _tied_on_device(arr: np.ndarray, prep: dict, n_bins: int, n_rep: int) -> "tuple[np.ndarray, np.ndarray, np.ndarray] | None":
     """``(mi, done, ok)``: the columns of the float32 ``arr`` with repeated values and a level count the device table holds, scored by the device counting sort
     (``_bootstrap_rank_mi_tied_gpu``) from host dense ranks computed block by block beside it; ``done`` marks them, ``ok`` the finite columns. ``None`` when no column
@@ -384,7 +408,7 @@ def _tied_on_device(arr: np.ndarray, prep: dict, n_bins: int, n_rep: int) -> "tu
 
     def _ranks(bits_block: np.ndarray):
         """Host dense ranks of one block of columns."""
-        with parallel_kernel_entry():
+        with parallel_kernel_entry(), _memory_capped_threads(int(bits_block.shape[0])):
             return dense_ranks_f32(bits_block, _tile_for(int(bits_block.shape[1]), int(bits_block.shape[0])))
 
     return tied_replicate_mi_stream(np.ascontiguousarray(arr).view(np.uint32), prep, n_bins, _ranks)
@@ -444,14 +468,14 @@ def bootstrap_rank_mi(arr: np.ndarray, y: np.ndarray, rep_rows: "list[np.ndarray
                     return mi_dev, done
                 rest = np.flatnonzero(~done)
                 counts_t, rowptr, poslist, cum = prep["counts_t"], prep["rowptr"], prep["poslist"], prep["cum"]
-                with parallel_kernel_entry():
+                with parallel_kernel_entry(), _memory_capped_threads(n):
                     mi_rest, ok_rest = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr[:, rest]).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, rowptr, poslist, cum, int(n_bins), _tile_for(int(rest.size), n))
                 mi_dev[:, rest] = mi_rest
                 done[rest] = np.asarray(ok_rest)
                 return mi_dev, done
     if arr.dtype == np.float32:
         counts_t, rowptr, poslist, cum = prep["counts_t"], prep["rowptr"], prep["poslist"], prep["cum"]
-        with parallel_kernel_entry():
+        with parallel_kernel_entry(), _memory_capped_threads(n):
             mi, ok = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, rowptr, poslist, cum, int(n_bins), _tile_for(int(arr.shape[1]), n))
     else:
         with parallel_kernel_entry():
