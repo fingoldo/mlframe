@@ -80,6 +80,6 @@ def device_label_bits(y: np.ndarray, m: int, base_seed: int, n_y: int, words: in
         out = cp.empty((m, n_y, words), dtype=cp.uint64)
         total = m * words
         pack(((total + 127) // 128,), (128,), (idx, y_d, out, np.int64(n), np.int32(m), np.int32(n_y), np.int32(words)))
-        return cp.asnumpy(out)
+        return np.asarray(cp.asnumpy(out))
     except Exception:  # no device / out of memory / compile failure: the host draw gives the same bits
         return None

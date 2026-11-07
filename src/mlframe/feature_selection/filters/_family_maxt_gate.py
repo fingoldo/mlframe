@@ -346,7 +346,7 @@ def _family_null_max_device_bits(dev_bits, rng, y, n_y: int, n_perm: int, block:
             return m, _label_bits_block(rng, y, m, n_y, words, y_key, on_device=True)
 
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="null_labels") as pool:
-        pending = pool.submit(draw, starts[0])
+        pending: Any = pool.submit(draw, starts[0])
         for i, start in enumerate(starts):
             m, labels = pending.result()
             pending = pool.submit(draw, starts[i + 1]) if i + 1 < len(starts) else None

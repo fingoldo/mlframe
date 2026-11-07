@@ -698,7 +698,7 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
     _miss_cols: list = []  # indices needing compute, in ascending order
     def _col_of(j: int) -> np.ndarray:
         """Column ``j`` as a double view; made when asked for, so a float32 frame is never held as a whole double copy (10.2 GB at 10000000 x 80, 1.3 GB at 2000000 x 80)."""
-        return X[:, j].astype(np.float64, copy=False)  # Intentional float64: per-column float64 view consumed by the statistic loop
+        return np.asarray(X[:, j].astype(np.float64, copy=False))  # Intentional float64: per-column float64 view consumed by the statistic loop
 
     for j in range(n_features):
         col = _col_of(j)

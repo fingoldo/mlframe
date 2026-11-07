@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -130,14 +131,15 @@ def _permuted_labels_cached(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, 
 _NULL_COLUMNS_BLOCK_BYTES = 192 * 1024 * 1024
 
 
-def _bycol_null_block(args: tuple, nan_cont: np.ndarray):
+def _bycol_null_block(args: Any, nan_cont: np.ndarray):
     """``(plain, corrected)`` of one block of permutations: the device path when it applies, else the column-parallel host kernel."""
     from ._mdlp_honest_bycol_njit import honest_null_columns_bycol
 
     if _device_honest_null_enabled():
         from ._honest_null_device import honest_null_columns_device
 
-        on_device = honest_null_columns_device(*args, nan_cont)
+        full_args: Any = (*args, nan_cont)
+        on_device = honest_null_columns_device(*full_args)
         if on_device is not None:
             return on_device
     return honest_null_columns_bycol(*args, nan_cont, os.environ.get("MLFRAME_HONEST_ROOT_PRECHECK", "1") != "0")
@@ -172,7 +174,7 @@ def _permuted_label_blocks(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, r
     from concurrent.futures import ThreadPoolExecutor
 
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="perm_labels") as pool:
-        pending = pool.submit(draw, starts[0])
+        pending: Any = pool.submit(draw, starts[0])
         for i in range(len(starts)):
             block = pending.result()
             pending = pool.submit(draw, starts[i + 1]) if i + 1 < len(starts) else None
