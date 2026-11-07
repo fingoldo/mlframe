@@ -383,3 +383,13 @@ Remaining at 1M: the honest null redraws its permuted labels in 256 MB blocks (2
 
 `stack_timeline.py` (warm 20000-row fit, then the 100000 x 100 all-families fit, one process): WALL 77.4 s, against the 79.7 s to 105 s of the earlier runs. The label-cache cap, the frame-backed honest spec, the label bit-set cache and the streamed modular family test only act above their size thresholds (256 MB of labels or codes), so the 100k path is unchanged.
 The six-second buckets show the stage cascades at 4 to 5 live worker threads from 24 s to 42 s, the honest null at 54 to 60 s, and a serial tail (cluster-hierarchy quantisation, edge pool) in the last bucket.
+
+## 2026-11-07 scale ramp after the column-block and permutation-block work
+
+| rows x cols | wall | peak RSS growth | note |
+|---|---|---|---|
+| 1000000 x 100 | 372 s | 3774 MB | was 410 s / 4668 MB before the series |
+| 2000000 x 80 | 1420 s | 6967 MB | measured before the lazy double cast in `per_feature_edges` and the permutation-outside loop of the honest null |
+
+At 2M the main thread spent about 540 s in `bootstrap_rank_mi` and about 600 s in the honest null (a permuted-label draw per column block, 10 draws of a gigabyte per call); the 6.3 GB peak was `per_feature_edges` holding the whole frame as doubles (2.6 GB there, 10 GB at 10M x 80). Both are fixed; the 1M fit above is the first measurement with them.
+Growth is linear at about 3.5 GB per million rows, so 10M x 80 would still need about 35 GB: the structures that grow with the rows (discretised data, engineered columns, the cluster-hierarchy codes, the bootstrap tables) have to be built per column block on demand.
