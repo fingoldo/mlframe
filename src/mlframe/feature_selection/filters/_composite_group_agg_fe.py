@@ -490,6 +490,21 @@ def _emit_num_col_features(
     }
 
 
+def _frame_of_columns(encoded: "dict[str, np.ndarray]", index: pd.Index) -> pd.DataFrame:
+    """``pd.DataFrame(encoded, index=index)`` built without holding two copies of every column: the columns are copied one at a time into a single
+    ``(columns, rows)`` block and freed from ``encoded`` as they go, so the peak is one set of columns, not the dict plus pandas' stacked copy (768 MB each at 100000 rows with 3000 candidates).
+    Columns of mixed dtype or length take pandas' own constructor."""
+    names = list(encoded)
+    n = len(index)
+    dtypes = {a.dtype for a in encoded.values()}
+    if not names or len(dtypes) != 1 or any(a.shape != (n,) for a in encoded.values()):
+        return pd.DataFrame(encoded, index=index)
+    block = np.empty((len(names), n), dtype=next(iter(dtypes)))
+    for i, name in enumerate(names):
+        block[i] = encoded.pop(name)
+    return pd.DataFrame(block.T, columns=names, index=index, copy=False)
+
+
 def generate_composite_group_agg_features(
     X: pd.DataFrame,
     group_col_sets: Sequence[Sequence[str]],
@@ -590,9 +605,9 @@ def generate_composite_group_agg_features(
     for enc, rec in results:
         encoded.update(enc)
         raw_recipes.update(rec)
+    results.clear()  # the per-task dicts hold the same arrays as ``encoded``: dropping them lets each column be freed once it is copied below
 
-    enc_df = pd.DataFrame(encoded, index=X.index)
-    return enc_df, raw_recipes
+    return _frame_of_columns(encoded, X.index), raw_recipes
 
 # ---------------------------------------------------------------------------
 # Replay

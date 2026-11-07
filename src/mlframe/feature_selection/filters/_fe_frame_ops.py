@@ -13,7 +13,7 @@ stays in the source framework (polars ``hstack`` / pandas ``concat``), so a 100+
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -106,18 +106,44 @@ def fe_extract_columns(X: Any, names: Iterable[str]) -> dict[str, np.ndarray]:
 FE_EAGER_MATERIALIZE_MAX_BYTES = 2 * 1024**3
 
 
+def fe_n_rows(X: Any) -> int:
+    """Row count of a pandas / polars frame."""
+    if is_pandas(X):
+        return int(X.shape[0])
+    if is_polars(X):
+        return int(X.height)
+    raise TypeError(f"fe_n_rows: unsupported frame type {type(X)!r}")
+
+
+def fe_column_blocks(X: Any, names: "Iterable[str] | None" = None, budget_bytes: int = 256 * 1024 * 1024, dtype: Any = np.float32) -> "Iterator[tuple[list[str], np.ndarray]]":
+    """Blocks of numeric columns of a pandas / polars frame as C-contiguous ``(columns, rows)`` arrays of ``dtype``, each block within ``budget_bytes`` (at least one column).
+
+    The one reading seam for a frame that may not fit in memory: nothing but the current block is ever held, a column goes frame -> block with a single cast-and-copy (a polars float32
+    column is a zero-copy view first), and the rows of a block are contiguous per column, which is the layout the device kernels and the code coders read. ``names`` defaults to every numeric column."""
+    cols = [c for c in (fe_columns(X) if names is None else names) if fe_is_numeric_col(X, c)]
+    n = fe_n_rows(X)
+    per_col = max(1, n) * np.dtype(dtype).itemsize
+    step = max(1, int(budget_bytes) // per_col)
+    for c0 in range(0, len(cols), step):
+        part = cols[c0 : c0 + step]
+        block = np.empty((len(part), n), dtype=dtype)
+        for k, c in enumerate(part):
+            block[k] = X[c].to_numpy()
+        yield part, block
+
+
 def fe_numeric_float32_view(X: Any) -> Any:
-    """Pandas copy of the numeric columns of a polars frame, stored float32, built one column at a time.
+    """Pandas copy of the numeric columns of a polars frame, stored float32, built one column block at a time.
 
     Half the memory of ``to_pandas`` on a wide numeric frame, because the double copy of the whole frame never exists:
-    only one double column is alive at a time. Non-numeric columns are left out. Used by the families that must read
+    only one block is alive besides the result. Non-numeric columns are left out. Used by the families that must read
     a large polars frame but need only its numeric columns (see audit row 28).
     """
     num = [c for c in X.columns if X[c].dtype.is_numeric()]
-    mat = np.empty((X.height, len(num)), dtype=np.float32)
-    for j, c in enumerate(num):
-        mat[:, j] = X[c].to_numpy()
-    return pd.DataFrame(mat, columns=num, index=pd.RangeIndex(X.height), copy=False)
+    mat = np.empty((len(num), X.height), dtype=np.float32)  # (columns, rows): each column contiguous, the frame below is a transposed view of it
+    for k, c in enumerate(num):
+        mat[k] = X[c].to_numpy()
+    return pd.DataFrame(mat.T, columns=num, index=pd.RangeIndex(X.height), copy=False)
 
 
 def fe_polars_exceeds(X: Any, max_bytes: int = FE_EAGER_MATERIALIZE_MAX_BYTES) -> bool:
