@@ -54,3 +54,30 @@ def test_device_permutations_are_permutations_and_reproducible():
     np.testing.assert_array_equal(a, b)
     for row in a:
         assert np.bincount(row, minlength=3).tolist() == np.bincount(np.arange(n) % 3, minlength=3).tolist()
+
+
+def test_packed_labels_are_reused_for_the_same_key_and_give_equal_maxima():
+    """Two calls with the same labels key score the same packed permutations: equal null maxima, and the second call draws nothing."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters import _null_max_perm_gpu as G
+
+    rng = np.random.default_rng(0)
+    n, k = 3000, 6
+    x = cp.asarray(rng.standard_normal((k, n)).astype(np.float32))
+    interior = cp.asarray(np.sort(rng.standard_normal((7, k)), axis=0))
+    y = cp.asarray((rng.random(n) < 0.4).astype(np.int64))
+    G._LABEL_BITS_CACHE.clear()
+    draws = []
+
+    def blocks():
+        """Ten seeded host permutations, counting the draws."""
+        g = np.random.default_rng(5)
+        return G.PermutationBlocks(lambda _i: draws.append(1) or g.permutation(n), 10)
+
+    a = G.null_max_mi_perms_gpu(cp, x, interior, y, blocks(), 8, 2, labels_key=("t", 1))
+    first = len(draws)
+    second_blocks = blocks()
+    b = G.null_max_mi_perms_gpu(cp, x, interior, y, second_blocks, 8, 2, labels_key=("t", 1))
+    np.testing.assert_array_equal(a, b)
+    assert first == 10 and len(draws) == first and not second_blocks.drawn()
+    G._LABEL_BITS_CACHE.clear()

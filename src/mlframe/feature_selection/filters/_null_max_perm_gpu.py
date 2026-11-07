@@ -182,11 +182,42 @@ class PermutationBlocks:
         self._next = int(i) + 1
         return self._draw(int(i))
 
+    def drawn(self) -> bool:
+        """Whether any permutation has been asked for."""
+        return self._next > 0
+
     def drain(self) -> None:
         """Draw the permutations not asked for yet (the generator ends where the eager stack left it)."""
         for i in range(self._next, self._count):
             self._draw(i)
         self._next = self._count
+
+
+#: Packed permuted labels of the last ``labels_key`` (one key at a time, about 49 MB for 39 permutations of 10 million rows): a caller that scores many candidate blocks
+#: against the same permutations of the same labels (the binned-agg null redraws the same seeded permutations for every block) packs them once.
+_LABEL_BITS_CACHE: dict = {}
+
+
+def _cached_label_bits(key: Any, p0: int) -> Any:
+    """The packed block starting at permutation ``p0`` stored for ``key``, or ``None``."""
+    if key is None:
+        return None
+    entry = _LABEL_BITS_CACHE.get("latest")
+    if entry is None or entry[0] != key:
+        return None
+    return entry[1].get(int(p0))
+
+
+def _store_label_bits(key: Any, p0: int, bits: Any) -> None:
+    """Keep the packed block of ``key`` starting at ``p0``; a new key replaces the previous one."""
+    if key is None:
+        return
+    entry = _LABEL_BITS_CACHE.get("latest")
+    if entry is None or entry[0] != key:
+        _LABEL_BITS_CACHE.clear()  # evict-ok: only the latest labels are kept; a miss repacks them
+        entry = (key, {})
+        _LABEL_BITS_CACHE["latest"] = entry
+    entry[1][int(p0)] = bits
 
 
 def _permuted_labels(cp: Any, y8: Any, perms: Any, p0: int, p1: int, width: "int | None" = None) -> Any:
@@ -201,7 +232,7 @@ def _permuted_labels(cp: Any, y8: Any, perms: Any, p0: int, p1: int, width: "int
     return out
 
 
-def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, perms: "np.ndarray | PermutationBlocks", nbins: int, n_classes: int) -> Optional[np.ndarray]:
+def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, perms: "np.ndarray | PermutationBlocks", nbins: int, n_classes: int, labels_key: Any = None) -> Optional[np.ndarray]:
     """``(P,)`` maximum over the candidates of the plug-in MI against ``y_shifted[perms[p]]``, for the float32 or double ``(K, n)`` C-order candidate block ``x_cm`` binned by
     ``interior`` (``(nbins - 1, K)``, the edges ``binned_mi_from_values_gpu`` uses); ``None`` when the path does not apply (the caller keeps one launch per permutation)."""
     if x_cm.dtype not in (cp.float32, cp.float64) or not x_cm.flags.c_contiguous or int(n_classes) > 255:  # Intentional float64: the kernel reads float32 or float64 candidates
@@ -222,11 +253,14 @@ def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, per
         words = (n + 31) // 32
         for p0 in range(0, len(perms), 64):  # PMAX_LANE x 32 permutations per launch
             block_len = min(64, len(perms) - p0)
-            padded = _permuted_labels(cp, y8, perms, p0, p0 + block_len, width=words * 32)  # (P, 32 words) permuted 0/1 labels, zero padded, built on the device
-            # (P, words): bit i of word w = label of row 32 w + i. A row is a whole number of bytes, so packing the flat matrix little-endian packs each row on its own;
-            # the uint32 view of 4 packed bytes is that word (the former shift-and-sum widened the block to 4 bytes a label: 2.5 GB for 64 permutations of 10 million rows)
-            ybits = cp.ascontiguousarray(cp.packbits(padded.ravel(), bitorder="little").view(cp.uint32).reshape(block_len, words))
-            del padded
+            ybits = _cached_label_bits(labels_key, p0)
+            if ybits is None:
+                padded = _permuted_labels(cp, y8, perms, p0, p0 + block_len, width=words * 32)  # (P, 32 words) permuted 0/1 labels, zero padded, built on the device
+                # (P, words): bit i of word w = label of row 32 w + i. A row is a whole number of bytes, so packing the flat matrix little-endian packs each row on its own;
+                # the uint32 view of 4 packed bytes is that word (the former shift-and-sum widened the block to 4 bytes a label: 2.5 GB for 64 permutations of 10 million rows)
+                ybits = cp.ascontiguousarray(cp.packbits(padded.ravel(), bitorder="little").view(cp.uint32).reshape(block_len, words))
+                del padded
+                _store_label_bits(labels_key, p0, ybits)
             res = cp.empty((block_len, k), dtype=cp.float64)  # Intentional float64: MI accumulator, as the per-permutation kernel's
             shared = (block_len * int(nbins) + int(nbins)) * 4
             bits_kernel((k,), (_bits_width(bits_kernel, shared, n),), (x_cm, edges, ybits, np.int64(n), np.int32(words), np.int32(k), np.int32(nbins), np.int32(block_len), np.float64(1.0 / float(max(1, n))), res), shared_mem=shared)  # Intentional float64: the kernel reads float32 or float64 candidates

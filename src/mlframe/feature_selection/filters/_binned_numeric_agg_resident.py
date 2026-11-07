@@ -470,6 +470,7 @@ def _batched_null_max(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.ndarray, _ymin:
 
         # the same permutations in the same order as the eager stack drew them, but one block at a time (the stack was 16 GB at 10 million rows)
         n_rows = int(_yi.size)
+        rng_tag = repr(rng.bit_generator.state)  # the generator's state before any draw: equal states draw equal permutations
         if n_rows >= _device_perms_min_rows():
             # long frames: the host draw (0.6 s per permutation of 10 million rows, one thread, the device idle) is the cost of this null; the permutations are drawn on the
             # device from one seed taken from ``rng`` (0.12 s each). They are other permutations than the host stream's, so the null maxima differ by permutation noise.
@@ -481,9 +482,16 @@ def _batched_null_max(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.ndarray, _ymin:
             _x, _is_cm, x_cm, interior = _resident_mi_candidates(mat_gpu, int(nbins), keep_dtype=True, relax_binning=True, x_is_cm=True)
             y0 = y_gpu.astype(cp.int64)
             y_shift = _shifted_y_cached(y0, int(_ymin)) if _ymin else y0
-            return null_max_mi_perms_gpu(cp, x_cm, interior, y_shift, perms, int(nbins), int(_ncls))
+            # the caller passes a freshly seeded generator, so every block of candidates is scored against the same permutations: the packed labels are reused across blocks
+            from mlframe.utils.disk_cache import hash_array_content
+
+            labels_key = ("binagg", hash_array_content(np.ascontiguousarray(_yi)), int(_ymin), int(_ncls), n_rows >= _device_perms_min_rows(), _LOCAL_GATE_NULL_PERMUTATIONS, rng_tag)
+            return null_max_mi_perms_gpu(cp, x_cm, interior, y_shift, perms, int(nbins), int(_ncls), labels_key=labels_key)
         finally:
-            perms.drain()  # the generator advances exactly as the eager stack advanced it, whatever happened above
+            if perms.drawn():
+                perms.drain()  # the generator advances exactly as the eager stack advanced it, whatever happened above
+            # with every block taken from the packed-label cache nothing was drawn: the caller's generator is a fresh one per call (``_binagg_null_max_vector``), and
+            # drawing 39 permutations only to advance it would cost what the cache saves
     except Exception as exc:
         log_throttle(logger, "binagg_batched_null_fallback", logging.WARNING, "batched binagg null failed (%s); one launch per permutation", exc)
         return None
