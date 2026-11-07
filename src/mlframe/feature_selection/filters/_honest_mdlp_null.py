@@ -162,8 +162,21 @@ def _permuted_label_blocks(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, r
         return
     base = int(rng.integers(0, 2**31 - 1))
     step = max(1, _PERM_LABELS_BLOCK_BYTES // max(1, n * per_label))
-    for start in range(0, int(n_permutations), step):
-        yield permuted_labels_seeded(y_raw, y_codes, min(step, int(n_permutations) - start), base + start)
+    starts = list(range(0, int(n_permutations), step))
+
+    def draw(start: int):
+        """The labels of the permutations ``start`` onward (one block)."""
+        return permuted_labels_seeded(y_raw, y_codes, min(step, int(n_permutations) - start), base + start)
+
+    # the next block is drawn on the host while the caller scores the current one on the device (4.7 s of host draws against a device that sat idle at 2000000 rows); two blocks are alive at most
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="perm_labels") as pool:
+        pending = pool.submit(draw, starts[0])
+        for i in range(len(starts)):
+            block = pending.result()
+            pending = pool.submit(draw, starts[i + 1]) if i + 1 < len(starts) else None
+            yield block
 
 
 def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, cols, n_permutations: int, seed_key: int, eval_rows=None):
