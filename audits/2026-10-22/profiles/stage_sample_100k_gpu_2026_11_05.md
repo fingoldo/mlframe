@@ -439,3 +439,7 @@ nvprof of `honest_null_columns_device` (1000000 rows, 8 columns, 256 permutation
 ## 2026-11-07 300000 x 100 all-families fit after the acceptance, conditional-null and interaction-null kernels
 
 `stack_lines.py` N=300000: wall 351.9 s (start of the line-profile work) -> 271.8 -> 251.6 -> 236.2 s. `_continuous_accept_block` 10.8 -> 3.5 s (sorted-space sequences above the shared budget), `_conditional_maxt._compute` and `_marginal_mi_codes` left the top. The top is now `map_on_edge_pool` 9.2 s (host edge computation, CPUs busy), `bootstrap_rank_mi` 6.0 s, the sorts of the permutation-null argsort (`_fe_cmi_perm_null_gpu._column_argsort`, 4.5 s), `device_argsort`/`device_sort` 8 s together, `modular_family_codes_gpu` 3.8 s. The honest null itself is now bound by the host draw of the permuted labels (`_permuted_labels_kernel` 1.8 s of 3.4 s at 1000000 rows x 8 columns x 256 permutations).
+
+## 2026-11-07 regression state before the push
+
+`tests/feature_selection/gpu` + `tests/feature_selection/fe/gpu` on the current code: 1758 passed, 6 skipped (29 minutes). Known failures kept outside this run and recorded above: six clustering tests (DCD swap null, synergy detector) that also fail with a clean numba cache, and two `fe` tests that also fail on the pre-session base (`test_uniform_quantization_code_table`, `test_poly_branch_overflow_no_runtime_warning`).
