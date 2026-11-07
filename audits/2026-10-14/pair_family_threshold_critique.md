@@ -5,23 +5,23 @@ Source: read-only critique agent, 2026-10-14. Scope: `src/mlframe/feature_select
 ## Findings
 
 ### F01 - Per-pair exact threshold does not control FWER over all pairs
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED. `_check_prospective_fe_pairs_part5` (`_pairs_core_parts.py`) sets `_pair_family_alpha = 0.001 / len(prospective_pairs)`, a Bonferroni division over the pool, and the caller passes it to the per-pair family gate. Pinned by `tests/feature_selection/filters/test_pair_family_bonferroni_alpha.py` (removing the division fails it).
 - Each pair is gated independently. At alpha 0.01 over 28 pairs (8 columns) the chance of at least one false pass is about 0.25.
 - Fix direction: a family of all pairs x configurations for the final FWER, not only per-pair.
 - Evidence: `_pairs_emit.py:170` (K = `len(var_pairs_perf)`).
 
 ### F02 - Cost of the exact test per pair
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. Measured on HEAD with `_benchmarks/bench_family_maxt_cost.py` (20 permutations, best of 3, after warm-up): n=2000 K=200 0.116 s; n=2000 K=1734 0.729 s; n=20000 K=200 0.225 s. The cost is about linear in K, as the finding said. The function the finding names, `family_maxt_threshold`, no longer exists; its successor is `family_maxt_pass_codes`. No speed-up has been applied yet. A cProfile of one warm call at n=2000 K=1734 (20 permutations) gives 0.298 s cumulative: `bitset_tables_and_group_iter` 0.085 s tottime and its generator 0.077 s (lazy column bit-set build), `null_max_bitsets_from_classes` 0.040 s, `_analytic_triage` 0.025 s, `unique_columns` 0.020 s. No single Python frame dominates; the cost is the bit-set build and the compiled null sweep. The bit-set builder `column_bin_bitsets` is already `@njit(parallel=True)` with a `prange` over columns (`_family_maxt_null_v2_njit.py:124`), so the planned numba rewrite is not the lever. The remaining cost is the O(K x cap x n/64) bit-set and null work itself. F02 stays PARTIAL until the owner decides whether that cost is accepted or the family test is reduced (for example by the analytic triage that already runs first).
 - Measured: `family_maxt_threshold`, n=2000, K=1734, 20 permutations: 0.70 s on a loaded machine (`_family_maxt_gate.py:60-105`).
 - Estimated (not measured): 999 permutations per pair at n=2000 is about 35 s; 28 pairs is about 16 minutes. n=20000 is about 350 s per pair by linear extrapolation.
 
 ### F03 - Table docstring and table metadata disagree on the quantile
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED. The checked-in `null_mi_table.json` meta quantile is 0.95, the builder `QUANTILE = 0.95`, and the docstring says 95th percentile. Pinned by `tests/feature_selection/filters/test_null_mi_table_quantile_single_source.py`.
 - `_null_mi_threshold.py:1-5` says 95th percentile. The builder default is `QUANTILE = 0.95` (`_benchmarks/build_null_mi_table.py:34`). The checked-in table at the time of the critique had meta quantile 0.999, which came from a local rebuild and was not documented in the builder.
 - Fix: one source of truth for the quantile, written into the table meta and the docstring.
 
 ### F04 - Nearest-neighbour lookup underestimates the threshold for K above the grid
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED. `null_mi_threshold` rescales the floor by ln N / ln N_max beyond the grid (`_null_mi_threshold.py`). Pinned by `tests/feature_selection/filters/test_null_mi_threshold_beyond_grid.py`.
 - `_null_mi_threshold.py:37-52` picks the nearest entry on log K. For K=1734 the entry is K=1000, which gives 0.0099 against a directly measured 99% family null of 0.01046 (`family_maxt_threshold`, 199 permutations, n=2000, same discretiser).
 - Fix: extend the candidate grid to 2000-5000, or interpolate.
 
@@ -44,7 +44,7 @@ Source: read-only critique agent, 2026-10-14. Scope: `src/mlframe/feature_select
 - `default_rng(seed)` is reproducible for a fixed seed. Derive the seed from the pair index and n, so the result does not depend on processing order.
 
 ### F09 - Analytic bound as a cheap pre-filter
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. The chi-square bound is already in use as the pair noise gate: `analytic_batch_noise_gate` is called from `_pairs_dispatch.py:302` and `_pairs_analytic_gpu.py:166`, and it only applies when `analytic_null_applicable` passes (min n and min expected cell, `_analytic_mi_null.py:142-179`). Not yet done: the check against the permutation threshold on several realisations that the finding requires. No test or benchmark in the repo records that comparison, so this stays PARTIAL.
 - A Bonferroni chi-square bound (`2n*MI >= chi2_{1-alpha/K}((bx-1)(by-1))`) is O(K) but asymptotic and conservative. Must be checked against the permutation threshold on several realisations before use.
 
 ### F10 - Sequential stopping rule for borderline pairs

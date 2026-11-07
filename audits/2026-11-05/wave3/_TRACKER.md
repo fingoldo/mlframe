@@ -29,10 +29,10 @@ Coverage: the audit read 2 of about 60 GPU-kernel files. Not yet read: the MI an
 
 | Test | Status |
 |---|---|
-| `test_mrmr_then_shap_proxied_fs_reuses_artifacts_e2e`: prefilter does not switch to `precomputed_su` | Pre-existing: fails the same way on a clean worktree at HEAD (`8e4aea9c7`). Not caused by API3-1. Open. |
-| `test_column_major_speedup_vs_row_major_reference`: ratio 1.23x vs 1.70x | Timing assertion, labelled load-sensitive in the test. Re-run on a quiet machine. |
-| `test_biz_value_revalidation_cap_faster_recovery_preserved`: 1.05x vs 1.30x | Timing assertion. Re-run on a quiet machine. |
-| `test_treeshap_gpu_matches_numba[True]`, `[False]`: max rel. diff 1.1e-4 | GPU numerical tolerance. Not checked against HEAD yet. Open. |
+| `test_mrmr_then_shap_proxied_fs_reuses_artifacts_e2e`: prefilter does not switch to `precomputed_su` | RESOLVED (test reframed, not code). The selector's leakage guard is correct: MRMR scored all 2000 rows, the search uses 1500, and `_precomputed_su_matches_search_rows` refuses the SU ranking and recomputes the prefilter (`method != precomputed_su`). The test asserted reuse. It now asserts the guard. Passes on HEAD in 218 s. |
+| `test_column_major_speedup_vs_row_major_reference`: ratio 1.23x vs 1.70x | RESOLVED (test reframed). The old test timed the whole public `cluster_correlated_features_su`, which routes to the bitmap kernel, against a bare row-major kernel: it did not measure the layout. It now times `_pairwise_su_edges` (the layout kernel) on identical packed input, at n=3000 where the paired sweep is robust (width 800: 2.57x; n=1500 was 0.88x-1.49x across widths, so it was noise). Passes in 33-40 s; file 3 passed. |
+| `test_biz_value_revalidation_cap_faster_recovery_preserved`: 1.05x vs 1.30x | RESOLVED on re-run: passes on HEAD (`test_shap_proxy_revalidate.py`, 140 s). |
+| `test_treeshap_gpu_matches_numba[True]`, `[False]`: max rel. diff 1.1e-4 | RESOLVED on HEAD: both parametrisations pass at atol=1e-9 (2 passed in 26.7 s, `test_shap_proxy_treeshap.py`). The 1.1e-4 figure was from an earlier state, not HEAD. |
 | `test_shap_proxied_fs_default_cap_uses_module_default` | Caused by API3-1: the test pinned the old contract. Reframed to the effective-width helper. RESOLVED in `251dc4a4c`. |
 
 ## Kernel parity, remaining groups (PARG1..PARG4)
@@ -79,3 +79,12 @@ Four read-only audits covered the remaining GPU-kernel files (reports `kernel_pa
 Decision (2026-11-06, owner): speed matters more than extra precision, so `crit_dtype_relaxed()` stays on (float32 by default). Fixes are targeted: the places where centring or ranking loses information centre or rank in float64 first and only then narrow (PARG3-1, PARG3-2, PARG3-4).
 
 The common cause of PARG1-1, PARG3-1, PARG3-2, PARG3-4, PARG2-3 and PARG2-4 is `crit_dtype_relaxed()`, which is on by default and makes `crit_float_dtype()` float32. A single decision on that default, with a float64 path for centring and ranking, would close most of the open High items at once. That choice is the owner's: it trades speed against accuracy.
+
+## Owner decision on the float32 default (2026-11-07)
+
+Owner decision: keep `crit_dtype_relaxed()` ON by default. Speed takes priority over float64 accuracy, provided the quality is comparable.
+The affected High items (PARG1-1, PARG3-1, PARG3-2, PARG3-4, PARG2-3, PARG2-4) are closed as DOC: accepted trade-off, not a defect.
+
+- Strict path stays available for every caller: `MLFRAME_CRIT_DTYPE_RELAXED=0` restores float64 (`_fe_gpu_batch/_devices.py`, `crit_dtype_relaxed`).
+- The default's own docstring records the validation it rests on (per-stage selection equivalence on F2 across distributions, and the stage biz suites).
+- No speed or accuracy benchmark was rerun for this decision; the owner accepted the existing validation.

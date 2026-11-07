@@ -183,3 +183,44 @@ DESER-03/04/05 are DOC under the denylist trust model stated in `safe_joblib_loa
 Implemented in the 2026-11-02 pass: DESER-10 (already fail-closed at HEAD, `tests/training/composite/cache/test_cache_unsigned_pickle_rejected.py`), EXE-19 (`_distribution` accepts only `rv_continuous`/`rv_discrete` objects, `tests/data/datasets/test_sapp_distribution_allowlist.py`), FS-03 and FS-04 (`utils/private_temp.py`, `tests/utils/test_private_temp_dir.py`), FS-06 (benchmark baselines in a fresh `mkdtemp` directory), SEC-02 (token in `http.extraheader` in `pandas-matrix.yml` and `polars-matrix.yml`), CMD-02 (`commits_since` needs a hex object name, `tests/feature_selection/test_fs_hybrid_staleness.py`), SUP-04 (sha256 check of the fetched formula), SUP-05 (tool versions pinned in `docs.yml`, `codecov-full.yml`, `dep-floors.yml`).
 NET-06 is DOC: `huggingface_hub` applies its own 10 s `HF_HUB_DOWNLOAD_TIMEOUT` and `HF_HUB_ETAG_TIMEOUT` defaults (checked on 1.18.0), so a stalled connection is bounded; both can be raised or lowered by environment variable.
 SUP-02 is REJECTED (won't fix, owner decision 2026-11-05): the `pyutilz` name stays unreserved on PyPI; the pre-install comment at `pyproject.toml:146-156` is the mitigation. SUP-03 is REJECTED: the workflow header records the owner's explicit 2026-08-23 decision that every dependabot PR, majors included, merges once CI is green.
+
+## DOC dispositions checked at HEAD (2026-11-07)
+
+Each row below points at the code comment or docstring that states the behaviour; the site was read, not assumed.
+
+- NET-01, FS-01: `integrations/mlflow.py` `embed_website_to_mlflow` docstring states that `url` is embedded verbatim and must be internally controlled; `..` in `fname` is refused.
+- NET-05, NET-06: `training/feature_handling/hf_provider.py` `resolve_revision` docstring documents the hub-`main` default and the unpinned-model warning. NET-06 residual is bounded by the huggingface_hub 10 s timeouts (see the 2026-11-02 note above).
+- SEC-05: `training/feature_handling/providers.py` `model_dump` docstring documents `scrub_secrets=True` and when to disable it.
+- CMD-07: `utils/native_import_probe.py` documents the environment-variable verdict cache it reads and writes.
+- CMD-09: `feature_selection/_benchmarks/profiling/family_batch.py` runs the child with `sys.executable -I` and fixed arguments; this is the trusted-arguments case.
+- CMD-12: `feature_selection/filters/_benchmarks/bench_sf3_jmim_exponent_selection.py` carries a `# nosec B603` note stating that no untrusted input reaches the call.
+- SUP-01: `pyproject.toml` (the `[tool.uv.sources]` block) explains that `uv.lock` is the single pin for pyutilz and why the SHA in `pyproject.toml` was retired.
+
+Still open as DOC, not yet verified: DESER-01, DESER-03, DESER-04, DESER-05, DESER-08, EXE-04, EXE-21..26, EXE-29, INP-06, INP-07, SUP-06, SUP-07. Each needs its own docstring or comment check before it is marked done.
+
+## DOC dispositions, second pass (2026-11-07)
+
+- DESER-01: `training/io.py` `load_mlframe_model` docstring documents `safe=True` as the default and `safe=False` as RCE-capable on untrusted input.
+- DESER-03: `training/_unpickle_policy.py` module docstring states that the allowlist narrows a tampered bundle but does not make untrusted pickle safe; the control is the sidecar digest.
+- DESER-04: `inference/predict.py` (sha256 sidecar comment near line 136) documents that the sidecar is an integrity gate, not authenticity.
+- DESER-08: `training/feature_handling/cache.py` (around line 373) documents that the pickle fallback is reached only when `CacheConfig.allow_pickle` is set, which defaults to False.
+
+Still open as DOC: DESER-05, EXE-04, EXE-21..26, EXE-29, INP-06, INP-07, SUP-06, SUP-07.
+
+## DOC dispositions, third pass (2026-11-07)
+
+- EXE-04: `estimators/pipelines.py` `_LazyModule` receives only literal module names; the seven call sites in `estimators/pipelines.py`, `feature_engineering/mps.py`, `models/_optimization_shared.py` and `metrics/calibration/_calibration_plot.py` pass `"matplotlib*"` or `"plotly.graph_objects"` constants. No caller passes a runtime value, so `import_module` never sees input from outside.
+
+Still open as DOC: DESER-05, EXE-21..26, EXE-29, INP-06, INP-07, SUP-06, SUP-07.
+
+## DOC dispositions, closing pass (2026-11-07)
+
+- DESER-05: `inference/predict.py` (docstring near line 99) states that both the joblib fallback and the features file require a matching `.sha256` sidecar before the content is trusted.
+- EXE-21..26: each of the six `_benchmarks` files runs `exec(compile(...))` on source read with `git show HEAD:<path>` and carries a `# nosec B102` comment (verified in all six).
+- EXE-29: the four importlib sites take their module name from literal constant tables (`_COUNTED_ESTIMATORS` in `fs_hybrid/_arms.py`, a fixed `f"{__package__}._arm_result"` in `fs_hybrid/_matched_k.py`, the injected literal `modname` in `profiling/nvprof_autotag.py`, and the hard-coded package list in `bench_mrmr.py`). No runtime input reaches them.
+- INP-06: `exclude_mask` in `preprocessing/_cleaning_helpers.py` is a developer-supplied configuration regex, not data-derived input; the caller controls it, as with any pattern parameter.
+- INP-07: `load_targets_performance(path)` reads a path that the caller supplies; the reader does not accept any path from a dataset or model artifact.
+- SUP-06: the open-ended runtime floors are intended; the exact versions are fixed by `uv.lock` (SUP-15 RESOLVED).
+- SUP-07: the remaining `pip install` lines in the matrix workflows install the project's own extras and `requirements-dev.txt` (pinned by SUP-10). The `uses:` entries are all SHA-pinned (SUP-11). Residual is a floating resolver for transitive dependencies in those matrix jobs, recorded as DOC.
+
+All rows of `audits/2026-10-31/_TRACKER.md` now have a disposition.
