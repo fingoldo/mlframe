@@ -70,7 +70,7 @@ from ._numba_utils import (
 
 def _parity_grid(v: np.ndarray) -> np.ndarray:
     """Geometric grid of candidate periods spanning the column's central range, from a small fraction to twice its span."""
-    lo, hi = np.nanquantile(v, [0.01, 0.99])
+    lo, hi = np.nanquantile(np.asarray(v, dtype=np.float64), [0.01, 0.99])  # Intentional float64: the quantiles of a float32 column are taken in double, as before
     span = float(hi - lo)
     if not np.isfinite(span) or span <= 0.0:
         return np.empty(0)
@@ -95,6 +95,7 @@ def _dense_codes(y: np.ndarray) -> np.ndarray:
 def _raw_mi(v: np.ndarray, y: np.ndarray) -> float:
     """MI of the raw column with the target: exact codes for a column with at most ``_BINS`` distinct values, else quantile binning into ``_BINS`` bins."""
     # a head sample with more than ``_BINS`` distinct values already decides "many levels": the sort of the whole column is only needed for a column that may have few
+    v = np.asarray(v, dtype=np.float64)  # Intentional float64: transient per-column widening (exact for a float32 column); the stored column keeps its own dtype
     head = v[:4096]
     levels = np.unique(v) if (head.shape[0] == v.shape[0] or np.unique(head).size <= _BINS) else None
     if levels is not None and levels.size <= _BINS:
@@ -115,7 +116,10 @@ def scan_parity_period(v: np.ndarray, y: np.ndarray) -> tuple[float, float]:
 
     Returns ``(nan, 0.0)`` when the column has no usable span, so the caller can skip it.
     """
-    v = np.asarray(v, dtype=np.float64).ravel()  # Intentional float64: input of floor(v / period) mod 2; float32 cannot resolve the period on large values
+    # a float column keeps its own dtype: the kernel multiplies each element by the double reciprocal of the period, which widens a float32 value exactly, so a stored double copy bought nothing
+    v = np.asarray(v).ravel()
+    if v.dtype.kind != "f":
+        v = v.astype(np.float64)  # Intentional float64: integer columns are widened for floor(v / period) mod 2
     y = np.asarray(y).ravel()
     finite = np.isfinite(v)
     if not finite.all():
@@ -125,7 +129,7 @@ def scan_parity_period(v: np.ndarray, y: np.ndarray) -> tuple[float, float]:
         return float("nan"), 0.0
     y_codes = _dense_codes(y)
     # Intentional float64: input of floor(v / period) mod 2; float32 cannot resolve the period on large values
-    mis = _parity_mi_grid_njit(np.ascontiguousarray(v, dtype=np.float64), y_codes, int(y_codes.max()) + 1, grid)
+    mis = _parity_mi_grid_njit(np.ascontiguousarray(v), y_codes, int(y_codes.max()) + 1, grid)
     g = int(np.argmax(mis))
     return float(grid[g]), max(float(mis[g]), 0.0)
 
@@ -171,14 +175,15 @@ def hybrid_parity_fe_with_recipes(
         cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c]) and not pd.api.types.is_bool_dtype(X[c])]
     rows = []
     # the columns are widened to double (the period needs it) and scanned a block at a time: all of them at once were 800 MB at 1000000 rows x 100 columns
-    block = max(1, (256 << 20) // (8 * max(len(y_arr), 1)))
+    block = max(1, (256 << 20) // (4 * max(len(y_arr), 1)))
     from ._edge_pool import map_on_edge_pool
 
     for start in range(0, len(cols), block):
         usable = []
         for c in cols[start : start + block]:
-            # Intentional float64: input of floor(v / period) mod 2; float32 cannot resolve the period on large values
-            v = np.asarray(X[c].to_numpy(), dtype=np.float64)
+            v = np.asarray(X[c].to_numpy())  # a float column stays in its own dtype (widening a float32 value is exact and happens inside the kernels)
+            if v.dtype.kind != "f":
+                v = v.astype(np.float64)  # Intentional float64: integer columns are widened for floor(v / period) mod 2
             ok = np.isfinite(v)
             if ok.sum() < 20:
                 continue
