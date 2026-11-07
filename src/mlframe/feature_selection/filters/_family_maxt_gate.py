@@ -539,15 +539,18 @@ def _column_values(X, j: int) -> np.ndarray:
     return np.asarray(X[:, j], dtype=_crit_np_dtype())
 
 
-def _family_codes(X, n_bins: int):
+def _family_codes(X, n_bins: int, block: "int | None" = None):
     """Quantile codes of every candidate column as a (K, n) int16 matrix (codes are < n_bins) and the per-column code counts.
 
     Filled column by column: no full-width float copy of the whole candidate matrix and no int64 code matrix (at 50000 x 3795 those were 1.5 GB each).
+    ``block`` is the number of columns coded per block; the default keeps a block of float columns at most 128 MB.
     """
     n_rows, n_cols = X.shape
     cols = np.empty((n_cols, n_rows), dtype=np.int16)
     nx = np.empty(n_cols, dtype=np.int64)
-    block = max(1, min(n_cols, (128 << 20) // (4 * max(n_rows, 1))))  # a block of float columns of at most 128 MB, coded in parallel
+    if block is None:
+        block = max(1, min(n_cols, (128 << 20) // (4 * max(n_rows, 1))))
+    block = max(1, int(block))
     for j0 in range(0, n_cols, block):
         j1 = min(j0 + block, n_cols)
         v = np.empty((j1 - j0, n_rows), dtype=_crit_np_dtype())

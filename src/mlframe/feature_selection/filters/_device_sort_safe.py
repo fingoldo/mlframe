@@ -121,11 +121,41 @@ def ensure_sort_headroom(a: Any) -> None:
         raise cp.cuda.memory.OutOfMemoryError(need, room, int(pool.get_limit()) if pool is not None else 0)
 
 
+#: Vector length from which a 2-D sort runs as one 1-D sort per column or row. cupy sorts a 2-D array in one batched call that is 3.5 to 5 times slower than the 1-D sorts of the same vectors
+#: at 300000 rows (32 columns: 103 ms against 19 ms, 1.6 times at 100000 rows) and faster than them below ~50000 rows, where a launch per column costs more than it saves; results are identical,
+#: ties included.
+_PER_VECTOR_SORT_MIN_LEN = 80_000
+
+
+def _vectors_of(a: Any, axis: int) -> "tuple[int, int] | None":
+    """``(vector length, vector count)`` of a 2-D ``a`` sorted along ``axis``, or ``None`` when the sort is not a long-vector 2-D one."""
+    if getattr(a, "ndim", 0) != 2:
+        return None
+    ax = axis % 2
+    length, count = int(a.shape[ax]), int(a.shape[1 - ax])
+    return (length, count) if length >= _PER_VECTOR_SORT_MIN_LEN and count > 1 else None
+
+
+def _sorted_per_vector(cp: Any, a: Any, axis: int, argsort: bool) -> Any:
+    """``cupy.argsort`` / ``cupy.sort`` of 2-D ``a`` along ``axis`` as one 1-D sort per vector, written into one output."""
+    ax = axis % 2
+    out = cp.empty(a.shape, dtype=cp.int64 if argsort else a.dtype)
+    fn = cp.argsort if argsort else cp.sort
+    for j in range(int(a.shape[1 - ax])):
+        if ax == 0:
+            out[:, j] = fn(a[:, j])
+        else:
+            out[j] = fn(a[j])
+    return out
+
+
 def device_argsort(a: Any, axis: int = -1, **kwargs: Any) -> Any:
     """``cupy.argsort(a, axis, **kwargs)`` that raises ``OutOfMemoryError`` instead of aborting when the pool is short."""
     import cupy as cp
 
     with sort_room(a):
+        if not kwargs and _vectors_of(a, axis) is not None:
+            return _sorted_per_vector(cp, a, axis, True)
         return cp.argsort(a, axis=axis, **kwargs)
 
 
@@ -134,6 +164,8 @@ def device_sort(a: Any, axis: int = -1, **kwargs: Any) -> Any:
     import cupy as cp
 
     with sort_room(a):
+        if not kwargs and _vectors_of(a, axis) is not None:
+            return _sorted_per_vector(cp, a, axis, False)
         return cp.sort(a, axis=axis, **kwargs)
 
 

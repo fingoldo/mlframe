@@ -26,13 +26,18 @@ __all__ = ["bootstrap_rank_mi"]
 _TILE = 16  # the most columns a thread ranks together; their buffers are reused
 
 
-def _tile_for(k: int) -> int:
-    """Columns per thread for a ``k``-column call: at most ``_TILE``, fewer when ``k`` is small so that every thread of the pool gets a tile (16 columns took ONE tile, so one thread and 12 percent of the CPU,
-    for 1.9 s a column at 2000000 rows)."""
+_TIE_FRACTION_MAX = 0.01  # a column with at most this fraction of repeated values takes the sorted walk, the others the counting sort of the draws
+_TILE_BUFFER_BYTES = 64 * 1024 * 1024  # the transposed columns of one tile (width x rows x 4 bytes) stay under this per thread
+
+
+def _tile_for(k: int, n_rows: int = 0) -> int:
+    """Columns per thread for a ``k``-column call over ``n_rows`` rows: at most ``_TILE``, fewer when ``k`` is small so that every thread of the pool gets a tile (16 columns took ONE tile, so one thread
+    and 12 percent of the CPU, for 1.9 s a column at 2000000 rows), and fewer when the transposed columns of a tile would pass ``_TILE_BUFFER_BYTES`` (16 columns of 10000000 rows are 640 MB per thread)."""
     import numba
 
-    return max(1, min(_TILE, -(-int(k) // max(1, int(numba.get_num_threads())))))
-_TIE_FRACTION_MAX = 0.01  # a column with at most this fraction of repeated values takes the sorted walk, the others the counting sort of the draws
+    by_threads = -(-int(k) // max(1, int(numba.get_num_threads())))
+    by_bytes = max(1, _TILE_BUFFER_BYTES // (4 * max(int(n_rows), 1))) if n_rows else _TILE
+    return max(1, min(_TILE, by_threads, by_bytes))
 
 
 @njit(cache=True)
@@ -254,7 +259,6 @@ def _bootstrap_rank_mi_f32(
         vb = np.empty(n, dtype=np.uint32)
         ra = np.empty(n, dtype=np.int32)
         rb = np.empty(n, dtype=np.int32)
-        ord_rows = np.empty(n, dtype=np.int64)
         rk = np.empty(n, dtype=np.int32)
         for t in range(width):
             if not _float32_sort_keys(tb[t], keys):
@@ -265,10 +269,8 @@ def _bootstrap_rank_mi_f32(
             for pp in range(1, n):
                 if va[pp] != va[pp - 1]:
                     distinct += 1
-            for pp in range(n):
-                ord_rows[pp] = ra[pp]
             if n - distinct <= max_ties:
-                _walk_sorted(ord_rows, va, y_codes, counts_t, rowptr, poslist, idx, cum, n_classes, out, j0 + t)
+                _walk_sorted(ra, va, y_codes, counts_t, rowptr, poslist, idx, cum, n_classes, out, j0 + t)
             else:
                 blk = _rank_blocks(va, ra, rk)
                 _replicate_mis(rk, blk + 1, y_codes, n_classes, idx, lens, binpos, n_bins, out, j0 + t)
@@ -396,7 +398,7 @@ def _tied_on_device(arr: np.ndarray, prep: dict, n_bins: int, n_rep: int) -> "tu
     def _ranks(bits_block: np.ndarray):
         """Host dense ranks of one block of columns."""
         with parallel_kernel_entry():
-            return dense_ranks_f32(bits_block, _tile_for(int(bits_block.shape[1])))
+            return dense_ranks_f32(bits_block, _tile_for(int(bits_block.shape[1]), int(bits_block.shape[0])))
 
     return tied_replicate_mi_stream(np.ascontiguousarray(arr).view(np.uint32), prep, n_bins, _ranks)
 
@@ -449,14 +451,14 @@ def bootstrap_rank_mi(arr: np.ndarray, y: np.ndarray, rep_rows: "list[np.ndarray
                 rest = np.flatnonzero(~done)
                 counts_t, rowptr, poslist, cum = prep["counts_t"], prep["rowptr"], prep["poslist"], prep["cum"]
                 with parallel_kernel_entry():
-                    mi_rest, ok_rest = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr[:, rest]).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, rowptr, poslist, cum, int(n_bins), _tile_for(int(rest.size)))
+                    mi_rest, ok_rest = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr[:, rest]).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, rowptr, poslist, cum, int(n_bins), _tile_for(int(rest.size), n))
                 mi_dev[:, rest] = mi_rest
                 done[rest] = np.asarray(ok_rest)
                 return mi_dev, done
     if arr.dtype == np.float32:
         counts_t, rowptr, poslist, cum = prep["counts_t"], prep["rowptr"], prep["poslist"], prep["cum"]
         with parallel_kernel_entry():
-            mi, ok = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, rowptr, poslist, cum, int(n_bins), _tile_for(int(arr.shape[1])))
+            mi, ok = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, rowptr, poslist, cum, int(n_bins), _tile_for(int(arr.shape[1]), n))
     else:
         with parallel_kernel_entry():
             mi, ok = _bootstrap_rank_mi_generic(np.ascontiguousarray(arr), y_codes, n_classes, idx, lens, binpos, int(n_bins))

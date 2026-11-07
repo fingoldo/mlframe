@@ -165,7 +165,10 @@ _COMPOSITE_ARGSORT_MIN = 300_000
 def _column_argsort(cp, keys):
     """``cp.argsort(keys, axis=0)`` of a C-order ``(n, p)`` int32 key matrix; ``MLFRAME_PERM_NULL_COMPOSITE_ARGSORT=0`` keeps the axis-0 sort."""
     n, p = int(keys.shape[0]), int(keys.shape[1])
-    if keys.dtype != cp.int32 or n * p < _COMPOSITE_ARGSORT_MIN or os.environ.get("MLFRAME_PERM_NULL_COMPOSITE_ARGSORT", "1").strip() == "0":
+    from ._device_sort_safe import _PER_VECTOR_SORT_MIN_LEN
+
+    # From 80000 rows device_argsort runs one 1-D sort per column, which beats the composite key (300000 x 40: 37 against 64 ms, 100000 x 25: 13 against 13 ms; same orders)
+    if keys.dtype != cp.int32 or n * p < _COMPOSITE_ARGSORT_MIN or n >= _PER_VECTOR_SORT_MIN_LEN or os.environ.get("MLFRAME_PERM_NULL_COMPOSITE_ARGSORT", "1").strip() == "0":
         return device_argsort(keys, axis=0)
     col = cp.arange(p, dtype=cp.int64)
     order = device_argsort(((col[:, None] << 32) | keys.T.astype(cp.int64)).ravel())

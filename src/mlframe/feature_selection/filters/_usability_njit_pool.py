@@ -134,7 +134,7 @@ _GPU_UNARY_OPS = {
     5: lambda cp, x, xmin: cp.sqrt(cp.abs(x)),
     6: lambda cp, x, xmin: cp.log(x) if xmin > 0.0 else cp.log(x + (1e-5 - xmin)),
     7: lambda cp, x, xmin: cp.sin(x),
-    8: lambda cp, x, xmin: cp.sign(x),
+    8: lambda cp, x, xmin: cp.where(cp.isnan(x), x, cp.sign(x)),  # NaN stays NaN like np.sign, the njit twins and the stack kernel (cp.sign gave 0)
     9: lambda cp, x, xmin: cp.rint(x),
     10: lambda cp, x, xmin: x * x * x,
     11: lambda cp, x, xmin: 1.0 / (x * x),
