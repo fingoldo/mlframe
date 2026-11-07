@@ -41,6 +41,16 @@ class _FrameColumns:
         self.dtype = np.dtype(dtype)
         self.shape = (int(n), len(self._cols))
 
+    def __eq__(self, other: object) -> bool:
+        """Equal when both read the same columns in the same dtype and shape (NaN equal): two specs built from the same frame compare equal like two dense matrices would."""
+        if not isinstance(other, _FrameColumns):
+            return NotImplemented
+        if self.shape != other.shape or self.dtype != other.dtype:
+            return False
+        return all(np.array_equal(self[:, j], other[:, j], equal_nan=True) for j in range(self.shape[1]))
+
+    __hash__ = None  # type: ignore[assignment]  # a view of a mutable frame: compared by value, never a dict key
+
     def __getitem__(self, key: tuple) -> np.ndarray:
         """Column ``key[1]`` for ``key[0] == slice(None)``."""
         rows, j = key
