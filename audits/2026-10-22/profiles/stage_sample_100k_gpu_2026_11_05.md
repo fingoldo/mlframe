@@ -460,3 +460,15 @@ nvprof of `honest_null_columns_device` (1000000 rows, 8 columns, 256 permutation
 ### Device walk of nearly distinct columns, tried and left opt-in (2026-11-07)
 
 The kernel `bootstrap_rank_walk` now also walks nearly distinct columns (up to 1% of rows equal to the next sorted row): a run of equal values is scored on the device when no bin end of the resample falls strictly inside it, and the column is left to the host walk otherwise. `MLFRAME_BOOTSTRAP_RANK_TIES_DEVICE=1` turns it on; default off. MI equals the host's to 1.8e-15; 20 of 24 and 27 of 40 columns finish on the device. In isolation it is slower than the host walk (200000 x 24: 0.35 s against 0.15 s; 1000000 x 40: 3.84 s against 1.81 s, warm kernels), so it is not the default. The 0.64 s per column seen in the 1M fit against 0.045 s here points to host contention between the concurrent FE stages, not the walk: the next check is an A/B of the whole 1M fit in one process with the opt-in on and off.
+
+## 2026-11-07 where the 300k x 100 wall goes (one machine, same data, GPU strict-resident)
+
+| configuration | wall |
+|---|---|
+| `fe_max_steps=0` (selection pipeline only) | 22.0 s |
+| defaults (the default-on FE families) | 113.0 s |
+| every FE family (`gpu_walls.py`) | 262.9 s |
+
+The selection pipeline is 22 s; the FE stages are the other 91 s (defaults) and 241 s (all families). The per-family gate walls of the all-families run (`gpu_walls.py`): `fe_modular_enable` 37.9 s, `fe_numeric_decompose_enable` 17.6 s, `fe_composite_group_agg_enable` 12.3 s, `fe_binned_numeric_agg_enable` 10.5 s, `fe_grouped_quantile_enable` 6.8 s, `fe_group_distance_enable` 5.4 s; the top 30 entries sum to 141 s, at least 133 s of them gates. Each family alone has a flat main-thread profile at 300k (no line above 4.9 s for `fe_modular_enable`, 7.1 s for `fe_numeric_decompose_enable` which is `bootstrap_rank_mi`).
+
+`bootstrap_rank_mi` inside the 300k fit: 9 calls, 4.7 s of 123 s, 8 numba threads, 560 to 590% process CPU, resample tables built once (0.36 s): it already saturates the CPU and is not a lever. MDLP edges alone: 545% CPU, 0.12 s per column at 1M rows.
