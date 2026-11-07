@@ -11,7 +11,7 @@ Source: read-only critique agent, 2026-10-14. Scope: `src/mlframe/feature_select
 - Evidence: `_pairs_emit.py:170` (K = `len(var_pairs_perf)`).
 
 ### F02 - Cost of the exact test per pair
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. Measured on HEAD with `_benchmarks/bench_family_maxt_cost.py` (20 permutations, best of 3, after warm-up): n=2000 K=200 0.116 s; n=2000 K=1734 0.729 s; n=20000 K=200 0.225 s. The cost is about linear in K, as the finding said. The function the finding names, `family_maxt_threshold`, no longer exists; its successor is `family_maxt_pass_codes`. No speed-up has been applied yet; the next step is a profile of this path.
 - Measured: `family_maxt_threshold`, n=2000, K=1734, 20 permutations: 0.70 s on a loaded machine (`_family_maxt_gate.py:60-105`).
 - Estimated (not measured): 999 permutations per pair at n=2000 is about 35 s; 28 pairs is about 16 minutes. n=20000 is about 350 s per pair by linear extrapolation.
 
