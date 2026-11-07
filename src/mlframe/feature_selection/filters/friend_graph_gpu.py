@@ -389,8 +389,9 @@ def friend_graph_stats_cupy(
     sel_arr = np.asarray(sel, dtype=np.int64)
 
     # ---- ONE H2D: the selected sub-frame (n, k) as int32.
-    sub = np.ascontiguousarray(factors_data[:, sel_arr], dtype=np.int32)
-    d_sub = cp.asarray(sub)  # (n, k)
+    from .info_theory._cmi_resident_cache import _host_codes_for_upload, _widen_on_device
+
+    d_sub = _widen_on_device(cp, _host_codes_for_upload(factors_data[:, sel_arr]))  # (n, k) int32 on the device; the sub-frame goes up at its own width
     nb_sel = nbins[sel_arr]  # (k,) per selected-column cardinality
 
     # ----- Node marginals: one batched bincount over all k columns.

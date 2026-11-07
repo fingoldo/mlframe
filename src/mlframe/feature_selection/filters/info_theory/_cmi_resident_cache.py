@@ -107,6 +107,21 @@ def _xc_resident_enabled() -> bool:
     return _os_thr.environ.get("MLFRAME_CMI_XC_RESIDENT", "1").strip().lower() not in ("0", "false", "off", "no")
 
 
+def _host_codes_for_upload(factors_data: np.ndarray) -> np.ndarray:
+    """The code matrix as it goes over PCIe: a signed integer matrix of at most 4 bytes per cell stays at its own width (the fit stores int8 / int16 codes), anything else is cast to int32.
+    The widening to the kernels' int32 happens on the device (``_widen_on_device``), so the host never holds a 4-byte copy and the transfer is 1 to 2 bytes per cell."""
+    arr = np.asarray(factors_data)
+    if arr.dtype.kind == "i" and arr.dtype.itemsize <= 4:
+        return np.ascontiguousarray(arr)
+    return np.ascontiguousarray(arr, dtype=np.int32)
+
+
+def _widen_on_device(cp: Any, host: np.ndarray) -> Any:
+    """Upload ``host`` and return it as the int32 device matrix the kernels read."""
+    dev = cp.asarray(host)
+    return dev if dev.dtype == cp.int32 else dev.astype(cp.int32)
+
+
 def _assert_codes_in_range_2d_per_column(host2d: np.ndarray, factors_nbins: np.ndarray) -> None:
     """One-time, WHOLE-matrix OOB guard: every column's codes must lie in ``[0, factors_nbins[col])``.
 
@@ -149,9 +164,9 @@ def _resident_factors_device(factors_data: np.ndarray, factors_nbins: np.ndarray
     import cupy as cp
 
     if not _xc_resident_enabled():
-        host = np.ascontiguousarray(factors_data, dtype=np.int32)
+        host = _host_codes_for_upload(factors_data)
         _assert_codes_in_range_2d_per_column(host, factors_nbins)
-        return cp.asarray(host)
+        return _widen_on_device(cp, host)
 
     # Cache-hit fast path never touches the host array at all (no ascontiguousarray/dtype check on the
     # hot loop) - the identity key alone decides the hit, matching the "gather on-device, never re-touch
@@ -165,9 +180,9 @@ def _resident_factors_device(factors_data: np.ndarray, factors_nbins: np.ndarray
         dead = [k for k, v in _FACTORS_DEVICE_CACHE.items() if v[0]() is None]
         for k in dead:
             del _FACTORS_DEVICE_CACHE[k]
-        host = np.ascontiguousarray(factors_data, dtype=np.int32)
+        host = _host_codes_for_upload(factors_data)
         _assert_codes_in_range_2d_per_column(host, factors_nbins)
-        dev = cp.asarray(host)
+        dev = _widen_on_device(cp, host)
         _FACTORS_DEVICE_CACHE[key] = (weakref.ref(factors_data), dev)
         if len(_FACTORS_DEVICE_CACHE) > _FACTORS_DEVICE_MAX_ENTRIES:
             _FACTORS_DEVICE_CACHE.popitem(last=False)  # evict ONLY the coldest entry, never the whole table

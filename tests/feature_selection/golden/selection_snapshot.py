@@ -48,10 +48,12 @@ def _one(X, y, kw: dict) -> dict:
     out = sel.transform(X)
     names = [str(c) for c in getattr(out, "columns", [])]
     values = out.to_numpy() if hasattr(out, "to_numpy") else np.asarray(out)
+    by_name = np.argsort(np.asarray(names, dtype=object).astype(str), kind="stable") if names else np.array([], dtype=int)
     return {
         "support": [str(c) for c in np.asarray(sel.get_feature_names_out())] if hasattr(sel, "get_feature_names_out") else [],
         "transform_columns": names,
         "transform_digest": _digest(values),
+        "transform_digest_by_name": _digest(values[:, by_name]) if values.ndim == 2 and names else _digest(values),
         "transform_shape": list(values.shape),
     }
 
@@ -74,20 +76,32 @@ def snapshot(rows: int = 20000, cols: int = 40) -> dict:
 
 
 def compare(ref: dict, new: dict) -> list[str]:
-    """Human-readable differences between two snapshots (empty when selection and transform agree)."""
+    """Differences that matter between two snapshots (empty when they agree).
+
+    The selected set, the transform column set and shape must be equal, and the values per column (digest over name-sorted columns) must agree. The ORDER of the selected features is not a
+    failure: the first few selected features of this fit are tied within noise and swap places between runs of one commit (three orders seen); a reorder is returned as a note starting with
+    ``note:`` so a caller can show it, and ``strict_failures`` filters it out."""
     diffs: list[str] = []
     for kind in ("pandas", "polars"):
         a, b = ref.get(kind), new.get(kind)
         if a is None or b is None:
             continue
-        for key in ("support", "transform_columns", "transform_shape", "transform_digest"):
-            if a[key] != b[key]:
-                if isinstance(a[key], list) and a[key] and isinstance(a[key][0], str):
-                    only_a, only_b = sorted(set(a[key]) - set(b[key])), sorted(set(b[key]) - set(a[key]))
-                    diffs.append(f"{kind}.{key}: only in ref {only_a[:8]}, only in new {only_b[:8]}, same set reordered={set(a[key]) == set(b[key])}")
-                else:
-                    diffs.append(f"{kind}.{key}: {a[key]} != {b[key]}")
+        for key in ("support", "transform_columns"):
+            if set(a[key]) != set(b[key]):
+                diffs.append(f"{kind}.{key}: only in ref {sorted(set(a[key]) - set(b[key]))[:8]}, only in new {sorted(set(b[key]) - set(a[key]))[:8]}")
+            elif a[key] != b[key]:
+                diffs.append(f"note: {kind}.{key} same set, different order")
+        if a["transform_shape"] != b["transform_shape"]:
+            diffs.append(f"{kind}.transform_shape: {a['transform_shape']} != {b['transform_shape']}")
+        da, db = a.get("transform_digest_by_name"), b.get("transform_digest_by_name")
+        if da is not None and db is not None and da != db:
+            diffs.append(f"{kind}.transform_digest_by_name: {da} != {db}")
     return diffs
+
+
+def strict_failures(diffs: list[str]) -> list[str]:
+    """``diffs`` without the order-only notes."""
+    return [d for d in diffs if not d.startswith("note:")]
 
 
 def main(argv: list[str]) -> int:
@@ -95,7 +109,7 @@ def main(argv: list[str]) -> int:
     if argv and argv[0] == "--compare":
         diffs = compare(json.load(open(argv[1])), json.load(open(argv[2])))
         print("\n".join(diffs) if diffs else "snapshots agree")
-        return 1 if diffs else 0
+        return 1 if strict_failures(diffs) else 0
     out = argv[0]
     rows = int(argv[1]) if len(argv) > 1 else 20000
     cols = int(argv[2]) if len(argv) > 2 else 40
