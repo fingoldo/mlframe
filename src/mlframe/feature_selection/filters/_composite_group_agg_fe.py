@@ -496,7 +496,7 @@ _FRAME_CHUNK_COLUMNS = 128
 def _frame_of_columns(encoded: "dict[str, np.ndarray]", index: pd.Index) -> pd.DataFrame:
     """``pd.DataFrame(encoded, index=index)`` built without ever holding the dict next to a full-size second copy: the columns are copied ``_FRAME_CHUNK_COLUMNS`` at a time into
     ``(columns, rows)`` blocks and popped from ``encoded`` as they go, so the peak is the dict plus one chunk, not the dict plus pandas' stacked copy (768 MB each at 100000 rows with 3000
-    candidates). The chunk frames are joined without a copy (``concat(copy=False)`` keeps their blocks). Columns of mixed dtype or length take pandas' own constructor."""
+    candidates). The chunk frames are joined by ``concat``, which shares their blocks under copy-on-write (pandas 3; on pandas 2 it copies once). Columns of mixed dtype or length take pandas' own constructor."""
     names = list(encoded)
     n = len(index)
     dtypes = {a.dtype for a in encoded.values()}
@@ -510,7 +510,7 @@ def _frame_of_columns(encoded: "dict[str, np.ndarray]", index: pd.Index) -> pd.D
         for i, name in enumerate(part):
             block[i] = encoded.pop(name)
         parts.append(pd.DataFrame(block.T, columns=part, index=index, copy=False))
-    return parts[0] if len(parts) == 1 else pd.concat(parts, axis=1, copy=False)
+    return parts[0] if len(parts) == 1 else pd.concat(parts, axis=1)
 
 
 def generate_composite_group_agg_features(
