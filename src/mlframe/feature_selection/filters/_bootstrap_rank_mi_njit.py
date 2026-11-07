@@ -68,7 +68,8 @@ def _mi_of_hist(hist: np.ndarray, m: int) -> float:
 
 @njit(cache=True, fastmath=True)
 def _replicate_mis(rk: np.ndarray, n_blocks: int, y_codes: np.ndarray, n_classes: int, idx: np.ndarray, lens: np.ndarray, binpos: np.ndarray, n_bins: int, out: np.ndarray, col: int) -> None:
-    """``out[b, col]`` = MI of replicate ``b`` for a column whose rows have the dense ranks ``rk`` (counting sort of the draws by rank, stable in draw order)."""
+    """``out[b, col]`` = MI of replicate ``b`` for a column whose rows have the dense ranks ``rk``: the draws are counted by rank, and every draw of one value takes the bin of
+    that value's first position in the sorted resample (the tie rule of the rank binners: a run of equal values, repeats of one row included, is never split across bins)."""
     n_rep = idx.shape[0]
     start = np.zeros(n_blocks + 1, dtype=np.int64)
     hist = np.zeros((n_bins, n_classes), dtype=np.int64)
@@ -82,10 +83,7 @@ def _replicate_mis(rk: np.ndarray, n_blocks: int, y_codes: np.ndarray, n_classes
             start[blk + 1] += start[blk]
         for t in range(m):
             r = idx[b, t]
-            blk = rk[r]
-            q = start[blk]
-            start[blk] = q + 1
-            hist[binpos[b, q], y_codes[r]] += 1
+            hist[binpos[b, start[rk[r]]], y_codes[r]] += 1
         out[b, col] = _mi_of_hist(hist, m)
 
 
@@ -153,39 +151,25 @@ def _walk_sorted(
     hist = np.zeros((n_rep, n_bins, n_classes), dtype=np.int64)
     pos = np.zeros(n_rep, dtype=np.int64)
     cur = np.zeros(n_rep, dtype=np.int64)
-    bound = cum[:, 0].copy()
-    buf = np.empty(idx.shape[1], dtype=np.int64)
+    last = n_bins - 1
     p = 0
     while p < n:
         q = p + 1
         while q < n and sv[q] == sv[p]:
             q += 1
-        if q - p == 1:
-            row = ord_rows[p]
-            c = y_codes[row]
-            for b in range(n_rep):
-                r = counts_t[row, b]
-                end = pos[b] + r
-                if end > bound[b]:
-                    _emit(hist, pos, cur, cum, b, c, r)
-                    bound[b] = cum[b, cur[b]]
-                else:
-                    hist[b, cur[b], c] += r
-                    pos[b] = end
-        else:
-            for b in range(n_rep):
-                t = 0
-                for z in range(p, q):
-                    row = ord_rows[z]
-                    for u in range(rowptr[b, row], rowptr[b, row + 1]):
-                        buf[t] = poslist[b, u]
-                        t += 1
-                if t == 0:
-                    continue
-                sel = np.sort(buf[:t])
-                for u in range(t):
-                    _emit(hist, pos, cur, cum, b, y_codes[idx[b, sel[u]]], 1)
-                bound[b] = cum[b, cur[b]]
+        # rows p .. q - 1 hold one value: in every replicate all its draws (repeats of a row included) take the bin of their first sorted position
+        for b in range(n_rep):
+            total = 0
+            for z in range(p, q):
+                total += counts_t[ord_rows[z], b]
+            if total == 0:
+                continue
+            while pos[b] >= cum[b, cur[b]] and cur[b] < last:
+                cur[b] += 1
+            for z in range(p, q):
+                row = ord_rows[z]
+                hist[b, cur[b], y_codes[row]] += counts_t[row, b]
+            pos[b] += total
         p = q
     for b in range(n_rep):
         out[b, col] = _mi_of_hist(hist[b], pos[b])

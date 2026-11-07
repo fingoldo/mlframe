@@ -5,9 +5,9 @@ resample, random reads of the rank and level tables): about 3.3 ms per 100000-ro
 family. The dense ranks stay a host job (``dense_ranks_f32``, the same radix sort); the resample passes run here, one block per (column, resample).
 
 What the host computes: the position of a draw in the stable counting sort is ``start[level] + (draws of that level before it)``, and its bin is ``binpos[b, position]``.
-A level whose whole position range ``[start, start + count)`` lies in one bin sends every draw of it to that bin, whatever their order, so those draws are histogrammed
-in parallel. Only the levels that straddle a bin end (at most ``n_bins - 1`` per resample) need the draw order: one warp walks the draws in order and gives each
-draw of a straddling level its ordinal by warp ballots. The ``(bin, class)`` table is then the host's, and the MI is summed in the host's order in double precision.
+Every draw of a level takes the bin of the level's first position (``binpos[b, start[level]]``): the tie rule of the rank binners, under which a run of equal values is
+never split across bins, so the draws are histogrammed in parallel whatever their order. (The straddling-level path that ordered the draws of a level crossing a bin end
+is kept in the kernel but no level enters it.) The ``(bin, class)`` table is then the host's, and the MI is summed in the host's order in double precision.
 
 Columns with more levels than the shared-memory table holds stay on the host. ``MLFRAME_BOOTSTRAP_RANK_TIED_DEVICE=0|1`` forces a path; otherwise the kernel tuning
 cache (``fe_bootstrap_rank_tied_device``) picks host or device per row count.
@@ -101,7 +101,7 @@ extern "C" __global__ void tied_replicate_mi(const short* __restrict__ rk, const
     for (int u = u0; u < u1; ++u) {
         const int c = start[u];
         start[u] = run;
-        if (c > 0 && bp[run] != bp[run + c - 1]) { const int q = atomicAdd(&n_strad, 1); sid[u] = (unsigned char)q; strad_level[q] = u; } else sid[u] = 255;
+        sid[u] = 255;  // tie rule of the rank binners: a level is never split, every draw of it takes the bin of its first position (bp[start[L]]), so no level straddles
         run += c;
     }
     __syncthreads();

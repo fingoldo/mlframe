@@ -92,12 +92,19 @@ def _bootstrap_rows(rng: np.random.Generator, y_arr: np.ndarray, n: int, sample_
     """
     idx = rng.integers(0, n, size=sample_n)
     for _retry in range(5):
-        if np.unique(y_arr[idx]).size >= 2:
+        if _two_classes(y_arr[idx]):
             break
         idx = rng.integers(0, n, size=sample_n)
-    if np.unique(y_arr[idx]).size < 2:
+    if not _two_classes(y_arr[idx]):
         idx = np.arange(n)
-    return idx
+    # the draws stay int64 (the generator's stream is unchanged); the kept vector is int32 when the rows fit, half the memory of the resample set (10 resamples of 8
+    # million rows were 640 MB at int64)
+    return idx.astype(np.int32) if n < 2**31 else idx
+
+
+def _two_classes(y_sub: np.ndarray) -> bool:
+    """Whether ``y_sub`` holds at least two distinct values: the decision of ``np.unique(y_sub).size >= 2`` without sorting the slice."""
+    return bool(y_sub.size) and bool((y_sub != y_sub[0]).any())
 
 
 _REPS_CACHE_LOCK = threading.Lock()

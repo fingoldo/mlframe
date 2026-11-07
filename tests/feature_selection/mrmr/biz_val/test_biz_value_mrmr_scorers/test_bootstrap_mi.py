@@ -613,10 +613,10 @@ class TestSortedGatherGate:
             mi_unsorted, mi_sorted
         ), f"sorted-gather MI must be bit-identical on continuous columns; max|diff|={float(np.max(np.abs(mi_unsorted - mi_sorted)))}"
 
-    def test_sorted_gather_diverges_on_discrete(self, monkeypatch):
-        """Counterpart: on discrete/tied columns the sort is NOT bit-identical
-        (this is WHY the gate exists). Guards against a future 'just always
-        sort' regression slipping through unnoticed."""
+    def test_sorted_gather_is_identical_on_discrete_under_the_tie_rule(self, monkeypatch):
+        """Since the rank binners keep a run of equal values in one bin (the bin of its first sorted position), the order of the draws no longer
+        changes the binning of tied/discrete columns either: sorting the draws gives the same MI. (Before that rule this test asserted the
+        opposite, which was why the sorted-gather gate excluded tied columns; the gate is now stricter than it needs to be, not wrong.)"""
         import os
 
         # monkeypatch (not a bare os.environ.setdefault) -- see the sibling test above for why.
@@ -633,6 +633,4 @@ class TestSortedGatherGate:
         idx = rng.integers(0, n, size=int(0.8 * n))
         mi_unsorted = np.asarray(_mi_classif_batch(X[idx, :], y[idx], nbins=10), float)
         mi_sorted = np.asarray(_mi_classif_batch(X[np.sort(idx), :], y[np.sort(idx)], nbins=10), float)
-        assert not np.array_equal(
-            mi_unsorted, mi_sorted
-        ), "sort SHOULD perturb MI on tied/discrete columns; if this passes, the binning became tie-deterministic and the gate may be relaxed"
+        np.testing.assert_array_equal(mi_unsorted, mi_sorted)

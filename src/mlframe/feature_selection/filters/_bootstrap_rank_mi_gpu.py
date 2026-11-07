@@ -49,40 +49,24 @@ extern "C" __global__ void bootstrap_rank_walk(const int* __restrict__ ord, cons
     for (int u = 0; u < nbins * ncls; ++u) hist[u] = 0;
     const unsigned char* tj = tie + (long long)j * n;
     int pos = 0, cur = 0;
-    unsigned char straddles = 0;
     for (int i = 0; i < n; ++i) {
+        // rows i .. last hold one value (``tie`` marks a row equal to the next sorted row); all their draws, repeats of a row included, take the bin of the run's
+        // first sorted position: the tie rule of the rank binners, so no run is split across bins and the draw order inside it does not matter
         int last = i;
-        if (tj[i]) {
-            // a run of equal values of different rows: when a bin end falls strictly inside the run the draw order decides who lands on which side, and that rule stays on the host
-            int total = 0, g = i;
-            while (true) {
-                total += counts[(long long)oj[g] * B + b];
-                if (!tj[g]) break;
-                ++g;
+        while (tj[last]) ++last;
+        int total = 0;
+        for (int r = i; r <= last; ++r) total += counts[(long long)oj[r] * B + b];
+        if (total > 0) {
+            while (pos >= cum[b * nbins + cur] && cur < nbins - 1) ++cur;
+            for (int r = i; r <= last; ++r) {
+                const int row = oj[r];
+                hist[cur * ncls + ycode[row]] += counts[(long long)row * B + b];
             }
-            last = g;
-            for (int u = 0; u < nbins - 1; ++u) {
-                const int end_u = cum[b * nbins + u];
-                if (end_u > pos && end_u < pos + total) straddles = 1;
-            }
-        }
-        for (int r = i; r <= last; ++r) {
-            const int row = oj[r];
-            int rem = counts[(long long)row * B + b];
-            if (rem == 0) continue;
-            const int c = ycode[row];
-            while (rem > 0) {
-                while (pos >= cum[b * nbins + cur] && cur < nbins - 1) ++cur;
-                const int room = cum[b * nbins + cur] - pos;
-                const int take = room > 0 ? (rem < room ? rem : room) : rem;
-                hist[cur * ncls + c] += take;
-                pos += take;
-                rem -= take;
-            }
+            pos += total;
         }
         i = last;
     }
-    bad[(long long)b * kc + j] = straddles;
+    bad[(long long)b * kc + j] = 0;
     long long hx[BMAX], hy[KMAX];
     for (int u = 0; u < nbins; ++u) hx[u] = 0;
     for (int c = 0; c < ncls; ++c) hy[c] = 0;
