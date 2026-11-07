@@ -93,7 +93,8 @@ class ColumnArena:
     def column(self, name: str) -> np.ndarray:
         """The stored column as a view (no copy)."""
         slot = self._slot[name]
-        return self._chunks[slot // self.chunk_columns][slot % self.chunk_columns]
+        row: np.ndarray = self._chunks[slot // self.chunk_columns][slot % self.chunk_columns]
+        return row
 
     def block(self, names: Sequence[str]) -> np.ndarray:
         """``(len(names), n_rows)`` C-contiguous array of the named columns (a copy; the columns of one chunk are gathered with one fancy index)."""

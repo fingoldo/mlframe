@@ -192,7 +192,7 @@ def _permuted_labels(cp: Any, y8: Any, perms: Any, p0: int, p1: int) -> Any:
     return out
 
 
-def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, perms: np.ndarray, nbins: int, n_classes: int) -> Optional[np.ndarray]:
+def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, perms: "np.ndarray | PermutationBlocks", nbins: int, n_classes: int) -> Optional[np.ndarray]:
     """``(P,)`` maximum over the candidates of the plug-in MI against ``y_shifted[perms[p]]``, for the float32 or double ``(K, n)`` C-order candidate block ``x_cm`` binned by
     ``interior`` (``(nbins - 1, K)``, the edges ``binned_mi_from_values_gpu`` uses); ``None`` when the path does not apply (the caller keeps one launch per permutation)."""
     if x_cm.dtype not in (cp.float32, cp.float64) or not x_cm.flags.c_contiguous or int(n_classes) > 255:  # Intentional float64: the kernel reads float32 or float64 candidates
