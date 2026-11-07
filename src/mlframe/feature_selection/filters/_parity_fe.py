@@ -170,23 +170,26 @@ def hybrid_parity_fe_with_recipes(
     if cols is None:
         cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c]) and not pd.api.types.is_bool_dtype(X[c])]
     rows = []
-    usable = []
-    for c in cols:
-        # Intentional float64: input of floor(v / period) mod 2; float32 cannot resolve the period on large values
-        v = np.asarray(X[c].to_numpy(), dtype=np.float64)
-        ok = np.isfinite(v)
-        if ok.sum() < 20:
-            continue
-        usable.append((c, v[ok], y_arr[ok], bool(ok.all())))
-    scans = _scan_parity_columns(usable, y_arr)
-    # the raw MI of a column (a sort and a quantile pass) reads that column only: the columns go to the edge-jobs pool (one thread was 40 percent CPU at 1000000 rows)
+    # the columns are widened to double (the period needs it) and scanned a block at a time: all of them at once were 800 MB at 1000000 rows x 100 columns
+    block = max(1, (256 << 20) // (8 * max(len(y_arr), 1)))
     from ._edge_pool import map_on_edge_pool
 
-    raws = map_on_edge_pool(lambda item: _raw_mi(item[1], item[2]), usable)
-    for (c, _v_ok, _y_ok, _all_finite), (period, pmi), raw in zip(usable, scans, raws):
-        if not np.isfinite(period):
-            continue
-        rows.append({"col": c, "raw_mi": raw, "period": period, "parity_mi": pmi, "uplift": pmi - raw})
+    for start in range(0, len(cols), block):
+        usable = []
+        for c in cols[start : start + block]:
+            # Intentional float64: input of floor(v / period) mod 2; float32 cannot resolve the period on large values
+            v = np.asarray(X[c].to_numpy(), dtype=np.float64)
+            ok = np.isfinite(v)
+            if ok.sum() < 20:
+                continue
+            usable.append((c, v[ok], y_arr[ok], bool(ok.all())))
+        scans = _scan_parity_columns(usable, y_arr)
+        # the raw MI of a column (a sort and a quantile pass) reads that column only: the columns go to the edge-jobs pool (one thread was 40 percent CPU at 1000000 rows)
+        raws = map_on_edge_pool(lambda item: _raw_mi(item[1], item[2]), usable)
+        for (c, _v_ok, _y_ok, _all_finite), (period, pmi), raw in zip(usable, scans, raws):
+            if not np.isfinite(period):
+                continue
+            rows.append({"col": c, "raw_mi": raw, "period": period, "parity_mi": pmi, "uplift": pmi - raw})
     scores = pd.DataFrame(rows, columns=["col", "raw_mi", "period", "parity_mi", "uplift"])
     keep = scores[scores["uplift"] >= float(min_uplift)].sort_values("parity_mi", ascending=False).head(int(top_k))
 
