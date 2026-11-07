@@ -503,7 +503,7 @@ def score_features_by_cmim(
     }
 
     rows: list[dict] = []
-    eng_bins = quantile_bin_columns(engineered_X.to_numpy(dtype=_crit_np_dtype()), int(n_bins))  # every candidate column binned at once (not one device round trip per column)
+    eng_bins = quantile_bin_columns(engineered_X.to_numpy(dtype=_crit_np_dtype()), int(n_bins), dtype=np.int16)  # int16 codes: 2 bytes a value, not 8  # every candidate column binned at once (not one device round trip per column)
     eng_sources = [eng_name.split("__", 1)[0] if "__" in eng_name else eng_name for eng_name in engineered_X.columns]
     device_scores = _cmim_scores_device(eng_bins, y_bin, sel_bins, support_col_names, eng_sources, int(n_bins))
     for eng_idx, eng_name in enumerate(engineered_X.columns):

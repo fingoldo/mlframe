@@ -372,7 +372,7 @@ def _support_scorer(y_bin: np.ndarray, z_joint: np.ndarray) -> "Callable":
     return score
 
 
-def quantile_bin_columns(X: np.ndarray, nbins: int) -> "list[np.ndarray]":
+def quantile_bin_columns(X: np.ndarray, nbins: int, dtype: Any = np.int64) -> "list[np.ndarray]":
     """``_quantile_bin`` of every column of the host matrix ``X`` ``(n, k)``, as one int64 vector per column (the codes are consumed on the host).
 
     The all-finite columns are binned in parallel blocks by ``quantile_bin_block`` (the dedupe and two-class rules of ``_quantile_bin``, equal codes); a column with a NaN or infinity takes the scalar
@@ -394,11 +394,11 @@ def quantile_bin_columns(X: np.ndarray, nbins: int) -> "list[np.ndarray]":
             r = 0
             for j in range(j1 - j0):
                 if ok[j]:
-                    out[j0 + j] = codes[r].astype(np.int64)
+                    out[j0 + j] = codes[r].astype(dtype)  # ``dtype=np.int16`` keeps the kernel's codes as they are: 2 bytes a value instead of 8 (8 GB for 100 columns of 10 million rows at int64)
                     r += 1
         for j in range(j1 - j0):
             if out[j0 + j] is None:
-                out[j0 + j] = _quantile_bin(np.ascontiguousarray(v[j]), nbins=int(nbins), host_only=True)
+                out[j0 + j] = np.asarray(_quantile_bin(np.ascontiguousarray(v[j]), nbins=int(nbins), host_only=True)).astype(dtype, copy=False)
     return cast("list[np.ndarray]", out)
 
 
