@@ -464,8 +464,12 @@ def fe_decide_on_subsample(
     try:
         # apply_recipe is format-agnostic (per-column _extract_column), so full-n replay reads polars/pandas/ndarray
         # operands as views - no whole-matrix copy.
+        # the recipes evaluate in float64 (their fit/replay contract); the fit keeps the replayed column at its own float dtype (float32 by default): 40 MB instead of
+        # 80 MB per column at 10 million rows, where these columns were the bulk of the fit's resident memory (MLFRAME_FE_REPLAY_KEEP_F64=1 keeps float64)
+        _store = _replay_store_dtype()
         for r in recipes:
-            _full_cols[r.name] = np.asarray(apply_recipe(r, X))
+            _v = np.asarray(apply_recipe(r, X))
+            _full_cols[r.name] = _v.astype(_store, copy=False) if (_store is not None and _v.dtype == np.float64) else _v
     except Exception:
         logger.warning(
             "fe_decide_on_subsample: full-n replay failed for %r; " "falling back to full-data decision.",
@@ -476,6 +480,18 @@ def fe_decide_on_subsample(
     # are materialised, never a copy of X.
     X_aug = fe_append_columns(X, _full_cols)
     return (X_aug, *_middle, recipes)
+
+
+def _replay_store_dtype() -> Any:
+    """The dtype full-n replayed engineered columns are kept at in the fit's frame: the fit's float dtype when it is narrower than float64, else ``None`` (kept as returned)."""
+    import os
+
+    if os.environ.get("MLFRAME_FE_REPLAY_KEEP_F64", "0").strip() == "1":
+        return None
+    from .._fe_usability_signal import _crit_np_dtype
+
+    dt = np.dtype(_crit_np_dtype())
+    return dt if dt.itemsize < 8 else None
 
 
 def _pgn_raw_budget(ceiling: int, n_engineered: int) -> int:
