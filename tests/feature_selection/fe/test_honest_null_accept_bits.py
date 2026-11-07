@@ -81,15 +81,37 @@ def test_declines_when_the_counts_differ_or_the_bitset_is_too_large():
     assert not accept_fits(10_000_000, big)
 
 
-def test_global_tables_serve_rows_beyond_the_shared_budget(monkeypatch):
-    """At 250011 rows the shared bitset does not fit: the global-table variant takes over and still accepts exactly what the full scan accepts."""
+def test_precomputed_sequences_serve_rows_beyond_the_shared_budget():
+    """At 250011 rows the shared bitset does not fit: the precomputed-sequence variant takes over and still accepts exactly what the full scan accepts."""
     from mlframe.feature_selection.filters._honest_null_accept_bits import accept_fits, root_split_accept_gpu
     from mlframe.feature_selection.filters._honest_null_device import _accepted
 
-    monkeypatch.setenv("MLFRAME_HONEST_ACCEPT_GLOBAL", "1")  # opt-in: slower than the k5 kernel it would replace
     n, kc, n_perm, alpha = 250011, 3, 24, 0.05
     cp, order, tie, yperm, h_full, tab, (g_ref, c_ref, i_ref) = _setup(n, kc, n_perm, 0.4, True, 5, seed=11)
     assert not accept_fits(n, yperm)
+    g, c, i = cp.empty(n_perm * kc), cp.empty(n_perm * kc, dtype=cp.int32), cp.empty(n_perm * kc, dtype=cp.int32)
+    assert root_split_accept_gpu(cp, order, tie, yperm, n, n_perm, kc, 60, alpha, h_full, tab, g, c, i)
+    g, c, i = cp.asnumpy(g), cp.asnumpy(c), cp.asnumpy(i)
+
+    def accepted(gain, ncand, idx):
+        """The host acceptance rule on (permutations, columns) arrays."""
+        return _accepted(gain.reshape(kc, n_perm).T.copy(), ncand.reshape(kc, n_perm).T.copy(), idx.reshape(kc, n_perm).T.copy(), n, 2, alpha)
+
+    ref_ok, got_ok = accepted(g_ref, c_ref, i_ref), accepted(g, c, i)
+    assert ref_ok.sum() > 0
+    np.testing.assert_array_equal(ref_ok, got_ok)
+    np.testing.assert_array_equal(c, c_ref)
+
+
+@pytest.mark.parametrize("mode", ["global", "pre"])
+def test_every_variant_equals_the_full_scan_at_a_shared_size(monkeypatch, mode):
+    """The global-table and precomputed-sequence variants, forced at a size the shared one handles, accept what the full scan accepts (permutation chunking included: 140 permutations)."""
+    from mlframe.feature_selection.filters._honest_null_accept_bits import root_split_accept_gpu
+    from mlframe.feature_selection.filters._honest_null_device import _accepted
+
+    monkeypatch.setenv("MLFRAME_HONEST_ACCEPT_MODE", mode)
+    n, kc, n_perm, alpha = 20011, 5, 140, 0.05
+    cp, order, tie, yperm, h_full, tab, (g_ref, c_ref, i_ref) = _setup(n, kc, n_perm, 0.4, True, 7, seed=3)
     g, c, i = cp.empty(n_perm * kc), cp.empty(n_perm * kc, dtype=cp.int32), cp.empty(n_perm * kc, dtype=cp.int32)
     assert root_split_accept_gpu(cp, order, tie, yperm, n, n_perm, kc, 60, alpha, h_full, tab, g, c, i)
     g, c, i = cp.asnumpy(g), cp.asnumpy(c), cp.asnumpy(i)
