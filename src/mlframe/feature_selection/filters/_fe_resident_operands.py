@@ -167,6 +167,18 @@ _FE_RESIDENT_OPERANDS: "OrderedDict" = OrderedDict()
 _MAX_ENTRIES = 192
 
 
+#: Share of the device memory the resident operands may hold together.
+_RESIDENT_BYTES_FRACTION = 0.25
+
+
+def _resident_bytes_budget(cp: Any) -> int:
+    """Bytes the resident-operand cache may hold: a quarter of the device memory (1 GB without device information)."""
+    try:
+        return int(_RESIDENT_BYTES_FRACTION * cp.cuda.Device().mem_info[1])
+    except Exception:  # no device information: a fixed budget
+        return 1 << 30
+
+
 def _disabled() -> bool:
     """Whether the resident-operand cache is disabled via ``MLFRAME_FE_RESIDENT_OPERANDS`` (diagnostic A/B switch, default on)."""
     # Diagnostic A/B switch only (default ON): MLFRAME_FE_RESIDENT_OPERANDS=0 forces a fresh upload every call
@@ -235,6 +247,10 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
         if len(_FE_RESIDENT_OPERANDS) > _MAX_ENTRIES:
             # evict-ok: a miss re-uploads the operand
             _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
+        # bounded in bytes as well: 192 entries were fine at 100000 rows but up to 15 GB of columns at 10 million on a 4 GB card; the coldest go first, the newest stays
+        budget = _resident_bytes_budget(cp)
+        while len(_FE_RESIDENT_OPERANDS) > 1 and sum(int(getattr(v, "nbytes", 0)) for v in _FE_RESIDENT_OPERANDS.values()) > budget:
+            _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict-ok: a miss re-uploads the operand
         return g
 
 
