@@ -26,6 +26,8 @@ def test_cached_permutation_blocks_match_fresh_draws_across_families():
     expected = _fresh_null(cols, n_x, y, 3, 600, seed=0)
     gate._perm_block_cache.clear()
     gate._perm_block_cache_bytes = 0
+    gate._label_bits_cache.clear()  # the class bit sets of the same draw are cached too: a hit there never reaches the index-block cache this test looks at
+    gate._label_bits_cache_bytes = 0
     first = gate.family_null_max(cols, n_x, y, 3, 600, np.random.default_rng(0))
     second = gate.family_null_max(cols, n_x, y, 3, 600, np.random.default_rng(0))
     np.testing.assert_allclose(first, expected, rtol=0, atol=1e-12)
