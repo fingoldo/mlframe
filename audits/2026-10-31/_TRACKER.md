@@ -212,3 +212,15 @@ Still open as DOC: DESER-05, EXE-04, EXE-21..26, EXE-29, INP-06, INP-07, SUP-06,
 - EXE-04: `estimators/pipelines.py` `_LazyModule` receives only literal module names; the seven call sites in `estimators/pipelines.py`, `feature_engineering/mps.py`, `models/_optimization_shared.py` and `metrics/calibration/_calibration_plot.py` pass `"matplotlib*"` or `"plotly.graph_objects"` constants. No caller passes a runtime value, so `import_module` never sees input from outside.
 
 Still open as DOC: DESER-05, EXE-21..26, EXE-29, INP-06, INP-07, SUP-06, SUP-07.
+
+## DOC dispositions, closing pass (2026-11-07)
+
+- DESER-05: `inference/predict.py` (docstring near line 99) states that both the joblib fallback and the features file require a matching `.sha256` sidecar before the content is trusted.
+- EXE-21..26: each of the six `_benchmarks` files runs `exec(compile(...))` on source read with `git show HEAD:<path>` and carries a `# nosec B102` comment (verified in all six).
+- EXE-29: the four importlib sites take their module name from literal constant tables (`_COUNTED_ESTIMATORS` in `fs_hybrid/_arms.py`, a fixed `f"{__package__}._arm_result"` in `fs_hybrid/_matched_k.py`, the injected literal `modname` in `profiling/nvprof_autotag.py`, and the hard-coded package list in `bench_mrmr.py`). No runtime input reaches them.
+- INP-06: `exclude_mask` in `preprocessing/_cleaning_helpers.py` is a developer-supplied configuration regex, not data-derived input; the caller controls it, as with any pattern parameter.
+- INP-07: `load_targets_performance(path)` reads a path that the caller supplies; the reader does not accept any path from a dataset or model artifact.
+- SUP-06: the open-ended runtime floors are intended; the exact versions are fixed by `uv.lock` (SUP-15 RESOLVED).
+- SUP-07: the remaining `pip install` lines in the matrix workflows install the project's own extras and `requirements-dev.txt` (pinned by SUP-10). The `uses:` entries are all SHA-pinned (SUP-11). Residual is a floating resolver for transitive dependencies in those matrix jobs, recorded as DOC.
+
+All rows of `audits/2026-10-31/_TRACKER.md` now have a disposition.
