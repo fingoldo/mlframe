@@ -204,6 +204,11 @@ def _flag_collinear(names: list, good: Any, hits_of: Any, degenerate: dict) -> N
                 break
 
 
+#: Unit columns kept by the collinearity confirmation: at most this many, and at most this many bytes together.
+_UNIT_CACHE_MAX_COLUMNS = 128
+_UNIT_CACHE_BYTES = 256 * 1024 * 1024
+
+
 def _unit_column(X: Any, name: Any) -> "np.ndarray | None":
     """The column as a zero-mean unit-norm vector at the crit dtype (non-finite values replaced by the column mean, as the Gram path does), or ``None`` for a zero-variance column."""
     v = np.asarray(_column_values(X, name), dtype=_crit_np_dtype())
@@ -223,6 +228,9 @@ def _collinear_hits_streaming(X: Any, live: list, n_rows: int, tol: float = _COL
     sorted by the first projection's magnitude, neighbours inside the window are candidates, and each candidate is confirmed by the exact dot product of the two unit columns."""
     from collections import OrderedDict
 
+    # the unit columns are built at the crit dtype: a tolerance below that dtype's rounding (1e-9 against float32's 1.2e-7) rejected an exact sign-flipped copy, so the
+    # tolerance is at least 16 epsilons of it (about 1.9e-6 for float32; |corr| above 0.999998 is collinear for this diagnostic)
+    tol = max(float(tol), 16.0 * float(np.finfo(_crit_np_dtype()).eps))
     n = len(live)
     good = np.zeros(n, dtype=bool)
     proj = np.zeros((n, 3), dtype=_crit_np_dtype())
@@ -250,6 +258,8 @@ def _collinear_hits_streaming(X: Any, live: list, n_rows: int, tol: float = _COL
         for b in near[same | flip]:
             candidates.append((min(int(a), int(b)), max(int(a), int(b))))
     cache: "OrderedDict[int, np.ndarray]" = OrderedDict()
+    # the cache is bounded in bytes, not in columns: 128 unit columns were 50 MB at 100000 rows but 5 GB at 10 million, which ran a 10M x 80 fit out of RAM in this diagnostic pass
+    max_cached = int(max(2, min(_UNIT_CACHE_MAX_COLUMNS, _UNIT_CACHE_BYTES // max(1, n_rows * np.dtype(_crit_np_dtype()).itemsize))))
 
     def unit_of(k: int) -> "np.ndarray":
         """The unit column ``k``, from a small least-recently-used cache (a confirmed candidate is rebuilt from the frame only when it fell out)."""
@@ -259,7 +269,7 @@ def _collinear_hits_streaming(X: Any, live: list, n_rows: int, tol: float = _COL
         unit = _unit_column(X, live[k])
         assert unit is not None
         cache[k] = unit
-        if len(cache) > 128:
+        if len(cache) > max_cached:
             cache.popitem(last=False)
         return unit
 
