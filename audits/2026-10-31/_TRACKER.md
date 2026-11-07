@@ -197,3 +197,12 @@ Each row below points at the code comment or docstring that states the behaviour
 - SUP-01: `pyproject.toml` (the `[tool.uv.sources]` block) explains that `uv.lock` is the single pin for pyutilz and why the SHA in `pyproject.toml` was retired.
 
 Still open as DOC, not yet verified: DESER-01, DESER-03, DESER-04, DESER-05, DESER-08, EXE-04, EXE-21..26, EXE-29, INP-06, INP-07, SUP-06, SUP-07. Each needs its own docstring or comment check before it is marked done.
+
+## DOC dispositions, second pass (2026-11-07)
+
+- DESER-01: `training/io.py` `load_mlframe_model` docstring documents `safe=True` as the default and `safe=False` as RCE-capable on untrusted input.
+- DESER-03: `training/_unpickle_policy.py` module docstring states that the allowlist narrows a tampered bundle but does not make untrusted pickle safe; the control is the sidecar digest.
+- DESER-04: `inference/predict.py` (sha256 sidecar comment near line 136) documents that the sidecar is an integrity gate, not authenticity.
+- DESER-08: `training/feature_handling/cache.py` (around line 373) documents that the pickle fallback is reached only when `CacheConfig.allow_pickle` is set, which defaults to False.
+
+Still open as DOC: DESER-05, EXE-04, EXE-21..26, EXE-29, INP-06, INP-07, SUP-06, SUP-07.
