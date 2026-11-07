@@ -90,15 +90,10 @@ def _device_honest_null_enabled() -> bool:
 _PERM_LABELS_CACHE_MAX_BYTES = 256 * 1024 * 1024  # per spec: the permuted-label matrices of one (seed, rows, permutations) draw; larger draws are regenerated each call
 
 
-def _free_memory_bytes() -> int:
-    """Free physical memory in bytes (0 when it cannot be read)."""
-    try:
-        import psutil
-
-        return int(psutil.virtual_memory().available)
-    except Exception as exc:  # a missing probe keeps the fixed cap
-        log_throttle(logger, "_honest_mdlp_null.except_99", logging.INFO, "free-memory probe unavailable (%s); keeping the fixed cap", exc)
-        return 0
+def _labels_cache_cap() -> int:
+    """Bytes of permuted labels a spec keeps between calls. The fixed budget only: a kept matrix stays live through every later stage (500 MB at 500000 rows was in the fit's peak, and a quarter or a
+    sixteenth of the free memory made the cap, and so the peak, depend on what else the machine ran), the null is asked for twice per fit, and a redraw costs 2.7 s per 1000 permutations at 500000 rows."""
+    return _PERM_LABELS_CACHE_MAX_BYTES
 
 
 def _permuted_labels_cached(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, rng, n: int, n_permutations: int, seed_key: int):
@@ -113,9 +108,7 @@ def _permuted_labels_cached(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, 
     # one byte per label per permutation when the codes are the raw labels (one shared matrix), two otherwise; the cap is a fixed budget, widened to a quarter of the free memory (at most 2 GiB)
     # so that a million-row draw (about 1 GB) is kept for the next call instead of redrawn
     draw_bytes = n_permutations * n * (1 if np.array_equal(y_raw, y_codes) else 2)
-    # a sixteenth of the free memory (it was a quarter): the matrix is needed while the null is computed, and a kept copy stays on the spec for the rest of the fit, through the stages that
-    # follow it (500 MB at 500000 rows was live at the fit's peak); the null is asked for twice per fit, so a redraw costs 2.7 s per 1000 permutations at 500000 rows
-    cap = max(_PERM_LABELS_CACHE_MAX_BYTES, min(2 * 1024**3, _free_memory_bytes() // 16))
+    cap = _labels_cache_cap()
     if draw_bytes > cap:
         log_throttle(
             logger, "honest_null_perm_labels_cache_too_large", logging.INFO,
@@ -163,7 +156,7 @@ def _permuted_label_blocks(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, r
 
     per_label = 1 if np.array_equal(y_raw, y_codes) else 2
     draw_bytes = int(n_permutations) * n * per_label
-    cap = max(_PERM_LABELS_CACHE_MAX_BYTES, min(2 * 1024**3, _free_memory_bytes() // 16))
+    cap = _labels_cache_cap()
     if draw_bytes <= cap:
         yield _permuted_labels_cached(spec, y_raw, y_codes, rng, n, n_permutations, seed_key)
         return
