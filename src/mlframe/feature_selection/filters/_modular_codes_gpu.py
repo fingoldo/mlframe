@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Sequence
 
 import numpy as np
@@ -113,10 +114,22 @@ def modular_family_codes_gpu(X: pd.DataFrame, cols: Sequence[str], periods: Sequ
         codes = np.empty((len(cols) * per_source, n), dtype=np.int16)
         nx = np.empty(len(cols) * per_source, dtype=np.int64)
         step = _sources_per_block(cp, n, per_source)
-        for s0 in range(0, len(cols), step):
-            part = cols[s0 : s0 + step]
+
+        def _host_block(s0: int) -> np.ndarray:
+            """Source columns ``s0:s0+step`` as a contiguous (columns, rows) block."""
             # Intentional float64: input of the residue v - p*floor(v/p); a float32 timestamp (~1.6e9) has resolution 128, so mod 7 would be noise.
-            src = cp.asarray(np.ascontiguousarray(X[part].to_numpy(dtype=np.float64).T))
+            return np.ascontiguousarray(X[cols[s0 : s0 + step]].to_numpy(dtype=np.float64).T)
+
+        starts = list(range(0, len(cols), step))
+        prefetch = ThreadPoolExecutor(max_workers=1)  # the next block is prepared on the host while the device scores the current one
+        pending = prefetch.submit(_host_block, starts[0])
+        for k, s0 in enumerate(starts):
+            part = cols[s0 : s0 + step]
+            host = pending.result()
+            if k + 1 < len(starts):
+                pending = prefetch.submit(_host_block, starts[k + 1])
+            src = cp.asarray(host)
+            del host
             out = cp.empty((len(part) * per_source, n), dtype=cp.float32)
             threads = block_size_for(kernel, work_items=n)
             kernel((min(1024, (n + threads - 1) // threads), len(part) * len(periods)), (threads,), (src, p_dev, np.int64(n), np.int32(len(periods)), out))
@@ -124,6 +137,7 @@ def modular_family_codes_gpu(X: pd.DataFrame, cols: Sequence[str], periods: Sequ
             r0 = s0 * per_source
             quantile_codes_resident_f32(cp, out, int(n_bins), codes[r0 : r0 + out.shape[0]], nx[r0 : r0 + out.shape[0]])
             del out
+        prefetch.shutdown(wait=True)
     except Exception as exc:
         logger.warning("device modular candidate codes failed (%s: %s); building the pool on the host", type(exc).__name__, exc)
         return None
