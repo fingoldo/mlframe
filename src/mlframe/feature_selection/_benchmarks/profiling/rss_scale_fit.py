@@ -52,6 +52,21 @@ stop = threading.Event()
 main_id = threading.main_thread().ident
 
 
+def proc_cpu() -> float:
+    """System CPU percent since the previous call."""
+    return psutil.cpu_percent(interval=None)
+
+
+def gpu_util() -> str:
+    """GPU utilisation percent from nvidia-smi, or ``?``."""
+    import subprocess
+
+    try:
+        return subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5).stdout.strip() or "?"
+    except Exception:  # no nvidia-smi: the column stays unknown
+        return "?"
+
+
 def innermost(frame):
     """The innermost mlframe frame of a stack as file:function:line."""
     while frame is not None:
@@ -76,7 +91,7 @@ def sampler():
             print(f"  now: {innermost(sys._current_frames().get(main_id))}", flush=True)
             os._exit(3)
         if TICK and (not ticks or time.perf_counter() - t0 - ticks[-1][0] >= TICK):
-            ticks.append((time.perf_counter() - t0, (rss - base) / 1e6, innermost(sys._current_frames().get(main_id))))
+            ticks.append((time.perf_counter() - t0, (rss - base) / 1e6, f"cpu {proc_cpu():3.0f}% gpu {gpu_util():>3}% " + innermost(sys._current_frames().get(main_id))))
         if rss > peak[0]:
             peak[0] = rss
             if TRACE and rss - base > float(os.environ.get("RSS_SNAP_FIRST_MB", "600")) * 1e6 and (not snapshots or rss - snapshots[-1][0] > float(os.environ.get("RSS_SNAP_STEP_MB", "400")) * 1e6):

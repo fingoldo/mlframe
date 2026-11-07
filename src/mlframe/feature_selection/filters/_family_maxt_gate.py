@@ -305,6 +305,35 @@ def _label_bits_block(rng: np.random.Generator, y: np.ndarray, m: int, n_y: int,
     return labels
 
 
+def _family_null_max_device_bits(dev_bits, rng, y, n_y: int, n_perm: int, block: int, words: int, y_key: int, py_const: float, out: np.ndarray, acc: Any) -> "np.ndarray | None":
+    """The device bit-set null over all permutation blocks, the next block's class bit sets drawn on the host while the current one is scored on the device.
+
+    The draws are host numba kernels (entered through the parallel guard); the device scoring is cupy only and runs outside the guard, so the two overlap (the device sat idle through every
+    host draw: 3 percent GPU in the timeline of a 1000000-row fit). Blocks are drawn in order by one worker, so the generator ends where a sequential run leaves it."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ._family_maxt_cuda_bits import null_max_bits_device
+
+    starts = list(range(0, n_perm, block))
+
+    def draw(start: int):
+        """The class bit sets of the permutation block that begins at ``start``."""
+        m = min(block, n_perm - start)
+        with parallel_kernel_entry():
+            return m, _label_bits_block(rng, y, m, n_y, words, y_key)
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="null_labels") as pool:
+        pending = pool.submit(draw, starts[0])
+        for i, start in enumerate(starts):
+            m, labels = pending.result()
+            pending = pool.submit(draw, starts[i + 1]) if i + 1 < len(starts) else None
+            if acc is not None:
+                null_max_bits_device(dev_bits, labels, py_const, acc=acc[start : start + m])
+            else:
+                out[start : start + m] = null_max_bits_device(dev_bits, labels, py_const)
+    return None if acc is not None else out
+
+
 def _device_null_oom_errors() -> tuple[type[BaseException], ...]:
     """Exceptions that mean the device could not hold this null block (pool limit or allocation failure), so the host kernel takes over.
 
@@ -399,6 +428,8 @@ def family_null_max(
     # (a fit up to ~190000 rows keeps 256, so its permutation stream is unchanged)
     block = _budgeted_perm_block(block, int(y.shape[0]))
     y_key = hash(np.asarray(y).tobytes()) if (dev_bits is not None or bit_prep is not None) else 0
+    if dev_bits is not None:
+        return _family_null_max_device_bits(dev_bits, rng, y, int(n_y), int(n_perm), block, words, y_key, py_const, out, acc)
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
         bits_path = dev_bits is not None or bit_prep is not None
@@ -409,14 +440,6 @@ def family_null_max(
         # The bitset / njit branches run parallel=True prange kernels; the GPU branches do not, but holding the guard
         # across the whole block keeps the null's kernel entries serialised with every other FE fan-out thread.
         with parallel_kernel_entry():
-            if dev_bits is not None:
-                from ._family_maxt_cuda_bits import null_max_bits_device
-
-                if acc is not None:
-                    null_max_bits_device(dev_bits, labels, py_const, acc=acc[start : start + m])
-                    continue
-                out[start : start + m] = null_max_bits_device(dev_bits, labels, py_const)
-                continue
             if bit_prep is not None:
                 # the class bit sets are packed straight from the permutation indices: the (block, n) matrix of permuted labels is never built
                 out[start : start + m] = null_max_bitsets_from_classes(bit_prep, n_x, labels, int(y.shape[0]), py_counts)
