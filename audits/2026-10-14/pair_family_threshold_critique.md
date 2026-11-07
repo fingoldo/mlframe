@@ -16,12 +16,12 @@ Source: read-only critique agent, 2026-10-14. Scope: `src/mlframe/feature_select
 - Estimated (not measured): 999 permutations per pair at n=2000 is about 35 s; 28 pairs is about 16 minutes. n=20000 is about 350 s per pair by linear extrapolation.
 
 ### F03 - Table docstring and table metadata disagree on the quantile
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED. The checked-in `null_mi_table.json` meta quantile is 0.95, the builder `QUANTILE = 0.95`, and the docstring says 95th percentile. Pinned by `tests/feature_selection/filters/test_null_mi_table_quantile_single_source.py`.
 - `_null_mi_threshold.py:1-5` says 95th percentile. The builder default is `QUANTILE = 0.95` (`_benchmarks/build_null_mi_table.py:34`). The checked-in table at the time of the critique had meta quantile 0.999, which came from a local rebuild and was not documented in the builder.
 - Fix: one source of truth for the quantile, written into the table meta and the docstring.
 
 ### F04 - Nearest-neighbour lookup underestimates the threshold for K above the grid
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED. `null_mi_threshold` rescales the floor by ln N / ln N_max beyond the grid (`_null_mi_threshold.py`). Pinned by `tests/feature_selection/filters/test_null_mi_threshold_beyond_grid.py`.
 - `_null_mi_threshold.py:37-52` picks the nearest entry on log K. For K=1734 the entry is K=1000, which gives 0.0099 against a directly measured 99% family null of 0.01046 (`family_maxt_threshold`, 199 permutations, n=2000, same discretiser).
 - Fix: extend the candidate grid to 2000-5000, or interpolate.
 
