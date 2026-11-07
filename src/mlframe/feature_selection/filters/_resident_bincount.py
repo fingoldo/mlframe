@@ -52,8 +52,7 @@ def resident_bincount(
     x : 1-D cupy int array of bin indices, all in ``[0, nc)``.
     nc : number of bins (the exact output length).
     weights : optional 1-D cupy array aligned with ``x``; unweighted count when None.
-    dtype : output dtype; defaults to double (weighted) / int64 (unweighted) to match the
-        ``.astype(cp.double)`` the callers applied to ``cupy.bincount``'s result.
+    dtype : output dtype; defaults to the criterion float dtype (weighted; float32 unless the fit asks for double) / int32 (unweighted).
     debug_check_bounds : opt-in bounds assert (costs one D2H sync - never enable on the hot path); raises
         ``ValueError`` if any index in ``x`` is outside ``[0, nc)``, matching ``cupy.bincount``'s own
         loud-failure behaviour instead of this function's default silent-wrap/OOB-write UB.
