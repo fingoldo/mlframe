@@ -374,6 +374,51 @@ def _discretize_with_nbins_strategy(
     return data, per_col_bins
 
 
+_FLOAT32_EXACT_INT = 2**24  # integers above this are not all representable in float32
+
+
+def _exact_integer_columns(df, numerical_cols: list, dt, is_polars: bool):
+    """``(df, dt)`` such that casting the integer columns of ``df`` to ``dt`` keeps every distinct value distinct.
+
+    The numeric block is cast to the fit's float dtype (float32 by default), where integers above 2^24 collide: five epoch timestamps one second apart became one value
+    and the column one constant code, losing a column that determined the target. An integer column whose values exceed 2^24 but whose range does not is shifted by its
+    minimum (exact in int64; order and ties are unchanged, so the codes are the same as an exact cast would give); when even the range exceeds 2^24 the whole block is
+    cast to float64 instead. Other columns and frames without such columns come back unchanged."""
+    if np.dtype(dt).itemsize >= 8 or not numerical_cols:
+        return df, dt
+    shifts: dict = {}
+    for c in numerical_cols:
+        col = df[c] if not is_polars else df.get_column(c)
+        if is_polars:
+            if not col.dtype.is_integer():
+                continue
+            lo, hi = col.min(), col.max()
+        else:
+            if col.dtype.kind not in "iu" and not str(col.dtype).startswith(("Int", "UInt")):
+                continue
+            lo, hi = col.min(), col.max()
+        if lo is None or hi is None or (isinstance(lo, float) and np.isnan(lo)):
+            continue
+        lo, hi = int(lo), int(hi)
+        if max(abs(lo), abs(hi)) <= _FLOAT32_EXACT_INT:
+            continue
+        if hi - lo > _FLOAT32_EXACT_INT:
+            logger.info("categorize_dataset: integer column %r spans more than 2^24; binning the numeric block in float64 so its values stay distinct", c)
+            return df, np.float64  # Intentional float64: the integer range does not fit float32's exact range
+        shifts[c] = lo
+    if not shifts:
+        return df, dt
+    if is_polars:
+        import polars as pl
+
+        df = df.with_columns([(pl.col(c).cast(pl.Int64) - lo).alias(c) for c, lo in shifts.items()])
+    else:
+        df = df.copy(deep=False)
+        for c, lo in shifts.items():
+            df[c] = df[c].astype("Int64" if str(df[c].dtype).startswith(("Int", "UInt")) else np.int64) - lo
+    return df, dt
+
+
 def categorize_dataset(
     df: pd.DataFrame | pl.DataFrame | pl.LazyFrame,
     method: str = "quantile",
@@ -416,6 +461,7 @@ def categorize_dataset(
         categorical_cols_detected = None
 
     _dt = _discretize_input_dtype()
+    df, _dt = _exact_integer_columns(df, numerical_cols, _dt, _is_polars)
     if _is_polars:
         # An all-categorical polars frame (no numeric columns) makes df.select([]).to_numpy() collapse to shape (0, 0)
         # - ZERO rows - so the later per-column np.append(numeric, categorical) raises a row-count mismatch. Build an
