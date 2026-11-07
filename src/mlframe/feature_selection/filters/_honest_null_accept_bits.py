@@ -36,19 +36,39 @@ _SRC = render(r"""
 extern "C" __global__ void root_split_accept(const int* __restrict__ order, const unsigned int* __restrict__ valid, const unsigned int* __restrict__ ybits,
                                              const {ACC}* __restrict__ tab, const {ACC}* __restrict__ thr, const long long n, const int W, const int YW, const int m,
                                              const int B, const {ACC} h_full, const {ACC} pi,
-                                             {ACC}* __restrict__ out_gain, int* __restrict__ out_ncand, int* __restrict__ out_idx) {
+                                             {ACC}* __restrict__ out_gain, int* __restrict__ out_ncand, int* __restrict__ out_idx
+#ifdef ACCEPT_GLOBAL
+                                             , unsigned int* __restrict__ scratch, const long long total
+#endif
+                                             ) {
+#ifdef ACCEPT_GLOBAL
+    // beyond the shared budget (about 180000 rows) the sorted-space bit table lives in a per-block global scratch row and the row-space labels are read from global memory (L2); a fixed grid of
+    // resident blocks walks all the pairs, so the scratch is grid x W words instead of one row per pair
+    unsigned int* bits = scratch + (long long)blockIdx.x * W;
+#else
     extern __shared__ unsigned int sh[];              // YW words of row-space labels, then W words: bit i = label of the row at sorted position i
     unsigned int* ysh = sh;
     unsigned int* bits = sh + YW;
+#endif
     __shared__ int warp_tot[32];
     __shared__ int s_ncand;
     __shared__ {ACC} best_g[32];
     __shared__ int best_i[32];
     const int tid = threadIdx.x;
-    const int j = blockIdx.x / B;
-    const int b = blockIdx.x - j * B;
+#ifdef ACCEPT_GLOBAL
+    for (long long pair = blockIdx.x; pair < total; pair += gridDim.x) {
+#else
+    {
+        const long long pair = blockIdx.x;
+#endif
+    const int j = (int)(pair / B);
+    const int b = (int)(pair - (long long)j * B);
     const unsigned int* yb = ybits + (long long)b * YW;
+#ifdef ACCEPT_GLOBAL
+    const unsigned int* ysh = yb;
+#else
     for (int w = tid; w < YW; w += blockDim.x) ysh[w] = yb[w];
+#endif
     if (tid == 0) s_ncand = 0;
     __syncthreads();
     const int* ord = order + (long long)j * n;
@@ -147,15 +167,18 @@ extern "C" __global__ void root_split_accept(const int* __restrict__ order, cons
         int I = -1;
         for (int t = 0; t < (int)(blockDim.x >> 5); ++t)
             if (best_i[t] >= 0 && (best_g[t] > G || (best_g[t] == G && best_i[t] < I))) { G = best_g[t]; I = best_i[t]; }
-        const long long idx = blockIdx.x;
+        const long long idx = pair;
         out_gain[idx] = G;
         out_ncand[idx] = ncand;
         out_idx[idx] = I;
+    }
+    __syncthreads();                                   // the next pair of this block reuses bits / s_ncand
     }
 }
 """, real=np.float32)
 
 _MODULE = RawModuleCache(_SRC)
+_MODULE_G = RawModuleCache("#define ACCEPT_GLOBAL 1\n" + _SRC)
 
 
 def threshold_table(n: int, alpha: float) -> np.ndarray:
@@ -189,6 +212,12 @@ def accept_fits(n: int, y_raw_perm: np.ndarray) -> bool:
     return bool(ones.size and (ones == ones[0]).all() and 0 < int(ones[0]) < int(n))
 
 
+def accept_fits_global(n: int, y_raw_perm: np.ndarray) -> bool:
+    """Whether the bitset path applies with its tables in global memory (any row count): every permutation has the same number of label-1 rows."""
+    ones = (y_raw_perm == 1).sum(axis=1)
+    return bool(ones.size and (ones == ones[0]).all() and 0 < int(ones[0]) < int(n))
+
+
 def _block_width(kernel, shared_bytes: int, n: int) -> int:
     """Threads per block from the device's limits (``pyutilz.performance.gpu_hw_launch.fixed_shared_block_size``: the table is fixed per block, so the width that keeps the most threads resident on an SM), ``THREADS`` without device information; ``MLFRAME_GPU_BLOCK_HONEST_ACCEPT`` overrides."""
     import os
@@ -206,9 +235,31 @@ def _block_width(kernel, shared_bytes: int, n: int) -> int:
     return width if width > 0 else THREADS
 
 
+def _launch_global(cp: Any, d_order: Any, valid: Any, ybits: Any, tab_full: Any, thr: Any, n: int, words: int, m: int, n_perm: int, kc: int, h_full: float, d_gain: Any, d_ncand: Any, d_idx: Any) -> bool:
+    """The scan with the sorted-space bit table in a per-block global scratch row: a fixed grid of resident blocks walks every (column, permutation) pair, so the row count is not limited by the
+    shared-memory budget (the shared variant stops at about 180000 rows, where the k5 kernel's one thread per pair took over: 1.06 s for 8 columns x 256 permutations at 1000000 rows)."""
+    kernel = _MODULE_G.get(cp).get_function("root_split_accept")
+    width = _block_width(kernel, 0, n)
+    sms = int(cp.cuda.Device().attributes.get("MultiProcessorCount", 6))
+    total = int(kc) * int(n_perm)
+    grid = max(1, min(total, sms * max(1, 1024 // width) * 2))
+    scratch = cp.empty(grid * words, dtype=cp.uint32)
+    kernel(
+        (grid,), (width,),
+        (d_order, valid, ybits, tab_full, thr, np.int64(n), np.int32(words), np.int32(ybits.shape[1]), np.int32(m), np.int32(n_perm), np.float64(h_full), np.float64(m / float(n)), d_gain, d_ncand, d_idx, scratch, np.int64(total)),
+    )
+    return True
+
+
 def root_split_accept_gpu(cp: Any, order: Any, tie: Any, y_raw_perm: Any, n: int, n_perm: int, kc: int, min_split: int, alpha: float, h_full: float, tab_full: Any, d_gain: Any, d_ncand: Any, d_idx: Any) -> bool:
     """Fill ``d_gain`` / ``d_ncand`` / ``d_idx`` (index ``column * n_perm + permutation``) with the pruned acceptance scan of every pair; ``False`` when the path does not apply (nothing written)."""
-    if not accept_fits(n, y_raw_perm):
+    import os
+
+    # The global-table variant is opt-in (MLFRAME_HONEST_ACCEPT_GLOBAL=1): it is exact (the acceptance tests pass with it forced) but measured SLOWER than the k5 kernel it would replace above the
+    # shared budget (1000000 rows x 8 columns x 256 permutations on the GTX 1050 Ti: 1.93 s against 1.06 s), because the row-space label lookups leave L1 and every pair of a resident block
+    # waits on two dependent global loads per element; a faster design needs the lookups served from shared memory in row-space tiles.
+    use_global = os.environ.get("MLFRAME_HONEST_ACCEPT_GLOBAL", "").strip() == "1"
+    if not accept_fits(n, y_raw_perm) and not (use_global and accept_fits_global(n, y_raw_perm)):
         return False
     words = (int(n) + 31) // 32
     m = int((y_raw_perm[0] == 1).sum())
@@ -216,6 +267,8 @@ def root_split_accept_gpu(cp: Any, order: Any, tie: Any, y_raw_perm: Any, n: int
     valid = cp.asarray(valid_cut_bits(tie, n, int(min_split)))
     thr = cp.asarray(threshold_table(int(n), float(alpha)))
     ybits = cp.asarray(np.ascontiguousarray(_pack_bits(y_raw_perm)))  # (permutations, words): the row-space labels of every permutation
+    if use_global:
+        return _launch_global(cp, d_order, valid, ybits, tab_full, thr, n, words, m, n_perm, kc, h_full, d_gain, d_ncand, d_idx)
     kernel = _MODULE.get(cp).get_function("root_split_accept")
     shared = (words + int(ybits.shape[1])) * 4
     width = _block_width(kernel, shared, n)
@@ -227,4 +280,4 @@ def root_split_accept_gpu(cp: Any, order: Any, tie: Any, y_raw_perm: Any, n: int
     return True
 
 
-__all__ = ["root_split_accept_gpu", "threshold_table", "valid_cut_bits", "accept_fits"]
+__all__ = ["root_split_accept_gpu", "threshold_table", "valid_cut_bits", "accept_fits", "accept_fits_global"]
