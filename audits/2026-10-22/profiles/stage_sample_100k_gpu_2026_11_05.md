@@ -397,3 +397,12 @@ Growth is linear at about 3.5 GB per million rows, so 10M x 80 would still need 
 ## 2026-11-07 open test failures found while checking the cluster-hierarchy codes
 
 `tests/feature_selection/clustering`: `test_dcd_swap_null_default_npermutations.py` (3 tests: no swap fires on the 3-duplicate fixture at the default permutation count) and `test_synergy_auto_aggregator.py` (3 tests: the additive-signal detector and gate) fail on the current master line (`bfe4286fa`) and with the cluster-hierarchy code matrix at int32 or int8 alike. A `git bisect` of the swap test from the old base `7d0d46b4e` ends on the first commit of the merged line (`8300ec4d0`, an unrelated transformer change), so the cause is a merge-line difference rather than one commit and needs a read of the swap null (`_dynamic_cluster_discovery`) against the test, not a bisect.
+
+## 2026-11-07 utilisation of the 1M and 2M fits (CPU and GPU percent per 15 s of the main thread)
+
+User observation on the 2000000 x 80 fit: GPU near 0 and the CPU about 12 to 30 percent. Found and fixed:
+- `_bootstrap_rank_mi_f32` split the columns into tiles of 16 per thread, so a 16-column call was one tile, one thread: 31 s -> 10 s on a 16-column block at 2000000 rows (`_tile_for`).
+- the honest null's device path ran 256 serial `bincount`s of the permuted labels to get class counts that are the same for every permutation (2.4 s of 14 s), and drew its permuted-label blocks on the host with the device idle (the next block is now drawn while the current one is scored).
+- the family null on the device drew each permutation block on the host before scoring it on the device (GPU 0 to 15 percent in the 1M timeline at 75 to 150 s); the draw of the next block now overlaps the scoring, which runs outside the numba guard.
+Measured and left opt-in: a device Fisher-Yates draw of the class bit sets (`_perm_labels_device.py`, `MLFRAME_PERM_LABELS_DEVICE=1`) is bit-identical but only 0.59 s against 0.71 s for 48 permutations at 1M rows (one thread per permutation, latency-bound), so it does not replace the overlapped host draw.
+1M x 100 wall after these: 402 s (was 410 s); the remaining idle stretches in its timeline are the host-only bootstrap rank-MI walk (CPU 86 to 100, GPU 3 to 7), `_parity_fe._raw_mi`, `_adaptive_nbins` edges and the honest-null host draws and pack.

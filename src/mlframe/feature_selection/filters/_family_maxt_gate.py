@@ -9,6 +9,7 @@ the number of permutations. Under the null the pass probability is at most alpha
 from __future__ import annotations
 
 from mlframe.utils.env_flags import env_int
+import os
 import threading
 from collections import OrderedDict
 
@@ -279,7 +280,27 @@ def _release_label_bits_cache() -> int:
 register_cache_releaser(_release_label_bits_cache)
 
 
-def _label_bits_block(rng: np.random.Generator, y: np.ndarray, m: int, n_y: int, words: int, y_key: int) -> np.ndarray:
+_DEVICE_LABELS_MIN_ROWS = 200_000  # below it the host draw is as fast as the launch
+# Opt-in (MLFRAME_PERM_LABELS_DEVICE=1): measured against the host draw at 1000000 rows x 48 permutations the device draw is bit-identical and 0.59 s against 0.71 s (a Fisher-Yates stream is
+# sequential per permutation, so the device is latency-bound with one thread each), too small a gain to take the device's time from the scoring that runs on it; the host draw overlaps it instead.
+
+
+def _device_label_bits_or_none(rng: np.random.Generator, y: np.ndarray, m: int, n_y: int, words: int) -> "np.ndarray | None":
+    """The class bit sets of the next ``m`` permutations drawn on the device (same Fisher-Yates streams, so the same bits), or ``None`` to draw on the host.
+
+    The generator is advanced by the one block seed a host draw takes, so the stream the caller sees is unchanged; ``None`` leaves it untouched."""
+    if int(y.shape[0]) < _DEVICE_LABELS_MIN_ROWS or os.environ.get("MLFRAME_PERM_LABELS_DEVICE", "0").strip() != "1":
+        return None
+    from ._perm_labels_device import device_label_bits
+
+    state = rng.bit_generator.state
+    labels = device_label_bits(y, int(m), int(rng.integers(0, 2**31 - 1)), int(n_y), int(words))
+    if labels is None:
+        rng.bit_generator.state = state
+    return labels
+
+
+def _label_bits_block(rng: np.random.Generator, y: np.ndarray, m: int, n_y: int, words: int, y_key: int, on_device: bool = False) -> np.ndarray:
     """The packed class bit sets ``(m, n_y, words)`` of the next ``m`` label permutations of the stream of ``rng`` (the generator ends where a fresh draw leaves it).
 
     A permutation block is a function of the generator state and the row count; its bit sets also of the labels. They are one bit per row and class (125 KB per permutation at a million rows),
@@ -295,7 +316,9 @@ def _label_bits_block(rng: np.random.Generator, y: np.ndarray, m: int, n_y: int,
             rng.bit_generator.state = hit[1]
             cached: np.ndarray = hit[0]
             return cached
-    labels = label_bitsets_from_index(y, _permutation_block(rng, y, m), n_y, words)
+    labels = _device_label_bits_or_none(rng, y, m, n_y, words) if on_device else None
+    if labels is None:
+        labels = label_bitsets_from_index(y, _permutation_block(rng, y, m), n_y, words)
     with _perm_block_cache_lock:
         _label_bits_cache[key] = (labels, rng.bit_generator.state)
         _label_bits_cache_bytes += labels.nbytes
@@ -320,7 +343,7 @@ def _family_null_max_device_bits(dev_bits, rng, y, n_y: int, n_perm: int, block:
         """The class bit sets of the permutation block that begins at ``start``."""
         m = min(block, n_perm - start)
         with parallel_kernel_entry():
-            return m, _label_bits_block(rng, y, m, n_y, words, y_key)
+            return m, _label_bits_block(rng, y, m, n_y, words, y_key, on_device=True)
 
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="null_labels") as pool:
         pending = pool.submit(draw, starts[0])
