@@ -34,3 +34,10 @@ def test_columns_scored_together_equal_columns_scored_alone():
     alone = [B.bootstrap_rank_mi(np.ascontiguousarray(arr[:, [j]]), y, reps, 10, try_tied_device=False) for j in range(arr.shape[1])]
     assert np.array_equal(together, np.hstack([a[0] for a in alone]))
     assert ok.tolist() == [bool(a[1][0]) for a in alone]
+
+
+def test_tile_width_shrinks_with_the_row_count():
+    """The transposed columns of a tile stay under the per-thread buffer budget: 10000000 rows take one column per tile."""
+    assert B._tile_for(10_000, 10_000_000) == 1
+    assert B._tile_for(10_000, 100_000) == min(B._TILE, 10_000)
+    assert B._tile_for(10_000, 2_000_000) == B._TILE_BUFFER_BYTES // (4 * 2_000_000)
