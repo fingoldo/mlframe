@@ -49,6 +49,7 @@ from collections.abc import Sequence
 from typing import Any, Callable, Optional
 
 import numpy as np
+from collections import OrderedDict
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
@@ -273,6 +274,46 @@ def _oof_gather_into_kernel(cp, out_dtype):
     return kern
 
 
+def _value_bytes(value: Any) -> int:
+    """Bytes of the arrays in a cache value (arrays, tuples and dicts of them; other objects count zero)."""
+    if hasattr(value, "nbytes"):
+        return int(value.nbytes)
+    if isinstance(value, (tuple, list)):
+        return sum(_value_bytes(v) for v in value)
+    if isinstance(value, dict):
+        return sum(_value_bytes(v) for v in value.values())
+    return 0
+
+
+class _BytesLRU(OrderedDict):
+    """A dict that keeps its values' arrays under ``budget`` bytes by dropping the least recently used entries (always keeping the newest one)."""
+
+    def __init__(self, budget: int) -> None:
+        super().__init__()
+        self._budget = int(budget)
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        """The value of ``key``, marked as the most recently used."""
+        if key in self:
+            self.move_to_end(key)
+            return super().__getitem__(key)
+        return default
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        super().__setitem__(key, value)
+        self.move_to_end(key)
+        while len(self) > 1 and sum(_value_bytes(v) for v in self.values()) > self._budget:
+            self.popitem(last=False)  # evict-ok: the entry is rebuilt from its column when asked for again
+
+
+def _device_cache_budget(cp: Any) -> int:
+    """A fifth of the device's memory for each of the build's column caches (1 GB without device information)."""
+    try:
+        return int(0.2 * cp.cuda.Device().mem_info[1])
+    except Exception:  # no device information: a fixed budget
+        return 1 << 30
+
+
 def _row_cell_index(cp, code_cache: dict, gcol, fold_g, codes_g, n_cells: int):
     """Per-row flat index ``fold * n_cells + cell`` into a ``(n_folds, n_cells)`` stat table, shared by every column of the same group column."""
     key = ("rowidx", gcol)
@@ -345,9 +386,12 @@ def build_binagg_oof_matrix_gpu(
     # Per group column the codes / n_cells are SHARED across its agg columns + stats -> compute once, keyed on
     # the group column name. Per (group, agg) the finite mask + train moments per fold are shared across its
     # stats -> compute once, keyed on (group, agg). The per-stat gather/fallback is the only per-column work.
-    code_cache: dict = {}  # gcol -> (codes_g, n_cells)
-    pair_cache: dict = {}  # (gcol, acol) -> (av_g, finite_g, v_safe, finite_f, per-fold moments/stat cache)
-    acol_cache: dict = {}  # acol -> (av_g, finite_g, v_safe, finite_f): the aggregated column's device operands, shared by every group column
+    # the three caches are bounded in device bytes: per column they hold int64 codes (80 MB at 10 million rows) and four float64 operand arrays (about 250 MB), which on a
+    # 4 GB card ran a 10M fit out of memory; an evicted entry is rebuilt from its column, so the values do not change
+    budget = _device_cache_budget(cp)
+    code_cache: dict = _BytesLRU(budget)  # gcol -> (codes_g, n_cells)
+    pair_cache: dict = _BytesLRU(budget)  # (gcol, acol) -> (av_g, finite_g, v_safe, finite_f, per-fold moments/stat cache)
+    acol_cache: dict = _BytesLRU(budget)  # acol -> (av_g, finite_g, v_safe, finite_f): the aggregated column's device operands, shared by every group column
 
     # Stats requested per (group, agg) pair -> derive ALL of a pair's stats from the shared per-fold moments in
     # ONE _stats_from_moments_gpu pass (was one call per (pair, fold, stat): mean/std/skew/kurt each derived by a
