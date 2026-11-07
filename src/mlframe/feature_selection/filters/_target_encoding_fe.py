@@ -300,7 +300,7 @@ def column_string_codes(col: pd.Series) -> "tuple[np.ndarray, np.ndarray]":
     arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
     try:
         key = _column_content_key(arr)
-    except Exception as exc:  # an unhashable element: code the column without the cache
+    except Exception as exc:  # best-effort: an unhashable element: code the column without the cache, the codes are identical
         log_throttle(logger, "column_codes_cache_key", logging.INFO, "column coding cache skipped for a column whose content cannot be hashed (%s: %s)", type(exc).__name__, exc)
         key = None
     if key is not None:

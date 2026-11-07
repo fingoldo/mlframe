@@ -30,6 +30,7 @@ def test_scores_equal_the_host_kernel(n, p, n_y, base):
     got = gpu.triple_mi_gpu(codes, y, base, n_y)
     want = T._triple_mi_kernel(codes, y, base, n_y)
     assert got is not None
+    assert list(zip(got[:3], want[:3]))
     for a, b in zip(got[:3], want[:3]):
         assert np.array_equal(a, b, equal_nan=True)
     assert np.allclose(got[3], want[3], rtol=0, atol=1e-12, equal_nan=True)

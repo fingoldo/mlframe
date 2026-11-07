@@ -87,7 +87,7 @@ jobs:
         id: pyutilz-pin
         run: echo "sha=$(python3 scripts/read_pyutilz_pin.py uv.lock)" >> "$GITHUB_OUTPUT"
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@7fdaebb4152b4cc2cfc1a85d1ebfe60c1a21f2c1  # v1.23.9  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -186,7 +186,7 @@ jobs:
         id: pyutilz-pin
         run: echo "sha=$(python3 scripts/read_pyutilz_pin.py uv.lock)" >> "$GITHUB_OUTPUT"
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@7fdaebb4152b4cc2cfc1a85d1ebfe60c1a21f2c1  # v1.23.9  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -252,7 +252,7 @@ jobs:
       #                       it, and adding two flags' percentages double-counts instead of unioning.
       - name: Upload coverage to Codecov (deep flag)
         if: success() || failure()
-        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@7fdaebb4152b4cc2cfc1a85d1ebfe60c1a21f2c1  # v1.23.9  # pragma: allowlist secret
         with:
           files: ./coverage.xml
           flags: deep

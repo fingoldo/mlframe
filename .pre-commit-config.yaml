@@ -311,9 +311,9 @@ repos:
         # name can mask a real error in this one, letting a broken commit land locally and only
         # fail once pushed to CI (which always runs cold). See reference_mlframe_shared_mypy_cache_dir
         # memory note for the prior (now superseded) rationale for sharing.
-        # mypy_gate requires mypy's own completion line and a file floor: --min-files 1800 against the 1904 source files mypy checks
+        # mypy_gate requires mypy's own completion line and a file floor: --min-files 1850 against the ~2000 source files mypy checks
         # (about 90%), held there by tests/test_meta/test_mypy_gate_floor.py.
-        entry: python -m py_ci_shared.mypy_gate --min-files 1800 src/mlframe --cache-dir=.mypy_cache_precommit_full
+        entry: python -m py_ci_shared.mypy_gate --min-files 1850 src/mlframe --cache-dir=.mypy_cache_precommit_full
         language: system
         types: [python]
         pass_filenames: false
@@ -668,7 +668,7 @@ repos:
   # runnable via `pre-commit run mypy-full-manual --hook-stage manual` for a quick changed-files-
   # only check without paying the whole-project scan) rather than deleting the hook entirely.
   - repo: https://github.com/fingoldo/py-ci-shared
-    rev: adba0d7549333a18a1df622d520d87aa9ce4b94f  # v1.23.8  # pragma: allowlist secret
+    rev: 7fdaebb4152b4cc2cfc1a85d1ebfe60c1a21f2c1  # v1.23.9  # pragma: allowlist secret
     hooks:
       - id: mypy-full-manual
         pass_filenames: true

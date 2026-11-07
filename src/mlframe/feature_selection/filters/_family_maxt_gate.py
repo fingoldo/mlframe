@@ -320,6 +320,12 @@ def _label_bits_block(rng: np.random.Generator, y: np.ndarray, m: int, n_y: int,
     if labels is None:
         labels = label_bitsets_from_index(y, _permutation_block(rng, y, m), n_y, words)
     with _perm_block_cache_lock:
+        prior = _label_bits_cache.get(key)
+        if prior is not None:  # another thread drew and stored this block while this one drew it: keep its entry, its bytes are already counted
+            _label_bits_cache.move_to_end(key)
+            rng.bit_generator.state = prior[1]
+            prior_labels: np.ndarray = prior[0]
+            return prior_labels
         _label_bits_cache[key] = (labels, rng.bit_generator.state)
         _label_bits_cache_bytes += labels.nbytes
         while _label_bits_cache_bytes > _LABEL_BITS_CACHE_BYTES and len(_label_bits_cache) > 1:

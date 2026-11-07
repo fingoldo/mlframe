@@ -1,5 +1,4 @@
 {
   "src/mlframe/training/composite/discovery/_fit_multibase.py::apply_multi_base_forward_stepwise::admit_on_error": "keeps the single-base spec, which already passed every gate, when only the optional multi-base extension fails (logged at WARNING)",
-  "src/mlframe/training/composite/discovery/_tiny_rerank_waic.py::apply_honest_oof_floor::finite_guarded_reject": "a NaN honest-OOF measurement is degenerate and keeps its CV rank by design; an inf (collapse) score is rejected afterwards by _reject_unscored_specs",
-  "src/mlframe/training/composite/ensemble/__init__.py::env_signature::admit_on_error": "a library with no distribution metadata records None as its version and logs at WARNING; the store is a version field, not an admission"
+  "src/mlframe/training/composite/discovery/_tiny_rerank_waic.py::apply_honest_oof_floor::finite_guarded_reject": "a NaN honest-OOF measurement is degenerate and keeps its CV rank by design; an inf (collapse) score is rejected afterwards by _reject_unscored_specs"
 }

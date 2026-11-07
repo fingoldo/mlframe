@@ -59,6 +59,7 @@ ZERO_TOLERANCE_BASELINES: tuple[str, ...] = (
     "_verbose_gated_except_baseline.json",
     "_perm_loop_invariants_baseline.json",
     "_unlocked_module_cache_baseline.json",
+    "_code_audit_tests_baseline.json",
 )
 
 
