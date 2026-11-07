@@ -393,3 +393,7 @@ The six-second buckets show the stage cascades at 4 to 5 live worker threads fro
 
 At 2M the main thread spent about 540 s in `bootstrap_rank_mi` and about 600 s in the honest null (a permuted-label draw per column block, 10 draws of a gigabyte per call); the 6.3 GB peak was `per_feature_edges` holding the whole frame as doubles (2.6 GB there, 10 GB at 10M x 80). Both are fixed; the 1M fit above is the first measurement with them.
 Growth is linear at about 3.5 GB per million rows, so 10M x 80 would still need about 35 GB: the structures that grow with the rows (discretised data, engineered columns, the cluster-hierarchy codes, the bootstrap tables) have to be built per column block on demand.
+
+## 2026-11-07 open test failures found while checking the cluster-hierarchy codes
+
+`tests/feature_selection/clustering`: `test_dcd_swap_null_default_npermutations.py` (3 tests: no swap fires on the 3-duplicate fixture at the default permutation count) and `test_synergy_auto_aggregator.py` (3 tests: the additive-signal detector and gate) fail on the current master line (`bfe4286fa`) and with the cluster-hierarchy code matrix at int32 or int8 alike. A `git bisect` of the swap test from the old base `7d0d46b4e` ends on the first commit of the merged line (`8300ec4d0`, an unrelated transformer change), so the cause is a merge-line difference rather than one commit and needs a read of the swap null (`_dynamic_cluster_discovery`) against the test, not a bisect.
