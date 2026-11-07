@@ -179,8 +179,11 @@ def hybrid_parity_fe_with_recipes(
             continue
         usable.append((c, v[ok], y_arr[ok], bool(ok.all())))
     scans = _scan_parity_columns(usable, y_arr)
-    for (c, v_ok, y_ok, _all_finite), (period, pmi) in zip(usable, scans):
-        raw = _raw_mi(v_ok, y_ok)
+    # the raw MI of a column (a sort and a quantile pass) reads that column only: the columns go to the edge-jobs pool (one thread was 40 percent CPU at 1000000 rows)
+    from ._edge_pool import map_on_edge_pool
+
+    raws = map_on_edge_pool(lambda item: _raw_mi(item[1], item[2]), usable)
+    for (c, _v_ok, _y_ok, _all_finite), (period, pmi), raw in zip(usable, scans, raws):
         if not np.isfinite(period):
             continue
         rows.append({"col": c, "raw_mi": raw, "period": period, "parity_mi": pmi, "uplift": pmi - raw})
