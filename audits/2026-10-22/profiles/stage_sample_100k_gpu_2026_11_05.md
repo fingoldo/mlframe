@@ -378,3 +378,8 @@ Open: the honest-spec raw matrix duplicates the float32 frame (a lazy column vie
 
 The streamed family test scores each group of columns against the same draw, so the permutation indices of every block were drawn again for every group (28 groups of 54 columns, `_permutation_block` and `family_null_max` hold the main thread from 120 s to 460 s in the timeline). The class bit sets a block yields are one bit per row and class (125 KB per permutation at a million rows) against four bytes per row for the indices, so they are cached under the generator state, row count, class count and a hash of the labels (256 MB LRU, released under memory pressure); later groups read them.
 Remaining at 1M: the honest null redraws its permuted labels in 256 MB blocks (270 s to 360 s in the timeline, `permuted_labels_seeded`), the cluster-hierarchy codes (`_quantize_for_su`) and the honest-null pack at the end.
+
+## 2026-11-07 check of the 100k x 100 all-families fit after the memory series
+
+`stack_timeline.py` (warm 20000-row fit, then the 100000 x 100 all-families fit, one process): WALL 77.4 s, against the 79.7 s to 105 s of the earlier runs. The label-cache cap, the frame-backed honest spec, the label bit-set cache and the streamed modular family test only act above their size thresholds (256 MB of labels or codes), so the 100k path is unchanged.
+The six-second buckets show the stage cascades at 4 to 5 live worker threads from 24 s to 42 s, the honest null at 54 to 60 s, and a serial tail (cluster-hierarchy quantisation, edge pool) in the last bucket.
