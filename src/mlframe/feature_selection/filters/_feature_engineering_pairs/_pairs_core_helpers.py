@@ -302,6 +302,15 @@ def _check_prospective__read_weakref_cache_no(_chunk_global_batch, _chunk_buffer
                 from mlframe.feature_selection.filters._fe_gpu_strict import fe_gpu_strict_enabled
 
                 _pipe_on = bool(fe_gpu_strict_enabled(n=len(X), p=int(_chunk_buf_width)))
+                if _pipe_on:
+                    # the pipeline allocates a second chunk buffer of the same size, which the chunk width's RAM budget did not count (two 467 MB buffers at 500000 rows,
+                    # gigabytes at 10 million): it runs only when that second buffer fits the budget too; otherwise the chunks go one after the other (same results)
+                    from .._feature_engineering_mem_budget import _can_hoist_shared_buffer
+
+                    _second_ok, _sb, _sa = _can_hoist_shared_buffer(int(_chunk_buffer.nbytes))
+                    if not _second_ok:
+                        _pipe_on = False
+                        logger.info("pair search: the chunk pipeline's second %.0f MB buffer does not fit the RAM budget; chunks run one after the other", _chunk_buffer.nbytes / 1e6)
             except Exception as e:
                 log_throttle(logger, "pairs_core.gpu_strict_probe", logging.WARNING, "pair search: the GPU-strict probe failed (%s), the chunk pipeline is off", e)
                 _pipe_on = False
