@@ -59,6 +59,6 @@ for n in (100_000, 1_000_000):
         yb_wp = cp.ascontiguousarray(yb_pw.T)
         out = cp.zeros(1, dtype=cp.uint32)
         blocks = 256
-        t_pw = timed(lambda: k_pw((blocks,), (32,), (yb_pw, np.int32(W), np.int32(P), out)))
-        t_wp = timed(lambda: k_wp((blocks,), (32,), (yb_wp, np.int32(W), np.int32(P), out)))
+        t_pw = timed(lambda: k_pw((blocks,), (32,), (yb_pw, np.int32(W), np.int32(P), out)))  # launch-ok: layout benchmark, the block size is part of the measured variant
+        t_wp = timed(lambda: k_wp((blocks,), (32,), (yb_wp, np.int32(W), np.int32(P), out)))  # launch-ok: layout benchmark, the block size is part of the measured variant
         print(f"n={n:>9} P={P:>4}  (P,W) row-per-perm={t_pw * 1e3:9.3f}ms  (W,P) word-major={t_wp * 1e3:9.3f}ms  speedup={t_pw / t_wp:5.2f}x")

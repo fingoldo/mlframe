@@ -6,7 +6,7 @@ import cupy as cp
 import numpy as np
 
 ROW = r"""
-extern "C" __global__
+extern "C" __global__  // dtype-ok: benchmark: every buffer is allocated float64 in this file
 void tail_row(const double* __restrict__ M, const double* __restrict__ med, const double* __restrict__ scale,
               const double outerK, const long long n, const int K, double* out) {
     int col = blockIdx.x; if (col >= K) return;
@@ -23,7 +23,7 @@ void tail_row(const double* __restrict__ M, const double* __restrict__ med, cons
     if (tid == 0) out[col] = sh[0];
 }"""
 COL = r"""
-extern "C" __global__
+extern "C" __global__  // dtype-ok: benchmark: every buffer is allocated float64 in this file
 void tail_col(const double* __restrict__ MT, const double* __restrict__ med, const double* __restrict__ scale,
               const double outerK, const long long n, const int K, double* out) {
     int col = blockIdx.x; if (col >= K) return;
@@ -40,9 +40,9 @@ void tail_col(const double* __restrict__ MT, const double* __restrict__ med, con
     for (int s = blockDim.x >> 1; s > 0; s >>= 1) { if (tid < s && sh[tid + s] > sh[tid]) sh[tid] = sh[tid + s]; __syncthreads(); }
     if (tid == 0) out[col] = sh[0];
 }"""
-mod = cp.RawModule(code=ROW + COL)
-kr = mod.get_function("tail_row")
-kc = mod.get_function("tail_col")
+mod = cp.RawModule(code=ROW + COL)  # dtype-ok: benchmark: every buffer is allocated float64 in this file
+kr = mod.get_function("tail_row")  # dtype-ok: benchmark: every buffer is allocated float64 in this file
+kc = mod.get_function("tail_col")  # dtype-ok: benchmark: every buffer is allocated float64 in this file
 K = 16
 
 
@@ -64,6 +64,6 @@ for n in (500, 10_000, 100_000, 1_000_000):
     med = cp.full(K, 0.5)
     scale = cp.full(K, 0.2)
     out = cp.empty(K)
-    t_row = timed(lambda: kr((K,), (256,), (M, med, scale, np.float64(3.0), np.int64(n), np.int32(K), out)))
-    t_col = timed(lambda: kc((K,), (256,), (MT, med, scale, np.float64(3.0), np.int64(n), np.int32(K), out)))
+    t_row = timed(lambda: kr((K,), (256,), (M, med, scale, np.float64(3.0), np.int64(n), np.int32(K), out)))  # launch-ok: layout benchmark, the block size is part of the measured variant
+    t_col = timed(lambda: kc((K,), (256,), (MT, med, scale, np.float64(3.0), np.int64(n), np.int32(K), out)))  # launch-ok: layout benchmark, the block size is part of the measured variant
     print(f"n={n:>9} row={t_row * 1e3:9.3f}ms  col(kernel only)={t_col * 1e3:9.3f}ms")

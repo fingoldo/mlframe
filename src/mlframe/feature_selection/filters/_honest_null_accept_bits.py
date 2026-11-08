@@ -317,7 +317,7 @@ def _launch_pre(cp: Any, d_order: Any, valid: Any, ybits: Any, tab_full: Any, th
         for j0 in range(0, kc, col_chunk):
             jc = min(col_chunk, kc - j0)
             pre = cp.empty((jc, words, bc), dtype=cp.uint32)
-            build((words, pw, jc), (32,), (d_order[j0 : j0 + jc], yt, pre, np.int64(n), np.int32(words), np.int32(pw), np.int32(bc)))
+            build((words, pw, jc), (32,), (d_order[j0 : j0 + jc], yt, pre, np.int64(n), np.int32(words), np.int32(pw), np.int32(bc)))  # launch-ok: one warp per block, the kernel ballots across the 32 lanes
             tg, tc, ti = cp.empty(jc * bc, dtype=d_gain.dtype), cp.empty(jc * bc, dtype=cp.int32), cp.empty(jc * bc, dtype=cp.int32)
             scan(
                 (jc * bc,), (width,),

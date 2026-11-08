@@ -8,9 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-gate = pytest.importorskip("py_ci_shared.cuda_kernel_pointer_types", reason="the installed py-ci-shared predates the cuda_kernel_pointer_types gate; test_gpu_kernel_pointer_dtype.py covers this meanwhile")
+from py_ci_shared import cuda_kernel_pointer_types as gate
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "mlframe"
 
