@@ -123,3 +123,7 @@ Single runs of the same code at 100000 x 100 with every family ranged from 77.6 
 | 8 (phase) subsample-fit mode for frames beyond RAM | deferred, opt-in, only if a 1B-row use case is real |
 
 Beyond the plan: the 10M x 80 series (see above), the `bootstrap_rank_mi` tie-rule regression, int16 codes of CMIM and the binned-agg source bins.
+
+### Resolved: `ff45b668b` is not a regression (2026-11-08)
+
+Alternating A/B on a quiet host (free RAM above 6 GB, nothing else running), 100000 x 100 with every family, fresh process per run: parent `239d58b13` 110.2 and 115.7 s, `ff45b668b` 112.5 and 101.4 s. The difference changes sign between rounds, so it is noise; the call costs 3.7 ms. The same parent measured 84.3 s earlier the same day, so the absolute wall of this machine drifts by about 30% between windows: only pairs run back to back in one window are comparable.
