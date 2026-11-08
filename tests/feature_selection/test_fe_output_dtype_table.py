@@ -19,16 +19,15 @@ GOLDEN = {
 
 @pytest.fixture(scope="module")
 def fit_and_frame():
-    """The all-families fit at 20000 x 40 and its input frame."""
-    import os
-
-    # the GPU-strict configuration of the profiling scripts: the dtype of some kinds depends on the device path
-    for k, v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1", "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1"}.items():
-        os.environ.setdefault(k, v)
-    kw = F.all_families_kwargs()
-    kw["nbins_strategy"] = "mdlp"
-    X, y = F._make(20000, 40, 0)[:2]
-    return MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(X, y), X
+    """The all-families fit at 20000 x 40 and its input frame, fitted under the GPU-strict configuration of the profiling scripts (the dtype of some kinds depends on the device path)."""
+    env = {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1", "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1"}
+    with pytest.MonkeyPatch.context() as mp:
+        for k, v in env.items():
+            mp.setenv(k, v)
+        kw = F.all_families_kwargs()
+        kw["nbins_strategy"] = "mdlp"
+        X, y = F._make(20000, 40, 0)[:2]
+        yield MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(X, y), X
 
 
 def test_recipe_output_dtypes_match_the_golden_table(fit_and_frame):
