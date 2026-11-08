@@ -1,6 +1,8 @@
 """Helper blocks extracted from the over-long functions of ``_step_core`` (function-length gate); behaviour is unchanged."""
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
+
 from typing import Any
 
 
@@ -29,6 +31,7 @@ from ._step_core_helpers import (
 )
 
 
+@fe_timed("stage:fe_step_part7")
 def _run_fe_step_impl_part7(
     verbose: Any, selected_vars: Any, self: Any, st: Any, cols: Any, target_names: Any, num_fs_steps: Any, data: Any, categorical_vars: Any, X: Any,
     nbins: Any, target_indices: Any, classes_y: Any, freqs_y: Any, cached_MIs: Any, classes_y_safe: Any, cached_confident_MIs: Any, n_jobs: Any,
@@ -94,6 +97,7 @@ def _run_fe_step_impl_part7(
     return False, check_prospective_fe_pairs, discretize_array, get_new_feature_name, parallel_run, selected_vars
 
 
+@fe_timed("stage:fe_step_part6")
 def _run_fe_step_impl_part6(
     materialise_and_finalise_fe_candidates: Any, self: Any, st: Any, data: Any, cols: Any, nbins: Any, X: Any, classes_y: Any, selected_vars: Any,
     engineered_features: Any, engineered_recipes: Any, checked_pairs: Any, num_fs_steps: Any, fe_max_steps: Any, fe_unary_preset: str, fe_binary_preset: str,
@@ -172,6 +176,7 @@ def _run_fe_step_impl_part6(
     return True, (data, cols, nbins, X, selected_vars, st.n_recommended_features)
 
 
+@fe_timed("stage:fe_step_part5")
 def _run_fe_step_impl_part5(
     self: Any, st: Any, cols: Any, verbose: Any, classes_y: Any, n_jobs: Any, X: Any, check_prospective_fe_pairs: Any, unary_transformations: Any,
     binary_transformations: Any, classes_y_safe: Any, freqs_y: Any, num_fs_steps: Any, fe_max_steps: Any, fe_npermutations: Any, fe_max_pair_features: Any,
@@ -293,6 +298,7 @@ def _run_fe_step_impl_part5(
     return materialise_and_finalise_fe_candidates
 
 
+@fe_timed("stage:fe_step_part4")
 def _run_fe_step_impl_part4(
     st: Any, n_jobs: Any, prefetch_factor: Any, verbose: Any, fe_min_pair_mi_prevalence: Any, parallel_run: Any, check_prospective_fe_pairs: Any, X: Any,
     unary_transformations: Any, binary_transformations: Any, classes_y: Any, classes_y_safe: Any, freqs_y: Any, num_fs_steps: Any, cols: Any,
@@ -415,6 +421,7 @@ def _run_fe_step_impl_part4(
     return _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY, _FE_REJECTION_RESULT_KEY
 
 
+@fe_timed("stage:fe_step_part3")
 def _run_fe_step_impl_part3(
     verbose: Any, selected_vars: Any, self: Any, st: Any, cols: Any, target_names: Any, num_fs_steps: Any, data: Any, categorical_vars: Any, X: Any,
     nbins: Any, target_indices: Any, classes_y: Any, freqs_y: Any, cached_MIs: Any, classes_y_safe: Any, cached_confident_MIs: Any, n_jobs: Any,
@@ -552,6 +559,7 @@ def _run_fe_step_impl_part3(
     return False, selected_vars
 
 
+@fe_timed("stage:fe_step_part2")
 def _run_fe_step_impl_part2(
     self: Any, st: Any, verbose: Any, data: Any, fe_smart_polynom_iters: Any, classes_y: Any, X: Any, cols: Any, _is_polars_input: Any, nbins: Any,
     engineered_features: Any, engineered_recipes: Any, fe_smart_polynom_optimization_steps: Any, fe_min_polynom_degree: Any, fe_max_polynom_degree: Any,
@@ -696,6 +704,7 @@ def _run_fe_step_impl_part2(
     return data, X, cols, nbins
 
 
+@fe_timed("stage:fe_step_part1")
 def _run_fe_step_impl_part1(self: Any, st: Any, cols: Any, verbose: Any, classes_y: Any, n_jobs: Any, X: Any) -> None:
     """Extracted block of ``_run_fe_step_impl`` (part 1); returns the names the caller still uses."""
     # The standard check_prospective_fe_pairs path used to live in
