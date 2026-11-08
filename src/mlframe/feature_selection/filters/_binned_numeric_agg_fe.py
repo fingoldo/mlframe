@@ -43,6 +43,7 @@ from ._binned_agg_cheap_mi import (  # noqa: F401  -- carved sibling, re-exporte
     quantile_edges,
 )
 from ._binned_numeric_agg_cands import HostCandidates, device_born_candidates
+from mlframe.utils.numeric_floors import SD_FLOOR
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +233,7 @@ def _global_stat(v: np.ndarray, stat: str) -> float:
         return float(np.std(vf))
     from scipy.stats import kurtosis, skew
     sd = float(np.std(vf))
-    if sd <= 1e-12:
+    if sd <= SD_FLOOR:
         return 0.0
     if stat == "skew":
         return float(skew(vf)) if vf.size > 2 else 0.0

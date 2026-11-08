@@ -1,8 +1,8 @@
 """Regression sensor: the FIT path of ``generate_rankgauss_features`` computes the fit values' ranks among themselves
-via a single ``argsort`` mid-rank scatter (``_self_avg_tie_rank``) instead of the two full-array ``searchsorted`` sweeps
+via a single ``argsort`` mid-rank scatter (``_self_avg_tie_rank_and_sorted``) instead of the two full-array ``searchsorted`` sweeps
 of ``_avg_tie_rank(np.sort(x), x)``. At fit time the query set IS the reference set, so the cheaper self-rank is
 bit-identical (~2.6x on the full 6-col 1M generate). The replay path keeps ``searchsorted`` (test values are not the fit
-values). This pins (a) ``_self_avg_tie_rank`` bit-identity vs the two-sweep reference on continuous AND tied data, and
+values). This pins (a) ``_self_avg_tie_rank_and_sorted`` bit-identity vs the two-sweep reference on continuous AND tied data, and
 (b) that the fit path uses NO ``searchsorted`` over the data column.
 """
 
@@ -13,7 +13,7 @@ import numpy as np
 from mlframe.feature_selection.filters import _extra_fe_families as fam
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._extra_fe_families import (
-    _self_avg_tie_rank,
+    _self_avg_tie_rank_and_sorted,
     _avg_tie_rank,
     _rank_to_gauss,
     generate_rankgauss_features,
@@ -30,21 +30,21 @@ def test_self_avg_tie_rank_identical_continuous():
     """Self avg tie rank identical continuous."""
     rng = np.random.default_rng(3)
     x = rng.standard_normal(50_000)
-    assert np.array_equal(_self_avg_tie_rank(x), _reference_fit_self_rank(x))
+    assert np.array_equal(_self_avg_tie_rank_and_sorted(x)[0], _reference_fit_self_rank(x))
 
 
 def test_self_avg_tie_rank_identical_tied():
     """Self avg tie rank identical tied."""
     rng = np.random.default_rng(3)
     x = rng.integers(0, 40, 50_000).astype(np.float64)  # heavy exact ties
-    assert np.array_equal(_self_avg_tie_rank(x), _reference_fit_self_rank(x))
+    assert np.array_equal(_self_avg_tie_rank_and_sorted(x)[0], _reference_fit_self_rank(x))
 
 
 def test_self_avg_tie_rank_singleton_and_allequal():
     """Self avg tie rank singleton and allequal."""
-    assert np.array_equal(_self_avg_tie_rank(np.array([7.0])), np.array([0.0]))
+    assert np.array_equal(_self_avg_tie_rank_and_sorted(np.array([7.0]))[0], np.array([0.0]))
     x = np.full(1000, 2.5)
-    assert np.array_equal(_self_avg_tie_rank(x), _reference_fit_self_rank(x))
+    assert np.array_equal(_self_avg_tie_rank_and_sorted(x)[0], _reference_fit_self_rank(x))
 
 
 def test_generate_rankgauss_fit_bit_identical_and_no_searchsorted(monkeypatch):

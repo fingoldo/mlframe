@@ -11,6 +11,10 @@ from ._batch_kernels import (
     check_joint_cardinality,
     joint_cardinality_cap,
 )
+from ._cmi_resident_cache import (
+    _host_codes_for_upload as host_codes_for_upload,
+    _widen_on_device as widen_on_device,
+)
 from ._cmi_cuda import (
     _cpu_cmi_loop_parallel as cpu_cmi_loop_parallel,
     clear_cmi_resident_cache,
@@ -39,10 +43,12 @@ __all__ = [
     "group_blocked_mi",
     "group_leak_verdict",
     "group_relevance_mi",
+    "host_codes_for_upload",
     "joint_cardinality_cap",
     "prepare_group_segments",
     "reset_cmi_gpu_circuit_breaker",
     "select_batch_mi_kernel",
     "set_group_mi",
+    "widen_on_device",
     "state_and_dispatch",
 ]

@@ -113,21 +113,6 @@ def _radix_sort_pairs(vals: np.ndarray, va: np.ndarray, ra: np.ndarray, vb: np.n
             ra[i] = rb[i]
 
 
-@njit(cache=True)
-def _emit(hist: np.ndarray, pos: np.ndarray, cur: np.ndarray, cum: np.ndarray, b: int, c: int, take: int) -> None:
-    """Add ``take`` rows of class ``c`` to replicate ``b`` at its current position, moving to the next equi-frequency slice whenever the current one is full (``cum[b, s]`` = end of slice ``s``)."""
-    r = take
-    last = cum.shape[1] - 1
-    while r > 0:
-        while pos[b] >= cum[b, cur[b]] and cur[b] < last:
-            cur[b] += 1
-        room = cum[b, cur[b]] - pos[b]
-        t = min(r, room) if room > 0 else r
-        hist[b, cur[b], c] += t
-        pos[b] += t
-        r -= t
-
-
 @njit(cache=True, fastmath=True)
 def _walk_sorted(
     ord_rows: np.ndarray,

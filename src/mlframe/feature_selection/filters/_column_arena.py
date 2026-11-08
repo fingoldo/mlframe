@@ -118,6 +118,10 @@ class ColumnArena:
         cols = list(self._slot if names is None else names)
         return pd.DataFrame(self.block(cols).T, columns=cols, index=index if index is not None else pd.RangeIndex(self.n_rows), copy=False)
 
+    def __getstate__(self) -> "dict[str, Any]":
+        """Refuse to pickle: the arena owns memmap files and a lock of this process, and copying its chunks into RAM could silently cost gigabytes."""
+        raise TypeError("ColumnArena is process-local (it owns memmap files and a lock) and cannot be pickled; pass the columns, not the arena")
+
     def close(self) -> None:
         """Release the chunks and delete the memmap files."""
         self._chunks.clear()

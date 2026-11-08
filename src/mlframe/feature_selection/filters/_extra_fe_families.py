@@ -758,10 +758,6 @@ def _self_avg_tie_rank_and_sorted(fit_finite: np.ndarray) -> "tuple[np.ndarray, 
     out[order] = mid[grp_id]
     return out, sx
 
-def _self_avg_tie_rank(fit_finite: np.ndarray) -> np.ndarray:
-    """Average (mid) 0-based rank of each element of ``fit_finite`` among itself (see :func:`_self_avg_tie_rank_and_sorted`)."""
-    return _self_avg_tie_rank_and_sorted(fit_finite)[0]
-
 
 def generate_rankgauss_features(
     X: pd.DataFrame,

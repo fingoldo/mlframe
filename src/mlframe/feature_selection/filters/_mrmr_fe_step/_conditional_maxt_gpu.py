@@ -69,6 +69,7 @@ void cond_mi_columns(const short* __restrict__ codes, const long long* __restric
 }
 """
 _KERNEL: Any = None
+_FALLBACK_WARNED = False
 
 
 def _kernel(cp):
@@ -99,5 +100,10 @@ def conditional_mi_targets_device(codes: np.ndarray, widths: np.ndarray, targets
         _kernel(cp)((p * B,), (_THREADS,), (codes_d, w_d, ys_d, z_d, np.int32(n), np.int32(p), np.int32(B), np.int32(ky), np.int32(kz), np.int32(max_w), out), shared_mem=kz * max_w * ky * 4)  # launch-ok: the kernel's shared reduction array and tree reduction are sized for 256 threads
         return np.asarray(cp.asnumpy(out))
     except Exception as exc:  # no device / out of memory / compile failure: the host kernel answers
-        logger.debug("device conditional MI unavailable (%r); using the host kernel", exc)
+        global _FALLBACK_WARNED
+        if not _FALLBACK_WARNED:
+            _FALLBACK_WARNED = True
+            logger.warning("device conditional MI unavailable (%r); using the host kernel (reported once per process)", exc)
+        else:
+            logger.debug("device conditional MI unavailable (%r); using the host kernel", exc)
         return None

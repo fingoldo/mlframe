@@ -474,32 +474,33 @@ def _emit_pair_features_part1(
 
     st.transformed_vals, st.new_cols, st.new_nbins = None, None, None
 
-    this_pair_features = _emit_pair_features_step3_pair_features(
-        this_pair_features,
-        _cached_name,
-        fe_max_steps,
-        _use_subsample,
-        _rebuild_full_survivor_col,
-        _X_full,
-        original_cols,
-        unary_transformations,
-        binary_transformations,
-        _prewarp_spec_by_var,
-        _gate_med_median_by_var,
-        cols,
-        engineered_operand_values,
-        final_transformed_vals,
-        _this_chunk_deferred,
-        _resolve_col,
-        _config_by_i,
-        st,
-        transformed_vars,
-        vars_transformations,
-        verbose,
-        messages,
-        _full_n_rows,
-        quantization_nbins,
-    )
+    if this_pair_features:
+        this_pair_features = _emit_pair_features_step3_pair_features_part1(
+            this_pair_features,
+            _cached_name,
+            fe_max_steps,
+            _use_subsample,
+            _rebuild_full_survivor_col,
+            _X_full,
+            original_cols,
+            unary_transformations,
+            binary_transformations,
+            _prewarp_spec_by_var,
+            _gate_med_median_by_var,
+            cols,
+            engineered_operand_values,
+            final_transformed_vals,
+            _this_chunk_deferred,
+            _resolve_col,
+            _config_by_i,
+            st,
+            transformed_vars,
+            vars_transformations,
+            verbose,
+            messages,
+            _full_n_rows,
+            quantization_nbins,
+        )
 
     st._pair_res_entry = (this_pair_features, st.transformed_vals, st.new_cols, st.new_nbins, messages)
     return True, (st._pair_res_entry)
@@ -761,50 +762,13 @@ def _emit_pair_features_step2_than_single_best(
                 messages.append(f"{_cached_name(_cfg)} also emitted " f"(diverse multi-candidate, MI={_cfg_mi:.4f} vs best {best_mi:.4f})")
 
 
-def _emit_pair_features_step3_pair_features(
-    this_pair_features,
-    _cached_name,
-    fe_max_steps,
-    _use_subsample,
-    _rebuild_full_survivor_col,
-    _X_full,
-    original_cols,
-    unary_transformations,
-    binary_transformations,
-    _prewarp_spec_by_var,
-    _gate_med_median_by_var,
-    cols,
-    engineered_operand_values,
-    final_transformed_vals,
-    _this_chunk_deferred,
-    _resolve_col,
-    _config_by_i,
-    st,
-    transformed_vars,
-    vars_transformations,
-    verbose,
-    messages,
-    _full_n_rows,
-    quantization_nbins,
-):
-    """Step 3 of _emit_pair_features: lines starting at ``if this_pair_features:``."""
-    if this_pair_features:
-
-        this_pair_features = _emit_pair_features_step3_pair_features_part1(
-            this_pair_features, _cached_name, fe_max_steps, _use_subsample, _rebuild_full_survivor_col, _X_full, original_cols, unary_transformations,
-            binary_transformations, _prewarp_spec_by_var, _gate_med_median_by_var, cols, engineered_operand_values, final_transformed_vals,
-            _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, verbose, messages, _full_n_rows, quantization_nbins,
-        )
-    return this_pair_features
-
-
 def _emit_pair_features_step3_pair_features_part1(
     this_pair_features: Any, _cached_name: Any, fe_max_steps: Any, _use_subsample: Any, _rebuild_full_survivor_col: Any, _X_full: Any, original_cols: Any,
     unary_transformations: Any, binary_transformations: Any, _prewarp_spec_by_var: Any, _gate_med_median_by_var: Any, cols: Any,
     engineered_operand_values: Any, final_transformed_vals: Any, _this_chunk_deferred: Any, _resolve_col: Any, _config_by_i: Any, st: Any,
     transformed_vars: Any, vars_transformations: Any, verbose: Any, messages: Any, _full_n_rows: Any, quantization_nbins: Any,
 ) -> Any:
-    """Extracted block of ``_emit_pair_features_step3_pair_features`` (part 1); returns the names the caller still uses."""
+    """Extracted block of ``_emit_pair_features`` step 3 (part 1); returns the names the caller still uses."""
     # Bulk add the found & checked best features.
     # ``this_pair_features`` is a SET of (config, j) tuples
     # with sparse, non-contiguous ``j`` indices into

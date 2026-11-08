@@ -28,6 +28,7 @@ from ._get_feature_names_out_shared import get_feature_names_out_support_based
 from sklearn.base import BaseEstimator, TransformerMixin, clone
 
 from mlframe.utils.misc import rng_hygienic_fit
+from mlframe.utils.numeric_floors import SD_FLOOR
 
 logger = logging.getLogger(__name__)
 
@@ -359,7 +360,7 @@ class CorrelatedFeaturesSelector(TransformerMixin, BaseEstimator):
             return idx  # NaN/inf columns - leave selection untouched (rank test undefined).
         block = block - block.mean(axis=0)
         sd = block.std(axis=0)
-        nz = sd > 1e-12
+        nz = sd > SD_FLOOR
         block[:, nz] = block[:, nz] / sd[nz]
         # Greedy rank-revealing pass in original column order: a column is kept only if it lifts the numerical rank of the kept set.
         kept_cols: list[int] = []

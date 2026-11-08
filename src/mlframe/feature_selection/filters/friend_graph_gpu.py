@@ -389,7 +389,7 @@ def friend_graph_stats_cupy(
     sel_arr = np.asarray(sel, dtype=np.int64)
 
     # ---- ONE H2D: the selected sub-frame (n, k) as int32.
-    from .info_theory import _host_codes_for_upload, _widen_on_device
+    from .info_theory.shared import host_codes_for_upload as _host_codes_for_upload, widen_on_device as _widen_on_device
 
     d_sub = _widen_on_device(cp, _host_codes_for_upload(factors_data[:, sel_arr]))  # (n, k) int32 on the device; the sub-frame goes up at its own width
     nb_sel = nbins[sel_arr]  # (k,) per selected-column cardinality

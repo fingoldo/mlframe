@@ -48,6 +48,7 @@ def release_registered_caches() -> int:
 #: Free host RAM below which a family gate drops the registered stage caches before the family starts: the larger of this many bytes and this share of the total.
 _LOW_FREE_BYTES = 2 * 1024**3
 _LOW_FREE_FRACTION = 0.15
+_PROBE_WARNED = False
 
 
 def release_if_memory_low() -> int:
@@ -60,7 +61,10 @@ def release_if_memory_low() -> int:
 
         vm = psutil.virtual_memory()
     except Exception as exc:  # no psutil: nothing is known about the free memory, keep the caches
-        logger.debug("free-memory probe failed (%r); keeping the caches", exc)
+        global _PROBE_WARNED
+        if not _PROBE_WARNED:
+            _PROBE_WARNED = True
+            logger.warning("free-memory probe failed (%r); keeping the caches (reported once per process)", exc)
         return 0
     if vm.available >= max(_LOW_FREE_BYTES, int(_LOW_FREE_FRACTION * vm.total)):
         return 0

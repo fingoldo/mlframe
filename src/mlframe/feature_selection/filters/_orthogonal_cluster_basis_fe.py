@@ -87,6 +87,7 @@ from ._orthogonal_univariate_fe import (
 )
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
+from mlframe.utils.numeric_floors import SD_FLOOR
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -217,7 +218,7 @@ def _zscore(arr: np.ndarray) -> np.ndarray:
         arr = np.where(finite, arr, fill)
     mu = float(arr.mean())
     sd = float(arr.std())
-    if sd <= 1e-12:
+    if sd <= SD_FLOOR:
         return np.zeros_like(arr)
     return (arr - mu) / sd
 

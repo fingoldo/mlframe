@@ -338,7 +338,9 @@ def root_split_accept_gpu(cp: Any, order: Any, tie: Any, y_raw_perm: Any, n: int
     # Above the shared budget (about 180000 rows) the scan runs over sorted-space label sequences built beforehand (``_launch_pre``: 3.7 times faster than the k5 kernel that used to take over there,
     # 0.29 s against 1.05 s for 1000000 rows x 8 columns x 256 permutations). MLFRAME_HONEST_ACCEPT_MODE: ``off`` declines above the budget (k5 as before), ``global`` is the variant that keeps the
     # tables in global memory and looks the labels up per element (exact, but slower than k5: 1.93 s against 1.06 s), ``pre`` forces the precomputed variant at any row count.
-    mode = os.environ.get("MLFRAME_HONEST_ACCEPT_MODE", "").strip().lower() or ("global" if os.environ.get("MLFRAME_HONEST_ACCEPT_GLOBAL", "").strip() == "1" else "")
+    mode = os.environ.get("MLFRAME_HONEST_ACCEPT_MODE", "").strip().lower()
+    if not mode and os.environ.get("MLFRAME_HONEST_ACCEPT_GLOBAL", "").strip() == "1":
+        mode = "global"
     shared_ok = accept_fits(n, y_raw_perm)
     use_global = mode == "global"
     use_pre = mode == "pre" or (mode == "" and not shared_ok)

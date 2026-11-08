@@ -76,3 +76,13 @@ def test_threads_appending_different_columns_do_not_collide():
         assert sorted(arena.names) == sorted(cols)
         for name, v in cols.items():
             np.testing.assert_array_equal(arena.column(name), v)
+
+
+def test_pickling_an_arena_is_refused_with_a_clear_error():
+    """The arena owns memmap files and a lock of this process: pickling must fail loudly instead of copying the chunks into RAM."""
+    import pickle
+
+    with ColumnArena(500, chunk_columns=3) as arena:
+        arena.extend(_cols(k=4))
+        with pytest.raises(TypeError, match="process-local"):
+            pickle.dumps(arena)
