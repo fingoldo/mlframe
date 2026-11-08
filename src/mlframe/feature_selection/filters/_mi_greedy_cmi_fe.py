@@ -495,8 +495,12 @@ def score_candidates_by_cmi(
     X_support: Optional[pd.DataFrame] = None,
     *,
     nbins: int = 10,
+    support_cache: "dict | None" = None,
 ) -> pd.Series:
     """Score every candidate column by ``CMI(candidate; y | support_joint)``.
+
+    ``support_cache``: an optional dict owned by a caller that scores many candidate blocks against the SAME support and the SAME ``nbins`` (its lifetime is that loop); the dense joint class of
+    the support is built once and read from it afterwards instead of being binned again for every block.
 
     Parameters
     ----------
@@ -533,7 +537,12 @@ def score_candidates_by_cmi(
     if X_support is None or X_support.shape[1] == 0:
         z_joint: Optional[np.ndarray] = None
     else:
-        z_joint = _support_joint(X_support.to_numpy(), nbins)
+        _joint_key = ("joint", tuple(map(str, X_support.columns)), int(nbins))
+        z_joint = support_cache.get(_joint_key) if support_cache is not None else None
+        if z_joint is None:
+            z_joint = _support_joint(X_support.to_numpy(), nbins)
+            if support_cache is not None:
+                support_cache[_joint_key] = z_joint
 
     cand_cols = list(X_cand.columns)
     # BATCHED born-on-device path under STRICT (default OFF -> per-candidate CPU loop, byte-identical):

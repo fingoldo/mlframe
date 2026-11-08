@@ -342,6 +342,7 @@ def score_grouped_agg_by_cmi_uplift(
     *,
     n_bins: int = 10,
     eng_to_source: Optional[dict] = None,
+    support_cache: "dict | None" = None,
 ) -> pd.DataFrame:
     """Rank engineered aggregates by ``CMI(agg; y | base_cols)`` and gate by
     uplift over the source num_col's own marginal ``MI(num_col; y)``.
@@ -393,15 +394,18 @@ def score_grouped_agg_by_cmi_uplift(
 
     base_cols = [c for c in base_cols if c in raw_X.columns]
     X_support = raw_X[base_cols] if base_cols else None
-    cmi = score_candidates_by_cmi(eng_X, y_arr, X_support, nbins=n_bins)
+    cmi = score_candidates_by_cmi(eng_X, y_arr, X_support, nbins=n_bins, support_cache=support_cache)
 
     # Marginal MI of each source num_col (uplift baseline), computed once.
-    source_mi_cache: dict[str, float] = {}
+    source_mi_cache: dict[str, float] = support_cache.setdefault("source_mi", {}) if support_cache is not None else {}
     eng_to_source = eng_to_source or {}
 
     # The source columns are binned together once (one parallel block), not one column at a time on first use.
     _src_cols = [c for c in dict.fromkeys(eng_to_source.values()) if c and c in raw_X.columns]
-    _src_bins = dict(zip(_src_cols, quantile_bin_columns(raw_X[_src_cols].to_numpy(), n_bins))) if _src_cols else {}
+    _src_bins: dict = support_cache.setdefault("src_bins", {}) if support_cache is not None else {}
+    _src_missing = [c for c in _src_cols if c not in _src_bins]
+    if _src_missing:
+        _src_bins.update(zip(_src_missing, quantile_bin_columns(raw_X[_src_missing].to_numpy(), n_bins)))
 
     def _source_mi(col: str) -> float:
         """Memoized marginal MI(source col, y) used as the uplift baseline (an engineered stat should beat its source's own signal)."""

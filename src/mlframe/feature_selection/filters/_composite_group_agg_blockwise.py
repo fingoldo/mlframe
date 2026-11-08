@@ -83,6 +83,7 @@ def composite_group_agg_top_blockwise(
     keep_frames: list[pd.DataFrame] = []
     keep_recipes: dict = {}
     scores_frames: list[pd.DataFrame] = []
+    support_cache: dict = {}  # the conditioning joint and the source-column bins/MI are the same for every block of candidates: built once for this call
     for group_cols in norm_sets:
         _pre = _precomputed_keys.get(group_cols) if _precomputed_keys is not None else None
         if _pre is not None:
@@ -104,7 +105,7 @@ def composite_group_agg_top_blockwise(
                 continue
             enc_df = pd.DataFrame(encoded, index=X.index)
             del encoded
-            scored = score_grouped_agg_by_cmi_uplift(X, enc_df, y, list(base_cols), n_bins=n_bins, eng_to_source=eng_to_source)
+            scored = score_grouped_agg_by_cmi_uplift(X, enc_df, y, list(base_cols), n_bins=n_bins, eng_to_source=eng_to_source, support_cache=support_cache)
             scores_frames.append(scored)
             keep = scored[(scored["cmi"] >= float(min_cmi)) & (scored["uplift"] >= float(min_uplift))]
             winners = list(keep["engineered_col"].head(int(top_k)))
