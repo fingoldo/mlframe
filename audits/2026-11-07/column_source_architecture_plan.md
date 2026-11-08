@@ -87,3 +87,13 @@ The remaining limit is not a spike: the RSS growth climbs from about 0.9 GB to 3
 | bootstrap resample rows int32, two-class check without a sort (plus the tie-rule fix) | 456.5 s |
 
 Each spike removed moves the abort by 60 to 100 s; the limit now is the resident growth of about 5.4 GB that the fit holds by 440 s on top of the 3.2 GB frame (16 GB machine, about 6 GB used by other applications). The bootstrap resample tables (about 1.6 GB at 10M rows, 10 resamples) are the last spike seen. The next step is structural: item 7 (engineered columns as codes) and building the resample tables per block of resamples instead of all at once.
+
+### 10M x 80, state after the memory series (2026-11-08)
+
+Abort time stays in 390 to 505 s across the last nine runs whatever spike is removed; the persistent growth is about 5 GB on a 16 GB machine with about 6 GB used by other applications. Measured facts:
+- device allocations are not counted in the process RSS on this Windows host (2 GB on the device: +1 MB RSS); cupy's default pinned pool keeps a staging block per pageable upload until `free_all_blocks` (137 MB after a 300k fit);
+- a 300000-row fit leaves the process 1.95 GB above its pre-fit RSS: 1.0 GB is the registered stage caches (now dropped at a family start when free RAM is below max(2 GB, 15%)), 0.9 GB is outside them (not identified);
+- capping the FE pair-search buffer at 1 GB (`MLFRAME_FE_BUFFER_MAX_GB=1`) did not move the abort (392 s), so the plateau is not that buffer;
+- the binned-agg family builds about half of the plateau; its aggregated-column cache and source warm-up were unbounded (fixed); a 1.5 GB step in one second at `resident_operand` remains (about 19 column uploads of 80 MB; no single call above 50 MB at 1M rows).
+
+Next: identify the 0.9 GB held outside the registered caches after a fit (a snapshot diff before and after one fit at 300k), and run 10M x 80 on a host with more free memory to get its wall and true peak.
