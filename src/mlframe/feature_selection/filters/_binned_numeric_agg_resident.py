@@ -310,7 +310,8 @@ def _device_cache_budget(cp: Any) -> int:
     """A fifth of the device's memory for each of the build's column caches (1 GB without device information)."""
     try:
         return int(0.2 * cp.cuda.Device().mem_info[1])
-    except Exception:  # no device information: a fixed budget
+    except Exception as exc:  # no device information: a fixed budget
+        logger.debug("device memory query failed (%r); using a fixed 1 GB cache budget", exc)
         return 1 << 30
 
 

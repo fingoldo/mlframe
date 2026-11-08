@@ -111,7 +111,7 @@ _GROUP_SELECTION_BLOCK_BYTES = 192 * 1024 * 1024
 def _cheap_mi_group_selection_device(X: pd.DataFrame, gcands: Sequence[str], y_codes: np.ndarray, nbins: int) -> dict:
     """The strict-resident group pre-selection: the finite, non-constant candidates are scored in device passes (``group_mi_block_gpu``) of column blocks that fit a host budget, any other candidate scores 0.0 as in ``_cheap_mi_with_y``.
 
-    Every column is binned by its own quantile edges, so the blocks give the values one pass over all the columns gave. The columns stay in the criterion dtype of the device pass (float32 frames are not widened to float64 on the host: 800 MB of
+    Every column is binned by its own quantile edges, so the blocks give the values one pass over all the columns gave. The columns stay in the criterion dtype of the device pass (float32 frames are not widened to double on the host: 800 MB of
     candidate columns at a million rows and 100 columns, and the stacked copy of them)."""
     from ._qbin_block_gpu import group_mi_block_gpu
 

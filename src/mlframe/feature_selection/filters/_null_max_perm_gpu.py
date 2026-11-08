@@ -11,6 +11,7 @@ launches'.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Optional
 
 import numpy as np
@@ -196,29 +197,32 @@ class PermutationBlocks:
 #: Packed permuted labels of the last ``labels_key`` (one key at a time, about 49 MB for 39 permutations of 10 million rows): a caller that scores many candidate blocks
 #: against the same permutations of the same labels (the binned-agg null redraws the same seeded permutations for every block) packs them once.
 _LABEL_BITS_CACHE: dict = {}
+_LABEL_BITS_LOCK = threading.Lock()
 
 
 def _cached_label_bits(key: Any, p0: int) -> Any:
     """The packed block starting at permutation ``p0`` stored for ``key``, or ``None``."""
     if key is None:
         return None
-    entry = _LABEL_BITS_CACHE.get("latest")
-    if entry is None or entry[0] != key:
-        return None
-    return entry[1].get(int(p0))
+    with _LABEL_BITS_LOCK:
+        entry = _LABEL_BITS_CACHE.get("latest")
+        if entry is None or entry[0] != key:
+            return None
+        return entry[1].get(int(p0))
 
 
 def _store_label_bits(key: Any, p0: int, bits: Any) -> None:
     """Keep the packed block of ``key`` starting at ``p0``; a new key replaces the previous one."""
     if key is None:
         return
-    entry = _LABEL_BITS_CACHE.get("latest")
-    if entry is None or entry[0] != key:
-        _LABEL_BITS_CACHE.clear()  # evict-ok: only the latest labels are kept; a miss repacks them
-        blocks: "dict[int, Any]" = {}
-        entry = (key, blocks)
-        _LABEL_BITS_CACHE["latest"] = entry
-    entry[1][int(p0)] = bits
+    with _LABEL_BITS_LOCK:
+        entry = _LABEL_BITS_CACHE.get("latest")
+        if entry is None or entry[0] != key:
+            _LABEL_BITS_CACHE.clear()  # evict-ok: only the latest labels are kept; a miss repacks them
+            blocks: "dict[int, Any]" = {}
+            entry = (key, blocks)
+            _LABEL_BITS_CACHE["latest"] = entry
+        entry[1][int(p0)] = bits
 
 
 def _permuted_labels(cp: Any, y8: Any, perms: Any, p0: int, p1: int, width: "int | None" = None) -> Any:

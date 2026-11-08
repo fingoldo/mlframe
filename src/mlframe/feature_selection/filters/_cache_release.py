@@ -59,7 +59,8 @@ def release_if_memory_low() -> int:
         import psutil
 
         vm = psutil.virtual_memory()
-    except Exception:  # no psutil: nothing is known about the free memory, keep the caches
+    except Exception as exc:  # no psutil: nothing is known about the free memory, keep the caches
+        logger.debug("free-memory probe failed (%r); keeping the caches", exc)
         return 0
     if vm.available >= max(_LOW_FREE_BYTES, int(_LOW_FREE_FRACTION * vm.total)):
         return 0

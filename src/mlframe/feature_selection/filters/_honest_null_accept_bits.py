@@ -288,6 +288,7 @@ def _launch_global(cp: Any, d_order: Any, valid: Any, ybits: Any, tab_full: Any,
     scratch = cp.empty(grid * words, dtype=cp.uint32)
     kernel(
         (grid,), (width,),
+        # Intentional float64: the kernel signature declares double
         (d_order, valid, ybits, tab_full, thr, np.int64(n), np.int32(words), np.int32(ybits.shape[1]), np.int32(m), np.int32(n_perm), np.float64(h_full), np.float64(m / float(n)), d_gain, d_ncand, d_idx, scratch, np.int64(total)),
     )
     return True
@@ -321,6 +322,7 @@ def _launch_pre(cp: Any, d_order: Any, valid: Any, ybits: Any, tab_full: Any, th
             tg, tc, ti = cp.empty(jc * bc, dtype=d_gain.dtype), cp.empty(jc * bc, dtype=cp.int32), cp.empty(jc * bc, dtype=cp.int32)
             scan(
                 (jc * bc,), (width,),
+                # Intentional float64: the kernel signature declares double
                 (d_order[j0 : j0 + jc], valid[j0 : j0 + jc], ybits, tab_full, thr, np.int64(n), np.int32(words), np.int32(ybits.shape[1]), np.int32(m), np.int32(bc), np.float64(h_full), np.float64(m / float(n)), tg, tc, ti, pre),
             )
             g2[j0 : j0 + jc, b0 : b0 + bc] = tg.reshape(jc, bc)

@@ -250,7 +250,7 @@ def batch_pair_mi_cuda_shared_fused(
     kernel = _get_shared_fused_kernel()
     static_budget = 49152 - _DRIVER_SHARED_MEM_HEADROOM_BYTES
 
-    from .info_theory._cmi_resident_cache import _host_codes_for_upload, _widen_on_device
+    from .info_theory import _host_codes_for_upload, _widen_on_device
 
     d_factors = _widen_on_device(_cp, _host_codes_for_upload(factors_data))
     d_pair_a = _cp.asarray(np.ascontiguousarray(pair_a, dtype=np.int64))

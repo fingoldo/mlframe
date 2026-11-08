@@ -18,7 +18,7 @@ MAX_CELLS = 11_000
 _THREADS = 256
 
 _SRC = r"""
-extern "C" __global__  // dtype-ok: out is always the float64 array the launcher allocates, the sums are double on purpose
+extern "C" __global__  // dtype-ok: Intentional float64, out is always the float64 array the launcher allocates, the sums are double on purpose
 void cond_mi_columns(const short* __restrict__ codes, const long long* __restrict__ widths, const int* __restrict__ ys, const int* __restrict__ z,
                      const int n, const int p, const int B, const int ky, const int kz, const int max_w, double* __restrict__ out) {
     extern __shared__ int cnt[];
@@ -94,6 +94,7 @@ def conditional_mi_targets_device(codes: np.ndarray, widths: np.ndarray, targets
         w_d = cp.asarray(np.ascontiguousarray(widths, dtype=np.int64))
         ys_d = cp.asarray(np.ascontiguousarray(targets, dtype=np.int32))
         z_d = cp.asarray(np.ascontiguousarray(z, dtype=np.int32))
+        # Intentional float64: the kernel writes double sums
         out = cp.empty((B, p), dtype=cp.float64)
         _kernel(cp)((p * B,), (_THREADS,), (codes_d, w_d, ys_d, z_d, np.int32(n), np.int32(p), np.int32(B), np.int32(ky), np.int32(kz), np.int32(max_w), out), shared_mem=kz * max_w * ky * 4)  # launch-ok: the kernel's shared reduction array and tree reduction are sized for 256 threads
         return np.asarray(cp.asnumpy(out))

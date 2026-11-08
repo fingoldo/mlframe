@@ -26,7 +26,7 @@ def _is_nominal_multiclass_target(y) -> bool:
 
 
 def _densify_dtype(col: "pd.Series") -> Any:
-    """Float dtype a nullable column is densified to: the fit's float dtype, or float64 for an integer column with values above 2^24, which float32 would merge (epoch
+    """Float dtype a nullable column is densified to: the fit's float dtype, or double precision for an integer column with values above 2^24, which float32 would merge (epoch
     timestamps or ids one apart becoming one value; ``categorize_dataset`` keeps such integers distinct only while they are still integers)."""
     dt = _crit_np_dtype()
     if np.dtype(dt).itemsize < 8 and getattr(col.dtype, "kind", "O") in ("i", "u"):

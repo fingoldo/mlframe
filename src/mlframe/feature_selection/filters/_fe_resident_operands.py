@@ -175,7 +175,8 @@ def _resident_bytes_budget(cp: Any) -> int:
     """Bytes the resident-operand cache may hold: a quarter of the device memory (1 GB without device information)."""
     try:
         return int(_RESIDENT_BYTES_FRACTION * cp.cuda.Device().mem_info[1])
-    except Exception:  # no device information: a fixed budget
+    except Exception as exc:  # no device information: a fixed budget
+        logger.debug("device memory query failed (%r); using a fixed 1 GB resident budget", exc)
         return 1 << 30
 
 

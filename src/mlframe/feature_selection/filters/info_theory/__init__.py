@@ -79,6 +79,7 @@ from ._batch_kernels import (
     batch_triple_mi_prange,
 )
 from ._batch_kernel_selection import select_batch_mi_kernel
+from ._cmi_resident_cache import _host_codes_for_upload, _widen_on_device
 
 __all__ = [
     "merge_vars",

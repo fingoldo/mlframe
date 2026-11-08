@@ -25,6 +25,7 @@ from pyutilz.performance.gpu_hw_launch import block_size_for
 import pandas as pd
 
 from ._raw_module_cache import RawModuleCache
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ extern "C" __global__ void modular_all_ops(const SRC_T* __restrict__ S, const do
 }
 """
 
-_MODULE = RawModuleCache("#define SRC_T double\n" + _SRC)  # source columns uploaded as float64
+_MODULE = RawModuleCache("#define SRC_T double\n" + _SRC)  # Intentional float64: source columns uploaded as float64
 _MODULE_F32 = RawModuleCache("#define SRC_T float\n" + _SRC)  # source columns that are float32 already are uploaded as they are (half the copy and the transfer)
 
 
@@ -111,6 +112,7 @@ def modular_family_codes_gpu(X: pd.DataFrame, cols: Sequence[str], periods: Sequ
         from ._quantile_codes_gpu import quantile_codes_resident_f32
 
         # float32 sources (the project dtype) go up as float32: every value widens exactly to the double the residue is computed in, so the codes are the same
+        # Intentional float64: non-float32 sources go up as float64, the residue is double
         src_dtype = np.float32 if all(np.dtype(X[c].dtype) == np.float32 for c in cols) else np.float64
         kernel = (_MODULE_F32 if src_dtype == np.float32 else _MODULE).get(cp).get_function("modular_all_ops")
         p_dev = cp.asarray(np.asarray(periods, dtype=np.float64))  # Intentional float64: the residue is computed in double precision, as on the host
@@ -138,7 +140,8 @@ def modular_family_codes_gpu(X: pd.DataFrame, cols: Sequence[str], periods: Sequ
             kernel((min(1024, (n + threads - 1) // threads), len(part) * len(periods)), (threads,), (src, p_dev, np.int64(n), np.int32(len(periods)), out))
             del src
             r0 = s0 * per_source
-            quantile_codes_resident_f32(cp, out, int(n_bins), codes[r0 : r0 + out.shape[0]], nx[r0 : r0 + out.shape[0]])
+            with parallel_kernel_entry():
+                quantile_codes_resident_f32(cp, out, int(n_bins), codes[r0 : r0 + out.shape[0]], nx[r0 : r0 + out.shape[0]])
             del out
         prefetch.shutdown(wait=True)
     except Exception as exc:
