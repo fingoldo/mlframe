@@ -15,6 +15,22 @@ import numpy as np
 _CODE_TO_BASIS = CODE_TO_BASIS
 
 
+def _full_edge_codes(arr: np.ndarray, nbins: int, out: np.ndarray) -> np.ndarray:
+    """Fill ``out`` with the bin codes of the columns whose ``nbins + 1`` quantile edges are all distinct, from the compiled (device when large float32) quantile-codes block, and return which columns that was.
+
+    With every edge distinct the dedup and the two-edge special case below do nothing, so the codes equal the numpy path's; a column with tied edges is left to it."""
+    from ._numba_utils import quantile_codes_block
+    from ._quantile_codes_gpu import quantile_codes_block_auto
+
+    v = np.ascontiguousarray(arr.T)
+    codes = np.empty(v.shape, dtype=np.int16)
+    nx = np.empty(v.shape[0], dtype=np.int64)
+    quantile_codes_block_auto(v, nbins, codes, nx, host_kernel=quantile_codes_block)
+    full = nx == nbins
+    out[:, full] = codes[full].T
+    return full
+
+
 def quantile_bin_batched(arr: np.ndarray, nbins: int) -> np.ndarray:
     """Vectorised equi-frequency bin of a 2-D (n, k) all-finite float array.
 
@@ -29,6 +45,14 @@ def quantile_bin_batched(arr: np.ndarray, nbins: int) -> np.ndarray:
     out = np.zeros((n, k), dtype=np.int64)
     if n == 0 or k == 0:
         return out
+    done = _full_edge_codes(arr, int(nbins), out)
+    if done.all():
+        return out
+    cols = np.flatnonzero(~done)
+    arr = arr[:, cols]
+    out_all = out
+    out = np.zeros((n, cols.size), dtype=np.int64)
+    k = cols.size
     qs = np.linspace(0.0, 1.0, int(nbins) + 1)
     edges_all = np.quantile(arr, qs, axis=0)  # shape (nbins+1, k)
     for j in range(k):
@@ -39,7 +63,8 @@ def quantile_bin_batched(arr: np.ndarray, nbins: int) -> np.ndarray:
             continue
         inner = col_edges[1:-1]
         out[:, j] = np.searchsorted(inner, arr[:, j], side="right").astype(np.int64)
-    return out
+    out_all[:, cols] = out
+    return out_all
 
 
 def noise_aware_floor(values: np.ndarray, sigma_thresh: float) -> float:
