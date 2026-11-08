@@ -341,7 +341,8 @@ _MI_MM_FROM_VALUES_NEK_TEMPLATE = (
         "const {ACC} h_y, const int k_y,\n                       const int* __restrict__ ne_k, {ACC}* __restrict__ mi_out) {")
     .replace("    int ne = nbins - 1, M = nbins * Ky;", "    int ne = ne_k[c], M = nbins * Ky;")
 )
-assert "ne_k" in _MI_MM_FROM_VALUES_NEK_TEMPLATE and "int ne = ne_k[c]" in _MI_MM_FROM_VALUES_NEK_TEMPLATE
+if not ("ne_k" in _MI_MM_FROM_VALUES_NEK_TEMPLATE and "int ne = ne_k[c]" in _MI_MM_FROM_VALUES_NEK_TEMPLATE):
+    raise AssertionError('"ne_k" in _MI_MM_FROM_VALUES_NEK_TEMPLATE and "int ne = ne_k[c]" in _MI_MM_FROM_VALUES_NEK_TEMPLATE')
 _MI_MM_FROM_VALUES_NEK_SRC = render(_MI_MM_FROM_VALUES_NEK_TEMPLATE, real=np.float64, edge=np.float64)  # Intentional float64: the MI accumulators of these kernels are double
 _MI_MM_FROM_VALUES_NEK_KERNEL = None
 

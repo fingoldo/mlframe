@@ -126,7 +126,8 @@ _V5_TAIL_NEW = """                        if(slot<(unsigned long long)cap)cand[(
               }
             }
         } else {"""
-assert _RADIX_SELECT_F32_V4_SRC.count(_V5_HEAD_OLD) == 1 and _RADIX_SELECT_F32_V4_SRC.count(_V5_TAIL_OLD) == 1
+if not (_RADIX_SELECT_F32_V4_SRC.count(_V5_HEAD_OLD) == 1 and _RADIX_SELECT_F32_V4_SRC.count(_V5_TAIL_OLD) == 1):
+    raise AssertionError('_RADIX_SELECT_F32_V4_SRC.count(_V5_HEAD_OLD) == 1 and _RADIX_SELECT_F32_V4_SRC.count(_V5_TAIL_OLD) == 1')
 _RADIX_SELECT_F32_V5_SRC = _RADIX_SELECT_F32_V4_SRC.replace("radix_select_f32_v4", "radix_select_f32_v5").replace(_V5_HEAD_OLD, _V5_HEAD_NEW, 1).replace(_V5_TAIL_OLD, _V5_TAIL_NEW, 1)
 _RADIX_SELECT_F32_V5_KERNEL = None
 

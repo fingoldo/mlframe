@@ -51,7 +51,7 @@ def test_failure_counts_equal_on_compacted_columns(selected):
         compact = get_fleuret_criteria_confidence(data_copy=cd, factors_nbins=cnb, x=cx, y=cy, selected_vars=cs, cached_cond_MIs=cc, entropy_cache=ce, **kw)
         assert compact == full, thr
         counts.append(full[0])
-    assert any(0 < c < 40 for c in counts), counts  # the grid reaches the null: some thresholds give partial counts
+    assert any(0 < c < kw["npermutations"] for c in counts), counts  # the grid reaches the null: some thresholds give partial counts
 
 
 def test_compacted_x_has_one_type_whatever_its_arity():

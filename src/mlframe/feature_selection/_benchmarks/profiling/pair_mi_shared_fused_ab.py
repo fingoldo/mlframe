@@ -48,7 +48,8 @@ NEW = """    for (long long i0 = tid; i0 < n_samples; i0 += 4LL * nt) {
             }
         }
     }"""
-assert M._PAIR_MI_SHARED_FUSED_SRC.count(OLD) == 1
+if not (M._PAIR_MI_SHARED_FUSED_SRC.count(OLD) == 1):
+    raise AssertionError('M._PAIR_MI_SHARED_FUSED_SRC.count(OLD) == 1')
 unrolled = cp.RawKernel(M._PAIR_MI_SHARED_FUSED_SRC.replace(OLD, NEW), "pair_mi_shared_fused")
 plain = M._get_shared_fused_kernel()
 
@@ -71,7 +72,8 @@ for _ in range(5):
         d, out = run(k, th)
         times[i].append(d)
         ref = out if ref is None else ref
-        assert np.allclose(out, ref, rtol=0, atol=1e-12), "MI differs"
+        if not (np.allclose(out, ref, rtol=0, atol=1e-12)):
+            raise AssertionError("MI differs")
 base = np.median(times[0])
 for i, (name, _, th) in enumerate(configs):
     print(f"{name:8s} {th:4d} threads: median {np.median(times[i]) * 1e3:7.1f} ms   {base / np.median(times[i]):.2f}x of plain/128")

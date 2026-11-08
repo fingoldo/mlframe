@@ -47,6 +47,7 @@ for _ in range(5):
     tb, b = run(False)
     a_t.append(ta)
     b_t.append(tb)
-    assert np.allclose(a, b, equal_nan=True)
+    if not (np.allclose(a, b, equal_nan=True)):
+        raise AssertionError('np.allclose(a, b, equal_nan=True)')
 B.batched_cmi_gpu = trusted
 print(f"guard per call: median {np.median(a_t):.3f} s   checked once: median {np.median(b_t):.3f} s   speed-up {np.median(a_t) / np.median(b_t):.2f}x")

@@ -14,7 +14,8 @@ from mlframe.feature_selection.filters import _batch_pair_mi_cuda_shared_fused a
 ROW_SRC = shared._PAIR_MI_SHARED_FUSED_SRC
 OLD_A = "factors_data[i * (long long)n_features + a]"
 OLD_B = "factors_data[i * (long long)n_features + b]"
-assert ROW_SRC.count(OLD_A) == 1 and ROW_SRC.count(OLD_B) == 1, "kernel text changed; update the bench"
+if not (ROW_SRC.count(OLD_A) == 1 and ROW_SRC.count(OLD_B) == 1):
+    raise AssertionError("kernel text changed; update the bench")
 COL_SRC = ROW_SRC.replace(OLD_A, "factors_data[(long long)a * n_samples + i]").replace(OLD_B, "factors_data[(long long)b * n_samples + i]")
 k_col = cp.RawKernel(COL_SRC, "pair_mi_shared_fused")
 

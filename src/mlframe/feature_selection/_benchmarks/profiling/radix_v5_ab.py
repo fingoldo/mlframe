@@ -36,5 +36,6 @@ for K, kind in ((100, "normal"), (100, "uniform"), (30, "lognormal")):
         b, new = run(True)
         t4.append(a)
         t5.append(b)
-        assert np.array_equal(ref, new), "v5 changed an order statistic"
+        if not (np.array_equal(ref, new)):
+            raise AssertionError("v5 changed an order statistic")
     print(f"{kind:9s} K={K:3d}: v4 median {np.median(t4) * 1e3:7.2f} ms   v5 median {np.median(t5) * 1e3:7.2f} ms   speed-up {np.median(t4) / np.median(t5):.2f}x   bit-identical")

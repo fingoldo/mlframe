@@ -9,7 +9,9 @@ y=(rng.random(n)<0.3).astype(np.int64)
 reps=[rng.integers(0,n,int(0.8*n)).astype(np.int64) for _ in range(10)]
 prep=H._resample_tables(reps,y,n,10,True)
 rk,nlev,okb=H.dense_ranks_f32(np.ascontiguousarray(arr).view(np.uint32))
-nl=np.asarray(nlev).astype(np.int32); assert (nl<=T.MAX_LEVELS).all()
+nl=np.asarray(nlev).astype(np.int32)
+if not ((nl<=T.MAX_LEVELS).all()):
+    raise AssertionError('(nl<=T.MAX_LEVELS).all()')
 rk16=cp.asarray(np.ascontiguousarray(rk.T if rk.shape[0]==n else rk).astype(np.int16))
 print("rk",rk16.shape)
 idx=cp.asarray(prep["idx"].astype(np.int32)); binpos=cp.asarray(prep["binpos"].astype(np.int16)); ycode=cp.asarray(prep["y_codes"].astype(np.int32)); lens=cp.asarray(prep["lens"].astype(np.int32))
@@ -20,7 +22,8 @@ new=new.replace("    const int* ib = idx + (long long)b * m_max;","    const int
 new=new.replace("atomicAdd(&mycnt[rj[ib[t]]], 1)","atomicAdd(&mycnt[lj[t]], 1)").replace("atomicAdd(&start[rj[ib[t]]], 1)","atomicAdd(&start[lj[t]], 1)")
 new=new.replace("r = ib[t];\n            const int L = rj[r];","r = t;\n            const int L = lj[t];").replace("atomicAdd(&myhist[bp[start[L]] * ncls + ycode[r]], 1)","atomicAdd(&myhist[bp[start[L]] * ncls + ygb[t]], 1)")
 new=new.replace("if (t < t1) { r = ib[t]; q = sid[rj[r]]; }","if (t < t1) { r = t; q = sid[lj[t]]; }").replace("myhist[bp[base + __popc(same & lt)] * ncls + ycode[r]]","myhist[bp[base + __popc(same & lt)] * ncls + ygb[r]]")
-assert "ycode[r]" not in new and "rj[ib" not in new
+if not ("ycode[r]" not in new and "rj[ib" not in new):
+    raise AssertionError('"ycode[r]" not in new and "rj[ib" not in new')
 mods={"base":RawModuleCache(render(src)),"pregather":RawModuleCache(render(new))}
 width=T._block_width(mods["base"].get(cp).get_function("tied_replicate_mi"),T._shared_bytes(int(nl.max()),8,nb,ncls),m_max)
 shared=T._shared_bytes(int(nl.max()),width//32,nb,ncls)

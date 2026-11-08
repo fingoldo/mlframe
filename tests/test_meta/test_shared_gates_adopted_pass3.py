@@ -209,11 +209,10 @@ def _unpushed_range() -> str | None:
     return "origin/master..HEAD" if done.returncode == 0 else None
 
 
+@pytest.mark.skipif(_unpushed_range() is None, reason="no origin/master ref to bound the unpushed range")
 def test_unpushed_commits_carry_no_forbidden_trailer_or_invisible_subject():
     """A commit about to be pushed must not carry a Co-Authored-By trailer or a subject that starts with a BOM or invisible character."""
     rev_range = _unpushed_range()
-    if rev_range is None:
-        pytest.skip("no origin/master ref to bound the unpushed range")
     assert_commit_metadata(REPO_ROOT, rev_range=rev_range, forbidden_trailers=["Co-Authored-By"])
 
 

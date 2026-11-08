@@ -17,7 +17,7 @@ def test_region_has_a_lower_row_bound(monkeypatch):
     """The region carries n_samples_min so that tiny calls do not reuse a large-shape GPU win."""
     region = _region(monkeypatch)
     assert region["n_samples_max"] == 100_000
-    assert 1 < region["n_samples_min"] <= 100_000
+    assert region["n_samples_min"] == 100_000 // 4
 
 
 def test_tiny_query_misses_and_near_query_hits(monkeypatch):

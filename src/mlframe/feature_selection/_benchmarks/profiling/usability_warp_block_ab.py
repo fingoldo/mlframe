@@ -30,6 +30,7 @@ for rep in range(5):
         times[w].append(time.perf_counter() - t)
         if reference is None:
             reference = out
-        assert np.allclose(out, reference, equal_nan=True), f"result differs at {w} threads"
+        if not (np.allclose(out, reference, equal_nan=True)):
+            raise AssertionError(f"result differs at {w} threads")
 for w in widths:
     print(f"{w:4d} threads per block: median {np.median(times[w]):.3f} s  min {min(times[w]):.3f} s")
