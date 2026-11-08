@@ -9,6 +9,7 @@ logistic model, CV MAE of OLS for regression) and kept only when it improves on 
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any
 
@@ -39,6 +40,18 @@ def drop_forms_not_beating_their_sides(candidates: list, X: Any, y: np.ndarray, 
     whose sides cannot be replayed are kept unchanged."""
     from ._edge_pool import map_on_edge_pool
 
+    # candidates that share a source and a unary share a side: its loss (3 logistic fits at 100k rows) is computed once per distinct column content
+    side_losses: "dict[bytes, float]" = {}
+
+    def _side_loss(values: np.ndarray) -> float:
+        """CV loss of one side column, reused across the candidates that replay the same side."""
+        key = hashlib.blake2b(np.ascontiguousarray(values).tobytes(), digest_size=16).digest()
+        loss = side_losses.get(key)
+        if loss is None:
+            loss = cv_loss(values, y, classification, n_folds, seed)
+            side_losses[key] = loss
+        return loss
+
     def _verdict(cand: Any) -> bool:
         """Whether ``cand`` stays: raw passthroughs, forms whose sides cannot be replayed and forms that cannot be judged stay; the others must beat their better side."""
         recipe = getattr(cand, "recipe", None)
@@ -49,7 +62,7 @@ def drop_forms_not_beating_their_sides(candidates: list, X: Any, y: np.ndarray, 
             if sides is None:
                 return True
             form_loss = cv_loss(cand.values, y, classification, n_folds, seed)
-            side_loss = min(cv_loss(s, y, classification, n_folds, seed) for s in sides)
+            side_loss = min(_side_loss(s) for s in sides)
         except Exception as exc:
             log_throttle(logger, "fe_pure_form_sides.check_skipped", logging.WARNING, "pure-form side check skipped for %s, so the candidate is kept unchecked: %s", getattr(cand, "name", "?"), exc)
             return True
