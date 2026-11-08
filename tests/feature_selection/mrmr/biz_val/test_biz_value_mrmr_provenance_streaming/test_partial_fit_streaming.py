@@ -228,7 +228,8 @@ class TestLayer53_C2_BatchAccumulation:
         X2, y2 = _simple_binary_frame(n=50, seed=11)
         m.partial_fit(X2, y2)
         # Buffer grew; support stayed the same (below threshold of 500).
-        assert len(m._partial_fit_X_buffer_) == 250
+        # the new batch is queued (merged into the buffer at the next refit or window): the retained rows are the buffer plus the queue
+        assert len(m._partial_fit_X_buffer_) + sum(len(x) for x, _ in (m._partial_fit_pending_ or [])) == 250
         assert m._partial_fit_n_since_refit_ == 50
         np.testing.assert_array_equal(m.support_, sup_after_first)
 

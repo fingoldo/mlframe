@@ -61,6 +61,7 @@ class _MRMRFitBodyBlocksMixin:
             for _pf_attr in (
                 "_partial_fit_X_buffer_",
                 "_partial_fit_y_buffer_",
+                "_partial_fit_pending_",
                 "_partial_fit_batch_sizes_",
                 "_partial_fit_n_seen_",
                 "_partial_fit_n_since_refit_",

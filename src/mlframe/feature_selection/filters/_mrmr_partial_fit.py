@@ -254,15 +254,21 @@ def partial_fit(
         X_df = X_df.copy()
         X_df.columns = X_buf.columns
 
-    X_buf = pd.concat([X_buf, X_df], axis=0, ignore_index=True)
-    y_buf = pd.concat([y_buf, y_ser], axis=0, ignore_index=True)
+    # The batch is queued, not concatenated: re-concatenating the whole buffer on every call copied it again and again over many small batches (quadratic in the number
+    # of batches). The queue is merged into the buffer once, when the rolling window needs the rows or the model is refitted.
+    pending = list(getattr(self, "_partial_fit_pending_", None) or [])
+    pending.append((X_df, y_ser))
     batch_sizes.append(len(X_df))
+    n_rows = len(X_buf) + sum(len(x) for x, _ in pending)
 
-    if window is not None and len(X_buf) > window:
+    if window is not None and n_rows > window:
+        X_buf, y_buf = _merge_pending(X_buf, y_buf, pending)
+        pending = []
         X_buf, y_buf, batch_sizes = _apply_rolling_window(X_buf, y_buf, batch_sizes, window)
 
     self._partial_fit_X_buffer_ = X_buf
     self._partial_fit_y_buffer_ = y_buf
+    self._partial_fit_pending_ = pending or None
     self._partial_fit_batch_sizes_ = batch_sizes
     self._partial_fit_n_seen_ = int(getattr(self, "_partial_fit_n_seen_", 0)) + len(X_df)
     self._partial_fit_n_since_refit_ = int(getattr(self, "_partial_fit_n_since_refit_", 0)) + len(X_df)
@@ -273,6 +279,12 @@ def partial_fit(
         # contract: caller may issue many small batches before observing
         # an updated model).
         return self
+
+    X_buf, y_buf = _merge_pending(X_buf, y_buf, pending)
+    pending = []
+    self._partial_fit_X_buffer_ = X_buf
+    self._partial_fit_y_buffer_ = y_buf
+    self._partial_fit_pending_ = None
 
     # Recompute. Build sample_weight from decay; multiply by caller-supplied
     # weights when given (forwarded to the most-recent batch only, since
@@ -288,6 +300,15 @@ def partial_fit(
     self._partial_fit_n_since_refit_ = 0
     _fit_from_partial_fit(self, X_buf, y_buf, sample_weight=weights, **fit_params)
     return self
+
+
+def _merge_pending(X_buf: pd.DataFrame, y_buf: pd.Series, pending: list) -> tuple[pd.DataFrame, pd.Series]:
+    """The buffer with the queued batches appended, in one concatenation (the buffer itself when nothing is queued)."""
+    if not pending:
+        return X_buf, y_buf
+    X_all = pd.concat([X_buf, *(x for x, _ in pending)], axis=0, ignore_index=True)
+    y_all = pd.concat([y_buf, *(y for _, y in pending)], axis=0, ignore_index=True)
+    return X_all, y_all
 
 
 def _weight_trailing_batch(weights, sample_weight, batch_sizes, n_new_rows):

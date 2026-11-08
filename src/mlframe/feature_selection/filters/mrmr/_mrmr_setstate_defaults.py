@@ -252,6 +252,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "partial_fit_window": None,
     "_partial_fit_X_buffer_": None,
     "_partial_fit_y_buffer_": None,
+    "_partial_fit_pending_": None,  # batches appended since the last consolidation: (X frame, y series) pairs
     "_partial_fit_n_seen_": 0,
     "_partial_fit_n_since_refit_": 0,
     # Per-batch row counts backing the decay-weight schedule. Sibling buffers above are in the roster but
