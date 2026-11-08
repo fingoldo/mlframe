@@ -122,7 +122,8 @@ def test_recipe_replay_is_leak_safe_and_bit_exact():
         r = build_hinge_basis_recipe(name=f"a__{side}", src_name="a", tau=0.5, side=side)
         r2 = pickle.loads(pickle.dumps(r))  # pickle / clone roundtrip  # nosec B301 -- round-trip of a locally-created, trusted object
         out = apply_recipe(r2, X)
-        assert np.array_equal(out, ref), f"replay mismatch for side={side}"
+        # apply_recipe hands back the fit's float dtype (float32 by default): the float64 reference rounded once to it is what the replay must equal
+        assert np.array_equal(out, ref.astype(out.dtype)), f"replay mismatch for side={side}"
 
 
 def test_recipe_replay_independent_of_y():
@@ -138,7 +139,7 @@ def test_recipe_replay_independent_of_y():
     X = pd.DataFrame({"a": x})
     r = build_hinge_basis_recipe(name="a__relu", src_name="a", tau=0.42, side="gt")
     out = apply_recipe(r, X)
-    assert np.array_equal(out, np.maximum(x - 0.42, 0.0))
+    assert np.array_equal(out, np.maximum(x - 0.42, 0.0).astype(out.dtype))  # the replay is rounded once to the fit's float dtype
 
 
 def test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut():
@@ -414,11 +415,25 @@ def _hinge_recipes(m):
 def _hinge_survivors(m):
     """Hinge recipes that SURVIVED into support_ / get_feature_names_out (the
     held-out-validated legs the HINGE-PROTECTION block re-added past the
-    MI-invariant screen drop)."""
+    MI-invariant screen drop), as selected columns or as the nested parents of a selected composite
+    (an escalated candidate built on two legs replays them inside itself, so their information is in the output)."""
     eng = getattr(m, "_engineered_recipes_", None) or []
     if isinstance(eng, dict):
         eng = list(eng.values())
-    return [r for r in eng if getattr(r, "kind", None) == "hinge_basis"]
+    found: list = []
+
+    def walk(recipe) -> None:
+        """Collect ``recipe`` when it is a hinge leg and descend into its nested parents."""
+        if getattr(recipe, "kind", None) == "hinge_basis":
+            found.append(recipe)
+        for key in ("nested_parent_a", "nested_parent_b"):
+            parent = (getattr(recipe, "extra", None) or {}).get(key)
+            if parent is not None and hasattr(parent, "kind"):
+                walk(parent)
+
+    for r in eng:
+        walk(r)
+    return found
 
 
 def test_default_is_on():
