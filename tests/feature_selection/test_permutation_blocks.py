@@ -52,6 +52,7 @@ def test_device_permutations_are_permutations_and_reproducible():
 
     a, b = labels(11), labels(11)
     np.testing.assert_array_equal(a, b)
+    assert a.shape[0] == 3
     for row in a:
         assert np.bincount(row, minlength=3).tolist() == np.bincount(np.arange(n) % 3, minlength=3).tolist()
 

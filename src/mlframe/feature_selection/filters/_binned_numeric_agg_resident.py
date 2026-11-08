@@ -495,9 +495,11 @@ def _device_perms_min_rows() -> int:
     """Rows from which the binned-agg null draws its permutations on the device (``MLFRAME_BINAGG_DEVICE_PERMS_MIN_ROWS``, default 2 million; 0 always, a huge value never)."""
     import os
 
+    raw = os.environ.get("MLFRAME_BINAGG_DEVICE_PERMS_MIN_ROWS", "2000000")
     try:
-        return int(os.environ.get("MLFRAME_BINAGG_DEVICE_PERMS_MIN_ROWS", "2000000"))
+        return int(raw)
     except ValueError:
+        log_throttle(logger, "binagg_device_perms_min_rows_invalid", logging.WARNING, "MLFRAME_BINAGG_DEVICE_PERMS_MIN_ROWS=%r is not an integer; using the default 2000000", raw)
         return 2_000_000
 
 

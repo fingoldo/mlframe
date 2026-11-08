@@ -810,6 +810,47 @@ def _evict_cache_entries_for(self: Any) -> None:
             del MRMR._FIT_CACHE[key]
 
 
+def _reset_recipe_registries(recipes: Any) -> None:
+    """Start every engineered-feature recipe registry of a fit empty."""
+    recipes.hybrid_orth = {}
+    recipes.mi_greedy = {}
+    recipes.kfold_te = {}
+    recipes.binned_agg = {}
+    recipes.count_enc = {}
+    recipes.freq_enc = {}
+    recipes.cat_num = {}
+    recipes.miss_ind = {}
+    recipes.miss_cnt = {}
+    recipes.miss_pat = {}
+    recipes.ratio = {}
+    recipes.log_ratio = {}
+    recipes.grouped_delta = {}
+    recipes.lagged_diff = {}
+    recipes.cat_pair = {}
+    recipes.cat_triple = {}
+    recipes.numeric_decompose = {}
+    recipes.temporal_agg = {}
+    recipes.modular = {}
+    recipes.pairwise_modular = {}
+    recipes.integer_lattice = {}
+    recipes.row_argmax = {}
+    recipes.conditional_gate = {}
+    recipes.group_distance = {}
+    recipes.rare_category = {}
+    recipes.conditional_residual = {}
+    recipes.conditional_dispersion = {}
+    recipes.conditional_quantile_rank = {}
+    recipes.ordinal_pattern = {}
+    recipes.random_fourier = {}
+    recipes.sir_direction = {}
+    recipes.lof = {}
+    recipes.mahalanobis_density = {}
+    recipes.offset_product = {}
+    recipes.oof_warp = {}
+    recipes.row_stat = {}
+    recipes.wavelet = {}
+
+
 def _fit_impl_part1(_replay_from_fit_cache: Any, self: Any, _cache_key: Any, fe: Any, X: pd.DataFrame | np.ndarray, recipes: Any) -> tuple[Any, ...]:
     """Extracted block of ``_fit_impl`` (part 1); returns the names the caller still uses."""
     if _replay_from_fit_cache(self, _cache_key):
@@ -925,41 +966,5 @@ def _fit_impl_part1(_replay_from_fit_cache: Any, self: Any, _cache_key: Any, fe:
     # safe (no return needed); a REASSIGNMENT inside a sibling would NOT propagate back -- confirmed via a
     # systematic check that none of these are ever reassigned (only ``[key] = value`` mutated) in the two
     # early-cascade siblings below.
-    recipes.hybrid_orth = {}
-    recipes.mi_greedy = {}
-    recipes.kfold_te = {}
-    recipes.binned_agg = {}
-    recipes.count_enc = {}
-    recipes.freq_enc = {}
-    recipes.cat_num = {}
-    recipes.miss_ind = {}
-    recipes.miss_cnt = {}
-    recipes.miss_pat = {}
-    recipes.ratio = {}
-    recipes.log_ratio = {}
-    recipes.grouped_delta = {}
-    recipes.lagged_diff = {}
-    recipes.cat_pair = {}
-    recipes.cat_triple = {}
-    recipes.numeric_decompose = {}
-    recipes.temporal_agg = {}
-    recipes.modular = {}
-    recipes.pairwise_modular = {}
-    recipes.integer_lattice = {}
-    recipes.row_argmax = {}
-    recipes.conditional_gate = {}
-    recipes.group_distance = {}
-    recipes.rare_category = {}
-    recipes.conditional_residual = {}
-    recipes.conditional_dispersion = {}
-    recipes.conditional_quantile_rank = {}
-    recipes.ordinal_pattern = {}
-    recipes.random_fourier = {}
-    recipes.sir_direction = {}
-    recipes.lof = {}
-    recipes.mahalanobis_density = {}
-    recipes.offset_product = {}
-    recipes.oof_warp = {}
-    recipes.row_stat = {}
-    recipes.wavelet = {}
+    _reset_recipe_registries(recipes)
     return False, start_time, ran_out_of_time, _fe_budget_ok, _fe_family_on, dtype, parallel_kwargs, n_jobs, verbose, prefetch_factor, X, _run_fe_stage_cascades
