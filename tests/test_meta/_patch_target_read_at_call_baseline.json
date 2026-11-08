@@ -1,21 +1,5 @@
 {
   "entries": {
-    "patch-target-read-at-call::calibration/test_pit_and_pyplot_lifecycle.py::patch of mlframe.reporting.renderers.render_and_save changes nothing: 'render_and_save' is only imported into mlframe.reporting.renderers, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.reporting.renderers.render_and_save at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_engineering/test_fe_coverage_fe_coverage.py::patch of mlframe.training.feature_handling.feature_handling_apply changes nothing: 'feature_handling_apply' is only imported into mlframe.training.feature_handling, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.feature_handling.feature_handling_apply at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/biz_val/test_biz_val_runtime_budget.py::patch of mlframe.feature_selection.filters.evaluation.handle_best_candidate changes nothing: 'handle_best_candidate' is only imported into mlframe.feature_selection.filters.evaluation, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.evaluation.handle_best_candidate at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/contracts/test_composition.py::patch of mlframe.feature_selection.filters.hermite_fe.optimise_hermite_pair changes nothing: 'optimise_hermite_pair' is only imported into mlframe.feature_selection.filters.hermite_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.optimise_hermite_pair at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
     "patch-target-read-at-call::feature_selection/discretization/test_discretize_2d_array_row_chunked.py::patch of mlframe.feature_selection.filters.discretization._choose_discretize_row_chunk_rows changes nothing: '_choose_discretize_row_chunk_rows' is only imported into mlframe.feature_selection.filters.discretization, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.discretization._choose_discretize_row_chunk_rows at call time": {
       "count": 2,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
@@ -28,16 +12,8 @@
       "count": 1,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
     },
-    "patch-target-read-at-call::feature_selection/fe/gpu/test_feature_engineering_memory_dispatch.py::patch of mlframe.feature_selection.filters.feature_engineering._FE_BUFFER_RAM_BUDGET_RATIO changes nothing: '_FE_BUFFER_RAM_BUDGET_RATIO' is only imported into mlframe.feature_selection.filters.feature_engineering, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.feature_engineering._FE_BUFFER_RAM_BUDGET_RATIO at call time": {
-      "count": 6,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
     "patch-target-read-at-call::feature_selection/fe/gpu/test_feature_engineering_memory_dispatch.py::patch of mlframe.feature_selection.filters.feature_engineering._FE_VMEM_CACHE changes nothing: '_FE_VMEM_CACHE' is only imported into mlframe.feature_selection.filters.feature_engineering, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.feature_engineering._FE_VMEM_CACHE at call time": {
       "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/fe/test_fe_gpu_batch_oom_halving.py::patch of mlframe.feature_selection.filters.hermite_fe.shared.plugin_mi_classif_batch_cuda_resident changes nothing: 'plugin_mi_classif_batch_cuda_resident' is only imported into mlframe.feature_selection.filters.hermite_fe.shared, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.shared.plugin_mi_classif_batch_cuda_resident at call time": {
-      "count": 1,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
     },
     "patch-target-read-at-call::feature_selection/fe/test_fe_numeric_hygiene_guards.py::patch of mlframe.feature_selection.filters.engineered_recipes._eval_orth_basis_column changes nothing: '_eval_orth_basis_column' is only imported into mlframe.feature_selection.filters.engineered_recipes, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.engineered_recipes._eval_orth_basis_column at call time": {
@@ -48,228 +24,8 @@
       "count": 1,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
     },
-    "patch-target-read-at-call::feature_selection/filters/test_mi_path_chooser.py::patch of mlframe.feature_selection.filters.hermite_fe.plugin_mi_classif_batch_dispatch changes nothing: 'plugin_mi_classif_batch_dispatch' is only imported into mlframe.feature_selection.filters.hermite_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.plugin_mi_classif_batch_dispatch at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/filters/test_prewarp_misaligned_operands_rejected.py::patch of mlframe.feature_selection.filters.hermite_fe.apply_operand_prewarp changes nothing: 'apply_operand_prewarp' is only imported into mlframe.feature_selection.filters.hermite_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.apply_operand_prewarp at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/filters/test_prewarp_misaligned_operands_rejected.py::patch of mlframe.feature_selection.filters.hermite_fe.fit_pair_prewarp_als changes nothing: 'fit_pair_prewarp_als' is only imported into mlframe.feature_selection.filters.hermite_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.fit_pair_prewarp_als at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/filters/test_prewarp_validation_failure_rejects.py::patch of mlframe.feature_selection.filters.hermite_fe.apply_operand_prewarp changes nothing: 'apply_operand_prewarp' is only imported into mlframe.feature_selection.filters.hermite_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.apply_operand_prewarp at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/filters/test_prewarp_validation_failure_rejects.py::patch of mlframe.feature_selection.filters.hermite_fe.fit_pair_prewarp_als changes nothing: 'fit_pair_prewarp_als' is only imported into mlframe.feature_selection.filters.hermite_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.fit_pair_prewarp_als at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/gpu/test_batch_mi_noise_gate.py::patch of mlframe.feature_selection.filters.info_theory.use_su_normalization changes nothing: 'use_su_normalization' is only imported into mlframe.feature_selection.filters.info_theory, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.info_theory.use_su_normalization at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/gpu/test_batch_mi_noise_gate_gpu.py::patch of mlframe.feature_selection.filters.info_theory.use_su_normalization changes nothing: 'use_su_normalization' is only imported into mlframe.feature_selection.filters.info_theory, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.info_theory.use_su_normalization at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/gpu/test_cmi_cuda_serial_wiring.py::patch of mlframe.feature_selection.filters.info_theory.shared.conditional_mi_batched_dispatch changes nothing: 'conditional_mi_batched_dispatch' is only imported into mlframe.feature_selection.filters.info_theory.shared, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.info_theory.shared.conditional_mi_batched_dispatch at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/gpu/test_cmi_cuda_wiring.py::patch of mlframe.feature_selection.filters.info_theory.shared.conditional_mi_batched_dispatch changes nothing: 'conditional_mi_batched_dispatch' is only imported into mlframe.feature_selection.filters.info_theory.shared, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.info_theory.shared.conditional_mi_batched_dispatch at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/gpu/test_content_memo.py::patch of mlframe.feature_selection.filters.info_theory.batch_pair_mi_perm_batched changes nothing: 'batch_pair_mi_perm_batched' is only imported into mlframe.feature_selection.filters.info_theory, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.info_theory.batch_pair_mi_perm_batched at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/info_theory/test_mi_classif_batch_numba_fallback_logs.py::patch of mlframe.feature_selection.filters.hermite_fe.plugin_mi_classif_batch_dispatch changes nothing: 'plugin_mi_classif_batch_dispatch' is only imported into mlframe.feature_selection.filters.hermite_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.plugin_mi_classif_batch_dispatch at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/mrmr/core/test_mrmr_newaxes_fixes.py::patch of mlframe.feature_selection.filters._orthogonal_univariate_fe.hybrid_orth_extra_basis_fe_with_recipes changes nothing: 'hybrid_orth_extra_basis_fe_with_recipes' is only imported into mlframe.feature_selection.filters._orthogonal_univariate_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters._orthogonal_univariate_fe.hybrid_orth_extra_basis_fe_with_recipes at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/mrmr/core/test_mrmr_screen_discretization_fixes.py::patch of mlframe.feature_selection.filters.mrmr.categorize_dataset changes nothing: 'categorize_dataset' is only imported into mlframe.feature_selection.filters.mrmr, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.mrmr.categorize_dataset at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/mrmr/core/test_mrmr_unreplayable_retention_not_kept.py::patch of mlframe.feature_selection.filters.engineered_recipes.shared.apply_recipe changes nothing: 'apply_recipe' is only imported into mlframe.feature_selection.filters.engineered_recipes.shared, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.engineered_recipes.shared.apply_recipe at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/mrmr/core/test_rfecv_rescue_empty_pool.py::patch of mlframe.feature_selection.filters.mrmr.RFECV changes nothing: 'RFECV' is only imported into mlframe.feature_selection.filters.mrmr, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.mrmr.RFECV at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/mrmr/core/test_screen_predictors_evaluate_candidates_serial_only.py::patch of mlframe.feature_selection.filters._screen_predictors.Parallel changes nothing: 'Parallel' is only imported into mlframe.feature_selection.filters._screen_predictors, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters._screen_predictors.Parallel at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/mrmr/test_audit_verification_gaps.py::patch of mlframe.feature_selection.filters._gpu_strict_fe.fe_gpu_device_born_modular_enabled changes nothing: 'fe_gpu_device_born_modular_enabled' is only imported into mlframe.feature_selection.filters._gpu_strict_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters._gpu_strict_fe.fe_gpu_device_born_modular_enabled at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/mrmr/test_silent_fallbacks_are_not_neutral.py::patch of mlframe.feature_selection.filters.hermite_fe.plugin_mi_classif_batch_dispatch changes nothing: 'plugin_mi_classif_batch_dispatch' is only imported into mlframe.feature_selection.filters.hermite_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.plugin_mi_classif_batch_dispatch at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/regression/test_mrmr_fe_pairs_and_categoricals.py::patch of mlframe.feature_selection.filters.cat_interactions._confirm_pairs_bandit_ucb1 changes nothing: '_confirm_pairs_bandit_ucb1' is only imported into mlframe.feature_selection.filters.cat_interactions, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.cat_interactions._confirm_pairs_bandit_ucb1 at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/regression/test_mrmr_fe_pairs_and_categoricals.py::patch of mlframe.feature_selection.filters.cat_interactions._confirm_pairs_via_permutation changes nothing: '_confirm_pairs_via_permutation' is only imported into mlframe.feature_selection.filters.cat_interactions, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.cat_interactions._confirm_pairs_via_permutation at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/regression/test_mrmr_fe_pairs_and_categoricals.py::patch of mlframe.feature_selection.filters.hermite_fe.apply_operand_prewarp changes nothing: 'apply_operand_prewarp' is only imported into mlframe.feature_selection.filters.hermite_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.apply_operand_prewarp at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/regression/test_mrmr_fe_pairs_and_categoricals.py::patch of mlframe.feature_selection.filters.hermite_fe.fit_pair_prewarp_als changes nothing: 'fit_pair_prewarp_als' is only imported into mlframe.feature_selection.filters.hermite_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.fit_pair_prewarp_als at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/regression/test_mrmr_gpu_dispatch.py::patch of mlframe.feature_selection.filters._fe_gpu_batch.multi_gpu_fe_batch_mi changes nothing: 'multi_gpu_fe_batch_mi' is only imported into mlframe.feature_selection.filters._fe_gpu_batch, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters._fe_gpu_batch.multi_gpu_fe_batch_mi at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/regression/test_regression_fs_hybrid_fixes.py::patch of mlframe.feature_selection.filters.mrmr.RFECV changes nothing: 'RFECV' is only imported into mlframe.feature_selection.filters.mrmr, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.mrmr.RFECV at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/shap_proxied/test_shap_proxy_revalidate.py::patch of mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate.revalidate_top_n changes nothing: 'revalidate_top_n' is only imported into mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate.revalidate_top_n at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/test_boruta_shapproxied_budget_stop.py::patch of mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate.active_learning_revalidate changes nothing: 'active_learning_revalidate' is only imported into mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate.active_learning_revalidate at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/test_boruta_shapproxied_budget_stop.py::patch of mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate.revalidate_top_n changes nothing: 'revalidate_top_n' is only imported into mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate.revalidate_top_n at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
     "patch-target-read-at-call::feature_selection/test_cmi_card_cache_no_stale_undersize.py::patch of mlframe.feature_selection.filters._mi_greedy_cmi_fe._CARD_MAX_CACHE changes nothing: '_CARD_MAX_CACHE' is only imported into mlframe.feature_selection.filters._mi_greedy_cmi_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters._mi_greedy_cmi_fe._CARD_MAX_CACHE at call time": {
       "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/test_fail_open_fallbacks_warn_b2.py::patch of mlframe.feature_selection.filters.info_theory.mi changes nothing: 'mi' is only imported into mlframe.feature_selection.filters.info_theory, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.info_theory.mi at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/test_fe_baseline_ties_are_reproducible.py::patch of mlframe.feature_selection.filters.hermite_fe.shared.plugin_mi_classif_batch_njit changes nothing: 'plugin_mi_classif_batch_njit' is only imported into mlframe.feature_selection.filters.hermite_fe.shared, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.shared.plugin_mi_classif_batch_njit at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/test_group_aware_fe_pair_leak.py::patch of mlframe.feature_selection.filters.info_theory.shared.group_relevance_mi changes nothing: 'group_relevance_mi' is only imported into mlframe.feature_selection.filters.info_theory.shared, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.info_theory.shared.group_relevance_mi at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/test_hybrid_run_shap_validates_artifacts.py::patch of mlframe.feature_selection.shap_proxied_fs.restrict_artifacts changes nothing: 'restrict_artifacts' is only imported into mlframe.feature_selection.shap_proxied_fs, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.shap_proxied_fs.restrict_artifacts at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::inference/test_predict_cte_raw_x.py::patch of mlframe.training.io.save_mlframe_model changes nothing: 'save_mlframe_model' is only imported into mlframe.training.io, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.io.save_mlframe_model at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::inference/test_predict_extensions_pipeline_replay.py::patch of mlframe.training.core.predict._apply_extensions_pipeline changes nothing: '_apply_extensions_pipeline' is only imported into mlframe.training.core.predict, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.core.predict._apply_extensions_pipeline at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::inference/test_predict_metadata_version_envelope.py::patch of mlframe.training.composite.env_signature changes nothing: 'env_signature' is only imported into mlframe.training.composite, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.composite.env_signature at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::inference/test_predict_row_wise_extensions_replay.py::patch of mlframe.training.core.predict._apply_row_wise_extensions changes nothing: '_apply_row_wise_extensions' is only imported into mlframe.training.core.predict, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.core.predict._apply_row_wise_extensions at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::metrics/test_warmup_skip_parallel_env_gate.py::patch of mlframe.metrics.core._fast_brier_score_loss_par changes nothing: '_fast_brier_score_loss_par' is only imported into mlframe.metrics.core, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.metrics.core._fast_brier_score_loss_par at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::metrics/test_warmup_skip_parallel_env_gate.py::patch of mlframe.metrics.core._fast_hamming_loss_par changes nothing: '_fast_hamming_loss_par' is only imported into mlframe.metrics.core, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.metrics.core._fast_hamming_loss_par at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::metrics/test_warmup_skip_parallel_env_gate.py::patch of mlframe.metrics.core._fast_jaccard_score_par changes nothing: '_fast_jaccard_score_par' is only imported into mlframe.metrics.core, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.metrics.core._fast_jaccard_score_par at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::metrics/test_warmup_skip_parallel_env_gate.py::patch of mlframe.metrics.core._fast_mae_par changes nothing: '_fast_mae_par' is only imported into mlframe.metrics.core, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.metrics.core._fast_mae_par at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::metrics/test_warmup_skip_parallel_env_gate.py::patch of mlframe.metrics.core._fast_mae_seq changes nothing: '_fast_mae_seq' is only imported into mlframe.metrics.core, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.metrics.core._fast_mae_seq at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::metrics/test_warmup_skip_parallel_env_gate.py::patch of mlframe.metrics.core._fast_mse_par changes nothing: '_fast_mse_par' is only imported into mlframe.metrics.core, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.metrics.core._fast_mse_par at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::metrics/test_warmup_skip_parallel_env_gate.py::patch of mlframe.metrics.core._fast_r2_score_par changes nothing: '_fast_r2_score_par' is only imported into mlframe.metrics.core, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.metrics.core._fast_r2_score_par at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::preprocessing/test_cleaning.py::patch of mlframe.preprocessing.cleaning._get_count_distinct_rounded_njit changes nothing: '_get_count_distinct_rounded_njit' is only imported into mlframe.preprocessing.cleaning, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.preprocessing.cleaning._get_count_distinct_rounded_njit at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::reporting/test_adversarial_cache.py::patch of mlframe.reporting.charts.drift.adversarial_validation changes nothing: 'adversarial_validation' is only imported into mlframe.reporting.charts.drift, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.reporting.charts.drift.adversarial_validation at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::reporting/test_diagnostics_dispatch.py::patch of mlframe.reporting.charts.drift.adversarial_validation changes nothing: 'adversarial_validation' is only imported into mlframe.reporting.charts.drift, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.reporting.charts.drift.adversarial_validation at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::reporting/test_display_estimator_name.py::patch of mlframe.training.reporting.display_estimator_name changes nothing: 'display_estimator_name' is only imported into mlframe.training.reporting, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.reporting.display_estimator_name at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::reporting/test_reliability_overlay_spec.py::patch of mlframe.reporting.renderers.render_and_save changes nothing: 'render_and_save' is only imported into mlframe.reporting.renderers, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.reporting.renderers.render_and_save at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::test_meta/test_broad_except_logging_discovery_and_wrappers.py::patch of mlframe.training.composite.discovery._fit._process_mem_mb changes nothing: '_process_mem_mb' is only imported into mlframe.training.composite.discovery._fit, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.composite.discovery._fit._process_mem_mb at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::test_meta/test_gates_fail_closed_and_probes_do_not_latch.py::patch of mlframe.feature_selection.filters.info_theory.mi changes nothing: 'mi' is only imported into mlframe.feature_selection.filters.info_theory, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.info_theory.mi at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/composite/cache/test_composite_cache_edge.py::patch of mlframe.__version__ changes nothing: '__version__' is only imported into mlframe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.__version__ at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/composite/discovery/test_splitter_contract.py::patch of mlframe.training.composite.discovery.shared.make_discovery_splitter changes nothing: 'make_discovery_splitter' is only imported into mlframe.training.composite.discovery.shared, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.composite.discovery.shared.make_discovery_splitter at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/composite/transforms/test_per_model_composite_y_scale.py::patch of mlframe.training.evaluation.report_regression_model_perf changes nothing: 'report_regression_model_perf' is only imported into mlframe.training.evaluation, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.evaluation.report_regression_model_perf at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/core/test_env_signature_drift.py::patch of mlframe.training.composite.env_signature changes nothing: 'env_signature' is only imported into mlframe.training.composite, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.composite.env_signature at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/core/test_missing_labels_fail_before_training.py::patch of mlframe.training.core._phase_runners._train_one_target changes nothing: '_train_one_target' is only imported into mlframe.training.core._phase_runners, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.core._phase_runners._train_one_target at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/core/test_target_nulls_suite.py::patch of mlframe.training.core._phase_runners._train_one_target changes nothing: '_train_one_target' is only imported into mlframe.training.core._phase_runners, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.core._phase_runners._train_one_target at call time": {
-      "count": 1,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
     },
     "patch-target-read-at-call::training/pipeline/test_pipeline_json_roundtrip_cache.py::patch of mlframe.training.core._setup_helpers._PIPELINE_JSON_DISK_CACHE_LOADED changes nothing: '_PIPELINE_JSON_DISK_CACHE_LOADED' is only imported into mlframe.training.core._setup_helpers, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.core._setup_helpers._PIPELINE_JSON_DISK_CACHE_LOADED at call time": {
@@ -278,58 +34,6 @@
     },
     "patch-target-read-at-call::training/pipeline/test_pipeline_json_roundtrip_cache.py::patch of mlframe.training.core._setup_helpers._PIPELINE_JSON_DISK_CACHE_PATH changes nothing: '_PIPELINE_JSON_DISK_CACHE_PATH' is only imported into mlframe.training.core._setup_helpers, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.core._setup_helpers._PIPELINE_JSON_DISK_CACHE_PATH at call time": {
       "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/pipeline/test_pre_pipeline_passthrough_extraction.py::patch of mlframe.training.core.predict._apply_pre_pipeline_with_passthrough changes nothing: '_apply_pre_pipeline_with_passthrough' is only imported into mlframe.training.core.predict, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.core.predict._apply_pre_pipeline_with_passthrough at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/ranking/test_tiny_rerank_escape.py::patch of mlframe.training.composite.discovery._fit._process_mem_mb changes nothing: '_process_mem_mb' is only imported into mlframe.training.composite.discovery._fit, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.composite.discovery._fit._process_mem_mb at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/reporting/test_multilabel_diagnostics_gate.py::patch of mlframe.reporting.diagnostics_dispatch.render_engineered_separability_diagnostic changes nothing: 'render_engineered_separability_diagnostic' is only imported into mlframe.reporting.diagnostics_dispatch, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.reporting.diagnostics_dispatch.render_engineered_separability_diagnostic at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/reporting/test_reporting_regression.py::patch of mlframe.training.targets.audit_residuals changes nothing: 'audit_residuals' is only imported into mlframe.training.targets, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.targets.audit_residuals at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/targets/test_target_selection_logic.py::patch of mlframe.training.trainer.configure_training_params changes nothing: 'configure_training_params' is only imported into mlframe.training.trainer, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.trainer.configure_training_params at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/targets/test_training_targets_fixes.py::patch of mlframe.training.trainer.configure_training_params changes nothing: 'configure_training_params' is only imported into mlframe.training.trainer, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.trainer.configure_training_params at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_audit_is_vs_eq_truth_check.py::patch of mlframe.training.trainer.configure_training_params changes nothing: 'configure_training_params' is only imported into mlframe.training.trainer, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.trainer.configure_training_params at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_audit_stable_sort_cluster_followup.py::patch of mlframe.feature_selection.filters.cat_interactions._greedy_expand_one_seed changes nothing: '_greedy_expand_one_seed' is only imported into mlframe.feature_selection.filters.cat_interactions, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.cat_interactions._greedy_expand_one_seed at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_audit_stable_sort_cluster_followup.py::patch of mlframe.feature_selection.filters.hermite_fe.optimise_hermite_pair changes nothing: 'optimise_hermite_pair' is only imported into mlframe.feature_selection.filters.hermite_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.optimise_hermite_pair at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_audit_stable_sort_cluster_followup.py::patch of mlframe.feature_selection.filters.hermite_fe.shared.plugin_mi_classif_batch_njit changes nothing: 'plugin_mi_classif_batch_njit' is only imported into mlframe.feature_selection.filters.hermite_fe.shared, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.shared.plugin_mi_classif_batch_njit at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_caching_discovery.py::patch of mlframe.__version__ changes nothing: '__version__' is only imported into mlframe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.__version__ at call time": {
-      "count": 4,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_composite_naming_collisions.py::patch of mlframe.reporting.diagnostics_dispatch.render_split_comparison_from_suite changes nothing: 'render_split_comparison_from_suite' is only imported into mlframe.reporting.diagnostics_dispatch, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.reporting.diagnostics_dispatch.render_split_comparison_from_suite at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_composite_yscale_perfplot_saved.py::patch of mlframe.training.evaluation.report_regression_model_perf changes nothing: 'report_regression_model_perf' is only imported into mlframe.training.evaluation, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.evaluation.report_regression_model_perf at call time": {
-      "count": 1,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
     },
     "patch-target-read-at-call::training/test_core.py::patch of mlframe.training._trainer_configure._train_model_with_fallback changes nothing: '_train_model_with_fallback' is only imported into mlframe.training._trainer_configure, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training._trainer_configure._train_model_with_fallback at call time": {
@@ -344,79 +48,11 @@
       "count": 24,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
     },
-    "patch-target-read-at-call::training/test_default_via_or_trap.py::patch of mlframe.models.ensembling.score_ensemble changes nothing: 'score_ensemble' is only imported into mlframe.models.ensembling, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.models.ensembling.score_ensemble at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_eval_medium_eval.py::patch of mlframe.metrics.core.format_classification_report changes nothing: 'format_classification_report' is only imported into mlframe.metrics.core, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.metrics.core.format_classification_report at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_feature_handling_apply_wired_into_train_one_target.py::patch of mlframe.training.feature_handling.feature_handling_apply changes nothing: 'feature_handling_apply' is only imported into mlframe.training.feature_handling, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.feature_handling.feature_handling_apply at call time": {
-      "count": 3,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_get_training_configs_memo.py::patch of mlframe.training.trainer.get_training_configs changes nothing: 'get_training_configs' is only imported into mlframe.training.trainer, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.trainer.get_training_configs at call time": {
-      "count": 7,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_instance_alias_model_routing.py::patch of mlframe.training.cb.shared.cb_gpu_usable changes nothing: 'cb_gpu_usable' is only imported into mlframe.training.cb.shared, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.cb.shared.cb_gpu_usable at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
     "patch-target-read-at-call::training/test_module_caches_thread_safe.py::patch of mlframe.training.composite.discovery._screening_tiny._KFOLD_SPLIT_CACHE_MAX changes nothing: '_KFOLD_SPLIT_CACHE_MAX' is only imported into mlframe.training.composite.discovery._screening_tiny, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.composite.discovery._screening_tiny._KFOLD_SPLIT_CACHE_MAX at call time": {
       "count": 1,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
     },
-    "patch-target-read-at-call::training/test_module_caches_thread_safe.py::patch of mlframe.training.trainer.get_training_configs changes nothing: 'get_training_configs' is only imported into mlframe.training.trainer, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.trainer.get_training_configs at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_nan_propagation_fixes.py::patch of mlframe.feature_selection.filters.hermite_fe.shared.plugin_mi_classif_batch_njit changes nothing: 'plugin_mi_classif_batch_njit' is only imported into mlframe.feature_selection.filters.hermite_fe.shared, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe.shared.plugin_mi_classif_batch_njit at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_partial_fit_es_callback_clock.py::patch of mlframe.training.callbacks.UniversalCallback changes nothing: 'UniversalCallback' is only imported into mlframe.training.callbacks, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.callbacks.UniversalCallback at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
     "patch-target-read-at-call::training/test_perf_optimizations.py::patch of mlframe.training.core._convert_dfs_to_pandas changes nothing: '_convert_dfs_to_pandas' is only imported into mlframe.training.core, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.core._convert_dfs_to_pandas at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_precompute_bundle.py::patch of mlframe.training.helpers.get_trainset_features_stats changes nothing: 'get_trainset_features_stats' is only imported into mlframe.training.helpers, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.helpers.get_trainset_features_stats at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_precompute_bundle.py::patch of mlframe.training.helpers.get_trainset_features_stats_polars changes nothing: 'get_trainset_features_stats_polars' is only imported into mlframe.training.helpers, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.helpers.get_trainset_features_stats_polars at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_predict_roundtrip_fs_parity.py::patch of mlframe.training.io.save_mlframe_model changes nothing: 'save_mlframe_model' is only imported into mlframe.training.io, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.io.save_mlframe_model at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_t_scale_composite_chart_renders.py::patch of mlframe.training.evaluation.report_regression_model_perf changes nothing: 'report_regression_model_perf' is only imported into mlframe.training.evaluation, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.evaluation.report_regression_model_perf at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_train_eval.py::patch of mlframe.training.trainer.configure_training_params changes nothing: 'configure_training_params' is only imported into mlframe.training.trainer, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.trainer.configure_training_params at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_unigram_rescue_applies_text_processing.py::patch of mlframe.training.cb.unigram_rescues_text_features changes nothing: 'unigram_rescues_text_features' is only imported into mlframe.training.cb, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.cb.unigram_rescues_text_features at call time": {
-      "count": 6,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_unigram_rescue_applies_text_processing.py::patch of mlframe.training.cb.unusable_text_features changes nothing: 'unusable_text_features' is only imported into mlframe.training.cb, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.cb.unusable_text_features at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_valonly_null_detection.py::patch of mlframe.training.trainer._polars_nullable_categorical_cols changes nothing: '_polars_nullable_categorical_cols' is only imported into mlframe.training.trainer, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.trainer._polars_nullable_categorical_cols at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_warmup_numba_kernels_wiring.py::patch of mlframe.metrics.core.prewarm_numba_cache changes nothing: 'prewarm_numba_cache' is only imported into mlframe.metrics.core, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.metrics.core.prewarm_numba_cache at call time": {
       "count": 2,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
     }

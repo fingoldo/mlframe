@@ -83,6 +83,7 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.utils.numeric_floors import SD_FLOOR
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -231,11 +232,11 @@ def _ridge_residual(v: Any, design_cols: list, y: np.ndarray, n: int, ridge_alph
     # normal matrix (adversarial case (e): redundant / collinear selected features).
     mu = Z.mean(axis=0)
     sd = Z.std(axis=0)
-    sd_safe = np.where(sd > 1e-12, sd, 1.0)
+    sd_safe = np.where(sd > SD_FLOOR, sd, 1.0)
     Zs = (Z - mu) / sd_safe
     # Drop columns that are constant after centring (std 0) - they carry no fit signal
     # and would only add a zero column.
-    keep = sd > 1e-12
+    keep = sd > SD_FLOOR
     if not np.any(keep):
         v.reason = "all selected design columns constant"
         return None

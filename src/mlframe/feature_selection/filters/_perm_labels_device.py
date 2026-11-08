@@ -7,8 +7,13 @@ class bit sets are equal bit for bit and the host draw is not needed.
 """
 from __future__ import annotations
 
+import logging
+import threading
+
 import numpy as np
 from pyutilz.performance.gpu_hw_launch import launch_1d
+
+logger = logging.getLogger(__name__)
 
 _FY_SRC = r"""
 extern "C" __global__
@@ -54,14 +59,16 @@ void pack_class_bits(const int* __restrict__ idx, const long long* __restrict__ 
 }
 """
 _KERNELS: dict = {}
+_KERNELS_LOCK = threading.Lock()
 
 
 def _kernels(cp):
     """The compiled ``(fy_permutations, pack_class_bits)`` pair."""
-    if not _KERNELS:
-        module = cp.RawModule(code=_FY_SRC)
-        _KERNELS["fy"] = module.get_function("fy_permutations")
-        _KERNELS["pack"] = module.get_function("pack_class_bits")
+    with _KERNELS_LOCK:
+        if not _KERNELS:
+            module = cp.RawModule(code=_FY_SRC)
+            _KERNELS["fy"] = module.get_function("fy_permutations")
+            _KERNELS["pack"] = module.get_function("pack_class_bits")
     return _KERNELS["fy"], _KERNELS["pack"]
 
 
@@ -84,5 +91,6 @@ def device_label_bits(y: np.ndarray, m: int, base_seed: int, n_y: int, words: in
         pack_grid, pack_block = launch_1d(pack, total)
         pack(pack_grid, pack_block, (idx, y_d, out, np.int64(n), np.int32(m), np.int32(n_y), np.int32(words)))
         return np.asarray(cp.asnumpy(out))
-    except Exception:  # best-effort: no device / out of memory / compile failure: the host draw gives the same bits
+    except Exception as exc:  # best-effort: no device / out of memory / compile failure: the host draw gives the same bits
+        logger.debug("device permutation draw failed (%r); using the host draw", exc)
         return None

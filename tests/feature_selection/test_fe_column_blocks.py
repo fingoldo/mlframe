@@ -21,7 +21,7 @@ def test_blocks_respect_the_budget_and_carry_the_columns(make):
     df = _frame()
     blocks = list(O.fe_column_blocks(make(df), budget_bytes=2 * len(df) * 4))
     assert [b.shape for _, b in blocks] == [(2, len(df)), (1, len(df))]
-    assert all(b.flags.c_contiguous and b.dtype == np.float32 for _, b in blocks)
+    assert bool(blocks) and all(b.flags.c_contiguous and b.dtype == np.float32 for _, b in blocks)
     got = {name: row for names, b in blocks for name, row in zip(names, b)}
     assert sorted(got) == ["a", "b", "i"]
     for name, row in got.items():

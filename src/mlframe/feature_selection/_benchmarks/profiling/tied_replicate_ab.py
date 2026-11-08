@@ -32,7 +32,8 @@ def patched(src):
           for (; t + 3 * bd < m; t += 4 * bd) { const short l0 = rj[ib[t]], l1 = rj[ib[t + bd]], l2 = rj[ib[t + 2 * bd]], l3 = rj[ib[t + 3 * bd]];
               atomicAdd(&start[l0], 1); atomicAdd(&start[l1], 1); atomicAdd(&start[l2], 1); atomicAdd(&start[l3], 1); }
           for (; t < m; t += bd) atomicAdd(&start[rj[ib[t]]], 1); }"""
-    assert a1 in src and a2 in src
+    if not (a1 in src and a2 in src):
+        raise AssertionError('a1 in src and a2 in src')
     return src.replace(a1,b1).replace(a2,b2)
 def prefetch(src):
     w1o="""    for (int t = t0 + lane; t - lane < t1; t += 32) {
@@ -65,10 +66,12 @@ def prefetch(src):
             const int rc2 = rn2, Lc2 = Ln2; yc2 = yn2;
             { const int tn = t + 32; if (tn < t1) { rn2 = ib[tn]; Ln2 = rj[rn2]; yn2 = ycode[rn2]; } }
             if (t < t1) { r = rc2; q = sid[Lc2]; }"""
-    assert w1o in src and w2o in src
+    if not (w1o in src and w2o in src):
+        raise AssertionError('w1o in src and w2o in src')
     src=src.replace(w1o,w1n).replace(w2o,w2n)
     o3="myhist[bp[base + __popc(same & lt)] * ncls + ycode[r]]"
-    assert o3 in src
+    if o3 not in src:
+        raise AssertionError('o3 in src')
     return src.replace(o3,"myhist[bp[base + __popc(same & lt)] * ncls + yc2]")
 variants["priv0"]=base_src.replace("#define PRIV_LEVELS 64","#define PRIV_LEVELS 0")
 res={}

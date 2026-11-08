@@ -2,7 +2,7 @@
 
 At fit time ``generate_rankgauss_features`` ranks the fit values among themselves. The original code did this with
 ``_avg_tie_rank(np.sort(x), x)`` -- two full-array ``np.searchsorted`` sweeps (side left + right) -- which is just
-computing the array's own ranks the expensive way. ``_self_avg_tie_rank`` computes the identical average (mid) ranks
+computing the array's own ranks the expensive way. ``_self_avg_tie_rank_and_sorted`` computes the identical average (mid) ranks
 with a single ``argsort`` + a run-length mid-rank scatter, no searchsorted. Bit-identical on continuous AND tied data;
 the replay (apply) path is untouched (there the test values are NOT the fit values, so searchsorted is still required).
 
@@ -23,7 +23,7 @@ import pandas as pd
 
 from mlframe.feature_selection.filters._extra_fe_families import (
     _avg_tie_rank,
-    _self_avg_tie_rank,
+    _self_avg_tie_rank_and_sorted,
     generate_rankgauss_features,
 )
 
@@ -51,10 +51,10 @@ def main() -> None:
         ("disc_1M", rng.integers(0, 50, 1_000_000).astype(np.float64)),
     ]:
         old = _old_self_rank(x)
-        new = _self_avg_tie_rank(x)
+        new = _self_avg_tie_rank_and_sorted(x)[0]
         ok = np.array_equal(old, new)
         t_old = _best(_old_self_rank, x)
-        t_new = _best(_self_avg_tie_rank, x)
+        t_new = _best(lambda v: _self_avg_tie_rank_and_sorted(v)[0], x)
         print(f"  {desc:10s} identical={ok}  old={t_old*1e3:7.1f}ms  new={t_new*1e3:7.1f}ms  " f"speedup={t_old/t_new:4.2f}x")
 
     print("== full generate_rankgauss_features (6 cols x 1M) ==")

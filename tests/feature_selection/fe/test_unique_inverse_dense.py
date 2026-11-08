@@ -7,14 +7,15 @@ import pytest
 
 from mlframe.feature_selection.filters._internals import unique_inverse_dense
 
+_DTYPES = [np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64]
+_RANGES = [(0, 5), (-40, 90), (1000, 1050), (0, 20000)]
+# types that cannot hold a range are left out of the grid instead of being skipped after the data is built
+_FITTING = [(d, lo, hi) for d in _DTYPES for lo, hi in _RANGES if np.iinfo(d).min <= lo and hi - 1 <= np.iinfo(d).max]
 
-@pytest.mark.parametrize("dtype", [np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64])
-@pytest.mark.parametrize("low,high", [(0, 5), (-40, 90), (1000, 1050), (0, 20000)])
+
+@pytest.mark.parametrize("dtype,low,high", _FITTING)
 def test_same_as_np_unique(dtype, low, high):
     """Dense, negative-valued, offset and wide integer vectors of every integer type (types that cannot hold the range are skipped)."""
-    info = np.iinfo(dtype)
-    if low < info.min or high - 1 > info.max:
-        pytest.skip("range does not fit the type")
     rng = np.random.default_rng(low + high)
     values = rng.integers(low, high, 6000).astype(dtype)
     uniq, inverse = unique_inverse_dense(values)

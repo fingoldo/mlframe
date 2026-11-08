@@ -55,6 +55,7 @@ logger = logging.getLogger(__name__)
 
 
 from ._usability_greedy_gpu_shared import _shrink_shortlist_to_ram_budget
+from mlframe.utils.numeric_floors import SD_FLOOR
 
 
 class _ResidentClfFallbackError(Exception):
@@ -222,7 +223,7 @@ def usability_greedy_clf_gpu_resident(
             div-by-zero) rather than dropped, matching sklearn ``StandardScaler``'s degenerate-column handling."""
             mu = Xtr.mean(axis=0)
             sd = Xtr.std(axis=0)
-            sd = cp.where(sd < 1e-12, 1.0, sd)
+            sd = cp.where(sd < SD_FLOOR, 1.0, sd)
             return (Xtr - mu) / sd, [(Xo - mu) / sd for Xo in Xother]
 
         _fit_binary, _fit_multinomial, _logloss, _proba_binary, _proba_multinomial = _usability_greedy_clf_step1_def_fit_binary(cp, n_classes)

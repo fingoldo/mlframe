@@ -96,8 +96,9 @@ def _content_key(arr: np.ndarray) -> str:
         norm = arr.astype(np.int64, copy=False)
     else:
         norm = arr
+    from mlframe._array_buffer import array_buffer
     h = new_content_hasher()
-    h.update(np.ascontiguousarray(norm).data)
+    h.update(array_buffer(norm))
     return str(h.hexdigest())
 
 

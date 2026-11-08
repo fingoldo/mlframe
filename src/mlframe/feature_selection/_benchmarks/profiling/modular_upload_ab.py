@@ -12,7 +12,8 @@ for dt in (np.float32, np.float64):
                 col = X[c].to_numpy()
                 src[j] = cp.asarray(np.ascontiguousarray(col)) if col.dtype in (np.float32, np.float64) else cp.asarray(X[c].to_numpy(dtype=np.float64, na_value=np.nan))
             return src
-        assert bool(cp.array_equal(old(), new()))
+        if not (bool(cp.array_equal(old(), new()))):
+            raise AssertionError('bool(cp.array_equal(old(), new()))')
         res = {}
         for name, f in (("old", old), ("new", new), ("old", old), ("new", new)):
             f(); cp.cuda.Stream.null.synchronize(); pf0 = me.memory_info().num_page_faults; t = time.perf_counter()

@@ -27,6 +27,7 @@ and independent of any STRICT override.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from mlframe.utils.log_throttle import log_throttle
 import os
@@ -297,7 +298,7 @@ __all__ = [
 ]
 
 
-def pool_column_block(cp, n_rows: int, *, bytes_per_column_row: int, budget_fraction: float, min_block: int, fallback: int, what: str, max_block: "int | None" = None) -> int:
+def pool_column_block(cp: Any, n_rows: int, *, bytes_per_column_row: int, budget_fraction: float, min_block: int, fallback: int, what: str, max_block: "int | None" = None) -> int:
     """Columns per launch such that a block's temporaries (``bytes_per_column_row`` per row of a column) stay within ``budget_fraction`` of what the memory pool can still
     hand out (the smaller of the device's free memory plus the pool's cached bytes, and the pool limit minus its used bytes); at least ``min_block`` and, when given, at
     most ``max_block``. ``fallback`` is returned when the device's memory cannot be read; ``what`` names the caller in that debug line."""

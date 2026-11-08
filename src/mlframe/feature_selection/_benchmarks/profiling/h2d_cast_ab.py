@@ -9,7 +9,8 @@ for k in (5, 14, 40):
         return cp.asarray(np.ascontiguousarray(np.asarray(X, dtype=np.float64)))
     def new():
         return cp.asarray(np.ascontiguousarray(X)).astype(cp.float64)
-    assert bool(cp.array_equal(old(), new()))
+    if not (bool(cp.array_equal(old(), new()))):
+        raise AssertionError('bool(cp.array_equal(old(), new()))')
     res = {}
     for name, f in (("old", old), ("new", new), ("old", old), ("new", new)):
         f(); cp.cuda.Stream.null.synchronize()

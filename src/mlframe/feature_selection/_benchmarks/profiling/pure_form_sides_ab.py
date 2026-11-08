@@ -3,7 +3,7 @@ import os, time, warnings
 from types import SimpleNamespace
 import numpy as np, pandas as pd
 warnings.simplefilter("ignore")
-from mlframe.feature_selection.filters import _fe_pure_form_sides as S, _adaptive_nbins
+from mlframe.feature_selection.filters import _fe_pure_form_sides as S
 
 rng = np.random.default_rng(0)
 n, k = 100_000, 12
@@ -32,7 +32,8 @@ res = []
 for rep in range(1):
     t1, a = run(1)
     t8, b = run(8)
-    assert a == b, "the verdicts differ between one thread and the pool"
+    if not (a == b):
+        raise AssertionError("the verdicts differ between one thread and the pool")
     res.append((t1, t8))
     print(f"pair {rep}: 1 thread {t1:.2f} s, pool {t8:.2f} s, kept {len(a)} of {len(cands)}")
 print("mean 1 thread %.2f s, pool %.2f s" % (np.mean([r[0] for r in res]), np.mean([r[1] for r in res])))

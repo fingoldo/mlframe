@@ -54,7 +54,8 @@ def test_gate_synergy_admits_only_superadditive_products():
     raw = ["a", "b", "c", "d"]
     admitted = _gate("synergy", fi, [("a", "b"), ("c", "d")], [*raw, "tprod_0", "tprod_1"], raw)
     # Spec: a*b is the only super-additive product; c*d fails the synergy bar, so tprod_0 is the single admitted column.
-    assert admitted == {"tprod_0"}, f"synergy gate should admit only the super-additive a*b product, got {admitted}"
+    if not (admitted == {"tprod_0"}):
+        raise AssertionError(f"synergy gate should admit only the super-additive a*b product, got {admitted}")
 
 
 def test_gate_raw_median_is_looser_than_synergy_on_noise_heavy_frame():
@@ -64,8 +65,10 @@ def test_gate_raw_median_is_looser_than_synergy_on_noise_heavy_frame():
     raw = ["a", "b"] + [f"n{i}" for i in range(20)]
     rel = ["a", "b", "tprod_0"]  # survivors only: the relevant median (0.5) must differ from the raw median (~0)
     # Spec: the raw-median bar sits near 0 on this frame, so the weak product (0.02) is admitted; synergy (0.5 operands) rejects it.
-    assert _gate("raw_median", fi, [("a", "b")], rel, raw) == {"tprod_0"}, "raw_median gate should admit the weak product"
-    assert _gate("synergy", fi, [("a", "b")], rel, raw) == set(), "synergy gate should reject a 0.02 product against 0.5 operands"
+    if not (_gate("raw_median", fi, [("a", "b")], rel, raw) == {"tprod_0"}):
+        raise AssertionError("raw_median gate should admit the weak product")
+    if not (_gate("synergy", fi, [("a", "b")], rel, raw) == set()):
+        raise AssertionError("synergy gate should reject a 0.02 product against 0.5 operands")
 
 
 def test_gate_relevant_median_uses_survivor_bar_not_raw():
@@ -74,14 +77,17 @@ def test_gate_relevant_median_uses_survivor_bar_not_raw():
     fi.update({f"n{i}": 0.0 for i in range(10)})
     raw = ["a", "b"] + [f"n{i}" for i in range(10)]
     # Spec: the survivor median is 0.5, so a 0.3 product fails relevant_median but clears the near-zero raw median.
-    assert _gate("relevant_median", fi, [("a", "b")], ["a", "b", "tprod_0"], raw) == set(), "relevant_median should reject the 0.3 product"
-    assert _gate("raw_median", fi, [("a", "b")], ["a", "b", "tprod_0"], raw) == {"tprod_0"}, "raw_median should admit the 0.3 product"
+    if not (_gate("relevant_median", fi, [("a", "b")], ["a", "b", "tprod_0"], raw) == set()):
+        raise AssertionError("relevant_median should reject the 0.3 product")
+    if not (_gate("raw_median", fi, [("a", "b")], ["a", "b", "tprod_0"], raw) == {"tprod_0"}):
+        raise AssertionError("raw_median should admit the 0.3 product")
 
 
 def test_gate_empty_when_no_products():
     h = HybridSelector(); h.fi_ = {}; h._tree_prod_pairs_ = []; h._tree_prod_names_ = []
     # Spec: with no co-occurrence pairs there is nothing to admit.
-    assert h._admit_tree_products(["a"], ["a"]) == [], "no co-occurrence pairs should admit no products"
+    if not (h._admit_tree_products(["a"], ["a"]) == []):
+        raise AssertionError("no co-occurrence pairs should admit no products")
 
 
 # ----------------------------------------------------------------- tree signals + augment + pickle
@@ -92,9 +98,11 @@ def test_tree_signals_finds_interaction_pair(interaction_frame):
     h._tree_signals(X, y)
     assert h._tree_ranked_, "tree should rank some features"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
     # Spec: both operands of the a*b interaction land in the top 6 of the 28 candidate columns.
-    assert {"a", "b"}.issubset(set(h._tree_ranked_[:6])), "the interaction operands should rank high"
+    if not ({"a", "b"}.issubset(set(h._tree_ranked_[:6]))):
+        raise AssertionError("the interaction operands should rank high")
     flat = {frozenset(p) for p in h._tree_prod_pairs_}
-    assert frozenset({"a", "b"}) in flat, "the true a*b pair should be among co-occurrence pairs"
+    if frozenset({"a", "b"}) not in flat:
+        raise AssertionError("the true a*b pair should be among co-occurrence pairs")
 
 
 def test_augment_replays_tree_ops_leakage_free(interaction_frame):
@@ -123,10 +131,12 @@ def test_tree_signals_expands_rich_ops(interaction_frame):
     h._tree_signals(X, y)
     ops_seen = {h._tree_op_[nm][2] for nm in h._tree_prod_names_}
     # Mirrors the production _TREE_OPS table: every rich operator it defines is engineered when all are requested.
-    assert ops_seen == set(_TREE_OPS), f"all rich ops should be engineered, got {ops_seen}"
+    if not (ops_seen == set(_TREE_OPS)):
+        raise AssertionError(f"all rich ops should be engineered, got {ops_seen}")
     h2 = HybridSelector(use_tree_member=True, tree_rich_ops=("mul",)); h2.random_state = 0
     h2._tree_signals(X, y)
-    assert {h2._tree_op_[nm][2] for nm in h2._tree_prod_names_} == {"mul"}, "products-only config should yield just the mul op"
+    if not ({h2._tree_op_[nm][2] for nm in h2._tree_prod_names_} == {"mul"}):
+        raise AssertionError("products-only config should yield just the mul op")
 
 
 def test_pickle_keeps_tree_attrs_drops_transient(interaction_frame):
@@ -135,13 +145,18 @@ def test_pickle_keeps_tree_attrs_drops_transient(interaction_frame):
     h = HybridSelector(use_tree_member=True).fit(X, y)
     h2 = pickle.loads(pickle.dumps(h))  # nosec B301  # deserialize-ok: round-trips a same-process object, no external input
     # Spec: the round-trip reproduces the tree replay state exactly (pairs are needed to replay op columns at transform).
-    assert h2._tree_prod_pairs_ == h._tree_prod_pairs_, "pickle round-trip should keep the tree product pairs"
-    assert h2._tree_prod_names_ == h._tree_prod_names_, "pickle round-trip should keep the tree product names"
-    assert h2._tree_op_ == h._tree_op_, "pickle round-trip should keep the (a, b, op) spec per column"
+    if not (h2._tree_prod_pairs_ == h._tree_prod_pairs_):
+        raise AssertionError("pickle round-trip should keep the tree product pairs")
+    if not (h2._tree_prod_names_ == h._tree_prod_names_):
+        raise AssertionError("pickle round-trip should keep the tree product names")
+    if not (h2._tree_op_ == h._tree_op_):
+        raise AssertionError("pickle round-trip should keep the (a, b, op) spec per column")
     # Spec: the transient training data is dropped from the pickled state.
-    assert not hasattr(h2, "_Xaug_") and not hasattr(h2, "_y_"), "transient training data should be dropped on pickle"
+    if not (not hasattr(h2, "_Xaug_") and not hasattr(h2, "_y_")):
+        raise AssertionError("transient training data should be dropped on pickle")
     # Transform still works after the round-trip.
-    assert list(h2.transform(X.iloc[:10]).columns) == list(h.transform(X.iloc[:10]).columns), "transform after pickle round-trip should yield the same columns"
+    if not (list(h2.transform(X.iloc[:10]).columns) == list(h.transform(X.iloc[:10]).columns)):
+        raise AssertionError("transform after pickle round-trip should yield the same columns")
 
 
 # ----------------------------------------------------------------- biz_value: quantitative win on interaction data
@@ -172,14 +187,16 @@ def test_bizvalue_tree_member_lifts_interaction_auc():
     # The pure-interaction a*b is invisible to a LINEAR model unless the product is engineered; in the wide regime
     # only the tree member supplies it, so off-AUC is near chance for logit and on-AUC recovers it -- a clear lift.
     # Spec: the tree member must lift linear-downstream AUC by at least 0.03 on wide interaction data.
-    assert a_on >= a_off + 0.03, f"tree member should lift linear-downstream AUC on wide interaction data: {a_off:.3f} -> {a_on:.3f}"
+    if not (a_on >= a_off + 0.03):
+        raise AssertionError(f"tree member should lift linear-downstream AUC on wide interaction data: {a_off:.3f} -> {a_on:.3f}")
 
 
 # ----------------------------------------------------------------- mrmr_synergy_cap (default-raise of MRMR's bootstrap cap)
 def test_mrmr_synergy_cap_default_is_250():
     import inspect
     # Spec: the hybrid default raises MRMR's synergy-bootstrap cap from its own default of 60 to 250.
-    assert inspect.signature(HybridSelector.__init__).parameters["mrmr_synergy_cap"].default == 250, "mrmr_synergy_cap default should be 250"
+    if not (inspect.signature(HybridSelector.__init__).parameters["mrmr_synergy_cap"].default == 250):
+        raise AssertionError("mrmr_synergy_cap default should be 250")
 
 
 def test_mrmr_synergy_cap_does_not_regress_on_wide_interaction_frame():
@@ -200,7 +217,8 @@ def test_mrmr_synergy_cap_does_not_regress_on_wide_interaction_frame():
 
     a60, a250 = auc(60), auc(250)
     # Spec: raising the cap may cost at most 0.01 AUC on a wide interaction frame.
-    assert a250 >= a60 - 0.01, f"raising mrmr_synergy_cap must not regress on a wide interaction frame: cap60={a60:.3f} cap250={a250:.3f}"
+    if not (a250 >= a60 - 0.01):
+        raise AssertionError(f"raising mrmr_synergy_cap must not regress on a wide interaction frame: cap60={a60:.3f} cap250={a250:.3f}")
 
 
 if __name__ == "__main__":

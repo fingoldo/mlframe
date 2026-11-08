@@ -584,8 +584,9 @@ def _full_x_content_hash(X) -> str:
                 return str(_MRMR_LAST_X_HASH_CACHE["hash"])
         # blake2b reads the contiguous array via the buffer protocol directly
         # (no .tobytes() copy); bit-identical to hashing tobytes() bytes.
+        from mlframe._array_buffer import array_buffer
         h = new_content_hasher()
-        h.update(np.ascontiguousarray(arr).data)
+        h.update(array_buffer(arr))
         h.update(str(arr.shape).encode())
         h.update(str(arr.dtype).encode())
         # Fold column names (DataFrame-only) so df vs df.rename produce different keys.

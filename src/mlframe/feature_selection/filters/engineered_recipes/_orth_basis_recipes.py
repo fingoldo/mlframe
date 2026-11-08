@@ -15,6 +15,7 @@ from types import MappingProxyType
 
 import numpy as np
 from numba import njit, prange
+from mlframe.utils.numeric_floors import SD_FLOOR
 
 
 @njit(cache=True, parallel=True)
@@ -83,7 +84,7 @@ def _apply_orth_pre_transform(x: np.ndarray, pre_transform: str, sd: Optional[fl
     if pre_transform == "tanh":
         if sd is None:  # legacy recipes (no frozen std): the replay batch's own std
             sd = float(np.std(x))
-        return cast("np.ndarray", np.tanh(x / sd) if sd > 1e-12 else np.tanh(x))
+        return cast("np.ndarray", np.tanh(x / sd) if sd > SD_FLOOR else np.tanh(x))
     # Unknown - warn and fall back to identity. Avoids raising at replay
     # time on pickles produced by older clients that introduced bespoke
     # tags; the worst case is one orth column that's the wrong shape, which

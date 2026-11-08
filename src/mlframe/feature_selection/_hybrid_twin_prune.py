@@ -14,6 +14,7 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
+from mlframe.utils.numeric_floors import SD_FLOOR
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +85,8 @@ def prune_conditional_twins(
         frame = X[numeric].to_numpy(dtype=_crit_np_dtype())
         frame = np.where(np.isfinite(frame), frame, np.nanmean(np.where(np.isfinite(frame), frame, np.nan), axis=0)[None, :])
         sd = frame.std(axis=0)
-        if np.any(sd <= 1e-12):
-            keep_idx = np.flatnonzero(sd > 1e-12)
+        if np.any(sd <= SD_FLOOR):
+            keep_idx = np.flatnonzero(sd > SD_FLOOR)
             numeric = [numeric[i] for i in keep_idx]
             frame, sd = frame[:, keep_idx], sd[keep_idx]
             if len(numeric) < 2:

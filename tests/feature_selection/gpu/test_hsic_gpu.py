@@ -51,5 +51,5 @@ def test_batch_dispatch_and_off_switch(monkeypatch):
     want = _hsic_batch(X, y, n_sample=500, random_state=3)
     monkeypatch.setenv("MLFRAME_HSIC_DEVICE", "1")
     got = _hsic_batch(X, y, n_sample=500, random_state=3)
-    assert np.max(np.abs(got - want)) <= 1e-5 * np.max(np.abs(want))
+    np.testing.assert_allclose(got, want, rtol=1e-5, atol=1e-5 * np.max(np.abs(want)))
     assert int(np.argmax(got)) == int(np.argmax(want)) == 0

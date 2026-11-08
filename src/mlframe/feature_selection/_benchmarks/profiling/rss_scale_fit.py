@@ -90,7 +90,7 @@ def sampler():
             for when, mb, where in events:
                 print(f"  t={when:7.1f}s +{mb:7.0f} MB  {where}", flush=True)
             print(f"  now: {innermost(sys._current_frames().get(main_id))}", flush=True)
-            os._exit(3)
+            os._exit(3)  # exit-ok: a script run as a process; only os._exit ends the main thread stuck inside the fit, SystemExit here would end this thread alone
         if TICK and (not ticks or time.perf_counter() - t0 - ticks[-1][0] >= TICK):
             ticks.append((time.perf_counter() - t0, (rss - base) / 1e6, f"cpu {proc_cpu():3.0f}% gpu {gpu_util():>3}% " + innermost(sys._current_frames().get(main_id))))
         if rss > peak[0]:

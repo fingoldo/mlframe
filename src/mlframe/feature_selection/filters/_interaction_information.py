@@ -56,6 +56,7 @@ ROUTE_ADDITIVE = "additive"  # 0 <= II <= floor: no interaction -> demote out of
 ROUTE_REDUNDANT = "redundant"  # II < 0: a and b carry the same signal -> cluster-aggregate / denoise candidate
 
 
+@njit(cache=True)
 def _mm_bias(k_x: int, k_y: int, n: int) -> float:
     """Miller-Madow plug-in MI bias ``(Kx - 1)(Ky - 1) / (2n)`` (nats). ``>= 0``; ``-> 0`` as ``n -> inf``."""
     if n <= 0 or k_x < 2 or k_y < 2:
@@ -161,23 +162,15 @@ def _best_pair_ii(codes: np.ndarray, nb_col: np.ndarray, row_a: np.ndarray, row_
         pair_mi, k_j = _plug_in_mi_occupied(codes[a], y, nb_b, codes[b], nb_col[a] * nb_b, k_y, inv_n)
         mi_a, mi_b = mi_col[a], mi_col[b]
         if miller_madow:
-            mi_a -= _mm_bias_nb(occ_col[a], k_y, n)
-            mi_b -= _mm_bias_nb(occ_col[b], k_y, n)
-            pair_mi -= _mm_bias_nb(k_j, k_y, n)
+            mi_a -= _mm_bias(occ_col[a], k_y, n)
+            mi_b -= _mm_bias(occ_col[b], k_y, n)
+            pair_mi -= _mm_bias(k_j, k_y, n)
         best[p] = pair_mi - mi_a - mi_b
     top = 0.0
     for p in range(n_pairs):
         if best[p] > top:
             top = best[p]
     return top
-
-
-@njit(cache=True)
-def _mm_bias_nb(k_x: int, k_y: int, n: int) -> float:
-    """:func:`_mm_bias` for numba."""
-    if n <= 0 or k_x < 2 or k_y < 2:
-        return 0.0
-    return (k_x - 1) * (k_y - 1) / (2.0 * n)
 
 
 _KERNEL_ENABLED = os.environ.get("MLFRAME_II_NULL_KERNEL", "1").strip().lower() not in ("0", "false", "off", "no")  # 0 keeps the numpy per-pair loop

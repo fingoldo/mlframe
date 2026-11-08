@@ -234,5 +234,5 @@ def test_group_selection_in_column_blocks_equals_one_pass(monkeypatch):
     blocked = cheap._cheap_mi_group_selection_device(X, cands, y, 8)
     assert list(blocked) == list(one_pass) == cands
     assert blocked["g_const"] == 0.0
-    assert all(abs(blocked[g] - one_pass[g]) <= 1e-12 for g in cands)
+    assert bool(cands) and all(abs(blocked[g] - one_pass[g]) <= 1e-12 for g in cands)
     assert blocked["g0"] > 10 * max(blocked["g3"], 1e-9), "the planted column must stand out in every block layout"

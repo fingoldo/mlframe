@@ -67,9 +67,10 @@ def _key(data: Any, classes_y: np.ndarray, cand: Sequence[int], kwargs: dict) ->
     """Identity of one seeder call by value: a hash of the candidate columns of the matrix and of the target codes, the candidates and the arguments."""
     from ._content_hasher import new_content_hasher
 
+    from mlframe._array_buffer import array_buffer
     h = new_content_hasher()
-    h.update(np.ascontiguousarray(np.asarray(data)[:, list(cand)]).data)
-    h.update(np.ascontiguousarray(classes_y).data)
+    h.update(array_buffer(np.asarray(data)[:, list(cand)]))
+    h.update(array_buffer(classes_y))
     return (h.hexdigest(), tuple(cand), tuple(sorted(kwargs.items())))
 
 

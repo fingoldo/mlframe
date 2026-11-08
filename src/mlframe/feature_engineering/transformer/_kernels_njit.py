@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import numba
 import numpy as np
+from mlframe.utils.numeric_floors import SOFTMAX_TEMP_FLOOR
 
 # Attention/softmax/RFF kernels: fastmath=True for cuBLAS parity. See module docstring.
 NUMBA_NJIT_PARAMS = dict(fastmath=True, cache=True, nogil=True)
@@ -136,7 +137,7 @@ def row_attention_stage4_adaptive_njit(  # pragma: no cover
     k = topk_ids.shape[1]
     for q in numba.prange(n_queries):
         temp_q = softmax_temps[q]
-        inv_temp = 1.0 / temp_q if temp_q > 1e-12 else 1.0
+        inv_temp = 1.0 / temp_q if temp_q > SOFTMAX_TEMP_FLOOR else 1.0
         weights = np.empty(k, dtype=np.float32)
         y_buf = np.empty(k, dtype=np.float32)
         k_buf = np.empty((k, head_dim), dtype=np.float32)
@@ -207,7 +208,7 @@ def row_attention_stage4_njit(  # pragma: no cover
     k = topk_ids.shape[1]
     # mirror the sibling kernel's guard at line 120;
     # user-provided softmax_temp can be 0 (or extremely small) and would divide-by-zero.
-    inv_temp = 1.0 / softmax_temp if softmax_temp > 1e-12 else 1.0
+    inv_temp = 1.0 / softmax_temp if softmax_temp > SOFTMAX_TEMP_FLOOR else 1.0
     for q in numba.prange(n_queries):
         # Per-query scratch: logits/weights array and a (k, head_dim) gather buffer.
         weights = np.empty(k, dtype=np.float32)

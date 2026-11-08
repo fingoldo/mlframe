@@ -10,10 +10,15 @@ under the pool's lock (``sort_room``): a short pool or device raises a cupy ``Ou
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import threading
 import time
 from typing import Any, Iterator, Optional
+
+from mlframe.utils.log_throttle import log_throttle
+
+logger = logging.getLogger(__name__)
 
 #: Bytes a thrust sort of ``a`` along an axis needs beyond ``a``: a copy of the values, int64 indices, int64 segment keys, the int64 result and cub's scratch.
 #: Measured peaks (pool high-water, result included): 40 B per element for an axis-0 argsort of (100000, 40) in float64 and in float32 alike, 24 B for a 1-D
@@ -74,8 +79,8 @@ def _trace_sort(cp: Any, a: Any, pool: Any) -> None:
                 f"{time.time():.3f} thread={threading.get_ident()} shape={tuple(a.shape)} dtype={a.dtype} need={_sort_need_bytes(a)} room={_room(cp, pool)} "
                 f"pool={'none' if pool is None else (int(pool.used_bytes()), int(pool.total_bytes()), int(pool.get_limit()))} allocator={type(cp.cuda.get_allocator()).__name__}\n"
             )
-    except OSError:
-        pass
+    except OSError as exc:
+        log_throttle(logger, "_device_sort_safe.trace", logging.WARNING, "sort trace file %s not writable: %s", path, exc)
 
 
 @contextlib.contextmanager

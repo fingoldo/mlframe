@@ -77,6 +77,7 @@ import time
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 import orjson
+from mlframe.utils.numeric_floors import SD_FLOOR
 
 logger = logging.getLogger(__name__)
 
@@ -320,8 +321,8 @@ def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
     dev2 = dev * dev
     var = dev2.sum(axis=0) / safe_cnt
     sd = np.sqrt(var)
-    valid = (n_finite >= 3) & (sd > 1e-12)
-    sd_safe = np.where(sd > 1e-12, sd, 1.0)
+    valid = (n_finite >= 3) & (sd > SD_FLOOR)
+    sd_safe = np.where(sd > SD_FLOOR, sd, 1.0)
     skew_per_col = (dev2 * dev).sum(axis=0) / safe_cnt / sd_safe**3
     kurt_per_col = (dev2 * dev2).sum(axis=0) / safe_cnt / sd_safe**4 - 3.0  # excess kurtosis
     if valid.any():

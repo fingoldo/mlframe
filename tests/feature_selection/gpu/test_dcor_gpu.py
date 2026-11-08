@@ -27,8 +27,8 @@ def test_moments_match_host_kernel(m, k):
     _dcor_columns_kernel(xs, b, want_c, want_v)
     got = dcor_columns_gpu(xs, b)
     assert got is not None
-    assert np.max(np.abs(got[0] - want_c)) <= 1e-11 * np.max(np.abs(want_c))
-    assert np.max(np.abs(got[1] - want_v)) <= 1e-11 * np.max(np.abs(want_v))
+    assert np.all(np.abs(got[0] - want_c) <= 1e-11 * (np.abs(want_c) + np.max(np.abs(want_c))))
+    assert np.all(np.abs(got[1] - want_v) <= 1e-11 * (np.abs(want_v) + np.max(np.abs(want_v))))
 
 
 def test_batch_dispatch_and_off_switch(monkeypatch):

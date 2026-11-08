@@ -26,6 +26,7 @@ import numpy as np
 from mlframe.utils.cublas_probe import cublas_matmul_ok
 
 from ._utils import gpu_available_bytes, is_gpu_available
+from mlframe.utils.numeric_floors import SOFTMAX_TEMP_FLOOR
 
 logger = logging.getLogger(__name__)
 _MAX_STAGE4_K = 1024  # threads per block on every supported GPU
@@ -356,7 +357,7 @@ def row_attention_stage4_cupy(
             k_dev,
             y_dev,
             topk_dev,
-            np.float32(1.0 / softmax_temp if softmax_temp > 1e-12 else 1.0),
+            np.float32(1.0 / softmax_temp if softmax_temp > SOFTMAX_TEMP_FLOOR else 1.0),
             np.int32(n_queries),
             np.int32(head_dim),
             np.int32(k),

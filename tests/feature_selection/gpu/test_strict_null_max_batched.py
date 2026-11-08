@@ -14,6 +14,7 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_mi
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_batched_equals_loop(monkeypatch, n_classes, dtype):
     """Distinct permutations, continuous and tied columns: bit-identical per-permutation maxima."""
+    pytest.importorskip("cupy")
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     rng = np.random.default_rng(n_classes)
     n = 8000
@@ -24,6 +25,5 @@ def test_batched_equals_loop(monkeypatch, n_classes, dtype):
     want = N._null_max_strict_gpu(X, y, perms, 10)
     monkeypatch.setenv("MLFRAME_STRICT_NULL_BATCHED", "1")
     got = N._null_max_strict_gpu(X, y, perms, 10)
-    if want is None:
-        pytest.skip("STRICT path not taken for this shape on this host")
+    assert want is not None, "the STRICT path must be taken for this shape when cupy is present"
     assert got is not None and np.array_equal(got, want)

@@ -62,6 +62,7 @@ __all__ = [
 from ._cache_release import register_cache_releaser
 from ._target_encoding_order_stats import ORDER_STATS as _TE_ORDER_STATS, global_order_stats, per_category_order_stats
 from typing import TYPE_CHECKING
+from mlframe.utils.numeric_floors import SD_FLOOR
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -192,9 +193,9 @@ def _global_target_stats(y_arr: np.ndarray, stats: Sequence[str]) -> dict:
         elif stat == "std":
             g[stat] = sd
         elif stat == "skew":
-            g[stat] = float(_skew(y_arr)) if (y_arr.size > 2 and sd > 1e-12) else 0.0
+            g[stat] = float(_skew(y_arr)) if (y_arr.size > 2 and sd > SD_FLOOR) else 0.0
         elif stat == "kurt":
-            g[stat] = float(_kurt(y_arr)) if (y_arr.size > 3 and sd > 1e-12) else 0.0
+            g[stat] = float(_kurt(y_arr)) if (y_arr.size > 3 and sd > SD_FLOOR) else 0.0
     g.update(global_order_stats(y_arr, stats))
     return {k: (v if np.isfinite(v) else 0.0) for k, v in g.items()}
 

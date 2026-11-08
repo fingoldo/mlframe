@@ -683,6 +683,7 @@ _KEPT_SUPERSEDED_REFERENCES = {
     "launch_k3",  # version 3 of the root-split kernel, bench-rejected (1.4 to 1.8 times slower than v2, see the module header); test_honest_null_k3 keeps the equivalence for a tuner
     "fits_shared",  # the shared-memory guard of version 3 (launch_k3); same status
     "get_kernel_k4f",  # version 4f of the root-split kernel, rejected (gain error 2.4e-6 against gains of 1e-4); test_honest_null_k4 keeps the equivalence
+    "fe_column_blocks",  # the frame twin of ColumnArena.blocks (documented reading seam for frames larger than memory); test_fe_column_blocks pins it
     "_fused_block",  # the exact fused pool scan; the minority variant (_fused_block_minority) is dispatched, test_honest_oj_minority compares them
     "masked_abs_spearman_many",  # version 1 of the batched masked Spearman; version 2 (presorted rows) is dispatched, test_eng_dedup_presorted_spearman compares them
     "_bspline_basis_values_numpy",  # the numpy twin kept as the test oracle of the compiled B-spline basis (test_bspline_basis_kernel)
