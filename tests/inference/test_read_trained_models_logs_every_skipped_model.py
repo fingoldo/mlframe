@@ -8,9 +8,9 @@ skip now logs.
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 
+import orjson
 import pandas as pd
 
 from mlframe.inference.predict import read_trained_models
@@ -22,7 +22,7 @@ def test_each_sha256_mismatch_is_logged_after_five_are_already_logged(tmp_path, 
     fdir = tmp_path / featureset
     fdir.mkdir()
     features = fdir / "features.dump.json"
-    features.write_text(json.dumps(["a", "b"]))
+    features.write_bytes(orjson.dumps(["a", "b"]))
     (fdir / "features.dump.json.sha256").write_text(hashlib.sha256(features.read_bytes()).hexdigest())
     for i in range(7):
         (fdir / f"model_{i}.joblib").write_bytes(b"not really a model")

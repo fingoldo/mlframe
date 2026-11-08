@@ -18,8 +18,9 @@ column names and a digest of its values rounded to 5 significant digits (float32
 from __future__ import annotations
 
 import hashlib
-import json
+import orjson
 import os
+import pathlib
 import sys
 import warnings
 
@@ -107,14 +108,13 @@ def strict_failures(diffs: list[str]) -> list[str]:
 def main(argv: list[str]) -> int:
     """CLI: write a snapshot, or compare two."""
     if argv and argv[0] == "--compare":
-        diffs = compare(json.load(open(argv[1])), json.load(open(argv[2])))
+        diffs = compare(orjson.loads(pathlib.Path(argv[1]).read_bytes()), orjson.loads(pathlib.Path(argv[2]).read_bytes()))
         print("\n".join(diffs) if diffs else "snapshots agree")
         return 1 if strict_failures(diffs) else 0
     out = argv[0]
     rows = int(argv[1]) if len(argv) > 1 else 20000
     cols = int(argv[2]) if len(argv) > 2 else 40
-    with open(out, "w") as fh:
-        json.dump(snapshot(rows, cols), fh, indent=1)
+    pathlib.Path(out).write_bytes(orjson.dumps(snapshot(rows, cols), option=orjson.OPT_INDENT_2))
     print("wrote", out)
     return 0
 
