@@ -29,7 +29,7 @@ def e2e_col(factors, pa, pb, nbins, classes_y, freqs_y):
     ncy = len(freqs_y)
     shared_bytes = (max_joint * ncy + max_joint) * 4
     k_col.max_dynamic_shared_size_bytes = shared_bytes
-    k_col((P,), (128,), (d_col, d_pa, d_pb, d_nb, d_cy, d_fy, np.int64(n), np.int32(F), np.int32(P), np.int32(max_joint), np.int32(ncy), np.float64(1.0 / n), d_out), shared_mem=shared_bytes)
+    k_col((P,), (128,), (d_col, d_pa, d_pb, d_nb, d_cy, d_fy, np.int64(n), np.int32(F), np.int32(P), np.int32(max_joint), np.int32(ncy), np.float64(1.0 / n), d_out), shared_mem=shared_bytes)  # launch-ok: layout benchmark, the block size is part of the measured variant
     return cp.asnumpy(d_out)
 
 

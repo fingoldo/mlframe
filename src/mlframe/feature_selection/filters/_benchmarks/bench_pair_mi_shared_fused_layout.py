@@ -53,11 +53,11 @@ for n, P in ((100_000, 2_000), (1_000_000, 500)):
     args_common = (np.int64(n), np.int32(F), np.int32(P), np.int32(max_joint), np.int32(NCY), np.float64(1.0 / n), d_out)
 
     def run_row():
-        shared._get_shared_fused_kernel()((P,), (128,), (d_row, d_pa, d_pb, d_nb, d_cy, d_fy, *args_common), shared_mem=shared_bytes)
+        shared._get_shared_fused_kernel()((P,), (128,), (d_row, d_pa, d_pb, d_nb, d_cy, d_fy, *args_common), shared_mem=shared_bytes)  # launch-ok: layout benchmark, the block size is part of the measured variant
 
     def run_col():
         k_col.max_dynamic_shared_size_bytes = max(shared_bytes, 0)
-        k_col((P,), (128,), (d_col, d_pa, d_pb, d_nb, d_cy, d_fy, *args_common), shared_mem=shared_bytes)
+        k_col((P,), (128,), (d_col, d_pa, d_pb, d_nb, d_cy, d_fy, *args_common), shared_mem=shared_bytes)  # launch-ok: layout benchmark, the block size is part of the measured variant
 
     run_col()
     got = cp.asnumpy(d_out)

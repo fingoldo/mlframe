@@ -51,7 +51,7 @@ for n in (10_000, 100_000, 1_000_000):
     b = cp.random.randint(0, KB, size=n, dtype=cp.int64)
     scratch = cp.zeros(GRID * M, dtype=cp.uint32)
     out = cp.empty(K, dtype=cp.float64)
-    t_row = timed(lambda: k_row((GRID,), (256,), (X, b, np.int32(KB), np.int64(n), np.int32(K), np.int32(M), scratch, out)))
-    t_col = timed(lambda: k_col((GRID,), (256,), (XT, b, np.int32(KB), np.int64(n), np.int32(K), np.int32(M), scratch, out)))
+    t_row = timed(lambda: k_row((GRID,), (256,), (X, b, np.int32(KB), np.int64(n), np.int32(K), np.int32(M), scratch, out)))  # launch-ok: layout benchmark, the block size is part of the measured variant
+    t_col = timed(lambda: k_col((GRID,), (256,), (XT, b, np.int32(KB), np.int64(n), np.int32(K), np.int32(M), scratch, out)))  # launch-ok: layout benchmark, the block size is part of the measured variant
     t_tr = timed(lambda: cp.ascontiguousarray(X.T))
     print(f"n={n:>9} row={t_row * 1e3:9.3f}ms  col(kernel only)={t_col * 1e3:9.3f}ms  transpose={t_tr * 1e3:8.3f}ms")

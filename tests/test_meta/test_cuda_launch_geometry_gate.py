@@ -9,9 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-gate = pytest.importorskip("py_ci_shared.cuda_launch_geometry", reason="the installed py-ci-shared predates the cuda_launch_geometry gate")
+from py_ci_shared import cuda_launch_geometry as gate
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "mlframe"
 
