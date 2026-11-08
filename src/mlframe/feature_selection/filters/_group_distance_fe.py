@@ -51,6 +51,8 @@ import logging
 from mlframe.utils.log_throttle import log_throttle
 from typing import Optional, Sequence
 
+from ._added_information_gate import passes_added_information
+
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
@@ -502,6 +504,7 @@ def hybrid_group_distance_fe(
     n_bins_mi: int = 10,
     min_mi: float = 1e-4,
     min_uplift: float = 0.0,
+    alpha: Optional[float] = 0.05,
 ) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
     """End-to-end per-group distribution-distance FE pipeline.
 
@@ -543,7 +546,7 @@ def hybrid_group_distance_fe(
     scores = score_grouped_quantile_by_mi_uplift(
         X, enc_df, y, n_bins=n_bins_mi, eng_to_source=eng_to_source,
     )
-    keep = scores[(scores["mi"] >= float(min_mi)) & (scores["uplift"] >= float(min_uplift))]
+    keep = scores[(scores["mi"] >= float(min_mi)) & (scores["uplift"] >= float(min_uplift)) & passes_added_information(scores, alpha)]
     winners = list(keep["engineered_col"].head(int(top_k)))
     if not winners:
         return X, [], [], scores

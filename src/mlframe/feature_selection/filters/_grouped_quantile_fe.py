@@ -56,6 +56,7 @@ import pandas as pd
 
 from ._internals import group_key_strings
 from ._y_encoding import encode_y_for_classif_mi
+from ._added_information_gate import added_information_p, passes_added_information
 from typing import TYPE_CHECKING
 from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
@@ -735,6 +736,19 @@ def score_grouped_quantile_by_mi_uplift(
     host_mi = dict(zip(host_cols, _bin_columns_pooled(lambda c: float(_plug_in_mi(_bin(eng_X[c].to_numpy()), y_bin)), host_cols))) if host_cols else {}
     eng_mis = [device_mi[c] if c in device_mi else host_mi[c] for c in eng_cols]
 
+    # does the column carry information about y beyond its own source? (G-test of CMI(column; y | source), see _added_information_gate)
+    source_codes: dict = {}
+
+    def _p_added(col: str) -> float:
+        """p-value that ``col`` adds nothing to its source (NaN when the source is unknown or the table too sparse)."""
+        src = eng_to_source.get(col)
+        if src not in raw_X.columns:
+            return float("nan")
+        if src not in source_codes:
+            source_codes[src] = _bin(raw_X[src].to_numpy())
+        return added_information_p(_bin(eng_X[col].to_numpy()), source_codes[src], y_bin)
+
+    p_added = dict(zip(eng_cols, _bin_columns_pooled(_p_added, eng_cols))) if eng_cols else {}
     rows = []
     for col, mi in zip(eng_cols, eng_mis):
         src = eng_to_source.get(col)
@@ -745,6 +759,7 @@ def score_grouped_quantile_by_mi_uplift(
             "mi": mi,
             "source_mi": smi,
             "uplift": mi - smi,
+            "p_added": p_added.get(col, float("nan")),
         })
     out = pd.DataFrame(rows)
     return out.sort_values("mi", ascending=False, kind="mergesort").reset_index(drop=True)
@@ -778,7 +793,7 @@ def _grouped_quantile_block_cols(X: pd.DataFrame, group_cols, num_cols) -> "int 
     return max(1, budget // max(1, per_num))
 
 
-def _hybrid_grouped_quantile_in_blocks(X, y, group_cols, num_cols, quantiles, block, *, top_k, n_bins_mi, min_mi, min_uplift):
+def _hybrid_grouped_quantile_in_blocks(X, y, group_cols, num_cols, quantiles, block, *, top_k, n_bins_mi, min_mi, min_uplift, alpha):
     """:func:`hybrid_grouped_quantile_fe` (no target-aware bins) with the candidates generated and scored block by block (group column, then numeric columns):
     each candidate's MI and uplift depend only on it and its source, the blocks run in the one-frame candidate order and the stable sort is repeated, so the
     scores table is the one-frame one. Only the winners' (group, numeric) pairs are generated again, for their columns and recipes."""
@@ -794,7 +809,7 @@ def _hybrid_grouped_quantile_in_blocks(X, y, group_cols, num_cols, quantiles, bl
     if not parts:
         return X, [], [], pd.DataFrame()
     scores = pd.concat(parts, ignore_index=True).sort_values("mi", ascending=False, kind="mergesort").reset_index(drop=True)
-    keep = scores[(scores["mi"] >= float(min_mi)) & (scores["uplift"] >= float(min_uplift))]
+    keep = scores[(scores["mi"] >= float(min_mi)) & (scores["uplift"] >= float(min_uplift)) & passes_added_information(scores, alpha)]
     winners = list(keep["engineered_col"].head(int(top_k)))
     if not winners:
         return X, [], [], scores
@@ -831,6 +846,7 @@ def hybrid_grouped_quantile_fe(
     n_bins_mi: int = 10,
     min_mi: float = 1e-4,
     min_uplift: float = 0.0,
+    alpha: Optional[float] = 0.05,
     n_folds: int = 5,
     random_state: int = 0,
 ) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
@@ -866,7 +882,7 @@ def hybrid_grouped_quantile_fe(
     if _blocks is not None:
         # the whole candidate frame would not fit the host budget (384 candidates x 1M rows = 1.4 GiB in one block): score in blocks, regenerate the winners
         blocked: tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame] = _hybrid_grouped_quantile_in_blocks(
-            X, y, group_cols, num_cols, quantiles, _blocks, top_k=top_k, n_bins_mi=n_bins_mi, min_mi=min_mi, min_uplift=min_uplift
+            X, y, group_cols, num_cols, quantiles, _blocks, top_k=top_k, n_bins_mi=n_bins_mi, min_mi=min_mi, min_uplift=min_uplift, alpha=alpha
         )
         return blocked
     enc_df, raw_recipes = generate_grouped_quantile_features(
@@ -887,7 +903,7 @@ def hybrid_grouped_quantile_fe(
     scores = score_grouped_quantile_by_mi_uplift(
         X, enc_df, y, n_bins=n_bins_mi, eng_to_source=eng_to_source,
     )
-    keep = scores[(scores["mi"] >= float(min_mi)) & (scores["uplift"] >= float(min_uplift))]
+    keep = scores[(scores["mi"] >= float(min_mi)) & (scores["uplift"] >= float(min_uplift)) & passes_added_information(scores, alpha)]
     winners = list(keep["engineered_col"].head(int(top_k)))
     if not winners:
         return X, [], [], scores
