@@ -103,3 +103,23 @@ Resolved (2026-11-08): with a warm-up fit first and the registered caches releas
 ### Wall comparisons on this machine (2026-11-08): what can and cannot be concluded
 
 Single runs of the same code at 100000 x 100 with every family ranged from 77.6 s to 109.4 s, once to 131.3 s, and 535.6 s when Chrome and VS Code were open with 3.4 GB free (paging). The bisect on single runs wandered (84.1, 89.7, 90.1, 91.1, 106.7 s on consecutive commits) and pointed at `ff45b668b` (a call to `release_if_memory_low` at each family start); that call costs 3.7 ms, runs 66 times per fit and freed 0 MB when 10 GB were free, so it cannot account for 23 s. One alternating pair gave 84.3 s (parent) against 107.1 s (`ff45b668b`); a second round was lost to a concurrent run of mine and the third to paging. No regression is established. Wall comparisons here are valid only with free RAM well above the 2.6 GB threshold of that call and nothing else running; below it the call also releases the stage caches, which the next families then rebuild.
+
+## Plan v4 status (2026-11-08)
+
+| item | state |
+|---|---|
+| phase 0: selection snapshot gate (clean-worktree reference, set + per-column digest, order as a note) | done (`tests/feature_selection/golden/selection_snapshot.py`) |
+| phase 0: pickle / deepcopy / clone gate of a fitted model | done (`test_fitted_mrmr_pickle_clone.py`) |
+| phase 0: golden table of FE output dtypes; rollback switch per change | not done; each change has its own switch (`MLFRAME_MRMR_COMPACT_CODES`, `MLFRAME_FE_REPLAY_KEEP_F64`, `MLFRAME_BINAGG_DEVICE_PERMS_MIN_ROWS`, `MLFRAME_EDGE_RAM_GB`) |
+| 1 codes straight into int8/int16, MDLP workers capped by memory | done |
+| 2 codes uploaded at their own width, widened on the device | done |
+| 3 one code-matrix concatenate per FE step | not done: the `st._data_chunks` pattern already covers the pair step, the remaining `np.append` calls are 100 MB at 1M rows |
+| 4 `copy=False` in `fe_append_columns` | dropped (pandas 3 is the target; copy-on-write shares the blocks) |
+| 5 honest-null int64 aligned matrix / NaN mask only for NaN columns | not done: the int64 matrix is on the fallback path only |
+| 6 do not hold the raw frame after binning | not done |
+| 7 engineered columns as codes | partly: replayed columns kept at the fit's float dtype; closed-form columns as codes not done (only 35 engineered columns at 300k, 0.8 GB at 10M) |
+| 8 transform: no extra copy; `partial_fit` buffer as a list of batches | transform copy removed; the `partial_fit` buffer is still re-concatenated per batch (quadratic over many batches) |
+| large-n traps | integers above 2^24 (done); rank target in float32: measured, 8% of 20M ranks merge, error 3e-8, left; CUDA int32 counts: a count is bounded by the rows of one call, not reachable on a 4 GB card; polars 4.29B-row limit and uint64 row ids: only for a subsample-fit mode that is not built |
+| 8 (phase) subsample-fit mode for frames beyond RAM | deferred, opt-in, only if a 1B-row use case is real |
+
+Beyond the plan: the 10M x 80 series (see above), the `bootstrap_rank_mi` tie-rule regression, int16 codes of CMIM and the binned-agg source bins.
