@@ -97,3 +97,5 @@ Abort time stays in 390 to 505 s across the last nine runs whatever spike is rem
 - the binned-agg family builds about half of the plateau; its aggregated-column cache and source warm-up were unbounded (fixed); a 1.5 GB step in one second at `resident_operand` remains (about 19 column uploads of 80 MB; no single call above 50 MB at 1M rows).
 
 Next: identify the 0.9 GB held outside the registered caches after a fit (a snapshot diff before and after one fit at 300k), and run 10M x 80 on a host with more free memory to get its wall and true peak.
+
+Resolved (2026-11-08): with a warm-up fit first and the registered caches released plus `gc` after it, one 300000-row fit leaves +98 MB RSS and 17 MB traced: no leak. The "0.9 GB outside the caches" of the earlier measurement was one-time process state (numba code, CUDA context, tuning cache) and uncollected garbage. The 10M x 80 plateau is live working data of the fit; on this machine (16 GB, about 6 GB used by other applications) it reaches the guard. The memory series ends here; a 10M wall and peak need a host with more free memory.
