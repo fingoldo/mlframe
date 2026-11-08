@@ -24,6 +24,7 @@ import pandas as pd
 
 from .._fe_frame_ops import fe_to_pandas, fe_append_columns, fe_extract_columns, fe_numeric_float32_view, fe_polars_exceeds
 from ._fe_stage_merge import _fe_merge_new_columns
+from ._helpers import fe_decide_on_subsample, fe_subsample_kwargs, refit_winners
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -748,8 +749,15 @@ def _stage_binned_numeric_agg(self, _fe_family_on, X, y, _binned_agg_pre_recipes
             _ba_y = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=_crit_np_dtype()).ravel()
             _X_before_ba = list(X.columns)
             _bas_raw = getattr(self, "fe_binned_numeric_agg_stats", None)
-            X_ba, _ba_appended, _ba_recipes = binned_numeric_agg_with_recipes(
+            X_ba, _ba_appended, _ba_recipes = fe_decide_on_subsample(
+                binned_numeric_agg_with_recipes,
                 fe_numeric_float32_view(X) if _ba_large else fe_to_pandas(X), _ba_y,
+                **fe_subsample_kwargs(self),
+                refit=refit_winners(
+                    binned_numeric_agg_with_recipes,
+                    lambda r: {"group_num_cols": (r.src_names[0],), "agg_num_cols": (r.src_names[1],)},
+                    mi_gate=False, redundancy_gate=False, min_cmi_gain=-1e9, max_pairs=None,
+                ),
                 stats=tuple(_bas_raw) if _bas_raw is not None else ("mean", "std", "skew", "kurt"),
                 nbins_base=int(getattr(self, "fe_binned_numeric_agg_nbins", 10)),
                 n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
