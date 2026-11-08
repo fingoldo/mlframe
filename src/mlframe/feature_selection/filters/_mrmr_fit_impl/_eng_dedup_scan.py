@@ -330,21 +330,22 @@ def _pair_collisions(_colliding_kept, _eng_keep, _fast_kept_set, _arr_c, _fin_c,
         _mask = _fin_c if _eng_fully_finite.get(_kept_col, False) else (_fin_c & np.isfinite(_arr_k))
         if _mask.sum() < 8:
             continue
-        _a, _b = _arr_c[_mask], _arr_k[_mask]
-        if _a.std() <= _REL_TOL * float(np.abs(_a).max()) or _b.std() <= _REL_TOL * float(np.abs(_b).max()):
-            continue
-        if bool(_mask.all()):
-            # No-NaN fast path: masked subset == full column, so reuse the cached full-column ranks
-            # (identical values) instead of re-sorting both columns for this pair.
-            _ranks_a = _ranks_c
-            _ranks_b = _eng_ranks.get(_kept_col)
-            if _ranks_b is None:
-                _ranks_b = pd.Series(_arr_k).rank(method="average").to_numpy()
-                _eng_ranks[_kept_col] = _ranks_b
-        else:
+        if not bool(_mask.all()):
+            # A pair with NaN goes to the masked kernel below, which applies the same two skip rules (fewer than 8 jointly finite rows, a column constant to ``_REL_TOL`` of its largest value) in
+            # compiled code on all cores; the Python check made two masked copies and four passes per pair first (3 s of a 400000-row fit).
             _decided.append((_kept_col, None))
             _masked.append(_kept_col)
             continue
+        _a, _b = _arr_c, _arr_k  # fully finite pair: the whole columns (the mask is all True)
+        if _a.std() <= _REL_TOL * float(np.abs(_a).max()) or _b.std() <= _REL_TOL * float(np.abs(_b).max()):
+            continue
+        # No-NaN fast path: masked subset == full column, so reuse the cached full-column ranks
+        # (identical values) instead of re-sorting both columns for this pair.
+        _ranks_a = _ranks_c
+        _ranks_b = _eng_ranks.get(_kept_col)
+        if _ranks_b is None:
+            _ranks_b = pd.Series(_arr_k).rank(method="average").to_numpy()
+            _eng_ranks[_kept_col] = _ranks_b
         if _ranks_a.std() <= 1e-12 or _ranks_b.std() <= 1e-12:
             continue
         _rank_corr = abs(float(np.corrcoef(_ranks_a, _ranks_b)[0, 1]))
