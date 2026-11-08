@@ -626,7 +626,11 @@ def _redundancy_gate_binagg(
     if _warm_srcs:
         from ._mi_greedy_cmi_fe import quantile_bin_columns
 
-        _src_bin_cache.update(zip(_warm_srcs, quantile_bin_columns(X[_warm_srcs].to_numpy(dtype=_crit_np_dtype()), nbins_base, dtype=np.int16)))
+        # a few source columns at a time: the whole set as one float matrix was the frame again (3.2 GB at 10 million rows x 80) for codes of 2 bytes a value
+        _warm_step = max(1, (256 * 1024 * 1024) // max(1, 4 * len(X)))
+        for _w0 in range(0, len(_warm_srcs), _warm_step):
+            _part = _warm_srcs[_w0 : _w0 + _warm_step]
+            _src_bin_cache.update(zip(_part, quantile_bin_columns(X[_part].to_numpy(dtype=_crit_np_dtype()), nbins_base, dtype=np.int16)))
 
     def _src_bins(col: str) -> np.ndarray:
         """Quantile-bin codes for a raw source column, memoized in ``_src_bin_cache`` since the same source column conditions many candidate binagg columns."""
