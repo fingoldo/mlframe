@@ -47,6 +47,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from ._agg_stat_helpers import agg_func_for_stat
 from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
@@ -88,12 +89,6 @@ def engineered_name_grouped_ratio(num_col: str, group_col: str) -> str:
 # ---------------------------------------------------------------------------
 # Per-group statistic computation
 # ---------------------------------------------------------------------------
-
-def _agg_func_for_stat(stat: str) -> str:
-    """Pandas groupby-agg name for ``stat``; this module's set does NOT include ``count``."""
-    from ._agg_stat_helpers import agg_func_for_stat
-
-    return agg_func_for_stat(stat, STAT_NAMES, "grouped_agg")
 
 def _global_value_for_stat(x: np.ndarray, stat: str) -> float:
     """Global fallback statistic for unseen groups at replay time."""
@@ -174,7 +169,7 @@ def generate_grouped_agg_features(
                 elif stat == "std":
                     agg_series = std_series
                 else:
-                    agg_series = grouped.agg(_agg_func_for_stat(stat))
+                    agg_series = grouped.agg(agg_func_for_stat(stat, STAT_NAMES, "grouped_agg"))
                 lookup = {canonical_group_token(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
                 if stat == "nunique":
                     # The whole-population

@@ -40,6 +40,7 @@ import numpy as np
 from numba import njit
 import pandas as pd
 
+from ._agg_stat_helpers import agg_func_for_stat
 from ._group_stats_njit import group_mean_std_count
 
 from ._fe_usability_signal import _crit_np_dtype
@@ -214,12 +215,6 @@ def _ratio_denominator(per_row_mean: np.ndarray, global_mean: float, global_std:
     scale = max(abs(global_mean), global_std if global_std > 0.0 else 1.0)
     tiny = 1e-12 * min(1.0, scale)
     return np.where(np.abs(per_row_mean) > tiny, per_row_mean, np.nan)
-
-def _agg_func_for_stat(stat: str) -> str:
-    """Pandas groupby-agg name for ``stat``; this module's set includes ``count``."""
-    from ._agg_stat_helpers import agg_func_for_stat
-
-    return agg_func_for_stat(stat, _VALID_STATS, "composite_group_agg")
 
 def _unique_inverse(keys: np.ndarray):
     """``np.unique(keys, return_inverse=True)`` with a 1-D inverse, or
@@ -403,7 +398,7 @@ def _emit_num_col_features(
             elif stat == "std" and not kernel:
                 agg_series = std_series
             else:
-                agg_series = grouped.agg(_agg_func_for_stat(stat))
+                agg_series = grouped.agg(agg_func_for_stat(stat, _VALID_STATS, "composite_group_agg"))
             lookup = _group_lookup(agg_series, label, zero_nonfinite=True)
         if stat in ("count", "nunique"):
             # The whole-population fallback
