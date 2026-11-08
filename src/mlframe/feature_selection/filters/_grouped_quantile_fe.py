@@ -653,6 +653,25 @@ def _grouped_quantile_mi_device(eng_X: pd.DataFrame, eng_cols: list, y_bin: np.n
         return {}
 
 
+def _p_added_by_column(eng_X: pd.DataFrame, raw_X: pd.DataFrame, y_bin: np.ndarray, eng_to_source: dict, bin_one: Callable[[np.ndarray], np.ndarray]) -> dict:
+    """``{column: p-value}`` that the column carries information about y beyond its own source column (G-test of ``CMI(column; y | source)``, see ``_added_information_gate``).
+
+    NaN for a column whose source is not in ``raw_X`` or whose table is too sparse to test."""
+    source_codes: dict = {}
+
+    def one(col: str) -> float:
+        """The p-value of one column (the source's codes are binned once and shared by its columns)."""
+        src = eng_to_source.get(col)
+        if src not in raw_X.columns:
+            return float("nan")
+        if src not in source_codes:
+            source_codes[src] = bin_one(raw_X[src].to_numpy())
+        return added_information_p(bin_one(eng_X[col].to_numpy()), source_codes[src], y_bin)
+
+    cols = list(eng_X.columns)
+    return dict(zip(cols, _bin_columns_pooled(one, cols))) if cols else {}
+
+
 def score_grouped_quantile_by_mi_uplift(
     raw_X: pd.DataFrame,
     eng_X: pd.DataFrame,
@@ -736,19 +755,7 @@ def score_grouped_quantile_by_mi_uplift(
     host_mi = dict(zip(host_cols, _bin_columns_pooled(lambda c: float(_plug_in_mi(_bin(eng_X[c].to_numpy()), y_bin)), host_cols))) if host_cols else {}
     eng_mis = [device_mi[c] if c in device_mi else host_mi[c] for c in eng_cols]
 
-    # does the column carry information about y beyond its own source? (G-test of CMI(column; y | source), see _added_information_gate)
-    source_codes: dict = {}
-
-    def _p_added(col: str) -> float:
-        """p-value that ``col`` adds nothing to its source (NaN when the source is unknown or the table too sparse)."""
-        src = eng_to_source.get(col)
-        if src not in raw_X.columns:
-            return float("nan")
-        if src not in source_codes:
-            source_codes[src] = _bin(raw_X[src].to_numpy())
-        return added_information_p(_bin(eng_X[col].to_numpy()), source_codes[src], y_bin)
-
-    p_added = dict(zip(eng_cols, _bin_columns_pooled(_p_added, eng_cols))) if eng_cols else {}
+    p_added = _p_added_by_column(eng_X, raw_X, y_bin, eng_to_source, _bin)
     rows = []
     for col, mi in zip(eng_cols, eng_mis):
         src = eng_to_source.get(col)

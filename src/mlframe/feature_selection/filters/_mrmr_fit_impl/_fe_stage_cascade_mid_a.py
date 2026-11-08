@@ -269,7 +269,7 @@ def _fe_stage_cascade_mid_a_part1(
                     _il_hybrid_set = set(self.hybrid_orth_features_ or [])
                     _il_raw_cols = [c for c in X.columns if c not in _il_hybrid_set]
                     _il_appended, _il_recipes = fe_decide_on_subsample(
-                        hybrid_integer_lattice_fe_with_recipes, X, _y_il_binned, frameless=True, **fe_subsample_kwargs(self),  # type: ignore[arg-type]
+                        hybrid_integer_lattice_fe_with_recipes, X, _y_il_binned, frameless=True, **fe_subsample_kwargs(self),
                         cols=_il_raw_cols,
                         top_k=int(getattr(self, "fe_integer_lattice_top_k", 4)),
                         seed=int(getattr(self, "random_seed", 0) or 0),
