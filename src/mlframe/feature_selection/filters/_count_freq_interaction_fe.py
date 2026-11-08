@@ -51,6 +51,7 @@ import pandas as pd
 from ._fold_cell_stats import fold_cell_sum_cnt
 from ._target_encoding_fe import _column_to_str, _smooth, sorted_string_codes
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -414,6 +415,7 @@ def _gate_enc(enc_df, y, raw_X, mi_gate, mi_gate_top_k, reject_sink=None):
     keep = local_mi_gate(enc_df, y, raw_X=raw_X, top_k=mi_gate_top_k, reject_sink=reject_sink)
     return enc_df[keep]
 
+@fe_timed("count_encode")
 def count_encode_with_recipes(
     X: pd.DataFrame,
     *,
@@ -456,6 +458,7 @@ def count_encode_with_recipes(
     ]
     return X_aug, appended, recipes
 
+@fe_timed("frequency_encode")
 def frequency_encode_with_recipes(
     X: pd.DataFrame,
     *,
@@ -496,6 +499,7 @@ def frequency_encode_with_recipes(
     ]
     return X_aug, appended, recipes
 
+@fe_timed("cat_num_interaction")
 def cat_num_interaction_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,

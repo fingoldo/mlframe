@@ -63,6 +63,7 @@ from ._cache_release import register_cache_releaser
 from ._target_encoding_order_stats import ORDER_STATS as _TE_ORDER_STATS, global_order_stats, per_category_order_stats
 from typing import TYPE_CHECKING
 from mlframe.utils.numeric_floors import SD_FLOOR
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -687,6 +688,7 @@ def apply_target_encoding(
 # End-to-end wrapper for MRMR.fit auto-wiring
 # ---------------------------------------------------------------------------
 
+@fe_timed("kfold_target_encode")
 def kfold_target_encode_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,

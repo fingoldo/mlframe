@@ -66,6 +66,7 @@ def _parity_mi_grid_njit(v: np.ndarray, y_codes: np.ndarray, n_classes: int, per
 from ._numba_utils import (
     _mi_codes_njit,
 )
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 
 def _parity_grid(v: np.ndarray) -> np.ndarray:
@@ -157,6 +158,7 @@ def _scan_parity_columns(usable: list, y_arr: np.ndarray) -> "list[tuple[float, 
     return [out[i] if out[i] is not None else scan_parity_period(usable[i][1], usable[i][2]) for i in range(len(usable))]
 
 
+@fe_timed("parity")
 def hybrid_parity_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,

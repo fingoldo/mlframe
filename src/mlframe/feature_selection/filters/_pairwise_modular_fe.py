@@ -73,6 +73,7 @@ from ._integer_columns import to_int64 as _to_int64
 from ._y_encoding import encode_y_for_classif_mi
 
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -723,6 +724,7 @@ def build_pairwise_modular_recipe(*, name: str, op: str, cols: Sequence[str], mo
         extra={"op": str(op), "modulus": m},
     )
 
+@fe_timed("pairwise_modular")
 def hybrid_pairwise_modular_fe_with_recipes(
     X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,

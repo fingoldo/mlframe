@@ -31,8 +31,10 @@ from ._group1 import _hybrid_orth_family_variants_group1
 from ._group2 import _hybrid_orth_family_variants_group2
 from ._group3 import _hybrid_orth_family_variants_group3
 from ._group4 import _hybrid_orth_family_variants_group4
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 
+@fe_timed("stage:hybrid_variants")
 def _hybrid_orth_family_variants(
     self,
     *,

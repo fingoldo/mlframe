@@ -56,6 +56,7 @@ from ._y_encoding import encode_y_for_classif_mi
 from ._lattice_gate_hit_shared import margin_over_operands as _margin_over_operands, responded_property as _responded_property
 from typing import TYPE_CHECKING
 from typing import Any
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     import pandas as pd
     import polars as pl
@@ -374,6 +375,7 @@ def build_integer_lattice_recipe(*, name: str, op: str, cols: Sequence[str]) -> 
         extra={"op": str(op)},
     )
 
+@fe_timed("integer_lattice")
 def hybrid_integer_lattice_fe_with_recipes(
     X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,

@@ -24,6 +24,7 @@ import pandas as pd
 
 from .._fe_frame_ops import fe_to_pandas, fe_append_columns, fe_extract_columns, fe_numeric_float32_view, fe_polars_exceeds
 from ._fe_stage_merge import _fe_merge_new_columns
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -33,6 +34,7 @@ def _optional_int(value: Any) -> "int | None":
     return None if value is None else int(value)
 
 
+@fe_timed("stage:cascade_early_b")
 def _fe_stage_cascade_early_b(
     self, *, X, y, verbose, fe_max_steps, _y_np, _fe_family_on, _fit_entry_nan_mask, _raw_input_cols_pre_fe,
     _kfold_te_pre_recipes, _binned_agg_pre_recipes, _count_enc_pre_recipes, _freq_enc_pre_recipes, _cat_num_pre_recipes,

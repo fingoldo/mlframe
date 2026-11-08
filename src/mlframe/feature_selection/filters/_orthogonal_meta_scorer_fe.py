@@ -113,6 +113,7 @@ from typing import Optional, Sequence, cast
 
 import numpy as np
 import pandas as pd
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -550,6 +551,7 @@ def hybrid_orth_mi_meta_fe(
     return X_aug, scores, chosen, fp
 
 
+@fe_timed("orth_mi_meta")
 def hybrid_orth_mi_meta_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,

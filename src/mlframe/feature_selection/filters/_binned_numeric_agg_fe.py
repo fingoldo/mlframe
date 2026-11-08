@@ -44,6 +44,7 @@ from ._binned_agg_cheap_mi import (  # noqa: F401  -- carved sibling, re-exporte
 )
 from ._binned_numeric_agg_cands import HostCandidates, device_born_candidates
 from mlframe.utils.numeric_floors import SD_FLOOR
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -692,6 +693,7 @@ def _host_candidates(
     return feat_df, raw
 
 
+@fe_timed("binned_numeric_agg")
 def binned_numeric_agg_with_recipes(
     X: pd.DataFrame, y: np.ndarray, *,
     group_num_cols: Sequence[str] | None = None, agg_num_cols: Sequence[str] | None = None,

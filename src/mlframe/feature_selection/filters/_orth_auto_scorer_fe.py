@@ -28,6 +28,7 @@ import pandas as pd
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -655,6 +656,7 @@ def hybrid_orth_mi_auto_scorer_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X
     return X_aug, scores
 
+@fe_timed("orth_mi_auto_scorer")
 def hybrid_orth_mi_auto_scorer_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,

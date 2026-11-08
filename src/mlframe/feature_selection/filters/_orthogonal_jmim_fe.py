@@ -110,6 +110,7 @@ from ._orthogonal_univariate_fe import (
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -517,6 +518,7 @@ def hybrid_orth_mi_jmim_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
+@fe_timed("orth_mi_jmim")
 def hybrid_orth_mi_jmim_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,

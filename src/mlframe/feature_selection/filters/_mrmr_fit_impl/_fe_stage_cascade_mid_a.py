@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 from .._y_encoding import encode_y_for_classif_mi
 from ._fe_stage_merge import _fe_merge_new_columns
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -76,6 +77,7 @@ def _stage_layer87_grouped_agg(self, X_acc, X, _y_np, _grouped_agg_pre_recipes, 
     return X_acc
 
 
+@fe_timed("stage:cascade_mid_a")
 def _fe_stage_cascade_mid_a(
     self,
     *,

@@ -51,6 +51,7 @@ from ._conditional_gate_fe_helpers import (  # noqa: F401  -- carved helpers
 )
 from typing import TYPE_CHECKING
 from typing import Any
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     import pandas as pd
     import polars as pl
@@ -115,6 +116,7 @@ def _top_marginal_mi_columns(X, y: np.ndarray, cols: Sequence[str], k: int, *, n
     return [c for i, c in enumerate(cols) if i in keep]
 
 
+@fe_timed("row_argmax")
 def hybrid_row_argmax_fe_with_recipes(
     X: pd.DataFrame | pl.DataFrame, y: np.ndarray, *,
     cols: Optional[Sequence[str]] = None,
@@ -160,6 +162,7 @@ def hybrid_row_argmax_fe_with_recipes(
             break
     return appended, recipes
 
+@fe_timed("conditional_gate")
 def hybrid_conditional_gate_fe_with_recipes(
     X: pd.DataFrame | pl.DataFrame, y: np.ndarray, *,
     cols: Optional[Sequence[str]] = None,

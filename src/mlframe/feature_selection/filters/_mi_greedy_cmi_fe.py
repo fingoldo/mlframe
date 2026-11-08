@@ -284,6 +284,7 @@ from ._mi_greedy_cmi_fe_gpu import (
     _nnz_from_counts as _nnz_from_counts,
     joint_cardinalities_cupy as joint_cardinalities_cupy,
 )
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 # ---------------------------------------------------------------------------
 # Public CMI scorer
@@ -789,6 +790,7 @@ def _greedy_cmi_fe_construct_part1(
         return b.tobytes()
     return False, st, y_bin, engineered, z_joint, z_joint_dev, cand_names, _bin_fingerprint
 
+@fe_timed("greedy_cmi_fe_construct")
 def greedy_cmi_fe_construct_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,

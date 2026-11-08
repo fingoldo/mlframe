@@ -26,6 +26,7 @@ from ._fe_stage_offset_product import _stage_offset_product
 from ._fe_stage_oof_warp import _stage_oof_warp
 from ._fe_stage_row_stat import _stage_row_stat
 from ._fe_stage_mid_b_projections import _stage_lof, _stage_mahalanobis_density, _stage_random_fourier, _stage_sir_direction  # the cascade calls them from here
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -85,6 +86,7 @@ def _stage_rare_category(self, X_acc, X, _y_np, _raw_input_cols_pre_fe, _rare_ca
     return X_acc
 
 
+@fe_timed("stage:cascade_mid_b")
 def _fe_stage_cascade_mid_b(
     self,
     *,

@@ -74,6 +74,7 @@ from ._orth_auto_scorer_fe import (
     _dispatch_scorer,
 )
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -621,6 +622,7 @@ def hybrid_orth_mi_ensemble_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X
     return X_aug, scores
 
+@fe_timed("orth_mi_ensemble")
 def hybrid_orth_mi_ensemble_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,

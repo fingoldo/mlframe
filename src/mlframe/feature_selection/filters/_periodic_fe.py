@@ -493,24 +493,42 @@ def _chunk_family_codes(X, cs, periods, nbins, family_elements):
     return eng_names, cc, nx
 
 
+def _held_codes_budget() -> int:
+    """Bytes of generated candidate codes :class:`_ModularChunks` keeps for the next read: an eighth of the free host RAM, at most 2 GiB. The codes cost one byte each; the 3.5-fold footprint of a
+    stacked group in the kernels is planned separately (``plan_stream_groups``) and is not part of this."""
+    from ._orthogonal_univariate_fe._streamed_gpu_mi import _host_free_bytes
+
+    return int(min(_host_free_bytes() // 8, 2 * 1024**3))
+
+
 class _ModularChunks:
-    """The codes of the candidate chunks of one family, regenerated when asked for (the last chunk is kept): the family test reads each group several times and holding every chunk's codes at
-    once was 750 MB at 500000 rows by 100 columns (1.5 GB at a million)."""
+    """The codes of the candidate chunks of one family, generated when first asked for. Chunks are kept while their total fits ``_held_codes_budget()`` (the family test reads every group once per
+    permutation block, and regenerating the codes on the device each time cost 15 s of a 35 s call at 400000 rows by 100 columns, 13 times the time at 100000 rows); beyond the budget only the last chunk
+    is kept and the others are regenerated when asked for, which holds 750 MB at 500000 rows by 100 columns (1.5 GB at a million) back."""
 
     def __init__(self, X, src_cols, chunk, periods, nbins, dtype):
         self.args = (X, src_cols, chunk, periods, nbins)
         self.dtype = np.dtype(dtype)
         self.n = len(X)
         self._last: "tuple[int, np.ndarray] | None" = None
+        self._held: "dict[int, np.ndarray]" = {}
+        self._held_bytes = 0
+        self._budget = _held_codes_budget()
 
     def codes(self, k: int) -> np.ndarray:
         """The ``(candidates, n)`` codes of chunk ``k`` in the family dtype."""
+        held = self._held.get(k)
+        if held is not None:
+            return held
         if self._last is None or self._last[0] != k:
             X, src_cols, chunk, periods, nbins = self.args
             periods_pos = [float(p) for p in periods if float(p) > 0.0]
             cs = list(src_cols[k * chunk : (k + 1) * chunk])
             _names, cc, _nx = _chunk_family_codes(X, cs, periods, nbins, len(src_cols) * 3 * len(periods_pos) * self.n)
             self._last = (k, np.ascontiguousarray(cc, dtype=self.dtype))
+            if self._held_bytes + self._last[1].nbytes <= self._budget:
+                self._held[k] = self._last[1]
+                self._held_bytes += self._last[1].nbytes
         return self._last[1]
 
 

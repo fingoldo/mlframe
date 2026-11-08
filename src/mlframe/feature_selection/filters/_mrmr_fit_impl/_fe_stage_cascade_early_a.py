@@ -20,6 +20,7 @@ from ._helpers import _dispatch_default_scorer, fe_decide_on_subsample
 from .._fe_frame_ops import fe_append_columns, fe_extract_columns, fe_is_numeric_col
 from ._fe_stage_merge import _fe_merge_new_columns
 from .._y_encoding import encode_y_for_classif_mi
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -91,6 +92,7 @@ def _stage_mi_greedy(self, X_acc, X, _y_np, _mi_greedy_pre_recipes, verbose):
     return X_acc
 
 
+@fe_timed("stage:cascade_early_a")
 def _fe_stage_cascade_early_a(
     self, *, X, y, verbose, fe_max_steps, _y_np, _fe_family_on, _fe_budget_ok,
     _hybrid_orth_pre_recipes, _mi_greedy_pre_recipes,
@@ -220,6 +222,7 @@ def _fe_stage_cascade_early_a(
     return _fe_merge_new_columns(X_acc, _stage_greedy_cmi(self, _fe_family_on, _y_np, X, _mi_greedy_pre_recipes, verbose), X), _raw_input_cols_pre_fe, _hinge_deferred_values, _hinge_deferred_recipes
 
 
+@fe_timed("stage:early_a_part2_univariate_and_extra")
 def _fe_stage_cascade_early_a_part2(
     self: Any, _hybrid_on: Any, _univ_basis_on: Any, _fe_budget_ok: Any, X: Any, _y_for_hybrid: Any, X_acc: Any, _hybrid_orth_pre_recipes: Any, verbose: Any,
     _fe_family_on: Any,
@@ -361,6 +364,7 @@ def _fe_stage_cascade_early_a_part2(
     return X_acc
 
 
+@fe_timed("stage:early_a_part1_variants_and_greedy")
 def _fe_stage_cascade_early_a_part1(
     _fe_family_on: Any, _fe_budget_ok: Any, _y_np: Any, self: Any, X: Any, _hinge_deferred_values: Any, _hinge_deferred_recipes: Any, verbose: Any,
     X_acc: Any, y: Any, _hybrid_orth_pre_recipes: Any, _mi_greedy_pre_recipes: Any,

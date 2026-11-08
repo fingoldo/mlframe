@@ -50,6 +50,7 @@ import numpy as np
 import pandas as pd
 from numba import njit, prange
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -379,6 +380,7 @@ def apply_missingness_pattern(
 # End-to-end wrappers (recipe-emitting) for MRMR.fit auto-wiring.
 # ---------------------------------------------------------------------------
 
+@fe_timed("missing_indicator")
 def missing_indicator_with_recipes(
     X: pd.DataFrame,
     *,
@@ -439,6 +441,7 @@ def missing_indicator_with_recipes(
     ]
     return X_aug, appended, recipes
 
+@fe_timed("missingness_count")
 def missingness_count_with_recipes(
     X: pd.DataFrame,
     *,
@@ -541,6 +544,7 @@ def _apply_missingness_pattern_recipe(recipe, X) -> np.ndarray:
         },
     )
 
+@fe_timed("missingness_pattern")
 def missingness_pattern_with_recipes(
     X: pd.DataFrame,
     *,

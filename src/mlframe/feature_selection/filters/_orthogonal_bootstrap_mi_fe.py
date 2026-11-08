@@ -70,6 +70,7 @@ logger = logging.getLogger(__name__)
 
 from ._cache_release import register_cache_releaser
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 __all__ = [
     "baseline_lcb_by_bootstrap_mi",
@@ -428,6 +429,7 @@ def hybrid_orth_mi_bootstrap_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
+@fe_timed("orth_mi_bootstrap")
 def hybrid_orth_mi_bootstrap_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,

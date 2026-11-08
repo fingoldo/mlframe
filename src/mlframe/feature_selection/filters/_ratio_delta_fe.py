@@ -45,6 +45,7 @@ import pandas as pd
 
 from ._internals import group_key_strings
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -524,6 +525,7 @@ def _gate_ratio_pairs(enc_df, accepted, name_fn, y, raw_X, mi_gate, mi_gate_top_
     enc_df = enc_df[[name_fn(a, b) for (a, b) in accepted]]
     return enc_df, accepted
 
+@fe_timed("pairwise_ratio")
 def pairwise_ratio_with_recipes(
     X: pd.DataFrame,
     *,
@@ -567,6 +569,7 @@ def pairwise_ratio_with_recipes(
     ]
     return X_aug, appended, recipes
 
+@fe_timed("pairwise_log_ratio")
 def pairwise_log_ratio_with_recipes(
     X: pd.DataFrame,
     *,
@@ -608,6 +611,7 @@ def pairwise_log_ratio_with_recipes(
     ]
     return X_aug, appended, recipes
 
+@fe_timed("grouped_delta")
 def grouped_delta_with_recipes(
     X: pd.DataFrame,
     *,
@@ -646,6 +650,7 @@ def grouped_delta_with_recipes(
     recipes = [build_grouped_delta_recipe(name=name, **raw_recipes[name]) for name in appended]
     return X_aug, appended, recipes
 
+@fe_timed("lagged_diff")
 def lagged_diff_with_recipes(
     X: pd.DataFrame,
     *,
