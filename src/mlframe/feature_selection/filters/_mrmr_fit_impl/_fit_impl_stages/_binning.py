@@ -235,7 +235,9 @@ def _install_honest_null_hook(
         # null must read the same column index the observed codes use. A dropped column carries no MI (0 bins).
         _pos = {str(c): j for j, c in enumerate(_c_perm)}
         _n_rows = d_perm.shape[0]
-        _codes_aligned = np.zeros((_n_rows, len(cols)), dtype=np.int64)
+        # int16 when every code fits (the memo below stores int16 anyway; the int64 matrix was 8 bytes a cell per permutation), int64 otherwise
+        _aligned_dtype = np.int16 if (d_perm.size == 0 or int(d_perm.max()) < np.iinfo(np.int16).max) and not _fixed_codes else np.int64
+        _codes_aligned = np.zeros((_n_rows, len(cols)), dtype=_aligned_dtype)
         _nb_aligned = np.ones(len(cols), dtype=np.int64)
         for j, c in enumerate(cols):
             k = _pos.get(str(c))

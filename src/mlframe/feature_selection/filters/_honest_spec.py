@@ -74,7 +74,7 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
 
     n = len(y_raw)
     m = len(cols)
-    nan_cols = np.zeros((n, m), dtype=np.bool_)
+    nan_by_col: dict[int, np.ndarray] = {}  # the NaN masks of the columns that have NaN; the (n, m) bool matrix exists only when one does
     # float32 frames keep a float32 matrix: widening a float32 value to float64 is exact, so the cut search reads the same numbers (a column with NaN is median-filled in double
     # precision, so any NaN keeps the double matrix); the (n, m) matrix is the largest array of the spec, 4 bytes per cell instead of 8
     _numeric = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
@@ -111,7 +111,7 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
             # The production categorisation fills NaN with the column median before binning (``_handle_missing``): the cut search,
             # the fallback edges and the unique-value count all see the filled column. The NaN rows keep their own code afterwards.
             v = np.where(nan_here, float(np.nanmedian(v)), v)
-            nan_cols[:, j] = nan_here
+            nan_by_col[j] = nan_here
         if nan_here.any():
             filled[j] = v
         q_fb_rows.append(np.empty(0, dtype=np.float64))  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
@@ -157,11 +157,16 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
     labels = np.ascontiguousarray(labels.ravel().astype(np.int64))
     q_fb, q_fb_len = _pad_rows(q_fb_rows)
     q_rf, q_rf_len = _pad_rows(q_rf_rows)
+    nan_mask: "np.ndarray | None" = None
+    if nan_by_col:
+        nan_mask = np.zeros((n, m), dtype=np.bool_)
+        for j, col_mask in nan_by_col.items():
+            nan_mask[:, j] = col_mask
     return {
         "method": method,
         "raw": raw,
-        "nan_mask": nan_cols if nan_cols.any() else None,
-        "has_nan": bool(nan_cols.any()),
+        "nan_mask": nan_mask,
+        "has_nan": nan_mask is not None,
         "is_cont": is_cont,
         "q_fb": q_fb,
         "q_fb_len": q_fb_len,
