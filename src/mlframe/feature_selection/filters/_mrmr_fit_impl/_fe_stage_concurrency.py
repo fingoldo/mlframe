@@ -29,6 +29,7 @@ from typing import Any, Callable, Sequence
 import numpy as np
 
 from .._fe_deadline import _state as _deadline_state
+from .._fe_family_timing import close_thread_laps
 from .._fe_deadline import fe_deadline_scope
 from mlframe.utils.log_throttle import log_throttle
 
@@ -197,6 +198,7 @@ def run_stages_concurrently(
             with fe_deadline_scope(deadline), fit_context_scope(context), stage_device_slot(slots[i], i):
                 return stages[i](copies[i])
         finally:
+            close_thread_laps()  # the stage's last family lap ends with the stage, on this worker thread
             _synchronize_device(slots[i].device_id)  # the wall is the stage's work, not the launch of its last kernel
             walls[i] = time.perf_counter() - t0
 

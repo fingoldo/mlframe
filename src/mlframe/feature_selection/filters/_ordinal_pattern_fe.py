@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Callable, Optional, Sequence
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -156,6 +157,7 @@ def _lookup_perm_ids(perm_ids: np.ndarray, lookup: dict, default: float) -> np.n
     return out
 
 
+@fe_timed("ordinal_pattern_te")
 def generate_ordinal_pattern_te_features(
     X: "pd.DataFrame",
     col_tuples: Sequence[Sequence[str]],

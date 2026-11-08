@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Callable, Optional, Sequence
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -144,6 +145,7 @@ def engineered_name_random_fourier(cols: Sequence[str], idx: int) -> str:
     return "rff__" + "_".join(str(c) for c in cols) + f"__{idx}"
 
 
+@fe_timed("random_fourier_features_block")
 def generate_random_fourier_features_block(
     X: "pd.DataFrame", cols: Sequence[str], *, m: int = 64, bandwidth: Optional[float] = None, random_state: int = 0
 ) -> "tuple[pd.DataFrame, dict]":

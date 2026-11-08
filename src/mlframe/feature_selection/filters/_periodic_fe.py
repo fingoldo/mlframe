@@ -61,6 +61,7 @@ from mlframe.utils.log_throttle import log_throttle
 from ._numeric_decompose_fe import _numeric_cols, score_decompose_by_bootstrap_mi as score_modular_by_bootstrap_mi
 from ._orthogonal_bootstrap_mi_fe import baseline_lcb_by_bootstrap_mi
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 if TYPE_CHECKING:
     from numpy.typing import DTypeLike
@@ -226,6 +227,7 @@ def _modular_all_ops_into(arr: np.ndarray, p: float, out_mod: np.ndarray, out_si
         out_cos[i] = c_ if np.isfinite(c_) else 0.0
 
 
+@fe_timed("modular")
 def generate_modular_features(
     X: pd.DataFrame,
     num_cols: Optional[Sequence[str]] = None,

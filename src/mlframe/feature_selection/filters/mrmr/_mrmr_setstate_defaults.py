@@ -263,6 +263,8 @@ _SETSTATE_LEGACY_DEFAULTS = {
     # Legacy pickles default to ``None`` and the empty predictor log;
     # the next fit() repopulates from the live greedy run.
     "fe_provenance_": None,
+    # Wall seconds and timed intervals of every FE family in this fit ({family: {"wall_s", "calls"}}, longest first), also in fe_provenance_.attrs["family_wall"] and get_fe_report().
+    "fe_family_wall_": None,
     # Per-gate FE REJECTION LEDGER (the rejection side of fe_provenance_):
     # a DataFrame (one row per rejected FE candidate-per-gate) + its raw record
     # list. Legacy pickles default to None / [] and the next fit() repopulates.

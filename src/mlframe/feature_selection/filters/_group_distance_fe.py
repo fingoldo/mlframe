@@ -66,6 +66,7 @@ from ._internals import group_key_strings, stable_argsort_codes
 from ._numba_utils_shared import radix_order_f64
 from typing import TYPE_CHECKING
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -283,6 +284,7 @@ def _group_distance_global_stats(X: pd.DataFrame, num_col: str) -> tuple:
     return (x, global_mean, global_std, global_edges, global_hist, global_sorted, bin_idx)
 
 
+@fe_timed("group_distance")
 def generate_group_distance_features(
     X: pd.DataFrame,
     group_cols: Sequence[str],

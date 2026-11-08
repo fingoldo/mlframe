@@ -50,6 +50,7 @@ from ._orth_extra_basis_fe import (
     _is_int_as_cat_axis,
 )
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from ..engineered_recipes import EngineeredRecipe
 
@@ -111,6 +112,7 @@ def _emit_spline_legs(x, col, spline_knots, out_cols, meta) -> None:
 
 
 @set_doc(GENERATE_EXTRA_BASIS_FEATURES_DOC)
+@fe_timed("extra_basis")
 def generate_extra_basis_features(
     X: pd.DataFrame,
     *,

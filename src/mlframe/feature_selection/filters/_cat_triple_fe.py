@@ -79,6 +79,7 @@ from ._cat_pair_fe import (
     score_cat_pairs_by_interaction_information,
 )
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -225,6 +226,7 @@ def _encode_triple(
         mapping[(uniq_a[ia], uniq_b[ib], uniq_c[ic])] = code
     return codes, mapping
 
+@fe_timed("cat_triple")
 def generate_cat_triple_crosses(
     X: pd.DataFrame,
     cat_cols: Sequence[str],

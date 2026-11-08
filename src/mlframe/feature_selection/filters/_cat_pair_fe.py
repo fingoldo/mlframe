@@ -64,6 +64,7 @@ import pandas as pd
 from ._fold_cell_stats import fold_cell_sum_cnt
 from ._target_encoding_fe import _column_to_str, _smooth, column_string_codes, sorted_string_codes
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -154,6 +155,7 @@ def _encode_pair(
         mapping[(uniq_i[ii], uniq_j[jj])] = code
     return codes, mapping
 
+@fe_timed("cat_pair")
 def generate_cat_pair_crosses(
     X: pd.DataFrame,
     cat_cols: Sequence[str],

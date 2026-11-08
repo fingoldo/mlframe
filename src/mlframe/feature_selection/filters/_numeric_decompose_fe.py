@@ -64,6 +64,7 @@ import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -165,6 +166,7 @@ def _numeric_cols(X: pd.DataFrame, cols: Optional[Sequence[str]]) -> list[str]:
     return [c for c in candidates if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
 
 
+@fe_timed("rounding")
 def generate_rounding_features(
     X: pd.DataFrame,
     num_cols: Optional[Sequence[str]] = None,
@@ -190,6 +192,7 @@ def generate_rounding_features(
     return pd.DataFrame(out, index=X.index)
 
 
+@fe_timed("digit")
 def generate_digit_features(
     X: pd.DataFrame,
     num_cols: Optional[Sequence[str]] = None,

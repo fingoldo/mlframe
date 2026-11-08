@@ -66,6 +66,7 @@ from ._orthogonal_univariate_fe import (
 )
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -343,6 +344,7 @@ def _pair_source_baselines(X: pd.DataFrame, pairs_norm: list, y_arr: np.ndarray,
     return raw_mi_map
 
 
+@fe_timed("diff_basis")
 def generate_diff_basis_features(
     X: pd.DataFrame,
     y: np.ndarray,

@@ -21,6 +21,7 @@ _STAT_DTYPE = np.float64
 import pandas as pd
 
 from mlframe._welford_njit import welford_push, welford_std
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,7 @@ def _rolling_stat_past_only(
     ))
 
 
+@fe_timed("rolling_window_agg")
 def generate_rolling_window_agg_features(
     X: pd.DataFrame,
     entity_cols: Sequence[str],

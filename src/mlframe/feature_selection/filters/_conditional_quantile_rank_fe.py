@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Callable, Optional, Sequence
 import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -114,6 +115,7 @@ def engineered_name_conditional_quantile_rank(x_i: str, x_j: str) -> str:
     return f"{x_i}__qrank_by__{x_j}"
 
 
+@fe_timed("conditional_quantile_rank")
 def generate_conditional_quantile_rank_features(
     X: "pd.DataFrame",
     num_cols: Sequence[str],

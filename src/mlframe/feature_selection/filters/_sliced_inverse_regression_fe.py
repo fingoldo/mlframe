@@ -29,6 +29,7 @@ import scipy.linalg
 from ._mi_greedy_cmi_fe import _quantile_bin
 import logging
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,7 @@ def engineered_name_sir_direction(cols: Sequence[str], idx: int) -> str:
     return "sir__" + "_".join(str(c) for c in cols) + f"__dir{idx}"
 
 
+@fe_timed("sir_direction")
 def generate_sir_direction_features(
     X: "pd.DataFrame", cols: Sequence[str], y: np.ndarray, *, n_slices: int = 10, n_directions: int = 2
 ) -> "tuple[pd.DataFrame, dict]":

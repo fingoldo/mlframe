@@ -89,6 +89,7 @@ from ._temporal_agg_fe_rolling import (
     _rolling_stat_past_only,  # noqa: F401 - re-exported for tests exercising the rolling njit kernel by its historical module path
 )
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -256,6 +257,7 @@ def _expanding_stat_past_only(
         np.ascontiguousarray(sorted_vals, dtype=_STAT_DTYPE), gc, _EXPANDING_STAT_CODE[stat], n_groups,
     ))
 
+@fe_timed("expanding_agg")
 def generate_expanding_agg_features(
     X: pd.DataFrame,
     entity_cols: Sequence[str],
@@ -382,6 +384,7 @@ def _lag_ring_buffer_njit(sorted_vals, group_codes, lags_arr, n_groups):
         cnt[g] = c + 1
     return out
 
+@fe_timed("lag")
 def generate_lag_features(
     X: pd.DataFrame,
     entity_cols: Sequence[str],

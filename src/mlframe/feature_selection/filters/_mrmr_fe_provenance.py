@@ -559,6 +559,33 @@ def populate_fe_provenance(mrmr_self: Any) -> None:
         )
 
 
+def record_family_wall(mrmr_self: Any) -> None:
+    """Store the wall and the number of timed intervals of every FE family in this fit as ``fe_family_wall_`` and in ``fe_provenance_.attrs["family_wall"]``.
+
+    The timing ledger is process-global (nested fits and the composite discovery add to it), so the fit's own figures are the difference between the ledger at the end and the snapshot taken at
+    the start of the fit. Pure metadata, never mutates the selection; a failure leaves ``fe_family_wall_`` empty and is logged."""
+    from ._fe_family_timing import fe_family_wall_since
+
+    try:
+        wall = fe_family_wall_since(getattr(mrmr_self, "_fe_family_wall_pre_", None) or {})
+        mrmr_self.fe_family_wall_ = wall
+        prov = getattr(mrmr_self, "fe_provenance_", None)
+        if isinstance(prov, pd.DataFrame):
+            prov.attrs["family_wall"] = wall
+    except Exception as exc:
+        mrmr_self.fe_family_wall_ = {}
+        log_throttle(logging.getLogger("mlframe.feature_selection.filters.mrmr"), "fe_provenance.family_wall_failed", logging.WARNING, "MRMR.fit: fe_family_wall_ could not be recorded (%s)", exc)
+
+
+def _family_wall_section(mrmr_self: Any) -> str:
+    """The per-family wall block of :func:`get_fe_report` (empty when the fit recorded none)."""
+    wall = getattr(mrmr_self, "fe_family_wall_", None)
+    if not wall:
+        return ""
+    lines = [f"  {name}: {row['wall_s']:.2f} s over {row['calls']} interval(s)" for name, row in wall.items()]
+    return "\n" + "FE family wall (intervals of concurrent cascades overlap, so the sum can exceed the fit's elapsed time):\n" + "\n".join(lines)
+
+
 def get_unlabeled_recipe_kinds(mrmr_self: Any) -> dict[str, int]:
     """PROVENANCE SELF-AUDIT (W2). List every SURVIVING engineered recipe.kind
     whose provenance origin resolved to ``"engineered_unknown"`` - i.e. a kind
@@ -632,4 +659,4 @@ def get_fe_report(mrmr_self: Any) -> str:
     header_parts = [f"{origin}={count}" for origin, count in by_origin.items()]
     header = "MRMR FE provenance: " + ", ".join(header_parts)
     table = prov.to_string(index=False)
-    return str(header + "\n" + table)
+    return str(header + "\n" + table + _family_wall_section(mrmr_self))

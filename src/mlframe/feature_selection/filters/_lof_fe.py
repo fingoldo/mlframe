@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Callable, Optional, Sequence
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -168,6 +169,7 @@ def engineered_name_lof(cols: Sequence[str]) -> str:
     return "lof__" + "_".join(str(c) for c in cols)
 
 
+@fe_timed("lof")
 def generate_lof_features(X: "pd.DataFrame", cols: Sequence[str], *, k: int = 20, max_ref: int = 2000, random_state: int = 0) -> "tuple[pd.DataFrame, dict]":
     """Fit one joint LOF score over ``cols``: subsample up to ``max_ref`` rows as the frozen
     reference set (RAM discipline - a bounded reference, never the whole fit frame), compute the

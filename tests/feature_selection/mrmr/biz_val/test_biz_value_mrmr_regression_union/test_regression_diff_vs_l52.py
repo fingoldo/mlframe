@@ -290,7 +290,7 @@ class TestLayer55_ProvenanceAuditTrail:
         )
 
     def test_screened_out_columns_carry_audit_rank_minus_one(self):
-        """Produced-but-screened-out engineered columns carry support_rank == -1 with their mechanism origin intact."""
+        """Produced-but-screened-out engineered columns carry support_rank == -1 (never in the greedy selection) or, when a later stage removed a greedy pick, in_output False with the dropping gate named; the mechanism origin stays intact."""
         m, _ = _build_layer55_all_on_fit()
         survivors = {str(c) for c in (getattr(m, "_engineered_features_", []) or [])}
         produced = {str(r.name) for r in (getattr(m, "_produced_recipes_", []) or []) if getattr(r, "name", None) is not None}
@@ -307,9 +307,14 @@ class TestLayer55_ProvenanceAuditTrail:
         for name in dropped:
             row = prov[prov["feature_name"].astype(str) == name]
             assert len(row) == 1, f"screened-out column {name!r} must have exactly one ledger row; got {len(row)}"
-            assert int(row["support_rank"].iloc[0]) == -1, (
-                f"screened-out column {name!r} must carry support_rank == -1 (it never entered the greedy selection); got {int(row['support_rank'].iloc[0])}"
-            )
+            rank = int(row["support_rank"].iloc[0])
+            if rank != -1:
+                # The column entered the greedy selection and a later stage (compaction, final subsumption, rescue) took it out of the output again: it keeps its greedy rank, is marked
+                # as not in the output and names the gate that dropped it.
+                assert row["in_output"].iloc[0] is not None and not bool(row["in_output"].iloc[0]) and str(row["dropped_by"].iloc[0]) != "", (
+                    f"screened-out column {name!r} has greedy rank {rank}, so the ledger must mark it as not in the output with the gate that dropped it; got "
+                    f"in_output={row['in_output'].iloc[0]!r}, dropped_by={row['dropped_by'].iloc[0]!r}"
+                )
             assert str(row["origin"].iloc[0]) not in ("raw", "engineered_unknown"), (
                 f"screened-out column {name!r} must keep its mechanism origin in the ledger; got {row['origin'].iloc[0]!r}"
             )

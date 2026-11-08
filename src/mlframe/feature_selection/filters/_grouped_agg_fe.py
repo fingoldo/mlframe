@@ -53,6 +53,7 @@ import pandas as pd
 
 from ._internals import canonical_group_token, group_key_strings
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -113,6 +114,7 @@ def _broadcast_lookup(
 
     return broadcast_lookup(group_keys, lookup, global_value)
 
+@fe_timed("grouped_agg")
 def generate_grouped_agg_features(
     X: pd.DataFrame,
     group_cols: Sequence[str],

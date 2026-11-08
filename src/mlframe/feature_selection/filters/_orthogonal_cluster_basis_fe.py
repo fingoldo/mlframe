@@ -88,6 +88,7 @@ from ._orthogonal_univariate_fe import (
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
 from mlframe.utils.numeric_floors import SD_FLOOR
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -539,6 +540,7 @@ def _clean_cluster_members(X: pd.DataFrame, cluster_members: dict) -> dict:
     return cleaned
 
 
+@fe_timed("cluster_basis")
 def generate_cluster_basis_features(
     X: pd.DataFrame,
     y: np.ndarray,

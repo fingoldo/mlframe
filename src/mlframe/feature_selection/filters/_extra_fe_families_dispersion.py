@@ -68,6 +68,7 @@ import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from numba import njit
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -291,6 +292,7 @@ def _emit_kind(z: np.ndarray, kind: str) -> np.ndarray:
     raise ValueError(f"conditional_dispersion: unknown kind {kind!r}")
 
 
+@fe_timed("conditional_dispersion")
 def generate_conditional_dispersion_features(
     X: pd.DataFrame,
     num_cols: Sequence[str],

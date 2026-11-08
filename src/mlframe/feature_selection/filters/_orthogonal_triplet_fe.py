@@ -70,6 +70,7 @@ from ._orthogonal_univariate_fe import (
     hybrid_orth_mi_fe,
     cached_raw_mi_baseline,
 )
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,7 @@ def _triplet_cross_products(x_i, x_j, x_k, col_i, col_j, col_k, basis_i, basis_j
                         continue
 
 
+@fe_timed("triplet_cross_basis")
 def generate_triplet_cross_basis_features(
     X: pd.DataFrame,
     triplets: Sequence[tuple[str, str, str]],

@@ -53,6 +53,7 @@ from ._orthogonal_univariate_fe import (
 )
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -176,6 +177,7 @@ def _build_degree_candidates(X: pd.DataFrame, cols: list, y_arr: np.ndarray, deg
     return cand_cols, cand_values, cand_to_source
 
 
+@fe_timed("adaptive_degree_basis")
 def generate_adaptive_degree_basis_features(
     X: pd.DataFrame,
     y: np.ndarray,

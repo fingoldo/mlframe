@@ -58,6 +58,7 @@ from ._internals import group_key_strings
 from ._y_encoding import encode_y_for_classif_mi
 from typing import TYPE_CHECKING
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -182,6 +183,7 @@ def _quantile_recipe(group_col: str, num_col: str, op: str, group_sorted: Any, g
     }
 
 
+@fe_timed("grouped_quantile")
 def generate_grouped_quantile_features(
     X: pd.DataFrame,
     group_cols: Sequence[str],
@@ -382,6 +384,7 @@ def _fit_group_edges(vals: np.ndarray, yv: np.ndarray, n_bins: int) -> np.ndarra
         edges = np.unique(np.quantile(vals, qs))
     return np.asarray(edges, dtype=_crit_np_dtype())
 
+@fe_timed("target_aware_group_bins")
 def generate_target_aware_group_bins(
     X: pd.DataFrame,
     y: np.ndarray,

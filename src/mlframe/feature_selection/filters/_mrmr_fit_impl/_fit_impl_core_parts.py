@@ -889,9 +889,10 @@ def _fit_impl_part1(_replay_from_fit_cache: Any, self: Any, _cache_key: Any, fe:
             return True
         return bool((timer() - start_time) / 60.0 < self.max_runtime_mins)
 
-    from .._fe_family_timing import FamilyLapTimer as _FamilyLapTimer
+    from .._fe_family_timing import FamilyLapTimer as _FamilyLapTimer, get_fe_family_wall as _get_fe_family_wall
 
     _fe_lap = _FamilyLapTimer()
+    self._fe_family_wall_pre_ = _get_fe_family_wall()  # the process-global ledger at the start of this fit: fe_family_wall_ is the difference at its end
 
     def _fe_family_on(flag: str, default: bool = False) -> bool:
         """True iff the family's own ``fe_*_enable`` flag is set AND this fit has an FE budget.

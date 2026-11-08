@@ -64,6 +64,7 @@ import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from numba import njit
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,7 @@ def _freq_band_codes(
     # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     return np.searchsorted(cuts, np.asarray(freqs, dtype=np.float64), side="right").astype(np.float64)
 
+@fe_timed("rare_category")
 def generate_rare_category_features(
     X: pd.DataFrame,
     cat_cols: Sequence[str],
@@ -439,6 +441,7 @@ def _bin_sum_count_masked_njit(codes_j: np.ndarray, xi: np.ndarray, finite_i: np
             bin_cnt[c] += 1.0
     return bin_sum, bin_cnt
 
+@fe_timed("conditional_residual")
 def generate_conditional_residual_features(
     X: pd.DataFrame,
     num_cols: Sequence[str],
@@ -759,6 +762,7 @@ def _self_avg_tie_rank_and_sorted(fit_finite: np.ndarray) -> "tuple[np.ndarray, 
     return out, sx
 
 
+@fe_timed("rankgauss")
 def generate_rankgauss_features(
     X: pd.DataFrame,
     num_cols: Sequence[str],

@@ -24,6 +24,7 @@ import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from sklearn.covariance import LedoitWolf
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -100,6 +101,7 @@ def engineered_name_mahalanobis_density(cols: Sequence[str]) -> str:
     return "mahal__" + "_".join(str(c) for c in cols)
 
 
+@fe_timed("mahalanobis_density")
 def generate_mahalanobis_density_features(X: "pd.DataFrame", cols: Sequence[str]) -> "tuple[pd.DataFrame, dict]":
     """Fit one joint Mahalanobis-density score over ``cols``: Ledoit-Wolf shrink the mean/precision
     on the fit rows, score every fit row, and freeze ``mu``/``Sigma_inv`` for leak-safe replay

@@ -341,8 +341,10 @@ from ._orth_basis_memo import (  # basis memo moved to _orth_basis_memo
     _basis_memo_key,
     _release_basis_memo,
 )
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 
+@fe_timed("univariate_basis")
 def generate_univariate_basis_features(
     X: pd.DataFrame,
     *,

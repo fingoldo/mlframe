@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -571,6 +572,7 @@ def _detect_hinge_breakpoints_for_columns(
     return out
 
 
+@fe_timed("hinge")
 def generate_hinge_features(
     X: pd.DataFrame,
     *,

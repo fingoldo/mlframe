@@ -46,6 +46,7 @@ from ._group_stats_njit import group_mean_std_count
 from ._fe_usability_signal import _crit_np_dtype
 from ._grouped_coerce_shared import auto_detect_num_cols_plain as _auto_detect_num_cols
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -508,6 +509,7 @@ def _frame_of_columns(encoded: "dict[str, np.ndarray]", index: pd.Index) -> pd.D
     return parts[0] if len(parts) == 1 else pd.concat(parts, axis=1)
 
 
+@fe_timed("composite_group_agg")
 def generate_composite_group_agg_features(
     X: pd.DataFrame,
     group_col_sets: Sequence[Sequence[str]],

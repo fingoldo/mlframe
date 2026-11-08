@@ -32,6 +32,7 @@ from ._wavelet_basis_fe import (
     _heldout_incremental_mi_prep,
     _select_wavelet_legs,
 )
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -118,6 +119,7 @@ def _wavelet_legs_of_column(col, X, y_arr, allowed, max_scale, max_legs, scale_s
     return found
 
 
+@fe_timed("wavelet")
 def generate_wavelet_features(
     X: pd.DataFrame,
     *,

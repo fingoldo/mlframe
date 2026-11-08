@@ -40,6 +40,7 @@ import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -350,6 +351,7 @@ def _materialise_candidate(
     out = np.asarray(out, dtype=_crit_np_dtype())
     return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
 
+@fe_timed("mi_greedy")
 def generate_mi_greedy_features(
     X: pd.DataFrame,
     candidates: Iterable[tuple[tuple[str, ...], str]],

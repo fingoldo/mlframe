@@ -81,30 +81,71 @@ def fe_timed(name: str) -> Callable[[_F], _F]:
     return _deco
 
 
+#: The lap timers the current thread has opened a lap on (a stage worker closes them when its stage ends).
+_THREAD_TIMERS = threading.local()
+
+
 class FamilyLapTimer:
     """Attribute stage wall to families from their on/off gate alone, so no family needs its own timer.
 
     Every cascade family opens with ``_fe_family_on(flag)``. A lap starts when a gate returns True and ends at the next gate call or at ``close()`` (stage boundary / end of fit),
     and its wall is recorded under ``gate:<flag>``. Gates that return False accrue nothing. The stage body between two gates is charged to the family whose gate opened last,
-    which is exact for the sequential cascade; ``gate:`` names stay apart from ``fe_timed`` names so the two kinds of buckets are never double counted in one ranking."""
+    which is exact for a sequential cascade; ``gate:`` names stay apart from ``fe_timed`` names so the two kinds of buckets are never double counted in one ranking.
+
+    The open lap is kept per thread: cascades that run concurrently each walk their own gates on their own thread, so one stage never closes or restarts another stage's lap. A worker thread
+    ends its laps with :func:`close_thread_laps` when its stage finishes; laps of different threads overlap in time, so their sum can exceed the wall of the section (see the concurrency caveat of
+    :func:`log_fe_family_summary`)."""
 
     def __init__(self) -> None:
-        self._flag: str | None = None
-        self._t0 = 0.0
+        self._tls = threading.local()
+
+    def _lap(self) -> Any:
+        """The current thread's lap state (``flag``, ``t0``), created on first use and registered for :func:`close_thread_laps`."""
+        tls = self._tls
+        if not hasattr(tls, "flag"):
+            tls.flag = None
+            tls.t0 = 0.0
+            timers = getattr(_THREAD_TIMERS, "timers", None)
+            if timers is None:
+                timers = _THREAD_TIMERS.timers = []
+            timers.append(self)
+        return tls
 
     def close(self) -> None:
-        """End the open lap, if any, and record its wall under ``gate:<flag>``."""
-        if self._flag is not None:
-            record_fe_family_wall("gate:" + self._flag, perf_counter() - self._t0)
-            self._flag = None
+        """End this thread's open lap, if any, and record its wall under ``gate:<flag>``."""
+        lap = self._lap()
+        if lap.flag is not None:
+            record_fe_family_wall("gate:" + lap.flag, perf_counter() - lap.t0)
+            lap.flag = None
 
     def gate(self, flag: str, is_on: bool) -> bool:
-        """Close the previous lap, open one for ``flag`` when ``is_on``, and return ``is_on`` unchanged."""
+        """Close this thread's previous lap, open one for ``flag`` when ``is_on``, and return ``is_on`` unchanged."""
         self.close()
         if is_on:
-            self._flag = flag
-            self._t0 = perf_counter()
+            lap = self._lap()
+            lap.flag = flag
+            lap.t0 = perf_counter()
         return is_on
+
+
+def close_thread_laps() -> None:
+    """End the open lap of every :class:`FamilyLapTimer` the calling thread has used (called when a stage worker finishes its stage)."""
+    for timer in list(getattr(_THREAD_TIMERS, "timers", ())):
+        timer.close()
+
+
+def fe_family_wall_since(before: "dict[str, tuple[float, int]]") -> "dict[str, dict[str, float]]":
+    """Per-family wall and call count accumulated since the ``before`` snapshot (``get_fe_family_wall()``), longest first.
+
+    ``wall_s`` is the sum of the family's timed intervals, so the families of concurrent cascades overlap in time and their walls add up to more than the fit's elapsed time. ``calls`` is the
+    number of timed intervals (laps for the ``gate:`` families)."""
+    now = get_fe_family_wall()
+    rows = {}
+    for name, (wall, calls) in now.items():
+        w0, c0 = before.get(name, (0.0, 0))
+        if calls - c0 > 0 or wall - w0 > 0.0:
+            rows[name] = {"wall_s": round(float(wall - w0), 4), "calls": int(calls - c0)}
+    return dict(sorted(rows.items(), key=lambda kv: -kv[1]["wall_s"]))
 
 
 def reset_fe_family_wall() -> None:
