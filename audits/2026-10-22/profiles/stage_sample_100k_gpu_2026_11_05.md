@@ -584,3 +584,17 @@ Wall 100000 -> 400000 rows: 94.4 s -> 196.8 s (x2.08; x3.13 at the start of the 
 The ~14 hybrid scorer variants (hsic, dcor, copula, ksg, tc, meta, ensemble, cmim, jmim, bootstrap, three-gate, auto, ...) each call `generate_univariate_basis_features(X_sub, cols, degrees, basis)` on the shared 30000-row draw. Counted in one 100000 x 100 every-family fit (all references to the function replaced in every module): 12 calls, 2.4 s in total, only 2 distinct inputs by content (columns, degrees, basis and the values), 1.6 s of it in the repeats (1.7 % of the fit). A cache would save about 1.2 s net of the key hash and would hold a frame of up to about 150 MB per distinct input with its lifetime to manage; judged mechanism debt for 1.2 %, not shipped. Re-measure if the number of variants grows.
 
 Dedup of engineered columns (`_pair_collisions`, 400000 rows): the pairs with NaN no longer pass the Python skip check before the masked kernel (61.8 s -> 59.6 s on `bench_eng_dedup_scan.py`, same kept / dropped sets). What remains of the stage is the masked Spearman kernel itself, 3.6 s of 5.4 s at 400000 rows; a device twin of it would save at most about 1 s at 100000 to 200000 rows (the whole dedup is 1.9 s at 100000), so it was not written.
+
+## Device twin of the masked Spearman dedup kernel (2026-11-09)
+
+`_mrmr_fit_impl/_eng_dedup_spearman_gpu.py` (`fe_dedup_spearman_device` in the kernel-tuning cache, fallback 100000 rows, `MLFRAME_DEDUP_SPEARMAN_DEVICE=0|1`). One block per (candidate, kept column) pair; the rank of a row over the jointly finite rows comes from a block-wide prefix sum of the joint-finite flags along the cached sorted order and the tie runs `[lo, hi]`; the rank sums are accumulated while the ranks are produced. Kept columns, orders, tie runs and finite bits stay on the device across the candidates of a fit (LRU within 30 % of the free memory; scratch within 15 %); when they do not fit the host kernel runs.
+
+`bench_eng_dedup_scan.py 400000`: 56.1 s host kernel, 28.3 s device (same 84 kept / 36 dropped). nvprof, 84 pairs x 200000 rows per launch (GTX Pascal, 4 GiB):
+
+| step | launch | note |
+| --- | --- | --- |
+| first cut, uint8 finite mask + double rank scratch, 256-thread scan | 134 ms | 91 % issue stalls on memory dependency: every flag test gathered `b[r]` (8 B, a sector per row) |
+| finite rows as 1-bit masks (joint mask built once per pair, 25 KB at 200000 rows, L1-resident), float32 row-space ranks (exact below 2**23) | 45 ms | gld efficiency 35.7 %, achieved occupancy 0.50 (52 registers, 1024-thread blocks) |
+| threads per block 128 / 256 / 512 / 1024 (isolated call incl. host prep) | 82 / 86 / 63 / 53 ms | wider blocks hide the dependent-gather latency |
+
+At 400000 rows an isolated call is 124 ms (1024 threads) against 174 ms (256). Open: the pairs are one block each, so a candidate with few NaN-sharing kept columns uses few SMs; splitting a pair over several blocks needs a decoupled look-back scan.

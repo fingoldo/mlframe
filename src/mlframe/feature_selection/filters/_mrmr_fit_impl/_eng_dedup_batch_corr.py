@@ -272,6 +272,9 @@ def clear_finite_sort_order_cache() -> None:
     """Drop every cached sort order; called when a fit ends so the orders of its columns do not stay in memory."""
     with _ORDER_CACHE_LOCK:
         _ORDER_CACHE.clear()
+    from ._eng_dedup_spearman_gpu import clear_device_column_cache
+
+    clear_device_column_cache()
 
 
 @numba.njit(cache=True, parallel=True, fastmath=False)

@@ -368,7 +368,10 @@ def _pair_collisions(_colliding_kept, _eng_keep, _fast_kept_set, _arr_c, _fin_c,
         _order_c = cand_order() if cand_order is not None else None
         if _order_c is None:
             _order_c = finite_sort_order(_arr_cc, cache=False)
-        masked_abs_spearman_presorted(_arr_cc, np.ascontiguousarray(_fin_c), _order_c, _others, _orders, float(_REL_TOL), _rho)
+        from ._eng_dedup_spearman_gpu import masked_abs_spearman_device, use_device
+
+        if not (use_device(int(_arr_cc.shape[0])) and masked_abs_spearman_device(_arr_cc, _order_c, _kept_cols, list(_orders), float(_REL_TOL), _rho)):
+            masked_abs_spearman_presorted(_arr_cc, np.ascontiguousarray(_fin_c), _order_c, _others, _orders, float(_REL_TOL), _rho)
         _masked_hit = {_kept_col for _kept_col, _r in zip(_masked, _rho) if _r >= 0.99}
     for _kept_col, _collides in _decided:
         if _collides is None:
