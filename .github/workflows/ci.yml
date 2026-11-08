@@ -270,7 +270,10 @@ jobs:
           # shard that collects tests/test_meta errors out before running anything.
           uv pip install --system -r requirements-dev.txt
           # numba's default macOS threading layer (workqueue) aborts the process on concurrent access; the shards nest numba
-          # parallel regions inside thread pools, so macOS switches to the TBB layer for the rest of the job.
+          # parallel regions inside thread pools. tbb has no macOS wheel, so macOS uses the OpenMP layer instead: the
+          # Homebrew libomp installed above is what it links against. Without this line every macOS shard aborts with
+          # "Fatal Python error: Aborted" in the workqueue layer (run 42480549270; the line was dropped on 2026-11-01).
+          if [ "$RUNNER_OS" = "macOS" ]; then echo "NUMBA_THREADING_LAYER=omp" >> "$GITHUB_ENV"; fi
 
       - name: Restore numba JIT cache
         # numba's per-kernel disk cache (keyed internally by source + numba version) is restored into
@@ -507,6 +510,12 @@ jobs:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
           pyutilz-ref: ${{ steps.pyutilz-pin.outputs.sha }}
+
+      - name: Install contributor tooling not declarable in [dev]
+        # Same step as the sharded jobs: tests/conftest.py imports py_ci_shared at collection time, and this job
+        # collects the whole training suite. Without it every test in the group fails with ModuleNotFoundError
+        # (run 42480549270, Ubuntu test_core.py groups 1-4).
+        run: uv pip install --system -r requirements-dev.txt
 
       - name: Restore numba JIT cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0

@@ -7,7 +7,7 @@ normal run.
 from __future__ import annotations
 
 import hashlib
-import json
+import orjson
 import logging
 
 import joblib
@@ -31,7 +31,7 @@ def test_failing_version_check_is_logged_as_a_warning(tmp_path, monkeypatch, cap
     fdir = tmp_path / "fs1"
     fdir.mkdir()
     feats = fdir / "features.dump.json"
-    feats.write_text(json.dumps(["a", "b"]))
+    feats.write_bytes(orjson.dumps(["a", "b"]))
     (fdir / "features.dump.json.sha256").write_text(hashlib.sha256(feats.read_bytes()).hexdigest())
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(size=(40, 2)), columns=["a", "b"])

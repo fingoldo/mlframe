@@ -6,7 +6,7 @@ It used to verify the file by path and then reopen it by path to unpickle, so a 
 from __future__ import annotations
 
 import hashlib
-import json
+import orjson
 
 import joblib
 import numpy as np
@@ -30,7 +30,7 @@ def test_model_is_unpickled_from_the_bytes_that_were_verified(tmp_path, monkeypa
     fdir = tmp_path / "fs1"
     fdir.mkdir()
     feats = fdir / "features.dump.json"
-    feats.write_text(json.dumps(["a", "b"]))
+    feats.write_bytes(orjson.dumps(["a", "b"]))
     (fdir / "features.dump.json.sha256").write_text(hashlib.sha256(feats.read_bytes()).hexdigest())
     original, X = _fit(0)
     impostor, _ = _fit(1)
