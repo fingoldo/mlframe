@@ -88,4 +88,4 @@ def test_a_side_shared_by_two_candidates_is_scored_once(monkeypatch):
     monkeypatch.setattr(sides, "cv_loss", lambda design, *a, **k: (calls.append(1), real(design, *a, **k))[1])
     kept = sides.drop_forms_not_beating_their_sides(cands, X, y, classification=True, seed=0)
     assert len(calls) == 2 + 3  # two forms and the three distinct sides s, u, v (not 2 + 4)
-    assert all(c.name in {"s*u", "s*v"} for c in kept)
+    assert {c.name for c in kept} <= {"s*u", "s*v"}

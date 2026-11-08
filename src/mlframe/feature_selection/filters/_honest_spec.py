@@ -65,6 +65,22 @@ class _FrameColumns:
         return np.asarray(self._X[name].to_numpy(dtype=self.dtype, copy=False))
 
 
+def _median_filled_column(col: pd.Series) -> "tuple[np.ndarray, np.ndarray] | None":
+    """``(values, NaN mask)`` of a numeric column with NaN replaced by the column median, or ``None`` when it holds an infinity or only NaN.
+
+    The production categorisation fills NaN with the column median before binning (``_handle_missing``): the cut search, the fallback edges and the unique-value count all see the filled
+    column. The NaN rows keep their own code afterwards."""
+    v = np.asarray(col.to_numpy(), dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
+    if np.isinf(v).any():
+        return None
+    nan_here = np.isnan(v)
+    if nan_here.all():
+        return None
+    if nan_here.any():
+        v = np.where(nan_here, float(np.nanmedian(v)), v)
+    return v, nan_here
+
+
 def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, max_depth: int, method: str = "mdlp") -> dict | None:
     """Spec dict for ``_mdlp_honest_njit.honest_null_columns`` over the first ``len(cols)`` factor columns, or None when a column is not
     usable (non-numeric or non-finite): the caller then keeps the categorise-per-permutation path."""
@@ -100,19 +116,12 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
             # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
             q_rf_rows.append(np.empty(0, dtype=np.float64))
             continue
-        # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
-        v = np.asarray(X[c].to_numpy(), dtype=np.float64)
-        if np.isinf(v).any():
+        prepared = _median_filled_column(X[c])
+        if prepared is None:
             return None
-        nan_here = np.isnan(v)
-        if nan_here.all():
-            return None
+        v, nan_here = prepared
         if nan_here.any():
-            # The production categorisation fills NaN with the column median before binning (``_handle_missing``): the cut search,
-            # the fallback edges and the unique-value count all see the filled column. The NaN rows keep their own code afterwards.
-            v = np.where(nan_here, float(np.nanmedian(v)), v)
             nan_by_col[j] = nan_here
-        if nan_here.any():
             filled[j] = v
         q_fb_rows.append(np.empty(0, dtype=np.float64))  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
         q_rf_rows.append(np.empty(0, dtype=np.float64))  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)

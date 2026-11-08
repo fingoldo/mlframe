@@ -292,6 +292,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_OJ_NULL_BINNER` | `'1'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_binning.py](../src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_binning.py#L184) |
 | `MLFRAME_OJ_PLAN_CACHE` | `'1'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_binning.py](../src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_binning.py#L156) |
 | `MLFRAME_OOF_BATCH_BINNING_MAX_TRAIN_ROWS` | `16000` | [src/mlframe/feature_selection/filters/_orthogonal_three_gate_mi_fe.py](../src/mlframe/feature_selection/filters/_orthogonal_three_gate_mi_fe.py#L234) |
+| `MLFRAME_ORTH_UNIVARIATE_OUT_F64` | `'0'` | [src/mlframe/feature_selection/filters/engineered_recipes/_orth_basis_recipes.py](../src/mlframe/feature_selection/filters/engineered_recipes/_orth_basis_recipes.py#L243) |
 | `MLFRAME_PAIR_FAMILY_EXACT_MAX_MCELLS` | `400` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py#L28) |
 | `MLFRAME_PAIR_LAZY_CODES` | `'1'` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_chunk_codes.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_chunk_codes.py#L36) |
 | `MLFRAME_PAIR_NULL_MAX_ROWS` | `250000` | [src/mlframe/feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py](../src/mlframe/feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py#L91) |
@@ -334,6 +335,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_RADIX_GROUPED` | `'1'` | [src/mlframe/feature_selection/filters/_gpu_resident_select.py](../src/mlframe/feature_selection/filters/_gpu_resident_select.py#L381) |
 | `MLFRAME_REALDATA_CACHE` | — | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/_realdata_cache.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/_realdata_cache.py#L57) |
 | `MLFRAME_RECENCY_KDE_PARALLEL_MIN_GROUPS` | `512` | [src/mlframe/feature_engineering/recency_density.py](../src/mlframe/feature_engineering/recency_density.py#L40) |
+| `MLFRAME_RECIPE_OUT_F64` | `'0'` | [src/mlframe/feature_selection/filters/engineered_recipes/_recipe_dispatch.py](../src/mlframe/feature_selection/filters/engineered_recipes/_recipe_dispatch.py#L310) |
 | `MLFRAME_RECURRENT_PREDICTION_CACHE_MAX` | `16` | [src/mlframe/training/neural/_recurrent_wrapper_base.py](../src/mlframe/training/neural/_recurrent_wrapper_base.py#L46) |
 | `MLFRAME_REGRESSION_RECALIBRATION` | `''` | [src/mlframe/training/core/_phase_finalize_calibration.py](../src/mlframe/training/core/_phase_finalize_calibration.py#L358) |
 | `MLFRAME_RETENTION_NULL_MAX_ROWS` | `'250000'` | [src/mlframe/feature_selection/filters/_fe_retention_subsumption.py](../src/mlframe/feature_selection/filters/_fe_retention_subsumption.py#L152) |
@@ -362,7 +364,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_USABILITY_CORR_F32` | `'1'` | [src/mlframe/feature_selection/filters/batch_pair_usability_corr_gpu.py](../src/mlframe/feature_selection/filters/batch_pair_usability_corr_gpu.py#L498) |
 | `MLFRAME_USABILITY_CORR_MAX_ROWS` | `'30000'` | [src/mlframe/feature_selection/filters/_fe_usability_signal.py](../src/mlframe/feature_selection/filters/_fe_usability_signal.py#L143) |
 | `MLFRAME_USABILITY_POOL_BACKEND` | `''` | [src/mlframe/feature_selection/filters/_usability_njit_pool.py](../src/mlframe/feature_selection/filters/_usability_njit_pool.py#L452) |
-| `MLFRAME_USAB_CLF_NEWTON` | `'1'` | [src/mlframe/feature_selection/filters/_usability_aware_selection.py](../src/mlframe/feature_selection/filters/_usability_aware_selection.py#L814) |
+| `MLFRAME_USAB_CLF_NEWTON` | `'1'` | [src/mlframe/feature_selection/filters/_usability_aware_selection.py](../src/mlframe/feature_selection/filters/_usability_aware_selection.py#L819) |
 | `MLFRAME_USE_SKLEARNEX` | `'1'` | [src/mlframe/feature_engineering/transformer/_intel_patch.py](../src/mlframe/feature_engineering/transformer/_intel_patch.py#L45) |
 | `MLFRAME_VARIANCE_GATED_DIFF_MAX_BYTES` | — | [src/mlframe/feature_engineering/variance_gated_pairwise_diff.py](../src/mlframe/feature_engineering/variance_gated_pairwise_diff.py#L35) |
 | `MLFRAME_WARMUP_MAPE_DIAG` | — | [src/mlframe/metrics/_core_numba_warmup.py](../src/mlframe/metrics/_core_numba_warmup.py#L394) |

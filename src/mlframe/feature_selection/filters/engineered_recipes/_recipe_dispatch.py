@@ -299,13 +299,14 @@ def replay_value_cache() -> "Iterator[None]":
 
 
 def _fit_dtype_output(values: Any, kind: str = "") -> Any:
-    """A replayed float64 column handed back at the fit's float dtype, which is the contract of :func:`apply_recipe` (float32 unless discretized): a handler may evaluate in
-    float64, the column it returns is rounded once. Fit-time replay (``fe_decide_on_subsample``) and ``transform`` go through here, so both see the same rounded numbers.
-    Integer and discretized outputs, and a float64 fit (``MLFRAME_CRIT_DTYPE_RELAXED=0``), are returned as they are; ``MLFRAME_RECIPE_OUT_F64=1`` keeps float64. ``unary_binary`` keeps its own
+    """A replayed double column handed back at the fit's float dtype, which is the contract of :func:`apply_recipe` (float32 unless discretized): a handler may evaluate in
+    double, the column it returns is rounded once. Fit-time replay (``fe_decide_on_subsample``) and ``transform`` go through here, so both see the same rounded numbers.
+    Integer and discretized outputs, and a double fit (``MLFRAME_CRIT_DTYPE_RELAXED=0``), are returned as they are; ``MLFRAME_RECIPE_OUT_F64=1`` keeps double. ``unary_binary`` keeps its own
     policy (``MLFRAME_FE_VRAM_F32``: the numpy replay and the device path agree on the precision of the flag), pinned by ``test_recipe_replay_dtype_survives_a_gpu_fallback``."""
     import os
 
     arr = values if isinstance(values, np.ndarray) else None
+    # Intentional float64: only a float64 handler result is narrowed to the fit's dtype
     if kind == "unary_binary" or arr is None or arr.dtype != np.float64 or os.environ.get("MLFRAME_RECIPE_OUT_F64", "0").strip() == "1":
         return values
     from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype

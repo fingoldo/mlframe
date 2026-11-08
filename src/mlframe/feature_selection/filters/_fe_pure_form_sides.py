@@ -45,7 +45,7 @@ def drop_forms_not_beating_their_sides(candidates: list, X: Any, y: np.ndarray, 
 
     def _side_loss(values: np.ndarray) -> float:
         """CV loss of one side column, reused across the candidates that replay the same side."""
-        key = hashlib.blake2b(np.ascontiguousarray(values).tobytes(), digest_size=16).digest()
+        key = hashlib.blake2b(np.ascontiguousarray(values).view(np.uint8).data, digest_size=16).digest()
         loss = side_losses.get(key)
         if loss is None:
             loss = cv_loss(values, y, classification, n_folds, seed)

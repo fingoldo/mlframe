@@ -228,14 +228,14 @@ def _apply_orth_univariate(
         nan_fill=recipe.extra.get("nan_fill"), pre_sd=recipe.extra.get("pre_sd"),
     )
     if basis_cache is not None:
-        basis_cache[_key] = out  # the cache keeps the float64 basis values: the pair-cross recipes multiply them
+        basis_cache[_key] = out  # the cache keeps the double-precision basis values: the pair-cross recipes multiply them
     return _univariate_output(out)
 
 
 def _univariate_output(values: np.ndarray) -> np.ndarray:
-    """The column a univariate recipe hands back: the basis is EVALUATED in float64 (the recurrence is 5 to 40 times more accurate than in float32 at degrees 3 to 10), and the
-    result is returned at the fit's float dtype, so the stored column is half the size. Fit and replay round the same float64 value the same way, so they stay identical;
-    ``MLFRAME_ORTH_UNIVARIATE_OUT_F64=1`` returns the float64 values."""
+    """The column a univariate recipe hands back: the basis is EVALUATED in double (the recurrence is 5 to 40 times more accurate than in float32 at degrees 3 to 10), and the
+    result is returned at the fit's float dtype, so the stored column is half the size. Fit and replay round the same double value the same way, so they stay identical;
+    ``MLFRAME_ORTH_UNIVARIATE_OUT_F64=1`` returns the double values."""
     import os
 
     from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
