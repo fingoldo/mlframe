@@ -298,7 +298,7 @@ def replay_value_cache() -> "Iterator[None]":
             _REPLAY_VALUES.entries = None
 
 
-def _fit_dtype_output(values: Any, kind: str = "") -> Any:
+def _fit_dtype_output(values: np.ndarray, kind: str = "") -> np.ndarray:
     """A replayed double column handed back at the fit's float dtype, which is the contract of :func:`apply_recipe` (float32 unless discretized): a handler may evaluate in
     double, the column it returns is rounded once. Fit-time replay (``fe_decide_on_subsample``) and ``transform`` go through here, so both see the same rounded numbers.
     Integer and discretized outputs, and a double fit (``MLFRAME_CRIT_DTYPE_RELAXED=0``), are returned as they are; ``MLFRAME_RECIPE_OUT_F64=1`` keeps double. ``unary_binary`` keeps its own
