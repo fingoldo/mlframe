@@ -447,6 +447,7 @@ def fe_decide_on_subsample(
     shared_subsample_idx: np.ndarray | None = None,
     recipes_at: int = -1,
     refit: "Callable[..., tuple] | None" = None,
+    frameless: bool = False,
     **kwargs: Any,
 ) -> tuple:
     """Run an ``*_with_recipes`` FE family on a row-SUBSAMPLE for its DECISION, then
@@ -454,6 +455,9 @@ def fe_decide_on_subsample(
 
     ``recipes_at``: index of the recipe list in the tuple the family returns (default: last). A family that returns ``(X, appended, recipes, scores)`` passes ``recipes_at=2``; the result
     then has the family's own layout, so the call site changes only by routing the call through this function.
+
+    ``frameless``: for a closed-form family that returns ``(appended, recipes)`` and no frame (its caller builds the columns from the recipes on all rows): the family runs on the subsample and its result is
+    returned as it is.
 
     ``refit``: for a family whose recipes carry statistics fitted on the rows they saw (group tables, lookups), replaying the subsample's recipes would apply tables fitted on the subsample. A
     ``refit(X, y, recipes, kwargs)`` returning ``(columns by name, recipes)`` computes the winners again on ALL rows instead (see :func:`refit_winners`); any failure falls back to the full-data decision.
@@ -529,6 +533,8 @@ def fe_decide_on_subsample(
     _t_call = perf_counter()
     _ret = fit_with_recipes_fn(_X_sub, _y_sub, **kwargs)
     record_fe_family_wall("stage:decide_family_call", perf_counter() - _t_call)
+    if frameless:
+        return _ret
     if not (isinstance(_ret, tuple) and len(_ret) >= 2):
         logger.warning(
             "fe_decide_on_subsample: %s returned an unexpected shape on the %d-row subsample; re-running the DECISION "

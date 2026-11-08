@@ -52,3 +52,23 @@ def test_the_shared_subsample_is_gathered_once_and_families_do_not_share_mutatio
     H.fe_decide_on_subsample(_family(seen), X, y, shared_subsample_idx=idx, recipes_at=2)
     assert len(gathers) == 1
     assert all("e1" not in f.columns for f in seen)
+
+
+def test_a_frameless_family_runs_on_the_subsample_and_its_result_is_returned_as_it_is():
+    """A family returning ``(appended, recipes)`` is called on the drawn rows only and its tuple is handed back unchanged (the caller builds the columns on all rows)."""
+    rng = np.random.default_rng(2)
+    n = 3000
+    X = pd.DataFrame({"a": rng.standard_normal(n), "b": rng.standard_normal(n)})
+    y = rng.integers(0, 2, n)
+    idx = np.sort(rng.choice(n, 600, replace=False)).astype(np.int64)
+    rows: list = []
+    recipe = SimpleNamespace(name="e1")
+
+    def fam(X_in, y_in, **_kw):
+        """Record the rows it was given; return the frameless layout."""
+        rows.append((len(X_in), len(y_in)))
+        return ["e1"], [recipe]
+
+    out = H.fe_decide_on_subsample(fam, X, y, shared_subsample_idx=idx, frameless=True)
+    assert rows == [(600, 600)]
+    assert out[0] == ["e1"] and out[1][0] is recipe

@@ -268,8 +268,8 @@ def _fe_stage_cascade_mid_a_part1(
                     # Raw-column operands only (excludes pmod_/orth engineered columns added upstream); see the modular note.
                     _il_hybrid_set = set(self.hybrid_orth_features_ or [])
                     _il_raw_cols = [c for c in X.columns if c not in _il_hybrid_set]
-                    _il_appended, _il_recipes = hybrid_integer_lattice_fe_with_recipes(
-                        X, _y_il_binned,  # type: ignore[arg-type]
+                    _il_appended, _il_recipes = fe_decide_on_subsample(
+                        hybrid_integer_lattice_fe_with_recipes, X, _y_il_binned, frameless=True, **fe_subsample_kwargs(self),  # type: ignore[arg-type]
                         cols=_il_raw_cols,
                         top_k=int(getattr(self, "fe_integer_lattice_top_k", 4)),
                         seed=int(getattr(self, "random_seed", 0) or 0),
@@ -758,8 +758,8 @@ def _stage_pairwise_modular(self, X, _y_class_mi_applicable, _y_class_mi_binned,
                 # whose engineered source is not resolvable at replay time (transform() emits NaN and drops the feature).
                 _pm_hybrid_set = set(self.hybrid_orth_features_ or [])
                 _pm_raw_cols = [c for c in X.columns if c not in _pm_hybrid_set]
-                _pm_appended, _pm_recipes = hybrid_pairwise_modular_fe_with_recipes(
-                    X, _y_pm_binned,
+                _pm_appended, _pm_recipes = fe_decide_on_subsample(
+                    hybrid_pairwise_modular_fe_with_recipes, X, _y_pm_binned, frameless=True, **fe_subsample_kwargs(self),
                     cols=_pm_raw_cols,
                     top_k=int(getattr(self, "fe_pairwise_modular_top_k", 4)),
                     seed=int(getattr(self, "random_seed", 0) or 0),
@@ -824,8 +824,8 @@ def _stage_row_argmax(self, X, _y_class_mi_applicable, _y_class_mi_binned, _row_
                 # engineered columns yields nested recipes whose engineered source is not resolvable at replay -> NaN drop.
                 _am_hybrid_set = set(self.hybrid_orth_features_ or [])
                 _am_raw_cols = [c for c in X.columns if c not in _am_hybrid_set]
-                _am_appended, _am_recipes = hybrid_row_argmax_fe_with_recipes(
-                    X, _y_am_binned,
+                _am_appended, _am_recipes = fe_decide_on_subsample(
+                    hybrid_row_argmax_fe_with_recipes, X, _y_am_binned, frameless=True, **fe_subsample_kwargs(self),
                     cols=_am_raw_cols,
                     top_k=int(getattr(self, "fe_row_argmax_top_k", 4)),
                     seed=int(getattr(self, "random_seed", 0) or 0),
