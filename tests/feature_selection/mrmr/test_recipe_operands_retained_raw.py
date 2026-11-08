@@ -39,12 +39,35 @@ def _fit(policy: str):
 
 
 def _recipe_sources(model) -> set[str]:
-    """Union of source columns of the engineered recipes that are in the final selection."""
+    """Union of the RAW source columns of the engineered recipes in the final selection: a source that is itself an engineered column (a chained recipe, e.g. a modular
+    feature of a column) is followed to the raw columns it is built from."""
     selected = set(map(str, model.get_feature_names_out()))
+    recipes = {str(getattr(r, "name", "")): r for r in getattr(model, "_engineered_recipes_", None) or []}
+    # a chained recipe carries its engineered parent inside ``extra`` (``nested_parent_*``): the parent is not a separate entry of the list
+    pending = list(recipes.values())
+    while pending:
+        for value in (getattr(pending.pop(), "extra", None) or {}).values():
+            if hasattr(value, "src_names") and str(getattr(value, "name", "")) not in recipes:
+                recipes[str(value.name)] = value
+                pending.append(value)
     out: set[str] = set()
-    for r in getattr(model, "_engineered_recipes_", None) or []:
-        if getattr(r, "name", None) in selected:
-            out |= set(getattr(r, "src_names", ()) or ())
+
+    def _walk(name: str, seen: set) -> None:
+        """Add the raw columns below ``name`` to ``out``."""
+        if name in seen:
+            return
+        seen.add(name)
+        rec = recipes.get(name)
+        if rec is None:
+            out.add(name)
+            return
+        for src in getattr(rec, "src_names", ()) or ():
+            _walk(str(src), seen)
+
+    for name in list(recipes):
+        if name in selected:
+            _walk(name, set())
+    out.difference_update(recipes)
     return out
 
 

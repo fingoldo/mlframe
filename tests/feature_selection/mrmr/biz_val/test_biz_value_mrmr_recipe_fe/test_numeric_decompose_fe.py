@@ -173,9 +173,8 @@ class TestRoundingPrecisionSignal:
         actual use case (tree/GBM split cleanliness), NOT MI-based selection.
 
         Two contracts pinned:
-        1. MI-neutrality: MI(round(x,1.0); y) is within a small tolerance of
-           MI(x; y) - rounding neither adds (DPI) nor destroys (binner already
-           coarse) MI on this anchor+jitter fixture.
+        1. No MI gain: MI(round(x,1.0); y) does not exceed MI(x; y) (DPI);
+           how far below it falls depends on the binner's tie rule.
         2. Downstream lift: a LogReg on one-hot(round(x,1.0)) beats LogReg on
            raw x for the step-parity target, because the linear model can
            exploit the discrete anchor structure the raw continuous column
@@ -194,13 +193,13 @@ class TestRoundingPrecisionSignal:
             x = X["x"].to_numpy()
             mi_raw = _mi_one(x, y)
             mi_round = _mi_one(apply_rounding(x, 1.0), y)
-            # MI-neutral: DPI forbids round from EXCEEDING raw; the coarse
-            # binner forbids it falling far BELOW. Stay within 0.03 nats.
-            assert abs(mi_round - mi_raw) <= 0.03, (
-                f"seed={s}: |MI(round)-MI(raw)| = {abs(mi_round - mi_raw):.4f} "
-                f"> 0.03; rounding should be MI-neutral under quantile-binned "
-                f"estimation (round={mi_round:.4f}, raw={mi_raw:.4f})."
-            )
+            # Rounding adds no information (data-processing inequality): MI(round) does not exceed MI(raw) beyond estimation noise. Since the rank binners keep a run of
+            # equal values in ONE bin (commit dcffe99), the ten anchors of the rounded column are no longer split across the ten equal-frequency bins: small tail anchors
+            # share the bin of the anchor before them, so MI(round) can fall well below MI(raw) (0.11 against 0.49 on seed 42). The old "within 0.03 nats" bound
+            # belonged to the row-order splitting of ties; only the upper side is a property of rounding itself.
+            assert (
+                mi_round <= mi_raw + 0.03
+            ), f"seed={s}: MI(round)={mi_round:.4f} exceeds MI(raw)={mi_raw:.4f} by more than the 0.03-nat estimation noise; rounding cannot add information."
             # Downstream: one-hot rounded anchor vs raw x for a LINEAR model.
             xtr, xte, ytr, yte = train_test_split(
                 x,

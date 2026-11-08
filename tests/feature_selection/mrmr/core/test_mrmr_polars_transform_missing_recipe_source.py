@@ -41,8 +41,12 @@ def _fitted_mrmr_with_recipe(names, support, recipe):
     return m
 
 
-def test_polars_transform_missing_recipe_source_degrades_like_pandas():
-    """Polars transform missing recipe source degrades like pandas."""
+def test_polars_transform_missing_recipe_source_raises_like_pandas():
+    """A recipe whose raw source column is absent at transform raises a KeyError naming the column, on polars and pandas alike.
+
+    2026-11 correction: this test used to pin the degrade contract (a warning and a neutral zero column). Commit 3ff764146 replaced it on purpose: a constant column in place of a
+    feature the model was trained on makes the downstream model score garbage with no error, so every recipe kind now raises and names the missing column
+    (``test_transform_missing_raw_source_raises.py``). What this file still pins is that polars and pandas behave the same."""
     recipe = EngineeredRecipe(
         name="sqr(num_1)",
         kind="orth_univariate",
@@ -56,11 +60,10 @@ def test_polars_transform_missing_recipe_source_degrades_like_pandas():
     X_pl = pl.DataFrame({"num_0": [1.0, 2.0, 3.0]})
     X_pd = pd.DataFrame({"num_0": [1.0, 2.0, 3.0]})
 
-    out_pl = m.transform(X_pl)  # must NOT raise -- matches the pandas degrade contract
-    out_pd = m.transform(X_pd)
-
-    np.testing.assert_array_equal(out_pl[recipe.name].to_numpy(), np.zeros(3))
-    np.testing.assert_array_equal(out_pd[recipe.name].to_numpy(), np.zeros(3))
+    with pytest.raises(KeyError, match="num_1"):
+        m.transform(X_pl)
+    with pytest.raises(KeyError, match="num_1"):
+        m.transform(X_pd)
 
 
 def test_polars_transform_missing_raw_seed_only_recipe_source_still_raises():

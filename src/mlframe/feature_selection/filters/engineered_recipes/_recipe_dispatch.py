@@ -298,6 +298,22 @@ def replay_value_cache() -> "Iterator[None]":
             _REPLAY_VALUES.entries = None
 
 
+def _fit_dtype_output(values: Any, kind: str = "") -> Any:
+    """A replayed float64 column handed back at the fit's float dtype, which is the contract of :func:`apply_recipe` (float32 unless discretized): a handler may evaluate in
+    float64, the column it returns is rounded once. Fit-time replay (``fe_decide_on_subsample``) and ``transform`` go through here, so both see the same rounded numbers.
+    Integer and discretized outputs, and a float64 fit (``MLFRAME_CRIT_DTYPE_RELAXED=0``), are returned as they are; ``MLFRAME_RECIPE_OUT_F64=1`` keeps float64. ``unary_binary`` keeps its own
+    policy (``MLFRAME_FE_VRAM_F32``: the numpy replay and the device path agree on the precision of the flag), pinned by ``test_recipe_replay_dtype_survives_a_gpu_fallback``."""
+    import os
+
+    arr = values if isinstance(values, np.ndarray) else None
+    if kind == "unary_binary" or arr is None or arr.dtype != np.float64 or os.environ.get("MLFRAME_RECIPE_OUT_F64", "0").strip() == "1":
+        return values
+    from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
+    dt = np.dtype(_crit_np_dtype())
+    return arr.astype(dt) if dt.itemsize < arr.dtype.itemsize else values
+
+
 def apply_recipe(
     recipe: EngineeredRecipe, X: Any,
     col_cache: "dict[str, np.ndarray] | None" = None,
@@ -316,7 +332,7 @@ def apply_recipe(
         raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
     entries = getattr(_REPLAY_VALUES, "entries", None)
     if entries is None:
-        return handler(recipe, X, col_cache, basis_cache)
+        return _fit_dtype_output(handler(recipe, X, col_cache, basis_cache), recipe.kind)
     # unary_binary replays are continuous whatever ``quantization`` says (it is provenance only there), so a stripped copy of the recipe hits the same entry.
     quant = None if recipe.kind == "unary_binary" else repr(getattr(recipe, "quantization", None))
     key = (str(recipe.name), str(recipe.kind), quant, id(X), getattr(X, "shape", None))
@@ -324,6 +340,6 @@ def apply_recipe(
     if hit is not None and hit[0] is X:
         cached: np.ndarray = hit[1]
         return np.asarray(cached.copy())
-    out = handler(recipe, X, col_cache, basis_cache)
+    out = _fit_dtype_output(handler(recipe, X, col_cache, basis_cache), recipe.kind)
     entries[key] = (X, np.array(out, copy=True))  # X is held so its id cannot be reused by another frame while the entry lives
     return out

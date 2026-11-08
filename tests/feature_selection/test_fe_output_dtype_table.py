@@ -51,6 +51,7 @@ def test_orth_univariate_float32_output_is_the_rounded_float64_value(fit_and_fra
         pytest.skip("no orth_univariate recipe survived on this fixture")
     default = np.asarray(apply_recipe(recs[0], X))
     monkeypatch.setenv("MLFRAME_ORTH_UNIVARIATE_OUT_F64", "1")
+    monkeypatch.setenv("MLFRAME_RECIPE_OUT_F64", "1")  # the dispatcher rounds every float64 recipe column to the fit dtype too
     wide = np.asarray(apply_recipe(recs[0], X))
     assert default.dtype == np.float32 and wide.dtype == np.float64
     np.testing.assert_array_equal(default, wide.astype(np.float32))
