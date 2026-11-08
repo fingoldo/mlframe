@@ -424,7 +424,11 @@ def fit_binned_numeric_agg(
     # only on ``acol`` yet were recomputed for every (gcol, acol) pair - and ``_global_stat``'s scipy
     # skew/kurtosis do several full-n passes each, so at 16 group columns the same column's globals ran up to
     # 16x (the dominant host cost of the recipe fit at 1M rows). Bit-identical values, just computed once.
-    _av_cache: dict[str, tuple] = {}
+    # aggregated columns as float64 plus their finite masks, bounded in bytes: one entry per aggregated column was 90 MB at 10 million rows and the dict held every one of
+    # them for the whole family (1.2 GB); an evicted column is read from X again (same values)
+    from ._binned_numeric_agg_resident import _BytesLRU
+
+    _av_cache: dict[str, tuple] = _BytesLRU(256 * 1024 * 1024)
     _globals_cache: dict[tuple, dict] = {}
     # Fold membership depends ONLY on ``f`` (not on gcol/acol), yet the per-(gcol, acol) OOF loop below
     # recomputed ``np.where(fold_ids == f)`` every pair*fold. Precompute it ONCE per call (bit-identical -
