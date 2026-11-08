@@ -16,7 +16,7 @@ import logging
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
-from ._helpers import _dispatch_default_scorer, fe_decide_on_subsample
+from ._helpers import _dispatch_default_scorer, fe_decide_on_subsample, fe_subsample_kwargs
 from .._fe_frame_ops import fe_append_columns, fe_extract_columns, fe_is_numeric_col
 from ._fe_stage_merge import _fe_merge_new_columns
 from .._y_encoding import encode_y_for_classif_mi
@@ -418,13 +418,11 @@ def _fe_stage_cascade_early_a_part1(
             _hinge_emit_ind = bool(getattr(self, "fe_hinge_emit_indicator", False))
             _hinge_mvu = float(getattr(self, "fe_hinge_min_heldout_r2_uplift", 0.02))
             _X_before_hinge_cols = list(X.columns)
-            # Closed-form recipes (breakpoint, side): the breakpoint search and the held-out admission run on ``fe_closed_form_decide_rows`` rows, the winners are replayed at full n. The shared 30 000-row
-            # pair-search subsample is too small for this decision: on it the detector added spurious second breakpoints (held-out HGB error 4.7% worse in 4 of 4 cases).
+            # Closed-form recipes (breakpoint, side): the breakpoint search and the held-out admission run on the fit's shared row subsample, the winners are replayed at full n.
             X_h, _h_scores, _h_recipes = fe_decide_on_subsample(
                 hybrid_hinge_fe_with_recipes,
                 X, _y_for_hinge,
-                subsample_n=int(getattr(self, "fe_closed_form_decide_rows", 0) or 0),
-                subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                **fe_subsample_kwargs(self),
                 cols=_hinge_cols,
                 max_breakpoints=_hinge_max_bp,
                 emit_indicator=_hinge_emit_ind,

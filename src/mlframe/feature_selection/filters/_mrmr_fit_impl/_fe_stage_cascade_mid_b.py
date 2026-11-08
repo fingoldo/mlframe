@@ -21,7 +21,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from ._fe_stage_merge import _fe_merge_new_columns
-from ._helpers import fe_decide_on_subsample
+from ._helpers import fe_decide_on_subsample, fe_subsample_kwargs
 from ._fe_stage_offset_product import _stage_offset_product
 from ._fe_stage_oof_warp import _stage_oof_warp
 from ._fe_stage_row_stat import _stage_row_stat
@@ -660,12 +660,11 @@ def _stage_wavelet(self, _fe_family_on, _fe_budget_ok, X, _y_np, _raw_input_cols
                     X_out, appended, recipes, extra = hybrid_wavelet_fe_with_recipes(X_in, y_in, **kw)
                     return X_out, appended, extra, recipes
 
-                # Haar legs are closed-form (scale, shift): the leg search and its held-out gate run on ``fe_closed_form_decide_rows`` rows, the winners are replayed at full n.
+                # Haar legs are closed-form (scale, shift): the leg search and its held-out gate run on the fit's shared row subsample, the winners are replayed at full n.
                 X_wv, _wv_appended, _, _wv_recipes = fe_decide_on_subsample(
                     _wavelet_recipes_last,
                     X, _y_for_wv,
-                    subsample_n=int(getattr(self, "fe_closed_form_decide_rows", 0) or 0),
-                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    **fe_subsample_kwargs(self),
                     cols=_wv_cols,
                     max_scale=int(getattr(self, "fe_wavelet_max_scale", 3)),
                     max_legs=int(getattr(self, "fe_wavelet_max_legs", 6)),

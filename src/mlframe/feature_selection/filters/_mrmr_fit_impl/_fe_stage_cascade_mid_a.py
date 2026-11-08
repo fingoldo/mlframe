@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 from .._y_encoding import encode_y_for_classif_mi
 from ._fe_stage_merge import _fe_merge_new_columns
+from ._helpers import fe_decide_on_subsample, fe_subsample_kwargs
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -607,9 +608,12 @@ def _stage_numeric_decompose(self, _fe_family_on, X, _y_np, _numeric_decompose_p
                 _nd_n_boot = int(getattr(self, "fe_numeric_decompose_n_boot", 10))
                 _nd_top_k = int(getattr(self, "fe_numeric_decompose_top_k", 5))
                 _X_before_nd_cols = list(X.columns)
-                X_nd, _nd_appended, _nd_recipes, _nd_scores = hybrid_numeric_decompose_fe_with_recipes(
+                X_nd, _nd_appended, _nd_recipes, _nd_scores = fe_decide_on_subsample(
+                    hybrid_numeric_decompose_fe_with_recipes,
                     X,
                     _y_for_nd,
+                    recipes_at=2,
+                    **fe_subsample_kwargs(self),
                     cols=None,
                     precisions=_nd_precisions,
                     digit_positions=_nd_digits,
@@ -660,9 +664,12 @@ def _stage_modular(self, _fe_family_on, X, _y_np, _modular_pre_recipes, verbose)
                 _md_periods = tuple(getattr(self, "fe_modular_periods", (7, 12, 24, 30, 365)) or (7, 12, 24, 30, 365))
                 _md_top_k = int(getattr(self, "fe_modular_top_k", 6))
                 _X_before_md_cols = list(X.columns)
-                X_md, _md_appended, _md_recipes, _md_scores = hybrid_modular_fe_with_recipes(
+                X_md, _md_appended, _md_recipes, _md_scores = fe_decide_on_subsample(
+                    hybrid_modular_fe_with_recipes,
                     X,
                     _y_for_md,
+                    recipes_at=2,
+                    **fe_subsample_kwargs(self),
                     cols=None,
                     periods=_md_periods,
                     top_k=_md_top_k,
@@ -698,7 +705,7 @@ def _stage_modular(self, _fe_family_on, X, _y_np, _modular_pre_recipes, verbose)
                 from mlframe.feature_selection.filters._parity_fe import hybrid_parity_fe_with_recipes
 
                 _raw_par_cols = [c for c in X.columns if "__" not in str(c) and pd.api.types.is_numeric_dtype(X[c])]
-                X_par, _par_appended, _par_recipes, _ = hybrid_parity_fe_with_recipes(X, _y_np, cols=_raw_par_cols)
+                X_par, _par_appended, _par_recipes, _ = fe_decide_on_subsample(hybrid_parity_fe_with_recipes, X, _y_np, recipes_at=2, **fe_subsample_kwargs(self), cols=_raw_par_cols)
                 if _par_appended:
                     X = X_par
                     self.parity_features_ = list(_par_appended)

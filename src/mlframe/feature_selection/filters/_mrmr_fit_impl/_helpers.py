@@ -18,6 +18,9 @@ from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
 import pandas as pd
+import functools
+import weakref
+import threading
 from time import perf_counter
 
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed, record_fe_family_wall
@@ -357,6 +360,52 @@ def _build_stability_replay_state(
         "recipe_replay": recipe_replay,
     }
 
+_SUBSAMPLE_LOCK = threading.Lock()
+_SUBSAMPLE_CACHE: dict = {"X": None, "idx": None, "X_sub": None}
+
+
+def _gathered_subsample(X: Any, y: Any, idx: np.ndarray) -> "tuple[Any, np.ndarray]":
+    """The rows ``idx`` of ``X`` as a pandas frame and of ``y``, the frame gathered once for the fit and shared by every family that decides on the same draw.
+
+    The last gather is kept while the same ``X`` (held weakly, so the training frame is not kept alive) and the same index array come back. Each caller gets a shallow copy of the frame, so a family
+    that adds a column to its subsample does not change what the next family reads. ``y`` is cut every time: the families hand over their own encodings of it, and the cut is a few thousand values."""
+    from .._fe_frame_ops import fe_subsample_to_pandas
+
+    y_sub = np.asarray(y)[idx]
+    with _SUBSAMPLE_LOCK:
+        c = _SUBSAMPLE_CACHE
+        if not (c["X"] is not None and c["X"]() is X and c["idx"] is idx and c["X_sub"] is not None):
+            c["X_sub"] = fe_subsample_to_pandas(X, idx)
+            c["idx"] = idx
+            try:
+                c["X"] = weakref.ref(X)
+            except TypeError:  # an object that cannot be weakly referenced is gathered every time
+                c["X"] = None
+                return c["X_sub"], y_sub
+        return c["X_sub"].copy(deep=False), y_sub
+
+
+def _recipes_last(fn: Callable[..., tuple], position: int) -> Callable[..., tuple]:
+    """``fn`` with the recipe list of its result moved from ``position`` to the end (the layout ``fe_decide_on_subsample`` works on)."""
+
+    @functools.wraps(fn)
+    def canonical(X_in: Any, y_in: Any, **kw: Any) -> tuple:
+        """The family's result with its recipe list last."""
+        out = fn(X_in, y_in, **kw)
+        return (*out[:position], *out[position + 1 :], out[position])
+
+    return canonical
+
+
+def fe_subsample_kwargs(self: Any) -> dict:
+    """The arguments of ``fe_decide_on_subsample`` that every FE family shares: the fit's one row draw, its size and the seed of the legacy draw."""
+    return {
+        "subsample_n": int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+        "subsample_seed": int(getattr(self, "random_seed", 0) or 0),
+        "shared_subsample_idx": getattr(self, "_fe_shared_subsample_idx", None),
+    }
+
+
 @fe_timed("stage:decide_on_subsample")
 def fe_decide_on_subsample(
     fit_with_recipes_fn: Callable[..., tuple],
@@ -366,10 +415,14 @@ def fe_decide_on_subsample(
     subsample_n: int = 0,
     subsample_seed: int = 42,
     shared_subsample_idx: np.ndarray | None = None,
+    recipes_at: int = -1,
     **kwargs: Any,
 ) -> tuple:
     """Run an ``*_with_recipes`` FE family on a row-SUBSAMPLE for its DECISION, then
     rebuild the chosen columns at FULL n by replaying the returned recipes.
+
+    ``recipes_at``: index of the recipe list in the tuple the family returns (default: last). A family that returns ``(X, appended, recipes, scores)`` passes ``recipes_at=2``; the result
+    then has the family's own layout, so the call site changes only by routing the call through this function.
 
     CORRECTNESS BOUNDARY - CLOSED-FORM families ONLY. This wrapper rebuilds the output
     by REPLAYING each recipe (``apply_recipe`` = the transform-time path). That equals
@@ -401,6 +454,11 @@ def fe_decide_on_subsample(
         silently drop it, fall back to the full-data decision for the whole family.
     Any per-recipe replay error also triggers the full-data fallback.
     """
+    if recipes_at != -1:
+        *head, recipes = fe_decide_on_subsample(
+            _recipes_last(fit_with_recipes_fn, recipes_at), X, y, subsample_n=subsample_n, subsample_seed=subsample_seed, shared_subsample_idx=shared_subsample_idx, **kwargs
+        )
+        return (*head[:recipes_at], recipes, *head[recipes_at:])
     n = len(X)
     from .._fe_frame_ops import fe_to_pandas
     # Prefer the fit's ONE shared row-index draw when supplied (so this closed-form family scores the
@@ -424,13 +482,11 @@ def fe_decide_on_subsample(
                 n, size=int(subsample_n), replace=False,
             )
         )
-    from .._fe_frame_ops import fe_subsample_to_pandas
     # Format-agnostic subsample: pandas -> .iloc, polars -> native gather + to_pandas on the SMALL subsample only (the
     # family decision bodies are pandas-native). Materialises ~len(_idx) rows, never the full frame - so a 100+ GB polars
     # frame is not duplicated, and every FE family now runs on polars input (previously skipped by isinstance guards).
     _t_gather = perf_counter()
-    _X_sub = fe_subsample_to_pandas(X, _idx)
-    _y_sub = np.asarray(y)[_idx]
+    _X_sub, _y_sub = _gathered_subsample(X, y, _idx)
     record_fe_family_wall("stage:decide_gather", perf_counter() - _t_gather)
     # Arity-agnostic: every ``*_with_recipes`` family returns the augmented frame FIRST
     # and the recipe list LAST (3-tuple (X, scores, recipes) for univariate / extra /
