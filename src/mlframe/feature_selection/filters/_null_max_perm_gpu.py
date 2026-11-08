@@ -215,7 +215,8 @@ def _store_label_bits(key: Any, p0: int, bits: Any) -> None:
     entry = _LABEL_BITS_CACHE.get("latest")
     if entry is None or entry[0] != key:
         _LABEL_BITS_CACHE.clear()  # evict-ok: only the latest labels are kept; a miss repacks them
-        entry = (key, {})
+        blocks: "dict[int, Any]" = {}
+        entry = (key, blocks)
         _LABEL_BITS_CACHE["latest"] = entry
     entry[1][int(p0)] = bits
 

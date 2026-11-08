@@ -60,7 +60,8 @@ def _rows_to_host(a: Any, rows: Any) -> np.ndarray:
         import cupy as cp
 
         return np.asarray(a[cp.asarray(rows)].get(), dtype=_crit_np_dtype())
-    return _to_host(a)[rows]
+    picked: np.ndarray = _to_host(a)[rows]
+    return picked
 
 
 def _standardised(col: np.ndarray) -> np.ndarray:
