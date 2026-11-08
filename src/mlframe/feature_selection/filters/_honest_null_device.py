@@ -17,6 +17,7 @@ the host kernel.
 from __future__ import annotations
 
 import logging
+from time import perf_counter
 import math
 import threading
 import weakref
@@ -29,6 +30,7 @@ from ._mdlp_honest_bycol_njit import _cuts_tie_free
 from ._numba_utils import _codes_at_rows
 from ._mdlp_honest_njit import _analytic_p_value, _mdlp_cuts_presorted, _mi_codes, _n_unique_codes, _supervised_edges
 from ._kernel_types import render
+from ._fe_family_timing import record_fe_family_wall
 
 logger = logging.getLogger(__name__)
 
@@ -470,7 +472,10 @@ def honest_null_columns_device(
     accepted_c = np.zeros((n_perm, 0), dtype=np.bool_)
     try:
         from mlframe.feature_selection.filters._honest_null_accept import _continuous_accept_block
+        _t0 = perf_counter()
         accepted_c, order, tie = _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx_table, cp, n_perm, min_split_size, alpha, accepted_c, order, tie)
+        record_fe_family_wall("stage:honest_accept_block", perf_counter() - _t0)
+        _t0 = perf_counter()
         words = (m + 63) // 64
         cls = label_bitsets_batch(ys, ny, words)
         prep = bitset_groups(np.ascontiguousarray(codes), nx)
@@ -481,7 +486,10 @@ def honest_null_columns_device(
             counts_b = np.stack([np.bincount(ys[b], minlength=ny) for b in range(n_perm)])
         tab_m = xlogx_table(m)
         const_b = tab_m[m] - tab_m[counts_b].sum(axis=1)
+        record_fe_family_wall("stage:honest_host_prep", perf_counter() - _t0)
+        _t0 = perf_counter()
         mi = mi_matrix_bits_device(DeviceBitsets(cp, prep, nx, m), cls, const_b)
+        record_fe_family_wall("stage:honest_mi_device", perf_counter() - _t0)
     except Exception as exc:
         logger.warning("device honest-null failed (%s: %s); falling back to the host path", type(exc).__name__, exc)
         return None

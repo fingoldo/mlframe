@@ -14,6 +14,9 @@ from mlframe.feature_selection.filters._honest_null_device import _get_kernel_k2
 from mlframe.feature_selection.filters._honest_null_device import _pack_bits_cached
 from mlframe.feature_selection.filters._honest_null_device import _tie_flags
 from mlframe.feature_selection.filters._mdlp_honest_njit import _presort_columns
+from time import perf_counter
+
+from ._fe_family_timing import record_fe_family_wall
 # --- end imports ---
 
 
@@ -74,7 +77,10 @@ def _order_and_ties(raw_cont):
 def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx_table, cp, n_perm, min_split_size, alpha, accepted_c, order, tie):
     """Stage of ``honest_null_columns_device``."""
     if kc:
+        _t0 = perf_counter()
         order, tie = _order_and_ties(raw_cont)
+        record_fe_family_wall("stage:honest_order_and_ties", perf_counter() - _t0)
+        _t0 = perf_counter()
         counts = np.bincount(np.asarray(y_raw_perm[0], dtype=np.int64), minlength=n_classes_total)
         h_full = _entropy(counts, n)
         tab = xlogx_table(XLOGX_TABLE_SIZE)
@@ -132,10 +138,13 @@ def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx
                     d_idx,
                 ),
             )
-        gain = np.ascontiguousarray(cp.asnumpy(d_gain).reshape(kc, n_perm).T)
+        gain = np.ascontiguousarray(cp.asnumpy(d_gain).reshape(kc, n_perm).T)  # the blocking read: waits for the accept kernel
+        record_fe_family_wall("stage:honest_accept_kernel_and_wait", perf_counter() - _t0)
+        _t0 = perf_counter()
         # The candidate counts and split positions are at most ``n``: below 32768 rows they cross to the host as int16 and are widened there, which gives the same arrays.
         ncand = np.ascontiguousarray(_int_to_host(cp, d_ncand, n).reshape(kc, n_perm).T)
         bidx = np.ascontiguousarray(_int_to_host(cp, d_idx, n).reshape(kc, n_perm).T)
         if h_full > 0.0:
             accepted_c = _accepted(gain, ncand, bidx, n, n_classes_total, float(alpha))
+        record_fe_family_wall("stage:honest_accepted_host", perf_counter() - _t0)
     return accepted_c, order, tie
