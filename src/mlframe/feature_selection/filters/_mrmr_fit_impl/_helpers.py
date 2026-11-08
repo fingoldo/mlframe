@@ -470,7 +470,7 @@ def fe_decide_on_subsample(
         for r in recipes:
             _v = np.asarray(apply_recipe(r, X))
             # Intentional float64: narrows only a float64 replay result to the fit's dtype
-        _full_cols[r.name] = _v.astype(_store, copy=False) if (_store is not None and _v.dtype == np.float64) else _v
+            _full_cols[r.name] = _v.astype(_store, copy=False) if (_store is not None and _v.dtype == np.float64) else _v
     except Exception:
         logger.warning(
             "fe_decide_on_subsample: full-n replay failed for %r; " "falling back to full-data decision.",
