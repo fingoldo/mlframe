@@ -138,11 +138,12 @@ def _fit_perm_id_te_lookup(perm_id: np.ndarray, y: np.ndarray, *, smoothing: flo
     global_mean = float(np.nanmean(y_arr))
     finite = np.isfinite(perm_id)
     lookup: dict = {}
-    for pid in np.unique(perm_id[finite]):
-        mask = finite & (perm_id == pid)
-        cnt = float(mask.sum())
-        raw_mean = float(y_arr[mask].mean())
-        lookup[int(pid)] = _smooth(raw_mean, cnt, global_mean, smoothing)
+    # one pass over the rows: the group counts and sums by bincount over the inverse index of the distinct ids (a mask of all rows per distinct id was O(distinct * n))
+    uniq, inverse = np.unique(perm_id[finite], return_inverse=True)
+    counts = np.bincount(inverse, minlength=uniq.size).astype(np.float64)  # Intentional float64: group counts and sums of the shrinkage formula
+    sums = np.bincount(inverse, weights=y_arr[finite], minlength=uniq.size)
+    for pid, cnt, total in zip(uniq, counts, sums):
+        lookup[int(pid)] = _smooth(float(total / cnt), float(cnt), global_mean, smoothing)
     return lookup, global_mean
 
 
