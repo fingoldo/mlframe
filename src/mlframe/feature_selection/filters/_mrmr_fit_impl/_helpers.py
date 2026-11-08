@@ -385,6 +385,36 @@ def _gathered_subsample(X: Any, y: Any, idx: np.ndarray) -> "tuple[Any, np.ndarr
         return c["X_sub"].copy(deep=False), y_sub
 
 
+def _group_and_number(recipe: Any) -> dict:
+    """The sources of a group-statistic winner as arguments of its family: the group column(s) and the numeric column (the recipe's ``src_names`` are the groups, then the number)."""
+    return {"group_cols": tuple(recipe.src_names[:-1]), "num_cols": (recipe.src_names[-1],)}
+
+
+def refit_winners(fn: Callable[..., tuple], narrow: Callable[[Any], dict], **open_gates: Any) -> Callable[..., tuple]:
+    """``refit`` for :func:`fe_decide_on_subsample` of a group-statistic family: the winners computed again on all rows by the family itself.
+
+    ``narrow(recipe)`` gives the arguments that restrict ``fn`` to the sources of that winner (its group and numeric columns); ``open_gates`` replace the family's selection gates
+    (top-k and the score floors) so that every candidate of the narrowed call is returned, and the winners are picked out by name. The call keeps all the family's other arguments (``kwargs`` of the
+    original call), so the winner's tables are the ones a full-data run of the family produces for it. A winner the call does not return raises, which sends the caller to the full-data decision."""
+
+    def refit(X: Any, y: Any, recipes: list, kwargs: dict) -> "tuple[dict, list]":
+        """Columns (by name) and recipes of ``recipes`` computed on all rows of ``X``."""
+        by_source: dict = {}
+        for r in recipes:
+            by_source.setdefault(tuple(sorted((k, tuple(v)) for k, v in narrow(r).items())), []).append(r.name)
+        columns: dict = {}
+        fitted: dict = {}
+        for source, names in by_source.items():
+            X_full, _appended, full_recipes, _scores = fn(X, y, **{**kwargs, **{k: list(v) for k, v in source}, **open_gates})
+            by_name = {fr.name: fr for fr in full_recipes}
+            for name in names:
+                fitted[name] = by_name[name]
+                columns[name] = np.asarray(X_full[name])
+        return columns, [fitted[r.name] for r in recipes]
+
+    return refit
+
+
 def _recipes_last(fn: Callable[..., tuple], position: int) -> Callable[..., tuple]:
     """``fn`` with the recipe list of its result moved from ``position`` to the end (the layout ``fe_decide_on_subsample`` works on)."""
 
@@ -416,6 +446,7 @@ def fe_decide_on_subsample(
     subsample_seed: int = 42,
     shared_subsample_idx: np.ndarray | None = None,
     recipes_at: int = -1,
+    refit: "Callable[..., tuple] | None" = None,
     **kwargs: Any,
 ) -> tuple:
     """Run an ``*_with_recipes`` FE family on a row-SUBSAMPLE for its DECISION, then
@@ -423,6 +454,9 @@ def fe_decide_on_subsample(
 
     ``recipes_at``: index of the recipe list in the tuple the family returns (default: last). A family that returns ``(X, appended, recipes, scores)`` passes ``recipes_at=2``; the result
     then has the family's own layout, so the call site changes only by routing the call through this function.
+
+    ``refit``: for a family whose recipes carry statistics fitted on the rows they saw (group tables, lookups), replaying the subsample's recipes would apply tables fitted on the subsample. A
+    ``refit(X, y, recipes, kwargs)`` returning ``(columns by name, recipes)`` computes the winners again on ALL rows instead (see :func:`refit_winners`); any failure falls back to the full-data decision.
 
     CORRECTNESS BOUNDARY - CLOSED-FORM families ONLY. This wrapper rebuilds the output
     by REPLAYING each recipe (``apply_recipe`` = the transform-time path). That equals
@@ -456,7 +490,7 @@ def fe_decide_on_subsample(
     """
     if recipes_at != -1:
         *head, recipes = fe_decide_on_subsample(
-            _recipes_last(fit_with_recipes_fn, recipes_at), X, y, subsample_n=subsample_n, subsample_seed=subsample_seed, shared_subsample_idx=shared_subsample_idx, **kwargs
+            _recipes_last(fit_with_recipes_fn, recipes_at), X, y, subsample_n=subsample_n, subsample_seed=subsample_seed, shared_subsample_idx=shared_subsample_idx, refit=refit, **kwargs
         )
         return (*head[:recipes_at], recipes, *head[recipes_at:])
     n = len(X)
@@ -532,10 +566,13 @@ def fe_decide_on_subsample(
         # 80 MB per column at 10 million rows, where these columns were the bulk of the fit's resident memory (MLFRAME_FE_REPLAY_KEEP_F64=1 keeps float64)
         _store = _replay_store_dtype()
         _t_replay = perf_counter()
-        for r in recipes:
-            _v = np.asarray(apply_recipe(r, X))
-            # Intentional float64: narrows only a float64 replay result to the fit's dtype
-            _full_cols[r.name] = _v.astype(_store, copy=False) if (_store is not None and _v.dtype == np.float64) else _v
+        if refit is not None:
+            _full_cols, recipes = refit(X, y, recipes, kwargs)
+        else:
+            for r in recipes:
+                _v = np.asarray(apply_recipe(r, X))
+                # Intentional float64: narrows only a float64 replay result to the fit's dtype
+                _full_cols[r.name] = _v.astype(_store, copy=False) if (_store is not None and _v.dtype == np.float64) else _v
         record_fe_family_wall("stage:decide_replay", perf_counter() - _t_replay)
     except Exception:
         logger.warning(

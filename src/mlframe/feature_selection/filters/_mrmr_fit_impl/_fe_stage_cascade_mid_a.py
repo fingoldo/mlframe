@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 from .._y_encoding import encode_y_for_classif_mi
 from ._fe_stage_merge import _fe_merge_new_columns
-from ._helpers import fe_decide_on_subsample, fe_subsample_kwargs
+from ._helpers import _group_and_number, fe_decide_on_subsample, fe_subsample_kwargs, refit_winners
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -47,8 +47,10 @@ def _stage_layer87_grouped_agg(self, X_acc, X, _y_np, _grouped_agg_pre_recipes, 
         _ga_stats = tuple(_ga_stats_raw) if _ga_stats_raw is not None else ("mean", "std", "min", "max", "nunique", "skew", "median")
         _ga_top_k = int(getattr(self, "fe_grouped_agg_top_k", 10))
         _X_before_ga_cols = list(X.columns)
-        X_ga, _ga_appended, _ga_recipes, _ga_scores = hybrid_grouped_agg_fe(
-            X, _y_for_ga,
+        X_ga, _ga_appended, _ga_recipes, _ga_scores = fe_decide_on_subsample(
+            hybrid_grouped_agg_fe, X, _y_for_ga,
+            recipes_at=2, **fe_subsample_kwargs(self),
+            refit=refit_winners(hybrid_grouped_agg_fe, _group_and_number, top_k=10**9, min_cmi=-1e9, min_uplift=-1e9),
             group_cols=_ga_groups, num_cols=_ga_nums,
             stats=_ga_stats, top_k=_ga_top_k,
         )
@@ -335,8 +337,14 @@ def _stage_composite_group_agg(self, _fe_family_on, X, _y_np, _composite_group_a
                 _cga_top_k = int(getattr(self, "fe_composite_group_agg_top_k", 10))
                 _X_before_cga_cols = list(X.columns)
                 X_cga, _cga_appended, _cga_recipes, _cga_scores = (
-                    hybrid_composite_group_agg_fe(
-                        X, _y_for_cga,
+                    fe_decide_on_subsample(
+                        hybrid_composite_group_agg_fe, X, _y_for_cga,
+                        recipes_at=2, **fe_subsample_kwargs(self),
+                        refit=refit_winners(
+                            hybrid_composite_group_agg_fe,
+                            lambda r: {"group_col_sets": (tuple(r.src_names[:-1]),), "num_cols": (r.src_names[-1],)},
+                            top_k=10**9, min_cmi=-1e9, min_uplift=-1e9,
+                        ),
                         group_col_sets=_cga_key_sets, num_cols=_cga_nums,
                         stats=_cga_stats, max_arity=_cga_max_arity,
                         top_k=_cga_top_k,
@@ -417,8 +425,10 @@ def _stage_grouped_quantile(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_f
                 _gq_n_bins = int(getattr(self, "fe_grouped_quantile_n_bins", 5))
                 _gq_top_k = int(getattr(self, "fe_grouped_quantile_top_k", 8))
                 _X_before_gq_cols = list(X.columns)
-                X_gq, _gq_appended, _gq_recipes, _gq_scores = hybrid_grouped_quantile_fe(
-                    X, _y_for_gq,
+                X_gq, _gq_appended, _gq_recipes, _gq_scores = fe_decide_on_subsample(
+                    hybrid_grouped_quantile_fe, X, _y_for_gq,
+                    recipes_at=2, **fe_subsample_kwargs(self),
+                    refit=refit_winners(hybrid_grouped_quantile_fe, _group_and_number, top_k=10**9, min_mi=-1e9, min_uplift=-1e9),
                     group_cols=_gq_groups, num_cols=_gq_nums,
                     quantiles=_gq_quantiles, target_aware=_gq_target_aware,
                     n_bins=_gq_n_bins, top_k=_gq_top_k,

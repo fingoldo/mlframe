@@ -21,7 +21,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from ._fe_stage_merge import _fe_merge_new_columns
-from ._helpers import fe_decide_on_subsample, fe_subsample_kwargs
+from ._helpers import _group_and_number, fe_decide_on_subsample, fe_subsample_kwargs, refit_winners
 from ._fe_stage_offset_product import _stage_offset_product
 from ._fe_stage_oof_warp import _stage_oof_warp
 from ._fe_stage_row_stat import _stage_row_stat
@@ -295,9 +295,13 @@ def _stage_group_distance(self, _fe_family_on, X, _y_np, _group_distance_pre_rec
                 _gd_nums = [c for c in _gd_nums if c in X.columns] or None  # type: ignore[assignment]
                 _gd_top_k = int(getattr(self, "fe_group_distance_top_k", 6))
                 _X_before_gd_cols = list(X.columns)
-                X_gd, _gd_appended, _gd_recipes, _gd_scores = hybrid_group_distance_fe(
+                X_gd, _gd_appended, _gd_recipes, _gd_scores = fe_decide_on_subsample(
+                    hybrid_group_distance_fe,
                     X,
                     _y_for_gd,
+                    recipes_at=2,
+                    **fe_subsample_kwargs(self),
+                    refit=refit_winners(hybrid_group_distance_fe, _group_and_number, top_k=10**9, min_mi=-1e9, min_uplift=-1e9),
                     group_cols=_gd_groups,
                     num_cols=_gd_nums,
                     top_k=_gd_top_k,
