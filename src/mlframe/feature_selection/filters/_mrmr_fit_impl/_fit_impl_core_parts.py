@@ -863,7 +863,12 @@ def _fit_impl_part1(_replay_from_fit_cache: Any, self: Any, _cache_key: Any, fe:
         engineered columns into fits that had explicitly asked for none. The wall-clock budget is part of the same question: ``_fe_budget_ok``
         used to be consulted at 4 of the ~35 cascade stages, so a spent ``max_runtime_mins`` still let the other ~31 families start.
         """
-        return _fe_lap.gate(flag, bool(getattr(self, flag, default)) and int(getattr(self, "fe_max_steps", 0) or 0) > 0 and _fe_budget_ok())
+        on = bool(getattr(self, flag, default)) and int(getattr(self, "fe_max_steps", 0) or 0) > 0 and _fe_budget_ok()
+        if on:
+            from .._cache_release import release_if_memory_low
+
+            release_if_memory_low()  # the stage caches are dropped before a family starts when free RAM is low (they accumulated through the stages on long frames)
+        return _fe_lap.gate(flag, on)
 
     _fe_family_on.close_lap = _fe_lap.close  # type: ignore[attr-defined]
 

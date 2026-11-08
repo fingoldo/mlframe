@@ -43,3 +43,27 @@ def release_registered_caches() -> int:
     if freed:
         logger.debug("released %.0f MB of stage caches under memory pressure", freed / 2**20)
     return freed
+
+
+#: Free host RAM below which a family gate drops the registered stage caches before the family starts: the larger of this many bytes and this share of the total.
+_LOW_FREE_BYTES = 2 * 1024**3
+_LOW_FREE_FRACTION = 0.15
+
+
+def release_if_memory_low() -> int:
+    """Drop the registered stage caches when the free host RAM is below ``max(2 GB, 15% of the total)``; returns the bytes freed (0 when memory is plentiful or unknown).
+
+    The caches were released only when a budget check refused a fast path, so on a long frame they accumulated through the FE stages (about 1 GB after a 300000-row fit,
+    several GB at 10 million rows) until the next large allocation failed; checked at every family start, they are dropped before the family needs the room."""
+    try:
+        import psutil
+
+        vm = psutil.virtual_memory()
+    except Exception:  # no psutil: nothing is known about the free memory, keep the caches
+        return 0
+    if vm.available >= max(_LOW_FREE_BYTES, int(_LOW_FREE_FRACTION * vm.total)):
+        return 0
+    freed = release_registered_caches()
+    if freed:
+        log_throttle(logger, "_cache_release.low_memory", logging.INFO, "free RAM %.1f GB: released %.0f MB of stage caches before the next FE family", vm.available / 1e9, freed / 2**20)
+    return freed
