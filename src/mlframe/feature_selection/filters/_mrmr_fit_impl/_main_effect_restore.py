@@ -15,12 +15,14 @@ import logging
 from typing import Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
 _CELL_PREFIX = "cell3("
 
 
+@fe_timed("stage:main_effect_restore")
 def run_main_effect_restore(
     self, X: Any, selected_vars: list[int], cols: list[str], data: np.ndarray, classes_y: np.ndarray, verbose: bool
 ) -> tuple[bool, list[int]]:

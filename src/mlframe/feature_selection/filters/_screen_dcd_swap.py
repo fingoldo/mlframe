@@ -18,6 +18,7 @@ import logging
 from typing import TYPE_CHECKING, Sequence, cast
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 if TYPE_CHECKING:
     from ._confirm_predictor import ScreenContext
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@fe_timed("stage:dcd_discover_and_swap")
 def screen_dcd_discover_and_swap(
     *,
     dcd_state: DCDState,

@@ -19,6 +19,7 @@ import numpy as np
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 _TOKEN_SPLIT = re.compile(r"[(),|\s]+|__")
@@ -394,6 +395,7 @@ def _prune_after_admission(self, X, y, cols, selected_vars, design, pool, prune_
     return dropped, pruned_eng
 
 
+@fe_timed("stage:residual_rescue")
 def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_recipes: Any, retention_added_eng_names: Any, verbose: Any, prune_only: bool = False) -> bool:
     """Admit the pool columns that reduce the held-out residual of the selected design and prune the redundant raws (``redundancy_policy='drop'``); True when the selection changed."""
     if not getattr(self, "fe_residual_rescue_enable", False):

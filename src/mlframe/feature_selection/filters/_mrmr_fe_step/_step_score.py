@@ -47,6 +47,7 @@ from ._step_score_parts import (  # noqa: F401  -- carved helpers
     _materialise_and_fina_step4_contract_stay_off,
     _materialise_and_fina_step5_byte_reproduces_pre,
 )
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 
 def _score_candidates_one_by_one(self, st, prospective_additions, _gate_stride, _y_dense_g) -> None:
@@ -76,6 +77,7 @@ def _score_candidates_one_by_one(self, st, prospective_additions, _gate_stride, 
             st._cmi_cands[_cname] = (_vals, _marg)
 
 
+@fe_timed("stage:materialise_and_finalise")
 def materialise_and_finalise_fe_candidates(
     self,
     *,

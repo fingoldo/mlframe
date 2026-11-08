@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 import numpy as np
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 try:
     import pandas as pd
@@ -181,6 +182,7 @@ def fe_drop_columns(X: Any, names: Iterable[str]) -> Any:
     return X.drop(columns=drop) if is_pandas(X) else X.drop(drop)
 
 
+@fe_timed("stage:append_columns")
 def fe_append_columns(X: Any, cols: dict[str, np.ndarray]) -> Any:
     """Append engineered numpy columns ``{name: 1d-array}`` to ``X`` in ITS OWN framework (no whole-frame conversion).
 

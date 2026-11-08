@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 _LOW_CARD_CAP = 32  # compute_col_edges default (kwargs 'low_card_cap')
 _FALLBACK_NBINS = 5  # collapsed_fallback_nbins default
@@ -81,6 +82,7 @@ def _median_filled_column(col: pd.Series) -> "tuple[np.ndarray, np.ndarray] | No
     return v, nan_here
 
 
+@fe_timed("stage:honest_spec")
 def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, max_depth: int, method: str = "mdlp") -> dict | None:
     """Spec dict for ``_mdlp_honest_njit.honest_null_columns`` over the first ``len(cols)`` factor columns, or None when a column is not
     usable (non-numeric or non-finite): the caller then keeps the categorise-per-permutation path."""

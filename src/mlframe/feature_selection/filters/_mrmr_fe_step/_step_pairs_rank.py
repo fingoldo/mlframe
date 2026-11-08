@@ -94,6 +94,7 @@ from .._fe_usability_signal import (  # shared leaf helpers (numpy-only, no cycl
     pair_is_tail_concentrated_rankaware as _pair_is_tail_concentrated_rankaware,
     usability_operand_continuous as _usability_operand_continuous,
 )
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 
 def _batch_usability_admission_verdicts(self, *, need_usability, y_continuous, cached_operand, cached_single_corr) -> dict:
@@ -561,6 +562,7 @@ def _make_cached_operand(self: Any, X: Any, cols: Any, *, max_entries: int) -> C
     return _cached_operand
 
 
+@fe_timed("stage:score_prospective_pairs")
 def score_prospective_pairs(
     self,
     *,

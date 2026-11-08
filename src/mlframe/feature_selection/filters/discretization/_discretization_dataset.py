@@ -71,6 +71,7 @@ def _discretize_input_dtype():
 # depend on y -> a feature's codes differ per target and sharing would be WRONG. Disable via env if needed.
 from collections import OrderedDict as _OrderedDict
 from mlframe._array_buffer import array_buffer
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 _NUMERIC_CODE_CACHE: "_OrderedDict[bytes, np.ndarray]" = _OrderedDict()
 # Total bytes of cached column-code arrays to retain (column codes are n_rows*dtype; gate so a 100GB-frame
@@ -443,6 +444,7 @@ def _exact_integer_columns(df, numerical_cols: list, dt, is_polars: bool):
     return df, dt
 
 
+@fe_timed("stage:categorize_dataset")
 def categorize_dataset(
     df: pd.DataFrame | pl.DataFrame | pl.LazyFrame,
     method: str = "quantile",

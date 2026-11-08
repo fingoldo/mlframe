@@ -18,6 +18,9 @@ from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
 import pandas as pd
+from time import perf_counter
+
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed, record_fe_family_wall
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -354,6 +357,7 @@ def _build_stability_replay_state(
         "recipe_replay": recipe_replay,
     }
 
+@fe_timed("stage:decide_on_subsample")
 def fe_decide_on_subsample(
     fit_with_recipes_fn: Callable[..., tuple],
     X: Any,
@@ -424,13 +428,17 @@ def fe_decide_on_subsample(
     # Format-agnostic subsample: pandas -> .iloc, polars -> native gather + to_pandas on the SMALL subsample only (the
     # family decision bodies are pandas-native). Materialises ~len(_idx) rows, never the full frame - so a 100+ GB polars
     # frame is not duplicated, and every FE family now runs on polars input (previously skipped by isinstance guards).
+    _t_gather = perf_counter()
     _X_sub = fe_subsample_to_pandas(X, _idx)
     _y_sub = np.asarray(y)[_idx]
+    record_fe_family_wall("stage:decide_gather", perf_counter() - _t_gather)
     # Arity-agnostic: every ``*_with_recipes`` family returns the augmented frame FIRST
     # and the recipe list LAST (3-tuple (X, scores, recipes) for univariate / extra /
     # triplet / scorers; 4-tuple (X, uni_sc, cross_sc, recipes) for the pair family).
     # Preserve the middle elements verbatim.
+    _t_call = perf_counter()
     _ret = fit_with_recipes_fn(_X_sub, _y_sub, **kwargs)
+    record_fe_family_wall("stage:decide_family_call", perf_counter() - _t_call)
     if not (isinstance(_ret, tuple) and len(_ret) >= 2):
         logger.warning(
             "fe_decide_on_subsample: %s returned an unexpected shape on the %d-row subsample; re-running the DECISION "
@@ -467,10 +475,12 @@ def fe_decide_on_subsample(
         # the recipes evaluate in float64 (their fit/replay contract); the fit keeps the replayed column at its own float dtype (float32 by default): 40 MB instead of
         # 80 MB per column at 10 million rows, where these columns were the bulk of the fit's resident memory (MLFRAME_FE_REPLAY_KEEP_F64=1 keeps float64)
         _store = _replay_store_dtype()
+        _t_replay = perf_counter()
         for r in recipes:
             _v = np.asarray(apply_recipe(r, X))
             # Intentional float64: narrows only a float64 replay result to the fit's dtype
             _full_cols[r.name] = _v.astype(_store, copy=False) if (_store is not None and _v.dtype == np.float64) else _v
+        record_fe_family_wall("stage:decide_replay", perf_counter() - _t_replay)
     except Exception:
         logger.warning(
             "fe_decide_on_subsample: full-n replay failed for %r; " "falling back to full-data decision.",

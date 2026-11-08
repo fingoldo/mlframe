@@ -14,6 +14,7 @@ from collections.abc import Callable, Sequence
 import numpy as np
 
 from ._screen_predictors_gate import _single_int
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,7 @@ def cardinality_prescreen(
     return x, _refused_set
 
 
+@fe_timed("stage:fdr_gain_floor")
 def compute_fdr_gain_floor(
     factors_data: np.ndarray,
     factors_nbins: np.ndarray,

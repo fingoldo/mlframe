@@ -11,6 +11,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 import os
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
 from typing import Optional, Any
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 # --- end imports ---
 
@@ -123,6 +124,7 @@ def _rebin_continuous_targets(self, _nbins_strategy, target_indices, cols, _x_fo
                 nbins[int(_ti)] = _t_nb
 
 
+@fe_timed("stage:discretize_inputs")
 def _discretize_inputs(self, _is_polars_input, X, target_names):
     """Discretise the input frame (targets included) into per-column bin codes via ``categorize_dataset``, resolving the NaN
     strategy, the adaptive nbins strategy and its kwargs, and the supervised signal the supervised strategies need.

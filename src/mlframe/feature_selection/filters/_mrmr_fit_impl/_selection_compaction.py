@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 
 from .._parity_fe import _mi_codes_njit
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -269,6 +270,7 @@ def _record_compaction(self, name: str, replacement: "str | None") -> None:
     record_fe_rejection(self, gate="selection_compaction", candidate=name, operator="engineered", reason=reason)
 
 
+@fe_timed("stage:selection_compaction")
 def run_selection_compaction(
     self, X: Any, selected_vars: list[int], cols: list[str], data: np.ndarray, classes_y: np.ndarray, engineered_recipes: dict[str, Any], verbose: bool
 ) -> tuple[bool, list[int]]:

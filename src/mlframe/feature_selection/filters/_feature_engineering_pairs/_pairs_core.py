@@ -130,6 +130,7 @@ from ._pairs_gpu_gates import (  # noqa: F401  -- carved helpers
     _gpu_gate_cached,
     _gpu_gate_env_signature,
 )
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 
 # Notes on the parameters of check_prospective_fe_pairs (kept verbatim from the signature; [name] marks the parameter each block belongs to):
@@ -304,6 +305,7 @@ from ._pairs_gpu_gates import (  # noqa: F401  -- carved helpers
 # threshold, and the marginal-uplift diagnostics - all values the gate ALREADY computed,
 # no recompute. The caller (``_mrmr_fe_step``) drains it into ``self``'s fe rejection
 # ledger. ``None`` (default) = legacy behaviour, no records captured.
+@fe_timed("stage:check_prospective_pairs")
 def check_prospective_fe_pairs(
     prospective_pairs: dict,
     X: Any,

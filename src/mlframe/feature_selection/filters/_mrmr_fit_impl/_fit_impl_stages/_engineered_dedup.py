@@ -10,6 +10,7 @@ import pandas as pd
 from mlframe.feature_selection.filters._mrmr_fit_impl._fe_roster_attrs import drop_from_fe_rosters
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
 from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 # --- end imports ---
 
@@ -123,6 +124,7 @@ def _engineered_mi_scores(X: Any, _eng_cols_appended: list, _y_np: Any) -> dict[
     return _eng_mi
 
 
+@fe_timed("stage:cross_stage_dedup")
 def _dedup_engineered_across_stages(self, _y_np, X, recipes, verbose):
     """Cross-stage dedup of engineered columns, keeping the member of a near-duplicate cluster with the most information about y."""
     _eng_cols_appended_raw = list(self.hybrid_orth_features_ or []) + list(self.mi_greedy_features_ or [])

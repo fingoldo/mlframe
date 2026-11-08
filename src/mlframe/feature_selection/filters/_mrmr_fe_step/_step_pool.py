@@ -22,8 +22,10 @@ from .._mrmr_fe_step_helpers import (
 )
 from .._gradient_interaction_seeder import propose_gradient_interaction_pairs
 from ._helpers import _non_numeric_column_indices
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 
+@fe_timed("stage:operand_pool")
 def build_fe_operand_pool(
     self,
     *,

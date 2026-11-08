@@ -8,6 +8,7 @@ import pandas as pd
 from mlframe.feature_selection.filters._mrmr_fit_impl._fe_roster_attrs import drop_from_fe_rosters
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 # --- end imports ---
 
@@ -245,6 +246,7 @@ def _apply_gate_drops(self, X, recipes, gate_drop, verbose):
     return X
 
 
+@fe_timed("stage:accuracy_gate")
 def _gate_engineered_accuracy(self, X, recipes, _y_np, verbose, groups=None):
     """Accuracy gate: drop an engineered column that adds no held-out linear-probe uplift over its raw source."""
     if bool(getattr(self, "fe_accuracy_gate", True)) and isinstance(X, pd.DataFrame) and (self.hybrid_orth_features_ or []) and recipes.hybrid_orth:

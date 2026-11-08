@@ -9,6 +9,7 @@ import logging
 from typing import Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 # --- end imports ---
 
 
@@ -85,6 +86,7 @@ def _fit_signature(self, y, X, groups=None):
     return _x_hash_for_sig, _y_hash_for_sig, signature
 
 
+@fe_timed("stage:fit_cache_key")
 def _fit_cache_key(self, X, y, _y_hash_for_sig, groups):
     """Content-based key of this fit in the process-wide ``MRMR._FIT_CACHE``; None when either content hash is empty or
     the key cannot be built (the fit then skips the cache rather than risk a wrong replay)."""

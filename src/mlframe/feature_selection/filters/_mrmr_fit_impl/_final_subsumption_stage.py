@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from ..mrmr import MRMR
 
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,7 @@ def _without_linearly_useful(self: "MRMR", dropped: list, candidates: dict, anch
     return [n for n in dropped if n not in kept]
 
 
+@fe_timed("stage:final_subsumption")
 def run_final_subsumption_prune(
     self: "MRMR", X: "pd.DataFrame | pl.DataFrame", selected_vars: list[int], classes_y: np.ndarray, verbose: int | bool
 ) -> tuple[bool, list[int]]:

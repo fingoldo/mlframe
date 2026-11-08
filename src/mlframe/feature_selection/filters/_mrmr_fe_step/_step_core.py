@@ -32,6 +32,7 @@ from ._step_core_helpers import (
 )
 from types import SimpleNamespace as _SimpleNamespace
 from ._step_core_parts import _run_fe_step_impl_part2, _run_fe_step_impl_part5, _run_fe_step_impl_part6, _run_fe_step_impl_part7
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 
 def _should_serialize_fe_pair_check(n_prospective_pairs: int, gpu_fe_active: bool, serial_min_pairs_per_worker: int) -> bool:
@@ -110,6 +111,7 @@ def _capture_prefe_screened_raw(self, cols, selected_vars) -> None:
         self._prefe_screened_raw_ = []
 
 
+@fe_timed("stage:fe_step")
 def _run_fe_step(self, **kwargs):
     """Fit-scoped wrapper around ``_run_fe_step_impl``: opens ``dedup_collinear_memo_scope()`` for the
     WHOLE FE step so every opt-in FE family's ``_dedup_collinear_source_cols`` call within this one round

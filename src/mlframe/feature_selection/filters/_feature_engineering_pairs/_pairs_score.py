@@ -83,6 +83,7 @@ from ._pairs_score_steps import (  # noqa: F401  -- carved helpers
     _score_one_pair_step5_any_error_leaves,
     _score_one_pair_step6_wide_fraction_margin,
 )
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 
 # Notes on the parameters of _score_one_pair (kept verbatim from the signature; [name] marks the parameter each block belongs to):
@@ -105,6 +106,7 @@ from ._pairs_score_steps import (  # noqa: F401  -- carved helpers
 # --- per-call memo helpers (closures from the parent frame) ---
 # [batch_mi_with_noise_gate]
 # --- framework callables (lazily imported in the parent) ---
+@fe_timed("stage:score_one_pair")
 def _score_one_pair(
     *,
     raw_vars_pair,

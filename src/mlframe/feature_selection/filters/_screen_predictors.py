@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 # The interaction-order enumeration step lives in the sibling module (module size limit), re-exported here.
 from ._screen_predictors_steps import _screen_predictors_step2_interactions_order_subsets, _short_name  # noqa: F401
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 
 def _pool_warmup_noop(i):
@@ -332,6 +333,7 @@ def _influencing_vars(cached_confident_MIs: dict) -> set:
 # ``num_possible_candidates``) are refreshed at the top of each order below. ``selected_vars`` /
 # ``selected_interactions_vars`` are the same list objects throughout (appended to, never reassigned), so the
 # confirmation primitives always see the up-to-date selection.
+@fe_timed("stage:screen_predictors")
 @set_doc(SCREEN_PREDICTORS_DOC)
 def screen_predictors(
     factors_data: np.ndarray, factors_nbins: Sequence[int], factors_names: Sequence[str] | None = None,

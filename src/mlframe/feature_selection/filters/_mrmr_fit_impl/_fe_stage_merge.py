@@ -10,10 +10,12 @@ from __future__ import annotations
 import logging
 
 from .._fe_frame_ops import fe_append_columns, fe_extract_columns
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
 
+@fe_timed("stage:merge_new_columns")
 def _fe_merge_new_columns(acc, stage_out, step_input):
     """``acc`` plus the columns ``stage_out`` added on top of ``step_input``; a name already present in ``acc`` keeps its first owner."""
     if stage_out is step_input or stage_out is acc:

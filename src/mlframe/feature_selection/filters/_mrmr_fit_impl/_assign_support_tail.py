@@ -29,6 +29,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 
 from ._helpers import _pgn_raw_budget
 from ._linear_dependence_guard import exact_dependence_keep_mask
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ def _with_replay_value_cache(fn):
     return inner
 
 
+@fe_timed("stage:assign_support_tail")
 @_with_replay_value_cache
 def _assign_support_tail(
     self,
@@ -175,6 +177,7 @@ def _assign_support_tai_drop_exact_linear_dependence(self, X, cols, selected_var
     return True, [v for v in selected_vars if int(v) not in dropped]
 
 
+@fe_timed("stage:support_fe_max_steps_pass")
 def _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx):
     """Block of _assign_support_tai_fe_max_steps starting at ``if fe_max_steps > 0:``."""
     if fe_max_steps > 0:
@@ -538,6 +541,7 @@ def _assign_support_tai_added_idx(self, _added_idx, selected_vars, verbose, _raw
             )
 
 
+@fe_timed("stage:raw_redundancy_drop")
 def _assign_support_tai_drop_sweep_disabled_shares(self, selected_vars, _retention_added_eng_names, cols, data, _eng_continuous_snapshot, X, y, classes_y, verbose, target_indices, nbins):
     """Block of _assign_support_tail starting at ``if (getattr(self, "fe_drop_redundant_raw_operands", True)``."""
     selected_vars = _assign_support_tai_getattr_self_fe_drop(self, selected_vars, _retention_added_eng_names, cols, data, _eng_continuous_snapshot, X, y, classes_y, verbose, target_indices, nbins)

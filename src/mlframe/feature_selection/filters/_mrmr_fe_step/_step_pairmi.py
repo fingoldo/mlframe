@@ -30,6 +30,7 @@ from .._joblib_safe import disable_cuda_in_worker
 from .._fe_family_timing import record_fe_family_wall
 from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 # Measured floor (7-site joblib.Parallel audit) for the loky pool built below: at the realistic
 # ``fe_npermutations=3`` production regime, the pool LOSES to serial at every pair count tested - n_pairs=190
@@ -108,6 +109,7 @@ def _use_serial_pair_sweep(n_jobs: int, n_pairs: int, below_perm_floor: bool, pa
     return all_cached, all_cached
 
 
+@fe_timed("stage:pair_mis_and_floor")
 def compute_pair_mis_and_floor(
     self,
     *,
