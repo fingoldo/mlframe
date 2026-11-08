@@ -696,7 +696,7 @@ def _replay_recipes_chained(recipes: list, _X_for_recipes: pd.DataFrame, _col_ca
     # cheap in-place column append instead of ``.assign()`` (see below) - profiling a 100k-row
     # transform found this loop's repeated ``.assign()`` calls responsible for 36.5s of the wall
     # (16,204 pandas block-manager copies, cProfile `wellbore_profile_99401rows.prof`).
-    chained = _X_for_recipes[_recipe_reachable_columns(_X_for_recipes, recipes)].copy()
+    chained = _X_for_recipes[_recipe_reachable_columns(_X_for_recipes, recipes)]  # a list selection is already a new frame (a copy, or a lazy copy under copy-on-write): the appends below never reach the caller's frame
     # Dependency-aware replay: a chained recipe (e.g. modular-of-cross,
     # spline-on-He2) references an earlier engineered column via src_names.
     # The recorded order is USUALLY topological, but cross-family chaining
