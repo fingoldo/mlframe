@@ -17,6 +17,7 @@ import numpy as np
 
 from ._linear_cv_loss import cv_loss
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ def _side_values(recipe: Any, X: Any) -> "list[np.ndarray] | None":
     return out
 
 
+@fe_timed("stage:pure_form_side_check")
 def drop_forms_not_beating_their_sides(candidates: list, X: Any, y: np.ndarray, *, classification: bool, seed: int, n_folds: int = 3, improve_rel: float = 0.01) -> list:
     """``candidates`` without the pair forms whose CV loss is not below ``(1 - improve_rel)`` times the better side's; raw passthroughs and forms
     whose sides cannot be replayed are kept unchanged."""

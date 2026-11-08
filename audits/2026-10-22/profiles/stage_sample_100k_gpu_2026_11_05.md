@@ -526,3 +526,7 @@ The exact entry timers of the 34 timed families add up to 26.6 s, 26 % of the fi
 ## Inside the FDR gain floor (honest null), 100000 x 100, every family, sequential (2026-11-08)
 
 `fdr_gain_floor` 5.15 s over 2 calls: `honest_accept_block` 3.34 s (the accept kernel and the blocking read that waits for it 2.59 s, `_order_and_ties` 0.74 s), `honest_spec` 0.60 s, `honest_host_prep` 0.30 s, `honest_mi_device` 0.04 s, the host handling of the accept result 0.01 s. The host preparation that could be overlapped with the kernel is 0.30 s, so a pipeline would gain at most that; the time is the `root_split_accept` kernel on the device (see `_honest_null_accept_bits.md`). The two `fe_decide_on_subsample` calls that skip the subsample are hinge (1.15 s) and wavelet (1.55 s): their own cap is 200000 rows, above the 100000 of the frame, so they decide on the full frame by design; moving them to the shared 30000-row draw would save about 1.8 s but changes the rows they decide on.
+
+## The `fe_max_steps` pass of the support tail, 100000 x 100, every family, sequential (2026-11-08)
+
+`support_fe_max_steps_pass` 2.92 s: `retain_pure_forms` 2.19 s (of which the pure-form side check 0.94 s, the CV-loss work whose log loss and side cache were reduced earlier, and 1.25 s of its own), `retain_raw_columns` 0.39 s; `pair_family_gate` 0.85 s over 6 calls. Nothing in the retained machinery is a repeat of work already done on the same inputs; all of it is one-off scoring.

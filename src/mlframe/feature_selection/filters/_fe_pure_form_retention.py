@@ -33,6 +33,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 
 from ._safe_scale import standardise
 from mlframe.feature_selection.filters._lazy_host_codes import shape_of
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -341,6 +342,7 @@ def _make_nonlinear_value_gate(min_resid_frac: float, min_resid_corr: float, _f6
     return _adds_nonlinear_value
 
 
+@fe_timed("stage:retain_pure_forms")
 def retain_usable_pure_forms(
     mrmr: Any,
     X: Any,
@@ -760,6 +762,7 @@ def _is_group_leak_raw(X_fit, name, y_values, n_bins: int = 8) -> bool:
     return bool(is_leak)
 
 
+@fe_timed("stage:retain_raw_columns")
 def retain_usable_raw_columns(
     mrmr: Any,
     X: Any,
