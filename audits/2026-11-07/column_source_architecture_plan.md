@@ -127,3 +127,11 @@ Beyond the plan: the 10M x 80 series (see above), the `bootstrap_rank_mi` tie-ru
 ### Resolved: `ff45b668b` is not a regression (2026-11-08)
 
 Alternating A/B on a quiet host (free RAM above 6 GB, nothing else running), 100000 x 100 with every family, fresh process per run: parent `239d58b13` 110.2 and 115.7 s, `ff45b668b` 112.5 and 101.4 s. The difference changes sign between rounds, so it is noise; the call costs 3.7 ms. The same parent measured 84.3 s earlier the same day, so the absolute wall of this machine drifts by about 30% between windows: only pairs run back to back in one window are comparable.
+
+## Plan v4: items worked through on 2026-11-08 (second pass, as ordered)
+
+- **5 done.** `build_honest_spec` builds the (n, m) NaN matrix only when a column has NaN; the re-aligned permuted codes of the honest-null fallback are int16 when every code fits. 92 honest-null tests pass; the 60000 x 40 selection snapshot equals the reference.
+- **3 verified, nothing to add.** The pair step already queues its code blocks in `st._data_chunks` and concatenates once. The two remaining `np.append` calls (escalation, fused compounds) sit in separate functions that hand `data` straight to the next stage, which reads it: merging them would need a lazy matrix that every consumer understands; each copies about 100 MB at 1M rows and runs only when candidates were admitted.
+- **6 verified by measurement, nothing to change.** After a 300000 x 80 fit the estimator holds no array or frame above 5 MB. At the peak of a 500000 x 80 fit (frame 160 MB) the traced holders are the pair-search buffers (467 + 467 + 233 MB, the second one guarded now by the RAM budget) and the family-gate stacks (584 + 262 + 125 MB); the raw frame is not among the large holders.
+- **8 done.** `transform` no longer copies the selected input columns; `partial_fit` queues batches and merges them once (refit or rolling window) instead of re-concatenating the buffer per call; the queue is reset by an explicit fit, defaulted for old pickles and survives pickling.
+- **7 partly.** Replayed engineered columns are kept at the fit's float dtype. Binning them from the recipe and keeping only codes would have to change every stage that reads the engineered floats (`_engineered_continuous_`, the stability vote, the re-screen); not started.
