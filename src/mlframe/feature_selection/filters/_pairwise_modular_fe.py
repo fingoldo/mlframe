@@ -603,6 +603,10 @@ def cheap_modular_scan(
     hits.sort(key=lambda h: (-h.margin_over_baseline, str(h.op), tuple(str(c) for c in h.cols)))
     return hits
 
+# Standard deviations of the chi-square increment of the extra residue cells a larger modulus must gain (net of its bias) to replace a smaller one; one deviation let a multiple win by chance in about half the seeds.
+_MODULUS_REFINE_Z = 3.0
+
+
 def escalate_modulus(
     X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
@@ -614,7 +618,7 @@ def escalate_modulus(
     """Refine the modulus for a responded hit on a FINE integer grid around the coarse winner.
 
     Searches ``[max(2, k0 - span), k0 + span]`` plus the small-multiple ladder ``{2*k0, 3*k0}`` (a
-    coarse divisor often spikes at a multiple of the true modulus). Returns ``(best_m, best_mi,
+    coarse divisor often spikes at a multiple of the true modulus) and the divisors of ``k0``; the winner is picked on the MI net of the table's bias, the smallest modulus within noise. Returns ``(best_m, best_mi,
     residue_column)``; the residue column is the materialised ``combiner mod best_m`` for the selector."""
     k0 = hit.modulus
     # Reuse the combiner column cheap_modular_scan already built for this hit when available (the
@@ -628,11 +632,18 @@ def escalate_modulus(
 
     grid = set(range(max(2, k0 - span), k0 + span + 1))
     grid.update({2 * k0, 3 * k0})
-    best_m, best_mi = k0, -1.0
+    grid.update(d for d in range(2, k0) if k0 % d == 0)  # the coarse winner can itself be a multiple of the true modulus (24 for 12): its divisors are candidates too
+    # A multiple of the true modulus splits the same classes into more residues: its population MI is the same, its plug-in MI is higher by the Miller-Madow bias of the larger table,
+    # (m - 1)(Ky - 1) / (2 n), which is about 1e-3 nats at 2000 rows. Taking the largest plug-in MI therefore returned a multiple (14 or 21 for 7, 72 for 12) in most seeds. The moduli are compared on the MI
+    # net of that bias, ascending, and a larger one replaces the best only when it gains more than ``_MODULUS_REFINE_Z`` standard deviations of the chi-square increment its extra cells add.
+    n_rows, n_classes = len(yi), int(np.unique(yi).size)
+    best_m, best_mi, best_net = k0, -1.0, -np.inf
     for m in sorted(grid):
         mi = _residue_mi(c_arr, yi, m, nbins)
-        if mi > best_mi:
-            best_mi, best_m = mi, m
+        net = mi - (m - 1) * (n_classes - 1) / (2.0 * n_rows)
+        extra_cells = max(0, m - best_m) * max(1, n_classes - 1)
+        if best_net == -np.inf or net > best_net + _MODULUS_REFINE_Z * np.sqrt(2.0 * extra_cells) / (2.0 * n_rows):
+            best_mi, best_m, best_net = mi, m, net
     residue = np.mod(c_arr, best_m).astype(_crit_np_dtype())
     return best_m, best_mi, residue
 
