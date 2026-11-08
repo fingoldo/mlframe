@@ -36,6 +36,8 @@ MAX_BINS = 32
 #: Levels per column the shared table holds (int32 start + one byte of straddle flag each); a column with more stays on the host.
 MAX_LEVELS = 6144
 _COLUMN_BLOCK = 128
+#: Host bytes of one block's column bits and ranks.
+_HOST_BLOCK_BYTES = 256 * 1024 * 1024
 #: Bytes of the gathered draw ranks one launch may hold (columns x resamples x draws x 2); a launch takes fewer columns rather than more memory.
 _GATHER_BYTES = 128 * 1024 * 1024
 _MIN_SUB_BLOCK = 8
@@ -299,8 +301,11 @@ def tied_replicate_mi_stream(bits: np.ndarray, prep: dict, n_bins: int, rank_fn:
         n_rep, m_max = int(idx.shape[0]), int(idx.shape[1])
         y_draws = ycode[idx]  # (n_rep, m_max): the class of every draw, the same for every column
         pending = None
-        for c0 in range(0, k, _COLUMN_BLOCK):
-            c1 = min(k, c0 + _COLUMN_BLOCK)
+        # the block holds a host copy of the column bits and their int32 ranks (8 bytes a row per column): 128 columns were 10 GB at 10 million rows, so the block is
+        # also capped by bytes (128 columns up to 250000 rows, 3 at 10 million); the columns are independent, so the MI does not change
+        block = max(1, min(_COLUMN_BLOCK, _HOST_BLOCK_BYTES // max(1, 8 * n)))
+        for c0 in range(0, k, block):
+            c1 = min(k, c0 + block)
             rk, n_levels, ok_b = rank_fn(np.ascontiguousarray(bits[:, c0:c1]))  # host work while the device runs the previous block
             n_levels, ok_b = np.asarray(n_levels), np.asarray(ok_b)
             ok[c0:c1] = ok_b
