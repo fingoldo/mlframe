@@ -42,6 +42,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
+from tests.feature_selection.conftest import legacy_mrmr
 
 warnings.filterwarnings("ignore")
 
@@ -418,14 +419,13 @@ class TestDefaultDisabledByteIdentical:
 
     def test_mrmr_default_off_does_not_add_cat_pair(self):
         """With fe_cat_pair_enable defaulting to False, MRMR.fit adds no cat_pair_features_."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_cat_xor(42, n=2000)
         # MRMR consumes integer-coded cats; pass the int form.
         Xi = X.copy()
         for c in ["cat_a", "cat_b", "decoy_0", "decoy_1"]:
             Xi[c] = Xi[c].astype(int)
-        m = MRMR(max_runtime_mins=0.5)
+        m = legacy_mrmr(max_runtime_mins=0.5)
         assert bool(getattr(m, "fe_cat_pair_enable", False)) is False, "fe_cat_pair_enable must default to False."
         m.fit(Xi, pd.Series(y, name="y"))
         cp_feats = list(getattr(m, "cat_pair_features_", []) or [])
@@ -448,13 +448,12 @@ class TestDefaultDisabledByteIdentical:
         # mechanism failing -- assert the family's own output via the
         # ``_produced_recipes_`` audit ledger (every recipe produced this fit,
         # before the greedy screen drops the weaker candidates).
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_cat_xor(42, n=3000)
         Xi = X.copy()
         for c in ["cat_a", "cat_b", "decoy_0", "decoy_1"]:
             Xi[c] = Xi[c].astype(int)
-        m = MRMR(
+        m = legacy_mrmr(
             max_runtime_mins=1.0,
             fe_cat_pair_enable=True,
             fe_cat_pair_cat_cols=("cat_a", "cat_b"),
@@ -523,9 +522,8 @@ class TestPickleClone:
     def test_mrmr_clone_preserves_params(self):
         """clone() copies every fe_cat_pair_* ctor param without carrying over fitted state."""
         from sklearn.base import clone
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
-        m = MRMR(
+        m = legacy_mrmr(
             fe_cat_pair_enable=True,
             fe_cat_pair_cat_cols=("cat_a", "cat_b"),
             fe_cat_pair_min_interaction_info=0.01,

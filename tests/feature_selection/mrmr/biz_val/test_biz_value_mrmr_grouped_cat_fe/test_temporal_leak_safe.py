@@ -41,6 +41,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import cross_val_predict
+from tests.feature_selection.conftest import legacy_mrmr
 
 warnings.filterwarnings("ignore")
 
@@ -481,10 +482,9 @@ class TestDefaultDisabledByteIdentical:
 
     def test_mrmr_default_off_does_not_add_temporal_agg(self):
         """With the family disabled by default, MRMR.fit adds no temporal_agg_features_."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         df, y = _build_past_mean_causal(42, n_ent=80, per=8)
-        m = MRMR(max_runtime_mins=0.5)
+        m = legacy_mrmr(max_runtime_mins=0.5)
         assert bool(getattr(m, "fe_temporal_agg_enable", False)) is False, "fe_temporal_agg_enable must default to False."
         m.fit(df, pd.Series(y, name="y"))
         ta = list(getattr(m, "temporal_agg_features_", []) or [])
@@ -492,10 +492,9 @@ class TestDefaultDisabledByteIdentical:
 
     def test_mrmr_enabled_adds_temporal_agg(self):
         """Enabling the family produces at least one temporal_agg engineered column."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         df, y = _build_past_mean_causal(42, n_ent=150, per=10)
-        m = MRMR(
+        m = legacy_mrmr(
             max_runtime_mins=1.0,
             fe_temporal_agg_enable=True,
             fe_temporal_agg_entity_cols=("entity",),
@@ -550,9 +549,8 @@ class TestPickleClone:
     def test_mrmr_clone_preserves_params(self):
         """sklearn clone() copies every fe_temporal_agg_* ctor param without fitted state."""
         from sklearn.base import clone
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
-        m = MRMR(
+        m = legacy_mrmr(
             fe_temporal_agg_enable=True,
             fe_temporal_agg_entity_cols=("entity",),
             fe_temporal_agg_value_cols=("value",),

@@ -262,6 +262,23 @@ def _recipe_consumers(recipes: list) -> dict:
     return consumers
 
 
+def inherit_fe_rosters(estimator, cand: str, replaced) -> None:
+    """Put ``cand`` into every FE roster that listed a column it replaces (at the position of the first one), so a family's roster still names the engineered column that stands for its work.
+
+    The replacement is a pool candidate, not a member of the replaced column's roster; without this a roster whose only survivor was replaced ends up empty although its family's
+    column is in the output, and the reconciliation at the end of the fit (``reconcile_fe_rosters``) keeps nothing."""
+    from ._fe_roster_attrs import FE_ROSTER_ATTRS
+
+    gone = set(replaced)
+    for attr in FE_ROSTER_ATTRS:
+        roster = getattr(estimator, attr, None)
+        if not roster or attr == "_hinge_features_" or cand in roster:
+            continue
+        pos = next((i for i, c in enumerate(roster) if c in gone), None)
+        if pos is not None:
+            setattr(estimator, attr, [*roster[:pos], cand, *roster[pos:]])
+
+
 def _record_compaction(self, name: str, replacement: "str | None") -> None:
     """Write one compaction decision to the rejection ledger (``fe_rejection_ledger_`` / ``fe_provenance_.dropped_by``): the engineered feature ``name`` was redundant, or replaced by ``replacement``."""
     from .._fe_rejection_ledger import record_fe_rejection
@@ -327,6 +344,7 @@ def run_selection_compaction(
             self._selection_compaction_ = [*self._selection_compaction_, (cand, tuple(replaced))]
             for r in replaced:
                 _record_compaction(self, r, cand)
+            inherit_fe_rosters(self, cand, replaced)
             if verbose:
                 logger.info("MRMR selection compaction: %s replaces %s (at least the same bias-corrected joint information, fewer features).", cand, replaced)
         if not changed:

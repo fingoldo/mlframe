@@ -58,6 +58,7 @@ import pytest
 from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
+from tests.feature_selection.conftest import legacy_mrmr
 
 warnings.filterwarnings("ignore")
 
@@ -66,7 +67,6 @@ SEEDS = (1, 7, 13)
 
 def _make_mrmr(**overrides):
     """Build an MRMR isolating the CMI-greedy FE constructor from the default-on univariate-basis FE."""
-    from mlframe.feature_selection.filters.mrmr import MRMR
 
     kwargs = dict(
         verbose=0,
@@ -95,7 +95,7 @@ def _make_mrmr(**overrides):
         fe_hybrid_orth_enable=False,
     )
     kwargs.update(overrides)
-    return MRMR(**kwargs)
+    return legacy_mrmr(**kwargs)
 
 
 # ---------------------------------------------------------------------------

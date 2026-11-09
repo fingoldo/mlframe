@@ -52,6 +52,7 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 from tests.feature_selection._biz_val_synth import _mi_one
+from tests.feature_selection.conftest import legacy_mrmr
 
 # ---------------------------------------------------------------------------
 # PART A fixtures
@@ -434,10 +435,9 @@ class TestDefaultDisabledByteIdentical:
 
     def test_mrmr_default_off_adds_nothing(self):
         """With modular and group-distance FE both disabled explicitly, no engineered columns are added."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_hour_of_day(42, n=2000)
-        m = MRMR(max_runtime_mins=0.5, fe_modular_enable=False)
+        m = legacy_mrmr(max_runtime_mins=0.5, fe_modular_enable=False)
         assert bool(getattr(m, "fe_modular_enable", True)) is False, "fe_modular_enable=False must disable the modular family."
         assert bool(getattr(m, "fe_group_distance_enable", False)) is False, "fe_group_distance_enable must default to False."
         m.fit(X, pd.Series(y, name="y"))
@@ -448,10 +448,9 @@ class TestDefaultDisabledByteIdentical:
 
     def test_mrmr_modular_enabled_adds_columns(self):
         """With fe_modular_enable=True, modular columns are added on the hour-of-day fixture."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_hour_of_day(42, n=4000)
-        m = MRMR(
+        m = legacy_mrmr(
             max_runtime_mins=1.0,
             fe_modular_enable=True,
             fe_modular_periods=(7, 12, 24, 30),
@@ -463,10 +462,9 @@ class TestDefaultDisabledByteIdentical:
 
     def test_mrmr_group_distance_enabled_adds_columns(self):
         """With fe_group_distance_enable=True, group-distance columns are added on the group-anomaly fixture."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_group_anomaly(42, n=4000)
-        m = MRMR(
+        m = legacy_mrmr(
             max_runtime_mins=1.0,
             fe_group_distance_enable=True,
             fe_group_distance_group_cols=("g",),
@@ -531,9 +529,8 @@ class TestPickleClone:
 
     def test_mrmr_clone_preserves_params(self):
         """sklearn clone() preserves every fe_modular_*/fe_group_distance_* ctor param."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
-        m = MRMR(
+        m = legacy_mrmr(
             fe_modular_enable=True,
             fe_modular_periods=(7, 24),
             fe_modular_top_k=4,

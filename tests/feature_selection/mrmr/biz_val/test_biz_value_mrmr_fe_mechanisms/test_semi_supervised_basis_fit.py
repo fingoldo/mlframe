@@ -55,6 +55,7 @@ import pytest
 from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
+from tests.feature_selection.conftest import legacy_mrmr
 
 warnings.filterwarnings("ignore")
 
@@ -102,7 +103,6 @@ def _import_basis():
 
 def _make_mrmr(**overrides):
     """Build an MRMR with cheap, deterministic default knobs that isolate the semi-supervised FE stage."""
-    MRMR = _import_mrmr()
     kwargs = dict(
         verbose=0,
         interactions_max_order=1,
@@ -115,7 +115,7 @@ def _make_mrmr(**overrides):
         random_seed=0,
     )
     kwargs.update(overrides)
-    return MRMR(**kwargs)
+    return legacy_mrmr(**kwargs)
 
 
 # ---------------------------------------------------------------------------

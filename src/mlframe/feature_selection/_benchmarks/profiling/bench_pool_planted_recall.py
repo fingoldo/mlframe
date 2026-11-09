@@ -44,6 +44,8 @@ def run(rows: int, cols: int, seeds: int, only: str = "") -> None:
     kw = F.all_families_kwargs()
     kw["nbins_strategy"] = "mdlp"
     kw["fe_shape_pool"] = os.environ.get("BENCH_FE_SHAPE_POOL", "all")
+    for flag in filter(None, os.environ.get("BENCH_EXCLUDE", "").split(",")):
+        kw[flag.strip()] = False  # BENCH_EXCLUDE=fe_a_enable,fe_b_enable switches families off to test a default without them
     chosen = {k: v for k, v in GENERATORS.items() if not only or k in only.split(",")}
     hits: dict = {name: 0 for name in chosen}
     for name, make in chosen.items():

@@ -41,6 +41,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
+from tests.feature_selection.conftest import legacy_mrmr
 
 warnings.filterwarnings("ignore")
 
@@ -463,13 +464,12 @@ class TestDefaultDisabledByteIdentical:
 
     def test_mrmr_default_off_does_not_add_cat_triple(self):
         """With the family disabled by default, MRMR.fit adds no cat_triple_features_."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_cat_xor3(42, n=2000)
         Xi = X.copy()
         for c in Xi.columns:
             Xi[c] = Xi[c].astype(int)
-        m = MRMR(max_runtime_mins=0.5)
+        m = legacy_mrmr(max_runtime_mins=0.5)
         assert bool(getattr(m, "fe_cat_triple_enable", False)) is False, "fe_cat_triple_enable must default to False."
         m.fit(Xi, pd.Series(y, name="y"))
         ct_feats = list(getattr(m, "cat_triple_features_", []) or [])
@@ -485,7 +485,6 @@ class TestDefaultDisabledByteIdentical:
         # contract -- via capture of the in-fit FE call, and that the 3-way signal is recovered by some
         # engineered feature in the final support.
         import mlframe.feature_selection.filters._cat_triple_fe as _ctmod
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_cat_xor3(42, n=3000)
         Xi = X.copy()
@@ -502,7 +501,7 @@ class TestDefaultDisabledByteIdentical:
             return res
 
         monkeypatch.setattr(_ctmod, "hybrid_cat_triple_fe", _capture)
-        m = MRMR(
+        m = legacy_mrmr(
             max_runtime_mins=1.0,
             fe_cat_triple_enable=True,
             fe_cat_triple_cat_cols=("cat_a", "cat_b", "cat_c"),
@@ -576,9 +575,8 @@ class TestPickleClone:
     def test_mrmr_clone_preserves_params(self):
         """sklearn clone() copies every fe_cat_triple_* ctor param without fitted state."""
         from sklearn.base import clone
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
-        m = MRMR(
+        m = legacy_mrmr(
             fe_cat_triple_enable=True,
             fe_cat_triple_cat_cols=("cat_a", "cat_b", "cat_c"),
             fe_cat_triple_min_interaction_info=0.01,

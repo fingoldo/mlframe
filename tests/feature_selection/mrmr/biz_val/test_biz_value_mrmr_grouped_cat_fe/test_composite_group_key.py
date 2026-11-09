@@ -38,6 +38,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
+from tests.feature_selection.conftest import legacy_mrmr
 
 warnings.filterwarnings("ignore")
 
@@ -432,10 +433,9 @@ class TestDefaultDisabledByteIdentical:
 
     def test_mrmr_default_off_does_not_add_composite_agg(self):
         """With fe_composite_group_agg_enable defaulting to False, MRMR.fit adds no composite_group_agg_features_."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_composite_signal(42, n=2500)
-        m = MRMR(max_runtime_mins=0.5)
+        m = legacy_mrmr(max_runtime_mins=0.5)
         assert bool(getattr(m, "fe_composite_group_agg_enable", False)) is False, "fe_composite_group_agg_enable must default to False."
         m.fit(X, pd.Series(y, name="y"))
         cga = list(getattr(m, "composite_group_agg_features_", []) or [])
@@ -443,10 +443,9 @@ class TestDefaultDisabledByteIdentical:
 
     def test_mrmr_enabled_adds_composite_agg(self):
         """Enabling fe_composite_group_agg_enable produces at least one engineered column on the composite-signal fixture."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_composite_signal(42, n=4000)
-        m = MRMR(
+        m = legacy_mrmr(
             max_runtime_mins=1.0,
             fe_composite_group_agg_enable=True,
             fe_composite_group_agg_key_sets=(("region", "month"),),
@@ -494,9 +493,8 @@ class TestPickleClone:
     def test_mrmr_clone_preserves_params(self):
         """clone() copies every fe_composite_group_agg_* ctor param without carrying over fitted state."""
         from sklearn.base import clone
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
-        m = MRMR(
+        m = legacy_mrmr(
             fe_composite_group_agg_enable=True,
             fe_composite_group_agg_key_sets=(("region", "month"),),
             fe_composite_group_agg_num_cols=("x",),

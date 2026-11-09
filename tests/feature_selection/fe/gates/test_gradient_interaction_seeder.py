@@ -29,6 +29,7 @@ from mlframe.feature_selection.filters._gradient_interaction_seeder import (
     _standardize,
     rank_gradient_interaction_pairs,
 )
+from tests.feature_selection.conftest import legacy_mrmr
 
 P = 60
 N = 2000
@@ -185,7 +186,6 @@ def test_end_to_end_regression_proposes_saddle():
     pool from the RAW continuous X (not the discretised ``data``); the existing gates decide."""
     pd = pytest.importorskip("pandas")
     from mlframe.feature_selection.filters import _gradient_interaction_seeder as G
-    from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y = _make("sin_prod")
     Xdf = pd.DataFrame(X, columns=[f"x{i}" for i in range(P)])
@@ -201,7 +201,7 @@ def test_end_to_end_regression_proposes_saddle():
 
     G.rank_gradient_interaction_pairs = traced
     try:
-        m = MRMR(max_runtime_mins=3, verbose=1, random_state=0, fe_gradient_interaction_enable=True, fe_synergy_screen_max_features=80)
+        m = legacy_mrmr(max_runtime_mins=3, verbose=1, random_state=0, fe_gradient_interaction_enable=True, fe_synergy_screen_max_features=80)
         m.fit(Xdf, pd.Series(y, name="target"))  # continuous -> regression -> multi-bin target
     finally:
         G.rank_gradient_interaction_pairs = orig
@@ -224,7 +224,6 @@ def test_end_to_end_default_off_is_noop():
     """Default OFF: the seeder is not invoked at all (byte-identical legacy path)."""
     pd = pytest.importorskip("pandas")
     from mlframe.feature_selection.filters import _gradient_interaction_seeder as G
-    from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y = _make("sin_prod")
     Xdf = pd.DataFrame(X, columns=[f"x{i}" for i in range(P)])
@@ -238,7 +237,7 @@ def test_end_to_end_default_off_is_noop():
 
     G.rank_gradient_interaction_pairs = traced
     try:
-        m = MRMR(max_runtime_mins=2, verbose=1, random_state=0)  # default: flag OFF
+        m = legacy_mrmr(max_runtime_mins=2, verbose=1, random_state=0)  # default: flag OFF
         assert m.fe_gradient_interaction_enable is False
         m.fit(Xdf, pd.Series(y, name="target"))
     finally:

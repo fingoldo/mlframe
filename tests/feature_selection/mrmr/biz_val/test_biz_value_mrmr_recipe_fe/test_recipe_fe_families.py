@@ -48,6 +48,7 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 from tests.feature_selection._biz_val_synth import _mi_one
+from tests.feature_selection.conftest import legacy_mrmr
 
 # ---------------------------------------------------------------------------
 # FAMILY A fixture: y depends on whether the merchant is RARE
@@ -477,10 +478,9 @@ class TestDefaultDisabledByteIdentical:
 
     def test_mrmr_default_off_adds_nothing(self):
         """With all three new FE families disabled (default), no engineered columns are added."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y, _ = _build_rare_merchant(42, n=2000)
-        m = MRMR(max_runtime_mins=0.5)
+        m = legacy_mrmr(max_runtime_mins=0.5)
         for flag in (
             "fe_rare_category_enable",
             "fe_conditional_residual_enable",
@@ -503,10 +503,9 @@ class TestDefaultDisabledByteIdentical:
         # fixtures disable) so the roster reflects the rare-category mechanism's
         # own output.
         """With fe_rare_category_enable=True and general-FE competitors isolated, rare-category columns are added."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y, _ = _build_rare_merchant(42, n=4000)
-        m = MRMR(
+        m = legacy_mrmr(
             max_runtime_mins=1.0,
             fe_rare_category_enable=True,
             fe_rare_category_cols=("merchant",),
@@ -524,10 +523,9 @@ class TestDefaultDisabledByteIdentical:
 
     def test_mrmr_conditional_residual_enabled_adds_columns(self):
         """With fe_conditional_residual_enable=True, conditional-residual columns are added."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_conditional_income(42, n=4000)
-        m = MRMR(
+        m = legacy_mrmr(
             max_runtime_mins=1.0,
             fe_conditional_residual_enable=True,
             fe_conditional_residual_cols=("age", "income"),
@@ -585,10 +583,9 @@ class TestDefaultDisabledByteIdentical:
         # winning, NOT a mechanism failure (the rankgauss col still reaches the
         # output). Isolate the family under test by disabling those competitors so
         # the roster reflects the rankgauss mechanism's own output.
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_heavytail_linear(42, n=4000)
-        m = MRMR(
+        m = legacy_mrmr(
             max_runtime_mins=1.0,
             fe_rankgauss_enable=True,
             fe_rankgauss_cols=("x1",),
@@ -674,9 +671,8 @@ class TestPickleClone:
 
     def test_mrmr_clone_preserves_params(self):
         """sklearn clone() preserves every ctor param across all three new FE families."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
-        m = MRMR(
+        m = legacy_mrmr(
             fe_rare_category_enable=True,
             fe_rare_category_cols=("merchant",),
             fe_rare_category_threshold=0.02,

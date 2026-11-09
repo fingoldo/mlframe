@@ -92,6 +92,62 @@ class _NullCtx:
         return False
 
 
+#: The ``fe_*_enable`` families that were OFF by default before MRMR's defaults became "every family except the GBM seeder and the alternate scorers".
+#: Tests written against the old defaults (default-off byte identity, "enabling X adds columns", the lightest-config preset) pin them off through this dict.
+LEGACY_FE_OFF = {
+    "fe_cat_num_interaction_enable": False,
+    "fe_cat_pair_enable": False,
+    "fe_cat_triple_enable": False,
+    "fe_composite_group_agg_enable": False,
+    "fe_conditional_quantile_rank_enable": False,
+    "fe_conditional_residual_enable": False,
+    "fe_count_encoding_enable": False,
+    "fe_escalation_feedforward_enable": False,
+    "fe_escalation_underdelivery_enable": False,
+    "fe_frequency_encoding_enable": False,
+    "fe_gate_med_enable": False,
+    "fe_gradient_interaction_enable": False,
+    "fe_group_distance_enable": False,
+    "fe_grouped_agg_enable": False,
+    "fe_grouped_delta_enable": False,
+    "fe_grouped_quantile_enable": False,
+    "fe_hybrid_orth_adaptive_arity_enable": False,
+    "fe_hybrid_orth_adaptive_degree_enable": False,
+    "fe_hybrid_orth_cluster_basis_enable": False,
+    "fe_hybrid_orth_conditional_routing_enable": False,
+    "fe_hybrid_orth_diff_basis_enable": False,
+    "fe_ii_routing_enable": False,
+    "fe_lagged_diff_enable": False,
+    "fe_lof_enable": False,
+    "fe_mahalanobis_density_enable": False,
+    "fe_mi_greedy_cmi_enable": False,
+    "fe_mi_greedy_enable": False,
+    "fe_missingness_count_enable": False,
+    "fe_missingness_indicator_enable": False,
+    "fe_missingness_pattern_enable": False,
+    "fe_numeric_decompose_enable": False,
+    "fe_ordinal_pattern_enable": False,
+    "fe_pair_perm_null_admission_enable": False,
+    "fe_pair_prewarp_enable": False,
+    "fe_pairwise_log_ratio_enable": False,
+    "fe_pairwise_ratio_enable": False,
+    "fe_random_fourier_enable": False,
+    "fe_rankgauss_enable": False,
+    "fe_rare_category_enable": False,
+    "fe_semi_supervised_enable": False,
+    "fe_sir_direction_enable": False,
+    "fe_stability_vote_enable": False,
+    "fe_temporal_agg_enable": False,
+}
+
+
+def legacy_mrmr(**overrides):
+    """``MRMR(**overrides)`` with the families that used to be off by default switched off; an explicit override wins."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    return MRMR(**{**LEGACY_FE_OFF, **overrides})
+
+
 def make_fast_mrmr(*, fe: bool = False, dcd: bool = False, **overrides):
     """Construct a fast, fully-deterministic ``MRMR`` for the biz_value layer suite.
 
@@ -106,6 +162,7 @@ def make_fast_mrmr(*, fe: bool = False, dcd: bool = False, **overrides):
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     kwargs = dict(
+        **LEGACY_FE_OFF,
         verbose=0,
         interactions_max_order=1,
         fe_max_steps=0,

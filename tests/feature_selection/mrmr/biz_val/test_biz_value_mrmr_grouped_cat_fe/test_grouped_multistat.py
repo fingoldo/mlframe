@@ -38,6 +38,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
+from tests.feature_selection.conftest import legacy_mrmr
 
 warnings.filterwarnings("ignore")
 
@@ -423,10 +424,9 @@ class TestDefaultDisabledByteIdentical:
 
     def test_mrmr_default_off_does_not_add_grouped_agg(self):
         """With the family disabled by default, MRMR.fit adds no grouped_agg_features_."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_group_mean_signal(42, n=2000)
-        m = MRMR(max_runtime_mins=0.5)
+        m = legacy_mrmr(max_runtime_mins=0.5)
         assert bool(getattr(m, "fe_grouped_agg_enable", False)) is False, "fe_grouped_agg_enable must default to False."
         m.fit(X, pd.Series(y, name="y"))
         ga_feats = list(getattr(m, "grouped_agg_features_", []) or [])
@@ -447,10 +447,9 @@ class TestDefaultDisabledByteIdentical:
         # Assert the family's own output: a grouped_agg recipe appears in the
         # _produced_recipes_ audit ledger (every recipe produced this fit,
         # before the greedy screen drops the weaker candidates).
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_group_mean_signal(42, n=3000)
-        m = MRMR(
+        m = legacy_mrmr(
             max_runtime_mins=1.0,
             fe_grouped_agg_enable=True,
             fe_grouped_agg_group_cols=("region",),
@@ -508,9 +507,8 @@ class TestPickleClone:
     def test_mrmr_clone_preserves_params(self):
         """sklearn clone() copies every fe_grouped_agg_* ctor param without fitted state."""
         from sklearn.base import clone
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
-        m = MRMR(
+        m = legacy_mrmr(
             fe_grouped_agg_enable=True,
             fe_grouped_agg_group_cols=("region",),
             fe_grouped_agg_num_cols=("x",),

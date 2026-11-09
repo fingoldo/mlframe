@@ -45,6 +45,7 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 from tests.feature_selection._biz_val_synth import _mi_one
+from tests.feature_selection.conftest import legacy_mrmr
 
 # ---------------------------------------------------------------------------
 # Fixture builders
@@ -423,10 +424,9 @@ class TestDefaultDisabledByteIdentical:
 
     def test_mrmr_default_off_adds_nothing(self):
         """With fe_numeric_decompose_enable=False (default), no decomposition columns are added."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_price_anchored(42, n=2000)
-        m = MRMR(max_runtime_mins=0.5)
+        m = legacy_mrmr(max_runtime_mins=0.5)
         assert bool(getattr(m, "fe_numeric_decompose_enable", False)) is False, "fe_numeric_decompose_enable must default to False."
         m.fit(X, pd.Series(y, name="y"))
         nd = list(getattr(m, "numeric_decompose_features_", []) or [])
@@ -434,10 +434,9 @@ class TestDefaultDisabledByteIdentical:
 
     def test_mrmr_enabled_adds_decompose(self):
         """With fe_numeric_decompose_enable=True, decomposition columns are added on the cents-digit fixture."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_cents_digit(42, n=4000)[:2]
-        m = MRMR(
+        m = legacy_mrmr(
             max_runtime_mins=1.0,
             fe_numeric_decompose_enable=True,
             fe_numeric_decompose_precisions=(1, 0.1, 0.01),
@@ -485,9 +484,8 @@ class TestPickleClone:
 
     def test_mrmr_clone_preserves_params(self):
         """sklearn clone() preserves every fe_numeric_decompose_* ctor param."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
 
-        m = MRMR(
+        m = legacy_mrmr(
             fe_numeric_decompose_enable=True,
             fe_numeric_decompose_precisions=(1, 0.5, 0.1),
             fe_numeric_decompose_digits=(0, 1),

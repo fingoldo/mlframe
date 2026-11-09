@@ -644,7 +644,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # tiny n. Set False to byte-reproduce the pre-vote support.
         # None (the default) means auto: on, except under fe_fast_search, which turns it off for speed. An explicit True
         # or False is honoured whatever fe_fast_search says.
-        fe_stability_vote_enable: Optional[bool] = None,
+        fe_stability_vote_enable: Optional[bool] = True,
         # Number of held-out folds for the stability vote (>= 2; below 2 the vote is a
         # structural no-op). 5 mirrors the backlog spec - enough folds that a genuine
         # recipe clears the quorum comfortably while a single-fold-quirk winner fails.
@@ -790,7 +790,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # envelope junk capture 14.6 - 3.0 separates with margin on both sides.
         # None (the default) means auto: on, except under fe_fast_search, which turns it off for speed. An explicit True
         # or False is honoured whatever fe_fast_search says.
-        fe_escalation_underdelivery_enable: Optional[bool] = None,
+        fe_escalation_underdelivery_enable: Optional[bool] = True,
         fe_escalation_underdelivery_excess_frac: float = 0.05,
         fe_escalation_underdelivery_self_ratio: float = 3.0,
         # PREVALENCE-FAILED SYNERGY RESCUE (F2 a**2/b miss, default-ON). A
@@ -820,7 +820,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # R^2 win, but the fed-forward nested ``div(log(esc_poly(a,b)),exp(...))`` regresses
         # it. Default OFF (escalation features stay selected but never seed composites); set
         # True to restore the unrestricted feed-forward.
-        fe_escalation_feedforward_enable: bool = False,
+        fe_escalation_feedforward_enable: bool = True,
         # ``fe_npermutations`` default 0->3->99:
         # pre-fix value 0 combined with ``fe_min_nonzero_confidence=1.0``
         # made the FE confidence gate STRUCTURALLY UNREACHABLE (confidence
@@ -1136,7 +1136,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # "accuracy-improving mechanisms default-on" policy. Set False to disable.
         # None (the default) means auto: on, except under fe_fast_search, which turns it off for speed. An explicit True
         # or False is honoured whatever fe_fast_search says.
-        fe_pair_prewarp_enable: Optional[bool] = None,
+        fe_pair_prewarp_enable: Optional[bool] = True,
         fe_pair_prewarp_basis: str = "chebyshev",
         fe_pair_prewarp_max_degree: int = 4,
         # PER-OPERAND MEDIAN GATE for the elementary unary/binary
@@ -1161,7 +1161,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # replay at transform() time. Orthogonal to every other FE knob.
         # Default OFF (opt-in): the rich-ops cost finding says do not tax the
         # default minimal path; opt-in is correct.
-        fe_gate_med_enable: bool = False,
+        fe_gate_med_enable: bool = True,
         # Minimum (best-prewarp-MI / best-nonprewarp-MI) ratio for the prewarp
         # alternative-acceptance path past the joint-MI-prevalence gate. The
         # prewarp feature must beat the elementary library by this factor to be
@@ -1753,7 +1753,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # escalation search never builds the clean log*sin product even when (c,d) is admitted.
         # Kept as an opt-in research knob; a clean (c,d) win needs a NEW separable warp-product
         # proposer (terminal, no fusion), not this admission relaxation.
-        fe_pair_perm_null_admission_enable: bool = False,
+        fe_pair_perm_null_admission_enable: bool = True,
         fe_pair_perm_null_excess_frac: float = 0.05,
         # TAIL-CONCENTRATED USABILITY ADMISSION. Under heavy operand outliers a genuine ratio
         # (a**2/b) becomes TAIL-CONCENTRATED: its rank-MI collapses (bulk Spearman ~0, signal only in the 5%
@@ -1888,7 +1888,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # for strong-signal / large-n / fine-binned pools (see ``_interaction_information.py`` +
         # ``test_interaction_information_routing.py``); it just cannot beat the F2 detection floor,
         # which is the same too-weak-signal floor the backlog flags (log*sin recovers 0/10).
-        fe_ii_routing_enable: bool = False,
+        fe_ii_routing_enable: bool = True,
         fe_ii_routing_null_permutations: int = 25,
         fe_ii_routing_null_quantile: float = 0.95,
         fe_ii_routing_min_pairs: int = 30,
@@ -1949,7 +1949,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # to default-on. Noise control HOLDS (pure-noise and additive both -> 0 proposals). Routed
         # OFF outside its [min_p, max_p] size regime by ``_route_gradient_seeder`` (thresholds via
         # kernel_tuning_cache). Needs sklearn. Raise the flag to enable.
-        fe_gradient_interaction_enable: bool = False,
+        fe_gradient_interaction_enable: bool = True,
         # ORDER-3 Westfall-Young maxT permutation-null floor on the candidate-TRIPLE pool
         # (backlog idea #7 - the MANDATORY rail for any 3-way proposer, ships in the same
         # change as the GBM seeder which opens 3-way). The triplet/quadruplet FE modules lack
@@ -2028,7 +2028,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # defaults A=3, seed_k=4, deg=1 the candidate count is C(4,2)+
         # C(4,3)=10. Recipes route to the per-arity Layer 22 / 56 / 77
         # builders - no new recipe kind.
-        fe_hybrid_orth_adaptive_arity_enable: bool = False,
+        fe_hybrid_orth_adaptive_arity_enable: bool = True,
         fe_hybrid_orth_adaptive_arity_max_arity: int = 3,
         fe_hybrid_orth_adaptive_arity_max_degree: int = 1,
         fe_hybrid_orth_adaptive_arity_seed_k: int = 4,
@@ -2067,7 +2067,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # thread-local pool stays empty and consumers fall back to the
         # labeled-only fit). When the flag is on but the wrapper is not used
         # (plain ``mrmr.fit(X, y)``), behaviour is also byte-identical.
-        fe_semi_supervised_enable: bool = False,
+        fe_semi_supervised_enable: bool = True,
         # LASSO-BASED PRE-SELECTION (sibling module
         # ``_orthogonal_lasso_fe``). Independent opt-in (does NOT require
         # fe_hybrid_orth_enable). Layers 21 / 65-74 score candidates via MI /
@@ -2116,7 +2116,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # ``(basis, degree)`` per column, the only change is the value
         # is the per-column argmax instead of a sweep). Replay reads X
         # only, no y, leakage-free by construction.
-        fe_hybrid_orth_adaptive_degree_enable: bool = False,
+        fe_hybrid_orth_adaptive_degree_enable: bool = True,
         fe_hybrid_orth_adaptive_degree_range: tuple = (1, 2, 3, 4, 5, 6),
         fe_hybrid_orth_adaptive_degree_min_uplift: float = 1.05,
         # CONDITIONAL BASIS ROUTING (sibling module
@@ -2133,7 +2133,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # emit as ``orth_univariate`` with ``extra["pre_transform"]``
         # carrying the chosen transform tag. Replay reads X only, no y,
         # leakage-free by construction.
-        fe_hybrid_orth_conditional_routing_enable: bool = False,
+        fe_hybrid_orth_conditional_routing_enable: bool = True,
         fe_hybrid_orth_conditional_routing_top_k: int = 5,
         fe_hybrid_orth_conditional_routing_min_uplift: float = 1.10,
         fe_hybrid_orth_conditional_routing_degrees: tuple = (2, 3),
@@ -2145,7 +2145,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # ``basis_d(preprocess(diff))`` for each degree. Top-K winners
         # appended; recipe kind ``"orth_diff_basis"``; replay reads X only,
         # no y. Default OFF preserves legacy pickle byte-equivalence.
-        fe_hybrid_orth_diff_basis_enable: bool = False,
+        fe_hybrid_orth_diff_basis_enable: bool = True,
         fe_hybrid_orth_diff_basis_corr_threshold: float = 0.7,
         fe_hybrid_orth_diff_basis_degrees: tuple = (1, 2, 3),
         fe_hybrid_orth_diff_basis_top_k: int = 3,
@@ -2159,7 +2159,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # degree. Top-K winners appended; recipe kind
         # ``"orth_cluster_basis"``; replay reads X only, no y. Default OFF
         # preserves legacy pickle byte-equivalence.
-        fe_hybrid_orth_cluster_basis_enable: bool = False,
+        fe_hybrid_orth_cluster_basis_enable: bool = True,
         fe_hybrid_orth_cluster_basis_aggregator: str = "mean_z",
         fe_hybrid_orth_cluster_basis_degrees: tuple = (2, 3),
         fe_hybrid_orth_cluster_basis_top_k: int = 3,
@@ -2444,7 +2444,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # appends the top-K winners to X. Recipes of kind
         # ``"mi_greedy_transform"`` carry transform name + src cols only
         # (no y), so transform() replay is leakage-free.
-        fe_mi_greedy_enable: bool = False,
+        fe_mi_greedy_enable: bool = True,
         fe_mi_greedy_top_k: int = 5,
         fe_mi_greedy_seed_cols_count: int = 5,
         fe_mi_greedy_include_unary: bool = True,
@@ -2460,7 +2460,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # in the support, the others' CMI collapses near zero and they
         # are never picked. Recipes reuse kind ``"mi_greedy_transform"``
         # so transform-time replay is shared infrastructure.
-        fe_mi_greedy_cmi_enable: bool = False,
+        fe_mi_greedy_cmi_enable: bool = True,
         fe_mi_greedy_cmi_top_k: int = 5,
         fe_mi_greedy_cmi_seed_cols_count: int = 4,
         fe_mi_greedy_cmi_min_gain: float = 0.005,
@@ -2527,11 +2527,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # is the explicit Cartesian product (no auto-detect; the choice of
         # which numeric column to condition on which categorical column is
         # domain-specific).
-        fe_count_encoding_enable: bool = False,
+        fe_count_encoding_enable: bool = True,
         fe_count_encoding_cols: tuple = (),
-        fe_frequency_encoding_enable: bool = False,
+        fe_frequency_encoding_enable: bool = True,
         fe_frequency_encoding_cols: tuple = (),
-        fe_cat_num_interaction_enable: bool = False,
+        fe_cat_num_interaction_enable: bool = True,
         fe_cat_num_interaction_cat_cols: tuple = (),
         fe_cat_num_interaction_num_cols: tuple = (),
         fe_cat_num_interaction_folds: int = 5,
@@ -2554,10 +2554,10 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         #   transform map to the "other" bucket.
         # Recipes (``missing_indicator`` / ``missingness_count`` /
         # ``missingness_pattern``) replay as pure functions of X.
-        fe_missingness_indicator_enable: bool = False,
+        fe_missingness_indicator_enable: bool = True,
         fe_missingness_indicator_cols: tuple = (),
-        fe_missingness_count_enable: bool = False,
-        fe_missingness_pattern_enable: bool = False,
+        fe_missingness_count_enable: bool = True,
+        fe_missingness_pattern_enable: bool = True,
         fe_missingness_pattern_top_k: int = 5,
         # CROSS-FEATURE RATIO + GROUPED-DELTA + LAGGED-DIFF FE.
         # Default OFF; legacy behaviour byte-identical when all three master
@@ -2574,15 +2574,15 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         #   replay fall back to the train global stats.
         # * ``lagged_diff``: sort by ``time_col`` then compute ``x - x.shift(p)``
         #   for each p in ``periods``.
-        fe_pairwise_ratio_enable: bool = False,
+        fe_pairwise_ratio_enable: bool = True,
         fe_pairwise_ratio_cols: tuple = (),
         fe_pairwise_ratio_eps: float = 1e-9,
-        fe_pairwise_log_ratio_enable: bool = False,
+        fe_pairwise_log_ratio_enable: bool = True,
         fe_pairwise_log_ratio_cols: tuple = (),
-        fe_grouped_delta_enable: bool = False,
+        fe_grouped_delta_enable: bool = True,
         fe_grouped_delta_group_col: str | None = None,
         fe_grouped_delta_num_cols: tuple = (),
-        fe_lagged_diff_enable: bool = False,
+        fe_lagged_diff_enable: bool = True,
         fe_lagged_diff_time_col: str | None = None,
         fe_lagged_diff_value_cols: tuple = (),
         fe_lagged_diff_periods: tuple = (1, 2),
@@ -2628,7 +2628,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # support and uplift-gated against the source num_col's marginal MI.
         # Default OFF -> byte-identical legacy path. ``group_cols`` /
         # ``num_cols`` empty => auto-detect (int-as-cat / continuous).
-        fe_grouped_agg_enable: bool = False,
+        fe_grouped_agg_enable: bool = True,
         fe_grouped_agg_stats: tuple = ("mean", "std", "min", "max", "nunique", "skew", "median"),
         fe_grouped_agg_group_cols: tuple = (),
         fe_grouped_agg_num_cols: tuple = (),
@@ -2645,7 +2645,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # 0.5*n are refused (Layer 29 guard). Default OFF -> byte-identical
         # legacy path. ``key_sets`` empty => auto-detect r-combinations (up to
         # ``max_arity``) of detected group columns that clear the guard.
-        fe_composite_group_agg_enable: bool = False,
+        fe_composite_group_agg_enable: bool = True,
         fe_composite_group_agg_key_sets: tuple = (),
         fe_composite_group_agg_max_arity: int = 2,
         fe_composite_group_agg_stats: tuple = ("mean", "std", "count"),
@@ -2659,7 +2659,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # I(bin; y)). Each survivor MI-gated against the source num_col
         # marginal MI. Default OFF -> byte-identical legacy path. ``group_cols``
         # / ``num_cols`` empty => auto-detect (int-as-cat / continuous).
-        fe_grouped_quantile_enable: bool = False,
+        fe_grouped_quantile_enable: bool = True,
         fe_grouped_quantile_quantiles: tuple = (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95),
         fe_grouped_quantile_target_aware: bool = False,
         fe_grouped_quantile_n_bins: int = 5,
@@ -2676,7 +2676,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # pre-screen) route through K-fold OOF target encoding (Layer
         # 33) instead of a raw integer code. Default OFF -> byte-identical
         # legacy path. ``cat_cols`` empty => auto-detect categoricals.
-        fe_cat_pair_enable: bool = False,
+        fe_cat_pair_enable: bool = True,
         fe_cat_pair_min_interaction_info: float = 0.001,
         fe_cat_pair_cat_cols: tuple = (),
         fe_cat_pair_top_k: int = 16,
@@ -2692,7 +2692,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # cells, Layer 29 pre-screen) route through K-fold OOF target encoding
         # (Layer 33). Default OFF -> byte-identical legacy path. ``cat_cols``
         # empty => auto-detect categoricals.
-        fe_cat_triple_enable: bool = False,
+        fe_cat_triple_enable: bool = True,
         fe_cat_triple_min_interaction_info: float = 0.001,
         fe_cat_triple_cat_cols: tuple = (),
         fe_cat_triple_beam_width: int = 3,
@@ -2708,7 +2708,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # column's noise band, so smooth-target frames (where rounding is lossy
         # raw x and digits are pure noise) emit nothing. Default OFF ->
         # byte-identical legacy path. ``cols`` empty => all numeric columns.
-        fe_numeric_decompose_enable: bool = False,
+        fe_numeric_decompose_enable: bool = True,
         fe_numeric_decompose_precisions: tuple = (1, 0.1, 0.01, 0.001),
         fe_numeric_decompose_digits: tuple = (0, 1, 2),
         fe_numeric_decompose_n_boot: int = 10,
@@ -2817,7 +2817,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # within-group percentile rank. Each survivor MI-gated against the source
         # num_col marginal MI. Default OFF -> byte-identical legacy path.
         # ``group_cols`` / ``num_cols`` empty => auto-detect.
-        fe_group_distance_enable: bool = False,
+        fe_group_distance_enable: bool = True,
         fe_group_distance_top_k: int = 6,
         fe_group_distance_group_cols: tuple = (),
         fe_group_distance_num_cols: tuple = (),
@@ -2833,11 +2833,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         #      so MI-invariant by the data-processing inequality -> NOT MI-gated;
         #      the value is DOWNSTREAM (linear / NN). Pool bounded by raw MI.
         # ``*_cols`` empty => auto-detect.
-        fe_rare_category_enable: bool = False,
+        fe_rare_category_enable: bool = True,
         fe_rare_category_cols: tuple = (),
         fe_rare_category_threshold: float = 0.01,
         fe_rare_category_top_k: int = 10,
-        fe_conditional_residual_enable: bool = False,
+        fe_conditional_residual_enable: bool = True,
         fe_conditional_residual_cols: tuple = (),
         fe_conditional_residual_n_bins: int = 10,
         fe_conditional_residual_top_k: int = 10,
@@ -2877,7 +2877,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # an unvalidated interaction with dozens of existing fixtures. Flip once validated the same
         # way. Leak-safe replay (kind ``conditional_quantile_rank``) stores x_j quantile edges + the
         # per-bin sorted x_i reference values; replay is closed-form searchsorted, no y.
-        fe_conditional_quantile_rank_enable: bool = False,
+        fe_conditional_quantile_rank_enable: bool = True,
         fe_conditional_quantile_rank_cols: tuple = (),
         fe_conditional_quantile_rank_n_bins: int = 10,
         fe_conditional_quantile_rank_top_k: int = 10,
@@ -2887,7 +2887,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # validated against the existing fuzz-combo/regression suite. Leak-safe replay (kind
         # ``ordinal_pattern_te``) recomputes the perm_id fresh from the raw K source columns and
         # looks up a frozen TE lookup table; no y reference is captured in the recipe.
-        fe_ordinal_pattern_enable: bool = False,
+        fe_ordinal_pattern_enable: bool = True,
         fe_ordinal_pattern_cols: tuple = (),
         fe_ordinal_pattern_k: int = 3,
         fe_ordinal_pattern_max_cols_for_tuples: int = 5,
@@ -2898,7 +2898,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # joint kernel-approximation block. Default OFF - brand-new, not yet validated against
         # the existing fuzz-combo/regression suite. Leak-safe replay (kind ``random_fourier``)
         # stores the frozen W-column/phase/bandwidth; no y reference is captured in the recipe.
-        fe_random_fourier_enable: bool = False,
+        fe_random_fourier_enable: bool = True,
         fe_random_fourier_cols: tuple = (),
         fe_random_fourier_m: int = 64,
         fe_random_fourier_bandwidth: Optional[float] = None,
@@ -2909,7 +2909,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # fuzz-combo/regression suite. Leak-safe replay (kind ``sir_direction``) stores the frozen
         # centering x_mean + direction vector; y's effect is already baked into the frozen
         # direction at fit time, so the recipe itself carries no y reference.
-        fe_sir_direction_enable: bool = False,
+        fe_sir_direction_enable: bool = True,
         fe_sir_direction_cols: tuple = (),
         fe_sir_direction_n_slices: int = 10,
         fe_sir_direction_n_directions: int = 2,
@@ -2920,7 +2920,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # regression suite. Leak-safe replay (kind ``lof_score``) stores a BOUNDED reference
         # sample (``fe_lof_max_ref`` rows, never the whole fit frame - RAM discipline) + its
         # precomputed density internals; no y reference is captured in the recipe.
-        fe_lof_enable: bool = False,
+        fe_lof_enable: bool = True,
         fe_lof_cols: tuple = (),
         fe_lof_k: int = 20,
         fe_lof_max_ref: int = 2000,
@@ -2930,7 +2930,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # density anomaly score. Default OFF - brand-new, not yet validated against the existing
         # fuzz-combo/regression suite. Leak-safe replay (kind ``mahalanobis_density``) stores the
         # frozen Ledoit-Wolf mu/Sigma_inv; no y reference is captured in the recipe.
-        fe_mahalanobis_density_enable: bool = False,
+        fe_mahalanobis_density_enable: bool = True,
         fe_mahalanobis_density_cols: tuple = (),
         fe_mahalanobis_density_max_cols_for_block: int = 20,
         fe_mahalanobis_density_top_k: int = 1,
@@ -3030,7 +3030,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # downstream (its existing biz-value test), so keep the opt-in knob - just
         # don't make it default. (D:/Temp/item6_rank_transform_findings.md; the earlier
         # 05f062d7 commit msg's "default-on spline" wording was inaccurate - spline is opt-in.)
-        fe_rankgauss_enable: bool = False,
+        fe_rankgauss_enable: bool = True,
         fe_rankgauss_cols: tuple = (),
         fe_rankgauss_top_k: int = 10,
         # TEMPORAL LEAK-SAFE GROUPED AGGREGATIONS. Layer
@@ -3044,7 +3044,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # store the FIT-time per-entity sorted history so test rows compute
         # their stat against TRAIN history only - no test-future peeking, no
         # train-label leak. Default OFF -> byte-identical legacy path.
-        fe_temporal_agg_enable: bool = False,
+        fe_temporal_agg_enable: bool = True,
         fe_temporal_agg_entity_cols: tuple = (),
         fe_temporal_agg_value_cols: tuple = (),
         fe_temporal_agg_time_col: str | None = None,
