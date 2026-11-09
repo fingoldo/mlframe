@@ -22,6 +22,7 @@ Covers:
 
 from __future__ import annotations
 
+from tests.feature_selection.conftest import LEGACY_FE_OFF
 import warnings
 
 import numpy as np
@@ -38,6 +39,7 @@ warnings.filterwarnings("ignore")
 # the rescue mechanism works BY routing the prevalence-failed pair into escalation, so
 # disabling it would break the rescue itself (not just the baseline).
 _LEAN = dict(
+    **LEGACY_FE_OFF,
     dcd_enable=False,
     build_friend_graph=False,
     cluster_aggregate_enable=False,

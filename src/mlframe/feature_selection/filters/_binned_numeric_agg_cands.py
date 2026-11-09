@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 # Out-of-fold columns held on the device at once: 16 columns of 1M float64 rows is 128 MB.
 _CHUNK_COLS = 16
+# Device bytes of binned candidate chunks kept for the second pass over the candidates.
+_CODES_CACHE_BYTES = 256 * 1024 * 1024
 
 
 class HostCandidates:
@@ -52,8 +54,8 @@ class DeviceOofCandidates:
         self._pos = {nm: i for i, nm in enumerate(self.names)}
         self._chunk_start = -1
         self._chunk: Any = None
-        self._chunk_codes: Any = None
-        self._chunk_codes_key: tuple = ()
+        self._codes_by_chunk: dict = {}
+        self._codes_bytes = 0
 
     @classmethod
     def create(cls, X: pd.DataFrame, raw: dict, names: Sequence[str], n_folds: int, random_state: int) -> Optional["DeviceOofCandidates"]:
@@ -81,7 +83,6 @@ class DeviceOofCandidates:
             specs.append({"name": nm, "group_col": r["group_col"], "agg_col": r["agg_col"], "stat": r.get("stat"), "edges": r["edges"], "global": r["global"]})
         fold_ids = binagg_fold_ids(len(self._X), self._n_folds, self._random_state)
         self._chunk = build_binagg_oof_matrix_gpu(cp, self._X, specs, fold_ids, self._n_folds)
-        self._chunk_codes = None
         self._chunk_start = start
 
     def codes(self, name: str, nbins: int) -> Any:
@@ -92,13 +93,20 @@ class DeviceOofCandidates:
         from ._qbin_block_gpu import sync_free_qbin_codes_block
 
         i = self._pos[name]
-        if self._chunk is None or not (self._chunk_start <= i < self._chunk_start + self._chunk.shape[1]):
-            self._load_chunk((i // _CHUNK_COLS) * _CHUNK_COLS)
-        # The whole chunk is binned with one sort (the redundancy gate asks for every column of it), the codes of the asked column are a row of the result.
-        if self._chunk_codes is None or self._chunk_codes_key != (self._chunk_start, int(nbins)):
-            self._chunk_codes = sync_free_qbin_codes_block(cp, cp.ascontiguousarray(self._chunk.T.astype(_qbin_float_dtype(), copy=False)), int(nbins))
-            self._chunk_codes_key = (self._chunk_start, int(nbins))
-        return self._chunk_codes[i - self._chunk_start].copy()
+        start = (i // _CHUNK_COLS) * _CHUNK_COLS
+        key = (start, int(nbins))
+        block = self._codes_by_chunk.get(key)
+        if block is None:
+            if self._chunk is None or self._chunk_start != start:
+                self._load_chunk(start)
+            # The whole chunk is binned with one sort (the redundancy gate asks for every column of it), the codes of the asked column are a row of the result.
+            block = sync_free_qbin_codes_block(cp, cp.ascontiguousarray(self._chunk.T.astype(_qbin_float_dtype(), copy=False)), int(nbins))
+            # The linear-usability pass asks for the codes of the rejected candidates again, chunk by chunk; the binned chunks are kept (codes are small ints) while they fit the cap, so
+            # that pass does not rebuild and re-sort every out-of-fold chunk.
+            if self._codes_bytes + int(block.nbytes) <= _CODES_CACHE_BYTES:
+                self._codes_by_chunk[key] = block
+                self._codes_bytes += int(block.nbytes)
+        return block[i - start].copy()
 
 
 def _release_device_caches() -> None:
