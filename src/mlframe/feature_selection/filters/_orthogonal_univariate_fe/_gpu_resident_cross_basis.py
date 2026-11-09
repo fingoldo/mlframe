@@ -170,6 +170,10 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
             leg_cache[key] = h
         return h
 
+    _prefetch_legs(cp, X, col_specs, basis, basis_of_col, leg_cache, robust_axis)
+    fused = _fused_leg_products(cp, col_specs, leg_cache, basis_of_col, _leg, n)
+    if fused is not None:
+        return fused
     out_cols = []
     for spec in col_specs:
         legs = spec["legs"]
@@ -189,6 +193,92 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
     if not out_cols:
         return cp.empty((n, 0), dtype=cp.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     return cp.ascontiguousarray(cp.stack(out_cols, axis=1).astype(cp.float64, copy=False))  # Intentional float64: GPU cross-basis output; kernel contract is float64
+
+
+def _prefetch_legs(cp: Any, X: Any, col_specs: Sequence[dict], basis: str, basis_of_col: dict, leg_cache: dict, robust_axis: bool) -> None:
+    """Evaluate every distinct ``(col, basis, degree)`` leg of ``col_specs`` before the products are formed, one batched ``_gpu_evaluate_basis_matrix`` call per degree.
+
+    The per-leg path below made one call (about ten cupy operations) per leg, 4534 operations in a 30000 x 60 fit; the columns of a batch are independent (own preprocess, own recurrence),
+    so a leg's values do not depend on what else is in the call. A leg the batch cannot build is left for the per-leg path, which raises the same error as before."""
+    from .._fe_resident_operands import resident_operand
+    from .._gpu_resident_basis import _gpu_evaluate_basis_matrix
+
+    wanted: dict = {}  # degree -> {col: basis}
+    for spec in col_specs:
+        for leg in spec["legs"]:
+            col, degree = leg[0], int(leg[1])
+            explicit = leg[2] if len(leg) == 3 else None
+            if ("_x", col) not in basis_of_col:
+                basis_of_col[("_x", col)] = _operand_filled(X, col)
+            if explicit is not None:
+                b = explicit
+            else:
+                b = basis_of_col.get(col)
+                if b is None:
+                    b = basis_of_col[col] = _route_basis_host(basis_of_col[("_x", col)], basis)
+            if (col, b, degree) not in leg_cache:
+                wanted.setdefault(degree, {})[(col, b)] = None
+    for degree, pairs in wanted.items():
+        keys = list(pairs)
+        if len(keys) < 2:
+            continue
+        mat = cp.stack([resident_operand(np.ascontiguousarray(basis_of_col[("_x", col)]), ("xbasis_op", col), dtype=None) for col, _b in keys], axis=1)
+        cand, meta = _gpu_evaluate_basis_matrix(cp, mat, [b for _c, b in keys], [degree], robust_axis=robust_axis)
+        if cand is None:
+            continue
+        for j, (ci, _basis, d) in enumerate(meta):
+            if int(d) == degree:
+                leg_cache[(keys[ci][0], keys[ci][1], degree)] = cand[:, j]
+
+
+_LEG_PRODUCT_KERNELS: dict = {}
+
+
+def _fused_leg_products(cp: Any, col_specs: Sequence[dict], leg_cache: dict, basis_of_col: dict, leg_fn: Any, n: int) -> Any:
+    """The ``(n, K)`` double product matrix in ONE launch, or ``None`` when the legs do not share a float dtype (the caller multiplies them one at a time).
+
+    Every product of the per-leg loop was a ``prod * h`` cupy operation (about four thousand in a 30000 x 60 fit). Here the distinct legs are stacked once into a ``(legs, n)`` block and each
+    output cell multiplies its legs in the spec's order at the legs' own dtype (``acc = acc * v``, as the loop does), then widens to double: the same values bit for bit."""
+    index_of: dict = {}
+    leg_cols: list = []
+    rows: list = []
+    for spec in col_specs:
+        row = []
+        for leg in spec["legs"]:
+            col, degree = leg[0], int(leg[1])
+            explicit = leg[2] if len(leg) == 3 else None
+            h = leg_fn(col, degree, explicit)
+            key = id(h)
+            if key not in index_of:
+                index_of[key] = len(leg_cols)
+                leg_cols.append(h)
+            row.append(index_of[key])
+        rows.append(row)
+    if not rows or not leg_cols:
+        return None
+    dtypes = {str(h.dtype) for h in leg_cols}
+    if len(dtypes) != 1 or next(iter(dtypes)) not in ("float32", "float64"):
+        return None
+    dt = next(iter(dtypes))
+    width = max(len(r) for r in rows)
+    idx = np.full((len(rows), width), -1, dtype=np.int32)
+    for s_, r_ in enumerate(rows):
+        idx[s_, : len(r_)] = r_
+    ctype = {"float32": "float", "float64": "double"}[dt]
+    kernel = _LEG_PRODUCT_KERNELS.get(dt)
+    if kernel is None:
+        kernel = _LEG_PRODUCT_KERNELS[dt] = cp.ElementwiseKernel(
+            "raw %s L, raw int32 idx, int32 width, int32 nrows, int32 ncols" % dt,
+            "float64 out",
+            "int r = i / ncols; int s = i - r * ncols; %s acc = (%s)1; bool first = true;"
+            " for (int p = 0; p < width; ++p) { int k = idx[s * width + p]; if (k < 0) break; %s v = L[(size_t)k * nrows + r]; acc = first ? v : acc * v; first = false; }"
+            " out = (double)acc;" % (ctype, ctype, ctype),
+            "mlframe_leg_products_" + dt,
+        )
+    block = cp.ascontiguousarray(cp.stack(leg_cols))
+    out = cp.empty((n, len(rows)), dtype=cp.float64)  # Intentional float64: GPU cross-basis output; kernel contract is float64
+    kernel(block, cp.asarray(idx), np.int32(width), np.int32(n), np.int32(len(rows)), out)
+    return out
 
 
 def _resident_mi(cp, mat_gpu, y, nbins: int) -> np.ndarray:
