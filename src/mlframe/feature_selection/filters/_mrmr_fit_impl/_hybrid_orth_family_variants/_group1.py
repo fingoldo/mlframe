@@ -20,13 +20,33 @@ logger = logging.getLogger(__name__)
 
 
 def _hybrid_orth_family_variants_group1(
-    self, *, X, y, verbose, _y_np, _hybrid_orth_pre_recipes, _gbm_seeded_triplet_names, _fe_family_on,
+    self, *, X, y, verbose, _y_np, _hybrid_orth_pre_recipes, _gbm_seeded_triplet_names, _fe_family_on, tail=True,
 ):
     """Run the triplet, quadruplet, adaptive_arity, adaptive_degree, conditional_routing hybrid_orth family stage(s) and return the (possibly
     column-augmented) ``X``. See the package docstring for the full section this carves out."""
     _hybrid_already_appended, X, _r = _hybrid_orth_family_variants_group1_part1(
         _fe_family_on, _gbm_seeded_triplet_names, _y_np, self, X, _hybrid_orth_pre_recipes, verbose,
     )
+    if tail:
+        X = _hybrid_orth_family_variants_group1_tail(
+            self, X=X, y=y, verbose=verbose, _y_np=_y_np, _hybrid_orth_pre_recipes=_hybrid_orth_pre_recipes, _gbm_seeded_triplet_names=_gbm_seeded_triplet_names, _fe_family_on=_fe_family_on
+        )
+    # Layer 59 — DIFF-BASIS FE for highly-correlated source pairs.
+    # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
+    # active, the auto-pair detector flags every pair with |Pearson corr| >=
+    # threshold, computes the residual diff, and evaluates a basis expansion
+    # per requested degree; top-K winners appended. Recipe kind
+    # ``orth_diff_basis``; replay reads X only, no y.
+
+    return X
+
+
+def _hybrid_orth_family_variants_group1_tail(
+    self, *, X, y, verbose, _y_np, _hybrid_orth_pre_recipes, _gbm_seeded_triplet_names, _fe_family_on,
+):
+    """The last three families of group 1 (adaptive_arity, adaptive_degree, conditional_routing), in their sequential order. Their sources are the numeric columns that are not hybrid_orth
+    outputs, so they read the same sources on the frame the group started from; ``run_groups_concurrently`` runs them beside group 3 while the triplet and quadruplet stage of the head is still going."""
+    X = _stage_adaptive_arity(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
     # Layer 57 — ADAPTIVE PER-COLUMN DEGREE FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
     # active, for each source column we evaluate every degree in
@@ -106,13 +126,6 @@ def _hybrid_orth_family_variants_group1(
     # kind reuses ``orth_univariate`` (extra carries ``pre_transform``);
     # replay reads X only, no y.
     X = _stage_conditional_routing(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
-    # Layer 59 — DIFF-BASIS FE for highly-correlated source pairs.
-    # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
-    # active, the auto-pair detector flags every pair with |Pearson corr| >=
-    # threshold, computes the residual diff, and evaluates a basis expansion
-    # per requested degree; top-K winners appended. Recipe kind
-    # ``orth_diff_basis``; replay reads X only, no y.
-
     return X
 
 
@@ -249,7 +262,6 @@ def _hybrid_orth_family_variants_group1_part1(
     # keeps ONLY the winning arity per maximal signal set (a higher arity
     # is emitted iff its MI strictly beats every lower-arity prefix).
     # Recipes route to the per-arity Layer 22 / 56 / 77 builders.
-    X = _stage_adaptive_arity(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
     return _hybrid_already_appended, X, _r
 
 

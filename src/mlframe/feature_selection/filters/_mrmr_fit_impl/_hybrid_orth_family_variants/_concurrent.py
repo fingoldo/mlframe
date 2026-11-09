@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import functools
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -43,11 +44,14 @@ def run_groups_concurrently(
     from .._fe_stage_merge import _fe_merge_new_columns
 
     g1, g2, g3, g4 = groups
+    from ._group1 import _hybrid_orth_family_variants_group1_tail
+
+    g1_head = functools.partial(g1, tail=False)
     recipes = kwargs["_hybrid_orth_pre_recipes"]
     base_recipes = dict(recipes)
     base_state = snapshot(self)
     base_cols = set(map(str, X.columns))
-    private_recipes = [dict(base_recipes) for _ in range(3)]
+    private_recipes = [dict(base_recipes) for _ in range(4)]  # slots 0, 1, 2: groups 1 (head), 3, 4; slot 3: the tail of group 1
     copies: "list[Any]" = []
 
     def stage(fn: Callable[..., Any], slot: int) -> Callable[[Any], Any]:
@@ -62,16 +66,26 @@ def run_groups_concurrently(
 
         return run
 
-    outs = run_stages_concurrently(_Holder(), [stage(g1, 0), stage(g3, 1), stage(g4, 2)], _GROUP_WEIGHTS, vram_weights=_GROUP_VRAM_WEIGHTS, n_rows=len(X))
+    def lane_with_tail(holder: Any) -> Any:
+        """Group 3, then the tail of group 1 (adaptive_arity, adaptive_degree, conditional_routing) in the same device slot: group 3 is the shortest group and the tail is independent of the head."""
+        return stage(g3, 1)(holder), stage(_hybrid_orth_family_variants_group1_tail, 3)(holder)
+
+    outs = run_stages_concurrently(_Holder(), [stage(g1_head, 0), lane_with_tail, stage(g4, 2)], _GROUP_WEIGHTS, vram_weights=_GROUP_VRAM_WEIGHTS, n_rows=len(X))
     if outs is None:
         return None
     by_slot = {slot: est for slot, est in copies}
-    out1, out3, out4 = outs
+    out1, (out3, out_tail), out4 = outs
 
     # group 1 first, onto the real estimator, then group 2 on the frame and state group 1 left, exactly as in the sequential run
     merge_stage_state(self, base_state, [by_slot[0]])
     _fold_recipes(recipes, base_recipes, private_recipes[0])
     acc = _fe_merge_new_columns(X, out1, X)
+    # then the tail of group 1 (the last families of its sequential order), then group 2 on the frame both left
+    tail_dup = [c for c in _new_names(out_tail, base_cols) if c in set(map(str, acc.columns))]
+    merge_stage_state(self, base_state, [by_slot[3]])
+    _drop_repeated_features(self)
+    _fold_recipes(recipes, base_recipes, private_recipes[3], skip=set(tail_dup))
+    acc = _fe_merge_new_columns(acc, out_tail, X)
     acc = g2(X=acc, **kwargs)
     # groups 3 and 4 keep only the names no earlier group owns
     for slot, out in ((1, out3), (2, out4)):
