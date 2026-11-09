@@ -107,3 +107,7 @@ Open proposals from the three read-only reviews (estimates, not measurements): s
 ### Shared per-column sort bundle: measured, not worth building (2026-11-10)
 
 Counting `device_argsort` over a default 100k x 100 fit (`D:/Temp/sort_count.py`): 399 calls, 77.7 million sorted elements in total (about 780 column-sorts of 100k rows; at roughly 1 ms per 100k-row device sort that is about 1 s of device time spread over the whole fit). Callers: rank-bin plug-in MI 195, KSG-CD 132, joint renumbering 63, group stats 4, null kernels 5. A fit-wide sort cache would save a fraction of that second, so the proposal (estimated 3-5 s by code reading) is dropped.
+
+### Dedup MI prefetch beside the accuracy gate: no gain, reverted (2026-11-10)
+
+An `EngineeredMiPrefetch` thread scored the appended engineered columns while `_gate_engineered_accuracy` ran, and the dedup took the scores from it (exact equality with the direct call was tested). `stage:cross_stage_dedup` stayed at 1.69 s (1.8 s before) and `stage:accuracy_gate` at 1.5 s; the fit wall of 64.5 s is inside the 65-72 s noise. The dedup's time is therefore in the rank-correlation scan (`scan_engineered_duplicates`), not in the MI scores; any further work there targets the scan.
