@@ -301,7 +301,7 @@ def _stage_group_distance(self, _fe_family_on, X, _y_np, _group_distance_pre_rec
                     _y_for_gd,
                     recipes_at=2,
                     **fe_subsample_kwargs(self),
-                    refit=refit_winners(hybrid_group_distance_fe, _group_and_number, top_k=10**9, min_mi=-1e9, min_uplift=-1e9),
+                    refit=refit_winners(hybrid_group_distance_fe, _group_and_number, top_k=10**9, min_mi=-1e9, min_uplift=-1e9, alpha=None),
                     group_cols=_gd_groups,
                     num_cols=_gd_nums,
                     top_k=_gd_top_k,

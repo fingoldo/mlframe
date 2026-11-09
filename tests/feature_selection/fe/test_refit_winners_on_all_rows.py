@@ -60,3 +60,24 @@ def test_refit_works_for_a_family_that_returns_three_values():
     assert len(X_out) == n and set(appended) == {"agg(a|g)", "agg(b|g)"}
     assert calls[0] == 1000 and all(c == n for c in calls[1:])  # the decision on the draw, then one narrowed call per winner's pair on all rows
     assert {r.name for r in recipes} == set(appended)
+
+
+def test_refit_with_the_added_information_gate_open_returns_every_winner():
+    """A winner of the subsample decision that the added-information gate would not pass in the narrowed full-n call is still returned when the refit opens ``alpha``;
+    left at its default the narrowed call drops it and the refit raises (the caller then pays the full-data decision)."""
+    import pytest
+
+    rng = np.random.default_rng(5)
+    n = 3000
+    X = pd.DataFrame({"g": rng.integers(0, 5, n).astype(float), "a": rng.standard_normal(n), "b": rng.standard_normal(n)})
+    y = rng.integers(0, 2, n)
+    idx = np.sort(rng.choice(n, 800, replace=False)).astype(np.int64)
+    kw = {"group_cols": ["g"], "num_cols": ["a", "b"], "top_k": 2, "min_mi": -1e9, "min_uplift": -1e9, "alpha": None}
+    _x, _appended, recipes, _s = fe_decide_on_subsample(hybrid_grouped_quantile_fe, X, y, shared_subsample_idx=idx, recipes_at=2, **kw)
+    assert recipes
+    gated = refit_winners(hybrid_grouped_quantile_fe, _group_and_number, top_k=10**9, min_mi=-1e9, min_uplift=-1e9)
+    opened = refit_winners(hybrid_grouped_quantile_fe, _group_and_number, top_k=10**9, min_mi=-1e9, min_uplift=-1e9, alpha=None)
+    columns, _fitted = opened(X, y, recipes, {k: v for k, v in kw.items() if k not in ("top_k", "min_mi", "min_uplift", "alpha")})
+    assert set(columns) == {r.name for r in recipes}
+    with pytest.raises(KeyError):
+        gated(X, y, recipes, {k: v for k, v in kw.items() if k not in ("top_k", "min_mi", "min_uplift", "alpha")})

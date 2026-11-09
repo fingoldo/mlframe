@@ -582,10 +582,10 @@ def fe_decide_on_subsample(
                 # Intentional float64: narrows only a float64 replay result to the fit's dtype
                 _full_cols[r.name] = _v.astype(_store, copy=False) if (_store is not None and _v.dtype == np.float64) else _v
         record_fe_family_wall("stage:decide_replay", perf_counter() - _t_replay)
-    except Exception:
+    except Exception as exc:
         logger.warning(
-            "fe_decide_on_subsample: full-n replay failed for %r; " "falling back to full-data decision.",
-            getattr(r, "name", "?"),
+            "fe_decide_on_subsample: %s: full-n replay failed for %r (%s: %s); falling back to full-data decision.",
+            getattr(fit_with_recipes_fn, "__name__", "FE family"), getattr(r, "name", "?"), type(exc).__name__, exc,
         )
         return fit_with_recipes_fn(fe_to_pandas(X), y, **kwargs)
     # Append the engineered columns in X's OWN framework (polars with_columns / pandas concat) - only the new columns
