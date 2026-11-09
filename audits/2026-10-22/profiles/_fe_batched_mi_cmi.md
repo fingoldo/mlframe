@@ -5,3 +5,16 @@
 Measured (GTX Pascal, 5 launches averaged, equal counts in every case; `tests/feature_selection/gpu/test_batched_joint_counts_smem.py`): 200000 x 300 x 40 cells 7.62 -> 5.83 ms (x1.3); 30000 x 1944 x 20 cells 8.29 -> 5.59 ms (x1.5); 100000 x 100 x 100 cells 1.39 -> 1.28 ms (x1.1); 100000 x 60 x 288 cells 0.79 -> 1.08 ms (x0.7, kept on the global kernel); 100000 x 20 x 2400 cells 0.33 -> 0.45 ms (x0.7, kept on the global kernel).
 
 Not done: counter-level profile (nvprof achieved occupancy, shared efficiency, stalls) of the shared kernel, and the int64 operand width (8 bytes per code read; an int8/int16 code matrix would cut the read traffic 4-8x but the matrix is built by callers as int64).
+
+## nvprof counters, 200000 x 300 codes, 10 x 4 cells (2026-11-09)
+
+| counter | `batched_joint_hist2_i32` (global atomics) | `batched_joint_hist2_i32_smem` |
+|---|---|---|
+| achieved occupancy | 0.81 | 0.89 |
+| global load efficiency | 91.8 % | 45.9 % (the broadcast 8-byte load of `b[row]` per warp) |
+| issue slot utilisation | 85 % | 69 % |
+| stall: memory dependency | 37.7 % | 58.0 % |
+| stall: synchronisation | 0 % | 0.6 % |
+| device-memory read throughput | 61 GB/s | 81 GB/s (about 73 % of this card's ~112 GB/s) |
+
+Both kernels move the same bytes: the int64 code matrix is 200000 x 300 x 8 = 480 MB per launch, and the shared kernel (5.83 ms) reads it at 82 GB/s, close to the card's bandwidth. So the lever left in this kernel is the operand width, not the atomics: an int8 code matrix would read 60 MB (an 8x cut, 5.8 ms -> about 1 ms if bandwidth stays the limit). That needs the whole CMI path (`batched_cmi_gpu`, its marginal / entropy kernels, the callers that build the codes as int64) to carry narrow codes; not started.
