@@ -6,4 +6,4 @@ Kernel `copula_joint`: one thread per sorted position; a value with no equal nei
 
 nvprof metrics, 100000 rows x 40 columns: achieved occupancy 0.74 (dynamic shared memory 12.8 KB per block), shared-memory efficiency 5 % -> 35 % with the copies, global load efficiency 71 %, kernel time 4.1 ms before the lone-value fast path. Time per call of 40 columns at 100000 rows: host 42.8 ms, device 30.4 ms (5000 rows: 1.1 / 6.5 ms; 30000 rows: 7.6 / 15.2 ms). The cub radix sort is the rest of the device time.
 
-Dispatch: kernel-tuning entry `fe_copula_columns_device`, sweep run on this host with `tune_spec`: host at all three sizes (the sweep's measurement of the device at 100000 rows is above the host's; the tuner's verdict stands). No environment switch.
+Dispatch: kernel-tuning entry `fe_copula_columns_device`, sweep run on this host with `tune_spec` and read back in a fresh process: host at 5000 and 30000 rows, device at 100000. (A `choose()` call in the same process as `tune_spec` returned the fallback, host, for every size; read the choices in a new process.) No environment switch.

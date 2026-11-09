@@ -10,4 +10,4 @@ First version: 155 / 170 / 161 ms at 5000 / 30000 / 100000 rows (host 58 / 148 /
 
 Remaining device time at 100000 rows (nvprof, first version, shape unchanged): `radix_select_f32_v5` 4.0 ms per call (the quantile coder), `cupy_var_core` 3.5 ms, `concatenate` (the stack) 2.2 ms, `mi_hist_split_f32` 1.3 ms. Lever left: write the candidates straight into a preallocated `(k, n)` block (removes the stack) and fuse the nine unary / eight binary expressions into one kernel per transform.
 
-Dispatch: kernel-tuning entry `fe_mi_greedy_candidates_device` (sweep over 5000 / 30000 / 100000 rows, equivalence rtol 1e-3 / atol 1e-4), no environment switch.
+Dispatch: kernel-tuning entry `fe_mi_greedy_candidates_device` (sweep over 5000 / 30000 / 100000 rows, equivalence rtol 1e-3 / atol 1e-4), no environment switch. Sweep run with `tune_spec`, read back in a fresh process: device at 5000, 30000 and 100000 rows (max absolute MI difference 2e-6).
