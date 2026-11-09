@@ -131,6 +131,21 @@ def _fit_core(x, y, b, fold, k_folds, nbin, m):
     return oof, cx_all, cy_all, k_all, mu_all
 
 
+_FOLD_CACHE: dict = {}
+
+
+def _fold_ids(n: int, n_folds: int, seed: int) -> np.ndarray:
+    """Fold id of every row: the same for every column of one fit (same ``n``, ``n_folds``, ``seed``), so the permutation is drawn once and shared read-only."""
+    key = (n, n_folds, seed)
+    fold = _FOLD_CACHE.get(key)
+    if fold is None:
+        if len(_FOLD_CACHE) >= 4:
+            _FOLD_CACHE.clear()
+        fold = (np.random.default_rng(seed).permutation(n) % n_folds).astype(np.int64)
+        _FOLD_CACHE[key] = fold
+    return fold
+
+
 def fit_oof_warp1d(x: np.ndarray, y: np.ndarray, *, n_bins: int = N_BINS, shrink: float = SHRINK, n_folds: int = N_FOLDS, seed: int = 0) -> dict:
     """Fit the warp of the fitting column ``x`` against the bounded, rank-scaled target ``y`` (same length) and return ``{"oof", "cx", "cy", "fill"}``.
 
@@ -140,7 +155,7 @@ def fit_oof_warp1d(x: np.ndarray, y: np.ndarray, *, n_bins: int = N_BINS, shrink
     y = np.asarray(y, dtype=np.float64)  # Intentional float64: OOF warp fit inputs: fit-side precision left at float64 pending a per-stage selection validation
     edges = quantile_edges(x, n_bins)
     b = np.where(np.isfinite(y), _bin_codes(x, edges), -1)
-    fold = (np.random.default_rng(seed).permutation(len(x)) % int(n_folds)).astype(np.int64)
+    fold = _fold_ids(len(x), int(n_folds), int(seed))
     oof, cx, cy, k, fill = _fit_core(x, np.where(np.isfinite(y), y, 0.0), b, fold, int(n_folds), int(len(edges) + 1), float(shrink))
     return {"oof": oof, "cx": np.ascontiguousarray(cx[:k]), "cy": np.ascontiguousarray(cy[:k]), "fill": float(fill)}
 
