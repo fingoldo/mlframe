@@ -21,11 +21,14 @@ logger = logging.getLogger(__name__)
 
 
 def _hybrid_orth_family_variants_group2(
-    self, *, X, y, verbose, _y_np, _hybrid_orth_pre_recipes, _gbm_seeded_triplet_names, _fe_family_on,
+    self, *, X, y, verbose, _y_np, _hybrid_orth_pre_recipes, _gbm_seeded_triplet_names, _fe_family_on, phase="all", skip=(),
 ):
     """Run the diff_basis, cluster_basis, bootstrap, three_gate, ksg hybrid_orth family stage(s) and return the (possibly
-    column-augmented) ``X``. See the package docstring for the full section this carves out."""
-    if _fe_family_on("fe_hybrid_orth_diff_basis_enable", False):
+    column-augmented) ``X``. See the package docstring for the full section this carves out.
+
+    ``phase`` splits the group around the bootstrap stage: ``"pre"`` runs diff_basis and cluster_basis, ``"post"`` runs three_gate and ksg, ``"all"`` (default) everything in order.
+    ``skip`` names stages (``"bootstrap"``, ``"ksg"``) the caller has already run elsewhere; the concurrent path runs those two beside group 1."""
+    if phase != "post" and _fe_family_on("fe_hybrid_orth_diff_basis_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from ..._orthogonal_diff_basis_fe import (
@@ -98,13 +101,13 @@ def _hybrid_orth_family_variants_group2(
             from mlframe.feature_selection.filters._fe_rejection_ledger import record_family_failure
 
             record_family_failure(self, "hybrid_orth_diff_basis", _df_exc)
-    _ret_hybrid_orth_family_variants_group2_part1 = _hybrid_orth_family_variants_group2_part1(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
+    _ret_hybrid_orth_family_variants_group2_part1 = _hybrid_orth_family_variants_group2_part1(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose, phase, skip)
     if _ret_hybrid_orth_family_variants_group2_part1[0]:
         return _ret_hybrid_orth_family_variants_group2_part1[1]
 
 
 def _hybrid_orth_family_variants_group2_part1(
-    self: Any, _fe_family_on: Any, _y_np: Any, X: Any, _hybrid_orth_pre_recipes: Any, verbose: Any,
+    self: Any, _fe_family_on: Any, _y_np: Any, X: Any, _hybrid_orth_pre_recipes: Any, verbose: Any, phase: str = "all", skip: Any = (),
 ) -> tuple[Any, ...]:
     """Extracted block of ``_hybrid_orth_family_variants_group2`` (part 1); returns the names the caller still uses."""
     # Layer 61 — PER-CLUSTER SHARED-BASIS FE. Independent opt-in
@@ -117,7 +120,10 @@ def _hybrid_orth_family_variants_group2_part1(
     # basis) and Layer 7 cluster_aggregate (swaps cluster to PC1/mean_z as a
     # new raw feature WITHOUT a basis expansion). Recipe kind
     # ``orth_cluster_basis``; replay reads X only, no y.
-    X = _stage_cluster_basis(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
+    if phase != "post":
+        X = _stage_cluster_basis(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
+    if phase == "pre":
+        return True, (X)
     # Layer 62 — BOOTSTRAP-STABLE MI ranking for the hybrid
     # orth-poly FE (independent opt-in; does NOT require
     # fe_hybrid_orth_enable). Replaces the Layer 21 point-estimate MI gate
@@ -127,7 +133,8 @@ def _hybrid_orth_family_variants_group2_part1(
     # changes - so recipes reuse the ``orth_univariate`` kind and replay
     # is shared. Restrict to RAW columns to avoid recipes referencing
     # already-engineered columns absent at transform.
-    X = _stage_bootstrap(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
+    if "bootstrap" not in skip:
+        X = _stage_bootstrap(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
     # Layer 63 — THREE-GATE + K-fold OOF MI ranking for the
     # hybrid orth-poly FE (independent opt-in; does NOT require
     # fe_hybrid_orth_enable). Layer 21 ranks engineered columns with a
@@ -228,7 +235,8 @@ def _hybrid_orth_family_variants_group2_part1(
     # engineered columns are bit-equal to Layer 21 - only the SCORING
     # (and therefore the selection) changes - so recipes reuse the
     # ``orth_univariate`` kind and replay is shared infrastructure.
-    X = _stage_ksg(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
+    if "ksg" not in skip:
+        X = _stage_ksg(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
     # Layer 66 — COPULA-MI ranking for the hybrid orth-poly FE
     # (independent opt-in; does NOT require fe_hybrid_orth_enable). Each
     # variable is rank-transformed to a uniform on (0, 1) before MI is
