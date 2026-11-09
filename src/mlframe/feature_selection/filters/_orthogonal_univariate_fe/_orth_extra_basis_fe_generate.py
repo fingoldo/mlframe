@@ -165,7 +165,7 @@ def generate_extra_basis_features(
     # snaps to the true non-integer frequency. The set of frequencies the
     # detector may ADD is disjoint from the fixed grid by construction (a
     # fixed freq that already recovers the signal needs no adaptive twin).
-    _adaptive_f_grid = tuple(0.5 * k for k in range(1, 33))  # 0.5 .. 16.0
+    _adaptive_f_grid = adaptive_fourier_grid(len(X))  # 0.5 .. 16.0 at 0.5, then 1.0 steps up to a row-count-dependent top (see ``adaptive_fourier_grid``)
     # The CHIRP warp (u = sign(z)*z**2) concentrates a growing-frequency signal
     # at a HIGHER z-space frequency than the linear axis, so the chirp detector
     # sweeps a WIDER grid (0.5 .. 24.0). Phase-0: fast chirps land at u-space
@@ -292,6 +292,15 @@ def _emit_chirp_fourier_legs(x, col, y_adapt, adaptive_fe_ok, fourier_chirp, chi
                             "lo": float(_c_lo), "span": float(_c_span),
                             "power": 1, "adaptive": True,
                         }
+
+
+def adaptive_fourier_grid(n_rows: int) -> tuple:
+    """Coarse z-space frequency grid of the adaptive Fourier detector: 0.5 steps up to 16 cycles over the column's range, then 1.0 steps up to ``clip(n_rows / 250, 16, 64)``.
+
+    The detector can only lock a peak the grid reaches: a 20-cycle signal on 14000 rows went undetected with the old 16-cycle top (the fit then rebuilt it from a digit feature, held-out AUC 0.70 against 0.97 for the sine itself).
+    The top grows with the rows because a faster oscillation needs more samples per cycle to pass the held-out gate; the refinement around the coarse peak (+-0.25 at 0.05) is unchanged."""
+    top = int(min(64, max(16, n_rows // 250)))
+    return tuple(0.5 * k for k in range(1, 33)) + tuple(float(f) for f in range(17, top + 1))
 
 
 def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr):
