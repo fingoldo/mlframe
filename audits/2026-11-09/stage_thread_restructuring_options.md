@@ -119,3 +119,7 @@ An `EngineeredMiPrefetch` thread scored the appended engineered columns while `_
 ### Cupy call volume of a whole fit (2026-11-10)
 
 `D:/Temp/cupy_op_count.py 100000 100`: 107398 cupy c_calls in an 80.6 s profiled fit (about 1.3k/s; the profiler hook inflates the wall). Leaders: `binned_mi_from_values_gpu` 8038, `_candidate_matrix` 5136, `_batched_cmi_argmax` 4649, `_assert_codes_in_range` 3744 (mostly attribute reads on cached ranges), `_newton` 3240, `rank_bin_codes_batch_gpu_resident` 3137. The per-process launch ceiling of about 20k ops/s is therefore not what limits the fit: the card idles because of dependency chains and host stages between small kernels, not because launches are saturated. Merging kernels across families would cut the call count by at most a fraction of an already low rate; the lever is overlap and removing host stages, as in the group-1 split.
+
+### Utilisation timeline after the day's changes (2026-11-10)
+
+`D:/Temp/util_timeline.py`, one default fit 100k x 100: WALL 61.6 s, mean CPU 30 %, mean GPU 23 % (1 s samples; CPU 12-13 % at t = 1, 19 and 43 s, GPU 0 % at t = 1, 7, 16, 22, 37, 40). The card is still idle most of the time: the serial main thread and the cascade chain keep both CPU and GPU under half used, which matches the call-rate measurement (launches are not saturated). Any further gain needs more independent work running at once (a different decomposition of the cascades), not faster individual stages.
