@@ -1,4 +1,4 @@
-"""The device Xi gives the host kernel's value per column, with continuous, heavily tied and constant columns, at float32 and float64."""
+"""The device Xi gives the host kernel's value per column, with continuous, heavily tied, constant and signed-zero columns, from host or resident operands."""
 
 import numpy as np
 import pytest
@@ -9,8 +9,8 @@ from mlframe.feature_selection.filters import _orthogonal_xi_fe as host
 from mlframe.feature_selection.filters import _orthogonal_xi_gpu as gpu
 
 
-def _inputs(n, k, seed, dtype):
-    """Columns of several kinds, their permutations and the target ranks of a 3-class target."""
+def _inputs(n, k, seed):
+    """float32 columns of several kinds, their tie seeds and the target ranks of a 3-class target."""
     r = np.random.default_rng(seed)
     y = r.integers(0, 3, n).astype(np.float64)
     cols = r.standard_normal((k, n))
@@ -19,30 +19,32 @@ def _inputs(n, k, seed, dtype):
     cols[2] = r.integers(0, 4, n)  # four values
     cols[3] = 1.5  # constant
     cols[4] = np.where(r.random(n) < 0.5, 0.0, -0.0)  # signed zeros
-    cols = np.ascontiguousarray(cols.astype(dtype))
-    perms = np.stack([r.permutation(n) for _ in range(k)])
-    _u, inv, counts = np.unique(y, return_counts=True, return_inverse=True)
-    r_row = np.cumsum(counts)[inv].astype(np.float64)
-    l_row = np.cumsum(counts[::-1])[::-1][inv].astype(np.float64)
-    return cols, perms, r_row, l_row
+    cols = np.ascontiguousarray(cols.astype(np.float32))
+    r_row, l_row = host._target_ranks(y)
+    return cols, host.column_seeds(seed, k), r_row, l_row
 
 
-@pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("n,k", [(1500, 7), (20000, 9), (40001, 6)])
-def test_device_xi_equals_host(n, k, dtype):
-    """Per-column Xi is identical to the host kernel (integer rank sums, same tie-break permutations)."""
-    cols, perms, r_row, l_row = _inputs(n, k, 0, dtype)
+@pytest.mark.parametrize("resident", [False, True])
+def test_device_xi_equals_host(n, k, resident):
+    """Per-column Xi is identical to the host kernel (integer rank sums, the same counter-hash tie keys), whether the columns are uploaded or already on the device."""
+    cols, seeds, r_row, l_row = _inputs(n, k, 0)
     want = np.empty(k)
-    kernel = host._xi_columns_radix_njit if dtype == np.float32 else host._xi_columns_njit
-    kernel(cols, perms, r_row, l_row, want)
-    got = gpu.xi_columns_device(cols, perms, r_row, l_row)
+    host._xi_columns_radix_njit(cols, seeds, r_row, l_row, want)
+    got = gpu.xi_columns_device(cp.asarray(cols) if resident else cols, seeds, r_row, l_row)
     assert got is not None
-    np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-12)
+    np.testing.assert_array_equal(got, want)
     assert want[0] > want[3]  # the informative column scores above the constant one
 
 
-def test_public_batch_routes_through_the_device_when_forced(monkeypatch):
-    """``xi_correlation_batch`` with the device chosen equals the host path chosen off."""
+def test_float64_columns_stay_on_the_host():
+    """The device kernel takes float32 columns only; a float64 block is handed back."""
+    cols, seeds, r_row, l_row = _inputs(500, 5, 1)
+    assert gpu.xi_columns_device(cols.astype(np.float64), seeds, r_row, l_row) is None
+
+
+def test_public_batch_routes_through_the_device_when_chosen(monkeypatch):
+    """``xi_correlation_batch`` with the device chosen equals the host path."""
     r = np.random.default_rng(3)
     n = 6000
     y = r.integers(0, 3, n)
@@ -53,4 +55,18 @@ def test_public_batch_routes_through_the_device_when_forced(monkeypatch):
     want = host.xi_correlation_batch(X, y, random_state=5)
     monkeypatch.setattr(gpu, "use_device", lambda n_rows: True)
     got = host.xi_correlation_batch(X, y, random_state=5)
-    np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-12)
+    np.testing.assert_array_equal(got, want)
+
+
+def test_resident_block_is_used_by_the_batch_when_the_device_is_chosen(monkeypatch):
+    """A caller that already holds the columns on the device gets the same values through ``device_block`` as through the host path."""
+    r = np.random.default_rng(4)
+    n = 5000
+    y = r.integers(0, 2, n)
+    X = r.standard_normal((n, 6)).astype(np.float32)
+    X[:, 2] = np.round(X[:, 2])
+    monkeypatch.setattr(gpu, "use_device", lambda n_rows: False)
+    want = host.xi_correlation_batch(X, y, random_state=9)
+    monkeypatch.setattr(gpu, "use_device", lambda n_rows: True)
+    got = host.xi_correlation_batch(X, y, random_state=9, device_block=cp.asarray(np.ascontiguousarray(X.T)))
+    np.testing.assert_array_equal(got, want)

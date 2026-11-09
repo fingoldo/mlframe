@@ -28,38 +28,49 @@ logger = logging.getLogger(__name__)
 _BUDGET_FRACTION = 0.25
 DEVICE_FALLBACK_ROWS = 10**9  # the tuner decides; until a sweep says the device wins the host kernel runs
 _THREADS = 256
-_MAX_BINS = 32  # the shared histogram holds nb * nb counts
+_MAX_BINS = 32  # the shared histograms hold _REPL copies of nb * nb counts
+_REPL = 8  # must equal REPL in the kernel source
 
 _SRC = r"""
-// dtype-ok: Intentional float64: the rank-to-bin map is evaluated in double exactly as the host kernel does.
-extern "C" __global__ void copula_joint(const T* __restrict__ xs, const long long* __restrict__ order, const int* __restrict__ vi, int* __restrict__ joint,
+// dtype-ok: Intentional float64: {ACC} evaluates the rank-to-bin map exactly as the host kernel does; {REAL} is the column type.
+#define REPL 8  // histogram copies per block: the lanes of a warp spread over them, so equal (rank bin, target bin) cells of neighbouring lanes do not serialise on one address
+extern "C" __global__ void copula_joint(const {REAL}* __restrict__ xs, const long long* __restrict__ order, const int* __restrict__ vi, int* __restrict__ joint,
                                         const long long n, const int nb) {
     extern __shared__ int hist[];
     const int cells = nb * nb;
-    for (int c = threadIdx.x; c < cells; c += blockDim.x) hist[c] = 0;
+    for (int c = threadIdx.x; c < REPL * cells; c += blockDim.x) hist[c] = 0;
     __syncthreads();
     const long long base = (long long)blockIdx.y * n;
-    const T* x = xs + base;
+    const {REAL}* x = xs + base;
+    int* mine = hist + (threadIdx.x & (REPL - 1)) * cells;
     for (long long q = (long long)blockIdx.x * blockDim.x + threadIdx.x; q < n; q += (long long)gridDim.x * blockDim.x) {
-        const T v = x[q];
-        long long lo = 0, hi = q;  // first index with value v
-        while (lo < hi) { const long long mid = (lo + hi) >> 1; if (x[mid] < v) lo = mid + 1; else hi = mid; }
-        const long long start = lo;
-        lo = q + 1; hi = n;  // one past the last index with value v
-        while (lo < hi) { const long long mid = (lo + hi) >> 1; if (x[mid] <= v) lo = mid + 1; else hi = mid; }
-        const long long end = lo;
-        const double u = 0.5 * (double)(start + 1 + end) / ((double)n + 1.0);
-        int ub = (int)floor(u * (double)nb);
+        const {REAL} v = x[q];
+        long long start = q, end = q + 1;
+        const bool lone = (q == 0 || x[q - 1] < v) && (q + 1 == n || x[q + 1] > v);  // a value with no equal neighbour is its own tie run: the common case on a continuous column
+        if (!lone) {
+            long long lo = 0, hi = q;  // first index with value v
+            while (lo < hi) { const long long mid = (lo + hi) >> 1; if (x[mid] < v) lo = mid + 1; else hi = mid; }
+            start = lo;
+            lo = q + 1; hi = n;  // one past the last index with value v
+            while (lo < hi) { const long long mid = (lo + hi) >> 1; if (x[mid] <= v) lo = mid + 1; else hi = mid; }
+            end = lo;
+        }
+        const {ACC} u = 0.5 * ({ACC})(start + 1 + end) / (({ACC})n + 1.0);
+        int ub = (int)floor(u * ({ACC})nb);
         if (ub > nb - 1) ub = nb - 1;
-        atomicAdd(&hist[ub * nb + vi[order[base + q]]], 1);
+        atomicAdd(&mine[ub * nb + __ldg(&vi[order[base + q]])], 1);
     }
     __syncthreads();
     int* out = joint + (long long)blockIdx.y * cells;
-    for (int c = threadIdx.x; c < cells; c += blockDim.x) if (hist[c]) atomicAdd(&out[c], hist[c]);
+    for (int c = threadIdx.x; c < cells; c += blockDim.x) {
+        int t = 0;
+        for (int r = 0; r < REPL; ++r) t += hist[r * cells + c];
+        if (t) atomicAdd(&out[c], t);
+    }
 }
 """
 
-_MODULES = {np.dtype(np.float32): RawModuleCache("#define T float\n" + _SRC), np.dtype(np.float64): RawModuleCache("#define T double\n" + _SRC)}
+_MODULES = {np.dtype(np.float32): RawModuleCache(_SRC.replace("{REAL}", "float").replace("{ACC}", "double")), np.dtype(np.float64): RawModuleCache(_SRC.replace("{REAL}", "double").replace("{ACC}", "double"))}
 
 
 def _mi_from_joint(joint: np.ndarray, total: float) -> float:
@@ -82,15 +93,33 @@ def _mi_from_joint(joint: np.ndarray, total: float) -> float:
     return mi if mi > 0.0 else 0.0
 
 
+def _mi_from_tables(tables: np.ndarray, total: float) -> np.ndarray:
+    """Miller-Madow MI of every ``nb x nb`` integer table of ``tables`` (columns, nb, nb), vectorised; equal to :func:`_mi_from_joint` per table up to the order of the floating-point sum."""
+    t = tables.astype(np.float64)  # Intentional float64: counts and their logarithms
+    px = t.sum(axis=2)
+    py = t.sum(axis=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        pxy = t / total
+        term = np.where(t > 0, pxy * (np.log(pxy) - np.log(px[:, :, None] / total * (py[:, None, :] / total))), 0.0)
+    mi = term.sum(axis=(1, 2))
+    kxy = (t > 0).sum(axis=(1, 2))
+    kx = (px > 0).sum(axis=1)
+    ky = (py > 0).sum(axis=1)
+    mi = mi - (kxy - kx - ky + 1) / (2.0 * total)
+    return np.where(mi > 0.0, mi, 0.0)
+
+
 def copula_columns_device(cols_rows: np.ndarray, vi: np.ndarray, nb: int) -> Optional[np.ndarray]:
-    """Copula MI of each row of the all-finite ``cols_rows`` (columns, n) against the target bin codes ``vi``; ``None`` when the device cannot take it (the caller runs the host kernel)."""
+    """Copula MI of each row of the all-finite ``cols_rows`` (columns, n; numpy, or a resident cupy array that is used as is) against the target bin codes ``vi``; ``None`` when the device cannot take it (the caller runs the host kernel)."""
     kk, n = cols_rows.shape
-    if kk == 0 or n < 2 or cols_rows.dtype not in _MODULES or nb > _MAX_BINS:
+    if kk == 0 or n < 2 or np.dtype(str(cols_rows.dtype)) not in _MODULES or nb > _MAX_BINS:
         return None
     try:
         import cupy as cp
 
-        kernel = _MODULES[cols_rows.dtype].get(cp).get_function("copula_joint")
+        resident = isinstance(cols_rows, cp.ndarray)
+
+        kernel = _MODULES[np.dtype(str(cols_rows.dtype))].get(cp).get_function("copula_joint")
         vi_d = cp.asarray(np.ascontiguousarray(vi, dtype=np.int32))
         free = int(cp.cuda.runtime.memGetInfo()[0]) + int(cp.get_default_memory_pool().free_bytes())
         per_col = n * (int(cols_rows.dtype.itemsize) * 2 + 8 * 4)  # values, sorted values, order and sort temporaries
@@ -99,15 +128,15 @@ def copula_columns_device(cols_rows: np.ndarray, vi: np.ndarray, nb: int) -> Opt
         grid_x = min((n + _THREADS - 1) // _THREADS, 64)
         for c0 in range(0, kk, block):
             w = min(block, kk - c0)
-            xd = cp.asarray(np.ascontiguousarray(cols_rows[c0 : c0 + w]))
+            xd = cols_rows[c0 : c0 + w] if resident else cp.asarray(np.ascontiguousarray(cols_rows[c0 : c0 + w]))
             order = device_argsort(xd, axis=1)
             xs = cp.take_along_axis(xd, order, axis=1)
-            del xd
+            if not resident:
+                del xd
             joint = cp.zeros((w, nb, nb), dtype=cp.int32)
-            kernel((grid_x, w), (_THREADS,), (xs, order, vi_d, joint, np.int64(n), np.int32(nb)), shared_mem=nb * nb * 4)
+            kernel((grid_x, w), (_THREADS,), (xs, order, vi_d, joint, np.int64(n), np.int32(nb)), shared_mem=_REPL * nb * nb * 4)
             tables = cp.asnumpy(joint)
-            for j in range(w):
-                out[c0 + j] = _mi_from_joint(tables[j], float(n))
+            out[c0 : c0 + w] = _mi_from_tables(tables, float(n))
             del xs, order, joint
         return out
     except Exception as exc:

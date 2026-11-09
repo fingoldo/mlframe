@@ -51,3 +51,17 @@ def test_public_batch_routes_through_the_device_when_forced(monkeypatch):
     monkeypatch.setattr(gpu, "use_device", lambda n_rows: True)
     got = host._copula_mi_batch(X, y, n_bins=20)
     np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-12)
+
+
+def test_resident_block_is_used_by_the_batch_when_the_device_is_chosen(monkeypatch):
+    """A caller that already holds the columns on the device gets the same values through ``device_block`` as through the host path."""
+    r = np.random.default_rng(4)
+    n = 5000
+    y = r.standard_normal(n)
+    X = r.standard_normal((n, 6)).astype(np.float32)
+    X[:, 2] = np.round(X[:, 2])
+    monkeypatch.setattr(gpu, "use_device", lambda n_rows: False)
+    want = host._copula_mi_batch(X, y, n_bins=20)
+    monkeypatch.setattr(gpu, "use_device", lambda n_rows: True)
+    got = host._copula_mi_batch(X, y, n_bins=20, device_block=cp.asarray(np.ascontiguousarray(X.T)))
+    np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-12)

@@ -28,12 +28,15 @@ Cost: O(n log n) (one argsort), not O(n^2) like dCor/HSIC - no subsampling neede
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 from numba import njit, prange
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 
 from ._fe_usability_signal import _crit_np_dtype
+from ._numba_utils_shared import radix_order_f32
 
 __all__ = ["xi_correlation", "xi_correlation_batch"]
 
@@ -79,106 +82,119 @@ def xi_correlation(x: np.ndarray, y: np.ndarray, *, random_state: int = 0) -> fl
         return 0.0
     if float(np.std(y)) <= 1e-12:
         return 0.0
-    rng = np.random.default_rng(random_state)
-    # Break x-ties randomly (Chatterjee 2021, Section 2): a stable/deterministic tie-break would
-    # systematically bias the walk direction on tied runs; a random tie-break makes the estimator
-    # correct in expectation on discrete/repeated-value x.
-    perm = rng.permutation(n)
-    order = np.lexsort((perm, x))
+    # Break x-ties by the counter-hash key of column 0 (Chatterjee 2021, Section 2: a random tie-break keeps the estimator correct in expectation on discrete/repeated-value x); the batch gives
+    # its first finite column the same key, so ``xi_correlation(X[:, 0], y)`` equals ``xi_correlation_batch(X, y)[0]``.
+    order = np.argsort(x, kind="mergesort")
+    _break_ties_by_key(x, order, column_seeds(random_state, 1)[0])
     y_ordered = y[order]
     return _xi_from_order(y_ordered)
 
 
+_U64 = np.uint64
+_MIX_GAMMA = _U64(0x9E3779B97F4A7C15)
+_MIX_M1 = _U64(0xBF58476D1CE4E5B9)
+_MIX_M2 = _U64(0x94D049BB133111EB)
+_SEED_STRIDE = _U64(0xD1B54A32D192ED03)
+
+
+@njit(cache=True, inline="always")
+def _mix64(x):
+    """splitmix64 finaliser: a bijective 64-bit mixer (the same arithmetic is in the device kernel ``xi_sort_keys``)."""
+    x = (x ^ (x >> _U64(30))) * _MIX_M1
+    x = (x ^ (x >> _U64(27))) * _MIX_M2
+    return x ^ (x >> _U64(31))
+
+
+@njit(cache=True, inline="always")
+def _tie_key(seed, row):
+    """The 32-bit tie-break key of ``row`` under the column seed ``seed``: the high word of the mixed counter, so no permutation is drawn or stored."""
+    return _mix64(seed + (_U64(row) + _U64(1)) * _MIX_GAMMA) >> _U64(32)
+
+
+def column_seeds(random_state: int, k: int) -> np.ndarray:
+    """The tie-break seeds of ``k`` columns: column ``j`` gets ``mix64(random_state * stride + j)``; the single-column :func:`xi_correlation` is column 0."""
+    j = np.arange(k, dtype=np.uint64)
+    with np.errstate(over="ignore"):
+        x = np.uint64(int(random_state) & 0xFFFFFFFFFFFFFFFF) * _SEED_STRIDE + j
+        x = (x ^ (x >> np.uint64(30))) * _MIX_M1
+        x = (x ^ (x >> np.uint64(27))) * _MIX_M2
+        return x ^ (x >> np.uint64(31))
+
+
+@njit(cache=True)
+def _break_ties_by_key(col: np.ndarray, order: np.ndarray, seed) -> None:
+    """Reorder every run of equal values of ``col`` (``order`` sorts ``col`` stably) by ``(tie key, row)``: the order the device sorts the packed 64-bit keys into."""
+    n = order.shape[0]
+    i = 0
+    while i < n:
+        v = col[order[i]]
+        e = i + 1
+        while e < n and col[order[e]] == v:
+            e += 1
+        m = e - i
+        if m > 1:
+            keys = np.empty(m, dtype=np.uint64)
+            for q in range(m):
+                row = order[i + q]
+                keys[q] = (_tie_key(seed, row) << _U64(32)) | _U64(row)
+            keys.sort()
+            for q in range(m):
+                order[i + q] = np.int64(keys[q] & _U64(0xFFFFFFFF))
+        i = e
+
+
+@njit(cache=True)
+def _xi_from_sorted_order(order: np.ndarray, r_row: np.ndarray, l_row: np.ndarray) -> float:
+    """Chatterjee's tie-corrected Xi from the row order the column induces (the walk over the target's right and left ranks)."""
+    n = order.shape[0]
+    sdiff = 0.0
+    prev = r_row[order[0]]
+    den = l_row[order[0]] * (n - l_row[order[0]])
+    for q in range(1, n):
+        cur = r_row[order[q]]
+        sdiff += abs(cur - prev)
+        prev = cur
+        lq = l_row[order[q]]
+        den += lq * (n - lq)
+    den = 2.0 * den
+    return 1.0 - float(n) * sdiff / den if den > 0.0 else 0.0
+
+
 @njit(cache=True, parallel=True)
-def _xi_columns_njit(cols: np.ndarray, perms: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, out: np.ndarray) -> None:
-    """``out[j]`` = Xi of column ``cols[j]`` (a row of ``(K, n)``) against the target, the x-ties broken by ``perms[j]`` exactly as ``np.lexsort((perm, col))`` orders them."""
-    kk = cols.shape[0]
-    n = cols.shape[1]
-    for j in prange(kk):
+def _xi_columns_njit(cols: np.ndarray, seeds: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, out: np.ndarray) -> None:
+    """``out[j]`` = Xi of column ``cols[j]`` (a row of ``(K, n)``) against the target, the rows ordered by ``(value, tie key, row)``: a stable merge sort by value, then each tie run by key."""
+    for j in prange(cols.shape[0]):
         col = cols[j]
         order = np.argsort(col, kind="mergesort")
-        i = 0
-        while i < n:
-            e = i + 1
-            while e < n and col[order[e]] == col[order[i]]:
-                e += 1
-            if e - i > 1:
-                tied = order[i:e].copy()
-                keys = perms[j][tied]
-                sub = np.argsort(keys, kind="mergesort")
-                for q in range(e - i):
-                    order[i + q] = tied[sub[q]]
-            i = e
-        sdiff = 0.0
-        den = 0.0
-        prev = r_row[order[0]]
-        den += l_row[order[0]] * (n - l_row[order[0]])
-        for q in range(1, n):
-            cur = r_row[order[q]]
-            sdiff += abs(cur - prev)
-            prev = cur
-            lq = l_row[order[q]]
-            den += lq * (n - lq)
-        den = 2.0 * den
-        out[j] = 1.0 - float(n) * sdiff / den if den > 0.0 else 0.0
+        _break_ties_by_key(col, order, seeds[j])
+        out[j] = _xi_from_sorted_order(order, r_row, l_row)
 
 
 @njit(cache=True, parallel=True)
-def _xi_columns_radix_njit(cols: np.ndarray, perms: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, out: np.ndarray) -> None:
-    """:func:`_xi_columns_njit` for float32 columns, same order and same values: ``np.lexsort((perm, col))`` is a stable sort by the column of the rows already ordered by
-    ``perm``. The rows start in ``perm`` order (the inverse permutation, O(n)) and a stable LSD radix sort (4 passes of 8 bits) of the order-preserving uint32 key of each
-    value orders them, ties left in ``perm`` order: no comparison sort and no per-tie-block re-sort (``-0.0`` keys as ``+0.0``, as the float comparison treats them)."""
-    kk = cols.shape[0]
-    n = cols.shape[1]
-    for j in prange(kk):
-        bits = cols[j].view(np.uint32)
-        perm = perms[j]
-        va = np.empty(n, dtype=np.uint32)
-        ra = np.empty(n, dtype=np.int64)
-        vb = np.empty(n, dtype=np.uint32)
-        rb = np.empty(n, dtype=np.int64)
-        for i in range(n):
-            ra[perm[i]] = i  # the row of rank i in perm order
-        for t in range(n):
-            u = bits[ra[t]]
-            if u == np.uint32(0x80000000):
-                u = np.uint32(0)
-            va[t] = ~u if (u & np.uint32(0x80000000)) else (u | np.uint32(0x80000000))
-        cnt = np.empty(257, dtype=np.int64)
-        for shift in (0, 8, 16, 24):
-            cnt[:] = 0
-            for t in range(n):
-                cnt[((va[t] >> np.uint32(shift)) & np.uint32(0xFF)) + 1] += 1
-            for dgt in range(256):
-                cnt[dgt + 1] += cnt[dgt]
-            for t in range(n):
-                dgt = (va[t] >> np.uint32(shift)) & np.uint32(0xFF)
-                q = cnt[dgt]
-                cnt[dgt] = q + 1
-                vb[q] = va[t]
-                rb[q] = ra[t]
-            va, vb = vb, va
-            ra, rb = rb, ra
-        order = ra
-        sdiff = 0.0
-        den = 0.0
-        prev = r_row[order[0]]
-        den += l_row[order[0]] * (n - l_row[order[0]])
-        for q in range(1, n):
-            cur = r_row[order[q]]
-            sdiff += abs(cur - prev)
-            prev = cur
-            lq = l_row[order[q]]
-            den += lq * (n - lq)
-        den = 2.0 * den
-        out[j] = 1.0 - float(n) * sdiff / den if den > 0.0 else 0.0
+def _xi_columns_radix_njit(cols: np.ndarray, seeds: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, out: np.ndarray) -> None:
+    """:func:`_xi_columns_njit` for float32 columns, same order and same values: the stable order by value comes from a 4-pass LSD radix sort (``-0.0`` keyed as ``+0.0``, which compares equal)."""
+    for j in prange(cols.shape[0]):
+        col = cols[j]
+        order = radix_order_f32(col)
+        _break_ties_by_key(col, order, seeds[j])
+        out[j] = _xi_from_sorted_order(order, r_row, l_row)
 
 
-def xi_correlation_batch(X: np.ndarray, y: np.ndarray, *, random_state: int = 0) -> np.ndarray:
-    """Vectorized ``xi_correlation`` for every column of ``X`` (shape ``(n, K)``) against the same
-    ``y`` - avoids re-deriving ``y``'s own rank array K times (the walk depends only on the
-    ORDER x induces on y, so the ``y``-rank computation per column is the dominant repeated cost
-    otherwise). Returns a ``(K,)`` double precision array."""
+def _target_ranks(y: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+    """The tie-corrected right and left ranks of ``y`` per row (double precision integer counts)."""
+    _uniq, inv, counts = np.unique(y, return_counts=True, return_inverse=True)
+    # Intentional float64: exact rank accumulator kept f64
+    r_row = np.cumsum(counts)[inv].astype(np.float64)
+    # Intentional float64: exact rank accumulator kept f64
+    l_row = np.cumsum(counts[::-1])[::-1][inv].astype(np.float64)
+    return r_row, l_row
+
+
+def xi_correlation_batch(X: np.ndarray, y: np.ndarray, *, random_state: int = 0, device_block: "Any | None" = None) -> np.ndarray:
+    """Vectorized ``xi_correlation`` for every column of ``X`` (shape ``(n, K)``) against the same ``y``. Returns a ``(K,)`` double precision array.
+
+    The tie-break key of a row is a counter hash of ``(random_state, finite-column index, row)``: nothing is drawn from a generator, so the cost of a column is its sort. ``device_block``: the same columns, all finite, already on the device as a ``(K, n)`` float32 cupy array (the caller uploaded them for several scorers); it is used when the
+    tuner chooses the device for this row count."""
     with parallel_kernel_entry():
         X = np.asarray(X, dtype=_crit_np_dtype())
         if X.ndim == 1:
@@ -192,54 +208,37 @@ def xi_correlation_batch(X: np.ndarray, y: np.ndarray, *, random_state: int = 0)
             return out
         if not np.isfinite(y).all():
             return out
-        rng = np.random.default_rng(random_state)
-        # the tie-corrected right ranks of ``y`` do not depend on the column: derived once per row, then gathered in each column's order (the values ``_xi_from_order`` computes per column)
-        _uniq, inv, counts = np.unique(y, return_counts=True, return_inverse=True)
-        # Intentional float64: exact rank accumulator kept f64
-        r_row = np.cumsum(counts)[inv].astype(np.float64)
-        # Intentional float64: exact rank accumulator kept f64
-        l_row = np.cumsum(counts[::-1])[::-1][inv].astype(np.float64)
-        finite = [j for j in range(k) if np.isfinite(X[:, j]).all()]
-        # the generator is advanced once per finite column in column order, as the per-column calls do; the columns are then ordered and scored in parallel blocks
-        block = max(1, min(12, (64 << 20) // (8 * max(n, 1))))
-        blocks = [finite[s0 : s0 + block] for s0 in range(0, len(finite), block)]
+        r_row, l_row = _target_ranks(y)
+        finite = np.flatnonzero(np.isfinite(X).all(axis=0))
+        if finite.size == 0:
+            return out
+        seeds = column_seeds(random_state, int(finite.size))
+        if device_block is not None and finite.size == k:
+            from ._orthogonal_xi_gpu import use_device, xi_columns_device
 
-        def draw(js: list) -> np.ndarray:
-            """The permutations of one block, drawn in column order from the shared generator (the shuffle releases the GIL)."""
-            perms = np.empty((len(js), n), dtype=np.int64)
-            for r in range(len(js)):
-                perms[r] = rng.permutation(n)
-            return perms
-
-        # One helper thread draws the next block while the kernel scores the current one; it is the only user of the generator and blocks are drawn in order, so the stream is the serial one.
-        if len(blocks) > 1:
-            from concurrent.futures import ThreadPoolExecutor
-
-            with ThreadPoolExecutor(max_workers=1) as drawer:
-                pending = drawer.submit(draw, blocks[0])
-                for i, js in enumerate(blocks):
-                    perms = pending.result()
-                    if i + 1 < len(blocks):
-                        pending = drawer.submit(draw, blocks[i + 1])
-                    _score_block(X, js, perms, r_row, l_row, out)
-        else:
-            for js in blocks:
-                _score_block(X, js, draw(js), r_row, l_row, out)
+            on_device = xi_columns_device(device_block, seeds, r_row, l_row) if use_device(n) else None
+            if on_device is not None:
+                out[:] = on_device
+                return out
+        block = max(1, min(64, (64 << 20) // (8 * max(n, 1))))
+        for s0 in range(0, finite.size, block):
+            js = finite[s0 : s0 + block]
+            _score_block(X, js, seeds[s0 : s0 + block], r_row, l_row, out)
         return out
 
 
-def _score_block(X: np.ndarray, js: list, perms: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, out: np.ndarray) -> None:
-    """Score the columns ``js`` of ``X`` with their permutations ``perms`` into ``out[js]``."""
+def _score_block(X: np.ndarray, js: np.ndarray, seeds: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, out: np.ndarray) -> None:
+    """Score the columns ``js`` of ``X`` with their tie seeds ``seeds`` into ``out[js]``."""
     cols = np.ascontiguousarray(X[:, js].T)
     from ._orthogonal_xi_gpu import use_device, xi_columns_device
 
     if use_device(int(cols.shape[1])):
-        on_device = xi_columns_device(cols, perms, r_row, l_row)
+        on_device = xi_columns_device(cols, seeds, r_row, l_row)
         if on_device is not None:
             out[js] = on_device
             return
     vals = np.empty(len(js), dtype=np.float64)  # Intentional float64: accumulator output kept f64
     kernel = _xi_columns_radix_njit if cols.dtype == np.float32 else _xi_columns_njit
     with parallel_kernel_entry():
-        kernel(cols, perms, r_row, l_row, vals)
+        kernel(cols, seeds, r_row, l_row, vals)
     out[js] = vals

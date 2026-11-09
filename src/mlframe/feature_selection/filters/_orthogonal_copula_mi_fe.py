@@ -50,7 +50,7 @@ from __future__ import annotations
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 
 import logging
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import math
 
@@ -273,7 +273,7 @@ def _copula_columns_radix_njit(cols_rows: np.ndarray, vi: np.ndarray, nb: int, o
 
 
 def _copula_mi_batch(
-    X: np.ndarray, y: np.ndarray, *, n_bins: int = 20, y_side: Optional[np.ndarray] = None,
+    X: np.ndarray, y: np.ndarray, *, n_bins: int = 20, y_side: Optional[np.ndarray] = None, device_block: Optional[Any] = None,
 ) -> np.ndarray:
     """Per-column copula MI(X[:, j]; y).
 
@@ -286,6 +286,9 @@ def _copula_mi_batch(
     engineered-matrix batch calls (identical ``y``) share ONE rank-to-uniform transform instead of each
     recomputing it. Ignored (recomputed) whenever this call's own ``y`` is not fully finite, so a
     mismatched/stale ``y_side`` can never silently apply to the wrong y.
+
+    ``device_block``: the same columns already on the device as a ``(K, n)`` cupy array of the criterion dtype (the caller uploaded them once for several scorers); used for the all-finite columns when
+    the tuner chooses the device for this row count.
     """
     X_arr = np.asarray(X, dtype=_crit_np_dtype())
     if X_arr.ndim == 1:
@@ -312,8 +315,17 @@ def _copula_mi_batch(
         # all-finite columns against a finite y: ranked and scored by one parallel kernel (blocks bound the transposed copy)
         fast = np.flatnonzero(np.isfinite(X_arr).all(axis=0))
         vi_fast = np.clip(np.floor(np.asarray(v_full, dtype=_crit_np_dtype()) * nb_fast).astype(np.int64), 0, nb_fast - 1)
+        if device_block is not None and len(fast) == X_arr.shape[1]:
+            from ._orthogonal_copula_gpu import copula_columns_device, use_device
+
+            on_device = copula_columns_device(device_block, vi_fast, nb_fast) if use_device(int(X_arr.shape[0])) else None
+            if on_device is not None:
+                out[fast] = on_device
+                done[fast] = True
         block = max(1, (96 << 20) // (8 * X_arr.shape[0]))
         for s0 in range(0, len(fast), block):
+            if done[fast[s0]]:
+                break
             cols_idx = fast[s0 : s0 + block]
             rows = np.ascontiguousarray(X_arr[:, cols_idx].T)
             from ._orthogonal_copula_gpu import copula_columns_device, use_device

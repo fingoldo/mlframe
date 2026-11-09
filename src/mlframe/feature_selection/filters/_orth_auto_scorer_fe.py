@@ -252,6 +252,24 @@ def _bootstrap_lcb_per_scorer(x_full: np.ndarray, y_arr: np.ndarray, boot_idx: l
     return per_scorer
 
 
+def _device_block(block: np.ndarray) -> "object | None":
+    """The resample's columns on the device, uploaded once for every scorer that takes a resident block (xi, copula MI), or ``None`` when neither is routed to the device for this row count."""
+    if block.dtype != np.float32 or not np.isfinite(block).all():
+        return None
+    from ._orthogonal_copula_gpu import use_device as copula_on
+    from ._orthogonal_xi_gpu import use_device as xi_on
+
+    if not (xi_on(int(block.shape[0])) or copula_on(int(block.shape[0]))):
+        return None
+    try:
+        import cupy as cp
+
+        return cp.asarray(np.ascontiguousarray(block.T))
+    except Exception as exc:
+        log_throttle(logger, "orth_auto_scorer.device_block", logging.WARNING, "resample upload failed (%s: %s); the scorers use the host", type(exc).__name__, exc)
+        return None
+
+
 _BATCHED_BOOTSTRAP_SCORERS = ("plug_in", "ksg", "copula", "dcor", "hsic", "xi", "tail_dep")
 
 
@@ -285,14 +303,15 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
         block = np.column_stack([np.asarray(c[idx], dtype=dt) for c in columns])
         yb = y_arr[idx]
         seed = int(random_state) + b
+        dev = _device_block(block)
         # Only the plug-in and KSG batches reach numba ``parallel=True`` kernels, which must be entered by one thread at a time (see ``mlframe._numba_parallel_guard``); the copula, xi, dCor and HSIC
         # batches are numpy / scipy / serial njit and overlap across the pool threads.
         with parallel_kernel_entry(), column_mi_memo_disabled():
             # Intentional float64: MI batch scores kept as a double precision accumulator vector (ranking ties)
             out["plug_in"][:, b] = np.asarray(_mi_classif_batch(block, yb, nbins=int(hyper["nbins"])), dtype=np.float64)
         # Intentional float64: copula MI batch scores kept as a double precision accumulator vector
-        out["copula"][:, b] = np.asarray(_copula_mi_batch(block, yb, n_bins=int(hyper["copula_n_bins"])), dtype=np.float64)
-        out["xi"][:, b] = xi_correlation_batch(block, yb, random_state=seed)
+        out["copula"][:, b] = np.asarray(_copula_mi_batch(block, yb, n_bins=int(hyper["copula_n_bins"]), device_block=dev), dtype=np.float64)
+        out["xi"][:, b] = xi_correlation_batch(block, yb, random_state=seed, device_block=dev)
         out["dcor"][:, b] = _dcor_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
         out["hsic"][:, b] = _hsic_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
         out["tail_dep"][:, b] = tail_dependence_columns(np.ascontiguousarray(block.T), yb)

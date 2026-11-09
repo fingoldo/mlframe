@@ -1,31 +1,42 @@
-"""The pipelined permutation draw of the xi batch leaves the values and the generator stream unchanged."""
+"""The Xi batch gives each finite column the tie keys of its own number: splitting the columns into blocks or taking one alone leaves the values unchanged."""
 
 from __future__ import annotations
 
 import numpy as np
 
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
-from mlframe.feature_selection.filters._orthogonal_xi_fe import _xi_columns_njit, xi_correlation_batch
+import mlframe.feature_selection.filters._orthogonal_xi_fe as xi
+from tests.feature_selection._xi_reference import xi_reference
 
 
-def test_batch_equals_a_serial_draw_over_many_blocks():
-    """More columns than one block: the values equal those of one permutation per column drawn serially, in column order, from a single generator."""
+def test_batch_equals_the_reference_over_many_blocks(monkeypatch):
+    """More columns than one block (the block is forced to 7 columns): the values equal the reference's, column by column."""
     rng = np.random.default_rng(2)
     n, k = 600, 40
     X = rng.standard_normal((n, k))
     X[:, 5] = np.round(X[:, 5], 1)
     y = (X[:, 0] + rng.standard_normal(n) > 0).astype(np.int64)
-    got = xi_correlation_batch(X, y, random_state=7)
-    gen = np.random.default_rng(7)
-    yf = y.astype(np.float64)
-    _, inv, counts = np.unique(yf, return_counts=True, return_inverse=True)
-    r_row = np.cumsum(counts)[inv].astype(np.float64)
-    l_row = np.cumsum(counts[::-1])[::-1][inv].astype(np.float64)
-    want = np.empty(k)
-    Xc = np.asarray(X, dtype=_crit_np_dtype())  # the batch reads its columns at the criterion dtype
-    for j in range(k):
-        perm = gen.permutation(n)[None, :].astype(np.int64)
-        out = np.empty(1)
-        _xi_columns_njit(np.ascontiguousarray(Xc[:, j])[None, :], perm, r_row, l_row, out)
-        want[j] = out[0]
-    np.testing.assert_allclose(got, want, rtol=0, atol=1e-6)
+    whole = xi.xi_correlation_batch(X, y, random_state=7)
+    monkeypatch.setattr(xi, "_score_block", _small_blocks(xi._score_block))
+    np.testing.assert_array_equal(xi.xi_correlation_batch(X, y, random_state=7), whole)
+    np.testing.assert_array_equal(whole, xi_reference(X.astype(np.float32), y.astype(np.float64), 7))
+
+
+def _small_blocks(score_block):
+    """A ``_score_block`` that scores at most 7 columns per call, whatever it is given."""
+
+    def split(X, js, seeds, r_row, l_row, out):
+        """Score ``js`` in pieces of 7 columns."""
+        for s in range(0, len(js), 7):
+            score_block(X, js[s : s + 7], seeds[s : s + 7], r_row, l_row, out)
+
+    return split
+
+
+def test_single_column_equals_the_first_column_of_a_batch():
+    """``xi_correlation(x, y, random_state)`` is column 0 of the batch with the same state."""
+    rng = np.random.default_rng(3)
+    n = 900
+    X = rng.standard_normal((n, 4)).astype(np.float32)
+    X[:, 0] = np.round(X[:, 0])
+    y = (X[:, 1] > 0).astype(np.int64)
+    assert xi.xi_correlation(X[:, 0], y, random_state=4) == xi.xi_correlation_batch(X, y, random_state=4)[0]
