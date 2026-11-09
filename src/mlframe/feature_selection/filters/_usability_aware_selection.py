@@ -576,6 +576,8 @@ def _usability_scorers(classification: bool, y_cont: np.ndarray) -> Optional[tup
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import make_pipeline
 
+    from ._added_information_gate import _dense_codes
+
     # CLASSIFICATION mode: the LINEAR downstream for a classification target is a LOGISTIC
     # model, and the deployed objective is a CLASSIFICATION metric - so the wrapper must score by
     # CROSS-VALIDATED LOGLOSS of a logistic model, not CV-MAE of a linear regression. Mirrors the
@@ -587,8 +589,7 @@ def _usability_scorers(classification: bool, y_cont: np.ndarray) -> Optional[tup
     if classification:
         y_enc = np.asarray(y_cont).ravel()
         # encode to dense 0..C-1 class codes
-        _classes, y_enc = np.unique(y_enc, return_inverse=True)
-        n_classes = int(_classes.size)
+        y_enc, n_classes = _dense_codes(y_enc)  # the same dense codes as np.unique's inverse; small integer labels go through a count table instead of a sort of the whole column
         if n_classes < 2:
             return None
 
