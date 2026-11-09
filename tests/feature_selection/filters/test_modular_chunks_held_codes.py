@@ -10,7 +10,7 @@ def _chunks(monkeypatch, budget: int):
     """A two-chunk family whose code generator counts its calls."""
     calls: list = []
 
-    def fake(X, cs, periods, nbins, family_elements):
+    def fake(X, cs, periods, nbins, _family_elements):
         """Codes of the chunk's source columns, one row per column."""
         calls.append(tuple(cs))
         return [f"c_{c}" for c in cs], np.full((len(cs), len(X)), len(calls) % 100, dtype=np.int8), np.full(len(cs), 4)

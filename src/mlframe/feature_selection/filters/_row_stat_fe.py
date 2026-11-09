@@ -26,6 +26,7 @@ from ._fe_scan_common import scan_index as _scan_index
 from ._numba_utils import MAX_SUBSET, STAT_NAMES, eval_candidates, stat_column
 from ._y_encoding import FEW_CLASSES_MAX
 from mlframe.feature_selection.filters._fe_output_clip import OUTPUT_CLIP_QUANTILES
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 if TYPE_CHECKING:
     import polars as pl
 
@@ -112,7 +113,8 @@ def _search(Zt: np.ndarray, codes: np.ndarray, ky: int) -> "list[tuple[float, in
     stats = np.repeat(np.arange(n_stats, dtype=np.int64), len(pairs))
     mat, sizes = _subset_matrix(cand)
     ev, od = np.empty(len(cand)), np.empty(len(cand))
-    eval_candidates(Zt, mat, sizes, stats, codes, ky, N_MI_BINS, ev, od)
+    with parallel_kernel_entry():
+        eval_candidates(Zt, mat, sizes, stats, codes, ky, N_MI_BINS, ev, od)
     best: list[list[Any]] = []
     for s in range(n_stats):
         sl = slice(s * len(pairs), (s + 1) * len(pairs))

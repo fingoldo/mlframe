@@ -273,7 +273,12 @@ jobs:
           # parallel regions inside thread pools. tbb has no macOS wheel, so macOS uses the OpenMP layer instead: the
           # Homebrew libomp installed above is what it links against. Without this line every macOS shard aborts with
           # "Fatal Python error: Aborted" in the workqueue layer (run 42480549270; the line was dropped on 2026-11-01).
-          if [ "$RUNNER_OS" = "macOS" ]; then echo "NUMBA_THREADING_LAYER=omp" >> "$GITHUB_ENV"; fi
+          # libomp from Homebrew is keg-only: numba cannot find it unless its directory is on the dynamic-loader path,
+          # and an explicit NUMBA_THREADING_LAYER=omp then fails with "No threading layer could be loaded".
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            echo "NUMBA_THREADING_LAYER=omp" >> "$GITHUB_ENV"
+            echo "DYLD_LIBRARY_PATH=$(brew --prefix libomp)/lib" >> "$GITHUB_ENV"
+          fi
 
       - name: Restore numba JIT cache
         # numba's per-kernel disk cache (keyed internally by source + numba version) is restored into
@@ -293,6 +298,28 @@ jobs:
           python -c "import mlframe; print('mlframe', mlframe.__version__)"
           python -c "import sklearn; print('sklearn', sklearn.__version__)"
           python -c "import numpy; print('numpy', numpy.__version__)"
+
+      - name: Report the numba threading layer (macOS diagnostic)
+        if: runner.os == 'macOS'
+        run: |
+          # Diagnostic for the workqueue aborts: prints the layer numba actually picked for a parallel kernel, next to the env value.
+          python - <<'PY'
+          import os
+
+          import numba
+          from numba import njit, prange
+
+          @njit(parallel=True)
+          def _probe(n):
+              s = 0.0
+              for i in prange(n):
+                  s += i
+              return s
+
+          _probe(1000)
+          print("NUMBA_THREADING_LAYER env:", os.environ.get("NUMBA_THREADING_LAYER"))
+          print("numba.threading_layer():", numba.threading_layer())
+          PY
 
       - name: Run tests
         env:

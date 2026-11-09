@@ -13,6 +13,7 @@ import numba
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe._numerical_floors import VARIANCE_FLOOR
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from numba import prange
 
 from ._fourier_core_cycles import freq_is_tail_aliased
@@ -258,10 +259,11 @@ def _power_centered(z: np.ndarray, yc: np.ndarray, y_ss: float, freq: float) -> 
     # rel ~1e-15) - the per-element sin/cos work amortises thread spawn. Gated below; serial numpy path stays
     # for small n. bench: _benchmarks/bench_power_centered_njit.py.
     if z.shape[0] >= _POWER_CENTERED_PAR_MIN_N:
-        return float(_power_centered_fused_par_njit(
-            np.ascontiguousarray(z, dtype=_crit_np_dtype()), np.ascontiguousarray(yc, dtype=_crit_np_dtype()),
-            float(y_ss), float(freq),
-        ))
+        with parallel_kernel_entry():  # parallel=True prange: the Fourier fan-out threads must not enter it together (macOS abort)
+            return float(_power_centered_fused_par_njit(
+                np.ascontiguousarray(z, dtype=_crit_np_dtype()), np.ascontiguousarray(yc, dtype=_crit_np_dtype()),
+                float(y_ss), float(freq),
+            ))
     ang = 2.0 * np.pi * float(freq) * z
     return float(_corr_sq_centered(np.sin(ang), yc, y_ss) + _corr_sq_centered(np.cos(ang), yc, y_ss))
 
@@ -289,10 +291,11 @@ def _refine_peak_freq(
         # _power_centered path; gated on the SAME n threshold that path uses to pick the parallel
         # kernel, so the small-n numpy fallback (never worth batching) is untouched.
         if z_tr.shape[0] >= _POWER_CENTERED_PAR_MIN_N:
-            powers = _power_centered_batch_njit(
-                np.ascontiguousarray(z_tr, dtype=_crit_np_dtype()), np.ascontiguousarray(yc, dtype=_crit_np_dtype()),
-                float(y_ss), np.asarray(cand_freqs, dtype=np.float64),  # Intentional float64: frequency vector for the Fourier replay
-            )
+            with parallel_kernel_entry():  # parallel=True prange: the Fourier fan-out threads must not enter it together (macOS abort)
+                powers = _power_centered_batch_njit(
+                    np.ascontiguousarray(z_tr, dtype=_crit_np_dtype()), np.ascontiguousarray(yc, dtype=_crit_np_dtype()),
+                    float(y_ss), np.asarray(cand_freqs, dtype=np.float64),  # Intentional float64: frequency vector for the Fourier replay
+                )
         else:
             powers = [_power_centered(z_tr, yc, y_ss, f) for f in cand_freqs]
         best_idx = 0
