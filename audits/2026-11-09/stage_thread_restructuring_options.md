@@ -85,3 +85,11 @@ Lane walls of the `hybrid_variants` window (`main_timeline.py`, 100000 x 100): g
 ### Moving MI-greedy and greedy-CMI into group 3's slot: tried and reverted (2026-11-10)
 
 After the group 1 split the `hybrid_variants` window is 15.3 s with group 3's lane free after 11.5 s (then busy with the group 1 tail until about 15.6 s). The MI-greedy (0.9 s) and greedy-CMI (1.5 s alone) families read only the step input, so they were run in that slot after the tail (state and recipes folded back, frames merged at the places they used to run; 49 tests of the variant groups and greedy families passed). Measured: they started at 16.7 s, greedy-CMI took 5.1 s under the concurrent load (3.4 times its solo wall), the window grew to 21.1 s and `cascade_early_a` to 24.4 s (from 15.3 and 20.5 s). Reverted. A family that is short alone is not free to move into a lane that is idle on paper: the lanes share the card and the launch path, so the window is set by the total work that overlaps as much as by the longest chain.
+
+## Cascade-window lane breakdown and OOF-warp fold cache (2026-11-10)
+
+Clean 100k x 100 default fit, window 24.4-43.1 s. `early_b` 14.4 s (binned_numeric_agg 7.4, grouped_quantile 2.3); `mid_a` 17.8 s (composite_group_agg 1.6, pairwise_modular 2.0, row_argmax 3.1, conditional_gate 3.1); `mid_b` 18.7 s (group_distance gate 3.9 with the family itself 0.9, oof_warp gate 3.1, row_stat 1.4, small families under 1 s each). `mid_b` is the longest lane but is a sum of 1-4 s pieces with no dominant one; moving whole families between lanes was measured neutral or worse earlier (see above).
+
+`fit_oof_warp1d` at n=100000 costs 15.1 ms per column: fold permutation 2.5, quantile edges 3.2, bin codes 2.6, rest in the njit core. The fold ids depend only on (n, n_folds, seed), so they are now drawn once per key (`_fold_ids`, 4-entry cache, identical values): about 0.25 s per fit.
+
+`binned_numeric_agg` (7.4 s) has no single hot spot (see `profiles/fe_binned_numeric_agg_cpu_profile.md`); the open lever is the duplicate candidate binning between the redundancy gate and `_keep_linearly_usable`, as a bounded per-pair cache.
