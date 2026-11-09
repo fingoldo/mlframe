@@ -659,7 +659,7 @@ def _stage_wavelet(self, _fe_family_on, _fe_budget_ok, X, _y_np, _raw_input_cols
                 if _wv_cols is None:
                     _wv_raw = set(_raw_input_cols_pre_fe)
                     _wv_cols = [c for c in X.columns if c in _wv_raw] or None
-                _wv_cols = restrict_to_shape_pool(self, X, _y_for_wv, _wv_cols)
+                _wv_pool_cols = restrict_to_shape_pool(self, X, _y_for_wv, _wv_cols)
                 _X_before_wv_cols = list(X.columns)
                 def _wavelet_recipes_last(X_in, y_in, **kw):
                     """``hybrid_wavelet_fe_with_recipes`` with the recipe list moved last (the order ``fe_decide_on_subsample`` expects)."""
@@ -671,7 +671,7 @@ def _stage_wavelet(self, _fe_family_on, _fe_budget_ok, X, _y_np, _raw_input_cols
                     _wavelet_recipes_last,
                     X, _y_for_wv,
                     **fe_subsample_kwargs(self),
-                    cols=_wv_cols,
+                    cols=_wv_pool_cols,
                     max_scale=int(getattr(self, "fe_wavelet_max_scale", 3)),
                     max_legs=int(getattr(self, "fe_wavelet_max_legs", 6)),
                     top_k=int(getattr(self, "fe_wavelet_top_k", 8)),

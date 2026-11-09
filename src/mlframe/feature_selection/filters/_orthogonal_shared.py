@@ -26,7 +26,7 @@ def _full_edge_codes(arr: np.ndarray, nbins: int, out: np.ndarray) -> np.ndarray
     codes = np.empty(v.shape, dtype=np.int16)
     nx = np.empty(v.shape[0], dtype=np.int64)
     quantile_codes_block_auto(v, nbins, codes, nx, host_kernel=quantile_codes_block)
-    full = nx == nbins
+    full: np.ndarray = nx == nbins
     out[:, full] = codes[full].T
     return full
 

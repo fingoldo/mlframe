@@ -414,7 +414,7 @@ def _fe_stage_cascade_early_a_part1(
                 _hinge_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hinge_already_appended and fe_is_numeric_col(X, c)]
             else:
                 _hinge_cols = [c for c in X.columns if c not in _hinge_already_appended and fe_is_numeric_col(X, c)]
-            _hinge_cols = restrict_to_shape_pool(self, X, _y_np, _hinge_cols)
+            _hinge_pool_cols = restrict_to_shape_pool(self, X, _y_np, _hinge_cols)
             _hinge_top_k = int(getattr(self, "fe_hinge_top_k", 5))
             _hinge_max_bp = int(getattr(self, "fe_hinge_max_breakpoints", 2))
             _hinge_emit_ind = bool(getattr(self, "fe_hinge_emit_indicator", False))
@@ -425,7 +425,7 @@ def _fe_stage_cascade_early_a_part1(
                 hybrid_hinge_fe_with_recipes,
                 X, _y_for_hinge,
                 **fe_subsample_kwargs(self),
-                cols=_hinge_cols,
+                cols=_hinge_pool_cols,
                 max_breakpoints=_hinge_max_bp,
                 emit_indicator=_hinge_emit_ind,
                 min_heldout_r2_uplift=_hinge_mvu,
