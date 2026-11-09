@@ -103,3 +103,7 @@ Open proposals from the three read-only reviews (estimates, not measurements): s
 ### MDLP edge warm-up not attempted (2026-11-10)
 
 `discretize_inputs` bins through `categorize_dataset` with the fit's nbins strategy (default `optimal_joint`, with plan-cache and null-binner objects in its kwargs, NaN strategy and median fill applied first). A warm-up thread at fit entry would have to reproduce that exact call and key on every one of those inputs; a mismatch silently changes bin edges. The estimated 1.5-2.5 s does not justify that risk without a dedicated equality test of the whole discretisation, so it stays a proposal. The raw-MI cache (`_raw_baseline_mi`) measured 66.5 s against 64.8 s before it in single runs, i.e. no visible gain inside the 4 s noise; kept because it removes repeated scoring with identical results. Latest single default fit: 67.7 s.
+
+### Shared per-column sort bundle: measured, not worth building (2026-11-10)
+
+Counting `device_argsort` over a default 100k x 100 fit (`D:/Temp/sort_count.py`): 399 calls, 77.7 million sorted elements in total (about 780 column-sorts of 100k rows; at roughly 1 ms per 100k-row device sort that is about 1 s of device time spread over the whole fit). Callers: rank-bin plug-in MI 195, KSG-CD 132, joint renumbering 63, group stats 4, null kernels 5. A fit-wide sort cache would save a fraction of that second, so the proposal (estimated 3-5 s by code reading) is dropped.
