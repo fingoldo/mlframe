@@ -331,15 +331,43 @@ def generate_group_distance_features(
     _fin_order: dict = {}  # num_col -> ascending order of its finite values, shared by every group column
     _ORDER_LOCK = __import__("threading").Lock()
 
+    _dev_cache: dict = {}
+    _DEV_LOCK = __import__("threading").Lock()
+
+    def _device_stats(group_col: str) -> "dict | None":
+        """``{num_col: (count, sum, hist, w1)}`` per group of ``group_col`` from the device kernels (all its numeric columns in one block), computed once; ``None`` when the host loop runs."""
+        with _DEV_LOCK:
+            if group_col in _dev_cache:
+                return _dev_cache[group_col]
+            found = None
+            from ._group_distance_gpu import group_stats_device, use_device
+
+            if use_device(n):
+                cols = [c for g, c in pairs if g == group_col and _global[c][6] is not None and _global[c][5].size and _global[c][0].dtype == np.float32]
+                cols = list(dict.fromkeys(cols))
+                if cols:
+                    _g_keys, rows_by_group = per_group[group_col]
+                    gid = np.empty(n, dtype=np.int32)
+                    for gi, rows in enumerate(rows_by_group.values()):
+                        gid[rows] = gi
+                    got = group_stats_device(
+                        gid, len(rows_by_group), np.stack([_global[c][0] for c in cols]), np.stack([_global[c][6] for c in cols]), [_global[c][5] for c in cols], _DIST_NBINS
+                    )
+                    if got is not None:
+                        found = {c: (got[0][i], got[1][i], got[2][i], got[3][i]) for i, c in enumerate(cols)}
+            _dev_cache[group_col] = found
+            return found
+
     def _pair_columns(group_col: str, num_col: str) -> list:
         """``[(name, values, recipe)]`` of the z-distance, KL and Wasserstein columns of one (group, numeric) pair."""
         g_keys, group_rows = per_group[group_col]
         x, global_mean, global_std, global_edges, global_hist, global_sorted, _bin_idx = _global[num_col]
+        dev = (_device_stats(group_col) or {}).get(num_col)
         z_lookup: dict[str, float] = {}
         kl_lookup: dict[str, float] = {}
         w_lookup: dict[str, float] = {}
         w_all = None
-        if _HAVE_NUMBA and global_sorted.size and os.environ.get("MLFRAME_GROUP_DISTANCE_W1_BATCH", "1").strip() != "0":
+        if dev is None and _HAVE_NUMBA and global_sorted.size and os.environ.get("MLFRAME_GROUP_DISTANCE_W1_BATCH", "1").strip() != "0":
             # one parallel W1 call for every group of the pair instead of a sort + merge per group; the output is identical. Alone it tied the per-group
             # path (100k rows x 5 group x 20 numeric columns: 0.94-0.97 s vs 0.96 s), but in a full fit the per-group sorts compete with the
             # other FE stages for the cores: warm all-families 100k x 100 fits, one process, 80.8 / 93.6 s batched against 84.4 s (seed 10) and
@@ -357,6 +385,15 @@ def generate_group_distance_features(
                     _fin_order[num_col] = order
             w_all = _wasserstein1_all_groups(x, order, gid, len(group_rows), global_sorted)
         for gi_key, (key, rows) in enumerate(group_rows.items()):
+            if dev is not None:
+                d_cnt, d_sum, d_hist, d_w1 = dev
+                if int(d_cnt[gi_key]) >= _MIN_GROUP_SIZE:
+                    z_lookup[key] = float((float(d_sum[gi_key]) / int(d_cnt[gi_key]) - global_mean) / global_std)
+                    kl_lookup[key] = _kl_from_bin_counts(d_hist[gi_key], global_hist)
+                    w_lookup[key] = float(d_w1[gi_key])
+                else:
+                    z_lookup[key] = kl_lookup[key] = w_lookup[key] = 0.0
+                continue
             vals = x[rows]
             fin = vals[np.isfinite(vals)]
             if fin.size >= _MIN_GROUP_SIZE:
