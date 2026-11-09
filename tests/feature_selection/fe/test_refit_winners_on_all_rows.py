@@ -29,3 +29,55 @@ def test_refit_winners_equal_the_family_run_on_all_rows():
     for name in appended:
         np.testing.assert_allclose(X_sub[name].to_numpy(dtype=float), reference[name].to_numpy(dtype=float), rtol=1e-9, atol=1e-12, equal_nan=True)
     assert {r.name for r in recipes} == set(appended)
+
+
+def test_refit_works_for_a_family_that_returns_three_values():
+    """A family returning ``(X_aug, appended, recipes)`` (the binned numeric aggregate has no scores frame) is refitted too: the recipes are at index 2 of both layouts."""
+    from types import SimpleNamespace
+
+    rng = np.random.default_rng(3)
+    n = 4000
+    X = pd.DataFrame({"g": rng.standard_normal(n), "a": rng.standard_normal(n), "b": rng.standard_normal(n)})
+    y = rng.integers(0, 2, n)
+    calls: list = []
+
+    def family(X_in, y_in, *, group_num_cols=None, agg_num_cols=None, **_kw):
+        """One column per (group, aggregate) pair it is given; records the row count of every call."""
+        calls.append(len(X_in))
+        out = X_in.copy()
+        recipes, names = [], []
+        for g in group_num_cols or ["g"]:
+            for a in agg_num_cols or ["a", "b"]:
+                name = f"agg({a}|{g})"
+                out[name] = X_in[a].to_numpy() * 2.0
+                recipes.append(SimpleNamespace(name=name, src_names=(g, a)))
+                names.append(name)
+        return out, names, recipes
+
+    idx = np.sort(rng.choice(n, 1000, replace=False)).astype(np.int64)
+    refit = refit_winners(family, lambda r: {"group_num_cols": (r.src_names[0],), "agg_num_cols": (r.src_names[1],)})
+    X_out, appended, recipes = fe_decide_on_subsample(family, X, y, shared_subsample_idx=idx, refit=refit)
+    assert len(X_out) == n and set(appended) == {"agg(a|g)", "agg(b|g)"}
+    assert calls[0] == 1000 and all(c == n for c in calls[1:])  # the decision on the draw, then one narrowed call per winner's pair on all rows
+    assert {r.name for r in recipes} == set(appended)
+
+
+def test_refit_with_the_added_information_gate_open_returns_every_winner():
+    """A winner of the subsample decision that the added-information gate would not pass in the narrowed full-n call is still returned when the refit opens ``alpha``;
+    left at its default the narrowed call drops it and the refit raises (the caller then pays the full-data decision)."""
+    import pytest
+
+    rng = np.random.default_rng(5)
+    n = 3000
+    X = pd.DataFrame({"g": rng.integers(0, 5, n).astype(float), "a": rng.standard_normal(n), "b": rng.standard_normal(n)})
+    y = rng.integers(0, 2, n)
+    idx = np.sort(rng.choice(n, 800, replace=False)).astype(np.int64)
+    kw = {"group_cols": ["g"], "num_cols": ["a", "b"], "top_k": 2, "min_mi": -1e9, "min_uplift": -1e9, "alpha": None}
+    _x, _appended, recipes, _s = fe_decide_on_subsample(hybrid_grouped_quantile_fe, X, y, shared_subsample_idx=idx, recipes_at=2, **kw)
+    assert recipes
+    gated = refit_winners(hybrid_grouped_quantile_fe, _group_and_number, top_k=10**9, min_mi=-1e9, min_uplift=-1e9)
+    opened = refit_winners(hybrid_grouped_quantile_fe, _group_and_number, top_k=10**9, min_mi=-1e9, min_uplift=-1e9, alpha=None)
+    columns, _fitted = opened(X, y, recipes, {k: v for k, v in kw.items() if k not in ("top_k", "min_mi", "min_uplift", "alpha")})
+    assert set(columns) == {r.name for r in recipes}
+    with pytest.raises(KeyError):
+        gated(X, y, recipes, {k: v for k, v in kw.items() if k not in ("top_k", "min_mi", "min_uplift", "alpha")})

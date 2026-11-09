@@ -428,7 +428,7 @@ def _stage_grouped_quantile(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_f
                 X_gq, _gq_appended, _gq_recipes, _gq_scores = fe_decide_on_subsample(
                     hybrid_grouped_quantile_fe, X, _y_for_gq,
                     recipes_at=2, **fe_subsample_kwargs(self),
-                    refit=refit_winners(hybrid_grouped_quantile_fe, _group_and_number, top_k=10**9, min_mi=-1e9, min_uplift=-1e9),
+                    refit=refit_winners(hybrid_grouped_quantile_fe, _group_and_number, top_k=10**9, min_mi=-1e9, min_uplift=-1e9, alpha=None),
                     group_cols=_gq_groups, num_cols=_gq_nums,
                     quantiles=_gq_quantiles, target_aware=_gq_target_aware,
                     n_bins=_gq_n_bins, top_k=_gq_top_k,

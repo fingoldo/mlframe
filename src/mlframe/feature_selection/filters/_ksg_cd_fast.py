@@ -111,6 +111,17 @@ def _mi_cd_columns(X, d, n_classes, n_neighbors):
     return out
 
 
+def _mi_cd_columns_auto(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbors: int) -> np.ndarray:
+    """``_mi_cd_columns`` on the device when ``_ksg_cd_gpu`` takes the block, else the host kernel."""
+    from ._ksg_cd_gpu import mi_cd_columns_device, use_device
+
+    if use_device(int(X.shape[0])):
+        got = mi_cd_columns_device(X, d, n_classes, n_neighbors)
+        if got is not None:
+            return got
+    return cast(np.ndarray, _mi_cd_columns(X, d, n_classes, n_neighbors))
+
+
 def ksg_mi_discrete_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, random_state: int) -> np.ndarray:
     """Drop-in for ``mutual_info_classif(X, y, discrete_features=False)``: double MI per column, nats."""
     # Intentional float64: reproduces sklearn mutual_info_classif, which scales and adds noise in double
@@ -124,7 +135,7 @@ def ksg_mi_discrete_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, ra
     X += 1e-10 * means * rng.standard_normal(size=(n, X.shape[1]))
     _, d = np.unique(np.asarray(y).ravel(), return_inverse=True)
     d = np.ascontiguousarray(d, dtype=np.int64)
-    return cast(np.ndarray, _mi_cd_columns(np.ascontiguousarray(X), d, int(d.max()) + 1 if d.size else 0, int(n_neighbors)))
+    return _mi_cd_columns_auto(np.ascontiguousarray(X), d, int(d.max()) + 1 if d.size else 0, int(n_neighbors))
 
 
 def ksg_mi_discrete_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, random_state: int) -> np.ndarray:
@@ -147,4 +158,4 @@ def ksg_mi_discrete_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbors:
     X += 1e-10 * means * one_draw[:, None]
     _, d = np.unique(np.asarray(y).ravel(), return_inverse=True)
     d = np.ascontiguousarray(d, dtype=np.int64)
-    return cast(np.ndarray, _mi_cd_columns(np.ascontiguousarray(X), d, int(d.max()) + 1 if d.size else 0, int(n_neighbors)))
+    return _mi_cd_columns_auto(np.ascontiguousarray(X), d, int(d.max()) + 1 if d.size else 0, int(n_neighbors))

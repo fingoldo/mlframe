@@ -7,6 +7,8 @@ section this fans out from and the ``self``/``X`` threading contract (mirrors th
 
 from __future__ import annotations
 
+from .._candidate_pool import restrict_to_shape_pool
+
 from typing import Any
 import logging
 
@@ -189,7 +191,7 @@ def _hybrid_orth_family_variants_group2_part1(
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_tg_cols,
+                cols=restrict_to_shape_pool(self, X, _y_np, _tg_cols),
                 degrees=_tg_degrees,
                 basis=_tg_basis,
                 top_k=_tg_top_k,
@@ -379,7 +381,7 @@ def _stage_bootstrap(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, ve
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_boot_cols,
+                cols=restrict_to_shape_pool(self, X, _y_np, _boot_cols),
                 degrees=_boot_degrees,
                 basis=_boot_basis,
                 top_k=_boot_top_k,
@@ -455,7 +457,7 @@ def _stage_ksg(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_ksg_cols,
+                cols=restrict_to_shape_pool(self, X, _y_np, _ksg_cols),
                 degrees=_ksg_degrees,
                 basis=_ksg_basis,
                 top_k=_ksg_top_k,

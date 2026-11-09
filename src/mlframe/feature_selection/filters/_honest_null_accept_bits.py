@@ -33,7 +33,7 @@ SHARED_BUDGET_BYTES = 22 * 1024  # per table; the kernel holds two of them (row-
 _MARGIN = 1e-6
 
 _SRC = render(r"""
-extern "C" __global__ void root_split_accept(const int* __restrict__ order, const unsigned int* __restrict__ valid, const unsigned int* __restrict__ ybits,
+extern "C" __global__ void __launch_bounds__(512, 4) root_split_accept(const int* __restrict__ order, const unsigned int* __restrict__ valid, const unsigned int* __restrict__ ybits,
                                              const {ACC}* __restrict__ tab, const {ACC}* __restrict__ thr, const long long n, const int W, const int YW, const int m,
                                              const int B, const {ACC} h_full, const {ACC} pi,
                                              {ACC}* __restrict__ out_gain, int* __restrict__ out_ncand, int* __restrict__ out_idx
@@ -270,7 +270,7 @@ def _block_width(kernel, shared_bytes: int, n: int) -> int:
     from pyutilz.performance.gpu_hw_launch import fixed_shared_block_size
 
     try:
-        width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kernel.num_regs), static_smem=int(kernel.shared_size_bytes), min_width=64, max_width=1024, work_items=n)
+        width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kernel.num_regs), static_smem=int(kernel.shared_size_bytes), min_width=64, max_width=512, work_items=n)
     except Exception as exc:  # best-effort: only the launch width changes, never a result
         log_throttle(logger, "_honest_null_accept_bits.block_width", logging.INFO, "honest-null accept block width: device limits unavailable (%s)", exc)
         width = 0

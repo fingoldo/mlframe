@@ -83,7 +83,7 @@ def test_hinge_basis_closed_form_replay_on_heldout(frames, side, fn):
     rec = build_hinge_basis_recipe(name=f"hinge_{side}(a)", src_name="a", tau=tau, side=side)
     out = apply_recipe(rec, Xnew)
     manual = fn(Xnew["a"].to_numpy(dtype=float), tau)
-    np.testing.assert_allclose(out, manual, rtol=0, atol=0)
+    np.testing.assert_allclose(out, manual.astype(out.dtype), rtol=0, atol=0)  # the replay keeps the fit's float dtype (float32 by default): compare with the reference rounded to it
 
 
 def test_hinge_tau_is_frozen_not_refit(frames):
@@ -140,7 +140,7 @@ def test_fourier_replay_matches_closed_form(frames, kind):
     z = (Xnew["a"].to_numpy(dtype=float) - lo) / span
     ang = 2.0 * np.pi * freq * z
     manual = np.sin(ang) if kind == "sin" else np.cos(ang)
-    np.testing.assert_allclose(out, manual, rtol=0, atol=1e-12)
+    np.testing.assert_allclose(out, manual, rtol=0, atol=1e-6 if out.dtype == np.float32 else 1e-12)  # float32 replay: one float32 rounding of a value in [-1, 1]
 
 
 def test_fourier_quadratic_chirp_axis_requires_mean_std():
@@ -182,7 +182,8 @@ def test_fourier_quadratic_chirp_replays_leakfree(frames):
     un = np.sign(zsn) * (zsn * zsn)
     zn = (un - lo) / span
     manual = np.sin(2.0 * np.pi * 1.0 * zn)
-    np.testing.assert_allclose(apply_recipe(rec, Xnew), manual, rtol=0, atol=1e-12)
+    _replayed = apply_recipe(rec, Xnew)
+    np.testing.assert_allclose(_replayed, manual, rtol=0, atol=1e-6 if _replayed.dtype == np.float32 else 1e-12)  # float32 replay: one float32 rounding of a value in [-1, 1]
 
 
 # ---------------------------------------------------------------------------

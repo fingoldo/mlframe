@@ -405,7 +405,8 @@ def refit_winners(fn: Callable[..., tuple], narrow: Callable[[Any], dict], **ope
         columns: dict = {}
         fitted: dict = {}
         for source, names in by_source.items():
-            X_full, _appended, full_recipes, _scores = fn(X, y, **{**kwargs, **{k: list(v) for k, v in source}, **open_gates})
+            out = fn(X, y, **{**kwargs, **{k: list(v) for k, v in source}, **open_gates})
+            X_full, full_recipes = out[0], out[2]  # the family's own layout: (frame, appended, recipes, ...)
             by_name = {fr.name: fr for fr in full_recipes}
             for name in names:
                 fitted[name] = by_name[name]
@@ -565,6 +566,7 @@ def fe_decide_on_subsample(
     from ..engineered_recipes import apply_recipe
     from .._fe_frame_ops import fe_append_columns
     _full_cols: dict = {}
+    r = None  # the recipe being replayed, for the message of a failure
     try:
         # apply_recipe is format-agnostic (per-column _extract_column), so full-n replay reads polars/pandas/ndarray
         # operands as views - no whole-matrix copy.
@@ -580,10 +582,10 @@ def fe_decide_on_subsample(
                 # Intentional float64: narrows only a float64 replay result to the fit's dtype
                 _full_cols[r.name] = _v.astype(_store, copy=False) if (_store is not None and _v.dtype == np.float64) else _v
         record_fe_family_wall("stage:decide_replay", perf_counter() - _t_replay)
-    except Exception:
+    except Exception as exc:
         logger.warning(
-            "fe_decide_on_subsample: full-n replay failed for %r; " "falling back to full-data decision.",
-            getattr(r, "name", "?"),
+            "fe_decide_on_subsample: %s: full-n replay failed for %r (%s: %s); falling back to full-data decision.",
+            getattr(fit_with_recipes_fn, "__name__", "FE family"), getattr(r, "name", "?"), type(exc).__name__, exc,
         )
         return fit_with_recipes_fn(fe_to_pandas(X), y, **kwargs)
     # Append the engineered columns in X's OWN framework (polars with_columns / pandas concat) - only the new columns

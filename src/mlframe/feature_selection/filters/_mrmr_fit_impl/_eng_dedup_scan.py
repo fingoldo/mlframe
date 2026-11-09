@@ -315,6 +315,30 @@ class _CandidateOrderPrefetch:
         return self._orders.get(name)
 
 
+def _masked_rho(_arr_c, _fin_c, _kept_arrays, cand_order=None):
+    """|Spearman rho| of the candidate against each of ``_kept_arrays`` over their jointly finite rows (``-1`` for a skipped pair): on the device when ``_eng_dedup_spearman_gpu`` takes it, else the parallel host kernel."""
+    from numba.typed import List as _TypedList
+
+    from ._eng_dedup_batch_corr import finite_sort_order, finite_sort_orders, masked_abs_spearman_presorted
+    from ._eng_dedup_spearman_gpu import masked_abs_spearman_device, use_device
+
+    _others = _TypedList()
+    _orders = _TypedList()
+    _kept_cols = [np.ascontiguousarray(_a) for _a in _kept_arrays]
+    for _col in _kept_cols:
+        _others.append(_col)
+    for _order in finite_sort_orders(_kept_cols):  # a kept column is sorted once for the whole fit, not once per candidate; the columns not sorted yet are sorted together on the pool
+        _orders.append(_order)
+    _arr_cc = np.ascontiguousarray(_arr_c)
+    _rho = np.empty(len(_kept_cols), dtype=np.float64)  # Intentional float64: |rho| statistic vector
+    _order_c = cand_order() if cand_order is not None else None
+    if _order_c is None:
+        _order_c = finite_sort_order(_arr_cc, cache=False)
+    if not (use_device(int(_arr_cc.shape[0])) and masked_abs_spearman_device(_arr_cc, _order_c, _kept_cols, list(_orders), float(_REL_TOL), _rho)):
+        masked_abs_spearman_presorted(_arr_cc, np.ascontiguousarray(_fin_c), _order_c, _others, _orders, float(_REL_TOL), _rho)
+    return _rho
+
+
 def _pair_collisions(_colliding_kept, _eng_keep, _fast_kept_set, _arr_c, _fin_c, _ranks_c, _eng_arrs, _eng_ranks, _eng_fully_finite, cand_order=None):
     """Append each kept column the candidate Spearman-collides with (|rho| >= 0.99) to ``_colliding_kept``, skipping batched ones.
 
@@ -330,44 +354,29 @@ def _pair_collisions(_colliding_kept, _eng_keep, _fast_kept_set, _arr_c, _fin_c,
         _mask = _fin_c if _eng_fully_finite.get(_kept_col, False) else (_fin_c & np.isfinite(_arr_k))
         if _mask.sum() < 8:
             continue
-        _a, _b = _arr_c[_mask], _arr_k[_mask]
-        if _a.std() <= _REL_TOL * float(np.abs(_a).max()) or _b.std() <= _REL_TOL * float(np.abs(_b).max()):
-            continue
-        if bool(_mask.all()):
-            # No-NaN fast path: masked subset == full column, so reuse the cached full-column ranks
-            # (identical values) instead of re-sorting both columns for this pair.
-            _ranks_a = _ranks_c
-            _ranks_b = _eng_ranks.get(_kept_col)
-            if _ranks_b is None:
-                _ranks_b = pd.Series(_arr_k).rank(method="average").to_numpy()
-                _eng_ranks[_kept_col] = _ranks_b
-        else:
+        if not bool(_mask.all()):
+            # A pair with NaN goes to the masked kernel below, which applies the same two skip rules (fewer than 8 jointly finite rows, a column constant to ``_REL_TOL`` of its largest value) in
+            # compiled code on all cores; the Python check made two masked copies and four passes per pair first (3 s of a 400000-row fit).
             _decided.append((_kept_col, None))
             _masked.append(_kept_col)
             continue
+        _a, _b = _arr_c, _arr_k  # fully finite pair: the whole columns (the mask is all True)
+        if _a.std() <= _REL_TOL * float(np.abs(_a).max()) or _b.std() <= _REL_TOL * float(np.abs(_b).max()):
+            continue
+        # No-NaN fast path: masked subset == full column, so reuse the cached full-column ranks
+        # (identical values) instead of re-sorting both columns for this pair.
+        _ranks_a = _ranks_c
+        _ranks_b = _eng_ranks.get(_kept_col)
+        if _ranks_b is None:
+            _ranks_b = pd.Series(_arr_k).rank(method="average").to_numpy()
+            _eng_ranks[_kept_col] = _ranks_b
         if _ranks_a.std() <= 1e-12 or _ranks_b.std() <= 1e-12:
             continue
         _rank_corr = abs(float(np.corrcoef(_ranks_a, _ranks_b)[0, 1]))
         _decided.append((_kept_col, bool(np.isfinite(_rank_corr) and _rank_corr >= 0.99)))
     _masked_hit: set = set()
     if _masked:
-        from numba.typed import List as _TypedList
-
-        from ._eng_dedup_batch_corr import finite_sort_order, finite_sort_orders, masked_abs_spearman_presorted
-
-        _others = _TypedList()
-        _orders = _TypedList()
-        _kept_cols = [np.ascontiguousarray(_eng_arrs[_kept_col]) for _kept_col in _masked]
-        for _col in _kept_cols:
-            _others.append(_col)
-        for _order in finite_sort_orders(_kept_cols):  # a kept column is sorted once for the whole fit, not once per candidate; the columns not sorted yet are sorted together on the pool
-            _orders.append(_order)
-        _arr_cc = np.ascontiguousarray(_arr_c)
-        _rho = np.empty(len(_masked), dtype=np.float64)  # Intentional float64: |rho| statistic vector
-        _order_c = cand_order() if cand_order is not None else None
-        if _order_c is None:
-            _order_c = finite_sort_order(_arr_cc, cache=False)
-        masked_abs_spearman_presorted(_arr_cc, np.ascontiguousarray(_fin_c), _order_c, _others, _orders, float(_REL_TOL), _rho)
+        _rho = _masked_rho(_arr_c, _fin_c, [_eng_arrs[_kept_col] for _kept_col in _masked], cand_order)
         _masked_hit = {_kept_col for _kept_col, _r in zip(_masked, _rho) if _r >= 0.99}
     for _kept_col, _collides in _decided:
         if _collides is None:

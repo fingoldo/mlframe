@@ -58,12 +58,12 @@ path - no new recipe kind required.
 NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_three_gate_enable=True``.
 """
+
 from __future__ import annotations
 
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 
 import logging
-import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Sequence
 
@@ -90,6 +90,7 @@ from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
+
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -112,8 +113,11 @@ __all__ = [
     "hybrid_orth_mi_three_gate_fe_with_recipes",
 ]
 
+
 def _stratified_fold_indices(
-    y_int: np.ndarray, n_folds: int, seed: int,
+    y_int: np.ndarray,
+    n_folds: int,
+    seed: int,
 ) -> list[np.ndarray]:
     """Build K stratified test-fold index arrays.
 
@@ -140,8 +144,11 @@ def _stratified_fold_indices(
             fold_lists[j % n_folds_eff].append(int(gi))
     return [np.array(sorted(f), dtype=np.int64) for f in fold_lists]
 
+
 def _bin_with_train_edges(
-    train_vals: np.ndarray, test_vals: np.ndarray, nbins: int,
+    train_vals: np.ndarray,
+    test_vals: np.ndarray,
+    nbins: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Quantile-bin train_vals at ``nbins`` equi-frequency cuts; apply the
     SAME cut edges to test_vals (np.searchsorted with right=False).
@@ -170,8 +177,11 @@ def _bin_with_train_edges(
     test_bins = np.searchsorted(edges, test, side="right").astype(np.int64)
     return train_bins, test_bins
 
+
 def _bin_with_train_edges_batched(
-    train_arr: np.ndarray, test_arr: np.ndarray, nbins: int,
+    train_arr: np.ndarray,
+    test_arr: np.ndarray,
+    nbins: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Batched-across-columns equivalent of :func:`_bin_with_train_edges`.
 
@@ -217,6 +227,7 @@ def _bin_with_train_edges_batched(
         test_bins[:, j] = np.searchsorted(edges, test[:, j], side="right")
     return train_bins, test_bins
 
+
 def _fold_test_bins(
     arr: np.ndarray,
     train_idx: np.ndarray,
@@ -234,16 +245,21 @@ def _fold_test_bins(
     """
     if train_idx.size <= env_int("MLFRAME_OOF_BATCH_BINNING_MAX_TRAIN_ROWS", _OOF_BATCH_BINNING_MAX_TRAIN_ROWS, minimum=0):
         _, test_bins = _bin_with_train_edges_batched(
-            arr[train_idx, :], arr[test_idx, :], nbins=nbins,
+            arr[train_idx, :],
+            arr[test_idx, :],
+            nbins=nbins,
         )
         return test_bins
     test_bins = np.zeros((test_idx.size, n_cols), dtype=np.int64)
     for j in range(n_cols):
         _, tb = _bin_with_train_edges(
-            arr[train_idx, j], arr[test_idx, j], nbins=nbins,
+            arr[train_idx, j],
+            arr[test_idx, j],
+            nbins=nbins,
         )
         test_bins[:, j] = tb
     return test_bins
+
 
 def _y_entropy(y_bin: np.ndarray) -> "tuple[float, int]":
     """``(H(y), observed support)`` of a binned label array exactly as :func:`_mi_from_binned_xy` computes them, for passing as its ``y_entropy``."""
@@ -316,6 +332,7 @@ def _mi_from_binned_xy(x_bin: np.ndarray, y_bin: np.ndarray, *, clip_zero: bool 
     if clip_zero:
         return max(0.0, mi_corrected)
     return mi_corrected
+
 
 def _folds_on_device(raw_arr, eng_arr, y_arr, fold_test_idx, n, nbins):
     """``_one_fold`` of every fold on the device (``_kfold_oof_mi_gpu``), same ``None`` for an empty or single-class fold; ``None`` overall when the device
@@ -403,7 +420,11 @@ def _kfold_one_fold(test_idx: np.ndarray, n: int, y_arr: np.ndarray, raw_arr: np
     # loop; only the quantile partition is shared. Above the threshold the
     # batched quantile loses cache locality, so we keep the scalar fallback.
     raw_test_bins = _fold_test_bins(
-        raw_arr, train_idx, test_idx, n_raw, nbins,
+        raw_arr,
+        train_idx,
+        test_idx,
+        n_raw,
+        nbins,
     )
     y_h = _y_entropy(y_test_bin) if y_test_bin.size else None  # the fold's H(y), shared by every column below
     raw_mi_k = np.array(
@@ -413,7 +434,11 @@ def _kfold_one_fold(test_idx: np.ndarray, n: int, y_arr: np.ndarray, raw_arr: np
 
     # Engineered columns (same per-fold non-clipping rule).
     eng_test_bins = _fold_test_bins(
-        eng_arr, train_idx, test_idx, n_eng, nbins,
+        eng_arr,
+        train_idx,
+        test_idx,
+        n_eng,
+        nbins,
     )
     eng_mi_k = np.array(
         [_mi_from_binned_xy(eng_test_bins[:, j], y_test_bin, clip_zero=False, y_entropy=y_h) for j in range(n_eng)],
@@ -482,6 +507,7 @@ def score_features_by_kfold_oof_mi(
 
     src_map = {eng_name: (eng_name.split("__", 1)[0] if "__" in eng_name else eng_name) for eng_name in eng_cols}
     from ._fe_usability_signal import _crit_np_dtype
+
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     raw_arr = raw_X.to_numpy(dtype=_dt)
     eng_arr = engineered_X.to_numpy(dtype=_dt)
@@ -489,8 +515,6 @@ def score_features_by_kfold_oof_mi(
     fold_test_idx = _stratified_fold_indices(y_arr, n_folds_eff, seed)
     raw_fold_mis: list[np.ndarray] = []
     eng_fold_mis: list[np.ndarray] = []
-
-    from concurrent.futures import ThreadPoolExecutor
 
     from ._fe_deadline import _state as _deadline_state, fe_deadline_scope
 
@@ -536,17 +560,20 @@ def score_features_by_kfold_oof_mi(
         baseline = float(raw_mi_map.get(src_map[eng_name], 0.0))
         emi = float(eng_mi[j])
         uplift = relative_uplift(emi, baseline)
-        rows.append({
-            "engineered_col": eng_name,
-            "source_col": src_map[eng_name],
-            "baseline_mi_oof": baseline,
-            "engineered_mi_oof": emi,
-            "uplift_oof": uplift,
-        })
+        rows.append(
+            {
+                "engineered_col": eng_name,
+                "source_col": src_map[eng_name],
+                "baseline_mi_oof": baseline,
+                "engineered_mi_oof": emi,
+                "uplift_oof": uplift,
+            }
+        )
     df = pd.DataFrame(rows)
     if not df.empty:
         df = df.sort_values("uplift_oof", ascending=False).reset_index(drop=True)
     return df
+
 
 def _quantile_bin_batched(mat: np.ndarray, nbins: int) -> np.ndarray:
     """Column-batched equivalent of ``_mi_greedy_cmi_fe._quantile_bin``: one ``np.quantile(mat, qs,
@@ -574,34 +601,17 @@ def _quantile_bin_batched(mat: np.ndarray, nbins: int) -> np.ndarray:
     finite_per_col = np.isfinite(mat).all(axis=0)
     dense_idx = np.where(finite_per_col)[0]
     partial_idx = np.where(~finite_per_col)[0]
-    qs = np.linspace(0.0, 1.0, int(nbins) + 1)
     if dense_idx.size:
+        from ._orthogonal_shared import quantile_bin_batched
+
         dense_mat = mat[:, dense_idx] if dense_idx.size != p else mat
-
-        def _bin_chunk(lo: int, hi: int) -> None:
-            """Edges and codes of dense columns ``lo:hi`` (sort and searchsorted release the GIL; columns are independent)."""
-            edges_all = np.quantile(dense_mat[:, lo:hi], qs, axis=0)  # (nbins + 1, hi - lo)
-            for k in range(lo, hi):
-                j = dense_idx[k]
-                edges = np.unique(edges_all[:, k - lo])
-                if edges.size <= 2:
-                    if edges.size == 2:
-                        out[:, j] = (dense_mat[:, k] >= edges[1]).astype(np.int64)
-                    continue
-                out[:, j] = np.searchsorted(edges[1:-1], dense_mat[:, k], side="right").astype(np.int64)
-
-        n_dense = int(dense_idx.size)
-        n_workers = min(os.cpu_count() or 1, max(1, n_dense // 4)) if n_rows >= 20_000 else 1
-        if n_workers <= 1:
-            _bin_chunk(0, n_dense)
-        else:
-            bounds = np.linspace(0, n_dense, n_workers + 1).astype(int)
-            with ThreadPoolExecutor(max_workers=n_workers) as pool:
-                for f in [pool.submit(_bin_chunk, int(a), int(b)) for a, b in zip(bounds[:-1], bounds[1:])]:
-                    f.result()
+        out[:, dense_idx] = quantile_bin_batched(
+            dense_mat, int(nbins)
+        )  # the same edges, dedup and searchsorted convention, from the compiled quantile-codes block where every edge is distinct
     for j in partial_idx:
         out[:, j] = _quantile_bin(mat[:, j], nbins=nbins)
     return out
+
 
 def _cmi_gate_scores(
     engineered_X: pd.DataFrame,
@@ -645,6 +655,7 @@ def _cmi_gate_scores(
     for k, c in enumerate(engineered_X.columns):
         out[c] = float(_cmi_from_binned(np.ascontiguousarray(eng_bins_mat[:, k]), y_bin, z_joint))
     return out
+
 
 def hybrid_orth_mi_three_gate_fe(
     X: pd.DataFrame,
@@ -690,11 +701,17 @@ def hybrid_orth_mi_three_gate_fe(
             sorted by ``uplift_oof`` descending.
     """
     engineered = generate_univariate_basis_features(
-        X, cols=cols, degrees=degrees, basis=basis,
+        X,
+        cols=cols,
+        degrees=degrees,
+        basis=basis,
     )
     empty_cols = [
-        "engineered_col", "source_col",
-        "baseline_mi_oof", "engineered_mi_oof", "uplift_oof",
+        "engineered_col",
+        "source_col",
+        "baseline_mi_oof",
+        "engineered_mi_oof",
+        "uplift_oof",
         "cmi_support",
     ]
     if engineered.empty:
@@ -702,8 +719,12 @@ def hybrid_orth_mi_three_gate_fe(
 
     raw_X = X[[c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]]
     scores = score_features_by_kfold_oof_mi(
-        raw_X, engineered, y,
-        n_folds=n_folds, seed=seed, nbins=nbins,
+        raw_X,
+        engineered,
+        y,
+        n_folds=n_folds,
+        seed=seed,
+        nbins=nbins,
     )
     if scores.empty:
         return X, pd.DataFrame(columns=empty_cols)
@@ -715,7 +736,10 @@ def hybrid_orth_mi_three_gate_fe(
     )
     if use_cmi_gate:
         cmi_map = _cmi_gate_scores(
-            engineered, y_int, current_support, nbins=nbins,
+            engineered,
+            y_int,
+            current_support,
+            nbins=nbins,
         )
         scores["cmi_support"] = scores["engineered_col"].map(cmi_map).astype(np.float64)  # Intentional float64: score statistic output contract
     else:
@@ -747,6 +771,7 @@ def hybrid_orth_mi_three_gate_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
+
 @fe_timed("orth_mi_three_gate")
 def hybrid_orth_mi_three_gate_fe_with_recipes(
     X: pd.DataFrame,
@@ -776,10 +801,19 @@ def hybrid_orth_mi_three_gate_fe_with_recipes(
     from ._orthogonal_univariate_fe import _evaluate_basis_column
 
     X_aug, scores = hybrid_orth_mi_three_gate_fe(
-        X, y, current_support,
-        cols=cols, degrees=degrees, basis=basis, top_k=top_k,
-        min_uplift=min_uplift, min_abs_mi_frac=min_abs_mi_frac,
-        cmi_min=cmi_min, n_folds=n_folds, seed=seed, nbins=nbins,
+        X,
+        y,
+        current_support,
+        cols=cols,
+        degrees=degrees,
+        basis=basis,
+        top_k=top_k,
+        min_uplift=min_uplift,
+        min_abs_mi_frac=min_abs_mi_frac,
+        cmi_min=cmi_min,
+        n_folds=n_folds,
+        seed=seed,
+        nbins=nbins,
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
     recipes = []
@@ -808,17 +842,29 @@ def hybrid_orth_mi_three_gate_fe_with_recipes(
             continue
         _pp = None
         try:
-            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)  # Intentional float64: engineered operand for the CMI statistic, compared at full precision
+            _col_full = np.asarray(
+                X[src].to_numpy(), dtype=np.float64
+            )  # Intentional float64: engineered operand for the CMI statistic, compared at full precision
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging,
             # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
             # exception (including a genuine programming bug), with no diagnostic trace.
-            log_throttle(logger, "orthogonal_three_gate_mi_fe.hot_loop_warning", logging.WARNING, "failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
+            log_throttle(
+                logger,
+                "orthogonal_three_gate_mi_fe.hot_loop_warning",
+                logging.WARNING,
+                "failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r",
+                exc,
+            )
             _pp = None
-        recipes.append(build_orth_univariate_recipe(
-            name=name, src_name=src,
-            basis=chosen_basis, degree=chosen_degree,
-            preprocess_params=_pp,
-        ))
+        recipes.append(
+            build_orth_univariate_recipe(
+                name=name,
+                src_name=src,
+                basis=chosen_basis,
+                degree=chosen_degree,
+                preprocess_params=_pp,
+            )
+        )
     return X_aug, scores, recipes

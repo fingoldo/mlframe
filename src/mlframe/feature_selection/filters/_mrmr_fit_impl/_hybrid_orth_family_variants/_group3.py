@@ -7,6 +7,8 @@ section this fans out from and the ``self``/``X`` threading contract (mirrors th
 
 from __future__ import annotations
 
+from .._candidate_pool import restrict_to_shape_pool
+
 from typing import Any
 import logging
 
@@ -73,7 +75,7 @@ def _hybrid_orth_family_variants_group3(
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_copula_cols,
+                cols=restrict_to_shape_pool(self, X, _y_np, _copula_cols),
                 degrees=_copula_degrees,
                 basis=_copula_basis,
                 top_k=_copula_top_k,
@@ -167,7 +169,7 @@ def _hybrid_orth_family_variants_group3_part3(
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_dcor_cols,
+                cols=restrict_to_shape_pool(self, X, _y_np, _dcor_cols),
                 degrees=_dcor_degrees,
                 basis=_dcor_basis,
                 top_k=_dcor_top_k,
@@ -268,7 +270,7 @@ def _hybrid_orth_family_variants_group3_part2(
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_hsic_cols,
+                cols=restrict_to_shape_pool(self, X, _y_np, _hsic_cols),
                 degrees=_hsic_degrees,
                 basis=_hsic_basis,
                 top_k=_hsic_top_k,
@@ -360,7 +362,7 @@ def _hybrid_orth_family_variants_group3_part1(
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_jmim_cols,
+                cols=restrict_to_shape_pool(self, X, _y_np, _jmim_cols),
                 degrees=_jmim_degrees,
                 basis=_jmim_basis,
                 top_k=_jmim_top_k,
@@ -458,7 +460,7 @@ def _stage_tc(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose):
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_tc_cols,
+                cols=restrict_to_shape_pool(self, X, _y_np, _tc_cols),
                 degrees=_tc_degrees,
                 basis=_tc_basis,
                 top_k=_tc_top_k,
