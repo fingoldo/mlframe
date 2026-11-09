@@ -304,6 +304,33 @@ void batched_joint_hist2_i32(const long long* __restrict__ X, const long long* _
     long long xv = X[row * (long long)K + col];
     atomicAdd(&counts[(col * (long long)Kx + xv) * Kb + b[row]], 1);
 }
+// SHARED-MEMORY twin of batched_joint_hist2_i32: a block owns a tile of columns and a chunk of rows, counts into a shared (tile, Kx*Kb) histogram with shared
+// atomics (a few cycles, no contention across blocks) and adds its non-zero cells to the global counts once at the end. The global-atomics kernel issues one
+// contended global atomic per (row, column): n * K of them on a (K, Kx*Kb) buffer whose cells are few and hot. Same counts.
+extern "C" __global__
+void batched_joint_hist2_i32_smem(const long long* __restrict__ X, const long long* __restrict__ b,
+                                  const int Kx, const int Kb, const long long n, const int K,
+                                  const int tile, const long long rows_per_block, int* __restrict__ counts) {
+    extern __shared__ int hist[];
+    const int cells = Kx * Kb;
+    const int c0 = blockIdx.y * tile;
+    const int tc = min(tile, K - c0);
+    for (int i = threadIdx.x; i < tc * cells; i += blockDim.x) hist[i] = 0;
+    __syncthreads();
+    const long long r0 = (long long)blockIdx.x * rows_per_block;
+    const long long r1 = min(r0 + rows_per_block, n);
+    const long long span = (r1 - r0) * (long long)tc;
+    for (long long t = threadIdx.x; t < span; t += blockDim.x) {
+        const int c = (int)(t % tc);
+        const long long row = r0 + t / tc;
+        atomicAdd(&hist[c * cells + (int)X[row * (long long)K + c0 + c] * Kb + (int)b[row]], 1);
+    }
+    __syncthreads();
+    for (int i = threadIdx.x; i < tc * cells; i += blockDim.x) {
+        const int v = hist[i];
+        if (v) atomicAdd(&counts[(long long)c0 * cells + i], v);
+    }
+}
 extern "C" __global__
 void batched_joint_hist1_i32(const long long* __restrict__ X, const int Kx, const long long n, const int K,
                              int* __restrict__ counts) {
@@ -364,7 +391,8 @@ def _get_batched_joint_hist_kernels():
         _BATCHED_JOINT_HIST_KERNELS = (mod.get_function("batched_joint_hist1"),
                                        mod.get_function("batched_joint_hist2"),
                                        mod.get_function("batched_joint_hist1_i32"),
-                                       mod.get_function("batched_joint_hist2_i32"))
+                                       mod.get_function("batched_joint_hist2_i32"),
+                                       mod.get_function("batched_joint_hist2_i32_smem"))
     return _BATCHED_JOINT_HIST_KERNELS
 
 
@@ -382,11 +410,40 @@ def _batched_joint_counts2(X, b, Kx, Kb):
     # int32 counts: exact frequencies <= n < 2^31; halves the memset + the
     # entropy-reduce traffic + the buffer VRAM (2x perms per perm-null chunk). Identical counts.
     counts = cp.zeros(int(K) * int(Kx) * int(Kb), dtype=cp.int32)
+    tile = _hist_smem_tile(int(Kx) * int(Kb), K)
+    if tile:
+        # one block per (row chunk, column tile): shared histograms, one global add per occupied cell per block
+        rows_per_block = int(max(1024, min(n, 16384)))
+        grid = ((n + rows_per_block - 1) // rows_per_block, (K + tile - 1) // tile)
+        _get_batched_joint_hist_kernels()[4](
+            grid, (256,), (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(tile), np.int64(rows_per_block), counts),
+            shared_mem=tile * int(Kx) * int(Kb) * 4,
+        )
+        return counts.reshape(K, int(Kx) * int(Kb))
     h2 = _get_batched_joint_hist_kernels()[3]
     threads = block_size_for(h2, work_items=n * K)
     blocks = (n * K + threads - 1) // threads
     h2((blocks,), (threads,), (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), counts))
     return counts.reshape(K, int(Kx) * int(Kb))
+
+
+_HIST_SMEM_BYTES = 40 * 1024  # shared bytes one block may spend on its histograms (the 48 KB static limit with room for the launch)
+# Measured on the dev GPU (GTX Pascal, 100000-300000 rows, 20-1944 columns, shared against global atomics): 20 cells x1.5, 40 cells x1.3, 100 cells x1.1, 288 cells x0.7, 2400 cells x0.7:
+# with many cells the global atomics are spread over the buffer and already cheap, and the shared histogram's zeroing and flush dominate. Counts are equal in every case.
+_HIST_SMEM_MAX_CELLS = 128
+
+
+def _hist_smem_tile(cells: int, n_cols: int) -> int:
+    """Columns per block of the shared-memory joint histogram: the largest of 32/16/8/4/2/1 whose ``tile * cells`` int32 histogram fits ``_HIST_SMEM_BYTES`` (and
+    does not exceed the column count), or 0 when one column does not fit or ``MLFRAME_HIST_SMEM=0`` or ``cells`` exceeds ``_HIST_SMEM_MAX_CELLS``."""
+    import os
+
+    if os.environ.get("MLFRAME_HIST_SMEM", "1").strip() == "0" or cells > _HIST_SMEM_MAX_CELLS:
+        return 0
+    for tile in (32, 16, 8, 4, 2, 1):
+        if tile <= max(1, n_cols) and tile * cells * 4 <= _HIST_SMEM_BYTES:
+            return tile
+    return 0
 
 
 def _batched_marginal_counts(X, Kx):
