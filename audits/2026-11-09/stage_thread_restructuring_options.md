@@ -115,3 +115,7 @@ An `EngineeredMiPrefetch` thread scored the appended engineered columns while `_
 ### Dedup rank scan measured standalone (2026-11-10)
 
 `D:/Temp/dedup_bench.py`: `scan_engineered_duplicates` over 160 synthetic float32 columns of 100k rows, warm, 0.89-0.94 s: `average_ranks` batch kernel 0.37 s, one-vs-many correlations 0.21 s (159 calls), row moments 0.06 s, the rest Python. The in-fit 1.7 s of `stage:cross_stage_dedup` is this plus the MI scores under CPU/GPU contention. A device rank kernel could save at most the 0.37 s of ranking minus the transfers; not built.
+
+### Cupy call volume of a whole fit (2026-11-10)
+
+`D:/Temp/cupy_op_count.py 100000 100`: 107398 cupy c_calls in an 80.6 s profiled fit (about 1.3k/s; the profiler hook inflates the wall). Leaders: `binned_mi_from_values_gpu` 8038, `_candidate_matrix` 5136, `_batched_cmi_argmax` 4649, `_assert_codes_in_range` 3744 (mostly attribute reads on cached ranges), `_newton` 3240, `rank_bin_codes_batch_gpu_resident` 3137. The per-process launch ceiling of about 20k ops/s is therefore not what limits the fit: the card idles because of dependency chains and host stages between small kernels, not because launches are saturated. Merging kernels across families would cut the call count by at most a fraction of an already low rate; the lever is overlap and removing host stages, as in the group-1 split.
