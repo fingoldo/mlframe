@@ -39,15 +39,15 @@ def test_device_copula_equals_host(n, k, dtype):
 
 
 def test_public_batch_routes_through_the_device_when_forced(monkeypatch):
-    """``_copula_mi_batch`` with the device forced on equals the host path forced off."""
+    """``_copula_mi_batch`` with the device chosen equals the host path chosen off."""
     r = np.random.default_rng(3)
     n = 6000
     y = r.standard_normal(n)
     X = r.standard_normal((n, 8)).astype(np.float32)
     X[:, 0] += y
     X[:, 1] = np.round(X[:, 1])
-    monkeypatch.setenv("MLFRAME_COPULA_DEVICE", "0")
+    monkeypatch.setattr(gpu, "use_device", lambda n_rows: False)
     want = host._copula_mi_batch(X, y, n_bins=20)
-    monkeypatch.setenv("MLFRAME_COPULA_DEVICE", "1")
+    monkeypatch.setattr(gpu, "use_device", lambda n_rows: True)
     got = host._copula_mi_batch(X, y, n_bins=20)
     np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-12)

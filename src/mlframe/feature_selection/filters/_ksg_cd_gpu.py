@@ -9,13 +9,12 @@ and the partials are added in a fixed order, so a run is reproducible; they diff
 Rows of classes with a single member are dropped before the sort (the host drops them from the sorted list, which leaves the order of the others unchanged). Columns go to the device in blocks
 that fit ``_BUDGET_FRACTION`` of the free memory; on any device fault the caller runs the host kernel.
 
-``MLFRAME_KSG_DEVICE=0|1`` forces the path; otherwise the kernel-tuning cache decides by row count (fallback ``DEVICE_FALLBACK_ROWS``).
+The kernel-tuning cache decides by row count (fallback ``DEVICE_FALLBACK_ROWS``).
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from typing import Optional
 
 import numpy as np
@@ -187,14 +186,11 @@ except Exception as e:
 
 
 def use_device(n_rows: int) -> bool:
-    """Whether ``n_rows`` rows take the device kernel: ``MLFRAME_KSG_DEVICE=0|1`` forces a path, else the per-host tuner (fallback ``DEVICE_FALLBACK_ROWS``)."""
+    """Whether ``n_rows`` rows take the device kernel: the per-host kernel-tuning cache decides (fallback ``DEVICE_FALLBACK_ROWS``)."""
     from ._gpu_policy import gpu_globally_disabled
 
     if gpu_globally_disabled():
         return False
-    forced = os.environ.get("MLFRAME_KSG_DEVICE", "").strip()
-    if forced in ("0", "1"):
-        return forced == "1"
     if _SPEC is None:
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
     try:

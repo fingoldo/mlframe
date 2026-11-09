@@ -12,13 +12,12 @@ The ranks are integer counts, so every term is an integer held exactly in a doub
 equals the host's value (the host sums the same integers in the same double precision). The permutations are drawn on the host from the same generator as the host path, so the tie-breaking
 stream is the same. Columns go in blocks that fit ``_BUDGET_FRACTION`` of the free device memory; any device fault returns ``None`` and the caller runs the host kernel.
 
-``MLFRAME_XI_DEVICE=0|1`` forces the path; otherwise the kernel-tuning cache decides by row count (fallback ``DEVICE_FALLBACK_ROWS``, the host until a sweep says otherwise).
+The kernel-tuning cache decides by row count (fallback ``DEVICE_FALLBACK_ROWS``, the host until a sweep says otherwise).
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from typing import Optional
 
 import numpy as np
@@ -198,14 +197,11 @@ except Exception as e:
 
 
 def use_device(n_rows: int) -> bool:
-    """Whether ``n_rows`` rows take the device kernel: ``MLFRAME_XI_DEVICE=0|1`` forces a path, else the per-host tuner (fallback ``DEVICE_FALLBACK_ROWS``, the host until a sweep says otherwise)."""
+    """Whether ``n_rows`` rows take the device kernel: the per-host kernel-tuning cache decides (fallback ``DEVICE_FALLBACK_ROWS``, the host until a sweep says otherwise)."""
     from ._gpu_policy import gpu_globally_disabled
 
     if gpu_globally_disabled():
         return False
-    forced = os.environ.get("MLFRAME_XI_DEVICE", "").strip()
-    if forced in ("0", "1"):
-        return forced == "1"
     if _SPEC is None:
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
     try:

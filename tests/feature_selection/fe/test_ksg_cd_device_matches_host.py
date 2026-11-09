@@ -35,10 +35,10 @@ def test_device_mi_equals_host(n, n_classes, p, k):
 
 
 def test_public_entry_points_route_through_the_device_when_forced(monkeypatch):
-    """``ksg_mi_discrete_target_columns`` with the device forced on equals the host path forced off."""
+    """``ksg_mi_discrete_target_columns`` with the device chosen equals the host path chosen off."""
     X, d = _block(6000, 3, 5, 1)
-    monkeypatch.setenv("MLFRAME_KSG_DEVICE", "0")
+    monkeypatch.setattr(gpu, "use_device", lambda n_rows: False)
     want = host.ksg_mi_discrete_target_columns(X, d, n_neighbors=3, random_state=0)
-    monkeypatch.setenv("MLFRAME_KSG_DEVICE", "1")
+    monkeypatch.setattr(gpu, "use_device", lambda n_rows: True)
     got = host.ksg_mi_discrete_target_columns(X, d, n_neighbors=3, random_state=0)
     np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-9)
