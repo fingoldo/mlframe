@@ -288,9 +288,13 @@ def _value_bytes(value: Any) -> int:
 class _BytesLRU(OrderedDict):
     """A dict that keeps its values' arrays under ``budget`` bytes by dropping the least recently used entries (always keeping the newest one)."""
 
+    _REMEASURE_EVERY = 16
+
     def __init__(self, budget: int) -> None:
         super().__init__()
         self._budget = int(budget)
+        self._sizes: dict = {}
+        self._sets = 0
 
     def get(self, key: Any, default: Any = None) -> Any:
         """The value of ``key``, marked as the most recently used."""
@@ -302,8 +306,23 @@ class _BytesLRU(OrderedDict):
     def __setitem__(self, key: Any, value: Any) -> None:
         super().__setitem__(key, value)
         self.move_to_end(key)
-        while len(self) > 1 and sum(_value_bytes(v) for v in self.values()) > self._budget:
-            self.popitem(last=False)  # evict-ok: the entry is rebuilt from its column when asked for again
+        # Walking every cached value on each insert was quadratic in the entry count (a quarter of the family's wall at 100k rows). The size of the new value is measured once; the entries'
+        # sizes are re-measured (they can grow after insertion: the pair cache holds per-fold dicts that fill later) when the running total says the budget is exceeded, and every
+        # ``_REMEASURE_EVERY`` inserts.
+        self._sizes[key] = _value_bytes(value)
+        self._sets += 1
+        if sum(self._sizes.values()) <= self._budget and self._sets % self._REMEASURE_EVERY:
+            return
+        self._sizes = {k: _value_bytes(v) for k, v in self.items()}
+        while len(self) > 1 and sum(self._sizes.values()) > self._budget:
+            old, _ = self.popitem(last=False)  # evict-ok: the entry is rebuilt from its column when asked for again
+            self._sizes.pop(old, None)
+
+    def popitem(self, last: bool = True) -> Any:
+        """Remove and return an entry, keeping the size table in step."""
+        key, value = super().popitem(last=last)
+        self._sizes.pop(key, None)
+        return key, value
 
 
 def _device_cache_budget(cp: Any) -> int:

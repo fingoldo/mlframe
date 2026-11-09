@@ -34,3 +34,14 @@ def test_the_newest_entry_stays_even_when_alone_over_budget():
 def test_value_bytes_counts_nested_arrays():
     """Tuples and dicts of arrays are summed; plain numbers count zero."""
     assert _value_bytes((np.zeros(10), {"t": np.zeros(5)}, 3)) == 15 * 8
+
+
+def test_growth_of_a_cached_dict_after_insertion_is_caught_at_remeasure():
+    """A value dict that fills after it was inserted still pushes the cache under budget within the re-measure period."""
+    c = _BytesLRU(2000)
+    grow = {}
+    c["g"] = grow
+    for i in range(_BytesLRU._REMEASURE_EVERY):
+        grow[i] = np.zeros(100)
+        c[f"k{i}"] = np.zeros(1)
+    assert sum(_value_bytes(v) for v in c.values()) <= 2000 or len(c) == 1
