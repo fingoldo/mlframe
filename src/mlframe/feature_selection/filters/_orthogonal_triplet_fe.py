@@ -102,27 +102,25 @@ def _triplet_eng_col_name(
     return f"{col_i}*{col_j}*{col_k}__{code}{deg_a}_{code}{deg_b}_{code}{deg_c}"
 
 
-def _prepare_triplet_legs(X: pd.DataFrame, col_i: str, col_j: str, col_k: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return the three leg columns as private, NaN-mean-filled arrays in the criterion dtype."""
-    from ._fe_usability_signal import _crit_np_dtype
+def _mean_fill_nonfinite(x: np.ndarray) -> None:
+    """Replace the non-finite entries of ``x`` by the mean of its finite ones (0 when there are none), in place."""
+    finite_mask = np.isfinite(x)
+    if not finite_mask.all():
+        fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
+        np.copyto(x, np.where(finite_mask, x, fill))
 
-    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); matches the GPU device
-    # builder's operand dtype (_gpu_resident_cross_basis.py) so host and device run the polynomial
-    # recurrence at the SAME precision - see build_leg_product_matrix_gpu's docstring.
-    # np.array (copy=True): X[col].to_numpy() can alias the DataFrame's backing block - e.g. a
-    # zero-copy Arrow-backed view or a frozen MRMR-fit-cache array reused via fe_append_columns from
-    # an earlier stage - and the np.copyto NaN-fill below would then either mutate the CALLER's X or
-    # raise "assignment destination is read-only" on a genuinely read-only block. A fresh copy (matching
-    # the sibling pair-cross / GPU-resident generators' established pattern) keeps the fill local and safe.
-    x_i = np.array(X[col_i].to_numpy(), dtype=_dt)
-    x_j = np.array(X[col_j].to_numpy(), dtype=_dt)
-    x_k = np.array(X[col_k].to_numpy(), dtype=_dt)
-    for x in (x_i, x_j, x_k):
-        finite_mask = np.isfinite(x)
-        if not finite_mask.all():
-            fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
-            np.copyto(x, np.where(finite_mask, x, fill))
-    return x_i, x_j, x_k
+
+def _triplet_leg(leg_cache: dict, X: pd.DataFrame, col: str, basis: str) -> tuple:
+    """``(mean-filled private copy of X[col] in the criterion dtype, its basis)`` for one triplet leg, memoised in ``leg_cache`` for the whole call: a column recurs in many triplets, the copy is never
+    written after the fill and the routed basis depends on the column only."""
+    hit = leg_cache.get(col)
+    if hit is None:
+        from ._fe_usability_signal import _crit_np_dtype
+
+        x = np.array(X[col].to_numpy(), dtype=_crit_np_dtype())
+        _mean_fill_nonfinite(x)
+        hit = leg_cache[col] = (x, basis_route_by_moments(x) if basis == "auto" else basis)
+    return hit
 
 
 def _triplet_cross_products(x_i, x_j, x_k, col_i, col_j, col_k, basis_i, basis_j, basis_k, min_d, max_d, cache, out_cols) -> None:
@@ -222,6 +220,7 @@ def generate_triplet_cross_basis_features(
     if not triplets:
         return pd.DataFrame(index=X.index)
     cache: dict[tuple[str, int, str], np.ndarray] = {}
+    leg_cache: dict = {}
     out_cols: dict = {}
     max_d = int(max_degree)
     min_d = max(0, int(min_degree))
@@ -245,10 +244,9 @@ def generate_triplet_cross_basis_features(
             continue
         if not (pd.api.types.is_numeric_dtype(X[col_i]) and pd.api.types.is_numeric_dtype(X[col_j]) and pd.api.types.is_numeric_dtype(X[col_k])):
             continue
-        x_i, x_j, x_k = _prepare_triplet_legs(X, col_i, col_j, col_k)
-        basis_i = basis_route_by_moments(x_i) if basis == "auto" else basis
-        basis_j = basis_route_by_moments(x_j) if basis == "auto" else basis
-        basis_k = basis_route_by_moments(x_k) if basis == "auto" else basis
+        x_i, basis_i = _triplet_leg(leg_cache, X, col_i, basis)
+        x_j, basis_j = _triplet_leg(leg_cache, X, col_j, basis)
+        x_k, basis_k = _triplet_leg(leg_cache, X, col_k, basis)
         if basis_i not in _POLY_BASES or basis_j not in _POLY_BASES or basis_k not in _POLY_BASES:
             log_throttle(
                 logger,

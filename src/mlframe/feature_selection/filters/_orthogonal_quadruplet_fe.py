@@ -138,6 +138,16 @@ def _emit_quadruplet_products(out_cols, cache, x_i, x_j, x_k, x_l, basis_i, basi
                             continue
 
 
+def _leg_column(leg_cache, X, col, dtype, basis):
+    """``(non-finite-filled copy of X[col] at dtype, its basis)`` for one quadruplet leg, memoised in ``leg_cache`` for the whole call."""
+    hit = leg_cache.get(col)
+    if hit is None:
+        x = np.array(X[col].to_numpy(), dtype=dtype)
+        _fill_nonfinite_in_place(x)
+        hit = leg_cache[col] = (x, basis_route_by_moments(x) if basis == "auto" else basis)
+    return hit
+
+
 def generate_quadruplet_cross_basis_features(
     X: pd.DataFrame,
     quadruplets: Sequence[tuple[str, str, str, str]],
@@ -178,6 +188,7 @@ def generate_quadruplet_cross_basis_features(
     if not quadruplets:
         return pd.DataFrame(index=X.index)
     cache: dict[tuple[str, int, str], np.ndarray] = {}
+    leg_cache: dict = {}
     out_cols: dict = {}
     max_d = int(max_degree)
     min_d = max(0, int(min_degree))
@@ -213,16 +224,11 @@ def generate_quadruplet_cross_basis_features(
         # an earlier stage - and the np.copyto NaN-fill below would then either mutate the CALLER's X or
         # raise "assignment destination is read-only" on a genuinely read-only block. A fresh copy (matching
         # the sibling pair-cross / GPU-resident generators' established pattern) keeps the fill local and safe.
-        x_i = np.array(X[col_i].to_numpy(), dtype=_dt)
-        x_j = np.array(X[col_j].to_numpy(), dtype=_dt)
-        x_k = np.array(X[col_k].to_numpy(), dtype=_dt)
-        x_l = np.array(X[col_l].to_numpy(), dtype=_dt)
-        for x in (x_i, x_j, x_k, x_l):
-            _fill_nonfinite_in_place(x)
-        basis_i = basis_route_by_moments(x_i) if basis == "auto" else basis
-        basis_j = basis_route_by_moments(x_j) if basis == "auto" else basis
-        basis_k = basis_route_by_moments(x_k) if basis == "auto" else basis
-        basis_l = basis_route_by_moments(x_l) if basis == "auto" else basis
+        # a column recurs in many quadruplets: its filled copy and its routed basis are made once per call (the copy is never written after the fill, and the route depends on the column only)
+        x_i, basis_i = _leg_column(leg_cache, X, col_i, _dt, basis)
+        x_j, basis_j = _leg_column(leg_cache, X, col_j, _dt, basis)
+        x_k, basis_k = _leg_column(leg_cache, X, col_k, _dt, basis)
+        x_l, basis_l = _leg_column(leg_cache, X, col_l, _dt, basis)
         if basis_i not in _POLY_BASES or basis_j not in _POLY_BASES or basis_k not in _POLY_BASES or basis_l not in _POLY_BASES:
             log_throttle(
                 logger, "quadruplet_unknown_basis", logging.WARNING,
