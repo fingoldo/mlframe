@@ -640,3 +640,11 @@ bench-attempt-rejected (2026-11-09): `_grouped_quantile_fe.score_grouped_quantil
 ## Re-time at the head after the 2026-11-09 work (100000 x 100, all families, default concurrency, `njobs_probe.py`)
 
 WALL 61.5 s, the same seven selected columns as the earlier runs of the day (61.6 s with n_jobs=-1 before the last two small commits; 62.0 s with n_jobs=1). Sequential stage scale of the same code: 68.4 s. The 50 s target is about 11.5 s (concurrent) / 18 s (sequential) away. Checked and not worth shipping today (each with its numbers above): nogil on all kernels, the shape-pool at p = 100, an all-forms warp kernel, a single-column compiled quantile route, a stable radix order in the MDLP edges (tie-order risk).
+
+## 200000 x 100 at the head: what grows with the rows (2026-11-09)
+
+Sequential stage scale, one run: WALL 111.3 s (121.3 s earlier today). Stage walls at 200000 rows against 100000 rows: `fe_step` 30.0 vs 9.0 s, `check_prospective_pairs` 12.9 vs 3.8 s, `score_one_pair` 12.1 vs 3.5 s (x3.5 for 2x the rows), `screen_predictors` 11.4 vs 6.0 s, `materialise_and_finalise` 9.9 s, `fdr_gain_floor` 8.3 vs 3.8 s, `assign_support_tail` 6.7 vs 3.3 s; the subsample-decided cascades are flat (`cascade_early_a` 22.7 vs 21.9 s, `hybrid_variants` 17.9 vs 17.3 s). The row-count growth sits in the pair FE and the stages that use all rows.
+
+cProfile of `_score_one_pair` at 200000 rows (14.2 s with the profiler): cupy `.get()` 1544 device-to-host copies 4.6 s (callers: `_pairs_analytic_gpu` 165 calls 1.0 s, `asnumpy` 92 calls 0.65 s, `_pairs_abs_corr_gpu` 1125 calls 0.25 s), `ndarray.tobytes` 1.36 s from `_fe_resident_operands._content_hash` (5360 calls: the operands arrive as strided column views of a row-major block, so the copy-free hash paths do not apply), `_family_maxt_gate_device.__init__` 36 calls 1.2 s, `abs_corr_finite_gpu` 1125 calls 2.1 s, `gpu_materialise_extval_codes_host` 54 calls 2.9 s cumulative.
+
+bench-attempt-rejected: hashing a strided view through `xxh3_64(np.ascontiguousarray(view))` instead of `hash(view.tobytes())`: 3.02 ms against 3.34 ms for a 200000-row float32 column of a 200000 x 100 block, same hash for the view and its copy. The strided gather (one cache line per element) is the cost, not the hash; not shipped. A column-major operand block would remove it.
