@@ -5,7 +5,7 @@ Source: read-only critique agent, 2026-10-14. Scope: `src/mlframe/feature_select
 ## Findings
 
 ### F01 - Single global level 0.999 is unstable and loses recall
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED (level chosen 2026-11-09). The screen's FDR null quantile defaults to 0.998 (`_screen_predictors.py`, `screen_predictors`). Evidence: honest family null over 2000 permutations gives q99 0.0073, q99.5 0.0080; the failing noise column's MI is 0.0094 (p about 0.002), so 0.99 would not remove it. Recall unchanged on `test_biz_val_weak_family_adversarial.py` (10 passed, 1 skipped at 0.975 and at 0.998) and `test_biz_val_null_fdr_and_stability.py` (10 passed, 3 xfailed at both). Pinned by `tests/feature_selection/filters/test_screen_fdr_null_quantile_default.py`. Only one signal file pair was checked; a wider recall sweep is still open.
 - Floor spread across seeds: 0.073-0.096 at q=0.999 (about +/-14%), against 0.058-0.065 at q=0.975 (measured, K=999).
 - Recall on seed 7 (dense weak signal): 1 of 10 features kept at 0.999, against 4 of 10 at 0.975 (measured).
 - One order statistic at 0.999 needs about 1000 draws to be stable; at K=999 it is almost the sample maximum.
