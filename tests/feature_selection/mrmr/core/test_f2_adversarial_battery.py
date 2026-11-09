@@ -63,8 +63,11 @@ def _is_engineered(name: str) -> bool:
     return ("(" in name) or ("__" in name)
 
 
-def _operand_tokens(name: str) -> set:
+def _operand_tokens(name: str, include_sir: bool = False) -> set:
     """Raw df-column tokens inside an engineered/raw name (warp-aware).
+
+    A ``sir__a_b_c__dir0`` token (sliced-inverse-regression direction, a linear mix of the listed columns) contributes its source columns when ``include_sir`` (off by default); the noise-weld
+    checks leave it off because the direction lists every input column, not the ones that carry weight.
 
     ``add(neg(c),div(sqr(a),abs(b)))`` -> {a,b,c}; ``a__He2`` -> {a};
     ``c*d__He2_He3`` -> {c,d}. Mirrors the matcher in
@@ -74,6 +77,8 @@ def _operand_tokens(name: str) -> set:
     for tok in _IDENT.findall(name):
         if tok in _RAW_COLS:
             toks.add(tok)
+        elif include_sir and tok.startswith("sir__"):
+            toks |= set(tok[len("sir__") :].rsplit("__dir", 1)[0].split("_")) & _RAW_COLS
         elif "__" in tok:
             for part in tok.split("__", 1)[0].split("*"):
                 if part in _RAW_COLS:
@@ -85,7 +90,7 @@ def _flat_tokens(selected) -> set:
     """Union of raw-operand tokens across every selected column (raw or engineered)."""
     toks: set = set()
     for nm in selected:
-        toks |= _operand_tokens(nm)
+        toks |= _operand_tokens(nm, include_sir=True)
     return toks
 
 
