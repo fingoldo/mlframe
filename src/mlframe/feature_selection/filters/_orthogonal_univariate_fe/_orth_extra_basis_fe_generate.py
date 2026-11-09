@@ -173,6 +173,9 @@ def generate_extra_basis_features(
     _chirp_f_grid = tuple(0.5 * k for k in range(1, 49))  # 0.5 .. 24.0
     from .._fe_deadline import fe_deadline_passed
     _adaptive_allowed = _adaptive_cols_by_relevance(X, cols, _y_adapt, max_adaptive_cols)
+    _gate_cache, _pre_freqs = _prefetch_adaptive_fourier(
+        X, cols, extra_bases, fourier_powers, _y_adapt, _y_adapt_prep, fourier_adaptive, fourier_chirp, _adaptive_allowed, _adaptive_f_grid, fourier_adaptive_min_val_corr
+    )
     def _one_column(col):
         """The extra-basis columns of one source column as ``(out_cols, meta)`` (own dictionaries, so columns can be scanned together), ``None`` once the wall-clock budget has passed."""
         out_cols: dict = {}
@@ -200,12 +203,12 @@ def generate_extra_basis_features(
             return {}, {}
         # Auto-gate: only let the adaptive Fourier/chirp operators fire where the raw column is NOT already a strong smooth predictor of y (see _ADAPTIVE_FE_RAW_USABILITY_CAP).
         # Column-count cap on the expensive detector (see max_adaptive_cols): columns beyond it still get the cheap fixed-grid Fourier basis.
-        _adaptive_fe_ok = _adaptive_fe_ok_for_col(x, col, _y_adapt, _y_adapt_prep, fourier_adaptive, fourier_chirp, _adaptive_allowed)
+        _adaptive_fe_ok = _gate_cache[col] if col in _gate_cache else _adaptive_fe_ok_for_col(x, col, _y_adapt, _y_adapt_prep, fourier_adaptive, fourier_chirp, _adaptive_allowed)
         if "spline" in extra_bases:
             _emit_spline_legs(x, col, spline_knots, out_cols, meta)
         # Skip Fourier on integer-valued low-cardinality categorical group keys: sin/cos of an arbitrary label code (region 0..9)
         # is spurious periodicity that floods the support and displaces the genuinely useful grouped aggregates of that key.
-        _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr)
+        _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr, _pre_freqs.get(col))
         # Backlog #13: Haar wavelet / localized multiresolution
         # legs. The per-column held-out scale-selection lives in the standalone
         # ``_wavelet_basis_fe`` module (candidate-count control via the noise-aware
@@ -222,6 +225,39 @@ def generate_extra_basis_features(
         out_cols.update(found[0])
         meta.update(found[1])
     return pd.DataFrame(out_cols, index=X.index), meta
+
+def _prefetch_adaptive_fourier(X, cols, extra_bases, fourier_powers, y_adapt, y_adapt_prep, fourier_adaptive, fourier_chirp, adaptive_allowed, f_grid, min_val_corr) -> "tuple[dict, dict]":
+    """``(gate, freqs)``: the adaptive-Fourier gate of every scanned column and, when the batched device detector applies, the frequencies of all gated columns detected in one resident batch.
+
+    The per-column device detector is a chain of about 100 launches and ten blocking reads per column; the columns are independent and share their row split, so the batch detector
+    (``detect_fourier_freqs_batch``) runs the chain for all of them at once. Same inputs and the same arithmetic as the per-column call in :func:`_fourier_extra_basis`, so the lists are the same.
+    ``freqs`` is empty (the columns detect for themselves) when the device mode is off, there is no target, or fewer than two columns qualify."""
+    if y_adapt is None or "fourier" not in extra_bases or 1 not in [int(p) for p in fourier_powers] or not (fourier_adaptive or fourier_chirp):
+        return {}, {}
+    from .._edge_pool import map_on_edge_pool
+    from ._fourier_detect_batch import detect_fourier_freqs_batch, device_batch_enabled
+
+    def prepare(col):
+        """``(col, gate, z)``: the column's gate and, when it passes it, the z-axis the detector reads; ``z`` is ``None`` for a column the main loop skips."""
+        if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
+            return col, None, None
+        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
+        if not np.isfinite(x).all():
+            return col, None, None
+        gate = _adaptive_fe_ok_for_col(x, col, y_adapt, y_adapt_prep, fourier_adaptive, fourier_chirp, adaptive_allowed)
+        if not gate or not fourier_adaptive or _is_int_as_cat_axis(x) or _std_vs(x, 1e-12) <= 1e-12:
+            return col, gate, None
+        lo_f, span_f = _fit_fourier_for_col(x)
+        return col, gate, (x - lo_f) / max(span_f, 1e-12)
+
+    prepared = map_on_edge_pool(prepare, list(cols))
+    gate_cache = {col: gate for col, gate, _z in prepared if gate is not None}
+    jobs = [(col, z) for col, _gate, z in prepared if z is not None]
+    if len(jobs) < 2 or not device_batch_enabled():
+        return gate_cache, {}
+    found = detect_fourier_freqs_batch([(z, y_adapt, f_grid) for _c, z in jobs], min_val_corr=float(min_val_corr), min_rows=500, max_freqs=6)
+    return gate_cache, {col: freqs for (col, _z), freqs in zip(jobs, found)}
+
 
 def _adaptive_cols_by_relevance(X, cols, y, max_adaptive_cols):
     """Columns allowed to run the expensive adaptive/chirp detector under ``max_adaptive_cols``: the top ones by a cheap shape-agnostic dependence score
@@ -303,7 +339,7 @@ def adaptive_fourier_grid(n_rows: int) -> tuple:
     return tuple(0.5 * k for k in range(1, 33)) + tuple(float(f) for f in range(17, top + 1))
 
 
-def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr):
+def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr, pre_freqs=None):
     """Build the Fourier extra-basis candidates of one column."""
     if "fourier" in extra_bases and not _is_int_as_cat_axis(x):
         try:
@@ -333,7 +369,9 @@ def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_
                 # we still tag/add the refined freq because the fixed grid
                 # cannot express a non-integer period.
                 _adaptive_freqs: list[float] = []
-                if _p == 1 and _y_adapt is not None and _adaptive_fe_ok:
+                if _p == 1 and pre_freqs is not None:
+                    _adaptive_freqs = list(pre_freqs)  # detected for all columns together beforehand (``_prefetch_adaptive_fourier``)
+                elif _p == 1 and _y_adapt is not None and _adaptive_fe_ok:
                     # max_freqs=6: a multitone superposition (3-4 genuine
                     # tones) needs enough sin/cos pairs to SPAN the signal
                     # subspace after the per-iteration deflation leaves a

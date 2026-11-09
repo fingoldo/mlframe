@@ -9,7 +9,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["detect_fourier_freqs_batch"]
+__all__ = ["detect_fourier_freqs_batch", "device_batch_enabled"]
 
 MIN_BATCH = 2  # a single job gains nothing from the batch kernels
 
@@ -27,6 +27,18 @@ def _device_errors() -> tuple:
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("device error-type probe failed: %s", e)
     return tuple(e for e in errs if isinstance(e, type) and issubclass(e, BaseException))
+
+
+def device_batch_enabled() -> bool:
+    """Whether :func:`detect_fourier_freqs_batch` would run the resident device batch (the GPU-resident mode and the fused switch are on)."""
+    try:
+        from .._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled
+        from .._fe_env_switch import fused_switch_enabled
+        from ._fourier_detect_gpu_resident import _FUSED_ENV
+
+        return bool(fe_gpu_strict_resident_enabled() and fused_switch_enabled(_FUSED_ENV))
+    except ImportError:
+        return False
 
 
 def detect_fourier_freqs_batch(
