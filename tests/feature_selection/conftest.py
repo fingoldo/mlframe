@@ -95,6 +95,20 @@ class _NullCtx:
 #: The ``fe_*_enable`` families that were OFF by default before MRMR's defaults became "every family except the GBM seeder and the alternate scorers".
 #: Tests written against the old defaults (default-off byte identity, "enabling X adds columns", the lightest-config preset) pin them off through this dict.
 LEGACY_FE_OFF = {
+    "fe_hybrid_orth_auto_scorer_enable": False,
+    "fe_hybrid_orth_three_gate_enable": False,
+    "fe_hybrid_orth_meta_enable": False,
+    "fe_hybrid_orth_cmim_enable": False,
+    "fe_hybrid_orth_ensemble_enable": False,
+    "fe_hybrid_orth_ksg_enable": False,
+    "fe_hybrid_orth_bootstrap_enable": False,
+    "fe_hybrid_orth_jmim_enable": False,
+    "fe_hybrid_orth_tc_enable": False,
+    "fe_hybrid_orth_copula_enable": False,
+    "fe_hybrid_orth_hsic_enable": False,
+    "fe_hybrid_orth_dcor_enable": False,
+    "fe_hybrid_orth_lasso_enable": False,
+    "fe_hybrid_orth_elasticnet_enable": False,
     "fe_cat_num_interaction_enable": False,
     "fe_cat_pair_enable": False,
     "fe_cat_triple_enable": False,

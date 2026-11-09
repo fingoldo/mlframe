@@ -2084,7 +2084,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # bit-equal to Layer 21 - only the selection metric changes), replay
         # reads X only, no y. Default OFF preserves legacy pickle byte
         # equivalence.
-        fe_hybrid_orth_lasso_enable: bool = False,
+        fe_hybrid_orth_lasso_enable: bool = True,
         fe_hybrid_orth_lasso_alpha: float = 0.01,
         # ELASTIC NET (L1 + L2) PRE-SELECTION (sibling
         # module ``_orthogonal_elasticnet_fe``). Independent opt-in (does NOT
@@ -2100,7 +2100,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # bit-equal to Layer 21 - only the selection metric changes), replay
         # reads X only, no y. Default OFF preserves legacy pickle byte
         # equivalence.
-        fe_hybrid_orth_elasticnet_enable: bool = False,
+        fe_hybrid_orth_elasticnet_enable: bool = True,
         fe_hybrid_orth_elasticnet_alpha: float = 0.01,
         fe_hybrid_orth_elasticnet_l1_ratio: float = 0.5,
         # ADAPTIVE PER-COLUMN DEGREE selection
@@ -2178,7 +2178,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # VALUES are bit-equal to Layer 21, only the selection rule
         # differs - so replay is shared infrastructure.
         # Default OFF preserves legacy pickle byte-equivalence.
-        fe_hybrid_orth_bootstrap_enable: bool = False,
+        fe_hybrid_orth_bootstrap_enable: bool = True,
         fe_hybrid_orth_bootstrap_n_boot: int = 10,
         fe_hybrid_orth_bootstrap_sample_fraction: float = 0.8,
         # THREE-GATE + K-fold OOF MI ranking for the
@@ -2197,7 +2197,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # changes - so recipes use ``orth_univariate`` kind and replay
         # is shared infrastructure.
         # Default OFF preserves legacy pickle byte-equivalence.
-        fe_hybrid_orth_three_gate_enable: bool = False,
+        fe_hybrid_orth_three_gate_enable: bool = True,
         fe_hybrid_orth_three_gate_n_folds: int = 5,
         fe_hybrid_orth_three_gate_cmi_min: float = 0.001,
         # KSG / k-NN MI ranking for hybrid orth-poly FE
@@ -2212,7 +2212,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # binning erases). Engineered VALUES are bit-equal to Layer 21 so
         # recipes reuse the ``orth_univariate`` kind and replay is shared
         # infrastructure. Default OFF preserves pickle byte-equivalence.
-        fe_hybrid_orth_ksg_enable: bool = False,
+        fe_hybrid_orth_ksg_enable: bool = True,
         fe_hybrid_orth_ksg_n_neighbors: int = 3,
         # KSG-specific selection thresholds. KSG MI values are smaller than
         # plug-in's on the same signal (KSG is less biased upward), so the
@@ -2241,7 +2241,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # Engineered VALUES are bit-equal to Layer 21 so recipes reuse the
         # ``orth_univariate`` kind and replay is shared infrastructure.
         # Default OFF preserves pickle byte-equivalence.
-        fe_hybrid_orth_copula_enable: bool = False,
+        fe_hybrid_orth_copula_enable: bool = True,
         fe_hybrid_orth_copula_n_bins: int = 20,
         # DISTANCE-CORRELATION ranking for hybrid orth-
         # poly FE (sibling module ``_orthogonal_dcor_fe``). Independent opt-in
@@ -2256,7 +2256,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # equal to Layer 21 so recipes reuse the ``orth_univariate`` kind
         # and replay is shared infrastructure. Default OFF preserves pickle
         # byte-equivalence.
-        fe_hybrid_orth_dcor_enable: bool = False,
+        fe_hybrid_orth_dcor_enable: bool = True,
         fe_hybrid_orth_dcor_n_sample: int = 500,
         # HSIC (Hilbert-Schmidt Independence Criterion)
         # ranking for the hybrid orth-poly FE (sibling module
@@ -2271,7 +2271,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # deterministic random subsample. Engineered VALUES bit-equal to
         # > recipes reuse the ``orth_univariate`` kind. Default
         # OFF preserves pickle byte-equivalence.
-        fe_hybrid_orth_hsic_enable: bool = False,
+        fe_hybrid_orth_hsic_enable: bool = True,
         fe_hybrid_orth_hsic_kernel: str = "rbf",
         fe_hybrid_orth_hsic_n_sample: int = 500,
         # JMIM (Joint Mutual Information Maximisation,
@@ -2287,7 +2287,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # interaction. Engineered VALUES are bit-equal to Layer 21 ->
         # recipes reuse the ``orth_univariate`` kind. Default OFF preserves
         # pickle byte-equivalence.
-        fe_hybrid_orth_jmim_enable: bool = False,
+        fe_hybrid_orth_jmim_enable: bool = True,
         fe_hybrid_orth_jmim_n_bins: int = 10,
         # Total Correlation (Watanabe 1960) multivariate-
         # redundancy ranking for hybrid orth-poly FE (sibling module
@@ -2301,7 +2301,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # parity) that every pairwise scorer misses. Engineered VALUES are
         # bit-equal to Layer 21 -> recipes reuse the ``orth_univariate``
         # kind. Default OFF preserves pickle byte-equivalence.
-        fe_hybrid_orth_tc_enable: bool = False,
+        fe_hybrid_orth_tc_enable: bool = True,
         fe_hybrid_orth_tc_n_bins: int = 10,
         # CMIM (Conditional Mutual Information
         # Maximisation, Fleuret 2004) redundancy-aware ranking for hybrid
@@ -2315,7 +2315,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # heavily-INTERACTING pools JMIM wins. Engineered VALUES are bit-
         # equal to Layer 21 -> recipes reuse the ``orth_univariate`` kind.
         # Default OFF preserves pickle byte-equivalence.
-        fe_hybrid_orth_cmim_enable: bool = False,
+        fe_hybrid_orth_cmim_enable: bool = True,
         fe_hybrid_orth_cmim_n_bins: int = 10,
         # PER-COLUMN SCORER AUTO-SELECTION across the
         # full Layer 21 / 65 / 66 / 67 family (sibling module
@@ -2342,7 +2342,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # decision needs a fixture where the default scorer genuinely under-detects (e.g. a signal
         # right at the edge of what degree-2/3 Chebyshev can fit) before flipping this default,
         # given the added n_boot x 9-scorer bootstrap cost per engineered column.
-        fe_hybrid_orth_auto_scorer_enable: bool = False,
+        fe_hybrid_orth_auto_scorer_enable: bool = True,
         fe_hybrid_orth_auto_scorer_n_boot: int = 5,
         # ENSEMBLE-OF-SCORERS rank-fusion for hybrid
         # orth-poly FE. Sibling of Layer 68: instead of picking ONE scorer
@@ -2354,7 +2354,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # ANY of the participating scorers keeps a high consensus rank
         # even if no individual scorer wins the LCB tournament on every
         # seed. Default OFF preserves pickle byte-equivalence.
-        fe_hybrid_orth_ensemble_enable: bool = False,
+        fe_hybrid_orth_ensemble_enable: bool = True,
         fe_hybrid_orth_ensemble_aggregator: str = "mean_rank",
         # HSIC added to the ensemble default pool;
         # callers that previously pinned the 4-tuple keep the old
@@ -2382,7 +2382,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # to override the rule cascade and pin a specific scorer
         # (one of "plug_in"/"ksg"/"copula"/"dcor"/"hsic"/"jmim"/"cmim"/"tc").
         # Default OFF preserves pickle byte-equivalence.
-        fe_hybrid_orth_meta_enable: bool = False,
+        fe_hybrid_orth_meta_enable: bool = True,
         fe_hybrid_orth_meta_force_scorer: Optional[str] = None,
         # DEFAULT-SCORER ROUTING flag for the Layer 21
         # univariate hybrid orth-poly basis-selection stage. Routes the
