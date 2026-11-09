@@ -338,7 +338,8 @@ def generate_group_distance_features(
         """``{num_col: (count, sum, hist, w1)}`` per group of ``group_col`` from the device kernels (all its numeric columns in one block), computed once; ``None`` when the host loop runs."""
         with _DEV_LOCK:
             if group_col in _dev_cache:
-                return _dev_cache[group_col]
+                hit: "dict | None" = _dev_cache[group_col]
+                return hit
             found = None
             from ._group_distance_gpu import group_stats_device, use_device
 
@@ -356,7 +357,8 @@ def generate_group_distance_features(
                     if got is not None:
                         found = {c: (got[0][i], got[1][i], got[2][i], got[3][i]) for i, c in enumerate(cols)}
             _dev_cache[group_col] = found
-            return found
+            cached: "dict | None" = found
+            return cached
 
     def _pair_columns(group_col: str, num_col: str) -> list:
         """``[(name, values, recipe)]`` of the z-distance, KL and Wasserstein columns of one (group, numeric) pair."""
