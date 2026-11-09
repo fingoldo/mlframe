@@ -28,6 +28,7 @@ from ._fe_gain_stats import held_out_codes, paired_gain_se, pointwise_mi, quanti
 from ._fe_scan_common import rank_scaled as _rank_scaled
 from ._numba_utils import N_BASELINES, ols2_shift, scan_offset_products, weighted_sum_heldout_mi
 from mlframe.feature_selection.filters._fe_output_clip import OUTPUT_CLIP_QUANTILES
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 if TYPE_CHECKING:
     import polars as pl
 
@@ -349,7 +350,9 @@ def hybrid_offset_product_fe(
     slot = {c: k for k, c in enumerate(used)}
     tasks = np.array([(slot[i], slot[j], a, b) for (i, j) in pairs for a in range(nu) for b in range(nu)], dtype=np.int64)
     used_xs = [xs[c] for c in used]
-    out_mi, clips = _scan_all(used_xs, funcs, unaries, rows, tasks, yr_rows, codes, ky, [_log_anchor(x) for x in used_xs])
+    anchors = [_log_anchor(x) for x in used_xs]
+    with parallel_kernel_entry():
+        out_mi, clips = _scan_all(used_xs, funcs, unaries, rows, tasks, yr_rows, codes, ky, anchors)
     accepted = _accept_offset_pairs(pairs, out_mi, tasks, unaries, funcs, xs, cols, rows, codes, ky, yr_rows, clips, slot, min_relative_gain, reject_sink)
     accepted.sort(key=lambda r: -r[0])
     yr_full = _rank_all_rows(y_arr, rows) if accepted else None  # ranking every row is only needed to refit the shifts of an accepted candidate

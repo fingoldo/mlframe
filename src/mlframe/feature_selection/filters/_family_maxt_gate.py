@@ -464,7 +464,11 @@ def family_null_max(
         bits_path = dev_bits is not None or bit_prep is not None
         # the bit-set paths read the packed class bit sets only: those are cached per block (a streamed family scores every group against the same draw, and drawing the indices again for each
         # group was 360 s of a 730 s fit at 1000000 rows); the other paths need the index matrix
-        labels = _label_bits_block(rng, y, m, int(n_y), words, y_key) if bits_path else _NO_LABELS
+        if bits_path:
+            with parallel_kernel_entry():
+                labels = _label_bits_block(rng, y, m, int(n_y), words, y_key)
+        else:
+            labels = _NO_LABELS
         perm_idx = _NO_INDEX if bits_path else _permutation_block(rng, y, m)
         # The bitset / njit branches run parallel=True prange kernels; the GPU branches do not, but holding the guard
         # across the whole block keeps the null's kernel entries serialised with every other FE fan-out thread.

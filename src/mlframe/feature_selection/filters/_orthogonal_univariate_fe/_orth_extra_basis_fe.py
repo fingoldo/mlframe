@@ -16,6 +16,8 @@ from typing import Optional, Sequence
 
 import numba
 import numpy as np
+
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from numba import prange
 
@@ -319,10 +321,13 @@ def _build_coarse_basis(z_tr: np.ndarray, grid: list[float]) -> list:
     _use_exact_basis = os.environ.get("MLFRAME_FOURIER_COARSE_BASIS_EXACT", "") == "1"
     if not _use_exact_basis and len(grid) > 0 and z_tr.size > 0:
         _step = _uniform_grid_step(grid)
-        if _step > 0.0:
-            _sc_m, _cc_m, _sss, _css = _coarse_basis_recur_njit(np.ascontiguousarray(z_tr), _step, len(grid))
-        else:
-            _sc_m, _cc_m, _sss, _css = _coarse_basis_njit(np.ascontiguousarray(z_tr), np.asarray(grid, dtype=_crit_np_dtype()))
+        # Both kernels are parallel=True prange loops, and this build runs on the FE fan-out threads: hold the process-wide guard
+        # so two threads never enter a parallel region at once (macOS aborts on that; see mlframe._numba_parallel_guard).
+        with parallel_kernel_entry():
+            if _step > 0.0:
+                _sc_m, _cc_m, _sss, _css = _coarse_basis_recur_njit(np.ascontiguousarray(z_tr), _step, len(grid))
+            else:
+                _sc_m, _cc_m, _sss, _css = _coarse_basis_njit(np.ascontiguousarray(z_tr), np.asarray(grid, dtype=_crit_np_dtype()))
         _coarse_basis = _CoarseBasis((_sc_m[gi], float(_sss[gi]), _cc_m[gi], float(_css[gi])) for gi in range(len(grid)))
         _coarse_basis.matrices = (_sc_m, _sss, _cc_m, _css)
     else:
