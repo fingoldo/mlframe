@@ -76,14 +76,25 @@ def _device_binary(cp: Any) -> dict:
     }
 
 
+def _named_transform(src: tuple, tname: str, unary: dict, binary: dict) -> "Optional[tuple[str, Any]]":
+    """``(engineered name, device function)`` of the candidate ``tname(src)``, or ``None`` for an unknown transform or an unsupported arity."""
+    from ._mi_greedy_fe import engineered_name_binary, engineered_name_unary
+
+    if len(src) == 1:
+        fn = unary.get(tname)
+        return None if fn is None else (engineered_name_unary(src[0], tname), fn)
+    if len(src) == 2:
+        fn = binary.get(tname)
+        return None if fn is None else (engineered_name_binary(src[0], src[1], tname), fn)
+    return None
+
+
 def score_candidates_device(
     X: pd.DataFrame, candidates: Sequence[tuple], y_codes: np.ndarray, nbins: int
 ) -> "Optional[tuple[list[str], list[tuple], np.ndarray]]":
     """``(names, parsed, mi)`` of the candidates the host would keep (distinct names, non-constant), scored on the device; ``None`` when the device cannot take it.
 
     ``names`` / ``parsed`` are in candidate order, aligned with ``mi`` (plug-in MI in nats, ``nbins`` quantile bins against the integer labels ``y_codes``)."""
-    from ._mi_greedy_fe import engineered_name_binary, engineered_name_unary
-
     if not candidates:
         return None
     try:
@@ -128,24 +139,12 @@ def score_candidates_device(
             pending_meta.clear()
 
         for src, tname in candidates:
-            if len(src) == 1:
-                name = engineered_name_unary(src[0], tname)
-                fn = unary.get(tname)
-                if fn is None:
-                    continue
-            elif len(src) == 2:
-                name = engineered_name_binary(src[0], src[1], tname)
-                fn = binary.get(tname)
-                if fn is None:
-                    continue
-            else:
+            named = _named_transform(src, tname, unary, binary)
+            if named is None or named[0] in seen:
                 continue
-            if name in seen:
-                continue
-            col = fn(*(resident[c] for c in src))
-            col = col.astype(dt, copy=False)
+            name, fn = named
             seen.add(name)
-            pending.append(col)
+            pending.append(fn(*(resident[c] for c in src)).astype(dt, copy=False))
             pending_meta.append((name, (src, tname)))
             if len(pending) >= block:
                 flush()

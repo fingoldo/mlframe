@@ -286,6 +286,54 @@ def _group_distance_global_stats(X: pd.DataFrame, num_col: str) -> tuple:
     return (x, global_mean, global_std, global_edges, global_hist, global_sorted, bin_idx)
 
 
+def _group_stats_on_device(group_col: str, per_group: dict, pairs: list, global_stats: dict, n: int) -> "dict | None":
+    """``{num_col: (count, sum, hist, w1)}`` of every numeric column paired with ``group_col``, from one device call; ``None`` when the tuner or the block says host."""
+    from ._group_distance_gpu import group_stats_device, use_device
+
+    if not use_device(n):
+        return None
+    cols = list(dict.fromkeys(c for g, c in pairs if g == group_col and global_stats[c][6] is not None and global_stats[c][5].size and global_stats[c][0].dtype == np.float32))
+    if not cols:
+        return None
+    _g_keys, rows_by_group = per_group[group_col]
+    gid = np.empty(n, dtype=np.int32)
+    for gi, rows in enumerate(rows_by_group.values()):
+        gid[rows] = gi
+    got = group_stats_device(gid, len(rows_by_group), np.stack([global_stats[c][0] for c in cols]), np.stack([global_stats[c][6] for c in cols]), [global_stats[c][5] for c in cols], _DIST_NBINS)
+    if got is None:
+        return None
+    return {c: (got[0][i], got[1][i], got[2][i], got[3][i]) for i, c in enumerate(cols)}
+
+
+class _DeviceStatsCache:
+    """The device statistics of each group column, computed on the first request (under a lock: the pair workers share it) and kept for the rest of the call."""
+
+    def __init__(self, per_group: dict, pairs: list, n: int) -> None:
+        self._args = (per_group, pairs, n)
+        self._lock = __import__("threading").Lock()
+        self._by_group: dict = {}
+
+    def get(self, group_col: str, num_col: str, global_stats: dict) -> "tuple | None":
+        """``(count, sum, hist, w1)`` per group of the pair, or ``None`` when the host loop computes the pair."""
+        with self._lock:
+            if group_col not in self._by_group:
+                per_group, pairs, n = self._args
+                self._by_group[group_col] = _group_stats_on_device(group_col, per_group, pairs, global_stats, n)
+            found = self._by_group[group_col]
+        return None if found is None else found.get(num_col)
+
+
+def _lookups_from_device(dev: tuple, gi: int, key: str, global_mean: float, global_std: float, global_hist: np.ndarray, z_lookup: dict, kl_lookup: dict, w_lookup: dict) -> None:
+    """Fill the z / KL / Wasserstein lookups of group ``key`` (number ``gi``) from the device tables, with the host loop's minimum-size rule."""
+    d_cnt, d_sum, d_hist, d_w1 = dev
+    if int(d_cnt[gi]) >= _MIN_GROUP_SIZE:
+        z_lookup[key] = float((float(d_sum[gi]) / int(d_cnt[gi]) - global_mean) / global_std)
+        kl_lookup[key] = _kl_from_bin_counts(d_hist[gi], global_hist)
+        w_lookup[key] = float(d_w1[gi])
+    else:
+        z_lookup[key] = kl_lookup[key] = w_lookup[key] = 0.0
+
+
 @fe_timed("group_distance")
 def generate_group_distance_features(
     X: pd.DataFrame,
@@ -331,40 +379,13 @@ def generate_group_distance_features(
     _fin_order: dict = {}  # num_col -> ascending order of its finite values, shared by every group column
     _ORDER_LOCK = __import__("threading").Lock()
 
-    _dev_cache: dict = {}
-    _DEV_LOCK = __import__("threading").Lock()
-
-    def _device_stats(group_col: str) -> "dict | None":
-        """``{num_col: (count, sum, hist, w1)}`` per group of ``group_col`` from the device kernels (all its numeric columns in one block), computed once; ``None`` when the host loop runs."""
-        with _DEV_LOCK:
-            if group_col in _dev_cache:
-                hit: "dict | None" = _dev_cache[group_col]
-                return hit
-            found = None
-            from ._group_distance_gpu import group_stats_device, use_device
-
-            if use_device(n):
-                cols = [c for g, c in pairs if g == group_col and _global[c][6] is not None and _global[c][5].size and _global[c][0].dtype == np.float32]
-                cols = list(dict.fromkeys(cols))
-                if cols:
-                    _g_keys, rows_by_group = per_group[group_col]
-                    gid = np.empty(n, dtype=np.int32)
-                    for gi, rows in enumerate(rows_by_group.values()):
-                        gid[rows] = gi
-                    got = group_stats_device(
-                        gid, len(rows_by_group), np.stack([_global[c][0] for c in cols]), np.stack([_global[c][6] for c in cols]), [_global[c][5] for c in cols], _DIST_NBINS
-                    )
-                    if got is not None:
-                        found = {c: (got[0][i], got[1][i], got[2][i], got[3][i]) for i, c in enumerate(cols)}
-            _dev_cache[group_col] = found
-            cached: "dict | None" = found
-            return cached
+    device_stats = _DeviceStatsCache(per_group, pairs, n)
 
     def _pair_columns(group_col: str, num_col: str) -> list:
         """``[(name, values, recipe)]`` of the z-distance, KL and Wasserstein columns of one (group, numeric) pair."""
         g_keys, group_rows = per_group[group_col]
         x, global_mean, global_std, global_edges, global_hist, global_sorted, _bin_idx = _global[num_col]
-        dev = (_device_stats(group_col) or {}).get(num_col)
+        dev = device_stats.get(group_col, num_col, _global)
         z_lookup: dict[str, float] = {}
         kl_lookup: dict[str, float] = {}
         w_lookup: dict[str, float] = {}
@@ -388,13 +409,7 @@ def generate_group_distance_features(
             w_all = _wasserstein1_all_groups(x, order, gid, len(group_rows), global_sorted)
         for gi_key, (key, rows) in enumerate(group_rows.items()):
             if dev is not None:
-                d_cnt, d_sum, d_hist, d_w1 = dev
-                if int(d_cnt[gi_key]) >= _MIN_GROUP_SIZE:
-                    z_lookup[key] = float((float(d_sum[gi_key]) / int(d_cnt[gi_key]) - global_mean) / global_std)
-                    kl_lookup[key] = _kl_from_bin_counts(d_hist[gi_key], global_hist)
-                    w_lookup[key] = float(d_w1[gi_key])
-                else:
-                    z_lookup[key] = kl_lookup[key] = w_lookup[key] = 0.0
+                _lookups_from_device(dev, gi_key, key, global_mean, global_std, global_hist, z_lookup, kl_lookup, w_lookup)
                 continue
             vals = x[rows]
             fin = vals[np.isfinite(vals)]
