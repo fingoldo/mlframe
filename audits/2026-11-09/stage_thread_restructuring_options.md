@@ -143,3 +143,7 @@ At `n_jobs <= 1` `_mrmr_fe_step` passes `serial_main_thread=True`, so the materi
 ### Edge computation has no repeated work (2026-11-10, `D:/Temp/edge_count.py`)
 
 One default 100k x 100 fit calls `compute_col_edges` 184 times on 183 distinct (column, labels, method) contents, 8.6 thread-seconds in total, 0.0 s spent on a repeat. An in-memory content-keyed edge memo therefore gains nothing; the only way to take this off the serial tail is to compute the raw columns' edges earlier than `discretize_inputs`, which needs the exact call parameters of that stage (see the earlier section on why this was not attempted).
+
+### Hybrid-variant lanes are balanced (2026-11-10, same timeline)
+
+Lane ends in the 100k fit: 884-thread lane (copula, hsic, jmim, tc, adaptive_arity, adaptive_degree_basis, conditional_basis_routing) 3.2-13.3 s, 952-thread lane (triplet, quadruplet) 3.2-10.8 s, 420-thread lane (cmim, auto_scorer, ensemble, meta, cmim again) 3.3-13.6 s; then the serial block bootstrap 0.9 + three_gate 1.6 + ksg 0.7 (13.9-17.2 s) and greedy_cmi / mi_greedy 1.5 (17.3-18.8 s). The short lane has 2.8 s of slack but the two long lanes differ by 0.3 s, so moving one family (meta, 2.2 s) into the short lane would shorten the critical lane by 0.3 s at most. Earlier attempts to move the serial block into a free slot (mi_greedy / greedy_cmi) measured neutral or worse. The lane layout is at its floor; what remains is the 3.2 s serial block, which reads the same step input and would need the same device-slot and private-estimator handling as the lanes.
