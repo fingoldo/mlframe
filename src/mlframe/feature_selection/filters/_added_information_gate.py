@@ -24,8 +24,13 @@ _MIN_EXPECTED_CELL = 5.0
 
 
 def _dense_codes(a: np.ndarray) -> "tuple[np.ndarray, int]":
-    """``a`` renumbered to 0..K-1 over its occupied values, and K."""
-    _, inverse = np.unique(np.asarray(a), return_inverse=True)
+    """``a`` renumbered to 0..K-1 over its occupied values, and K. Small non-negative integer codes (the usual input) are renumbered through a count table, not a sort."""
+    a = np.asarray(a)
+    if a.size and a.dtype.kind in "iu" and int(a.min()) >= 0 and int(a.max()) < (1 << 22):
+        present = np.bincount(a.reshape(-1))
+        lut = np.cumsum(present > 0) - 1
+        return lut[a.reshape(-1)].astype(np.int64), int((present > 0).sum())
+    _, inverse = np.unique(a, return_inverse=True)
     inverse = inverse.reshape(-1).astype(np.int64)
     return inverse, int(inverse.max()) + 1 if inverse.size else 0
 
