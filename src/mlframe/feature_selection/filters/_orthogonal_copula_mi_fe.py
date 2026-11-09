@@ -316,9 +316,13 @@ def _copula_mi_batch(
         for s0 in range(0, len(fast), block):
             cols_idx = fast[s0 : s0 + block]
             rows = np.ascontiguousarray(X_arr[:, cols_idx].T)
-            vals = np.empty(len(cols_idx), dtype=np.float64)  # Intentional float64: statistic output kept f64
-            with parallel_kernel_entry():
-                (_copula_columns_radix_njit if rows.dtype == np.float32 else _copula_columns_njit)(rows, vi_fast, nb_fast, vals)
+            from ._orthogonal_copula_gpu import copula_columns_device, use_device
+
+            vals = copula_columns_device(rows, vi_fast, nb_fast) if use_device(int(rows.shape[1])) else None
+            if vals is None:
+                vals = np.empty(len(cols_idx), dtype=np.float64)  # Intentional float64: statistic output kept f64
+                with parallel_kernel_entry():
+                    (_copula_columns_radix_njit if rows.dtype == np.float32 else _copula_columns_njit)(rows, vi_fast, nb_fast, vals)
             out[cols_idx] = vals
             done[cols_idx] = True
     for j in range(X_arr.shape[1]):
