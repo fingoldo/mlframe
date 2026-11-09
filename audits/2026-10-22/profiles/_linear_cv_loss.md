@@ -1,0 +1,7 @@
+# `_linear_cv_loss.cv_loss` (host: scikit-learn pipelines replaced by a Newton / least-squares fit)
+
+2026-11-09. Top numpy leaf of the whole-fit thread sampler (4.0 thread-s). Counting the calls in a fit at 100000 x 100: 76 calls (the pure-form side check and the compaction's linear-value check) on designs of at most 3000 rows and one column, 8.2 s summed over the threads, 108 ms per call: all of it the pipeline (`StandardScaler` + `LogisticRegression(max_iter=200)` or `LinearRegression`, five fits per call).
+
+Change: a binary classification target is fitted per fold by the accuracy gate's Newton solver (`fit_logistic_ridge_newton`, the same L2 objective as `LogisticRegression` with C = 1, intercept unpenalised) on the train-fold-standardised columns; a regression target by `lstsq` with an intercept. A multi-class target, a Newton solve that does not converge, or a singular case hand the call to the pipeline path unchanged.
+
+Result (same count run): 77 calls, 1.8 s summed, 24 ms per call (8.2 s -> 1.8 s); default fit selection unchanged. The loss differs from the pipeline's by up to 1.6e-5 relative (lbfgs stops at its 1e-4 gradient tolerance, Newton at the optimum); every gate that reads the loss compares it with a margin of 1 percent or more (`improve_rel = 0.01`, `_MARGIN`), so only a decision lying within 2e-5 of its threshold could change. Test: `tests/feature_selection/fe/test_linear_cv_loss_direct.py` (rel 1e-4, binary and regression, one to four columns, a near-constant column; multi-class goes to the pipeline).
