@@ -33,6 +33,7 @@ SHARED_BUDGET_BYTES = 22 * 1024  # per table; the kernel holds two of them (row-
 _MARGIN = 1e-6
 
 _SRC = render(r"""
+#define QCAP 512
 extern "C" __global__ void __launch_bounds__(512, 4) root_split_accept(const int* __restrict__ order, const unsigned int* __restrict__ valid, const unsigned int* __restrict__ ybits,
                                              const {ACC}* __restrict__ tab, const {ACC}* __restrict__ thr, const long long n, const int W, const int YW, const int m,
                                              const int B, const {ACC} h_full, const {ACC} pi,
@@ -63,6 +64,11 @@ extern "C" __global__ void __launch_bounds__(512, 4) root_split_accept(const int
 #endif
     __shared__ int warp_tot[32];
     __shared__ int s_ncand;
+#ifndef ACCEPT_NOQUEUE
+    __shared__ int s_qn;                               // surviving words of the pair: their exact scans are shared out over the warps of the block
+    __shared__ int q_w[QCAP];
+    __shared__ int q_l[QCAP];
+#endif
     __shared__ {ACC} best_g[32];
     __shared__ int best_i[32];
     const int tid = threadIdx.x;
@@ -82,7 +88,11 @@ extern "C" __global__ void __launch_bounds__(512, 4) root_split_accept(const int
     for (int w = tid; w < YW; w += blockDim.x) ysh[w] = yb[w];
 #endif
 #endif
-    if (tid == 0) s_ncand = 0;
+    if (tid == 0) { s_ncand = 0;
+#ifndef ACCEPT_NOQUEUE
+        s_qn = 0;
+#endif
+    }
     __syncthreads();
 #ifndef ACCEPT_PRE
     const int* ord = order + (long long)j * n;
@@ -151,23 +161,55 @@ extern "C" __global__ void __launch_bounds__(512, 4) root_split_accept(const int
                 const {REAL} fmn = fminf(nl1 * (nnf - nl1), nl2 * (nnf - nl2));
                 const {ACC} bound = ({ACC})(d * d / (fmn * pi1mf)) * 1.001 + 1e-12;
                 if (bound >= th) {
-                    unsigned int c = cand;
-                    while (c) {
-                        const int bpos = __ffs(c) - 1;
-                        c &= c - 1;
-                        const long long i = (long long)w * 32 + bpos;
-                        const unsigned int upto = (bpos == 31) ? 0xFFFFFFFFu : ((2u << bpos) - 1u);
-                        const long long l1 = (long long)L + __popc(cur & upto);
-                        const long long n_l = i + 1, n_r = (long long)n - n_l, l0 = n_l - l1;
-                        const long long r1 = (long long)m - l1, r0 = ((long long)n - m) - l0;
-                        const {ACC} gain = h_full - (tab[n_l] - (tab[l0] + tab[l1]) + tab[n_r] - (tab[r0] + tab[r1])) / nn;
-                        if (gain > bg) { bg = gain; bi = (int)i; }
+#ifndef ACCEPT_NOQUEUE
+                    const int slot = atomicAdd(&s_qn, 1);
+                    if (slot < QCAP) { q_w[slot] = w; q_l[slot] = L; }
+                    else
+#endif
+                    {
+                        unsigned int c = cand;
+                        while (c) {
+                            const int bpos = __ffs(c) - 1;
+                            c &= c - 1;
+                            const long long i = (long long)w * 32 + bpos;
+                            const unsigned int upto = (bpos == 31) ? 0xFFFFFFFFu : ((2u << bpos) - 1u);
+                            const long long l1 = (long long)L + __popc(cur & upto);
+                            const long long n_l = i + 1, n_r = (long long)n - n_l, l0 = n_l - l1;
+                            const long long r1 = (long long)m - l1, r0 = ((long long)n - m) - l0;
+                            const {ACC} gain = h_full - (tab[n_l] - (tab[l0] + tab[l1]) + tab[n_r] - (tab[r0] + tab[r1])) / nn;
+                            if (gain > bg || (gain == bg && i < bi)) { bg = gain; bi = (int)i; }
+                        }
                     }
                 }
             }
             L += __popc(cur);
         }
     }
+#ifndef ACCEPT_NOQUEUE
+    __syncthreads();                                   // the queue is complete
+    {
+        // the exact scans of the surviving words, one warp per word and one lane per bit: the gain formula and the (larger gain, then smaller index) rule are the thread-serial scan's, so the winner is the same
+        const int nq = min(s_qn, QCAP);
+        const int lane = tid & 31;
+        const {ACC} nn2 = ({ACC})n;
+        for (int e = tid >> 5; e < nq; e += (int)(blockDim.x >> 5)) {
+            const int w = q_w[e];
+            const int Lw = q_l[e];
+            const unsigned int cur = BITW(w);
+            const unsigned int nxt = (w + 1 < W) ? BITW(w + 1) : 0u;
+            const unsigned int cand = (cur ^ ((cur >> 1) | (nxt << 31))) & vj[w];
+            if ((cand >> lane) & 1u) {
+                const long long i = (long long)w * 32 + lane;
+                const unsigned int upto = (lane == 31) ? 0xFFFFFFFFu : ((2u << lane) - 1u);
+                const long long l1 = (long long)Lw + __popc(cur & upto);
+                const long long n_l = i + 1, n_r = (long long)n - n_l, l0 = n_l - l1;
+                const long long r1 = (long long)m - l1, r0 = ((long long)n - m) - l0;
+                const {ACC} gain = h_full - (tab[n_l] - (tab[l0] + tab[l1]) + tab[n_r] - (tab[r0] + tab[r1])) / nn2;
+                if (gain > bg || (gain == bg && i < bi)) { bg = gain; bi = (int)i; }
+            }
+        }
+    }
+#endif
     // best (gain, index) of the block: shuffle reduction inside each warp, then the 8 warp winners; ties go to the smaller index
 #pragma unroll
     for (int o = 16; o >= 1; o >>= 1) {
@@ -193,6 +235,7 @@ extern "C" __global__ void __launch_bounds__(512, 4) root_split_accept(const int
 """, real=np.float32)
 
 _MODULE = RawModuleCache(_SRC)
+_MODULE_NOQUEUE = RawModuleCache("#define ACCEPT_NOQUEUE 1\n" + _SRC)  # v1: the exact scan of a surviving word stays with the thread that owns it (kept as a version; the queue variant is the default)
 _MODULE_G = RawModuleCache("#define ACCEPT_GLOBAL 1\n" + _SRC)
 _MODULE_PRE = RawModuleCache("#define ACCEPT_PRE 1\n" + _SRC)
 

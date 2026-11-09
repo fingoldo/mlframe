@@ -124,3 +124,28 @@ def test_every_variant_equals_the_full_scan_at_a_shared_size(monkeypatch, mode):
     assert ref_ok.sum() > 0
     np.testing.assert_array_equal(ref_ok, got_ok)
     np.testing.assert_array_equal(c, c_ref)
+
+
+@pytest.mark.parametrize("variant", ["noqueue", "tiny_queue"])
+def test_queue_variant_equals_the_thread_serial_and_overflow_paths(variant, monkeypatch):
+    """The default kernel (surviving words shared out over the warps of a block) gives the same (gain, count, index) as the thread-serial version and as a build whose queue holds two words (every pair overflows into the thread-serial path)."""
+    import mlframe.feature_selection.filters._honest_null_accept_bits as A
+    from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
+
+    n, kc, n_perm = 30011, 12, 80
+    cp, order, tie, yperm, h_full, tab, _ref = _setup(n, kc, n_perm, 0.4, True, 5, seed=3)
+
+    def run():
+        """One launch of whichever module is installed."""
+        g, c, i = cp.empty(n_perm * kc), cp.empty(n_perm * kc, dtype=cp.int32), cp.empty(n_perm * kc, dtype=cp.int32)
+        assert A.root_split_accept_gpu(cp, order, tie, yperm, n, n_perm, kc, 60, 0.05, h_full, tab, g, c, i)
+        return cp.asnumpy(g), cp.asnumpy(c), cp.asnumpy(i)
+
+    want = run()
+    if variant == "noqueue":
+        monkeypatch.setattr(A, "_MODULE", A._MODULE_NOQUEUE)
+    else:
+        monkeypatch.setattr(A, "_MODULE", RawModuleCache(A._SRC.replace("#define QCAP 512", "#define QCAP 2")))
+    got = run()
+    for w, g in zip(want, got):
+        np.testing.assert_array_equal(g, w)
