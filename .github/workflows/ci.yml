@@ -294,6 +294,28 @@ jobs:
           python -c "import sklearn; print('sklearn', sklearn.__version__)"
           python -c "import numpy; print('numpy', numpy.__version__)"
 
+      - name: Report the numba threading layer (macOS diagnostic)
+        if: runner.os == 'macOS'
+        run: |
+          # Diagnostic for the workqueue aborts: prints the layer numba actually picked for a parallel kernel, next to the env value.
+          python - <<'PY'
+          import os
+
+          import numba
+          from numba import njit, prange
+
+          @njit(parallel=True)
+          def _probe(n):
+              s = 0.0
+              for i in prange(n):
+                  s += i
+              return s
+
+          _probe(1000)
+          print("NUMBA_THREADING_LAYER env:", os.environ.get("NUMBA_THREADING_LAYER"))
+          print("numba.threading_layer():", numba.threading_layer())
+          PY
+
       - name: Run tests
         env:
           PYTHONUNBUFFERED: "1"
