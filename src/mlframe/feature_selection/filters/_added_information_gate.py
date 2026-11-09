@@ -16,6 +16,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+from numba import njit
 
 from ._analytic_mi_null import _chi2_sf
 
@@ -23,13 +24,40 @@ from ._analytic_mi_null import _chi2_sf
 _MIN_EXPECTED_CELL = 5.0
 
 
+@njit(cache=True, nogil=True)
+def _dense_small_ints(flat: np.ndarray, limit: int) -> "tuple[np.ndarray, int]":
+    """``(codes, K)`` of the non-negative integer vector ``flat`` renumbered to ``0..K-1`` over its occupied values in one counting pass and one gather; ``K = -1`` (nothing else valid) when a value is negative or not below ``limit``."""
+    n = flat.shape[0]
+    mx = 0
+    for i in range(n):
+        v = flat[i]
+        if v < 0:
+            return np.empty(0, dtype=np.int64), -1
+        if v > mx:
+            mx = v
+    if mx >= limit:
+        return np.empty(0, dtype=np.int64), -1
+    lut = np.full(mx + 1, -1, dtype=np.int64)
+    for i in range(n):
+        lut[flat[i]] = 0
+    k = 0
+    for v in range(mx + 1):
+        if lut[v] == 0:
+            lut[v] = k
+            k += 1
+    out = np.empty(n, dtype=np.int64)
+    for i in range(n):
+        out[i] = lut[flat[i]]
+    return out, k
+
+
 def _dense_codes(a: np.ndarray) -> "tuple[np.ndarray, int]":
     """``a`` renumbered to 0..K-1 over its occupied values, and K. Small non-negative integer codes (the usual input) are renumbered through a count table, not a sort."""
     a = np.asarray(a)
-    if a.size and a.dtype.kind in "iu" and int(a.min()) >= 0 and int(a.max()) < (1 << 22):
-        present = np.bincount(a.reshape(-1))
-        lut = np.cumsum(present > 0) - 1
-        return lut[a.reshape(-1)].astype(np.int64), int((present > 0).sum())
+    if a.size and a.dtype.kind in "iu":
+        out, k = _dense_small_ints(np.ascontiguousarray(a).reshape(-1), 1 << 22)
+        if k >= 0:
+            return out, k
     _, inverse = np.unique(a, return_inverse=True)
     inverse = inverse.reshape(-1).astype(np.int64)
     return inverse, int(inverse.max()) + 1 if inverse.size else 0
