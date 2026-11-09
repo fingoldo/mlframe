@@ -17,6 +17,7 @@ behavior changed.
 from __future__ import annotations
 
 import logging
+import threading
 
 import numpy as np
 
@@ -264,6 +265,51 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     return edges  # (nbins-1, K) double
 
 
+_QUANTILE_PLANS: dict = {}
+_QUANTILE_PLANS_LOCK = threading.Lock()
+_SHARED_LIMIT: list = []
+
+
+def _quantile_plan(cp: Any, n: int, q_fracs: Any) -> "tuple | None":
+    """``(R, shared bytes, ranks, below-index, above-index, weight, nq)`` of a quantile set on ``n`` rows, or ``None`` when the radix select does not apply; kept per ``(n, q_fracs, device)``.
+
+    The plan is a few dozen bytes of order-statistic ranks and interpolation weights that the call used to rebuild and upload (four small host-to-device copies) and to check against the
+    device's shared-memory limit (an attribute query) every time; 3516 calls in a 30000 x 60 fit asked for a handful of distinct plans."""
+    key = (int(n), tuple(float(q) for q in np.asarray(q_fracs, dtype=np.float64).ravel()), int(cp.cuda.Device().id))
+    with _QUANTILE_PLANS_LOCK:
+        if key in _QUANTILE_PLANS:
+            return _QUANTILE_PLANS[key]
+    # Intentional float64: bit-identical to cp.percentile's linear interpolation, which computes in float64
+    qfr = np.asarray(q_fracs, dtype=np.float64)
+    idx = qfr * (n - 1)
+    bel = np.floor(idx).astype(np.int64)
+    abv = np.minimum(bel + 1, n - 1)
+    uniq = np.unique(np.concatenate([bel, abv]))  # order-statistic ranks to extract
+    R = int(uniq.size)
+    plan = None
+    if R <= _RADIX_SELECT_MAXR:
+        shmem = R * 256 * 4
+        if not _SHARED_LIMIT:
+            try:
+                _SHARED_LIMIT.append(int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024)))
+            except Exception as e:
+                logger.warning("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
+                _SHARED_LIMIT.append(48 * 1024)
+        # Reserve the kernels' STATIC __shared__ footprint (see _RADIX_STATIC_SHARED_BYTES): dynamic + static must fit the per-block limit, else cuLaunchKernel raises CUDA_ERROR_INVALID_VALUE.
+        if shmem <= _SHARED_LIMIT[0] - _RADIX_STATIC_SHARED_BYTES:
+            pos = {int(r): i for i, r in enumerate(uniq)}
+            plan = (
+                R, shmem, cp.asarray(uniq, dtype=cp.int64),
+                cp.asarray(np.asarray([pos[int(b)] for b in bel], dtype=np.int64)), cp.asarray(np.asarray([pos[int(a)] for a in abv], dtype=np.int64)),
+                cp.ascontiguousarray(cp.asarray(idx - bel)), int(qfr.size),  # double weight_above
+            )
+    with _QUANTILE_PLANS_LOCK:
+        if len(_QUANTILE_PLANS) >= 256:
+            _QUANTILE_PLANS.pop(next(iter(_QUANTILE_PLANS)))
+        _QUANTILE_PLANS[key] = plan
+    return plan
+
+
 def _radix_quantiles(cand_gpu, q_fracs):
     """Per-column quantiles at ``q_fracs`` (fractions in [0,1]) over the resident (n, K) cupy ``cand_gpu``
     via the SAME sort-free radix-select kernel + cupy 'linear' interpolation as ``_radix_select_interior_edges``.
@@ -281,34 +327,12 @@ def _radix_quantiles(cand_gpu, q_fracs):
     cand_gpu = cp.ascontiguousarray(cand_gpu)
     n, K = cand_gpu.shape
     is_f32 = cand_gpu.dtype == cp.float32
-    # Intentional float64: bit-identical to cp.percentile's linear interpolation, which computes in float64
-    qfr = np.asarray(q_fracs, dtype=np.float64)
-    idx = qfr * (n - 1)
-    bel = np.floor(idx).astype(np.int64)
-    abv = np.minimum(bel + 1, n - 1)
-    uniq = np.unique(np.concatenate([bel, abv]))  # order-statistic ranks to extract
-    R = int(uniq.size)
-    if R > _RADIX_SELECT_MAXR:
+    plan = _quantile_plan(cp, n, q_fracs)
+    if plan is None:
         return None
-    shmem = R * 256 * 4
-    try:
-        dev = cp.cuda.Device()
-        sh_limit = int(dev.attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
-    except Exception as e:
-        logger.warning("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
-        sh_limit = 48 * 1024
-    # Reserve the kernels' STATIC __shared__ footprint (see _RADIX_STATIC_SHARED_BYTES): dynamic + static must
-    # fit the per-block limit, else cuLaunchKernel raises CUDA_ERROR_INVALID_VALUE.
-    if shmem > sh_limit - _RADIX_STATIC_SHARED_BYTES:
-        return None
-    ranks_g = cp.asarray(uniq, dtype=cp.int64)
+    R, shmem, ranks_g, bi, ai, w, nq = plan
     data_cm = _transpose_to_cm(cand_gpu)  # (K, n) coalesced (same as edges path)
     threads = _resolve_radix_threads(n)
-    pos = {int(r): i for i, r in enumerate(uniq)}
-    bi = cp.asarray(np.asarray([pos[int(b)] for b in bel], dtype=np.int64))
-    ai = cp.asarray(np.asarray([pos[int(a)] for a in abv], dtype=np.int64))
-    w = cp.ascontiguousarray(cp.asarray(idx - bel))  # double weight_above
-    nq = int(qfr.size)
     # Intentional float64: bit-identical to cp.percentile's linear interpolation, which computes in float64
     out = cp.empty((nq, K), dtype=cp.float64)
     if not is_f32:
