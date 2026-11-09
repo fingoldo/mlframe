@@ -278,7 +278,8 @@ def _quantile_plan(cp: Any, n: int, q_fracs: Any) -> "tuple | None":
     key = (int(n), tuple(float(q) for q in np.asarray(q_fracs, dtype=np.float64).ravel()), int(cp.cuda.Device().id))
     with _QUANTILE_PLANS_LOCK:
         if key in _QUANTILE_PLANS:
-            return _QUANTILE_PLANS[key]
+            plan: "tuple | None" = _QUANTILE_PLANS[key]
+            return plan
     # Intentional float64: bit-identical to cp.percentile's linear interpolation, which computes in float64
     qfr = np.asarray(q_fracs, dtype=np.float64)
     idx = qfr * (n - 1)

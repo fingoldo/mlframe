@@ -85,7 +85,8 @@ def _logistic_p_and_weight(cp: Any, z: Any) -> "tuple[Any, Any]":
     if kernel is None:
         c = {"float32": "float", "float64": "double"}[dt]
         kernel = _LOGISTIC_KERNELS[dt] = cp.ElementwiseKernel("%s z" % dt, "%s p, %s w" % (dt, dt), "p = (%s)1 / ((%s)1 + exp(-z)); w = p * ((%s)1 - p);" % (c, c, c), "mlframe_logistic_p_w_" + dt)
-    return kernel(z)
+    out: "tuple[Any, Any]" = kernel(z)
+    return out
 
 
 def _newton(cp: Any, A: Any, yb: Any, mb: int, kk: int, dtype: Any, max_iter: int, tol: float, lam: float, fallback_error: type) -> Any:
