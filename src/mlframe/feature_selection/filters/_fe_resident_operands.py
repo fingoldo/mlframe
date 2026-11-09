@@ -402,12 +402,41 @@ def resident_qbin_codes_host(a: Any, nbins: int, dtype: Any, compute_fn: Any) ->
     return narrow.astype(np.int64)
 
 
+_SHARED_LEGS: "OrderedDict" = OrderedDict()  # (device, operand signature, basis, degree, robust_axis) -> (n,) device leg values
+_SHARED_LEGS_MAX_BYTES = 192 * 1024 * 1024
+
+
+def operand_signature(host: Any) -> tuple:
+    """``(dtype, shape, content hash)`` of a host operand: equal signatures mean equal values (the key of the shared basis legs)."""
+    return (host.dtype.str, host.shape, _content_hash(host))
+
+
+def shared_leg_get(key: tuple) -> Any:
+    """The device basis leg stored under ``key`` by an earlier cross-basis call of this fit, or ``None``."""
+    with _FE_RESIDENT_OPERANDS_LOCK:
+        leg = _SHARED_LEGS.get(key)
+        if leg is not None:
+            _SHARED_LEGS.move_to_end(key)
+        return leg
+
+
+def shared_leg_put(key: tuple, leg: Any) -> None:
+    """Keep a device basis leg for the later cross-basis calls of this fit (pair, triplet, quadruplet and adaptive-arity families rebuild the same legs); bounded in bytes, coldest first."""
+    with _FE_RESIDENT_OPERANDS_LOCK:
+        _SHARED_LEGS[key] = leg
+        total = sum(int(v.nbytes) for v in _SHARED_LEGS.values())
+        while len(_SHARED_LEGS) > 1 and total > _SHARED_LEGS_MAX_BYTES:
+            _, old = _SHARED_LEGS.popitem(last=False)  # evict-ok: a miss re-evaluates the leg
+            total -= int(old.nbytes)
+
+
 def clear_fe_resident_operands() -> None:
     """Drop the fit-constant FE operand + qbin-code device caches (call at FE-step teardown; mirrors mempool free)."""
     with _FE_RESIDENT_OPERANDS_LOCK:
         _FE_RESIDENT_OPERANDS.clear()
         _FE_RESIDENT_QBIN_CODES.clear()
         _QBIN_HOST_CODES.clear()
+        _SHARED_LEGS.clear()
     clear_hash_memo()
 
 

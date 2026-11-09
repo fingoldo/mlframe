@@ -93,3 +93,9 @@ Clean 100k x 100 default fit, window 24.4-43.1 s. `early_b` 14.4 s (binned_numer
 `fit_oof_warp1d` at n=100000 costs 15.1 ms per column: fold permutation 2.5, quantile edges 3.2, bin codes 2.6, rest in the njit core. The fold ids depend only on (n, n_folds, seed), so they are now drawn once per key (`_fold_ids`, 4-entry cache, identical values): about 0.25 s per fit.
 
 `binned_numeric_agg` (7.4 s) has no single hot spot (see `profiles/fe_binned_numeric_agg_cpu_profile.md`); the open lever is the duplicate candidate binning between the redundancy gate and `_keep_linearly_usable`, as a bounded per-pair cache.
+
+## Fit-wide basis-leg cache and agent proposals (2026-11-10)
+
+Pair-cross, triplet, quadruplet and adaptive-arity families each rebuilt the same `(column, basis, degree)` legs in their own `build_leg_product_matrix_gpu` call. Legs are now kept fit-wide (`shared_leg_get/put` in `_fe_resident_operands.py`, key = operand content signature + routed basis + degree + robust-axis switch, 192 MB cap, cleared with the resident operands). A single clean default fit 100k x 100 measured 64.8 s (was 73-77 s over the same session; same seven selected columns), together with the `_BytesLRU` and candidate-chunk changes; one run, so treat the split between the three changes as unmeasured.
+
+Open proposals from the three read-only reviews (estimates, not measurements): shared raw-MI baseline of the cross-basis calls (2-4 s); per-column sort bundle shared by copula/xi/rank families (3-5 s, uncertain); MDLP edge warm-up on a thread during early_a (1.5-2.5 s of `discretize_inputs`); dedup scoring overlapped with the accuracy gate (1.2-1.5 s); content-keyed honest-null cache started early (2-3 s, medium risk); grouped-quantile / group-distance per-group Python loops to numba (3-4.5 s combined).

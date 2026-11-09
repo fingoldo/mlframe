@@ -154,6 +154,10 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
         key = (col, b, int(degree))
         h = leg_cache.get(key)
         if h is None:
+            h = _shared_leg(cp, basis_of_col, col, b, int(degree), robust_axis)
+            if h is not None:
+                leg_cache[key] = h
+        if h is None:
             xf = basis_of_col[("_x", col)]
             # dtype=None (not cp.float64): upload at xf's own dtype so the on-device polynomial
             # recurrence runs at the SAME precision as the host's, matching under relaxed mode
@@ -168,6 +172,7 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
                 raise ValueError(f"cross-basis device leg unsupported: col={col!r} basis={b!r} deg={degree}")
             h = cand[:, 0]
             leg_cache[key] = h
+            _store_shared_leg(cp, basis_of_col, col, b, int(degree), robust_axis, h)
         return h
 
     _prefetch_legs(cp, X, col_specs, basis, basis_of_col, leg_cache, robust_axis)
@@ -195,6 +200,30 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
     return cp.ascontiguousarray(cp.stack(out_cols, axis=1).astype(cp.float64, copy=False))  # Intentional float64: GPU cross-basis output; kernel contract is float64
 
 
+def _shared_leg_key(basis_of_col: dict, col: str, b: str, degree: int, robust_axis: bool) -> tuple:
+    """Key of a leg in the fit-wide cache: the filled operand's content signature, the routed basis, the degree and the robust-axis switch decide the values."""
+    from .._fe_resident_operands import operand_signature
+
+    sig = basis_of_col.get(("_sig", col))
+    if sig is None:
+        sig = basis_of_col[("_sig", col)] = operand_signature(np.ascontiguousarray(basis_of_col[("_x", col)]))
+    return (sig, b, int(degree), bool(robust_axis))
+
+
+def _shared_leg(cp: Any, basis_of_col: dict, col: str, b: str, degree: int, robust_axis: bool) -> Any:
+    """The leg an earlier cross-basis call of this fit already evaluated for the same operand values, or ``None``."""
+    from .._fe_resident_operands import shared_leg_get
+
+    return shared_leg_get((int(cp.cuda.Device().id), *_shared_leg_key(basis_of_col, col, b, degree, robust_axis)))
+
+
+def _store_shared_leg(cp: Any, basis_of_col: dict, col: str, b: str, degree: int, robust_axis: bool, leg: Any) -> None:
+    """Keep a contiguous copy of a freshly evaluated leg for the later cross-basis calls (a view would pin the whole batch matrix it came from)."""
+    from .._fe_resident_operands import shared_leg_put
+
+    shared_leg_put((int(cp.cuda.Device().id), *_shared_leg_key(basis_of_col, col, b, degree, robust_axis)), cp.ascontiguousarray(leg))
+
+
 def _prefetch_legs(cp: Any, X: Any, col_specs: Sequence[dict], basis: str, basis_of_col: dict, leg_cache: dict, robust_axis: bool) -> None:
     """Evaluate every distinct ``(col, basis, degree)`` leg of ``col_specs`` before the products are formed, one batched ``_gpu_evaluate_basis_matrix`` call per degree.
 
@@ -217,7 +246,11 @@ def _prefetch_legs(cp: Any, X: Any, col_specs: Sequence[dict], basis: str, basis
                 if b is None:
                     b = basis_of_col[col] = _route_basis_host(basis_of_col[("_x", col)], basis)
             if (col, b, degree) not in leg_cache:
-                wanted.setdefault(degree, {})[(col, b)] = None
+                shared = _shared_leg(cp, basis_of_col, col, b, degree, robust_axis)
+                if shared is not None:
+                    leg_cache[(col, b, degree)] = shared
+                else:
+                    wanted.setdefault(degree, {})[(col, b)] = None
     for degree, pairs in wanted.items():
         keys = list(pairs)
         if len(keys) < 2:
@@ -229,6 +262,7 @@ def _prefetch_legs(cp: Any, X: Any, col_specs: Sequence[dict], basis: str, basis
         for j, (ci, _basis, d) in enumerate(meta):
             if int(d) == degree:
                 leg_cache[(keys[ci][0], keys[ci][1], degree)] = cand[:, j]
+                _store_shared_leg(cp, basis_of_col, keys[ci][0], keys[ci][1], degree, robust_axis, cand[:, j])
 
 
 _LEG_PRODUCT_KERNELS: dict = {}
