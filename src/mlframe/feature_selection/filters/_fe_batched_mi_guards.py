@@ -58,7 +58,7 @@ def _assert_codes_in_range(arr, K: int, name: str, codes_trusted: bool = False) 
         _key = (int(arr.data.ptr), int(arr.size), str(arr.dtype))
         with _RANGE_LOCK:
             _hit = _RANGE_CACHE.get(_key)
-        if _hit is not None and _hit[0] is arr:
+        if _hit is not None:  # the listed array holds the buffer, so the pointer cannot belong to another array
             lo, hi = _hit[1], _hit[2]
         else:
             # ONE blocking sync: stack min+max into a 2-vector and a single .get(), not two .item() syncs.
