@@ -2,7 +2,7 @@
 
 Usage: ``python bench_pool_planted_recall.py [ROWS] [COLS] [SEEDS] [GENERATOR,...]`` (the last 30 % of the rows are held out for the linear AUC columns) (defaults 20000 100 1), run from a repository checkout (the generators are loaded from ``tests/feature_selection/_synth/pool_planted.py``). For each generator it prints the wall time, the planted
 columns, the selected columns that mention a planted source, and ``recall``: 1 when the selected set holds a column whose name mentions every planted source (a raw column counts only when one source is planted),
-else 0. Run it once per pool arm (``BENCH_FE_SHAPE_POOL=all|relevant``) and compare the lines; one process, so the timings share the same warm kernels.
+else 0, and the noise-only selected columns (names that mention no planted source; the user's criterion is signal in, noise out). Run it once per pool arm (``BENCH_FE_SHAPE_POOL=all|relevant``) and compare the lines; one process, so the timings share the same warm kernels.
 """
 
 import os
@@ -59,8 +59,10 @@ def run(rows: int, cols: int, seeds: int, only: str = "") -> None:
             gain_auc, raw_auc = _linear_auc(m, X_tr, y_tr, X_te, y_te)
             mention = [c for c in selected if any(s in c for s in planted)]
             recall = int(any(all(s in c for s in planted) for c in selected))
+            # a selected column that mentions no planted source is built from noise only: a false positive
+            false_pos = [c for c in selected if not any(s in c for s in planted)]
             hits[name] += recall
-            print(f"{name:30s} seed {seed} wall {wall:6.1f}s recall {recall} linear AUC on the selected set {gain_auc:.3f} vs raw columns {raw_auc:.3f} planted {planted} selected {len(selected)} mention {mention[:6]}", flush=True)
+            print(f"{name:30s} seed {seed} wall {wall:6.1f}s recall {recall} noise-only selected {len(false_pos)} {false_pos[:3]} linear AUC on the selected set {gain_auc:.3f} vs raw columns {raw_auc:.3f} planted {planted} selected {len(selected)} mention {mention[:6]}", flush=True)
     print("recall per generator:", {k: f"{v}/{seeds}" for k, v in hits.items()})
 
 
