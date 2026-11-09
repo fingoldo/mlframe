@@ -83,3 +83,17 @@ Reading: the all-columns arm already gives a large linear gain everywhere the ra
 `_fit_impl_core_parts.py:737` calls `_run_fe_stage_cascades` on the raw frame right after the fit-cache check and the input preparation; the screening (`screen_predictors`, `selected_vars`, `cached_MIs`) runs afterwards on the frame the cascades extended, and `self.cached_MIs` is only assigned near the end of the fit. So no relevance set exists when hinge, wavelet and the other cascade families pick their columns; "run FE only on the relevant columns" is not available for them as the code stands. The plan's open check ("screening finishes before cascade_early_a") is answered: it does not.
 
 Consequence for the design: a pool for the cascade families needs its own cheap pre-screen of the raw columns before the cascades: quantile codes of every raw column on the shared 30000-row subsample (`quantile_codes_block_auto`), the joint count with the target codes, the Miller-Madow-corrected MI and a permutation p-value from a few shuffles of the target codes (all integer counting, tens of milliseconds for 100 columns). The pool is then the columns with p below a loose bound plus the top few by MI. Only `selected_vars` from the later screening exists for the pair FE, which already uses it.
+
+## First filtered arm: `fe_shape_pool="relevant"` for hinge and wavelet (2026-11-09)
+
+Implemented as an opt-in (`_mrmr_fit_impl/_candidate_pool.py`, parameter `fe_shape_pool`, default `"all"`); the pre-screen is the corrected-plan design (quantile codes on the shared subsample, G-test p below 0.2, top 5 by MI, non-finite columns unjudged). Benchmark: `bench_pool_planted_recall.py 20000 100 3`, all five generators, 3 seeds, one process per arm (arm `all` is the 3-seed table above plus the hidden-periodic and four-generator reruns after the Fourier grid fix).
+
+| generator | linear AUC, arm `all` | linear AUC, arm `relevant` | fit wall `all` / `relevant` |
+|---|---|---|---|
+| weak_marginal_shape | 0.752 / 0.746 / 0.741 | 0.752 / 0.746 / 0.741 | 96 / 91 / 80 s vs 110 / 85 / 80 s |
+| hidden_periodic | 0.969 / 0.969 / 0.970 | 0.969 / 0.969 / 0.970 | 82 / 65 / 66 s vs 58 / 58 / 58 s |
+| grouped_by_irrelevant_key | 0.738 / 0.714 / 0.673 | 0.738 / 0.714 / 0.673 | 70 / 75 / 73 s vs 73 / 78 / 74 s |
+| ratio_irrelevant_normaliser | 0.904 / 0.912 / 0.905 | 0.904 / 0.912 / 0.905 | 62 / 66 / 62 s vs 63 / 65 / 61 s |
+| conditional_hinge | 0.862 / 0.864 / 0.857 | 0.862 / 0.864 / 0.857 | 61 / 59 / 62 s vs 59 / 58 / 60 s |
+
+Reading: no accuracy loss on any of the 15 fits (identical held-out AUC to three decimals, recall 3/3 everywhere), and no measurable wall gain: hinge and wavelet are 1-3 s of a 60-110 s fit at p = 100, below the run-to-run noise. By the plan's own decision rule (a family gets a filter only when it is more than about 10 % of the fit's wall time) the default stays `"all"`. The option stays for wider frames, where the cost of these families grows with the column count (wavelet is capped at `fe_wavelet_max_cols=100`); re-run this table at p = 500-1000 before changing any default. Not tested here: the cases the statistics review warned about for a marginal cut (a hinge that matters only after another engineered feature exists), which the generators do not plant.
