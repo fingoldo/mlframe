@@ -139,3 +139,7 @@ At `n_jobs <= 1` `_mrmr_fe_step` passes `serial_main_thread=True`, so the materi
 ### Kernel-tuning cache on this machine (2026-11-10)
 
 `mrmr_fe_kernel_parallelism` was stale (code_version changed) and three other kernels were cold (`batch_aucs`, `discretize_2d_array`, `knn_hnsw_crossover`), so fits ran on built-in fallbacks and printed the cold-cache notice. After `tune_spec(..., force=True)` for the first and `mlframe.system.kernel_tuning_cache` `ensure` for the rest (about 15 minutes; the `mlframe-tune-kernels` script is not on PATH here), two default fits gave WALL 61.2 and 63.4 s, `fe_step` 9.8-9.9 s (11.5-12.5 s before) and `check_prospective_pairs` 4.2-4.3 s (5.1-5.8 s before), the cold-cache notice gone, same seven selected columns. The cache is per host and outside the repository, so this is a machine setup step, not a code change: timings taken on a host with a cold or stale cache run about 2 s slower on the pair loop.
+
+### Edge computation has no repeated work (2026-11-10, `D:/Temp/edge_count.py`)
+
+One default 100k x 100 fit calls `compute_col_edges` 184 times on 183 distinct (column, labels, method) contents, 8.6 thread-seconds in total, 0.0 s spent on a repeat. An in-memory content-keyed edge memo therefore gains nothing; the only way to take this off the serial tail is to compute the raw columns' edges earlier than `discretize_inputs`, which needs the exact call parameters of that stage (see the earlier section on why this was not attempted).
