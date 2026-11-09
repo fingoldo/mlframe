@@ -394,7 +394,7 @@ def generate_mi_greedy_features(
 
 def _greedy_score_and_select(
     raw_X: pd.DataFrame,
-    engineered: pd.DataFrame,
+    engineered: Optional[pd.DataFrame],
     parsed: list[tuple[tuple[str, ...], str]],
     y: np.ndarray,
     *,
@@ -403,6 +403,8 @@ def _greedy_score_and_select(
     min_abs_mi_frac: float,
     nbins: int,
     reject_sink: Optional[Callable[..., None]] = None,
+    eng_names: Optional[list[str]] = None,
+    eng_mi: Optional[np.ndarray] = None,
 ) -> tuple[list[str], pd.DataFrame, list[tuple[tuple[str, ...], str]]]:
     """Score engineered columns vs the BETTER of the per-source raw baseline
     MIs, then apply the two-gate selection. Returns the winning column names,
@@ -413,9 +415,12 @@ def _greedy_score_and_select(
     that passed the uplift gate but missed ``abs_floor``. Pure instrumentation:
     it only RECORDS the already-computed ``engineered_mi`` vs ``abs_floor``; it
     changes NO selection decision. See the FE rejection ledger (W6).
+
+    ``eng_names`` / ``eng_mi``: the candidates' names and plug-in MI when the device already scored them (``engineered`` is then ``None``: only the winners are materialised, by the caller).
     """
     from ._orthogonal_univariate_fe import _mi_classif_batch, mi_classif_batch_chunked
-    if engineered.empty:
+    names_all = list(engineered.columns) if engineered is not None else list(eng_names or [])
+    if not names_all:
         return [], pd.DataFrame(columns=[
             "engineered_col", "transform", "source_cols",
             "baseline_mi", "engineered_mi", "uplift",
@@ -431,11 +436,13 @@ def _greedy_score_and_select(
     y_arr = y_arr.astype(np.int64)
     raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=_crit_np_dtype()), y_arr, nbins=nbins)
     raw_mi_map = dict(zip(list(raw_X.columns), raw_mi.tolist()))
-    eng_mi = mi_classif_batch_chunked(engineered, y_arr, nbins=nbins)
+    if eng_mi is None:
+        assert engineered is not None
+        eng_mi = mi_classif_batch_chunked(engineered, y_arr, nbins=nbins)
 
     rows = []
     parsed_per_eng: list[tuple[tuple[str, ...], str]] = []
-    for j, eng_name in enumerate(engineered.columns):
+    for j, eng_name in enumerate(names_all):
         src_cols, tname = parsed[j]
         baselines = [float(raw_mi_map.get(c, 0.0)) for c in src_cols]
         baseline = max(baselines) if baselines else 0.0
@@ -510,7 +517,7 @@ def _greedy_score_and_select(
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
     # parsed list aligned with the winners (in winner order).
-    name_to_parsed = dict(zip(list(engineered.columns), parsed_per_eng))
+    name_to_parsed = dict(zip(names_all, parsed_per_eng))
     parsed_winners = [name_to_parsed[n] for n in keep]
     return keep, scores, parsed_winners
 
@@ -571,7 +578,24 @@ def greedy_mi_fe_construct(
         include_trig_on_bounded=include_trig_on_bounded,
     ))
 
-    # 3-4. Materialise + score + select.
+    # 3-4. Materialise + score + select. On the device the candidates are built and scored resident and only the winners are materialised here.
+    from ._mi_greedy_device import score_candidates_device, use_device
+
+    if use_device(len(X)):
+        scored = score_candidates_device(X, candidates, y_arr, nbins)
+        if scored is not None:
+            names, parsed_dev, eng_mi_dev = scored
+            keep, scores, _parsed_winners = _greedy_score_and_select(
+                X[seed_cols], None, parsed_dev, y_arr,
+                top_k=top_k, min_uplift=min_uplift,
+                min_abs_mi_frac=min_abs_mi_frac, nbins=nbins,
+                reject_sink=reject_sink, eng_names=names, eng_mi=eng_mi_dev,
+            )
+            if not keep:
+                return X.copy(deep=False), scores
+            wanted = [p for n_, p in zip(names, parsed_dev) if n_ in set(keep)]
+            winners, _ = generate_mi_greedy_features(X, wanted)
+            return pd.concat([X, winners[keep]], axis=1), scores
     engineered, parsed = generate_mi_greedy_features(X, candidates)
     if engineered.empty:
         return X, pd.DataFrame(columns=[
