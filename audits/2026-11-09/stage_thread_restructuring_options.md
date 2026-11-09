@@ -45,3 +45,17 @@ The decisive measurement: two identical default fits started together in two pro
 ## Rebalancing the three concurrent cascades (tried and reverted, 2026-11-09)
 
 True stage walls (`FE stage concurrency: stage walls`, 100000 x 100, one process): early_b 13.8 s, mid_a 17.7 s, mid_b 18.3 s, window 18.3 s. Moving the oof-warp, row-statistics and wavelet families from mid_b into early_b's slot gave [18.35, 16.74, 15.4] (early_b became the longest: window 18.35 s); moving only oof-warp and row-statistics, with the row-argmax family from mid_a into mid_b's slot, gave [17.88, 17.37, 17.0] (window 17.9 s), and the fit stayed at 72.6 to 76.8 s. The walls do not add: moving 4.5 s of a family between stages moves about 3 s of wall, and the stages that receive it slow down as much as the donor speeds up, because they share the card and the cores. A rebalancing is worth at most 0.4 s here; reverted. The gate-lap numbers in the family ledger (`gate:*`) charge the stage body between two gates to the family whose gate opened last, so they overstate a family's own cost (`row_argmax` lap 2.8 s); the `fe_timed` names are the family's own.
+
+## Why three stage threads do not triple anything: GPU API calls do not scale with threads (2026-11-09, `cupy_launch_scaling.py`)
+
+Sequential stage scale of the fit is 68 s and the concurrent one 61-75 s: three stage threads on 8 logical CPUs buy almost nothing, and the true family walls double under concurrency (quadruplet 2.5 s sequential in cProfile, 4.8 s concurrent). Microbenchmark of the launch path alone (a 20000-element float32 vector, one kernel per call, host-side cost only, one process, GTX 1050 Ti):
+
+| call | 1 thread | 3 threads (total) |
+|---|---:|---:|
+| three chained cupy operations (`cp.sqrt(y * a + b)`) | 19279 launches/s, 51.9 us per operation | 16169 (x0.84) |
+| one `cp.ElementwiseKernel` | 56901/s, 17.6 us | 43610 (x0.77) |
+| one `cp.RawKernel` | 38134/s, 26.2 us | 35069 (x0.92) |
+
+Each thread on its own non-blocking stream: 1, 2, 3, 4 threads give 21.6k, 20.6k, 17.8k, 17.5k launches/s. The launch path of cupy (argument handling, kernel lookup, allocator, the driver call) holds the GIL or a driver-wide lock, so the whole process issues at most about 20k cupy operations per second whatever the thread count, and more threads make it slightly worse. A fit issues 104472 `cuLaunchKernel`, 30590 `cudaLaunchKernel`, 23086 `cudaMemcpyAsync`, 11706 `cudaMemsetAsync`, 25240 `cudaSetDevice` calls (nvprof API summary): about 200000 API calls, i.e. 6 to 10 s of launch-path time that no amount of stage concurrency can overlap, plus the wait that follows each blocking read.
+
+Consequence for the plan: occupancy of the device and the cores rises only by issuing fewer, larger launches from the same Python (fused kernels, one launch per batch of columns, one blocking read per phase, CUDA graphs for the fixed-shape chains that repeat per column or per permutation), not by adding threads. The Fourier detector batch (a chain of about 100 launches per column replaced by one per phase), the MI-greedy candidate scoring and the xi / copula blocks are instances; the cost of a family on the device is its number of operations times 20-50 us, which is the number to cut in the rest.
