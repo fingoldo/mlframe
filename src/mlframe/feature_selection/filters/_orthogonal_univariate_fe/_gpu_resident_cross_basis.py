@@ -335,6 +335,26 @@ def _resident_mi(cp, mat_gpu, y, nbins: int) -> np.ndarray:
     )
 
 
+def _raw_baseline_mi(cp: Any, raw_np: np.ndarray, raw_cols: list, y: Any, nbins: int, dt: Any) -> dict:
+    """``{raw column: plug-in MI}``; the families that score a cross-basis uplift share their raw columns, and a column's MI depends on its values, the labels and ``nbins`` only, so
+    the columns an earlier call of this fit already scored are not scored again (the rest go to the resident plug-in as one block)."""
+    from .._fe_resident_operands import assemble_resident_matrix, column_mi_lookup, column_mi_store, operand_signature
+
+    dev = int(cp.cuda.Device().id)
+    y_sig = operand_signature(np.ascontiguousarray(np.asarray(y)).ravel())
+    keys = [(dev, operand_signature(np.ascontiguousarray(raw_np[:, j])), y_sig, int(nbins)) for j in range(len(raw_cols))]
+    found = column_mi_lookup(keys)
+    missing = [j for j, v in enumerate(found) if v is None]
+    if missing:
+        sub_cols = [raw_cols[j] for j in missing]
+        raw_gpu = assemble_resident_matrix(np.ascontiguousarray(raw_np[:, missing]), sub_cols, ("xbasis_raw_baseline", tuple(sub_cols)), dtype=dt)
+        fresh = _resident_mi(cp, raw_gpu, y, nbins).tolist()
+        column_mi_store([keys[j] for j in missing], fresh)
+        for j, v in zip(missing, fresh):
+            found[j] = float(v)
+    return dict(zip(raw_cols, found))
+
+
 def raw_and_product_mi_resident(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -374,7 +394,6 @@ def raw_and_product_mi_resident(
         # RAW baseline through the SAME resident plug-in (uploaded once via the operand cache). The host scorer's
         # _mi_classif_batch(raw_X) under STRICT already routes here; reproducing it keeps the baseline - and thus
         # the uplift ratio + the abs-MI floor - selection-equivalent.
-        from .._fe_resident_operands import assemble_resident_matrix
         raw_cols = list(raw_X.columns)
         from .._fe_usability_signal import _crit_np_dtype
         _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust; baseline matrix + resident cache share one dtype
@@ -383,9 +402,7 @@ def raw_and_product_mi_resident(
         # uploaded once by the basis builders, so stacking the resident columns content-hits the cache and the
         # whole (n, k) matrix never crosses H2D (vs the prior single whole-matrix upload, a distinct blob that
         # never deduped). Column j is raw_X[raw_cols[j]] verbatim -> same bytes -> selection-identical.
-        raw_gpu = assemble_resident_matrix(raw_np, raw_cols, ("xbasis_raw_baseline", tuple(raw_cols)), dtype=_dt)
-        raw_mi = _resident_mi(cp, raw_gpu, y, nbins)
-        raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
+        raw_mi_map = _raw_baseline_mi(cp, raw_np, raw_cols, y, nbins, _dt)
         return raw_mi_map, eng_mi
     except Exception as _exc:
         logger.debug("raw_and_product_mi_resident: GPU path failed (%s); host fallback", _exc)

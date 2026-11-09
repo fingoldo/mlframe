@@ -430,6 +430,24 @@ def shared_leg_put(key: tuple, leg: Any) -> None:
             total -= int(old.nbytes)
 
 
+_COLUMN_MI: dict = {}  # (device, column signature, label signature, nbins) -> plug-in MI of that column
+_COLUMN_MI_MAX_ENTRIES = 4096
+
+
+def column_mi_lookup(keys: Sequence[tuple]) -> list:
+    """The plug-in MI stored for each key (``None`` where an earlier cross-basis call of this fit did not score that column)."""
+    with _FE_RESIDENT_OPERANDS_LOCK:
+        return [_COLUMN_MI.get(k) for k in keys]
+
+
+def column_mi_store(keys: Sequence[tuple], values: Sequence[float]) -> None:
+    """Remember the plug-in MI of each column; the table is bounded and starts over when full (a miss only re-scores the column)."""
+    with _FE_RESIDENT_OPERANDS_LOCK:
+        if len(_COLUMN_MI) + len(keys) > _COLUMN_MI_MAX_ENTRIES:
+            _COLUMN_MI.clear()
+        _COLUMN_MI.update(zip(keys, (float(v) for v in values)))
+
+
 def clear_fe_resident_operands() -> None:
     """Drop the fit-constant FE operand + qbin-code device caches (call at FE-step teardown; mirrors mempool free)."""
     with _FE_RESIDENT_OPERANDS_LOCK:
@@ -437,6 +455,7 @@ def clear_fe_resident_operands() -> None:
         _FE_RESIDENT_QBIN_CODES.clear()
         _QBIN_HOST_CODES.clear()
         _SHARED_LEGS.clear()
+        _COLUMN_MI.clear()
     clear_hash_memo()
 
 

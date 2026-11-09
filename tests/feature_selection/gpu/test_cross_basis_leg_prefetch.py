@@ -54,3 +54,25 @@ def test_second_call_takes_legs_from_the_fit_wide_cache(monkeypatch):
     X2["c0"] = X2["c0"] * 2
     cb.build_leg_product_matrix_gpu(cp, X2, specs)
     assert calls
+
+
+def test_raw_baseline_mi_is_scored_once_per_column_and_matches_the_block_score(monkeypatch):
+    """A column scored by an earlier call is served from the table; a subset or reordered call gives the same per-column values as scoring the whole block."""
+    from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_resident_operands
+
+    r = np.random.default_rng(2)
+    n = 4000
+    X = pd.DataFrame({f"c{i}": r.standard_normal(n).astype(np.float32) for i in range(4)})
+    y = (X["c0"] * X["c1"] + r.standard_normal(n) > 0).astype(np.int64).to_numpy()
+    clear_fe_resident_operands()
+    full = cb._raw_baseline_mi(cp, X.to_numpy(np.float32), list(X.columns), y, 10, np.float32)
+    scored = []
+    real = cb._resident_mi
+    monkeypatch.setattr(cb, "_resident_mi", lambda c, m, *a, **k: scored.append(m.shape[1]) or real(c, m, *a, **k))
+    sub = ["c3", "c1"]
+    part = cb._raw_baseline_mi(cp, X[sub].to_numpy(np.float32), sub, y, 10, np.float32)
+    assert not scored
+    assert part == {k: full[k] for k in sub}
+    X["c9"] = r.standard_normal(n).astype(np.float32)
+    cb._raw_baseline_mi(cp, X[["c1", "c9"]].to_numpy(np.float32), ["c1", "c9"], y, 10, np.float32)
+    assert scored == [1]
