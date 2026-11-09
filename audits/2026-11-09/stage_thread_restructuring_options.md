@@ -21,3 +21,7 @@ State at the head: default concurrent fit 61.5 s, sequential stage scale 68.4 s 
 ## Recommendation
 
 Options 1 and 2 are the only ones that cut the 11.5 s without changing what is found; together they are many small edits with a combined expectation of a few seconds, which does not reach 50 s on its own. Reaching the target needs either option 6 (a product decision) or a change of the execution model (4). Until then the remaining work is steady, measured trimming of the host leaves listed in the profile note.
+
+## Option 2 measured (same day): the scorer variants spend little on the basis they share
+
+Family ledger of the 100000 x 100 run: the 12 `orth_mi_*` variants take 10.85 s together; `univariate_basis` (the basis generation they all call) takes 1.66 s over exactly 12 calls (one per variant). A shared resident basis would remove at most the 11 repeat calls, about 1.5 s of 10.85 s, and the stages overlap, so under that on the wall. The other ~9 s is the scoring each variant does on its own (CMIM, JMIM, KSG, copula, dCor, HSIC, meta, ...), which differs by design. Not built: the saving does not justify a shared-basis object across 12 modules.
