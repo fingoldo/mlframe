@@ -598,3 +598,9 @@ Dedup of engineered columns (`_pair_collisions`, 400000 rows): the pairs with Na
 | threads per block 128 / 256 / 512 / 1024 (isolated call incl. host prep) | 82 / 86 / 63 / 53 ms | wider blocks hide the dependent-gather latency |
 
 At 400000 rows an isolated call is 124 ms (1024 threads) against 174 ms (256). Open: the pairs are one block each, so a candidate with few NaN-sharing kept columns uses few SMs; splitting a pair over several blocks needs a decoupled look-back scan.
+
+## Utilisation at 200000 x 100, all families (2026-11-09)
+
+`rss_scale_fit.py 200000 100 all`, RSS_TICK_S=5, ~330 s: system CPU 16-20 % (about 1.5 of 8 cores) and GPU 0 % in most ticks, 65-100 % in short bursts. The timeline ticks inside the screening step sit in `evaluation.py:_conditional_gain_step` (9 ticks, the serial `evaluate_gain` njit kernel) and `fleuret_confidence_prange` (8 ticks). The latter is thread-parallel and reaches 93 % utilisation in isolation (64 permutations, 8 threads: 5.88 CPU-s in 0.79 s wall), but the screen calls it once per candidate with a budget of about 3 permutations, so a block uses at most 3 threads and the candidates follow one another. Lever: confirm several candidates of a round in one batch (speculative, selections must stay equal) or run the next round's candidate scoring on the device during the confirmation; not started.
+
+`hybrid_variants` window at 100000 x 100 (all-thread sampler, `hv_sample.py`): 12.6 s wall, 27.8 host thread-seconds (2.2 threads busy), 2.9 cupy thread-seconds; flat, the largest leaves are the `np.quantile` calls of `_orthogonal_shared` / `_orthogonal_three_gate_mi_fe` (now on the compiled quantile-codes block where all edges are distinct, 2.4x on 100000 x 40).
