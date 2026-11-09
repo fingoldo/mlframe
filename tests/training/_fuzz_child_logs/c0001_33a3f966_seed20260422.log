@@ -1,0 +1,55 @@
+
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s]
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s]
+pre_pipeline:  50%|█████     | 1/2 [00:18<00:18, 18.97s/it]
+pre_pipeline: 100%|██████████| 2/2 [04:32<00:00, 156.77s/it]
+pre_pipeline: 100%|██████████| 2/2 [04:32<00:00, 136.10s/it]
+
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s]
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s]
+pre_pipeline:  50%|█████     | 1/2 [00:05<00:05,  5.27s/it]
+pre_pipeline: 100%|██████████| 2/2 [05:59<00:00, 210.74s/it]
+pre_pipeline: 100%|██████████| 2/2 [05:59<00:00, 179.92s/it]
+.
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0001_33a3f966-xgb-pandas-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning: MultilabelDispatchConfig.cv=2 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0001_33a3f966-xgb-pandas-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0001_33a3f966-xgb-pandas-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0001_33a3f966-xgb-pandas-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0001_33a3f966-xgb-pandas-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0001_33a3f966-xgb-pandas-n300000]
+  C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_engineering\cross_sectional_neighbors.py:120: FutureWarning: The default of observed=False is deprecated and will be changed to True in a future version of pandas. Pass observed=False to retain current behavior or observed=True to adopt the future default and silence this warning.
+    snapshot_vectors = df.groupby(snapshot_col, sort=False)[list(feature_cols)].mean()
+
+tests/training/fuzz/test_fuzz_suite.py: 100 warnings
+  C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py:3421: UserWarning: MRMR.fit: 5 parameter value(s) are valid but known to DEGRADE selection accuracy:
+    * fe_discrete_structural_operators_enable=False: disables ALL FOUR discrete-structural FE families at once (conditional-gate / pairwise-modular / row-argmax / binned-agg) -- modular/parity/regime-switch/threshold interactions smooth bases cannot fit are never engineered. Better: leave it True (default); opt out only for byte-identical legacy replay.
+    * dcd_enable=False: disables denoised cluster-aggregate (DCD) -- redundant near-duplicate column clusters are no longer collapsed into a denoised representative. Better: leave it True (default).
+    * fe_pairwise_modular_enable=False: no (a+b) mod m / (a*b) mod m / n-way parity / hidden-period interactions are engineered. Better: leave it True (default); opt out only for byte-identical legacy replay.
+    * fe_row_argmax_enable=False: no row-argmax (which-column-is-largest) categorical interaction is engineered. Better: leave it True (default); opt out only for byte-identical legacy replay.
+    * fe_conditional_gate_enable=False: no conditional-gate (regime switch c>tau ? a : b / masked interaction) feature is engineered. Better: leave it True (default); opt out only for byte-identical legacy replay.
+  (These are intentional only for byte-identical legacy replay / ablation / speed; otherwise prefer the defaults. Silence by restoring the defaults above.)
+    _fitted = self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0001_33a3f966-xgb-pandas-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0001_33a3f966-xgb-pandas-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0001_33a3f966-xgb-pandas-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0001_33a3f966-xgb-pandas-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0001_33a3f966-xgb-pandas-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0001_33a3f966-xgb-pandas-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0001_33a3f966-xgb-pandas-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0001_33a3f966-xgb-pandas-n300000]
+  C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_mrmr_fit_impl\_assign_support_tail.py:684: UserWarning: MRMR: screening returned 0 features; falling back to the 1 raw feature(s) clearing the relevance floor by debiased MI(X_j, y). Set min_features_fallback=0 to disable. fallback_used_=True is set on the estimator.
+    _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, target_indices)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning: It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+    register_random(_r)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 153 deselected, 115 warnings in 778.05s (0:12:58)

@@ -1,0 +1,81 @@
+pre_pipeline:  50%|█████     | 1/2 [00:04<00:04,  4.48s/it]
+
+mlframe model:   0%|          | 0/3 [00:00<?, ?it/s][A
+
+mlframe model:   0%|          | 0/3 [00:00<?, ?it/s][A
+
+mlframe model:  33%|███▎      | 1/3 [00:04<00:08,  4.01s/it][A
+
+mlframe model: 100%|██████████| 3/3 [00:06<00:00,  2.06s/it][A
+mlframe model: 100%|██████████| 3/3 [00:06<00:00,  2.26s/it]
+
+pre_pipeline: 100%|██████████| 2/2 [00:11<00:00,  5.83s/it]
+pre_pipeline: 100%|██████████| 2/2 [00:11<00:00,  5.63s/it]
+.
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning: PreprocessingBackendConfig.fallback_to_sklearn=False has no effect: the polars path falls back on its own; the flag is never read
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning: MultilabelDispatchConfig.cv=3 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+  C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_engineering\cross_sectional_neighbors.py:120: FutureWarning: The default of observed=False is deprecated and will be changed to True in a future version of pandas. Pass observed=False to retain current behavior or observed=True to adopt the future default and silence this warning.
+    snapshot_vectors = df.groupby(snapshot_col, sort=False)[list(feature_cols)].mean()
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2896623185872_1791844004 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py: 15 warnings
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\utilities\_pytree.py:21: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_function_base_impl.py:3065: RuntimeWarning: invalid value encountered in divide
+    c /= stddev[:, None]
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_function_base_impl.py:3066: RuntimeWarning: invalid value encountered in divide
+    c /= stddev[None, :]
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2896627422944_1791844020 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2896626057616_1791844024 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_nanfunctions_impl.py:1598: RuntimeWarning: All-NaN slice encountered
+    return _nanquantile_unchecked(
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0027_714e82dd-cb_lgb_mlp-pl_enum-n300000]
+  C:\Users\Admin\Machine learning\mlframe\src\mlframe\metrics\_fairness_metrics.py:398: RuntimeWarning: Mean of empty slice
+    line["metric_mean"] = float(np.nanmean(performances))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning: It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+    register_random(_r)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 153 deselected, 44 warnings in 152.68s (0:02:32)

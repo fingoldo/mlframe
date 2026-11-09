@@ -1,0 +1,31 @@
+[hang-watchdog] arming 3000s for tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0071_100267b2-xgb-pl_utf8-n300000]
+
+pre_pipeline:   0%|          | 0/8 [00:00<?, ?it/s]
+pre_pipeline:   0%|          | 0/8 [00:00<?, ?it/s]                                                              bin-best-1  ... metric_std
+factor nbins npoints_from npoints_median npoints_to metric                ...
+cat_0  8     1            2              3          MAE     B [1]: 0.027  ...   0.784987
+                                                    RMSE    B [1]: 0.027  ...   0.886687
+
+[2 rows x 8 columns]
+                                                              bin-best-1  ... metric_std
+factor nbins npoints_from npoints_median npoints_to metric                ...
+cat_0  8     2            3              5          MAE     C [3]: 0.525  ...   0.687215
+                                                    RMSE    A [2]: 0.747  ...   0.712472
+
+[2 rows x 8 columns]
+
+pre_pipeline:  12%|█▎        | 1/8 [01:22<09:37, 82.52s/it]                                                              bin-best-1  ... metric_std
+factor nbins npoints_from npoints_median npoints_to metric                ...
+cat_0  8     1            2              3          MAE     B [1]: 0.081  ...   0.775459
+                                                    RMSE    B [1]: 0.081  ...   0.871129
+
+[2 rows x 8 columns]
+                                                                 bin-best-1  ... metric_std
+factor nbins npoints_from npoints_median npoints_to metric                   ...
+cat_0  8     2            3              5          MAE     null [2]: 0.598  ...   0.655164
+                                                    RMSE       A [2]: 0.723  ...   0.698463
+
+[2 rows x 8 columns]
+
+pre_pipeline:  25%|██▌       | 2/8 [06:38<21:57, 219.64s/it]
+[driver] per-combo wall-timeout 1500s reached -- killed process tree.

@@ -1,0 +1,81 @@
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\main.py", line 408, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 139, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 184, in pytest_runtest_call
+    item.runtest()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\python.py", line 1707, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\python.py", line 167, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "C:\Users\Admin\Machine learning\mlframe\tests\training\fuzz\test_fuzz_suite.py", line 606, in test_fuzz_train_mlframe_models_suite
+    trained, _meta = train_mlframe_models_suite(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_main_train_suite.py", line 701, in train_mlframe_models_suite
+    train_every_target(ctx, target_by_type, metadata, pr)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_main_train_suite_target_loop.py", line 90, in train_every_target
+    pr._train_one_target(ctx, target_type, targets, cur_target_name, working)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_phase_train_one_target_body.py", line 155, in _train_one_target
+    _train_one_target_step1_progress_long_suites(st, target_type, ctx, cur_target_name, cur_target_values)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_phase_train_one_target_body.py", line 285, in _train_one_target_step1_progress_long_suites
+    pre_pipeline = _train_one_target_ste_step1_model_entry_tqdmu(sorted_models, target_type, st, cur_target_name, _model_idx_in_run, _total_models_in_run, ctx, pre_pipeline_name, strategy_by_model, tier_dfs_cache, tier_enum_map_cache, orig_pre_pipeline, prepared_frames_cache, weight_schemas, ens_models, cur_target_values, _pp_name_stripped, prev_tier, pre_pipeline)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_phase_train_one_target_steps.py", line 329, in _train_one_target_ste_step1_model_entry_tqdmu
+    st.trainset_features_stats, pre_pipeline, st.train_df_transformed, val_df_transformed, test_df_transformed = process_model(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\train_eval.py", line 534, in process_model
+    model, train_df_transformed, val_df_transformed, test_df_transformed = _call_train_evaluate_with_configs(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\train_eval.py", line 320, in _call_train_evaluate_with_configs
+    _result = train_and_evaluate_model(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_trainer_train_and_evaluate.py", line 524, in train_and_evaluate_model
+    model, st.best_iter = _train_model_with_fallback(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_training_loop.py", line 87, in _train_model_with_fallback
+    return fit_with_cb_gpu_guard(_train_model_with_fallback_unguarded, model, model_obj, model_type_name, train_df, train_target, fit_params, verbose)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\cb\_cb_gpu_budget.py", line 133, in fit_with_cb_gpu_guard
+    result = _fit()
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\cb\_cb_gpu_budget.py", line 125, in _fit
+    return unguarded_fit(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_training_loop.py", line 198, in _train_model_with_fallback_unguarded
+    best_iter, model = _train_model_with_f_base_estimator_cloned_per(model_type_name, model, _effective_model_type_name, _is_polars, _POLARS_NATIVE_FIT_MODEL_PREFIXES, train_df, _is_pandas, fit_params, _cb_pool, verbose, train_target, model_obj, t0_fit)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_training_loop_fallback_helpers.py", line 107, in _train_model_with_f_base_estimator_cloned_per
+    fit_params, model = _train_model_with_f_phase(model_type_name, train_df, _cb_pool, fit_params, model, train_target)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_training_loop_fallback_helpers.py", line 631, in _train_model_with_f_phase
+    model.fit(train_df, train_target, **fit_params)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\base.py", line 1336, in wrapper
+    return fit_method(estimator, *args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\gradient_boosting.py", line 995, in fit
+    should_early_stop = self._check_early_stopping_loss(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\gradient_boosting.py", line 1192, in _check_early_stopping_loss
+    -self._loss(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\_loss\loss.py", line 404, in __call__
+    self.loss(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\_loss\loss.py", line 196, in loss
+    self.closs.loss(
++++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++

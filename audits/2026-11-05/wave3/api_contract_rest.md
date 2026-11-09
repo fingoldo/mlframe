@@ -1,0 +1,50 @@
+# Wave 3: sklearn estimator contract, remaining classes
+
+Scope: every `^class .*(BaseEstimator|RegressorMixin|ClassifierMixin|TransformerMixin)` in `src/mlframe` (86 classes) except the ones already covered by `wave2/api_contract.md` (custom.py, early_stopping.py; those were re-run by the probe only as a control).
+
+Method: a probe script (scratchpad `chk.py`, `chk2.py`, not committed) imported every class, checked `__init__` defaults for mutable values (list/dict/set/ndarray), compared `get_params(deep=False)` against the signature defaults, ran `sklearn.base.clone`, and called `predict`/`transform` on an unfitted default-constructed instance expecting `NotFittedError`.
+A second probe fitted default-constructible classes on a 200x4 frame and checked `fit` returns self, `n_features_in_`, and predict on a 3-column X over all default-constructible classes.
+
+Global results:
+- No mutable default found in any `__init__` signature of the 86 classes.
+- `clone()` succeeded for every default-constructible class.
+- Only one class modifies constructor arguments in `__init__` (API3-1).
+
+## Findings
+
+| id | severity | file:line | statement | call that shows it | disposition |
+|---|---|---|---|---|---|
+| API3-1 | Medium | src/mlframe/feature_selection/shap_proxied_fs/_shap_proxied_init_params.py:292 and :448 | `ShapProxiedFS.__init__` replaces `None` for `brute_force_max_features` / `cluster_su_auto_max_features` with a host-tuned value from the kernel tuning cache, so `get_params()` no longer returns the constructor args; the host value is frozen into clones, pickles and GridSearch copies, and `set_params(brute_force_max_features=None)` after construction is never resolved. | `ShapProxiedFS().get_params()["brute_force_max_features"]` returns `28`, not `None` (likewise `cluster_su_auto_max_features` -> `2000`). | RESOLVED-needed: store the raw arg, resolve at `fit` into a trailing-underscore attribute (`brute_force_max_features_`). |
+| API3-2 | Medium | src/mlframe/training/composite/hurdle.py:293 | `HurdleRegressor.predict` before fit raises `AttributeError: event_rate_` instead of `NotFittedError`. | `HurdleRegressor().predict(X)` | RESOLVED-needed: `check_is_fitted(self, "event_rate_")`. |
+| API3-3 | Medium | src/mlframe/training/composite/quantile.py:386 | `CompositeQuantileEstimator.predict` unfitted raises `AttributeError: quantiles_`. | `CompositeQuantileEstimator().predict(X)` | RESOLVED-needed (check_is_fitted). |
+| API3-4 | Medium | src/mlframe/training/composite/grouped_block_stacking.py:243 | `GroupedBlockStacker.predict` unfitted raises `AttributeError: feature_groups_`. | `GroupedBlockStacker().predict(X)` | RESOLVED-needed (check_is_fitted). |
+| API3-5 | Medium | src/mlframe/training/neural/tabular_1dcnn.py:190, :271 | `Tabular1DCNNRegressor/Classifier.predict` unfitted raise `AttributeError: feature_order_`; predict also indexes `X[:, self.feature_order_]` without a width check, so a wider X is silently truncated to the fitted columns. | `Tabular1DCNNRegressor().predict(X)`; fitted model `.predict(np.c_[X, extra])` returns without error. | RESOLVED-needed: check_is_fitted plus `X.shape[1] == n_features_in_` check. |
+| API3-6 | Medium | src/mlframe/training/neural/ranker.py:904 | `MLPRanker.predict` unfitted raises `AttributeError: module_`. | `MLPRanker().predict(X)` | RESOLVED-needed. |
+| API3-7 | Medium | src/mlframe/training/neural/trunk_residual_mlp.py (predict) | `TrunkResidualMLPRegressor.predict` unfitted raises `AttributeError: model_`. | `TrunkResidualMLPRegressor().predict(X)` | RESOLVED-needed. |
+| API3-8 | Medium | src/mlframe/training/composite/multitask_auxiliary_loss.py:162 | `MultiTaskAuxiliaryLossRegressor.predict` unfitted raises `AttributeError: trunk_`. | `MultiTaskAuxiliaryLossRegressor().predict(X)` | RESOLVED-needed. |
+| API3-9 | Medium | src/mlframe/training/_classif_helpers.py:597 | `_ChainEnsemble.predict` unfitted raises `AttributeError: chains_`. | `_ChainEnsemble().predict(X)` | RESOLVED-needed. |
+| API3-10 | Medium | src/mlframe/competition/naive_bayes_log_odds.py:171 | `NaiveBayesLogOddsEnsembler.predict` unfitted raises `AttributeError: n_features_in_` (fitted width check itself is correct). | `NaiveBayesLogOddsEnsembler().predict(X)` | RESOLVED-needed. |
+| API3-11 | Medium | src/mlframe/training/composite/sklearn_compat.py:264 | `CompositeTargetTransformer.transform` unfitted raises `AttributeError: fitted_params_`. | `CompositeTargetTransformer().transform(y)` | RESOLVED-needed. |
+| API3-12 | Low | src/mlframe/training/strategies/base.py:70, :100 | `_Float32CastTransformer` and `_InfToNaNTransformer` take `*args, **kwargs` in `__init__` (not introspectable by `get_params`) and `transform` succeeds without fit. | `_InfToNaNTransformer().transform(X)` returns output unfitted. | DOC: stateless private pipeline steps; acceptable if documented as stateless (sklearn allows stateless transformers), but the varargs `__init__` should become an explicit no-arg one. |
+| API3-13 | Low | src/mlframe/training/composite/post_shim.py:185; per_group_router.py:46 | `PrePipelinePredictShim().predict(X)` raises `AttributeError: 'NoneType' object has no attribute 'predict'`; `PerGroupCompositeRouter().predict(X)` raises a TypeError from an inner estimator instead of NotFittedError. | as stated | RESOLVED-needed (check_is_fitted at entry). |
+| API3-14 | Low | src/mlframe/estimators/base.py:27 | `EstimatorWithEarlyStopping` (and Regressor/Classifier subclasses) default `base_estimator=None`, and `fit` fails with sklearn's "Cannot clone object 'None'" instead of a clear error. | `RegressorWithEarlyStopping().fit(X, y)` | RESOLVED-needed: raise a ValueError naming `base_estimator` at fit. |
+| API3-15 | High | src/mlframe/training/composite/multi_output.py:136 | `CompositeMultiOutputEstimator.predict` accepts an X with fewer columns than it was fitted on and returns predictions without error, so a column-misaligned input produces silent garbage. | default-constructed, `fit(X4, y)` then `predict(X4.iloc[:, :3].values)` returns. | RESOLVED-needed: validate width against `n_features_in_` at predict. |
+
+Also (folded into API3-13 class of issue): `NeuralEmbeddingTextEncoder.transform` (`training/neural/feature_prep.py:71`) unfitted on an ndarray raises `AttributeError: 'numpy.ndarray' object has no attribute 'columns'`.
+
+Fit-side probe (completed after first draft): `Tabular1DCNNRegressor/Classifier`, `TrunkResidualMLPRegressor` and `MultiTaskAuxiliaryLossRegressor` do not set `n_features_in_` after fit; their wrong-width predict fails only via an IndexError / torch matmul RuntimeError (part of API3-5, -7, -8 fixes). Correct wrong-width ValueError: GMM, NaiveBayes, PureRandom, ACESelector, StabilityFESelector, MRMR, CompositeGLMEstimator, HurdleRegressor. API3-5's "wider X silently truncated" remains read-only inference; the narrower case raises IndexError. Classes needing required collaborators (base_estimator, spec, group_ids, sequences) or tensorflow could not be fitted default-constructed; each raised a clear ValueError except `PrePipelinePredictShim` (AttributeError on None, API3-13) and `ProbabilityAsPrediction` (benchmark-only).
+
+Not reported: `ProbabilityAsPrediction` (`feature_selection/_benchmarks/fs_hybrid/_arms_wrappers.py:95`) also raises AttributeError unfitted, but it lives in a benchmark harness, not the public API.
+
+## Classes checked
+
+Probe-checked (mutable defaults, get_params vs signature, clone, unfitted predict/transform) for all importable default-constructible classes:
+GaussianMixtureClassifier, BinaryPostCalibrator, NaiveBayesLogOddsEnsembler, EstimatorWithEarlyStopping(+Regressor/Classifier), PureRandomClassifier, IdentityEstimator(+Regressor/Classifier), SimilarityBlend (ctor only), _FunctionalSelectorBase, ShortlistTransformerAdapter (ctor only), _Float32CastTransformer, _InfToNaNTransformer, _ChainEnsemble, recurrent wrappers, _QuantileMultiOutputWrapper (ctor only), PULearningWrapper (ctor only), BorutaShap, ACESelector, HurdleRegressor, GroupedBlockStacker, CompositeGLMEstimator, TailCompositeEstimator, CorrelatedFeaturesSelector (ctor only), StabilityMRMR (ctor only), TrunkResidualMLPRegressor, Tabular1DCNN*, MLPRanker, KerasCompatibleMLP, MRMR, CompositeTargetEstimator, NeuralEmbeddingTextEncoder, HeteroscedasticCompositeEstimator, StabilityFESelector, CompositeDistributionEstimator, CompositeTargetTransformer, CompositeQuantileEstimator, CompositeQRFEstimator, PerGroupCompositeRouter, PrePipelinePredictShim, CompositeMultiOutputEstimator, MultiTaskAuxiliaryLossRegressor, MissingAwareComposite, CompositeOrRawStacker, ShapProxiedFS, RFECV, CompositeSurvivalEstimator, CompositeFeatureGenerator, CompositeClassificationEstimator, BaggedCompositeEstimator.
+
+Fitted-side checks (fit returns self, n_features_in_, wrong-width predict) completed for: GaussianMixtureClassifier, NaiveBayesLogOddsEnsembler, PureRandomClassifier, ACESelector (all reject a 3-column X correctly), Identity* (requires feature_indices), EstimatorWithEarlyStopping family (API3-14).
+
+## Not checked
+
+- Fit-side checks for classes that cannot be fitted default-constructed (see note under the table).
+- Classes with required constructor args (no default ctor) were checked for mutable defaults only: ArithmAvg/GeomAvg/MyDecorrelator/EarlyStoppingWrapper (wave2), ShortlistTransformerAdapter, CorrelatedFeaturesSelector, StabilityMRMR, TargetOffsetRegressor, PULearningWrapper, _QuantileMultiOutputWrapper, AdditiveDecompositionRegressor, ChainedWindowForecaster, CountWeightedBlendEnsemble, DirectMultiHorizonEnsemble, DualDirectionCompositeEstimator, FeatureSubsetBaggingEnsemble, GatedOutlierEstimator, GatedRegressionMixture, OrthogonalizedCompositeEstimator, CompositePanelEstimator, PseudoLabelingLoop, _QuantileForestAdapter, CompositeRankEstimator, RegimeSplitEnsemble, SegmentedModelFactory, SegmentRoutedEstimator, CompositeSimplexEstimator, MultiStageMetaFeatureStacker, FieldGroupedMLPRegressor, PytorchLightning*, _NumericOnlyTransformer, SimilarityBlendEnsemble.
+- No class that only defines fit/predict without an sklearn base was searched for.

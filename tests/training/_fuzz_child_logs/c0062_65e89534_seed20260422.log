@@ -1,0 +1,81 @@
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_phase_train_one_target_body.py", line 285, in _train_one_target_step1_progress_long_suites
+    pre_pipeline = _train_one_target_ste_step1_model_entry_tqdmu(sorted_models, target_type, st, cur_target_name, _model_idx_in_run, _total_models_in_run, ctx, pre_pipeline_name, strategy_by_model, tier_dfs_cache, tier_enum_map_cache, orig_pre_pipeline, prepared_frames_cache, weight_schemas, ens_models, cur_target_values, _pp_name_stripped, prev_tier, pre_pipeline)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_phase_train_one_target_steps.py", line 329, in _train_one_target_ste_step1_model_entry_tqdmu
+    st.trainset_features_stats, pre_pipeline, st.train_df_transformed, val_df_transformed, test_df_transformed = process_model(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\train_eval.py", line 534, in process_model
+    model, train_df_transformed, val_df_transformed, test_df_transformed = _call_train_evaluate_with_configs(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\train_eval.py", line 320, in _call_train_evaluate_with_configs
+    _result = train_and_evaluate_model(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_trainer_train_and_evaluate.py", line 399, in train_and_evaluate_model
+    train_df, st.val_df = _apply_pre_pipeline_transforms(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers_apply.py", line 195, in _apply_pre_pipeline_transforms
+    train_df, val_df = _apply_pre_pipeline_phase_pre_pipeline_fit(skip_pre_pipeline_transform, verbose, skip_preprocessing, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df, t0_pre, cache_max, _cache_key_entry)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers_apply.py", line 256, in _apply_pre_pipeline_phase_pre_pipeline_fit
+    train_df, val_df = _apply_pre_pipeline_p_step1_skip_pre_pipeline(skip_pre_pipeline_transform, verbose, skip_preprocessing, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers_apply.py", line 277, in _apply_pre_pipeline_p_step1_skip_pre_pipeline
+    return _fit_and_apply_pipeline(verbose, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers_apply.py", line 424, in _fit_and_apply_pipeline
+    train_df = _refit_through(pre_pipeline, train_df, selector_passthrough_cols, _enc_target, groups, sample_weight)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers_apply.py", line 291, in _refit_through
+    return _passthrough_cols_fit_transform(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers.py", line 608, in _passthrough_cols_fit_transform
+    return _run_and_empty_check(fn, df, target)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers.py", line 593, in _run_and_empty_check
+    return _call_fit(_fn, _arg, _target_arg) if fit else _fn(_arg)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers.py", line 559, in _call_fit
+    return _fn(_arg, _target_arg)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\base.py", line 1336, in wrapper
+    return fit_method(estimator, *args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\pipeline.py", line 677, in fit_transform
+    Xt = self._fit(X, y, routed_params)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\pipeline.py", line 547, in _fit
+    X, fitted_transformer = fit_transform_one_cached(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\memory.py", line 326, in __call__
+    return self.func(*args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\pipeline.py", line 1484, in _fit_transform_one
+    res = transformer.fit_transform(X, y, **params.get("fit_transform", {}))
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\_set_output.py", line 316, in wrapped
+    data_to_wrap = f(self, X, *args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\base.py", line 910, in fit_transform
+    return self.fit(X, y, **fit_params).transform(X)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\_selection_log.py", line 134, in wrapper
+    return fn(*args, **kwargs)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\functional_adapters.py", line 256, in fit
+    selected = forward_select(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\_selection_log.py", line 112, in wrapper
+    result = fn(*args, **kwargs)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\forward_select.py", line 175, in forward_select
+    fold_scores = cross_val_score(model, _subset(trial_cols), y, cv=cv, scoring=scoring)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\_param_validation.py", line 218, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\model_selection\_validation.py", line 651, in cross_val_score
+    cv_results = cross_validate(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\_param_validation.py", line 218, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\model_selection\_validation.py", line 373, in cross_validate
+    results = parallel(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\parallel.py", line 91, in __call__
+    return super().__call__(iterable_with_config_and_warning_filters)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\parallel.py", line 1986, in __call__
+    return output if self.return_generator else list(output)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\parallel.py", line 1914, in _get_sequential_output
+    res = func(*args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\parallel.py", line 184, in __call__
+    return self.function(*args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\model_selection\_validation.py", line 833, in _fit_and_score
+    estimator.fit(X_train, y_train, **fit_params)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\base.py", line 1336, in wrapper
+    return fit_method(estimator, *args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\ensemble\_forest.py", line 486, in fit
+    trees = Parallel(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\parallel.py", line 91, in __call__
+    return super().__call__(iterable_with_config_and_warning_filters)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\parallel.py", line 1986, in __call__
+    return output if self.return_generator else list(output)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\parallel.py", line 1914, in _get_sequential_output
+    res = func(*args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\parallel.py", line 154, in __call__
+    with config_context(**config), warnings.catch_warnings():
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\ensemble\_forest.py", line 204, in _parallel_build_trees
+    return tree
++++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++

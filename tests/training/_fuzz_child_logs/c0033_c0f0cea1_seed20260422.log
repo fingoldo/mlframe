@@ -1,0 +1,81 @@
+    waiter.acquire()
+~~~~~~~~~~~~~~~~~~~ Stack of ExecutorManagerThread (42472) ~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1044, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\process_executor.py", line 623, in run
+    result_item, is_broken, bpe = self.wait_result_broken_or_wakeup()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\process_executor.py", line 681, in wait_result_broken_or_wakeup
+    ready = wait(readers + worker_sentinels)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\multiprocessing\connection.py", line 1113, in wait
+    ready_handles = _exhaustive_wait(waithandle_to_obj.keys(), timeout)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\multiprocessing\connection.py", line 1045, in _exhaustive_wait
+    res = _winapi.WaitForMultipleObjects(short_L, False, timeout)
+~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of Thread-31 (32532) ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1044, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\tqdm\_monitor.py", line 60, in run
+    self.was_killed.wait(self.sleep_interval)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 670, in wait
+    signaled = self._cond.wait(timeout)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 373, in wait
+    gotit = waiter.acquire(True, timeout)
+~~~~~~~~~~~~~~~~~~~~~ Stack of mlframe-heartbeat (41196) ~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1044, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1024, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\crash_diagnostics.py", line 319, in _run
+    while not self._stop.wait(self.interval_s):
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 670, in wait
+    signaled = self._cond.wait(timeout)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 373, in wait
+    gotit = waiter.acquire(True, timeout)
+~~~~~~~~~~~~~~~~~~~ Stack of Thread-1 (run_server) (40156) ~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1044, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1024, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pytest_rerunfailures.py", line 654, in run_server
+    conn, _ = self.sock.accept()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\socket.py", line 298, in accept
+    fd, addr = self._accept()
+~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of MainThread (36032) ~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\parallel.py", line 1928, in _get_sequential_output
+    self.print_progress()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\parallel.py", line 154, in __call__
+    with config_context(**config), warnings.catch_warnings():
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\ensemble\_forest.py", line 204, in _parallel_build_trees
+    return tree
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\tree\_classes.py", line 483, in _fit
+    return self
++++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++
+C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\backend\resource_tracker.py:359: UserWarning: resource_tracker: There appear to be 10 leaked folder objects to clean up at shutdown
+  warnings.warn(
+C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\backend\resource_tracker.py:375: UserWarning: resource_tracker: C:\Users\Admin\AppData\Local\Temp\joblib_memmapping_folder_7736_7e9772c326e5462d9594afb5689c7981_a957d2b3c76e465987bb57b06dae7ee0: FileNotFoundError(2, 'Не удается найти указанный файл')
+  warnings.warn(f"resource_tracker: {name}: {e!r}")
+C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\backend\resource_tracker.py:375: UserWarning: resource_tracker: C:\Users\Admin\AppData\Local\Temp\joblib_memmapping_folder_7736_7e9772c326e5462d9594afb5689c7981_398c6f4c28b247c29898e0b5cb5f00d5: FileNotFoundError(2, 'Не удается найти указанный файл')
+  warnings.warn(f"resource_tracker: {name}: {e!r}")
+C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\backend\resource_tracker.py:375: UserWarning: resource_tracker: C:\Users\Admin\AppData\Local\Temp\joblib_memmapping_folder_7736_fa0c2035d77b4b0bb5764cb688b8d001_565e652611a248cdb6afdbbdf7f16332: FileNotFoundError(2, 'Не удается найти указанный файл')
+  warnings.warn(f"resource_tracker: {name}: {e!r}")
+C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\backend\resource_tracker.py:375: UserWarning: resource_tracker: C:\Users\Admin\AppData\Local\Temp\joblib_memmapping_folder_7736_7e9772c326e5462d9594afb5689c7981_49475a5eafc4442ca9b6b09f7eee84f9: FileNotFoundError(2, 'Не удается найти указанный файл')
+  warnings.warn(f"resource_tracker: {name}: {e!r}")
+C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\backend\resource_tracker.py:375: UserWarning: resource_tracker: C:\Users\Admin\AppData\Local\Temp\joblib_memmapping_folder_7736_31ed4c03fb25477e942fe907d9fbf5c9_8833931913874b9abd3505d09d07710e: FileNotFoundError(2, 'Не удается найти указанный файл')
+  warnings.warn(f"resource_tracker: {name}: {e!r}")
+C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\backend\resource_tracker.py:375: UserWarning: resource_tracker: C:\Users\Admin\AppData\Local\Temp\joblib_memmapping_folder_7736_31ed4c03fb25477e942fe907d9fbf5c9_17efbb0a72294de59883d54877bd6688: FileNotFoundError(2, 'Не удается найти указанный файл')
+  warnings.warn(f"resource_tracker: {name}: {e!r}")
+C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\backend\resource_tracker.py:375: UserWarning: resource_tracker: C:\Users\Admin\AppData\Local\Temp\joblib_memmapping_folder_7736_d9c5abdc351d408abc8a404d3e9df093_1bda214a7e214bc99b0f2c1f86e77369: FileNotFoundError(2, 'Не удается найти указанный файл')
+  warnings.warn(f"resource_tracker: {name}: {e!r}")
+C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\backend\resource_tracker.py:375: UserWarning: resource_tracker: C:\Users\Admin\AppData\Local\Temp\joblib_memmapping_folder_7736_31ed4c03fb25477e942fe907d9fbf5c9_182ff98f1e644749ad0451f929eb83cf: FileNotFoundError(2, 'Не удается найти указанный файл')
+  warnings.warn(f"resource_tracker: {name}: {e!r}")
+C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\backend\resource_tracker.py:375: UserWarning: resource_tracker: C:\Users\Admin\AppData\Local\Temp\joblib_memmapping_folder_7736_fd5cbabd7d2547a4a2e2cfc911ddf6aa_d6801900c63d465ab0ca2428a73623a5: FileNotFoundError(2, 'Не удается найти указанный файл')
+  warnings.warn(f"resource_tracker: {name}: {e!r}")
+C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\backend\resource_tracker.py:375: UserWarning: resource_tracker: C:\Users\Admin\AppData\Local\Temp\joblib_memmapping_folder_7736_31ed4c03fb25477e942fe907d9fbf5c9_d451ad5c471d430ab61edcb0deda1705: FileNotFoundError(2, 'Не удается найти указанный файл')
+  warnings.warn(f"resource_tracker: {name}: {e!r}")

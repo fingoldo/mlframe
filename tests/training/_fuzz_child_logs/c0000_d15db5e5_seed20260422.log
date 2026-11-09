@@ -1,0 +1,65 @@
+Warning: less than 75% GPU memory available for training. Free: 2748.860901 Total: 4093.5
+
+pre_pipeline:   0%|          | 0/7 [00:00<?, ?it/s]
+pre_pipeline:   0%|          | 0/7 [00:00<?, ?it/s]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+pre_pipeline:  14%|█▍        | 1/7 [00:05<00:31,  5.31s/it]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+pre_pipeline:  29%|██▊       | 2/7 [00:31<01:28, 17.67s/it]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+pre_pipeline:  43%|████▎     | 3/7 [03:38<06:20, 95.05s/it]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+pre_pipeline:  57%|█████▋    | 4/7 [03:50<03:05, 61.99s/it]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+pre_pipeline:  71%|███████▏  | 5/7 [04:32<01:50, 55.07s/it]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+pre_pipeline:  86%|████████▌ | 6/7 [04:39<00:38, 38.77s/it]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+pre_pipeline: 100%|██████████| 7/7 [04:53<00:00, 30.53s/it]
+pre_pipeline: 100%|██████████| 7/7 [04:53<00:00, 41.94s/it]
+.
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0000_d15db5e5-cb-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning:
+
+  MultilabelDispatchConfig.cv=2 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+
+tests/training/fuzz/test_fuzz_suite.py: 100 warnings
+  C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py:3443: UserWarning:
+
+  MRMR.fit: 2 parameter value(s) are valid but known to DEGRADE selection accuracy:
+    * fe_pairwise_modular_enable=False: no (a+b) mod m / (a*b) mod m / n-way parity / hidden-period interactions are engineered. Better: leave it True (default); opt out only for byte-identical legacy replay.
+    * fe_row_argmax_enable=False: no row-argmax (which-column-is-largest) categorical interaction is engineered. Better: leave it True (default); opt out only for byte-identical legacy replay.
+  (These are intentional only for byte-identical legacy replay / ablation / speed; otherwise prefer the defaults. Silence by restoring the defaults above.)
+
+tests/training/fuzz/test_fuzz_suite.py: 43 warnings
+  C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_mrmr_fit_impl\_assign_support_tail.py:694: UserWarning:
+
+  MRMR: screening returned 0 features; falling back to the 1 raw feature(s) clearing the relevance floor by debiased MI(X_j, y). Set min_features_fallback=0 to disable. fallback_used_=True is set on the estimator.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0000_d15db5e5-cb-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numba\cuda\dispatcher.py:536: NumbaPerformanceWarning:
+
+  [1mGrid size 1 will likely result in GPU under-utilization due to low occupancy.[0m
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0000_d15db5e5-cb-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numba\cuda\dispatcher.py:536: NumbaPerformanceWarning:
+
+  [1mGrid size 2 will likely result in GPU under-utilization due to low occupancy.[0m
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning:
+
+  It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 153 deselected, 147 warnings in 488.26s (0:08:08)

@@ -1,0 +1,21 @@
+[hang-watchdog] arming 3000s for tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0057_83e5cc3c-cb_hgb_lgb_mlp_xgb-pl_enum-n300000]
+F
+C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_misc_helpers.py:398: ValueError: Input DataFrame is missing 5 load-bearing feature column(s) that the model was trained on: ['cat_0_concat_group__cat_0_text_0__target_binary_classification_target_bin', 'cat_0_concat_group__cat_0_text_0__target_multiclass_classification_target', 'concat_group__cat_0_text_0__target_multiclass_classification_target_concat_group__cat_0_text_0__target_binary_classification_target_bin', 'text_0_concat_group__cat_0_text_0__target_binary_classification_target_bin', 'text_0_concat_group__cat_0_text_0__target_multiclass_classification_target']. These are declared in metadata as cat/text/embedding features; the pipeline + model cannot run correctly without them. Either restore the upstream extraction that produced these columns, or retrain the model on the current feature set.
+
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0057_83e5cc3c-cb_hgb_lgb_mlp_xgb-pl_enum-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning:
+
+  MultilabelDispatchConfig.cv=2 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0057_83e5cc3c-cb_hgb_lgb_mlp_xgb-pl_enum-n300000]
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning:
+
+  It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 failed, 541 deselected, 2 warnings in 173.37s (0:02:53)

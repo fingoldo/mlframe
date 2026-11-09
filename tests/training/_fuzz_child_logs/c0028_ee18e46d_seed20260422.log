@@ -1,0 +1,81 @@
+cat_0  5     3            7              9          MAE     A [3]: 0.649  ...   0.260864
+                                                    RMSE    A [3]: 0.737  ...   0.301097
+
+[2 rows x 6 columns]
+                                                                       bin-best-1  ... metric_std
+factor nbins npoints_from npoints_median npoints_to metric                         ...
+cat_0  5     5            6              11         MAE              B [7]: 1.035  ...   0.480217
+                                                    RMSE    ZZZ_UNSEEN [6]: 1.301  ...   0.453213
+
+[2 rows x 6 columns]
+                                                              bin-best-1  ... metric_std
+factor nbins npoints_from npoints_median npoints_to metric                ...
+cat_0  3     1            2              4          MAE     A [1]: 0.401  ...   0.449558
+                                                    RMSE    A [1]: 0.401  ...   0.574179
+
+[2 rows x 4 columns]
+                                                              bin-best-1  ... metric_std
+factor nbins npoints_from npoints_median npoints_to metric                ...
+cat_0  4     2            2              4          MAE     C [4]: 1.075  ...   0.943101
+                                                    RMSE    C [4]: 1.439  ...   0.842250
+
+[2 rows x 6 columns]
+                                                              bin-best-1  ... metric_std
+factor nbins npoints_from npoints_median npoints_to metric                ...
+cat_0  5     3            7              9          MAE     A [3]: 0.581  ...   0.280248
+                                                    RMSE    A [3]: 0.678  ...   0.319652
+
+[2 rows x 6 columns]
+                                                                       bin-best-1  ... metric_std
+factor nbins npoints_from npoints_median npoints_to metric                         ...
+cat_0  5     5            6              11         MAE     ZZZ_UNSEEN [6]: 0.933  ...   0.487985
+                                                    RMSE    ZZZ_UNSEEN [6]: 1.261  ...   0.465707
+
+[2 rows x 6 columns]
+                                                              bin-best-1  ... metric_std
+factor nbins npoints_from npoints_median npoints_to metric                ...
+cat_0  3     1            2              4          MAE     A [1]: 0.400  ...   0.449711
+                                                    RMSE    A [1]: 0.400  ...   0.574409
+
+[2 rows x 4 columns]
+                                                              bin-best-1  ... metric_std
+factor nbins npoints_from npoints_median npoints_to metric                ...
+cat_0  4     2            2              4          MAE     C [4]: 1.074  ...   0.942977
+                                                    RMSE    C [4]: 1.438  ...   0.842124
+
+[2 rows x 6 columns]
+
+pre_pipeline: 100%|██████████| 7/7 [04:00<00:00, 40.67s/it]
+pre_pipeline: 100%|██████████| 7/7 [04:00<00:00, 34.29s/it]
+
+pre_pipeline:   0%|          | 0/7 [00:00<?, ?it/s]
+pre_pipeline:   0%|          | 0/7 [00:00<?, ?it/s]
+
+mlframe model:   0%|          | 0/3 [00:00<?, ?it/s][A
+
+mlframe model:   0%|          | 0/3 [00:00<?, ?it/s][AMetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+<pandas.io.formats.style.Styler object at 0x0000028B6C22D160>
+<pandas.io.formats.style.Styler object at 0x0000028B6C08D950>
+
+mlframe model:   0%|          | 0/3 [00:00<?, ?it/s]
+
+pre_pipeline:   0%|          | 0/7 [00:00<?, ?it/s]
+F
+C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_confidence_analysis.py:285: TypeError: CatBoostRegressor.fit() got an unexpected keyword argument '_mlframe_cb_eval_sample_weight'
+
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0028_ee18e46d-cb_hgb_linear-pl_utf8-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning: MultilabelDispatchConfig.cv=3 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0028_ee18e46d-cb_hgb_linear-pl_utf8-n1000]
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning: It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+    register_random(_r)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 failed, 153 deselected, 2 warnings in 370.81s (0:06:10)

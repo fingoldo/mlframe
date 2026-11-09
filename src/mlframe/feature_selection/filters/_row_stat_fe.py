@@ -134,7 +134,8 @@ def _search(Zt: np.ndarray, codes: np.ndarray, ky: int) -> "list[tuple[float, in
         mat, sizes = _subset_matrix(grow)
         st = np.array([best[s][1] for s in owners], dtype=np.int64)
         ev, od = np.empty(len(grow)), np.empty(len(grow))
-        eval_candidates(Zt, mat, sizes, st, codes, ky, N_MI_BINS, ev, od)
+        with parallel_kernel_entry():
+            eval_candidates(Zt, mat, sizes, st, codes, ky, N_MI_BINS, ev, od)
         grew = False
         for s in set(owners):
             idx = [i for i, o in enumerate(owners) if o == s]

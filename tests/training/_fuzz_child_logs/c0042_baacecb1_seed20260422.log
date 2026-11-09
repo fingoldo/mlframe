@@ -1,0 +1,81 @@
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\main.py", line 408, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 139, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 184, in pytest_runtest_call
+    item.runtest()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\python.py", line 1707, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\python.py", line 167, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "C:\Users\Admin\Machine learning\mlframe\tests\training\fuzz\test_fuzz_suite.py", line 606, in test_fuzz_train_mlframe_models_suite
+    trained, _meta = train_mlframe_models_suite(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_main_train_suite.py", line 716, in train_mlframe_models_suite
+    models, metadata = run_recurrent_finalize_and_composite_post(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_main_train_suite_phases.py", line 401, in run_recurrent_finalize_and_composite_post
+    metadata = pr_module.finalize_suite(ctx)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_phase_finalize.py", line 646, in finalize_suite
+    _render_split_comparison_panels(ctx)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_phase_finalize.py", line 472, in _render_split_comparison_panels
+    if render_split_comparison_from_suite(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\_diagnostics_dispatch_extra.py", line 644, in render_split_comparison_from_suite
+    ok = _save_spec(spec, plot_outputs, out)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\_diagnostics_dispatch_extra.py", line 79, in _save_spec
+    return _f(*args, **kwargs)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\diagnostics_dispatch.py", line 71, in _save_spec
+    render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\renderers\save.py", line 305, in render_and_save
+    submit_render(queue, spec, output, base_path, _sub)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\async_render_hooks.py", line 157, in submit_render
+    queue.submit(_render_spec_task, spec, output, base_path, subfolders, name=_label_of(base_path), payload_bytes=_tree_nbytes(spec, 1 << 62))
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\_async_render.py", line 421, in submit
+    waited = self._gate.acquire(nbytes)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\_async_render.py", line 133, in acquire
+    self._cv.wait(timeout=1.0)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 381, in wait
+    self._waiters.remove(waiter)
++++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++

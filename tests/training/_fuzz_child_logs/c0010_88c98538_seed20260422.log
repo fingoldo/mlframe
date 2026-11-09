@@ -1,0 +1,81 @@
+Validation DataLoader 0: 100%|██████████| 1/1 [00:00<00:00, 179.00it/s][A
+
+                                                                       [A
+Epoch 0: 100%|██████████| 1/1 [00:00<00:00, 16.64it/s, v_num=0, train_loss_step=2.260, val_loss_step=0.692, val_loss_epoch=0.692, val_ICE=1.110]
+Epoch 0: 100%|██████████| 1/1 [00:00<00:00, 15.97it/s, v_num=0, train_loss_step=2.260, val_loss_step=0.692, val_loss_epoch=0.692, val_ICE=1.110, train_loss_epoch=2.260]
+Epoch 0:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=2.260, val_loss_step=0.692, val_loss_epoch=0.692, val_ICE=1.110, train_loss_epoch=2.260]
+Epoch 1:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=2.260, val_loss_step=0.692, val_loss_epoch=0.692, val_ICE=1.110, train_loss_epoch=2.260]
+Epoch 1: 100%|██████████| 1/1 [00:00<00:00, 50.98it/s, v_num=0, train_loss_step=2.260, val_loss_step=0.692, val_loss_epoch=0.692, val_ICE=1.110, train_loss_epoch=2.260]
+Epoch 1: 100%|██████████| 1/1 [00:00<00:00, 48.34it/s, v_num=0, train_loss_step=2.190, val_loss_step=0.692, val_loss_epoch=0.692, val_ICE=1.110, train_loss_epoch=2.260]
+
+Validation: |          | 0/? [00:00<?, ?it/s][A
+
+Validation: |          | 0/? [00:00<?, ?it/s][A
+
+Validation DataLoader 0:   0%|          | 0/1 [00:00<?, ?it/s][A
+
+Validation DataLoader 0: 100%|██████████| 1/1 [00:00<00:00, 125.29it/s][A
+
+                                                                       [A
+Epoch 1: 100%|██████████| 1/1 [00:00<00:00, 21.01it/s, v_num=0, train_loss_step=2.190, val_loss_step=0.690, val_loss_epoch=0.690, val_ICE=1.180, train_loss_epoch=2.260]
+Epoch 1: 100%|██████████| 1/1 [00:00<00:00, 20.10it/s, v_num=0, train_loss_step=2.190, val_loss_step=0.690, val_loss_epoch=0.690, val_ICE=1.180, train_loss_epoch=2.190]
+Epoch 1:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=2.190, val_loss_step=0.690, val_loss_epoch=0.690, val_ICE=1.180, train_loss_epoch=2.190]
+Epoch 2:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=2.190, val_loss_step=0.690, val_loss_epoch=0.690, val_ICE=1.180, train_loss_epoch=2.190]
+Epoch 2: 100%|██████████| 1/1 [00:00<00:00, 62.74it/s, v_num=0, train_loss_step=2.190, val_loss_step=0.690, val_loss_epoch=0.690, val_ICE=1.180, train_loss_epoch=2.190]
+Epoch 2: 100%|██████████| 1/1 [00:00<00:00, 60.63it/s, v_num=0, train_loss_step=2.130, val_loss_step=0.690, val_loss_epoch=0.690, val_ICE=1.180, train_loss_epoch=2.190]
+
+Validation: |          | 0/? [00:00<?, ?it/s][A
+
+Validation: |          | 0/? [00:00<?, ?it/s][A
+
+Validation DataLoader 0:   0%|          | 0/1 [00:00<?, ?it/s][A
+
+Validation DataLoader 0: 100%|██████████| 1/1 [00:00<00:00, 115.19it/s][A
+
+                                                                       [A
+Epoch 2: 100%|██████████| 1/1 [00:00<00:00, 21.60it/s, v_num=0, train_loss_step=2.130, val_loss_step=0.689, val_loss_epoch=0.689, val_ICE=0.910, train_loss_epoch=2.190]
+Epoch 2: 100%|██████████| 1/1 [00:00<00:00, 20.26it/s, v_num=0, train_loss_step=2.130, val_loss_step=0.689, val_loss_epoch=0.689, val_ICE=0.910, train_loss_epoch=2.130]
+Epoch 2: 100%|██████████| 1/1 [00:00<00:00, 15.73it/s, v_num=0, train_loss_step=2.130, val_loss_step=0.689, val_loss_epoch=0.689, val_ICE=0.910, train_loss_epoch=2.130]
+
+
+mlframe model: 100%|██████████| 2/2 [00:10<00:00,  5.15s/it][A
+mlframe model: 100%|██████████| 2/2 [00:10<00:00,  5.11s/it]
+
+pre_pipeline: 100%|██████████| 5/5 [01:08<00:00, 13.12s/it]
+pre_pipeline: 100%|██████████| 5/5 [01:08<00:00, 13.69s/it]
+.
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0010_88c98538-cb_mlp-pl_nullable-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning: PreprocessingBackendConfig.fallback_to_sklearn=False has no effect: the polars path falls back on its own; the flag is never read
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0010_88c98538-cb_mlp-pl_nullable-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning: MultilabelDispatchConfig.cv=2 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0010_88c98538-cb_mlp-pl_nullable-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2166505051216_1791835241 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py: 25 warnings
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\utilities\_pytree.py:21: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0010_88c98538-cb_mlp-pl_nullable-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2166503474832_1791835257 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0010_88c98538-cb_mlp-pl_nullable-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2166503489232_1791835293 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0010_88c98538-cb_mlp-pl_nullable-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2166503444624_1791835297 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0010_88c98538-cb_mlp-pl_nullable-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2166502810448_1791835307 exists and is not empty.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning: It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+    register_random(_r)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 153 deselected, 33 warnings in 171.02s (0:02:51)
