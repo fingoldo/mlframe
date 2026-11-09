@@ -51,3 +51,17 @@ The shape families are a few seconds each; restricting them to ~25 columns saves
 1. hybrid_variants by sub-gate and the repeated work behind the decide_on_subsample calls.
 2. Generators for the missing planted signals; the recall / out-of-sample benchmark with the pool applied only to the linear-scaling unary families.
 3. Only then the pool for anything else.
+
+## Baseline, all columns (2026-11-09)
+
+`bench_pool_planted_recall.py 20000 100 1`, all families, one process, the generators of `tests/feature_selection/_synth/pool_planted.py`. Recall is crude (a selected column whose name mentions every planted source), so it says the fit built something from the planted columns, not that it found the planted transform.
+
+| generator | wall | selected | columns that mention a planted source |
+|---|---|---|---|
+| weak_marginal_shape | 58.1 s | 2 | sig_x, sig_x__pade2 |
+| hidden_periodic | 43.2 s | 2 | sig_x, sig_x__digit_2 (no sine column: the periodic structure is picked up through the raw column and a digit feature) |
+| grouped_by_irrelevant_key | 46.1 s | 5 | sig_x, sig_x*sig_key__He1_He1, sig_x__round_1p0, esc_poly_hermite_mul(sig_x,sig_key), sub(log(...),prewarp(...)) |
+| ratio_irrelevant_normaliser | 43.9 s | 2 | sig_a, mul(cbrt(sig_a),invcbrt(sig_b)) |
+| conditional_hinge | 48.5 s | 2 | div(cbrt(sig_x),sign(sig_z)), sig_x__pade2 |
+
+Recall 1/1 on every generator at one seed. Next: more seeds, the metric through `fe_provenance_` and a linear out-of-sample gain, then the filtered arms.
