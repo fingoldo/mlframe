@@ -47,3 +47,16 @@ def test_mi_and_pvalue_of_an_informative_and_an_independent_column():
     independent = rng.integers(0, 10, m)
     mi, p = marginal_mi_pvalues(np.vstack([informative, independent]).astype(np.int16), np.array([10, 10]), y)
     assert mi[0] > mi[1] and p[0] < 1e-6 and p[1] > 0.001
+
+
+def test_fit_with_the_relevant_pool_runs_and_keeps_the_strong_column():
+    """``MRMR(fe_shape_pool="relevant")`` fits end to end with the hinge, wavelet and scorer-variant families on and still selects the planted column; the default arm selects it too."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    X, y, _names = _planted.make_weak_marginal_shape(n=4000, p=16, seed=0, strength=2.0)
+    chosen = {}
+    for arm in ("all", "relevant"):
+        MRMR._FIT_CACHE.clear()
+        m = MRMR(verbose=0, random_seed=0, n_jobs=1, fe_max_steps=0, fe_shape_pool=arm, fe_hinge_enable=True, fe_wavelet_enable=True).fit(X, y)
+        chosen[arm] = list(m.get_feature_names_out())
+        assert any("sig_x" in c for c in chosen[arm]), (arm, chosen[arm])
