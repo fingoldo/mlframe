@@ -17,6 +17,7 @@ import pandas as pd
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 import mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core as _core
+from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._inputs import _crit_np_dtype
 
 
 def _nullable_xy(n: int = 400, seed: int = 0):
@@ -67,7 +68,7 @@ def test_eager_and_per_column_densify_paths_select_identically(monkeypatch):
 
 
 def test_nullable_matches_dense_float64_selection():
-    """The whole point of densification: a nullable frame must select the same as its dense-float64 twin."""
+    """The whole point of densification: a nullable frame must select the same as its dense twin at the dtype densification produces (the fit's float dtype, float32 by default)."""
     X, y = _nullable_xy()
-    X_dense = X.astype("float64")
+    X_dense = X.astype(_crit_np_dtype())
     assert _fit_support(X, y) == _fit_support(X_dense, y)
