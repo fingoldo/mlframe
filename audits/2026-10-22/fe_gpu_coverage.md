@@ -150,3 +150,46 @@ Measured per-family walls inside the 100000 x 100 GPU fit (per-family walls in `
 ### group_distance is not a kernel candidate (2026-11-06)
 
 Standalone, host path with the numba prange kernels, 100000 rows, 3 group columns x 8 numeric columns (24 pairs): 0.38 s wall (a first check that passed the arguments in the wrong order grouped by float columns and took 167 s; the signature is `(X, group_cols, num_cols)`). The 5.64 s the family takes inside the 100000 x 100 fit comes from its pair count and from sharing the host threads with the other `mid_b` families, not from per-pair cost, so a segmented-merge Wasserstein kernel would not shorten it; the fit-level lever is the number of pairs it evaluates. The next families by fit wall that have no device twin and a per-call cost worth a kernel are `binned_numeric_agg` (9.4 s), `grouped_quantile` (5.9 s) and `modular` (4.6 s, which has a device path for the codes already).
+
+## GPU coverage measured, not by text markers (2026-11-09, `fam_gpu_attr.py` / `fam_gpu_an.py` in D:/Temp)
+
+Method: default `MRMR`, 100000 x 100 (`family_scale._make`), stage concurrency off (`MLFRAME_FE_STAGE_CONCURRENCY=0`) so families do not overlap, under `nvprof --print-gpu-trace`. Every ledger record (`fe_timed` family, `gate:` lap, `stage:` row) is logged with its start and end; a kernel is charged to the shortest record that contains its GPU start time (fe_timed families before gates and stages). The trace clock is aligned by an anchor kernel launched before the fit. Caveats: launches are asynchronous, so a kernel can start slightly after the record that issued it ended (charged to the next record or to none); nvprof inflates the wall (85.6 s against 71-75 s). The static table above counts text markers and is superseded by this one for the question 'does the family put work on the device'.
+
+Whole run: the `fe_timed` families spent 42.1 s of which 7.3 s were GPU kernel time (17 %).
+
+### Families with at least 0.4 s of wall and under 10 % of it on the device
+
+| family | wall s | GPU kernel s | kernels | GPU % |
+|---|---:|---:|---:|---:|
+| `orth_mi_auto_scorer` | 2.32 | 0.132 | 110 | 5.7 |
+| `orth_mi_meta` | 1.74 | 0.075 | 41 | 4.3 |
+| `grouped_quantile` | 0.91 | 0.000 | 0 | 0.0 |
+| `wavelet` | 0.86 | 0.052 | 3507 | 6.0 |
+| `orth_mi_bootstrap` | 0.86 | 0.005 | 69 | 0.6 |
+| `mi_greedy` | 0.76 | 0.000 | 0 | 0.0 |
+| `group_distance` | 0.67 | 0.000 | 0 | 0.0 |
+| `ordinal_pattern_te` | 0.58 | 0.000 | 0 | 0.0 |
+| `composite_group_agg` | 0.58 | 0.000 | 0 | 0.0 |
+| `kfold_target_encode` | 0.50 | 0.017 | 69 | 3.4 |
+| `orth_mi_tc` | 0.43 | 0.006 | 5 | 1.4 |
+
+### Full-frame stages (outside the shared 30000-row FE subsample) with at least 0.9 s of wall and no device work attributed
+
+| stage | wall s | GPU kernel s | kernels |
+|---|---:|---:|---:|
+| `stage:screen_predictors` | 8.50 | 0.021 | 21 |
+| `stage:fdr_gain_floor` | 4.90 | 0.000 | 0 |
+| `stage:assign_support_tail` | 4.56 | 0.000 | 0 |
+| `stage:support_fe_max_steps_pass` | 3.59 | 0.002 | 108 |
+| `stage:honest_accept_block` | 2.81 | 0.000 | 0 |
+| `stage:discretize_inputs` | 2.42 | 0.000 | 0 |
+| `stage:operand_pool` | 1.85 | 0.000 | 0 |
+| `stage:categorize_dataset` | 1.70 | 0.000 | 0 |
+| `stage:accuracy_gate` | 1.47 | 0.000 | 0 |
+| `stage:pure_form_side_check` | 1.15 | 0.000 | 0 |
+| `stage:dcd_discover_and_swap` | 1.00 | 0.000 | 0 |
+| `stage:pair_mis_and_floor` | 1.00 | 0.000 | 0 |
+
+Families with no kernel at all (any wall): `grouped_quantile`, `mi_greedy`, `group_distance`, `ordinal_pattern_te`, `composite_group_agg`, `random_fourier_features_block`, `conditional_residual`, `conditional_dispersion`, `orth_mi_copula`, `grouped_agg`, `rounding`, `diff_basis`, `digit`, `mahalanobis_density`, `rare_category`, `rankgauss`, `triplet_cross_basis`, `modular`, `pairwise_mi_legacy_sweep`, `missingness_pattern`, `missingness_count`, `cluster_basis`, `pairwise_ratio`, `pairwise_log_ratio`, `lagged_diff`, `grouped_delta`
+
+Reading: the families listed are the ones to give a profiled, streamed, KTC-dispatched device twin per `fe_gpu_coverage.md` contract points 1-5, ordered by wall. A zero in the stage table means no kernel STARTED inside the stage: the stage may still call device code that the attribution gave to a finer record, so each stage is checked in its source before a kernel is written.
