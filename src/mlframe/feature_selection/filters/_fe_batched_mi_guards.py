@@ -8,10 +8,16 @@ parent, which is its only caller.
 from __future__ import annotations
 
 import logging
+import threading
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+#: Verified ``(array, min, max)`` of recently checked device code arrays, newest last; the array reference keeps its buffer from being reused while it is listed. Code arrays are not modified in place.
+_RANGE_CACHE: dict = {}
+_RANGE_CACHE_MAX = 8
+_RANGE_LOCK = threading.Lock()
 
 
 def _assert_codes_in_range(arr, K: int, name: str, codes_trusted: bool = False) -> None:
@@ -48,10 +54,21 @@ def _assert_codes_in_range(arr, K: int, name: str, codes_trusted: bool = False) 
     if getattr(arr, "size", 1) == 0:
         return
     if is_dev:
-        # ONE blocking sync: stack min+max into a 2-vector and a single .get(), not two .item() syncs.
-        _lh = cp.stack((xp.min(arr), xp.max(arr))).get()
-        lo = int(_lh[0])
-        hi = int(_lh[1])
+        # The same device array (a fit's target codes) arrives at every batched-MI entry: its verified range is kept, with the array itself so its buffer cannot be reused under the key.
+        _key = (int(arr.data.ptr), int(arr.size), str(arr.dtype))
+        with _RANGE_LOCK:
+            _hit = _RANGE_CACHE.get(_key)
+        if _hit is not None and _hit[0] is arr:
+            lo, hi = _hit[1], _hit[2]
+        else:
+            # ONE blocking sync: stack min+max into a 2-vector and a single .get(), not two .item() syncs.
+            _lh = cp.stack((xp.min(arr), xp.max(arr))).get()
+            lo = int(_lh[0])
+            hi = int(_lh[1])
+            with _RANGE_LOCK:
+                if len(_RANGE_CACHE) >= _RANGE_CACHE_MAX:
+                    _RANGE_CACHE.pop(next(iter(_RANGE_CACHE)))
+                _RANGE_CACHE[_key] = (arr, lo, hi)
     else:
         lo = int(xp.min(arr))
         hi = int(xp.max(arr))

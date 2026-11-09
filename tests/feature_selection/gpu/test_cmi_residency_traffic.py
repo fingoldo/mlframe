@@ -24,6 +24,8 @@ import pytest
 
 cp = pytest.importorskip("cupy")
 
+from tests.feature_selection.conftest import legacy_mrmr
+
 
 def _need_cuda() -> bool:
     """Whether a usable CUDA device is available (used to skip the module when it is not)."""
@@ -190,7 +192,6 @@ def _run_pair_search_audit():
     from mlframe.feature_selection.filters import _gpu_resident_materialise as _RM
     from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_dispatch as _DI
     from mlframe.feature_selection.filters._gpu_strict_fe import duplicate_transfer_audit, residency_audit
-    from mlframe.feature_selection.filters.mrmr import MRMR
 
     saved = {
         k: os.environ.get(k)
@@ -306,7 +307,7 @@ def _run_pair_search_audit():
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             with duplicate_transfer_audit() as dup, residency_audit() as rep:
-                fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
+                fs = legacy_mrmr(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)  # the audit pins the traffic of the legacy family set; the all-families default copies back more
         names = [str(s) for s in fs.get_feature_names_out()]
         cnt["operand_table_distinct"] = len(_seen_tv)
         cnt["duplicates"] = dup
