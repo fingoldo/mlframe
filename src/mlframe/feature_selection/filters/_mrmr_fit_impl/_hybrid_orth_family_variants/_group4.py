@@ -7,6 +7,8 @@ section this fans out from and the ``self``/``X`` threading contract (mirrors th
 
 from __future__ import annotations
 
+from .._candidate_pool import restrict_to_shape_pool
+
 from typing import Any
 import logging
 
@@ -67,7 +69,7 @@ def _hybrid_orth_family_variants_group4(
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_cmim_cols,
+                cols=restrict_to_shape_pool(self, X, _y_np, _cmim_cols),
                 degrees=_cmim_degrees,
                 basis=_cmim_basis,
                 top_k=_cmim_top_k,
@@ -159,7 +161,7 @@ def _hybrid_orth_family_variants_group4_part3(
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_auto_cols,
+                cols=restrict_to_shape_pool(self, X, _y_np, _auto_cols),
                 degrees=_auto_degrees,
                 basis=_auto_basis,
                 top_k=_auto_top_k,
@@ -259,7 +261,7 @@ def _hybrid_orth_family_variants_group4_part2(
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_ens_cols,
+                cols=restrict_to_shape_pool(self, X, _y_np, _ens_cols),
                 degrees=_ens_degrees,
                 basis=_ens_basis,
                 top_k=_ens_top_k,
@@ -356,7 +358,7 @@ def _hybrid_orth_family_variants_group4_part1(
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_meta_cols,
+                cols=restrict_to_shape_pool(self, X, _y_np, _meta_cols),
                 degrees=_meta_degrees,
                 basis=_meta_basis,
                 top_k=_meta_top_k,
