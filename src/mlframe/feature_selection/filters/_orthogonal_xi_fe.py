@@ -231,6 +231,13 @@ def xi_correlation_batch(X: np.ndarray, y: np.ndarray, *, random_state: int = 0)
 def _score_block(X: np.ndarray, js: list, perms: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, out: np.ndarray) -> None:
     """Score the columns ``js`` of ``X`` with their permutations ``perms`` into ``out[js]``."""
     cols = np.ascontiguousarray(X[:, js].T)
+    from ._orthogonal_xi_gpu import use_device, xi_columns_device
+
+    if use_device(int(cols.shape[1])):
+        on_device = xi_columns_device(cols, perms, r_row, l_row)
+        if on_device is not None:
+            out[js] = on_device
+            return
     vals = np.empty(len(js), dtype=np.float64)  # Intentional float64: accumulator output kept f64
     kernel = _xi_columns_radix_njit if cols.dtype == np.float32 else _xi_columns_njit
     with parallel_kernel_entry():
