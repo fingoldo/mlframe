@@ -21,6 +21,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from ._fe_stage_merge import _fe_merge_new_columns
+from ._candidate_pool import restrict_to_shape_pool
 from ._helpers import _group_and_number, fe_decide_on_subsample, fe_subsample_kwargs, refit_winners
 from ._fe_stage_offset_product import _stage_offset_product
 from ._fe_stage_oof_warp import _stage_oof_warp
@@ -658,6 +659,7 @@ def _stage_wavelet(self, _fe_family_on, _fe_budget_ok, X, _y_np, _raw_input_cols
                 if _wv_cols is None:
                     _wv_raw = set(_raw_input_cols_pre_fe)
                     _wv_cols = [c for c in X.columns if c in _wv_raw] or None
+                _wv_cols = restrict_to_shape_pool(self, X, _y_for_wv, _wv_cols)
                 _X_before_wv_cols = list(X.columns)
                 def _wavelet_recipes_last(X_in, y_in, **kw):
                     """``hybrid_wavelet_fe_with_recipes`` with the recipe list moved last (the order ``fe_decide_on_subsample`` expects)."""

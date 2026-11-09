@@ -3012,6 +3012,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_wavelet_max_cols: Optional[int] = 100,
         fe_wavelet_cols: tuple = (),
         fe_wavelet_max_scale: int = 3,
+        # Column pool of the unary shape families (hinge, wavelet): "all" raw columns (default) or "relevant", the columns that pass the marginal pre-screen
+        # (``_mrmr_fit_impl._candidate_pool``; a U or window shape passes, an XOR / fast oscillation / ratio partner may not, which is why only these families use it).
+        fe_shape_pool: str = "all",
         fe_wavelet_max_legs: int = 6,
         fe_wavelet_top_k: int = 8,
         # RankGauss = rank -> Phi^-1(empirical CDF); leak-safe (TRAIN sorted values,

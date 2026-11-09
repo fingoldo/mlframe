@@ -336,6 +336,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_wavelet_enable": False,
     "fe_wavelet_cols": (),
     "fe_wavelet_max_scale": 3,
+    "fe_shape_pool": "all",
     "fe_wavelet_max_legs": 6,
     "fe_wavelet_top_k": 8,
     "wavelet_features_": [],

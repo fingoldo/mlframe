@@ -579,6 +579,7 @@ class MRMRParams(BaseModel):
     fe_wavelet_max_cols: Optional[int] = 100
     fe_wavelet_cols: tuple = ()
     fe_wavelet_max_scale: int = 3
+    fe_shape_pool: str = "all"
     fe_wavelet_max_legs: int = 6
     fe_wavelet_top_k: int = 8
     fe_rankgauss_enable: bool = False

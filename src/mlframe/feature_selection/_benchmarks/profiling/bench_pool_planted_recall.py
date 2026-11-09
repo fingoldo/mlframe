@@ -2,9 +2,10 @@
 
 Usage: ``python bench_pool_planted_recall.py [ROWS] [COLS] [SEEDS] [GENERATOR,...]`` (the last 30 % of the rows are held out for the linear AUC columns) (defaults 20000 100 1), run from a repository checkout (the generators are loaded from ``tests/feature_selection/_synth/pool_planted.py``). For each generator it prints the wall time, the planted
 columns, the selected columns that mention a planted source, and ``recall``: 1 when the selected set holds a column whose name mentions every planted source (a raw column counts only when one source is planted),
-else 0. Run it once per pool arm and compare the lines; one process, so the timings share the same warm kernels.
+else 0. Run it once per pool arm (``BENCH_FE_SHAPE_POOL=all|relevant``) and compare the lines; one process, so the timings share the same warm kernels.
 """
 
+import os
 import sys
 import time
 import warnings
@@ -42,6 +43,7 @@ def run(rows: int, cols: int, seeds: int, only: str = "") -> None:
     """Fit every generator at ``seeds`` seeds and print one line per fit."""
     kw = F.all_families_kwargs()
     kw["nbins_strategy"] = "mdlp"
+    kw["fe_shape_pool"] = os.environ.get("BENCH_FE_SHAPE_POOL", "all")
     chosen = {k: v for k, v in GENERATORS.items() if not only or k in only.split(",")}
     hits: dict = {name: 0 for name in chosen}
     for name, make in chosen.items():
