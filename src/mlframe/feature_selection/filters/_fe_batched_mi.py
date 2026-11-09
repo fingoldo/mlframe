@@ -483,9 +483,20 @@ def _get_mi_split_f32_kernels(cp):
 
 def _edges_rounded_up_f32(cp: Any, edges: Any) -> Any:
     """Each double edge as the smallest float32 not below it (NaN and +-inf kept): ``e <= (double)x`` iff ``up(e) <= x`` for every float32 ``x``."""
-    e32 = edges.astype(cp.float32)
-    low = e32.astype(cp.float64) < edges  # rounded to nearest fell below the double edge  # Intentional float64: exact comparison with the double edge
-    return cp.ascontiguousarray(cp.where(low, cp.nextafter(e32, cp.float32(cp.inf)), e32))
+    return _ROUND_UP_F32(cp)(edges)  # one launch; the unfused form was six cupy operations (cast, cast, compare, nextafter, where, copy) per call, 4765 calls in a 30000 x 60 fit
+
+
+_ROUND_UP_F32_KERNEL: Any = None
+
+
+def _ROUND_UP_F32(cp: Any) -> Any:
+    """The fused kernel of :func:`_edges_rounded_up_f32` (built once): ``f = (float)e``; when ``(double)f < e`` the next float32 above ``f``; NaN and infinities pass through."""
+    global _ROUND_UP_F32_KERNEL
+    if _ROUND_UP_F32_KERNEL is None:
+        _ROUND_UP_F32_KERNEL = cp.ElementwiseKernel(
+            "float64 e", "float32 o", "float f = (float)e; o = ((double)f < e) ? nextafterf(f, __int_as_float(0x7f800000)) : f;", "mlframe_edges_rounded_up_f32"  # dtype-ok: Intentional float64: the edge is compared with its float32 rounding at full precision
+        )
+    return _ROUND_UP_F32_KERNEL
 
 
 def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nbins: int, ky: int, codes_trusted: bool = False, x_cm: Any = None) -> np.ndarray | None:
