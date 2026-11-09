@@ -264,7 +264,8 @@ def _device_block(block: np.ndarray) -> "object | None":
     try:
         import cupy as cp
 
-        return cp.asarray(np.ascontiguousarray(block.T))
+        device_block: object = cp.asarray(np.ascontiguousarray(block.T))
+        return device_block
     except Exception as exc:
         log_throttle(logger, "orth_auto_scorer.device_block", logging.WARNING, "resample upload failed (%s: %s); the scorers use the host", type(exc).__name__, exc)
         return None
