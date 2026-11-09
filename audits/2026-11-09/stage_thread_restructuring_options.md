@@ -111,3 +111,7 @@ Counting `device_argsort` over a default 100k x 100 fit (`D:/Temp/sort_count.py`
 ### Dedup MI prefetch beside the accuracy gate: no gain, reverted (2026-11-10)
 
 An `EngineeredMiPrefetch` thread scored the appended engineered columns while `_gate_engineered_accuracy` ran, and the dedup took the scores from it (exact equality with the direct call was tested). `stage:cross_stage_dedup` stayed at 1.69 s (1.8 s before) and `stage:accuracy_gate` at 1.5 s; the fit wall of 64.5 s is inside the 65-72 s noise. The dedup's time is therefore in the rank-correlation scan (`scan_engineered_duplicates`), not in the MI scores; any further work there targets the scan.
+
+### Dedup rank scan measured standalone (2026-11-10)
+
+`D:/Temp/dedup_bench.py`: `scan_engineered_duplicates` over 160 synthetic float32 columns of 100k rows, warm, 0.89-0.94 s: `average_ranks` batch kernel 0.37 s, one-vs-many correlations 0.21 s (159 calls), row moments 0.06 s, the rest Python. The in-fit 1.7 s of `stage:cross_stage_dedup` is this plus the MI scores under CPU/GPU contention. A device rank kernel could save at most the 0.37 s of ranking minus the transfers; not built.
