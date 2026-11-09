@@ -72,6 +72,22 @@ def cv_candidates_binary(
     return out
 
 
+_LOGISTIC_KERNELS: dict = {}
+
+
+def _logistic_p_and_weight(cp: Any, z: Any) -> "tuple[Any, Any]":
+    """``p = 1 / (1 + exp(-z))`` and the IRLS weight ``p (1 - p)`` of the logits ``z`` in one launch at ``z``'s dtype (the unfused form was five cupy operations per Newton step)."""
+    if not hasattr(cp, "ElementwiseKernel"):  # the host twin runs this loop on NumPy
+        p = 1.0 / (1.0 + cp.exp(-z))
+        return p, p * (1.0 - p)
+    dt = str(z.dtype)
+    kernel = _LOGISTIC_KERNELS.get(dt)
+    if kernel is None:
+        c = {"float32": "float", "float64": "double"}[dt]
+        kernel = _LOGISTIC_KERNELS[dt] = cp.ElementwiseKernel("%s z" % dt, "%s p, %s w" % (dt, dt), "p = (%s)1 / ((%s)1 + exp(-z)); w = p * ((%s)1 - p);" % (c, c, c), "mlframe_logistic_p_w_" + dt)
+    return kernel(z)
+
+
 def _newton(cp: Any, A: Any, yb: Any, mb: int, kk: int, dtype: Any, max_iter: int, tol: float, lam: float, fallback_error: type) -> Any:
     """Batched L2 Newton for the logistic weights of ``mb`` designs ``A`` ``(mb, n, kk)`` (last column the unpenalised intercept) against the shared labels ``yb``."""
     w = cp.zeros((mb, kk), dtype=dtype)
@@ -82,8 +98,7 @@ def _newton(cp: Any, A: Any, yb: Any, mb: int, kk: int, dtype: Any, max_iter: in
     At = A.transpose(0, 2, 1)
     for _ in range(max_iter):
         z = cp.einsum("bnk,bk->bn", A, w)
-        p = 1.0 / (1.0 + cp.exp(-z))
-        wd = p * (1.0 - p)
+        p, wd = _logistic_p_and_weight(cp, z)
         grad = cp.einsum("bnk,bn->bk", A, p - yb[None, :]) + lam * reg[None, :] * w
         H = cp.matmul(At, A * wd[:, :, None])
         H[:, eye_idx, eye_idx] += lam * reg[None, :]
@@ -94,9 +109,11 @@ def _newton(cp: Any, A: Any, yb: Any, mb: int, kk: int, dtype: Any, max_iter: in
         w = w - step * active[:, None].astype(dtype)
         done = cp.max(cp.abs(step), axis=1) < tol
         active = active & ~done
-        if not bool(cp.all(cp.isfinite(w))):
+        finite_and_active = cp.stack((cp.all(cp.isfinite(w)), active.any()))
+        finite_and_active = finite_and_active.get() if hasattr(finite_and_active, "get") else finite_and_active  # one blocking read per iteration, not two
+        if not bool(finite_and_active[0]):
             raise fallback_error()
-        if not bool(active.any()):
+        if not bool(finite_and_active[1]):
             return w
     raise fallback_error()
 
