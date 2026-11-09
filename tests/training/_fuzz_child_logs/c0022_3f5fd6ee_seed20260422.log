@@ -1,0 +1,81 @@
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+<pandas.io.formats.style.Styler object at 0x000002CCEB6595B0>
+<pandas.io.formats.style.Styler object at 0x000002CCEB65A2C0>
+
+
+mlframe model:  33%|███▎      | 1/3 [00:06<00:13,  7.00s/it][A<pandas.io.formats.style.Styler object at 0x000002CCEC034FC0>
+<pandas.io.formats.style.Styler object at 0x000002CCEC034FC0>
+
+
+mlframe model:  67%|██████▋   | 2/3 [00:19<00:10, 10.24s/it][A<pandas.io.formats.style.Styler object at 0x000002CCEB659BA0>
+<pandas.io.formats.style.Styler object at 0x000002CCEDD9B6F0>
+
+
+mlframe model: 100%|██████████| 3/3 [00:30<00:00, 10.52s/it][A
+mlframe model: 100%|██████████| 3/3 [00:30<00:00, 10.12s/it]
+<pandas.io.formats.style.Styler object at 0x000002CCEDD9B6F0>
+<pandas.io.formats.style.Styler object at 0x000002CCEDD9A2C0>
+<pandas.io.formats.style.Styler object at 0x000002CCECE36C40>
+<pandas.io.formats.style.Styler object at 0x000002CCEB2ECE90>
+<pandas.io.formats.style.Styler object at 0x000002CCEB2ECE90>
+<pandas.io.formats.style.Styler object at 0x000002CCEB2EC640>
+<pandas.io.formats.style.Styler object at 0x000002CCEB637A80>
+<pandas.io.formats.style.Styler object at 0x000002CCEB6355B0>
+<pandas.io.formats.style.Styler object at 0x000002CCEB6355B0>
+<pandas.io.formats.style.Styler object at 0x000002CCEB637820>
+<pandas.io.formats.style.Styler object at 0x000002CCEB635350>
+<pandas.io.formats.style.Styler object at 0x000002CCEB634FC0>
+<pandas.io.formats.style.Styler object at 0x000002CCEB634FC0>
+<pandas.io.formats.style.Styler object at 0x000002CCEB635220>
+<pandas.io.formats.style.Styler object at 0x000002CCEB635E00>
+<pandas.io.formats.style.Styler object at 0x000002CC93479480>
+<pandas.io.formats.style.Styler object at 0x000002CC93479480>
+<pandas.io.formats.style.Styler object at 0x000002CCEC7E5350>
+<pandas.io.formats.style.Styler object at 0x000002CCEC7E6060>
+<pandas.io.formats.style.Styler object at 0x000002CCEC7E6B10>
+<pandas.io.formats.style.Styler object at 0x000002CCEDD46B10>
+<pandas.io.formats.style.Styler object at 0x000002CCEDD9A3F0>
+<pandas.io.formats.style.Styler object at 0x000002CCEB659BA0>
+<pandas.io.formats.style.Styler object at 0x000002CCEB65AB10>
+
+pre_pipeline: 100%|██████████| 2/2 [01:12<00:00, 38.83s/it]
+pre_pipeline: 100%|██████████| 2/2 [01:12<00:00, 36.35s/it]
+.
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0022_3f5fd6ee-cb_hgb_xgb-pl_nullable-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning:
+
+  PreprocessingBackendConfig.fallback_to_sklearn=False has no effect: the polars path falls back on its own; the flag is never read
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0022_3f5fd6ee-cb_hgb_xgb-pl_nullable-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning:
+
+  MultilabelDispatchConfig.cv=3 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0022_3f5fd6ee-cb_hgb_xgb-pl_nullable-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0022_3f5fd6ee-cb_hgb_xgb-pl_nullable-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0022_3f5fd6ee-cb_hgb_xgb-pl_nullable-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0022_3f5fd6ee-cb_hgb_xgb-pl_nullable-n1000]
+  C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_engineering\cross_sectional_neighbors.py:120: FutureWarning:
+
+  The default of observed=False is deprecated and will be changed to True in a future version of pandas. Pass observed=False to retain current behavior or observed=True to adopt the future default and silence this warning.
+
+tests/training/fuzz/test_fuzz_suite.py: 228 warnings
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\validation.py:2691: UserWarning:
+
+  X does not have valid feature names, but OrdinalEncoder was fitted with feature names
+
+tests/training/fuzz/test_fuzz_suite.py: 75 warnings
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\validation.py:2691: UserWarning:
+
+  X does not have valid feature names, but HistGradientBoostingClassifier was fitted with feature names
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning:
+
+  It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 153 deselected, 310 warnings in 382.60s (0:06:22)

@@ -1,0 +1,81 @@
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 139, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 184, in pytest_runtest_call
+    item.runtest()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\python.py", line 1707, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\python.py", line 167, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "C:\Users\Admin\Machine learning\mlframe\tests\training\fuzz\test_fuzz_suite.py", line 606, in test_fuzz_train_mlframe_models_suite
+    trained, _meta = train_mlframe_models_suite(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_main_train_suite.py", line 701, in train_mlframe_models_suite
+    train_every_target(ctx, target_by_type, metadata, pr)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_main_train_suite_target_loop.py", line 90, in train_every_target
+    pr._train_one_target(ctx, target_type, targets, cur_target_name, working)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_phase_train_one_target_body.py", line 155, in _train_one_target
+    _train_one_target_step1_progress_long_suites(st, target_type, ctx, cur_target_name, cur_target_values)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_phase_train_one_target_body.py", line 287, in _train_one_target_step1_progress_long_suites
+    _finalize_per_target_ensembling(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_phase_train_one_target_ensembling.py", line 122, in _finalize_per_target_ensembling
+    _ensembles = score_ensemble(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\models\ensembling\score.py", line 397, in score_ensemble
+    run_ensembling_levels(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\models\ensembling\score_levels.py", line 93, in run_ensembling_levels
+    internal_method, next_ens_results, conf_results = process_fn(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\models\ensembling\process_method.py", line 366, in _process_single_ensemble_method
+    next_ens_results = train_and_evaluate_model(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_trainer_train_and_evaluate.py", line 575, in train_and_evaluate_model
+    _train_and_evaluate_m_step2_st_compute_trainset(st, reporting, model, model_name, data, train_df, confidence)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_trainer_train_and_evaluate.py", line 773, in _train_and_evaluate_m_step2_st_compute_trainset
+    val_res = _run_val_split_metrics(_val_cfg, st.metrics_out, has_test, common_metrics_params)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_trainer_train_and_evaluate_helpers.py", line 18, in _run_val_split_metrics
+    return _compute_split_metrics(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_eval_helpers.py", line 522, in _compute_split_metrics
+    preds, probs = report_model_perf(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\reporting\_reporting.py", line 605, in report_model_perf
+    _rendered_tag = render_multi_target_panels(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\auto_dispatch.py", line 440, in render_multi_target_panels
+    return _try_binary(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\auto_dispatch.py", line 339, in _try_binary
+    return "binary" if render.run(_compose_binary, "binary", "Binary") else None
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\auto_dispatch.py", line 164, in run
+    return _compose_and_render(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\auto_dispatch.py", line 133, in _compose_and_render
+    render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path + suffix)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\renderers\save.py", line 305, in render_and_save
+    submit_render(queue, spec, output, base_path, _sub)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\async_render_hooks.py", line 157, in submit_render
+    queue.submit(_render_spec_task, spec, output, base_path, subfolders, name=_label_of(base_path), payload_bytes=_tree_nbytes(spec, 1 << 62))
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\_async_render.py", line 421, in submit
+    waited = self._gate.acquire(nbytes)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\_async_render.py", line 133, in acquire
+    self._cv.wait(timeout=1.0)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 381, in wait
+    self._waiters.remove(waiter)
++++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++

@@ -1,0 +1,81 @@
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\linear_model\_coordinate_descent.py:716: ConvergenceWarning: Objective did not converge. You might want to increase the number of iterations, check the scale of the features or consider increasing regularisation. Duality gap: 7.138e+00, tolerance: 5.205e-01
+    model = cd_fast.enet_coordinate_descent(
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691864417616_1791789586 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py: 44 warnings
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\utilities\_pytree.py:21: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691864688208_1791789589 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691859603696_1791789590 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691859611600_1791789590 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py:3421: UserWarning: MRMR.fit: 1 parameter value(s) are valid but known to DEGRADE selection accuracy:
+    * fe_conditional_gate_enable=False: no conditional-gate (regime switch c>tau ? a : b / masked interaction) feature is engineered. Better: leave it True (default); opt out only for byte-identical legacy replay.
+  (These are intentional only for byte-identical legacy replay / ablation / speed; otherwise prefer the defaults. Silence by restoring the defaults above.)
+    _fitted = self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numba\cuda\dispatcher.py:536: NumbaPerformanceWarning: [1mGrid size 1 will likely result in GPU under-utilization due to low occupancy.[0m
+    warn(NumbaPerformanceWarning(msg))
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691864690032_1791789640 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1690382713520_1791789641 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691803127136_1791789641 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691803128656_1791789642 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py: 15 warnings
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\linear_model\_sag.py:348: ConvergenceWarning: The max_iter was reached which means the coef_ did not converge
+    warnings.warn(
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691882488848_1791789660 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691863485648_1791789661 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691863483088_1791789661 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691863498128_1791789661 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691875212368_1791789680 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691863062544_1791789681 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691863066704_1791789682 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0040_006cb8fd-hgb_linear_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1691863070864_1791789683 exists and is not empty.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning: It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+    register_random(_r)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 541 deselected, 89 warnings in 252.88s (0:04:12)

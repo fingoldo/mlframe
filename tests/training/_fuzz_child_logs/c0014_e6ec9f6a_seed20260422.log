@@ -1,0 +1,81 @@
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers_apply.py", line 256, in _apply_pre_pipeline_phase_pre_pipeline_fit
+    train_df, val_df = _apply_pre_pipeline_p_step1_skip_pre_pipeline(skip_pre_pipeline_transform, verbose, skip_preprocessing, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers_apply.py", line 274, in _apply_pre_pipeline_p_step1_skip_pre_pipeline
+    return _run_selector_only(verbose, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers_apply.py", line 350, in _run_selector_only
+    train_df = _refit_through(feature_selector, train_df, selector_passthrough_cols, train_target, groups, sample_weight)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers_apply.py", line 291, in _refit_through
+    return _passthrough_cols_fit_transform(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers.py", line 608, in _passthrough_cols_fit_transform
+    return _run_and_empty_check(fn, df, target)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers.py", line 593, in _run_and_empty_check
+    return _call_fit(_fn, _arg, _target_arg) if fit else _fn(_arg)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers.py", line 559, in _call_fit
+    return _fn(_arg, _target_arg)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\_set_output.py", line 316, in wrapped
+    data_to_wrap = f(self, X, *args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\base.py", line 910, in fit_transform
+    return self.fit(X, y, **fit_params).transform(X)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\utils\misc.py", line 229, in _wrapped
+    return fit_method(self, X, *args, **kwargs)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py", line 3443, in fit
+    _fitted = self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py", line 3557, in _fit_body
+    _stab_result = self._stability_outer_fit(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class_fit_helpers.py", line 300, in _stability_outer_fit
+    sel, freq, info = cluster_stability_selection(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_stability_cluster.py", line 236, in cluster_stability_selection
+    sel = selector_fn(X.iloc[idx] if _is_df else X[idx], y[idx])
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class_fit_helpers.py", line 293, in _inner_selector
+    sub.fit(X_sub_df, y_sub_s)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\utils\misc.py", line 229, in _wrapped
+    return fit_method(self, X, *args, **kwargs)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py", line 3443, in fit
+    _fitted = self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py", line 3906, in _fit_body
+    result = self._fit_impl(X, y, groups, **fit_params)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_mrmr_fit_impl\_fit_impl_core.py", line 326, in _fit_impl
+    X, _raw_input_cols_pre_fe = _run_fe_stage_cascades(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_mrmr_fit_impl\_fe_stage_cascade_run.py", line 23, in _run_fe_stage_cascades
+    X, _raw_input_cols_pre_fe, recipes.hinge_deferred_values, recipes.hinge_deferred = _fe_stage_cascade_early_a(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_mrmr_fit_impl\_fe_stage_cascade_early_a.py", line 366, in _fe_stage_cascade_early_a
+    X_acc = _fe_merge_new_columns(X_acc, _hybrid_orth_family_variants(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_mrmr_fit_impl\_hybrid_orth_family_variants\__init__.py", line 65, in _hybrid_orth_family_variants
+    X = _hybrid_orth_family_variants_group2(X=X, **kwargs)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_mrmr_fit_impl\_hybrid_orth_family_variants\_group2.py", line 213, in _hybrid_orth_family_variants_group2
+    X = _stage_ksg(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_mrmr_fit_impl\_hybrid_orth_family_variants\_group2.py", line 429, in _stage_ksg
+    X_ksg, _ksg_scores, _ksg_recipes = fe_decide_on_subsample(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_mrmr_fit_impl\_helpers.py", line 413, in fe_decide_on_subsample
+    return fit_with_recipes_fn(fe_to_pandas(X), y, **kwargs)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_orthogonal_ksg_mi_fe.py", line 341, in hybrid_orth_mi_ksg_fe_with_recipes
+    X_aug, scores = hybrid_orth_mi_ksg_fe(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_orthogonal_ksg_mi_fe.py", line 282, in hybrid_orth_mi_ksg_fe
+    scores = score_features_by_ksg_mi_uplift(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_orthogonal_ksg_mi_fe.py", line 195, in score_features_by_ksg_mi_uplift
+    raw_mi = _ksg_mi_batch(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_orthogonal_ksg_mi_fe.py", line 123, in _ksg_mi_batch
+    mi = mutual_info_classif(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\_param_validation.py", line 218, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\feature_selection\_mutual_info.py", line 571, in mutual_info_classif
+    return _estimate_mi(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\feature_selection\_mutual_info.py", line 317, in _estimate_mi
+    mi = Parallel(n_jobs=n_jobs)(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\parallel.py", line 91, in __call__
+    return super().__call__(iterable_with_config_and_warning_filters)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\parallel.py", line 1986, in __call__
+    return output if self.return_generator else list(output)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\parallel.py", line 1914, in _get_sequential_output
+    res = func(*args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\parallel.py", line 184, in __call__
+    return self.function(*args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\feature_selection\_mutual_info.py", line 167, in _compute_mi
+    return _compute_mi_cd(x, y, n_neighbors)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\feature_selection\_mutual_info.py", line 129, in _compute_mi_cd
+    r = nn.kneighbors()[0]
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\neighbors\_base.py", line 957, in kneighbors
+    return neigh_dist, neigh_ind
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\metrics\_pairwise_distances_reduction\_dispatcher.py", line 277, in compute
+    return ArgKmin64.compute(
++++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++

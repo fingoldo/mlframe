@@ -1,0 +1,81 @@
+mlframe model: 100%|██████████| 2/2 [00:00<00:00,  4.21it/s]
+mlframe model: 100%|██████████| 2/2 [00:00<00:00,  3.89it/s]
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF76C40>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+<pandas.io.formats.style.Styler object at 0x000001F76DF75810>
+<pandas.io.formats.style.Styler object at 0x000001F76DF756E0>
+
+mlframe model:  50%|█████     | 1/2 [00:00<00:00,  3.60it/s]<pandas.io.formats.style.Styler object at 0x000001F76DF75810>
+<pandas.io.formats.style.Styler object at 0x000001F76DF75810>
+
+mlframe model: 100%|██████████| 2/2 [00:00<00:00,  4.38it/s]
+mlframe model: 100%|██████████| 2/2 [00:00<00:00,  4.24it/s]
+<pandas.io.formats.style.Styler object at 0x000001F76DF75220>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+<pandas.io.formats.style.Styler object at 0x000001F76BDF0FC0>
+.
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0007_98261267-cb_lgb-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning: MultilabelDispatchConfig.cv=3 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0007_98261267-cb_lgb-pandas-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0007_98261267-cb_lgb-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightgbm\callback.py:333: UserWarning: Early stopping is not available in dart mode
+    _log_warning("Early stopping is not available in dart mode")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning: It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+    register_random(_r)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 153 deselected, 4 warnings in 107.81s (0:01:47)

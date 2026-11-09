@@ -1,0 +1,81 @@
+    snapshot_vectors = df.groupby(snapshot_col, sort=False)[list(feature_cols)].mean()
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157897834384_1791837962 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py: 72 warnings
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\utilities\_pytree.py:21: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157902155104_1791837964 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157902166352_1791837965 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157902290128_1791837965 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157876370336_1791837972 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157876375808_1791837972 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157871745488_1791837994 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157871746096_1791837995 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157871747008_1791837995 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157871747312_1791837995 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157897414992_1791838054 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157871756736_1791838055 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157871757040_1791838055 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157871757344_1791838055 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157897404960_1791838058 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157897408608_1791838058 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157897409824_1791838059 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157876376112_1791838059 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157876365776_1791838068 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157876368512_1791838068 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157876367600_1791838068 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0017_dc5b2d19-lgb_mlp-pandas-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2157928195360_1791838069 exists and is not empty.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning: It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+    register_random(_r)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 153 deselected, 102 warnings in 208.29s (0:03:28)

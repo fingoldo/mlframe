@@ -1,0 +1,81 @@
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\main.py", line 408, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 139, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\runner.py", line 184, in pytest_runtest_call
+    item.runtest()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\python.py", line 1707, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\_pytest\python.py", line 167, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "C:\Users\Admin\Machine learning\mlframe\tests\training\fuzz\test_fuzz_suite.py", line 606, in test_fuzz_train_mlframe_models_suite
+    trained, _meta = train_mlframe_models_suite(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_main_train_suite.py", line 701, in train_mlframe_models_suite
+    train_every_target(ctx, target_by_type, metadata, pr)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_main_train_suite_target_loop.py", line 90, in train_every_target
+    pr._train_one_target(ctx, target_type, targets, cur_target_name, working)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_phase_train_one_target_body.py", line 155, in _train_one_target
+    _train_one_target_step1_progress_long_suites(st, target_type, ctx, cur_target_name, cur_target_values)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_phase_train_one_target_body.py", line 285, in _train_one_target_step1_progress_long_suites
+    pre_pipeline = _train_one_target_ste_step1_model_entry_tqdmu(sorted_models, target_type, st, cur_target_name, _model_idx_in_run, _total_models_in_run, ctx, pre_pipeline_name, strategy_by_model, tier_dfs_cache, tier_enum_map_cache, orig_pre_pipeline, prepared_frames_cache, weight_schemas, ens_models, cur_target_values, _pp_name_stripped, prev_tier, pre_pipeline)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\core\_phase_train_one_target_steps.py", line 329, in _train_one_target_ste_step1_model_entry_tqdmu
+    st.trainset_features_stats, pre_pipeline, st.train_df_transformed, val_df_transformed, test_df_transformed = process_model(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\train_eval.py", line 534, in process_model
+    model, train_df_transformed, val_df_transformed, test_df_transformed = _call_train_evaluate_with_configs(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\train_eval.py", line 320, in _call_train_evaluate_with_configs
+    _result = train_and_evaluate_model(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_trainer_train_and_evaluate.py", line 575, in train_and_evaluate_model
+    _train_and_evaluate_m_step2_st_compute_trainset(st, reporting, model, model_name, data, train_df, confidence)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_trainer_train_and_evaluate.py", line 791, in _train_and_evaluate_m_step2_st_compute_trainset
+    maybe_run_confidence_analysis(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_calib_oof_outputs.py", line 86, in maybe_run_confidence_analysis
+    run_confidence_analysis(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_confidence_analysis.py", line 285, in run_confidence_analysis
+    confidence_model.fit(test_df, confidence_targets, **fit_params_copy)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\catboost\core.py", line 6178, in fit
+    return self._fit(X, y, cat_features, text_features, embedding_features, None, graph, sample_weight, None, None, None, None, baseline,
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\catboost\core.py", line 2716, in _fit
+    self._train(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\catboost\core.py", line 1824, in _train
+    self._object._train(train_pool, test_pool, params, allow_clear_pool, init_model._object if init_model else None)
++++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++

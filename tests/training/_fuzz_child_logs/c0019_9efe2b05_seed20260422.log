@@ -1,0 +1,81 @@
+[2 rows x 6 columns]
+                                                              bin-best-1  ... metric_std
+factor nbins npoints_from npoints_median npoints_to metric                ...
+cat_0  5     1            1              1          MAE     A [1]: 0.263  ...   1.337192
+                                                    RMSE    A [1]: 0.263  ...   1.337192
+
+[2 rows x 6 columns]
+
+pre_pipeline: 100%|██████████| 3/3 [00:39<00:00, 13.26s/it]
+pre_pipeline: 100%|██████████| 3/3 [00:39<00:00, 13.08s/it]
+.
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning: MultilabelDispatchConfig.cv=3 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2443480210064_1791840604 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py: 33 warnings
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\utilities\_pytree.py:21: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2443531846624_1791840606 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2443531856656_1791840607 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2443502258944_1791840607 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py:3443: UserWarning: MRMR.fit: 2 parameter value(s) are valid but known to DEGRADE selection accuracy:
+    * fe_pairwise_modular_enable=False: no (a+b) mod m / (a*b) mod m / n-way parity / hidden-period interactions are engineered. Better: leave it True (default); opt out only for byte-identical legacy replay.
+    * fe_conditional_gate_enable=False: no conditional-gate (regime switch c>tau ? a : b / masked interaction) feature is engineered. Better: leave it True (default); opt out only for byte-identical legacy replay.
+  (These are intentional only for byte-identical legacy replay / ablation / speed; otherwise prefer the defaults. Silence by restoring the defaults above.)
+    _fitted = self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_function_base_impl.py:3065: RuntimeWarning: invalid value encountered in divide
+    c /= stddev[:, None]
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_function_base_impl.py:3066: RuntimeWarning: invalid value encountered in divide
+    c /= stddev[None, :]
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numba\cuda\dispatcher.py:536: NumbaPerformanceWarning: [1mGrid size 1 will likely result in GPU under-utilization due to low occupancy.[0m
+    warn(NumbaPerformanceWarning(msg))
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2443497743040_1791840632 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2443490104448_1791840632 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2443531855136_1791840633 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2443478060688_1791840641 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2443478060080_1791840641 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2443478059472_1791840641 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0019_9efe2b05-hgb_mlp-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2443478064032_1791840641 exists and is not empty.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning: It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+    register_random(_r)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 153 deselected, 52 warnings in 137.66s (0:02:17)

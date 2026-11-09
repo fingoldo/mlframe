@@ -1,0 +1,81 @@
+Validation: |          | 0/? [00:00<?, ?it/s][A
+
+Validation: |          | 0/? [00:00<?, ?it/s][A
+
+Validation DataLoader 0:   0%|          | 0/1 [00:00<?, ?it/s][A
+
+Validation DataLoader 0: 100%|██████████| 1/1 [00:00<00:00, 57.96it/s][A
+
+                                                                      [A
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00,  3.97it/s, v_num=0, train_loss_step=0.639, val_loss_step=0.824, val_loss_epoch=0.824, val_RMSE=0.908, train_loss_epoch=0.597]
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00,  3.93it/s, v_num=0, train_loss_step=0.639, val_loss_step=0.824, val_loss_epoch=0.824, val_RMSE=0.908, train_loss_epoch=0.639]
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00,  3.65it/s, v_num=0, train_loss_step=0.639, val_loss_step=0.824, val_loss_epoch=0.824, val_RMSE=0.908, train_loss_epoch=0.639]
+
+
+mlframe model: 100%|██████████| 4/4 [05:43<00:00, 87.25s/it][A
+mlframe model: 100%|██████████| 4/4 [05:43<00:00, 85.83s/it]
+
+pre_pipeline: 100%|██████████| 3/3 [07:07<00:00, 179.93s/it]
+pre_pipeline: 100%|██████████| 3/3 [07:07<00:00, 142.63s/it]
+.
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning: MultilabelDispatchConfig.cv=2 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightgbm\callback.py:333: UserWarning: Early stopping is not available in dart mode
+    _log_warning("Early stopping is not available in dart mode")
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2112820238352_1791797464 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py: 18 warnings
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\utilities\_pytree.py:21: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2112781902224_1791797513 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+  C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py:3421: UserWarning: MRMR.fit: 1 parameter value(s) are valid but known to DEGRADE selection accuracy:
+    * fe_pairwise_modular_enable=False: no (a+b) mod m / (a*b) mod m / n-way parity / hidden-period interactions are engineered. Better: leave it True (default); opt out only for byte-identical legacy replay.
+  (These are intentional only for byte-identical legacy replay / ablation / speed; otherwise prefer the defaults. Silence by restoring the defaults above.)
+    _fitted = self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+  C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py:3702: UserWarning: MRMR.fit: fe_auto=True enabled these FE generator(s) for this fit: ['fe_composite_group_agg_enable', 'fe_temporal_agg_enable']. Pass fe_auto=False or set the fe_*_enable flags explicitly to silence this warning.
+    _fe_auto_restore = self._fit_body_constructor_arg_semantics_stay(X, y, _fe_auto_restore)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_function_base_impl.py:3065: RuntimeWarning: invalid value encountered in divide
+    c /= stddev[:, None]
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_function_base_impl.py:3066: RuntimeWarning: invalid value encountered in divide
+    c /= stddev[None, :]
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numba\cuda\dispatcher.py:536: NumbaPerformanceWarning: [1mGrid size 1 will likely result in GPU under-utilization due to low occupancy.[0m
+    warn(NumbaPerformanceWarning(msg))
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0049_40d3d0be-cb_lgb_linear_mlp-pl_utf8-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_2112776318928_1791797857 exists and is not empty.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning: It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+    register_random(_r)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 541 deselected, 39 warnings in 642.99s (0:10:42)

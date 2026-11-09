@@ -1,0 +1,81 @@
+
+pre_pipeline:   0%|          | 0/5 [00:00<?, ?it/s]
+pre_pipeline:   0%|          | 0/5 [00:00<?, ?it/s]
+
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s][A
+
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s][A
+
+mlframe model:  50%|█████     | 1/2 [00:00<00:00,  1.32it/s][A
+
+mlframe model: 100%|██████████| 2/2 [00:01<00:00,  1.62it/s][A
+mlframe model: 100%|██████████| 2/2 [00:01<00:00,  1.56it/s]
+
+pre_pipeline:  20%|██        | 1/5 [00:01<00:05,  1.28s/it]
+
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s][A
+
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s][A
+
+mlframe model:  50%|█████     | 1/2 [00:08<00:08,  8.86s/it][A
+
+mlframe model: 100%|██████████| 2/2 [00:17<00:00,  8.78s/it][A
+mlframe model: 100%|██████████| 2/2 [00:17<00:00,  8.79s/it]
+
+pre_pipeline:  40%|████      | 2/5 [00:18<00:32, 10.87s/it]
+
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s][A
+
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s][A
+
+mlframe model:  50%|█████     | 1/2 [00:20<00:20, 20.47s/it][A
+
+mlframe model: 100%|██████████| 2/2 [00:39<00:00, 19.49s/it][A
+mlframe model: 100%|██████████| 2/2 [00:39<00:00, 19.64s/it]
+
+pre_pipeline:  60%|██████    | 3/5 [00:58<00:47, 23.85s/it]
+
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s][A
+
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s][A
+
+mlframe model:  50%|█████     | 1/2 [00:02<00:02,  2.01s/it][A
+
+mlframe model: 100%|██████████| 2/2 [00:03<00:00,  1.98s/it][A
+mlframe model: 100%|██████████| 2/2 [00:03<00:00,  1.98s/it]
+
+pre_pipeline:  80%|████████  | 4/5 [01:02<00:15, 16.00s/it]
+
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s][A
+
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s][A
+
+mlframe model:  50%|█████     | 1/2 [00:05<00:05,  5.74s/it][A
+
+mlframe model: 100%|██████████| 2/2 [00:10<00:00,  5.37s/it][A
+mlframe model: 100%|██████████| 2/2 [00:10<00:00,  5.43s/it]
+
+pre_pipeline: 100%|██████████| 5/5 [01:12<00:00, 14.14s/it]
+pre_pipeline: 100%|██████████| 5/5 [01:12<00:00, 14.60s/it]
+.
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0015_261181e9-hgb_lgb-pl_utf8-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning: MultilabelDispatchConfig.cv=3 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0015_261181e9-hgb_lgb-pl_utf8-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0015_261181e9-hgb_lgb-pl_utf8-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0015_261181e9-hgb_lgb-pl_utf8-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0015_261181e9-hgb_lgb-pl_utf8-n300000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0015_261181e9-hgb_lgb-pl_utf8-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightgbm\callback.py:333: UserWarning: Early stopping is not available in dart mode
+    _log_warning("Early stopping is not available in dart mode")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning: It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+    register_random(_r)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 153 deselected, 7 warnings in 172.86s (0:02:52)

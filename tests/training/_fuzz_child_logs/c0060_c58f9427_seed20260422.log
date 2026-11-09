@@ -1,0 +1,81 @@
+Epoch 8: 100%|██████████| 1/1 [00:00<00:00, 42.72it/s, v_num=0, train_loss_step=0.592, val_loss_step=0.680, val_loss_epoch=0.680, val_ICE=0.804, train_loss_epoch=0.627]
+
+Validation: |          | 0/? [00:00<?, ?it/s][A
+
+Validation: |          | 0/? [00:00<?, ?it/s][A
+
+Validation DataLoader 0:   0%|          | 0/1 [00:00<?, ?it/s][A
+
+Validation DataLoader 0: 100%|██████████| 1/1 [00:00<00:00, 146.29it/s][A
+
+                                                                       [A
+Epoch 8: 100%|██████████| 1/1 [00:00<00:00, 18.53it/s, v_num=0, train_loss_step=0.592, val_loss_step=0.670, val_loss_epoch=0.670, val_ICE=0.760, train_loss_epoch=0.627]
+Epoch 8: 100%|██████████| 1/1 [00:00<00:00, 17.06it/s, v_num=0, train_loss_step=0.592, val_loss_step=0.670, val_loss_epoch=0.670, val_ICE=0.760, train_loss_epoch=0.592]
+Epoch 8:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=0.592, val_loss_step=0.670, val_loss_epoch=0.670, val_ICE=0.760, train_loss_epoch=0.592]
+Epoch 9:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=0.592, val_loss_step=0.670, val_loss_epoch=0.670, val_ICE=0.760, train_loss_epoch=0.592]
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00, 24.20it/s, v_num=0, train_loss_step=0.592, val_loss_step=0.670, val_loss_epoch=0.670, val_ICE=0.760, train_loss_epoch=0.592]
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00, 23.30it/s, v_num=0, train_loss_step=0.561, val_loss_step=0.670, val_loss_epoch=0.670, val_ICE=0.760, train_loss_epoch=0.592]
+
+Validation: |          | 0/? [00:00<?, ?it/s][A
+
+Validation: |          | 0/? [00:00<?, ?it/s][A
+
+Validation DataLoader 0:   0%|          | 0/1 [00:00<?, ?it/s][A
+
+Validation DataLoader 0: 100%|██████████| 1/1 [00:00<00:00, 107.91it/s][A
+
+                                                                       [A
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00, 10.95it/s, v_num=0, train_loss_step=0.561, val_loss_step=0.661, val_loss_epoch=0.661, val_ICE=0.898, train_loss_epoch=0.592]
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00, 10.36it/s, v_num=0, train_loss_step=0.561, val_loss_step=0.661, val_loss_epoch=0.661, val_ICE=0.898, train_loss_epoch=0.561]
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00,  9.34it/s, v_num=0, train_loss_step=0.561, val_loss_step=0.661, val_loss_epoch=0.661, val_ICE=0.898, train_loss_epoch=0.561]
+
+
+mlframe model: 100%|██████████| 5/5 [04:50<00:00, 55.39s/it][A
+mlframe model: 100%|██████████| 5/5 [04:50<00:00, 58.15s/it]
+
+pre_pipeline:  33%|███▎      | 2/6 [05:12<12:00, 180.06s/it]
+
+mlframe model:   0%|          | 0/5 [00:00<?, ?it/s][A
+
+mlframe model:   0%|          | 0/5 [00:00<?, ?it/s][AMetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+
+mlframe model:  20%|██        | 1/5 [02:26<09:47, 146.87s/it][A
+
+mlframe model:  40%|████      | 2/5 [05:15<07:58, 159.59s/it][A
+
+mlframe model:  60%|██████    | 3/5 [07:49<05:14, 157.32s/it][AWarning: No categorical columns found. Calling 'transform' will only return input data.
++++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++
+~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of Thread-13 (41176) ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1044, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\tqdm\_monitor.py", line 60, in run
+    self.was_killed.wait(self.sleep_interval)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 670, in wait
+    signaled = self._cond.wait(timeout)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 373, in wait
+    gotit = waiter.acquire(True, timeout)
+~~~~~~~~~~~~~~~~~~~~ Stack of Thread-1 (run_server) (2188) ~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1044, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1024, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pytest_rerunfailures.py", line 654, in run_server
+    conn, _ = self.sock.accept()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\socket.py", line 298, in accept
+    fd, addr = self._accept()
+~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of MainThread (29588) ~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\parallel.py", line 1928, in _get_sequential_output
+    self.print_progress()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\parallel.py", line 154, in __call__
+    with config_context(**config), warnings.catch_warnings():
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\ensemble\_forest.py", line 204, in _parallel_build_trees
+    return tree
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\tree\_classes.py", line 483, in _fit
+    return self
++++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++

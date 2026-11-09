@@ -1,0 +1,81 @@
+Epoch 7:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=0.540, train_loss_epoch=0.540]
+Epoch 8:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=0.540, train_loss_epoch=0.540]
+Epoch 8: 100%|██████████| 1/1 [00:00<00:00, 50.15it/s, v_num=0, train_loss_step=0.540, train_loss_epoch=0.540]
+Epoch 8: 100%|██████████| 1/1 [00:00<00:00, 48.00it/s, v_num=0, train_loss_step=0.517, train_loss_epoch=0.540]
+Epoch 8: 100%|██████████| 1/1 [00:00<00:00, 42.30it/s, v_num=0, train_loss_step=0.517, train_loss_epoch=0.517]
+Epoch 8:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=0.517, train_loss_epoch=0.517]
+Epoch 9:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=0.517, train_loss_epoch=0.517]
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00, 11.86it/s, v_num=0, train_loss_step=0.517, train_loss_epoch=0.517]
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00, 11.73it/s, v_num=0, train_loss_step=0.498, train_loss_epoch=0.517]
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00, 11.29it/s, v_num=0, train_loss_step=0.498, train_loss_epoch=0.498]
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00,  7.68it/s, v_num=0, train_loss_step=0.498, train_loss_epoch=0.498]
+<pandas.io.formats.style.Styler object at 0x000001CB6D527BB0>
+<pandas.io.formats.style.Styler object at 0x000001CB66CBA060>
+
+
+weighting schema: 100%|██████████| 2/2 [01:46<00:00, 51.19s/it][A
+weighting schema: 100%|██████████| 2/2 [01:46<00:00, 53.05s/it]
+
+mlframe model: 100%|██████████| 3/3 [06:14<00:00, 123.16s/it]
+mlframe model: 100%|██████████| 3/3 [06:14<00:00, 124.67s/it]
+.
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0036_8873abe2-linear_mlp_xgb-pl_utf8-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning:
+
+  MultilabelDispatchConfig.cv=3 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0036_8873abe2-linear_mlp_xgb-pl_utf8-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: UserWarning:
+
+  Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1973186776592_1791787552 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py: 28 warnings
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\utilities\_pytree.py:21: FutureWarning:
+
+  `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0036_8873abe2-linear_mlp_xgb-pl_utf8-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: UserWarning:
+
+  Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1973189672016_1791787561 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0036_8873abe2-linear_mlp_xgb-pl_utf8-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: UserWarning:
+
+  Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1973189667856_1791787564 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0036_8873abe2-linear_mlp_xgb-pl_utf8-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: UserWarning:
+
+  Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1973228080656_1791787566 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0036_8873abe2-linear_mlp_xgb-pl_utf8-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: UserWarning:
+
+  Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1973188201040_1791787616 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0036_8873abe2-linear_mlp_xgb-pl_utf8-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: UserWarning:
+
+  Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1973169705744_1791787619 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0036_8873abe2-linear_mlp_xgb-pl_utf8-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: UserWarning:
+
+  Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1973169711504_1791787622 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0036_8873abe2-linear_mlp_xgb-pl_utf8-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: UserWarning:
+
+  Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1973223468368_1791787623 exists and is not empty.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning:
+
+  It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 541 deselected, 38 warnings in 582.61s (0:09:42)

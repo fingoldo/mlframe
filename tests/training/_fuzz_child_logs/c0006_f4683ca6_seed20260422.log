@@ -1,0 +1,82 @@
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\_trainer_train_and_evaluate.py", line 399, in train_and_evaluate_model
+    train_df, st.val_df = _apply_pre_pipeline_transforms(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers_apply.py", line 195, in _apply_pre_pipeline_transforms
+    train_df, val_df = _apply_pre_pipeline_phase_pre_pipeline_fit(skip_pre_pipeline_transform, verbose, skip_preprocessing, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df, t0_pre, cache_max, _cache_key_entry)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers_apply.py", line 256, in _apply_pre_pipeline_phase_pre_pipeline_fit
+    train_df, val_df = _apply_pre_pipeline_p_step1_skip_pre_pipeline(skip_pre_pipeline_transform, verbose, skip_preprocessing, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers_apply.py", line 274, in _apply_pre_pipeline_p_step1_skip_pre_pipeline
+    return _run_selector_only(verbose, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers_apply.py", line 350, in _run_selector_only
+    train_df = _refit_through(feature_selector, train_df, selector_passthrough_cols, train_target, groups, sample_weight)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers_apply.py", line 291, in _refit_through
+    return _passthrough_cols_fit_transform(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers.py", line 608, in _passthrough_cols_fit_transform
+    return _run_and_empty_check(fn, df, target)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers.py", line 593, in _run_and_empty_check
+    return _call_fit(_fn, _arg, _target_arg) if fit else _fn(_arg)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\pipeline\_pipeline_helpers.py", line 559, in _call_fit
+    return _fn(_arg, _target_arg)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\_set_output.py", line 316, in wrapped
+    data_to_wrap = f(self, X, *args, **kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\base.py", line 910, in fit_transform
+    return self.fit(X, y, **fit_params).transform(X)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\utils\misc.py", line 229, in _wrapped
+    return fit_method(self, X, *args, **kwargs)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py", line 3443, in fit
+    _fitted = self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py", line 3557, in _fit_body
+    _stab_result = self._stability_outer_fit(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class_fit_helpers.py", line 300, in _stability_outer_fit
+    sel, freq, info = cluster_stability_selection(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_stability_cluster.py", line 236, in cluster_stability_selection
+    sel = selector_fn(X.iloc[idx] if _is_df else X[idx], y[idx])
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class_fit_helpers.py", line 293, in _inner_selector
+    sub.fit(X_sub_df, y_sub_s)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\utils\misc.py", line 229, in _wrapped
+    return fit_method(self, X, *args, **kwargs)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py", line 3443, in fit
+    _fitted = self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py", line 3906, in _fit_body
+    result = self._fit_impl(X, y, groups, **fit_params)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_mrmr_fit_impl\_fit_impl_core.py", line 782, in _fit_impl
+    fe_result = self._run_fe_step(data=data, cols=cols, nbins=nbins, X=X, selected_vars=selected_vars, checked_pairs=checked_pairs, **_step_kw)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_mrmr_fe_step\_step_core.py", line 155, in _run_fe_step
+    return _run_fe_step_impl(self, **kwargs)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_mrmr_fe_step\_step_core.py", line 729, in _run_fe_step_impl
+    st.prospective_additions = check_prospective_fe_pairs(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_feature_engineering_pairs\_pairs_core.py", line 908, in check_prospective_fe_pairs
+    _pair_res_entry, best_config, best_mi = _score_one_pair(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_feature_engineering_pairs\_pairs_score.py", line 291, in _score_one_pair
+    st._pair_res_entry = _emit_pair_features(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_feature_engineering_pairs\_pairs_emit.py", line 180, in _emit_pair_features
+    _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, binary_transformations, _ext_factors_sorted, fe_max_external_validation_factors, _rng_extval, _extval_raw_col, X, _can_hoist_shared_buffer, _n_workers, quantization_method, _narrow_code_dtype, quantization_nbins, quantization_dtype, _ev_op_codes, _materialise_extval_njit, discretize_2d_quantile_batch, _fe_use_parallel_kernels, serial_main_thread, _dispatch_batch_mi_with_noise_gate, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, batch_mi_with_noise_gate, _fe_env_gate, discretize_array, mi_direct, valid_pairs_perf)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\_feature_engineering_pairs\_pairs_emit.py", line 446, in _emit_pair_features_step2_read_here_once
+    _ev_mi = _dispatch_batch_mi_with_noise_gate(
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\discretization\__init__.py", line 760, in discretize_2d_quantile_batch
+    return out
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_nanfunctions_impl.py", line 1406, in nanpercentile
+    return _nanquantile_unchecked(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_nanfunctions_impl.py", line 1617, in _nanquantile_unchecked
+    return fnb._ureduce(a,
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_function_base_impl.py", line 3928, in _ureduce
+    return r
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_nanfunctions_impl.py", line 1679, in _nanquantile_ureduce_func
+    return result
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_shape_base_impl.py", line 419, in apply_along_axis
+    return conv.wrap(res)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_nanfunctions_impl.py", line 1696, in _nanquantile_1d
+    return fnb._quantile_unchecked(
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_function_base_impl.py", line 4569, in _quantile_unchecked
+    return _ureduce(a,
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_function_base_impl.py", line 3928, in _ureduce
+    return r
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_function_base_impl.py", line 4750, in _quantile_ureduce_func
+    return result
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_function_base_impl.py", line 4969, in _quantile
+    return result
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_arraysetops_impl.py", line 297, in unique
+    return _unpack_tuple(ret)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_arraysetops_impl.py", line 375, in _unique1d
+    return (conv.wrap(hash_unique),)
++++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++
+[driver] per-combo wall-timeout 2400s reached -- killed process tree.

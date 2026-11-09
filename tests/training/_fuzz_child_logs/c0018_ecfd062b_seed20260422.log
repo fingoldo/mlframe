@@ -1,0 +1,82 @@
+mlframe model: 100%|██████████| 2/2 [06:10<00:00, 185.11s/it]
+
+pre_pipeline:  67%|██████▋   | 2/3 [06:12<03:38, 218.70s/it]
+
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s][A
+
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s][A<pandas.io.formats.style.Styler object at 0x00000258FF125350>
+<pandas.io.formats.style.Styler object at 0x00000258FF125350>
+
+
+mlframe model:  50%|█████     | 1/2 [00:03<00:03,  3.78s/it][AWarning: No categorical columns found. Calling 'transform' will only return input data.
++++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++
+~~~~~~~~~~~~~~~~~~~~~ Stack of QueueFeederThread (37476) ~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1044, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1024, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\backend\queues.py", line 147, in _feed
+    nwait()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 369, in wait
+    waiter.acquire()
+~~~~~~~~~~~~~~~~~~~ Stack of ExecutorManagerThread (49324) ~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1044, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\process_executor.py", line 623, in run
+    result_item, is_broken, bpe = self.wait_result_broken_or_wakeup()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\externals\loky\process_executor.py", line 681, in wait_result_broken_or_wakeup
+    ready = wait(readers + worker_sentinels)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\multiprocessing\connection.py", line 1113, in wait
+    ready_handles = _exhaustive_wait(waithandle_to_obj.keys(), timeout)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\multiprocessing\connection.py", line 1045, in _exhaustive_wait
+    res = _winapi.WaitForMultipleObjects(short_L, False, timeout)
+~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of Thread-12 (47544) ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1044, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\tqdm\_monitor.py", line 60, in run
+    self.was_killed.wait(self.sleep_interval)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 670, in wait
+    signaled = self._cond.wait(timeout)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 373, in wait
+    gotit = waiter.acquire(True, timeout)
+~~~~~~~~~~~~~~~~~~~~~ Stack of mlframe-heartbeat (42208) ~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1044, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1024, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\Admin\Machine learning\mlframe\src\mlframe\training\crash_diagnostics.py", line 319, in _run
+    while not self._stop.wait(self.interval_s):
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 670, in wait
+    signaled = self._cond.wait(timeout)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 373, in wait
+    gotit = waiter.acquire(True, timeout)
+~~~~~~~~~~~~~~~~~~~ Stack of Thread-1 (run_server) (11384) ~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1044, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1024, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pytest_rerunfailures.py", line 654, in run_server
+    conn, _ = self.sock.accept()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\socket.py", line 298, in accept
+    fd, addr = self._accept()
+~~~~~~~~~~~~~~~~~~~~~~~~~ Stack of MainThread (2592) ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\joblib\parallel.py", line 1928, in _get_sequential_output
+    self.print_progress()
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\parallel.py", line 154, in __call__
+    with config_context(**config), warnings.catch_warnings():
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\ensemble\_forest.py", line 204, in _parallel_build_trees
+    return tree
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\tree\_classes.py", line 483, in _fit
+    return self
++++++++++++++++++++++++++++++++++++ Timeout +++++++++++++++++++++++++++++++++++
+[driver] per-combo wall-timeout 2400s reached -- killed process tree.

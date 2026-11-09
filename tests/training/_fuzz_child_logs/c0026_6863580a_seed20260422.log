@@ -1,0 +1,52 @@
+
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s]
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s]
+
+mlframe model:   0%|          | 0/3 [00:00<?, ?it/s][A
+
+mlframe model:   0%|          | 0/3 [00:00<?, ?it/s][AMetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+
+mlframe model:  33%|███▎      | 1/3 [00:00<00:01,  1.00it/s][A
+
+mlframe model:  67%|██████▋   | 2/3 [00:01<00:00,  2.08it/s][A
+
+mlframe model: 100%|██████████| 3/3 [00:01<00:00,  2.56it/s][A
+mlframe model: 100%|██████████| 3/3 [00:01<00:00,  2.14it/s]
+
+pre_pipeline:  50%|█████     | 1/2 [00:01<00:01,  1.40s/it]
+
+mlframe model:   0%|          | 0/3 [00:00<?, ?it/s][A
+
+mlframe model:   0%|          | 0/3 [00:00<?, ?it/s][AMetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+
+mlframe model:  33%|███▎      | 1/3 [00:07<00:15,  7.76s/it][A
+
+mlframe model:  67%|██████▋   | 2/3 [00:16<00:08,  8.14s/it][A
+
+mlframe model: 100%|██████████| 3/3 [00:24<00:00,  8.31s/it][A
+mlframe model: 100%|██████████| 3/3 [00:24<00:00,  8.22s/it]
+
+pre_pipeline: 100%|██████████| 2/2 [00:26<00:00, 15.09s/it]
+pre_pipeline: 100%|██████████| 2/2 [00:26<00:00, 13.03s/it]
+.
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0026_6863580a-cb_lgb_linear-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning: PreprocessingBackendConfig.fallback_to_sklearn=False has no effect: the polars path falls back on its own; the flag is never read
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0026_6863580a-cb_lgb_linear-pl_enum-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning: MultilabelDispatchConfig.cv=2 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning: It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+    register_random(_r)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 153 deselected, 3 warnings in 138.19s (0:02:18)

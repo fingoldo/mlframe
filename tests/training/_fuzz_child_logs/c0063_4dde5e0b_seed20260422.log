@@ -1,0 +1,60 @@
+[hang-watchdog] arming 3000s for tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0063_4dde5e0b-hgb-pl_nullable-n1000]
+
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s]
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s]
+pre_pipeline:  50%|█████     | 1/2 [00:27<00:27, 27.94s/it]
+pre_pipeline: 100%|██████████| 2/2 [01:02<00:00, 31.62s/it]
+pre_pipeline: 100%|██████████| 2/2 [01:02<00:00, 31.06s/it]
+
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s]
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s]
+pre_pipeline:  50%|█████     | 1/2 [00:16<00:16, 16.01s/it]
+pre_pipeline: 100%|██████████| 2/2 [00:45<00:00, 23.96s/it]
+pre_pipeline: 100%|██████████| 2/2 [00:45<00:00, 22.77s/it]
+.
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0063_4dde5e0b-hgb-pl_nullable-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning:
+
+  MultilabelDispatchConfig.cv=3 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+
+tests/training/fuzz/test_fuzz_suite.py: 32 warnings
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\validation.py:2691: UserWarning:
+
+  X does not have valid feature names, but HistGradientBoostingRegressor was fitted with feature names
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0063_4dde5e0b-hgb-pl_nullable-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0063_4dde5e0b-hgb-pl_nullable-n1000]
+  C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py:3421: UserWarning:
+
+  MRMR.fit: 3 parameter value(s) are valid but known to DEGRADE selection accuracy:
+    * fe_discrete_structural_operators_enable=False: disables ALL FOUR discrete-structural FE families at once (conditional-gate / pairwise-modular / row-argmax / binned-agg) -- modular/parity/regime-switch/threshold interactions smooth bases cannot fit are never engineered. Better: leave it True (default); opt out only for byte-identical legacy replay.
+    * dcd_enable=False: disables denoised cluster-aggregate (DCD) -- redundant near-duplicate column clusters are no longer collapsed into a denoised representative. Better: leave it True (default).
+    * fe_conditional_gate_enable=False: no conditional-gate (regime switch c>tau ? a : b / masked interaction) feature is engineered. Better: leave it True (default); opt out only for byte-identical legacy replay.
+  (These are intentional only for byte-identical legacy replay / ablation / speed; otherwise prefer the defaults. Silence by restoring the defaults above.)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0063_4dde5e0b-hgb-pl_nullable-n1000]
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0063_4dde5e0b-hgb-pl_nullable-n1000]
+  C:\Users\Admin\Machine learning\mlframe\src\mlframe\feature_selection\filters\mrmr\_mrmr_class.py:3702: UserWarning:
+
+  MRMR.fit: fe_auto=True enabled these FE generator(s) for this fit: ['fe_grouped_agg_enable', 'fe_hybrid_orth_enable']. Pass fe_auto=False or set the fe_*_enable flags explicitly to silence this warning.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0063_4dde5e0b-hgb-pl_nullable-n1000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numba\cuda\dispatcher.py:536: NumbaPerformanceWarning:
+
+  [1mGrid size 1 will likely result in GPU under-utilization due to low occupancy.[0m
+
+tests/training/fuzz/test_fuzz_suite.py: 32 warnings
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\validation.py:2691: UserWarning:
+
+  X does not have valid feature names, but HistGradientBoostingClassifier was fitted with feature names
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning:
+
+  It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 541 deselected, 71 warnings in 254.48s (0:04:14)

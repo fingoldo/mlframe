@@ -1,0 +1,81 @@
+Training: |          | 0/? [00:00<?, ?it/s]
+Training: |          | 0/? [00:00<?, ?it/s]
+Epoch 0:   0%|          | 0/1 [00:00<?, ?it/s]
+Epoch 0: 100%|██████████| 1/1 [00:00<00:00, 47.96it/s]
+Epoch 0: 100%|██████████| 1/1 [00:00<00:00, 38.23it/s, v_num=0, train_loss_step=8.890]
+Epoch 0: 100%|██████████| 1/1 [00:00<00:00, 36.14it/s, v_num=0, train_loss_step=8.890, train_loss_epoch=8.890]
+Epoch 0:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=8.890, train_loss_epoch=8.890]
+Epoch 1:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=8.890, train_loss_epoch=8.890]
+Epoch 1: 100%|██████████| 1/1 [00:00<00:00, 68.95it/s, v_num=0, train_loss_step=8.890, train_loss_epoch=8.890]
+Epoch 1: 100%|██████████| 1/1 [00:00<00:00, 66.34it/s, v_num=0, train_loss_step=7.280, train_loss_epoch=8.890]
+Epoch 1: 100%|██████████| 1/1 [00:00<00:00, 57.36it/s, v_num=0, train_loss_step=7.280, train_loss_epoch=7.280]
+Epoch 1:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=7.280, train_loss_epoch=7.280]
+Epoch 2:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=7.280, train_loss_epoch=7.280]
+Epoch 2: 100%|██████████| 1/1 [00:00<00:00, 57.63it/s, v_num=0, train_loss_step=7.280, train_loss_epoch=7.280]
+Epoch 2: 100%|██████████| 1/1 [00:00<00:00, 53.98it/s, v_num=0, train_loss_step=6.000, train_loss_epoch=7.280]
+Epoch 2: 100%|██████████| 1/1 [00:00<00:00, 47.48it/s, v_num=0, train_loss_step=6.000, train_loss_epoch=6.000]
+Epoch 2:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=6.000, train_loss_epoch=6.000]
+Epoch 3:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=6.000, train_loss_epoch=6.000]
+Epoch 3: 100%|██████████| 1/1 [00:00<00:00, 53.20it/s, v_num=0, train_loss_step=6.000, train_loss_epoch=6.000]
+Epoch 3: 100%|██████████| 1/1 [00:00<00:00, 51.24it/s, v_num=0, train_loss_step=4.930, train_loss_epoch=6.000]
+Epoch 3: 100%|██████████| 1/1 [00:00<00:00, 47.93it/s, v_num=0, train_loss_step=4.930, train_loss_epoch=4.930]
+Epoch 3:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=4.930, train_loss_epoch=4.930]
+Epoch 4:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=4.930, train_loss_epoch=4.930]
+Epoch 4: 100%|██████████| 1/1 [00:00<00:00, 60.55it/s, v_num=0, train_loss_step=4.930, train_loss_epoch=4.930]
+Epoch 4: 100%|██████████| 1/1 [00:00<00:00, 57.62it/s, v_num=0, train_loss_step=4.070, train_loss_epoch=4.930]
+Epoch 4: 100%|██████████| 1/1 [00:00<00:00, 50.94it/s, v_num=0, train_loss_step=4.070, train_loss_epoch=4.070]
+Epoch 4:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=4.070, train_loss_epoch=4.070]
+Epoch 5:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=4.070, train_loss_epoch=4.070]
+Epoch 5: 100%|██████████| 1/1 [00:00<00:00, 56.34it/s, v_num=0, train_loss_step=4.070, train_loss_epoch=4.070]
+Epoch 5: 100%|██████████| 1/1 [00:00<00:00, 54.51it/s, v_num=0, train_loss_step=3.340, train_loss_epoch=4.070]
+Epoch 5: 100%|██████████| 1/1 [00:00<00:00, 48.25it/s, v_num=0, train_loss_step=3.340, train_loss_epoch=3.340]
+Epoch 5:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=3.340, train_loss_epoch=3.340]
+Epoch 6:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=3.340, train_loss_epoch=3.340]
+Epoch 6: 100%|██████████| 1/1 [00:00<00:00, 74.49it/s, v_num=0, train_loss_step=3.340, train_loss_epoch=3.340]
+Epoch 6: 100%|██████████| 1/1 [00:00<00:00, 71.84it/s, v_num=0, train_loss_step=2.690, train_loss_epoch=3.340]
+Epoch 6: 100%|██████████| 1/1 [00:00<00:00, 60.56it/s, v_num=0, train_loss_step=2.690, train_loss_epoch=2.690]
+Epoch 6:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=2.690, train_loss_epoch=2.690]
+Epoch 7:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=2.690, train_loss_epoch=2.690]
+Epoch 7: 100%|██████████| 1/1 [00:00<00:00, 44.55it/s, v_num=0, train_loss_step=2.690, train_loss_epoch=2.690]
+Epoch 7: 100%|██████████| 1/1 [00:00<00:00, 43.43it/s, v_num=0, train_loss_step=2.170, train_loss_epoch=2.690]
+Epoch 7: 100%|██████████| 1/1 [00:00<00:00, 39.32it/s, v_num=0, train_loss_step=2.170, train_loss_epoch=2.170]
+Epoch 7:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=2.170, train_loss_epoch=2.170]
+Epoch 8:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=2.170, train_loss_epoch=2.170]
+Epoch 8: 100%|██████████| 1/1 [00:00<00:00, 59.45it/s, v_num=0, train_loss_step=2.170, train_loss_epoch=2.170]
+Epoch 8: 100%|██████████| 1/1 [00:00<00:00, 57.24it/s, v_num=0, train_loss_step=1.780, train_loss_epoch=2.170]
+Epoch 8: 100%|██████████| 1/1 [00:00<00:00, 49.91it/s, v_num=0, train_loss_step=1.780, train_loss_epoch=1.780]
+Epoch 8:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=1.780, train_loss_epoch=1.780]
+Epoch 9:   0%|          | 0/1 [00:00<?, ?it/s, v_num=0, train_loss_step=1.780, train_loss_epoch=1.780]
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00, 57.79it/s, v_num=0, train_loss_step=1.780, train_loss_epoch=1.780]
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00, 55.88it/s, v_num=0, train_loss_step=1.540, train_loss_epoch=1.780]
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00, 48.85it/s, v_num=0, train_loss_step=1.540, train_loss_epoch=1.540]
+Epoch 9: 100%|██████████| 1/1 [00:00<00:00, 31.12it/s, v_num=0, train_loss_step=1.540, train_loss_epoch=1.540]
+.
+============================== warnings summary ===============================
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0005_3a0f7103-mlp-pl_enum-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pydantic\main.py:263: UserWarning: MultilabelDispatchConfig.cv=2 has no effect: the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0005_3a0f7103-mlp-pl_enum-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1584494957008_1791805372 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py: 11 warnings
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\utilities\_pytree.py:21: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0005_3a0f7103-mlp-pl_enum-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1584495546000_1791805375 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0005_3a0f7103-mlp-pl_enum-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1584495556336_1791805376 exists and is not empty.
+
+tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite[c0005_3a0f7103-mlp-pl_enum-n300000]
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\lightning\pytorch\callbacks\model_checkpoint.py:881: Checkpoint directory C:\Users\Admin\Machine learning\mlframe\logs\_run_1584484505312_1791805376 exists and is not empty.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================== warnings summary (final) ===========================
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130
+  C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\trio\_core\_run.py:130: HypothesisWarning: It looks like `register_random` was passed an object that could be garbage collected immediately after `register_random` creates a weakref to it. This will prevent Hypothesis from managing this PRNG. See the docs for `register_random` for more details.
+    register_random(_r)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 153 deselected, 17 warnings in 135.67s (0:02:15)
