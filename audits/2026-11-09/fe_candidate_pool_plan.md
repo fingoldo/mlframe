@@ -65,3 +65,15 @@ The shape families are a few seconds each; restricting them to ~25 columns saves
 | conditional_hinge | 48.5 s | 2 | div(cbrt(sig_x),sign(sig_z)), sig_x__pade2 |
 
 Recall 1/1 on every generator at one seed. Next: more seeds, the metric through `fe_provenance_` and a linear out-of-sample gain, then the filtered arms.
+
+### 3 seeds, held-out linear AUC (all columns, 14000 train / 6000 test rows, p = 100)
+
+| generator | recall (name mention) | linear AUC, selected set | linear AUC, raw columns | fit wall per seed |
+|---|---|---|---|---|
+| weak_marginal_shape | 3/3 | 0.752 / 0.746 / 0.741 | 0.508 / 0.498 / 0.490 | 108 / 98 / 95 s |
+| hidden_periodic | 3/3 | 0.704 / 0.704 / 0.697 | 0.500 / 0.503 / 0.499 | 69 / 72 / 80 s |
+| grouped_by_irrelevant_key | 3/3 | 0.738 / 0.714 / 0.673 | 0.593 / 0.654 / 0.642 | 88 / 117 / 85 s |
+| ratio_irrelevant_normaliser | 3/3 | 0.904 / 0.912 / 0.905 | 0.887 / 0.891 / 0.888 | 76 / 75 / 73 s |
+| conditional_hinge | 3/3 | 0.862 / 0.864 / 0.857 | 0.493 / 0.501 / 0.501 | 71 / 70 / 69 s |
+
+Reading: the all-columns arm already gives a large linear gain everywhere the raw columns carry nothing linearly (weak shape +0.25, periodic +0.20, conditional hinge +0.36). Open points for the filtered arms: (1) hidden_periodic reaches only 0.70 and the selected set holds `sig_x__digit_2` but no sine column, so the periodic family is not recovering a 20-period signal at 14000 rows (a better ceiling is worth measuring: the planted score alone gives a much higher AUC); (2) grouped_by_irrelevant_key varies most between seeds (0.67-0.74); (3) fit walls are 69-117 s here against 43-58 s in the single-seed run on the same generators, the machine's free memory differs between the runs, so walls are only comparable inside one run.

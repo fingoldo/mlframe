@@ -1,6 +1,6 @@
 """Baseline for the FE column-pool plan (``audits/2026-11-09/fe_candidate_pool_plan.md``): per planted-signal generator, does an all-families fit select a column built from every planted source?
 
-Usage: ``python bench_pool_planted_recall.py [ROWS] [COLS] [SEEDS]`` (defaults 20000 100 1), run from a repository checkout (the generators are loaded from ``tests/feature_selection/_synth/pool_planted.py``). For each generator it prints the wall time, the planted
+Usage: ``python bench_pool_planted_recall.py [ROWS] [COLS] [SEEDS]`` (the last 30 % of the rows are held out for the linear AUC columns) (defaults 20000 100 1), run from a repository checkout (the generators are loaded from ``tests/feature_selection/_synth/pool_planted.py``). For each generator it prints the wall time, the planted
 columns, the selected columns that mention a planted source, and ``recall``: 1 when the selected set holds a column whose name mentions every planted source (a raw column counts only when one source is planted),
 else 0. Run it once per pool arm and compare the lines; one process, so the timings share the same warm kernels.
 """
@@ -22,6 +22,22 @@ _spec.loader.exec_module(_module)
 GENERATORS = _module.GENERATORS
 
 
+def _linear_auc(model, X_tr, y_tr, X_te, y_te) -> tuple:
+    """Held-out ROC-AUC of a standardised logistic regression on the model's selected (transformed) columns, and on the raw columns."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import roc_auc_score
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    def auc(A_tr, A_te) -> float:
+        """AUC of the pipeline fitted on ``A_tr``."""
+        clf = make_pipeline(StandardScaler(), LogisticRegression(max_iter=300)).fit(A_tr, y_tr)
+        return float(roc_auc_score(y_te, clf.predict_proba(A_te)[:, 1]))
+
+    Z_tr, Z_te = model.transform(X_tr), model.transform(X_te)
+    return auc(Z_tr.to_numpy(dtype=float), Z_te.to_numpy(dtype=float)), auc(X_tr.to_numpy(dtype=float), X_te.to_numpy(dtype=float))
+
+
 def run(rows: int, cols: int, seeds: int) -> None:
     """Fit every generator at ``seeds`` seeds and print one line per fit."""
     kw = F.all_families_kwargs()
@@ -30,15 +46,18 @@ def run(rows: int, cols: int, seeds: int) -> None:
     for name, make in GENERATORS.items():
         for seed in range(seeds):
             X, y, planted = make(n=rows, p=cols, seed=seed)
+            cut = int(0.7 * len(X))
+            X_tr, X_te, y_tr, y_te = X.iloc[:cut], X.iloc[cut:], y[:cut], y[cut:]
             MRMR._FIT_CACHE.clear()
             t = time.perf_counter()
-            m = MRMR(verbose=0, random_seed=seed, n_jobs=1, **kw).fit(X, y)
+            m = MRMR(verbose=0, random_seed=seed, n_jobs=1, **kw).fit(X_tr, y_tr)
             wall = time.perf_counter() - t
             selected = list(m.get_feature_names_out())
+            gain_auc, raw_auc = _linear_auc(m, X_tr, y_tr, X_te, y_te)
             mention = [c for c in selected if any(s in c for s in planted)]
             recall = int(any(all(s in c for s in planted) for c in selected))
             hits[name] += recall
-            print(f"{name:30s} seed {seed} wall {wall:6.1f}s recall {recall} planted {planted} selected {len(selected)} mention {mention[:6]}", flush=True)
+            print(f"{name:30s} seed {seed} wall {wall:6.1f}s recall {recall} linear AUC on the selected set {gain_auc:.3f} vs raw columns {raw_auc:.3f} planted {planted} selected {len(selected)} mention {mention[:6]}", flush=True)
     print("recall per generator:", {k: f"{v}/{seeds}" for k, v in hits.items()})
 
 
