@@ -38,6 +38,11 @@ def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, st
     if skip and not _off(skip):
         return 0
     if run is None:
+        # Tune the code of the checkout being pushed: in a git worktree the importable ``mlframe`` may be another checkout's (an editable install of the main one), whose kernel sources have other
+        # code versions, so its tunings were stored under versions the pushed code never reads and every fit of the worktree kept reporting "cold" kernels.
+        src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+        if os.path.isdir(os.path.join(src, "mlframe")) and src not in sys.path:
+            sys.path.insert(0, src)
         from mlframe.system.kernel_tuning_cache import main as run
     if _off(env.get("MLFRAME_PREPUSH_TUNE", "1")):
         return int(run(["ensure", "--if-cuda", "--check", "--advisory"]))
