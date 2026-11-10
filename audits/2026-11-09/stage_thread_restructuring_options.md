@@ -266,3 +266,7 @@ Fits started with "kernel tuning cache is cold ... for 4 kernel(s)" even after `
 
 ## 100k x 1000 on the fully tuned cache (2026-11-10)
 Wall 578.8 s (572.3 s before the remaining four kernels were tuned: no change beyond noise; the 1000-column fit is bound by the concurrent lanes, not by those kernels). cascade_early_a 245.3, fe_step 109.3, cmim 63.8, auto_scorer 55.9, meta 44.5, jmim 32.7. The 100-column case gained 10 s from the same step (72-75 -> 62.7 s) because its serial tail runs the tuned dispatchers (discretize, batch AUC, usability pool) on the critical path.
+
+## Prelude of the 100k x 1000 fit (2026-11-10, D:/Temp/pre_sample.py, main thread, first 27 s)
+The cascade started at 24 s: degenerate-column audit ~12 s (is_constant 3.9, content_key 2.2, all_nan 2.1, self 4.2), fit-entry NaN masks 2.1, column validation 2.1, frame content hash 1.9-2.0, discretization warm-up 2.2, orth dedup ~3. After the column-parallel audit, NaN masks and inf scan: audit 5.4 (3.1 in the pool wait, 2.3 own), NaN masks 0.8, the validation scan out of the top list. Remaining serial: frame content hash (~2), warm-up call (~2.2), dedup classify (~3).
+Full-fit tail at 1000 columns (main_timeline_n, wall 591 s): serial tail 380-585 = 205 s: accuracy_gate 11, discretize 10, screen_predictors 32 (fdr_gain_floor 24), fe_step 126 (pair_mis_and_floor 16, score_prospective_pairs 57, check_prospective_pairs 46), second screen 9, assign_support_tail 7. Lanes: three orth lanes 52-215 beside the main thread's own 48-243, then a 115 s concurrent window (265-380).
