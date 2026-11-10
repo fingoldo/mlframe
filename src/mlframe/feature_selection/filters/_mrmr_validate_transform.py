@@ -281,8 +281,12 @@ def _check_input_columns(X):
             _arr_fallback = X.to_numpy() if hasattr(X, "to_numpy") else None
             if _arr_fallback is not None and _arr_fallback.dtype.kind == "f":
                 _float_col_arrays = [("<all>", _arr_fallback)]
-        for _col_name, _col_arr in _float_col_arrays:
-            if np.isinf(_col_arr).any():
+        # the columns are independent reductions that release the GIL: wide frames are scanned on the edge-jobs pool (2 s serial at 100000 x 1000), the first offending column in order is reported
+        from mlframe.feature_selection.filters._edge_pool import map_on_edge_pool
+
+        _has_inf = map_on_edge_pool(lambda _item: bool(np.isinf(_item[1]).any()), _float_col_arrays, min_items=16)
+        for (_col_name, _col_arr), _hit in zip(_float_col_arrays, _has_inf):
+            if _hit:
                 raise ValueError(
                     f"MRMR.fit: input X contains +/-inf values (column {_col_name!r}). Replace or drop these rows before fitting; the discretization step produces undefined bins on inf."
                 )

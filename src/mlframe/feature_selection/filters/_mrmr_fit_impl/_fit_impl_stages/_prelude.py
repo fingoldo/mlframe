@@ -41,14 +41,21 @@ def _apply_large_n_regression_nbins_gate(self, X, y):
 def _record_fit_entry_nan_mask(X, _will_use_include_numeric_nan_guard, _will_use_missingness_fe, _include_numeric_input_nan_cols, _fit_entry_nan_mask):
     """Record which raw numeric input columns carry NaN at fit entry (the include-numeric NaN guard and missingness FE read it)."""
     if hasattr(X, "columns") and (_will_use_include_numeric_nan_guard or _will_use_missingness_fe):
-        for _c in list(X.columns):
+        from mlframe.feature_selection.filters._edge_pool import map_on_edge_pool
+
+        def _mask_of(_c):
+            """The column's non-finite mask when it has one, else ``None`` (also for a column that does not convert to the criterion dtype); columns are independent."""
             try:
                 _cv = X[_c]
                 _cv_np = np.asarray(_cv.to_numpy() if hasattr(_cv, "to_numpy") else _cv, dtype=_crit_np_dtype())
             except (ValueError, TypeError):
-                continue
+                return None
             _nan_mask_c = ~np.isfinite(_cv_np)
-            if _nan_mask_c.any():
+            return _nan_mask_c if _nan_mask_c.any() else None
+
+        _cols = list(X.columns)
+        for _c, _nan_mask_c in zip(_cols, map_on_edge_pool(_mask_of, _cols, min_items=16)):
+            if _nan_mask_c is not None:
                 _include_numeric_input_nan_cols.add(_c)
                 _fit_entry_nan_mask[_c] = _nan_mask_c
 
