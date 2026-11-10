@@ -8,7 +8,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import threading
-from typing import Iterator, Optional, Sequence
+from typing import Any, Iterator, Optional, Sequence
 
 import numpy as np
 from .._fe_gpu_batch._devices import crit_float_dtype
@@ -167,8 +167,27 @@ def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     # ``cp.asarray(Q)``'s native-dtype passthrough exactly (unlike the njit backend, which explicitly
     # upcasts to f64) - forcing double precision here would change the matmul precision, not just cache it.
     from .._fe_resident_operands import resident_operand
-    Qd = resident_operand(Q, "orth_dedup_Q")
-    Rd = resident_operand(R, "orth_dedup_R")
+    from .._device_sort_safe import device_room
+
+    q, n_obs = Q.shape
+    r = R.shape[0]
+    item = int(Q.dtype.itemsize)
+    # the 6 masked matmuls hold about 5 (rows, n) operand arrays per side and ~9 (q, r) result arrays; whole when that fits a quarter of the room, else in (rows x rows) tiles
+    need = 5 * (q + r) * n_obs * item + 9 * q * r * item
+    room = device_room(cp)
+    if need <= room // 4:
+        return _pc_corr_cupy_arrays(cp, resident_operand(Q, "orth_dedup_Q"), resident_operand(R, "orth_dedup_R"))
+    tile = int(max(1, min(max(q, r), (room // 4 - 9 * 1024 * 1024 * item) // max(1, 10 * n_obs * item))))
+    out = np.empty((q, r), dtype=np.float64)  # Intentional float64: the result contract of the numpy backend
+    for i in range(0, q, tile):
+        Qd = cp.asarray(np.ascontiguousarray(Q[i : i + tile]))
+        for j in range(0, r, tile):
+            out[i : i + tile, j : j + tile] = _pc_corr_cupy_arrays(cp, Qd, cp.asarray(np.ascontiguousarray(R[j : j + tile])))
+    return out
+
+
+def _pc_corr_cupy_arrays(cp: Any, Qd: Any, Rd: Any) -> np.ndarray:
+    """The masked-matmul correlation of two resident blocks ``(q, n)`` and ``(r, n)``."""
     Qm = cp.isfinite(Qd)
     Rm = cp.isfinite(Rd)
     Q0 = cp.where(Qm, Qd, 0.0)
