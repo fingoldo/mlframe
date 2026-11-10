@@ -50,6 +50,16 @@ def _prescan_budget_bytes(n_rows: int, dtype: Any) -> tuple[int, int]:
     return int(budget), n * np.dtype(dtype).itemsize
 
 
+def _host_free_bytes_safe() -> int:
+    """Free host RAM in bytes (0 when it cannot be read)."""
+    try:
+        from .._orthogonal_univariate_fe._streamed_gpu_mi import _host_free_bytes
+
+        return int(_host_free_bytes())
+    except Exception:
+        return 0
+
+
 def _prescan_block_pairs(n_rows: int, dtype: Any) -> int:
     """Pairs per usability-scan block: two operand rows per pair, sized from :func:`_prescan_budget_bytes` (at least one pair)."""
     budget, per_row = _prescan_budget_bytes(n_rows, dtype)
@@ -174,6 +184,16 @@ def _collect_prescan_pair_keys(cached_MIs, sorted_pairs, sort_dict_by_value, num
         _sorted_pairs_local = _sort_dict_by_value_fallback(cached_MIs)
     scan_pks = []
     scanned = 0
+    usable: dict = {}  # operand index -> whether its column exists and is ``n_rows`` long; each operand is looked up once, not once per pair (376k extractions at 600 columns)
+
+    def _usable(idx: int) -> bool:
+        """Whether operand ``idx`` can be scanned (looked up on first use)."""
+        ok = usable.get(idx)
+        if ok is None:
+            op = cached_operand(idx)
+            ok = usable[idx] = op is not None and op.shape[0] == n_rows
+        return bool(ok)
+
     for _pk in reversed(_sorted_pairs_local.keys()):
         if len(_pk) != 2:
             continue
@@ -182,11 +202,7 @@ def _collect_prescan_pair_keys(cached_MIs, sorted_pairs, sort_dict_by_value, num
         if max_prescan > 0 and scanned >= max_prescan:
             break
         scanned += 1
-        _p0 = cached_operand(_pk[0])
-        _p1 = cached_operand(_pk[1])
-        if _p0 is None or _p1 is None:
-            continue
-        if _p0.shape[0] != n_rows or _p1.shape[0] != n_rows:
+        if not (_usable(_pk[0]) and _usable(_pk[1])):
             continue
         scan_pks.append(_pk)
     return scan_pks
@@ -216,31 +232,59 @@ def _dominant_pair_by_linear_corr(scan_pks, ya_pre, cached_operand):
         _op_full = cached_operand(idx)
         return cast(np.ndarray, _op_full[::_stride_pre] if _stride_pre > 1 else _op_full)
 
-    # Every scanned pair is scored, in blocks sized from the free host RAM: a block gathers only its own operands, and the
-    # running maximum keeps the first pair of the largest value, the same pair one call over all pairs would return.
-    # Operands are uploaded once per block, so when every operand of the scan fits the budget the whole scan is one block.
+    # Every scanned pair is scored. The pairs are grouped by the chunks of operands they touch, so a group's operand matrix (at most ``rows_per_block`` rows) is uploaded once and scores all of its
+    # pairs in ONE call; with the pairs taken in scan order in blocks of ``budget / (2 rows)`` pairs, a budget below two operand rows (the card nearly full after the earlier stages) meant one pair
+    # per call: 188191 calls at 600 columns. The winner is the largest value and, among equal values, the earliest pair in scan order: the pair one call over all pairs would return.
     _n_scan_operands = len({_i for _pk in scan_pks for _i in _pk})
     _budget_pre, _row_pre = _prescan_budget_bytes(_y_batch.shape[0], _dtype_pre)
-    _block_pairs = len(scan_pks) if _n_scan_operands * _row_pre <= _budget_pre else _prescan_block_pairs(_y_batch.shape[0], _dtype_pre)
-    for _b0 in range(0, len(scan_pks), _block_pairs):
-        _block = scan_pks[_b0 : _b0 + _block_pairs]
+    _rows_per_block = max(2, int(_budget_pre // max(1, _row_pre)))
+    if _rows_per_block < 64 and _n_scan_operands > _rows_per_block:
+        from .._orthogonal_univariate_fe._streamed_gpu_mi import _host_free_bytes
+
+        # the device share is nearly used up: group by the host share and let the dispatcher admit or decline the device for each group
+        _rows_per_block = max(_rows_per_block, int(_PRESCAN_FREE_FRACTION * _host_free_bytes() // max(1, _row_pre)))
+    _chunk = max(1, min(_n_scan_operands, _rows_per_block // 2))
+    _order: dict = {}
+    for _pk in scan_pks:
+        for _idx in _pk:
+            _order.setdefault(_idx, len(_order))
+    _groups: dict = {}
+    for _pos, _pk in enumerate(scan_pks):
+        _ca, _cb = _order[_pk[0]] // _chunk, _order[_pk[1]] // _chunk
+        _groups.setdefault((min(_ca, _cb), max(_ca, _cb)), []).append(_pos)
+    _row_cache: dict = {}
+    _cache_rows = _n_scan_operands * _row_pre <= max(_budget_pre, 0) or _n_scan_operands * _row_pre <= _PRESCAN_FREE_FRACTION * _host_free_bytes_safe()
+
+    def _row_of(idx: int) -> np.ndarray:
+        """The subsampled operand row of ``idx`` in the scan dtype (kept for later groups when the rows of all operands fit the budget)."""
+        row = _row_cache.get(idx)
+        if row is None:
+            row = np.asarray(_op_rows_of(idx), dtype=_dtype_pre)
+            if _cache_rows:
+                _row_cache[idx] = row
+        return row
+
+    _dom_cp, _dom_pos = -1.0, -1
+    for _key in sorted(_groups):
+        _positions = _groups[_key]
         _blk_row_of: dict = {}
         _blk_rows: list = []
-        for _pk in _block:
-            for _idx in (_pk[0], _pk[1]):
+        for _pos in _positions:
+            for _idx in scan_pks[_pos]:
                 if _idx not in _blk_row_of:
                     _blk_row_of[_idx] = len(_blk_rows)
-                    _blk_rows.append(np.asarray(_op_rows_of(_idx), dtype=_dtype_pre))
-        _pair_a = np.array([_blk_row_of[_pk[0]] for _pk in _block], dtype=np.int64)
-        _pair_b = np.array([_blk_row_of[_pk[1]] for _pk in _block], dtype=np.int64)
+                    _blk_rows.append(_row_of(_idx))
+        _pair_a = np.array([_blk_row_of[scan_pks[_pos][0]] for _pos in _positions], dtype=np.int64)
+        _pair_b = np.array([_blk_row_of[scan_pks[_pos][1]] for _pos in _positions], dtype=np.int64)
         _pair_form_corrs, _ = dispatch_batch_pair_usability_corr(
             _y_batch, np.vstack(_blk_rows), _pair_a, _pair_b, form_ids=ALL_PAIR_FORM_IDS,
         )
         _cp_block = _pair_form_corrs.max(axis=1)
         _bi = int(np.argmax(_cp_block))
-        if _dom_pk is None or float(_cp_block[_bi]) > _dom_cp:
-            _dom_cp = float(_cp_block[_bi])
-            _dom_pk = _block[_bi]
+        _val, _pos_best = float(_cp_block[_bi]), _positions[_bi]
+        if _dom_pos < 0 or _val > _dom_cp or (_val == _dom_cp and _pos_best < _dom_pos):
+            _dom_cp, _dom_pos = _val, _pos_best
+    _dom_pk = scan_pks[_dom_pos] if _dom_pos >= 0 else None
     return _dom_pk
 
 

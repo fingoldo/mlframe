@@ -18,7 +18,15 @@ import warnings
 import numpy as np
 import pytest
 
-from mlframe.feature_selection.filters.mrmr import MRMR
+from mlframe.feature_selection.filters.mrmr import MRMR  # noqa: F401
+from tests.feature_selection.conftest import legacy_mrmr
+
+# Families switched on by the new defaults whose columns (modular cosines, hinge legs, triplet products) are fragments or extra compounds in the sense of this file's assertions; the file
+# was written for the older set (see ``legacy_mrmr``), so these are pinned off with it.
+_OLD_SET = dict(
+    fe_hinge_enable=False, fe_modular_enable=False, fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False,
+    fe_binned_numeric_agg_enable=False, fe_conditional_gate_enable=False, fe_oof_cell2d_enable=False, fe_hybrid_orth_triplet_enable=False,
+)
 from tests.feature_selection._synthetic_distributions import sample_operands
 
 _ID = re.compile(r"[a-zA-Z_]\w*")
@@ -211,7 +219,7 @@ def test_f2_one_compound_under_distribution(profile):
     df, y = _make(profile, n=10_000, seed=42)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
+        fs = legacy_mrmr(**_OLD_SET, full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
     names = [str(s) for s in fs.get_feature_names_out()]
     full, frag_ab, frag_cd = _classify(names)
     assert all("e" not in _cols(nm) for nm in names), f"[{profile}] noise 'e' referenced: {names}"
@@ -253,7 +261,7 @@ def test_f2_exactly_one_compound_at_scale(n):
     df, y = _make("uniform", n=n, seed=42)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
+        fs = legacy_mrmr(**_OLD_SET, full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
     names = [str(s) for s in fs.get_feature_names_out()]
     full, frag_ab, frag_cd = _classify(names)
     assert all("e" not in _cols(nm) for nm in names), f"[n={n}] noise 'e' referenced: {names}"
@@ -288,7 +296,7 @@ def test_f2_single_step_one_compound(n, seed):
     df, y = _make("uniform", n=n, seed=seed)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=1, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
+        fs = legacy_mrmr(**_OLD_SET, full_npermutations=10, baseline_npermutations=20, fe_max_steps=1, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
     names = [str(s) for s in fs.get_feature_names_out()]
     full, frag_ab, frag_cd = _classify(names)
     assert len(full) == 1, f"[n={n},seed={seed}] expected exactly ONE fused compound, got {len(full)}: {full} :: {names}"
