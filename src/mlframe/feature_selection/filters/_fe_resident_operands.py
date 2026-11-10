@@ -173,7 +173,8 @@ _FE_RESIDENT_OPERANDS: "OrderedDict" = OrderedDict()
 # nothing hot is ever evicted (and the operands are <=200k-row subsample columns, a few MB each -> ~330 MB of
 # VRAM worst case, comfortable alongside the chunked candidate buffers on a 4 GB card). On overflow the LRU
 # evicts only the single coldest entry (a fit-scoped re-upload of that one if reused), never the whole table.
-_MAX_ENTRIES = 192
+_MAX_ENTRIES = 1536  # was 192: a 1000-column pair sweep draws its external factors from all 1000 raw columns, and a 192-entry LRU cycled through them (13 s of host-to-device copies in the pair
+# emission of a 100000 x 1000 fit); 1536 columns of 100000 float32 rows are 600 MB, under the byte budget below, which still bounds wider rows
 
 
 #: Share of the device memory the resident operands may hold together.
