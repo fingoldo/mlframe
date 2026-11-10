@@ -45,3 +45,18 @@ def test_prebinned_p_added_equals_host_binner(monkeypatch):
     without = gq._p_added_by_column(eng, raw, y, src, host_bin, 10)
     for c in eng.columns:
         assert np.isclose(with_pre[c], without[c], rtol=1e-9, atol=1e-12, equal_nan=True), (c, with_pre[c], without[c])
+
+
+def test_added_information_p_with_shared_dense_codes_is_identical():
+    """Passing the pre-renumbered target and source gives the same p-value as renumbering inside the call."""
+    from mlframe.feature_selection.filters._added_information_gate import _dense_codes, added_information_p
+
+    rng = np.random.default_rng(3)
+    n = 4000
+    y = rng.integers(0, 3, n)
+    src = rng.integers(0, 7, n)
+    cand = (src + rng.integers(0, 4, n)) % 9
+    base = added_information_p(cand, src, y)
+    shared = added_information_p(cand, src, y, y_dense=_dense_codes(y), source_dense=_dense_codes(src))
+    assert shared == base
+    assert added_information_p(cand, None, y, y_dense=_dense_codes(y)) == added_information_p(cand, None, y)

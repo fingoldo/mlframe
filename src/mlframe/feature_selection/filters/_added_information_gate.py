@@ -63,18 +63,20 @@ def _dense_codes(a: np.ndarray) -> "tuple[np.ndarray, int]":
     return inverse, int(inverse.max()) + 1 if inverse.size else 0
 
 
-def added_information_p(candidate: np.ndarray, source: "np.ndarray | None", y: np.ndarray) -> float:
+def added_information_p(candidate: np.ndarray, source: "np.ndarray | None", y: np.ndarray, *, y_dense: "tuple[np.ndarray, int] | None" = None, source_dense: "tuple[np.ndarray, int] | None" = None) -> float:
     """p-value of ``H0: the candidate adds nothing about y beyond its source`` (G-test of ``CMI(candidate; y | source)``); ``source=None`` tests ``MI(candidate; y) = 0``.
 
     The arguments are integer codes (any labels, renumbered here). ``NaN`` when the table is too sparse for the chi-square approximation (expected count per cell under ``_MIN_EXPECTED_CELL``);
-    ``1.0`` when the table has no degrees of freedom (a constant candidate or target)."""
+    ``1.0`` when the table has no degrees of freedom (a constant candidate or target).
+
+    ``y_dense`` / ``source_dense``: the :func:`_dense_codes` result of ``y`` / ``source`` when the caller scores many candidates against the same target or source (the renumbering is a pass over every row per call)."""
     n = int(np.asarray(y).shape[0])
     c, bc = _dense_codes(candidate)
-    t, by = _dense_codes(y)
+    t, by = y_dense if y_dense is not None else _dense_codes(y)
     if source is None:
         s, bs = np.zeros(n, dtype=np.int64), 1
     else:
-        s, bs = _dense_codes(source)
+        s, bs = source_dense if source_dense is not None else _dense_codes(source)
     df = bs * (bc - 1) * (by - 1)
     if n <= 0 or df <= 0:
         return 1.0

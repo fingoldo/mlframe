@@ -686,6 +686,10 @@ def _p_added_by_column(eng_X: pd.DataFrame, raw_X: pd.DataFrame, y_bin: np.ndarr
     NaN for a column whose source is not in ``raw_X`` or whose table is too sparse to test."""
     eng_pre = _prebinned_codes(eng_X, list(eng_X.columns), n_bins)
     source_codes: dict = _prebinned_codes(raw_X, sorted({s for s in eng_to_source.values() if s in raw_X.columns}), n_bins)
+    from ._added_information_gate import _dense_codes
+
+    y_dense = _dense_codes(y_bin)  # the target is the same for every candidate
+    source_dense: dict = {}
 
     def one(col: str) -> float:
         """The p-value of one column (the source's codes are binned once and shared by its columns)."""
@@ -695,7 +699,9 @@ def _p_added_by_column(eng_X: pd.DataFrame, raw_X: pd.DataFrame, y_bin: np.ndarr
         if src not in source_codes:
             source_codes[src] = bin_one(raw_X[src].to_numpy())
         codes = eng_pre[col] if col in eng_pre else bin_one(eng_X[col].to_numpy())
-        return added_information_p(codes, source_codes[src], y_bin)
+        if src not in source_dense:
+            source_dense[src] = _dense_codes(source_codes[src])  # a race between two pool threads only repeats the same renumbering
+        return added_information_p(codes, source_codes[src], y_bin, y_dense=y_dense, source_dense=source_dense[src])
 
     cols = list(eng_X.columns)
     return dict(zip(cols, _bin_columns_pooled(one, cols))) if cols else {}
