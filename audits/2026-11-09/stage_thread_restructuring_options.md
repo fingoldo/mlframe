@@ -229,3 +229,6 @@ After the LOF fix (`lof` 3.7 s -> 0.5 s, `mid_b` 17.3 s -> 15.6 s, one default f
 ### 100k x 1000, current code (2026-11-10, `D:/Temp/default_sel_big.py 1000`)
 
 WALL 674.6 s (first run, before the 1000-column work: 2188 s; after the pair-scan fixes: 1537 s). No device-to-host fallback is logged any more. `fe_step` 124 s (was 1509), `cascade_early_a` 301 s of which `hybrid_variants` 253 s (the families of the three lanes: `orth_mi_cmim` 148 s, `orth_mi_meta` 71, `orth_mi_jmim` 69; the hinge-gated block as wrapper 236), `cascade_mid_b` 131 s, `cascade_mid_a` 109 s, `cascade_early_b` 76 s. The same seven-column core of the selection as at 100 columns (g, x4, x2 and the sir direction and x4 legs). At this width the hybrid-orth scorers (CMIM, meta, JMIM, auto-scorer, ensemble) are the largest block: they score every engineered basis column against every selected one, quadratic in the candidate count, and are the next place to look for kernels far from the card's bandwidth.
+
+## 100k x 1000 after CMIM/JMIM block sizing by code width (2026-11-10)
+Wall 674.0 s -> 641.2 s. orth_mi_cmim 144.9 -> 70.7 s, orth_mi_jmim 60.2 -> 37.0 s (candidate blocks sized for bytes under the slot pool limit: fewer batched_cmi_gpu calls). cascade_early_a 247.8 s, fe_step 136.6 s (part7 84.8, part3 84.7, part5 44.4). Next: fe_step parts 3/7 and the remaining cascade_early_a lanes.
