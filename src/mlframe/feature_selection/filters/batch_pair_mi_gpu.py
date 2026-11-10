@@ -395,6 +395,21 @@ class _PairMiDispatch:
         self.vram_ok = _gpu_upload_fits(req_bytes, n_samples=self.n_samples, n_cols=n_cols, n_pairs=self.n_pairs)
         self._try_shared_fused = _dispatch_batch_pair__step1_def_try_cuda(nbins, self.n_pairs, pair_a, pair_b, freqs_y, factors_data, classes_y)
 
+    def try_feature_major(self) -> tuple[np.ndarray, str] | None:
+        """The feature-major byte-code kernel (coalesced reads: about 5 microseconds per pair of 100000 rows against about 100 for the row-major kernels); ``None`` when the codes do
+        not fit bytes or the histogram not the shared-memory budget, so the row-major kernels run."""
+        if not _CUPY_AVAIL:
+            return None
+        try:
+            from ._batch_pair_mi_cuda_fm import batch_pair_mi_cuda_feature_major
+
+            return batch_pair_mi_cuda_feature_major(*self.args), "cuda"
+        except (ValueError, RuntimeError) as e:
+            logger.debug("batch_pair_mi: feature-major kernel declined this shape (%s); using the row-major kernels", e)
+        except Exception as e:  # a driver or kernel fault: the row-major kernels give the same answer
+            log_throttle(logger, "batch_pair_mi_cuda_fm_failure", logging.WARNING, "batch_pair_mi feature-major kernel failed (%s: %s); using the row-major kernels", type(e).__name__, e)
+        return None
+
     def static_kernel_accepts(self) -> bool:
         """Whether the STATIC shared-memory kernel (``batch_pair_mi_cuda``) accepts this shape: it caps the target at ``MAX_Y_BINS_CUDA`` classes and the largest pair
         joint at ``MAX_JOINT_BINS_CUDA`` cells. A wider shape is served by the dynamic-shared-memory / row-chunked kernels, so the caller goes there directly instead
@@ -455,6 +470,9 @@ class _PairMiDispatch:
         """A forced CUDA request: the full-upload kernel when it fits VRAM, with the shared-fused / row-chunked fallbacks."""
         if not self.vram_ok:
             return self.try_row_chunked("forced CUDA backend requested but full upload does not fit VRAM")
+        fm = self.try_feature_major()
+        if fm is not None:
+            return fm
         if not self.static_kernel_accepts():
             return self.cuda_fallbacks(
                 "shape exceeds the static shared-memory caps (served by the dynamic-shared-memory kernel)",
@@ -513,6 +531,9 @@ class _PairMiDispatch:
         """The size-heuristic CUDA pick: the full-upload kernel when it fits VRAM, with the shared-fused / row-chunked fallbacks."""
         if not self.vram_ok:
             return self.try_row_chunked("size-heuristic picked CUDA but full upload does not fit VRAM")
+        fm = self.try_feature_major()
+        if fm is not None:
+            return fm
         if not self.static_kernel_accepts():
             return self.cuda_fallbacks(
                 "shape exceeds the static shared-memory caps (served by the dynamic-shared-memory kernel)",
