@@ -28,10 +28,81 @@ from ._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
-#: Candidates from which the batched device path is worth its uploads (below it the per-candidate host probe wins; the dispatcher's tuned entry overrides this).
-_MIN_CANDIDATES = 24
-#: Designs held on the device at once: one fold's block is ``mb * n_rows * k`` doubles, and 512 designs of 5000 rows by 3 columns are 61 MB.
-_MAX_BLOCK = 512
+#: Measured fallback (no KTC entry yet, or the probe is off the sweep's grid): below this many candidates the per-candidate host probe on the edge-jobs pool wins (``_fe_accuracy_gate_kernel.md``:
+#: at 96 designs x 10 folds x 5000 rows, alone in a quiet process, the fused kernel is slower than an 8-way host pool; it wins once the pool is shared with other concurrent FE lanes, which
+#: a static threshold measured in isolation cannot see - the KTC sweep below is run with the pool genuinely busy so its regions reflect the pool-contended case the gate actually runs in).
+_MIN_CANDIDATES_FALLBACK = 24
+
+
+def _gate_batch_fallback_choice(n_designs: int) -> str:
+    """Fallback when the KTC has no entry for ``n_designs`` yet: the measured crossover of :data:`_MIN_CANDIDATES_FALLBACK`."""
+    return "device" if int(n_designs) >= _MIN_CANDIDATES_FALLBACK else "host"
+
+
+def _make_gate_batch_inputs(dims: dict) -> tuple:
+    """``(srcs, engs, y)`` for the sweep: ``dims["n_designs"]`` source/engineered column pairs of 5000 rows, a binary target, half the engineered columns carrying real signal."""
+    n = 5000
+    rng = np.random.default_rng(0)
+    k = int(dims["n_designs"])
+    srcs = [rng.standard_normal(n).astype(np.float32) for _ in range(k)]
+    y = (rng.random(n) < 0.45).astype(np.int64)
+    engs = [(s**2 if i % 2 == 0 else rng.standard_normal(n)).astype(np.float32) for i, s in enumerate(srcs)]
+    return srcs, engs, y
+
+
+def _gate_batch_host_variant(srcs, engs, y):
+    """The per-candidate host probe of every (source, engineered) pair, on the edge-jobs pool, as the gate's host path runs it."""
+    from ._fe_accuracy_gate import measure_feature_uplift
+
+    return np.array([measure_feature_uplift(s[:, None], e[:, None], y, classification=True) for s, e in zip(srcs, engs)])
+
+
+def _gate_batch_device_variant(srcs, engs, y):
+    """The fused-kernel probe of the same pairs, forced on regardless of :data:`_MIN_CANDIDATES_FALLBACK`."""
+    from ._fe_accuracy_gate import _probe_splits
+
+    probe = _probe_splits(np.zeros((len(y), 1)), y, classification=True, n_splits=10, seed=0, groups=None)
+    it, y_enc, _binary, _ns = probe
+    folds = [(tr, va) for tr, va in it if np.unique(y_enc[tr]).size >= 2]
+    return batched_uplift(list(srcs), list(engs), y_enc.astype(np.float64), folds=folds, base_of=list(range(len(srcs))))
+
+
+def _sweep_gate_batch() -> list:
+    """The actual host-vs-device grid sweep (kept separate from :func:`_run_gate_batch_sweep` so a test can call it without the KTC import chain)."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    variants = {"host": lambda *a: _gate_batch_host_variant(*a), "device": lambda *a: _gate_batch_device_variant(*a)}
+    return list(sweep_backend_grid(variants, {"n_designs": [8, 24, 64, 160, 400]}, _make_gate_batch_inputs, reference="host", repeats=2, equiv_rtol=5e-2, equiv_atol=5e-3))
+
+
+_GATE_BATCH_SPEC: "Any | None" = None
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+    _GATE_BATCH_SPEC = kernel_tuner(
+        kernel_name="fe_accuracy_gate_batch",
+        variant_fns=(),  # GPU-only cupy/RawKernel path; covered by salt
+        tuner=_sweep_gate_batch,
+        axes={"n_designs": [8, 24, 64, 160, 400]},
+        fallback=_gate_batch_fallback_choice,
+        gpu_capable=True,
+        salt=1,
+        cli_label="fe_accuracy_gate_batch",
+    )
+except Exception as e:  # the dispatcher falls back to the measured heuristic when the registry is unavailable
+    logger.warning("kernel_tuner spec build for fe_accuracy_gate_batch failed: %s", e)
+    _GATE_BATCH_SPEC = None
+
+
+def _use_device(n_designs: int) -> bool:
+    """Whether ``n_designs`` candidates should take the fused device probe: the KTC's tuned choice, or the measured fallback when no entry exists yet."""
+    if _GATE_BATCH_SPEC is None:
+        return _gate_batch_fallback_choice(n_designs) == "device"
+    try:
+        return str(_GATE_BATCH_SPEC.choose(n_designs=int(n_designs))) == "device"
+    except Exception as exc:
+        logger.debug("fe_accuracy_gate_batch: KTC choose() failed, using the fallback: %s", exc)
+        return _gate_batch_fallback_choice(n_designs) == "device"
 
 
 def batched_enabled() -> bool:
@@ -39,137 +110,43 @@ def batched_enabled() -> bool:
     return os.environ.get("MLFRAME_GATE_BATCHED", "1").strip() not in ("0", "false", "off", "no")
 
 
-def _newton_batch(cp: Any, A: Any, y: Any, lam: float) -> Any:
-    """``(mb, k)`` logistic-ridge weights of the designs ``A`` ``(mb, n, k)`` (last column the unpenalised intercept) against the shared labels ``y``; a design that does not converge gets NaN.
-
-    Mirrors the host Newton: the stop test is ``max|grad| < _GRAD_TOL * sqrt(max(1, n))``, the Hessian carries ``reg + 1e-12`` on its diagonal, and a step that does not lower the objective
-    is halved up to twelve times. Designs converge at different iterations, so a converged one is frozen (its step is multiplied by zero) instead of being dropped from the batch.
-    """
-    mb, n, k = A.shape
-    dt = A.dtype
-    reg = cp.full(k, float(lam), dtype=dt)
-    reg[k - 1] = 0.0
-    w = cp.zeros((mb, k), dtype=dt)
-    At = cp.ascontiguousarray(A.transpose(0, 2, 1))
-    eye = cp.arange(k)
-    tol = float(_GRAD_TOL) * max(1.0, float(n)) ** 0.5
-    z = cp.zeros((mb, n), dtype=dt)
-    f = _objective_batch(cp, z, y, w, float(lam))
-    live = cp.ones(mb, dtype=cp.bool_)  # designs still iterating
-    dead = cp.zeros(mb, dtype=cp.bool_)  # designs whose fit failed (no finite step, or the line search ran out)
-    for _ in range(int(_MAX_ITER)):
-        mu = 1.0 / (1.0 + cp.exp(-z))
-        grad = cp.einsum("bnk,bn->bk", A, mu - y[None, :]) + reg[None, :] * w
-        converged = cp.max(cp.abs(grad), axis=1) < tol
-        live = live & ~converged & ~dead
-        if not bool(live.any().get() if hasattr(live.any(), "get") else live.any()):
-            break
-        s = mu * (1.0 - mu)
-        hess = cp.matmul(At, A * s[:, :, None])
-        hess[:, eye, eye] += reg[None, :] + 1e-12
-        step = _solve_batch(cp, hess, grad)
-        bad = ~cp.all(cp.isfinite(step), axis=1)
-        dead = dead | (bad & live)
-        step = cp.where(cp.isfinite(step), step, 0.0)
-        t = cp.ones((mb, 1), dtype=dt)
-        accepted = cp.zeros(mb, dtype=cp.bool_)
-        w_new, z_new, f_new = w, z, f
-        for _ls in range(12):
-            cand = w - t * step * live[:, None]
-            z_cand = cp.einsum("bnk,bk->bn", A, cand)
-            f_cand = _objective_batch(cp, z_cand, y, cand, float(lam))
-            take = (~accepted) & cp.isfinite(f_cand) & (f_cand <= f)
-            w_new = cp.where(take[:, None], cand, w_new)
-            z_new = cp.where(take[:, None], z_cand, z_new)
-            f_new = cp.where(take, f_cand, f_new)
-            accepted = accepted | take
-            if bool((accepted | ~live).all().get() if hasattr((accepted | ~live).all(), "get") else (accepted | ~live).all()):
-                break
-            t = t * 0.5
-        dead = dead | (live & ~accepted)  # the line search ran out: the host path returns None here
-        w, z, f = w_new, z_new, f_new
-    out = cp.where((dead | live)[:, None], cp.nan, w)  # ``live`` still set means the iteration budget ran out, which the host path also reports as a failure
-    return out
-
-
-def _objective_batch(cp: Any, z: Any, y: Any, w: Any, lam: float) -> Any:
-    """``(mb,)`` penalised logistic loss of each design, the batched form of ``_fe_accuracy_gate_newton._objective``: ``sum(log1p(exp(z)) - y z) + lam/2 * |w[:-1]|^2``."""
-    loss = cp.sum(cp.logaddexp(0.0, z) - y[None, :] * z, axis=1)
-    return loss + 0.5 * float(lam) * cp.sum(w[:, :-1] * w[:, :-1], axis=1)
-
-
-def _solve_batch(cp: Any, hess: Any, grad: Any) -> Any:
-    """``(mb, k)`` Newton steps ``hess^-1 grad``; a singular design's step comes back non-finite (the caller marks it failed), as the host path's ``LinAlgError`` does."""
+def _device_block_designs(cp, n_rows: int, k: int, itemsize: int) -> int:
+    """Designs held on the device at once: a third of the free VRAM over one design's bytes, at least one (CUDA.md section 5 sizes a block from free memory, never a constant)."""
     try:
-        return cp.linalg.solve(hess, grad[:, :, None])[:, :, 0]
-    except Exception as exc:  # a singular design in the batch: cupy raises for the whole call, so fall back to a per-design solve
-        logger.debug("batched Newton: the batch solve failed (%s); solving the designs one by one", exc)
-        out = cp.empty_like(grad)
-        for b in range(int(hess.shape[0])):
-            try:
-                out[b] = cp.linalg.solve(hess[b], grad[b])
-            except Exception:  # noqa: PERF203 - a singular design is reported as non-finite, like the host path's LinAlgError
-                out[b] = cp.nan
-        return out
+        free_b = int(cp.cuda.runtime.memGetInfo()[0])
+    except Exception as exc:  # no device information: a single modest block
+        logger.debug("gate batch: free VRAM unreadable (%r); one 64-design block", exc)
+        return 64
+    per = max(1, int(n_rows) * max(1, int(k)) * int(itemsize))
+    return max(1, int((free_b // 3) // per))
 
 
-def _standardised(cp: Any, X: Any, rows: Any) -> Any:
-    """``(mb, len(rows), k+1)`` designs: the columns of ``X`` ``(mb, n, k)`` taken at ``rows``, centred and scaled by THOSE rows' mean and population deviation, plus a ones column.
-
-    The zero-spread rule is the host probe's: a deviation at or below ``10 * eps * max(|mean|, 1)`` is replaced by 1.0, so a constant column becomes zeros instead of NaN. The standardised
-    values go through the criterion dtype exactly as the host probe does (``_held_out_probe_score`` casts them to the frame's dtype, and the Newton fit widens them again), so a float32
-    project dtype rounds them here too and the fit sees the same numbers.
-    """
-    sub = X[:, rows, :]
-    mu = sub.mean(axis=1, keepdims=True)
-    sd = sub.std(axis=1, keepdims=True)
-    floor = 10.0 * float(np.finfo(np.float64).eps) * cp.maximum(cp.abs(mu), 1.0)  # Intentional float64: the host probe's zero-spread rule is written in double
-    sd = cp.where(sd > floor, sd, 1.0)
-    out = (sub - mu) / sd
-    crit = _crit_np_dtype()
-    if crit != np.float64:
-        out = out.astype(crit).astype(sub.dtype)  # the host probe's round trip through the frame dtype
-    ones = cp.ones((out.shape[0], out.shape[1], 1), dtype=out.dtype)
-    return cp.concatenate([out, ones], axis=2)
+def _fold_assignment(n: int, folds: Sequence[tuple]) -> "tuple[np.ndarray, np.ndarray]":
+    """``(fold_of, eval_folds)``: the fold whose held-out part owns each row (-1 for a row no fold holds out), and the fold ids to evaluate."""
+    fold_of = np.full(int(n), -1, dtype=np.int8)
+    for f, (_tr, va) in enumerate(folds):
+        fold_of[np.asarray(va, dtype=np.int64)] = f
+    return fold_of, np.arange(len(folds), dtype=np.int32)
 
 
-def _auc_batch(cp: Any, scores: Any, y: Any) -> Any:
-    """``(mb,)`` ROC-AUC of each row of ``scores`` ``(mb, n)`` against the shared 0/1 labels ``y``, with mid-ranks on ties (the quantity ``fast_roc_auc`` returns); 0.5 when one class is absent."""
-    n_pos = float(cp.sum(y).get() if hasattr(cp.sum(y), "get") else cp.sum(y))
-    n = int(y.shape[0])
-    n_neg = float(n) - n_pos
-    if n_pos <= 0 or n_neg <= 0:
-        return cp.full(int(scores.shape[0]), 0.5, dtype=scores.dtype)
-    order = cp.argsort(scores, axis=1, kind="stable")
-    srt = cp.take_along_axis(scores, order, axis=1)
-    ranks = cp.broadcast_to(cp.arange(1, n + 1, dtype=scores.dtype), srt.shape).copy()
-    # mid-rank of every run of equal scores: the run's first and last positions average to the rank the tie shares
-    is_start = cp.ones(srt.shape, dtype=cp.bool_)
-    is_start[:, 1:] = srt[:, 1:] != srt[:, :-1]
-    grp = cp.cumsum(is_start, axis=1) - 1
-    nb = int(grp[:, -1].max().get() if hasattr(grp[:, -1].max(), "get") else grp[:, -1].max()) + 1
-    rows = cp.broadcast_to(cp.arange(int(scores.shape[0]), dtype=cp.int64)[:, None], srt.shape)
-    flat = (rows * nb + grp).ravel()
-    sums = cp.bincount(flat, weights=ranks.ravel(), minlength=int(scores.shape[0]) * nb).reshape(int(scores.shape[0]), nb)
-    counts = cp.bincount(flat, minlength=int(scores.shape[0]) * nb).reshape(int(scores.shape[0]), nb)
-    mid = sums / cp.maximum(counts, 1)
-    ranks = cp.take_along_axis(mid, grp, axis=1)
-    y_srt = cp.take_along_axis(cp.broadcast_to(y[None, :], srt.shape).copy(), order, axis=1)
-    rank_sum = cp.sum(ranks * y_srt, axis=1)
-    return (rank_sum - n_pos * (n_pos + 1.0) / 2.0) / (n_pos * n_neg)
+def _fold_auc_device(cp: Any, designs_host: np.ndarray, y_host: np.ndarray, fold_of: np.ndarray, eval_folds: np.ndarray, lam: float) -> np.ndarray:
+    """``(n_designs, n_folds)`` held-out AUC of every design on every fold, from ONE launch of the fused kernel; a design whose fit failed on a fold comes back NaN there."""
+    from ._fe_accuracy_gate_kernel import BLOCK, kernel
 
-
-def _fold_scores(cp: Any, X: Any, y_dev: Any, folds: Sequence[tuple], lam: float) -> Any:
-    """``(mb, n_folds)`` held-out AUC of every design of ``X`` ``(mb, n, k)`` on every fold; a design whose fit failed on a fold gets NaN there."""
-    out = cp.empty((int(X.shape[0]), len(folds)), dtype=X.dtype)
-    for j, (tr, va) in enumerate(folds):
-        A = _standardised(cp, X, tr)
-        w = _newton_batch(cp, A, y_dev[tr], lam)
-        Av = _standardised(cp, X, va)
-        z = cp.einsum("bnk,bk->bn", Av, cp.where(cp.isfinite(w), w, 0.0))
-        auc = _auc_batch(cp, 1.0 / (1.0 + cp.exp(-z)), y_dev[va])
-        out[:, j] = cp.where(cp.all(cp.isfinite(w), axis=1), auc, cp.nan)
-    return out
+    real = designs_host.dtype
+    n_designs, k, n = (int(v) for v in designs_host.shape)
+    fn = kernel(cp, real)
+    d_designs = cp.asarray(designs_host)
+    d_y = cp.asarray(np.ascontiguousarray(y_host, dtype=real))
+    d_fold = cp.asarray(np.ascontiguousarray(fold_of))
+    d_eval = cp.asarray(np.ascontiguousarray(eval_folds))
+    out = cp.empty((n_designs, int(eval_folds.shape[0])), dtype=cp.float64)  # Intentional float64: the kernel's {ACC} output, an AUC compared with a threshold
+    fn(
+        (n_designs, int(eval_folds.shape[0])), (BLOCK,),
+        (d_designs, d_y, d_fold, d_eval, np.int64(n), np.int32(k), np.int32(n_designs), np.int32(int(eval_folds.shape[0])),
+         np.float64(float(lam)), np.float64(float(_GRAD_TOL)), np.int32(int(_MAX_ITER)), np.int32(1 if real != np.float64 else 0), out),  # Intentional float64: the kernel's {ACC} scalars
+    )
+    return np.asarray(cp.asnumpy(out))
 
 
 def batched_uplift(
@@ -177,9 +154,10 @@ def batched_uplift(
 ) -> "Optional[np.ndarray]":
     """``(n_candidates,)`` mean held-out AUC uplift of each engineered column over its base column, or ``None`` when the device path does not apply.
 
-    ``base_cols`` holds the DISTINCT base columns (each ``(n,)``), ``eng_cols`` the candidates' engineered columns, and ``base_of[i]`` the index in ``base_cols`` of candidate ``i``'s base,
-    so a base shared by several candidates is fitted once. ``folds`` are the ``(train rows, validation rows)`` index arrays the host probe would use. A candidate whose batched fit did not
-    converge on some fold comes back as ``nan``: the caller probes that one on the host, as it does for a host fit that returns ``None``.
+    ``base_cols`` holds the DISTINCT base columns (each ``(n,)``), ``eng_cols`` the candidates' engineered columns and ``base_of[i]`` the index in ``base_cols`` of candidate ``i``'s base, so a
+    base shared by several candidates is fitted once. ``folds`` are the ``(train rows, validation rows)`` index arrays the host probe would use. A candidate whose fit did not converge on some
+    fold comes back ``nan``: the caller probes that one on the host, as it does for a host fit that returns ``None``. Designs go in blocks sized from the free VRAM, and any device fault returns
+    ``None`` so the caller keeps the host probe (CUDA.md section 5).
     """
     if not batched_enabled() or not eng_cols:
         return None
@@ -190,25 +168,32 @@ def batched_uplift(
 
         if not cuda_available_for_run():
             return None
-        y_arr = np.ascontiguousarray(np.asarray(y).ravel(), dtype=np.float64)  # Intentional float64: the Newton solve and the loss are in double, as on the host
-        n = int(y_arr.shape[0])
+        from ._fe_accuracy_gate_kernel import MAX_K, MAX_VA
+
+        real = np.dtype(_crit_np_dtype())
+        n = int(np.asarray(y).ravel().shape[0])
         if n == 0 or any(int(np.asarray(c).shape[0]) != n for c in base_cols) or any(int(np.asarray(c).shape[0]) != n for c in eng_cols):
             return None
-        y_dev = cp.asarray(y_arr)
-        base_stack = cp.asarray(np.ascontiguousarray(np.stack([np.asarray(c, dtype=np.float64).ravel() for c in base_cols])[:, :, None]))  # Intentional float64: double designs, as on the host
-        base_auc = _fold_scores(cp, base_stack, y_dev, folds, lam)
-        del base_stack
+        if 2 > MAX_K:  # pragma: no cover - the design width is 1 (base) or 2 (augmented)
+            return None
+        fold_of, eval_folds = _fold_assignment(n, folds)
+        if max(int(np.count_nonzero(fold_of == f)) for f in range(len(folds))) > MAX_VA:
+            return None  # a held-out fold the block cannot reduce in shared memory
+        y_host = np.ascontiguousarray(np.asarray(y).ravel(), dtype=real)
+        bases = np.ascontiguousarray(np.stack([np.asarray(c, dtype=real).ravel() for c in base_cols])[:, None, :])  # (n_base, 1, n) feature-major
+        base_auc = _fold_auc_device(cp, bases, y_host, fold_of, eval_folds, lam)
+        del bases
+        block = min(len(eng_cols), _device_block_designs(cp, n, 2, real.itemsize))
         uplift = np.empty(len(eng_cols), dtype=np.float64)  # Intentional float64: the uplift is a mean of double AUC differences
-        for start in range(0, len(eng_cols), _MAX_BLOCK):
-            idx = range(start, min(len(eng_cols), start + _MAX_BLOCK))
-            aug = np.empty((len(idx), n, 2), dtype=np.float64)  # Intentional float64: double designs, as on the host
+        for start in range(0, len(eng_cols), block):
+            idx = list(range(start, min(len(eng_cols), start + block)))
+            aug = np.empty((len(idx), 2, n), dtype=real)  # feature-major: column 0 the base, column 1 the engineered candidate
             for row, i in enumerate(idx):
-                aug[row, :, 0] = np.asarray(base_cols[base_of[i]], dtype=np.float64).ravel()
-                aug[row, :, 1] = np.asarray(eng_cols[i], dtype=np.float64).ravel()
-            aug_auc = _fold_scores(cp, cp.asarray(np.ascontiguousarray(aug)), y_dev, folds, lam)
-            bases = cp.asarray(np.asarray([base_of[i] for i in idx], dtype=np.int64))
-            delta = aug_auc - base_auc[bases]
-            uplift[start : start + len(idx)] = cp.asnumpy(cp.mean(delta, axis=1))
+                aug[row, 0, :] = np.asarray(base_cols[base_of[i]], dtype=real).ravel()
+                aug[row, 1, :] = np.asarray(eng_cols[i], dtype=real).ravel()
+            aug_auc = _fold_auc_device(cp, np.ascontiguousarray(aug), y_host, fold_of, eval_folds, lam)
+            delta = aug_auc - base_auc[np.asarray([base_of[i] for i in idx], dtype=np.int64)]
+            uplift[start : start + len(idx)] = np.mean(delta, axis=1)  # NaN on any fold makes the candidate NaN, so the host probes it
         return uplift
     except Exception as exc:  # any device fault: the caller keeps the per-candidate host probe
         logger.warning("batched accuracy-gate probe not used (%s: %s); the per-candidate host probe decides", type(exc).__name__, exc)

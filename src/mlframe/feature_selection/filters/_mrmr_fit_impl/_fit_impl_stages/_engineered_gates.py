@@ -144,16 +144,18 @@ def _gate_base_columns(X, gate_cols, y, seed):
     Returns the surviving base columns keyed by raw source (the siblings pass 2 conditions on) and the dropped names.
     """
     from mlframe.feature_selection.filters._fe_accuracy_gate import _FE_UPLIFT_MIN, keep_engineered_over_source
-    from mlframe.feature_selection.filters._fe_accuracy_gate_batched import _MIN_CANDIDATES as _BATCHED_MIN_CANDIDATES
 
     surviving_by_src: dict[str, list[str]] = {}
     dropped: list[str] = []
     base_cols = [(_gc, _src) for _gc, _src, _is_fourier in gate_cols if not _is_fourier]
 
     # One batched device pass decides the candidates whose probe is the shared-rows, shared-folds Newton fit (the gate was 65 thread-seconds at 1000 columns, the largest host block of the
-    # fit); a candidate the batch does not cover comes back NaN and is probed below exactly as before. See _fe_accuracy_gate_batched.
+    # fit); a candidate the batch does not cover comes back NaN and is probed below exactly as before. See _fe_accuracy_gate_batched. ``_use_device`` is the KTC-dispatched choice (CUDA.md
+    # section 4), not a hard-coded candidate-count threshold.
     _batched = None
-    if len(base_cols) >= _BATCHED_MIN_CANDIDATES:
+    from mlframe.feature_selection.filters._fe_accuracy_gate_batched import _use_device
+
+    if _use_device(len(base_cols)):
         from mlframe.feature_selection.filters._fe_accuracy_gate_batched import batched_uplifts_for_pairs
 
         _srcs = [_gate_col_arr(X, _src) for _gc, _src in base_cols]
