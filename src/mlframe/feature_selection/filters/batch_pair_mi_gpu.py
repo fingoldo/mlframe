@@ -403,7 +403,7 @@ class _PairMiDispatch:
         try:
             from ._batch_pair_mi_cuda_fm import batch_pair_mi_cuda_feature_major
 
-            return batch_pair_mi_cuda_feature_major(*self.args), "cuda"
+            return batch_pair_mi_cuda_feature_major(*self.args), "cuda_feature_major"
         except (ValueError, RuntimeError) as e:
             logger.debug("batch_pair_mi: feature-major kernel declined this shape (%s); using the row-major kernels", e)
         except Exception as e:  # a driver or kernel fault: the row-major kernels give the same answer

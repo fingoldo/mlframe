@@ -136,8 +136,19 @@ class TestDispatcherIntegration:
     shape guard trips but the shape fits the opt-in budget -- the exact fallback chain this kernel exists
     to shortcut (static kernel -> shared-fused -> row-chunked -> CPU)."""
 
-    def test_forced_cuda_routes_to_shared_fused_for_wide_y(self):
-        """dispatch_batch_pair_mi routes to cuda_shared_fused when n_classes_y exceeds the static kernel's cap."""
+    def test_forced_cuda_routes_to_feature_major_for_byte_codes(self):
+        """Codes that fit a byte take the feature-major kernel first, whatever the target cardinality."""
+        factors_data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(99401, 30, 200, 20, (15, 22), 8)
+        mi, backend = dispatch_batch_pair_mi(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y, force_backend="cuda")
+        assert backend == "cuda_feature_major"
+        mi_cpu = batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
+        np.testing.assert_allclose(mi, mi_cpu, atol=1e-9, rtol=1e-9)
+
+    def test_forced_cuda_routes_to_shared_fused_for_wide_y(self, monkeypatch):
+        """With the feature-major kernel declining, dispatch_batch_pair_mi routes to cuda_shared_fused when n_classes_y exceeds the static kernel's cap."""
+        from mlframe.feature_selection.filters import batch_pair_mi_gpu as bm
+
+        monkeypatch.setattr(bm._PairMiDispatch, "try_feature_major", lambda self: None)
         # n_classes_y=20 > MAX_Y_BINS_CUDA=16 -> batch_pair_mi_cuda raises -> shared-fused should catch it.
         factors_data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(99401, 30, 200, 20, (15, 22), 8)
         mi, backend = dispatch_batch_pair_mi(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y, force_backend="cuda")
@@ -145,8 +156,11 @@ class TestDispatcherIntegration:
         mi_cpu = batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
         np.testing.assert_allclose(mi, mi_cpu, atol=1e-9, rtol=1e-9)
 
-    def test_small_shape_still_uses_static_kernel(self):
-        """dispatch_batch_pair_mi still routes a shape that fits the static kernel's caps to the static kernel."""
+    def test_small_shape_still_uses_static_kernel(self, monkeypatch):
+        """With the feature-major kernel declining, dispatch_batch_pair_mi still routes a shape that fits the static kernel's caps to the static kernel."""
+        from mlframe.feature_selection.filters import batch_pair_mi_gpu as bm
+
+        monkeypatch.setattr(bm._PairMiDispatch, "try_feature_major", lambda self: None)
         # A shape that fits the STATIC kernel's caps must still use it -- the new backend must not
         # preempt the (equally correct, no dynamic-shared-memory dependency) faster default path.
         factors_data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(2000, 6, 10, 4, (2, 4), 9)
