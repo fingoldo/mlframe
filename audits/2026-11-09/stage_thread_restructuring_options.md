@@ -289,3 +289,6 @@ Thread-seconds by kind: python 56.7, numpy/pandas 28.8, cupy 12.1 (over 58 s). T
 
 ## 100k x 1000 baseline after the fit-start scans and the hook fix (2026-11-10, big1000_f.out)
 Wall 535.3 s (578.8 before the column-parallel degenerate audit, NaN masks and inf scan; run-to-run spread about 15 s, so the improvement is real in size but not isolated to those scans). cascade_early_a 214.9 s (245.3), fe_step 102.1 (109.3), cmim 59.9, meta 48.3, auto_scorer 35.8, jmim 34.0. Starting point of the whole effort: 2188 s.
+
+## dcd joint entropies: device twin is not worth it (2026-11-10, D:/Temp/je_count.py)
+`_batch_joint_entropy_pairs` is called 6 times in the 100k x 100 fit for 928 pairs in all (0.17 s). At 1000 columns the sampler put 5.7 s in `_precompute_joint_entropies`, which is a pair x row histogram count (about 2e10 updates for ~2e5 pairs of 1e5 rows): the CPU prange does that at ~3.5 G updates/s, and the device's shared-memory atomic rate measured for the sibling pair_mi_perm kernel is 6.3 G/s, so the best case is about 2 s saved after a feature-major byte upload (the fd codes are int8/int32 here), for a kernel whose entropy sums would add in a different order than the CPU's. Not implemented.
