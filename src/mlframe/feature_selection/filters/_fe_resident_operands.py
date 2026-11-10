@@ -32,6 +32,7 @@ mempool free + the cmi resident cache.
 Pickle-safe: this cache is module-level and NEVER stored on an MRMR instance (mirrors ``_cmi_cuda``'s note).
 """
 
+import contextlib as _contextlib
 import functools
 import logging
 import os as _os
@@ -262,6 +263,42 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
         while len(_FE_RESIDENT_OPERANDS) > 1 and sum(int(getattr(v, "nbytes", 0)) for v in _FE_RESIDENT_OPERANDS.values()) > budget:
             _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict-ok: a miss re-uploads the operand
         return g
+
+
+@_contextlib.contextmanager
+def raised_capacity(entries: int) -> "Any":
+    """Allow ``entries`` resident operands for the duration of the block, then trim back to the usual cap (the coldest go first).
+
+    The pair emission of the FE step draws its external factors from all raw columns and the usual 192-entry LRU cycled through them (13 s of host-to-device copies at 1000 columns); the same
+    capacity held for the whole fit, while the concurrent cascades run, took the memory of their slot pools and cost more than it saved. The byte budget still applies inside the block."""
+    global _MAX_ENTRIES
+    with _FE_RESIDENT_OPERANDS_LOCK:
+        previous = _MAX_ENTRIES
+        _MAX_ENTRIES = max(previous, int(entries))
+    try:
+        yield
+    finally:
+        with _FE_RESIDENT_OPERANDS_LOCK:
+            _MAX_ENTRIES = previous
+            while len(_FE_RESIDENT_OPERANDS) > previous:
+                _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict-ok: a miss re-uploads the operand
+
+
+def with_raised_capacity(entries: int) -> "Any":
+    """Decorator form of :func:`raised_capacity`."""
+
+    def decorate(fn: Any) -> Any:
+        """Wrap ``fn`` so it runs inside ``raised_capacity(entries)``."""
+
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            """Run the wrapped function with the raised capacity."""
+            with raised_capacity(entries):
+                return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorate
 
 
 def assemble_resident_matrix(host: _np.ndarray, names: Sequence[str] | None, fallback_key: Any, *, dtype: type | None = None) -> Any:

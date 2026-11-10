@@ -15,6 +15,7 @@ from .._mrmr_fe_step_helpers import (
     run_cluster_aggregate_emission,
 )
 from .._fe_rejection_ledger import _drain_fe_rejection_records
+from .._fe_resident_operands import with_raised_capacity
 from ._helpers import _synergy_bootstrap_can_supply_pool
 from ._step_pair_order import order_prospective_pairs
 
@@ -177,6 +178,7 @@ def _run_fe_step_impl_part6(
 
 
 @fe_timed("stage:fe_step_part5")
+@with_raised_capacity(1536)  # the pair emission cycles through the external factors of every raw column; see raised_capacity
 def _run_fe_step_impl_part5(
     self: Any, st: Any, cols: Any, verbose: Any, classes_y: Any, n_jobs: Any, X: Any, check_prospective_fe_pairs: Any, unary_transformations: Any,
     binary_transformations: Any, classes_y_safe: Any, freqs_y: Any, num_fs_steps: Any, fe_max_steps: Any, fe_npermutations: Any, fe_max_pair_features: Any,

@@ -96,3 +96,18 @@ def test_lru_evicts_coldest_not_whole_table(monkeypatch):
     assert len(RO._FE_RESIDENT_OPERANDS) == 3, "LRU keeps the bound, not a clear-all (which would drop to 1)"
     # col0 was refreshed before the overflow -> it must still be resident (same buffer), proving single-evict LRU.
     assert RO.resident_operand(cols[0], "op", dtype=np.int64) is g0
+
+
+def test_raised_capacity_holds_more_inside_the_block_and_trims_after(monkeypatch):
+    """Inside ``raised_capacity`` more operands stay resident than the usual cap; leaving the block restores the cap and drops the coldest."""
+    _fresh_cache(monkeypatch)
+    monkeypatch.setattr(RO, "_MAX_ENTRIES", 3, raising=False)
+    cols = [np.full(2000, i, dtype=np.int64) for i in range(6)]
+    with RO.raised_capacity(6):
+        for c in cols:
+            RO.resident_operand(c, "op", dtype=np.int64)
+        assert len(RO._FE_RESIDENT_OPERANDS) == 6, "the raised cap keeps every operand of the block"
+    assert RO._MAX_ENTRIES == 3
+    assert len(RO._FE_RESIDENT_OPERANDS) == 3, "leaving the block trims back to the usual cap"
+    newest = RO.resident_operand(cols[5], "op", dtype=np.int64)
+    assert RO.resident_operand(cols[5], "op", dtype=np.int64) is newest, "the newest entries survive the trim"
