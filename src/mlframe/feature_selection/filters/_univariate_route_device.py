@@ -50,8 +50,19 @@ def route_columns_on_device(X: Any, cols: Sequence[str], y: Any, degrees: Sequen
             columns.append(x)
         if not eligible:
             return {}
-        M = cp.asarray(np.column_stack(columns), dtype=crit_float_dtype())
-        chosen = _gpu_route_bases_batched(cp, M, cp.asarray(yv), bases, tuple(int(d) for d in degrees), robust_axis=bool(_robust_axis_enabled()))
+        from ._device_blocks import first_block, run_column_blocks
+
+        dt = crit_float_dtype()
+        y_dev = cp.asarray(yv)
+        robust = bool(_robust_axis_enabled())
+        degs = tuple(int(d) for d in degrees)
+
+        def route(lo: int, hi: int) -> list:
+            """The routed bases of the columns ``lo:hi``."""
+            return list(_gpu_route_bases_batched(cp, cp.asarray(np.column_stack(columns[lo:hi]), dtype=dt), y_dev, bases, degs, robust_axis=robust))
+
+        multiple = (len(bases) * max(1, len(degs))) + 4
+        chosen = [b for piece in run_column_blocks(cp, len(columns), first_block(cp, n, len(columns), np.dtype(dt).itemsize, multiple), route) for b in piece]
     except Exception as exc:
         log_throttle(logger, "univariate_route_device_failed", logging.WARNING, "device routing of the univariate columns failed (%s: %s); the host router decides", type(exc).__name__, exc)
         return {}

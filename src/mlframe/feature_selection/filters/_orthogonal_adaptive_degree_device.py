@@ -79,39 +79,50 @@ def adaptive_degree_cells_on_device(
             if not finite.all():
                 x = np.where(finite, x, float(np.nanmean(x[finite])) if finite.any() else 0.0)
             columns.append(x)
-        M = cp.asarray(np.column_stack(columns), dtype=dt)
         robust = bool(_robust_axis_enabled())
         y_int = np.ascontiguousarray(y_arr, dtype=np.int64).ravel()
-        if basis == "auto":
-            y_f = y_int.astype(np.float64)  # Intentional float64: target statistic input
-            if n < 30 or float(y_f.std()) < 1e-12:
-                return None  # the host router falls back to the moment router there
-            chosen = _gpu_route_bases_batched(cp, M, cp.asarray(y_f), list(evaluable_bases()), tuple(degree_range), robust_axis=robust)
-            if any(c is None for c in chosen):
-                return None
-        else:
-            chosen = [basis] * len(cols)
-        cand, meta = _gpu_evaluate_basis_matrix(cp, M, chosen, list(degree_range), robust_axis=robust)
-        if cand is None:
-            return None
-        usable, _col_mean = cell_validity_gpu(cp, cand)
-        keep = np.flatnonzero(usable)
-        if keep.size == 0:
-            return [], [], np.empty(0, dtype=np.float64)  # Intentional float64: MI statistic vector
+        y_f = y_int.astype(np.float64)  # Intentional float64: target statistic input
+        if basis == "auto" and (n < 30 or float(y_f.std()) < 1e-12):
+            return None  # the host router falls back to the moment router there
+        y_route = cp.asarray(y_f) if basis == "auto" else None
         y_gpu = resident_operand(y_int, "adaptive_degree_y_int", dtype=np.int64)
         n_classes = int(y_int.max()) - int(y_int.min()) + 1
-        mi = np.asarray(
-            _plugin_mi_classif_batch_cuda_resident(cand if keep.size == cand.shape[1] else cand[:, cp.asarray(keep)], y_gpu, int(nbins), y_min=int(y_int.min()), n_classes=n_classes, relax_binning=True),
-            dtype=np.float64,  # Intentional float64: MI statistic vector
-        )
+        from ._device_blocks import first_block, run_column_blocks
+
+        def block_cells(lo: int, hi: int) -> "list | None":
+            """``(column, degree, basis, MI)`` of the usable cells of the columns ``lo:hi`` (columns numbered as in ``cols``), or ``None`` when a routing is degenerate."""
+            M = cp.asarray(np.column_stack(columns[lo:hi]), dtype=dt)
+            if basis == "auto":
+                chosen = _gpu_route_bases_batched(cp, M, y_route, list(evaluable_bases()), tuple(degree_range), robust_axis=robust)
+                if any(c is None for c in chosen):
+                    return None
+            else:
+                chosen = [basis] * (hi - lo)
+            cand, meta = _gpu_evaluate_basis_matrix(cp, M, chosen, list(degree_range), robust_axis=robust)
+            if cand is None:
+                return None
+            usable, _col_mean = cell_validity_gpu(cp, cand)
+            keep = np.flatnonzero(usable)
+            if keep.size == 0:
+                return []
+            mi = np.asarray(
+                _plugin_mi_classif_batch_cuda_resident(cand if keep.size == cand.shape[1] else cand[:, cp.asarray(keep)], y_gpu, int(nbins), y_min=int(y_int.min()), n_classes=n_classes, relax_binning=True),
+                dtype=np.float64,  # Intentional float64: MI statistic vector
+            )
+            return [(lo + meta[int(j)][0], meta[int(j)][2], meta[int(j)][1], float(mi[pos])) for pos, j in enumerate(keep)]  # (column, degree, basis, MI): meta rows are (column, basis, degree)
+
+        multiple = (len(list(evaluable_bases())) if basis == "auto" else 1) * max(1, len(degree_range)) + 6
+        pieces = run_column_blocks(cp, len(columns), first_block(cp, n, len(columns), np.dtype(dt).itemsize, multiple), block_cells)
+        if any(p is None for p in pieces):
+            return None
+        found = [c for p in pieces for c in p]
+        if not found:
+            return [], [], np.empty(0, dtype=np.float64)  # Intentional float64: MI statistic vector
     except Exception as exc:
         log_throttle(logger, "adaptive_degree_device_failed", logging.WARNING, "device adaptive-degree cells failed (%s: %s); using the host path", type(exc).__name__, exc)
         return None
     degree_pos = {int(d): i for i, d in enumerate(degree_range)}
-    cells = []
-    for pos, j in enumerate(keep):
-        ci, b, d = meta[int(j)]
-        cells.append((ci, degree_pos[int(d)], cols[ci], int(d), b, float(mi[pos])))
+    cells = [(ci, degree_pos[int(d)], cols[ci], int(d), b, mi_v) for ci, d, b, mi_v in found]
     cells.sort(key=lambda r: r[:2])  # host order: source column, then degree
     cand_cols = [f"{c[2]}__{_BASIS_CODE.get(c[4], c[4])}{c[3]}" for c in cells]
     cand_to_source = [(c[2], c[3], c[4]) for c in cells]
