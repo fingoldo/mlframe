@@ -51,7 +51,11 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 # Re-baselined 2026-10-17 at 1343 bulk H2D on this fixture (the 2026-07-21 figure of 360 predates the pairwise-modular, Hermite prewarp, wavelet, hinge and binned-aggregate resident
 # families; the biggest repeat uploaders were batched in the same pass: modular permutation inverses 360 -> 30, binned-aggregate null shuffles 78 -> 6). Same policy as before: ~1.5x over the
 # observed count, so a new per-column or per-permutation upload loop trips it while run-to-run variance does not.
-_BULK_H2D_BUDGET = 2000
+# Re-baselined 2026-11-10 at 7372-8493 bulk H2D (two runs) on this fixture: every FE family is on by default now (hinge, modular, triplet, binned-aggregate, conditional-gate, group-distance,
+# LOF, wavelet and the rest), and the count scales with the number of families, 1343 being the figure of the older default set. Largest uploaders by site in that run: ``resident_operand``
+# 2362 (268 MB), ``upload_as_float64`` 1645 (1.2 GB), ``_null_max_perm_gpu._permuted_labels`` 702, ``gpu_materialise_discretize_codes_host`` 536, ``group_stats_device`` 280. Budget ~1.5x the
+# observed count, same policy as before.
+_BULK_H2D_BUDGET = 12500
 _BULK_D2H_BUDGET = 1200
 
 
