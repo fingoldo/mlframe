@@ -50,6 +50,8 @@ from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 
+from numba import njit
+
 from ._numba_utils_shared import radix_order_f64
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
@@ -126,9 +128,42 @@ def _sorted_linear_quantiles(sv: np.ndarray, qs: Sequence[float]) -> np.ndarray:
     return out
 
 
+@njit(cache=True, nogil=True)
+def _member_pct_ranks_njit(order: np.ndarray, sv: np.ndarray, ranks: np.ndarray) -> None:
+    """Fill ``ranks[order[k]]`` with the average rank of the run of equal values around sorted position ``k``, as the numpy twin below does.
+
+    One pass instead of its eight (concatenate, compare, flatnonzero, diff, two repeats, a fancy assignment), and it releases the GIL so a lane thread does not hold it for every group of
+    every numeric column. The arithmetic is the twin's: the run bounds are integers and ``(lo + hi) / (2.0 * m)`` is one float64 division, so the values are bit-identical.
+    """
+    m = sv.shape[0]
+    denom = 2.0 * m
+    i = 0
+    while i < m:
+        j = i + 1
+        while j < m and sv[j] == sv[i]:
+            j += 1
+        r = (i + j) / denom
+        for k in range(i, j):
+            ranks[order[k]] = r
+        i = j
+
+
 def _member_pct_ranks(order: np.ndarray, sv: np.ndarray, vals: np.ndarray, finite: np.ndarray) -> np.ndarray:
     """:func:`_pct_rank_in_sorted` of the group's own values ``vals`` against ``sv = vals[finite][order]``, from the sort permutation: a member's left and right insertion ranks are the start and end of its run of
     equal values (ties get the average rank), so no search is needed. A non-finite value is ranked by the search, as before (NaN and +inf at the end, -inf at the start)."""
+    m = sv.size
+    ranks = np.empty(m, dtype=np.float64)  # Intentional float64: rank positions, as the searchsorted midpoint is formed
+    if m:
+        _member_pct_ranks_njit(np.ascontiguousarray(order, dtype=np.int64), np.ascontiguousarray(sv), ranks)
+    out = np.empty(vals.shape, dtype=np.float64)  # Intentional float64: rank positions, as the searchsorted midpoint is formed
+    out[finite] = ranks
+    if not finite.all():
+        out[~finite] = _pct_rank_in_sorted(sv, vals[~finite])
+    return out
+
+
+def _member_pct_ranks_numpy(order: np.ndarray, sv: np.ndarray, vals: np.ndarray, finite: np.ndarray) -> np.ndarray:
+    """The numpy twin of :func:`_member_pct_ranks`, kept as the reference the equality test compares the kernel against."""
     m = sv.size
     starts = np.flatnonzero(np.concatenate(([True], sv[1:] != sv[:-1])))
     counts = np.diff(np.concatenate((starts, [m])))
