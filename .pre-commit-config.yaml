@@ -593,6 +593,16 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+      # Pre-push: the CUDA C/C++ quality gates (py_ci_shared.cuda_kernel_pointer_types, cuda_launch_geometry). Without this,
+      # untemplated double*/float* kernel params and un-reasoned literal block sizes only get caught by billing-limited CI.
+      - id: mlframe-cuda-gates-on-push
+        name: "CUDA kernel quality gates: pointer types + launch geometry (push only)"
+        entry: python -m pytest tests/test_meta/test_cuda_kernel_pointer_types_gate.py tests/test_meta/test_cuda_launch_geometry_gate.py --no-cov -p no:randomly -q
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
+
       # Pre-push: the function-complexity ratchet. Without this the ceiling is only enforced by CI's full pytest run, which is
       # billing-limited and does not gate the push, so a function over 15 reached master unchecked.
       - id: mlframe-function-complexity-on-push

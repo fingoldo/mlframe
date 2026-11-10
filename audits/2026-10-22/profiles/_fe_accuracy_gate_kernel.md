@@ -2,6 +2,15 @@
 
 ## Fused gate-probe kernel: profile and honest win axis (2026-11-11)
 
+### Register pressure (2026-11-11, `tests/test_meta/test_cuda_kernel_register_pressure.py`)
+`cupy`'s compiled `local_size_bytes`/`num_regs` (the cubin numbers, equivalent to `ptxas -v` without parsing its text) on float32: the thread-private Hessian (`h`) and the thread-0-only
+Cholesky factor (`L`) were stored as full `MAXP x MAXP` arrays but only ever read/written in their lower triangle (the accumulation loop is already `for b <= a`); packing both into a
+triangular `MAXTRI = MAXP*(MAXP+1)/2` layout cut the spill from 1512 to 936 bytes/thread (72 -> 70 registers) for free, with `maxdiff 0.0` against the host on the existing 100-combo
+correctness test. The remaining 936 bytes come from the per-row `g[MAXP]`/`x[MAXP]`/`h[MAXTRI]` work vectors in the gradient-accumulation loop, which the compiler cannot keep in registers
+because `k` (0..`MAXK`) is a runtime kernel argument, not a compile-time unroll bound. Removing it would need a second column pass (recompute `z` without storing `x[]`), doubling global
+reads per Newton iteration on a kernel that already had one silent-divergence incident (see below) — not worth it for an already compute-bound kernel per CUDA.md section 3 ("a spill is not
+worth a higher occupancy"). Tracked as a reasoned exemption in the test, not a blanket skip.
+
 ### Host profile (unchanged from `_fe_accuracy_gate.md`)
 Per-candidate host probe ~26 ms (10 folds x standardise + Newton + AUC); the Newton kernel itself is 1.5 ms/fold, 8 Newton iterations typical. At N candidates sharing the same subsample rows
 and folds (the gate's pass 1), the host cost is N x 26 ms, parallelised over the edge-jobs pool.

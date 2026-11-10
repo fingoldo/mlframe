@@ -49,6 +49,8 @@ _WARPS = BLOCK // 32
 _SRC_TEMPLATE = r"""
 #define MAXK __MAXK__
 #define MAXP (MAXK + 1)
+#define MAXTRI ((MAXP * (MAXP + 1)) / 2)
+#define TRI(a, b) ((a) * ((a) + 1) / 2 + (b))
 #define WARPS __WARPS__
 #define MAXVA __MAXVA__
 #define NTHREADS __BLOCK__
@@ -142,8 +144,8 @@ void gate_logistic_auc(
 
     int converged = 0;
     for (int it = 0; it < max_iter; ++it) {
-        {ACC} g[MAXP], h[MAXP * MAXP];
-        for (int a = 0; a < p; ++a) { g[a] = 0.0; for (int b = 0; b < p; ++b) h[a * p + b] = 0.0; }
+        {ACC} g[MAXP], h[MAXTRI];
+        for (int a = 0; a < p; ++a) { g[a] = 0.0; for (int b = 0; b <= a; ++b) h[TRI(a, b)] = 0.0; }
         for (long long i = threadIdx.x; i < n; i += NTHREADS) {
             if (fold_of[i] == fold) continue;
             {ACC} x[MAXP];
@@ -161,7 +163,7 @@ void gate_logistic_auc(
             const {ACC} sw = mu * (1.0 - mu);
             for (int a = 0; a < p; ++a) {
                 g[a] += x[a] * r;
-                for (int b = 0; b <= a; ++b) h[a * p + b] += x[a] * x[b] * sw;
+                for (int b = 0; b <= a; ++b) h[TRI(a, b)] += x[a] * x[b] * sw;
             }
         }
         for (int a = 0; a < p; ++a) {
@@ -171,7 +173,7 @@ void gate_logistic_auc(
         }
         for (int a = 0; a < p; ++a) {
             for (int b = 0; b <= a; ++b) {
-                const {ACC} tot = block_sum(h[a * p + b], slots);
+                const {ACC} tot = block_sum(h[TRI(a, b)], slots);
                 if (threadIdx.x == 0) {
                     {ACC} v = tot;
                     if (a == b) v += ((a < k) ? lam : 0.0) + 1e-12;
@@ -190,29 +192,29 @@ void gate_logistic_auc(
         if (scal_s[0] < grad_tol * sqrt(fmax(1.0, n_tr))) { converged = 1; break; }
 
         if (threadIdx.x == 0) {
-            {ACC} L[MAXP * MAXP], t1[MAXP];
+            {ACC} L[MAXTRI], t1[MAXP];
             int bad = 0;
             for (int a = 0; a < p; ++a) {
                 for (int b = 0; b <= a; ++b) {
                     {ACC} s = hess_s[a * p + b];
-                    for (int c = 0; c < b; ++c) s -= L[a * p + c] * L[b * p + c];
+                    for (int c = 0; c < b; ++c) s -= L[TRI(a, c)] * L[TRI(b, c)];
                     if (a == b) {
                         if (!(s > 0.0)) { bad = 1; s = 1.0; }
-                        L[a * p + a] = sqrt(s);
+                        L[TRI(a, a)] = sqrt(s);
                     } else {
-                        L[a * p + b] = s / L[b * p + b];
+                        L[TRI(a, b)] = s / L[TRI(b, b)];
                     }
                 }
             }
             for (int a = 0; a < p; ++a) {
                 {ACC} s = grad_s[a];
-                for (int c = 0; c < a; ++c) s -= L[a * p + c] * t1[c];
-                t1[a] = s / L[a * p + a];
+                for (int c = 0; c < a; ++c) s -= L[TRI(a, c)] * t1[c];
+                t1[a] = s / L[TRI(a, a)];
             }
             for (int a = p - 1; a >= 0; --a) {
                 {ACC} s = t1[a];
-                for (int c = a + 1; c < p; ++c) s -= L[c * p + a] * step_s[c];
-                step_s[a] = s / L[a * p + a];
+                for (int c = a + 1; c < p; ++c) s -= L[TRI(c, a)] * step_s[c];
+                step_s[a] = s / L[TRI(a, a)];
             }
             scal_s[1] = bad ? 1.0 : 0.0;
         }
