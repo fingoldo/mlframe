@@ -116,7 +116,9 @@ def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbo
             del xd
             width = xs.shape[0]
             partial = cp.empty((width, _BLOCKS_PER_COLUMN), dtype=cp.float64)
-            kernel((_BLOCKS_PER_COLUMN, width), (_THREADS,), (xs, ds, np.int64(n_kept), counts_dev, np.int32(n_neighbors), psi_dev, partial))
+            kernel(  # launch-ok: _THREADS=256 is the compile-time size of the kernel's `__shared__ double red[256]` reduction buffer, not a tuned size
+                (_BLOCKS_PER_COLUMN, width), (_THREADS,), (xs, ds, np.int64(n_kept), counts_dev, np.int32(n_neighbors), psi_dev, partial)
+            )
             sum_m = cp.asnumpy(partial.sum(axis=1))
             out[c0 : c0 + width] = np.maximum(psi[n_kept] + (sum_k - sum_cnt - sum_m) / n_kept, 0.0)
             del xs, ds, order, partial

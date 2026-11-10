@@ -18,6 +18,8 @@ from typing import Optional
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._device_sort_safe import device_argsort, device_room
 from ._ktc_fallback import device_from_rows
 from ._raw_module_cache import RawModuleCache
@@ -27,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 _BUDGET_FRACTION = 0.25
 DEVICE_FALLBACK_ROWS = 10**9  # the tuner decides; until a sweep says the device wins the host kernel runs
-_THREADS = 256
 _MAX_BINS = 32  # the shared histograms hold _REPL copies of nb * nb counts
 _REPL = 8  # must equal REPL in the kernel source
 
@@ -125,7 +126,9 @@ def copula_columns_device(cols_rows: np.ndarray, vi: np.ndarray, nb: int) -> Opt
         per_col = n * (int(cols_rows.dtype.itemsize) * 2 + 8 * 4)  # values, sorted values, order and sort temporaries
         block = int(max(1, min(kk, (_BUDGET_FRACTION * free) // per_col)))
         out = np.empty(kk, dtype=np.float64)  # Intentional float64: statistic output
-        grid_x = min((n + _THREADS - 1) // _THREADS, 64)
+        dyn_smem = _REPL * nb * nb * 4
+        threads = block_size_for(kernel, dyn_smem=dyn_smem, work_items=n, pow2=True)
+        grid_x = min((n + threads - 1) // threads, 64)
         for c0 in range(0, kk, block):
             w = min(block, kk - c0)
             xd = cols_rows[c0 : c0 + w] if resident else cp.asarray(np.ascontiguousarray(cols_rows[c0 : c0 + w]))
@@ -134,7 +137,7 @@ def copula_columns_device(cols_rows: np.ndarray, vi: np.ndarray, nb: int) -> Opt
             if not resident:
                 del xd
             joint = cp.zeros((w, nb, nb), dtype=cp.int32)
-            kernel((grid_x, w), (_THREADS,), (xs, order, vi_d, joint, np.int64(n), np.int32(nb)), shared_mem=_REPL * nb * nb * 4)
+            kernel((grid_x, w), (threads,), (xs, order, vi_d, joint, np.int64(n), np.int32(nb)), shared_mem=dyn_smem)
             tables = cp.asnumpy(joint)
             out[c0 : c0 + w] = _mi_from_tables(tables, float(n))
             del xs, order, joint

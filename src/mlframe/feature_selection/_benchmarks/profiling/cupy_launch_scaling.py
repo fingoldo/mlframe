@@ -7,7 +7,7 @@ def w_ek(n):
     for _ in range(n): ek(x, out)
     cp.cuda.Stream.null.synchronize()
 def w_rk(n):
-    for _ in range(n): rk((79,), (256,), (x, out, np.int32(20000)))
+    for _ in range(n): rk((79,), (256,), (x, out, np.int32(20000)))  # launch-ok: this microbenchmark measures LAUNCH SCALING itself (overhead of many small launches); the fixed geometry is what is being measured, not a kernel to tune
     cp.cuda.Stream.null.synchronize()
 def w_ops(n):
     y = x

@@ -280,7 +280,7 @@ def masked_abs_spearman_device(a: np.ndarray, order_a: np.ndarray, others: "list
             part = cols[k0 : k0 + chunk]
             ptr = _pointer_table(cp, part)
             nfs = cp.asarray(np.array([c.nf for c in part], dtype=np.int32))
-            kernel(
+            kernel(  # launch-ok: THREADS=1024 is measured (see the constant's own comment: 128/256/512/1024 benchmarked, 1024 fastest) and baked into the C template at compile time (%THREADS%), not a runtime choice
                 (len(part),),
                 (THREADS,),
                 (cand.values, cand.bits, cand.order, cand.lo, cand.hi, np.int32(cand.nf), ptr("values"), ptr("bits"), ptr("order"), ptr("lo"), ptr("hi"), nfs, np.int64(n), np.int32(n_words), np.float64(rel_tol), cs, ra, jm, res),
