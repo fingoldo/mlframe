@@ -252,6 +252,30 @@ def _rff_analytic_mixed_partial_energy(rbf, ridge, Xs: np.ndarray, pairs, chunk:
     return out
 
 
+def _rff_analytic_mixed_partial_energy_gram(rbf, ridge, Xs: np.ndarray, pairs, chunk: int = 1024):
+    """The same energy through the Gram matrix of the cosine features: E[(Mcos @ coef_k)^2] = coef_k' G coef_k with ``G = Mcos' Mcos / n`` (D x D), so a chunk of pairs costs
+    ``D x D x k`` instead of ``n x D x k`` plus the ``n x k`` square-and-sum (n = 2000 rows, D = 400 features: five times fewer multiply-adds, and the ``n x k`` intermediate is gone).
+    Equal to the batched kernel up to float rounding (the products are summed in another order)."""
+    W = rbf.random_weights_
+    b = rbf.random_offset_
+    D = W.shape[1]
+    cc = ridge.coef_ * np.sqrt(2.0 / D)
+    Mcos = np.cos(Xs @ W + b)
+    n = Mcos.shape[0]
+    G = (Mcos.T @ Mcos) / n  # (D, D)
+    out = {}
+    pairs = list(pairs)
+    for start in range(0, len(pairs), chunk):
+        block = pairs[start : start + chunk]
+        a_idx = np.fromiter((q[0] for q in block), dtype=np.int64, count=len(block))
+        b_idx = np.fromiter((q[1] for q in block), dtype=np.int64, count=len(block))
+        coef = cc[:, None] * W[a_idx].T * W[b_idx].T  # (D, k)
+        energies = np.einsum("dk,dk->k", coef, G @ coef)
+        for j, q in enumerate(block):
+            out[q] = float(energies[j])
+    return out
+
+
 def _finite_diff_mixed_partial_energy(predict_fn, Xs: np.ndarray, pairs, h: float = 0.1, max_rows: int = 2000, seed: int = 0):
     """Central finite-difference E[(d2f/dxa dxb)^2]; model-agnostic fallback (any predict_fn).
 
@@ -341,7 +365,7 @@ def rank_gradient_interaction_pairs(
             return ridge.predict(rbf.transform(Z))
         en_sub = _finite_diff_mixed_partial_energy(_predict, Xsub, sub_pairs, seed=seed)
     else:
-        en_sub = _rff_analytic_mixed_partial_energy(rbf, ridge, Xsub, sub_pairs)
+        en_sub = _rff_analytic_mixed_partial_energy_gram(rbf, ridge, Xsub, sub_pairs)
 
     # (4) permutation-null floor on the MAX mixed-partial energy
     null_max = []
@@ -354,7 +378,7 @@ def rank_gradient_interaction_pairs(
                 return _g.predict(_r.transform(Z))
             en_p = _finite_diff_mixed_partial_energy(_predict_p, Xsub, sub_pairs, seed=s)
         else:
-            en_p = _rff_analytic_mixed_partial_energy(rbf_p, ridge_p, Xsub, sub_pairs)
+            en_p = _rff_analytic_mixed_partial_energy_gram(rbf_p, ridge_p, Xsub, sub_pairs)
         null_max.append(max(en_p.values()) if en_p else 0.0)
     floor = float(np.quantile(null_max, q)) * float(null_mult)
     diag["null_floor"] = floor
