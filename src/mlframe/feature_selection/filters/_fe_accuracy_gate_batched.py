@@ -146,7 +146,7 @@ def _fold_auc_device(cp: Any, designs_host: np.ndarray, y_host: np.ndarray, fold
     d_fold = cp.asarray(np.ascontiguousarray(fold_of))
     d_eval = cp.asarray(np.ascontiguousarray(eval_folds))
     out = cp.empty((n_designs, int(eval_folds.shape[0])), dtype=cp.float64)  # Intentional float64: the kernel's {ACC} output, an AUC compared with a threshold
-    fn(
+    fn(  # launch-ok: BLOCK=128 (4 warps) is fixed by the kernel's own shared-memory tree-fold reduction over WARPS=BLOCK//32 slots, not a tuned size
         (n_designs, int(eval_folds.shape[0])),
         (BLOCK,),
         (

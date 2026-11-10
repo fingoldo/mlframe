@@ -88,6 +88,7 @@ __device__ void scan_side(const int* ord, const int nf, const unsigned int* jm, 
     }
     __syncthreads();
 }
+// dtype-ok: Intentional float64: the Spearman rho accumulates n-element rank sums and products; a float32 accumulator loses the low bits the |rho| >= threshold decision reads on ties.
 extern "C" __global__ void __launch_bounds__(%THREADS%) masked_spearman(
     const double* __restrict__ a, const unsigned int* __restrict__ fbits_a, const int* __restrict__ order_a, const int* __restrict__ lo_a, const int* __restrict__ hi_a, const int na,
     const unsigned long long* __restrict__ cols, const unsigned long long* __restrict__ fbits, const unsigned long long* __restrict__ ords, const unsigned long long* __restrict__ los,

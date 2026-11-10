@@ -32,8 +32,8 @@ DEVICE_FALLBACK_ROWS = 20_000
 _BLOCKS_PER_COLUMN = 64
 
 _SRC = r"""
-// dtype-ok: Intentional float64: the host kernel works on noised double columns; the distance comparisons must match it exactly.
 #define POS_INF __longlong_as_double(0x7ff0000000000000LL)
+// dtype-ok: Intentional float64: the host kernel works on noised double columns; the distance comparisons must match it exactly.
 extern "C" __global__ void ksg_psi_m_sums(const double* __restrict__ xs, const int* __restrict__ ds, const long long nk, const int* __restrict__ counts,
                                           const int nn, const double* __restrict__ psi, double* __restrict__ partial) {
     __shared__ double red[256];
