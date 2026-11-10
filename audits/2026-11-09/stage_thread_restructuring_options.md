@@ -286,3 +286,6 @@ Part2 run on a private estimator copy in a thread beside part1, its output disca
 
 ## Flat profile of the tuned 100k x 100 fit (2026-11-10, D:/Temp/whole_sample.py, wall 58.0 s, mean CPU 31 %)
 Thread-seconds by kind: python 56.7, numpy/pandas 28.8, cupy 12.1 (over 58 s). The largest single function is 2.5 thread-seconds (fleuret_confidence_prange, a numba prange wait); the next ones are 1.8 (Newton probe, held-out probe), 1.5 (edge computation, MDLP edges), 1.2 (grouped-quantile column loop, Fourier detection). Nothing above 5 % of the wall is left at function level: the fit is about a hundred 0.5-2 s steps linked by data dependencies, so further wall-time gains need structural changes of the stage graph (measured: the lanes already saturate the Python launch path, and a fourth concurrent activity gave nothing), not kernel work.
+
+## 100k x 1000 baseline after the fit-start scans and the hook fix (2026-11-10, big1000_f.out)
+Wall 535.3 s (578.8 before the column-parallel degenerate audit, NaN masks and inf scan; run-to-run spread about 15 s, so the improvement is real in size but not isolated to those scans). cascade_early_a 214.9 s (245.3), fe_step 102.1 (109.3), cmim 59.9, meta 48.3, auto_scorer 35.8, jmim 34.0. Starting point of the whole effort: 2188 s.
