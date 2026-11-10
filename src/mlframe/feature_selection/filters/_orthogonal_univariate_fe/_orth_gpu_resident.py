@@ -45,7 +45,9 @@ def _raise_if_vram_insufficient(n_rows: int, k_cols: int) -> None:
     try:
         import cupy as cp
 
-        free, _total = cp.cuda.runtime.memGetInfo()
+        from .._device_sort_safe import device_room
+
+        free = device_room(cp)  # the room under the calling thread's pool limit (a concurrent stage owns a fraction of the card), not the device-wide free memory
     except Exception as e:
         logger.warning("_raise_if_vram_insufficient: VRAM query failed, assuming OK (the OOM try/except remains the backstop): %s", e)
         return
