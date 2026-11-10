@@ -271,6 +271,7 @@ def _device_block(block: np.ndarray) -> "object | None":
         return None
 
 
+_BOOTSTRAP_KERNELS_WARM = False  # set after the first batched bootstrap of the process has compiled the njit kernels
 _BATCHED_BOOTSTRAP_SCORERS = ("plug_in", "ksg", "copula", "dcor", "hsic", "xi", "tail_dep")
 
 
@@ -310,28 +311,34 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
         with parallel_kernel_entry(), column_mi_memo_disabled():
             # Intentional float64: MI batch scores kept as a double precision accumulator vector (ranking ties)
             out["plug_in"][:, b] = np.asarray(_mi_classif_batch(block, yb, nbins=int(hyper["nbins"])), dtype=np.float64)
+        # The KSG batch is the longest of the guarded kernels (one thread at a time), so every resample reaches it first and the numpy / scipy scorers below overlap with the guarded queue of the other
+        # resamples (it used to come last, after the unguarded work, and the queue started late).
+        if ksg_ok:
+            with parallel_kernel_entry():
+                out["ksg"][:, b] = ksg_mi_discrete_target_columns(block, yb, n_neighbors=int(hyper["n_neighbors"]), random_state=seed)
         # Intentional float64: copula MI batch scores kept as a double precision accumulator vector
         out["copula"][:, b] = np.asarray(_copula_mi_batch(block, yb, n_bins=int(hyper["copula_n_bins"]), device_block=dev), dtype=np.float64)
         out["xi"][:, b] = xi_correlation_batch(block, yb, random_state=seed, device_block=dev)
         out["dcor"][:, b] = _dcor_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
         out["hsic"][:, b] = _hsic_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
         out["tail_dep"][:, b] = tail_dependence_columns(np.ascontiguousarray(block.T), yb)
-        if ksg_ok:
-            with parallel_kernel_entry():
-                out["ksg"][:, b] = ksg_mi_discrete_target_columns(block, yb, n_neighbors=int(hyper["n_neighbors"]), random_state=seed)
 
     # The resamples are independent (own seed, own output column), so they run on the pool; the first runs on this thread so the njit kernels compile once.
     from ._adaptive_nbins import _resolve_edge_jobs
 
     jobs = _resolve_edge_jobs(hyper.get("n_jobs"), len(boot_idx))
-    one_resample(0)
-    if jobs > 1 and len(boot_idx) > 1:
+    global _BOOTSTRAP_KERNELS_WARM
+    first = 0 if _BOOTSTRAP_KERNELS_WARM else 1  # once the kernels are compiled in this process every resample goes to the pool (resample 0 no longer runs alone before it)
+    if first:
+        one_resample(0)
+        _BOOTSTRAP_KERNELS_WARM = True
+    if jobs > 1 and len(boot_idx) > first + 1:
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(max_workers=jobs) as pool:
-            list(pool.map(one_resample, range(1, len(boot_idx))))
+            list(pool.map(one_resample, range(first, len(boot_idx))))
     else:
-        for b in range(1, len(boot_idx)):
+        for b in range(first, len(boot_idx)):
             one_resample(b)
     return out
 
