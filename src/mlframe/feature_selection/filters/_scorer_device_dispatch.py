@@ -85,9 +85,14 @@ def sweep_scorer(run: Callable[[Any], Any], make_inputs: Callable[[dict], Any]) 
         with forced_backend("host"):
             return run(inputs)
 
+    warmed: list = []
+
     def _device(*inputs):
-        """The scorer with the device forced."""
+        """The scorer with the device forced; the first call of the sweep is made once untimed, so the one-off kernel compilation and context set-up are not charged to the smallest grid cell (a stored "host" at 10000 rows x 20 columns came from exactly that)."""
         with forced_backend("device"):
+            if not warmed:
+                warmed.append(True)
+                run(inputs)
             return run(inputs)
 
     return list(
