@@ -254,3 +254,6 @@ Wall 641.2 -> 616.3 s (a sampler run of the same code before the memo: 614.9 s, 
 
 ## orth_mi_meta fingerprint cost at 100k x 1000 (2026-11-10, D:/Temp/fp_t.py)
 fingerprint_signal 5.9 s (distinct counts 0.95, pearson 1.07, skew/kurtosis 1.95, inter-x max corr 1.7, dcor proxy 0.09, frame copy 0.1). Of orth_mi_meta's 92 s ledger wall the remainder is the dispatched scorer (the auto scorer, 43.5 s in the earlier ledger) plus lane waiting, so the fingerprint is not the lever; the dispatched scorer's own 1000-column profile is.
+
+## 100k x 1000 after re-tuning the cmim scorer-device entry (2026-11-10)
+The stored KTC entry fe_scorer_device_cmim said "host" at 100k x 300 and as the default (a sweep taken cold and under load); forced head-to-head, device is 4x faster (100k x 300: 2.72 -> 0.67 s, 100k x 1000: 9.22 -> 1.99 s, scores equal to 8e-15). After evicting and re-sweeping on a warm process (and warming the device path once, untimed, inside sweep_scorer): wall 616.3 -> 572.3 s; orth_mi_meta 92.1 -> 55.6 s, auto_scorer 43.5 -> 39.1, jmim 37.0 -> 28.8, cascade_early_a 271.7 -> 233.6; cmim 68.6 -> 78.0 s (two calls, in the concurrent window, so lane contention rather than the host path). Lesson: a wrong per-host KTC entry costs more than any kernel change; check `KernelTuningCache.get_regions` of every fe_scorer_device_* entry after sweeps taken under load.
