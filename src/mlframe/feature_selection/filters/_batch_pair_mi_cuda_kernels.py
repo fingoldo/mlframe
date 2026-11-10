@@ -570,9 +570,11 @@ def _plan_row_chunked_launches(n_samples: int, n_cols: int, n_pairs: int, n_clas
     try:
         import cupy as cp
 
-        free_b, _total_b = cp.cuda.runtime.memGetInfo()
+        from ._device_sort_safe import device_room
+
+        free_b = max(0, device_room(cp))  # free device memory plus this pool's cached blocks, under the pool limit: cached blocks are not 'used' (a long fit leaves the pool holding most of the card)
     except Exception as e:
-        logger.warning("cp.cuda.runtime.memGetInfo() probe failed, using the conservative 512MiB fallback: %s", e)
+        logger.warning("device-room probe failed, using the conservative 512MiB fallback: %s", e)
         free_b = 512 * 1024 * 1024  # conservative fallback if the probe is unavailable
 
     row_chunk_rows = _choose_row_chunk_rows(n_cols, free_b)

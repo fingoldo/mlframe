@@ -136,11 +136,16 @@ class TestDispatcherIntegration:
     shape guard trips but the shape fits the opt-in budget -- the exact fallback chain this kernel exists
     to shortcut (static kernel -> shared-fused -> row-chunked -> CPU)."""
 
-    def test_forced_cuda_routes_to_feature_major_for_byte_codes(self):
+    def test_forced_cuda_routes_to_feature_major_for_byte_codes(self, monkeypatch):
         """Codes that fit a byte take the feature-major kernel first, whatever the target cardinality."""
         factors_data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(99401, 30, 200, 20, (15, 22), 8)
+        from mlframe.feature_selection.filters import _batch_pair_mi_cuda_fm as fm
+
+        calls = []
+        real = fm.batch_pair_mi_cuda_feature_major
+        monkeypatch.setattr(fm, "batch_pair_mi_cuda_feature_major", lambda *a, **k: calls.append(1) or real(*a, **k))
         mi, backend = dispatch_batch_pair_mi(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y, force_backend="cuda")
-        assert backend == "cuda_feature_major"
+        assert backend == "cuda" and calls
         mi_cpu = batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
         np.testing.assert_allclose(mi, mi_cpu, atol=1e-9, rtol=1e-9)
 

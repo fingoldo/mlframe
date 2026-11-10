@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 import pytest
 
@@ -20,12 +21,18 @@ def _fresh_throttle():
     reset_throttle_counts()
 
 
+def _declined(caplog) -> list:
+    """The refusal messages logged by THIS thread (a worker thread left over from an earlier test of a full run can refuse and log at the same moment)."""
+    me = threading.get_ident()
+    return [r.getMessage() for r in caplog.records if "GPU path declined" in r.getMessage() and r.thread == me]
+
+
 def test_a_refusal_warns_with_the_numbers_and_still_returns_false(caplog):
     """1.5 GiB free of 4 GiB with 1 GiB needed leaves 0.5 GiB against a 1 GiB cushion: refused, and the warning says how much was free, needed and required."""
     with caplog.at_level(logging.WARNING, logger=v.logger.name):
         ok = v.fe_gpu_has_vram_cushion(1024 * _MIB, free_b=1536 * _MIB, total_b=4096 * _MIB)
     assert ok is False
-    msgs = [r.getMessage() for r in caplog.records if "GPU path declined" in r.getMessage()]
+    msgs = _declined(caplog)
     assert len(msgs) == 1
     assert "1536 MiB free" in msgs[0] and "1024 MiB needed" in msgs[0] and "1024 MiB cushion" in msgs[0] and "4096 MiB" in msgs[0]
 
@@ -35,7 +42,7 @@ def test_a_granted_request_is_silent(caplog):
     with caplog.at_level(logging.WARNING, logger=v.logger.name):
         ok = v.fe_gpu_has_vram_cushion(1024 * _MIB, free_b=3072 * _MIB, total_b=4096 * _MIB)
     assert ok is True
-    assert not [r for r in caplog.records if "GPU path declined" in r.getMessage()]
+    assert not _declined(caplog)
 
 
 def test_the_warning_is_limited_per_process(caplog):
@@ -43,4 +50,4 @@ def test_the_warning_is_limited_per_process(caplog):
     with caplog.at_level(logging.WARNING, logger=v.logger.name):
         for _ in range(50):
             assert v.fe_gpu_has_vram_cushion(1024 * _MIB, free_b=1024 * _MIB, total_b=4096 * _MIB) is False
-    assert 1 <= len([r for r in caplog.records if "GPU path declined" in r.getMessage()]) <= 6
+    assert 1 <= len(_declined(caplog)) <= 6
