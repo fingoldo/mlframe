@@ -163,6 +163,29 @@ def _fit_rff_ridge(Xs: np.ndarray, y: np.ndarray, n_components: int, gamma: floa
     return rbf, ridge
 
 
+def _per_feature_rff_matrix(Xs: np.ndarray, n_per_feat: int, seed: int) -> np.ndarray:
+    """The horizontally stacked one-feature RBF maps ``RBFSampler(gamma=1.0, n_components=n_per_feat, random_state=seed + j).fit_transform(Xs[:, [j]])`` for every column ``j``, without the
+    per-column estimator objects (100 of them cost 0.14 s of validation and bookkeeping per call at p = 100).
+
+    The draws are the estimator's own: from ``RandomState(seed + j)``, ``normal(size=(1, D))`` scaled by ``sqrt(2 * gamma)`` then ``uniform(0, 2 pi, D)``, cast to the data dtype for float32; the map is
+    ``cos(x * w + b) * sqrt(2 / D)`` in that dtype, so the matrix equals the stacked estimator outputs (checked in ``test_gradient_energy_gram.py``)."""
+    n, p = Xs.shape
+    W = np.empty((p, n_per_feat))
+    B = np.empty((p, n_per_feat))
+    for j in range(p):
+        rs = np.random.RandomState(seed + j)
+        W[j] = (2.0 * 1.0) ** 0.5 * rs.normal(size=(1, n_per_feat))[0]
+        B[j] = rs.uniform(0, 2 * np.pi, size=n_per_feat)
+    if Xs.dtype == np.float32:
+        W = W.astype(np.float32)
+        B = B.astype(np.float32)
+    proj = Xs[:, :, None] * W[None, :, :]
+    proj += B[None, :, :]
+    np.cos(proj, proj)
+    proj *= (2.0 / n_per_feat) ** 0.5
+    return proj.reshape(n, p * n_per_feat)
+
+
 def _fit_additive_residual(Xs: np.ndarray, y: np.ndarray, n_per_feat: int, alpha: float, seed: int):
     """GAM-style additive surrogate (sum of per-feature 1D RFF); return residual r = y - add_pred.
 
@@ -170,15 +193,9 @@ def _fit_additive_residual(Xs: np.ndarray, y: np.ndarray, n_per_feat: int, alpha
     interaction curvature - a purely additive target leaves a residual with ~zero mixed partials
     (the calculus property), which is what makes the additive noise-control case emit 0 proposals.
     """
-    from sklearn.kernel_approximation import RBFSampler
     from sklearn.linear_model import Ridge
 
-    p = Xs.shape[1]
-    blocks = []
-    for j in range(p):
-        rbf = RBFSampler(gamma=1.0, n_components=n_per_feat, random_state=seed + j)
-        blocks.append(rbf.fit_transform(Xs[:, [j]]))
-    Phi = np.hstack(blocks)
+    Phi = _per_feature_rff_matrix(Xs, n_per_feat, seed)
     ridge = Ridge(alpha=alpha)
     ridge.fit(Phi, y)
     return y - ridge.predict(Phi)

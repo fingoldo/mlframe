@@ -22,3 +22,16 @@ def test_gram_energy_matches_batched_and_loop_kernels():
     np.testing.assert_allclose(g, b, rtol=1e-4, atol=1e-12)
     np.testing.assert_allclose(g, l, rtol=1e-3, atol=1e-12)
     assert list(np.argsort(-g)[:5]) == list(np.argsort(-b)[:5])
+
+
+def test_per_feature_rff_matrix_equals_the_stacked_sklearn_samplers():
+    """The estimator-free per-feature RBF map equals ``RBFSampler`` fit per column, for float32 and float64 data."""
+    from sklearn.kernel_approximation import RBFSampler
+
+    r = np.random.default_rng(5)
+    for dt in (np.float32, np.float64):
+        Xs = r.standard_normal((300, 7)).astype(dt)
+        want = np.hstack([RBFSampler(gamma=1.0, n_components=24, random_state=11 + j).fit_transform(Xs[:, [j]]) for j in range(7)])
+        got = S._per_feature_rff_matrix(Xs, 24, 11)
+        assert got.dtype == want.dtype
+        np.testing.assert_array_equal(got, want)
