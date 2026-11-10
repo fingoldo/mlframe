@@ -267,8 +267,14 @@ def collect_run_groups(run_gh: RunGh, repo: str, workflow: str, run: Dict[str, A
     for job in jobs.get("jobs", []):
         if job.get("conclusion") not in ("failure", "cancelled", "timed_out"):
             continue
-        text = run_gh(["api", f"repos/{repo}/actions/jobs/{job['id']}/logs"])
+        log_missing = False
+        try:
+            text = run_gh(["api", f"repos/{repo}/actions/jobs/{job['id']}/logs"])
+        except GhNotFound:
+            text, log_missing = "", True  # no log object for this job: still a failed job, reported as infrastructure
         findings = parse_log(text)
+        if log_missing:
+            findings.infra.add("log unavailable (HTTP 404)")
         if job.get("conclusion") == "cancelled":
             findings.infra.add("cancelled")
         if job.get("conclusion") == "timed_out":
