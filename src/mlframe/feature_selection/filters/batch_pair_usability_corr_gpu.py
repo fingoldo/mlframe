@@ -751,7 +751,13 @@ def dispatch_batch_pair_usability_corr(
     if hit is not None:
         remembered: tuple[np.ndarray, str] = hit
         return remembered
-    result = _same_dtype(_dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, pair_a, pair_b, form_ids, force_backend))
+    if force_backend is None:
+        # a later call over other pairs of the same operand rows (the dominant-pair scan's retry) reads the pairs it shares with the earlier calls from the per-pair table
+        from ._pair_usability_table import serve
+
+        result = serve(y, operand_matrix, pair_a, pair_b, form_ids, lambda a, b, fb: _same_dtype(_dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, a, b, form_ids, fb)))
+    else:
+        result = _same_dtype(_dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, pair_a, pair_b, form_ids, force_backend))
     _CORR_MEMO.put(key, result)
     return result
 
