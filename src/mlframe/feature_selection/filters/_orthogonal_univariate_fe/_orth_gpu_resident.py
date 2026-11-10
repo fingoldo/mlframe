@@ -26,6 +26,15 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+def _vram_fits(n_rows: int, k_cols: int) -> bool:
+    """Whether the whole resident build for ``k_cols`` columns fits the free VRAM share (``False`` sends the build to the column-block path)."""
+    try:
+        _raise_if_vram_insufficient(n_rows, k_cols)
+    except RuntimeError:
+        return False
+    return True
+
+
 def _raise_if_vram_insufficient(n_rows: int, k_cols: int) -> None:
     """Raise ``RuntimeError`` when the resident (raw + engineered + scratch) matrices would not comfortably fit the
     current device's FREE VRAM, so the caller falls back to the host/CPU path BEFORE a monolithic multi-GB upload can
@@ -55,6 +64,61 @@ def _raise_if_vram_insufficient(n_rows: int, k_cols: int) -> None:
             f"resident univariate FE needs ~{needed / 2**30:.1f}GB VRAM but only ~{budget / 2**30:.1f}GB "
             f"(free {free / 2**30:.1f}GB x {frac:.2f}) is available; routing to the host/CPU FE path."
         )
+
+
+class _LazyEngMatrix:
+    """The engineered columns of a blocked build: scores were kept, the matrix was not. ``host_column(name)`` re-evaluates one winner on the device (a column's values do not depend on what else
+    is in the call: own preprocess, own recurrence) and returns it on the host."""
+
+    def __init__(self, cp: Any, M: Any, used_bases: list, degrees: list, robust_axis: bool, meta: list, names: list) -> None:
+        self._cp, self._M, self._bases, self._degrees, self._robust = cp, M, used_bases, degrees, robust_axis
+        self._index = {nm: i for i, nm in enumerate(names)}
+        self._meta = meta
+
+    def __contains__(self, name: object) -> bool:
+        """Whether ``name`` is a column of the build."""
+        return name in self._index
+
+    def host_column(self, name: str) -> np.ndarray:
+        """The host values of the engineered column ``name``."""
+        from .._gpu_resident_fe import _gpu_evaluate_basis_matrix
+
+        ci, b, d = self._meta[self._index[name]]
+        cand, _meta = _gpu_evaluate_basis_matrix(self._cp, self._M[:, ci : ci + 1], [b], [int(d)], robust_axis=self._robust)
+        return np.asarray(self._cp.asnumpy(cand[:, 0]))
+
+
+def _build_and_score_in_blocks(cp: Any, M: Any, used_bases: list, used_src: list, degrees: list, ra: bool, raw_mat: Any, raw_cols: list, y_gpu: Any, nbins: int, ymin: int, ncls: int, code: dict) -> tuple:
+    """``(lazy matrix, names, scores)`` of the build done over blocks of source columns: each block's candidate matrix is scored resident and dropped, so the device never holds the
+    ``rows x (columns x bases x degrees)`` matrix. Per-column MI is independent of the other columns in the call, so the scores equal the whole-matrix build's."""
+    from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_cuda_resident as _plugin_mi_classif_batch_cuda_resident
+
+    from .._device_blocks import first_block, run_column_blocks
+    from .._gpu_resident_fe import _gpu_evaluate_basis_matrix
+
+    n_used = len(used_bases)
+
+    def block(lo: int, hi: int) -> "tuple[list, Any] | None":
+        """``(meta rows with global column numbers, engineered MI)`` of the source columns ``lo:hi``."""
+        eng, meta = _gpu_evaluate_basis_matrix(cp, M[:, lo:hi], used_bases[lo:hi], degrees, robust_axis=ra)
+        if eng is None:
+            return None
+        mi = _plugin_mi_classif_batch_cuda_resident(eng.astype(crit_float_dtype(), copy=False), y_gpu, nbins, y_min=ymin, n_classes=ncls)
+        return [(lo + ci, b, d) for (ci, b, d) in meta], np.asarray(mi)
+
+    pieces = run_column_blocks(cp, n_used, first_block(cp, int(M.shape[0]), n_used, int(M.dtype.itemsize), len(degrees) + 4), block)
+    if any(p is None for p in pieces):
+        return None, [], pd.DataFrame(columns=["engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift"])
+    meta_all = [m for p in pieces for m in p[0]]
+    eng_mi = np.concatenate([p[1] for p in pieces]) if pieces else np.empty(0)
+    raw_mi_map = {}
+    if raw_mat is not None:
+        raw_mi = _plugin_mi_classif_batch_cuda_resident(raw_mat, y_gpu, nbins, y_min=ymin, n_classes=ncls)
+        raw_mi_map = dict(zip(raw_cols, [float(v) for v in raw_mi]))
+    names = [f"{used_src[ci]}__{code.get(b, b)}{d}" for (ci, b, d) in meta_all]
+    name_src = [used_src[ci] for (ci, _b, _d) in meta_all]
+    scores = _uplift_scores_frame(names, name_src, raw_mi_map, eng_mi)
+    return _LazyEngMatrix(cp, M, used_bases, degrees, ra, meta_all, names), names, scores
 
 
 def _uplift_scores_frame(names: list, name_src: list, raw_mi_map: dict, eng_mi: Any) -> pd.DataFrame:
@@ -168,7 +232,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     # basis eval to CPU) when it will not comfortably fit free VRAM, so we never trigger the poisoning allocation.
     _n_rows = len(X)
     _k_num = sum(1 for c in cols if pd.api.types.is_numeric_dtype(X[c]))
-    _raise_if_vram_insufficient(_n_rows, _k_num)
+    _blocked = not _vram_fits(_n_rows, _k_num)  # the whole candidate matrix does not fit: columns go through the device in blocks and only the scores are kept
     _empty = pd.DataFrame(columns=["engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift"])
     ra = _robust_axis_enabled()
     _ya = np.asarray(y)
@@ -246,6 +310,8 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     # group/degree. When GPU routing already uploaded the candidate matrix, REUSE it (device slice, no second
     # H2D) - in residency mode the operands are already on the GPU; re-uploading would be a redundant copy.
     M = _used_operand_matrix(_Mr, used_idx, used_x, used_src)
+    if _blocked:
+        return _build_and_score_in_blocks(cp, M, used_bases, used_src, list(degrees), ra, raw_mat, raw_cols, y_gpu, nbins, _ymin, _ncls, code)
     eng_mat, meta = _gpu_evaluate_basis_matrix(cp, M, used_bases, list(degrees), robust_axis=ra)
     if eng_mat is None:
         return None, [], _empty

@@ -769,7 +769,10 @@ def hybrid_orth_mi_fe(
         import cupy as cp
         _g_mat, _g_names = _gpu_eng
         _idx = {nm: i for i, nm in enumerate(_g_names)}
-        _cols_host = {k: cp.asnumpy(_g_mat[:, _idx[k]]) for k in keep if k in _idx}
+        if hasattr(_g_mat, "host_column"):  # a blocked build kept the scores only: the winners are re-evaluated one by one
+            _cols_host = {k: _g_mat.host_column(k) for k in keep if k in _g_mat}
+        else:
+            _cols_host = {k: cp.asnumpy(_g_mat[:, _idx[k]]) for k in keep if k in _idx}
         X_aug = pd.concat([X, pd.DataFrame(_cols_host, index=X.index)], axis=1) if _cols_host else X.copy(deep=False)
     return X_aug, scores
 
