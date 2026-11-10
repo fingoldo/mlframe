@@ -127,7 +127,9 @@ def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int) -> "
         (codes, y32, np.int64(n), np.int32(k_total), np.int32(kx), np.int32(ky_eff), np.int32(tile), np.float64(1.0 / float(max(1, n))), mi, bins),  # Intentional float64: the CUDA kernel signature declares double, so this must stay float64
         shared_mem=tile * kx * ky_eff * 4,
     )
-    return np.asarray(mi.get(), dtype=np.float64), np.asarray(bins.get(), dtype=np.int64)  # Intentional float64: MI statistic output compared at full precision
+    # one device-to-host copy for both outputs (each blocking read is a round trip of a few hundred microseconds on WDDM, and this runs once per pair); bin counts are exact in double
+    both = cp.concatenate([mi, bins.astype(cp.float64)]).get()  # Intentional float64: bins are small integers, exact in double; one buffer with the MI values
+    return np.asarray(both[:k_total], dtype=np.float64), both[k_total:].astype(np.int64)  # Intentional float64: MI statistic output compared at full precision
 
 
 def resident_observed_mi_and_bins(device_codes: Any, classes_y: np.ndarray, by: int) -> "tuple[np.ndarray, np.ndarray]":
