@@ -251,3 +251,6 @@ MLFRAME_EDGE_JOBS=8 / 6 / unset (cores / active stages): wall 72.6 / 74.0 / 74.2
 
 ## 100k x 1000 after the local-gate permutation memo (2026-11-10)
 Wall 641.2 -> 616.3 s (a sampler run of the same code before the memo: 614.9 s, so the two are within noise of each other; the memo removes 29 thread-seconds of generator work, the wall effect is below the run-to-run spread). cascade_early_a 271.7 s, fe_step 115.7 s, orth_mi_meta 92.1 s (meta shares lanes with the auto scorer), cmim 68.6 s, jmim 37.0 s. Thread census of the sampler run: python 499 / numpy 240 / cupy 115 thread-seconds over 615 s, mean CPU 25 %; top items _pc_corr_cupy_arrays 36, batch_pair_usability_corr 33, accuracy-gate probes ~65 (already pooled per candidate), batched_cmi_gpu 22.
+
+## orth_mi_meta fingerprint cost at 100k x 1000 (2026-11-10, D:/Temp/fp_t.py)
+fingerprint_signal 5.9 s (distinct counts 0.95, pearson 1.07, skew/kurtosis 1.95, inter-x max corr 1.7, dcor proxy 0.09, frame copy 0.1). Of orth_mi_meta's 92 s ledger wall the remainder is the dispatched scorer (the auto scorer, 43.5 s in the earlier ledger) plus lane waiting, so the fingerprint is not the lever; the dispatched scorer's own 1000-column profile is.
