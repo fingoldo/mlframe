@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any, Optional
 
 import numpy as np
 
@@ -72,7 +73,11 @@ def _sweep_gate_batch() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"host": lambda *a: _gate_batch_host_variant(*a), "device": lambda *a: _gate_batch_device_variant(*a)}
-    return list(sweep_backend_grid(variants, {"n_designs": [8, 24, 64, 160, 400]}, _make_gate_batch_inputs, reference="host", repeats=2, equiv_rtol=5e-2, equiv_atol=5e-3))
+    return list(
+        sweep_backend_grid(
+            variants, {"n_designs": [8, 24, 64, 160, 400]}, _make_gate_batch_inputs, reference="host", repeats=2, equiv_rtol=5e-2, equiv_atol=5e-3
+        )
+    )
 
 
 _GATE_BATCH_SPEC: "Any | None" = None
@@ -142,9 +147,23 @@ def _fold_auc_device(cp: Any, designs_host: np.ndarray, y_host: np.ndarray, fold
     d_eval = cp.asarray(np.ascontiguousarray(eval_folds))
     out = cp.empty((n_designs, int(eval_folds.shape[0])), dtype=cp.float64)  # Intentional float64: the kernel's {ACC} output, an AUC compared with a threshold
     fn(
-        (n_designs, int(eval_folds.shape[0])), (BLOCK,),
-        (d_designs, d_y, d_fold, d_eval, np.int64(n), np.int32(k), np.int32(n_designs), np.int32(int(eval_folds.shape[0])),
-         np.float64(float(lam)), np.float64(float(_GRAD_TOL)), np.int32(int(_MAX_ITER)), np.int32(1 if real != np.float64 else 0), out),  # Intentional float64: the kernel's {ACC} scalars
+        (n_designs, int(eval_folds.shape[0])),
+        (BLOCK,),
+        (
+            d_designs,
+            d_y,
+            d_fold,
+            d_eval,
+            np.int64(n),
+            np.int32(k),
+            np.int32(n_designs),
+            np.int32(int(eval_folds.shape[0])),
+            np.float64(float(lam)),
+            np.float64(float(_GRAD_TOL)),
+            np.int32(int(_MAX_ITER)),
+            np.int32(1 if real != np.float64 else 0),
+            out,
+        ),  # Intentional float64: the kernel's {ACC} scalars
     )
     return np.asarray(cp.asnumpy(out))
 
@@ -201,7 +220,14 @@ def batched_uplift(
 
 
 def batched_uplifts_for_pairs(
-    src_arrays: Sequence[np.ndarray], eng_arrays: Sequence[np.ndarray], base_keys: Sequence[Any], y: np.ndarray, *, seed: int = 0, max_probe_n: int = 5000, n_splits: int = 10
+    src_arrays: Sequence[np.ndarray],
+    eng_arrays: Sequence[np.ndarray],
+    base_keys: Sequence[Any],
+    y: np.ndarray,
+    *,
+    seed: int = 0,
+    max_probe_n: int = 5000,
+    n_splits: int = 10,
 ) -> "Optional[np.ndarray]":
     """``(n_candidates,)`` uplift of each ``(source, engineered)`` pair, ``nan`` for a pair the batch does not cover, or ``None`` when it does not apply at all.
 
@@ -219,7 +245,9 @@ def batched_uplifts_for_pairs(
         return None
     rows = np.arange(n_full)
     if n_full > int(max_probe_n):
-        rows = np.random.default_rng(int(seed)).choice(n_full, int(max_probe_n), replace=False)  # the per-candidate probe draws this same subsample from the same seed
+        rows = np.random.default_rng(int(seed)).choice(
+            n_full, int(max_probe_n), replace=False
+        )  # the per-candidate probe draws this same subsample from the same seed
     y_sub = y_arr[rows]
     if y_sub.size < 40:
         return None
@@ -249,7 +277,9 @@ def batched_uplifts_for_pairs(
     base_cols: "list[np.ndarray]" = [np.empty(0)] * len(order)
     for i in covered:
         base_cols[order[base_keys[i]]] = subs[i]
-    got = batched_uplift(base_cols, [engs[i] for i in covered], y_enc.astype(np.float64), folds=folds, base_of=[order[base_keys[i]] for i in covered])  # Intentional float64: double labels for the Newton solve
+    got = batched_uplift(
+        base_cols, [engs[i] for i in covered], y_enc.astype(np.float64), folds=folds, base_of=[order[base_keys[i]] for i in covered]
+    )  # Intentional float64: double labels for the Newton solve
     if got is None:
         return None
     out[np.asarray(covered, dtype=np.int64)] = got
