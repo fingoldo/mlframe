@@ -156,7 +156,7 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
         # the dominant-pair scan of the FE step scores every pair of the raw columns by their raw values and the target: the GPU is mostly idle while these cascades run, so a thread scores the pairs now
         from .._pair_usability_table import start_prefetch
 
-        start_prefetch(self, _X_step_input)
+        start_prefetch(self, _X_step_input, _y_np)
         outs = run_stages_concurrently(self, [_stage_early_b, _stage_mid_a, _stage_mid_b], n_rows=len(_X_step_input))
         if outs is not None:
             for out in outs:

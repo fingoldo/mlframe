@@ -86,3 +86,27 @@ def test_prefetch_fills_the_table_with_the_values_a_scan_computes(monkeypatch):
     monkeypatch.setattr(U, "_dispatch_batch_pair_usability_corr_uncached", real)
     assert np.array_equal(out, _fresh(y, ops, pa, pb, forms))
     T.clear()
+
+
+def test_prefetch_takes_the_target_from_the_caller_when_the_estimator_has_none(monkeypatch):
+    """The fit stashes ``_fe_prewarp_y_continuous_`` only after the cascades start, so the caller's target must start the prefetch."""
+    import pandas as pd
+
+    T.clear()
+    monkeypatch.setattr(T, "_PREFETCH_MIN_WORK", 0)
+    rng = np.random.default_rng(2)
+    X = pd.DataFrame(rng.standard_normal((2500, 8)).astype(np.float32), columns=[f"x{i}" for i in range(8)])
+
+    class Est:
+        """An estimator whose prewarp target is not set yet."""
+
+        _fe_prewarp_y_continuous_ = None
+
+    est = Est()
+    T.start_prefetch(est, X)
+    assert id(est) not in T._PREFETCH, "no target: nothing may start"
+    T.start_prefetch(est, X, rng.standard_normal(2500))
+    assert id(est) in T._PREFETCH
+    T.join_prefetch(est)
+    assert id(est) not in T._PREFETCH
+    T.clear()
