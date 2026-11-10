@@ -261,7 +261,7 @@ def batched_uplifts_for_pairs(
     order: "dict[Any, int]" = {}
     for i in covered:
         order.setdefault(base_keys[i], len(order))
-    base_cols = [None] * len(order)
+    base_cols: "list[np.ndarray]" = [np.empty(0)] * len(order)
     for i in covered:
         base_cols[order[base_keys[i]]] = subs[i]
     got = batched_uplift(base_cols, [engs[i] for i in covered], y_enc.astype(np.float64), folds=folds, base_of=[order[base_keys[i]] for i in covered])  # Intentional float64: double labels for the Newton solve
