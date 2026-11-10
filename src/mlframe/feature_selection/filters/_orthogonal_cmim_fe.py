@@ -381,8 +381,9 @@ def _cmim_scores_device(eng_bins, y_bin, sel_bins, support_names, eng_sources, n
             return None
         allowed = np.array([[support_names[j] != eng_sources[i] for i in range(k)] for j in range(len(sel_bins))], dtype=bool)  # (S, K)
         out = np.full(k, np.inf)
-        free = int(cp.cuda.Device().mem_info[0]) + int(cp.get_default_memory_pool().free_bytes())
-        block = max(1, min(k, (free // 8) // max(1, n * 8)))  # int64 codes of a candidate block, a fraction of what the device can hand out
+        from ._device_sort_safe import device_room
+        code_bytes = 1 if int(n_bins) <= 255 else 8
+        block = max(1, min(k, (device_room(cp) // 8) // max(1, n * code_bytes)))  # a candidate block of codes, an eighth of the room under this thread's pool limit
         for b0 in range(0, k, block):
             b1 = min(k, b0 + block)
             Xd = cp.asarray(np.ascontiguousarray(np.asarray(eng_bins[b0:b1]).T, dtype=np.uint8 if int(n_bins) <= 255 else np.int64))  # (n, block); bytes when the codes fit: an eighth of the read traffic per CMI call

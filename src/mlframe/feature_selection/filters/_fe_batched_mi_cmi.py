@@ -418,6 +418,37 @@ void batched_joint_hist2_i32_smem_u8(const unsigned char* __restrict__ X, const 
         if (v) atomicAdd(&counts[(long long)c0 * cells + i], v);
     }
 }
+// DIVISION-FREE layout of the shared-histogram kernel: a block is (tile columns) x (blockDim.x / tile row lanes); thread (lane, c) takes rows lane, lane + R, ... of the block's row range
+// and counts column c, so the 64-bit ``t % tc`` and ``t / tc`` per element of the version above are gone and a warp reads ``tile`` consecutive bytes of one row (a full 32-byte sector for
+// tile = 32). ``tile`` must be a power of two (``tile_shift`` = log2).
+extern "C" __global__
+void batched_joint_hist2_i32_smem_u8_v2(const unsigned char* __restrict__ X, const long long* __restrict__ b,
+                                        const int Kx, const int Kb, const long long n, const int K,
+                                        const int tile, const int tile_shift, const long long rows_per_block, int* __restrict__ counts) {
+    extern __shared__ int hist[];
+    const int cells = Kx * Kb;
+    const int c0 = blockIdx.y * tile;
+    const int tc = min(tile, K - c0);
+    for (int i = threadIdx.x; i < tc * cells; i += blockDim.x) hist[i] = 0;
+    __syncthreads();
+    const int c = threadIdx.x & (tile - 1);
+    const int lane = threadIdx.x >> tile_shift;
+    const int lanes = blockDim.x >> tile_shift;
+    const long long r0 = (long long)blockIdx.x * rows_per_block;
+    const long long r1 = min(r0 + rows_per_block, n);
+    if (c < tc) {
+        const unsigned char* col = X + c0 + c;
+        int* h = hist + c * cells;
+        for (long long row = r0 + lane; row < r1; row += lanes) {
+            atomicAdd(&h[(int)col[row * (long long)K] * Kb + (int)b[row]], 1);
+        }
+    }
+    __syncthreads();
+    for (int i = threadIdx.x; i < tc * cells; i += blockDim.x) {
+        const int v = hist[i];
+        if (v) atomicAdd(&counts[(long long)c0 * cells + i], v);
+    }
+}
 extern "C" __global__
 void batched_joint_hist1_i32_u8(const unsigned char* __restrict__ X, const int Kx, const long long n, const int K,
                                 int* __restrict__ counts) {
@@ -439,7 +470,7 @@ def _get_batched_joint_hist_u8_kernels():
     if _BATCHED_JOINT_HIST_U8_KERNELS is None:
         import cupy as cp
         mod = cp.RawModule(code=_JOINT_HIST_U8_SRC)
-        _BATCHED_JOINT_HIST_U8_KERNELS = (mod.get_function("batched_joint_hist1_i32_u8"), mod.get_function("batched_joint_hist2_i32_u8"), mod.get_function("batched_joint_hist2_i32_smem_u8"))
+        _BATCHED_JOINT_HIST_U8_KERNELS = (mod.get_function("batched_joint_hist1_i32_u8"), mod.get_function("batched_joint_hist2_i32_u8"), mod.get_function("batched_joint_hist2_i32_smem_u8"), mod.get_function("batched_joint_hist2_i32_smem_u8_v2"))
     return _BATCHED_JOINT_HIST_U8_KERNELS
 
 
@@ -480,7 +511,13 @@ def _batched_joint_counts2(X, b, Kx, Kb):
         # one block per (row chunk, column tile): shared histograms, one global add per occupied cell per block
         rows_per_block = int(max(1024, min(n, 16384)))
         grid = ((n + rows_per_block - 1) // rows_per_block, (K + tile - 1) // tile)
-        (_get_batched_joint_hist_u8_kernels()[2] if u8 else _get_batched_joint_hist_kernels()[4])(
+        if u8:
+            _get_batched_joint_hist_u8_kernels()[3](
+                grid, (256,), (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(tile), np.int32(tile.bit_length() - 1), np.int64(rows_per_block), counts),
+                shared_mem=tile * int(Kx) * int(Kb) * 4,
+            )
+            return counts.reshape(K, int(Kx) * int(Kb))
+        _get_batched_joint_hist_kernels()[4](
             grid, (256,), (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(tile), np.int64(rows_per_block), counts),
             shared_mem=tile * int(Kx) * int(Kb) * 4,
         )
