@@ -39,6 +39,18 @@ class LazyAdaptiveValues:
         return len(self._cells)
 
 
+def _mean_filled_columns(X: Any, cols: Sequence[str], dt: Any) -> list:
+    """The columns of ``cols`` as ``dt`` arrays with their non-finite values replaced by the column's finite mean (0 when it has none), as the host path fills them."""
+    columns = []
+    for col in cols:
+        x = np.asarray(X[col].to_numpy(), dtype=dt)
+        finite = np.isfinite(x)
+        if not finite.all():
+            x = np.where(finite, x, float(np.nanmean(x[finite])) if finite.any() else 0.0)
+        columns.append(x)
+    return columns
+
+
 def adaptive_degree_cells_on_device(
     X: Any, cols: Sequence[str], y_arr: np.ndarray, degree_range: tuple, basis: str, nbins: int
 ) -> "tuple[list, list, np.ndarray] | None":
@@ -72,13 +84,7 @@ def adaptive_degree_cells_on_device(
         return None  # a base without a device twin would be skipped by the device router while the host router scores it
     try:
         dt = crit_float_dtype()
-        columns = []
-        for col in cols:
-            x = np.asarray(X[col].to_numpy(), dtype=dt)
-            finite = np.isfinite(x)
-            if not finite.all():
-                x = np.where(finite, x, float(np.nanmean(x[finite])) if finite.any() else 0.0)
-            columns.append(x)
+        columns = _mean_filled_columns(X, cols, dt)
         robust = bool(_robust_axis_enabled())
         y_int = np.ascontiguousarray(y_arr, dtype=np.int64).ravel()
         y_f = y_int.astype(np.float64)  # Intentional float64: target statistic input

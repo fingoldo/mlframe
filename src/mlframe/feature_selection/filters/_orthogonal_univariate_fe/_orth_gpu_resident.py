@@ -26,6 +26,24 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+def _candidate_operands(X: Any, cols: list, cols_auto: bool) -> "tuple[list, list]":
+    """``(columns, operand arrays)`` of the source columns the build scores: finite, and (when the columns were chosen automatically) not integer-as-categorical axes; stops at the fit's deadline."""
+    from .._fe_deadline import fe_deadline_passed
+    from .._fe_usability_signal import _crit_np_dtype
+
+    cand_cols: list = []
+    cand_x: list = []
+    for col in cols:
+        if fe_deadline_passed():
+            break
+        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+        if (cols_auto and _is_int_as_cat_axis(x)) or not np.isfinite(x).all():
+            continue
+        cand_cols.append(col)
+        cand_x.append(np.ascontiguousarray(x))
+    return cand_cols, cand_x
+
+
 def _vram_fits(n_rows: int, k_cols: int) -> bool:
     """Whether the whole resident build for ``k_cols`` columns fits the free VRAM share (``False`` sends the build to the column-block path)."""
     try:
@@ -208,14 +226,16 @@ def _gpu_route_candidate_bases(cp: Any, cand_x: list, cand_cols: list, basis: st
 
                 _bases = list(evaluable_bases())
                 _degs = tuple(degrees)
-                _n_cand = int(_Mr.shape[1])
+                assert _Mr is not None
+                _mr_res = _Mr
+                _n_cand = int(_mr_res.shape[1])
 
                 def _route_block(lo: int, hi: int) -> list:
                     """The routed bases of the candidate columns ``lo:hi`` (routing is per column, so blocks join into the one-pass answer)."""
-                    return list(_gpu_route_bases_batched(cp, _Mr[:, lo:hi], _yc_gpu, _bases, _degs, robust_axis=ra))
+                    return list(_gpu_route_bases_batched(cp, _mr_res[:, lo:hi], _yc_gpu, _bases, _degs, robust_axis=ra))
 
                 _gpu_routed = [
-                    b for piece in run_column_blocks(cp, _n_cand, first_block(cp, int(_Mr.shape[0]), _n_cand, int(_Mr.dtype.itemsize), len(_bases) * max(1, len(_degs)) + 4), _route_block) for b in piece
+                    b for piece in run_column_blocks(cp, _n_cand, first_block(cp, int(_mr_res.shape[0]), _n_cand, int(_mr_res.dtype.itemsize), len(_bases) * max(1, len(_degs)) + 4), _route_block) for b in piece
                 ]
             except Exception as e:
                 log_throttle(logger, "orth_gpu_batched_routing_failed", logging.WARNING, "GPU-resident batched basis routing failed: %s", e)
@@ -234,7 +254,6 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     import cupy as cp
     from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_cuda_resident as _plugin_mi_classif_batch_cuda_resident
     from mlframe.feature_selection.filters.hermite_fe.shared import robust_axis_enabled as _robust_axis_enabled
-    from .._fe_deadline import fe_deadline_passed
     # Lazy import (avoids a circular import: the parent package's ``__init__`` imports THIS module).
     from . import _BASIS_CODE, basis_route_by_moments, basis_route_by_signal
 
@@ -285,19 +304,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     # Routing + skips run on the HOST (cheap njit / moment fingerprint), mirroring the host builder;
     # only the heavy per-(col,basis,degree) eval + the MI move to the GPU - and the eval is BATCHED.
     # First pass: apply the cheap host skip rules to pick candidate columns + their operand arrays.
-    cand_cols: list = []
-    cand_x: list = []
-    for col in cols:
-        if fe_deadline_passed():
-            break
-        from .._fe_usability_signal import _crit_np_dtype
-        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-        if _cols_auto and _is_int_as_cat_axis(x):
-            continue
-        if not np.isfinite(x).all():
-            continue
-        cand_cols.append(col)
-        cand_x.append(np.ascontiguousarray(x))
+    cand_cols, cand_x = _candidate_operands(X, cols, _cols_auto)
     if not cand_x:
         return None, [], _empty
     from .._gpu_resident_fe import _gpu_evaluate_basis_matrix

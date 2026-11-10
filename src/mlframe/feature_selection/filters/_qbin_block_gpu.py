@@ -220,7 +220,8 @@ def group_mi_block_gpu(columns: Sequence[np.ndarray], y_codes: np.ndarray, nbins
         pieces = run_column_blocks(cp, k, first_block(cp, n, k, int(np.dtype(dt).itemsize), 5), block_mi)
         if any(p is None for p in pieces):
             return None
-        return np.concatenate(pieces)
+        joined: np.ndarray = np.concatenate(pieces)
+        return joined
     except Exception:
         log_throttle(logger, "_qbin_block_gpu.except_210", logging.WARNING, "batched device group MI failed; per-column path", exc_info=True)
         return None
