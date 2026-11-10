@@ -263,3 +263,6 @@ Re-swept with tune_spec(force=True) on a quiet machine: fe_bootstrap_rank_device
 
 ## Fully tuned KTC cache (2026-11-10)
 Fits started with "kernel tuning cache is cold ... for 4 kernel(s)" even after `ensure` (tracker GPU11-5): the stored code_version never matched the live registry's. After tune_spec(force=True) of those kernels in a process that had imported MRMR (batch_aucs, discretize_2d_array, knn_hnsw_crossover, mrmr_fe_kernel_parallelism, then usability_pool_kernel_parallelism from _usability_njit_pool), the notice is gone and the 100k x 100 fit is 62.7 / 62.8 s (mean CPU 30 %, GPU 22 %) against 72.9-78.9 s with the notice. This is the largest single gain of the session for the 100 column case and needed no code change; the fits in the earlier sections of this file ran with the untuned defaults.
+
+## 100k x 1000 on the fully tuned cache (2026-11-10)
+Wall 578.8 s (572.3 s before the remaining four kernels were tuned: no change beyond noise; the 1000-column fit is bound by the concurrent lanes, not by those kernels). cascade_early_a 245.3, fe_step 109.3, cmim 63.8, auto_scorer 55.9, meta 44.5, jmim 32.7. The 100-column case gained 10 s from the same step (72-75 -> 62.7 s) because its serial tail runs the tuned dispatchers (discretize, batch AUC, usability pool) on the critical path.
