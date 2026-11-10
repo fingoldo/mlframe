@@ -155,3 +155,7 @@ The serial block after the lanes (bootstrap 0.9 + three_gate 1.6 + ksg 0.7 s) he
 ### Timeline after the bootstrap / KSG move (2026-11-10, WALL 62.8 s)
 
 `cascade_early_a` 0.1-17.1 s: part2 2.8 s, hybrid_variants 3.1-15.6 s (lane ends: 884-thread lane 13.3 s, 420-thread lane 13.7 s, group-1 head with bootstrap and KSG 12.7 s; then three_gate 14.0-15.6 s on the main thread), greedy_cmi 15.7-17.1 s. The cascade window is 18.2-35.5 s (mid_b 17.3 s, mid_a 13.8 s, early_b 7.4 s with binned_numeric_agg 5.4 s). The three lanes now end within 1 s of each other, so the remaining early_a critical path is the longest lane (about 10.5 s of sequential families of 1-3 s each) plus the 1.6 s three_gate and 1.4 s greedy_cmi that need the lanes' columns.
+
+### orth_mi_auto_scorer profile (2026-11-10, `D:/Temp/prof_auto.py`, sequential fit under cProfile)
+
+`hybrid_orth_mi_auto_scorer_fe` 1.91 s alone (3.2 s inside the contended lane): `_bootstrap_lcb_tables` 1.82 s, of which `_batched_bootstrap_values` 1.48 s: 1.07 s is waiting on the resample futures (worker-thread work cProfile does not see) and 0.39 s is the main thread's own batched MI call; `one_resample` 0.39 s. The family is already batched over resamples and pooled, with no host loop left on the calling thread; the wait is the workers' compute, which needs a per-thread profile (not available here) before anything can be changed. No code change.
