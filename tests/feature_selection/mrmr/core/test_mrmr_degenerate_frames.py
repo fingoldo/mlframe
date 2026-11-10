@@ -15,6 +15,7 @@ import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 from mlframe.feature_selection.filters._mrmr_degenerate import audit_degenerate_columns
+from tests.feature_selection.conftest import LEGACY_FE_OFF
 
 
 def _mk(n=300, seed=1):
@@ -29,7 +30,7 @@ def _mk(n=300, seed=1):
 
 def _mrmr():
     """Construct a cheap MRMR instance for the degenerate-frame tests."""
-    return MRMR(full_npermutations=2, baseline_npermutations=1, fe_max_steps=1, fe_smart_polynom_iters=0)
+    return MRMR(**LEGACY_FE_OFF, full_npermutations=2, baseline_npermutations=1, fe_max_steps=1, fe_smart_polynom_iters=0)  # the default-on families may swap a raw column for an engineered form; the scan's transparency is about the raw selection
 
 
 def _fit(df, y):

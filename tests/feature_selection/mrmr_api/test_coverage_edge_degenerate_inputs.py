@@ -250,7 +250,8 @@ class TestMiscDegenerate:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "a" in names, f"informative-missingness signal lost: {names}"
+        # the signal is carried by a's NaN pattern: kept either as the raw column or as the missingness indicator the default-on missingness family emits for it
+        assert "a" in names or "is_missing__a" in names, f"informative-missingness signal lost: {names}"
 
     def test_all_noise_falls_back_not_garbage(self):
         """y independent of every column -> screening returns 0 -> the documented
