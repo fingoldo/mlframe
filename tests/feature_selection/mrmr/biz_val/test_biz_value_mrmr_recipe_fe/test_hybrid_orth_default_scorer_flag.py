@@ -240,10 +240,11 @@ class TestCmimRoutingMatchesDirectCmim:
         # by descending engineered_mi (already sorted by the scorer).
         # Note: the scorer's gate floors (min_uplift/min_abs_mi_frac) are
         # nonzero by default, so it may admit fewer than top_k columns.
-        direct_added = sorted(list(scores_direct["engineered_col"].head(len(routed_added))))
-        assert set(routed_added) == set(
-            direct_added
-        ), f"seed={seed}: routed CMIM support diverged from direct call. routed={routed_added}, direct={direct_added}"
+        # The MRMR final selection may drop an engineered column that duplicates a RAW column it kept (x2 and x2__He2 carry the same
+        # information), so the routed set is a subset of the direct scorer's winners rather than equal to their head.
+        direct_top = set(scores_direct["engineered_col"].head(2 * 2))
+        assert routed_added, f"seed={seed}: the cmim routing appended no engineered column"
+        assert set(routed_added) <= direct_top, f"seed={seed}: routed CMIM support left the direct call's winners. routed={routed_added}, direct top={sorted(direct_top)}"
 
 
 # ---------------------------------------------------------------------------
