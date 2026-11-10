@@ -245,7 +245,7 @@ def _score_one_pair(
             fe_min_nonzero_confidence=fe_min_nonzero_confidence, _mi_band=_mi_band, _op_code_arr=_op_code_arr_all, _fe_env_gate=_fe_env_gate, cols=cols,
             original_cols=original_cols, _use_subsample=_use_subsample, _X_full=_X_full, _full_n_rows=_full_n_rows, _prewarp_spec_by_var=_prewarp_spec_by_var,
             _gate_med_median_by_var=_gate_med_median_by_var, engineered_operand_values=engineered_operand_values, _extval_raw_col=_extval_raw_col,
-            _rng_extval=_rng_extval.for_pair(raw_vars_pair), _n_workers=_n_workers, serial_main_thread=serial_main_thread, verbose=verbose, messages=st.messages,
+            _rng_extval=_rng_extval, _n_workers=_n_workers, serial_main_thread=serial_main_thread, verbose=verbose, messages=st.messages,
             discretize_array=discretize_array, discretize_2d_quantile_batch=discretize_2d_quantile_batch, mi_direct=mi_direct,
             get_new_feature_name=get_new_feature_name, _rebuild_full_survivor_col=_rebuild_full_survivor_col,
             _can_hoist_shared_buffer=_can_hoist_shared_buffer, _narrow_code_dtype=_narrow_code_dtype, _materialise_extval_njit=_materialise_extval_njit,

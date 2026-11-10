@@ -177,7 +177,3 @@ The extval step of the pair loop called `resident_operand` 2544 times per fit ov
 ### Gradient seeder, additive residual (2026-11-10)
 
 `_per_feature_rff_matrix` replaces the 100 per-column `RBFSampler` objects (bit-identical features, tested for float32 and float64): `_fit_additive_residual` 0.30 s -> 0.23 s at n = 2000, p = 100 (`D:/Temp/addres_bench.py`). What remains in it is the ridge solve on the 2000 x 2400 feature matrix (0.11-0.19 s, a 2000 x 2000 kernel Cholesky), the same on every call; the 13 fits of `_fit_rff_ridge` cost 15 ms each. Timing note: single fits on this machine now vary by +-7 s with background scanning (Defender, Task Manager); a 170 s run in a fresh worktree was cold numba compilation. Judge changes by stage profiles and microbenchmarks.
-
-### Pair-seeded external-validation RNG (2026-11-10)
-
-First of the three changes a concurrent pair loop needs: the external-validation factor picks come from `PairSeededRng.for_pair(pair)` = `default_rng([seed, a, b])` instead of one generator shared by the sweep, so a pair's picks no longer depend on how many draws earlier pairs made. Selected factors change relative to the old stream (same seed, different draws); 132 pair / external-validation tests pass unchanged. Still open for concurrency: per-worker chunk buffers (`st._chunk_state`, `_chunk_buffer`) and the shared `st.res` / rejection records / `times_spent`.

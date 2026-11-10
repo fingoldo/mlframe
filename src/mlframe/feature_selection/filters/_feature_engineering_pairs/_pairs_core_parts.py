@@ -2,7 +2,6 @@
 from __future__ import annotations
 from ._pairs_core_helpers import _check_prospective__use_subsample, _check_prospective__behaviour_change_wrapped_experimental, _check_prospective__scores_same_rows_fall, _check_prospective__win_do_re_implement, _check_prospective__ignored_thread_multiplication_byte, _check_prospective__classes_codes_still_usable, _check_prospective__only_worth_chunking_least, _check_prospective__read_weakref_cache_no, _check_prospective__pair_res_entry_none, _check_prospective__no_config_nan_edge, _check_prospective__pair_scoped_copies_spec, _check_prospective__fitted_specs, _check_prospective__value_single_float_per
 from ._pairs_core_steps import _check_prospective_fe_step1_def_extval_raw, _check_prospective_fe_step2_classes_codes_still, _check_prospective_fe_step3_gpu_clock_variance, _check_prospective_fe_step4_int_code_array
-from ._pair_rng import PairSeededRng
 from ._pairs_chunks import _plan_fe_chunks
 from ._pairs_dispatch import resolve_fe_dispatch_env_gate
 from ._pairs_gates import (
@@ -260,7 +259,7 @@ def _check_prospective_fe_pairs_part3(
     # ``backend="threading"`` chunked path (N workers sharing one global RNG). Derive a local
     # Generator from ``subsample_seed`` (instance-controlled) so the factor pick is reproducible
     # from the MRMR seed and thread-safe, mirroring the seeded ``_rng_sub`` and the fleuret LCG fix.
-    st._rng_extval = PairSeededRng(int(subsample_seed))
+    st._rng_extval = np.random.default_rng(int(subsample_seed))
 
     # SUBSAMPLE-SETUP: when caller asks for subsample_n > 0 AND len(X) exceeds it,
     # build subsampled views of X / classes_y / classes_y_safe / freqs_y. The MI
