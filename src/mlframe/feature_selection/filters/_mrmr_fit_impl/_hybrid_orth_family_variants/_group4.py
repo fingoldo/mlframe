@@ -355,6 +355,10 @@ def _hybrid_orth_family_variants_group4_part1(
             ) = fe_decide_on_subsample(
                 hybrid_orth_mi_meta_fe_with_recipes,
                 X, _y_for_meta,
+                # hybrid_orth_mi_meta_fe_with_recipes returns (X_aug, scores, recipes, chosen, fp): recipes at
+                # index 2, not last (fe_decide_on_subsample's default). Without this, the wrapper reads `fp`
+                # (a dict) as the recipe list and `for r in recipes: r.name` fails on its string keys.
+                recipes_at=2,
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
