@@ -51,3 +51,38 @@ def test_subsets_reorders_and_supersets_equal_fresh_calls(monkeypatch):
     monkeypatch.setattr(U, "_dispatch_batch_pair_usability_corr_uncached", real)
     assert np.array_equal(out3, _fresh(y, ops, pa3, pb3, forms))
     T.clear()
+
+
+def test_prefetch_fills_the_table_with_the_values_a_scan_computes(monkeypatch):
+    """After the prefetch thread ran, a scan-style call over the same raw columns is served from the table and equals the kernel's values."""
+    import pandas as pd
+
+    T.clear()
+    monkeypatch.setattr(T, "_PREFETCH_MIN_WORK", 0)
+    monkeypatch.setattr(T, "_PREFETCH_BLOCK", 7)
+    monkeypatch.setattr(U, "_CORR_MEMO_MIN_WORK", 0)
+    rng = np.random.default_rng(1)
+    n, k = 2500, 20
+    X = pd.DataFrame((rng.standard_normal((n, k)) + 2.0).astype(np.float32), columns=[f"x{i}" for i in range(k)])
+
+    class Est:
+        """Carries the continuous target like the fitted estimator."""
+
+        _fe_prewarp_y_continuous_ = rng.standard_normal(n).astype(np.float32)
+
+    est = Est()
+    T.start_prefetch(est, X)
+    T.join_prefetch(est)
+    y = np.asarray(est._fe_prewarp_y_continuous_, dtype=np.float32)
+    forms = np.asarray(U.ALL_PAIR_FORM_IDS, dtype=np.int64)
+    ops = np.ascontiguousarray(X.to_numpy(dtype=np.float32).T)
+    ia, ib = np.triu_indices(k, 1)
+    pa, pb = ia.astype(np.int64), ib.astype(np.int64)
+    real = U._dispatch_batch_pair_usability_corr_uncached
+    calls = []
+    monkeypatch.setattr(U, "_dispatch_batch_pair_usability_corr_uncached", lambda *a, **kw: (calls.append(len(a[2])), real(*a, **kw))[1])
+    out, _ = U.dispatch_batch_pair_usability_corr(y, ops, pa, pb, forms)
+    assert not calls, "every pair of the raw columns must come from the prefetched table"
+    monkeypatch.setattr(U, "_dispatch_batch_pair_usability_corr_uncached", real)
+    assert np.array_equal(out, _fresh(y, ops, pa, pb, forms))
+    T.clear()

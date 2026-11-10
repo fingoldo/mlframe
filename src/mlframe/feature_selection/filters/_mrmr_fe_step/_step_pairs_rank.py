@@ -352,6 +352,9 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
             cached_MIs, sorted_pairs, sort_dict_by_value, numeric_vars_to_consider, cached_operand, _ya_pre.shape[0], _max_prescan
         )
         if _scan_pks:
+            from .._pair_usability_table import join_prefetch
+
+            join_prefetch(self)  # the pairs of the raw columns scored beside the cascades are then in the table
             _dom_pk = _dominant_pair_by_linear_corr(_scan_pks, _ya_pre, cached_operand)
             if _dom_pk is not None:
                 _dom_p0 = cached_operand(_dom_pk[0])
