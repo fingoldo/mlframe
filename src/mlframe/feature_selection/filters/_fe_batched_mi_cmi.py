@@ -379,6 +379,70 @@ def _get_joint_hist_kernels():
     return _JOINT_HIST_KERNELS
 
 
+# BYTE-CODE twins of the batched joint-histogram kernels: the same counts from a uint8 candidate matrix (codes < 256), one eighth of the int64 matrix's read traffic. The CMIM scorer
+# calls the CMI about 600 times per fit on the same candidate block, so the block is kept as bytes and these kernels read it as such.
+_JOINT_HIST_U8_SRC = r"""
+extern "C" __global__
+void batched_joint_hist2_i32_u8(const unsigned char* __restrict__ X, const long long* __restrict__ b,
+                                const int Kx, const int Kb, const long long n, const int K,
+                                int* __restrict__ counts) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (t >= total) return;
+    int col = (int)(t % (long long)K);
+    long long row = t / (long long)K;
+    int xv = X[row * (long long)K + col];
+    atomicAdd(&counts[((long long)col * Kx + xv) * Kb + b[row]], 1);
+}
+extern "C" __global__
+void batched_joint_hist2_i32_smem_u8(const unsigned char* __restrict__ X, const long long* __restrict__ b,
+                                     const int Kx, const int Kb, const long long n, const int K,
+                                     const int tile, const long long rows_per_block, int* __restrict__ counts) {
+    extern __shared__ int hist[];
+    const int cells = Kx * Kb;
+    const int c0 = blockIdx.y * tile;
+    const int tc = min(tile, K - c0);
+    for (int i = threadIdx.x; i < tc * cells; i += blockDim.x) hist[i] = 0;
+    __syncthreads();
+    const long long r0 = (long long)blockIdx.x * rows_per_block;
+    const long long r1 = min(r0 + rows_per_block, n);
+    const long long span = (r1 - r0) * (long long)tc;
+    for (long long t = threadIdx.x; t < span; t += blockDim.x) {
+        const int c = (int)(t % tc);
+        const long long row = r0 + t / tc;
+        atomicAdd(&hist[c * cells + (int)X[row * (long long)K + c0 + c] * Kb + (int)b[row]], 1);
+    }
+    __syncthreads();
+    for (int i = threadIdx.x; i < tc * cells; i += blockDim.x) {
+        const int v = hist[i];
+        if (v) atomicAdd(&counts[(long long)c0 * cells + i], v);
+    }
+}
+extern "C" __global__
+void batched_joint_hist1_i32_u8(const unsigned char* __restrict__ X, const int Kx, const long long n, const int K,
+                                int* __restrict__ counts) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (t >= total) return;
+    int col = (int)(t % (long long)K);
+    long long row = t / (long long)K;
+    int xv = X[row * (long long)K + col];
+    atomicAdd(&counts[(long long)col * Kx + xv], 1);
+}
+"""
+_BATCHED_JOINT_HIST_U8_KERNELS = None
+
+
+def _get_batched_joint_hist_u8_kernels():
+    """Lazily compile and cache the byte-code batched joint-histogram RawKernels ``(hist1, hist2, hist2_smem)``."""
+    global _BATCHED_JOINT_HIST_U8_KERNELS
+    if _BATCHED_JOINT_HIST_U8_KERNELS is None:
+        import cupy as cp
+        mod = cp.RawModule(code=_JOINT_HIST_U8_SRC)
+        _BATCHED_JOINT_HIST_U8_KERNELS = (mod.get_function("batched_joint_hist1_i32_u8"), mod.get_function("batched_joint_hist2_i32_u8"), mod.get_function("batched_joint_hist2_i32_smem_u8"))
+    return _BATCHED_JOINT_HIST_U8_KERNELS
+
+
 _BATCHED_JOINT_HIST_KERNELS = None
 
 
@@ -410,17 +474,18 @@ def _batched_joint_counts2(X, b, Kx, Kb):
     # int32 counts: exact frequencies <= n < 2^31; halves the memset + the
     # entropy-reduce traffic + the buffer VRAM (2x perms per perm-null chunk). Identical counts.
     counts = cp.zeros(int(K) * int(Kx) * int(Kb), dtype=cp.int32)
-    tile = _hist_smem_tile(int(Kx) * int(Kb), K)
+    u8 = X.dtype == cp.uint8
+    tile = _hist_smem_tile(int(Kx) * int(Kb), K, u8)
     if tile:
         # one block per (row chunk, column tile): shared histograms, one global add per occupied cell per block
         rows_per_block = int(max(1024, min(n, 16384)))
         grid = ((n + rows_per_block - 1) // rows_per_block, (K + tile - 1) // tile)
-        _get_batched_joint_hist_kernels()[4](
+        (_get_batched_joint_hist_u8_kernels()[2] if u8 else _get_batched_joint_hist_kernels()[4])(
             grid, (256,), (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(tile), np.int64(rows_per_block), counts),
             shared_mem=tile * int(Kx) * int(Kb) * 4,
         )
         return counts.reshape(K, int(Kx) * int(Kb))
-    h2 = _get_batched_joint_hist_kernels()[3]
+    h2 = _get_batched_joint_hist_u8_kernels()[1] if u8 else _get_batched_joint_hist_kernels()[3]
     threads = block_size_for(h2, work_items=n * K)
     blocks = (n * K + threads - 1) // threads
     h2((blocks,), (threads,), (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), counts))
@@ -433,12 +498,15 @@ _HIST_SMEM_BYTES = 40 * 1024  # shared bytes one block may spend on its histogra
 _HIST_SMEM_MAX_CELLS = 128
 
 
-def _hist_smem_tile(cells: int, n_cols: int) -> int:
+_HIST_SMEM_MAX_CELLS_U8 = 256  # the byte-code kernel reads an eighth of the traffic, so shared histograms win up to 256 cells (200 cells, 30000 x 1000: 9.3 -> 7.8 ms per CMI call)
+
+
+def _hist_smem_tile(cells: int, n_cols: int, u8: bool = False) -> int:
     """Columns per block of the shared-memory joint histogram: the largest of 32/16/8/4/2/1 whose ``tile * cells`` int32 histogram fits ``_HIST_SMEM_BYTES`` (and
     does not exceed the column count), or 0 when one column does not fit or ``MLFRAME_HIST_SMEM=0`` or ``cells`` exceeds ``_HIST_SMEM_MAX_CELLS``."""
     import os
 
-    if os.environ.get("MLFRAME_HIST_SMEM", "1").strip() == "0" or cells > _HIST_SMEM_MAX_CELLS:
+    if os.environ.get("MLFRAME_HIST_SMEM", "1").strip() == "0" or cells > (_HIST_SMEM_MAX_CELLS_U8 if u8 else _HIST_SMEM_MAX_CELLS):
         return 0
     for tile in (32, 16, 8, 4, 2, 1):
         if tile <= max(1, n_cols) and tile * cells * 4 <= _HIST_SMEM_BYTES:
@@ -454,7 +522,7 @@ def _batched_marginal_counts(X, Kx):
     n, K = int(X.shape[0]), int(X.shape[1])
     # int32 counts: same bandwidth fix as _batched_joint_counts2 (identical counts, half the traffic).
     counts = cp.zeros(int(K) * int(Kx), dtype=cp.int32)
-    h1 = _get_batched_joint_hist_kernels()[2]
+    h1 = _get_batched_joint_hist_u8_kernels()[0] if X.dtype == cp.uint8 else _get_batched_joint_hist_kernels()[2]
     threads = block_size_for(h1, work_items=n * K)
     blocks = (n * K + threads - 1) // threads
     h1((blocks,), (threads,), (X, np.int32(int(Kx)), np.int64(n), np.int32(K), counts))
@@ -587,6 +655,8 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
 
         if _mode not in ("1", "true", "yes", "on") and fused_entropy_backend(n, M) != "fused":
             return None
+        if X.dtype != cp.int64:
+            X = X.astype(cp.int64)  # the fused entropy kernels read 64-bit codes; a byte matrix is widened here, on the rare path that takes them
         ker = _get_batched_joint_entropy_kernel(cp)
         assert _BATCHED_JOINT_ENTROPY_SH_LIMIT is not None  # populated by _get_batched_joint_entropy_kernel above
         # shared = M uint32 hist + 2*256 f64 reduction scratch (the sh_h/sh_k arrays are static, not counted here);

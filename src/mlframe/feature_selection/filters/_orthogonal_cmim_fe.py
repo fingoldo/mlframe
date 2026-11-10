@@ -385,7 +385,7 @@ def _cmim_scores_device(eng_bins, y_bin, sel_bins, support_names, eng_sources, n
         block = max(1, min(k, (free // 8) // max(1, n * 8)))  # int64 codes of a candidate block, a fraction of what the device can hand out
         for b0 in range(0, k, block):
             b1 = min(k, b0 + block)
-            Xd = cp.asarray(np.ascontiguousarray(np.asarray(eng_bins[b0:b1]).T, dtype=np.int64))  # (n, block)
+            Xd = cp.asarray(np.ascontiguousarray(np.asarray(eng_bins[b0:b1]).T, dtype=np.uint8 if int(n_bins) <= 255 else np.int64))  # (n, block); bytes when the codes fit: an eighth of the read traffic per CMI call
             best = cp.full(b1 - b0, cp.inf, dtype=cp.float64)  # Intentional float64: CMI statistic, the running minimum over the references
             for j, zd in enumerate(zs):
                 mask = allowed[j, b0:b1]

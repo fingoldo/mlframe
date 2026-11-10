@@ -785,7 +785,7 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
     from ._fe_resident_operands import resident_operand
 
     if isinstance(x_cols, cp.ndarray):
-        X = x_cols.astype(cp.int64, copy=False)
+        X = x_cols if x_cols.dtype == cp.uint8 else x_cols.astype(cp.int64, copy=False)  # a byte matrix stays bytes: the histogram kernels read it with an eighth of the traffic
     else:
         X = cp.asarray(np.ascontiguousarray(x_cols).astype(np.int64))
     if X.ndim == 1:
