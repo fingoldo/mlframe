@@ -232,3 +232,6 @@ WALL 674.6 s (first run, before the 1000-column work: 2188 s; after the pair-sca
 
 ## 100k x 1000 after CMIM/JMIM block sizing by code width (2026-11-10)
 Wall 674.0 s -> 641.2 s. orth_mi_cmim 144.9 -> 70.7 s, orth_mi_jmim 60.2 -> 37.0 s (candidate blocks sized for bytes under the slot pool limit: fewer batched_cmi_gpu calls). cascade_early_a 247.8 s, fe_step 136.6 s (part7 84.8, part3 84.7, part5 44.4). Next: fe_step parts 3/7 and the remaining cascade_early_a lanes.
+
+## Reverted: fold-parallel accuracy-gate probe (2026-11-10)
+measure_feature_uplift folds on map_on_edge_pool: 100k x 100 wall 71.2 -> 72.0 s, probe thread-seconds 3.6 -> 6.6 (the gate already runs beside other work, so more threads only compete). Reverted. whole_sample.py at 100k x 100: mean process CPU 29 % of 8 logical CPUs; no single function above 3 thread-seconds, so the remaining idle time is serial dependency chains, not one hotspot.
