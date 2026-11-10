@@ -30,3 +30,7 @@ double, so a row whose k-th and (k+1)-th neighbours are almost equidistant can t
 
 Candidates not done: keep the insertion list in shared memory (one list of 20 doubles per thread = 160 B x 128 threads = 20 KB per block) to remove the local-memory traffic; stage the reference in shared memory
 to cut the repeated global reads. Measure before restructuring (CUDA.md section 6).
+
+## 2026-11-10: the tuner stored "host" for every size (tolerance bug)
+
+`fe_lof_device` chose `host` at 5000, 20000 and 100000 rows although the device scorer is 10x faster (100000 rows against a 2000-point reference: host 3.30 s, device 0.31 s, `D:/Temp/lof_bench.py`). The sweep required the device scores to equal the host's to 1e-9 relative, but the scores are float32 and differ by about 3e-7, so the device variant failed the equivalence check in every region and the tuner stored the host. Tolerance now 1e-5 / 1e-6 (the float32 level), salt 3 so the regions are measured again; after the re-sweep the choice is `device` at 2000, 20000 and 100000 rows. `lof` is 3.7 s of the critical `mid_b` lane of the 100k x 100 fit.
