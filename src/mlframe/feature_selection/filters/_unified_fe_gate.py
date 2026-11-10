@@ -335,10 +335,30 @@ def raw_mi_noise_floor(
 _LOCAL_GATE_NULL_PERMUTATIONS = 39
 
 
+_PERMUTATION_MEMO: "dict[int, list[np.ndarray]]" = {}
+_PERMUTATION_MEMO_LOCK = threading.Lock()
+_PERMUTATION_MEMO_MAX = 4
+
+
 def local_gate_permutations(n_rows: int) -> "list[np.ndarray]":
-    """The row permutations of the local gate's family-wise null (fixed seed, so every candidate batch of one family is scored against the same permutations)."""
+    """The row permutations of the local gate's family-wise null (fixed seed, so every candidate batch of one family is scored against the same permutations).
+
+    The permutations depend on ``n_rows`` alone and every family's gate asks for them again (39 permutations of 100000 rows are about 60 ms of generator work per call, 29 thread-seconds
+    in a 1000-column fit), so they are generated once per row count and shared read-only."""
+    key = int(n_rows)
+    with _PERMUTATION_MEMO_LOCK:
+        cached = _PERMUTATION_MEMO.get(key)
+    if cached is not None:
+        return list(cached)
     rng = np.random.default_rng(0)
-    return [rng.permutation(n_rows) for _ in range(_LOCAL_GATE_NULL_PERMUTATIONS)]
+    perms = [rng.permutation(key) for _ in range(_LOCAL_GATE_NULL_PERMUTATIONS)]
+    for p in perms:
+        p.setflags(write=False)
+    with _PERMUTATION_MEMO_LOCK:
+        if len(_PERMUTATION_MEMO) >= _PERMUTATION_MEMO_MAX:
+            _PERMUTATION_MEMO.pop(next(iter(_PERMUTATION_MEMO)))  # evict-ok: memo; a miss regenerates the same permutations
+        _PERMUTATION_MEMO.setdefault(key, perms)
+    return list(perms)
 
 
 def select_above_floor(cand_cols: Sequence[str], cand_mi: np.ndarray, floor: float, reject_sink: Optional[Callable[..., None]], top_k: Optional[int]) -> list[str]:
