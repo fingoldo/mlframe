@@ -124,6 +124,56 @@ def _rebin_continuous_targets(self, _nbins_strategy, target_indices, cols, _x_fo
                 nbins[int(_ti)] = _t_nb
 
 
+_SUPERVISED_STRATEGIES = ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv", "mah", "mah_sci", "sci", "marx")
+_WARMUPS: "dict[int, Any]" = {}
+
+
+def start_discretization_warmup(self: Any, X: Any, y: Any) -> None:
+    """Start the supervised edge search of the raw columns on a worker thread, while the feature-engineering cascades run.
+
+    The edges of a column are a function of its values, the target and the settings only, and are memoised by content (``compute_col_edges``), so categorising the raw frame now fills the memo
+    and the real categorisation after the cascades takes those columns from it (the codes are then the same ones: an edge hit returns the edges the search would). The pass reads a private copy of
+    the frame; ``_discretize_inputs`` waits for it. Does nothing for an unsupervised strategy, a non-pandas frame, the legacy fill path or with the stage concurrency off."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fe_stage_concurrency import concurrency_enabled
+
+    strategy = getattr(self, "nbins_strategy", None)
+    if not concurrency_enabled() or strategy is None or str(strategy).lower() not in _SUPERVISED_STRATEGIES:
+        return
+    if not isinstance(X, pd.DataFrame) or self.nan_strategy in ("ffill_bfill",):
+        return
+    try:
+        from mlframe.feature_selection.filters.mrmr.shared import target_to_numpy_values as _target_to_numpy_values
+
+        kwargs = _strategy_kwargs(self, strategy)
+        vals = self._coerce_target_dtype(_target_to_numpy_values(y))
+        y_for = np.asarray(vals[:, 0] if vals.ndim == 2 else vals)
+        frame = X.copy()
+    except Exception as exc:
+        logger.debug("discretisation warm-up skipped: %r", exc)
+        return
+
+    def run() -> None:
+        """Categorise the private copy of the raw frame (the result is dropped; the edge memo keeps what the real pass needs)."""
+        try:
+            from mlframe.feature_selection.filters.mrmr import categorize_dataset
+
+            categorize_dataset(
+                df=frame, method=self.quantization_method, n_bins=self.quantization_nbins, dtype=self.quantization_dtype,
+                max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None), missing_strategy=self.nan_strategy,
+                nbins_strategy=strategy, nbins_strategy_kwargs=kwargs, y_for_strategy=y_for, cache_dir=getattr(self, "cache_dir", None),
+            )
+        except Exception as exc:
+            logger.debug("discretisation warm-up failed: %r", exc)
+
+    import threading
+
+    worker = threading.Thread(target=run, name="discretize-warmup", daemon=True)
+    _WARMUPS[id(self)] = worker
+    worker.start()
+
+
 @fe_timed("stage:discretize_inputs")
 def _discretize_inputs(self, _is_polars_input, X, target_names):
     """Discretise the input frame (targets included) into per-column bin codes via ``categorize_dataset``, resolving the NaN
@@ -133,6 +183,9 @@ def _discretize_inputs(self, _is_polars_input, X, target_names):
         categorize_dataset,
     )
 
+    warmup = _WARMUPS.pop(id(self), None)
+    if warmup is not None:
+        warmup.join()
     if self.nan_strategy in ("ffill_bfill",):
         # Legacy path retained so runs from before the separate-bin NaN default stay reproducible.
         if _is_polars_input:
@@ -314,10 +367,8 @@ def _install_honest_null_hook(
     self._honest_null_codes_fn = _honest_null_codes
 
 
-def _discretize_inputs_part1(
-    self: Any, _nbins_strategy: Any, target_names: Any, _x_for_cat: Any, categorize_dataset: Any, _strategy_for_categorize: Any,
-) -> tuple[Any, ...]:
-    """Extracted block of ``_discretize_inputs`` (part 1); returns the names the caller still uses."""
+def _strategy_kwargs(self: Any, _nbins_strategy: Any) -> Any:
+    """The ``nbins_strategy_kwargs`` of the categorisation: the user's, with the cardinality cap's ``max_depth`` and the shared adaptive-bin ceiling added as defaults."""
     _nbins_strategy_kwargs = getattr(self, "nbins_strategy_kwargs", None)
     # When capping cardinality for the compact-codes int8 goal, also bound the NUMERIC side: the supervised MDLP
     # (fayyad_irani) recursion can emit up to 2**max_depth intervals (default max_depth=8 -> ~256), which would exceed
@@ -337,6 +388,14 @@ def _discretize_inputs_part1(
     if _max_adaptive_nbins is not None:
         _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
         _nbins_strategy_kwargs.setdefault("max_adaptive_nbins", int(_max_adaptive_nbins))
+    return _nbins_strategy_kwargs
+
+
+def _discretize_inputs_part1(
+    self: Any, _nbins_strategy: Any, target_names: Any, _x_for_cat: Any, categorize_dataset: Any, _strategy_for_categorize: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_discretize_inputs`` (part 1); returns the names the caller still uses."""
+    _nbins_strategy_kwargs = _strategy_kwargs(self, _nbins_strategy)
     # The supervised strategies (mdlp / optimal_joint) need y. Pull the raw
     # target column from the input frame - categorize_dataset is called with
     # _x_for_cat which is a DataFrame; the target column is one of its members

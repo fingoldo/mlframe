@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
+from collections import OrderedDict
 from typing import Any, Callable, Optional
 
 import numpy as np
@@ -18,7 +20,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 
 logger = logging.getLogger("mlframe.feature_selection.filters._adaptive_nbins")
 
-__all__ = ["compute_col_edges"]
+__all__ = ["compute_col_edges", "clear_edge_memo"]
 
 _SUPERVISED_METHODS = ("fayyad_irani", "fayyad_irani_validated", "optimal_joint", "mah")
 
@@ -250,7 +252,53 @@ def _sparse_dominance_edges(edges: Any, finite: np.ndarray, uniq: np.ndarray, un
     return np.unique(_new_edges)
 
 
+_EDGE_MEMO: "OrderedDict" = OrderedDict()
+_EDGE_MEMO_MAX = 4096
+_EDGE_MEMO_LOCK = threading.Lock()
+_SIMPLE_KWARG_TYPES = (int, float, str, bool, type(None))
+
+
+def clear_edge_memo() -> None:
+    """Forget the memoised edges (the table is content-keyed, so this only frees memory)."""
+    with _EDGE_MEMO_LOCK:
+        _EDGE_MEMO.clear()
+
+
+def _edge_memo_key(col: np.ndarray, method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], low_card_cap: int) -> "Optional[tuple]":
+    """Content key of one edge computation, or ``None`` when it must not be memoised (a keyword argument that is not a plain value, such as the optimal-joint plan cache, which carries state)."""
+    items = []
+    for k in sorted(kwargs):
+        v = kwargs[k]
+        if not isinstance(v, _SIMPLE_KWARG_TYPES):
+            return None
+        items.append((k, v))
+    from mlframe.feature_selection.filters._fe_resident_operands import operand_signature
+
+    y_sig = None if y is None or method_resolved not in _SUPERVISED_METHODS else operand_signature(np.ascontiguousarray(y))
+    return (operand_signature(np.ascontiguousarray(col)), y_sig, method_resolved, str(base), int(low_card_cap), tuple(items))
+
+
 def compute_col_edges(col: np.ndarray, method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], low_card_cap: int) -> tuple[Any, bool]:
+    """``_compute_col_edges_uncached`` through a content-keyed memo: the same column, labels and settings give the same edges, so a warm-up pass over the raw columns (run while the feature
+    engineering cascades work) serves the real discretisation without computing them again. Returned arrays are copies."""
+    key = _edge_memo_key(col, method_resolved, base, kwargs, y, low_card_cap)
+    if key is not None:
+        with _EDGE_MEMO_LOCK:
+            hit = _EDGE_MEMO.get(key)
+            if hit is not None:
+                _EDGE_MEMO.move_to_end(key)
+        if hit is not None:
+            return (hit[0].copy() if isinstance(hit[0], np.ndarray) else hit[0]), hit[1]
+    edges, low = _compute_col_edges_uncached(col, method_resolved, base, kwargs, y, low_card_cap)
+    if key is not None:
+        with _EDGE_MEMO_LOCK:
+            _EDGE_MEMO[key] = (edges.copy() if isinstance(edges, np.ndarray) else edges, low)
+            while len(_EDGE_MEMO) > _EDGE_MEMO_MAX:
+                _EDGE_MEMO.popitem(last=False)  # evict-ok: a miss recomputes the edges
+    return edges, low
+
+
+def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], low_card_cap: int) -> tuple[Any, bool]:
     """Pure per-column edge computation (no cache I/O). Returns ``(edges, was_low_card)``.
 
     Identical math to the historical serial loop body; factored out so the heavy path can run under a thread pool. Touches no shared state ->

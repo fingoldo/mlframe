@@ -734,6 +734,9 @@ def _fit_impl_part2(
     recipes.composite_group_agg = {}
     recipes.grouped_quantile = {}
 
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._binning import start_discretization_warmup
+
+    start_discretization_warmup(self, X, y)  # the raw columns' edge search runs beside the cascades; the discretisation after them takes it from the memo
     X, _raw_input_cols_pre_fe = _run_fe_stage_cascades(
         self,
         X,
