@@ -219,7 +219,7 @@ def _jmim_scores_device(eng_bins, eng_ks, y_bin, K_y: int, sel_bins, sel_ks):
         block = max(1, min(k, (free // 8) // max(1, n * 8)))
         for b0 in range(0, k, block):
             b1 = min(k, b0 + block)
-            Xd = cp.asarray(np.ascontiguousarray(np.asarray(eng_bins[b0:b1]).T, dtype=np.int64))
+            Xd = cp.asarray(np.ascontiguousarray(np.asarray(eng_bins[b0:b1]).T, dtype=np.uint8 if kx <= 255 else np.int64))  # bytes when the codes fit: the histogram kernels read an eighth of the traffic per reference
             for z, kz in zip(sel_bins, sel_ks):
                 kz = int(kz)
                 zd = cp.asarray(np.ascontiguousarray(z, dtype=np.int64))
