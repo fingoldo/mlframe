@@ -587,6 +587,13 @@ def _make_cached_operand(self: Any, X: Any, cols: Any, *, max_entries: int) -> C
     from .._fe_usability_signal import _crit_np_dtype as _op_cache_dtype
 
     _operand_cache: OrderedDict = OrderedDict()
+    # The entry cap is a floor: the cache also grows to the operands that fit a tenth of the free host RAM, because a pool wider than the cap made every pair re-extract its two operand
+    # columns from the frame (247104 extractions, 37 s, at 600 columns; the cache held 512 of ~700 operands and the scan order cycles through all of them).
+    try:
+        _row_bytes = max(1, len(X)) * np.dtype(_op_cache_dtype()).itemsize
+        max_entries = max(int(max_entries), int(0.1 * _host_free_bytes_safe() // _row_bytes))
+    except Exception as exc:
+        logger.debug("operand cache sizing kept the entry cap: %s", exc)
 
     def _cached_operand(_idx):
         """Return operand ``_idx``'s continuous usability value, computing and memoizing it on first use."""
