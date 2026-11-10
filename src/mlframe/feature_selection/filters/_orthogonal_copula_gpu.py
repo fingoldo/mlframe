@@ -18,7 +18,7 @@ from typing import Optional
 
 import numpy as np
 
-from ._device_sort_safe import device_argsort
+from ._device_sort_safe import device_argsort, device_room
 from ._ktc_fallback import device_from_rows
 from ._raw_module_cache import RawModuleCache
 from mlframe.utils.log_throttle import log_throttle
@@ -121,7 +121,7 @@ def copula_columns_device(cols_rows: np.ndarray, vi: np.ndarray, nb: int) -> Opt
 
         kernel = _MODULES[np.dtype(str(cols_rows.dtype))].get(cp).get_function("copula_joint")
         vi_d = cp.asarray(np.ascontiguousarray(vi, dtype=np.int32))
-        free = int(cp.cuda.runtime.memGetInfo()[0]) + int(cp.get_default_memory_pool().free_bytes())
+        free = device_room(cp)
         per_col = n * (int(cols_rows.dtype.itemsize) * 2 + 8 * 4)  # values, sorted values, order and sort temporaries
         block = int(max(1, min(kk, (_BUDGET_FRACTION * free) // per_col)))
         out = np.empty(kk, dtype=np.float64)  # Intentional float64: statistic output

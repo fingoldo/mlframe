@@ -52,6 +52,12 @@ def _room(cp: Any, pool: Any) -> int:
     return room
 
 
+def device_room(cp: Any) -> int:
+    """Bytes the calling thread's allocations can still get: the room under the limit of the pool behind its allocator (a stage slot's pool or the default one) and the device's free memory plus
+    that pool's cached free blocks. Block sizes for streamed device work should be taken from this, not from the device-wide free memory: a concurrent stage runs under a fraction of the card."""
+    return _room(cp, _current_pool(cp))
+
+
 _POOL_LOCKS: "dict[int, tuple[Any, threading.Lock]]" = {}
 _POOL_LOCKS_GUARD = threading.Lock()
 

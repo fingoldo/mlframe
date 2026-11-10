@@ -22,7 +22,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from ._device_sort_safe import device_argsort
+from ._device_sort_safe import device_argsort, device_room
 from ._ktc_fallback import device_from_rows
 from ._raw_module_cache import RawModuleCache
 from mlframe.utils.log_throttle import log_throttle
@@ -124,7 +124,7 @@ def xi_columns_device(cols: Any, seeds: np.ndarray, r_row: np.ndarray, l_row: np
         codes_d, r_tab_d, l_tab_d = ys.device(cp)
         seeds_d = cp.asarray(np.ascontiguousarray(seeds, dtype=np.uint64))
         resident = isinstance(cols, cp.ndarray)
-        free = int(cp.cuda.runtime.memGetInfo()[0]) + int(cp.get_default_memory_pool().free_bytes())
+        free = device_room(cp)
         per_col = n * (4 + 8 + 8 + 8 + 8 + 16)  # values, keys, order, sort temporaries
         block = int(max(1, min(kk, (_BUDGET_FRACTION * free) // per_col)))
         out = np.empty(kk, dtype=np.float64)  # Intentional float64: accumulator output

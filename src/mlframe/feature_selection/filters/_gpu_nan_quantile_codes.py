@@ -27,10 +27,9 @@ _COMPARE_COLUMNS = 8
 def _block_columns(cp: Any, n_rows: int, n_cols: int) -> int:
     """Columns per block that the memory pool can still hold at ``_BUDGET_FRACTION`` (at least 4)."""
     try:
-        pool = cp.get_default_memory_pool()
-        free_device = int(cp.cuda.runtime.memGetInfo()[0]) + int(pool.free_bytes())
-        limit = int(pool.get_limit())
-        room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))
+        from ._device_sort_safe import device_room
+
+        room = max(0, device_room(cp))
     except Exception as exc:
         log_throttle(logger, "_gpu_nan_quantile_codes.except_33", logging.INFO, "nan quantile codes: free memory unknown (%s)", exc)
         return 16

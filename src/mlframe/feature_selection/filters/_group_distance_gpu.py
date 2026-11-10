@@ -22,7 +22,7 @@ from typing import Optional, Sequence
 
 import numpy as np
 
-from ._device_sort_safe import device_argsort
+from ._device_sort_safe import device_argsort, device_room
 from ._ktc_fallback import device_from_rows
 from ._raw_module_cache import RawModuleCache
 from mlframe.utils.log_throttle import log_throttle
@@ -144,7 +144,7 @@ def group_stats_device(
         module = _MODULE.get(cp)
         stats_k, keys_k, w1_k = module.get_function("gd_stats"), module.get_function("gd_sort_keys"), module.get_function("gd_w1")
         gid_d = cp.asarray(np.ascontiguousarray(gid, dtype=np.int32))
-        free = int(cp.cuda.runtime.memGetInfo()[0]) + int(cp.get_default_memory_pool().free_bytes())
+        free = device_room(cp)
         gmax = max(1, max(int(g.size) for g in global_sorted))
         per_col = n * (4 + 2 + 8 + 8 + 4 + 16) + gmax * 8
         block = int(max(1, min(k, (_BUDGET_FRACTION * free) // per_col)))

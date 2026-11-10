@@ -21,6 +21,7 @@ from typing import Any, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ._device_sort_safe import device_room
 from ._fe_usability_signal import _crit_np_dtype
 from ._ktc_fallback import device_from_rows
 from mlframe.utils.log_throttle import log_throttle
@@ -107,7 +108,7 @@ def score_candidates_device(
         sources = sorted({c for src, _ in candidates for c in src})
         resident = {c: cp.asarray(np.ascontiguousarray(X[c].to_numpy(), dtype=dt)) for c in sources}
         n = len(X)
-        free = int(cp.cuda.runtime.memGetInfo()[0]) + int(cp.get_default_memory_pool().free_bytes())
+        free = device_room(cp)
         block = int(max(1, min(len(candidates), (_BUDGET_FRACTION * free) // (4 * n * np.dtype(dt).itemsize))))
         names: list[str] = []
         parsed: list[tuple] = []

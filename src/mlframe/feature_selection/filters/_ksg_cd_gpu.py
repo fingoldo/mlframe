@@ -20,7 +20,7 @@ from typing import Optional
 import numpy as np
 
 
-from ._device_sort_safe import device_argsort
+from ._device_sort_safe import device_argsort, device_room
 from ._ktc_fallback import device_from_rows
 from ._raw_module_cache import RawModuleCache
 from mlframe.utils.log_throttle import log_throttle
@@ -103,7 +103,7 @@ def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbo
         counts_dev = cp.asarray(counts.astype(np.int32))
         psi_dev = cp.asarray(psi)
         kernel = _MODULE.get(cp).get_function("ksg_psi_m_sums")
-        free = int(cp.cuda.runtime.memGetInfo()[0]) + int(cp.get_default_memory_pool().free_bytes())
+        free = device_room(cp)
         per_col = n_kept * (8 + 8 + 8 + 4)  # values, sort order, sorted values, sorted labels
         block = int(max(1, min(n_cols, (_BUDGET_FRACTION * free) // per_col)))
         X_kept = X if n_kept == n else X[keep]
