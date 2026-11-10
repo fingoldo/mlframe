@@ -118,7 +118,7 @@ def column_seeds(random_state: int, k: int) -> np.ndarray:
         x = np.uint64(int(random_state) & 0xFFFFFFFFFFFFFFFF) * _SEED_STRIDE + j
         x = (x ^ (x >> np.uint64(30))) * _MIX_M1
         x = (x ^ (x >> np.uint64(27))) * _MIX_M2
-        return x ^ (x >> np.uint64(31))
+        return np.asarray(x ^ (x >> np.uint64(31)), dtype=np.uint64)
 
 
 @njit(cache=True)

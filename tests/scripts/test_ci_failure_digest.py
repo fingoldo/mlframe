@@ -292,3 +292,24 @@ def test_a_404_is_not_retried_and_a_missing_workflow_has_no_runs(monkeypatch):
         raise cfd.GhNotFound("HTTP 404")
 
     assert cfd.latest_completed_runs(missing, "o/r", 7, "master") == []
+
+
+def test_a_failed_job_whose_log_is_404_is_infra_not_a_crash():
+    """A failed job whose log endpoint answers 404 becomes an infrastructure group; the digest keeps going instead of aborting."""
+    base = _fake_gh(
+        {
+            "workflow list": orjson.dumps([{"id": 1, "name": "CI"}]).decode(),
+            "--workflow 1 ": orjson.dumps([_run(5, "failure", "2026-10-09T01:00:00Z")]).decode(),
+            "runs/5/jobs": _jobs((52, "shard", "failure")),
+            "jobs/52/logs": "",
+        }
+    )
+
+    def gh(args):
+        """Answer 404 for the missing job log and defer everything else to the canned responses."""
+        if "jobs/52/logs" in " ".join(args) + " ":
+            raise cfd.GhNotFound("HTTP 404")
+        return base(args)
+
+    groups, _notes = cfd.build_digest(gh, "o/r", "master", 2, now=NOW)
+    assert len(groups) == 1 and groups[0].kind == "infra" and "404" in groups[0].key
