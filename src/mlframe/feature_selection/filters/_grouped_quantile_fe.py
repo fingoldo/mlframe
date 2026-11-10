@@ -653,11 +653,39 @@ def _grouped_quantile_mi_device(eng_X: pd.DataFrame, eng_cols: list, y_bin: np.n
         return {}
 
 
-def _p_added_by_column(eng_X: pd.DataFrame, raw_X: pd.DataFrame, y_bin: np.ndarray, eng_to_source: dict, bin_one: Callable[[np.ndarray], np.ndarray]) -> dict:
+def _prebinned_codes(frame: pd.DataFrame, cols: list, n_bins: int) -> dict:
+    """``{column: int64 codes}`` of the all-finite float32 columns of ``frame`` among ``cols``, binned in column blocks by the batched quantile-codes kernel (device for a large block, the njit kernel otherwise).
+
+    The partition is the one of the per-column host binner (``np.quantile`` at the deduplicated edges, upper-bound search; a column with at most ``n_bins`` distinct values takes level codes), which is all
+    the G-test reads; a column with a non-finite value, at most ``n_bins`` distinct values or another dtype is left out and the caller bins it itself."""
+    from ._quantile_codes_gpu import quantile_codes_block_auto
+
+    if _crit_np_dtype() != np.float32:
+        return {}
+    keep, arrs = [], []
+    for c in cols:
+        a = np.asarray(frame[c].to_numpy(), dtype=np.float32)
+        # a column with at most n_bins distinct values stays on the host binner: its float32 quantile edges can merge two adjacent levels, which the kernel's exact level codes do not
+        if a.size and np.isfinite(a).all() and not (np.unique(a[:2048]).size <= n_bins and pd.unique(a).size <= n_bins):
+            keep.append(c)
+            arrs.append(a)
+    out: dict = {}
+    step = max(1, (256 << 20) // max(1, len(frame) * 4))
+    for i in range(0, len(keep), step):
+        v = np.ascontiguousarray(np.stack(arrs[i : i + step]))
+        codes = np.empty(v.shape, dtype=np.int16)
+        nx = np.empty(v.shape[0], dtype=np.int64)
+        quantile_codes_block_auto(v, int(n_bins), codes, nx)
+        out.update({c: codes[j].astype(np.int64) for j, c in enumerate(keep[i : i + step])})
+    return out
+
+
+def _p_added_by_column(eng_X: pd.DataFrame, raw_X: pd.DataFrame, y_bin: np.ndarray, eng_to_source: dict, bin_one: Callable[[np.ndarray], np.ndarray], n_bins: int = 10) -> dict:
     """``{column: p-value}`` that the column carries information about y beyond its own source column (G-test of ``CMI(column; y | source)``, see ``_added_information_gate``).
 
     NaN for a column whose source is not in ``raw_X`` or whose table is too sparse to test."""
-    source_codes: dict = {}
+    eng_pre = _prebinned_codes(eng_X, list(eng_X.columns), n_bins)
+    source_codes: dict = _prebinned_codes(raw_X, sorted({s for s in eng_to_source.values() if s in raw_X.columns}), n_bins)
 
     def one(col: str) -> float:
         """The p-value of one column (the source's codes are binned once and shared by its columns)."""
@@ -666,7 +694,8 @@ def _p_added_by_column(eng_X: pd.DataFrame, raw_X: pd.DataFrame, y_bin: np.ndarr
             return float("nan")
         if src not in source_codes:
             source_codes[src] = bin_one(raw_X[src].to_numpy())
-        return added_information_p(bin_one(eng_X[col].to_numpy()), source_codes[src], y_bin)
+        codes = eng_pre[col] if col in eng_pre else bin_one(eng_X[col].to_numpy())
+        return added_information_p(codes, source_codes[src], y_bin)
 
     cols = list(eng_X.columns)
     return dict(zip(cols, _bin_columns_pooled(one, cols))) if cols else {}
@@ -755,7 +784,7 @@ def score_grouped_quantile_by_mi_uplift(
     host_mi = dict(zip(host_cols, _bin_columns_pooled(lambda c: float(_plug_in_mi(_bin(eng_X[c].to_numpy()), y_bin)), host_cols))) if host_cols else {}
     eng_mis = [device_mi[c] if c in device_mi else host_mi[c] for c in eng_cols]
 
-    p_added = _p_added_by_column(eng_X, raw_X, y_bin, eng_to_source, _bin)
+    p_added = _p_added_by_column(eng_X, raw_X, y_bin, eng_to_source, _bin, n_bins)
     rows = []
     for col, mi in zip(eng_cols, eng_mis):
         src = eng_to_source.get(col)
