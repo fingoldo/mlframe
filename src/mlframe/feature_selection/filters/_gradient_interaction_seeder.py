@@ -183,7 +183,8 @@ def _per_feature_rff_matrix(Xs: np.ndarray, n_per_feat: int, seed: int) -> np.nd
     proj += B[None, :, :]
     np.cos(proj, proj)
     proj *= (2.0 / n_per_feat) ** 0.5
-    return proj.reshape(n, p * n_per_feat)
+    out: np.ndarray = proj.reshape(n, p * n_per_feat)
+    return out
 
 
 def _fit_additive_residual(Xs: np.ndarray, y: np.ndarray, n_per_feat: int, alpha: float, seed: int):

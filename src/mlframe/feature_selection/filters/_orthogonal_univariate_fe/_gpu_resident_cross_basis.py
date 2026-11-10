@@ -152,11 +152,7 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
                 b = _route_basis_host(basis_of_col[("_x", col)], basis)
                 basis_of_col[col] = b
         key = (col, b, int(degree))
-        h = leg_cache.get(key)
-        if h is None:
-            h = _shared_leg(cp, basis_of_col, col, b, int(degree), robust_axis)
-            if h is not None:
-                leg_cache[key] = h
+        h = _known_leg(cp, leg_cache, basis_of_col, key, robust_axis)
         if h is None:
             xf = basis_of_col[("_x", col)]
             # dtype=None (not cp.float64): upload at xf's own dtype so the on-device polynomial
@@ -198,6 +194,16 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
     if not out_cols:
         return cp.empty((n, 0), dtype=cp.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     return cp.ascontiguousarray(cp.stack(out_cols, axis=1).astype(cp.float64, copy=False))  # Intentional float64: GPU cross-basis output; kernel contract is float64
+
+
+def _known_leg(cp: Any, leg_cache: dict, basis_of_col: dict, key: tuple, robust_axis: bool) -> Any:
+    """The leg of ``key = (col, basis, degree)`` from this call's cache or, failing that, from the fit-wide cache (remembered in the call's cache), else ``None``."""
+    h = leg_cache.get(key)
+    if h is None:
+        h = _shared_leg(cp, basis_of_col, key[0], key[1], key[2], robust_axis)
+        if h is not None:
+            leg_cache[key] = h
+    return h
 
 
 def _shared_leg_key(basis_of_col: dict, col: str, b: str, degree: int, robust_axis: bool) -> tuple:

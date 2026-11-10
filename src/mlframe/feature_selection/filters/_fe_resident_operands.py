@@ -32,6 +32,7 @@ mempool free + the cmi resident cache.
 Pickle-safe: this cache is module-level and NEVER stored on an MRMR instance (mirrors ``_cmi_cuda``'s note).
 """
 
+import functools
 import logging
 import os as _os
 import threading
@@ -129,7 +130,7 @@ _HASH_MEMO_MAX_ENTRIES = 65536  # safety bound only: an entry is a weakref and a
 _HASH_MEMO_LOCK = threading.Lock()
 
 
-def _forget_hash(key: int, ref: Any) -> None:
+def _forget_hash(key: int, ref: Any) -> None:  # called as partial(key)(ref)
     """Weakref callback: drop the memo entry of a collected array (only when the entry is still the one this reference made, not a newer array at the recycled id)."""
     with _HASH_MEMO_LOCK:
         ent = _HASH_MEMO.get(key)
@@ -150,7 +151,7 @@ def _content_hash_memoized(host: Any) -> int:
                 _HASH_MEMO.move_to_end(key)  # LRU: this identity is hot
                 return int(h)
         h = _content_hash(host)
-        _HASH_MEMO[key] = (_weakref.ref(host, lambda ref, _k=key: _forget_hash(_k, ref)), host.shape, host.dtype.str, h)
+        _HASH_MEMO[key] = (_weakref.ref(host, functools.partial(_forget_hash, key)), host.shape, host.dtype.str, h)
         if len(_HASH_MEMO) > _HASH_MEMO_MAX_ENTRIES:
             # evict-ok: memo; a miss recomputes the value
             _HASH_MEMO.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
