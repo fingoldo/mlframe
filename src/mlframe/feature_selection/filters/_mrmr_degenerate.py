@@ -29,7 +29,7 @@ column-side diagnostic.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterator
 import logging
 from typing import Callable, Optional
 
@@ -280,6 +280,38 @@ def _collinear_hits_streaming(X: Any, live: list, n_rows: int, tol: float = _COL
     return good, hits
 
 
+def _scan_one_column(item: tuple) -> tuple:
+    """``(name, values, verdict, content key, finite count)`` of one column: ``verdict`` is ``"all_nan"`` / ``"constant"`` or ``None``; the finite count is -1 for a non-numeric column."""
+    name, values = item
+    if _is_all_nan(values):
+        return name, values, "all_nan", None, -1
+    if _is_constant(values):
+        return name, values, "constant", None, -1
+    key = _content_key(values)
+    n_finite = -1
+    if values.dtype.kind in "fiu":
+        n_finite = int(np.isfinite(values).sum()) if values.dtype.kind == "f" else int(values.shape[0])
+    return name, values, None, key, n_finite
+
+
+_SCAN_CHUNK_COLUMNS = 64
+
+
+def _scan_columns(columns: Any) -> "Iterator[tuple]":
+    """:func:`_scan_one_column` of every column, in column order; the columns are independent reductions that release the GIL, so each chunk of ``_SCAN_CHUNK_COLUMNS`` columns is scanned on the edge-jobs pool
+    (the serial scan was 12 s of a 100000 x 1000 fit's start). Chunks keep the memory of a column-at-a-time source (polars copies each column on extraction) bounded."""
+    from itertools import islice
+
+    from ._edge_pool import map_on_edge_pool
+
+    it = iter(columns)
+    while True:
+        chunk = list(islice(it, _SCAN_CHUNK_COLUMNS))
+        if not chunk:
+            return
+        yield from map_on_edge_pool(_scan_one_column, chunk, min_items=16)
+
+
 def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_PASS_MAX_COLS, max_collinearity_bytes: "int | None" = None) -> dict:
     """Cheap O(p) degenerate-column scan. Returns ``{column: reason}``.
 
@@ -311,25 +343,19 @@ def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_
     numeric_cols: list = []  # names of numeric candidates for the collinearity pass; values are re-read from X when the matrix is filled
     n_rows = 0
 
-    for name, values in _column_arrays(X):
-        if _is_all_nan(values):
-            degenerate[name] = "all_nan"
+    for name, values, verdict, key, n_finite in _scan_columns(_column_arrays(X)):
+        if verdict is not None:
+            degenerate[name] = verdict
             continue
-        if _is_constant(values):
-            degenerate[name] = "constant"
-            continue
-        key = _content_key(values)
         if key is not None:
             if key in seen_content:
                 degenerate[name] = f"duplicate_of:{seen_content[key]}"
                 continue
             seen_content[key] = name
         # collect for the collinearity pass (numeric, non-degenerate only)
-        if values.dtype.kind in "fiu":
-            finite_count = int(np.isfinite(values).sum()) if values.dtype.kind == "f" else int(values.shape[0])
-            if finite_count >= 2:
-                numeric_cols.append(name)
-                n_rows = int(values.shape[0])
+        if n_finite >= 2:
+            numeric_cols.append(name)
+            n_rows = int(values.shape[0])
 
     # Perfect-collinearity pass - VECTORISED so the whole correlation matrix is one
     # BLAS GEMM (O(n*p^2) in optimised C) instead of a Python O(p^2) loop of np.corrcoef
