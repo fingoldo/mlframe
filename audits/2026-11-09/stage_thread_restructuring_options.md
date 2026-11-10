@@ -235,3 +235,6 @@ Wall 674.0 s -> 641.2 s. orth_mi_cmim 144.9 -> 70.7 s, orth_mi_jmim 60.2 -> 37.0
 
 ## Reverted: fold-parallel accuracy-gate probe (2026-11-10)
 measure_feature_uplift folds on map_on_edge_pool: 100k x 100 wall 71.2 -> 72.0 s, probe thread-seconds 3.6 -> 6.6 (the gate already runs beside other work, so more threads only compete). Reverted. whole_sample.py at 100k x 100: mean process CPU 29 % of 8 logical CPUs; no single function above 3 thread-seconds, so the remaining idle time is serial dependency chains, not one hotspot.
+
+## Main-thread map of the 100k x 100 fit (2026-11-10, wall 72.8 s)
+0-1.6 s prelude (degenerate audit 0.5, content hash, warm-up); 1.5-24.1 cascade_early_a (hybrid_variants 16.4); 24-44 waits in run_stages_concurrently (14.5 s of it); serial tail 43.6-72.6 = 29 s: accuracy_gate 1.8, cross_stage_dedup 1.6, discretize_inputs 1.9, screen_predictors 6.5 (waits on confirm_in_gain_order 1.25), fe_step 10.9 (operand_pool 1.3, score_prospective_pairs 2.3, check_prospective_pairs 5.2 over 8 pairs, materialise 1.8), second screen 1.6, cluster hierarchy ~1, assign_support_tail 3.4. Every remaining item is 1-2 s; the tail's pair loop (5.2 s) is the largest single block, and its concurrent version gave no gain earlier. Script: D:/Temp/gap_sample.py.
