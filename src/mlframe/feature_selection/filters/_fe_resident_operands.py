@@ -123,10 +123,18 @@ def _content_hash(host: Any) -> int:
 import weakref as _weakref
 
 _HASH_MEMO: "OrderedDict" = OrderedDict()  # id(host) -> (weakref, shape, dtype_str, hash)
-_HASH_MEMO_MAX_ENTRIES = 64
+_HASH_MEMO_MAX_ENTRIES = 65536  # safety bound only: an entry is a weakref and a hash and goes away with its array (weakref callback below), so the table follows the number of live columns
 # Callers hash outside _FE_RESIDENT_OPERANDS_LOCK (the hash is the O(n) part), so concurrent FE threads reorder and evict this
 # OrderedDict at once. This lock covers only the dict operations, never the hash itself.
 _HASH_MEMO_LOCK = threading.Lock()
+
+
+def _forget_hash(key: int, ref: Any) -> None:
+    """Weakref callback: drop the memo entry of a collected array (only when the entry is still the one this reference made, not a newer array at the recycled id)."""
+    with _HASH_MEMO_LOCK:
+        ent = _HASH_MEMO.get(key)
+        if ent is not None and ent[0] is ref:
+            del _HASH_MEMO[key]
 
 
 def _content_hash_memoized(host: Any) -> int:
@@ -142,7 +150,7 @@ def _content_hash_memoized(host: Any) -> int:
                 _HASH_MEMO.move_to_end(key)  # LRU: this identity is hot
                 return int(h)
         h = _content_hash(host)
-        _HASH_MEMO[key] = (_weakref.ref(host), host.shape, host.dtype.str, h)
+        _HASH_MEMO[key] = (_weakref.ref(host, lambda ref, _k=key: _forget_hash(_k, ref)), host.shape, host.dtype.str, h)
         if len(_HASH_MEMO) > _HASH_MEMO_MAX_ENTRIES:
             # evict-ok: memo; a miss recomputes the value
             _HASH_MEMO.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
