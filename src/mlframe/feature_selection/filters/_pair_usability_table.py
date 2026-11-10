@@ -13,7 +13,7 @@ not seen. Only values produced by the warp kernel are stored (the CPU kernel is 
 from __future__ import annotations
 
 import threading
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -105,97 +105,4 @@ def _store(tkey: tuple, codes: np.ndarray, values: np.ndarray) -> None:
         _TABLES[tkey] = {"codes": uniq, "values": values, "backend": "cuda_warp"}
 
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-# Prefetch of the raw x raw pairs
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-#: Pair-form evaluations (pairs x forms x scored rows) from which the prefetch is worth a thread: below it the dominant-pair scan costs well under a second.
-_PREFETCH_MIN_WORK = 2_000_000_000
-#: Operands per block of the prefetch: a block pair scores up to this many squared pairs in one call.
-_PREFETCH_BLOCK = 160
-_PREFETCH: "dict[int, threading.Thread]" = {}
-
-
-def _prefetch_run(names: list, columns: Callable[[str], np.ndarray], y_batch: np.ndarray, stride: int) -> None:
-    """Score every ordered pair of the raw operands (in column order) in blocks and leave the values in the table (the dispatcher stores them)."""
-    from .batch_pair_usability_corr_gpu import ALL_PAIR_FORM_IDS, dispatch_batch_pair_usability_corr
-
-    p = len(names)
-    rows = [None] * p
-
-    def row(i: int) -> np.ndarray:
-        """The operand's row exactly as the scan builds it: the crit-dtype column, subsampled with the target's stride."""
-        if rows[i] is None:
-            v = columns(names[i])
-            rows[i] = np.ascontiguousarray(v[::stride] if stride > 1 else v)
-        return rows[i]
-
-    blk = _PREFETCH_BLOCK
-    for ci in range(0, p, blk):
-        for cj in range(ci, p, blk):
-            ia = list(range(ci, min(p, ci + blk)))
-            ib = list(range(cj, min(p, cj + blk)))
-            used = sorted(set(ia) | set(ib))
-            pos = {i: k for k, i in enumerate(used)}
-            pairs = [(a, b) for a in ia for b in ib if a < b]
-            if not pairs:
-                continue
-            matrix = np.vstack([row(i) for i in used])
-            pa = np.array([pos[a] for a, _ in pairs], dtype=np.int64)
-            pb = np.array([pos[b] for _, b in pairs], dtype=np.int64)
-            dispatch_batch_pair_usability_corr(y_batch, matrix, pa, pb, form_ids=ALL_PAIR_FORM_IDS)
-    for i in range(p):
-        rows[i] = None
-
-
-def start_prefetch(estimator: Any, X: Any) -> None:
-    """Start a daemon thread that scores the raw x raw pairs of ``X`` for the later dominant-pair scan; a no-op without a GPU, without the continuous target, on a frame that is not pandas or
-    when the work is small. Failures only mean the scan scores the pairs itself."""
-    try:
-        from ._fe_usability_signal import _corr_stride, _crit_np_dtype
-        from ._gpu_policy import gpu_globally_disabled
-        from .batch_pair_usability_corr_gpu import _CUDA_AVAIL, ALL_PAIR_FORM_IDS
-
-        y = getattr(estimator, "_fe_prewarp_y_continuous_", None)
-        if y is None or not _CUDA_AVAIL or gpu_globally_disabled() or not hasattr(X, "columns") or len(X) != len(y):
-            return
-        import pandas as pd
-
-        names = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
-        stride = int(_corr_stride(len(y)))
-        scored = len(y) // max(1, stride)
-        if len(names) * (len(names) - 1) // 2 * len(ALL_PAIR_FORM_IDS) * scored < _PREFETCH_MIN_WORK:
-            return
-        dtype = _crit_np_dtype()
-        y_arr = np.asarray(y, dtype=dtype).reshape(-1)
-        y_batch = np.asarray(y_arr[::stride] if stride > 1 else y_arr, dtype=dtype)
-
-        def columns(name: str) -> np.ndarray:
-            """One raw column as the scan's operand: the crit dtype, one-dimensional."""
-            return np.asarray(X[name], dtype=dtype).ravel()
-
-        def target() -> None:
-            """Thread body: errors are logged and dropped (the scan then scores the pairs it needs)."""
-            try:
-                _prefetch_run(names, columns, y_batch, stride)
-            except Exception as exc:  # the prefetch is an optimisation only
-                import logging
-
-                logging.getLogger(__name__).warning("usability pair prefetch stopped (%s: %s); the scan scores its own pairs", type(exc).__name__, exc)
-
-        thread = threading.Thread(target=target, name="usability-pair-prefetch", daemon=True)
-        _PREFETCH[id(estimator)] = thread
-        thread.start()
-    except Exception as exc:  # never break a fit for an optimisation
-        import logging
-
-        logging.getLogger(__name__).debug("usability pair prefetch not started: %s", exc)
-
-
-def join_prefetch(estimator: Any) -> None:
-    """Wait for the prefetch thread of ``estimator`` (started by :func:`start_prefetch`), if any: the scan that follows then reads the pairs from the table instead of scoring them twice."""
-    thread = _PREFETCH.pop(id(estimator), None)
-    if thread is not None:
-        thread.join()
-
-
-__all__ = ["clear", "join_prefetch", "serve", "start_prefetch"]
+__all__ = ["clear", "serve"]
