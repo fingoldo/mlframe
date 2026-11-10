@@ -147,21 +147,15 @@ def _prefetch_run(names: list, columns: Callable[[str], np.ndarray], y_batch: np
         rows[i] = None
 
 
-def start_prefetch(estimator: Any, X: Any, y: Any = None) -> None:
+def start_prefetch(estimator: Any, X: Any) -> None:
     """Start a daemon thread that scores the raw x raw pairs of ``X`` for the later dominant-pair scan; a no-op without a GPU, without the continuous target, on a frame that is not pandas or
-    when the work is small. Failures only mean the scan scores the pairs itself.
-
-    ``y``: the fit's target; the scan reads it as ``_fe_prewarp_y_continuous_`` (a one-dimensional numeric target of the frame's length, in the criterion dtype), which the fit stashes only after the
-    cascades have started, so the same value is formed here from ``y``."""
+    when the work is small. Failures only mean the scan scores the pairs itself."""
     try:
         from ._fe_usability_signal import _corr_stride, _crit_np_dtype
         from ._gpu_policy import gpu_globally_disabled
         from .batch_pair_usability_corr_gpu import _CUDA_AVAIL, ALL_PAIR_FORM_IDS
 
-        y = getattr(estimator, "_fe_prewarp_y_continuous_", None) if y is None else y
-        y = np.asarray(y) if y is not None else None
-        if y is not None and (y.ndim != 1 or y.dtype.kind not in "fiub"):
-            y = None
+        y = getattr(estimator, "_fe_prewarp_y_continuous_", None)
         if y is None or not _CUDA_AVAIL or gpu_globally_disabled() or not hasattr(X, "columns") or len(X) != len(y):
             return
         import pandas as pd
