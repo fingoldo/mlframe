@@ -41,12 +41,22 @@ def _frame(n=2000, k=40, seed=0):
 
 
 @needs_device
-def test_batched_uplifts_keep_the_same_columns_as_the_host_probe():
-    """Every covered candidate's keep/drop verdict matches the host probe's, and the uplifts are close."""
-    srcs, engs, y = _frame()
-    got = B.batched_uplifts_for_pairs(srcs, engs, [f"s{i}" for i in range(len(srcs))], y, seed=0)
+@pytest.mark.parametrize("seed", [0, 31337])
+def test_batched_uplifts_keep_the_same_columns_as_the_host_probe(seed):
+    """Every covered candidate's keep/drop verdict matches the host probe's, and the uplifts are close.
+
+    Two independent seeds per CUDA.md section 10: a kernel that mirrors a Newton/line-search routine can diverge
+    only on the inputs that hit a tolerance boundary, so one fixture passing is not enough evidence.
+    """
+    srcs, engs, y = _frame(seed=seed)
+    got = B.batched_uplifts_for_pairs(srcs, engs, [f"s{i}" for i in range(len(srcs))], y, seed=seed)
     assert got is not None and np.isfinite(got).any(), "the batch must cover the finite candidates"
-    host = np.array([G.measure_feature_uplift(s[:, None], e[:, None], y, classification=True) if G.measure_feature_uplift(s[:, None], e[:, None], y, classification=True) is not None else np.nan for s, e in zip(srcs, engs)])
+    host = np.array(
+        [
+            G.measure_feature_uplift(s[:, None], e[:, None], y, classification=True, seed=seed) if G.measure_feature_uplift(s[:, None], e[:, None], y, classification=True, seed=seed) is not None else np.nan
+            for s, e in zip(srcs, engs)
+        ]
+    )
     covered = np.isfinite(got) & np.isfinite(host)
     assert covered.sum() >= len(srcs) // 2, f"too few covered: {covered.sum()} of {len(srcs)}"
     verdict_batched = got[covered] >= G._FE_UPLIFT_MIN
