@@ -803,18 +803,10 @@ def _batched_cmi_argmax(st, _scan, _have_z, y_bin, z_joint_dev, z_joint, _host_b
         if _cmi_gpu_enabled(n=int(y_bin.shape[0]), p=len(_scan)) and len(_scan) > 1:
             from mlframe.feature_selection.filters._fe_batched_mi import batched_cmi_gpu, cmi_device_argmax
 
-            if cand_bins_dev:
-                # RESIDENT: the candidate codes are already device-resident (binned once up front via
-                # ``_quantile_bin_gpu_resident``) - stack them directly instead of rebuilding + re-uploading
-                # a host (n, K) matrix every round.
-                import cupy as _cp
+            import cupy as _cp
 
-                _Xc = _cp.stack([cand_bins_dev[_nm] for _nm in _scan], axis=1)
-            else:
-                # bench-attempt-rejected (2026-07): np.column_stack(...).astype(int64) vs this per-column loop was noise (-9.8%..+8.8%, no consistent >=5%).
-                _Xc = np.empty((int(y_bin.shape[0]), len(_scan)), dtype=np.int64)
-                for _j, _nm in enumerate(_scan):
-                    _Xc[:, _j] = _host_bins(_nm)
+            from mlframe.feature_selection.filters._device_blocks import first_block, run_column_blocks
+
             # RESIDENT Z: prefer the resident conditioning support - folded fully on-device by
             # ``_renumber_joint_gpu`` at the winner-fold step below - over the host mirror. batched_cmi_gpu
             # accepts a resident z as-is (no H2D), closing the round-constant ``cmi_z`` re-upload this loop
@@ -826,9 +818,30 @@ def _batched_cmi_argmax(st, _scan, _have_z, y_bin, z_joint_dev, z_joint, _host_b
             # D2H); cmi_device_argmax pulls only the winning (idx, val) scalars. first-max == the sequential
             # ``cmi > best_cmi`` tie-break. Falls back to host y_bin if the one-time device upload failed.
             _yarg = st.y_bin_dev if st.y_bin_dev is not None else y_bin
-            # kx=nbins: candidate codes are equi-frequency bins in [0, nbins-1] -> width is known, skip int(max) sync.
-            _mi_d = batched_cmi_gpu(_Xc, _yarg, _zc, codes_trusted=True, return_device=True, kx=int(nbins))
-            _bi, _bv = cmi_device_argmax(_mi_d)
+            _n_rows = int(y_bin.shape[0])
+
+            def _block_argmax(lo: int, hi: int) -> "tuple[int, float]":
+                """``(index, value)`` of the first maximum of the batched CMI over the candidates ``_scan[lo:hi]``."""
+                names = _scan[lo:hi]
+                if cand_bins_dev:
+                    # RESIDENT: the candidate codes are already device-resident (binned once up front via ``_quantile_bin_gpu_resident``) - stack them directly.
+                    _Xc = _cp.stack([cand_bins_dev[_nm] for _nm in names], axis=1)
+                else:
+                    # bench-attempt-rejected (2026-07): np.column_stack(...).astype(int64) vs this per-column loop was noise (-9.8%..+8.8%, no consistent >=5%).
+                    _Xc = np.empty((_n_rows, len(names)), dtype=np.int64)
+                    for _j, _nm in enumerate(names):
+                        _Xc[:, _j] = _host_bins(_nm)
+                # kx=nbins: candidate codes are equi-frequency bins in [0, nbins-1] -> width is known, skip int(max) sync.
+                _mi_d = batched_cmi_gpu(_Xc, _yarg, _zc, codes_trusted=True, return_device=True, kx=int(nbins))
+                _bi_b, _bv_b = cmi_device_argmax(_mi_d)
+                return lo + int(_bi_b), float(_bv_b)
+
+            # The candidates go through in blocks that fit the room under this thread's pool (one block at the sizes where the whole stack fits): the first maximum over the blocks, in order,
+            # is the first maximum over all candidates.
+            _bi, _bv = -1, -float("inf")
+            for _bi_p, _bv_p in run_column_blocks(_cp, len(_scan), first_block(_cp, _n_rows, len(_scan), 8, 6), _block_argmax):
+                if _bi < 0 or _bv_p > _bv:
+                    _bi, _bv = _bi_p, _bv_p
             best_cmi = float(_bv); best_name = _scan[_bi]
             _batched_done = True
     except Exception as e:

@@ -113,7 +113,12 @@ def _build_and_score_in_blocks(cp: Any, M: Any, used_bases: list, used_src: list
     eng_mi = np.concatenate([p[1] for p in pieces]) if pieces else np.empty(0)
     raw_mi_map = {}
     if raw_mat is not None:
-        raw_mi = _plugin_mi_classif_batch_cuda_resident(raw_mat, y_gpu, nbins, y_min=ymin, n_classes=ncls)
+        raw_mi = np.concatenate(
+            run_column_blocks(
+                cp, int(raw_mat.shape[1]), first_block(cp, int(raw_mat.shape[0]), int(raw_mat.shape[1]), int(raw_mat.dtype.itemsize), 12),
+                lambda lo, hi: np.asarray(_plugin_mi_classif_batch_cuda_resident(raw_mat[:, lo:hi], y_gpu, nbins, y_min=ymin, n_classes=ncls)),
+            )
+        )
         raw_mi_map = dict(zip(raw_cols, [float(v) for v in raw_mi]))
     names = [f"{used_src[ci]}__{code.get(b, b)}{d}" for (ci, b, d) in meta_all]
     name_src = [used_src[ci] for (ci, _b, _d) in meta_all]
@@ -197,9 +202,19 @@ def _gpu_route_candidate_bases(cp: Any, cand_x: list, cand_cols: list, basis: st
                 # each time). Route through the content-keyed resident cache so it uploads ONCE per fit and
                 # every later orth call reuses the resident copy. Read-only f64 -> selection-equivalent.
                 _yc_gpu = resident_operand(_yc, "orth_route_y", dtype=crit_float_dtype())
-                _gpu_routed = _gpu_route_bases_batched(
-                    cp, _Mr, _yc_gpu, list(evaluable_bases()), tuple(degrees), robust_axis=ra,
-                )
+                from .._device_blocks import first_block, run_column_blocks
+
+                _bases = list(evaluable_bases())
+                _degs = tuple(degrees)
+                _n_cand = int(_Mr.shape[1])
+
+                def _route_block(lo: int, hi: int) -> list:
+                    """The routed bases of the candidate columns ``lo:hi`` (routing is per column, so blocks join into the one-pass answer)."""
+                    return list(_gpu_route_bases_batched(cp, _Mr[:, lo:hi], _yc_gpu, _bases, _degs, robust_axis=ra))
+
+                _gpu_routed = [
+                    b for piece in run_column_blocks(cp, _n_cand, first_block(cp, int(_Mr.shape[0]), _n_cand, int(_Mr.dtype.itemsize), len(_bases) * max(1, len(_degs)) + 4), _route_block) for b in piece
+                ]
             except Exception as e:
                 log_throttle(logger, "orth_gpu_batched_routing_failed", logging.WARNING, "GPU-resident batched basis routing failed: %s", e)
                 _gpu_routed = None

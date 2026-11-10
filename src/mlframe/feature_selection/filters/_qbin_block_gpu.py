@@ -198,16 +198,29 @@ def group_mi_block_gpu(columns: Sequence[np.ndarray], y_codes: np.ndarray, nbins
         k = len(columns)
         if k == 0 or n < 2 or int(nbins) < 2:
             return None
-        xd = cp.asarray(np.stack([np.ascontiguousarray(c) for c in columns], axis=0), dtype=crit_float_dtype())  # (k, n), one contiguous row per column
-        xs = device_sort(xd, axis=1)
+        from ._device_blocks import first_block, run_column_blocks
+
+        dt = crit_float_dtype()
+        y_dev = cp.asarray(y)
+        n_cls = int(y.max()) + 1
         pos = cp.asarray(np.linspace(0.0, 1.0, int(nbins) + 1)[1:-1]) * (n - 1)
         lo = cp.floor(pos).astype(cp.int64)
         hi = cp.minimum(lo + 1, n - 1)
-        xlo = xs[:, lo]
-        edges = cp.ascontiguousarray((xlo + (xs[:, hi] - xlo) * (pos - lo)[None, :]).T)  # (nbins - 1, k)
-        del xs
-        mi = binned_mi_from_values_gpu(None, edges, cp.asarray(y), int(nbins), int(y.max()) + 1, x_cm=xd)
-        return None if mi is None else np.asarray(mi, dtype=np.float64)  # Intentional float64: MI statistic vector
+
+        def block_mi(c0: int, c1: int) -> "np.ndarray | None":
+            """The MI of the columns ``c0:c1`` (one sort, one fused kernel); columns are independent, so blocks join into the one-pass result."""
+            xd = cp.asarray(np.stack([np.ascontiguousarray(c) for c in columns[c0:c1]], axis=0), dtype=dt)  # (block, n), one contiguous row per column
+            xs = device_sort(xd, axis=1)
+            xlo = xs[:, lo]
+            edges = cp.ascontiguousarray((xlo + (xs[:, hi] - xlo) * (pos - lo)[None, :]).T)  # (nbins - 1, block)
+            del xs
+            mi = binned_mi_from_values_gpu(None, edges, y_dev, int(nbins), n_cls, x_cm=xd)
+            return None if mi is None else np.asarray(mi, dtype=np.float64)  # Intentional float64: MI statistic vector
+
+        pieces = run_column_blocks(cp, k, first_block(cp, n, k, int(np.dtype(dt).itemsize), 5), block_mi)
+        if any(p is None for p in pieces):
+            return None
+        return np.concatenate(pieces)
     except Exception:
         log_throttle(logger, "_qbin_block_gpu.except_210", logging.WARNING, "batched device group MI failed; per-column path", exc_info=True)
         return None
