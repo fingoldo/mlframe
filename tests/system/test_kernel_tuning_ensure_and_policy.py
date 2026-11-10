@@ -164,6 +164,8 @@ def clean_policy(monkeypatch):
     monkeypatch.setattr(_policy, "_DEPTH", 0)
     monkeypatch.setattr(_policy, "_WE_SET_SWITCH", False)
     monkeypatch.setattr(_policy, "_WARNED", False)
+    monkeypatch.setattr(_policy, "_CHECKED_KEYS", frozenset())  # the check skips a registry it has already judged fresh
+    monkeypatch.setattr(_policy, "_CHECK_THREAD", None)
 
 
 @pytest.mark.usefixtures("clean_policy")
@@ -218,6 +220,7 @@ def test_a_cold_cache_is_announced_once_with_the_command_to_run(monkeypatch, cap
         for _ in range(3):
             with _policy.kernel_tuning_fit_policy():
                 pass
+            _policy.wait_for_cold_check()  # the check runs off the fit's critical path; wait for its line before counting
     msgs = [r.getMessage() for r in caplog.records if "kernel tuning cache is cold" in r.getMessage()]
     assert len(msgs) == 1, msgs
     assert "4 kernel(s)" in msgs[0] and "mlframe-tune-kernels ensure" in msgs[0] and "k1" in msgs[0]
@@ -340,3 +343,41 @@ def test_run_sweep_maps_the_child_process_outcome(monkeypatch):
     monkeypatch.setattr(_ensure.subprocess, "run", hung)
     outcome, detail = _ensure._run_sweep(_spec("k"), 900.0)
     assert outcome == "timeout" and "15 min" in detail
+
+
+@pytest.mark.usefixtures("clean_policy")
+def test_the_cold_check_is_off_the_fit_s_critical_path_and_runs_once_per_registry(monkeypatch):
+    """Entering the policy returns before the (slow) check finishes, and a later fit over the same registry does not re-check."""
+    import threading
+    import time
+
+    started = threading.Event()
+    calls = []
+
+    def slow_probe():
+        """A probe as slow as the real one's first disk read."""
+        started.set()
+        calls.append(1)
+        time.sleep(0.4)
+        return []
+
+    monkeypatch.setattr(_policy, "cold_kernel_names", slow_probe)
+    monkeypatch.setattr(_policy, "get_registry_keys", lambda: ["k1", "k2"])
+    t0 = time.perf_counter()
+    with _policy.kernel_tuning_fit_policy():
+        entered_after = time.perf_counter() - t0
+    assert started.wait(5), "the check must start"
+    assert entered_after < 0.3, f"entering the policy waited for the check ({entered_after:.2f} s)"
+    _policy.wait_for_cold_check()
+    assert calls == [1]
+
+    with _policy.kernel_tuning_fit_policy():  # same registry, already judged fresh
+        pass
+    _policy.wait_for_cold_check()
+    assert calls == [1], "a second fit over the same registry must not re-read the cache"
+
+    monkeypatch.setattr(_policy, "get_registry_keys", lambda: ["k1", "k2", "k3"])  # a new tuner registered
+    with _policy.kernel_tuning_fit_policy():
+        pass
+    _policy.wait_for_cold_check()
+    assert calls == [1, 1], "a registry with a new spec is checked again"

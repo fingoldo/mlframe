@@ -18,7 +18,7 @@ import os
 import threading
 from typing import Iterator
 
-__all__ = ["autotune_mode", "cold_kernel_names", "kernel_tuning_fit_policy"]
+__all__ = ["autotune_mode", "cold_kernel_names", "kernel_tuning_fit_policy", "wait_for_cold_check"]
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,8 @@ _LOCK = threading.Lock()
 _DEPTH = 0  # fits currently inside the policy (fits may run in several threads)
 _WE_SET_SWITCH = False  # whether the sweep switch was set by this policy and must be removed when the last fit leaves
 _WARNED = False  # the cold-cache notice has been given in this process
+_CHECKED_KEYS: frozenset = frozenset()  # the registry keys the check has already covered (every one of them fresh)
+_CHECK_THREAD: "threading.Thread | None" = None  # the running cold-cache check, for :func:`wait_for_cold_check`
 
 
 def autotune_mode() -> str:
@@ -53,16 +55,43 @@ def cold_kernel_names() -> list:
 
 
 def _warn_if_cold() -> None:
-    """One log line per process when kernels are untuned here."""
-    global _WARNED
-    if _WARNED:
+    """One log line per process when kernels are untuned here.
+
+    The check reads the per-host cache from disk (1.3 s on the first call of a process, the cache's own load) and nothing in the fit depends on its answer, so it runs on a daemon thread and the
+    fit's prelude goes on meanwhile; the thread also leaves the cache loaded for the first kernel dispatch that needs it."""
+    global _CHECK_THREAD
+    if _WARNED or frozenset(get_registry_keys()) <= _CHECKED_KEYS:
         return
+    _CHECK_THREAD = threading.Thread(target=_cold_check, name="kernel-tuning-cold-check", daemon=True)
+    _CHECK_THREAD.start()
+
+
+def wait_for_cold_check(timeout: float = 30.0) -> None:
+    """Wait for the cold-cache check started by the last fit entry (a no-op when none is running); for callers and tests that want its log line before they go on."""
+    thread = _CHECK_THREAD
+    if thread is not None:
+        thread.join(timeout)
+
+
+def get_registry_keys() -> "list[str]":
+    """The names of the tuner specs registered so far (cheap: no module walk)."""
+    from pyutilz.performance.kernel_tuning.registry import get_registry
+
+    return list(get_registry())
+
+
+def _cold_check() -> None:
+    """Body of :func:`_warn_if_cold`: find the untuned kernels and log the notice once; a failure only means no advice is printed."""
+    global _WARNED, _CHECKED_KEYS
+    keys = frozenset(get_registry_keys())
     try:
         cold = cold_kernel_names()
     except Exception as exc:  # the notice is advice; it must never break a fit
         # best-effort: the cold-cache notice is advisory; a failed check only means no advice is printed.
         logger.debug("kernel tuning cold-cache check failed: %s", exc)
         return
+    # every spec of this registry has been judged: a later fit re-checks only once new tuner modules have registered (the check costs a disk read of the whole per-host cache)
+    _CHECKED_KEYS = keys
     if cold:
         _WARNED = True
         logger.warning(
