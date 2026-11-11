@@ -26,7 +26,6 @@ held-out LGBM+logit AUC + ground-truth recovery; planted XOR/sign-product pairs 
 """
 from __future__ import annotations
 
-import gc
 from typing import Optional
 
 import numpy as np
@@ -85,7 +84,6 @@ def get_fleuret_criteria_confidence_parallel(
     _use_jmim = use_jmim_aggregator()
     _jmim_discount_only = jmim_exponent_discount_only()
 
-    gc.collect()
     # Seeding is per PERMUTATION (outer base_seed plus the permutation's global number): the workers share the base seed and each starts at its offset, so the
     # draws are the same for any worker count.
     _worker_loads = list(distribute_permutations(npermutations=npermutations, n_workers=n_workers))
