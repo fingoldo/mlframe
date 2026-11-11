@@ -25,16 +25,22 @@ def test_cache_legacy_kind_decode_handles_bytes(tmp_path) -> None:
     """A legacy npz whose ``kind`` is a bytes-typed object array is read back as the stored ndarray, and an unknown bytes kind is named without the ``b'..'`` repr."""
     from mlframe.training.feature_handling.cache import _deserialize
 
+    from mlframe.utils.safe_pickle import write_sidecar
+
     value = np.arange(12, dtype=np.float32).reshape(3, 4)
+    # allow_pickle=True reads are refused without a sha256 sidecar (the cache writes one the same way); the sidecar is
+    # written after each npz so the test exercises the kind decode, not the verification gate.
     for label, kind in (("bytes", b"ndarray"), ("str", "ndarray")):
         path = tmp_path / f"legacy_{label}.npz"
         np.savez(path, kind=np.array([kind], dtype=object), value=value)
+        write_sidecar(str(path))
         loaded = _deserialize(str(path), allow_pickle=True)
         np.testing.assert_array_equal(loaded, value)
         assert loaded.dtype == np.float32
 
     unknown = tmp_path / "legacy_unknown.npz"
     np.savez(unknown, kind=np.array([b"mystery"], dtype=object), value=value)
+    write_sidecar(str(unknown))
     with pytest.raises(ValueError, match=r"unknown serialised kind 'mystery'"):
         _deserialize(str(unknown), allow_pickle=True)
 
