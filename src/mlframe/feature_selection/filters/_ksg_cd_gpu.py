@@ -107,22 +107,23 @@ def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbo
         per_col = n_kept * (8 + 8 + 8 + 4)  # values, sort order, sorted values, sorted labels
         block = int(max(1, min(n_cols, (_BUDGET_FRACTION * free) // per_col)))
         X_kept = X if n_kept == n else X[keep]
-        out = np.empty(n_cols)
+        partial_buf = cp.empty((block, _BLOCKS_PER_COLUMN), dtype=cp.float64)  # one reusable kernel-output buffer for every chunk, not one per chunk
+        sum_m_dev = cp.empty(n_cols, dtype=cp.float64)  # one resident accumulator; one D2H after the loop instead of one per chunk
         for c0 in range(0, n_cols, block):
-            xd = cp.ascontiguousarray(cp.asarray(np.ascontiguousarray(X_kept[:, c0 : c0 + block])).T)  # uploaded as laid out on the host, transposed to (columns, rows) on the device
+            xd = cp.asarray(np.ascontiguousarray(X_kept[:, c0 : c0 + block].T))  # transposed to (columns, rows) on the HOST (a view + one copy), one device upload
             order = device_argsort(xd, axis=1)
-            xs = cp.ascontiguousarray(cp.take_along_axis(xd, order, axis=1))
+            xs = cp.take_along_axis(xd, order, axis=1)  # already C-contiguous (checked directly); the extra ascontiguousarray was a redundant copy
             ds = d_dev[order]
             del xd
             width = xs.shape[0]
-            partial = cp.empty((width, _BLOCKS_PER_COLUMN), dtype=cp.float64)
+            partial = partial_buf[:width]
             kernel(  # launch-ok: _THREADS=256 is the compile-time size of the kernel's `__shared__ double red[256]` reduction buffer, not a tuned size
                 (_BLOCKS_PER_COLUMN, width), (_THREADS,), (xs, ds, np.int64(n_kept), counts_dev, np.int32(n_neighbors), psi_dev, partial)
             )
-            sum_m = cp.asnumpy(partial.sum(axis=1))
-            out[c0 : c0 + width] = np.maximum(psi[n_kept] + (sum_k - sum_cnt - sum_m) / n_kept, 0.0)
+            sum_m_dev[c0 : c0 + width] = partial.sum(axis=1)
             del xs, ds, order, partial
-        return out
+        sum_m = cp.asnumpy(sum_m_dev)
+        return np.maximum(psi[n_kept] + (sum_k - sum_cnt - sum_m) / n_kept, 0.0)
     except Exception as exc:
         log_throttle(logger, "ksg_cd_gpu.failed", logging.WARNING, "device KSG MI failed (%s: %s); the host kernel scores the columns", type(exc).__name__, exc)
         return None
