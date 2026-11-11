@@ -70,6 +70,66 @@ def test_batched_uplifts_keep_the_same_columns_as_the_host_probe(seed):
 
 
 @needs_device
+def test_batched_uplifts_match_the_host_probe_in_strict_float64(monkeypatch):
+    """CUDA.md section 10 item 6: GPU equals CPU for both REAL types. ``MLFRAME_CRIT_DTYPE_RELAXED=0`` forces the
+    strict float64 branch (the default relaxed branch is float32, covered by the other tests in this file since
+    every column here already casts through ``_crit_np_dtype()``)."""
+    monkeypatch.setenv("MLFRAME_CRIT_DTYPE_RELAXED", "0")
+    srcs, engs, y = _frame()
+    got = B.batched_uplifts_for_pairs(srcs, engs, [f"s{i}" for i in range(len(srcs))], y, seed=0)
+    assert got is not None and np.isfinite(got).any(), "the batch must cover the finite candidates in the strict float64 branch too"
+    host = np.array(
+        [
+            G.measure_feature_uplift(s[:, None], e[:, None], y, classification=True, seed=0) if G.measure_feature_uplift(s[:, None], e[:, None], y, classification=True, seed=0) is not None else np.nan
+            for s, e in zip(srcs, engs)
+        ]
+    )
+    covered = np.isfinite(got) & np.isfinite(host)
+    assert covered.sum() >= len(srcs) // 2, f"too few covered: {covered.sum()} of {len(srcs)}"
+    verdict_batched = got[covered] >= G._FE_UPLIFT_MIN
+    verdict_host = host[covered] >= G._FE_UPLIFT_MIN
+    same = verdict_batched == verdict_host
+    assert same.all(), f"strict-float64 verdicts differ at {np.flatnonzero(covered)[~same]}: batched {got[covered][~same]} host {host[covered][~same]}"
+
+
+@needs_device
+def test_streamed_blocks_match_the_unblocked_call(monkeypatch):
+    """CUDA.md section 10 item 6: streamed equals unblocked. Forcing a 1-design block (worst-case streaming) must
+    give the SAME uplift as the natural (large) block derived from free VRAM, at a block boundary that falls
+    inside a base column shared by two candidates (``base_of`` repeats an index)."""
+    srcs, engs, y = _frame(n=1500, k=6)
+    base_of = [0, 0, 1, 1, 2, 2]  # two candidates share each base, so a 1-design block still crosses a shared base
+    unblocked = B.batched_uplift(srcs[:3], engs, y, folds=list(_kfold_pairs(y, n_splits=5, seed=0)), base_of=base_of)
+    monkeypatch.setattr(B, "_device_block_designs", lambda cp, n_rows, k, itemsize: 1)
+    streamed = B.batched_uplift(srcs[:3], engs, y, folds=list(_kfold_pairs(y, n_splits=5, seed=0)), base_of=base_of)
+    assert unblocked is not None and streamed is not None
+    assert np.array_equal(unblocked, streamed, equal_nan=True), f"streamed block output differs from the unblocked call: {streamed} vs {unblocked}"
+
+
+def _kfold_pairs(y, *, n_splits, seed):
+    """Yield (train, val) index arrays of a stratified-free KFold over ``y`` - the shape ``batched_uplift``'s ``folds`` kwarg expects."""
+    from sklearn.model_selection import KFold
+
+    idx = np.arange(len(y))
+    yield from KFold(n_splits=n_splits, shuffle=True, random_state=seed).split(idx)
+
+
+@needs_device
+def test_an_oversized_block_falls_back_to_the_host_probe(monkeypatch):
+    """CUDA.md section 5: a device fault (here, a forced oversized block that cannot fit in VRAM) returns None rather
+    than raising, so the caller keeps the per-candidate host probe."""
+    srcs, engs, y = _frame(n=1500, k=6)
+
+    def _blow_up(cp, designs_host, y_host, fold_of, eval_folds, lam):
+        """Stand-in for _fold_auc_device that always raises, simulating a device fault mid-launch."""
+        raise RuntimeError("out of memory allocating the design block (simulated)")
+
+    monkeypatch.setattr(B, "_fold_auc_device", _blow_up)
+    out = B.batched_uplift(srcs[:3], engs, y, folds=list(_kfold_pairs(y, n_splits=5, seed=0)), base_of=[0, 0, 1, 1, 2, 2])
+    assert out is None, "a device fault during the design block's launch must fail open (None), not raise, so the host probe takes over"
+
+
+@needs_device
 def test_pairs_the_batch_does_not_cover_come_back_nan():
     """A pair with a non-finite value keeps its own rows in the host probe, so the batch must not decide it."""
     srcs, engs, y = _frame(n=1500, k=8)
