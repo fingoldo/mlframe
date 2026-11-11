@@ -20,8 +20,6 @@ import sys
 import time
 import gc
 
-sys.modules.setdefault("cupy", None)
-
 import numpy as np
 import pandas as pd
 
@@ -84,4 +82,9 @@ def main(n: int = 10_000_000):
 
 
 if __name__ == "__main__":
+    # Scoped to a standalone run, not module import time: process-wide poisoning (every later "import cupy" in
+    # THIS process fails) must not leak into another process that happens to import this file (pyutilz's
+    # kernel-tuning registry walks every _benchmarks module looking for @kernel_tuner-decorated functions - found
+    # live, GPU11-22, when this exact pattern broke a kernel-tuning-cache refresh that needed real cupy).
+    sys.modules.setdefault("cupy", None)
     main()

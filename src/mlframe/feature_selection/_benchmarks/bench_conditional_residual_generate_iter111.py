@@ -14,14 +14,10 @@ Measured (separate-process, 4 cols incl. one discrete + one NaN-mixed, n=10M):
 In-process paired A/B: NEW faster 5/5, median 1.232x.
 """
 
-import sys
 import time
 
 import numpy as np
 import pandas as pd
-
-if "cupy" not in sys.modules:
-    sys.modules["cupy"] = None
 import scipy.stats  # noqa: F401  (py3.14 import-order segfault guard)
 import numba  # noqa: F401
 
@@ -51,4 +47,14 @@ def main(n: int = 10_000_000) -> None:
 
 
 if __name__ == "__main__":
+    import sys
+
+    # Blocking cupy here, not at module import time: this process-wide poisoning (sys.modules["cupy"] = None
+    # permanently fails every later "import cupy" in this SAME process) must stay scoped to a standalone run of
+    # this script. At module level it would also poison cupy for any OTHER process that happens to import this
+    # file as a side effect (pyutilz's kernel-tuning registry walks every _benchmarks module to find
+    # @kernel_tuner-decorated functions) - found live (GPU11-22) when it broke a kernel-tuning-cache refresh
+    # that needed real cupy for unrelated kernels.
+    if "cupy" not in sys.modules:
+        sys.modules["cupy"] = None
     main()
