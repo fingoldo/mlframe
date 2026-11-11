@@ -26,7 +26,6 @@ from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 # Share of the free host RAM one prescan block may hold (its operand rows and the usability kernel's working copies).
 _PRESCAN_FREE_FRACTION = 0.25
 # Pair forms the usability scan evaluates per pair (the five pair forms of ALL_PAIR_FORM_IDS).
-_N_PAIR_FORMS = 5
 
 
 def _prescan_budget_bytes(n_rows: int, dtype: Any) -> tuple[int, int]:
@@ -58,12 +57,6 @@ def _host_free_bytes_safe() -> int:
         return int(_host_free_bytes())
     except Exception:
         return 0
-
-
-def _prescan_block_pairs(n_rows: int, dtype: Any) -> int:
-    """Pairs per usability-scan block: two operand rows per pair, sized from :func:`_prescan_budget_bytes` (at least one pair)."""
-    budget, per_row = _prescan_budget_bytes(n_rows, dtype)
-    return max(1, budget // (2 * per_row + 8 * _N_PAIR_FORMS))
 
 
 def _pair_gate_resident_enabled(*, n: int | None = None, p: int | None = None) -> bool:

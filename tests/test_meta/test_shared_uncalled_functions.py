@@ -638,6 +638,9 @@ _REEXPORTED_PUBLIC_API = {
 #: clear the entry; the reason is recorded here instead.
 #: Cache-reset helpers that tests call to isolate a memoised availability probe (documented in each docstring).
 _TEST_UTILITIES = {
+    "_reset_gpu_oom_cooldown",  # clears the shared GPU OOM cooldown circuit breaker between tests; 13 test modules call it (fe_gpu_vram.py)
+    "clear_edge_memo",  # the public reset of the supervised-edge memo (in __all__); test_edge_memo_warmup isolates cases through it
+    "wait_for_cold_check",  # the public join of the background cold-kernel-cache check (in __all__); test_kernel_tuning_ensure_and_policy waits on it
     "reset_catboost_available_cache",
     "reset_cublas_probe",  # tests re-probe a monkeypatched backend through it (its docstring says so)
     "invalidate_stale_numba_caches",  # the numba cache guard, called by the session fixture in tests/conftest.py (commit 664925a85)
@@ -684,7 +687,6 @@ _KEPT_SUPERSEDED_REFERENCES = {
     "fits_shared",  # the shared-memory guard of version 3 (launch_k3); same status
     "get_kernel_k4f",  # version 4f of the root-split kernel, rejected (gain error 2.4e-6 against gains of 1e-4); test_honest_null_k4 keeps the equivalence
     "fe_column_blocks",  # the frame twin of ColumnArena.blocks (documented reading seam for frames larger than memory); test_fe_column_blocks pins it
-    "_fused_block",  # the exact fused pool scan; the minority variant (_fused_block_minority) is dispatched, test_honest_oj_minority compares them
     "masked_abs_spearman_many",  # version 1 of the batched masked Spearman; version 2 (presorted rows) is dispatched, test_eng_dedup_presorted_spearman compares them
     "_bspline_basis_values_numpy",  # the numpy twin kept as the test oracle of the compiled B-spline basis (test_bspline_basis_kernel)
 }
@@ -693,11 +695,12 @@ _KEPT_SUPERSEDED_REFERENCES = {
 #: lose the reference the test checks the production twin against; restoring a caller would route production to a variant that
 #: was measured as slower, coarser or unsafe.
 _KEPT_TEST_REFERENCES = {
+    "_rff_analytic_mixed_partial_energy",  # the closed-form mixed-partial energy of the RFF seeder, the oracle test_gradient_energy_gram checks the sampled estimate against
+    "_member_pct_ranks_numpy",  # the numpy oracle of the nogil numba member-rank kernel; test_member_pct_ranks_kernel compares them
     "_bspline_basis_values_numpy",  # the numpy oracle of the compiled B-spline twin; test_bspline_basis_kernel compares them
     "fit_logistic_ridge_newton_numpy",  # the numpy Newton reference of the gate fit; test_gate_newton_kernel compares them
     "masked_abs_spearman_many",  # the first batched Spearman; v2 (presorted rows) is the production path, test_eng_dedup_presorted_spearman compares them
     "_binagg_null_calibrated_floor",  # the sequential per-permutation null; the batched twin is production, its parity is test_resident_mi_candidate_cache
-    "_fused_block",  # the majority-class fused kernel; the minority variant is checked against it in test_honest_oj_minority
     "fits_shared",  # the shared-memory fit predicate of the k3 kernel; test_honest_null_k3 exercises the kernel it gates
     "launch_k3",  # the k3 honest-null launcher, a measured variant kept under test; test_honest_null_k3 checks its output
     "get_kernel_k4f",  # the float-gain k4 kernel, rejected as too coarse for the significance test (see _honest_null_k4); test_honest_null_k4 pins that
