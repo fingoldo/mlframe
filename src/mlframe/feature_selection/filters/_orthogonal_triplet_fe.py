@@ -60,7 +60,7 @@ import pandas as pd
 from mlframe.utils.log_throttle import log_throttle
 from .hermite_fe import basis_route_by_moments
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
-from ._orthogonal_shared import coerce_y_classif
+from ._orthogonal_shared import coerce_y_classif, leg_eng_col_name, mean_fill_nonfinite
 from ._cmi_strata_njit import permutation_seed, permutation_sources_chunk, strata_layout, stratified_cmi, stratified_cmi_null
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
@@ -98,16 +98,7 @@ def _triplet_eng_col_name(
     different bases for the other legs; downstream parsing recovers
     the per-leg basis via the recipe's ``extra`` dict, not via the name.
     """
-    code = _BASIS_CODE.get(basis, basis)
-    return f"{col_i}*{col_j}*{col_k}__{code}{deg_a}_{code}{deg_b}_{code}{deg_c}"
-
-
-def _mean_fill_nonfinite(x: np.ndarray) -> None:
-    """Replace the non-finite entries of ``x`` by the mean of its finite ones (0 when there are none), in place."""
-    finite_mask = np.isfinite(x)
-    if not finite_mask.all():
-        fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
-        np.copyto(x, np.where(finite_mask, x, fill))
+    return leg_eng_col_name((col_i, col_j, col_k), _BASIS_CODE.get(basis, basis), (deg_a, deg_b, deg_c))
 
 
 def _triplet_leg(leg_cache: dict, X: pd.DataFrame, col: str, basis: str) -> tuple:
@@ -118,7 +109,7 @@ def _triplet_leg(leg_cache: dict, X: pd.DataFrame, col: str, basis: str) -> tupl
         from ._fe_usability_signal import _crit_np_dtype
 
         x = np.array(X[col].to_numpy(), dtype=_crit_np_dtype())
-        _mean_fill_nonfinite(x)
+        mean_fill_nonfinite(x)
         hit = leg_cache[col] = (x, basis_route_by_moments(x) if basis == "auto" else basis)
     return hit
 

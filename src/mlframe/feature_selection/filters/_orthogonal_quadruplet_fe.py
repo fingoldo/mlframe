@@ -55,7 +55,7 @@ import pandas as pd
 from mlframe.utils.log_throttle import log_throttle
 from .hermite_fe import basis_route_by_moments
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
-from ._orthogonal_shared import coerce_y_classif, parse_code_deg_with_basis, noise_aware_floor as _noise_aware_floor
+from ._orthogonal_shared import coerce_y_classif, leg_eng_col_name, mean_fill_nonfinite, parse_code_deg_with_basis, noise_aware_floor as _noise_aware_floor
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch, mi_classif_batch_chunked,
@@ -83,16 +83,7 @@ def _quadruplet_eng_col_name(
     a fourth leg. Per-leg basis round-trips via the recipe's ``extra``
     dict, not the name (the name uses leg-1's basis code for stability).
     """
-    code = _BASIS_CODE.get(basis, basis)
-    return f"{col_i}*{col_j}*{col_k}*{col_l}__" f"{code}{deg_a}_{code}{deg_b}_{code}{deg_c}_{code}{deg_d}"
-
-def _fill_nonfinite_in_place(x):
-    """Replace non-finite entries of ``x`` in place with the mean of its finite entries (0.0 when none are finite)."""
-    finite_mask = np.isfinite(x)
-    if not finite_mask.all():
-        fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
-        np.copyto(x, np.where(finite_mask, x, fill))
-
+    return leg_eng_col_name((col_i, col_j, col_k, col_l), _BASIS_CODE.get(basis, basis), (deg_a, deg_b, deg_c, deg_d))
 
 def _emit_quadruplet_products(out_cols, cache, x_i, x_j, x_k, x_l, basis_i, basis_j, basis_k, basis_l, col_i, col_j, col_k, col_l, min_d, max_d):
     """Write every ``basis_a(x_i) * basis_b(x_j) * basis_c(x_k) * basis_d(x_l)`` product in the degree grid into ``out_cols``."""
@@ -143,7 +134,7 @@ def _leg_column(leg_cache, X, col, dtype, basis):
     hit = leg_cache.get(col)
     if hit is None:
         x = np.array(X[col].to_numpy(), dtype=dtype)
-        _fill_nonfinite_in_place(x)
+        mean_fill_nonfinite(x)
         hit = leg_cache[col] = (x, basis_route_by_moments(x) if basis == "auto" else basis)
     return hit
 
