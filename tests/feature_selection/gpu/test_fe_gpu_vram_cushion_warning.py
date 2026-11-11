@@ -27,8 +27,10 @@ def _fresh_throttle():
     the synthetic scenarios deterministic regardless of run order / prior GPU activity in this process."""
     reset_throttle_counts()
     v._release_own_pool()
+    v._reset_gpu_oom_cooldown()
     yield
     reset_throttle_counts()
+    v._reset_gpu_oom_cooldown()
 
 
 def _declined(caplog) -> list:
