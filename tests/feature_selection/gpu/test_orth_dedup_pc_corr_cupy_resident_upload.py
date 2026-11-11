@@ -187,3 +187,22 @@ def test_resolve_pc_backend_prefers_cupy_under_strict(monkeypatch):
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     monkeypatch.setenv("MLFRAME_FE_DEDUP_CORR_BACKEND", "numpy")
     assert od._resolve_pc_backend(500, 300, 50_000) == "numpy"
+
+
+def test_pc_corr_cupy_falls_back_below_the_tile_floor(monkeypatch):
+    """GPU11-19: a tight device pool (little free VRAM, or several FE families contending for the same card
+    at a large column count) shrinks ``_pc_corr_cupy``'s room-bound tile below a floor where the tiling loop
+    would launch thousands of tiny cupy calls instead of a handful - far slower than the numpy(BLAS) fallback
+    on the same data. Below that floor the function must raise (the dispatcher's existing cupy-failure path
+    then falls back to numpy) rather than thrash through the tiles."""
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_dedup as od
+    from mlframe.feature_selection.filters import _device_sort_safe
+
+    Q, R = _blocks(q=200, r=200, n=4000, dtype=np.float32)
+    monkeypatch.setattr(_device_sort_safe, "device_room", lambda _cp: 64 * 1024 * 1024)  # tiny room -> a sub-floor tile
+    with pytest.raises(RuntimeError, match="tile shrank"):
+        od._pc_corr_cupy(Q, R)
+    monkeypatch.setenv("MLFRAME_FE_DEDUP_CORR_BACKEND", "cupy")  # force the dispatcher through the same path
+    gpu = od._pairwise_complete_abs_corr(Q.copy(), R.copy())  # the dispatcher catches the raise and falls back to numpy
+    cpu = _pc_corr_numpy(Q.copy(), R.copy())
+    np.testing.assert_allclose(np.nan_to_num(gpu, nan=-1.0), np.nan_to_num(cpu, nan=-1.0), atol=1e-5, rtol=1e-5)

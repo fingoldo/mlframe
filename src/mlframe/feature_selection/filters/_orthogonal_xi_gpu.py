@@ -22,6 +22,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._device_sort_safe import device_argsort, device_room
 from ._ktc_fallback import device_from_rows
 from ._raw_module_cache import RawModuleCache
@@ -128,19 +130,22 @@ def xi_columns_device(cols: Any, seeds: np.ndarray, r_row: np.ndarray, l_row: np
         per_col = n * (4 + 8 + 8 + 8 + 8 + 16)  # values, keys, order, sort temporaries
         block = int(max(1, min(kk, (_BUDGET_FRACTION * free) // per_col)))
         out = np.empty(kk, dtype=np.float64)  # Intentional float64: accumulator output
-        grid_x = (n + _THREADS - 1) // _THREADS
-        walk_blocks = min(grid_x, 64)
+        # xi_sort_keys has no shared memory (its block size is a free occupancy choice); xi_walk's block is fixed at 256 - its `red_s[256]`/`red_d[256]` reduction buffers are that size at
+        # compile time, so a wider block would read past them - the walk kernel keeps _THREADS and carries its own launch-ok marker below.
+        keys_threads = block_size_for(keys_k, work_items=n, pow2=True)
+        grid_x = (n + keys_threads - 1) // keys_threads
+        walk_blocks = min((n + _THREADS - 1) // _THREADS, 64)
         for c0 in range(0, kk, block):
             w = min(block, kk - c0)
             col_d = cols[c0 : c0 + w] if resident else cp.asarray(np.ascontiguousarray(cols[c0 : c0 + w]))
             keys = cp.empty((w, n), dtype=cp.uint64)
-            keys_k((grid_x, w), (_THREADS,), (col_d, seeds_d[c0 : c0 + w], keys, np.int64(n)))
+            keys_k((grid_x, w), (keys_threads,), (col_d, seeds_d[c0 : c0 + w], keys, np.int64(n)))
             if not resident:
                 del col_d
             order = device_argsort(keys, axis=1)
             del keys
             sums = cp.zeros(2 * w, dtype=cp.float64)
-            walk_k((walk_blocks, w), (_THREADS,), (order, codes_d, r_tab_d, l_tab_d, sums, np.int64(n)))
+            walk_k((walk_blocks, w), (_THREADS,), (order, codes_d, r_tab_d, l_tab_d, sums, np.int64(n)))  # launch-ok: _THREADS=256 is the compile-time size of xi_walk's red_s/red_d[256] reduction buffers
             s = cp.asnumpy(sums).reshape(w, 2)
             den = 2.0 * s[:, 1]
             with np.errstate(divide="ignore", invalid="ignore"):

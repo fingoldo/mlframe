@@ -32,6 +32,7 @@ from typing import Any
 from mlframe.utils.log_throttle import log_throttle
 import os
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,43 @@ _TINY_CARD_CUSHION_FRACTION = 0.5
 # Set once ``ensure_fe_gpu_pool_limit`` has (attempted to) install the pool cap. Idempotent guard.
 _POOL_LIMIT_DONE = False
 _POOL_LIMIT_LOCK = threading.Lock()
+
+# GPU11-13's shared "device pool is tight" circuit breaker. A resident-GPU call can hit the SAME
+# out-of-memory wall dozens of times in a row with byte-identical numbers (measured: a single failed
+# cupy allocation attempt costs 18.7-35.0 ms - the pool's own free-block search/defragmentation runs
+# before raising, so even a REFUSED attempt is not free). Any caller that just saw a device OOM (or a
+# cushion refusal) calls ``note_gpu_oom()``; for a short cooldown afterward, ``fe_gpu_has_vram_cushion``
+# short-circuits to ``False`` WITHOUT even probing ``memGetInfo`` - the pool cannot usefully free up
+# faster than that window, so skipping straight to the host fallback for every candidate in the cooldown
+# is strictly cheaper than re-probing (and re-attempting) each one. Monotonic, not wall-clock, so a clock
+# step cannot extend or shorten the window. A miss (no active cooldown) costs one lock-free float read.
+_OOM_COOLDOWN_S = 2.0
+_last_oom_at: float = float("-inf")
+_oom_lock = threading.Lock()
+
+
+def note_gpu_oom() -> None:
+    """Record that a GPU allocation just failed (an ``OutOfMemoryError`` or a cushion refusal): for the
+    next ``MLFRAME_FE_GPU_OOM_COOLDOWN_S`` seconds (default 2.0), ``fe_gpu_has_vram_cushion`` declines
+    immediately without probing the device, so other call sites stop paying for a doomed allocation
+    attempt the moment any ONE of them has already discovered the pool is tight."""
+    global _last_oom_at
+    with _oom_lock:
+        _last_oom_at = time.monotonic()
+
+
+def _in_oom_cooldown() -> bool:
+    """Whether a GPU OOM/refusal was noted within the active cooldown window."""
+    try:
+        cooldown = float(os.environ.get("MLFRAME_FE_GPU_OOM_COOLDOWN_S", _OOM_COOLDOWN_S))
+    except (ValueError, TypeError) as _exc:
+        logger.warning("_in_oom_cooldown fell back to its default cooldown after %s", type(_exc).__name__)
+        cooldown = _OOM_COOLDOWN_S
+    if cooldown <= 0.0:
+        return False
+    with _oom_lock:
+        last = _last_oom_at
+    return (time.monotonic() - last) < cooldown
 
 
 def _min_free_mb() -> int:
@@ -81,6 +119,7 @@ def _warn_cushion_refused(free_b: int, bytes_needed: int, total_b: int) -> None:
 
     The refusal used to be silent, so a fit that ran its FE on the CPU because another process held the card looked the same as one that ran on the GPU, and the two
     can select differently."""
+    note_gpu_oom()  # GPU11-13: a real refusal informs the shared cooldown for every OTHER internal-probe caller in this process.
     mib = 1024 * 1024
     log_throttle(
         logger,
@@ -148,6 +187,19 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
     Also lazily installs the own-pool cap on first call (see ``ensure_fe_gpu_pool_limit``)."""
     caller_supplied_probe = free_b is not None and total_b is not None
     if not caller_supplied_probe:
+        # GPU11-13 circuit breaker: skip the probe ENTIRELY while another call site's recent OOM/refusal
+        # is still within its cooldown - the pool cannot usefully recover faster than that window, so a
+        # fresh memGetInfo here would almost certainly repeat the same decline at the same (non-trivial)
+        # per-attempt cost. Caller-supplied-probe calls are deliberately NOT short-circuited here: that
+        # path's return value must stay a pure function of its own free_b/total_b arguments (see the
+        # docstring's no-reprobe contract, and the GPU11-4 fix this depends on).
+        if _in_oom_cooldown():
+            log_throttle(
+                logger, "fe_gpu_vram_cooldown_decline", logging.DEBUG,
+                "fe_gpu_has_vram_cushion: declining without probing - another call site noted a GPU "
+                "OOM/refusal within the last %.1fs cooldown.", _OOM_COOLDOWN_S,
+            )
+            return False
         try:
             import cupy as cp
         except ImportError as _exc:  # - no cupy: non-GPU host, stay permissive (caller's other gates decide)
@@ -173,6 +225,7 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
                 type(exc).__name__,
                 exc,
             )
+            note_gpu_oom()
             return False
     else:
         # Caller already probed; still ensure the pool cap is installed (idempotent, no extra memGetInfo).
@@ -215,6 +268,7 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
         free_b2, total_b2 = cp.cuda.runtime.memGetInfo()
     except Exception as exc:
         logger.warning("fe_gpu_has_vram_cushion: pool free_all_blocks/re-probe failed (%s); declining", exc)
+        note_gpu_oom()
         return False
     ok = bool((int(free_b2) - int(bytes_needed)) >= _cushion_bytes(int(total_b2)))
     if not ok:
@@ -290,6 +344,13 @@ def _reset_fe_gpu_pool_limit_flag() -> None:
     """Test hook: re-arm the once-per-process pool-cap guard so a fresh ``ensure_...`` call runs again."""
     global _POOL_LIMIT_DONE
     _POOL_LIMIT_DONE = False
+
+
+def _reset_gpu_oom_cooldown() -> None:
+    """Test hook: clear the GPU11-13 OOM cooldown so one test's decline cannot bleed into another's."""
+    global _last_oom_at
+    with _oom_lock:
+        _last_oom_at = float("-inf")
 
 
 __all__ = [

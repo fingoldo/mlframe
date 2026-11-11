@@ -175,6 +175,15 @@ def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.nda
         return mi, done
     except Exception as exc:  # out of device memory or a driver fault: the host walk scores every column
         logger.warning("device bootstrap rank walk failed (%s: %s); using the host walk", type(exc).__name__, exc)
+        try:
+            import cupy as _cp
+
+            if isinstance(exc, _cp.cuda.memory.OutOfMemoryError):
+                from ._fe_gpu_vram import note_gpu_oom
+
+                note_gpu_oom()  # GPU11-13: this call site adaptively shrinks its own block (pool_column_block) but can still OOM; arm the shared cooldown for other call sites.
+        except Exception:  # nosec B110 - best-effort cooldown note, never let it mask the original failure
+            pass
         return None
     finally:
         # The argsort / take temporaries come in sizes no later request reuses; handing the unused pool blocks back keeps the pool from filling up with them (a 525 MB request of the CMI scorer failed against them).

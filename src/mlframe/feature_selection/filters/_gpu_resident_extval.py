@@ -126,6 +126,15 @@ def gpu_materialise_extval_codes_host(
         if n == 0 or n_ops == 0 or n_ext == 0:
             return None
         K = n_ext * n_ops
+        # Cushion-check BEFORE the (n, K) candidate matrix: without it, a device pool already pinned at its
+        # limit (e.g. by the resident-operand cache) fails this call's allocation on EVERY (base, external-
+        # factor-set) pair with the SAME OutOfMemoryError, each attempt paying cupy's own allocator work for a
+        # request that cannot succeed until something else frees VRAM (the exact pattern fixed in
+        # perm_null_residue_mis_resident, GPU11-13). One cheap memGetInfo here skips straight to the host path.
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        if not fe_gpu_has_vram_cushion(n * K * np.dtype(_real).itemsize):
+            return None
         out_dev = _candidate_matrix(cp, pa, param_b_list, _ops, n, n_ops, resident_operand)
         if out_dev is None:
             return None
@@ -152,6 +161,15 @@ def gpu_materialise_extval_codes_host(
         return np.asarray(cp.asnumpy(codes_dev))
     except Exception as e:
         logger.debug("device-resident extval materialise+discretize failed, caller falls back to the host njit + upload path: %s", e)
+        try:
+            import cupy as _cp
+
+            if isinstance(e, _cp.cuda.memory.OutOfMemoryError):
+                from ._fe_gpu_vram import note_gpu_oom
+
+                note_gpu_oom()  # GPU11-13: arm the shared cooldown even though the cushion check above passed - a race against another allocation can still OOM here.
+        except Exception:  # nosec B110 - best-effort cooldown note, never let it mask the original failure
+            pass
         return None
 
 

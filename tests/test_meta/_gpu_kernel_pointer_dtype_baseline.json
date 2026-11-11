@@ -27,6 +27,12 @@
   "src/mlframe/feature_selection/filters/_fe_batched_qbin.py": {
     "qbin_code": "reviewed 2026-11-05: the double column is compared through integer order keys (mono_key), no FP64 compare; the host uploads float64 explicitly."
   },
+  "src/mlframe/feature_selection/filters/_ksg_cd_gpu.py": {
+    "ksg_psi_m_sums": "reviewed 2026-11-11: the host kernel (`_ksg_cd_fast._mi_cd_columns`) works on noised double columns and the partial psi(m) sums must match it bit-for-bit within float rounding (measured 7e-12 absolute at 100000 rows); the host uploads float64 explicitly."
+  },
+  "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_eng_dedup_spearman_gpu.py": {
+    "masked_spearman": "reviewed 2026-11-11: the Spearman rho accumulates n-element rank sums and products in double on the host kernel too; a float32 accumulator loses the low bits the |rho| >= threshold decision reads on ties. Named `masked_spearman` in source (the wrapper function `masked_abs_spearman_device` calls it); the kernel-name regex previously mis-captured `__launch_bounds__` as the name here - fixed in this test's own _KERNEL_RE alongside this entry."
+  },
   "src/mlframe/feature_selection/filters/_gpu_resident_select_kernels.py": {
     "radix_interp": "reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.",
     "radix_select_f64": "reviewed 2026-11-05: the float64 member of a dtype-specific family (the float32 kernels are the *_f32 ones); the dispatcher picks the family from the dtype of the launched buffer (test_kernel_type_follows_the_launched_buffer) and mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit saw no launch with a mismatching dtype in a full fit at float32 and at float64 crit dtype.",

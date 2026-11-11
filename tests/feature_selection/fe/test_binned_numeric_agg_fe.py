@@ -371,3 +371,46 @@ def test_redundancy_gate_controls_family_wise_noise_on_wide_frame():
     _, appended, _ = binned_numeric_agg_with_recipes(X, y.to_numpy())
     noise_agg = [c for c in appended if c.split("(", 1)[1].startswith("noise_")]
     assert not noise_agg, f"noise-aggregate binagg columns passed the redundancy gate: {noise_agg}"
+
+
+def test_redundancy_gate_falls_back_to_host_when_device_oof_path_raises():
+    """A faulting device-OOF candidate source (``DeviceOofCandidates.codes()`` -- no exception handling anywhere
+    along its own chain, see audits/2026-11-09/_TRACKER.md GPU11-14) must not crash the fit: the redundancy gate
+    rebuilds the same candidates on the host and completes, instead of propagating the device failure."""
+    from mlframe.feature_selection.filters._binned_numeric_agg_fe import _redundancy_gate_binagg, fit_binned_numeric_agg
+
+    rng = np.random.default_rng(13)
+    n = 2000
+    g0 = rng.integers(0, 6, n).astype(float)  # a few groups, so per-cell means of a0 actually vary with g0
+    a0 = g0 * 2.0 + rng.standard_normal(n)
+    X = pd.DataFrame({"g0": g0, "a0": a0})
+    y = a0 + 0.01 * rng.standard_normal(n)  # driven by a0, which binagg_mean(a0|qbin(g0)) tracks
+    feat_df, raw = fit_binned_numeric_agg(X, y, group_num_cols=["g0"], agg_num_cols=["a0"], stats=("mean",))
+    names = list(raw.keys())
+    assert names, "fixture produced no binagg candidates to exercise the fallback with"
+
+    _cand_names = names
+
+    class _FaultingDevCands:
+        """Stands in for ``DeviceOofCandidates``: every ``.codes()`` call raises, like an uncaught device OOM."""
+
+        names = _cand_names
+
+        def codes(self, name, nbins):
+            """Simulate an uncaught device-side failure (e.g. an OOM the device OOF chain does not catch)."""
+            raise RuntimeError("simulated device-OOF failure")
+
+    kwargs = dict(
+        gsel=["g0"], asel=["a0"], stats=("mean",), nbins_base=10, n_folds=5, random_state=13, min_cmi_gain=0.0, reject_sink=None,
+    )
+    expected = _redundancy_gate_binagg(X, y, raw, feat_df=feat_df, _dev_cands=None, **kwargs)
+    actual = _redundancy_gate_binagg(X, y, raw, feat_df=None, _dev_cands=_FaultingDevCands(), **kwargs)
+    # The device-OOF path failed and fell back to rebuilding the exact same candidates on the host (no crash, no
+    # propagated exception); the verdict (kept columns and values, or None when none survive) must match the pure
+    # host path bit-for-bit, same seed, same candidates -- the primary contract here is "does not crash", and the
+    # fallback must not silently produce a DIFFERENT verdict than the host path it stands in for.
+    if expected is None:
+        assert actual is None
+    else:
+        assert actual is not None
+        pd.testing.assert_frame_equal(expected, actual)

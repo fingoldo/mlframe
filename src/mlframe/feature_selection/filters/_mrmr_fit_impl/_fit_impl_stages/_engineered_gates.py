@@ -143,16 +143,36 @@ def _gate_base_columns(X, gate_cols, y, seed):
 
     Returns the surviving base columns keyed by raw source (the siblings pass 2 conditions on) and the dropped names.
     """
-    from mlframe.feature_selection.filters._fe_accuracy_gate import keep_engineered_over_source
+    from mlframe.feature_selection.filters._fe_accuracy_gate import _FE_UPLIFT_MIN, keep_engineered_over_source
 
     surviving_by_src: dict[str, list[str]] = {}
     dropped: list[str] = []
     base_cols = [(_gc, _src) for _gc, _src, _is_fourier in gate_cols if not _is_fourier]
 
+    # One batched device pass decides the candidates whose probe is the shared-rows, shared-folds Newton fit (the gate was 65 thread-seconds at 1000 columns, the largest host block of the
+    # fit); a candidate the batch does not cover comes back NaN and is probed below exactly as before. See _fe_accuracy_gate_batched. ``_use_device`` is the KTC-dispatched choice (CUDA.md
+    # section 4), not a hard-coded candidate-count threshold.
+    _batched = None
+    from mlframe.feature_selection.filters._fe_accuracy_gate_batched import _use_device
+
+    if _use_device(len(base_cols)):
+        from mlframe.feature_selection.filters._fe_accuracy_gate_batched import batched_uplifts_for_pairs
+
+        _srcs = [_gate_col_arr(X, _src) for _gc, _src in base_cols]
+        _engs = [_gate_col_arr(X, _gc) for _gc, _src in base_cols]
+        _mnar = [float(np.mean(~np.isfinite(_a))) > 0.02 for _a in _srcs]  # the gate's missingness fail-closed rule decides these without a probe
+        _batched = batched_uplifts_for_pairs(_srcs, _engs, [_src for _gc, _src in base_cols], y, seed=seed)
+
     def _keep(item: tuple) -> bool:
         """The probe of one candidate; candidates are independent (each fold fit is deterministic and the baseline memo is lock-protected)."""
         _gc, _src = item
         return bool(keep_engineered_over_source(_gate_col_arr(X, _src), _gate_col_arr(X, _gc), y, seed=seed))
+
+    def _keep_at(pos: int) -> bool:
+        """The decision for candidate ``pos``: the batched uplift when it covered that candidate, else its own host probe."""
+        if _batched is not None and not _mnar[pos] and np.isfinite(_batched[pos]):
+            return bool(_batched[pos] >= _FE_UPLIFT_MIN)
+        return _keep(base_cols[pos])
 
     # The first candidate runs on this thread so numba compiles once; the rest are probed on a pool (numpy / BLAS release the GIL, the AUC kernel is entered one thread at a time).
     from concurrent.futures import ThreadPoolExecutor
@@ -161,11 +181,11 @@ def _gate_base_columns(X, gate_cols, y, seed):
 
     jobs = _resolve_edge_jobs(None, len(base_cols))
     if jobs > 1 and len(base_cols) > 1:
-        first = _keep(base_cols[0])
+        first = _keep_at(0)
         with ThreadPoolExecutor(max_workers=jobs) as pool:
-            decisions = [first, *pool.map(_keep, base_cols[1:])]
+            decisions = [first, *pool.map(_keep_at, range(1, len(base_cols)))]
     else:
-        decisions = [_keep(item) for item in base_cols]
+        decisions = [_keep_at(pos) for pos in range(len(base_cols))]
     for (_gc, _src), keep in zip(base_cols, decisions):
         if keep:
             surviving_by_src.setdefault(_src, []).append(_gc)

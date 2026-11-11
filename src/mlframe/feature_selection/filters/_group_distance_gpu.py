@@ -22,6 +22,8 @@ from typing import Optional, Sequence
 
 import numpy as np
 
+from pyutilz.performance.gpu_hw_launch import block_size_for
+
 from ._device_sort_safe import device_argsort, device_room
 from ._ktc_fallback import device_from_rows
 from ._raw_module_cache import RawModuleCache
@@ -31,7 +33,6 @@ logger = logging.getLogger(__name__)
 
 _BUDGET_FRACTION = 0.25
 DEVICE_FALLBACK_ROWS = 10**9  # the tuner decides; until a sweep says the device wins the host loop runs
-_THREADS = 256
 MAX_GROUPS = 256
 _SHARED_BYTES = 40 * 1024
 _W1_STEPS = 512  # must equal W1_STEPS in the kernel source
@@ -152,8 +153,12 @@ def group_stats_device(
         sums = np.zeros((k, n_groups), dtype=np.float64)  # Intentional float64: group sums
         hist = np.zeros((k, n_groups, n_bins), dtype=np.int64)
         w1 = np.zeros((k, n_groups), dtype=np.float64)  # Intentional float64: Wasserstein integral
-        grid_x = (n + _THREADS - 1) // _THREADS
         shared = (n_groups * (1 + n_bins) + ((n_groups * (1 + n_bins)) & 1)) * 4 + n_groups * 8
+        # the block width is a device/kernel occupancy choice, not a literal: each of the three kernels gets its own (different registers, stats_k's shared table changes with n_groups/n_bins)
+        stats_threads = block_size_for(stats_k, dyn_smem=shared, work_items=n, pow2=True)
+        keys_threads = block_size_for(keys_k, work_items=n, pow2=True)
+        w1_threads = block_size_for(w1_k, work_items=n, pow2=True)
+        grid_x = (n + stats_threads - 1) // stats_threads
         for c0 in range(0, k, block):
             w = min(block, k - c0)
             x_d = cp.asarray(np.ascontiguousarray(xs[c0 : c0 + w]))
@@ -161,26 +166,30 @@ def group_stats_device(
             cnt_d = cp.zeros((w, n_groups), dtype=cp.int32)
             sum_d = cp.zeros((w, n_groups), dtype=cp.float64)
             hist_d = cp.zeros((w, n_groups, n_bins), dtype=cp.int32)
-            stats_k((min(grid_x, 64), w), (_THREADS,), (x_d, b_d, gid_d, cnt_d, sum_d, hist_d, np.int64(n), np.int32(n_groups), np.int32(n_bins)), shared_mem=shared)
+            stats_k((min(grid_x, 64), w), (stats_threads,), (x_d, b_d, gid_d, cnt_d, sum_d, hist_d, np.int64(n), np.int32(n_groups), np.int32(n_bins)), shared_mem=shared)
             del b_d
             keys = cp.empty((w, n), dtype=cp.uint64)
-            keys_k((grid_x, w), (_THREADS,), (x_d, gid_d, keys, np.int64(n), np.int32(n_groups)))
+            keys_k(((n + keys_threads - 1) // keys_threads, w), (keys_threads,), (x_d, gid_d, keys, np.int64(n), np.int32(n_groups)))
             order = device_argsort(keys, axis=1)
             del keys
             xs_sorted = cp.take_along_axis(x_d, order, axis=1)
             del x_d
-            g_d = cp.zeros((w, gmax), dtype=cp.float64)
+            # One host-side pad + one upload instead of ``w`` per-column device writes: each column's sorted
+            # global sample is a different length, so the pad has to happen somewhere - doing it on the host
+            # before a single cp.asarray turns w tiny device launches into one.
+            g_host = np.zeros((w, gmax), dtype=np.float64)  # Intentional float64: sorted operand of the merge
             gn = np.zeros(w, dtype=np.int64)
             for j in range(w):
                 arr = np.ascontiguousarray(global_sorted[c0 + j], dtype=np.float64)  # Intentional float64: sorted operand of the merge
-                g_d[j, : arr.size] = cp.asarray(arr)
+                g_host[j, : arr.size] = arr
                 gn[j] = arr.size
+            g_d = cp.asarray(g_host)
             out_d = cp.zeros((w, n_groups), dtype=cp.float64)
             cnt64 = cnt_d.astype(cp.int64)
             offs = cp.cumsum(cnt64, axis=1) - cnt64
             chunks = int((int(cnt_d.max()) + gmax + _W1_STEPS - 1) // _W1_STEPS)
             threads_total = n_groups * chunks
-            w1_k(((threads_total + _THREADS - 1) // _THREADS, w), (_THREADS,), (xs_sorted, g_d, cp.asarray(gn), offs, cnt_d, out_d, np.int64(n), np.int64(gmax), np.int32(n_groups), np.int32(chunks)))
+            w1_k(((threads_total + w1_threads - 1) // w1_threads, w), (w1_threads,), (xs_sorted, g_d, cp.asarray(gn), offs, cnt_d, out_d, np.int64(n), np.int64(gmax), np.int32(n_groups), np.int32(chunks)))
             cnt[c0 : c0 + w] = cp.asnumpy(cnt_d)
             sums[c0 : c0 + w] = cp.asnumpy(sum_d)
             hist[c0 : c0 + w] = cp.asnumpy(hist_d)

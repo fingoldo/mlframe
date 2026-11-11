@@ -20,25 +20,64 @@ IMPORT = re.compile(r"from\s+(?:mlframe\.feature_selection\.filters|\.+)\s*\.?(_
 FE_NAME = re.compile(r"_fe_|_fe\b|_fe\.|engineer|_basis|_wavelet|_fourier|_orth|_lattice|_modular|_gate|_argmax|_encoding|_target_enc|_synergy|_binned|_cell2d|_row_stat|_count_freq|_pair|_mi_greedy|_missingness|_ratio|_polynom|_hermite")
 
 
-def imported_modules() -> set[str]:
-    """Names of the filters-level modules imported from the MRMR layer."""
+def _direct_imports(files: list[Path]) -> set[str]:
+    """Names imported by ``from mlframe.feature_selection.filters[.x] import ...`` or ``from .x import ...`` in ``files``, read as text (no execution)."""
     found: set[str] = set()
+    for f in files:
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        for m in IMPORT.finditer(text):
+            name = m.group(1) or m.group(2)
+            if name:
+                found.add(name)
+    return found
+
+
+def imported_modules() -> set[str]:
+    """Names of the filters-level modules reachable from the MRMR layer, by TRANSITIVE closure of their imports.
+
+    A one-hop read (only the files named in ``MRMR_LAYER``) missed modules imported from inside a function body of an already-reached module - e.g. a batched probe imported lazily by a
+    gate stage, itself importing a RawKernel module one hop further in. The closure walks every newly reached module's own source (one file each; a package module's ``__init__.py``) until
+    no new name appears, so a module several imports deep from the three entry points is still found. Static only, as the one-hop version was: it reads import statements, including ones
+    inside a function body, not which ones actually execute.
+    """
+    frontier: set[str] = set()
     for layer in MRMR_LAYER:
         base = FILTERS / layer
         files = [base] if base.is_file() else list(base.rglob("*.py")) if base.is_dir() else []
         files += [FILTERS / f"{layer}.py"] if (FILTERS / f"{layer}.py").is_file() else []
-        for f in files:
-            text = f.read_text(encoding="utf-8", errors="ignore")
-            for m in IMPORT.finditer(text):
-                name = m.group(1) or m.group(2)
-                if name:
-                    found.add(name)
+        frontier |= _direct_imports(files)
+    found = set(frontier)
+    seen_layers = {"mrmr", "_mrmr_fit_impl", "_mrmr_fe_step"}
+    while frontier:
+        next_frontier: set[str] = set()
+        for name in frontier:
+            if name in seen_layers:
+                continue
+            seen_layers.add(name)
+            f = module_file(name)
+            if f is None:
+                continue
+            files = [f] if f.name != "__init__.py" else list(f.parent.rglob("*.py"))
+            next_frontier |= _direct_imports(files) - found
+        found |= next_frontier
+        frontier = next_frontier
     return found
 
 
 def module_file(name: str) -> Path | None:
-    """Source file of a filters-level module or package ``__init__``."""
+    """Source file of a filters-level module or package ``__init__``.
+
+    Checks directly under ``filters/`` first, then falls back to a one-level-deeper search (``filters/*/name.py``)
+    for a module living inside a subpackage (e.g. ``_feature_engineering_pairs/_pairs_analytic_gpu.py``,
+    ``_orthogonal_univariate_fe/_orth_extra_basis_fe.py``) - these are real, imported modules that previously
+    read as "module not found" and were silently excluded from every contract check."""
     for cand in (FILTERS / f"{name}.py", FILTERS / name / "__init__.py"):
+        if cand.is_file():
+            return cand
+    for cand in FILTERS.glob(f"*/{name}.py"):
+        if cand.is_file():
+            return cand
+    for cand in FILTERS.glob(f"*/{name}/__init__.py"):
         if cand.is_file():
             return cand
     return None
@@ -57,7 +96,7 @@ def row(name: str) -> tuple[str, str, int, int, int]:
 REPO_ROOT = Path(__file__).resolve().parents[4]
 PROFILES_DIR = REPO_ROOT / "audits" / "2026-10-22" / "profiles"
 CPU_KERNEL = re.compile(r"@njit|numba\.njit|\bnjit\(")
-GPU_KERNEL = re.compile(r"RawKernel|cuda\.jit|ElementwiseKernel")
+GPU_KERNEL = re.compile(r"RawKernel|RawModule|cuda\.jit|ElementwiseKernel")
 KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 CRIT_DTYPE = re.compile(r"_crit_np_dtype|crit_float_dtype|Intentional float64")
 BLOCK_STREAMING = re.compile(r"block_cols|BLOCK_COLS|column block|best_pair_streamed")

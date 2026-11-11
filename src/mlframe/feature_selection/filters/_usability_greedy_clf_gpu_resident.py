@@ -185,6 +185,14 @@ def usability_greedy_clf_gpu_resident(
         Vhost = _pack_pool_matrix(pool, n)
         if Vhost is None:
             return None  # ragged pool -> let the CPU path handle it exactly
+        # Cushion-check BEFORE the (n, P) candidate value matrix: without it, a device pool already pinned
+        # at its limit fails this call's upload on EVERY shortlist round with the SAME OutOfMemoryError (the
+        # GPU11-13/14 pattern). The outer try/except below already returns None (host fallback) on ANY
+        # exception, so declining early is a pure latency win, not a new failure mode.
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        if not fe_gpu_has_vram_cushion(Vhost.size * Vhost.itemsize):
+            return None
         Vdev = cp.asarray(Vhost)  # (n, P) resident
         yenc_dev = cp.asarray(y_enc.astype(np.int64))  # (n,) resident class codes
         ydev_f = yenc_dev.astype(crit_float_dtype())  # binary positive-class indicator helper
@@ -283,7 +291,23 @@ def usability_greedy_clf_gpu_resident(
         return None
     except Exception as e:
         logger.warning("usability_greedy_clf_gpu_resident: cupy/device error, falling back to the exact CPU greedy: %s", e)
+        _note_oom_if_applicable(e)
         return None
+
+
+def _note_oom_if_applicable(e: Exception) -> None:
+    """GPU11-13: arm the shared cooldown when ``e`` is a genuine device OOM (the cushion check in
+    ``usability_greedy_clf_gpu_resident`` passed but a race against another allocation, or a per-fold
+    allocation deeper in the loop, can still OOM here); best-effort, never lets a note failure mask the original error."""
+    try:
+        import cupy as _cp
+
+        if isinstance(e, _cp.cuda.memory.OutOfMemoryError):
+            from ._fe_gpu_vram import note_gpu_oom
+
+            note_gpu_oom()
+    except Exception:  # nosec B110 - best-effort cooldown note, never let it mask the original failure
+        pass
 
 
 def _usability_greedy_clf_multinomial_fns(cp, n_classes):

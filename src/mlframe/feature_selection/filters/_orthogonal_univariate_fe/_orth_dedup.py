@@ -20,6 +20,11 @@ from numba import njit, prange
 
 logger = logging.getLogger(__name__)
 
+#: GPU11-19: below this many rows per tile, `_pc_corr_cupy`'s room-bound tiling pays more in per-tile transfer/sync
+#: overhead than the matmul work is worth; env-overridable for the kernel-tuning-cache style per-host tuning other
+#: dedup backends already use.
+_MIN_CUPY_DEDUP_TILE = env_int("MLFRAME_FE_DEDUP_CUPY_MIN_TILE", 32)
+
 # The dedup is a DECISION (drop near-duplicate source columns), not a final statistic, so the correlations do not need
 # every row: a Pearson |r| estimate from a large row sample has standard error ~ (1-r^2)/sqrt(m), far under the slack of
 # a 0.999 threshold at m=100k. Capping the rows keeps the pass O(P^2 * cap) instead of O(P^2 * N) and - critical on
@@ -178,6 +183,13 @@ def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     if need <= room // 4:
         return _pc_corr_cupy_arrays(cp, resident_operand(Q, "orth_dedup_Q"), resident_operand(R, "orth_dedup_R"))
     tile = int(max(1, min(max(q, r), (room // 4 - 9 * 1024 * 1024 * item) // max(1, 10 * n_obs * item))))
+    # GPU11-19: a tight pool (little free VRAM, or several FE families contending for the same card at a large column
+    # count) can shrink the tile below a floor where the loop below would launch thousands of tiny cupy calls instead
+    # of a handful - each paying its own host<->device transfer and sync, far slower than one numpy(BLAS) call on the
+    # same data. Bail to the dispatcher's existing cupy-failure fallback (numpy) rather than thrash through that many
+    # tiles; _MIN_TILE is the tile width below which the per-tile overhead dominates the actual matmul work.
+    if tile < _MIN_CUPY_DEDUP_TILE:
+        raise RuntimeError(f"pairwise-corr tile shrank to {tile} (room-bound); too fragmented to pay off on the device")
     out = np.empty((q, r), dtype=np.float64)  # Intentional float64: the result contract of the numpy backend
     for i in range(0, q, tile):
         Qd = cp.asarray(np.ascontiguousarray(Q[i : i + tile]))

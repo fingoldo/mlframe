@@ -24,7 +24,10 @@ from tests.test_meta._scan_guard import assert_scanned_enough
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "mlframe"
 BASELINE = Path(__file__).with_name("_gpu_kernel_pointer_dtype_baseline.json")
 
-_KERNEL_RE = re.compile(r"__global__\s+void\s+(\w+)\s*\((.*?)\)\s*\{", re.S)  # with or without an ``extern "C"`` prefix: kernels inside an ``extern "C" { ... }`` block have none
+_KERNEL_RE = re.compile(
+    r"__global__\s+void\s+(?:__launch_bounds__\s*\([^)]*\)\s+)?(\w+)\s*\((.*?)\)\s*\{", re.S
+)  # with or without an ``extern "C"`` prefix (kernels inside an ``extern "C" { ... }`` block have none) and with or
+# without a `__launch_bounds__(...)` attribute between `void` and the name - without this, that attribute itself is captured as the kernel's name (GPU11-7's cross-file blind spot was the same name-capture bug, in py_ci_shared's own copy of this pattern)
 
 
 def _double_pointer_kernels():

@@ -20,11 +20,13 @@ GB = 1024 * MB
 
 @pytest.fixture()
 def vram():
-    """Fresh import of the cushion module with the once-per-process pool flag re-armed each test."""
+    """Fresh import of the cushion module with the once-per-process pool flag and the OOM cooldown re-armed each test."""
     m = importlib.import_module(MOD)
     m._reset_fe_gpu_pool_limit_flag()
+    m._reset_gpu_oom_cooldown()
     yield m
     m._reset_fe_gpu_pool_limit_flag()
+    m._reset_gpu_oom_cooldown()
 
 
 def _patch_meminfo(monkeypatch, free_b: int, total_b: int = 4 * GB):
@@ -141,6 +143,10 @@ def test_env_override_min_free_mb(monkeypatch, vram):
     _patch_meminfo(monkeypatch, free_b=1500 * MB, total_b=8 * GB)  # big card so tiny-fraction doesn't clamp
     monkeypatch.setenv("MLFRAME_FE_GPU_MIN_FREE_MB", "2048")  # require 2 GB
     assert vram.fe_gpu_has_vram_cushion(0) is False  # 1.5 GB < 2 GB
+    # The decline above armed the GPU11-13 OOM cooldown; this test immediately changes the SCENARIO
+    # (a looser env floor) rather than repeating a doomed call, so it must get a fresh probe, not the
+    # cooldown's short-circuit.
+    vram._reset_gpu_oom_cooldown()
     monkeypatch.setenv("MLFRAME_FE_GPU_MIN_FREE_MB", "512")  # require 0.5 GB
     assert vram.fe_gpu_has_vram_cushion(0) is True  # 1.5 GB >= 0.5 GB
 
@@ -362,6 +368,63 @@ def test_regression_guard_declines_gpu_at_low_free(monkeypatch, vram):
 
     # A modest shape whose working set easily fits the RELATIVE cap but the card is near-full.
     assert _cmi_cuda._should_use_cuda(n=50_000, p=8, joint_size=64, nbins_x=4, nbins_y=4, nbins_z=4) is False
+
+
+@pytest.mark.gpu
+def test_oom_cooldown_short_circuits_the_internal_probe_without_reprobing(monkeypatch, vram):
+    """GPU11-13: once ANY call declines (internal-probe or caller-supplied), a later internal-probe call within
+    the cooldown window declines WITHOUT even calling memGetInfo - the shared circuit breaker this entry asked
+    for, so dozens of doomed candidates in a row stop paying for a real probe once the first one has failed."""
+    pytest.importorskip("cupy")
+    import cupy as cp
+
+    _patch_meminfo(monkeypatch, free_b=3 * GB, total_b=4 * GB)
+    vram.ensure_fe_gpu_pool_limit()  # pays its OWN one-time memGetInfo probe before we start counting
+
+    probes = []
+
+    def _meminfo():
+        """Record a call and report plenty of free VRAM."""
+        probes.append(1)
+        return (3 * GB, 4 * GB)
+
+    monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", _meminfo)
+    assert vram.fe_gpu_has_vram_cushion(0) is True  # primes the probe count
+    assert len(probes) == 1
+
+    vram.note_gpu_oom()  # simulate another call site's decline
+    assert vram.fe_gpu_has_vram_cushion(0) is False  # short-circuited, no new probe
+    assert len(probes) == 1
+
+    vram._reset_gpu_oom_cooldown()
+    assert vram.fe_gpu_has_vram_cushion(0) is True  # cooldown cleared: probes again, genuinely allowed
+    assert len(probes) == 2
+
+
+def test_oom_cooldown_never_short_circuits_a_caller_supplied_probe(monkeypatch, vram):
+    """The caller-supplied-probe path must stay a pure function of its own free_b/total_b (the no-reprobe
+    contract GPU11-4's fix depends on) even while an active cooldown is in effect."""
+    vram.note_gpu_oom()
+    assert vram.fe_gpu_has_vram_cushion(0, free_b=3 * GB, total_b=4 * GB) is True
+    assert vram.fe_gpu_has_vram_cushion(0, free_b=0, total_b=4 * GB) is False
+
+
+def test_a_decline_notes_the_cooldown_for_other_callers(monkeypatch, vram):
+    """A genuine decline (not just note_gpu_oom() called directly) arms the cooldown too."""
+    pytest.importorskip("cupy")
+    _patch_meminfo(monkeypatch, free_b=100 * MB, total_b=4 * GB)  # well below the cushion
+    assert vram.fe_gpu_has_vram_cushion(0) is False
+    probes = []
+    import cupy as cp
+
+    def _meminfo():
+        """Record a call; would otherwise grant."""
+        probes.append(1)
+        return (3 * GB, 4 * GB)
+
+    monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", _meminfo)
+    assert vram.fe_gpu_has_vram_cushion(0) is False  # still in cooldown from the decline above
+    assert not probes
 
 
 def test_supplied_probe_reclaims_the_own_pool_when_that_reaches_the_cushion(monkeypatch, vram):

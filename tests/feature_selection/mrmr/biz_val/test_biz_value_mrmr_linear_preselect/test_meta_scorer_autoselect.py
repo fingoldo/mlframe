@@ -497,5 +497,55 @@ class TestPickleAndClone:
                 ), f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
 
 
+class TestSubsampleDecisionRecipesAtPosition:
+    """``_group4.py`` calls ``fe_decide_on_subsample`` on ``hybrid_orth_mi_meta_fe_with_recipes``, whose return layout is
+    ``(X_aug, scores, recipes, chosen, fp)`` - recipes at index 2, not last. Without ``recipes_at=2`` the wrapper reads
+    ``fp`` (a dict) as the recipe list, and ``for r in recipes: r.name`` raises ``AttributeError`` on its string keys
+    once the subsample path actually runs (``shared_subsample_idx`` or ``subsample_n > 0``). Found 2026-11-11 from a
+    live ``MLFRAME.fit`` warning ("hybrid_orth meta-scorer FE raised AttributeError: 'str' object has no attribute
+    'name'") at 100000 rows."""
+
+    def _run(self, *, recipes_at):
+        """Call fe_decide_on_subsample on the meta-scorer family with a forced subsample; recipes_at=None omits the kwarg (the buggy default)."""
+        from mlframe.feature_selection.filters._mrmr_fit_impl._helpers import fe_decide_on_subsample
+        from mlframe.feature_selection.filters._orthogonal_meta_scorer_fe import hybrid_orth_mi_meta_fe_with_recipes
+
+        rng = np.random.default_rng(0)
+        n = 2000
+        X = pd.DataFrame(rng.standard_normal((n, 6)), columns=[f"x{i}" for i in range(6)])
+        y = (X["x0"] + 0.5 * X["x1"] ** 2 + 0.3 * rng.standard_normal(n) > 0).astype(np.int64).to_numpy()
+        idx = np.sort(rng.choice(n, size=800, replace=False))
+        kwargs = dict(
+            subsample_n=800,
+            subsample_seed=0,
+            shared_subsample_idx=idx,
+            cols=list(X.columns),
+            degrees=(2, 3),
+            basis="auto",
+            top_k=3,
+            min_uplift=0.95,
+            min_abs_mi_frac=0.05,
+            force_scorer="plug_in",
+            random_state=0,
+        )
+        if recipes_at is not None:
+            kwargs["recipes_at"] = recipes_at
+        return X, fe_decide_on_subsample(hybrid_orth_mi_meta_fe_with_recipes, X, y, **kwargs)
+
+    def test_recipes_at_2_returns_named_recipes_on_the_subsample_path(self):
+        """With ``recipes_at=2`` the subsample path returns the family's own 5-tuple layout, every recipe named."""
+        X, (X_meta, _scores, recipes, chosen, fp) = self._run(recipes_at=2)
+        appended = [c for c in X_meta.columns if c not in X.columns]
+        assert appended, "the fixture must engineer at least one column, or this test has no teeth"
+        assert {r.name for r in recipes} == set(appended), f"recipe names {sorted(r.name for r in recipes)} do not match the appended columns {sorted(appended)}"
+        assert isinstance(chosen, str) and chosen == "plug_in"
+        assert isinstance(fp, dict)
+
+    def test_without_recipes_at_the_wrapper_misreads_fp_as_recipes(self):
+        """Documents the bug this test class exists for: the default ``recipes_at=-1`` treats ``fp`` (a dict) as the recipe list."""
+        with pytest.raises(AttributeError):
+            self._run(recipes_at=None)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "--no-cov"])

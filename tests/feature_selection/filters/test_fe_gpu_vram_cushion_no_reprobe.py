@@ -16,7 +16,18 @@ import sys
 
 import pytest
 
+from mlframe.feature_selection.filters import _fe_gpu_vram as _v
 from mlframe.feature_selection.filters._fe_gpu_vram import _cushion_bytes, fe_gpu_has_vram_cushion
+
+
+@pytest.fixture(autouse=True)
+def _fresh_oom_cooldown():
+    """Clear the GPU11-13 OOM cooldown: a caller-supplied-probe decline in one test (e.g. the manual-formula
+    test's below-cushion case) must not short-circuit a LATER test's internal-probe call here within the
+    cooldown window - several tests in this file (the partial-pair fallback) exercise the real probe path."""
+    _v._reset_gpu_oom_cooldown()
+    yield
+    _v._reset_gpu_oom_cooldown()
 
 
 @pytest.fixture

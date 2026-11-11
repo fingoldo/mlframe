@@ -62,3 +62,50 @@ def test_best_existing_op_mi_resident_close_to_host(rank_binning, nclasses, monk
         f"resident best_existing_op_mi_resident diverged from host ({'rank' if rank_binning else 'edge'}, "
         f"nclasses={nclasses}): resident={dev_mi:.6f} host={host_mi:.6f}"
     )
+
+
+def test_a_refused_cushion_returns_none_without_allocating(monkeypatch):
+    """GPU11-13/14 class fix: when the VRAM cushion is refused, the function returns None before the candidate matrix allocation, instead of attempting and failing it on every gate call."""
+    import mlframe.feature_selection.filters._fe_gpu_vram as vram_mod
+    from mlframe.feature_selection.filters._resident_candidate_mi import best_existing_op_mi_resident
+
+    called = {"n": 0}
+
+    def _declining(*a, **k):
+        """Stand-in for fe_gpu_has_vram_cushion that always declines, counting its own calls."""
+        called["n"] += 1
+        return False
+
+    monkeypatch.setattr(vram_mod, "fe_gpu_has_vram_cushion", _declining)
+    rng = np.random.default_rng(0)
+    n = 2000
+    arrs = {"a": rng.uniform(0.1, 1.1, n), "b": rng.uniform(0.1, 1.1, n)}
+    yi = rng.integers(0, 2, n).astype(np.int64)
+    out = best_existing_op_mi_resident(arrs, ("a", "b"), yi, 10)
+    assert out is None
+    assert called["n"] == 1, "the cushion check must run exactly once, before any allocation"
+
+
+def test_an_oom_past_the_cushion_check_notes_the_shared_cooldown(monkeypatch):
+    """GPU11-13 follow-up: the cushion check above can pass yet the device still OOM on a race against another
+    allocation; that OOM (not an unrelated failure) must arm the shared cooldown for other call sites."""
+    import cupy as cp
+    import mlframe.feature_selection.filters._fe_gpu_vram as vram_mod
+    import mlframe.feature_selection.filters._resident_candidate_mi as cand_mod
+
+    vram_mod._reset_gpu_oom_cooldown()
+
+    def _boom(*a, **k):
+        """Simulate the candidate-matrix build hitting the pool's own OutOfMemoryError."""
+        raise cp.cuda.memory.OutOfMemoryError(1, 0, 0)
+
+    monkeypatch.setattr(cand_mod, "_build_best_existing_op_candidates_gpu", _boom)
+    monkeypatch.setattr(cand_mod, "_build_best_existing_op_candidates_gpu_cm", _boom)
+    rng = np.random.default_rng(1)
+    n = 2000
+    arrs = {"a": rng.uniform(0.1, 1.1, n), "b": rng.uniform(0.1, 1.1, n)}
+    yi = rng.integers(0, 2, n).astype(np.int64)
+    out = cand_mod.best_existing_op_mi_resident(arrs, ("a", "b"), yi, 10)
+    assert out is None
+    assert vram_mod._in_oom_cooldown() is True
+    vram_mod._reset_gpu_oom_cooldown()

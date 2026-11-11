@@ -73,10 +73,14 @@ def _thread_vars(body: str) -> "set[str]":
     return derived
 
 
-_SHARED_RE = re.compile(r"__shared__[^;(]*?(\w+)\s*\[")
+# A single ``__shared__`` statement can declare several arrays at once (``__shared__ T a[N], b[M], c[K];``), a valid and common
+# CUDA C++ form - the two regexes below first grab the WHOLE declaration up to its terminating ``;``, then pull every
+# ``name[`` out of that one declaration, so none of its names is missed the way a one-name-per-keyword regex would.
+_SHARED_DECL_RE = re.compile(r"__shared__[^;]*;")
 # A statically sized ``__shared__`` buffer (``se[EDGE_CACHE]``) has a fixed footprint, so a fill of it from global memory is bounded
 # by its declared size. A dynamic ``extern __shared__`` array (its size comes from the launch) has no such bound and is not exempt.
-_STATIC_SHARED_RE = re.compile(r"(?<!extern )__shared__[^;(]*?(\w+)\s*\[[^\]\s]+\]")
+_STATIC_SHARED_DECL_RE = re.compile(r"(?<!extern )__shared__[^;]*;")
+_SHARED_NAME_RE = re.compile(r"(\w+)\s*\[")
 
 
 def _without_shared_subscripts(body: str) -> str:
@@ -84,9 +88,11 @@ def _without_shared_subscripts(body: str) -> str:
 
     A store into a statically sized shared buffer is dropped as a whole statement, since its global read is bounded by the buffer size.
     """
-    for name in set(_STATIC_SHARED_RE.findall(body)):
+    static_names = {n for decl in _STATIC_SHARED_DECL_RE.findall(body) for n in _SHARED_NAME_RE.findall(decl)}
+    for name in static_names:
         body = re.sub(rf"\b{re.escape(name)}\s*\[[^\]]*\]\s*=(?!=)[^;]*;", ";", body)
-    for name in set(_SHARED_RE.findall(body)):
+    all_names = {n for decl in _SHARED_DECL_RE.findall(body) for n in _SHARED_NAME_RE.findall(decl)}
+    for name in all_names:
         body = re.sub(rf"\b{re.escape(name)}\s*\[[^\]]*\]", "0", body)
     return body
 

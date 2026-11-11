@@ -84,6 +84,14 @@ def leg_code_matrices(cp: Any, z_g: Any, max_scale: int, min_half_rows: int) -> 
     cells = elig - ((1 << levels) - 1)
     n_va = (n + 2) // 3
     n_tr = n - n_va
+    # Cushion-check BEFORE the tr/va code matrices: without it, a device pool already pinned at its limit
+    # fails this call's allocation on EVERY call with the SAME OutOfMemoryError (the GPU11-13/14 pattern).
+    # The caller's own try/except (_wavelet_basis_fe_batched.py) returns None (host fallback) on ANY
+    # exception here, so declining early is a pure latency win, not a new failure mode.
+    from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+    if not fe_gpu_has_vram_cushion((n_tr + n_va) * int(elig.size) * 8):
+        return None
     tr = cp.empty((n_tr, int(elig.size)), dtype=cp.int64)
     va = cp.empty((n_va, int(elig.size)), dtype=cp.int64)
     ej = cp.asarray(levels.astype(np.int32))
