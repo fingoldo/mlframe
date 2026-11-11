@@ -438,6 +438,27 @@ def fe_subsample_kwargs(self: Any) -> dict:
 
 
 @fe_timed("stage:decide_on_subsample")
+def _subsample_row_index(n: int, subsample_n: Any, subsample_seed: int, shared_subsample_idx: "np.ndarray | None") -> "np.ndarray | None":
+    """Sorted row indices of the decision subsample, or ``None`` when the family should run on the full frame (subsampling disabled or the frame already small).
+
+    Prefers the fit's ONE shared row-index draw when it is valid (so a closed-form family scores the SAME rows as the pair-search / polynom / sufficiency floor); otherwise draws
+    ``subsample_n`` rows with the legacy seeded generator."""
+    shared = None
+    if shared_subsample_idx is not None:
+        try:
+            candidate = np.asarray(shared_subsample_idx)
+            if candidate.ndim == 1 and 0 < candidate.shape[0] < n and int(candidate.max()) < n:
+                shared = candidate.astype(np.int64, copy=False)
+        except Exception as e:
+            logger.warning("shared_subsample_idx validation/cast failed: %s", e)
+            shared = None
+    if shared is not None:
+        return shared
+    if not (isinstance(subsample_n, int) and 0 < subsample_n < n):
+        return None
+    return np.sort(np.random.default_rng(int(subsample_seed)).choice(n, size=int(subsample_n), replace=False))
+
+
 def fe_decide_on_subsample(
     fit_with_recipes_fn: Callable[..., tuple],
     X: Any,
@@ -500,27 +521,9 @@ def fe_decide_on_subsample(
         return (*head[:recipes_at], recipes, *head[recipes_at:])
     n = len(X)
     from .._fe_frame_ops import fe_to_pandas
-    # Prefer the fit's ONE shared row-index draw when supplied (so this closed-form family scores the
-    # SAME rows as the pair-search / polynom / sufficiency floor); else fall back to the legacy draw.
-    _shared = None
-    if shared_subsample_idx is not None:
-        try:
-            _s = np.asarray(shared_subsample_idx)
-            if _s.ndim == 1 and 0 < _s.shape[0] < n and int(_s.max()) < n:
-                _shared = _s.astype(np.int64, copy=False)
-        except Exception as e:
-            logger.warning("shared_subsample_idx validation/cast failed: %s", e)
-            _shared = None
-    if _shared is None and not (isinstance(subsample_n, int) and 0 < subsample_n < n):
+    _idx = _subsample_row_index(n, subsample_n, subsample_seed, shared_subsample_idx)
+    if _idx is None:
         return fit_with_recipes_fn(fe_to_pandas(X), y, **kwargs)
-    if _shared is not None:
-        _idx = _shared
-    else:
-        _idx = np.sort(
-            np.random.default_rng(int(subsample_seed)).choice(
-                n, size=int(subsample_n), replace=False,
-            )
-        )
     # Format-agnostic subsample: pandas -> .iloc, polars -> native gather + to_pandas on the SMALL subsample only (the
     # family decision bodies are pandas-native). Materialises ~len(_idx) rows, never the full frame - so a 100+ GB polars
     # frame is not duplicated, and every FE family now runs on polars input (previously skipped by isinstance guards).
