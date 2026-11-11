@@ -66,8 +66,6 @@ extern "C" __global__ void tied_replicate_mi(const short* __restrict__ rk, const
     __shared__ int wstrad[32 * BMAX];                         // per warp and straddling level: the count, then the position of the warp's first draw
     const int tid = threadIdx.x;
     const int m = lens[b];
-    const short* rj = rk + (long long)j * n;
-    const int* ib = idx + (long long)b * m_max;
     const short* lj = lv + ((long long)j * B + b) * m_max;       // the rank of every draw of this (column, resample), gathered beforehand: the draw order is read coalesced
     const int* ygb = yg + (long long)b * m_max;                  // the class of every draw of this resample
     const short* bp = binpos + (long long)b * m_max;
@@ -118,9 +116,8 @@ extern "C" __global__ void tied_replicate_mi(const short* __restrict__ rk, const
     for (int u = tid; u < nw * BMAX; u += blockDim.x) wstrad[u] = 0;
     __syncthreads();
     for (int t = t0 + lane; t - lane < t1; t += 32) {
-        int q = 255, r = 0;
+        int q = 255;
         if (t < t1) {
-            r = t;
             const int L = lj[t];
             q = sid[L];
             if (q == 255) atomicAdd(&myhist[bp[start[L]] * ncls + ygb[t]], 1);
