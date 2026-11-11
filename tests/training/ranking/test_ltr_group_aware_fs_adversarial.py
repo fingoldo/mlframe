@@ -184,8 +184,8 @@ def test_varying_query_sizes_recover_signal(seed):
     cols = [signal, conf, "noise_0"]
     X, y, g = df[cols], df["rel"].to_numpy(), df[gcol].to_numpy()
 
-    pooled_cols = _pooled_mrmr_cols(cols, X, y)
-    assert conf in pooled_cols, f"sanity: pooled MRMR fooled by confounder on mixed sizes; got {pooled_cols}"
+    pooled = {c: _pooled_pair_mi(X[c].to_numpy(np.float64), y) for c in cols}
+    assert pooled[conf] > pooled[signal], f"sanity: pooled MI must rank the confounder above the signal on mixed sizes; got {pooled}"
 
     ga_cols = group_aware_mrmr_select(X, y, g, nbins=8, bins=8)
     assert signal in ga_cols, f"group-aware MRMR must recover the signal under mixed query sizes; got {ga_cols}"
@@ -204,8 +204,8 @@ def test_many_signals_vs_many_confounders_and_noise(seed):
     cols = [*signals, *confs, *noise]
     X, y, g = df[cols], df["rel"].to_numpy(), df[gcol].to_numpy()
 
-    pooled_cols = _pooled_mrmr_cols(cols, X, y)
-    assert any(c in pooled_cols for c in confs), f"sanity: pooled MRMR must pick a confounder; got {pooled_cols}"
+    pooled = {c: _pooled_pair_mi(X[c].to_numpy(np.float64), y) for c in cols}
+    assert max(pooled[c] for c in confs) > max(pooled[s] for s in signals), f"sanity: pooled MI must rank a confounder above every signal; got {pooled}"
 
     rel = group_aware_relevance(cols, X.to_numpy(np.float64), y.astype(np.float64), g, bins=8)
     assert min(rel[s] for s in signals) > max(rel[c] for c in confs), f"group-aware relevance must rank BOTH signals above every confounder: {rel}"
@@ -265,8 +265,8 @@ def test_biz_val_group_aware_fs_beats_pooled_on_ndcg_medium_scale():
     # confounder a ranker scores every doc in a query identically -> it cannot order within a query -> poor NDCG. The
     # full pooled support sometimes also drags in s_within, which would mask the failure, so the pooled pick under test
     # is the confounder it WRONGLY ranks top -- the feature a pointwise design would commit to.
-    pooled_support = _pooled_mrmr_cols(cols, df[cols][tr], rel[tr])
-    assert conf in pooled_support, f"sanity: pooled MRMR fooled by confounder on medium frame; got {pooled_support}"
+    pooled_mi = {c: _pooled_pair_mi(df[c].to_numpy(np.float64)[tr], rel[tr]) for c in cols}
+    assert pooled_mi[conf] > pooled_mi[signal], f"sanity: pooled MI must rank the confounder above the signal on the medium frame; got {pooled_mi}"
     pooled_cols = [conf]
 
     def _ndcg_for(feat_cols):
