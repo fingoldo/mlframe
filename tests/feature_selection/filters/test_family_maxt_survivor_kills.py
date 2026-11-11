@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.feature_selection.filters import _family_maxt_gate as gate
+import mlframe.feature_selection.filters._family_maxt_gate as gate
 
 
 def _family(seed: int, k: int = 4, n: int = 60, n_x_max: int = 5, n_y: int = 3):

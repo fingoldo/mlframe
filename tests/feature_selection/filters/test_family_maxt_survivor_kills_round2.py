@@ -7,7 +7,7 @@ guard decides whether permutations are drawn on the GPU, and must restore the ge
 import numpy as np
 import pytest
 
-from mlframe.feature_selection.filters import _family_maxt_gate as gate
+import mlframe.feature_selection.filters._family_maxt_gate as gate
 from mlframe.feature_selection.filters import _perm_labels_device as dev
 
 
