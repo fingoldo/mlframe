@@ -46,16 +46,33 @@ def _fit_forest(n=800, d=4, seed=1, n_estimators=20, min_samples_leaf=5):
     return m, rng
 
 
+def _train_leaves(m):
+    """Per-row leaf id matrix (n_train, n_trees), rebuilt from the CSR bucketing the forest stores.
+
+    The forest keeps only ``_sorted_train_idx_`` and ``_leaf_offsets_`` (no dense ``train_leaves_``); the full-scan reference
+    needs the dense matrix, and inverting the CSR gives exactly the leaf each training row landed in for each tree.
+    """
+    n_train = m._n_train_
+    n_trees, n_leaf_slots = m._leaf_offsets_.shape
+    leaves = np.empty((n_train, n_trees), dtype=np.int32)
+    for t in range(n_trees):
+        for leaf in range(n_leaf_slots - 1):
+            lo, hi = m._leaf_offsets_[t, leaf], m._leaf_offsets_[t, leaf + 1]
+            leaves[m._sorted_train_idx_[t, lo:hi], t] = leaf
+    return leaves
+
+
 def test_leaf_bucketed_kernel_bit_identical_to_full_scan_reference():
     """The leaf-bucketed rewrite must produce bit-identical weights to the pre-fix full-scan kernel."""
     m, rng = _fit_forest()
     Xq = rng.standard_normal((50, m.forest_.n_features_in_))
     Xa = np.asarray(Xq, dtype=np.float64)
     q_leaves = np.ascontiguousarray(m.forest_.apply(Xa))
-    n_train = m.train_leaves_.shape[0]
+    n_train = m._n_train_
+    train_leaves = _train_leaves(m)
 
     w_new = _leaf_weights_kernel(q_leaves, m._leaf_inv_, m._sorted_train_idx_, m._leaf_offsets_, n_train)
-    w_old = _old_full_scan_kernel_njit(q_leaves, m.train_leaves_, m._leaf_inv_, n_train)
+    w_old = _old_full_scan_kernel_njit(q_leaves, train_leaves, m._leaf_inv_, n_train)
 
     assert np.array_equal(w_new, w_old), "leaf-bucketed weights must be bit-identical to the full-scan reference"
 
@@ -73,8 +90,8 @@ def test_leaf_offsets_partition_every_training_row_exactly_once_per_tree():
     """The CSR bucketing (_sorted_train_idx_ / _leaf_offsets_) must partition all n_train row indices
     exactly once per tree -- no row dropped or duplicated across leaves."""
     m, _ = _fit_forest(n=500, n_estimators=10)
-    n_trees = m.train_leaves_.shape[1]
-    n_train = m.train_leaves_.shape[0]
+    n_trees = m._leaf_offsets_.shape[0]
+    n_train = m._n_train_
     for t in range(n_trees):
         assert m._leaf_offsets_[t, -1] == n_train
         members = m._sorted_train_idx_[t]
