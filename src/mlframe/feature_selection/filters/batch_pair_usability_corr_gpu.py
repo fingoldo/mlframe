@@ -152,8 +152,8 @@ _CV2_DEGENERATE_FLOOR = 1e-16
 
 
 @numba.njit(cache=True, inline="always", nogil=True)
-def _eval_form(form_id, x0, x1, eps):
-    """Evaluate ONE of the 9 candidate forms at a single (x0, x1) row pair. Mirrors
+def _eval_form_nan(form_id, x0, x1, eps, nan):
+    """Evaluate ONE of the 9 candidate forms at a single (x0, x1) row pair, with ``nan`` the NaN of a near-zero divisor in the caller's float type (a double NaN literal would promote a float32 CUDA kernel to double). Mirrors
     usability_form_corrs's per-row form construction (the eps-floored ratio denominator -> NaN on a
     near-zero divisor, dropped by the caller's isfinite mask - no spurious inf)."""
     if form_id == FORM_X0:
@@ -165,15 +165,21 @@ def _eval_form(form_id, x0, x1, eps):
     if form_id == FORM_X1_SQ:
         return x1 * x1
     if form_id == FORM_X0_DIV_X1:
-        return x0 / x1 if abs(x1) >= eps else np.nan
+        return x0 / x1 if abs(x1) >= eps else nan
     if form_id == FORM_X1_DIV_X0:
-        return x1 / x0 if abs(x0) >= eps else np.nan
+        return x1 / x0 if abs(x0) >= eps else nan
     if form_id == FORM_X0SQ_DIV_X1:
-        return (x0 * x0) / x1 if abs(x1) >= eps else np.nan
+        return (x0 * x0) / x1 if abs(x1) >= eps else nan
     if form_id == FORM_X1SQ_DIV_X0:
-        return (x1 * x1) / x0 if abs(x0) >= eps else np.nan
+        return (x1 * x1) / x0 if abs(x0) >= eps else nan
     # FORM_X0_MUL_X1
     return x0 * x1
+
+
+@numba.njit(cache=True, inline="always", nogil=True)
+def _eval_form(form_id, x0, x1, eps):
+    """``_eval_form_nan`` with the double NaN of the host kernels."""
+    return _eval_form_nan(form_id, x0, x1, eps, np.nan)
 
 
 @numba.njit(cache=True, inline="always", fastmath={"reassoc", "contract", "arcp", "afn", "nsz"}, nogil=True)
@@ -319,24 +325,8 @@ def _form_device(ft=np.float64):  # Intentional float64: the usability kernel co
 
     @_nb_cuda.jit(device=True, inline=True)
     def _form(form_id, x0, x1, eps):
-        """``_eval_form`` with the NaN of a near-zero divisor in ``ft`` (a double NaN literal would promote a float32 kernel to double)."""
-        if form_id == FORM_X0:
-            return x0
-        if form_id == FORM_X1:
-            return x1
-        if form_id == FORM_X0_SQ:
-            return x0 * x0
-        if form_id == FORM_X1_SQ:
-            return x1 * x1
-        if form_id == FORM_X0_DIV_X1:
-            return x0 / x1 if abs(x1) >= eps else nan_ft
-        if form_id == FORM_X1_DIV_X0:
-            return x1 / x0 if abs(x0) >= eps else nan_ft
-        if form_id == FORM_X0SQ_DIV_X1:
-            return (x0 * x0) / x1 if abs(x1) >= eps else nan_ft
-        if form_id == FORM_X1SQ_DIV_X0:
-            return (x1 * x1) / x0 if abs(x0) >= eps else nan_ft
-        return x0 * x1
+        """``_eval_form_nan`` with the NaN of a near-zero divisor in ``ft``."""
+        return _eval_form_nan(form_id, x0, x1, eps, nan_ft)
 
     return _form
 
