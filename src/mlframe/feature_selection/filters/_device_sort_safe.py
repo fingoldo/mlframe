@@ -5,6 +5,14 @@ cupy sorts through thrust. A thrust temporary allocation that does not fit a mem
 process terminates (``Fatal Python error: Aborted``) instead of the ``OutOfMemoryError`` every GPU path catches to take its host twin. Here the
 pool behind the current allocator is checked first (its limit and the device's free memory), then the sort's room is reserved through the pool
 under the pool's lock (``sort_room``): a short pool or device raises a cupy ``OutOfMemoryError`` in Python, before thrust runs.
+
+KNOWN GAP (GPU11-15, audits/2026-11-09/_TRACKER.md, found 2026-11-11): ``sort_room``'s lock (``_pool_lock``) is a lock THIS MODULE owns, not
+cupy's own pool-internal lock. It serializes `sort_room`/`device_argsort`/`device_sort` CALLS against EACH OTHER on the same pool, but any OTHER
+code that allocates directly against the SAME pool object (``cp.empty(...)`` under the same ``using_allocator``, bypassing this module entirely)
+is invisible to it and can still race the reserve-then-sort window, reproducing the exact ``Fatal Python error: Aborted`` this module exists to
+prevent (reproduced in a single-threaded-equivalent test harness; see the tracker entry for the measured mechanism). Fixing this for real means
+either threading every cupy allocation site in the project through the same lock (a large, cross-cutting change) or accepting and documenting
+that concurrent allocation on a SHARED pool outside this module is unsupported - a design decision for whoever picks this up, not attempted here.
 """
 
 from __future__ import annotations
