@@ -127,16 +127,16 @@ class MRMRParams(BaseModel):
     fe_max_steps: int = 1
     fe_reselect_after_engineering: bool = True
     fe_raw_retention_max_n: int = 20000
-    fe_rejection_ledger_cap: Optional[int] = None
+    fe_rejection_ledger_cap: int | None = None
     fe_drop_redundant_raw_operands: bool = True
-    fe_keep_linearly_usable_raw_operands: Optional[bool] = None
+    fe_keep_linearly_usable_raw_operands: bool | None = None
     redundancy_policy: str = "drop"
     fe_raw_redundancy_retain_frac: float = 0.15
-    fe_stability_vote_enable: Optional[bool] = True
+    fe_stability_vote_enable: bool | None = True
     fe_stability_vote_k: int | str = 5
     fe_stability_vote_quorum: float = 0.6
     fe_rung_schedule_enable: bool = True
-    fe_rung_keep_frac: float | None = None
+    fe_rung_keep_frac: float | str | None = None
     fe_rung_rel_floor: float = 0.4
     fe_rung_min_pairs: int = 6
     fe_sufficient_summary_early_stop: bool = True
@@ -152,7 +152,7 @@ class MRMRParams(BaseModel):
     fe_escalation_fourier_max_freqs: int = 3
     fe_escalation_max_candidates_per_pair: int = 3
     fe_escalation_pairness_margin: float = 1.15
-    fe_escalation_underdelivery_enable: Optional[bool] = True
+    fe_escalation_underdelivery_enable: bool | None = True
     fe_escalation_underdelivery_excess_frac: float = 0.05
     fe_escalation_underdelivery_self_ratio: float = 3.0
     fe_synergy_prevalence_rescue_enable: bool = True
@@ -187,7 +187,7 @@ class MRMRParams(BaseModel):
     fe_max_polynom_coeff: float = 10.0
     fe_hermite_l2_penalty: float = 0.05
     fe_polynomial_basis: str = "chebyshev"
-    fe_pair_prewarp_enable: Optional[bool] = True
+    fe_pair_prewarp_enable: bool | None = True
     fe_pair_prewarp_basis: str = "chebyshev"
     fe_pair_prewarp_max_degree: int = 4
     fe_gate_med_enable: bool = True
@@ -211,7 +211,7 @@ class MRMRParams(BaseModel):
     sis_dedup_corr_thr: float = 0.92
     cat_fe_config: Any = None
     fit_cache_max: int = 4
-    fit_cache_max_mb: Optional[float] = None
+    fit_cache_max_mb: float | None = None
     fe_adaptive_threshold_relax: bool = True
     fe_adaptive_relax_factor: float = 0.9
     mrmr_identity_cache_include_y: bool = True
@@ -224,7 +224,7 @@ class MRMRParams(BaseModel):
     build_friend_graph: bool = False
     friend_graph_prune: bool = False
     friend_graph_max_nodes: int = 200
-    friend_graph_gpu_backend: Optional[str] = None
+    friend_graph_gpu_backend: str | None = None
     friend_graph_mi_eps: float = 1e-06
     friend_graph_edge_significance: float = 3.0
     friend_graph_garbage_min_degree: int = 3
@@ -269,7 +269,7 @@ class MRMRParams(BaseModel):
     fe_univariate_fourier_adaptive_min_val_corr: float = 0.15
     fe_univariate_fourier_chirp: bool = True
     fe_univariate_fourier_chirp_min_val_corr: float = 0.15
-    fe_univariate_fourier_adaptive_max_cols: Optional[int] = 100
+    fe_univariate_fourier_adaptive_max_cols: int | None = 100
     fe_hinge_enable: bool = True
     fe_hinge_top_k: int = 5
     fe_hinge_max_breakpoints: int = 2
@@ -294,7 +294,7 @@ class MRMRParams(BaseModel):
     fe_pair_usability_admission_pairness_margin: float = 1.05
     fe_pair_usability_admission_rank_frac: float = 0.7
     fe_raw_tail_subsume_min_corr: float = 0.85
-    fe_pair_usability_prescan_max_pairs: int = 256
+    fe_pair_usability_prescan_max_pairs: int | None = None
     fe_prevalence_rescue_all_pairs: bool = False
     fe_multi_emit_max_per_pair: int = 1
     fe_multi_emit_mi_floor: float = 0.5
@@ -338,7 +338,7 @@ class MRMRParams(BaseModel):
     fe_hybrid_orth_adaptive_arity_seed_k: int = 4
     fe_hybrid_orth_adaptive_arity_top_count: int = 3
     fe_budget_learning: bool | str = "auto"
-    fe_budget_kwargs: Optional[dict] = None
+    fe_budget_kwargs: dict | None = None
     fe_semi_supervised_enable: bool = True
     fe_hybrid_orth_lasso_enable: bool = True
     fe_hybrid_orth_lasso_alpha: float = 0.01
@@ -389,7 +389,7 @@ class MRMRParams(BaseModel):
     fe_hybrid_orth_ensemble_aggregator: Literal["mean_rank", "borda_count", "reciprocal_rank", "mutual_top_k"] = "mean_rank"
     fe_hybrid_orth_ensemble_scorers: tuple = ("plug_in", "ksg", "copula", "dcor", "hsic")
     fe_hybrid_orth_meta_enable: bool = True
-    fe_hybrid_orth_meta_force_scorer: Optional[str] = None
+    fe_hybrid_orth_meta_force_scorer: str | None = None
     fe_hybrid_orth_default_scorer: Literal[
         "plug_in", "cmim", "jmim", "tc", "ksg", "copula", "dcor", "hsic", "auto", "ensemble", "meta", "lasso", "elasticnet", "auto_oracle"
     ] = "plug_in"
@@ -532,7 +532,7 @@ class MRMRParams(BaseModel):
     fe_random_fourier_enable: bool = True
     fe_random_fourier_cols: tuple = ()
     fe_random_fourier_m: int = 64
-    fe_random_fourier_bandwidth: Optional[float] = None
+    fe_random_fourier_bandwidth: float | None = None
     fe_random_fourier_max_cols_for_block: int = 8
     fe_random_fourier_top_k: int = 8
     fe_sir_direction_enable: bool = True
@@ -576,7 +576,7 @@ class MRMRParams(BaseModel):
     fe_target_mix_scan_rows: int = 20000
     fe_residual_rescue_operand_min_linear_gain: float = 0.001
     fe_wavelet_enable: bool = True
-    fe_wavelet_max_cols: Optional[int] = 100
+    fe_wavelet_max_cols: int | None = 100
     fe_wavelet_cols: tuple = ()
     fe_wavelet_max_scale: int = 3
     fe_shape_pool: str = "all"
@@ -611,7 +611,7 @@ class MRMRParams(BaseModel):
     usability_max_base_features: int = 16
     usability_pool_kwargs: dict | None = None
     usability_greedy_kwargs: dict | None = None
-    multioutput_strategy: Optional[str] = "union"
+    multioutput_strategy: str | None = "union"
     fast_search_config: Any = None
     stability_config: Any = None
     synergy_config: Any = None
