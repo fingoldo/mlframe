@@ -113,6 +113,24 @@ def test_no_eligible_leg_gives_an_empty_result():
     assert _reference(z, 3, 50)[0] == []
 
 
+def test_a_refused_cushion_returns_none_without_allocating(monkeypatch):
+    """GPU11-13/14 class fix: when the VRAM cushion is refused, the function returns None before the tr/va code matrices allocation, instead of attempting and failing it on every call."""
+    import mlframe.feature_selection.filters._fe_gpu_vram as vram_mod
+
+    called = {"n": 0}
+
+    def _declining(*a, **k):
+        """Stand-in for fe_gpu_has_vram_cushion that always declines, counting its own calls."""
+        called["n"] += 1
+        return False
+
+    monkeypatch.setattr(vram_mod, "fe_gpu_has_vram_cushion", _declining)
+    z = cp.asarray(np.random.default_rng(0).random(2000))
+    out = leg_code_matrices(cp, z, 3, 10)
+    assert out is None
+    assert called["n"] == 1, "the cushion check must run exactly once, before any allocation"
+
+
 def test_the_selection_is_unchanged_end_to_end(monkeypatch):
     """The admitted legs equal those of the per-leg path for a column with real dyadic structure."""
     rng = np.random.default_rng(5)
