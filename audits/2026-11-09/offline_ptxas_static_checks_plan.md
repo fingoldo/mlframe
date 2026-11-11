@@ -71,8 +71,8 @@ and gate the results the same way as the existing kernel contract (ratchet tests
    `{UPPER}`, `%UPPER%`, `__UPPER__`.
 8. nvcc 12.8 warns that offline compilation below sm_75 will be removed in a future release. Add a TOOLCHAIN disposition
    for sm_52 and sm_61 as well as for the ptxas version.
-9. Scope: 109 files contain `__global__`, the plan says 85 kernels. Decide whether `_benchmarks/` and prototypes are in
-   scope and record the decision.
+9. Scope: 109 files contain `__global__`, the plan says 85 kernels. DECIDED (user, 2026-11-11): `_benchmarks/` and
+   `fe_operator_factory/kernel_prototypes/` are OUT of scope; production modules are IN. Recorded here so it is not re-litigated.
 
 ## Additions
 
