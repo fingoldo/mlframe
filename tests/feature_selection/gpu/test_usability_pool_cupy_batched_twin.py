@@ -35,6 +35,24 @@ def test_batched_twin_splits_into_batches_without_changing_the_result(monkeypatc
     assert np.array_equal(whole, split)
 
 
+def test_a_refused_cushion_raises_without_allocating(monkeypatch):
+    """GPU11-13/14 class fix: when the VRAM cushion is refused, the function raises before the (n, m) candidate block allocation, instead of attempting and failing it on every remaining batch."""
+    import mlframe.feature_selection.filters._fe_gpu_vram as vram_mod
+
+    called = {"n": 0}
+
+    def _declining(*a, **k):
+        """Stand-in for fe_gpu_has_vram_cushion that always declines, counting its own calls."""
+        called["n"] += 1
+        return False
+
+    monkeypatch.setattr(vram_mod, "fe_gpu_has_vram_cushion", _declining)
+    args = pool._make_usability_inputs({"n_rows": 2_000, "n_combos": 16})
+    with pytest.raises(RuntimeError, match="VRAM cushion"):
+        pool._pair_combo_mi_cupy(*args)
+    assert called["n"] == 1, "the cushion check must run exactly once, before any allocation"
+
+
 def test_batched_twin_is_much_cheaper_per_combo_than_the_loop_twin():
     """The loop twin costs milliseconds per combo; the batched one must beat it by a wide margin on paired interleaved trials, with identical output."""
     args = pool._make_usability_inputs({"n_rows": 10_000, "n_combos": 289})

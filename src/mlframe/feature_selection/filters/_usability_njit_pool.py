@@ -282,6 +282,15 @@ def _pair_combo_mi_cupy(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
     for start in range(0, nc, batch):
         stop = min(start + batch, nc)
         m = stop - start
+        # The batch width above is sized from a FIXED byte budget, not the device's actual free VRAM, so it
+        # does not adapt when the pool is already tight (e.g. from the resident-operand cache). Without this
+        # check, a pool pinned near its limit fails the SAME doomed (n, m) allocation on every remaining
+        # batch of every remaining pair with the same OutOfMemoryError (the GPU11-13/14 pattern) instead of
+        # raising once so the caller's own try/except (line ~532) routes the rest of this pair to the CPU.
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        if not fe_gpu_has_vram_cushion(n * m * 8):
+            raise RuntimeError("GPU VRAM cushion refused for the pair-combo candidate block; CPU fallback")
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         V = cp.empty((n, m), dtype=cp.float64)
         for bn in np.unique(bn_arr[start:stop]):
