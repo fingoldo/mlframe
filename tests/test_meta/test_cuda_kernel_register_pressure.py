@@ -33,6 +33,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "lof_gpu.lof_scores_wide": (
+        "mlframe.feature_selection.filters._lof_gpu",
+        "kernel_wide",
+        ("float32", "float64"),
+    ),
 }
 
 # kernel name -> reason a register spill is accepted for it. Empty is the default: fix the kernel instead of exempting
@@ -48,16 +53,6 @@ _SPILL_EXEMPT: dict[str, str] = {
         "that already had one silent-divergence incident from a tolerance mismatch (see "
         "audits/2026-10-22/profiles/_fe_accuracy_gate_kernel.md); not worth the risk for this occupancy-limited, "
         "already compute-bound kernel per CUDA.md section 3 (a spill is not worth a higher occupancy)."
-    ),
-    "lof_gpu.lof_scores": (
-        "896 bytes/thread (float32; num_regs=40). lof_scores' per-thread best_d[KMAX=64]/best_j[KMAX=64]/xi[PMAX=16] "
-        "top-k insertion-sort arrays are indexed by the loop variables pos/t/L, which only resolve at runtime (k is a "
-        "kernel argument, not a compile-time constant), so the compiler cannot promote them to registers. Shrinking "
-        "KMAX/PMAX would cap MAX_NEIGHBOURS/MAX_DIMS below what the host crossover sweep (_run_sweep) already found "
-        "device-favourable for; moving the arrays to shared memory would trade this per-thread local-memory traffic "
-        "for cross-thread shared-memory bank conflicts on the same insertion-sort access pattern, not a clear win. "
-        "Not worth the rewrite risk for an algorithm already compute-bound by the O(m*p) distance loop per CUDA.md "
-        "section 3 (a spill is not worth a higher occupancy when the kernel is not occupancy-limited)."
     ),
 }
 
