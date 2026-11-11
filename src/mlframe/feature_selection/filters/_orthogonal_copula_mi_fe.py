@@ -272,6 +272,18 @@ def _copula_columns_radix_njit(cols_rows: np.ndarray, vi: np.ndarray, nb: int, o
         out[j] = _copula_mi_from_order(col, radix_order_f32(col), vi, nb)
 
 
+def _copula_block_values(rows: np.ndarray, vi: np.ndarray, nb: int) -> np.ndarray:
+    """Copula MI of every row of ``rows`` (columns as rows): the device kernel when it applies and succeeds, else the compiled host kernel."""
+    from ._orthogonal_copula_gpu import copula_columns_device, use_device
+
+    vals = copula_columns_device(rows, vi, nb) if use_device(int(rows.shape[1])) else None
+    if vals is None:
+        vals = np.empty(rows.shape[0], dtype=np.float64)  # Intentional float64: statistic output kept f64
+        with parallel_kernel_entry():
+            (_copula_columns_radix_njit if rows.dtype == np.float32 else _copula_columns_njit)(rows, vi, nb, vals)
+    return vals
+
+
 def _copula_mi_batch(
     X: np.ndarray, y: np.ndarray, *, n_bins: int = 20, y_side: Optional[np.ndarray] = None, device_block: Optional[Any] = None,
 ) -> np.ndarray:
@@ -328,13 +340,7 @@ def _copula_mi_batch(
                 break
             cols_idx = fast[s0 : s0 + block]
             rows = np.ascontiguousarray(X_arr[:, cols_idx].T)
-            from ._orthogonal_copula_gpu import copula_columns_device, use_device
-
-            vals = copula_columns_device(rows, vi_fast, nb_fast) if use_device(int(rows.shape[1])) else None
-            if vals is None:
-                vals = np.empty(len(cols_idx), dtype=np.float64)  # Intentional float64: statistic output kept f64
-                with parallel_kernel_entry():
-                    (_copula_columns_radix_njit if rows.dtype == np.float32 else _copula_columns_njit)(rows, vi_fast, nb_fast, vals)
+            vals = _copula_block_values(rows, vi_fast, nb_fast)
             out[cols_idx] = vals
             done[cols_idx] = True
     for j in range(X_arr.shape[1]):
