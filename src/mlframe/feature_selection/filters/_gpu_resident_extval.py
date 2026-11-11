@@ -126,6 +126,15 @@ def gpu_materialise_extval_codes_host(
         if n == 0 or n_ops == 0 or n_ext == 0:
             return None
         K = n_ext * n_ops
+        # Cushion-check BEFORE the (n, K) candidate matrix: without it, a device pool already pinned at its
+        # limit (e.g. by the resident-operand cache) fails this call's allocation on EVERY (base, external-
+        # factor-set) pair with the SAME OutOfMemoryError, each attempt paying cupy's own allocator work for a
+        # request that cannot succeed until something else frees VRAM (the exact pattern fixed in
+        # perm_null_residue_mis_resident, GPU11-13). One cheap memGetInfo here skips straight to the host path.
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        if not fe_gpu_has_vram_cushion(n * K * np.dtype(_real).itemsize):
+            return None
         out_dev = _candidate_matrix(cp, pa, param_b_list, _ops, n, n_ops, resident_operand)
         if out_dev is None:
             return None

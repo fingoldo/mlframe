@@ -73,3 +73,29 @@ def test_device_extval_none_on_empty() -> None:
     """Degenerate inputs return None (caller keeps the host path), never raise."""
     assert gpu_materialise_extval_codes_host(np.zeros(0), [], _ALL_OPS, 10) is None
     assert gpu_materialise_extval_codes_host(np.zeros(100), [np.zeros(100)], np.array([], dtype=np.int8), 10) is None
+
+
+@pytest.mark.gpu
+def test_a_refused_cushion_returns_none_without_allocating(monkeypatch) -> None:
+    """GPU11-13 class fix: when the VRAM cushion is refused, the function returns None before the (n, K) candidate
+    matrix allocation, instead of attempting and failing it on every call."""
+    import mlframe.feature_selection.filters._gpu_resident_extval as ext_mod
+
+    called = {"n": 0}
+
+    def _declining(*a, **k):
+        """Stand-in for fe_gpu_has_vram_cushion that always declines, counting its own calls."""
+        called["n"] += 1
+        return False
+
+    monkeypatch.setattr(ext_mod, "fe_gpu_has_vram_cushion", _declining, raising=False)
+    import mlframe.feature_selection.filters._fe_gpu_vram as vram_mod
+
+    monkeypatch.setattr(vram_mod, "fe_gpu_has_vram_cushion", _declining)
+    rng = np.random.default_rng(0)
+    n = 2000
+    param_a = rng.standard_normal(n).astype(np.float64)
+    param_b_list = [rng.standard_normal(n).astype(np.float64)]
+    out = gpu_materialise_extval_codes_host(param_a, param_b_list, _ALL_OPS, 10)
+    assert out is None
+    assert called["n"] == 1, "the cushion check must run exactly once, before any allocation"
