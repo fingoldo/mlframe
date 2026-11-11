@@ -66,3 +66,14 @@ def test_device_success_passes_the_block_arguments_and_advances_one_seed(monkeyp
     _y, m, seed, n_y, words = calls[0]
     assert (m, seed, n_y, words) == (3, expected_seed, 2, 1)
     assert rng.integers(0, 10**9) == reference.integers(0, 10**9)
+
+
+def test_budgeted_perm_block_never_goes_below_one_permutation():
+    """A block of one permutation stays one, whatever the row count, so the caller always makes progress."""
+    assert gate._budgeted_perm_block(1, 1000) == 1
+    assert gate._budgeted_perm_block(1, 10**9) == 1
+
+
+def test_budgeted_perm_block_with_zero_rows_is_the_full_budget_over_one_byte_per_row():
+    """With no rows the per-row cost guard is one, so the budget is the whole byte budget in indices."""
+    assert gate._budgeted_perm_block(10**9, 0) == gate._PERM_BLOCK_BUDGET_BYTES
