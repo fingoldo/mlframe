@@ -57,8 +57,8 @@ def test_device_success_passes_the_block_arguments_and_advances_one_seed(monkeyp
     monkeypatch.setenv("MLFRAME_PERM_LABELS_DEVICE", "1")
     calls = []
     monkeypatch.setattr(dev, "device_label_bits", lambda *a: calls.append(a) or np.zeros(1))
-    rng = np.random.default_rng(5)
-    reference = np.random.default_rng(5)
+    rng = np.random.default_rng(6)
+    reference = np.random.default_rng(6)
     y = np.zeros(gate._DEVICE_LABELS_MIN_ROWS, dtype=np.int64)
     gate._device_label_bits_or_none(rng, y, 3, 2, 1)
     expected_seed = int(reference.integers(0, 2**31 - 1))
