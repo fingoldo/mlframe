@@ -143,11 +143,17 @@ def test_biz_val_entity_time_composite_wiring_recency_beats_unweighted_mean():
     metadata: dict = {}
     out_df, _, _ = apply_entity_time_composite_fe(df, None, None, cfg, group_ids, ts, np.arange(n), None, None, metadata=metadata, verbose=0)
 
-    unweighted_mean = pd.Series(val).groupby(group_ids).transform("mean").to_numpy()
+    # Causal baseline: the plain mean over rows up to and including each row. The wired aggregate is causal (a row never sees
+    # later observations, W21FE-2), so the whole-group mean would compare it against future rows.
+    _s = pd.Series(val)
+    unweighted_mean = (_s.groupby(group_ids).cumsum() / (_s.groupby(group_ids).cumcount() + 1)).to_numpy()
     recency_mean = out_df["val_col__recency_mean"].to_numpy()
 
-    rmse_unweighted = float(np.sqrt(mean_squared_error(target, unweighted_mean)))
-    rmse_recency = float(np.sqrt(mean_squared_error(target, recency_mean)))
+    # Score the post-shift rows only: a causal row before the shift can only see the old regime, so no causal aggregate tracks
+    # the new level there. After the shift the recent rows carry the new level and the aggregate should follow it.
+    post = within_group_pos >= rows_per_group // 2
+    rmse_unweighted = float(np.sqrt(mean_squared_error(target[post], unweighted_mean[post])))
+    rmse_recency = float(np.sqrt(mean_squared_error(target[post], recency_mean[post])))
 
     assert rmse_recency < rmse_unweighted * 0.5, (
         f"recency-weighted aggregation should track the post-shift level far better than a plain mean, "
