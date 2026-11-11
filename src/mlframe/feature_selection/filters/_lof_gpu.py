@@ -104,11 +104,6 @@ def kernel(cp: Any, real: Any, k: int = DEFAULT_K, p: int = DEFAULT_P) -> Any:
         return mod.get_function("lof_scores")
 
 
-def kernel_wide(cp: Any, real: Any) -> Any:
-    """``lof_scores`` at the largest supported shape (MAX_NEIGHBOURS neighbours, MAX_DIMS coordinates): the shared-memory top-k path."""
-    return kernel(cp, real, MAX_NEIGHBOURS, MAX_DIMS)
-
-
 def lof_transform_gpu(X_new: np.ndarray, X_ref: np.ndarray, lrd_ref: np.ndarray, k_distance_ref: np.ndarray, k_eff: int, rows_per_launch: int = 4_000_000) -> "np.ndarray | None":
     """LOF scores of the rows of ``X_new`` against the frozen reference, or ``None`` when the shape is outside the kernel (the host path then runs)."""
     n, p = int(X_new.shape[0]), int(X_new.shape[1])
@@ -218,4 +213,4 @@ except Exception as e:
     logger.warning("kernel_tuner spec build for fe_lof_device failed: %s", e)
     _SPEC = None
 
-__all__ = ["lof_transform_gpu", "use_device_lof", "kernel", "kernel_wide"]
+__all__ = ["lof_transform_gpu", "use_device_lof", "kernel"]

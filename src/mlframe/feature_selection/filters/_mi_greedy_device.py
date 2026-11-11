@@ -23,7 +23,7 @@ import pandas as pd
 
 from ._device_sort_safe import device_room
 from ._fe_usability_signal import _crit_np_dtype
-from ._ktc_fallback import device_from_rows
+from ._ktc_fallback import rows_fallback
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -197,9 +197,7 @@ _SWEEP_ROWS = [5_000, 30_000, 100_000]
 _SALT = 1
 
 
-def _fallback_choice(n_samples: int) -> str:
-    """Pre-sweep fallback: the host unless ``DEVICE_FALLBACK_ROWS`` is lowered."""
-    return device_from_rows(n_samples, DEVICE_FALLBACK_ROWS)
+_fallback_choice = rows_fallback(__name__)
 
 
 try:
