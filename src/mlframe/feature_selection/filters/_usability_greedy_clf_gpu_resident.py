@@ -291,6 +291,15 @@ def usability_greedy_clf_gpu_resident(
         return None
     except Exception as e:
         logger.warning("usability_greedy_clf_gpu_resident: cupy/device error, falling back to the exact CPU greedy: %s", e)
+        try:
+            import cupy as _cp
+
+            if isinstance(e, _cp.cuda.memory.OutOfMemoryError):
+                from ._fe_gpu_vram import note_gpu_oom
+
+                note_gpu_oom()  # GPU11-13: the cushion check above passed but a race against another allocation (or a per-fold allocation deeper in the loop) can still OOM here.
+        except Exception:  # nosec B110 - best-effort cooldown note, never let it mask the original failure
+            pass
         return None
 
 

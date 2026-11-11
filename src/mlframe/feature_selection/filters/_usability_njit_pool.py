@@ -541,6 +541,15 @@ def score_pair_combos(
                 return cast(np.ndarray, _pair_combo_mi_cupy(*args))
             except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
                 logger.debug("_pair_combo_mi_cupy failed, falling through to CPU: %s", e)
+                try:
+                    import cupy as _cp
+
+                    if isinstance(e, _cp.cuda.memory.OutOfMemoryError):
+                        from ._fe_gpu_vram import note_gpu_oom
+
+                        note_gpu_oom()  # GPU11-13: a real device OOM here (the cushion refusal above raises RuntimeError, not this) arms the shared cooldown for other callers.
+                except Exception:  # nosec B110 - best-effort cooldown note, never let it mask the original failure
+                    pass
         # cupy missing / disabled / device error -> CPU. Re-resolve serial-vs-parallel for the CPU twin.
         choice = _usability_fallback_choice(n_rows, nc)
 

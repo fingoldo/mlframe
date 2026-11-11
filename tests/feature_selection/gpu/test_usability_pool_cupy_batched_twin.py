@@ -53,6 +53,36 @@ def test_a_refused_cushion_raises_without_allocating(monkeypatch):
     assert called["n"] == 1, "the cushion check must run exactly once, before any allocation"
 
 
+def test_an_oom_in_the_gpu_branch_notes_the_shared_cooldown(monkeypatch):
+    """GPU11-13 follow-up: score_pair_combos's "gpu" branch catches any _pair_combo_mi_cupy failure and falls
+    through to CPU; when that failure is an OutOfMemoryError (not the cushion-refusal RuntimeError, nor an
+    unrelated error), it must arm the shared cooldown for other call sites."""
+    pytest.importorskip("cupy")
+    import cupy as cp
+    import mlframe.feature_selection.filters._fe_gpu_vram as vram_mod
+
+    vram_mod._reset_gpu_oom_cooldown()
+    monkeypatch.setattr(pool, "_usability_backend_choice", lambda *a, **k: "gpu")
+
+    def _boom(*a, **k):
+        """Simulate the resident candidate build hitting the pool's own OutOfMemoryError."""
+        raise cp.cuda.memory.OutOfMemoryError(1, 0, 0)
+
+    monkeypatch.setattr(pool, "_pair_combo_mi_cupy", _boom)
+    rng = np.random.default_rng(3)
+    n = 500
+    x1 = rng.standard_normal(n)
+    x2 = rng.exponential(1.2, n)
+    y_codes = rng.integers(0, 3, n).astype(np.int64)
+    cy = np.bincount(y_codes).astype(np.float64) / n
+    h_y = float(-(cy[cy > 0] * np.log(cy[cy > 0])).sum())
+    k_y = int(y_codes.max()) + 1
+    out = pool.score_pair_combos(x1, x2, y_codes, (y_codes, h_y, k_y), 10, [0, 1], [0, 1], [0, 1])
+    assert out is not None  # falls through to the CPU twin, never raises
+    assert vram_mod._in_oom_cooldown() is True
+    vram_mod._reset_gpu_oom_cooldown()
+
+
 def test_batched_twin_is_much_cheaper_per_combo_than_the_loop_twin():
     """The loop twin costs milliseconds per combo; the batched one must beat it by a wide margin on paired interleaved trials, with identical output."""
     args = pool._make_usability_inputs({"n_rows": 10_000, "n_combos": 289})

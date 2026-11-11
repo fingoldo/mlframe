@@ -133,6 +133,31 @@ def test_a_refused_cushion_returns_none_without_allocating(monkeypatch):
     assert called["n"] == 1, "the cushion check must run exactly once, before the candidate matrix upload"
 
 
+def test_an_oom_past_the_cushion_check_notes_the_shared_cooldown(monkeypatch):
+    """GPU11-13 follow-up: the cushion check above can pass yet the device still OOM on a race against another
+    allocation (or a per-fold allocation deeper in the greedy loop); that OOM must arm the shared cooldown."""
+    pytest.importorskip("cupy")
+    import cupy as cp
+    import mlframe.feature_selection.filters._fe_gpu_vram as vram_mod
+    from mlframe.feature_selection.filters._usability_greedy_clf_gpu_resident import usability_greedy_clf_gpu_resident
+
+    vram_mod._reset_gpu_oom_cooldown()
+    orig_asarray = cp.asarray
+
+    def _boom(arr, *a, **k):
+        """Raise on the (n, P) candidate matrix upload only; pass other small arrays through untouched."""
+        if hasattr(arr, "ndim") and getattr(arr, "ndim", 0) == 2:
+            raise cp.cuda.memory.OutOfMemoryError(1, 0, 0)
+        return orig_asarray(arr, *a, **k)
+
+    monkeypatch.setattr(cp, "asarray", _boom)
+    pool, y = _make_pool(500, 0, True, n_classes=2)
+    out = usability_greedy_clf_gpu_resident(pool, y, seed=0, K=4, n_folds=4, shortlist=8, mae_improve_rel=0.005)
+    assert out is None
+    assert vram_mod._in_oom_cooldown() is True
+    vram_mod._reset_gpu_oom_cooldown()
+
+
 def test_multiclass_defers_to_cpu():
     """>2 classes: the resident twin returns None and the dispatch falls back to the exact CPU selection.
 
