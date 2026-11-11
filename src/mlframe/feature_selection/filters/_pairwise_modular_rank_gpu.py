@@ -14,6 +14,8 @@ from typing import Optional, cast
 import threading
 import numpy as np
 
+from ._kernel_arch_macros import ARCH_THREADS_HEADER
+
 from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
@@ -254,13 +256,13 @@ _TABLE_MAX_BYTES = 1 << 30  # the residue table is refused above this size and t
 _KERNEL_SOURCES = {
     1: _KERNEL_TEMPLATE.replace("__BOUNDS__", "").replace("__REDUCE__", _REDUCE_V1),
     2: _KERNEL_TEMPLATE.replace("__BOUNDS__", "").replace("__REDUCE__", _REDUCE_V2),
-    # Version 3: version 2 capped at 32 registers per thread (__launch_bounds__(128, 16)) so a Pascal SM holds 16 blocks, i.e. full occupancy.
-    3: _KERNEL_TEMPLATE.replace("__BOUNDS__", "__launch_bounds__(128, 16)").replace("__REDUCE__", _REDUCE_V2),
-    4: _KERNEL_V4_TEMPLATE.replace("__BOUNDS__", "__launch_bounds__(128, 16)"),
+    # Version 3: version 2 capped at 32 registers per thread (__launch_bounds__(128, MLF_THREADS_PER_SM / 128)) so a Pascal SM holds 16 blocks, i.e. full occupancy.
+    3: _KERNEL_TEMPLATE.replace("__BOUNDS__", "__launch_bounds__(128, MLF_THREADS_PER_SM / 128)").replace("__REDUCE__", _REDUCE_V2),
+    4: _KERNEL_V4_TEMPLATE.replace("__BOUNDS__", "__launch_bounds__(128, MLF_THREADS_PER_SM / 128)"),
     5: _KERNEL_V4_TEMPLATE.replace("__BOUNDS__", ""),  # version 4 without the cap: shows the registers the leaner body needs by itself
-    6: _KERNEL_V6_TEMPLATE.replace("__BOUNDS__", "__launch_bounds__(128, 16)"),
-    7: _KERNEL_V7_TEMPLATE.replace("__BOUNDS__", "__launch_bounds__(128, 16)"),
-    8: _KERNEL_V8_TEMPLATE.replace("__BOUNDS__", "__launch_bounds__(128, 16)"),
+    6: _KERNEL_V6_TEMPLATE.replace("__BOUNDS__", "__launch_bounds__(128, MLF_THREADS_PER_SM / 128)"),
+    7: _KERNEL_V7_TEMPLATE.replace("__BOUNDS__", "__launch_bounds__(128, MLF_THREADS_PER_SM / 128)"),
+    8: _KERNEL_V8_TEMPLATE.replace("__BOUNDS__", "__launch_bounds__(128, MLF_THREADS_PER_SM / 128)"),
 }
 _DEFAULT_VERSION = 8
 _kernels: dict = {}
@@ -289,7 +291,7 @@ def _get_kernel(version: Optional[int] = None, wide: bool = True):
         if key not in _kernels:
             import cupy as cp
 
-            src = render(_KERNEL_SOURCES[v]).replace("__COLT__", "long long" if wide else "int")
+            src = ARCH_THREADS_HEADER + render(_KERNEL_SOURCES[v]).replace("__COLT__", "long long" if wide else "int")
             _kernels[key] = cp.RawKernel(src, "residue_rank")
         return _kernels[key]
 
