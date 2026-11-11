@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -26,6 +25,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from _offline_kernel_report import ARCH_LIMITS, build_ptx_and_report, entry_reports, local_device_limits, markdown, occupancy, required_arch
 from _offline_kernel_sources import KernelVariant, all_variants, leftover_placeholders
 
 _ALL_ARCHS = (61, 70, 75, 86, 89, 90, 120)  # sm_52 is out: double atomicAdd needs sm_60+, and its Maxwell cards are legacy
@@ -79,6 +79,7 @@ def _variant_id(v: KernelVariant) -> str:
 
 
 _VARIANTS = all_variants()
+_REPORT_ROWS: list = []  # filled by the per-arch test as it runs; the report test below reads it (a partial list under xdist only shortens the report)
 
 
 def test_every_spill_exemption_names_a_real_kernel_and_a_reason():
@@ -114,26 +115,16 @@ def test_every_production_kernel_source_is_covered():
 @pytest.mark.parametrize("variant", _VARIANTS, ids=_variant_id)
 def test_kernel_assembles_without_spill_on_arch(variant: KernelVariant, arch: int, tmp_path):
     """NVRTC then ptxas -v: compiles, one resource block per entry, no stack frame or spill, no unlisted warning."""
-    nvrtc = pytest.importorskip("cupy_backends.cuda.libs.nvrtc")
+    pytest.importorskip("cupy_backends.cuda.libs.nvrtc")
     ptxas = _ptxas()
     if leftover_placeholders(variant):
         pytest.fail(f"unresolved placeholders {leftover_placeholders(variant)}")
-    prog = nvrtc.createProgram(variant.source, "k.cu", [], [])
     try:
-        nvrtc.compileProgram(prog, ["-std=c++14", f"-arch=compute_{arch}", *variant.options])
-        ptx = nvrtc.getPTX(prog)
-    except Exception as exc:
-        log = nvrtc.getProgramLog(prog)
-        errors = [ln for ln in log.splitlines() if "error" in ln.lower()]
-        pytest.fail(f"NVRTC failed on sm_{arch}: {'; '.join(errors[:3]) or exc}")
-    finally:
-        nvrtc.destroyProgram(prog)
-    ptx = re.sub(rb"\.version \d+\.\d+", b".version 8.7", ptx)
-    path = tmp_path / "k.ptx"
-    path.write_bytes(ptx)
-    res = subprocess.run([ptxas, "-v", f"-arch=sm_{arch}", "-o", str(tmp_path / "k.cubin"), str(path)], capture_output=True, text=True)
-    report = res.stdout + res.stderr
-    assert res.returncode == 0, f"ptxas failed on sm_{arch}: {report[-500:]}"
+        ptx_text, report = build_ptx_and_report(variant.source, variant.options, arch, ptxas, tmp_path)
+    except RuntimeError as exc:
+        pytest.fail(str(exc))
+    ptx = ptx_text.encode()
+    _REPORT_ROWS.extend(entry_reports(_variant_id(variant), arch, ptx_text, report))
 
     entry_names = [n.decode() for n in re.findall(rb"\.entry\s+(\w+)", ptx)]
     assert entry_names, "no .entry in the PTX"
@@ -172,3 +163,52 @@ def test_no_kernel_hardcodes_the_min_blocks_of_launch_bounds():
             if "__launch_bounds__" in line and m and not line.lstrip().startswith("#") and not _fits_every_arch(m.group(0)):
                 hits.append(f"{path.relative_to(root).as_posix()}:{no}: {line.strip()[:90]}")
     assert not hits, "literal minBlocks in __launch_bounds__: " + "; ".join(hits)
+
+
+def test_occupancy_arithmetic_on_known_cases():
+    """The occupancy model on hand-computed cases: thread-limited, register-limited, shared-memory-limited and block-count-limited."""
+    assert occupancy(61, 32, 0, 128) == (1.0, "threads")  # 16 blocks of 128 = 2048 threads
+    occ, why = occupancy(61, 255, 0, 256)  # 255 regs -> 8192 per warp-group x 8 warps = 65536: one block, 256 of 2048 threads
+    assert (occ, why) == (0.125, "registers")
+    occ, why = occupancy(75, 32, 48 * 1024, 128)  # 64 KB per SM / 48 KB: one block of 128 on a 1024-thread SM
+    assert (occ, why) == (0.125, "shared")
+    occ, why = occupancy(61, 16, 0, 32)  # 32-thread blocks: the 32-block cap, 1024 of 2048 threads
+    assert (occ, why) == (0.5, "blocks")
+
+
+def test_architecture_limit_table_matches_the_local_device():
+    """The threads-per-SM and blocks-per-SM rows of ARCH_LIMITS agree with what the local device reports (the other rows are the documented table, not a measurement)."""
+    local = local_device_limits()
+    if local is None:
+        pytest.skip("no CUDA device to read limits from")
+    arch, threads, blocks = local
+    if arch not in ARCH_LIMITS:
+        pytest.skip(f"sm_{arch} is not in the table")
+    assert (threads, blocks) == ARCH_LIMITS[arch][:2], f"sm_{arch}: device says {(threads, blocks)}, table says {ARCH_LIMITS[arch][:2]}"
+
+
+# kernel key -> reason a kernel that names an intrinsic needing an architecture newer than sm_61 is accepted (a text hit that is guarded by __CUDA_ARCH__, or a gate that skips the card).
+_NEWER_ARCH_OK: dict = {}
+
+
+def test_kernels_using_a_newer_architecture_intrinsic_are_listed():
+    """Every kernel whose source names an intrinsic that needs more than sm_61 is accepted explicitly: the matrix compiles for sm_61 too, so an unguarded one would already fail there; a
+    guarded one needs its reason recorded."""
+    needs = {v.key: required_arch(v.source) for v in _VARIANTS}
+    unlisted = {k: a for k, a in needs.items() if a > 61 and k not in _NEWER_ARCH_OK}
+    assert not unlisted, f"kernels naming an intrinsic newer than sm_61 without a recorded reason: {unlisted}"
+
+
+def test_report_builds_and_can_be_written():
+    """The occupancy / FP64 / intrinsic report builds from the collected rows (every row sane); ``MLFRAME_OFFLINE_REPORT=<path>`` writes it (CI keeps it as an artifact)."""
+    if not _REPORT_ROWS:
+        pytest.skip("the per-arch test did not run in this process")
+    for r in _REPORT_ROWS:
+        assert r.registers > 0 and r.registers <= 255, r
+        occ, _ = occupancy(r.arch, r.registers, r.static_shared, 256)
+        assert 0.0 <= occ <= 1.0
+    text = markdown(_REPORT_ROWS, {v.key: required_arch(v.source) for v in _VARIANTS})
+    assert "Offline kernel report" in text
+    out = os.environ.get("MLFRAME_OFFLINE_REPORT")
+    if out:
+        Path(out).write_text(text, encoding="utf-8")
