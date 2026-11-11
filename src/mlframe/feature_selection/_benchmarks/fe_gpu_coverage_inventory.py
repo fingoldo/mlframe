@@ -85,7 +85,7 @@ def row(name: str) -> tuple[str, str, int, int, int]:
 REPO_ROOT = Path(__file__).resolve().parents[4]
 PROFILES_DIR = REPO_ROOT / "audits" / "2026-10-22" / "profiles"
 CPU_KERNEL = re.compile(r"@njit|numba\.njit|\bnjit\(")
-GPU_KERNEL = re.compile(r"RawKernel|cuda\.jit|ElementwiseKernel")
+GPU_KERNEL = re.compile(r"RawKernel|RawModule|cuda\.jit|ElementwiseKernel")
 KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 CRIT_DTYPE = re.compile(r"_crit_np_dtype|crit_float_dtype|Intentional float64")
 BLOCK_STREAMING = re.compile(r"block_cols|BLOCK_COLS|column block|best_pair_streamed")
