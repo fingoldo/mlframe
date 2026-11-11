@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 
@@ -67,6 +67,12 @@ extern "C" __global__ void lof_scores(const {REAL}* __restrict__ X, const {REAL}
 """
 
 _MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float"))}
+
+
+def kernel(cp: Any, real: Any) -> Any:
+    """The ``lof_scores`` kernel compiled for the value type ``real`` (one module per type, built once and cached)."""
+    key = "float" if cp.dtype(real) == cp.dtype(cp.float32) else "double"
+    return _MODULES_BY_REAL[key].get(cp).get_function("lof_scores")
 
 
 def lof_transform_gpu(X_new: np.ndarray, X_ref: np.ndarray, lrd_ref: np.ndarray, k_distance_ref: np.ndarray, k_eff: int, rows_per_launch: int = 4_000_000) -> "np.ndarray | None":
@@ -174,4 +180,4 @@ except Exception as e:
     logger.warning("kernel_tuner spec build for fe_lof_device failed: %s", e)
     _SPEC = None
 
-__all__ = ["lof_transform_gpu", "use_device_lof"]
+__all__ = ["lof_transform_gpu", "use_device_lof", "kernel"]
