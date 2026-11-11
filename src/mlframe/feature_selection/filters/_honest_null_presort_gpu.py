@@ -77,6 +77,15 @@ def presort_and_ties_gpu(raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
         cp.get_default_memory_pool().free_all_blocks()
     except Exception as exc:
         logger.warning("device presort of the honest-null columns failed (%s: %s); sorting on the host", type(exc).__name__, exc)
+        try:
+            import cupy as _cp
+
+            if isinstance(exc, _cp.cuda.memory.OutOfMemoryError):
+                from ._fe_gpu_vram import note_gpu_oom
+
+                note_gpu_oom()  # GPU11-13: the block-halving retry above gave up (block already at its floor); arm the shared cooldown for other call sites.
+        except Exception:  # nosec B110 - best-effort cooldown note, never let it mask the original failure
+            pass
         return None
     return order, tie
 

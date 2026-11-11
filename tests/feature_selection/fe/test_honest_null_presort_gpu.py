@@ -73,3 +73,26 @@ def test_an_out_of_memory_block_is_halved_and_retried_not_given_up(monkeypatch):
     assert got is not None
     assert np.array_equal(got[0], _presort_columns(raw), equal_nan=True)
     assert calls["widths"][0] == 32 and calls["widths"][1] == 16, calls["widths"]
+
+
+def test_an_oom_that_exhausts_the_halving_retry_notes_the_shared_cooldown(monkeypatch):
+    """GPU11-13 follow-up: when the block-halving retry gives up (every attempt down to the floor OOMs), the
+    final re-raised OutOfMemoryError must arm the shared cooldown before the function falls back to None."""
+    cp = _cupy_or_skip()
+    import mlframe.feature_selection.filters._honest_null_presort_gpu as presort
+    import mlframe.feature_selection.filters._fe_gpu_vram as vram_mod
+
+    vram_mod._reset_gpu_oom_cooldown()
+    rng = np.random.default_rng(8)
+    raw = rng.normal(size=(5000, 40)).astype(np.float64)
+
+    def always_oom(cols, axis):
+        """Every attempt OOMs, regardless of block width."""
+        raise cp.cuda.memory.OutOfMemoryError(1 << 30, 1 << 20)
+
+    monkeypatch.setattr(presort, "device_argsort", always_oom)
+    monkeypatch.setattr(presort, "_presort_column_block", lambda _cp, _n: 32)
+    got = presort.presort_and_ties_gpu(raw)
+    assert got is None
+    assert vram_mod._in_oom_cooldown() is True
+    vram_mod._reset_gpu_oom_cooldown()
