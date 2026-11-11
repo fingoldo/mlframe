@@ -114,6 +114,25 @@ def test_binary_clf_flag_on_dispatch_matches_cpu():
         os.environ.pop("MLFRAME_FE_GPU_STRICT_RESIDENT", None)
 
 
+def test_a_refused_cushion_returns_none_without_allocating(monkeypatch):
+    """GPU11-13/14 class fix: when the VRAM cushion is refused, the function returns None before the (n, P) candidate value matrix upload, instead of attempting and failing it."""
+    import mlframe.feature_selection.filters._fe_gpu_vram as vram_mod
+    from mlframe.feature_selection.filters._usability_greedy_clf_gpu_resident import usability_greedy_clf_gpu_resident
+
+    called = {"n": 0}
+
+    def _declining(*a, **k):
+        """Stand-in for fe_gpu_has_vram_cushion that always declines, counting its own calls."""
+        called["n"] += 1
+        return False
+
+    monkeypatch.setattr(vram_mod, "fe_gpu_has_vram_cushion", _declining)
+    pool, y = _make_pool(500, 0, True, n_classes=2)
+    out = usability_greedy_clf_gpu_resident(pool, y, seed=0, K=4, n_folds=4, shortlist=8, mae_improve_rel=0.005)
+    assert out is None
+    assert called["n"] == 1, "the cushion check must run exactly once, before the candidate matrix upload"
+
+
 def test_multiclass_defers_to_cpu():
     """>2 classes: the resident twin returns None and the dispatch falls back to the exact CPU selection.
 

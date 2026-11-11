@@ -185,6 +185,14 @@ def usability_greedy_clf_gpu_resident(
         Vhost = _pack_pool_matrix(pool, n)
         if Vhost is None:
             return None  # ragged pool -> let the CPU path handle it exactly
+        # Cushion-check BEFORE the (n, P) candidate value matrix: without it, a device pool already pinned
+        # at its limit fails this call's upload on EVERY shortlist round with the SAME OutOfMemoryError (the
+        # GPU11-13/14 pattern). The outer try/except below already returns None (host fallback) on ANY
+        # exception, so declining early is a pure latency win, not a new failure mode.
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        if not fe_gpu_has_vram_cushion(Vhost.size * Vhost.itemsize):
+            return None
         Vdev = cp.asarray(Vhost)  # (n, P) resident
         yenc_dev = cp.asarray(y_enc.astype(np.int64))  # (n,) resident class codes
         ydev_f = yenc_dev.astype(crit_float_dtype())  # binary positive-class indicator helper
