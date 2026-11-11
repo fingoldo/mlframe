@@ -134,18 +134,27 @@ def _fold_assignment(n: int, folds: Sequence[tuple]) -> "tuple[np.ndarray, np.nd
     return fold_of, np.arange(len(folds), dtype=np.int32)
 
 
-def _fold_auc_device(cp: Any, designs_host: np.ndarray, y_host: np.ndarray, fold_of: np.ndarray, eval_folds: np.ndarray, lam: float) -> np.ndarray:
-    """``(n_designs, n_folds)`` held-out AUC of every design on every fold, from ONE launch of the fused kernel; a design whose fit failed on a fold comes back NaN there."""
+def _fold_resident(cp: Any, y_host: np.ndarray, fold_of: np.ndarray, eval_folds: np.ndarray, real: np.dtype) -> tuple:
+    """Upload ``(y, fold_of, eval_folds)`` once: every ``_fold_auc_device`` call in a chunk loop reuses the SAME fold
+    assignment, so repeating this upload per chunk would be a pure, avoidable per-iteration cost."""
+    return (
+        cp.asarray(np.ascontiguousarray(y_host, dtype=real)),
+        cp.asarray(np.ascontiguousarray(fold_of)),
+        cp.asarray(np.ascontiguousarray(eval_folds)),
+    )
+
+
+def _fold_auc_launch(cp: Any, designs_host: np.ndarray, fold_resident: tuple, eval_folds: np.ndarray, lam: float, out: Any) -> np.ndarray:
+    """``_fold_auc_device``'s launch, into a CALLER-OWNED ``out`` buffer (``(>=n_designs, n_folds)``): a chunk loop over several
+    design blocks passes the SAME reusable buffer (sliced to ``n_designs``) every call instead of a fresh ``cp.empty`` each time."""
     from ._fe_accuracy_gate_kernel import BLOCK, kernel
 
     real = designs_host.dtype
     n_designs, k, n = (int(v) for v in designs_host.shape)
     fn = kernel(cp, real)
     d_designs = cp.asarray(designs_host)
-    d_y = cp.asarray(np.ascontiguousarray(y_host, dtype=real))
-    d_fold = cp.asarray(np.ascontiguousarray(fold_of))
-    d_eval = cp.asarray(np.ascontiguousarray(eval_folds))
-    out = cp.empty((n_designs, int(eval_folds.shape[0])), dtype=cp.float64)  # Intentional float64: the kernel's {ACC} output, an AUC compared with a threshold
+    d_y, d_fold, d_eval = fold_resident
+    out = out[:n_designs]
     fn(  # launch-ok: BLOCK=128 (4 warps) is fixed by the kernel's own shared-memory tree-fold reduction over WARPS=BLOCK//32 slots, not a tuned size
         (n_designs, int(eval_folds.shape[0])),
         (BLOCK,),
@@ -166,6 +175,13 @@ def _fold_auc_device(cp: Any, designs_host: np.ndarray, y_host: np.ndarray, fold
         ),  # Intentional float64: the kernel's {ACC} scalars
     )
     return np.asarray(cp.asnumpy(out))
+
+
+def _fold_auc_device(cp: Any, designs_host: np.ndarray, fold_resident: tuple, eval_folds: np.ndarray, lam: float) -> np.ndarray:
+    """``_fold_auc_launch`` for a one-off call: allocates its own output buffer (a chunk loop calling this
+    repeatedly should call ``_fold_auc_launch`` directly with one buffer it owns and reuses instead)."""
+    out = cp.empty((int(designs_host.shape[0]), int(eval_folds.shape[0])), dtype=cp.float64)  # Intentional float64: the kernel's {ACC} output
+    return _fold_auc_launch(cp, designs_host, fold_resident, eval_folds, lam, out)
 
 
 def batched_uplift(
@@ -199,10 +215,12 @@ def batched_uplift(
         if max(int(np.count_nonzero(fold_of == f)) for f in range(len(folds))) > MAX_VA:
             return None  # a held-out fold the block cannot reduce in shared memory
         y_host = np.ascontiguousarray(np.asarray(y).ravel(), dtype=real)
+        fold_resident = _fold_resident(cp, y_host, fold_of, eval_folds, real)  # one upload for every chunk below, not one per chunk
         bases = np.ascontiguousarray(np.stack([np.asarray(c, dtype=real).ravel() for c in base_cols])[:, None, :])  # (n_base, 1, n) feature-major
-        base_auc = _fold_auc_device(cp, bases, y_host, fold_of, eval_folds, lam)
+        base_auc = _fold_auc_device(cp, bases, fold_resident, eval_folds, lam)
         del bases
         block = min(len(eng_cols), _device_block_designs(cp, n, 2, real.itemsize))
+        out_buf = cp.empty((block, int(eval_folds.shape[0])), dtype=cp.float64)  # one reusable AUC buffer for every chunk below, not one per chunk
         uplift = np.empty(len(eng_cols), dtype=np.float64)  # Intentional float64: the uplift is a mean of double AUC differences
         for start in range(0, len(eng_cols), block):
             idx = list(range(start, min(len(eng_cols), start + block)))
@@ -210,7 +228,7 @@ def batched_uplift(
             for row, i in enumerate(idx):
                 aug[row, 0, :] = np.asarray(base_cols[base_of[i]], dtype=real).ravel()
                 aug[row, 1, :] = np.asarray(eng_cols[i], dtype=real).ravel()
-            aug_auc = _fold_auc_device(cp, np.ascontiguousarray(aug), y_host, fold_of, eval_folds, lam)
+            aug_auc = _fold_auc_launch(cp, np.ascontiguousarray(aug), fold_resident, eval_folds, lam, out_buf)
             delta = aug_auc - base_auc[np.asarray([base_of[i] for i in idx], dtype=np.int64)]
             uplift[start : start + len(idx)] = np.mean(delta, axis=1)  # NaN on any fold makes the candidate NaN, so the host probes it
         return uplift
