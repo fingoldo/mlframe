@@ -195,6 +195,17 @@ def perm_null_residue_mis_resident(
         n = rf.size
         n_perm = len(perms)
         nb = int(eff_nbins)
+        # Cushion-check BEFORE allocating code_mat (the dominant (n, n_perm) int64 buffer below): without it, a
+        # device pool already pinned at its limit (e.g. by the resident-operand cache) fails this call's
+        # allocation on EVERY candidate with the SAME OutOfMemoryError, each attempt paying cupy's own
+        # allocator work (measured 18.7-35.0 ms per failed attempt, D:/Temp/oom_cost.py) for a request that
+        # cannot succeed until something else frees VRAM. One cheap memGetInfo here (CUDA.md section 5: check
+        # the cushion before the attempt, do not retry a doomed allocation) skips straight to the host
+        # fallback instead.
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        if not fe_gpu_has_vram_cushion(n * n_perm * 8):
+            return None
         # Bin the residue ONCE on device (rank codes), exactly as the host STRICT ``_mi`` rank path does (same r,
         # same binner -> identical codes). The residue rides the resident-operand cache (keyed on its content
         # fingerprint -> re-uploads when r changes; the WIN is the codes-matrix replaces 12 residue uploads).
