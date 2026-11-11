@@ -71,6 +71,14 @@ def unary_stack_cuda(d_x: Any, codes_d: Any, xmin: float) -> Optional[Any]:
             return None
         n = int(d_x.shape[0])
         nu = int(codes_d.shape[0])
+        # Cushion-check BEFORE the (nu, n) stack: without it, a device pool already pinned at its limit fails
+        # this call's allocation on every recurring operand with the SAME OutOfMemoryError (the pattern fixed
+        # in perm_null_residue_mis_resident / gpu_materialise_extval_codes_host, GPU11-13/14). One cheap
+        # memGetInfo here skips straight to the per-unary cupy fallback instead.
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        if not fe_gpu_has_vram_cushion(nu * n * d_x.dtype.itemsize):
+            return None
         out = cp.empty((nu, n), dtype=d_x.dtype)
         shift = float(1e-5 - xmin) if xmin <= 0.0 else 0.0
         _kernel(cp)(d_x, codes_d, np.int64(n), d_x.dtype.type(shift), bool(xmin > 0.0), out)

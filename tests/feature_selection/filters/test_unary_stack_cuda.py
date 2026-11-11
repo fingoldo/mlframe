@@ -53,6 +53,26 @@ def test_non_float_or_non_vector_input_is_declined():
     assert unary_stack_cuda(cp.zeros((3, 3), dtype=cp.float32), codes, 0.0) is None
 
 
+def test_a_refused_cushion_returns_none_without_allocating(monkeypatch):
+    """GPU11-13/14 class fix: when the VRAM cushion is refused, the function returns None before the (nu, n) stack allocation, instead of attempting and failing it on every recurring operand."""
+    import mlframe.feature_selection.filters._fe_gpu_vram as vram_mod
+    from mlframe.feature_selection.filters._unary_stack_cuda import unary_stack_cuda
+
+    called = {"n": 0}
+
+    def _declining(*a, **k):
+        """Stand-in for fe_gpu_has_vram_cushion that always declines, counting its own calls."""
+        called["n"] += 1
+        return False
+
+    monkeypatch.setattr(vram_mod, "fe_gpu_has_vram_cushion", _declining)
+    d_x = cp.asarray(np.array([1.0, 2.0, -3.0], dtype=np.float64))
+    codes = cp.asarray([0, 1, 2], dtype=cp.int32)
+    out = unary_stack_cuda(d_x, codes, 1.0)
+    assert out is None
+    assert called["n"] == 1, "the cushion check must run exactly once, before any allocation"
+
+
 def test_cache_returns_the_same_buffer_for_a_repeated_operand_and_respects_the_budget():
     """An operand that recurs gets its cached stack back; a budget smaller than one stack is never cached; the oldest entry is evicted first."""
     from mlframe.feature_selection.filters._unary_stack_cuda import UnaryStackCache
