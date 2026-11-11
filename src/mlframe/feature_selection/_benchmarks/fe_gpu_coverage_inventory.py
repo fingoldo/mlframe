@@ -65,8 +65,16 @@ def imported_modules() -> set[str]:
 
 
 def module_file(name: str) -> Path | None:
-    """Source file of a filters-level module or package ``__init__``."""
+    """Source file of a filters-level module or package ``__init__``.
+
+    Checks directly under ``filters/`` first, then falls back to a one-level-deeper search (``filters/*/name.py``)
+    for a module living inside a subpackage (e.g. ``_feature_engineering_pairs/_pairs_analytic_gpu.py``,
+    ``_orthogonal_univariate_fe/_orth_extra_basis_fe.py``) - these are real, imported modules that previously
+    read as "module not found" and were silently excluded from every contract check."""
     for cand in (FILTERS / f"{name}.py", FILTERS / name / "__init__.py"):
+        if cand.is_file():
+            return cand
+    for cand in FILTERS.glob(f"*/{name}.py"):
         if cand.is_file():
             return cand
     return None
