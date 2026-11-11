@@ -73,6 +73,27 @@ def test_a_refused_cushion_returns_none_without_allocating(monkeypatch):
     assert called["n"] == 1, "the cushion check must run exactly once, before any allocation"
 
 
+def test_an_oom_past_the_cushion_check_notes_the_shared_cooldown(monkeypatch):
+    """GPU11-13 follow-up: the cushion check above can pass yet the device still OOM on a race against another
+    allocation; that OOM (not an unrelated failure) must arm the shared cooldown for other call sites."""
+    import mlframe.feature_selection.filters._fe_gpu_vram as vram_mod
+    import mlframe.feature_selection.filters._unary_stack_cuda as stack_mod
+
+    vram_mod._reset_gpu_oom_cooldown()
+
+    def _boom(*a, **k):
+        """Simulate the fused kernel hitting the pool's own OutOfMemoryError."""
+        raise cp.cuda.memory.OutOfMemoryError(1, 0, 0)
+
+    monkeypatch.setattr(stack_mod, "_kernel", _boom)
+    d_x = cp.asarray(np.array([1.0, 2.0, -3.0], dtype=np.float64))
+    codes = cp.asarray([0, 1, 2], dtype=cp.int32)
+    out = stack_mod.unary_stack_cuda(d_x, codes, 1.0)
+    assert out is None
+    assert vram_mod._in_oom_cooldown() is True
+    vram_mod._reset_gpu_oom_cooldown()
+
+
 def test_cache_returns_the_same_buffer_for_a_repeated_operand_and_respects_the_budget():
     """An operand that recurs gets its cached stack back; a budget smaller than one stack is never cached; the oldest entry is evicted first."""
     from mlframe.feature_selection.filters._unary_stack_cuda import UnaryStackCache

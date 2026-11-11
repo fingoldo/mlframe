@@ -104,6 +104,34 @@ def test_gate_grid_mi_resident_bit_identical_to_host_strict(rank_binning, nclass
     assert int(np.argmax(host_mi[k:])) == int(np.argmax(dev_mi[k:]))
 
 
+def test_an_oom_in_gate_grid_mi_resident_notes_the_shared_cooldown(monkeypatch):
+    """GPU11-13 follow-up: an OutOfMemoryError raised while building the tau-grid blocks (no cushion check
+    exists upfront for this function - the sum of per-combo block sizes varies with the spec list) must arm
+    the shared cooldown so other call sites skip their own doomed attempt, not just fail open silently."""
+    import cupy as cp
+    import mlframe.feature_selection.filters._fe_gpu_vram as vram_mod
+    import mlframe.feature_selection.filters._resident_candidate_mi as cand_mod
+
+    vram_mod._reset_gpu_oom_cooldown()
+
+    def _boom(*a, **k):
+        """Simulate the tau-grid kernel build hitting the pool's own OutOfMemoryError."""
+        raise cp.cuda.memory.OutOfMemoryError(1, 0, 0)
+
+    monkeypatch.setattr(cand_mod, "_tau_grid_kernel", _boom)
+    rng = np.random.default_rng(2)
+    n = 2000
+    cv = rng.uniform(0, 1, n)
+    av = rng.uniform(-2, 2, n)
+    yi = rng.integers(0, 2, n).astype(np.int64)
+    taus = np.quantile(cv, [0.1, 0.5, 0.9])
+    specs = [("mask", ("a", "c"), (cv, av), taus)]
+    out = cand_mod.gate_grid_mi_resident(specs, yi, 10, rank_binning=False)
+    assert out is None
+    assert vram_mod._in_oom_cooldown() is True
+    vram_mod._reset_gpu_oom_cooldown()
+
+
 def test_gate_grid_mi_resident_column_order_matches_host():
     """The returned MI vector concatenates each combo's per-tau MIs in spec order with per-tau columns in tau
     order -- the layout the caller's per-combo argmax slicing depends on."""

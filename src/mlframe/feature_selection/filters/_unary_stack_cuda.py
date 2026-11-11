@@ -85,6 +85,15 @@ def unary_stack_cuda(d_x: Any, codes_d: Any, xmin: float) -> Optional[Any]:
         return out
     except Exception as exc:  # nosec B110 - any device or compile failure falls back to the per-unary cupy path
         logger.debug("unary_stack_cuda unavailable (%s: %s); using the per-unary path", type(exc).__name__, exc)
+        try:
+            import cupy as _cp
+
+            if isinstance(exc, _cp.cuda.memory.OutOfMemoryError):
+                from ._fe_gpu_vram import note_gpu_oom
+
+                note_gpu_oom()  # GPU11-13: the cushion check above passed but a race against another allocation can still OOM here.
+        except Exception:  # nosec B110 - best-effort cooldown note, never let it mask the original failure
+            pass
         return None
 
 

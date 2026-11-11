@@ -289,6 +289,15 @@ def best_existing_op_mi_resident(
         return float(np.max(mis))
     except Exception as _exc:
         logger.debug("best_existing_op_mi_resident: GPU path failed (%s); host fallback", _exc)
+        try:
+            import cupy as _cp
+
+            if isinstance(_exc, _cp.cuda.memory.OutOfMemoryError):
+                from ._fe_gpu_vram import note_gpu_oom
+
+                note_gpu_oom()  # GPU11-13: the cushion check above passed but a race against another allocation can still OOM here.
+        except Exception:  # nosec B110 - best-effort cooldown note, never let it mask the original failure
+            pass
         return None
 
 
@@ -408,4 +417,13 @@ def gate_grid_mi_resident(
         return np.asarray(mis, dtype=np.float64)  # Intentional float64: MI statistic output contract
     except Exception as _exc:
         logger.debug("gate_grid_mi_resident: GPU path failed (%s); host fallback", _exc)
+        try:
+            import cupy as _cp
+
+            if isinstance(_exc, _cp.cuda.memory.OutOfMemoryError):
+                from ._fe_gpu_vram import note_gpu_oom
+
+                note_gpu_oom()  # GPU11-13: the cushion check above passed but a race against another allocation can still OOM here.
+        except Exception:  # nosec B110 - best-effort cooldown note, never let it mask the original failure
+            pass
         return None
