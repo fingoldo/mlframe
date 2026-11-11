@@ -290,8 +290,6 @@ jobs:
         with:
           path: ${{ github.workspace }}/.numba-cache
           key: numba-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('src/**/*.py') }}
-          restore-keys: |
-            numba-${{ runner.os }}-py${{ matrix.python-version }}-
 
       - name: Show installed versions
         run: |
@@ -549,8 +547,6 @@ jobs:
         with:
           path: ${{ github.workspace }}/.numba-cache
           key: numba-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('src/**/*.py') }}
-          restore-keys: |
-            numba-${{ runner.os }}-py${{ matrix.python-version }}-
 
       - name: Run tests/training/test_core.py (serial, group ${{ matrix.group }}/4)
         env:

@@ -114,8 +114,6 @@ jobs:
         with:
           path: ${{ github.workspace }}/.numba-cache
           key: numba-pandasmatrix-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('src/**/*.py') }}
-          restore-keys: |
-            numba-pandasmatrix-${{ runner.os }}-py${{ matrix.python-version }}-
 
       - name: Pandas-facing tests
         # Timing-ratio tests ("speedup") are left to ci.yml: with -n auto on a 4-core runner their ratios measure the neighbouring workers.
