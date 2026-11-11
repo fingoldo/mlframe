@@ -156,8 +156,6 @@ jobs:
         with:
           path: ${{ github.workspace }}/.numba-cache
           key: numba-sklmatrix-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('src/**/*.py') }}
-          restore-keys: |
-            numba-sklmatrix-${{ runner.os }}-py${{ matrix.python-version }}-
 
       - name: Show installed versions
         run: |

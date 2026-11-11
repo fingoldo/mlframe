@@ -205,8 +205,6 @@ jobs:
         with:
           path: ${{ github.workspace }}/.numba-cache
           key: numba-deep-${{ runner.os }}-py3.12-${{ hashFiles('src/**/*.py') }}
-          restore-keys: |
-            numba-deep-${{ runner.os }}-py3.12-
 
       - name: Show installed versions
         run: |
