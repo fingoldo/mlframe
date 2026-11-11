@@ -43,6 +43,7 @@ from ._binned_agg_cheap_mi import (  # noqa: F401  -- carved sibling, re-exporte
     quantile_edges,
 )
 from ._binned_numeric_agg_cands import HostCandidates, device_born_candidates
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.utils.numeric_floors import SD_FLOOR
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
@@ -644,7 +645,34 @@ def _redundancy_gate_binagg(
         return b.astype(np.int64, copy=False)
 
     kept_cols: list[Any] = []
-    _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink, linear_usability)
+    try:
+        _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink, linear_usability)
+    except Exception as e:
+        # The device-OOF path (``DeviceOofCandidates.codes()`` -> ``build_binagg_oof_matrix_gpu``) has no exception
+        # handling of its own anywhere along its chain (recipe-only candidates were never materialised on the host,
+        # so there is no host frame to fall back to mid-call) - an OOM here used to propagate uncaught and crash the
+        # whole MRMR.fit(), worse than a wasted retry: every OTHER resident-GPU call site in this family fails open.
+        # Rebuild the exact same candidate set (bit-identical values) on the host and redo the gate there instead of
+        # losing the fit; this costs the ~10x host-vs-device multiplier the sibling fallback in device_born_candidates
+        # already documents, paid only on the rare device fault, not on every call.
+        if _dev_cands is None:
+            raise
+        log_throttle(
+            logger, "binagg_redundancy_device_gate_failed", logging.WARNING,
+            "binned-aggregate redundancy gate's device-OOF path failed (%s: %s); rebuilding the same candidates on the host (about ten times slower).",
+            type(e).__name__, e,
+        )
+        surv_pairs = {(raw[nm]["group_col"], raw[nm]["agg_col"]) for nm in _dev_cands.names}
+        feat_df, _ = fit_binned_numeric_agg(
+            X, y, group_num_cols=gsel, agg_num_cols=asel, stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state, pairs=surv_pairs,
+        )
+        have = set(feat_df.columns)
+        names = [nm for nm in _dev_cands.names if nm in have]
+        feat_df = feat_df[names]
+        cands = HostCandidates(feat_df, _quantile_bin, _candidate_codes)
+        _dev_cands = None
+        kept_cols = []
+        _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink, linear_usability)
     if _dev_cands is not None:
         # Host out-of-fold columns for the KEPT pairs only (usually none): same values the all-survivors fit would have produced for them.
         if not kept_cols:
