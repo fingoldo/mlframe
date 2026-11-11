@@ -191,7 +191,7 @@ def apply_polars_categorical_fixes(
     # Tracks the per-column train+val union built below; Step 4 below reuses these domains when
     # casting raw Utf8 columns to Enum so the cast does not poison the global string cache (P0-B2).
     _enum_domains_built: Dict[str, List[str]] = {}
-    test_df_polars, train_df_polars, val_df_polars = _apply_polars_categ_casting_raw_utf8_columns(train_df_polars, cat_features, align_polars_categorical_dicts, precomputed_category_union, val_df_polars, verbose, test_df_polars, _filled_with_missing_sentinel, _enum_domains_built)
+    test_df_polars, train_df_polars, val_df_polars = _apply_polars_categ_train_df_polars_none(train_df_polars, cat_features, align_polars_categorical_dicts, precomputed_category_union, val_df_polars, verbose, test_df_polars, _filled_with_missing_sentinel, _enum_domains_built)
 
     # 3. Re-point pandas aliases to filled+aligned polars frames. With ``defer_pandas_conv=True``, train_df_pd / filtered_train_df were aliased to the ORIGINAL polars frames before fill_null / Enum-alignment.
     if defer_pandas_conv and train_df_polars is not None:
@@ -249,12 +249,6 @@ def apply_polars_categorical_fixes(
         filtered_val_df=filtered_val_df,
         enum_domains=_exported_domains,
     )
-
-
-def _apply_polars_categ_casting_raw_utf8_columns(train_df_polars, cat_features, align_polars_categorical_dicts, precomputed_category_union, val_df_polars, verbose, test_df_polars, _filled_with_missing_sentinel, _enum_domains_built):
-    """Block of apply_polars_categorical_fixes starting at ``if train_df_polars is not None and cat_features and align_polars_categ``."""
-    test_df_polars, train_df_polars, val_df_polars = _apply_polars_categ_train_df_polars_none(train_df_polars, cat_features, align_polars_categorical_dicts, precomputed_category_union, val_df_polars, verbose, test_df_polars, _filled_with_missing_sentinel, _enum_domains_built)
-    return test_df_polars, train_df_polars, val_df_polars
 
 
 def _apply_polars_categ_train_df_polars_none(train_df_polars, cat_features, align_polars_categorical_dicts, precomputed_category_union, val_df_polars, verbose, test_df_polars, _filled_with_missing_sentinel, _enum_domains_built):

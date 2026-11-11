@@ -59,6 +59,7 @@ from __future__ import annotations
 
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 
+import functools
 import logging
 from typing import cast, Optional, Sequence
 
@@ -71,7 +72,8 @@ import pandas as pd
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
 from ._orth_auto_scorer_fe import (
     SCORER_NAMES,
-    _dispatch_scorer,
+    _dispatch_scorer,  # noqa: F401 -- re-exported: tests and callers import it from this module
+    bound_scorer_dispatch,
 )
 from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
@@ -231,9 +233,7 @@ def _compute_per_scorer_rank_table(
     raw_cols = list(raw_X.columns)
     eng_cols = list(engineered_X.columns)
 
-    def _call(name, x_vec, y_vec):
-        """Bind this function's shared hyperparameters and fixed random_state into the module-level scorer dispatcher."""
-        return _dispatch_scorer(name, x_vec, y_vec, random_state, nbins=nbins, n_neighbors=n_neighbors, copula_n_bins=copula_n_bins, dcor_n_sample=dcor_n_sample)
+    _call = functools.partial(bound_scorer_dispatch(nbins=nbins, n_neighbors=n_neighbors, copula_n_bins=copula_n_bins, dcor_n_sample=dcor_n_sample), seed=random_state)
 
     # Batch the column-separable scorers (plug-in MI, copula MI) across all
     # columns in one kernel call instead of one _mi_classif_batch / copula call
