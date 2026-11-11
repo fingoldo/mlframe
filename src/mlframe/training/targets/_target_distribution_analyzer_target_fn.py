@@ -157,6 +157,53 @@ def _detect_strong_ar(
         stamp_prov("mlp_kwargs", "network_params.use_layernorm", False, "strong_AR_target")
 
 
+def _near_constant_target_detail(mu: float, sigma: float, y_for_stats: np.ndarray, diagnostics: dict) -> "str | None":
+    """The detail string of a near-constant target (a hard pathology, no recommendation suffices), or ``None`` when the target varies; records the ratio it used in ``diagnostics``.
+
+    A zero-mean target has no meaningful relative std, and substituting the ABSOLUTE std for it was wrong in both directions: daily returns with mean ~0 and std 8e-4 were labelled
+    degenerate and every other detector was skipped, while a zero-mean target at std 1e6 could never trip the gate even when it was genuinely constant. The printed name did not match
+    the printed quantity either. So the ratio is reported only when there is a mean to divide by, and a SCALE-FREE test is used otherwise, recorded under its own key."""
+    if abs(mu) > 1e-9:
+        rel_std = abs(sigma) / abs(mu)
+        diagnostics["rel_std"] = rel_std
+        return f"rel_std={rel_std:.2e}" if rel_std < _NEAR_CONSTANT_REL_STD else None
+    # At zero mean there is no scale to be relative TO, so only an exactly-constant target is degenerate. A ratio against the target's own range would not work either: sigma / ptp is about
+    # 1/6 for any ordinary distribution and never approaches a 1e-3 threshold, so it would call nothing degenerate. The absolute spread is reported under its own name so the printed
+    # quantity matches the printed label.
+    ptp = float(np.ptp(y_for_stats))
+    diagnostics["abs_std"] = sigma
+    return f"zero-mean, abs_std={sigma:.2e}" if (ptp <= 0.0 or sigma <= 0.0) else None
+
+
+def _regression_shape_and_dependence_pathologies(y_for_stats, y, n, finite, has_time_axis, group_ids, mu, sigma, diagnostics, pathologies, knob_overrides, stamp_prov) -> None:
+    """Heavy tail, skewness, multi-modality, strong autocorrelation and clustering of a regression target, recorded in ``diagnostics`` / ``pathologies`` / ``knob_overrides``.
+
+    Heavy tail + skewness share the standardised deviations z = (y - mu) / sigma. ``mu`` / ``sigma`` are already computed and sigma > 0 is guaranteed here (the near-constant gate returned
+    early otherwise), so z is computed ONCE and both the excess kurtosis (mean(z^4) - 3) and skewness (mean(z^3)) derive from it instead of calling the two standalone helpers, which each
+    recompute np.mean + np.std and re-materialise z (2.3x on the moment pair at n=300k). Bit-identical: same mu / sigma, same z, same chained-multiplication products as the helpers."""
+    from mlframe.training.targets._target_distribution_analyzer_classif import _group_ids_pathologies, _tail_shape_pathologies
+
+    z = (y_for_stats - mu) / sigma
+    z2 = z * z
+    kurt = float(np.mean(z2 * z2)) - 3.0
+    diagnostics["excess_kurtosis"] = kurt
+    _tail_shape_pathologies(kurt, pathologies, knob_overrides, stamp_prov, y_for_stats, z2, z, diagnostics)
+    is_mm, n_peaks, max_sep = _detect_multi_modal(y_for_stats, sigma=sigma)
+    diagnostics["n_modal_peaks"] = float(n_peaks)
+    diagnostics["modal_peak_separation_stds"] = float(max_sep)
+    if is_mm:
+        pathologies.append(f"multi_modal_target(peaks={n_peaks}, max_sep={max_sep:.2f} stds)")
+
+    # Strong AR (global lag-autocorr, or per-group where row order encodes time only within each group).
+    _detect_strong_ar(
+        y_for_stats, y, n, finite, has_time_axis, group_ids,
+        diagnostics=diagnostics, pathologies=pathologies, knob_overrides=knob_overrides, stamp_prov=stamp_prov,
+    )
+
+    # Clustered target (within-group << between-group variance)
+    _group_ids_pathologies(group_ids, y, finite, n, y_for_stats, diagnostics, pathologies, knob_overrides, stamp_prov)
+
+
 def analyze_target_distribution(
     y: np.ndarray,
     *,
@@ -230,103 +277,39 @@ def analyze_target_distribution(
             "reason": reason,
         }
 
+    def _report(kind: str, found: list) -> TargetDistributionReport:
+        """The report for ``kind`` with the pathologies ``found`` and this call's overrides, diagnostics and provenance."""
+        return TargetDistributionReport(
+            target_type=kind,
+            n_samples=n,
+            pathologies=found,
+            knob_overrides=knob_overrides,
+            diagnostics=diagnostics,
+            knob_overrides_provenance=knob_overrides_provenance,
+        )
+
     if ttype == "regression":
         if n < 30:
             # Too small for any reliable detection; return early with the empty report.
-            return TargetDistributionReport(
-                target_type="regression",
-                n_samples=n,
-                pathologies=["insufficient_samples_n<30"],
-                knob_overrides=knob_overrides,
-                diagnostics=diagnostics,
-                knob_overrides_provenance=knob_overrides_provenance,
-            )
+            return _report("regression", ["insufficient_samples_n<30"])
 
         mu = float(np.mean(y_for_stats))
         sigma = float(np.std(y_for_stats))
         diagnostics["mean"] = mu
         diagnostics["std"] = sigma
 
-        # Near-constant target -- hard pathology, no recommendation suffices.
-        #
-        # A zero-mean target has no meaningful relative std, and substituting the ABSOLUTE std for it was wrong
-        # in both directions: daily returns with mean ~0 and std 8e-4 were labelled degenerate and every other
-        # detector was skipped, while a zero-mean target at std 1e6 could never trip the gate even when it was
-        # genuinely constant. The printed name did not match the printed quantity either. So: report the ratio
-        # only when there is a mean to divide by, and fall back to a SCALE-FREE test -- spread relative to the
-        # target's own range -- recorded under its own key.
-        _near_constant = False
-        if abs(mu) > 1e-9:
-            rel_std = abs(sigma) / abs(mu)
-            diagnostics["rel_std"] = rel_std
-            _near_constant = rel_std < _NEAR_CONSTANT_REL_STD
-            _detail = f"rel_std={rel_std:.2e}"
-        else:
-            # At zero mean there is no scale to be relative TO, so only an exactly-constant target is
-            # degenerate. A ratio against the target's own range would not work either: sigma / ptp is about
-            # 1/6 for any ordinary distribution and never approaches a 1e-3 threshold, so it would call nothing
-            # degenerate. Report the absolute spread under its own name so the printed quantity matches the
-            # printed label.
-            _ptp = float(np.ptp(y_for_stats))
-            diagnostics["abs_std"] = sigma
-            _near_constant = _ptp <= 0.0 or sigma <= 0.0
-            _detail = f"zero-mean, abs_std={sigma:.2e}"
-        if _near_constant:
-            pathologies.append(f"near_constant_target({_detail})")
-            return TargetDistributionReport(
-                target_type="regression",
-                n_samples=n,
-                pathologies=pathologies,
-                knob_overrides=knob_overrides,
-                diagnostics=diagnostics,
-                knob_overrides_provenance=knob_overrides_provenance,
-            )
+        _near_constant_detail = _near_constant_target_detail(mu, sigma, y_for_stats, diagnostics)
+        if _near_constant_detail is not None:
+            pathologies.append(f"near_constant_target({_near_constant_detail})")
+            return _report("regression", pathologies)
 
-        # Heavy tail + skewness share the standardised deviations z = (y - mu) / sigma. mu / sigma are already computed
-        # above and sigma > 0 is guaranteed here (the near-constant gate returned early otherwise), so compute z ONCE
-        # and derive both the excess kurtosis (mean(z^4) - 3) and skewness (mean(z^3)) from it instead of calling the
-        # two standalone helpers, which each recompute np.mean + np.std and re-materialise z (2.3x on the moment pair at
-        # n=300k). Bit-identical: same mu / sigma, same z, same chained-multiplication products as the helpers.
-        _z = (y_for_stats - mu) / sigma
-        _z2 = _z * _z
-        kurt = float(np.mean(_z2 * _z2)) - 3.0
-        diagnostics["excess_kurtosis"] = kurt
-        from mlframe.training.targets._target_distribution_analyzer_classif import _tail_shape_pathologies
-        _tail_shape_pathologies(kurt, pathologies, knob_overrides, _stamp_prov, y_for_stats, _z2, _z, diagnostics)
-        is_mm, n_peaks, max_sep = _detect_multi_modal(y_for_stats, sigma=sigma)
-        diagnostics["n_modal_peaks"] = float(n_peaks)
-        diagnostics["modal_peak_separation_stds"] = float(max_sep)
-        if is_mm:
-            pathologies.append(f"multi_modal_target(peaks={n_peaks}, max_sep={max_sep:.2f} stds)")
-
-        # Strong AR (global lag-autocorr, or per-group where row order encodes time only within each group).
-        _detect_strong_ar(
-            y_for_stats,
-            y,
-            n,
-            finite,
-            has_time_axis,
-            group_ids,
-            diagnostics=diagnostics,
-            pathologies=pathologies,
-            knob_overrides=knob_overrides,
-            stamp_prov=_stamp_prov,
+        _regression_shape_and_dependence_pathologies(
+            y_for_stats, y, n, finite, has_time_axis, group_ids, mu, sigma, diagnostics, pathologies, knob_overrides, _stamp_prov
         )
-
-        # Clustered target (within-group << between-group variance)
-        from mlframe.training.targets._target_distribution_analyzer_classif import _group_ids_pathologies
-        _group_ids_pathologies(group_ids, y, finite, n, y_for_stats, diagnostics, pathologies, knob_overrides, _stamp_prov)
 
     else:  # classification
         if n < 30:
-            return TargetDistributionReport(
-                target_type="classification",
-                n_samples=n,
-                pathologies=["insufficient_samples_n<30"],
-                knob_overrides=knob_overrides,
-                diagnostics=diagnostics,
-                knob_overrides_provenance=knob_overrides_provenance,
-            )
+            return _report("classification", ["insufficient_samples_n<30"])
         # Class frequency table. Use y_for_stats (missing-dropped), not the raw y, so a
         # numeric target with NaN doesn't get NaN counted as its own spurious class.
         classes, counts = np.unique(y_for_stats, return_counts=True)
@@ -334,22 +317,8 @@ def analyze_target_distribution(
         diagnostics["n_classes"] = float(n_classes)
         if n_classes < 2:
             pathologies.append("single_class_target")
-            return TargetDistributionReport(
-                target_type="classification",
-                n_samples=n,
-                pathologies=pathologies,
-                knob_overrides=knob_overrides,
-                diagnostics=diagnostics,
-                knob_overrides_provenance=knob_overrides_provenance,
-            )
+            return _report("classification", pathologies)
         from mlframe.training.targets._target_distribution_analyzer_classif import _classification_balance_pathologies
         _classification_balance_pathologies(counts, diagnostics, pathologies, n, knob_overrides, _stamp_prov, classes)
 
-    return TargetDistributionReport(
-        target_type=ttype,
-        n_samples=n,
-        pathologies=pathologies,
-        knob_overrides=knob_overrides,
-        diagnostics=diagnostics,
-        knob_overrides_provenance=knob_overrides_provenance,
-    )
+    return _report(ttype, pathologies)
