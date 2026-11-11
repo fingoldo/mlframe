@@ -15,8 +15,18 @@ _MIB = 1024 * 1024
 
 @pytest.fixture(autouse=True)
 def _fresh_throttle():
-    """Forget the per-process warning count so each test sees its own first warning."""
+    """Forget the per-process warning count so each test sees its own first warning.
+
+    Also releases our cupy default pool's cached-free blocks: ``fe_gpu_has_vram_cushion``'s caller-supplied-probe
+    path is NOT a pure function of its ``free_b``/``total_b`` arguments alone - when the primary check fails it
+    consults ``_own_pool_free_bytes()`` (the REAL process-wide pool) as a rescue (see its own code comment: a
+    caller's ``memGetInfo`` undercounts blocks our pool holds cached-free). An earlier GPU test in the same
+    process (e.g. a real device_sort_safe/batch_pair_mi allocation) can leave that real pool holding enough
+    cached-free bytes to rescue this file's SYNTHETIC near-full-card scenarios, flipping an expected decline to
+    a grant - this is what made the suite flaky only inside a full-directory run. Releasing the pool here makes
+    the synthetic scenarios deterministic regardless of run order / prior GPU activity in this process."""
     reset_throttle_counts()
+    v._release_own_pool()
     yield
     reset_throttle_counts()
 
