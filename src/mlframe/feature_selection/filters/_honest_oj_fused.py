@@ -171,23 +171,18 @@ def _winners_minority(xb, kx, nv, vy, ky, px):
 
 
 @njit(cache=True, parallel=True, nogil=True)
-def _fused_block(perms, y_raw, yc, rows, xb, kx, nv, val_idx, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, out):
-    """``out[b]`` = the pool's largest corrected MI under permutation ``perms[b]``, ``-inf`` when a column had no scored candidate (the caller declines)."""
+def _fused_block(perms, y_raw, yc, rows, xb, kx, nv, val_idx, px, minority, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, out):
+    """``out[b]`` = the pool's largest corrected MI under permutation ``perms[b]``, ``-inf`` when a column had no scored candidate (the caller declines).
+
+    ``minority`` picks the winners with :func:`_winners_minority` (bin counts ``px`` from :func:`_px_table`, the dispatched variant) or with the exact :func:`_winners` (``px``
+    is then unused, pass an empty array): the same ``out`` either way, which ``test_honest_oj_minority`` pins bit for bit."""
     for b in prange(perms.shape[0]):
         perm = perms[b]
         vy, ky = _fold_targets(perm, y_raw, nv, val_idx)
-        pick = _winners(xb, kx, nv, vy, ky)
-        ycp, ny, ky_eff = _permuted_codes(perm, yc, rows)
-        out[b] = _pool_max(pick, ycp, ny, ky_eff, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff)
-
-
-@njit(cache=True, parallel=True, nogil=True)
-def _fused_block_minority(perms, y_raw, yc, rows, xb, kx, nv, val_idx, px, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, out):
-    """:func:`_fused_block` with the winners from :func:`_winners_minority` (bin counts ``px`` from :func:`_px_table`); the same ``out``."""
-    for b in prange(perms.shape[0]):
-        perm = perms[b]
-        vy, ky = _fold_targets(perm, y_raw, nv, val_idx)
-        pick = _winners_minority(xb, kx, nv, vy, ky, px)
+        if minority:
+            pick = _winners_minority(xb, kx, nv, vy, ky, px)
+        else:
+            pick = _winners(xb, kx, nv, vy, ky)
         ycp, ny, ky_eff = _permuted_codes(perm, yc, rows)
         out[b] = _pool_max(pick, ycp, ny, ky_eff, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff)
 
@@ -372,7 +367,7 @@ def _score_block(dev, dev_pool, perms, y_int, yc, rows, xb, kx, nv, val_idx, px,
 
         _pool_block(perms, picks, yc, rows, *pool_args, out)
     else:
-        _fused_block_minority(perms, y_int, yc, rows, xb, kx, nv, val_idx, px, *pool_args, out)
+        _fused_block(perms, y_int, yc, rows, xb, kx, nv, val_idx, px, True, *pool_args, out)
     return out, None
 
 
