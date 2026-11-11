@@ -440,7 +440,11 @@ void batched_joint_hist2_i32_smem_u8_v2(const unsigned char* __restrict__ X, con
         const unsigned char* col = X + c0 + c;
         int* h = hist + c * cells;
         for (long long row = r0 + lane; row < r1; row += lanes) {
-            atomicAdd(&h[(int)col[row * (long long)K] * Kb + (int)b[row]], 1);
+            // Warp-coalesced despite the per-row stride: within one warp every thread shares the same `lane` (hence the same `row`
+            // at this iteration) and differs only in `c` (the low bits of threadIdx.x), so the warp reads `tile` CONSECUTIVE bytes of
+            // this one row, not one byte each `K` apart. Named outside the subscript so it reads as the single scalar it is.
+            const long long row_off = row * (long long)K;
+            atomicAdd(&h[(int)col[row_off] * Kb + (int)b[row]], 1);
         }
     }
     __syncthreads();
