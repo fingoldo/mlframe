@@ -174,12 +174,16 @@ def group_stats_device(
             del keys
             xs_sorted = cp.take_along_axis(x_d, order, axis=1)
             del x_d
-            g_d = cp.zeros((w, gmax), dtype=cp.float64)
+            # One host-side pad + one upload instead of ``w`` per-column device writes: each column's sorted
+            # global sample is a different length, so the pad has to happen somewhere - doing it on the host
+            # before a single cp.asarray turns w tiny device launches into one.
+            g_host = np.zeros((w, gmax), dtype=np.float64)  # Intentional float64: sorted operand of the merge
             gn = np.zeros(w, dtype=np.int64)
             for j in range(w):
                 arr = np.ascontiguousarray(global_sorted[c0 + j], dtype=np.float64)  # Intentional float64: sorted operand of the merge
-                g_d[j, : arr.size] = cp.asarray(arr)
+                g_host[j, : arr.size] = arr
                 gn[j] = arr.size
+            g_d = cp.asarray(g_host)
             out_d = cp.zeros((w, n_groups), dtype=cp.float64)
             cnt64 = cnt_d.astype(cp.int64)
             offs = cp.cumsum(cnt64, axis=1) - cnt64
