@@ -88,6 +88,8 @@ def test_identity_estimator_no_features_raises_value_error():
 
     est = IdentityEstimator()  # neither feature_names nor feature_indices set
     df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+    # predict before fit is refused first (NotFittedError); the config guard is reached only once the estimator is fitted.
+    est.fit(df, None)
     with pytest.raises(ValueError, match="feature"):
         est.predict(df)
 
