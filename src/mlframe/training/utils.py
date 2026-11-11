@@ -484,7 +484,36 @@ def clear_pandas_view_cache() -> None:
 
 
 def _small_dict_heavy_raw_view(df):
-    """Raw ``df.to_pandas()`` view for a small frame dominated by Categorical or Enum columns (where the Arrow cast overhead bites), else None."""
+    """Raw ``df.to_pandas()`` view for a small frame dominated by Categorical or Enum columns (where the Arrow cast overhead bites), else None.
+
+    The size-aware dispatch policy (iter354):
+    iter354 size-aware dispatcher: the pyarrow-Table +
+    per-column-cast path below is 9.5x faster than ``df.to_pandas()`` for
+    numeric-heavy frames (200k x 30 float64: 13.3ms -> 1.4ms) but 2.4x
+    SLOWER for SMALL frames dominated by polars Categorical / Enum
+    columns (200k x 15 cat + 10 num: 20.4ms -> 49.7ms). The slow path is
+    the per-column ``pa.compute.cast`` chain that narrows uint32 dict
+    indices to int32 for pyarrow's to_pandas (still refuses uint32 dict
+    indices on pyarrow 21).
+
+    CRITICAL size constraint: on LARGE frames (multi-GB / 100 GB
+    production loads) the helper's ``split_blocks=True`` path is the
+    whole reason it exists -- it gives zero-copy numpy views over
+    numeric Arrow buffers instead of consolidating them into fresh
+    numpy blocks. ``df.to_pandas()`` consolidates and copies every
+    numeric buffer, blowing memory + wall time on big workloads
+    (the original 9M x 70 numeric frame went 30s vs 0.95s, ~32x).
+
+    Dispatch policy:
+      * Force HELPER for any frame above ~50 MB (size proxy: rows *
+        cols * 8). On big frames the per-column dict cast amortises and
+        the zero-copy numeric path dominates. This is also exactly the
+        regime where ``df.to_pandas()`` would OOM the operator.
+      * Force RAW ``df.to_pandas()`` only for SMALL Categorical-heavy
+        frames where the cast overhead bites and there's no numeric
+        buffer to keep zero-copy.
+      * Override via env var for forensic A/B benchmarks.
+    """
     if isinstance(df, pl.DataFrame) and os.environ.get("MLFRAME_FORCE_HELPER_PD_VIEW") != "1":
         _n_rows = df.shape[0]
         _n_cols = df.shape[1]
@@ -560,6 +589,248 @@ def _log_slow_bridge(_elapsed, log_threshold_seconds, _shape_str, _rss_before_gb
 # ever needed, the right primitive is ``pl.Enum`` on the source column
 # (fixed domain preserved across slices), not a post-hoc Arrow-level
 # cache.
+def _pd_view_memo_key(orig_df) -> tuple:
+    """The memo key of the CALLER's frame: ``(id, shape, column names)``.
+
+    Computed against the caller's argument, captured BEFORE any internal rebind (the Categorical->Enum remap rebinds the local ``df`` to a brand-new, short-lived object):
+    Captured BEFORE any internal rebind (the Categorical->Enum remap below does
+    ``df = df.with_columns(_exprs)``, pointing the local name ``df`` at a brand-new,
+    short-lived object): the memo's write-time id_key must be computed against the
+    CALLER's actual argument, not whatever ``df`` happens to reference by the time
+    the memo-populate code runs below. Using the post-rebind ``df`` made the memo key
+    (a) never match on a genuine same-frame repeat call for any Categorical-bearing
+    frame (the rebound intermediate's id has nothing to do with the caller's object),
+    and (b) worse, that intermediate's refcount hits zero and its address gets freed
+    almost immediately once the function returns (nothing else references it) --
+    CPython's small-object allocator commonly reuses a just-freed address for the
+    very next similarly-sized allocation, so a LATER call's brand-new polars frame
+    can land at that exact freed address and false-hit the memo, returning a stale
+    pandas view from a completely different (and by then garbage) frame. Caught via
+    test_tc29_test_categories_excluded_from_union flaking on CI with a category that
+    belonged only to an earlier, unrelated test's frame.
+
+    The column tuple is a cheap extra discriminator next to ``id()`` + shape: ``id()`` recycles after GC, so a different frame with the SAME shape could otherwise false-hit and return
+    a stale pandas view; different columns catch the common same-shape recycle."""
+    sh = getattr(orig_df, "shape", None)
+    cols = tuple(orig_df.columns) if hasattr(orig_df, "columns") else None
+    return (id(orig_df), sh if sh is not None else (None,), cols)
+
+
+def _pd_view_memo_lookup(orig_df):
+    """The cached pandas view of exactly this frame, or ``None``; call under ``_PD_VIEW_LAST_CACHE_LOCK``.
+
+    The key is compared and the view fetched under one lock: as two unlocked reads, a concurrent writer could publish another frame's pandas view between them, and this would hand
+    back the wrong DATA for this frame.
+
+    The single-entry "last result" memo (iter628, perf):
+    iter628 (perf): single-entry "last result" memo. c0008 @100k
+    profile showed 8 calls / 8.08s cumtime to this bridge across
+    multiple callers (_normalise_X dominates at 7.44s; the other 7
+    share 0.64s). Sequential calls from neighbouring code blocks
+    often pass the SAME polars frame (train/val/test slices re-used
+    across model strategies). The memo keyed by (id(df), shape,
+    self_destruct) returns the cached pandas view on immediate
+    repeats without re-running the ~1s pyarrow conversion.
+
+    Safety: pl.DataFrame is mutable so id() recycling after GC is
+    the standard risk; shape inclusion gives an extra discriminator.
+    self_destruct=True paths bypass the memo (consuming input is
+    destructive; never returning a cached prior view for those).
+    The returned pandas view shares memory with the polars buffer,
+    so two callers receiving the same cached view will see each
+    other's in-place mutations. mlframe consumers don't mutate the
+    bridge output (verified across the 5 call sites:
+    _normalise_X / _prepare_strategy_inputs / _cb_polars_to_pandas
+    / _coerce_to_pandas / _to_pandas_for_baseline) -- all read-only.
+    If a future caller does mutate, the memo here is the first
+    place to look for the bug."""
+    key = _pd_view_memo_key(orig_df)
+    cached = _PD_VIEW_LAST_CACHE.get("id_key")
+    return _PD_VIEW_LAST_CACHE.get("result") if cached == key else None
+
+
+def _pd_view_memo_store(orig_df, pandas_df) -> None:
+    """Populate the single-entry memo so the NEXT identical-id call returns the cached view; call under ``_PD_VIEW_LAST_CACHE_LOCK`` and only when ``self_destruct`` is False.
+
+    iter628 (perf): populate the single-entry memo so the NEXT
+    identical-id call returns the cached view. Skip when
+    self_destruct=True (input is being consumed; caching its
+    post-consume id would be unsafe).
+
+    Written under the same lock the read site takes, so a reader never pairs a new id_key with a stale view. Memo population is best-effort: a cache-write hiccup never fails the
+    conversion."""
+    try:
+        key = _pd_view_memo_key(orig_df)
+        _PD_VIEW_LAST_CACHE["result"] = pandas_df
+        _PD_VIEW_LAST_CACHE["id_key"] = key
+        # Close the id()-recycling gap: invalidate the memo the instant the CALLER's original df is actually collected.
+        # Close the id()-recycling gap: invalidate the memo the instant the CALLER's original df is
+        # actually collected, so a later frame's id() can never alias a still-live stale entry. Must
+        # be _orig_df (the caller's argument), not the local ``df`` -- ``df`` may have been rebound
+        # to a short-lived internal Enum-remap intermediate above, whose refcount hits zero (and
+        # whose finalizer would fire) almost immediately, long before the cached entry is stale.
+        # See _invalidate_pd_view_cache_if_current's docstring for the bug this fixes.
+        weakref.finalize(orig_df, _invalidate_pd_view_cache_if_current, key)
+    except Exception as exc:  # nosec B110 - non-trivial body
+        logger.debug("get_pandas_view_of_polars_df: single-entry memo population failed, skipping cache: %s", exc)
+
+
+def _warn_nested_polars_columns(df) -> None:
+    """Warn (once per unique column-name / dtype-string set) about nested Polars columns that pyarrow's ``to_pandas`` materializes as ``object``.
+
+    Diagnostic: warn on nested Polars types that pyarrow's default
+    ``to_pandas()`` materializes as ``object`` dtype with Python list/
+    dict elements (probe finding). Downstream CatBoost's
+    embedding_features fastpath expects numeric vectors, not object
+    dtype with list elements, and fails at model.fit() with an opaque
+    "expected numeric" error. Warn here so the operator traces back
+    to the bridge step rather than CatBoost internals. We don't
+    raise or auto-cast -- the bridge is a general-purpose helper and
+    other callers (logging, post-hoc analysis) legitimately want
+    list-typed columns pass-through.
+
+    Noise-dedupe (round-11): the bridge is called many
+    times per training run (train / val / test x per-model), and a
+    frame with embedding features would emit the same WARN every call.
+    Fire at most once per unique (column-name, dtype-str) tuple set
+    observed in the process -- repeated identical schemas stay quiet.
+
+    Detect nested dtypes by isinstance, NOT str(dt):
+    Detect nested dtypes by isinstance, NOT str(dt): stringifying a
+    pl.Enum / pl.Categorical column whose universe is large builds a
+    multi-KB repr (a single Enum over 200 categories serialises to a
+    ~16 KB string -- see the truncation note in the warning below), and
+    this bridge runs many times per training run (train/val/test x
+    per-model). The class check touches the dtype object directly with
+    zero string allocation; only the rare columns that ARE nested get
+    stringified, for the warning message. (Micro-bench: the scan over a
+    frame with a wide Enum column dropped 3.4x.)"""
+    if pl is not None and isinstance(df, pl.DataFrame):
+        nested_cols = []
+        for name, dt in df.schema.items():
+            if isinstance(dt, _NESTED_PL_DTYPES):
+                nested_cols.append((name, str(dt)))
+        _warn_nested_dtype_once(nested_cols)
+
+
+def _arrow_bridge_to_pandas(df, self_destruct: bool) -> tuple:
+    """``(pandas_df, arrow bool column names, arrow date/timestamp column names)`` of the Arrow bridge of a Polars frame.
+
+    The Categorical -> Enum remap comes first:
+    Remap pl.Categorical -> pl.Enum keyed on the column's own unique
+    values BEFORE the Arrow bridge. polars 1.x's global string-cache
+    leaks ALL categories ever seen by the process into every pl.Categorical
+    column's dictionary, so a column with values {'a', 'b'} in production
+    would deserialise with codes 4, 5, 6 (instead of 0, 1, 2) after a
+    sibling test added 'C', 'B', 'A', 'cat_0' to the cache. pl.Enum is
+    per-Series and ignores the global cache, so its Arrow round-trip
+    produces a clean dictionary with codes starting at 0 and matching the
+    column's actual category universe. The remap is a no-op for non-
+    Categorical columns and adds O(n_unique) per Categorical column
+    (single .unique() pass) on first access. Verified against the
+    ``tests/training/test_utils.py::TestGetPandasViewOfPolarsDF`` cluster
+    which fails under xdist when sibling tests pollute the cache.
+
+    A short-circuit on "no dictionary columns" was benchmarked and delivered only 1.16x on pure-numeric workloads (below the 1.2x threshold), so the per-column scan is retained for code
+    uniformity. polars Enum is ordered, but older polars (1.36) hands Arrow an unordered dictionary for it; the order is restored from the source dtype.
+
+    Boolean columns are captured BEFORE ``to_pandas()``:
+    Capture which Arrow columns were bool BEFORE to_pandas(). Nullable Boolean
+    columns (those with any null) materialize as pandas ``object`` dtype with
+    Python True/False/None elements -- verified against
+    pyarrow 21 on Polars 1.37. This breaks LightGBM's sklearn wrapper, which
+    refuses ``object`` dtypes (``ValueError: pandas dtypes must be int, float
+    or bool``). Non-null Boolean stays as numpy ``bool``. We post-process only
+    the object-materialized ones below.
+
+    Date / timestamp columns are captured BEFORE ``to_pandas()``:
+    Capture which Arrow columns are date32/date64/timestamp BEFORE to_pandas().
+    On newer pyarrow + pandas combos (verified empirically with pandas 2.x + a
+    str-mapping default), ``to_pandas()`` may materialize ``pa.date32()`` as
+    pandas ``str`` (``StringDtype(na_value=nan)``) instead of ``datetime64[ns]``.
+    Downstream consumers (the dummy-baselines temporal monotonicity helper,
+    ``compute_ml_perf_by_time``) silently take the string path and either
+    raise or fall through with no temporal structure. Coerce back to
+    ``datetime64[ns]`` after the bridge so the documented contract holds.
+
+    The conversion itself:
+    Use numpy-backed pandas (types_mapper=None) for broad model compatibility.
+    LightGBM (and some other sklearn-family models) reject pandas columns with
+    ArrowDtype (e.g. 'float[pyarrow]').
+
+    CRITICAL: to_pandas() defaults are NOT zero-copy -- they CONSOLIDATE memory
+    blocks across columns of the same dtype, forcing a full copy of every
+    numeric buffer into a fresh numpy array. On 9M x 70 numeric columns this
+    was ~35 minutes of pure memcpy + GIL churn in production.
+      * split_blocks=True  -> no consolidation; each column keeps its Arrow
+        buffer, so numeric/bool dtypes become np.ndarray views instead of
+        copies. Categorical still allocates because pandas needs its own
+        codes representation, but that's the only unavoidable copy.
+      * use_threads=True   -> parallel column materialization (default but
+        stated explicitly so the contract is visible).
+    * self_destruct=False (default) -> SAFE. Tested: enabling
+        self_destruct=True caused a native crash inside pytest during the
+        integration suite -- pyarrow's "EXPERIMENTAL" warning was no joke.
+        The 26% extra speedup is not worth the segfault risk; opt-in only.
+    Bench (7.3M x 118 with 18 dict cols):
+      default                          30.06s   (1x)
+      use_threads only                  2.10s   (14x)
+      +split_blocks                     0.95s   (32x)  <- default
+      +self_destruct                    0.70s   (43x)  <- opt-in, may crash"""
+    import pyarrow as pa
+
+    df = _remap_polars_categoricals(df)
+    tbl = df.to_arrow()
+    tbl_fixed = _normalise_dictionary_columns(df, tbl)
+    arrow_bool_cols = [name for name, col in zip(tbl_fixed.column_names, tbl_fixed.columns) if pa.types.is_boolean(col.type)]
+    arrow_temporal_cols = [
+        name for name, col in zip(tbl_fixed.column_names, tbl_fixed.columns) if (pa.types.is_date(col.type) or pa.types.is_timestamp(col.type))
+    ]
+    pandas_df = tbl_fixed.to_pandas(
+        use_threads=True,
+        split_blocks=True,
+        self_destruct=self_destruct,
+    )
+    return pandas_df, arrow_bool_cols, arrow_temporal_cols
+
+
+def _fix_pandas_bridge_dtypes(pandas_df, arrow_bool_cols, arrow_temporal_cols) -> None:
+    """Repair, in place, the dtypes the pandas bridge got wrong: object-materialized nullable Boolean and demoted date / timestamp columns.
+
+    Nullable Boolean -> pandas Int8 with ``pd.NA``:
+    Coerce object-materialized nullable Boolean -> pandas Int8 with ``pd.NA``.
+    Verified that Int8/``pd.NA`` is accepted by all three tree
+    backends (LightGBM 4.6, XGBoost 3.2, CatBoost 1.2.10); pandas nullable
+    ``boolean`` is rejected by CatBoost ("Cannot convert <NA> to float") so we
+    avoid it. Non-null Boolean already came out as numpy ``bool`` and is left
+    alone. Object-elsewhere (e.g. ``pl.List`` / ``pl.Struct``) is untouched --
+    the nested-dtype warning above still fires for those.
+
+    Date / timestamp:
+    Restore datetime64[ns] for any Arrow date / timestamp column the pandas
+    bridge demoted to string / object on this pyarrow version. ``errors="coerce"``
+    keeps malformed cells as NaT rather than blowing the bridge."""
+    coerced_bool_cols = []
+    for name in arrow_bool_cols:
+        if pandas_df[name].dtype == object:
+            pandas_df[name] = pandas_df[name].astype("boolean").astype("Int8")
+            coerced_bool_cols.append(name)
+
+    coerced_temporal_cols = _restore_datetime_columns(pandas_df, arrow_temporal_cols)
+    if coerced_temporal_cols and logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "get_pandas_view_of_polars_df: restored %d Arrow date/timestamp " "column(s) to datetime64[ns] after pandas bridge demoted them: %s",
+            len(coerced_temporal_cols),
+            coerced_temporal_cols,
+        )
+    if coerced_bool_cols and logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "get_pandas_view_of_polars_df: coerced %d nullable-bool object " "column(s) to Int8: %s",
+            len(coerced_bool_cols),
+            coerced_bool_cols,
+        )
+
+
 def get_pandas_view_of_polars_df(
     df: pl.DataFrame,
     self_destruct: bool = False,
@@ -603,261 +874,38 @@ def get_pandas_view_of_polars_df(
     if pl is None or not isinstance(df, pl.DataFrame):
         raise TypeError(f"Input must be a Polars DataFrame, got {type(df).__name__}")
 
-    # Captured BEFORE any internal rebind (the Categorical->Enum remap below does
-    # ``df = df.with_columns(_exprs)``, pointing the local name ``df`` at a brand-new,
-    # short-lived object): the memo's write-time id_key must be computed against the
-    # CALLER's actual argument, not whatever ``df`` happens to reference by the time
-    # the memo-populate code runs below. Using the post-rebind ``df`` made the memo key
-    # (a) never match on a genuine same-frame repeat call for any Categorical-bearing
-    # frame (the rebound intermediate's id has nothing to do with the caller's object),
-    # and (b) worse, that intermediate's refcount hits zero and its address gets freed
-    # almost immediately once the function returns (nothing else references it) --
-    # CPython's small-object allocator commonly reuses a just-freed address for the
-    # very next similarly-sized allocation, so a LATER call's brand-new polars frame
-    # can land at that exact freed address and false-hit the memo, returning a stale
-    # pandas view from a completely different (and by then garbage) frame. Caught via
-    # test_tc29_test_categories_excluded_from_union flaking on CI with a category that
-    # belonged only to an earlier, unrelated test's frame.
+    # Captured BEFORE any internal rebind of ``df`` (see _pd_view_memo_key): the memo is keyed on the caller's own argument.
     _orig_df = df
 
-    # iter628 (perf): single-entry "last result" memo. c0008 @100k
-    # profile showed 8 calls / 8.08s cumtime to this bridge across
-    # multiple callers (_normalise_X dominates at 7.44s; the other 7
-    # share 0.64s). Sequential calls from neighbouring code blocks
-    # often pass the SAME polars frame (train/val/test slices re-used
-    # across model strategies). The memo keyed by (id(df), shape,
-    # self_destruct) returns the cached pandas view on immediate
-    # repeats without re-running the ~1s pyarrow conversion.
-    #
-    # Safety: pl.DataFrame is mutable so id() recycling after GC is
-    # the standard risk; shape inclusion gives an extra discriminator.
-    # self_destruct=True paths bypass the memo (consuming input is
-    # destructive; never returning a cached prior view for those).
-    # The returned pandas view shares memory with the polars buffer,
-    # so two callers receiving the same cached view will see each
-    # other's in-place mutations. mlframe consumers don't mutate the
-    # bridge output (verified across the 5 call sites:
-    # _normalise_X / _prepare_strategy_inputs / _cb_polars_to_pandas
-    # / _coerce_to_pandas / _to_pandas_for_baseline) -- all read-only.
-    # If a future caller does mutate, the memo here is the first
-    # place to look for the bug.
     with _PD_VIEW_LAST_CACHE_LOCK:
         if not self_destruct:
-            sh = getattr(_orig_df, "shape", None)
-            # Co-validate column names alongside id()+shape: id() recycles after GC, so a different frame with
-            # the SAME shape could otherwise false-hit and return a stale pandas view; the column tuple is a cheap
-            # extra discriminator that catches the common same-shape-different-columns recycle.
-            _cols = tuple(_orig_df.columns) if hasattr(_orig_df, "columns") else None
-            _id_key = (id(_orig_df), sh if sh is not None else (None,), _cols)
-            # Compare the key and fetch the view under one lock: as two unlocked reads, a concurrent writer could publish another frame's
-            # pandas view between them, and this would hand back the wrong DATA for this frame.
-            _cached = _PD_VIEW_LAST_CACHE.get("id_key")
-            _result = _PD_VIEW_LAST_CACHE.get("result") if _cached == _id_key else None
+            _result = _pd_view_memo_lookup(_orig_df)
             if _result is not None:
                 return _result
 
-        # iter354 size-aware dispatcher: the pyarrow-Table +
-        # per-column-cast path below is 9.5x faster than ``df.to_pandas()`` for
-        # numeric-heavy frames (200k x 30 float64: 13.3ms -> 1.4ms) but 2.4x
-        # SLOWER for SMALL frames dominated by polars Categorical / Enum
-        # columns (200k x 15 cat + 10 num: 20.4ms -> 49.7ms). The slow path is
-        # the per-column ``pa.compute.cast`` chain that narrows uint32 dict
-        # indices to int32 for pyarrow's to_pandas (still refuses uint32 dict
-        # indices on pyarrow 21).
-        #
-        # CRITICAL size constraint: on LARGE frames (multi-GB / 100 GB
-        # production loads) the helper's ``split_blocks=True`` path is the
-        # whole reason it exists -- it gives zero-copy numpy views over
-        # numeric Arrow buffers instead of consolidating them into fresh
-        # numpy blocks. ``df.to_pandas()`` consolidates and copies every
-        # numeric buffer, blowing memory + wall time on big workloads
-        # (the original 9M x 70 numeric frame went 30s vs 0.95s, ~32x).
-        #
-        # Dispatch policy:
-        #   * Force HELPER for any frame above ~50 MB (size proxy: rows *
-        #     cols * 8). On big frames the per-column dict cast amortises and
-        #     the zero-copy numeric path dominates. This is also exactly the
-        #     regime where ``df.to_pandas()`` would OOM the operator.
-        #   * Force RAW ``df.to_pandas()`` only for SMALL Categorical-heavy
-        #     frames where the cast overhead bites and there's no numeric
-        #     buffer to keep zero-copy.
-        #   * Override via env var for forensic A/B benchmarks.
+        # Size-aware dispatch (iter354): small Categorical / Enum-heavy frames are faster through a raw ``df.to_pandas()``, everything else through the Arrow bridge below.
+        # The policy and its measurements are in _small_dict_heavy_raw_view's docstring.
         _raw_view = _small_dict_heavy_raw_view(df)
         if _raw_view is not None:
             return _raw_view
 
-        import pyarrow as pa
-
-        # Capture timing + RAM around the conversion. Long conversions (multi-GB
-        # frames) on prod were silent black boxes -- operators couldn't tell whether
-        # the 35-min stall was here or downstream. Log when the conversion crosses
-        # log_threshold_seconds so small bridge calls don't spam the log.
+        # Capture timing + RAM around the conversion: long conversions (multi-GB frames) on prod were silent black boxes -- operators couldn't tell whether the 35-min stall was here or downstream -- so a conversion that crosses
+        # log_threshold_seconds is logged and small bridge calls stay quiet.
         import time as _time
+
         _t0 = _time.perf_counter()
         _rss_before_gb = get_own_memory_usage()
         _shape_str = f"{df.shape[0]:_}x{df.shape[1]}" if (pl is not None and isinstance(df, pl.DataFrame)) else f"{len(df):_}"
 
-        # Diagnostic: warn on nested Polars types that pyarrow's default
-        # ``to_pandas()`` materializes as ``object`` dtype with Python list/
-        # dict elements (probe finding). Downstream CatBoost's
-        # embedding_features fastpath expects numeric vectors, not object
-        # dtype with list elements, and fails at model.fit() with an opaque
-        # "expected numeric" error. Warn here so the operator traces back
-        # to the bridge step rather than CatBoost internals. We don't
-        # raise or auto-cast -- the bridge is a general-purpose helper and
-        # other callers (logging, post-hoc analysis) legitimately want
-        # list-typed columns pass-through.
-        #
-        # Noise-dedupe (round-11): the bridge is called many
-        # times per training run (train / val / test x per-model), and a
-        # frame with embedding features would emit the same WARN every call.
-        # Fire at most once per unique (column-name, dtype-str) tuple set
-        # observed in the process -- repeated identical schemas stay quiet.
-        if pl is not None and isinstance(df, pl.DataFrame):
-            # Detect nested dtypes by isinstance, NOT str(dt): stringifying a
-            # pl.Enum / pl.Categorical column whose universe is large builds a
-            # multi-KB repr (a single Enum over 200 categories serialises to a
-            # ~16 KB string -- see the truncation note in the warning below), and
-            # this bridge runs many times per training run (train/val/test x
-            # per-model). The class check touches the dtype object directly with
-            # zero string allocation; only the rare columns that ARE nested get
-            # stringified, for the warning message. (Micro-bench: the scan over a
-            # frame with a wide Enum column dropped 3.4x.)
-            nested_cols = []
-            for name, dt in df.schema.items():
-                if isinstance(dt, _NESTED_PL_DTYPES):
-                    nested_cols.append((name, str(dt)))
-            _warn_nested_dtype_once(nested_cols)
-
-        # Remap pl.Categorical -> pl.Enum keyed on the column's own unique
-        # values BEFORE the Arrow bridge. polars 1.x's global string-cache
-        # leaks ALL categories ever seen by the process into every pl.Categorical
-        # column's dictionary, so a column with values {'a', 'b'} in production
-        # would deserialise with codes 4, 5, 6 (instead of 0, 1, 2) after a
-        # sibling test added 'C', 'B', 'A', 'cat_0' to the cache. pl.Enum is
-        # per-Series and ignores the global cache, so its Arrow round-trip
-        # produces a clean dictionary with codes starting at 0 and matching the
-        # column's actual category universe. The remap is a no-op for non-
-        # Categorical columns and adds O(n_unique) per Categorical column
-        # (single .unique() pass) on first access. Verified against the
-        # ``tests/training/test_utils.py::TestGetPandasViewOfPolarsDF`` cluster
-        # which fails under xdist when sibling tests pollute the cache.
-        df = _remap_polars_categoricals(df)
-        tbl = df.to_arrow()
-
-        # Note: short-circuit on "no dictionary columns" was benchmarked and
-        # delivered only 1.16x on pure-numeric workloads (below 1.2x threshold), so the
-        # per-column scan is retained for code uniformity.
-        # polars Enum is ordered, but older polars (1.36) hands Arrow an unordered dictionary for it; the order is restored from the source dtype.
-        tbl_fixed = _normalise_dictionary_columns(df, tbl)
-
-        # Capture which Arrow columns were bool BEFORE to_pandas(). Nullable Boolean
-        # columns (those with any null) materialize as pandas ``object`` dtype with
-        # Python True/False/None elements -- verified against
-        # pyarrow 21 on Polars 1.37. This breaks LightGBM's sklearn wrapper, which
-        # refuses ``object`` dtypes (``ValueError: pandas dtypes must be int, float
-        # or bool``). Non-null Boolean stays as numpy ``bool``. We post-process only
-        # the object-materialized ones below.
-        _arrow_bool_cols = [name for name, col in zip(tbl_fixed.column_names, tbl_fixed.columns) if pa.types.is_boolean(col.type)]
-
-        # Capture which Arrow columns are date32/date64/timestamp BEFORE to_pandas().
-        # On newer pyarrow + pandas combos (verified empirically with pandas 2.x + a
-        # str-mapping default), ``to_pandas()`` may materialize ``pa.date32()`` as
-        # pandas ``str`` (``StringDtype(na_value=nan)``) instead of ``datetime64[ns]``.
-        # Downstream consumers (the dummy-baselines temporal monotonicity helper,
-        # ``compute_ml_perf_by_time``) silently take the string path and either
-        # raise or fall through with no temporal structure. Coerce back to
-        # ``datetime64[ns]`` after the bridge so the documented contract holds.
-        _arrow_temporal_cols = [
-            name for name, col in zip(tbl_fixed.column_names, tbl_fixed.columns) if (pa.types.is_date(col.type) or pa.types.is_timestamp(col.type))
-        ]
-
-        # Use numpy-backed pandas (types_mapper=None) for broad model compatibility.
-        # LightGBM (and some other sklearn-family models) reject pandas columns with
-        # ArrowDtype (e.g. 'float[pyarrow]').
-        #
-        # CRITICAL: to_pandas() defaults are NOT zero-copy -- they CONSOLIDATE memory
-        # blocks across columns of the same dtype, forcing a full copy of every
-        # numeric buffer into a fresh numpy array. On 9M x 70 numeric columns this
-        # was ~35 minutes of pure memcpy + GIL churn in production.
-        #   * split_blocks=True  -> no consolidation; each column keeps its Arrow
-        #     buffer, so numeric/bool dtypes become np.ndarray views instead of
-        #     copies. Categorical still allocates because pandas needs its own
-        #     codes representation, but that's the only unavoidable copy.
-        #   * use_threads=True   -> parallel column materialization (default but
-        #     stated explicitly so the contract is visible).
-        # * self_destruct=False (default) -> SAFE. Tested: enabling
-        #     self_destruct=True caused a native crash inside pytest during the
-        #     integration suite -- pyarrow's "EXPERIMENTAL" warning was no joke.
-        #     The 26% extra speedup is not worth the segfault risk; opt-in only.
-        # Bench (7.3M x 118 with 18 dict cols):
-        #   default                          30.06s   (1x)
-        #   use_threads only                  2.10s   (14x)
-        #   +split_blocks                     0.95s   (32x)  <- default
-        #   +self_destruct                    0.70s   (43x)  <- opt-in, may crash
-        pandas_df = tbl_fixed.to_pandas(
-            use_threads=True,
-            split_blocks=True,
-            self_destruct=self_destruct,
-        )
-
-        # Coerce object-materialized nullable Boolean -> pandas Int8 with ``pd.NA``.
-        # Verified that Int8/``pd.NA`` is accepted by all three tree
-        # backends (LightGBM 4.6, XGBoost 3.2, CatBoost 1.2.10); pandas nullable
-        # ``boolean`` is rejected by CatBoost ("Cannot convert <NA> to float") so we
-        # avoid it. Non-null Boolean already came out as numpy ``bool`` and is left
-        # alone. Object-elsewhere (e.g. ``pl.List`` / ``pl.Struct``) is untouched --
-        # the nested-dtype warning above still fires for those.
-        _coerced_bool_cols = []
-        for name in _arrow_bool_cols:
-            if pandas_df[name].dtype == object:
-                pandas_df[name] = pandas_df[name].astype("boolean").astype("Int8")
-                _coerced_bool_cols.append(name)
-
-        # Restore datetime64[ns] for any Arrow date / timestamp column the pandas
-        # bridge demoted to string / object on this pyarrow version. ``errors="coerce"``
-        # keeps malformed cells as NaT rather than blowing the bridge.
-        _coerced_temporal_cols = _restore_datetime_columns(pandas_df, _arrow_temporal_cols)
-        if _coerced_temporal_cols and logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "get_pandas_view_of_polars_df: restored %d Arrow date/timestamp " "column(s) to datetime64[ns] after pandas bridge demoted them: %s",
-                len(_coerced_temporal_cols),
-                _coerced_temporal_cols,
-            )
-        if _coerced_bool_cols and logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "get_pandas_view_of_polars_df: coerced %d nullable-bool object " "column(s) to Int8: %s",
-                len(_coerced_bool_cols),
-                _coerced_bool_cols,
-            )
+        _warn_nested_polars_columns(df)
+        pandas_df, _arrow_bool_cols, _arrow_temporal_cols = _arrow_bridge_to_pandas(df, self_destruct)
+        _fix_pandas_bridge_dtypes(pandas_df, _arrow_bool_cols, _arrow_temporal_cols)
 
         _elapsed = _time.perf_counter() - _t0
         _log_slow_bridge(_elapsed, log_threshold_seconds, _shape_str, _rss_before_gb, self_destruct)
 
-        # iter628 (perf): populate the single-entry memo so the NEXT
-        # identical-id call returns the cached view. Skip when
-        # self_destruct=True (input is being consumed; caching its
-        # post-consume id would be unsafe).
         if not self_destruct:
-            try:
-                sh = getattr(_orig_df, "shape", None)
-                _cols = tuple(_orig_df.columns) if hasattr(_orig_df, "columns") else None
-                _id_key = (id(_orig_df), sh if sh is not None else (None,), _cols)
-                # Written under the same lock the read site takes, so a reader never pairs a new id_key with a stale view.
-                # The key co-validates id()+shape+columns (see the read site).
-                _PD_VIEW_LAST_CACHE["result"] = pandas_df
-                _PD_VIEW_LAST_CACHE["id_key"] = _id_key
-                # Close the id()-recycling gap: invalidate the memo the instant the CALLER's original df is
-                # actually collected, so a later frame's id() can never alias a still-live stale entry. Must
-                # be _orig_df (the caller's argument), not the local ``df`` -- ``df`` may have been rebound
-                # to a short-lived internal Enum-remap intermediate above, whose refcount hits zero (and
-                # whose finalizer would fire) almost immediately, long before the cached entry is stale.
-                # See _invalidate_pd_view_cache_if_current's docstring for the bug this fixes.
-                weakref.finalize(_orig_df, _invalidate_pd_view_cache_if_current, _id_key)
-            except Exception as exc:  # nosec B110 - non-trivial body
-                # Memo population is best-effort; never fail the conversion
-                # because of a cache-write hiccup.
-                logger.debug("get_pandas_view_of_polars_df: single-entry memo population failed, skipping cache: %s", exc)
+            _pd_view_memo_store(_orig_df, pandas_df)
 
     return pandas_df
 
