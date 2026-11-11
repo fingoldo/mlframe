@@ -97,7 +97,7 @@ _MIX_M2 = _U64(0x94D049BB133111EB)
 _SEED_STRIDE = _U64(0xD1B54A32D192ED03)
 
 
-@njit(cache=True, inline="always")
+@njit(cache=True, inline="always", nogil=True)
 def _mix64(x):
     """splitmix64 finaliser: a bijective 64-bit mixer (the same arithmetic is in the device kernel ``xi_sort_keys``)."""
     x = (x ^ (x >> _U64(30))) * _MIX_M1
@@ -105,7 +105,7 @@ def _mix64(x):
     return x ^ (x >> _U64(31))
 
 
-@njit(cache=True, inline="always")
+@njit(cache=True, inline="always", nogil=True)
 def _tie_key(seed, row):
     """The 32-bit tie-break key of ``row`` under the column seed ``seed``: the high word of the mixed counter, so no permutation is drawn or stored."""
     return _mix64(seed + (_U64(row) + _U64(1)) * _MIX_GAMMA) >> _U64(32)
@@ -121,7 +121,7 @@ def column_seeds(random_state: int, k: int) -> np.ndarray:
         return np.asarray(x ^ (x >> np.uint64(31)), dtype=np.uint64)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _break_ties_by_key(col: np.ndarray, order: np.ndarray, seed) -> None:
     """Reorder every run of equal values of ``col`` (``order`` sorts ``col`` stably) by ``(tie key, row)``: the order the device sorts the packed 64-bit keys into."""
     n = order.shape[0]
@@ -143,7 +143,7 @@ def _break_ties_by_key(col: np.ndarray, order: np.ndarray, seed) -> None:
         i = e
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _xi_from_sorted_order(order: np.ndarray, r_row: np.ndarray, l_row: np.ndarray) -> float:
     """Chatterjee's tie-corrected Xi from the row order the column induces (the walk over the target's right and left ranks)."""
     n = order.shape[0]
@@ -160,7 +160,7 @@ def _xi_from_sorted_order(order: np.ndarray, r_row: np.ndarray, l_row: np.ndarra
     return 1.0 - float(n) * sdiff / den if den > 0.0 else 0.0
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _xi_columns_njit(cols: np.ndarray, seeds: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, out: np.ndarray) -> None:
     """``out[j]`` = Xi of column ``cols[j]`` (a row of ``(K, n)``) against the target, the rows ordered by ``(value, tie key, row)``: a stable merge sort by value, then each tie run by key."""
     for j in prange(cols.shape[0]):
@@ -170,7 +170,7 @@ def _xi_columns_njit(cols: np.ndarray, seeds: np.ndarray, r_row: np.ndarray, l_r
         out[j] = _xi_from_sorted_order(order, r_row, l_row)
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _xi_columns_radix_njit(cols: np.ndarray, seeds: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, out: np.ndarray) -> None:
     """:func:`_xi_columns_njit` for float32 columns, same order and same values: the stable order by value comes from a 4-pass LSD radix sort (``-0.0`` keyed as ``+0.0``, which compares equal)."""
     for j in prange(cols.shape[0]):

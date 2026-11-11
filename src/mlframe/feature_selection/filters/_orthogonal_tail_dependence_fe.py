@@ -39,7 +39,7 @@ from ._numba_utils_shared import radix_order_f32
 __all__ = ["tail_dependence_score"]
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _tail_dep_columns_njit(cols_rows: np.ndarray, v: np.ndarray, q: float, out: np.ndarray, use_radix: bool = False) -> None:
     """``out[j]`` = ``max(upper, lower)`` floored tail-dependence of row ``j`` of ``cols_rows`` ``(k, n)`` against the rank-uniformised target ``v``.
 

@@ -151,7 +151,7 @@ _EPS_DENOM_FLOOR = 1e-12
 _CV2_DEGENERATE_FLOOR = 1e-16
 
 
-@numba.njit(cache=True, inline="always")
+@numba.njit(cache=True, inline="always", nogil=True)
 def _eval_form(form_id, x0, x1, eps):
     """Evaluate ONE of the 9 candidate forms at a single (x0, x1) row pair. Mirrors
     usability_form_corrs's per-row form construction (the eps-floored ratio denominator -> NaN on a
@@ -176,7 +176,7 @@ def _eval_form(form_id, x0, x1, eps):
     return x0 * x1
 
 
-@numba.njit(cache=True, inline="always", fastmath={"reassoc", "contract", "arcp", "afn", "nsz"})
+@numba.njit(cache=True, inline="always", fastmath={"reassoc", "contract", "arcp", "afn", "nsz"}, nogil=True)
 def _abs_pearson_form_reduction(y, operand_matrix, a_idx, b_idx, form_id, eps, cv2):
     """The exact ``_abs_pearson_njit`` two-pass reduction, evaluated on-the-fly for ONE (pair, form) -
     reproduces that kernel's numerical contract exactly: f64 accumulation, branchless isfinite masking,
@@ -237,7 +237,7 @@ def _abs_pearson_form_reduction(y, operand_matrix, a_idx, b_idx, form_id, eps, c
 # ---------------------------------------------------------------------------
 
 
-@numba.njit(cache=True, parallel=True)
+@numba.njit(cache=True, parallel=True, nogil=True)
 def batch_pair_usability_corr_njit_parallel(
     y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray
 ) -> np.ndarray:

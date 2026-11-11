@@ -16,7 +16,7 @@ from numba import njit, prange, types
 from numba.extending import intrinsic, overload
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def xlogx_table(n: int) -> np.ndarray:
     """``t[c] = c * log(c)`` for ``c = 0..n`` (``t[0] = 0``)."""
     t = np.zeros(n + 1, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
@@ -25,7 +25,7 @@ def xlogx_table(n: int) -> np.ndarray:
     return t
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def column_marginals(cols: np.ndarray, n_x: np.ndarray, cap: int, table: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     """``(px, c_a)``: per-column bin counts ``(k, cap)`` and ``sum_a xlogx(px_a)`` ``(k,)``."""
     k = cols.shape[0]
@@ -42,7 +42,7 @@ def column_marginals(cols: np.ndarray, n_x: np.ndarray, cap: int, table: np.ndar
     return px, c_a
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def mi_column_counts(col: np.ndarray, n_x: int, y: np.ndarray, n_y: int, joint: np.ndarray, table: np.ndarray, const: float) -> float:
     """Plug-in MI of one column with labels ``y`` given ``const = n log n - sum_a xlogx(px_a) - sum_b xlogx(py_b)``; ``joint`` is a caller-owned int64 buffer of ``n_x * n_y`` cells."""
     n = y.shape[0]
@@ -57,7 +57,7 @@ def mi_column_counts(col: np.ndarray, n_x: int, y: np.ndarray, n_y: int, joint: 
     return float((s + const) / n)
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def family_null_max_counts(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray, n_y: int, table: np.ndarray, c_a: np.ndarray) -> np.ndarray:
     """Maximum MI over the columns of ``cols`` for each row of ``y_perms`` (label permutations of one label vector); parallel over permutations."""
     b_count = y_perms.shape[0]
@@ -120,7 +120,7 @@ def _popcount64_overload(x):
     return None
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def column_bin_bitsets(cols: np.ndarray, n_x: np.ndarray, cap: int) -> np.ndarray:
     """``(k, cap, words)`` uint64 bitsets: bit ``i`` of ``[j, a]`` is set when ``cols[j, i] == a``."""
     k = cols.shape[0]
@@ -133,7 +133,7 @@ def column_bin_bitsets(cols: np.ndarray, n_x: np.ndarray, cap: int) -> np.ndarra
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def label_bitsets(y: np.ndarray, n_y: int, words: int) -> np.ndarray:
     """``(n_y, words)`` uint64 bitsets of the classes of one label vector."""
     out = np.zeros((n_y, words), dtype=np.uint64)
@@ -142,7 +142,7 @@ def label_bitsets(y: np.ndarray, n_y: int, words: int) -> np.ndarray:
     return out
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def label_bitsets_batch(y_perms: np.ndarray, n_y: int, words: int) -> np.ndarray:
     """``(permutations, n_y, words)`` uint64 class bit sets of every row of ``y_perms``."""
     b_count = y_perms.shape[0]
@@ -153,7 +153,7 @@ def label_bitsets_batch(y_perms: np.ndarray, n_y: int, words: int) -> np.ndarray
     return out
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def label_bitsets_from_index(y: np.ndarray, perm_idx: np.ndarray, n_y: int, words: int) -> np.ndarray:
     """:func:`label_bitsets_batch` of ``y[perm_idx]`` without building the ``(permutations, n)`` label matrix: row ``b`` uses the labels ``y[perm_idx[b]]``."""
     b_count = perm_idx.shape[0]
@@ -164,7 +164,7 @@ def label_bitsets_from_index(y: np.ndarray, perm_idx: np.ndarray, n_y: int, word
     return out
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def family_null_max_bitsets(bits: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray, n_y: int, table: np.ndarray, c_a: np.ndarray, px: np.ndarray) -> np.ndarray:
     """Same result as :func:`family_null_max_counts` with the joint counts taken as popcounts of ``bin & class`` bitsets.
 
@@ -203,7 +203,7 @@ def family_null_max_bitsets(bits: np.ndarray, n_x: np.ndarray, y_perms: np.ndarr
     return out
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def family_null_max_bitsets_classes(bits: np.ndarray, n_x: np.ndarray, cls_all: np.ndarray, n: int, table: np.ndarray, c_a: np.ndarray, px: np.ndarray, py: np.ndarray) -> np.ndarray:
     """:func:`family_null_max_bitsets` from the class bit sets ``cls_all`` ``(permutations, n_y, words)`` of the permuted labels, four permutations per pass over the column bitsets.
 
@@ -342,7 +342,7 @@ def null_max_bitsets_from_classes(prep: tuple, n_x: np.ndarray, cls_all: np.ndar
     return out
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def mi_all_columns_counts(cols: np.ndarray, n_x: np.ndarray, y_codes: np.ndarray, n_y: int) -> np.ndarray:
     """Plug-in MI (nats) of every row of ``cols`` with ``y_codes`` in the count-table arithmetic of the null kernels, so an observed value and a null value of the same column and labels are bit-equal."""
     k = cols.shape[0]

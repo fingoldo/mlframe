@@ -23,7 +23,7 @@ from ._numba_utils import (  # noqa: F401 -- helpers hosted in _numba_utils_cros
 )
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _permutation_sources_njit(order: np.ndarray, starts: np.ndarray, lens: np.ndarray, n_perm: int, seed: int) -> np.ndarray:
     """Fisher-Yates shuffle of every stratum's positions, one draw per parallel iteration; draw ``p`` is seeded ``seed + p`` so the result does not depend on the thread schedule (index draws: ``_numba_utils_shuffle``)."""
     n = order.shape[0]

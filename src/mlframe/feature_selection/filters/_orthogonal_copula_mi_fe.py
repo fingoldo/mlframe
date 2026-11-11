@@ -203,7 +203,7 @@ def copula_mi(
     return _bin_mi_uniform_pair(u, v, n_bins=int(n_bins))
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _copula_mi_from_order(col: np.ndarray, order: np.ndarray, vi: np.ndarray, nb: int) -> float:
     """Miller-Madow copula MI of ``col`` against the y bins ``vi`` from an order that sorts ``col`` (equal values adjacent; their order among themselves does not
     matter, every one of them gets the mean rank of the run): the tie runs give the average-rule ranks, binned into ``nb`` equal-width bins."""
@@ -250,7 +250,7 @@ def _copula_mi_from_order(col: np.ndarray, order: np.ndarray, vi: np.ndarray, nb
     return mi if mi > 0.0 else 0.0
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _copula_columns_njit(cols_rows: np.ndarray, vi: np.ndarray, nb: int, out: np.ndarray) -> None:
     """``out[j]`` = Miller-Madow copula MI of the all-finite row ``j`` of ``cols_rows`` ``(k, n)`` against the y bins ``vi`` (equal-width bins of the y ranks).
 
@@ -262,7 +262,7 @@ def _copula_columns_njit(cols_rows: np.ndarray, vi: np.ndarray, nb: int, out: np
         out[j] = _copula_mi_from_order(col, np.argsort(col, kind="mergesort"), vi, nb)
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _copula_columns_radix_njit(cols_rows: np.ndarray, vi: np.ndarray, nb: int, out: np.ndarray) -> None:
     """:func:`_copula_columns_njit` for float32 rows: the order comes from a 4-pass LSD radix sort of the order-preserving uint32 key of each value (``-0.0`` keyed as
     ``+0.0``, which compare equal), not a comparison sort. Equal values end up adjacent as there, and the MI depends only on the tie runs, so the value is the same."""

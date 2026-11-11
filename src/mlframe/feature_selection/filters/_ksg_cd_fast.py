@@ -14,7 +14,7 @@ from numba import njit, prange
 from ._numba_utils_shared import radix_order_f64
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _psi_table(n):
     """digamma at integers 1..n via psi(m+1) = psi(m) + 1/m, psi(1) = -Euler gamma."""
     out = np.zeros(n + 2)
@@ -24,7 +24,7 @@ def _psi_table(n):
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _mi_cd_column(x, d, n_classes, n_neighbors, psi):
     """Ross MI (nats) between the noisy continuous column ``x`` and integer labels ``d`` in 0..n_classes-1."""
     n = x.shape[0]
@@ -100,7 +100,7 @@ def _mi_cd_column(x, d, n_classes, n_neighbors, psi):
     return mi if mi > 0.0 else 0.0
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _mi_cd_columns(X, d, n_classes, n_neighbors):
     """Per-column Ross MI for the columns of ``X`` (already scaled and noised)."""
     n_cols = X.shape[1]

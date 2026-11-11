@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _cell_sum_cnt_njit(classes, y, n_uniq):
     """Per-cell running (sum of y, count) over rows, in row order - bit-identical to the Python
     ``for row: cell_sum[c]+=y[row]; cell_cnt[c]+=1`` accumulator it replaces (~490x @100k). ``classes`` is int."""
@@ -171,7 +171,7 @@ def _compute_target_encoding(
 # ============================================================================
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _pair_search_kernel_weighted_njit(
     factors_data: np.ndarray,
     pairs_a: np.ndarray,
@@ -241,7 +241,7 @@ def _pair_search_kernel_weighted_njit(
     return joint_mi_out, ii_out, n_uniq_out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _group_aware_shuffle(
     classes_y_safe: np.ndarray, groups: np.ndarray, n_groups: int, base_seed: int,
 ) -> None:

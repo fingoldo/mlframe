@@ -25,7 +25,7 @@ from .._numba_utils import _quantile_bin_njit
 logger = logging.getLogger(__name__)
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _rank_codes_rows_njit(X: np.ndarray, n_bins: int) -> np.ndarray:
     """(k, n) int32 rank-bin codes of the columns of the (n, k) matrix ``X`` (each column copied contiguous before the argsort, as the batch MI kernel does)."""
     n, k = X.shape
@@ -35,7 +35,7 @@ def _rank_codes_rows_njit(X: np.ndarray, n_bins: int) -> np.ndarray:
     return codes
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _rank_codes_cols_njit(X: np.ndarray, cols: np.ndarray, n_bins: int) -> np.ndarray:
     """:func:`_rank_codes_rows_njit` for the columns ``cols`` of ``X`` only: (len(cols), n) int32 rank-bin codes."""
     n = X.shape[0]
@@ -45,7 +45,7 @@ def _rank_codes_cols_njit(X: np.ndarray, cols: np.ndarray, n_bins: int) -> np.nd
     return codes
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _mi_from_codes_rows_njit(codes: np.ndarray, y: np.ndarray, n_bins: int) -> np.ndarray:
     """Plug-in MI of each row of the (k, n) ``codes`` against ``y``; the arithmetic of ``_plugin_mi_classif_njit`` after its binning step."""
     k, n = codes.shape

@@ -135,7 +135,7 @@ __all__ = [
     "hybrid_orth_mi_hsic_fe_with_recipes",
 ]
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _kth_smallest(a, k):
     """The ``k``-th smallest value of ``a`` (0-based) by iterative quickselect with a median-of-three pivot; ``a`` is reordered in place. Equal to ``np.sort(a)[k]``."""
     lo = 0
@@ -166,7 +166,7 @@ def _kth_smallest(a, k):
     return a[k]
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _pairs_within(xs: np.ndarray, d: float) -> int:
     """Number of pairs ``i < j`` of the ascending ``xs`` whose difference ``xs[j] - xs[i]`` (in the dtype of ``xs``) is at most ``d``, by one two-pointer pass.
 
@@ -181,7 +181,7 @@ def _pairs_within(xs: np.ndarray, d: float) -> int:
     return total
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _kth_pair_distance(xs: np.ndarray, k: int):
     """The ``k``-th (0-based) smallest ``xs[j] - xs[i]`` over ``i < j`` of the ascending ``xs``: the bisection finds the smallest distance ``d`` that leaves more than ``k`` pairs within it, and the largest
     pair distance not above it is that value exactly (every distance is a value of the dtype of ``xs``, so the bisection ends between two neighbouring ones)."""
@@ -210,7 +210,7 @@ def _kth_pair_distance(xs: np.ndarray, k: int):
     return best  # in the dtype of ``xs``, like the values the quickselect returns
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _median_pairwise_distance(arr: np.ndarray) -> float:
     """Median of ``|arr[i] - arr[j]|`` over ``i < j`` of a finite column, from its sorted copy: the rank selection by bisection on the distance (``_kth_pair_distance``) gives the values the quickselect of
     ``_median_pairwise_distance_select`` returns, in O(m log m) instead of O(m^2)."""
@@ -228,7 +228,7 @@ def _median_pairwise_distance(arr: np.ndarray) -> float:
     return float(0.5 * (lower + upper))
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _median_pairwise_distance_select(arr: np.ndarray) -> float:
     """Median of ``|arr[i] - arr[j]|`` over ``i < j``: the same multiset the dense upper-triangle gather builds, without the n x n matrix and the index arrays.
 
@@ -252,7 +252,7 @@ def _median_pairwise_distance_select(arr: np.ndarray) -> float:
     return float(0.5 * (lower + upper))
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def hsic_column_sigmas(xs_rows: np.ndarray) -> np.ndarray:
     """The median pairwise distance of every row of ``xs_rows``: the bandwidths ``_hsic_biased_columns_njit`` computes inside its loop, for the device kernel."""
     out = np.empty(xs_rows.shape[0])
@@ -261,7 +261,7 @@ def hsic_column_sigmas(xs_rows: np.ndarray) -> np.ndarray:
     return out
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _hsic_biased_columns_njit(xs_rows: np.ndarray, lc: np.ndarray, denom: float, out: np.ndarray) -> None:
     """``out[j]`` = biased HSIC of row ``j`` of ``xs_rows`` ``(k, m)`` against the y-side CENTRED Gram matrix ``lc`` ``(m, m)``.
 

@@ -20,7 +20,7 @@ from ._numba_utils import LARGE_CONST, _fleuret_shuffle_col_lcg, evaluate_gain
 from typing import Any
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _block_flags(data, factors_nbins, x, y, selected_vars_arr, b0, b1, bootstrapped_gain, nexisting, relevance_algo, redundancy_algo, max_order,
                  extra_knowledge_multipler, sink_threshold, extra_x_shuffling, base_seed, perm_offset, use_su, use_mm, use_jmim, jmim_discount_only):
     """``flags[i - b0]`` = permutation ``i`` of ``[b0, b1)`` reached ``bootstrapped_gain`` (a failure), each on a private copy of the columns."""

@@ -116,7 +116,7 @@ def _pc_corr_numpy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     return np.asarray(corr)
 
 
-@njit(parallel=True, cache=True)  # NO fastmath: the kernel relies on isfinite() for the NaN mask; nnan/ninf would elide it.
+@njit(parallel=True, cache=True, nogil=True)  # NO fastmath: the kernel relies on isfinite() for the NaN mask; nnan/ninf would elide it.
 def _pc_corr_njit(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     """njit(parallel) backend: one fused pass per pair, no temporaries. MEASURED SLOWER than numpy (0.23-0.80x) - a
     naive triple-loop cannot beat BLAS - so it is never auto-selected; kept as a force-selectable option per

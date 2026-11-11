@@ -14,7 +14,7 @@ from ._adaptive_nbins import _plug_in_mi_njit
 from ._mi_greedy_cmi_fe_binning import _factorize_dense_njit
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def pair_joint_mi(codes: np.ndarray, radix: np.ndarray, first: np.ndarray, second: np.ndarray, y_b: np.ndarray, k_y: int) -> np.ndarray:
     """``out[p] = MI(joint(codes[first[p]], codes[second[p]]); y_b)`` for every pair ``p``; ``codes`` is ``(columns, rows)`` int64, ``radix[c] = max(codes[c]) + 1``."""
     n_pairs = first.shape[0]

@@ -16,7 +16,7 @@ from mlframe._numba_parallel_guard import parallel_kernel_entry
 __all__ = ["unique_columns"]
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _partition_hashes(cols: np.ndarray, n_codes: int) -> np.ndarray:
     """FNV-1a hash of the first-appearance relabelling of every row of ``cols`` ``(K, n)`` (rows with the same partition get the same hash)."""
     k, n = cols.shape
@@ -35,7 +35,7 @@ def _partition_hashes(cols: np.ndarray, n_codes: int) -> np.ndarray:
     return out
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _same_partition_as_representative(cols: np.ndarray, rep: np.ndarray, n_codes: int) -> bool:
     """True when row ``j`` induces the same partition as row ``rep[j]`` for every ``j`` (guards against a hash collision): the codes of the two rows map to each other one to one."""
     k, n = cols.shape

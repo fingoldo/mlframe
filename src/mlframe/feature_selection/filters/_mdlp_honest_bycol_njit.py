@@ -46,7 +46,7 @@ from ._numba_utils_shuffle import bounded, next_state, seed_state
 from ._numba_utils_shared import seeded_permutation  # noqa: F401  -- hosted in _numba_utils_shared for the cross-module njit invariant
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _permuted_labels_kernel(src_raw: np.ndarray, src_codes: np.ndarray, base_seed: int, out_raw: np.ndarray, out_codes: np.ndarray) -> None:
     """Row ``b`` of ``out_raw`` / ``out_codes`` is the labels read through the Fisher-Yates shuffle seeded ``base_seed + b``, one parallel task per row (independent of the thread schedule)."""
     n = src_raw.shape[0]
@@ -101,7 +101,7 @@ from mlframe._numba_parallel_guard import parallel_kernel_entry
 ROOT_NULL_DRAWS = 2000
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def root_null_gain_threshold(labels: np.ndarray, n_classes_total: int, min_split_size: int, alpha: float, n_draws: int, seed: int) -> float:
     """The ``(1 - alpha)`` order statistic of the best-split gain of ``n_draws`` random labellings of ``len(labels)`` distinct points with the class counts
     of ``labels``. A tied-free column's root split is accepted when its gain exceeds it; every column and every permutation shares the class counts, so the
@@ -128,7 +128,7 @@ def root_null_gain_threshold(labels: np.ndarray, n_classes_total: int, min_split
     return float(gains[q_idx])
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _codes_at_rows_nan(col, nan_rows, rows, cuts, nb_reg, out):
     """``out[t]`` = number of cuts <= ``col[rows[t]]``, or ``nb_reg`` (the column's NaN code) where the row was NaN before filling."""
     for t in range(rows.shape[0]):
@@ -148,7 +148,7 @@ def _codes_at_rows_nan(col, nan_rows, rows, cuts, nb_reg, out):
         out[t] = lo
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _prepare_column(raw_cont, order, nan_cont, fixed_codes, eval_rows, is_cont_j, slot, xsrt, col, xs_buf):
     """Fill the per-column buffers of ``honest_null_columns_bycol``: a continuous column's sorted values ``xsrt`` and plain values ``col``, a fixed column's codes at the evaluation rows
     ``xs_buf``. Returns ``(tie_free, has_nan_col)`` (both False for a fixed column)."""
@@ -174,7 +174,7 @@ def _prepare_column(raw_cont, order, nan_cont, fixed_codes, eval_rows, is_cont_j
     return tie_free, has_nan_col
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _supervised_edges_sorted(xsrt: np.ndarray, cuts: np.ndarray, q_fallback: np.ndarray, q_refine: np.ndarray) -> np.ndarray:
     """:func:`_supervised_edges` for a column given by its SORTED values: the bin sizes of the cuts are differences of insertion positions in ``xsrt`` (a value belongs to bin ``b`` when
     exactly ``b`` cuts are <= it, so bin ``b`` holds the values from ``cuts[b-1]`` up to, not including, ``cuts[b]``), so no per-row binary search is run. Same edges."""
@@ -216,7 +216,7 @@ def _supervised_edges_sorted(xsrt: np.ndarray, cuts: np.ndarray, q_fallback: np.
     return out[:m]
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _joint_from_sorted(xsrt: np.ndarray, ysrt: np.ndarray, edges: np.ndarray, n_x: int, n_y: int, joint: np.ndarray) -> None:
     """``joint[b, c]`` = rows of class ``c`` whose value has exactly ``b`` of ``edges`` at or below it, from one pass over the sorted values: the bin index only grows along the sorted order."""
     for a in range(n_x):
@@ -231,7 +231,7 @@ def _joint_from_sorted(xsrt: np.ndarray, ysrt: np.ndarray, edges: np.ndarray, n_
         joint[b, ysrt[i]] += 1
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _joint_from_bits(xsrt: np.ndarray, raw_bits: np.ndarray, edges: np.ndarray, n_x: int, n_y: int, joint: np.ndarray) -> None:
     """``_joint_from_sorted`` for 0/1 labels packed in ``raw_bits`` (in the sorted order of ``xsrt``): the rows of bin ``b`` are the run of sorted positions between the first value at or above edge ``b - 1`` and
     the first at or above edge ``b``, so each bin's ones are a popcount over a range."""
@@ -261,7 +261,7 @@ def _joint_from_bits(xsrt: np.ndarray, raw_bits: np.ndarray, edges: np.ndarray, 
         start = stop
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _mi_from_joint(joint: np.ndarray, n_x: int, n_y: int, n: int) -> float:
     """The arithmetic of ``_mi_codes`` after its joint fill (same cell order), so the value equals ``_mi_codes`` of the same joint."""
     px = joint.sum(axis=1)
@@ -278,7 +278,7 @@ def _mi_from_joint(joint: np.ndarray, n_x: int, n_y: int, n: int) -> float:
     return mi
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _occupied_rows(joint: np.ndarray, n_x: int) -> int:
     """Number of rows of ``joint`` with a nonzero count (the occupied X bins)."""
     occupied = 0
@@ -288,7 +288,7 @@ def _occupied_rows(joint: np.ndarray, n_x: int) -> int:
     return occupied
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _perm_cuts(
     use_precheck, tie_free, order_row, yr_b, yr_bits, raw_bits, dd_bits, ysrt, xsrt, run_start, run_end, forb, no_cuts, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed,
     analytic_min_n, analytic_min_cell,
@@ -310,7 +310,7 @@ def _perm_cuts(
     return _mdlp_cuts_presorted(xsrt, ysrt, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell), False
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def honest_null_columns_bycol(
     raw_cont: np.ndarray,
     is_cont: np.ndarray,

@@ -165,7 +165,7 @@ _WAVELET_SMOOTH_COMPLEMENT_RATIO: float = 0.5
 _WAVELET_INCR_NULL_PERMS: int = 8
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _dyadic_haar_leg_njit(z: np.ndarray, left: float, mid: float, right: float, out: np.ndarray) -> None:
     """Single-pass fused build of the Haar leg into ``out`` (caller-owned, right dtype). Replaces the
     zeros-alloc + two separate boolean-mask + fancy-index numpy passes (4 full array traversals) with one
@@ -187,7 +187,7 @@ def _dyadic_haar_leg_njit(z: np.ndarray, left: float, mid: float, right: float, 
             out[i] = 0.0
 
 
-@njit(cache=True, parallel=False)
+@njit(cache=True, parallel=False, nogil=True)
 def _dyadic_haar_leg_njit_serial(z: np.ndarray, left: float, mid: float, right: float, out: np.ndarray) -> None:
     """Serial twin of :func:`_dyadic_haar_leg_njit` -- identical body, ``range`` instead of ``prange``.
 
@@ -699,7 +699,7 @@ def _heldout_incremental_mi(
     return _heldout_incremental_mi_from_prep(_heldout_incremental_mi_prep(x, y, nbins=nbins), leg)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _leg_split_mi(z, yb, idx, left, mid, right, n_y_classes):
     """Plug-in MI between one Haar leg's ternary code and the target codes over one split's row positions."""
     n = idx.shape[0]
@@ -734,7 +734,7 @@ def _leg_split_mi(z, yb, idx, left, mid, right, n_y_classes):
     return mi if mi > 0.0 else 0.0
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _wavelet_legs_mi_batch_njit(z, yb_tr, yb_va, tr_idx, va_idx, n_y_classes, js, ks):
     """``prange``-parallel batch of the per-leg train/held-out ``_binned_mi`` scoring
     :func:`_select_wavelet_legs`'s CPU fallback ran serially, one (j, k) leg at a time.

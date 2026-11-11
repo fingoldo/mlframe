@@ -25,7 +25,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _apply_minmax_njit(x: np.ndarray, lo: float, span: float, has_clip: bool, clip_val: float) -> np.ndarray:
     """Fused single-pass replay of ``2*(x-lo)/span - 1`` (+ optional symmetric clip), one prange pass instead
     of the numpy form's separate subtract/multiply/divide/subtract (+ clip) temp-array passes. Op order
@@ -49,7 +49,7 @@ def _apply_minmax_njit(x: np.ndarray, lo: float, span: float, has_clip: bool, cl
     return out
 
 
-@njit(cache=True, parallel=False)
+@njit(cache=True, parallel=False, nogil=True)
 def _apply_minmax_njit_serial(x: np.ndarray, lo: float, span: float, has_clip: bool, clip_val: float) -> np.ndarray:
     """Serial twin of :func:`_apply_minmax_njit` -- identical body, ``range`` instead of ``prange``.
 

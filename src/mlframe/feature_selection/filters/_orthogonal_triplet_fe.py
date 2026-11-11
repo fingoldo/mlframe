@@ -546,7 +546,7 @@ TRIPLET_ENUM_MAX = 200_000  # enumerate every triple of eligible columns when C(
 TRIPLET_ENUM_TOP_M = 10  # triples carried to the gate from the exhaustive enumeration
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _triple_mi_kernel(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> tuple:
     """Plug-in MI of every triple (i<j<k) of joint codes with y, in lexicographic index order.
 

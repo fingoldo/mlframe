@@ -54,7 +54,7 @@ _FE_STRATIFY_REG_BINS: int = 10
 # ---------------------------------------------------------------------------------------------------
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _partial_fisher_yates(members, k, lcg_seed):
     """Draw ``k`` distinct elements from ``members`` via a partial Fisher-Yates shuffle driven by a
     per-call inline LCG (thread-safe: no process-global ``np.random`` state, so concurrent threading
@@ -75,7 +75,7 @@ def _partial_fisher_yates(members, k, lcg_seed):
     return m[:k]
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _strat_clf_kernel(codes, n_classes, size, n, seed):
     """Per-class proportional allocation with a >=min(2,count) per-class floor (classification).
 
@@ -122,7 +122,7 @@ def _strat_clf_kernel(codes, n_classes, size, n, seed):
     return out[:pos]
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _strat_reg_kernel(bin_ids, n_bins, size, n, seed):
     """Proportional draw across precomputed quantile-bin ids (regression). Tails preserved.
 

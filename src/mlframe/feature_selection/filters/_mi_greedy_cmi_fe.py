@@ -135,7 +135,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _combine_factorize_serial_njit(joint: np.ndarray, c: np.ndarray, mult: int) -> tuple:
     """Fully-serial reference form of :func:`_combine_factorize_njit` (the bit-identical baseline + the
     numba-absent fallback). Kept per the repo "keep all kernel versions" rule and used by the parity test."""

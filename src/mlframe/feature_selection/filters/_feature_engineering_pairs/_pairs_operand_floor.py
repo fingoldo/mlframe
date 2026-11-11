@@ -9,7 +9,7 @@ from typing import Any
 __all__ = ["_beats_the_larger_operand", "operand_uplift_null_bar"]
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _plugin_mi(codes_x: np.ndarray, codes_y: np.ndarray, n_x: int, n_y: int) -> float:
     """Plug-in mutual information (nats) of two integer code vectors, the value ``sklearn.metrics.mutual_info_score`` gives, in one pass over the rows."""
     n = codes_x.shape[0]

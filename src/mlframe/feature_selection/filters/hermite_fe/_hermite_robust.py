@@ -63,7 +63,7 @@ def _robust_axis_enabled() -> bool:
     return flag not in ("0", "false", "off", "no")
 
 
-@numba.njit(cache=True)
+@numba.njit(cache=True, nogil=True)
 def _detect_heavy_tail_core_njit(xf: np.ndarray, outer_k: float, gap: float, max_frac: float) -> int:
     """Compiled core of ``_detect_heavy_tail`` for the common MAD>0 case. Returns 1 (trip) / 0 (no trip) / -1 (MAD
     collapsed -> caller must run the exact ``np.quantile`` IQR fallback). ``xf`` is the pre-filtered finite subset

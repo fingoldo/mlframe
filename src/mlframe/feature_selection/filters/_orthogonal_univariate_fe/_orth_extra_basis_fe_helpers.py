@@ -34,7 +34,7 @@ _EXTRA_BASIS_KINDS = ("spline", "fourier", "wavelet")
 logger = logging.getLogger(__name__)
 
 
-@numba.njit(fastmath=True, cache=True)
+@numba.njit(fastmath=True, cache=True, nogil=True)
 def _corr_sq_reductions_njit(v: np.ndarray, y_centered: np.ndarray) -> tuple:
     """Fuse the three ``_corr_sq_centered`` reductions - ``sum(v)``, ``v@v``,
     ``v@y_centered`` - into ONE sequential pass over ``v``/``y_centered``.
@@ -109,7 +109,7 @@ _POWER_CENTERED_PAR_MIN_N = 4000
 _POWER_CENTERED_PAR_NBLOCKS = 64
 
 
-@numba.njit(fastmath=True, parallel=True, cache=True)
+@numba.njit(fastmath=True, parallel=True, cache=True, nogil=True)
 def _power_centered_fused_par_njit(z: np.ndarray, yc: np.ndarray, y_ss: float, freq: float) -> float:
     """Periodogram power = corr(sin)^2 + corr(cos)^2 with sin/cos + both centered-SS reductions fused, no
     length-n temporaries. Parallel over a FIXED number of contiguous row-blocks (not a numba auto-reduction
@@ -165,7 +165,7 @@ def _power_centered_fused_par_njit(z: np.ndarray, yc: np.ndarray, y_ss: float, f
     return out
 
 
-@numba.njit(fastmath=True, parallel=True, cache=True)
+@numba.njit(fastmath=True, parallel=True, cache=True, nogil=True)
 def _power_centered_batch_njit(z: np.ndarray, yc: np.ndarray, y_ss: float, freqs: np.ndarray) -> np.ndarray:
     """Batch of :func:`_power_centered_fused_par_njit` over every ``freqs[i]``, ONE parallel dispatch.
 

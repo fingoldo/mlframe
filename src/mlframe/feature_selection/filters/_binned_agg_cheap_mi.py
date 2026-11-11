@@ -172,7 +172,7 @@ def _cheap_mi_group_selection(X: pd.DataFrame, gcands: Sequence[str], y_codes: n
     return out
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _dedup_quantile_edges(cv: np.ndarray, nbins: int):
     """Interior quantile edges of ``cv`` with adjacent duplicates removed; returns the edge buffer and how many of its leading entries are valid."""
     n = cv.shape[0]
@@ -209,7 +209,7 @@ def _dedup_quantile_edges(cv: np.ndarray, nbins: int):
     return edges, ne
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _mi_from_joint_counts(hist_xy, hist_x, hist_y, n):
     """Plug-in mutual information in nats from a joint count table and its marginals over ``n`` rows, clipped at zero."""
     log_n = np.log(n)
@@ -228,7 +228,7 @@ def _mi_from_joint_counts(hist_xy, hist_x, hist_y, n):
     return mi
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _cheap_mi_edge_dedup_njit(cv: np.ndarray, y_codes: np.ndarray, nbins: int) -> float:
     """Bit-identical njit port of ``_cheap_mi_with_y``'s host fallback (``quantile_edges`` dedup +
     ``searchsorted`` + ``compute_mi_from_codes``), one column, for use inside ``_cheap_mi_batch_njit``'s
@@ -276,7 +276,7 @@ def _cheap_mi_edge_dedup_njit(cv: np.ndarray, y_codes: np.ndarray, nbins: int) -
     return float(_mi_from_joint_counts(hist_xy, hist_x, hist_y, n))
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _cheap_mi_batch_njit(X_cols: np.ndarray, y_codes: np.ndarray, nbins: int) -> np.ndarray:
     """``prange``-parallel batch of :func:`_cheap_mi_edge_dedup_njit` over every column of ``X_cols``.
 

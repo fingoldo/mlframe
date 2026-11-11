@@ -56,7 +56,7 @@ def _plug_in_mi_njit(x_binned: np.ndarray, y_b: np.ndarray, K_x: int, K_y: int, 
 _FAC_ARRAY_CAP = 16_000_000
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _factorize_dense_njit(joint: np.ndarray) -> tuple:
     """Factorize an int64 array to dense first-seen ids in one O(n) pass.
 
@@ -124,7 +124,7 @@ def _factorize_dense_njit(joint: np.ndarray) -> tuple:
     return inv, nc
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def group_mean_std_count(inverse: np.ndarray, x: np.ndarray, n_groups: int) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
     """``(mean, std, count)`` per group code ``0..n_groups-1``: mean and std in the dtype of ``x`` (NaN for a group without a non-NaN row, std NaN below two rows), count as int64."""
     dtype = x.dtype
@@ -160,7 +160,7 @@ def group_mean_std_count(inverse: np.ndarray, x: np.ndarray, n_groups: int) -> "
     return mean, std, cnt
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def seeded_permutation(n: int, seed: int) -> np.ndarray:
     """The Fisher-Yates shuffle of ``range(n)`` seeded ``seed``: the permutation ``b`` of the stream of ``permuted_labels_seeded`` is ``seeded_permutation(n, base_seed + b)``."""
     x = seed_state(seed)
@@ -174,7 +174,7 @@ def seeded_permutation(n: int, seed: int) -> np.ndarray:
     return perm
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _presort_columns(raw_cont: np.ndarray):
     """Sort order of every column of the (compact, continuous-only) ``raw_cont``, int32, one row per column: 4 bytes per cell, the sorted
     values are gathered per call instead of stored."""
@@ -191,7 +191,7 @@ def _presort_columns(raw_cont: np.ndarray):
 _GATHER_ROW_TILE = 512
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def gather_columns_to_rows(views: Any, out: np.ndarray) -> None:
     """``out[j] = views[j]`` for a typed list of equal-length 1-D arrays (any strides), copied in tiles of rows.
 
@@ -208,7 +208,7 @@ def gather_columns_to_rows(views: Any, out: np.ndarray) -> None:
                 out[j, i] = v[i]
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def radix_order_f32(col: np.ndarray) -> np.ndarray:
     """An order that sorts the float32 vector ``col`` ascending (equal values adjacent; stable), from a 4-pass LSD radix sort of the order-preserving uint32 key
     of each value (``-0.0`` keyed as ``+0.0``, which compare equal). NaN is not handled: the callers pass finite values. Replaces a comparison argsort where only
@@ -243,7 +243,7 @@ def radix_order_f32(col: np.ndarray) -> np.ndarray:
     return ra
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def radix_order_f64(col: np.ndarray) -> np.ndarray:
     """:func:`radix_order_f32` for a double vector: a stable 8-pass LSD radix sort of the order-preserving uint64 keys (``-0.0`` keyed as ``+0.0``); finite input only."""
     n = col.shape[0]

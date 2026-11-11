@@ -27,7 +27,7 @@ from mlframe.feature_selection.filters.info_theory.shared import cpu_cmi_loop_pa
 __all__ = ["batched_member_relevance"]
 
 
-@numba.njit(cache=True, parallel=True)
+@numba.njit(cache=True, parallel=True, nogil=True)
 def _mi_loop_parallel(factors_data: np.ndarray, cand_indices: np.ndarray, y: np.ndarray, factors_nbins: np.ndarray) -> np.ndarray:
     """``prange`` unconditional MI over candidates - the no-Z sibling of ``_cpu_cmi_loop_parallel``, same
     shape (one independent ``mi(X_j; Y)`` reduction per candidate, fanned across cores)."""

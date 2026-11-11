@@ -20,7 +20,7 @@ from ._numba_utils import _entropy_from_counts_njit
 from .supervised_binning import _mdlp_best_split_inc_njit as _best_split
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def oos_dedupe_njit(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Mirror of ``_mdlp_validated_split._dedupe_xy``: returns ``(x_out, y_out)``. With no duplicate ``(x, y)`` pair the original arrays come
     back in their original order; otherwise the first representative of each pair, in ``lexsort((y, x))`` order."""
@@ -51,7 +51,7 @@ def oos_dedupe_njit(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarra
     return xo, yo
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def oos_dedupe_presorted_njit(x: np.ndarray, y: np.ndarray, order_row: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """The distinct ``(x, y)`` pairs in ``(x, y)`` order, read off the ascending order ``order_row`` of ``x``: one pass, with the labels of a run of tied values sorted and de-duplicated on their own."""
     n = x.shape[0]
@@ -82,7 +82,7 @@ def oos_dedupe_presorted_njit(x: np.ndarray, y: np.ndarray, order_row: np.ndarra
     return xd[:m], yd[:m]
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def oos_mdlp_cuts_presorted_njit(
     x: np.ndarray, y: np.ndarray, order_row: np.ndarray, n_classes_total: int, min_split: int, max_depth: int, tol: float, val_min: int, holdout_frac: float
 ) -> np.ndarray:
@@ -119,7 +119,7 @@ def oos_mdlp_cuts_presorted_njit(
     return cuts
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _oos_holdout_gain(xh: np.ndarray, yh: np.ndarray, best_split: float, nc: int, val_min: int):
     """Mirror of ``_holdout_gain``: the train-node cut ``best_split`` re-scored on the holdout rows whose label the node saw (``yh >= 0``).
     Returns ``(gain, n_l, n_r)``; ``gain`` is -1.0 when either side has fewer than ``val_min`` holdout rows."""
@@ -150,7 +150,7 @@ def _oos_holdout_gain(xh: np.ndarray, yh: np.ndarray, best_split: float, nc: int
     return h_full - h_split, n_l, n_r
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def oos_mdlp_cuts_njit(
     x: np.ndarray, y: np.ndarray, n_classes_total: int, min_split: int, max_depth: int, tol: float, val_min: int, holdout_frac: float
 ) -> np.ndarray:
@@ -182,7 +182,7 @@ def oos_mdlp_cuts_njit(
     return cuts
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def oos_cuts_from_split_njit(
     xt_in: np.ndarray, yt_in: np.ndarray, xh_in: np.ndarray, yh_in: np.ndarray, n_classes_total: int, min_split: int, max_depth: int, tol: float, val_min: int
 ) -> np.ndarray:
@@ -287,7 +287,7 @@ def oos_cuts_from_split_njit(
     return res
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _oos_column_codes(xj, yr_p, nan_rows, has_nan_col, n_classes_total, min_split, max_depth, tol, val_min, holdout_frac, q_fb, q_rf, eval_rows, xs, order_row):
     """Fill ``xs`` with the codes, at the evaluation rows, of the continuous column ``xj`` binned on the permuted raw labels ``yr_p``; returns the number of codes.
 
@@ -302,7 +302,7 @@ def _oos_column_codes(xj, yr_p, nan_rows, has_nan_col, n_classes_total, min_spli
     return nb_reg + 1 if has_nan_col else nb_reg
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def honest_validated_null_columns(
     raw_cont: np.ndarray,
     is_cont: np.ndarray,

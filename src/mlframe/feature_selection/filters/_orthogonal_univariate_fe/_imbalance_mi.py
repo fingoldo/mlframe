@@ -182,7 +182,7 @@ def compute_class_weights(y: np.ndarray) -> np.ndarray | None:
     return w
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _class_balanced_mi_batch_njit(
     X_cols: np.ndarray,
     y: np.ndarray,

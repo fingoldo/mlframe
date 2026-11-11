@@ -11,7 +11,7 @@ import numba
 import numpy as np
 
 
-@numba.njit(cache=True, parallel=True, fastmath=False)
+@numba.njit(cache=True, parallel=True, fastmath=False, nogil=True)
 def _gate_mask_grid_njit(cv, av, taus):
     """Fused (n, n_tau) mask block: ``feats[i, j] = av[i] * (cv[i] > taus[j])``. The off-branch value ``a * 0.0``
     preserves the NaN semantics of the numpy ``av * (cv > tau)`` form (0*NaN=NaN), so the kernel is bit-identical incl NaN."""
@@ -24,7 +24,7 @@ def _gate_mask_grid_njit(cv, av, taus):
     return out
 
 
-@numba.njit(cache=True, parallel=True, fastmath=False)
+@numba.njit(cache=True, parallel=True, fastmath=False, nogil=True)
 def _gate_select_grid_njit(cv, av, bv, taus):
     """Fused (n, n_tau) select block: ``feats[i, j] = av[i] if cv[i] > taus[j] else bv[i]``. Pure gather (no arithmetic),
     so bit-identical to the numpy ``np.where(cv > tau, av, bv)`` form incl NaN operands."""

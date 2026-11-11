@@ -56,7 +56,7 @@ ROUTE_ADDITIVE = "additive"  # 0 <= II <= floor: no interaction -> demote out of
 ROUTE_REDUNDANT = "redundant"  # II < 0: a and b carry the same signal -> cluster-aggregate / denoise candidate
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _mm_bias(k_x: int, k_y: int, n: int) -> float:
     """Miller-Madow plug-in MI bias ``(Kx - 1)(Ky - 1) / (2n)`` (nats). ``>= 0``; ``-> 0`` as ``n -> inf``."""
     if n <= 0 or k_x < 2 or k_y < 2:
@@ -105,7 +105,7 @@ def pair_interaction_information(
     return float(pair_mi - mi_a - mi_b)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _plug_in_mi_occupied(x: np.ndarray, y: np.ndarray, x_mul: int, x2: np.ndarray, k_x: int, k_y: int, inv_n: float):
     """``(I(X;Y), #occupied X bins)`` of the codes ``x * x_mul + x2`` (``x2`` is ignored when ``x_mul`` is 0) against ``y`` in one counting pass; the sums run over the occupied cells in row-major order
     like :func:`_marginal_mi_codes`, so the values agree with it to rounding."""
@@ -141,7 +141,7 @@ def _plug_in_mi_occupied(x: np.ndarray, y: np.ndarray, x_mul: int, x2: np.ndarra
     return mi, occupied
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _best_pair_ii(codes: np.ndarray, nb_col: np.ndarray, row_a: np.ndarray, row_b: np.ndarray, y: np.ndarray, k_y: int, inv_n: float, n: int, miller_madow: bool) -> float:
     """Largest MM-corrected interaction information over the pairs under one label vector ``y`` (0.0 when none is positive), the columns and the pairs scored in parallel.
 

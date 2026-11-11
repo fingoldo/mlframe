@@ -72,7 +72,7 @@ _CAT_CONFIRM_BASE_SEED = 1_000_003
 # ============================================================================
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _count_nfailed_joint_indep_prange(
     classes_pair: np.ndarray,
     freqs_pair: np.ndarray,
@@ -159,7 +159,7 @@ def _count_nfailed_joint_indep_prange(
     return nfailed_total
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _count_nfailed_joint_indep_weighted_serial(
     classes_pair: np.ndarray,
     freqs_pair: np.ndarray,
@@ -394,7 +394,7 @@ def _perm_kernel_dispatch_use_gpu(
     return False
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _shuffle_and_compute_three_mis(
     classes_pair: np.ndarray,
     freqs_pair: np.ndarray,

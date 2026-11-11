@@ -177,7 +177,7 @@ def shuffle_arr_lcg(arr: np.ndarray, state: np.uint64) -> np.uint64:
     return cast(np.uint64, np.uint64(_shuffle_arr_lcg_kernel(arr, np.uint64(state))))
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def parallel_mi_besag_clifford(
     classes_x: np.ndarray,
     freqs_x: np.ndarray,
@@ -246,7 +246,7 @@ def parallel_mi_besag_clifford(
     return nfailed, i + 1
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def parallel_mi_besag_clifford_with_null(
     classes_x: np.ndarray,
     freqs_x: np.ndarray,

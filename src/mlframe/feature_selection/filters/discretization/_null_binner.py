@@ -18,7 +18,7 @@ from mlframe._numba_parallel_guard import parallel_kernel_entry
 _TABLE_BYTES = 1536 * 1024 * 1024  # memoised code columns kept per binner; beyond it the caller falls back to ``categorize_dataset``
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _gather_code_columns(table: np.ndarray, slots: np.ndarray, out: np.ndarray) -> None:
     """``out[j] = table[slots[j]]`` for every row ``j`` of ``out``, parallel over columns; each is a contiguous copy."""
     for j in prange(slots.shape[0]):

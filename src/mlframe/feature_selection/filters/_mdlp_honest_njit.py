@@ -36,7 +36,7 @@ from ._numba_utils import (  # noqa: F401 -- helpers hosted in _numba_utils_cros
 )
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _sorted_dedup(x: np.ndarray, y: np.ndarray):
     """Sort by (x, y) with two stable passes, then drop adjacent exact duplicates (same as ``_dedupe_xy``)."""
     o1 = np.argsort(y, kind="mergesort")
@@ -66,7 +66,7 @@ def _sorted_dedup(x: np.ndarray, y: np.ndarray):
     return xd, yd
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def mdlp_inner_cuts(
     x: np.ndarray,
     y: np.ndarray,
@@ -96,7 +96,7 @@ def mdlp_inner_cuts(
 from ._numba_utils_shared import _presort_columns  # hosted in _numba_utils_shared for the cross-module njit invariant
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def honest_null_columns(
     raw_cont: np.ndarray,
     is_cont: np.ndarray,

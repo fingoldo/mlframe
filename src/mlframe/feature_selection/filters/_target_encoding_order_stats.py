@@ -34,7 +34,7 @@ _TRIM_FRAC = 0.10  # symmetric fraction cut from each tail for trimmed_mean (sci
 _NAN_SAFE_FASTMATH = {"nsz", "arcp", "contract", "afn", "reassoc"}  # no nnan/ninf: this kernel returns or tests NaN/inf
 
 
-@numba.njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@numba.njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _segment_order_stats(
     y_sorted: np.ndarray, starts: np.ndarray, counts: np.ndarray,
     w_median: bool, w_trim: bool, w_q10: bool, w_q90: bool, w_iqr: bool, w_min: bool, w_max: bool,
@@ -81,7 +81,7 @@ def _segment_order_stats(
     return med, trm, q10, q90, iqr, mn, mx
 
 
-@numba.njit(cache=True, fastmath=True)
+@numba.njit(cache=True, fastmath=True, nogil=True)
 def _seg_quantile(y_sorted: np.ndarray, start: int, k: int, p: float) -> float:
     """Quantile ``p`` of the ascending segment ``y_sorted[start:start+k]`` via numpy's ``linear`` interpolation."""
     if k == 1:

@@ -281,7 +281,7 @@ def _heldout_hinge_r2_uplift(
     return float(r2_hinge - r2_lin)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _is_already_found(c: float, found_arr: np.ndarray) -> bool:
     """True when ``c`` lies within 1e-9 of a breakpoint already accepted this fit."""
     for fi in range(found_arr.shape[0]):
@@ -293,7 +293,7 @@ def _is_already_found(c: float, found_arr: np.ndarray) -> bool:
     return False
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _hinge_cut_sse(Q: np.ndarray, r_y: np.ndarray, sse_B: float, x: np.ndarray, c: float, min_seg_rows: int, found_arr: np.ndarray) -> float:
     """FWL SSE of the hinge design at cut ``c``; ``inf`` when the cut fails the segment-size or already-found gates."""
     n = x.shape[0]
@@ -332,7 +332,7 @@ def _hinge_cut_sse(Q: np.ndarray, r_y: np.ndarray, sse_B: float, x: np.ndarray, 
     return sse_B - (rr_dot_ry * rr_dot_ry) / rr_dot_rr
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _hinge_cut_scan_njit(Q: np.ndarray, r_y: np.ndarray, sse_B: float, x: np.ndarray, cand: np.ndarray, min_seg_rows: int, found_arr: np.ndarray) -> tuple:
     """``prange``-parallel fusion of the per-candidate-cut FWL scan loop in :func:`_detect_hinge_breakpoints`.
 

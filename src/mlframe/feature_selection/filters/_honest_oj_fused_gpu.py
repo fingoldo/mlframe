@@ -245,7 +245,7 @@ def _kernel(cp: Any, name: str = "oj_cell_mi") -> Any:
     return k
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _pool_block(perms, picks, yc, rows, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, out):
     """The pool's largest corrected MI under each permutation with the winners ``picks[b]`` (``_fused_block``'s pool step)."""
     for b in prange(perms.shape[0]):
@@ -373,7 +373,7 @@ def _sweep_winners() -> list:
     from ._honest_oj_fused import _fold_targets, _px_table, _winners_minority
     from ._scorer_device_dispatch import _FORCED, sweep_scorer
 
-    @njit(cache=True, parallel=True)
+    @njit(cache=True, parallel=True, nogil=True)
     def _host_picks(perms, y, nv, val_idx, xb, kx, px, out):
         """CPU winner pick of every permutation of the block."""
         for b in prange(perms.shape[0]):

@@ -20,7 +20,7 @@ ACCEPTED = 1
 UNDECIDED = -1
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def column_tie_runs(xsrt: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     """``(starts, ends)`` of the maximal runs of equal values (two or more points) in the sorted column ``xsrt``; ``ends`` is exclusive."""
     n = xsrt.shape[0]
@@ -53,7 +53,7 @@ def column_tie_runs(xsrt: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     return starts, ends
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _dedup_binary_stream(ys: np.ndarray, run_start: np.ndarray, run_end: np.ndarray, yd: np.ndarray, forb: np.ndarray) -> "tuple[int, int]":
     """Write the labels of the deduplicated points into ``yd`` and return ``(points, forbidden)``.
 
@@ -87,7 +87,7 @@ def _dedup_binary_stream(ys: np.ndarray, run_start: np.ndarray, run_end: np.ndar
     return m, nf
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _tail_threshold(p_star: float) -> float:
     """The largest ``x`` (to bisection accuracy) with ``erfc(sqrt(x)) > p_star``, the chi-square(1) tail, so the analytic test of a gain ``g`` passes only if ``n * g`` exceeds it."""
     if p_star >= 1.0:
@@ -105,7 +105,7 @@ def _tail_threshold(p_star: float) -> float:
     return lo
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _count_stream_candidates(yd: np.ndarray, forb: np.ndarray, n_forb: int, lo: int, hi: int) -> int:
     """Candidate cut positions in ``lo..hi``: label changes of the stream, minus the boundaries that lie inside a run of equal values."""
     n_cand = 0
@@ -118,7 +118,7 @@ def _count_stream_candidates(yd: np.ndarray, forb: np.ndarray, n_forb: int, lo: 
     return n_cand
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _best_gain_over_bound(yd: np.ndarray, forb: np.ndarray, n_forb: int, lo: int, hi: int, n: int, tot1: int, h_full: float, scale: float) -> float:
     """Largest exact split gain among the candidates whose bound ``ln(1 + phi^2)`` reaches the acceptance threshold (``-1e300`` when none does).
 
@@ -168,7 +168,7 @@ def _best_gain_over_bound(yd: np.ndarray, forb: np.ndarray, n_forb: int, lo: int
     return best_gain
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def root_decision_binary(
     ys: np.ndarray,
     run_start: np.ndarray,
@@ -199,7 +199,7 @@ def root_decision_binary(
     return verdict
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _root_verdict(yd: np.ndarray, forb: np.ndarray, n_forb: int, n: int, tot1: int, n_cand: int, lo: int, hi: int, alpha: float) -> int:
     """ACCEPTED or REJECTED for a stream of ``n`` points with ``tot1`` ones and ``n_cand`` candidate cuts among positions ``lo..hi``."""
     counts_total = np.empty(2, dtype=np.int64)
@@ -217,7 +217,7 @@ def _root_verdict(yd: np.ndarray, forb: np.ndarray, n_forb: int, n: int, tot1: i
     return ACCEPTED if p_value < alpha else REJECTED
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def gather_binary_stream(yr_b: np.ndarray, order_row: np.ndarray, ys: np.ndarray) -> "tuple[int, int]":
     """``ys[i] = yr_b[order_row[i]]`` in one pass that also counts the ones and the label changes between neighbours (``i`` and ``i + 1``)."""
     ones = 0
@@ -235,7 +235,7 @@ def gather_binary_stream(yr_b: np.ndarray, order_row: np.ndarray, ys: np.ndarray
     return ones, trans
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def root_decision_tie_free(ys: np.ndarray, ones: int, trans: int, min_split_size: int, alpha: float, analytic_min_n: int, analytic_min_cell: float) -> int:
     """``root_decision_binary`` for a column without tied values, from the label stream ``ys`` and the ``ones`` / ``trans`` counted by ``gather_binary_stream``: no tie run, so the stream is the
     deduplicated one and no boundary is forbidden."""
@@ -257,7 +257,7 @@ def root_decision_tie_free(ys: np.ndarray, ones: int, trans: int, min_split_size
     return verdict
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def scrub_nonfinite_1d(a: np.ndarray) -> None:
     """Set every NaN and infinity of ``a`` to 0 in place (one pass; ``np.nan_to_num(a, nan=0, posinf=0, neginf=0)``)."""
     for i in range(a.shape[0]):
@@ -266,7 +266,7 @@ def scrub_nonfinite_1d(a: np.ndarray) -> None:
             a[i] = 0
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def scrub_nonfinite_2d(a: np.ndarray) -> None:
     """Set every NaN and infinity of the 2-D ``a`` to 0 in place, row by row."""
     for i in range(a.shape[0]):
@@ -279,7 +279,7 @@ def scrub_nonfinite_2d(a: np.ndarray) -> None:
 # ---- bit-packed binary label streams: the root test of the honest null on 64 labels per word ----
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _pc64(x):
     """Population count of a uint64 (SWAR)."""
     x = x - ((x >> np.uint64(1)) & np.uint64(0x5555555555555555))
@@ -288,7 +288,7 @@ def _pc64(x):
     return np.int64((x * np.uint64(0x0101010101010101)) >> np.uint64(56))
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def pack_sorted_labels(yr_b: np.ndarray, order_row: np.ndarray, raw_bits: np.ndarray) -> int:
     """Pack the 0/1 labels read through ``order_row`` (``yr_b[order_row[i]]``, the labels in the column's sorted order) into ``raw_bits`` (bit ``i`` of the stream is bit ``i & 63`` of word ``i >> 6``) and return the
     number of ones. ``raw_bits`` is overwritten, bits past the end of the stream are zero."""
@@ -306,7 +306,7 @@ def pack_sorted_labels(yr_b: np.ndarray, order_row: np.ndarray, raw_bits: np.nda
     return ones
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _copy_bits(src: np.ndarray, start: int, stop: int, dst: np.ndarray, offset: int) -> int:
     """Copy bits ``[start, stop)`` of the stream ``src`` to ``dst`` from bit ``offset`` on (``dst`` bits there must be zero); returns the offset after the copy."""
     s = start
@@ -326,7 +326,7 @@ def _copy_bits(src: np.ndarray, start: int, stop: int, dst: np.ndarray, offset: 
     return off
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def dedup_label_bits(raw_bits: np.ndarray, n: int, run_start: np.ndarray, run_end: np.ndarray, out_bits: np.ndarray, forb: np.ndarray) -> "tuple[int, int]":
     """The deduplicated stream (see ``_dedup_binary_stream``) of the packed stream ``raw_bits`` of length ``n``, packed into ``out_bits`` (overwritten): rows outside tie runs are copied, a run of tied values
     emits its distinct labels ascending. Returns ``(points, forbidden)``; ``forb[:forbidden]`` are the stream positions whose boundary to the next point lies inside a run."""
@@ -356,7 +356,7 @@ def dedup_label_bits(raw_bits: np.ndarray, n: int, run_start: np.ndarray, run_en
     return m, nf
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _count_ones_bits(bits: np.ndarray, start: int, stop: int) -> int:
     """Ones among stream positions ``[start, stop)``."""
     if stop <= start:
@@ -376,7 +376,7 @@ def _count_ones_bits(bits: np.ndarray, start: int, stop: int) -> int:
     return total
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _candidate_count_bits(bits: np.ndarray, forb: np.ndarray, n_forb: int, lo: int, hi: int) -> int:
     """``_count_stream_candidates`` on the packed stream: label changes between positions ``i`` and ``i + 1`` for ``i`` in ``lo..hi``, minus the boundaries that lie inside a run of equal values."""
     n_words = bits.shape[0]
@@ -399,7 +399,7 @@ def _candidate_count_bits(bits: np.ndarray, forb: np.ndarray, n_forb: int, lo: i
     return n_cand
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def root_decision_packed(bits: np.ndarray, m: int, forb: np.ndarray, n_forb: int, min_split_size: int, alpha: float, analytic_min_n: int, analytic_min_cell: float) -> int:
     """``root_decision_binary`` for the packed deduplicated stream ``bits`` of ``m`` points (see ``dedup_label_bits``): the same verdict.
 
@@ -463,7 +463,7 @@ def root_decision_packed(bits: np.ndarray, m: int, forb: np.ndarray, n_forb: int
     return ACCEPTED if p_value < alpha else REJECTED
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def pack_label_rows(rows: np.ndarray) -> np.ndarray:
     """``(rows, words)`` uint64: every row of the 0/1 matrix ``rows`` packed 64 labels to a word (bit ``i`` of a row is bit ``i & 63`` of word ``i >> 6``)."""
     n_rows = rows.shape[0]
@@ -481,7 +481,7 @@ def pack_label_rows(rows: np.ndarray) -> np.ndarray:
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def pack_sorted_labels_from_bits(label_bits: np.ndarray, order_row: np.ndarray, raw_bits: np.ndarray) -> int:
     """``pack_sorted_labels`` for labels held packed in ``label_bits``: the random reads of the gather hit a row of n / 8 bytes (cache resident) instead of n."""
     n = order_row.shape[0]
@@ -499,7 +499,7 @@ def pack_sorted_labels_from_bits(label_bits: np.ndarray, order_row: np.ndarray, 
     return ones
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def within_stratum_shuffles(keys: np.ndarray, z_rank: np.ndarray, order: np.ndarray, x_sorted: np.ndarray, out: np.ndarray) -> None:
     """Row ``i`` of ``out`` is the candidate column shuffled within the strata of the support: ``out[i][order[j]] = x_sorted[w[j]]`` with ``w`` the stable argsort of ``z_rank + keys[i]``.
 
@@ -511,7 +511,7 @@ def within_stratum_shuffles(keys: np.ndarray, z_rank: np.ndarray, order: np.ndar
             out[i, order[j]] = x_sorted[within[j]]
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def rows_to_columns(rows: np.ndarray) -> np.ndarray:
     """``(n, k)`` C-ordered copy of the ``(k, n)`` matrix ``rows`` (``out[r, j] = rows[j, r]``), by tiles of rows so that every tile of the output is written while it is cache resident.
 
@@ -528,7 +528,7 @@ def rows_to_columns(rows: np.ndarray) -> np.ndarray:
     return out
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def column_fingerprints(bits: np.ndarray) -> np.ndarray:
     """``(k, 2)`` uint64 content fingerprints of the columns of the ``(n, k)`` integer matrix ``bits`` (the raw bit patterns of a float matrix): two independent FNV-1a style lanes over the column in row order, so
     two columns with equal values in the same order get equal fingerprints and a different value or order changes both. Reads the columns in place (no per-column copy of a strided column)."""
@@ -547,7 +547,7 @@ def column_fingerprints(bits: np.ndarray) -> np.ndarray:
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def rows_to_columns_into(rows: np.ndarray, out: np.ndarray, col0: int) -> None:
     """``out[r, col0 + j] = rows[j, r]``: the ``(k, n)`` block ``rows`` written, tile by tile, into columns ``col0 .. col0 + k`` of the ``(n, K)`` matrix ``out`` (see ``rows_to_columns``)."""
     k, n = rows.shape

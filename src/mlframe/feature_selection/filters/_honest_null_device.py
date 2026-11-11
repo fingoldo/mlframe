@@ -258,7 +258,7 @@ def _pack_bits_cached(y_perm: np.ndarray) -> np.ndarray:
     return packed
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _tie_flags(raw_cont: np.ndarray, order: np.ndarray) -> np.ndarray:
     """``(k, n)`` uint8: 1 where the value at sorted position ``i`` equals the one at ``i + 1``."""
     k = order.shape[0]
@@ -271,7 +271,7 @@ def _tie_flags(raw_cont: np.ndarray, order: np.ndarray) -> np.ndarray:
     return out
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _accepted(gain: np.ndarray, ncand: np.ndarray, idx: np.ndarray, n: int, n_classes: int, alpha: float) -> np.ndarray:
     """``(permutations, columns)`` bool: the root split is accepted by the analytic test (best gain positive, p-value x candidates below alpha)."""
     b_count = gain.shape[0]
@@ -287,7 +287,7 @@ def _accepted(gain: np.ndarray, ncand: np.ndarray, idx: np.ndarray, n: int, n_cl
     return out
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _redo_accepted(
     raw_cont,
     order,
@@ -364,7 +364,7 @@ def _redo_accepted(
         corrected[b, j] = mi - (float(_n_unique_codes(xs)) - 1.0) * (ky - 1.0) / (2.0 * m)
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _fallback_codes(raw_cont, is_cont, fixed_codes, fixed_nbins, col_slot, q_fallback, q_fallback_len, eval_rows, nan_cont):
     """``(codes, bins, occupied bins)``: the codes of every column at the evaluation rows when no cut is accepted (``(columns, m)`` int16).
 

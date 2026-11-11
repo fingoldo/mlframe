@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 _AGG_VAR_BLOCK_COLS = 8  # columns per variance block: bounds the transient copy to 8 columns at any row count
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _per_cell_count_sum_njit(codes, v, n_cells):
     """Per-cell ``(cnt, s1)`` only -- pass 1 of the two-pass stable scheme, with the dead higher moments gone.
 
@@ -71,7 +71,7 @@ def _per_cell_count_sum_njit(codes, v, n_cells):
         s1[c] += v[i]
     return cnt, s1
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _per_cell_raw_moments_njit(codes, v, n_cells):
     """One-pass per-cell raw moment accumulator: returns ``(cnt, s1, s2, s3, s4)`` each ``(n_cells,)``.
 
@@ -102,7 +102,7 @@ def _per_cell_raw_moments_njit(codes, v, n_cells):
         s4[c] += x2 * x2
     return cnt, s1, s2, s3, s4
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _per_cell_centered_moments_njit(codes, v, cell_mean, n_cells):
     """One-pass per-cell CENTERED moment accumulator: given each cell's already-computed mean (indexed
     by cell id), returns ``(cm2, cm3, cm4)`` each ``(n_cells,)`` -- ``sum((x-mean_c)^k)`` per cell for
@@ -243,7 +243,7 @@ def _global_stat(v: np.ndarray, stat: str) -> float:
         return float(kurtosis(vf)) if vf.size > 3 else 0.0
     return 0.0
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _centered_moments_njit(vf: np.ndarray) -> tuple:
     """Two-pass (mean, then centred sums) computation of ``(mean, sum((x-mean)^2), sum((x-mean)^3),
     sum((x-mean)^4))`` over the WHOLE array in one njit call.

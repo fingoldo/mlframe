@@ -37,7 +37,7 @@ BLOCK_COLS = 256  # raw columns per streamed block: two blocks of int8 codes are
 BLOCK_RAM_FRACTION = 0.2  # share of the free RAM the two code blocks may take
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _pair_mi_best_per_first_v1(codes_t: np.ndarray, r: np.ndarray, k: int, kr: int) -> tuple:
     """First version of the kernel, kept as the reference for the equivalence test: for each column ``i``, the best joint MI of ``(x_i, x_j; r)`` over ``j > i`` and the arg ``j`` (-1 when there is no ``j``)."""
     p, n = codes_t.shape
@@ -77,7 +77,7 @@ def _pair_mi_best_per_first_v1(codes_t: np.ndarray, r: np.ndarray, k: int, kr: i
     return best, best_j
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _row_best(codes_t: np.ndarray, r: np.ndarray, cr: np.ndarray, i: int, k: int, kr: int) -> tuple:
     """Best joint MI of ``(x_i, x_j; r)`` over ``j > i`` and its ``j``: one pass per ``j`` fills a dense count table, the marginals come from the table."""
     p, n = codes_t.shape
@@ -110,7 +110,7 @@ def _row_best(codes_t: np.ndarray, r: np.ndarray, cr: np.ndarray, i: int, k: int
     return best, best_j
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _pair_mi_best_per_first(codes_t: np.ndarray, r: np.ndarray, k: int, kr: int) -> tuple:
     """For each column ``i``, the best joint MI of ``(x_i, x_j; r)`` over ``j > i`` and the arg ``j`` (-1 when there is no ``j``).
 
@@ -138,7 +138,7 @@ def _pair_mi_best_per_first(codes_t: np.ndarray, r: np.ndarray, k: int, kr: int)
     return best, best_j
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _pair_mi_block_cpu(a_t: np.ndarray, b_t: np.ndarray, r: np.ndarray, cr: np.ndarray, k: int, kr: int, same: bool) -> tuple:
     """Best joint MI of ``(a_i, b_j; r)`` for one block pair: per row ``i`` of ``a_t`` the best over the columns ``j`` of ``b_t`` (only ``j > i`` when the two blocks are the same block)."""
     pa, n = a_t.shape
