@@ -246,14 +246,23 @@ def _device_columns(cp: Any, cols: "list[np.ndarray]", orders: "list[np.ndarray]
     return out
 
 
-def _pointer_table(cp: Any, part: "list[_DeviceColumn]") -> Any:
-    """``ptr(attr)``: a device array of the addresses of attribute ``attr`` of the columns in ``part``, the kernel's per-pair column table."""
+_POINTER_TABLE_ATTRS = ("values", "bits", "order", "lo", "hi")
+
+
+def _pointer_table_and_nfs(cp: Any, part: "list[_DeviceColumn]") -> "tuple[Any, Any]":
+    """``(ptr, nfs)``: ``ptr(attr)`` is a device array of the addresses of attribute ``attr`` of the columns in ``part`` (the
+    kernel's per-pair column table), ``nfs`` the per-pair ``nf`` int32 vector. Every address row AND ``nfs`` upload in ONE
+    ``cp.asarray`` call (nf fits a uint64 row exactly) instead of one tiny upload per attribute plus a separate one for nfs."""
+    table_host = np.array([[int(getattr(c, attr).data.ptr) for c in part] for attr in _POINTER_TABLE_ATTRS] + [[int(c.nf) for c in part]], dtype=np.uint64)
+    table_dev = cp.asarray(table_host)
+    rows = {attr: table_dev[i] for i, attr in enumerate(_POINTER_TABLE_ATTRS)}
+    nfs = table_dev[len(_POINTER_TABLE_ATTRS)].astype(cp.int32)
 
     def ptr(attr: str) -> Any:
-        """The address table of one attribute."""
-        return cp.asarray(np.array([int(getattr(c, attr).data.ptr) for c in part], dtype=np.uint64))
+        """The address table of one attribute (a row of the one combined upload)."""
+        return rows[attr]
 
-    return ptr
+    return ptr, nfs
 
 
 def masked_abs_spearman_device(a: np.ndarray, order_a: np.ndarray, others: "list[np.ndarray]", orders: "list[np.ndarray]", rel_tol: float, out: np.ndarray) -> bool:
@@ -278,8 +287,7 @@ def masked_abs_spearman_device(a: np.ndarray, order_a: np.ndarray, others: "list
         res = cp.empty(chunk, dtype=cp.float64)  # Intentional float64: |rho| statistic vector
         for k0 in range(0, len(cols), chunk):
             part = cols[k0 : k0 + chunk]
-            ptr = _pointer_table(cp, part)
-            nfs = cp.asarray(np.array([c.nf for c in part], dtype=np.int32))
+            ptr, nfs = _pointer_table_and_nfs(cp, part)
             kernel(  # launch-ok: THREADS=1024 is measured (see the constant's own comment: 128/256/512/1024 benchmarked, 1024 fastest) and baked into the C template at compile time (%THREADS%), not a runtime choice
                 (len(part),),
                 (THREADS,),
