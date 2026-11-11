@@ -129,29 +129,28 @@ def xi_columns_device(cols: Any, seeds: np.ndarray, r_row: np.ndarray, l_row: np
         free = device_room(cp)
         per_col = n * (4 + 8 + 8 + 8 + 8 + 16)  # values, keys, order, sort temporaries
         block = int(max(1, min(kk, (_BUDGET_FRACTION * free) // per_col)))
-        out = np.empty(kk, dtype=np.float64)  # Intentional float64: accumulator output
         # xi_sort_keys has no shared memory (its block size is a free occupancy choice); xi_walk's block is fixed at 256 - its `red_s[256]`/`red_d[256]` reduction buffers are that size at
         # compile time, so a wider block would read past them - the walk kernel keeps _THREADS and carries its own launch-ok marker below.
         keys_threads = block_size_for(keys_k, work_items=n, pow2=True)
         grid_x = (n + keys_threads - 1) // keys_threads
         walk_blocks = min((n + _THREADS - 1) // _THREADS, 64)
+        keys_buf = cp.empty((block, n), dtype=cp.uint64)  # one reusable sort-key buffer for every chunk, not one per chunk
+        sums_dev = cp.zeros(2 * kk, dtype=cp.float64)  # one resident accumulator; one D2H after the loop instead of one per chunk
         for c0 in range(0, kk, block):
             w = min(block, kk - c0)
             col_d = cols[c0 : c0 + w] if resident else cp.asarray(np.ascontiguousarray(cols[c0 : c0 + w]))
-            keys = cp.empty((w, n), dtype=cp.uint64)
+            keys = keys_buf[:w]
             keys_k((grid_x, w), (keys_threads,), (col_d, seeds_d[c0 : c0 + w], keys, np.int64(n)))
             if not resident:
                 del col_d
             order = device_argsort(keys, axis=1)
-            del keys
-            sums = cp.zeros(2 * w, dtype=cp.float64)
+            sums = sums_dev[2 * c0 : 2 * (c0 + w)]
             walk_k((walk_blocks, w), (_THREADS,), (order, codes_d, r_tab_d, l_tab_d, sums, np.int64(n)))  # launch-ok: _THREADS=256 is the compile-time size of xi_walk's red_s/red_d[256] reduction buffers
-            s = cp.asnumpy(sums).reshape(w, 2)
-            den = 2.0 * s[:, 1]
-            with np.errstate(divide="ignore", invalid="ignore"):
-                out[c0 : c0 + w] = np.where(den > 0.0, 1.0 - float(n) * s[:, 0] / den, 0.0)
-            del order, sums
-        return out
+            del order
+        s = cp.asnumpy(sums_dev).reshape(kk, 2)
+        den = 2.0 * s[:, 1]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return np.where(den > 0.0, 1.0 - float(n) * s[:, 0] / den, 0.0)
     except Exception as exc:
         log_throttle(logger, "xi_gpu.failed", logging.WARNING, "device Xi failed (%s: %s); the host kernel scores the columns", type(exc).__name__, exc)
         return None

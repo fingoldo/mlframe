@@ -16,10 +16,6 @@ dominate the replay).
 """
 from __future__ import annotations
 
-import sys
-
-sys.modules["cupy"] = None  # type: ignore[assignment]  # block cupy native import (py3.14 cold-import segfault under contention)
-
 import time
 
 import numpy as np
@@ -61,4 +57,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import sys
+
+    # Scoped to a standalone run, not module import time: process-wide poisoning (every later "import cupy" in
+    # THIS process fails) must not leak into another process that happens to import this file (pyutilz's
+    # kernel-tuning registry walks every _benchmarks module looking for @kernel_tuner-decorated functions - found
+    # live, GPU11-22, when this exact pattern broke a kernel-tuning-cache refresh that needed real cupy).
+    sys.modules.setdefault("cupy", None)  # type: ignore[assignment]  # block cupy native import (py3.14 cold-import segfault under contention)
     main()

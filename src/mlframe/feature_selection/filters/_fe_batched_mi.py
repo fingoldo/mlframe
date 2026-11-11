@@ -298,7 +298,7 @@ void dedup_njit_edges(const {REAL}* __restrict__ edges, const {REAL}* __restrict
         if (v != prev) { out[(long long)w * K + c] = v; w++; prev = v; }
     }
     double hv = (double)cmax[c];
-    if (hv != prev) { out[(long long)w * K + c] = hv; w++; prev = hv; }
+    if (hv != prev) { out[(long long)w * K + c] = hv; w++; }
     if (w >= 2) w -= 1;          // drop trailing de[-1] for m>=3 (njit de[1:-1]); keep [de[1]] for m==2
     ne_out[c] = w;
 }

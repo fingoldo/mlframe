@@ -46,6 +46,11 @@ BASELINE = Path(__file__).with_name("_tiny_cupy_loops_baseline.json")
 
 _CUPY_ROOTS = {"cp", "cupy", "xp"}
 _HEAVY = {"bincount", "unique", "argsort", "sort", "where", "searchsorted", "cumsum"}
+#: A touch of the custom-kernel compile/launch machinery itself: unlike a library op, launching an actual RawKernel/RawModule
+#: already IS the "batch it into one kernel" fix this check wants, so a few bookkeeping calls around it (upload, read the
+#: result back) are not the launch-bound anti-pattern - raise the tolerance instead of flagging them the same as plain
+#: library calls.
+_KERNEL_TOUCH = {"RawModule", "RawKernel", "get_function"}
 _SMALL_RANGE = 16
 _CHUNK_SUFFIXES = ("chunk", "chunks", "tile", "tiles", "block", "blocks")
 _PKG = "mlframe"
@@ -214,15 +219,21 @@ def _locate(ref: tuple, summ: dict, root: str, hops: int = 2) -> "tuple[dict, st
 
 
 def _follow(refs: "list[tuple]", summ: dict, root: str, depth: int) -> "list[str]":
-    """Cupy calls made by the mlframe functions referenced in ``refs``, followed through ``depth`` levels of calls."""
+    """Cupy calls made by the mlframe functions referenced in ``refs``, followed through ``depth`` levels of calls.
+
+    Stops descending past a callee that ALREADY makes a ``_HEAVY`` call of its own: a function credited with one real
+    GPU-heavy operation (a sort, a unique, ...) is counted as that one operation, not decomposed into whatever
+    allocation/retry bookkeeping its own implementation needs around it - that bookkeeping is the callee's own
+    reviewed concern, not a sign the CALLING loop repeats tiny work per iteration (the pattern this check targets)."""
     extra: list[str] = []
     for ref in refs:
         found = _locate(ref, summ, root)
         if found is None:
             continue
         callee_summ, name = found
-        extra.extend(callee_summ["funcs"][name])
-        if depth > 1:
+        own_calls = callee_summ["funcs"][name]
+        extra.extend(own_calls)
+        if depth > 1 and not (_HEAVY & set(own_calls)):
             extra.extend(_follow(callee_summ["refs"].get(name, []), callee_summ, root, depth - 1))
     return extra
 
@@ -253,8 +264,22 @@ def tiny_cupy_loops(source: str, rel: "tuple[str, ...] | None" = None, root: Pat
                 continue
             if isinstance(child, ast.For) and not _is_small_literal_loop(child):
                 calls = _cupy_calls(child.body, roots, bare) + _callee_calls(child.body, summ, root_str)
-                if len(calls) >= 3 or (len(calls) >= 2 and _HEAVY & set(calls)):
-                    hits.append((func, child.lineno, "low" if _is_chunk_loop(child) else "high"))
+                is_chunk = _is_chunk_loop(child)
+                # A chunk loop that launches an actual custom kernel (RawKernel/RawModule) is already doing the batched
+                # work this check wants - that launch itself is not a library call, so a few calls of ordinary
+                # bookkeeping around it (upload, allocate, read back) get more room than a loop with no such launch at
+                # all. A _HEAVY library call (sort, unique, ...) does NOT get this same allowance even in a chunk loop:
+                # unlike an actual kernel launch, it can legitimately still be the per-item anti-pattern this check
+                # polices (see test_chunk_named_bound_loop_is_low_severity/test_chunk_step_loop_is_low_severity, which
+                # pin that a chunk loop with a _HEAVY call stays flagged, just at low severity).
+                if is_chunk and (_KERNEL_TOUCH & set(calls)):
+                    flagged = len(calls) > 4
+                elif _HEAVY & set(calls):
+                    flagged = len(calls) >= 2
+                else:
+                    flagged = len(calls) >= 3
+                if flagged:
+                    hits.append((func, child.lineno, "low" if is_chunk else "high"))
             visit(child, func)
 
     visit(tree, "<module>")

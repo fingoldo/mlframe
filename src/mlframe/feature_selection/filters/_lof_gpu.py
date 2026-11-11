@@ -11,15 +11,14 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import cast
+import threading
+from typing import Any, cast
 
 import numpy as np
 
 from ._ktc_fallback import device_from_rows
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
-
-from ._raw_module_cache import RawModuleCache
 
 logger = logging.getLogger(__name__)
 
@@ -29,40 +28,85 @@ MAX_NEIGHBOURS = 64
 LOF_DEVICE_FALLBACK_ROWS = 20_000
 
 _SRC = r"""
-#define KMAX 64
-#define PMAX 16
+#define K {K}
+#define P {P}
+#define INF_D __longlong_as_double(0x7FF0000000000000LL)
+#if K > 32
+#define TOPK_DECL extern __shared__ unsigned char topk_smem[]; double* bd_base = (double*)topk_smem; int* bj_base = (int*)(topk_smem + K * blockDim.x * sizeof(double));
+#define BD(s) bd_base[(s) * blockDim.x + threadIdx.x]
+#define BJ(s) bj_base[(s) * blockDim.x + threadIdx.x]
+#else
+#define TOPK_DECL double bd_regs[K]; int bj_regs[K];
+#define BD(s) bd_regs[s]
+#define BJ(s) bj_regs[s]
+#endif
 extern "C" __global__ void lof_scores(const {REAL}* __restrict__ X, const {REAL}* __restrict__ ref, const {REAL}* __restrict__ kdist_ref, const {REAL}* __restrict__ lrd_ref,
-                                      const long long n, const int m, const int p, const int k, {REAL}* __restrict__ out) {
+                                      const long long n, const int m, const int cnt, {REAL}* __restrict__ out) {
     const long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x;
     if (i >= n) return;
-    double xi[PMAX];
-    for (int t = 0; t < p; ++t) xi[t] = (double)X[i * p + t];
-    double best_d[KMAX];
-    int best_j[KMAX];
-    int cnt = 0;
+    TOPK_DECL
+    double xi[P];
+#pragma unroll
+    for (int t = 0; t < P; ++t) xi[t] = (double)X[i * P + t];
+#pragma unroll
+    for (int s = 0; s < K; ++s) { BD(s) = INF_D; BJ(s) = -1; }
     for (int j = 0; j < m; ++j) {
         double d2 = 0.0;
-        for (int t = 0; t < p; ++t) { const double dd = xi[t] - (double)ref[(long long)j * p + t]; d2 += dd * dd; }
-        if (cnt == k && d2 >= best_d[k - 1]) continue;
-        int pos = cnt < k ? cnt : k - 1;           // slot to fill / overwrite, then bubble towards the front
-        while (pos > 0 && best_d[pos - 1] > d2) { best_d[pos] = best_d[pos - 1]; best_j[pos] = best_j[pos - 1]; --pos; }
-        best_d[pos] = d2; best_j[pos] = j;
-        if (cnt < k) ++cnt;
+#pragma unroll
+        for (int t = 0; t < P; ++t) { const double dd = xi[t] - (double)ref[(long long)j * P + t]; d2 += dd * dd; }
+        if (d2 >= BD(K - 1)) continue;
+        // one pass carries the candidate down the sorted list: every slot index is a compile-time constant
+        double cd = d2;
+        int cj = j;
+#pragma unroll
+        for (int s = 0; s < K; ++s) {
+            if (cd < BD(s)) {
+                const double td = BD(s);
+                const int tj = BJ(s);
+                BD(s) = cd;
+                BJ(s) = cj;
+                cd = td;
+                cj = tj;
+            }
+        }
     }
     double sum_reach = 0.0, sum_lrd = 0.0;
-    for (int t = 0; t < k; ++t) {
-        const double d = sqrt(best_d[t]);
-        const double kd = (double)kdist_ref[best_j[t]];
+#pragma unroll
+    for (int t = 0; t < K; ++t) {
+        if (BJ(t) < 0) continue;
+        const double d = sqrt(BD(t));
+        const double kd = (double)kdist_ref[BJ(t)];
         sum_reach += kd > d ? kd : d;
-        sum_lrd += (double)lrd_ref[best_j[t]];
+        sum_lrd += (double)lrd_ref[BJ(t)];
     }
-    const double mean_reach = sum_reach / k;
+    const double mean_reach = sum_reach / cnt;
     const double lrd_new = 1.0 / (mean_reach > 1e-12 ? mean_reach : 1e-12);
-    out[i] = ({REAL})((sum_lrd / k) / (lrd_new > 1e-12 ? lrd_new : 1e-12));
+    out[i] = ({REAL})((sum_lrd / cnt) / (lrd_new > 1e-12 ? lrd_new : 1e-12));
 }
 """
 
-_MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float"))}
+DEFAULT_K = 20
+DEFAULT_P = 3
+_REG_TOPK_MAX = 32
+_SHARED_TOPK_THREADS_CAP = {k: max(32, (48 * 1024 // (12 * k)) // 32 * 32) for k in range(_REG_TOPK_MAX + 1, MAX_NEIGHBOURS + 1)}
+_MODULES: dict = {}
+_LOCK = threading.Lock()
+
+
+def kernel(cp: Any, real: Any, k: int = DEFAULT_K, p: int = DEFAULT_P) -> Any:
+    """``lof_scores`` for value type ``real`` with the neighbour count ``k`` and dimension ``p`` compiled in (one module per combination, cached)."""
+    key = ("float" if np.dtype(real) == np.float32 else "double", int(k), int(p))
+    with _LOCK:
+        mod = _MODULES.get(key)
+        if mod is None:
+            src = _SRC.replace("{REAL}", key[0]).replace("{K}", str(key[1])).replace("{P}", str(key[2]))
+            mod = _MODULES[key] = cp.RawModule(code=src, options=("-std=c++14",))
+        return mod.get_function("lof_scores")
+
+
+def kernel_wide(cp: Any, real: Any) -> Any:
+    """``lof_scores`` at the largest supported shape (MAX_NEIGHBOURS neighbours, MAX_DIMS coordinates): the shared-memory top-k path."""
+    return kernel(cp, real, MAX_NEIGHBOURS, MAX_DIMS)
 
 
 def lof_transform_gpu(X_new: np.ndarray, X_ref: np.ndarray, lrd_ref: np.ndarray, k_distance_ref: np.ndarray, k_eff: int, rows_per_launch: int = 4_000_000) -> "np.ndarray | None":
@@ -80,14 +124,18 @@ def lof_transform_gpu(X_new: np.ndarray, X_ref: np.ndarray, lrd_ref: np.ndarray,
     ref = cp.asarray(np.ascontiguousarray(X_ref, dtype=dt))
     kd = cp.asarray(np.ascontiguousarray(k_distance_ref, dtype=dt))
     lrd = cp.asarray(np.ascontiguousarray(lrd_ref, dtype=dt))
-    kernel = _MODULES_BY_REAL["float" if dt == np.float32 else "double"].get(cp).get_function("lof_scores")
+    krn = kernel(cp, dt, int(k_eff), p)
     out = np.empty(n, dtype=dt)
     block = max(1, min(n, int(rows_per_launch)))
     for s in range(0, n, block):
         part = cp.asarray(np.ascontiguousarray(X_new[s : s + block], dtype=dt))
         res = cp.empty(part.shape[0], dtype=dt)
-        threads = block_size_for(kernel, work_items=part.shape[0])
-        kernel(((part.shape[0] + threads - 1) // threads,), (threads,), (part, ref, kd, lrd, np.int64(part.shape[0]), np.int32(ref.shape[0]), np.int32(p), np.int32(int(k_eff)), res))
+        threads = block_size_for(krn, work_items=part.shape[0])
+        shared = 0
+        if int(k_eff) > _REG_TOPK_MAX:
+            threads = min(threads, _SHARED_TOPK_THREADS_CAP[int(k_eff)])
+            shared = int(k_eff) * threads * 12
+        krn(((part.shape[0] + threads - 1) // threads,), (threads,), (part, ref, kd, lrd, np.int64(part.shape[0]), np.int32(ref.shape[0]), np.int32(int(k_eff)), res), shared_mem=shared)
         out[s : s + block] = cp.asnumpy(res)
     return cast(np.ndarray, out)
 
@@ -107,7 +155,7 @@ def use_device_lof(n_rows: int) -> bool:
 
 
 _SWEEP_ROWS = [2_000, 20_000, 100_000]
-_SALT = 3  # 3: the equivalence tolerance is 1e-5 / 1e-6, the float32 level the scores are computed at, so the regions are measured again
+_SALT = 4  # 4: the kernel is specialised per (k, p) with a shared-memory top-k above 32, so its timings are measured again
 
 
 def _make_inputs(dims: dict) -> tuple:
@@ -170,4 +218,4 @@ except Exception as e:
     logger.warning("kernel_tuner spec build for fe_lof_device failed: %s", e)
     _SPEC = None
 
-__all__ = ["lof_transform_gpu", "use_device_lof"]
+__all__ = ["lof_transform_gpu", "use_device_lof", "kernel", "kernel_wide"]

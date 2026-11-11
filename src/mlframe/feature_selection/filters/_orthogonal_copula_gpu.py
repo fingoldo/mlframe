@@ -125,10 +125,10 @@ def copula_columns_device(cols_rows: np.ndarray, vi: np.ndarray, nb: int) -> Opt
         free = device_room(cp)
         per_col = n * (int(cols_rows.dtype.itemsize) * 2 + 8 * 4)  # values, sorted values, order and sort temporaries
         block = int(max(1, min(kk, (_BUDGET_FRACTION * free) // per_col)))
-        out = np.empty(kk, dtype=np.float64)  # Intentional float64: statistic output
         dyn_smem = _REPL * nb * nb * 4
         threads = block_size_for(kernel, dyn_smem=dyn_smem, work_items=n, pow2=True)
         grid_x = min((n + threads - 1) // threads, 64)
+        tables_dev = cp.zeros((kk, nb, nb), dtype=cp.int32)  # one resident joint-histogram table; one D2H after the loop instead of one per chunk
         for c0 in range(0, kk, block):
             w = min(block, kk - c0)
             xd = cols_rows[c0 : c0 + w] if resident else cp.asarray(np.ascontiguousarray(cols_rows[c0 : c0 + w]))
@@ -136,12 +136,10 @@ def copula_columns_device(cols_rows: np.ndarray, vi: np.ndarray, nb: int) -> Opt
             xs = cp.take_along_axis(xd, order, axis=1)
             if not resident:
                 del xd
-            joint = cp.zeros((w, nb, nb), dtype=cp.int32)
+            joint = tables_dev[c0 : c0 + w]
             kernel((grid_x, w), (threads,), (xs, order, vi_d, joint, np.int64(n), np.int32(nb)), shared_mem=dyn_smem)
-            tables = cp.asnumpy(joint)
-            out[c0 : c0 + w] = _mi_from_tables(tables, float(n))
             del xs, order, joint
-        return out
+        return _mi_from_tables(cp.asnumpy(tables_dev), float(n))
     except Exception as exc:
         log_throttle(logger, "copula_gpu.failed", logging.WARNING, "device copula MI failed (%s: %s); the host kernel scores the columns", type(exc).__name__, exc)
         return None

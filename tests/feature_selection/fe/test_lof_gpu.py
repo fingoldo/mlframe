@@ -61,3 +61,24 @@ def test_dispatcher_follows_the_forced_path(monkeypatch):
     monkeypatch.setenv("MLFRAME_LOF_DEVICE", "1")
     dev = _lof_transform(X, ref, lrd, kd, k_eff)
     np.testing.assert_allclose(dev, host, rtol=2e-3, atol=1e-4)
+
+
+@pytest.mark.parametrize("k", [33, 64])
+@pytest.mark.parametrize("p", [3, 16])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_device_equals_host_shared_topk(k, p, dtype):
+    """k above the register top-k limit takes the shared-memory path; its scores match the host's."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._lof_gpu import lof_transform_gpu
+
+    X, ref, lrd, kd, k_eff = _setup(5000, p, 600, k, dtype)
+    require_cuda_device()
+    got = lof_transform_gpu(X, ref, lrd, kd, k_eff)
+    assert got is not None and got.dtype == dtype
+    want = _lof_transform_host(X, ref, lrd, kd, k_eff)
+    if dtype == np.float64:
+        np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-12)
+        return
+    close = np.isclose(got, want, rtol=2e-3, atol=1e-4)
+    assert close.mean() >= 0.998, f"{(~close).sum()} of 5000 rows differ"
+    np.testing.assert_allclose(got[~close], want[~close], rtol=0.1)

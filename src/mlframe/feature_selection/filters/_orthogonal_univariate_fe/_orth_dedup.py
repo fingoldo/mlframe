@@ -191,10 +191,13 @@ def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     if tile < _MIN_CUPY_DEDUP_TILE:
         raise RuntimeError(f"pairwise-corr tile shrank to {tile} (room-bound); too fragmented to pay off on the device")
     out = np.empty((q, r), dtype=np.float64)  # Intentional float64: the result contract of the numpy backend
+    # R does not change across the outer (i) loop, so its tiles upload ONCE here rather than once per i - the inner
+    # loop below used to re-upload the same R tile q // tile times.
+    r_tiles = [cp.asarray(np.ascontiguousarray(R[j : j + tile])) for j in range(0, r, tile)]
     for i in range(0, q, tile):
         Qd = cp.asarray(np.ascontiguousarray(Q[i : i + tile]))
-        for j in range(0, r, tile):
-            out[i : i + tile, j : j + tile] = _pc_corr_cupy_arrays(cp, Qd, cp.asarray(np.ascontiguousarray(R[j : j + tile])))
+        for Rd, j in zip(r_tiles, range(0, r, tile)):
+            out[i : i + tile, j : j + tile] = _pc_corr_cupy_arrays(cp, Qd, Rd)
     return out
 
 
