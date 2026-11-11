@@ -6,9 +6,8 @@ GENERATED from the signature; do not edit by hand. A meta-test compares it with 
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 from pydantic import BaseModel, ConfigDict
-from mlframe._shap_policy_constants import DEFAULT_TRUST_GUARD_FIDELITY_WEIGHTS
 
 
 class ShapProxiedFSParams(BaseModel):
@@ -20,13 +19,13 @@ class ShapProxiedFSParams(BaseModel):
 
     model: Any = None
     classification: bool = True
-    metric: Optional[str] = None
+    metric: str | None = None
     optimizer: str = "auto"
     out_of_fold: bool = True
     n_splits: int = 3
     n_models: int = 1
     min_features: int = 1
-    max_features: Optional[int] = None
+    max_features: int | None = None
     top_n: int = 30
     holdout_size: float = 0.25
     report_holdout_fraction: float = 0.0
@@ -37,8 +36,8 @@ class ShapProxiedFSParams(BaseModel):
     min_selected_ratio: float = 0.0
     trust_guard: bool = True
     n_anchors: int | str = "auto"
-    fidelity_floor: Optional[float] = None
-    spearman_floor: Optional[float] = None
+    fidelity_floor: float | None = None
+    spearman_floor: float | None = None
     run_importance_ablation: bool = True
     use_bias_corrector: bool = True
     active_learning: bool = False
@@ -117,7 +116,7 @@ class ShapProxiedFSParams(BaseModel):
     trust_guard_uniform_tail_frac: float = 0.2
     trust_guard_cardinality_dist: str = "zipf"
     trust_guard_zipf_alpha: float = 0.25
-    trust_guard_fidelity_weights: tuple[float, float] = DEFAULT_TRUST_GUARD_FIDELITY_WEIGHTS
+    trust_guard_fidelity_weights: tuple[float, float] = (0.6, 0.4)
     trust_guard_metric: str = "proxy_fidelity_score"
     n_jobs: int = -1
     inner_n_jobs_cap: bool = False
@@ -128,5 +127,5 @@ class ShapProxiedFSParams(BaseModel):
     booster_kind: str | None = None
     cat_features: list | None = None
     cache_dir: str | None = None
-    max_runtime_mins: Optional[float] = None
+    max_runtime_mins: float | None = None
     stop_file: str = "stop"

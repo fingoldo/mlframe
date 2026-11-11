@@ -6,7 +6,7 @@ The rewrite has already been applied to the source tree; keep this script as the
 import ast, sys
 from pathlib import Path
 M = "Intentional float64"
-files = [l.split()[0] for l in Path(sys.argv[1]).read_text().splitlines() if l.strip()]
+files = [line.split()[0] for line in Path(sys.argv[1]).read_text().splitlines() if line.strip()]
 tot = 0
 for f in files:
     p = Path(f); src = p.read_text(encoding="utf-8"); L = src.split("\n")
@@ -19,10 +19,12 @@ for f in files:
                 rng.update(range(e.lineno, e.end_lineno + 1))
     n_changed = 0
     for i in sorted(rng):
-        l = L[i - 1]
-        if "float64" in l and M not in l and not (i >= 2 and M in L[i - 2]) and not l.strip().startswith("#"):
-            L[i - 1] = l.replace("float64", "double-precision"); n_changed += 1
+        line = L[i - 1]
+        if "float64" in line and M not in line and not (i >= 2 and M in L[i - 2]) and not line.strip().startswith("#"):
+            L[i - 1] = line.replace("float64", "double-precision")
+            n_changed += 1
     if n_changed:
-        p.write_text("\n".join(L), encoding="utf-8"); print(f, n_changed)
+        p.write_text("\n".join(L), encoding="utf-8")
+        sys.stdout.write(f"{f} {n_changed}\n")
     tot += n_changed
-print("TOTAL", tot)
+sys.stdout.write(f"TOTAL {tot}\n")

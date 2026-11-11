@@ -6,7 +6,7 @@ GENERATED from the signature; do not edit by hand. A meta-test compares it with 
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 
@@ -20,9 +20,9 @@ class CascadeSelectParams(BaseModel):
     estimator: Any = None
     n_boruta_iterations: int = 20
     boruta_alpha: float = 0.05
-    forward_max_features: Optional[int] = None
+    forward_max_features: int | None = None
     forward_min_improvement: float = 0.0
     cv: int = 5
     scoring: Any = None
     random_state: int = 42
-    rfecv_kwargs: Optional[dict] = None
+    rfecv_kwargs: dict | None = None

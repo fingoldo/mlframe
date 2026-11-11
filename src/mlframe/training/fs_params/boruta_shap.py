@@ -6,7 +6,7 @@ GENERATED from the signature; do not edit by hand. A meta-test compares it with 
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 
 
@@ -34,13 +34,13 @@ class BorutaShapParams(BaseModel):
     verbose: bool = True
     stratify: Any = None
     optimistic: bool = True
-    fit_params: Optional[dict] = None
+    fit_params: dict | None = None
     stability_subsamples: int = 0
     stability_subsample_fraction: float = 0.75
     stability_threshold: float = 1.0
     early_stop_tentative: bool = False
     early_stop_patience: int = 20
     early_stop_margin: float = 0.15
-    max_runtime_mins: Optional[float] = None
+    max_runtime_mins: float | None = None
     stop_file: str = "stop"
     shadow_min_pad: int = 5

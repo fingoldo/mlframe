@@ -6,7 +6,7 @@ GENERATED from the signature; do not edit by hand. A meta-test compares it with 
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 
@@ -20,8 +20,8 @@ class ForwardSelectParams(BaseModel):
     estimator: Any = None
     scoring: Any = None
     cv: int = 3
-    max_features: Optional[int] = None
+    max_features: int | None = None
     min_improvement: float = 0.0
-    patience: Optional[int] = None
+    patience: int | None = None
     significance_level: float = 0.05
     random_state: int = 0
