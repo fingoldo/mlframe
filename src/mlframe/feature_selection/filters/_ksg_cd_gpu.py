@@ -123,7 +123,7 @@ def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbo
             sum_m_dev[c0 : c0 + width] = partial.sum(axis=1)
             del xs, ds, order, partial
         sum_m = cp.asnumpy(sum_m_dev)
-        return np.maximum(psi[n_kept] + (sum_k - sum_cnt - sum_m) / n_kept, 0.0)
+        return np.asarray(np.maximum(psi[n_kept] + (sum_k - sum_cnt - sum_m) / n_kept, 0.0), dtype=np.float64)
     except Exception as exc:
         log_throttle(logger, "ksg_cd_gpu.failed", logging.WARNING, "device KSG MI failed (%s: %s); the host kernel scores the columns", type(exc).__name__, exc)
         return None
