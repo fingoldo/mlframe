@@ -25,8 +25,11 @@ def _run(root) -> tuple[int, int]:
     return int(out[0]), int(out[1])
 
 
-def test_changed_callee_in_another_file_does_not_leave_a_stale_caller(tmp_path):
+def test_changed_callee_in_another_file_does_not_leave_a_stale_caller(tmp_path, monkeypatch):
     """Without the guard the caller keeps the old callee (the documented numba limitation); after the guard the caller gives the new value and the other module's cache files are untouched."""
+    # CI sets NUMBA_CACHE_DIR, which moves numba's cache out of __pycache__; pin it here so the test exercises that layout.
+    numba_dir = tmp_path / "numba-cache"
+    monkeypatch.setenv("NUMBA_CACHE_DIR", str(numba_dir))
     pkg = tmp_path / "pkg"
     pkg.mkdir()
     (pkg / "__init__.py").write_text("", encoding="utf-8")
@@ -35,12 +38,12 @@ def test_changed_callee_in_another_file_does_not_leave_a_stale_caller(tmp_path):
     (pkg / "other.py").write_text(OTHER, encoding="utf-8")
     assert invalidate_stale_numba_caches(pkg) == []
     assert _run(tmp_path) == (22, 9)
-    other_cache = sorted(p.name for p in (pkg / "__pycache__").glob("other.*.nb*"))
+    other_cache = sorted(p.name for p in numba_dir.rglob("other.*.nb*"))
     assert other_cache
     (pkg / "callee.py").write_text(CALLEE.format(delta=5), encoding="utf-8")
     assert _run(tmp_path) == (22, 9)  # the stale caller still runs the old callee: this is what the guard exists for
     cleared = invalidate_stale_numba_caches(pkg)
     assert set(cleared) == {"callee", "caller"}
     assert _run(tmp_path) == (30, 9)
-    assert sorted(p.name for p in (pkg / "__pycache__").glob("other.*.nb*")) == other_cache
+    assert sorted(p.name for p in numba_dir.rglob("other.*.nb*")) == other_cache
     assert invalidate_stale_numba_caches(pkg) == []

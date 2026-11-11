@@ -48,8 +48,11 @@ def test_mlp_only_trains_with_inject_inf_nan(inject_inf_nan):
         preprocessing_config=_preprocessing_for_combo(combo),
     )
     # The MLP leg must have trained -- a NaN/inf crash would raise above and never reach here.
+    # The suite also emits composite wrappers for the same target (e.g. a hurdle over the MLP), so the leg is not a single entry.
+    # The contract here is that training produced entries and every one of them predicts finite values on the injected frame.
     entries = [e for _tt, _tn, e in _iter_trained_models(trained)]
-    assert len(entries) == 1
-    val_preds = getattr(entries[0], "val_preds", None)
-    assert val_preds is not None and len(val_preds) > 0
-    assert np.isfinite(np.asarray(val_preds, dtype=float)).all()
+    assert entries, "no model trained on the inject_inf_nan frame"
+    for entry in entries:
+        val_preds = getattr(entry, "val_preds", None)
+        assert val_preds is not None and len(val_preds) > 0
+        assert np.isfinite(np.asarray(val_preds, dtype=float)).all()

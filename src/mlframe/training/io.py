@@ -582,18 +582,20 @@ def _verify_bundle_digest(bundle_path: str, handle=None) -> None:
 
 
 def _open_verified_bundle(file: str):
-    """Open ``file`` once and verify its digest against that handle; the handle is returned for the load, or ``None`` when the file is missing."""
+    """Read ``file`` once, verify its digest against those bytes, and return them as a buffer for the load; ``None`` when the file is missing.
+
+    The bytes are read into memory once and both the digest and the unpickle use that buffer. A streamed handle is not enough: a file
+    overwritten in place after the check (same inode) would be read back with the new bytes, so the verified bytes must be the ones held.
+    """
+    import io as _io
+
     try:
-        fh = open(file, "rb")  # audit-exempt: resource_handle_safety -- the handle is returned to the caller, which owns closing it; the failure path below closes it
+        with open(file, "rb") as src:  # audit-exempt: resource_handle_safety -- the bytes are read and the handle closed here; only the in-memory buffer is returned
+            buf = _io.BytesIO(src.read())
     except OSError:
-        fh = None  # a missing or unreadable bundle fails in the load below, as before
-    try:
-        _verify_bundle_digest(file, fh)
-    except BaseException:
-        if fh is not None:
-            fh.close()
-        raise
-    return fh
+        return None  # a missing or unreadable bundle fails in the load below, as before
+    _verify_bundle_digest(file, buf)
+    return buf
 
 
 def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = False) -> Optional[object]:

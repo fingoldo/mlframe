@@ -204,8 +204,9 @@ class TestReportingIntegration:
         assert returned[1] == pytest.approx(4.0)
 
     def test_clip_invoked_only_when_stats_supplied(self) -> None:
-        """Without train stats and without enough finite eval targets there is no envelope and predictions pass through;
-        with train stats the 3-sigma window applies, and with only eval targets the wider 10-sigma window does."""
+        """Without train stats there is no envelope and predictions pass through, whatever the eval targets are; with train
+        stats the 3-sigma window applies. The eval-derived fallback was removed (64346550c): clipping by the scored split's own
+        labels would let the metrics read the labels they score."""
         from mlframe.training.reporting._reporting_regression._sensors import apply_prediction_envelope_clip
 
         preds = np.array([-100.0, 15.0, 100.0] * 5)
@@ -219,9 +220,8 @@ class TestReportingIntegration:
         )
         np.testing.assert_allclose(with_train, np.clip(preds, 4.0, 26.0))
         eval_targets = np.tile([10.0, 20.0, 15.0], 5)
-        fallback = apply_prediction_envelope_clip(preds, eval_targets, y_train_min=None, y_train_max=None, y_train_std=None, model_name="m", report_title="t")
-        std = float(eval_targets.std())
-        np.testing.assert_allclose(fallback, np.clip(preds, 10.0 - 10.0 * std, 20.0 + 10.0 * std))
+        no_train_stats = apply_prediction_envelope_clip(preds, eval_targets, y_train_min=None, y_train_max=None, y_train_std=None, model_name="m", report_title="t")
+        np.testing.assert_array_equal(no_train_stats, preds)
 
     def test_train_envelope_stats_threaded_through_unified_entry(self) -> None:
         """2026-05-26: ``report_model_perf`` accepts a single

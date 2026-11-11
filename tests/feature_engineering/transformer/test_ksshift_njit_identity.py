@@ -14,20 +14,22 @@ from mlframe.feature_engineering.transformer.ks_shift import _ks_and_wasserstein
 
 
 def _ks_and_wasserstein_reference(y_neighbors: np.ndarray, y_global_sorted: np.ndarray):
-    """Prior Python-loop implementation (git HEAD ks_shift.py), kept here as the identity oracle."""
-    n_q, k = y_neighbors.shape
-    n_g = y_global_sorted.shape[0]
+    """Exact per-row KS sup-distance and Wasserstein-1 against the global sample, via scipy.
+
+    The kernel is documented as matching scipy (commit 8300ec4d0: KS checks both limits of every jump, W1 covers the mass outside
+    the neighbour range). The earlier hand-written loop checked only the right limit and used the right-endpoint CDF, so it no longer
+    describes the kernel and must not be the oracle.
+    """
+    from scipy.stats import ks_2samp, wasserstein_distance
+
+    n_q = y_neighbors.shape[0]
     ks_out = np.zeros(n_q, dtype=np.float32)
     w1_out = np.zeros(n_q, dtype=np.float32)
-    y_local_sorted = np.sort(y_neighbors, axis=1)
-    cdf_local = (np.arange(k) + 1).astype(np.float32) / k
+    g = np.asarray(y_global_sorted, dtype=np.float64)
     for i in range(n_q):
-        local = y_local_sorted[i]
-        global_ranks = np.searchsorted(y_global_sorted, local, side="right").astype(np.float32) / n_g
-        diff = np.abs(cdf_local - global_ranks)
-        ks_out[i] = diff.max()
-        widths = np.diff(local, prepend=local[0])
-        w1_out[i] = (diff * widths).sum()
+        local = np.asarray(y_neighbors[i], dtype=np.float64)
+        ks_out[i] = ks_2samp(local, g).statistic
+        w1_out[i] = wasserstein_distance(local, g)
     return ks_out, w1_out
 
 

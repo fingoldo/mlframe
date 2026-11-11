@@ -76,12 +76,19 @@ def invalidate_stale_numba_caches(package_dir: "str | Path") -> list[str]:
             if digest:
                 previous[name] = digest
     cleared: list[str] = []
+    # numba writes its cache under NUMBA_CACHE_DIR when that is set (every CI workflow sets it), not under __pycache__; clearing only
+    # __pycache__ left the stale entries in place and the guard did nothing there. Search both places.
+    search_roots = [cache_dir]
+    env_cache_dir = os.environ.get("NUMBA_CACHE_DIR", "").strip()
+    if env_cache_dir and Path(env_cache_dir).is_dir():
+        search_roots.append(Path(env_cache_dir))
     if previous:
         for name, digest in current.items():
             if previous.get(name, digest) != digest and cache_dir.is_dir():
-                for pattern in (f"{name}.*.nbi", f"{name}.*.nbc"):
-                    for stale in cache_dir.glob(pattern):
-                        _unlink_quietly(stale)
+                for root in search_roots:
+                    for pattern in (f"{name}.*.nbi", f"{name}.*.nbc"):
+                        for stale in root.rglob(pattern):
+                            _unlink_quietly(stale)
                 cleared.append(name)
     cache_dir.mkdir(exist_ok=True)
     text = "\n".join(f"{name} {digest}" for name, digest in sorted(current.items())) + "\n"

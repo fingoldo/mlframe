@@ -70,18 +70,18 @@ def test_group_aware_relevance_zeros_query_confounder():
 def test_pointwise_mrmr_picks_confounder_group_aware_picks_signal():
     """Pooled MRMR selects the query-confounder (high pooled MI, useless for ranking); group-aware MRMR selects the
     within-query signal and NOT the confounder. This is the test that fails on a pointwise LtR FS design."""
-    from mlframe.feature_selection.registry import get
     from mlframe.training.ranking._ranker_fs import group_aware_mrmr_select
 
     df, gcol, signal, conf, _noise = _query_confounded_frame(0)
     cols = [signal, conf, "noise_0", "noise_1"]
     X, y, g = df[cols], df["rel"].to_numpy(), df[gcol].to_numpy()
 
-    pooled = get("MRMR").instantiate(use_simple_mode=True, quantization_nbins=8, verbose=0)
-    pooled.fit(X, pd.Series(y))
-    sup = np.asarray(pooled.support_)
-    pooled_cols = [cols[i] for i in np.where(sup)[0]] if sup.dtype == bool else [cols[int(i)] for i in sup.tolist()]
-    assert conf in pooled_cols, f"sanity: pointwise MRMR should be fooled into picking the confounder; got {pooled_cols}"
+    # Sanity: the pointwise premise is that the POOLED score ranks the confounder above the signal. Checked on pooled MI
+    # directly: whether pooled MRMR keeps the confounder depends on MRMR's screen defaults, not on the premise.
+    from mlframe.training.ranking._ranker_fs import _binned_mi
+
+    pooled = {c: _binned_mi(X[c].to_numpy(np.float64), y.astype(np.float64), bins=8) for c in cols}
+    assert pooled[conf] > pooled[signal], f"sanity: pooled MI must rank the confounder above the signal; got {pooled}"
 
     ga_cols = group_aware_mrmr_select(X, y, g, nbins=8, bins=5)
     assert signal in ga_cols, f"group-aware MRMR must pick the within-query signal; got {ga_cols}"

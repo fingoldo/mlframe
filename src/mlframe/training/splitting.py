@@ -640,6 +640,12 @@ def _make_train_test_sp_ml_way_done(_ml_3way_done, val_size, _groups_arr, _strat
     return train_idx, val_idx
 
 
+def _middle_value(values):
+    """Upper-middle element of the sorted values. Works for any sortable dtype, including datetime64, where a mean-based median does not."""
+    ordered = np.sort(values)
+    return ordered[len(ordered) // 2]
+
+
 def _move_groups_spanning_older_val_into_train(groups_arr, timestamps, train_idx, val_idx):
     """Backward layout (val older than train): a group split between val and train keeps its rows on the NEWER side, train, not in val.
 
@@ -648,7 +654,8 @@ def _move_groups_spanning_older_val_into_train(groups_arr, timestamps, train_idx
     if len(train_idx) == 0 or len(val_idx) == 0:
         return train_idx, val_idx
     ts = np.asarray(timestamps)
-    if not np.median(ts[val_idx]) < np.median(ts[train_idx]):
+    # Order statistic, not np.median: np.median averages the two middle values, which datetime64 timestamps do not support.
+    if not _middle_value(ts[val_idx]) < _middle_value(ts[train_idx]):
         return train_idx, val_idx
     spanning = np.intersect1d(groups_arr[train_idx], groups_arr[val_idx])
     if spanning.size == 0:
