@@ -123,5 +123,41 @@ def test_cached_boundaries_bit_identical_to_fresh_upload():
     np.testing.assert_array_equal(cp.asnumpy(fresh), cp.asnumpy(cold))
 
 
+def test_oom_notes_the_shared_cooldown(monkeypatch):
+    """GPU11-13: this call site has no cushion pre-check of its own, so an OutOfMemoryError from
+    device_argsort must arm the shared _fe_gpu_vram cooldown (note_gpu_oom) before failing open to None,
+    letting other call sites skip their own doomed attempt for the cooldown window."""
+    from mlframe.feature_selection.filters import _fe_gpu_vram, _gpu_resident_rank_bin as rb
+
+    _fe_gpu_vram._reset_gpu_oom_cooldown()
+
+    def _boom(*a, **kw):
+        """Simulate device_argsort hitting the pool's own OutOfMemoryError."""
+        raise cp.cuda.memory.OutOfMemoryError(1, 0, 0)
+
+    monkeypatch.setattr(rb, "device_argsort", _boom)
+    x = cp.random.random((100, 3)).astype(cp.float32)
+    assert rank_bin_codes_batch_gpu_resident(x, 10) is None
+    assert _fe_gpu_vram._in_oom_cooldown() is True
+    _fe_gpu_vram._reset_gpu_oom_cooldown()
+
+
+def test_non_oom_failure_does_not_note_the_cooldown(monkeypatch):
+    """A failure that is NOT an OutOfMemoryError must not arm the cooldown - that would wrongly suppress
+    other call sites' genuine GPU attempts for an unrelated bug."""
+    from mlframe.feature_selection.filters import _fe_gpu_vram, _gpu_resident_rank_bin as rb
+
+    _fe_gpu_vram._reset_gpu_oom_cooldown()
+
+    def _boom(*a, **kw):
+        """Simulate an unrelated failure, not an OOM."""
+        raise RuntimeError("simulated unrelated failure")
+
+    monkeypatch.setattr(rb, "device_argsort", _boom)
+    x = cp.random.random((100, 3)).astype(cp.float32)
+    assert rank_bin_codes_batch_gpu_resident(x, 10) is None
+    assert _fe_gpu_vram._in_oom_cooldown() is False
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s", "--tb=short"])
