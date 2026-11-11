@@ -72,3 +72,29 @@ def test_small_column_blocks_and_a_device_fault_keep_the_result(monkeypatch):
     mi2, ok2 = host.bootstrap_rank_mi(arr, y, reps, 10)
     np.testing.assert_array_equal(ok2, want_ok)
     np.testing.assert_allclose(mi2, want_mi, rtol=1e-12, atol=1e-14)
+
+
+def test_a_genuine_oom_notes_the_shared_cooldown(monkeypatch):
+    """GPU11-13 follow-up: this call site adaptively shrinks its own block (pool_column_block) rather than
+    using the fe_gpu_has_vram_cushion pre-check, but can still OOM past that; a genuine cupy OutOfMemoryError
+    (not any other fault, e.g. the plain MemoryError the test above simulates) must arm the shared cooldown."""
+    pytest.importorskip("cupy")
+    import cupy as cp
+    from mlframe.feature_selection.filters import _bootstrap_rank_mi_gpu as gpu
+    import mlframe.feature_selection.filters._fe_gpu_vram as vram_mod
+
+    vram_mod._reset_gpu_oom_cooldown()
+    arr, y, reps = _data(3000, 10)
+    monkeypatch.setenv("MLFRAME_BOOTSTRAP_RANK_DEVICE", "1")
+
+    def _boom(cp_arg, n):
+        """Simulate a genuine device OutOfMemoryError, not a generic fault."""
+        raise cp.cuda.memory.OutOfMemoryError(1, 0, 0)
+
+    monkeypatch.setattr(gpu, "_bootstrap_walk_column_block", _boom)
+    host._PREP_CACHE.clear()
+    require_cuda_device()
+    mi3, ok3 = host.bootstrap_rank_mi(arr, y, reps, 10)
+    assert mi3 is not None and ok3 is not None  # still falls back to the host walk, never raises
+    assert vram_mod._in_oom_cooldown() is True
+    vram_mod._reset_gpu_oom_cooldown()
