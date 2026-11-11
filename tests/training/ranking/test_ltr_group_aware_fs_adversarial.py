@@ -163,8 +163,11 @@ def test_pooled_mrmr_picks_confounder_group_aware_rejects_it(seed, bins):
     cols = [signal, conf, "noise_0", "noise_1"]
     X, y, g = df[cols], df["rel"].to_numpy(), df[gcol].to_numpy()
 
-    pooled_cols = _pooled_mrmr_cols(cols, X, y)
-    assert conf in pooled_cols, f"sanity: pooled MRMR should be fooled into picking the confounder; got {pooled_cols}"
+    # Sanity: the pointwise premise is that the POOLED score ranks the confounder above the signal. Checked on
+    # pooled MI directly: MRMR's own screen thresholds (screen_fdr_null_quantile etc.) changed defaults, so
+    # whether pooled MRMR happens to keep the confounder is an MRMR-tuning accident, not the premise.
+    pooled = {c: _pooled_pair_mi(X[c].to_numpy(np.float64), y) for c in cols}
+    assert pooled[conf] > pooled[signal], f"sanity: pooled MI must rank the confounder above the signal; got {pooled}"
 
     ga_cols = group_aware_mrmr_select(X, y, g, nbins=8, bins=bins)
     assert signal in ga_cols, f"group-aware MRMR must pick the within-query signal; got {ga_cols}"
