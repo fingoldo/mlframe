@@ -258,6 +258,19 @@ def best_existing_op_mi_resident(
         from ._hermite_fe_mi import relaxed_candidate_dtype
 
         _cdt = relaxed_candidate_dtype(cp)
+        # Cushion-check BEFORE the (n, k) / (k, n) candidate matrix: without it, a device pool already pinned
+        # at its limit fails this call's allocation on EVERY gate call with the SAME OutOfMemoryError (the
+        # GPU11-13/14 pattern). k mirrors the two build functions' own formula (m base columns + 4 ops per
+        # pair + row max/min + an optional row sum).
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        _m = len(cols_arr_gpu)
+        _n_rows = int(cols_arr_gpu[0].shape[0]) if cols_arr_gpu else 0
+        _npairs = _m * (_m - 1) // 2
+        _k = _m + 4 * _npairs + 2 + (1 if _m >= 3 else 0)
+        _itemsize = np.dtype(crit_float_dtype()).itemsize if rank_binning else np.dtype(_cdt).itemsize
+        if not fe_gpu_has_vram_cushion(_n_rows * _k * _itemsize):
+            return None
         mat_gpu = _build_best_existing_op_candidates_gpu(cols_arr_gpu, cp) if rank_binning else _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu, cp, out_dtype=_cdt)
         if y_gpu is None:
             # y is a fit-constant -> resident cache (instrumentation: 30x re-upload here when y_gpu is None).
