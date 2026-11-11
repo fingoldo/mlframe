@@ -15,7 +15,6 @@ from __future__ import annotations
 import copy
 import logging
 from pathlib import Path
-from typing import Any, cast
 
 import numpy as np
 import lightning as L
@@ -208,52 +207,7 @@ class RecurrentClassifierWrapper(ClassifierMixin, _RecurrentWrapperBase):
         Returns:
             (n_samples, num_classes) array of probabilities
         """
-        if self.model is None:
-            # NotFittedError per sklearn.
-            from sklearn.exceptions import NotFittedError
-            raise NotFittedError("Model not trained. Call fit() first.")
-
-        self._validate_inputs(features, sequences)
-
-        # Replay the fit-time cat factorization + coerce to float32 ndarray BEFORE the cache key (the key reads ``.dtype``, a DataFrame lacks it)
-        # and BEFORE dataset construction. No-op when no cats were factorized; ``None`` (SEQUENCE_ONLY) passes through.
-        features = self._prepare_predict_features(features)
-
-        cache_key = self._compute_cache_key(features, sequences)
-        _cached = self._cache_get(cache_key)
-        if _cached is not None:
-            return _cached
-
-        n_samples = len(sequences) if sequences is not None else len(features)
-
-        dataset = self._create_dataset(
-            sequences,
-            features,
-            labels=np.zeros(n_samples, dtype=np.int64),
-        )
-        loader = self._create_dataloader(dataset, shuffle=False, batch_size=batch_size)
-
-        # Same CUDA-broken-host guard _create_trainer applies at fit time (see that method's comment): on a
-        # host where fit already downgraded to CPU because the CUDA probe failed, a bare
-        # accelerator=self._cfg.accelerator here would still try CUDA and crash with "CUDA error: an
-        # illegal memory access". _probe_cuda_is_usable() is memoised process-wide so this costs nothing
-        # after the first call.
-        from ._base_tensor_helpers import safe_accelerator
-        predict_trainer = L.Trainer(
-            accelerator=safe_accelerator(self._cfg.accelerator),
-            precision=cast(Any, self._auto_precision()),
-            logger=False,
-            enable_progress_bar=False,
-            enable_model_summary=False,
-        )
-        from ._base_logging import suppress_lightning_workers_warning
-        with suppress_lightning_workers_warning():
-            predictions = predict_trainer.predict(self.model, loader)
-
-        result = np.asarray(torch.cat(cast(list, predictions), dim=0).float().cpu().numpy().astype(np.float32))
-
-        self._cache_put(cache_key, result)
-        return result
+        return self._predict_array(features, sequences, batch_size, np.int64)
 
     def predict(
         self,
@@ -424,49 +378,4 @@ class RecurrentRegressorWrapper(RegressorMixin, _RecurrentWrapperBase):
         Returns:
             (n_samples,) array of predictions
         """
-        if self.model is None:
-            # NotFittedError per sklearn.
-            from sklearn.exceptions import NotFittedError
-            raise NotFittedError("Model not trained. Call fit() first.")
-
-        self._validate_inputs(features, sequences)
-
-        # Replay the fit-time cat factorization + coerce to float32 ndarray BEFORE the cache key (the key reads ``.dtype``, a DataFrame lacks it)
-        # and BEFORE dataset construction. No-op when no cats were factorized; ``None`` (SEQUENCE_ONLY) passes through.
-        features = self._prepare_predict_features(features)
-
-        cache_key = self._compute_cache_key(features, sequences)
-        _cached = self._cache_get(cache_key)
-        if _cached is not None:
-            return _cached
-
-        n_samples = len(sequences) if sequences is not None else len(features)
-
-        dataset = self._create_dataset(
-            sequences,
-            features,
-            labels=np.zeros(n_samples, dtype=np.float32),
-        )
-        loader = self._create_dataloader(dataset, shuffle=False, batch_size=batch_size)
-
-        # Same CUDA-broken-host guard _create_trainer applies at fit time (see that method's comment): on a
-        # host where fit already downgraded to CPU because the CUDA probe failed, a bare
-        # accelerator=self._cfg.accelerator here would still try CUDA and crash with "CUDA error: an
-        # illegal memory access". _probe_cuda_is_usable() is memoised process-wide so this costs nothing
-        # after the first call.
-        from ._base_tensor_helpers import safe_accelerator
-        predict_trainer = L.Trainer(
-            accelerator=safe_accelerator(self._cfg.accelerator),
-            precision=cast(Any, self._auto_precision()),
-            logger=False,
-            enable_progress_bar=False,
-            enable_model_summary=False,
-        )
-        from ._base_logging import suppress_lightning_workers_warning
-        with suppress_lightning_workers_warning():
-            predictions = predict_trainer.predict(self.model, loader)
-
-        result = np.asarray(torch.cat(cast(list, predictions), dim=0).float().cpu().numpy().astype(np.float32))
-
-        self._cache_put(cache_key, result)
-        return result
+        return self._predict_array(features, sequences, batch_size, np.float32)
