@@ -77,6 +77,9 @@ def module_file(name: str) -> Path | None:
     for cand in FILTERS.glob(f"*/{name}.py"):
         if cand.is_file():
             return cand
+    for cand in FILTERS.glob(f"*/{name}/__init__.py"):
+        if cand.is_file():
+            return cand
     return None
 
 
