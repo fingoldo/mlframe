@@ -50,15 +50,19 @@ extern "C" __global__ void lof_scores(const {REAL}* __restrict__ X, const {REAL}
         if (cnt < k) ++cnt;
     }
     double sum_reach = 0.0, sum_lrd = 0.0;
-    for (int t = 0; t < k; ++t) {
+    // cnt (not the requested k) bounds this loop: the caller guarantees m >= k before launch, so cnt reaches k in
+    // practice, but the kernel does not rely on that invariant holding - reading best_d[cnt..k-1] past the actual
+    // insertion count would be an uninitialized-memory read if it ever did not (found by clang-tidy's
+    // core.CallAndMessage / core.UndefinedBinaryOperatorResult checks: CUDA.md C/C++ static analysis pass).
+    for (int t = 0; t < cnt; ++t) {
         const double d = sqrt(best_d[t]);
         const double kd = (double)kdist_ref[best_j[t]];
         sum_reach += kd > d ? kd : d;
         sum_lrd += (double)lrd_ref[best_j[t]];
     }
-    const double mean_reach = sum_reach / k;
+    const double mean_reach = sum_reach / cnt;
     const double lrd_new = 1.0 / (mean_reach > 1e-12 ? mean_reach : 1e-12);
-    out[i] = ({REAL})((sum_lrd / k) / (lrd_new > 1e-12 ? lrd_new : 1e-12));
+    out[i] = ({REAL})((sum_lrd / cnt) / (lrd_new > 1e-12 ? lrd_new : 1e-12));
 }
 """
 
