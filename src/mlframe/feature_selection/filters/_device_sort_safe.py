@@ -115,11 +115,15 @@ def sort_room(a: Any) -> "Iterator[None]":
         return
     need = _sort_need_bytes(a)
     with _pool_lock(pool):
-        try:
-            hold = cp.empty(need, dtype=cp.uint8)
-        except cp.cuda.memory.OutOfMemoryError:
-            pool.free_all_blocks()
-            hold = cp.empty(need, dtype=cp.uint8)
+        hold = None
+        for attempt in range(2):  # the first OOM frees the pool's cached blocks and retries once; a second OOM is real and propagates
+            try:
+                hold = cp.empty(need, dtype=cp.uint8)
+                break
+            except cp.cuda.memory.OutOfMemoryError:
+                if attempt:
+                    raise
+                pool.free_all_blocks()
         del hold
         yield
 
