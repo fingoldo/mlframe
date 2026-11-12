@@ -240,6 +240,9 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
     return [(int(c[2]), int(c[3])) for c in admitted[: int(max_legs)]]
 
 
+_LEG_BLOCK_BYTES = 256 << 20  # bytes of int64 leg codes stacked at once per split (the stacked legs were unbounded before)
+
+
 def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: float, *, max_scale: int, max_legs: int, scale_sigma: float) -> list:
     """BATCHED born-on-device twin of ``_wavelet_basis_fe._select_wavelet_legs``: returns the SAME admitted
     ``(j, k)`` legs, but scores every candidate leg's train + held-out MI in TWO batched device workloads
@@ -307,16 +310,26 @@ def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: f
     if not metas:
         return []
 
-    tr_mat = np.stack(tr_cols, axis=1)  # (n_tr, K)
-    va_mat = np.stack(va_cols, axis=1)  # (n_va, K)
     ky_tr = int(np.asarray(yb_tr).max()) + 1
     ky_va = int(np.asarray(yb_va).max()) + 1
     # Fused one-launch MI-from-codes (launch-reduction): replaces the cupy bincount+entropy chain per
     # call with a single RawKernel launch; selection-equivalent (same plug-in MI). Falls back internally
     # to ``batched_binned_mi_gpu`` if the shared-mem histogram tile would not fit.
     from ._fe_batched_mi import binned_mi_from_codes_gpu
-    mi_tr = binned_mi_from_codes_gpu(tr_mat, np.asarray(yb_tr), kx_per_col=tr_kx, ky=ky_tr)
-    mi_va = binned_mi_from_codes_gpu(va_mat, np.asarray(yb_va), kx_per_col=va_kx, ky=ky_va)
+    # The legs are stacked and scored in blocks: a leg's MI depends on that leg alone, so the blocks give the same
+    # values as one stack, but the code matrices of all legs together (n x legs x 8 bytes per split) are not held at once.
+    rows = max(len(yb_tr), len(yb_va), 1)
+    block_legs = max(1, _LEG_BLOCK_BYTES // (8 * rows))
+    mi_tr_parts, mi_va_parts = [], []
+    for b0 in range(0, len(metas), block_legs):
+        b1 = min(b0 + block_legs, len(metas))
+        tr_mat = np.stack(tr_cols[b0:b1], axis=1)  # (n_tr, block)
+        va_mat = np.stack(va_cols[b0:b1], axis=1)  # (n_va, block)
+        mi_tr_parts.append(np.asarray(binned_mi_from_codes_gpu(tr_mat, np.asarray(yb_tr), kx_per_col=tr_kx[b0:b1], ky=ky_tr), dtype=np.float64))
+        mi_va_parts.append(np.asarray(binned_mi_from_codes_gpu(va_mat, np.asarray(yb_va), kx_per_col=va_kx[b0:b1], ky=ky_va), dtype=np.float64))
+        del tr_mat, va_mat
+    mi_tr = np.concatenate(mi_tr_parts)
+    mi_va = np.concatenate(mi_va_parts)
 
     heldout = np.asarray(mi_va, dtype=np.float64)  # Intentional float64: held-out MI statistic output
     if heldout.size >= 4:
