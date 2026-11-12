@@ -18,6 +18,9 @@ def _spy(monkeypatch):
     monkeypatch.setattr(ra, "free_gpu_memory_pool", lambda: calls.append("pool"))
     monkeypatch.setattr(kc, "clear_pinned_buffers", lambda: calls.append("pinned") or 0)
     monkeypatch.setattr(ra, "clear_pinned_buffers", lambda: calls.append("pinned") or 0)
+    # The release sits inside the GPU branch, which use_gpu=True only enters when a device exists. The kernels are
+    # mocked here, so force that branch and exercise the release contract without requiring hardware.
+    monkeypatch.setattr(rf, "_resolve_use_gpu", lambda *a, **k: True)
     return calls
 
 
