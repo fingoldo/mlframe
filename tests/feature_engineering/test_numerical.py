@@ -849,7 +849,8 @@ class TestFusedNuniqueModesQuantilesFastPath:
         arr[::101] = np.nan
         res = num.compute_nunique_modes_quantiles_numpy(arr)
         assert calls["n"] >= 1, "NaN input must use the exact np.unique path (collapses all NaN to one)"
-        vals, _ = real_unique(arr, return_counts=True)
+        # NaN is neither a value nor a mode for nunique (see compute_nunique_modes_quantiles_numpy); the oracle must exclude it.
+        vals, _ = real_unique(arr[~np.isnan(arr)], return_counts=True)
         assert res[0] == len(vals)
 
 
