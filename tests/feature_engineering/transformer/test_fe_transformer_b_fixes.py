@@ -379,26 +379,26 @@ def test_f21_predictive_info_delta_empty_bin_uses_marginal_entropy(monkeypatch):
     from mlframe.feature_engineering.transformer.predictive_info_delta import compute_predictive_info_delta_features
 
     class _TwoClusterRegressor:
-        """Fake baseline: train predictions equal y (two clusters), every query prediction lies above all train predictions."""
+        """Fake baseline: a training row (including an out-of-fold held-out row) predicts its own target; any other row predicts 2.0, above every train prediction."""
 
         def __init__(self, **kwargs):
             """Accept and ignore the LightGBM hyper-parameters."""
 
         def fit(self, X, y):
-            """Remember the train targets so ``predict`` can tell train rows from query rows."""
-            self._n_train = len(y)
-            self._y = np.asarray(y, dtype=np.float32)
+            """Accept the training rows; the targets they predict come from the shared lookup built below."""
             return self
 
         def predict(self, X):
-            """Return y for the train matrix and 2.0 (beyond every train prediction) for the query matrix."""
-            return self._y if len(X) == self._n_train else np.full(len(X), 2.0, dtype=np.float32)
+            """Return the target of each row seen in the data (out-of-fold held-out rows included), or 2.0 for a row never seen."""
+            return np.array([truth.get(np.asarray(x).tobytes(), 2.0) for x in X], dtype=np.float32)
 
     monkeypatch.setattr(lightgbm, "LGBMRegressor", _TwoClusterRegressor)
     rng = np.random.default_rng(0)
     X = rng.normal(size=(100, 3)).astype(np.float32)
     y = (np.arange(100) % 2).astype(np.float32)
-    out = compute_predictive_info_delta_features(X, y, X_query=X[:5], splitter=None, seed=0, task="regression", n_bins=4, standardize=False)
+    truth = {np.asarray(x).tobytes(): float(v) for x, v in zip(X, y)}
+    X_query = X[:5] + np.float32(100.0)  # rows the fake has never seen
+    out = compute_predictive_info_delta_features(X, y, X_query=X_query, splitter=None, seed=0, task="regression", n_bins=4, standardize=False)
     # the top bin (p > last edge) is empty in train, so its conditional entropy falls back to the marginal one
     assert (out["pinfo_bin"].to_numpy() == 3).all()
     np.testing.assert_allclose(out["pinfo_H_given_bin"].to_numpy(), out["pinfo_H_marginal"].to_numpy())
