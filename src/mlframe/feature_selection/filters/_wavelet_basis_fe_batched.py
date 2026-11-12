@@ -231,8 +231,10 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
             kx_b = [3] * len(metas_b)
             # Leave codes_trusted at the default (False) so the in-range guard runs, MIRRORING the host select_wavelet_legs_batched call (which does not trust).
             # leg+1 is in {0,1,2} by construction, so the guard always passes; keeping it on matches the host path's illegal-address protection exactly.
-            mi_tr_parts.append(np.asarray(binned_mi_from_codes_gpu(tr_b, np.asarray(yb_tr), kx_per_col=kx_b, ky=ky_tr), dtype=np.float64))
-            mi_va_parts.append(np.asarray(binned_mi_from_codes_gpu(va_b, np.asarray(yb_va), kx_per_col=kx_b, ky=ky_va), dtype=np.float64))
+            # The codes are in range by construction (the legs are leg + 1 in {0, 1, 2}; the labels are ``_bin_y_codes``, non-negative with cardinality max + 1),
+            # so the in-range guard, a pair of device reductions per call, is skipped (codes_trusted).
+            mi_tr_parts.append(np.asarray(binned_mi_from_codes_gpu(tr_b, np.asarray(yb_tr), kx_per_col=kx_b, ky=ky_tr, codes_trusted=True), dtype=np.float64))
+            mi_va_parts.append(np.asarray(binned_mi_from_codes_gpu(va_b, np.asarray(yb_va), kx_per_col=kx_b, ky=ky_va, codes_trusted=True), dtype=np.float64))
             metas.extend(metas_b)
             del tr_b, va_b
         if not metas:
