@@ -5,6 +5,5 @@
  "src/mlframe/feature_selection/filters/_fe_batched_mi_cmi.py::batched_joint_entropy2",
  "src/mlframe/feature_selection/filters/_fe_batched_mi_cmi.py::batched_joint_entropy2_g",
  "src/mlframe/feature_selection/filters/_gpu_resident_basis.py::abs_corr",
- "src/mlframe/feature_selection/filters/_honest_null_k3.py::root_split_stats_k3",
  "src/mlframe/feature_selection/filters/_null_max_perm_gpu.py::null_mi_perms_bits"
 ]
