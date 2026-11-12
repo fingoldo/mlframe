@@ -14,9 +14,9 @@ Rows: 115.
 | feature_selection/filters/_binned_numeric_agg_resident.py | build_binagg_oof_matrix_gpu | 432 | REAL, measured partly launch-bound: 32 us per column launch at 100000 rows, batching open (GPU11-61) |
 | feature_selection/filters/_cat_confirm_permutation.py | _confirm_pairs_via_permutation | 919 | REAL, not yet measured: per surviving pair, a permutation null with launches per permutation; the same class as the batched-permutation item (GPU11-62) |
 | feature_selection/filters/_cat_confirm_permutation.py | _count_nfailed_joint_indep_cupy | 313 | REAL: one permutation per trip, about eight cupy launches per trip over N rows, launch-bound; batching the permutations (as the null path does) is the restructure |
-| feature_selection/filters/_conditional_gate_fe.py | _gate_flush_pending | 717 | OPEN |
-| feature_selection/filters/_conditional_gate_fe.py | _rank_and_prune | 615 | OPEN |
-| feature_selection/filters/_conditional_gate_fe.py | cheap_row_argmax_scan | 513 | OPEN |
+| feature_selection/filters/_conditional_gate_fe.py | _gate_flush_pending | 717 | OPEN: the loop body has more device code than was read; to classify in the next pass |
+| feature_selection/filters/_conditional_gate_fe.py | _rank_and_prune | 615 | REAL, not yet measured: a per-column device loop in the main path (the column gathers and medians), not only in the fallback |
+| feature_selection/filters/_conditional_gate_fe.py | cheap_row_argmax_scan | 513 | REAL, deliberate and budgeted: one device argmax per 3-column combination, the source states that the launch count is kept on purpose until the suite is decoupled from pool ordering |
 | feature_selection/filters/_cupy_polynom_optimizer.py | _score_generation_gpu | 171 | OPEN |
 | feature_selection/filters/_cupy_polynom_optimizer.py | run_cupy_kernel_search | 251 | OPEN |
 | feature_selection/filters/_extra_fe_families_dispersion_resident.py | build_dispersion_matrix_gpu | 129 | OPEN |
