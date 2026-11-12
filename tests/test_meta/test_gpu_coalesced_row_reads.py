@@ -60,6 +60,9 @@ def _kernel_bodies(text: str) -> "list[tuple[str, str]]":
     return out
 
 
+_GROUP_INDEX_RE = re.compile(r"threadIdx\.x\s*/\s*(?!1)[A-Za-z_]\w*")
+
+
 def _thread_vars(body: str) -> "set[str]":
     """Variables whose value depends on ``threadIdx.x``, closed over simple assignments."""
     derived: set[str] = set()
@@ -67,6 +70,8 @@ def _thread_vars(body: str) -> "set[str]":
     while changed:
         changed = False
         for name, expr in _ASSIGN_RE.findall(body):
+            if _GROUP_INDEX_RE.fullmatch(expr.strip()):
+                continue  # ``threadIdx.x / tile``: the ``tile`` neighbouring threads share the value, so they read adjacent columns of one row
             if name not in derived and ("threadIdx.x" in expr or any(re.search(rf"\b{re.escape(v)}\b", expr) for v in derived)):
                 derived.add(name)
                 changed = True
@@ -169,6 +174,17 @@ def test_checker_flags_row_major_stride_and_accepts_column_major_read():
     )
     assert uncoalesced_kernels(bad) == ["k"]
     assert not uncoalesced_kernels(good)
+
+
+def test_row_group_index_of_a_column_tile_is_not_a_thread_stride():
+    """A row-group index ``threadIdx.x / tile`` next to columns ``threadIdx.x % tile`` makes a warp read adjacent columns of one row, so its loop is not flagged."""
+    tiled = (
+        'SRC = r"""\nextern "C" __global__ void k(const signed char* X, int n, int K, int tile, int* out) {\n'
+        "    const int cj = threadIdx.x % tile; const int rg = threadIdx.x / tile; const int ng = blockDim.x / tile;\n"
+        "    for (long long i = rg; i < n; i += ng) { atomicAdd(&out[X[i * (long long)K + cj]], 1); }\n}\n"
+        '"""'
+    )
+    assert not uncoalesced_kernels(tiled)
 
 
 def test_static_shared_fill_is_exempt_and_dynamic_shared_fill_is_flagged():
