@@ -467,7 +467,8 @@ class TestTripletQuadrupletBasisProductScrub:
 
     def test_triplet_replay_overflow_scrubbed_in_final_output(self, monkeypatch):
         """Triplet replay overflow scrubbed in final output."""
-        import mlframe.feature_selection.filters.engineered_recipes as _er
+        # the cross appliers import eval_orth_basis_column from engineered_recipes.shared at call time, so that is the binding to patch
+        import mlframe.feature_selection.filters.engineered_recipes.shared as _er
         from mlframe.feature_selection.filters._orthogonal_triplet_fe_recipes import (
             _apply_orth_triplet_cross,
         )
@@ -476,7 +477,7 @@ class TestTripletQuadrupletBasisProductScrub:
             """Fake eval."""
             return np.full(len(np.asarray(vals)), 1e200)
 
-        monkeypatch.setattr(_er, "_eval_orth_basis_column", _fake_eval)
+        monkeypatch.setattr(_er, "eval_orth_basis_column", _fake_eval)
 
         n = 10
         recipe = SimpleNamespace(
@@ -523,7 +524,8 @@ class TestTripletQuadrupletBasisProductScrub:
 
     def test_quadruplet_replay_overflow_scrubbed_in_final_output(self, monkeypatch):
         """Quadruplet replay overflow scrubbed in final output."""
-        import mlframe.feature_selection.filters.engineered_recipes as _er
+        # the cross appliers import eval_orth_basis_column from engineered_recipes.shared at call time, so that is the binding to patch
+        import mlframe.feature_selection.filters.engineered_recipes.shared as _er
         from mlframe.feature_selection.filters._orthogonal_quadruplet_fe_recipes import (
             _apply_orth_quadruplet_cross,
         )
@@ -532,7 +534,7 @@ class TestTripletQuadrupletBasisProductScrub:
             """Fake eval."""
             return np.full(len(np.asarray(vals)), 1e200)
 
-        monkeypatch.setattr(_er, "_eval_orth_basis_column", _fake_eval)
+        monkeypatch.setattr(_er, "eval_orth_basis_column", _fake_eval)
 
         n = 10
         recipe = SimpleNamespace(

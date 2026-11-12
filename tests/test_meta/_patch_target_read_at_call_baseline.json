@@ -4,10 +4,6 @@
       "count": 2,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
     },
-    "patch-target-read-at-call::feature_selection/fe/test_fe_numeric_hygiene_guards.py::patch of mlframe.feature_selection.filters.engineered_recipes._eval_orth_basis_column changes nothing: '_eval_orth_basis_column' is only imported into mlframe.feature_selection.filters.engineered_recipes, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.engineered_recipes._eval_orth_basis_column at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
     "patch-target-read-at-call::feature_selection/fe/test_fe_per_pair_path_feeds_the_pair_family_gate.py::patch of mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core._check_prospective__only_worth_chunking_least changes nothing: '_check_prospective__only_worth_chunking_least' is only imported into mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core._check_prospective__only_worth_chunking_least at call time": {
       "count": 1,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
