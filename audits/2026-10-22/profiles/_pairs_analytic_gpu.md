@@ -19,3 +19,5 @@ Tests: the fused path is covered by the analytic gate tests of the pair search.
 | 8 | 14.44 | yes |
 
 The tile width does not move the time (within 4 percent, with identical output), so the limiter is not the block width. The remaining candidates are the number of row groups per column (each column's rows are summed by `blockDim / tile` threads, so a wider row split per column is untried) and the memory layout (the codes are row-major, so a column's rows are strided; a column-major copy would coalesce the row reads, but the caller holds the row-major resident matrix). Neither is implemented; point 5 stays open on these two.
+
+Row-split sweep (same shape, 2026-11-12): 1024 threads per block (32 row groups per column) gave 18.1 ms at tile 32, 18.2 at tile 16, 19.3 at tile 8, all with identical output: more row groups are slower (the shared-memory atomics of more groups contend on the same (bin, class) cells), so the row split is not the lever. The one candidate left is the column-major layout (needs the caller to hold a (K, n) copy), which is not implemented.
