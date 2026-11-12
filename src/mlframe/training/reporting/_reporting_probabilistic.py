@@ -99,6 +99,86 @@ def _resolve_class_label(class_id: int, class_name: Any, target_label_encoder: A
 from ._reporting_common import _slugify_class  # moved to the leaf module; re-exported here
 
 
+def _prepare_probabilistic_inputs(
+    st: _SimpleNamespace,
+    probs: np.ndarray,
+    model: ClassifierMixin | None,
+    df: pd.DataFrame | None,
+    preds: np.ndarray | None,
+    targets: np.ndarray | pd.Series,
+    multilabel_dispatch_config: MultilabelDispatchConfig | None,
+    custom_ice_metric: Callable | None,
+    custom_rice_metric: Callable | None,
+    classes: Sequence | np.ndarray | None,
+    target_label_encoder: LabelEncoder | None,
+    group_ids: np.ndarray | None,
+    plot_outputs: str | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, Any]:
+    """Canonicalise the inputs and precompute the per-class ICE, GPU AUC and plot-DSL state on ``st``; returns ``(preds, probs, targets, classes)``."""
+    st._pos_label = None
+    probs = _predict_probs_if_missing(probs, model, df)
+
+    preds, probs = _report_probabilist_preds_none(preds, targets, probs, multilabel_dispatch_config, model)
+
+    if isinstance(targets, pd.Series):
+        targets = targets.values
+
+    # Detect multilabel from 2-D target shape. Each
+    # column is an independent binary label; the per-class loop below uses
+    # the column directly instead of `targets == class_name` (which would
+    # broadcast a 2-D bool against a 1-D y_score and crash).
+    # Also detect object-dtype-of-arrays (the polars
+    # ``pl.List(pl.Int8)`` -> pandas object roundtrip), stack to 2-D so
+    # ``targets_arr[:, class_id]`` works in the multilabel branch.
+    # Extracted to ``_canonical_multilabel_y`` helper so the
+    # new ``mlframe.training.dummy_baselines`` module can reuse the same
+    # canonicalization logic without duplication.
+    st.targets_arr = _canonical_multilabel_y(targets)
+    targets = st.targets_arr  # rebind so downstream uses the stacked form
+    st.is_multilabel = st.targets_arr.ndim == 2
+
+    # Single full-(N,K) ICE call. return_per_class=True surfaces the per-class ICE vector the
+    # batched kernel already computes, so the per-class loop INDEXes it instead of recomputing
+    # each 1-D column (bit-identical); a metric without the kwarg falls back to the scalar form.
+    st.integral_error = 0.0
+    st._per_class_ice = None
+    st._per_class_ice, st.integral_error = _report_probabilist_each_column_bit_identical(
+        custom_ice_metric, targets, probs, st._per_class_ice, st.integral_error
+    )
+    st.robust_integral_error = None
+    if custom_rice_metric and custom_rice_metric != custom_ice_metric:
+        st.robust_integral_error = custom_rice_metric(y_true=targets, y_score=probs)
+
+    # Explicit None/empty check instead of `if not classes:` -- the bare-truthiness form crashes with
+    # "truth value of an array with more than one element is ambiguous" for any ndarray `classes` with
+    # >=2 elements, a case the function's own type hint (Sequence | np.ndarray | None) documents as supported.
+    classes = _report_probabilist_elements_case_function_own(classes, st.is_multilabel, st.targets_arr, model, targets, target_label_encoder)
+
+    if st._per_class_ice is not None and not st.is_multilabel and not _labels_are_arange(classes, probs):
+        st._per_class_ice = None  # non-0-indexed labels -> kernel column index != class label
+
+    # GPU batch-AUC fastpath: when the suite has many classes (multiclass /
+    # multilabel) and the row count is large enough, compute all K
+    # (roc_auc, pr_auc) pairs in ONE batched GPU call instead of K serial
+    # ``fast_aucs_per_group_optimized`` calls inside the per-class loop.
+    # Auto-dispatched by ``compute_batch_aucs``: GPU when cupy + CUDA
+    # visible AND N >= threshold, otherwise CPU loop (no behavior change).
+    # Only valid when group_ids is None (per-group AUCs need the full
+    # function path). Empirical wins documented in ``bench_gpu_metrics.py``:
+    # at N=1M K=20 PR AUC alone, GPU = 170 ms vs CPU loop = 2016 ms.
+    st._precomputed_aucs_per_class = None
+    st._precomputed_aucs_per_class = _report_probabilist_pr_auc_alone_gpu(
+        group_ids, classes, st.is_multilabel, st.targets_arr, probs, targets, st._precomputed_aucs_per_class
+    )
+
+    # DSL render spec for the reliability diagram. Default ON when the caller
+    # supplies plot_outputs (e.g. "png,html" from ReportingConfig.plot_outputs);
+    # routes every class's chart through build_calibration_spec so plotly HTML is
+    # produced for the single most important classification chart, not just PNG.
+    st._plot_outputs_dsl = plot_outputs if plot_outputs else None
+    return preds, probs, targets, classes
+
+
 def report_probabilistic_model_perf(
     targets: np.ndarray | pd.Series,
     columns: Sequence[str],
@@ -210,14 +290,6 @@ def report_probabilistic_model_perf(
         (preds, probs) - class predictions and probability arrays.
     """
     st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
-    st._pos_label = None
-    probs = _predict_probs_if_missing(probs, model, df)
-
-    preds, probs = _report_probabilist_preds_none(preds, targets, probs, multilabel_dispatch_config, model)
-
-    if isinstance(targets, pd.Series):
-        targets = targets.values
-
     brs: list[Any] = []
     calibs: list[Any] = []
     pr_aucs: list[Any] = []
@@ -226,59 +298,10 @@ def report_probabilistic_model_perf(
     log_losses: list[Any] = []
     robust_integral_errors: list[Any] = []
 
-    # Detect multilabel from 2-D target shape. Each
-    # column is an independent binary label; the per-class loop below uses
-    # the column directly instead of `targets == class_name` (which would
-    # broadcast a 2-D bool against a 1-D y_score and crash).
-    # Also detect object-dtype-of-arrays (the polars
-    # ``pl.List(pl.Int8)`` -> pandas object roundtrip), stack to 2-D so
-    # ``targets_arr[:, class_id]`` works in the multilabel branch.
-    # Extracted to ``_canonical_multilabel_y`` helper so the
-    # new ``mlframe.training.dummy_baselines`` module can reuse the same
-    # canonicalization logic without duplication.
-    st.targets_arr = _canonical_multilabel_y(targets)
-    targets = st.targets_arr  # rebind so downstream uses the stacked form
-    st.is_multilabel = st.targets_arr.ndim == 2
-
-    # Single full-(N,K) ICE call. return_per_class=True surfaces the per-class ICE vector the
-    # batched kernel already computes, so the per-class loop INDEXes it instead of recomputing
-    # each 1-D column (bit-identical); a metric without the kwarg falls back to the scalar form.
-    st.integral_error = 0.0
-    st._per_class_ice = None
-    st._per_class_ice, st.integral_error = _report_probabilist_each_column_bit_identical(
-        custom_ice_metric, targets, probs, st._per_class_ice, st.integral_error
+    preds, probs, targets, classes = _prepare_probabilistic_inputs(
+        st, probs, model, df, preds, targets, multilabel_dispatch_config, custom_ice_metric, custom_rice_metric,
+        classes, target_label_encoder, group_ids, plot_outputs,
     )
-    st.robust_integral_error = None
-    if custom_rice_metric and custom_rice_metric != custom_ice_metric:
-        st.robust_integral_error = custom_rice_metric(y_true=targets, y_score=probs)
-
-    # Explicit None/empty check instead of `if not classes:` -- the bare-truthiness form crashes with
-    # "truth value of an array with more than one element is ambiguous" for any ndarray `classes` with
-    # >=2 elements, a case the function's own type hint (Sequence | np.ndarray | None) documents as supported.
-    classes = _report_probabilist_elements_case_function_own(classes, st.is_multilabel, st.targets_arr, model, targets, target_label_encoder)
-
-    if st._per_class_ice is not None and not st.is_multilabel and not _labels_are_arange(classes, probs):
-        st._per_class_ice = None  # non-0-indexed labels -> kernel column index != class label
-
-    # GPU batch-AUC fastpath: when the suite has many classes (multiclass /
-    # multilabel) and the row count is large enough, compute all K
-    # (roc_auc, pr_auc) pairs in ONE batched GPU call instead of K serial
-    # ``fast_aucs_per_group_optimized`` calls inside the per-class loop.
-    # Auto-dispatched by ``compute_batch_aucs``: GPU when cupy + CUDA
-    # visible AND N >= threshold, otherwise CPU loop (no behavior change).
-    # Only valid when group_ids is None (per-group AUCs need the full
-    # function path). Empirical wins documented in ``bench_gpu_metrics.py``:
-    # at N=1M K=20 PR AUC alone, GPU = 170 ms vs CPU loop = 2016 ms.
-    st._precomputed_aucs_per_class = None
-    st._precomputed_aucs_per_class = _report_probabilist_pr_auc_alone_gpu(
-        group_ids, classes, st.is_multilabel, st.targets_arr, probs, targets, st._precomputed_aucs_per_class
-    )
-
-    # DSL render spec for the reliability diagram. Default ON when the caller
-    # supplies plot_outputs (e.g. "png,html" from ReportingConfig.plot_outputs);
-    # routes every class's chart through build_calibration_spec so plotly HTML is
-    # produced for the single most important classification chart, not just PNG.
-    st._plot_outputs_dsl = plot_outputs if plot_outputs else None
 
     from mlframe.training.reporting._reporting_probabilistic_charts import _report_probabilistic_class_stages
     _report_probabilistic_class_stages(st, classes, target_label_encoder, targets, probs, report_title, model_name, custom_ice_metric, n_features, columns, custom_rice_metric, calib_report_ndigits, plot_file, use_weights, nbins, group_ids, figsize, show_perf_chart, verbose, show_prob_histogram, prob_histogram_yscale, show_inline_population_labels, plot_dpi, reliability_smoothed, title_metrics_tokens, f1_opt_threshold, tune_f1_threshold, metrics, calibration_binning, reliability_show_ci, print_report, calibs, pr_aucs, report_ndigits, roc_aucs, brs, integral_errors, log_losses, robust_integral_errors, preds)
