@@ -1,13 +1,5 @@
 {
   "entries": {
-    "patch-target-read-at-call::feature_selection/fe/basis/test_hermite_fe_coverage.py::patch of mlframe.feature_selection.filters.hermite_fe._CUDA_THRESHOLD changes nothing: '_CUDA_THRESHOLD' is only imported into mlframe.feature_selection.filters.hermite_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe._CUDA_THRESHOLD at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::feature_selection/fe/basis/test_hermite_fe_coverage.py::patch of mlframe.feature_selection.filters.hermite_fe._PAR_THRESHOLD changes nothing: '_PAR_THRESHOLD' is only imported into mlframe.feature_selection.filters.hermite_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.hermite_fe._PAR_THRESHOLD at call time": {
-      "count": 1,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
     "patch-target-read-at-call::feature_selection/fe/gpu/test_feature_engineering_memory_dispatch.py::patch of mlframe.feature_selection.filters.feature_engineering._FE_VMEM_CACHE changes nothing: '_FE_VMEM_CACHE' is only imported into mlframe.feature_selection.filters.feature_engineering, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters.feature_engineering._FE_VMEM_CACHE at call time": {
       "count": 2,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"

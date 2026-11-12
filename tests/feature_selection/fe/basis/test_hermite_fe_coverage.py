@@ -290,13 +290,27 @@ def test_polyeval_dispatch_cuda_silent_fallback(monkeypatch):
 
 def test_polyeval_dispatch_par_threshold_routes_par(monkeypatch):
     """n >= _PAR_THRESHOLD (monkeypatched down to 50) routes to the parallel kernel, matching it exactly."""
+    import mlframe.feature_selection.filters.hermite_fe._hermite_oracle as oracle_mod
+
     monkeypatch.setenv("MLFRAME_POLYEVAL_BACKEND", "")
-    monkeypatch.setattr(hfe, "_PAR_THRESHOLD", 50)
-    monkeypatch.setattr(hfe, "_CUDA_THRESHOLD", 10_000_000)
+    # polyeval_dispatch reads the thresholds through _lookup_polyeval_thresholds, which lives in _hermite_oracle
+    monkeypatch.setattr(oracle_mod, "_PAR_THRESHOLD", 50)
+    monkeypatch.setattr(oracle_mod, "_CUDA_THRESHOLD", 10_000_000)
+    real_par = hfe._NJIT_PAR_FUNCS["legendre"]
+    calls = []
+
+    def spy_par(x, c):
+        """Record that the parallel kernel was chosen, then delegate to it."""
+        calls.append(len(x))
+        return real_par(x, c)
+
+    monkeypatch.setitem(hfe._NJIT_PAR_FUNCS, "legendre", spy_par)
     x = np.linspace(-0.5, 0.5, 200).astype(np.float64)
     c = np.array([0.0, 1.0, 0.2], dtype=np.float64)
     out = hfe.polyeval_dispatch("legendre", x, c)
-    ref = hfe._NJIT_PAR_FUNCS["legendre"](np.ascontiguousarray(x), c)
+    # the spy makes the route observable: a result equal to the reference alone would not show which kernel ran
+    assert calls == [200]
+    ref = real_par(np.ascontiguousarray(x), c)
     np.testing.assert_allclose(out, ref, rtol=1e-10)
 
 
