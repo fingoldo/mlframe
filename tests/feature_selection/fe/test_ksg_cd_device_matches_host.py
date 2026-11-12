@@ -42,3 +42,13 @@ def test_public_entry_points_route_through_the_device_when_forced(monkeypatch):
     monkeypatch.setattr(gpu, "use_device", lambda n_rows: True)
     got = host.ksg_mi_discrete_target_columns(X, d, n_neighbors=3, random_state=0)
     np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-9)
+
+
+def test_device_mi_accepts_float32_input_without_reading_past_the_buffer():
+    """A float32 block is uploaded as float64 for the double* kernel, so its MI matches the host run on the same values."""
+    X, d = _block(8000, 3, 6, 1)
+    X32 = X.astype(np.float32)
+    want = host._mi_cd_columns(np.ascontiguousarray(X32.astype(np.float64)), d, int(d.max()) + 1, 3)
+    got = gpu.mi_cd_columns_device(X32, d, int(d.max()) + 1, 3)
+    assert got is not None
+    np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-9)

@@ -110,7 +110,7 @@ def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbo
         partial_buf = cp.empty((block, _BLOCKS_PER_COLUMN), dtype=cp.float64)  # one reusable kernel-output buffer for every chunk, not one per chunk
         sum_m_dev = cp.empty(n_cols, dtype=cp.float64)  # one resident accumulator; one D2H after the loop instead of one per chunk
         for c0 in range(0, n_cols, block):
-            xd = cp.asarray(np.ascontiguousarray(X_kept[:, c0 : c0 + block].T))  # transposed to (columns, rows) on the HOST (a view + one copy), one device upload
+            xd = cp.asarray(np.ascontiguousarray(X_kept[:, c0 : c0 + block].T, dtype=np.float64))  # transposed to (columns, rows) on the HOST (a view + one copy), one device upload; Intentional float64: the kernel signature is double*
             order = device_argsort(xd, axis=1)
             xs = cp.take_along_axis(xd, order, axis=1)  # already C-contiguous (checked directly); the extra ascontiguousarray was a redundant copy
             ds = d_dev[order]
