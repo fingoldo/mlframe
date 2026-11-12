@@ -144,8 +144,8 @@ def compute_selection_gate(
             _mm_bias_cand = (_nbins_x_eff - 1) * (_nbins_y - 1) / (2.0 * _n_samples_for_mm)
             _best_gain_for_gate = float(best_gain) - _mm_bias_cand
         except (TypeError, ValueError):
-            # best_candidate isn't iterable / contains non-int; skip MM gate
-            pass
+            # best_candidate isn't iterable / contains non-int: the gate then compares the raw gain, so say so
+            logger.warning("screen_predictors gate: Miller-Madow bias not computed for candidate %r; the gate uses the uncorrected gain", best_candidate, exc_info=True)
     # diminishing-returns floor: from the SECOND selected feature onward,
     # require corrected best_gain >= MAX(corrected gain over already-selected) *
     # min_relevance_gain_relative_to_first. Using MAX (not just first) is critical when

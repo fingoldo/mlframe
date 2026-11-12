@@ -272,7 +272,8 @@ def _encoded_feature_gate_pass(self, X, selected_vars, _y_np, data, cols, _eng_c
                         continue
                     try:
                         _cv = np.asarray(_cv, dtype=_crit_np_dtype()).reshape(-1)
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError) as exc:
+                        log_throttle(logger, "group3.base_feature_dropped", logging.WARNING, "mrmr: base feature %r is not numeric and is left out of the held-out base set: %r", _sn, exc)
                         continue
                     if _cv.shape[0] == _cf_n and np.all(np.isfinite(_cv)):
                         _cf_base.append(_cv)

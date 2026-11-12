@@ -595,11 +595,11 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
             if not _fd_adopted:
                 try:
                     os.close(fd)
-                except OSError:
+                except OSError:  # best-effort: closing the unadopted fd must not hide the save error re-raised below
                     pass
             try:
                 os.remove(tmp)
-            except OSError:
+            except OSError:  # best-effort: removing the temp file must not hide the save error re-raised below
                 pass
             raise
 

@@ -424,6 +424,6 @@ def gate_grid_mi_resident(
                 from ._fe_gpu_vram import note_gpu_oom
 
                 note_gpu_oom()  # GPU11-13: the cushion check above passed but a race against another allocation can still OOM here.
-        except Exception:  # nosec B110 - best-effort cooldown note, never let it mask the original failure
+        except Exception:  # nosec B110  # best-effort: the cooldown note must never mask the original failure, which still returns None for the host fallback
             pass
         return None
