@@ -195,8 +195,13 @@ def _run_sweep(spec: Any, timeout_s: float) -> tuple:
     Returns ``("ok", "")``, ``("timeout", detail)`` or ``("failed", detail)``. The child is ``mlframe-tune-kernels refresh <kernel>`` and persists its own result.
     """
     cmd = [sys.executable, "-P", "-m", "mlframe.system.kernel_tuning_cache", "refresh", spec.kernel_name]
+    # The child must import the same ``mlframe`` this process did: a sys.path entry added here (a git worktree's ``src``) is not inherited, and an editable install
+    # of another checkout would tune a kernel that the code being pushed does not have.
+    env = dict(os.environ)
+    src_root = os.path.dirname(os.path.dirname(os.path.abspath(sys.modules["mlframe"].__file__)))
+    env["PYTHONPATH"] = os.pathsep.join(p for p in (src_root, env.get("PYTHONPATH", "")) if p)
     try:
-        proc = subprocess.run(cmd, timeout=timeout_s, check=False)  # nosec B603 - fixed argv: this interpreter, this package, a registered kernel name
+        proc = subprocess.run(cmd, timeout=timeout_s, check=False, env=env)  # nosec B603 - fixed argv: this interpreter, this package, a registered kernel name
     except subprocess.TimeoutExpired as _exc:
         logger.warning("_run_sweep fell back to its default after %s", type(_exc).__name__)
         return "timeout", f"exceeded the {timeout_s / 60:.0f} min per-kernel limit"
