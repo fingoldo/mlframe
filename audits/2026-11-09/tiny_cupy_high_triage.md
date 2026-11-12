@@ -21,10 +21,10 @@ Rows: 115.
 | feature_selection/filters/_cupy_polynom_optimizer.py | run_cupy_kernel_search | 251 | FALSE POSITIVE: loops over the sequential generations of the search, each trip one whole batched generation |
 | feature_selection/filters/_extra_fe_families_dispersion_resident.py | build_dispersion_matrix_gpu | 129 | REAL, not yet measured: one device build per output column, the same class as the binned-aggregate builder (GPU11-61) |
 | feature_selection/filters/_extra_fe_families_dispersion_resident.py | build_residual_abs_matrix_gpu | 196 | REAL, not yet measured: one device build per output column, the same class as build_dispersion_matrix_gpu |
-| feature_selection/filters/_family_maxt_gate.py | _family_null_max_device_bits | 356 | OPEN |
-| feature_selection/filters/_family_maxt_stream.py | streamed_null_max.null_max | 89 | OPEN |
-| feature_selection/filters/_fe_additive_fusion.py | _collect_relevant_halves | 204 | OPEN |
-| feature_selection/filters/_fe_additive_fusion.py | _subsumed_raw_operand_check | 489 | OPEN |
+| feature_selection/filters/_family_maxt_gate.py | _family_null_max_device_bits | 356 | FALSE POSITIVE: loops over permutation blocks (n_perm over the block size), each trip one batched device null over a block of permutations |
+| feature_selection/filters/_family_maxt_stream.py | streamed_null_max.null_max | 89 | FALSE POSITIVE: loops over the column groups admitted by the stream, each trip one full device null over its group |
+| feature_selection/filters/_fe_additive_fusion.py | _collect_relevant_halves | 204 | REAL, not yet measured: a full permutation null per pre-candidate, per-candidate launch work |
+| feature_selection/filters/_fe_additive_fusion.py | _subsumed_raw_operand_check | 489 | FALSE POSITIVE: loops over the few raw operand tokens of a pair, each one a full check |
 | feature_selection/filters/_fe_additive_fusion_gpu_resident.py | _gpu_relevant_halves | 207 | OPEN |
 | feature_selection/filters/_fe_additive_fusion_gpu_resident.py | _subsumed_raw_operand_check_gpu | 467 | OPEN |
 | feature_selection/filters/_fe_additive_fusion_gpu_resident.py | propose_additive_fusions_gpu | 422, 428 | OPEN |
