@@ -88,6 +88,11 @@ extern "C" __global__ void nonpoly_cells(const {REAL}* __restrict__ x, const {AC
 _MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double").replace("{ACC}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float").replace("{ACC}", "double"))}
 
 
+def kernel(cp: Any, real: Any) -> Any:
+    """``nonpoly_cells`` compiled for the value type ``real`` (the register-pressure registry compiles it per dtype)."""
+    return _MODULES_BY_REAL["float" if np.dtype(real) == np.float32 else "double"].get(cp).get_function("nonpoly_cells")
+
+
 def _module_for(M: Any) -> Any:
     """The compiled module for the element type of ``M`` (float32 or double)."""
     return _MODULES_BY_REAL["float" if M.dtype.itemsize == 4 else "double"]
