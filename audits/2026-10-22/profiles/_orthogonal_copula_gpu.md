@@ -7,3 +7,15 @@ Kernel `copula_joint`: one thread per sorted position; a value with no equal nei
 nvprof metrics, 100000 rows x 40 columns: achieved occupancy 0.74 (dynamic shared memory 12.8 KB per block), shared-memory efficiency 5 % -> 35 % with the copies, global load efficiency 71 %, kernel time 4.1 ms before the lone-value fast path. Time per call of 40 columns at 100000 rows: host 42.8 ms, device 30.4 ms (5000 rows: 1.1 / 6.5 ms; 30000 rows: 7.6 / 15.2 ms). The cub radix sort is the rest of the device time.
 
 Dispatch: kernel-tuning entry `fe_copula_columns_device`, sweep run on this host with `tune_spec` and read back in a fresh process: host at 5000 and 30000 rows, device at 100000. (A `choose()` call in the same process as `tune_spec` returned the fallback, host, for every size; read the choices in a new process.) No environment switch.
+
+## nvprof breakdown, 2026-11-12 (GTX 1050 Ti, 30000 rows x 40 columns, 1 warm-up and 3 measured calls)
+
+Command: `nvprof --csv` with the CUDA 12.8 CUPTI directory on `PATH` (without it nvprof does not load `cupti64_2025.1.0.dll`). Time column in ms.
+
+| kernel | total ms | share | launches |
+|---|---|---|---|
+| CUB radix sort, 64-bit keys (the batched argsort of the blocks) | 25.7 + 13.2 + 1.3 + 0.5 = 40.7 | 84% | 44 + 4 + 44 + 4 |
+| `copula_joint` (the joint tables) | 2.38 | 4.9% | 4 |
+| other (indexing, take, memcpy HtoD) | about 5 | 10% | the rest |
+
+GPU total 48.5 ms over four calls, about 12 ms per call. The batched sort is the device cost; the tie-run and bin kernel is 0.6 ms per call. The module is sort-bound, as the Xi wide path is (see `_orthogonal_xi_gpu.md`). The optimization point of contract point 5 is therefore the sort, not the joint kernel: candidates are a narrower key (the rank of the value fits 32 bits, so the sort can use uint32 keys with the tie run resolved by the existing run boundaries) and reuse of one sort across the scorers that share the block. Neither is implemented here.
