@@ -153,17 +153,17 @@ class TestSkipPandasConversion:
         pytest.importorskip("catboost")
         from .shared import SimpleFeaturesAndTargetsExtractor
         from mlframe.training.core import train_mlframe_models_suite
-        import mlframe.training.core as core_mod
+        from mlframe.training.core import _phase_helpers
 
         counter = {"n": 0}
-        orig = core_mod._convert_dfs_to_pandas
+        orig = _phase_helpers._convert_dfs_to_pandas
 
         def _spy(*a, **kw):
             """Spy."""
             counter["n"] += 1
             return orig(*a, **kw)
 
-        monkeypatch.setattr(core_mod, "_convert_dfs_to_pandas", _spy)
+        monkeypatch.setattr(_phase_helpers, "_convert_dfs_to_pandas", _spy)
 
         df = _make_simple_polars_df()
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
@@ -195,16 +195,15 @@ class TestSkipPandasConversion:
         pytest.importorskip("catboost")
         from .shared import SimpleFeaturesAndTargetsExtractor
         from mlframe.training.core import train_mlframe_models_suite
-        import mlframe.training.core as core_mod
+        from mlframe.training.core import _phase_helpers
         import mlframe.training.utils as utils_mod
 
         counter = {"lazy": 0, "upfront": 0}
         # ``get_pandas_view_of_polars_df`` lives in ``training.utils`` and is
         # lazy-imported inside ``_phase_helpers_fit_split``; patch the source
-        # module so the lazy-import bind sees the spy. ``_convert_dfs_to_pandas``
-        # is re-exported on ``training.core`` and remains patched there.
+        # module so the lazy-import bind sees the spy. ``_convert_dfs_to_pandas`` is called from ``_phase_helpers``, so that module is patched.
         orig_lazy = utils_mod.get_pandas_view_of_polars_df
-        orig_upfront = core_mod._convert_dfs_to_pandas
+        orig_upfront = _phase_helpers._convert_dfs_to_pandas
 
         def _lazy_spy(*a, **kw):
             """Lazy spy."""
@@ -217,7 +216,7 @@ class TestSkipPandasConversion:
             return orig_upfront(*a, **kw)
 
         monkeypatch.setattr(utils_mod, "get_pandas_view_of_polars_df", _lazy_spy)
-        monkeypatch.setattr(core_mod, "_convert_dfs_to_pandas", _upfront_spy)
+        monkeypatch.setattr(_phase_helpers, "_convert_dfs_to_pandas", _upfront_spy)
 
         df = _make_simple_polars_df()
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)

@@ -11,10 +11,6 @@
     "patch-target-read-at-call::training/pipeline/test_pipeline_json_roundtrip_cache.py::patch of mlframe.training.core._setup_helpers._PIPELINE_JSON_DISK_CACHE_PATH changes nothing: '_PIPELINE_JSON_DISK_CACHE_PATH' is only imported into mlframe.training.core._setup_helpers, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.core._setup_helpers._PIPELINE_JSON_DISK_CACHE_PATH at call time": {
       "count": 2,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
-    "patch-target-read-at-call::training/test_perf_optimizations.py::patch of mlframe.training.core._convert_dfs_to_pandas changes nothing: '_convert_dfs_to_pandas' is only imported into mlframe.training.core, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.core._convert_dfs_to_pandas at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
     }
   },
   "gate": "patch_target_read_at_call",
