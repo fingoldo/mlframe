@@ -95,3 +95,18 @@ Signals are heuristics (numba/prange markers and heavy numpy calls), so the spli
 - _synergy_detector (213 lines)
 - _usability_row_stat_pool (41 lines)
 - _wavelet_basis_fe_recipes (392 lines)
+
+## Correction from a measured fit (2026-11-12)
+
+The split above is by static heuristics and is wrong for modules whose compute sits in helpers they call. An isolated 100k x 100 fit (`audits/2026-10-22/profiles/fe_family_walls_gpu_n100000_p100.md`, 120 s) gives real walls per family:
+
+| family | module | wall | where the heuristic put it |
+|---|---|---|---|
+| fe_hinge_enable | `_hinge_basis_fe` | 14.7 s | exempt since n=20000 (0.11 s there); the exemption's own revocation threshold (0.5 s) is exceeded |
+| binned_numeric_agg | `_binned_numeric_agg_fe` | 7.9 s | delegates to GPU code |
+| adaptive degree | `_orthogonal_univariate_fe` | 7.5 s | delegates to GPU code |
+| triplet | `_orthogonal_triplet_fe` | 5.8 s | delegates to GPU code |
+| orth_mi_bootstrap | `_orthogonal_bootstrap_mi_fe` | 4.7 s | **no GPU reference, listed as no compute: wrong** |
+| orth_mi_auto_scorer / cmim | `_orthogonal_scorer_auto_fe` | 3.6 s | **no GPU reference, listed as no compute: wrong** |
+
+Work order for new GPU paths therefore follows measured wall, not the table above: hinge first, then the bootstrap and auto-scorer modules, then the delegating modules that need their contract checks.
