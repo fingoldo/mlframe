@@ -198,7 +198,9 @@ def _run_sweep(spec: Any, timeout_s: float) -> tuple:
     # The child must import the same ``mlframe`` this process did: a sys.path entry added here (a git worktree's ``src``) is not inherited, and an editable install
     # of another checkout would tune a kernel that the code being pushed does not have.
     env = dict(os.environ)
-    src_root = os.path.dirname(os.path.dirname(os.path.abspath(sys.modules["mlframe"].__file__)))
+    mlframe_file = sys.modules["mlframe"].__file__
+    assert mlframe_file is not None  # a package imported from its source tree always has a file
+    src_root = os.path.dirname(os.path.dirname(os.path.abspath(mlframe_file)))
     env["PYTHONPATH"] = os.pathsep.join(p for p in (src_root, env.get("PYTHONPATH", "")) if p)
     try:
         proc = subprocess.run(cmd, timeout=timeout_s, check=False, env=env)  # nosec B603 - fixed argv: this interpreter, this package, a registered kernel name
