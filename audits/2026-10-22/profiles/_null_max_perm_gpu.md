@@ -28,3 +28,11 @@ Each column block now goes through `null_max_mi_perms_gpu` (keep_dtype=True), on
 200 permutations 0.60-0.66 s vs 0.36-0.41 s. (A first measurement that showed no difference had imported the main checkout instead of this tree.)
 Kept for the architecture: three of the null implementations now share one kernel.
 The candidate storage type is the `{XT}` placeholder of that kernel (`_MODULES_BY_X`, one module per type, CUDA.md); MI terms and sum stay double.
+
+## Binary null bitset kernel `null_mi_perms_bits`: coalesced edges, labels and output (2026-11-12)
+
+Three row-major accesses in the bits kernel were thread-strided: the per-block edge loader (`edges[s*K + c]`), the label words (`ybits[p*W + w]`, lanes are permutations) and the output (`out[p*K + c]`, the permutation index varies fastest across threads). The fix transposes the three operands the kernel reads, each by the caller in one small copy per launch (edges (K, nbins-1), label words (W, P)), and writes the result as (K, P) so the caller reduces over axis 0.
+
+Results are bit-identical (maxdiff 0 on the 100000 x 100, 128-permutation shape). The call time does not change: the edge loader is at most 32 values per block and the label copy is small, so the kernel is compute-bound (about 52 ms per call with the label bits cached; 80 ms when they are rebuilt), and the coalesced reads of the candidate matrix were already in place.
+
+The mutant that puts the label words back to `p*W + w` while the caller transposes fails 4 of the 10 null-permutation tests.
