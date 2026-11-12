@@ -53,3 +53,31 @@ def test_tiled_minmax_matches_numpy_and_reference(n, k, dtype):
     ref((k,), (128,), (M, np.int64(n), np.int32(k), rmn, rmx))
     assert np.array_equal(cp.asnumpy(mn), cp.asnumpy(rmn))
     assert np.array_equal(cp.asnumpy(mx), cp.asnumpy(rmx))
+
+
+@pytest.mark.parametrize("n,k", [(2000, 37), (50, 5), (4096, 64)])
+@pytest.mark.parametrize("dtype", [np.float64, np.float32])
+def test_tiled_heavy_tail_flags_equal_the_reference(n, k, dtype):
+    """The tiled heavy-tail outlier flags equal the one-block-per-column reference on widths that are not a multiple of the tile."""
+    cp = pytest.importorskip("cupy")
+    try:
+        cp.cuda.runtime.getDeviceCount()
+    except Exception:
+        pytest.skip("no CUDA device")
+    rng = np.random.default_rng(n + 3 * k)
+    host = rng.standard_normal((n, k)).astype(dtype)
+    host[: max(1, n // 50), ::3] += 200.0  # a clearly separated outlier group on every third column: flagged
+    M = cp.asarray(host)
+    med = cp.asarray(np.median(host, axis=0).astype(dtype))
+    scale = cp.asarray((np.median(np.abs(host - np.median(host, axis=0)), axis=0) * 1.4826).astype(dtype))
+    real_t = "float" if dtype == np.float32 else "double"
+    args_tail = (np.float64(gpu_basis._GPU_ROBUST_AXIS_OUTER_K), np.float64(gpu_basis._GPU_ROBUST_AXIS_GAP), np.float64(gpu_basis._GPU_ROBUST_AXIS_MAX_FRAC), np.int64(n), np.int32(k))
+    tiled = cp.empty(k, dtype=cp.int8)
+    tiled_kernel = gpu_basis._get_heavy_tail_stats_tiled_kernel(cp, real_t)
+    tiled_kernel(((k + 31) // 32,), (32, 8), (M, med, scale, *args_tail, tiled))
+    ref = cp.empty(k, dtype=cp.int8)
+    ref_kernel = gpu_basis._get_heavy_tail_stats_kernel(cp, real_t)
+    ref_kernel((k,), (128,), (M, med, scale, *args_tail, ref))
+    flags = cp.asnumpy(ref)
+    assert flags.any() and not flags.all(), "the data must exercise both outcomes"
+    assert np.array_equal(cp.asnumpy(tiled), flags)

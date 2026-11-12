@@ -449,7 +449,57 @@ void heavy_tail_stats(const {REAL}* __restrict__ M, const {REAL}* __restrict__ m
     }
 }
 """)
+# Tiled version of heavy_tail_stats (same layout as col_meanstd_tiled): a warp reads 32 adjacent columns of one row.
+_HEAVY_TAIL_STATS_TILED_SRC = render(r"""
+extern "C" __global__
+void heavy_tail_stats_tiled(const {REAL}* __restrict__ M, const {REAL}* __restrict__ med,
+                            const {REAL}* __restrict__ scale, const {ACC} outerK, const {ACC} gapthr,
+                            const {ACC} maxfrac, const long long n, const int K,
+                            signed char* __restrict__ out_v) {
+    __shared__ long long sh_n[8][33];
+    __shared__ {ACC} sh_b[8][33];
+    __shared__ {ACC} sh_o[8][33];
+    const int tx = threadIdx.x, ty = threadIdx.y;
+    const int col = blockIdx.x * 32 + tx;
+    const bool ok = col < K;
+    {ACC} mc = ok ? ({ACC})med[col] : 0.0;
+    {ACC} sc = ok ? ({ACC})scale[col] : 0.0;
+    {ACC} thr = outerK * sc;
+    long long nloc = 0;
+    {ACC} bulk = -1e308, omin = 1e308;
+    if (ok) for (long long i = ty; i < n; i += 8) {
+        {ACC} dev = fabs(({ACC})M[i * (long long)K + col] - mc);
+        if (dev > thr) { nloc += 1; if (dev < omin) omin = dev; }
+        else if (dev > bulk) bulk = dev;
+    }
+    sh_n[ty][tx] = nloc; sh_b[ty][tx] = bulk; sh_o[ty][tx] = omin;
+    __syncthreads();
+    if (ty == 0 && ok) {
+        long long no = 0;
+        {ACC} bmax = -1e308, omn = 1e308;
+        for (int r = 0; r < 8; ++r) {
+            no += sh_n[r][tx];
+            if (sh_b[r][tx] > bmax) bmax = sh_b[r][tx];
+            if (sh_o[r][tx] < omn) omn = sh_o[r][tx];
+        }
+        {ACC} bk = bmax > 1e-12 ? bmax : 1e-12;
+        {ACC} gap = omn / bk;
+        out_v[col] = ((sc > 1e-12) && (no > 0) && (({ACC})no <= maxfrac * ({ACC})n) && (gap >= gapthr)) ? 1 : 0;
+    }
+}
+""")
+_HEAVY_TAIL_STATS_TILED_KERNELS: dict = {}
 _HEAVY_TAIL_STATS_KERNELS: dict = {}
+
+
+def _get_heavy_tail_stats_tiled_kernel(cp, real_t: str = "double"):
+    """The tiled ``heavy_tail_stats`` RawKernel for the element type ``real_t`` (one module per type, cached under the kernel lock)."""
+    with _KERNEL_CACHE_LOCK:
+        kern = _HEAVY_TAIL_STATS_TILED_KERNELS.get(real_t)
+        if kern is None:
+            kern = cp.RawKernel(_HEAVY_TAIL_STATS_TILED_SRC.replace("{REAL}", real_t), "heavy_tail_stats_tiled")
+            _HEAVY_TAIL_STATS_TILED_KERNELS[real_t] = kern
+    return kern
 
 
 def _get_heavy_tail_stats_kernel(cp, real_t: str = "double"):
@@ -481,8 +531,8 @@ def _gpu_detect_heavy_tail_batched(cp, M):
         K = int(Mc.shape[1])
         out_v = cp.empty(K, dtype=cp.int8)
         real_t = "float" if Mc.dtype == cp.float32 else "double"
-        heavy = _get_heavy_tail_stats_kernel(cp, real_t)
-        heavy((K,), (block_size_for(heavy, work_items=n, pow2=True, max_width=256),),
+        heavy = _get_heavy_tail_stats_tiled_kernel(cp, real_t)
+        heavy(((K + 31) // 32,), (32, 8),  # launch-ok: 32x8 tile fixed by the kernel's shared layout
             (Mc, cp.ascontiguousarray(med.astype(crit_float_dtype(), copy=False)),
              cp.ascontiguousarray(scale.astype(crit_float_dtype(), copy=False)),
              float(_GPU_ROBUST_AXIS_OUTER_K), float(_GPU_ROBUST_AXIS_GAP),
