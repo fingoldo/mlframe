@@ -42,3 +42,13 @@ combined as cp.median does: (a + b) / 2 in the input dtype). `_radix_quantiles(.
 Conditional-CMI permutation null: the within-stratum `cp.argsort(keys, axis=0)` of the int32 shuffle keys (cub segmented merge sort, 0.26 s in the 50k fit)
 becomes one 1-D argsort of (column << 32 | key) from 300000 elements: equal orders, ties included (test_perm_null_composite_argsort); 50000 x 25 11.4 -> 7.0 ms,
 100000 x 25 23.0 -> 13.2 ms; smaller inputs keep the axis-0 sort (16667 x 8: 1.2 vs 1.35 ms). `MLFRAME_PERM_NULL_COMPOSITE_ARGSORT=0` keeps it everywhere.
+
+## Uncoalesced row-major `mi_from_codes` -> tiled coalesced kernel (2026-11-12)
+
+The plug-in `mi_from_codes` kernel reads the (n, K) row-major code matrix with one block per column: a warp's loads are a K-element stride apart. Its column-major twin (`mi_from_codes_cm_i16`, opt-in behind `MLFRAME_MI_FROM_CODES_V2`) is coalesced but needs a transpose on every call, which made it slower than the row-major path at 100000 x 100 (4.26 vs 2.94 ms) and faster only at 30000 x 930 (11.0 vs 19.8 ms). The fix keeps the layout and tiles the columns: `mi_from_codes_tile` gives one block G = 8 columns, the flat loop over rows x G makes consecutive threads read consecutive columns of one row, and each column keeps its own histogram in shared memory.
+
+Measured on the public `binned_mi_from_codes_gpu` call (best of 10, the two routes alternating; the row-major route forced by a zero tile width, so both run the same wrapper): 100000 x 100, tiled 2.20 ms vs row-major 2.91 ms; 30000 x 930, tiled 6.55 ms vs row-major 19.20 ms. Kernel-only sweep at 100000 x 100 with the production row-major block size 96: 2.01 ms row-major vs 1.25 ms tiled at 512 threads (1.78 ms at 256, 4.02 ms at 96). At 30000 x 930 the row-major block 256 gives 10.2 ms, tiled 512 gives 4.0 ms and 256 gives 3.9 ms.
+
+Equality: MAXDIFF 0 against the row-major result at both shapes; `test_mi_from_codes_tiled.py` checks the host plug-in MI for K in {1, 5, 8, 13, 100}, so the partial last column group is covered, and a mutant that drops the column offset fails it. The coalesced-read gate passes with the tiled kernel unflagged; the row-major kernel stays in the module as the fallback when the tiled launch raises, so its baseline entry stays.
+
+Benchmark: `_benchmarks/bench_mi_from_codes_tiled.py` (run with PYTHONPATH=src). Without PYTHONPATH the import resolves to the installed main checkout, so the numbers are not the worktree's; an earlier run of the benchmark without it measured the wrong code and is not used here.

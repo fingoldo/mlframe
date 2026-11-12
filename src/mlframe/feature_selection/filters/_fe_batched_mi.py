@@ -90,6 +90,74 @@ void mi_from_codes(const long long* __restrict__ codes,   // (n, K) row-major in
     }
 }
 """)
+# TILED mi_from_codes (coalesced, no transpose). One block owns a group of G columns of the row-major (n,K)
+# code matrix: the flat loop over rows x G reads codes[i*K + c0 + j] with consecutive threads on consecutive j, so a
+# warp's loads are one contiguous run of the row instead of a K-element stride. Each column keeps its own
+# (Kx, Ky) histogram in shared memory. G is capped so the G histograms fit the shared tile cap. G=8 chosen from a
+# sweep of 4/8/16/32 (G=32 gives 4 blocks at K=100 and leaves the card idle); the public call with this path measured
+# 2.20 vs 2.91 ms at 100000x100 and 6.55 vs 19.20 ms at 30000x930 (bench_mi_from_codes_tiled.py, interleaved).
+_MI_FROM_CODES_TILE_SRC = render(r"""
+extern "C" __global__
+void mi_from_codes_tile(const long long* __restrict__ codes,  // (n, K) row-major int codes in [0,Kx)
+                        const long long* __restrict__ y,       // (n,) int codes in [0,Ky)
+                        const long long n, const int K, const int G, const int Kx, const int Ky,
+                        const {ACC} inv_n, {ACC}* __restrict__ mi_out) {
+    extern __shared__ int sh[];          // (G, Kx*Ky) joint histograms for this column group
+    int M = Kx * Ky;
+    int c0 = blockIdx.x * G;
+    int g = min(G, K - c0);
+    int tid = threadIdx.x, nt = blockDim.x;
+    for (int s = tid; s < g * M; s += nt) sh[s] = 0;
+    __syncthreads();
+    long long total = n * g;
+    for (long long e = tid; e < total; e += nt) {
+        long long i = e / g;
+        int j = (int)(e - i * g);
+        long long cx = codes[i * K + c0 + j];
+        long long cy = y[i];
+        atomicAdd(&sh[j * M + (int)cx * Ky + (int)cy], 1);
+    }
+    __syncthreads();
+    if (tid < g) {
+        int* t = sh + tid * M;
+        {ACC} mi = 0.0;
+        for (int xx = 0; xx < Kx; ++xx) {
+            long long rx = 0;
+            for (int yy = 0; yy < Ky; ++yy) rx += t[xx * Ky + yy];
+            if (rx == 0) continue;
+            {ACC} px = ({ACC})rx * inv_n;
+            for (int yy = 0; yy < Ky; ++yy) {
+                long long nxy = t[xx * Ky + yy];
+                if (nxy == 0) continue;
+                long long ry = 0;
+                for (int xx2 = 0; xx2 < Kx; ++xx2) ry += t[xx2 * Ky + yy];
+                {ACC} pxy = ({ACC})nxy * inv_n;
+                {ACC} py = ({ACC})ry * inv_n;
+                mi += pxy * log(pxy / (px * py));
+            }
+        }
+        mi_out[c0 + tid] = mi > 0.0 ? mi : 0.0;
+    }
+}
+""")
+_MI_FROM_CODES_TILE_COLS = 8
+_MI_FROM_CODES_TILE_KERNEL = None
+
+
+def _mi_from_codes_tile_width(cells: int) -> int:
+    """Columns per block for the tiled kernel: at most ``_MI_FROM_CODES_TILE_COLS``, and G histograms of ``cells`` int32 must fit the shared cap (0 = none fit)."""
+    return min(_MI_FROM_CODES_TILE_COLS, _MI_FROM_CODES_MAX_SHARED // (4 * max(1, cells)))
+
+
+def _get_mi_from_codes_tile_kernel():
+    """Lazy-compile + cache the tiled coalesced ``mi_from_codes_tile`` RawKernel (module-level singleton, pickle-safe)."""
+    global _MI_FROM_CODES_TILE_KERNEL
+    if _MI_FROM_CODES_TILE_KERNEL is None:
+        import cupy as cp
+        _MI_FROM_CODES_TILE_KERNEL = cp.RawKernel(_MI_FROM_CODES_TILE_SRC, "mi_from_codes_tile")
+    return _MI_FROM_CODES_TILE_KERNEL
+
+
 # FUSED VALUES->BIN->HIST->MI RawKernel (mega-fusion). For an (n,K) FLOAT matrix + per-column
 # interior quantile edges, ONE launch bins each value in-kernel (binary-search upper_bound == cp.searchsorted
 # side='right') AND builds the joint histogram AND computes plug-in MI - replacing the separate
@@ -715,6 +783,17 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
         out = batched_binned_mi_gpu(C, y, kx_per_col=kx_per_col, ky=Ky)
         return cp.asarray(out) if as_device else out
     mi_out = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI output accumulator
+    G = _mi_from_codes_tile_width(Kx * Ky)
+    if G >= 1:
+        tile = _get_mi_from_codes_tile_kernel()
+        try:
+            # 512 threads: fastest at 100000x100 (1.25 vs 1.78 ms at 256; block_size_for's 96 gives 4.02 ms), within 3% of 256 at 30000x930 (4.01 vs 3.89 ms). Interleaved sweep.
+            tile(((K + G - 1) // G,), (512,),(C.ravel(), y, np.int64(n), np.int32(K), np.int32(G), np.int32(Kx), np.int32(Ky),
+                                                   np.float64(1.0 / float(max(1, n))), mi_out),  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
+                 shared_mem=G * Kx * Ky * 4)
+            return mi_out if as_device else np.asarray(cp.asnumpy(mi_out))
+        except Exception:
+            logger.debug("mi_from_codes tiled launch failed; falling back to the row-major kernel", exc_info=True)
     v2 = _get_mi_from_codes_v2_kernels()
     if v2 is not None and Kx < 32768 and Ky < 32768:
         try:
