@@ -18,7 +18,7 @@ from typing import Optional, cast
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["env_flag", "env_float", "env_int", "TRUE_VALUES", "FALSE_VALUES"]
+__all__ = ["env_flag", "env_flag_or_none", "env_float", "env_int", "TRUE_VALUES", "FALSE_VALUES"]
 
 TRUE_VALUES = frozenset({"1", "true", "yes", "on", "y", "t"})
 FALSE_VALUES = frozenset({"0", "false", "no", "off", "n", "f", ""})
@@ -40,15 +40,25 @@ def env_flag(name: str, default: bool = False) -> bool:
         True for ``1 / true / yes / on / y / t``, False for ``0 / false / no / off / n / f`` and the empty string, both
         case-insensitively and ignoring surrounding whitespace; ``default`` for anything else.
     """
+    value = env_flag_or_none(name)
+    return bool(default) if value is None else value
+
+
+def env_flag_or_none(name: str) -> Optional[bool]:
+    """The switch ``name`` as True or False, or None when it is unset or holds a value in neither vocabulary.
+
+    For a switch whose default is decided elsewhere (a size rule, a hardware probe): the caller branches on None instead of
+    guessing a default here. The same vocabulary and case rules as :func:`env_flag`.
+    """
     raw = os.environ.get(name)
     if raw is None:
-        return bool(default)
+        return None
     value = raw.strip().lower()
     if value in TRUE_VALUES:
         return True
     if value in FALSE_VALUES:
         return False
-    return bool(default)
+    return None
 
 
 def _env_number(name: str, default, parse, minimum, maximum):

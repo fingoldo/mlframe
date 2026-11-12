@@ -64,3 +64,19 @@ def test_the_kill_switch_only_turns_discovery_off(monkeypatch):
 
     monkeypatch.setenv("MLFRAME_DISABLE_COMPOSITE", "0")
     assert apply_composite_kill_switch(cfg) is cfg, "0 must leave discovery alone"
+
+
+def test_env_flag_or_none_is_tristate_and_env_flag_is_its_default_applied(monkeypatch):
+    """Unset and unrecognised give None (the caller's size rule decides); recognised values give True/False; env_flag applies the default to exactly the None cases."""
+    from mlframe.utils.env_flags import env_flag, env_flag_or_none
+
+    name = "MLFRAME_TEST_TRISTATE_SWITCH"
+    monkeypatch.delenv(name, raising=False)
+    assert env_flag_or_none(name) is None
+    for raw, want in (("1", True), ("on", True), ("0", False), ("off", False), ("", False), ("  YES ", True)):
+        monkeypatch.setenv(name, raw)
+        assert env_flag_or_none(name) is want
+        assert env_flag(name, default=True) is want and env_flag(name, default=False) is want
+    monkeypatch.setenv(name, "maybe")
+    assert env_flag_or_none(name) is None
+    assert env_flag(name, default=True) is True and env_flag(name, default=False) is False

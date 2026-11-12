@@ -8,7 +8,6 @@ sites that invoke ``disc.fit(...)`` continue to work unchanged.
 
 from __future__ import annotations
 
-import os
 
 from timeit import default_timer as timer
 from typing import TYPE_CHECKING, Any, Sequence
@@ -29,7 +28,7 @@ from .screening import (
 )
 from ._fit_ram import _phase_ram_report, _process_mem_mb  # noqa: F401 -- _process_mem_mb re-exported for back-compat
 from ._fit_helpers import maybe_boost_mi_strata_for_heavy_tail, no_base_candidates_report_entry, take_screen_matrix
-from mlframe.utils.env_flags import env_flag
+from mlframe.utils.env_flags import env_flag, env_flag_or_none
 from types import SimpleNamespace as _SimpleNamespace
 
 # Sentinel base key for the dedicated UNARY (``requires_base=False``)
@@ -67,11 +66,11 @@ def _screen_matrices(self, df, _usable_features_list, train_idx_screen, *, _bin_
     the per-base dedup reads instead; the eager path returns the float matrix and its (cached) prebinned codes.
     """
     _streamed_dedup = None
-    _lazy_set = "MLFRAME_DISCOVERY_LAZY_PREBIN" in os.environ
+    _lazy_switch = env_flag_or_none("MLFRAME_DISCOVERY_LAZY_PREBIN")  # None: unset or unrecognised, so the size rule decides
     _lazy_eligible = _bin_estimator and _is_polars_df(df) and len(_usable_features_list) > 0
-    if _lazy_set and not env_flag("MLFRAME_DISCOVERY_LAZY_PREBIN", True):
+    if _lazy_switch is False:
         _use_lazy_prebin = False
-    elif _lazy_set and env_flag("MLFRAME_DISCOVERY_LAZY_PREBIN", False):
+    elif _lazy_switch is True:
         _use_lazy_prebin = _lazy_eligible
     else:
         _use_lazy_prebin = _lazy_eligible and train_idx_screen.size >= _lazy_prebin_floor()
