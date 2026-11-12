@@ -48,7 +48,10 @@ def test_training_config_cache_never_holds_a_pin_without_its_entry(monkeypatch):
 
 def test_kfold_split_cache_serves_correct_splits_under_contention(monkeypatch):
     """Kfold split cache serves correct splits under contention."""
-    monkeypatch.setattr(st, "_KFOLD_SPLIT_CACHE_MAX", 3)
+    # _cached_kfold_splits reads the cap from _screening_tiny_shared, so the cap is patched there (the cache dict is shared)
+    from mlframe.training.composite.discovery import _screening_tiny_shared as _shared
+
+    monkeypatch.setattr(_shared, "_KFOLD_SPLIT_CACHE_MAX", 3)
     st._KFOLD_SPLIT_CACHE.clear()
 
     def call(t, i):
