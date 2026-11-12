@@ -102,11 +102,11 @@ The split above is by static heuristics and is wrong for modules whose compute s
 
 | family | module | wall | where the heuristic put it |
 |---|---|---|---|
-| fe_hinge_enable | `_hinge_basis_fe` | 14.7 s | exempt since n=20000 (0.11 s there); the exemption's own revocation threshold (0.5 s) is exceeded |
+| fe_hinge_enable | `_hinge_basis_fe` | 14.7 s wrapper wall, 2.11 s isolated | exempt since n=20000 (0.11 s there); the exemption's own revocation threshold (0.5 s) is exceeded (isolated 2.11 s) |
 | binned_numeric_agg | `_binned_numeric_agg_fe` | 7.9 s | delegates to GPU code |
 | adaptive degree | `_orthogonal_univariate_fe` | 7.5 s | delegates to GPU code |
 | triplet | `_orthogonal_triplet_fe` | 5.8 s | delegates to GPU code |
 | orth_mi_bootstrap | `_orthogonal_bootstrap_mi_fe` | 4.7 s | **no GPU reference, listed as no compute: wrong** |
 | orth_mi_auto_scorer / cmim | `_orthogonal_scorer_auto_fe` | 3.6 s | **no GPU reference, listed as no compute: wrong** |
 
-Work order for new GPU paths therefore follows measured wall, not the table above: hinge first, then the bootstrap and auto-scorer modules, then the delegating modules that need their contract checks.
+The wall column is the wrapper wall inside a full fit and includes waiting under stage concurrency, so it overstates each family; confirm each with an isolated call before sizing work. Work order for new GPU paths follows measured cost, not the table above: hinge first, then the bootstrap and auto-scorer modules, then the delegating modules that need their contract checks.

@@ -50,5 +50,9 @@ Script: `fe_family_wall_` of the fitted estimator, printed longest first. Fit wa
 
 ## Reading
 
-- `gate:fe_hinge_enable` is the largest single named family (14.7 s, 12% of the fit). `_hinge_basis_fe` carries a measured exemption in `_fe_gpu_contract.json` made at n=20000 (0.11 s of 141 s) with the stated revocation condition 're-profile and move it back to pending if the region crosses 0.5 s at another n or column count'. At n=100000, p=100 the region is 14.7 s, so that condition is met.
+- `gate:fe_hinge_enable` is the largest single named wrapper wall (14.7 s, 12% of the fit), but the wrapper wall includes waiting while stages run concurrently; the isolated call is 2.11 s (below). `_hinge_basis_fe` carries a measured exemption in `_fe_gpu_contract.json` made at n=20000 (0.11 s of 141 s) with the stated revocation condition 're-profile and move it back to pending if the region crosses 0.5 s at another n or column count'. At n=100000, p=100 the isolated call is 2.11 s (1.56 s of it the host numpy QR in `_hinge_slope_change_plausible`, 100 columns), which still exceeds 0.5 s, so the condition is met, by a factor of about 4 and not about 29.
 - `orth_mi_bootstrap` (4.7 s) and `orth_mi_auto_scorer` / `orth_mi_cmim` (3.6 s) belong to `_orthogonal_bootstrap_mi_fe` and `_orthogonal_scorer_auto_fe`, which have no GPU reference; a static heuristic had filed them as 'no compute'.
+
+## Isolated hinge call (cProfile, after a numba warm-up)
+
+`hybrid_hinge_fe_with_recipes(X, y)` alone on the same 100000 x 100 frame: 2.11 s, 4 engineered columns, 4 recipes. `_detect_hinge_breakpoints_for_columns` 1.86 s (100 columns, 18 ms each), of which `_hinge_slope_change_plausible` 1.56 s (its numpy `qr` 0.46 s, `quantile`/`partition` 0.24 s). The remaining time is dedup (0.13 s) and std/var. The wrapper walls above overstate a family's own cost under stage concurrency; rank by isolated calls.
