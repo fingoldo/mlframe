@@ -41,3 +41,18 @@ candidates. Not changed.
 
 `cupy_concatenate` (52 calls, 22.7 ms each: a copy that can be avoided at the call site) is traced by `D:/Temp/exp/concat_sites.py`; `transpose_f32`, `fe_materialise_cm`, `cupy_bitwise_or` and the cub reductions are the
 launch-bound and copy rows of the next pass.
+
+## Counters per kernel (nvprof metrics, 30000 x 60 fit, one kernel per run)
+
+Collecting metrics over the whole fit fails on this host (`cudaErrorIllegalAddress` from a replayed kernel, "Internal profiling error 3959", and cudaErrorMemoryAllocation under replay for `root_split_accept`), and
+nvprof does not accept an alternation of kernel names in `--kernels`, so the counters come from one run per kernel name or from an isolated harness around the kernel (the method used for `strata_xy_entropy` and
+`radix_select_f32_v5`). `root_split_accept`, `radix_select_interp_f64_v3` and `batched_joint_hist2_i32_smem_u8_v2` produced no counters this way and need isolated harnesses.
+
+| kernel | launches | gld efficiency | gst efficiency | achieved occupancy | warp execution | gld transactions / request |
+|---|---|---|---|---|---|---|
+| `fe_materialise_cm` | 2 | 77.6% | 100% | 0.85 | 98.8% | 20.0 |
+| `transpose_f32` | 21 | 80.1% mean (30.0 to 88.2%) | 100% | 0.88 | 94.5% mean (73.5 to 98.5%) | 14.0 mean (4.0 to 16.0) |
+
+Verdicts. `fe_materialise_cm`: loads 77.6% (20 transactions per request for the strided source of a materialisation), stores 100%, occupancy 0.85: left. `transpose_f32`: already the 32 x 33 padded shared tile
+(6.9x over `cp.ascontiguousarray(x.T)` at 100000 x 583); the launches near 30% load efficiency are the narrow matrices (K under 32 columns leaves lanes of every tile row idle by construction) and carry little
+data: left.
