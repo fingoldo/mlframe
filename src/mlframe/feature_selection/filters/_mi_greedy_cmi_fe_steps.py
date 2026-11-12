@@ -676,6 +676,7 @@ def _greedy_cmi_fe_constr_step1_content_hash_already(cand_names, engineered, nbi
         cand_bins_dev = {}
         st.cand_fp = {}
         st._resident_fp_ok = False
+    cand_bins: dict = {}  # host codes, filled eagerly on the host path and lazily by ``_host_bins`` on the resident path (where it must still exist as a name)
     if not st._resident_fp_ok:
         cand_bins = {name: _quantile_bin(engineered[name].to_numpy(), nbins=nbins) for name in cand_names}
         st.cand_fp = {name: _bin_fingerprint(cand_bins[name]) for name in cand_names}
