@@ -495,10 +495,6 @@ _CHECK_THEN_ACT_EXEMPT: dict[tuple[str, str], str] = {
         "prefetch table of one walk: top_up and result run only on the walk's own thread (confirm_in_gain_order calls both in sequence); "
         "the pool workers run confirm() and never touch the table."
     ),
-    ("filters/_fe_batched_mi_guards.py", "_assert_codes_in_range"): (
-        "pure range memo keyed by the device pointer, size and dtype; a concurrent miss recomputes the same range. The pointer-key hazard "
-        "(an in-place rewrite under the same key) is a separate open finding, not covered by this exemption."
-    ),
     ("filters/_fe_resident_operands.py", "resident_operand"): (
         "resident-operand memo keyed by the content hash of the source and the target layout; a concurrent miss uploads the same bytes."
     ),
