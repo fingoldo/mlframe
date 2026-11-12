@@ -21,6 +21,7 @@ from __future__ import annotations
 import numpy as np
 
 from mlframe.feature_selection.filters import _mi_greedy_cmi_fe as mgc
+from mlframe.feature_selection.filters import _mi_greedy_cmi_fe_steps as _steps
 
 
 class _FakeDev:
@@ -42,7 +43,8 @@ class _FakeDev:
 
 def test_cached_card_never_stale_undersize_on_fingerprint_collision(monkeypatch):
     """Cached card never stale undersize on fingerprint collision."""
-    monkeypatch.setattr(mgc, "_CARD_MAX_CACHE", {}, raising=False)
+    # _cached_card reads its cache from the steps module, so the reset must target that module
+    monkeypatch.setattr(_steps, "_CARD_MAX_CACHE", {}, raising=False)
 
     # Reproduce the GC-id-reuse collision DETERMINISTICALLY: present operand ``buf`` (card 20), then MUTATE the
     # SAME object in place to a different operand (card 100) keeping (size, first, last) identical. The mutated
@@ -72,7 +74,8 @@ def test_cached_card_hits_on_identical_content(monkeypatch):
     """The cache must still HIT on re-presented identical content (the perf contract it exists for): the same
     values via a fresh host object + a device whose .max() would be WRONG if recomputed returns the cached card,
     proving the second call did not recompute (content-keyed hit), and the value is correct."""
-    monkeypatch.setattr(mgc, "_CARD_MAX_CACHE", {}, raising=False)
+    # _cached_card reads its cache from the steps module, so the reset must target that module
+    monkeypatch.setattr(_steps, "_CARD_MAX_CACHE", {}, raising=False)
     h = np.array([0, 7, 3, 7, 0], dtype=np.int64)  # true card 8
     first = mgc._cached_card(h, _FakeDev(h))
     assert first == 8

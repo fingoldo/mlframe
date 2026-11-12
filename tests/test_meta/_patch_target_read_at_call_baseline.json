@@ -8,10 +8,6 @@
       "count": 1,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
     },
-    "patch-target-read-at-call::feature_selection/test_cmi_card_cache_no_stale_undersize.py::patch of mlframe.feature_selection.filters._mi_greedy_cmi_fe._CARD_MAX_CACHE changes nothing: '_CARD_MAX_CACHE' is only imported into mlframe.feature_selection.filters._mi_greedy_cmi_fe, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.feature_selection.filters._mi_greedy_cmi_fe._CARD_MAX_CACHE at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
     "patch-target-read-at-call::training/pipeline/test_pipeline_json_roundtrip_cache.py::patch of mlframe.training.core._setup_helpers._PIPELINE_JSON_DISK_CACHE_LOADED changes nothing: '_PIPELINE_JSON_DISK_CACHE_LOADED' is only imported into mlframe.training.core._setup_helpers, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.core._setup_helpers._PIPELINE_JSON_DISK_CACHE_LOADED at call time": {
       "count": 2,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
