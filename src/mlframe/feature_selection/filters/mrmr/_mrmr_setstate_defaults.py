@@ -265,6 +265,8 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_provenance_": None,
     # Wall seconds and timed intervals of every FE family in this fit ({family: {"wall_s", "calls"}}, longest first), also in fe_provenance_.attrs["family_wall"] and get_fe_report().
     "fe_family_wall_": None,
+    # The process-global family-wall ledger at the start of the last fit; fe_family_wall_ is the difference at its end. None on a legacy pickle, read as an empty ledger.
+    "_fe_family_wall_pre_": None,
     # Per-gate FE REJECTION LEDGER (the rejection side of fe_provenance_):
     # a DataFrame (one row per rejected FE candidate-per-gate) + its raw record
     # list. Legacy pickles default to None / [] and the next fit() repopulates.
