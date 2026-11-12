@@ -80,13 +80,12 @@ class _FamilyOnDevice:
         n = int(devs[0].shape[0])
         if any(int(d.shape[0]) != n for d in devs):
             raise _NotApplicableError("batches of different length")
-        codes = devs[0] if len(devs) == 1 else cp.concatenate(devs, axis=1)
-        codes = cp.ascontiguousarray(codes)
-        if codes.dtype not in _C_TYPES:
-            codes = codes.astype(cp.int64)
-        k_total = int(codes.shape[1])
+        # The batches are packed one by one at a column offset: concatenating them first copied the whole (n, k) code matrix (57 MB a call, 22 ms; 2.4 GB over a default fit) only so that one launch could read it.
+        parts = [cp.ascontiguousarray(d) for d in devs]
+        parts = [d if d.dtype in _C_TYPES else d.astype(cp.int64) for d in parts]
+        k_total = int(sum(int(d.shape[1]) for d in parts))
         self.n, self.k_total = n, k_total
-        n_x = (codes.max(axis=0) + 1).astype(cp.int64)
+        n_x = cp.concatenate([(d.max(axis=0) + 1).astype(cp.int64) for d in parts]) if k_total else cp.zeros(0, dtype=cp.int64)  # per-column level counts: k_total int64, not the code matrix
         # The host needs only the largest level count (the bit-set depth): one scalar crosses the bus, not the per-column vector (the same vector was copied once per family).
         cap = int(n_x.max()) if k_total else 0
         words = (n + 63) // 64
@@ -103,20 +102,23 @@ class _FamilyOnDevice:
         self.py_const = float(table_host[n] - sum(float(table_host[int(c)]) for c in counts))
         self._kernel = _get_kernel_v2(cp, self.n_y - 1, "float" if self.table.dtype == cp.float32 else "double")
         self._threads = _THREADS_V2
-        mod = _pack_module(cp, cap, self.n_y, _C_TYPES[codes.dtype])
         group = max(1, int(min(_BUDGET_CAP_BYTES, free_bytes // 4) // (cap * words * 8)))
         self.groups = []
         occupied = []
-        pack_bins = mod.get_function("pack_bins")
-        for lo in range(0, k_total, group):
-            hi = min(lo + group, k_total)
-            kg = hi - lo
-            bits = cp.empty((cap, words, kg), dtype=cp.uint64)
-            px = cp.zeros((kg, cap), dtype=cp.int64)
-            bins_block = block_size_for(pack_bins, work_items=kg)
-            pack_bins(((kg + bins_block - 1) // bins_block, words), (bins_block,), (codes, np.int64(n), np.int32(k_total), np.int32(lo), np.int32(kg), np.int32(words), bits, px))
-            self.groups.append((lo, hi, bits, px, self.table[px].sum(axis=1)))
-            occupied.append((px > 0).sum(axis=1))
+        offset = 0
+        for codes in parts:
+            kd = int(codes.shape[1])
+            pack_bins = _pack_module(cp, cap, self.n_y, _C_TYPES[codes.dtype]).get_function("pack_bins")
+            for lo in range(0, kd, group):
+                hi = min(lo + group, kd)
+                kg = hi - lo
+                bits = cp.empty((cap, words, kg), dtype=cp.uint64)
+                px = cp.zeros((kg, cap), dtype=cp.int64)
+                bins_block = block_size_for(pack_bins, work_items=kg)
+                pack_bins(((kg + bins_block - 1) // bins_block, words), (bins_block,), (codes, np.int64(n), np.int32(kd), np.int32(lo), np.int32(kg), np.int32(words), bits, px))
+                self.groups.append((offset + lo, offset + hi, bits, px, self.table[px].sum(axis=1)))
+                occupied.append((px > 0).sum(axis=1))
+            offset += kd
         self.nx_occ = cp.asnumpy(cp.concatenate(occupied).astype(cp.int16)).astype(np.int64)  # occupied-level counts are at most MAX_BINS: int16 over the bus
 
     def _parts(self, cls_host: np.ndarray):
