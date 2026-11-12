@@ -175,6 +175,33 @@ def _column_argsort(cp, keys):
     return (order.reshape(p, n) - (col * n)[:, None]).T
 
 
+# Random bits the flat-key shuffle must keep below the packed column / stratum / value fields: the same pair-tie bias argument as the int32 rank-pack, with room to spare.
+_FLAT_SHUFFLE_MIN_RAND_BITS = 20
+
+
+def _flat_within_stratum_shuffle(cp: Any, rs: Any, x_sorted_d: Any, z_rank_d: Any, nperm: int, kx: int, nrank: int) -> Optional[Any]:
+    """``(nperm, n)`` int64 within-stratum shuffles of ``x_sorted_d`` (z-sorted order) from ONE flat 1-D radix sort, or ``None`` when the packed key does not fit.
+
+    The key packs ``column | stratum rank | random bits | x value`` into an int64, so the sorted keys carry the permuted x in their low bits: no argsort, no gather, and cupy's 1-D
+    sort is cub's radix sort (100000 x 25: 5.3 ms against 15.3 ms for the per-column argsort of the int32 rank-pack keys, which a 2-D ``cp.sort`` does not beat either).
+    Blocks of one column never overlap (the column field dominates, then the stratum), the random bits give an independent uniform draw per row, and a tie
+    of those bits orders by x: a microscopically non-uniform but valid permutation, the same selection-equivalence bar as the device RNG stream itself.
+    """
+    n = int(x_sorted_d.shape[0])
+    col_bits = max(1, int(np.ceil(np.log2(max(2, nperm)))))
+    rank_bits = max(1, int(np.ceil(np.log2(max(2, nrank)))))
+    x_bits = max(1, int(np.ceil(np.log2(max(2, kx)))))
+    rand_bits = 62 - col_bits - rank_bits - x_bits
+    if rand_bits < _FLAT_SHUFFLE_MIN_RAND_BITS:
+        return None
+    low = rank_bits + rand_bits + x_bits
+    key = (z_rank_d[:, 0].astype(cp.int64) << (rand_bits + x_bits))[None, :] | (cp.arange(nperm, dtype=cp.int64) << low)[:, None]  # (nperm, n)
+    key |= rs.randint(0, 1 << rand_bits, size=(nperm, n), dtype=cp.int64) << x_bits
+    key |= x_sorted_d.astype(cp.int64, copy=False)[None, :]
+    flat = cp.sort(key.ravel())
+    return (flat & np.int64((1 << x_bits) - 1)).reshape(nperm, n)
+
+
 def conditional_perm_null_gpu(
     x: np.ndarray,
     y_i: np.ndarray,
@@ -276,6 +303,14 @@ def conditional_perm_null_gpu(
     # device RNG stream itself. Falls back to the exact f64 (rank + uniform) sum when the occupied stratum
     # count leaves fewer than 12 random bits (never at the gate's shapes).
     _nrank = int(z_rank_d[-1, 0]) + 1  # dense ranks are monotone over the sorted rows
+    if not _perm_null_sparse_enabled():
+        flat_xp = _flat_within_stratum_shuffle(cp, rs, x_sorted_d, z_rank_d, nperm, int(dx.max()) + 1, _nrank)
+        if flat_xp is not None:
+            Xp_d = cp.empty((n, nperm), dtype=cp.int64)
+            Xp_d[order_d, :] = flat_xp.T  # xp[order] = the shuffled z-sorted x, per perm
+            del flat_xp, x_sorted_d, z_rank_d
+            nulls_dev = _batched_cmi_resident_chunked(Xp_d, y_h, z_for_cmi)
+            return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
     _rb = max(1, int(np.ceil(np.log2(max(2, _nrank)))))
     _rand_bits = 31 - _rb
     if _rand_bits >= 12:
