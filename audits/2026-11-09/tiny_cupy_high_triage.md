@@ -3,7 +3,7 @@
 The detector's `high` hits in the current source, one row per function. The baseline (`tests/test_meta/_tiny_cupy_loops_baseline.json`) holds these keys.
 Dispositions to fill in: **FALSE POSITIVE** (the loop is a chunk, fold or fallback loop with a few trips and real work per trip), **FALLBACK** (the cupy loop runs only when a batched path is not taken, measured), **REAL** (a launch-bound loop, to restructure), **OPEN** (not yet read).
 
-Rows: 113.
+Rows: 112.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -118,5 +118,4 @@ Rows: 113.
 | feature_selection/shap_proxied_fs/_shap_proxy_cluster.py | _edges_blocked | 122 | REAL, not yet measured: a where and slice per row of a block, two or more launches per row |
 | feature_selection/shap_proxied_fs/_shap_proxy_gpu.py | brute_force_top_n_gpu | 141 | FALSE POSITIVE: loops over the few combination sizes, each one batched |
 | metrics/_gpu_metrics.py | compute_batch_aucs | 597 | FALLBACK: the per-column branch; the batched call over all columns is the default |
-| metrics/_gpu_metrics.py | gpu_multiple_pr_auc_scores | 462 | REAL, not yet measured: a sort and several ops per column over M columns |
 | models/ensembling/_correlation.py | _probs_pairs | 94 | FALSE POSITIVE: loops over the classes on host numpy arrays |

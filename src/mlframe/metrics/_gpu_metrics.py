@@ -432,6 +432,33 @@ def gpu_multiple_roc_auc_scores(actual: Any, predicted: Any) -> Any:
     return aucs
 
 
+def _average_precision_block(cp: Any, actual: Any, predicted: Any, orders: Any, total_pos: Any) -> Any:
+    """Average precision of the ``B`` columns of ``predicted`` (N, B) whose descending sort orders are the rows of ``orders`` (B, N).
+
+    One threshold per tie run: a position is a boundary iff its score differs from the next one's (the last always is). The previous
+    boundary's recall is the previous entry of the flat boundary list (0 at a column's first), so the Riemann sum
+    ``sum (R_n - R_prev) * P_n`` runs for all columns in one pass.
+    """
+    B, N = orders.shape
+    cols = predicted.T
+    sorted_scores = cp.take_along_axis(cols, orders, axis=1)
+    cumtps = cp.cumsum(actual[orders], axis=1)
+    idx = cp.arange(1, N + 1, dtype=cp.float64)
+    precision = cumtps / idx
+    recall = cumtps / total_pos
+    boundary = cp.ones((B, N), dtype=cp.bool_)
+    boundary[:, :-1] = sorted_scores[:, :-1] != sorted_scores[:, 1:]
+    flat = cp.flatnonzero(boundary.ravel())  # every row ends on a boundary, so the flat list never joins two rows' runs
+    recall_b = recall.ravel()[flat]
+    prev = cp.empty_like(recall_b)
+    prev[0] = 0.0
+    prev[1:] = recall_b[:-1]
+    prev[1:][(flat[1:] // N) != (flat[:-1] // N)] = 0.0  # the first boundary of each column anchors at recall 0
+    contrib = cp.zeros(B * N, dtype=cp.float64)
+    contrib[flat] = (recall_b - prev) * precision.ravel()[flat]
+    return contrib.reshape(B, N).sum(axis=1)
+
+
 def gpu_multiple_pr_auc_scores(actual: Any, predicted: Any) -> Any:
     """Vectorized PR AUC (Average Precision) across columns on GPU.
 
@@ -470,35 +497,15 @@ def gpu_multiple_pr_auc_scores(actual: Any, predicted: Any) -> Any:
         aps.fill(cp.nan)
         return aps
 
-    idx = cp.arange(1, N + 1, dtype=cp.float64)
-    for j in range(M):
-        col = predicted[:, j]
-        from mlframe.feature_selection.filters import shared as _safe_sort  # local: metrics must not import the filters package at module load
-        order = _safe_sort.device_argsort(col, kind="stable")[::-1]  # descending
-        col_sorted = col[order]
-        y_sorted = actual[order]
+    from mlframe.feature_selection.filters import shared as _safe_sort  # local: metrics must not import the filters package at module load
 
-        cumtps = cp.cumsum(y_sorted)
-        precision = cumtps / idx
-        recall = cumtps / total_pos
-        # Threshold boundaries: i is a boundary iff i == N-1 OR
-        # col_sorted[i] != col_sorted[i+1].
-        is_boundary = cp.concatenate(
-            [
-                col_sorted[:-1] != col_sorted[1:],
-                cp.array([True]),
-            ]
-        )
-        recall_b = recall[is_boundary]
-        precision_b = precision[is_boundary]
-        # delta_recall[0] anchors at recall=0 (matches sklearn AP definition).
-        delta_recall = cp.concatenate(
-            [
-                cp.array([recall_b[0]]),
-                recall_b[1:] - recall_b[:-1],
-            ]
-        )
-        aps[j] = cp.sum(delta_recall * precision_b)
+    block_cols = max(1, _ROC_BLOCK_ELEMENTS // max(1, N))
+    for c0 in range(0, M, block_cols):
+        c1 = min(M, c0 + block_cols)
+        orders = cp.empty((c1 - c0, N), dtype=cp.int64)
+        for j in range(c0, c1):  # the sort stays per column (a flat two-pass sort is only 15% faster, see the KSG record); everything after it is one pass per block
+            orders[j - c0] = _safe_sort.device_argsort(predicted[:, j], kind="stable")[::-1]  # descending
+        aps[c0:c1] = _average_precision_block(cp, actual, predicted[:, c0:c1], orders, total_pos)
     return aps
 
 
