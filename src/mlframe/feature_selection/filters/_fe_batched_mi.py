@@ -530,7 +530,7 @@ def _launch_mm_nek_tile(Xc: Any, Ec: Any, yv: Any, n: int, K: int, nbins: int, K
         if kern is None:
             kern = cp.RawKernel(render(_MM_NEK_TILE_TEMPLATE, real=np.float32 if is_f32 else np.float64), "mm_nek_tile")
             _MM_NEK_TILE_KERNELS[bool(is_f32)] = kern
-        kern(((K + G - 1) // G,), (_MM_NEK_TILE_THREADS,), (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(nbins), np.int32(Ky), np.int32(G),
+        kern(((K + G - 1) // G,), (_MM_NEK_TILE_THREADS,), (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(nbins), np.int32(Ky), np.int32(G),  # launch-ok: the tile's edge cache and per-column reduction are written for a fixed 256-lane block (the loader strides by blockDim / G)
                                                              np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)), ne_k, mi_out),
              shared_mem=G * (4 * M + 256 * 8))
     except Exception:
@@ -591,7 +591,7 @@ def _column_min_max(Xc: Any, n: int, K: int, is_f32: bool) -> tuple:
             _COL_MINMAX_KERNELS[bool(is_f32)] = kern
         cmin = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI edge bounds; compared at full precision
         cmax = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI edge bounds; compared at full precision
-        kern(((K + 7) // 8,), (_COL_MINMAX_THREADS,), (Xc, np.int64(n), np.int32(K), cmin, cmax))
+        kern(((K + 7) // 8,), (_COL_MINMAX_THREADS,), (Xc, np.int64(n), np.int32(K), cmin, cmax))  # launch-ok: 8 columns per block with the per-thread column index tid % 8: the shared min and max arrays are sized for 256 threads
         return cmin, cmax
     except Exception:
         logger.debug("col_minmax launch failed; cupy axis-0 reductions", exc_info=True)
@@ -938,7 +938,7 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
         tile = _get_mi_from_codes_tile_kernel()
         try:
             # 512 threads: fastest at 100000x100 (1.25 vs 1.78 ms at 256; block_size_for's 96 gives 4.02 ms), within 3% of 256 at 30000x930 (4.01 vs 3.89 ms). Interleaved sweep.
-            tile(((K + G - 1) // G,), (512,),(C.ravel(), y, np.int64(n), np.int32(K), np.int32(G), np.int32(Kx), np.int32(Ky),
+            tile(((K + G - 1) // G,), (512,),(C.ravel(), y, np.int64(n), np.int32(K), np.int32(G), np.int32(Kx), np.int32(Ky),  # launch-ok: 512 threads measured fastest of 96/128/256/512 at 100000 x 100 and 30000 x 930 (interleaved sweep: 1.25 vs 4.02 ms at 96, the block_size_for choice)
                                                    np.float64(1.0 / float(max(1, n))), mi_out),  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
                  shared_mem=G * Kx * Ky * 4)
             return mi_out if as_device else np.asarray(cp.asnumpy(mi_out))

@@ -737,7 +737,7 @@ def _get_batched_joint_entropy_kernel(cp):
 
 def _joint_entropy_tile_cols(M: int) -> int:
     """Columns per block for ``batched_joint_entropy2``: at most 8, and G histograms of M uint32 plus the 4 KB of static reduction scratch fit the device limit."""
-    return max(1, min(8, (int(_BATCHED_JOINT_ENTROPY_SH_LIMIT) - 4096) // (4 * int(M))))
+    return max(1, min(8, (int(_BATCHED_JOINT_ENTROPY_SH_LIMIT or 48 * 1024) - 4096) // (4 * int(M))))
 
 
 def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
@@ -794,7 +794,7 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
         out_h = cp.empty(K, dtype=cp.float64)
         out_k = cp.empty(K, dtype=cp.int64)
         G = _joint_entropy_tile_cols(M)
-        ker(
+        ker(  # launch-ok: the per-column tree reduction runs over static 256-entry scratch (sh_h, sh_k), so the block is fixed at 256 threads
             ((K + G - 1) // G,), (256,),
             (Xc, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), np.int32(G), float(inv_n), out_h, out_k),
             shared_mem=G * M * 4,

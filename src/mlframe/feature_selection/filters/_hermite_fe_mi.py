@@ -206,7 +206,7 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     if not fe_gpu_has_vram_cushion(2 * int(X_cols.nbytes)):
         from .hermite_fe import _plugin_mi_classif_batch_njit  # lazy: hermite_fe re-imports this module
 
-        return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
+        return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
     X_gpu = cp.asarray(X_cols, dtype=_binning_dtype(X_cols))
     # y is the fit-constant target: resident-cache it (same role string as the already-fixed
     # ``_orth_mi_backends.py`` / ``_binned_numeric_agg_fe.py`` sites) so it uploads ONCE per fit instead of
