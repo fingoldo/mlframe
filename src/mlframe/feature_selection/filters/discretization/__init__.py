@@ -298,7 +298,7 @@ def categorize_1d_array(
 # =============================================================================
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def digitize(arr: np.ndarray, bins: np.ndarray, dtype: type = np.int32) -> np.ndarray:
     """Linear-scan bin-code assignment: the index of the first ``bin_edge >= val``, clamped to the top bin above the last edge."""
     # Values above the last edge (e.g. a transform-time row exceeding the
@@ -322,13 +322,13 @@ def digitize(arr: np.ndarray, bins: np.ndarray, dtype: type = np.int32) -> np.nd
     return res
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def quantize_dig(arr: np.ndarray, bins: np.ndarray) -> np.ndarray:
     """Bin-code assignment via ``np.digitize`` on the interior bin edges (excludes the outer -inf/+inf sentinels)."""
     return np.digitize(arr, bins[1:-1], right=True)  # type: ignore[no-any-return, unused-ignore]  # numpy stubs type digitize's result as Any; the array is what the caller receives
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def quantize_search(arr: np.ndarray, bins: np.ndarray) -> np.ndarray:
     """Bin-code assignment via ``np.searchsorted`` on the interior bin edges - faster than ``quantize_dig``
     for sorted, dense inputs. NOT bit-equivalent on-edge:
@@ -339,7 +339,7 @@ def quantize_search(arr: np.ndarray, bins: np.ndarray) -> np.ndarray:
     return np.searchsorted(bins[1:-1], arr, side="right")
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: Optional[float] = None, max_value: Optional[float] = None, dtype: type = np.int8) -> np.ndarray:
     """Equal-width binning of ``arr`` into ``n_bins`` over ``[min_value, max_value]`` (or the array's own range when unset)."""
     # The divisor was
@@ -394,7 +394,7 @@ def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: Optional[float] 
     return out
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def discretize_uniform_parallel(arr: np.ndarray, n_bins: int, min_value: float, max_value: float, dtype: type = np.int8) -> np.ndarray:
     """Column-prange twin of ``discretize_uniform`` for large single-column arrays.
 
@@ -667,7 +667,7 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _discretize_array_impl(
     arr: np.ndarray,
     n_bins: int = 10,
@@ -689,7 +689,7 @@ def _discretize_array_impl(
 # (18% of a 43.5s 1M cb+MRMR train) on every fresh process. Caching reduces second-run
 # fit time by the full compile budget; the parallel=True specialisation caches per CPU
 # arch the same way the serial variants already did.
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _discretize_2d_array_njit(
     arr: np.ndarray,
     n_bins: int = 10,

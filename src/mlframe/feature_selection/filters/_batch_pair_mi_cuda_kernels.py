@@ -409,7 +409,7 @@ def _mi_from_joint_counts_cupy(joint_counts_dev, fx_counts_dev, freqs_y_dev, n_s
     return terms.sum(axis=(1, 2))
 
 
-@numba.njit(cache=True)
+@numba.njit(cache=True, nogil=True)
 def _mi_from_joint_counts(joint_counts: np.ndarray, fx_counts: np.ndarray, freqs_y: np.ndarray, n_samples: int, joint_cards: np.ndarray) -> np.ndarray:
     """Host-side MI finalize from accumulated joint/marginal counts - the EXACT reduction formula and
     iteration order :func:`_cuda_kernel_factory`'s single-launch kernel uses (``sum jf * log(jf/(px*py))``

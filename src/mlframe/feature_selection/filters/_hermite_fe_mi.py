@@ -45,7 +45,7 @@ from collections.abc import Iterator
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _plugin_mi_from_binned_njit(x_binned: np.ndarray, y: np.ndarray, n_bins: int) -> float:
     """Plug-in MI given pre-binned x. Skips the ``np.argsort`` step inside
     :func:`_plugin_mi_classif_njit`; the caller does the argsort + bin

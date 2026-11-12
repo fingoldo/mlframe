@@ -40,7 +40,7 @@ DEFAULT_SCAN_ROWS = 50_000
 _MIN_ROWS = 800
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _score_pairs(Q, resid, even, pairs, n_bins, shrink):
     """t statistic of the odd-row reduction of the squared residual by the even-row cell means of each pair."""
     P = pairs.shape[0]

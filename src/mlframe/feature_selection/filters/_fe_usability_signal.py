@@ -28,7 +28,7 @@ import numpy as np
 from mlframe.utils.log_throttle import log_throttle
 
 
-@numba.njit(cache=True, fastmath={"reassoc", "contract", "arcp", "afn", "nsz"})
+@numba.njit(cache=True, fastmath={"reassoc", "contract", "arcp", "afn", "nsz"}, nogil=True)
 def _abs_pearson_njit(y, v):
     """TWO-PASS ``|Pearson corr|`` over jointly-finite rows: pass 1 gets the finite count + means, pass 2 accumulates
     MEAN-CENTERED sums-of-squares/cross. No isfinite-mask + boolean-index copies (each pass is branchless). 0.0 on

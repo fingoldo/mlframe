@@ -48,7 +48,8 @@ def _vram_fits(n_rows: int, k_cols: int) -> bool:
     """Whether the whole resident build for ``k_cols`` columns fits the free VRAM share (``False`` sends the build to the column-block path)."""
     try:
         _raise_if_vram_insufficient(n_rows, k_cols)
-    except RuntimeError:
+    except RuntimeError as exc:
+        log_throttle(logger, "orth_gpu_resident_vram_split", logging.INFO, "resident orthogonal build does not fit the free VRAM (%s); the column-block path runs", exc)
         return False
     return True
 

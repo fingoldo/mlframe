@@ -10,7 +10,7 @@ from .discretization.shared import multiselect_inplace
 _USABILITY_DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
 
 
-@njit(cache=True, inline="always")
+@njit(cache=True, inline="always", nogil=True)
 def _apply_unary(v, code, xmin):
     """One element of the medium-preset unary, in double precision (the Python path applies the numpy unary to
     the double precision operand). ``xmin`` is the operand column's ``nanmin`` - only ``log`` (smart_log) uses
@@ -20,7 +20,7 @@ def _apply_unary(v, code, xmin):
     return _apply_unary_high(v, code)
 
 
-@njit(cache=True, inline="always")
+@njit(cache=True, inline="always", nogil=True)
 def _apply_unary_low(v, code, xmin):
     """Codes 0-8 of :func:`_apply_unary`: identity through sign."""
     if code == 0:  # identity
@@ -52,7 +52,7 @@ def _apply_unary_low(v, code, xmin):
         return 0.0 if v == 0.0 else (1.0 if v > 0.0 else -1.0)
 
 
-@njit(cache=True, inline="always")
+@njit(cache=True, inline="always", nogil=True)
 def _apply_unary_high(v, code):
     """Codes 9-16 of :func:`_apply_unary`: rint through exp (any other code falls through to exp, as before)."""
     if code == 9:  # rint
@@ -73,7 +73,7 @@ def _apply_unary_high(v, code):
         return np.exp(v)
 
 
-@njit(cache=True, inline="always")
+@njit(cache=True, inline="always", nogil=True)
 def _apply_binary(a, b, bn):
     """One element of the minimal-preset binary, returning the float32-scrubbed value cast back to
     double precision (the Python path does ``_scrub(bf(ta, tb), float32)`` then upcasts to double precision for binning).
@@ -104,7 +104,7 @@ def _apply_binary(a, b, bn):
     return np.float64(f)
 
 
-@njit(cache=True, inline="always")
+@njit(cache=True, inline="always", nogil=True)
 def _qbin_into(val, nbins, qs, codes_out):
     """Equi-frequency quantile-bin ``val`` (finite double precision) into ``codes_out``, returning the bin
     cardinality. BIT-IDENTICAL to ``_quantile_bin``'s all-finite fast path: the same ``np.quantile``
@@ -171,7 +171,7 @@ def _qbin_into(val, nbins, qs, codes_out):
     return kx + 1
 
 
-@njit(cache=True, inline="always")
+@njit(cache=True, inline="always", nogil=True)
 def _marginal_mi_njit(xb, kx, y_codes, h_y, k_y, n):
     """Plug-in Miller-Madow ``MI(X;Y) = H(X)+H(Y)-H(X,Y)`` plus ``(k_x+k_y-k_xy-1)/(2n)``, clamped
     to >=0 - bit-faithful to ``marginal_mi_binned_fixed_y`` (same plug-in entropies, same bias, same
@@ -204,7 +204,7 @@ def _marginal_mi_njit(xb, kx, y_codes, h_y, k_y, n):
     return r if r > 0.0 else 0.0
 
 
-@njit(cache=True, error_model="numpy")
+@njit(cache=True, error_model="numpy", nogil=True)
 def _pair_combo_mi_njit(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b):
     """SERIAL: for each combo ``(ua_arr[j], ub_arr[j], bn_arr[j])`` compute the value column, the
     ``std<=1e-9`` sentinel, and the marginal MI vs ``y_codes``. Returns the per-combo MI (or -1.0
@@ -262,7 +262,7 @@ def _pair_combo_mi_njit(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
     return out
 
 
-@njit(parallel=True, cache=True, error_model="numpy")
+@njit(parallel=True, cache=True, error_model="numpy", nogil=True)
 def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b):
     """``parallel=True`` (prange over COMBOS) twin of :func:`_pair_combo_mi_njit` - BYTE-IDENTICAL
     output (each combo ``j`` reads only ``x1``/``x2`` and writes only ``out[j]``; zero cross-combo
@@ -319,7 +319,7 @@ def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, 
     return out
 
 
-@njit(cache=True, error_model="numpy")
+@njit(cache=True, error_model="numpy", nogil=True)
 def _pair_combo_mi_njit_table(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b, nu_tab):
     """SERIAL unary-table twin of :func:`_pair_combo_mi_njit` - BIT-IDENTICAL output, precomputes the
     ``nu_tab`` distinct unary transforms of each operand once into a (nu_tab, n) table."""
@@ -381,7 +381,7 @@ def _pair_combo_mi_njit_table(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_
     return out
 
 
-@njit(parallel=True, cache=True, error_model="numpy")
+@njit(parallel=True, cache=True, error_model="numpy", nogil=True)
 def _pair_combo_mi_njit_table_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b, nu_tab):
     """``parallel=True`` unary-table twin - BIT-IDENTICAL to :func:`_pair_combo_mi_njit_table` (the table
     precompute is parallel over the ``nu_tab`` unaries, then prange over combos; each combo writes only

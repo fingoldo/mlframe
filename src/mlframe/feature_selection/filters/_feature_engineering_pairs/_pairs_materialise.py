@@ -139,7 +139,7 @@ def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
             out[r, k] = v
 
 
-@njit(parallel=True, cache=True, error_model="numpy")
+@njit(parallel=True, cache=True, error_model="numpy", nogil=True)
 def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
     """``parallel=True`` (prange over CANDIDATE COLUMNS) twin of ``_materialise_chunk_njit`` -
     BYTE-IDENTICAL output, only the outer ``for k`` candidate loop is a numba ``prange`` so the
@@ -206,7 +206,7 @@ def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
             out[r, k] = v
 
 
-@njit(cache=True, error_model="numpy")
+@njit(cache=True, error_model="numpy", nogil=True)
 def _pair_op(a, b, op, one, zero):
     """Apply one pair operation code to a float32 operand pair; the non-finite result is zeroed by the caller."""
     if op == 0:  # mul
@@ -242,7 +242,7 @@ def _pair_op(a, b, op, one, zero):
     return v
 
 
-@njit(parallel=True, cache=True, error_model="numpy")
+@njit(parallel=True, cache=True, error_model="numpy", nogil=True)
 def _materialise_chunk_rowblock_njit_parallel(tv, a_cols, b_cols, op_codes, out):
     """Row-block twin of :func:`_materialise_chunk_njit_parallel`: BYTE-IDENTICAL output, same per-element body, but the loop order is
     row -> candidate so the reads ``tv[r, a_cols[k]]`` stay inside row ``r`` and the writes ``out[r, k]`` are unit-stride across the

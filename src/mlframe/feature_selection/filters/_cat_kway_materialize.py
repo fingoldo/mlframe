@@ -93,7 +93,7 @@ def _merge_vars_sorted_insert(
     return classes2, freqs2, nclasses2
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _scatter_factorize_lookup(
     factors_data: np.ndarray,
     idx_a: int,
@@ -121,7 +121,7 @@ def _scatter_factorize_lookup(
     return lookup
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _dense_renumber_codes(codes: np.ndarray, expected_size: int) -> tuple:
     """Prune empty bins out of a pre-combined joint code array and densely renumber the survivors, mirroring ``merge_vars``'s own per-step
     prune-then-renumber (same bincount + ascending-oldclass lookup-table scheme) but applied directly to an ALREADY-COMBINED single code array instead of

@@ -485,7 +485,7 @@ def conditional_mi_batched_cuda(
         return np.asarray(cp.asnumpy(cp.maximum(h_xz + h_yz - h_z - h_xyz, 0.0)))
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _cpu_cmi_loop_parallel(factors_data, cand_indices, y, z, factors_nbins, var_is_nominal) -> np.ndarray:
     """``prange`` CMI over candidates - each ``conditional_mi(X_j; Y | Z)`` is independent and stateless
     (``entropy_cache=None``), so this fans the exact per-candidate kernel across ALL cores. Bit-identical to the serial
@@ -513,7 +513,7 @@ def _cpu_cmi_loop_parallel(factors_data, cand_indices, y, z, factors_nbins, var_
 # hoist for the binned-values FE path; this applies the SAME win to the merge_vars ``conditional_mi`` path.
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _cmi_yz_fixed_terms(factors_data, y, z, factors_nbins, dtype):
     """H(Z), the (Y,Z) merged dense classes, H(Y,Z) and nclasses_yz - the per-round CONSTANTS. Melt order matches
     ``conditional_mi``: Z alone for H(Z); ``unpack_and_sort(y, z)`` for the (Y,Z) joint."""
@@ -529,7 +529,7 @@ def _cmi_yz_fixed_terms(factors_data, y, z, factors_nbins, dtype):
     return ent_z, classes_yz, entropy(freqs_yz), nclasses_yz
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _cmi_one_fixed_yz(factors_data, xi, zi, classes_yz, nclasses_yz, ent_yz, ent_z, factors_nbins, dtype):
     """I(X_i; Y | Z) reusing the fixed (Y,Z)/Z terms: only the X-dependent (X,Z) and (X-on-YZ) melts run.
 
@@ -552,7 +552,7 @@ def _cmi_one_fixed_yz(factors_data, xi, zi, classes_yz, nclasses_yz, ent_yz, ent
     return r if r > 0.0 else 0.0
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _cpu_cmi_loop_hoisted_parallel(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int32) -> np.ndarray:
     """prange CMI with the Y,Z terms hoisted out of the per-candidate loop. Bit-identical to
     ``_cpu_cmi_loop_parallel`` (maxdiff 0.0), 1.6-1.7x faster (two melts per candidate instead of four)."""
@@ -565,7 +565,7 @@ def _cpu_cmi_loop_hoisted_parallel(factors_data, cand_indices, y, z, factors_nbi
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _cpu_cmi_loop_hoisted_serial(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int32) -> np.ndarray:
     """Serial (tiny-pool) CMI with the Y,Z terms hoisted. Bit-identical to the serial ``conditional_mi`` loop."""
     p = len(cand_indices)

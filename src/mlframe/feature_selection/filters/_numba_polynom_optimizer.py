@@ -111,7 +111,7 @@ _BF_NAME_TO_ID = {
 _NAN_SAFE_FASTMATH = {"nsz", "arcp", "contract", "afn", "reassoc"}
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _polyeval_dispatch_njit(basis_id: int, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Integer-dispatched polyeval. Calls the appropriate serial @njit kernel.
 
@@ -129,7 +129,7 @@ def _polyeval_dispatch_njit(basis_id: int, x: np.ndarray, c: np.ndarray) -> np.n
     return np.asarray(_lagval_njit(x, c))
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, parallel=True)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, parallel=True, nogil=True)
 def _fill_bf_batch_njit(ha_arr: np.ndarray, hb_arr: np.ndarray, cand_valid: np.ndarray, bf_ids: np.ndarray, x_rows: np.ndarray, finite: np.ndarray) -> None:
     """Fill the (P*n_bf, n) row-major bf-combination batch in ONE parallel njit call: row r = candidate
     r//n_bf x bf r%n_bf, computed via ``_bf_dispatch_njit`` (bit-parity with the numpy callables) with the
@@ -153,7 +153,7 @@ def _fill_bf_batch_njit(ha_arr: np.ndarray, hb_arr: np.ndarray, cand_valid: np.n
             finite[r_row] = True
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _bf_dispatch_njit(bf_id: int, a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Integer-dispatched binary function. Operates element-wise.
 
@@ -194,7 +194,7 @@ def _bf_dispatch_njit(bf_id: int, a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return out
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _all_finite_njit(arr: np.ndarray) -> bool:
     """Sequential isfinite scan; bails on first non-finite. Faster than
     ``np.all(np.isfinite(arr))`` on the common all-finite case because
@@ -207,7 +207,7 @@ def _all_finite_njit(arr: np.ndarray) -> bool:
     return True
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _eval_one_candidate_njit(
     x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray,
     coef_a: np.ndarray, coef_b: np.ndarray,
@@ -275,7 +275,7 @@ def _eval_one_candidate_njit(
     return best_score, best_raw, best_bf
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _coef_sq_norm(coefs, size):
     """Sum of squares of the first ``size`` coefficients, accumulated in index order."""
     total = 0.0
@@ -284,7 +284,7 @@ def _coef_sq_norm(coefs, size):
     return total
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _fill_candidate_columns(x_a, x_b, coefs_a_batch, coefs_b_batch, basis_id, bf_ids, direction_only, cols_scratch, col_valid_scratch, n):
     """Polyeval both sides of every candidate, combine each with every basis function and store the finite columns in ``cols_scratch``."""
     B = coefs_a_batch.shape[0]
@@ -316,7 +316,7 @@ def _fill_candidate_columns(x_a, x_b, coefs_a_batch, coefs_b_batch, basis_id, bf
             col_valid_scratch[col_idx] = True
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _zero_invalid_columns(cols_scratch, col_valid_scratch, n, n_cols):
     """Zero the columns that were not filled, so their MI is a zero-variance constant and the argmax skips them."""
     for c in range(n_cols):
@@ -325,7 +325,7 @@ def _zero_invalid_columns(cols_scratch, col_valid_scratch, n, n_cols):
                 cols_scratch[i, c] = 0.0
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _argmax_per_candidate(mi_arr, coefs_a_batch, coefs_b_batch, bf_ids, direction_only, l2_penalty, col_valid_scratch, out_scores, out_raws, out_bfs):
     """Per candidate, the best basis function by penalised MI, written to ``out_scores`` / ``out_raws`` / ``out_bfs``."""
     B = coefs_a_batch.shape[0]
@@ -349,7 +349,7 @@ def _argmax_per_candidate(mi_arr, coefs_a_batch, coefs_b_batch, bf_ids, directio
                 out_bfs[b] = bf_ids[k]
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _eval_batch_candidates_njit(
     x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray,
     coefs_a_batch: np.ndarray, coefs_b_batch: np.ndarray,
@@ -397,7 +397,7 @@ def _eval_batch_candidates_njit(
     _argmax_per_candidate(mi_arr, coefs_a_batch, coefs_b_batch, bf_ids, direction_only, l2_penalty, col_valid_scratch, out_scores, out_raws, out_bfs)
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _warm_start_best(
     x_a, x_b, y, ca_size, cb_size, warm_start_a, warm_start_b, n_warm,
     basis_id, bf_ids, n_bins, l2_penalty, direction_only, discrete_target,
@@ -430,7 +430,7 @@ def _warm_start_best(
     return best_ca, best_cb, best_score, best_raw, best_bf, has_best, n_evals
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _sample_batch_candidates(
     coefs_a_batch, coefs_b_batch, best_ca, best_cb, has_best, uniform_stream, normal_stream,
     u_cursor, n_cursor, ca_size, cb_size, batch_size, elitism_k, coef_lo, coef_hi,
@@ -474,7 +474,7 @@ def _sample_batch_candidates(
     return u_cursor, n_cursor
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _track_batch_best(
     batch_scores, batch_raws, batch_bfs, coefs_a_batch, coefs_b_batch,
     best_ca, best_cb, best_score, best_raw, best_bf, has_best, batch_size, ca_size, cb_size,
@@ -493,7 +493,7 @@ def _track_batch_best(
     return best_score, best_raw, best_bf, has_best
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _random_batch_one_pair_njit(
     x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray,
     ca_size: int, cb_size: int,
@@ -566,7 +566,7 @@ def _random_batch_one_pair_njit(
     return best_ca, best_cb, best_score, best_raw, best_bf, n_evals
 
 
-@njit(parallel=True, cache=True, fastmath=_NAN_SAFE_FASTMATH)
+@njit(parallel=True, cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _optimize_all_pairs_kernel(
     X_arr: np.ndarray, y: np.ndarray, pair_indices: np.ndarray,
     ca_size: int, cb_size: int,

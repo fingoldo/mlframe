@@ -88,7 +88,7 @@ def engineered_name_te_stat(col: str, stat: str) -> str:
     ``{col}__te`` name (back-compat with existing recipes / grep consumers); other stats get ``{col}__te_{stat}``."""
     return engineered_name_te(col) if stat == "mean" else f"{col}__te_{stat}"
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _per_cat_centered_moments_njit(inverse: np.ndarray, y: np.ndarray, n_cats: int) -> tuple:
     """One-pass-per-stage, numerically-STABLE per-category ``(cnt, mean, m2, m3, m4)`` where
     ``m2/m3/m4`` are sums of CENTRED powers ``(y - mean[cat])**k``, not raw power sums.

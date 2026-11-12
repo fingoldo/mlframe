@@ -40,7 +40,7 @@ from .._fe_usability_signal import _crit_np_dtype
 _DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
 
 
-@numba.njit(cache=True, fastmath=False)
+@numba.njit(cache=True, fastmath=False, nogil=True)
 def _abs_corr_finite_njit(a, y, yfin, min_n=8):
     """|Pearson corr| of ``a`` vs ``y`` over rows where both are finite, in one pass (no boolean-index temporaries,
     no 2x2 corrcoef matrix). Returns 0.0 when fewer than ``min_n`` joint-finite rows or either side is

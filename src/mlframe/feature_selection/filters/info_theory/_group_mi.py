@@ -41,7 +41,7 @@ def prepare_group_segments(groups: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return sort_idx, offsets
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _group_joint_mi(joint, mx, my, nv, K_x, K_y, use_mm):
     """MI of one group's joint histogram; Miller-Madow debiased and clamped at zero when ``use_mm``."""
     inv = 1.0 / nv
@@ -72,7 +72,7 @@ def _group_joint_mi(joint, mx, my, nv, K_x, K_y, use_mm):
     return mi
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _group_blocked_mi(
     codes_x: np.ndarray,
     codes_y: np.ndarray,

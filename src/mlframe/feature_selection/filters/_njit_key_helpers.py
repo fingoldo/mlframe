@@ -11,7 +11,7 @@ import numpy as np
 from numba import njit
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def arr2str(arr: np.ndarray) -> str:
     """Collision-safe ``@njit`` stringification of an integer array. Elements separated by ``_`` so distinct multisets always produce distinct strings; the
     naive concatenation collapsed ``sorted([1, 11])`` and ``sorted([1, 1, 1])`` to the same ``"111"`` and aliased entropy-cache slots in ``conditional_mi``.
@@ -26,7 +26,7 @@ def arr2str(arr: np.ndarray) -> str:
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def unpack_and_sort(x: Sequence[int], z: Sequence[int]) -> np.ndarray:
     """Concatenate two integer iterables into a sorted numpy array. Used by ``conditional_mi`` cache-key construction: the canonical representation of the
     union ``X u Z`` must be ordering-independent so different call paths hit the same cache slot.

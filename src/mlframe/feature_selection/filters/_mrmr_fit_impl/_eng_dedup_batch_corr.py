@@ -36,7 +36,7 @@ from .._numba_utils_shared import radix_order_f32, radix_order_f64
 from typing import Any
 
 
-@numba.njit(cache=True, parallel=True)
+@numba.njit(cache=True, parallel=True, nogil=True)
 def average_ranks_many(cols: Any, out: np.ndarray) -> None:
     """``out[k]`` = average ranks (ties share the mean rank, as ``pandas.Series.rank(method="average")``) of the all-finite 1-D column ``cols[k]``; one parallel task per column."""
     for k in prange(len(cols)):
@@ -55,7 +55,7 @@ def average_ranks_many(cols: Any, out: np.ndarray) -> None:
             i = e
 
 
-@numba.njit(cache=True)
+@numba.njit(cache=True, nogil=True)
 def _avg_ranks_inplace(v: np.ndarray, m: int, order: np.ndarray, ranks: np.ndarray) -> None:
     """Average ranks (ties share the mean rank, as ``pandas.Series.rank(method="average")``) of the first ``m`` values of ``v`` into ``ranks``; ``order`` is scratch."""
     order[:m] = radix_order_f64(v[:m].astype(np.float64))  # Intentional float64: same tie runs, so the same average ranks
@@ -70,7 +70,7 @@ def _avg_ranks_inplace(v: np.ndarray, m: int, order: np.ndarray, ranks: np.ndarr
         i = e
 
 
-@numba.njit(cache=True, parallel=True)
+@numba.njit(cache=True, parallel=True, nogil=True)
 def masked_abs_spearman_many(a: np.ndarray, fin_a: np.ndarray, others: Any, rel_tol: float, out: np.ndarray) -> None:
     """``out[k]`` = |Spearman rho| of ``a`` and ``others[k]`` over the rows finite in both, or ``-1`` when the pair is skipped.
 
@@ -136,7 +136,7 @@ def masked_abs_spearman_many(a: np.ndarray, fin_a: np.ndarray, others: Any, rel_
         out[k] = abs(sab / (saa * sbb) ** 0.5)
 
 
-@numba.njit(cache=True)
+@numba.njit(cache=True, nogil=True)
 def _avg_ranks_presorted(v: np.ndarray, order_full: np.ndarray, cm: np.ndarray, m: int, seq: np.ndarray, ranks: np.ndarray) -> None:
     """Average ranks of the ``m`` rows kept by the compact map ``cm`` (row -> compact index, -1 for a dropped row), from the full sorted row order ``order_full`` of ``v``: no sort, the dropped rows are skipped in the walk."""
     c = 0
@@ -156,7 +156,7 @@ def _avg_ranks_presorted(v: np.ndarray, order_full: np.ndarray, cm: np.ndarray, 
         i = e
 
 
-@numba.njit(cache=True, parallel=True)
+@numba.njit(cache=True, parallel=True, nogil=True)
 def masked_abs_spearman_presorted(a: np.ndarray, fin_a: np.ndarray, order_a: np.ndarray, others: Any, orders: Any, rel_tol: float, out: np.ndarray) -> None:
     """Version 2 of :func:`masked_abs_spearman_many`: the sorted row order of the candidate (``order_a``, finite rows only) and of every kept column (``orders[k]``) is given, so a pair costs linear passes instead of two sorts.
 
@@ -277,7 +277,7 @@ def clear_finite_sort_order_cache() -> None:
     clear_device_column_cache()
 
 
-@numba.njit(cache=True, parallel=True, fastmath=False)
+@numba.njit(cache=True, parallel=True, fastmath=False, nogil=True)
 def _row_mean_and_centred_ss_njit(row: np.ndarray):
     """``(mean, sum((row - mean)^2))`` for one buffer row, in the same two passes the comparison kernel used to do inline."""
     n = row.shape[0]
@@ -292,7 +292,7 @@ def _row_mean_and_centred_ss_njit(row: np.ndarray):
     return m, ss
 
 
-@numba.njit(cache=True, parallel=True, fastmath=False)
+@numba.njit(cache=True, parallel=True, fastmath=False, nogil=True)
 def _one_vs_many_pearson_abs_masked_njit(a_centred, saa, mat, active, row_mean, row_ss) -> np.ndarray:
     """|Pearson corr| of a candidate against every ACTIVE row of ``mat`` (k, n), computed in parallel over k.
 

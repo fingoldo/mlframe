@@ -33,11 +33,6 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
-    "lof_gpu.lof_scores_wide": (
-        "mlframe.feature_selection.filters._lof_gpu",
-        "kernel_wide",
-        ("float32", "float64"),
-    ),
 }
 
 # kernel name -> reason a register spill is accepted for it. Empty is the default: fix the kernel instead of exempting

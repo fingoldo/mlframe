@@ -8,7 +8,7 @@ from numba import njit
 # --- end imports ---
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _bycol_perm_label_stats(n_perm_rows, y_codes_perm, m, eval_rows, n, y_raw_perm):
     """Per-permutation target-code counts and the same-labels test for ``honest_null_columns_bycol``."""
     ny_perm = np.zeros(n_perm_rows, dtype=np.int64)

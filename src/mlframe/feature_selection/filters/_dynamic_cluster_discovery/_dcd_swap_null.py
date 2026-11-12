@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 _PARALLEL_MIN_B = 8
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _entropy_col_onto_classes(x_col, nb_x, base_classes, base_nclasses, n_rows) -> float:
     """H of the joint (X, base) where ``base`` is a dense 0..base_nclasses-1 labeling of the conditioning
     variables. Histograms ``base_classes[row] + x_col[row] * base_nclasses`` once, prunes empty bins, and
@@ -59,7 +59,7 @@ def _entropy_col_onto_classes(x_col, nb_x, base_classes, base_nclasses, n_rows) 
     return float(entropy(nz / n_rows))
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def conditional_mi_col(
     x_col: np.ndarray,
     nb_x: int,
@@ -86,7 +86,7 @@ def conditional_mi_col(
     return float(res)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def mi_col(x_col: np.ndarray, nb_x: int, y_classes: np.ndarray, y_nclasses: int, entropy_x: float, entropy_y: float) -> float:
     """``I(X; Y)`` for a standalone ``x_col`` with precomputed ``Y`` labeling. ``H(X)`` (permutation-invariant)
     and ``H(Y)`` are hoisted; only ``H(X,Y)`` is recomputed per draw."""
@@ -98,7 +98,7 @@ def mi_col(x_col: np.ndarray, nb_x: int, y_classes: np.ndarray, y_nclasses: int,
     return float(res)
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _member_null_cmi_prange(shuffles, nb_x, z_classes, z_nclasses, yz_classes, yz_nclasses, entropy_z, entropy_yz, member_rel) -> int:
     """prange over the ``B`` pre-generated shuffles: count draws whose conditional MI meets/exceeds the
     observed ``member_rel``. Each iteration reads its own row of ``shuffles`` and allocates its own histogram
@@ -112,7 +112,7 @@ def _member_null_cmi_prange(shuffles, nb_x, z_classes, z_nclasses, yz_classes, y
     return int(exceed.sum())
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _member_null_mi_prange(shuffles, nb_x, y_classes, y_nclasses, entropy_x, entropy_y, member_rel) -> int:
     """prange no-Z variant: count draws whose (unconditional) MI meets/exceeds ``member_rel``."""
     B = shuffles.shape[0]

@@ -18,7 +18,7 @@ from numba import njit, prange
 from mlframe.utils.numeric_floors import SD_FLOOR
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _fourier_linear_sincos_njit(vals: np.ndarray, lo: float, span: float, freq: float, is_sin: bool) -> np.ndarray:
     """Fused replay of the ``arg='linear', power=1`` orth_fourier branch: ``sin/cos(2*pi*freq*(x-lo)/span)``
     with NaN/inf outputs zeroed, in ONE prange pass instead of the numpy form's separate

@@ -203,7 +203,7 @@ def _select_candidate_indices(
 # ============================================================================
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _marginal_screen_njit(
     factors_data: np.ndarray,
     candidate_idxs: np.ndarray,
@@ -291,7 +291,7 @@ def _marginal_screen_weighted(
 # ============================================================================
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _pair_search_kernel_njit(
     factors_data: np.ndarray,
     pairs_a: np.ndarray,  # (n_pairs,) int - left column index

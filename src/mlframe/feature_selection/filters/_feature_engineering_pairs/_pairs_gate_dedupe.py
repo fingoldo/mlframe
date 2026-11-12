@@ -22,7 +22,7 @@ MIN_COLUMNS_TO_DEDUPE = 256
 _COLUMN_CHUNK = 256
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _column_fingerprints(codes: np.ndarray, mul_a: np.ndarray, mul_b: np.ndarray) -> np.ndarray:
     """Two independent 64-bit polynomial fingerprints per column of the ``(n, K)`` code matrix, one row-major pass per chunk of columns."""
     n, k = codes.shape

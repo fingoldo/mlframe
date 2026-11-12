@@ -421,7 +421,7 @@ def _digitize_with_edges(x: np.ndarray, edges: np.ndarray) -> np.ndarray:
     codes[~np.isfinite(x)] = 0
     return np.asarray(codes).astype(np.int64)
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _bin_sum_count_masked_njit(codes_j: np.ndarray, xi: np.ndarray, finite_i: np.ndarray, n_bins_eff: int) -> tuple:
     """Fused single-pass per-bin sum + count of ``xi`` over ``finite_i``-masked rows, grouped by
     ``codes_j``. Replaces the caller's ``codes_j[finite_i]`` / ``xi[finite_i]`` subset builds + two

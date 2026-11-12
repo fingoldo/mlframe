@@ -144,7 +144,7 @@ def _fit_chirp_warp_for_col(x: np.ndarray):
     return mean, std, lo, span
 
 
-@numba.njit(cache=True)
+@numba.njit(cache=True, nogil=True)
 def _chirp_axis_njit(x: np.ndarray, mean: float, std: float, lo: float, span: float) -> np.ndarray:
     """Fused single-pass core of :func:`_chirp_axis`. NO fastmath (the ops - subtract,
     divide, sign, square, divide - run in the SAME IEEE order as the numpy expression), so
@@ -181,7 +181,7 @@ class _CoarseBasis(list):
     matrices: "Optional[tuple]" = None
 
 
-@numba.njit(parallel=True, fastmath=True, cache=True)
+@numba.njit(parallel=True, fastmath=True, cache=True, nogil=True)
 def _coarse_basis_njit(z: np.ndarray, freqs: np.ndarray) -> tuple:
     """Build the per-frequency centered sin/cos coarse basis in ONE fused prange-over-freqs pass.
 
@@ -227,7 +227,7 @@ def _coarse_basis_njit(z: np.ndarray, freqs: np.ndarray) -> tuple:
     return sc, cc, sss, css
 
 
-@numba.njit(parallel=True, fastmath=True, cache=True)
+@numba.njit(parallel=True, fastmath=True, cache=True, nogil=True)
 def _coarse_basis_recur_njit(z: np.ndarray, step: float, nf: int) -> tuple:
     """``_coarse_basis_njit`` for the uniform grid ``(k + 1) * step``, k < nf: one sin / cos per row, the higher multiples by the Chebyshev recurrence
     ``s_{k+1} = 2 cos(t) s_k - s_{k-1}`` (and the same for cos). The values differ from the direct sin / cos in the last bits (the error grows about
@@ -566,7 +566,7 @@ _ADAPTIVE_FE_RAW_USABILITY_CAP: float = 0.5
 _FOURIER_INT_AS_CAT_MAX_CARD: int = 50
 
 
-@numba.njit(cache=True)
+@numba.njit(cache=True, nogil=True)
 def _is_int_as_cat_njit(x: np.ndarray, max_card: int) -> bool:
     """Fused int-as-cat test: ONE early-exiting pass replacing the numpy
     ``isfinite`` mask + full ``mod(.,1)==0`` pass + full ``np.unique`` sort.

@@ -38,7 +38,7 @@ import numpy as np
 from numba import njit
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _combo_mm_mi_njit(combo_codes, cards, target, kt, n_cells):
     """Miller-Madow-corrected MI (nats, >=0) between the JOINT of ``order`` integer code columns and
     the target - the synergy screen's hot per-combo histogram, in nopython.
@@ -92,7 +92,7 @@ def _combo_mm_mi_njit(combo_codes, cards, target, kt, n_cells):
     return val if val > 0.0 else 0.0
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _combo_mm_mi_cols_njit(c0, c1, c2, order, cards, target, kt, n_cells):
     """Same MM-corrected joint MI as ``_combo_mm_mi_njit`` but reads the ``order`` code columns DIRECTLY
     (order 2 or 3) instead of a materialised ``(n, order)`` matrix - the caller's per-combo ``_mat`` build

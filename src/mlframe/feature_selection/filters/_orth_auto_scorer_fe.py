@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 
+import functools
 import logging
 from typing import Callable, Optional, Sequence
 
@@ -229,6 +230,11 @@ _AUTO_SCORER_COLUMNS = [
     "lcb_per_scorer",
     "lcb_norm_per_scorer",
 ]
+
+
+def bound_scorer_dispatch(*, nbins, n_neighbors, copula_n_bins, dcor_n_sample):
+    """``_dispatch_scorer`` with this call's shared hyperparameters bound; the result is called ``(name, x_vec, y_vec, seed)``."""
+    return functools.partial(_dispatch_scorer, nbins=nbins, n_neighbors=n_neighbors, copula_n_bins=copula_n_bins, dcor_n_sample=dcor_n_sample)
 
 
 def _bootstrap_lcb_per_scorer(x_full: np.ndarray, y_arr: np.ndarray, boot_idx: list, random_state: int, scorer_call: Callable, pre: "dict | None" = None) -> dict:
@@ -486,9 +492,7 @@ def select_best_scorer_per_column(
     raw_cols = list(raw_X.columns)
     eng_cols = list(engineered_X.columns)
 
-    def _scorer_call(name, x_vec, y_vec, seed):
-        """Bind this function's shared hyperparameters into the module-level scorer dispatcher."""
-        return _dispatch_scorer(name, x_vec, y_vec, seed, nbins=nbins, n_neighbors=n_neighbors, copula_n_bins=copula_n_bins, dcor_n_sample=dcor_n_sample)
+    _scorer_call = bound_scorer_dispatch(nbins=nbins, n_neighbors=n_neighbors, copula_n_bins=copula_n_bins, dcor_n_sample=dcor_n_sample)
 
     _batch_hyper = {"nbins": nbins, "n_neighbors": n_neighbors, "copula_n_bins": copula_n_bins, "dcor_n_sample": dcor_n_sample, "n_jobs": n_jobs}
     # Per-source baseline: { source_col: { scorer: lcb } }. Computed

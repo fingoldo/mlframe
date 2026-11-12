@@ -36,7 +36,7 @@ CODE_SAMPLE = 4096  # finite values per column that set its bin edges
 MIN_ROWS = 800  # fewer rows: the held-out evidence is too thin to admit or to prune anything
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _score_columns(Q, resid, even, n_bins, shrink):
     """Per column of ``Q``: the t statistic and the mean of ``d`` (odd-row reduction of the squared residual by the even-row bin means),"""
     p, n = Q.shape
@@ -71,7 +71,7 @@ def _score_columns(Q, resid, even, n_bins, shrink):
     return t, gain
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def _codes_matrix(M, n_bins, sample, min_finite, few_classes):
     """Equal-frequency bin codes of every row of ``M`` (columns of the data) and a usable mask.
 

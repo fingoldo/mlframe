@@ -12,7 +12,7 @@ from numba import njit, prange
 from ._numba_utils_shuffle import shuffle_labels_into
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _accept_split_serial(
     x_i: np.ndarray, y_i: np.ndarray, n_classes: int, gain: float, min_split_size: int, n_permutations: int, base_seed: int, alpha: float
 ) -> bool:
@@ -39,7 +39,7 @@ def _accept_split_serial(
     return True
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _analytic_p_value(mi: float, n: int, n_classes: int) -> float:
     """G-test tail of a 2 x n_classes table (df = n_classes - 1), as ``analytic_mi_null`` computes it."""
     df = n_classes - 1
@@ -49,7 +49,7 @@ def _analytic_p_value(mi: float, n: int, n_classes: int) -> float:
     return min(1.0, max(0.0, float(p)))
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _cmi_from_counts(counts: np.ndarray, n: int, min_rows: int) -> float:
     """Sum over strata with at least ``min_rows`` rows of (m / n) * plug-in MI (nats) of that stratum's x-y table, clipped at zero as scikit-learn does."""
     n_s, n_x, n_y = counts.shape
@@ -84,7 +84,7 @@ def _cmi_from_counts(counts: np.ndarray, n: int, min_rows: int) -> float:
     return total
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _codes_at_rows(col, rows, cuts, out):
     """``out[t]`` = number of cuts <= ``col[rows[t]]`` (``searchsorted(side='right')``), filled in place."""
     for t in range(rows.shape[0]):
@@ -100,7 +100,7 @@ def _codes_at_rows(col, rows, cuts, out):
         out[t] = lo
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _codes_from_cuts(col: np.ndarray, cuts: np.ndarray) -> np.ndarray:
     """Bin code of each value: number of inner cut points <= value (``searchsorted(side='right')``)."""
     out = np.empty(col.shape[0], dtype=np.int64)
@@ -118,7 +118,7 @@ def _codes_from_cuts(col: np.ndarray, cuts: np.ndarray) -> np.ndarray:
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _compact_labels(y: np.ndarray, n_classes_total: int):
     """Rank-compact labels among the classes present. Returns (compact labels, number of present classes)."""
     present = np.zeros(n_classes_total, dtype=np.bool_)
@@ -136,7 +136,7 @@ def _compact_labels(y: np.ndarray, n_classes_total: int):
     return out, k
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _conditional_shuffle_within_strata(
     classes_x2_safe: np.ndarray,
     classes_y: np.ndarray,
@@ -201,7 +201,7 @@ def _count_candidates_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, min_split
     return count
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _cuts_tie_free(xs, ys, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, root_crit):
     """``_mdlp_cuts_presorted`` for a column without tied values: the sorted points are already the deduplicated (x, y) pairs, so nothing is copied, and
     the cut buffer holds the most cuts a tree of ``max_depth`` can accept instead of one slot per row."""
@@ -213,7 +213,7 @@ def _cuts_tie_free(xs, ys, n_classes_total, min_split_size, max_depth, alpha, n_
     return cuts
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _edge_value(s: np.ndarray, q: float) -> float:
     """``np.quantile(s_unsorted, q)`` (method ``linear``) read off the sorted copy ``s``, in numpy's arithmetic order."""
     n = s.shape[0]
@@ -238,7 +238,7 @@ def _edge_value(s: np.ndarray, q: float) -> float:
     return float(out)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _full_conditional_shuffle_ipf(
     classes_x2_safe: np.ndarray,
     classes_x1: np.ndarray,
@@ -278,7 +278,7 @@ def _full_conditional_shuffle_ipf(
                 classes_x2_safe[b] = tmp
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _gammaincc_nb(a: float, x: float) -> float:
     """Regularised upper incomplete gamma Q(a, x); the chi-square survival is Q(df/2, g/2). Matches scipy to ~3e-14."""
     if x <= 0.0:
@@ -316,7 +316,7 @@ def _gammaincc_nb(a: float, x: float) -> float:
     return math.exp(-x + a * math.log(x) - gln)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _mdlp_cuts_presorted(
     xs: np.ndarray,
     ys: np.ndarray,
@@ -340,7 +340,7 @@ def _mdlp_cuts_presorted(
     return cuts
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _mdlp_dfs(
     xs: np.ndarray,
     ys: np.ndarray,
@@ -421,7 +421,7 @@ def _mdlp_dfs(
         top += 1
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _mi_codes(x: np.ndarray, n_x: int, y: np.ndarray, n_y: int) -> float:
     """Plug-in MI (nats) of two integer-coded vectors; the same contingency formula as ``_parity_fe._mi_codes_njit``."""
     n = x.shape[0]
@@ -442,7 +442,7 @@ def _mi_codes(x: np.ndarray, n_x: int, y: np.ndarray, n_y: int) -> float:
     return mi
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _mi_codes_njit(x_codes: np.ndarray, n_x: int, y_codes: np.ndarray, n_y: int) -> float:
     """Plug-in MI (nats) of two integer-coded vectors from one contingency pass; equals ``sklearn.metrics.mutual_info_score``."""
     n = x_codes.shape[0]
@@ -463,7 +463,7 @@ def _mi_codes_njit(x_codes: np.ndarray, n_x: int, y_codes: np.ndarray, n_y: int)
     return mi
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _n_unique_codes(x: np.ndarray) -> int:
     """Number of distinct codes (occupied bins)."""
     seen = np.zeros(int(x.max()) + 1, dtype=np.bool_)
@@ -475,7 +475,7 @@ def _n_unique_codes(x: np.ndarray) -> int:
     return cnt
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def corrected_mi_best(
     codes_p: np.ndarray, nb_p: np.ndarray, fixed_codes: np.ndarray, fixed_nbins: np.ndarray, cols: np.ndarray, yc: np.ndarray, ny: int, ky_eff: float, n_eff: int, rows: np.ndarray,
 ) -> float:
@@ -504,7 +504,7 @@ def corrected_mi_best(
     return best
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _presorted_dedup(xs: np.ndarray, ys: np.ndarray, n_classes_total: int):
     """``_sorted_dedup`` for a column already sorted by x, ``ys`` the labels in that sorted order. Within each run of equal x the distinct
     labels are emitted ascending, which is the (x, y) order and duplicate removal of the two stable passes, without sorting: only the
@@ -600,7 +600,7 @@ def _relevance_mi_1var_fused(
     return total, bx
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _supervised_edges(v: np.ndarray, cuts: np.ndarray, q_fallback: np.ndarray, q_refine: np.ndarray) -> np.ndarray:
     """Final inner edges of a supervised column, as ``compute_col_edges`` produces them: the MDLP cuts; when none were accepted, the
     unsupervised collapse fallback; otherwise the refine step (adds the fallback cuts when one bin holds more than
@@ -638,7 +638,7 @@ def _supervised_edges(v: np.ndarray, cuts: np.ndarray, q_fallback: np.ndarray, q
     return out[:m]
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _select_in_place(a: np.ndarray, lo: int, hi: int, k: int) -> None:
     """Reorder ``a[lo:hi + 1]`` so that ``a[k]`` holds the value a full sort would put there (smaller or equal values before it, larger or equal after)."""
     while hi > lo:
@@ -666,7 +666,7 @@ def _select_in_place(a: np.ndarray, lo: int, hi: int, k: int) -> None:
             return
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _multi_select_in_place(a: np.ndarray, ks: np.ndarray) -> None:
     """Put the order statistics at the sorted distinct positions ``ks`` in place, by selecting the middle position and then each side on its own range."""
     stack = np.empty((128, 4), dtype=np.int64)
@@ -688,7 +688,7 @@ def _multi_select_in_place(a: np.ndarray, ks: np.ndarray) -> None:
         top += 2
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _few_distinct_levels(x: np.ndarray, limit: int) -> np.ndarray:
     """The sorted distinct values of ``x`` when there are at most ``limit`` of them, else an empty array; stops at the first value that exceeds the limit."""
     levels = np.empty(limit, dtype=x.dtype)
@@ -710,7 +710,7 @@ def _few_distinct_levels(x: np.ndarray, limit: int) -> np.ndarray:
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _continuous_quantile_codes(v_row: np.ndarray, n_bins: int, codes_row: np.ndarray) -> int:
     """Codes of one continuous column into ``codes_row`` (quantile edges, deduplicated); returns the number of distinct codes used."""
     n = v_row.shape[0]
@@ -762,7 +762,7 @@ def _continuous_quantile_codes(v_row: np.ndarray, n_bins: int, codes_row: np.nda
     return top + 1
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray) -> None:
     """Fill ``codes[j]`` (int16) and ``nx[j]`` for every row ``j`` of ``v`` ``(columns, n)`` exactly as ``_quantile_codes`` does for a finite column."""
     k = v.shape[0]
@@ -787,7 +787,7 @@ def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.n
         nx[j] = _continuous_quantile_codes(v[j], n_bins, codes[j])
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def quantile_bin_block(v: np.ndarray, n_bins: int, codes: np.ndarray, two_class: bool = True) -> None:
     """Fill ``codes[j]`` (an integer matrix) for every row ``j`` of the finite block ``v`` ``(columns, n)`` exactly as the CMI-greedy ``_quantile_bin`` does for a finite column.
 
@@ -839,7 +839,7 @@ def quantile_bin_block(v: np.ndarray, n_bins: int, codes: np.ndarray, two_class:
 _CMI_COLUMNS_SPAN_CAP = 4_000_000  # cells of the (x, z) histogram one column may use; a column past it is reported as -1 and scored by the generic path
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _joint_entropy_codes(a: np.ndarray, b: np.ndarray, a_max: int, b_max: int) -> tuple:
     """Plug-in entropy and occupied-cell count of the joint of two non-negative int arrays, with the first-seen cell order and arithmetic of ``_joint_entropy_two_dense_njit``; ``k == -1`` past the span cap."""
     n = a.shape[0]
@@ -868,7 +868,7 @@ def _joint_entropy_codes(a: np.ndarray, b: np.ndarray, a_max: int, b_max: int) -
     return h, nc
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def cmi_columns_given_support(codes: np.ndarray, z: np.ndarray, yz: np.ndarray, h_z: float, k_z: int, h_yz: float, k_yz: int, out: np.ndarray) -> None:
     """``out[j]`` = the Miller-Madow corrected ``CMI(codes[j]; y | z)`` of every row of ``codes`` ``(columns, n)``, where ``yz`` is the dense joint id of ``(y, z)``.
 
@@ -898,7 +898,7 @@ def cmi_columns_given_support(codes: np.ndarray, z: np.ndarray, yz: np.ndarray, 
         out[j] = max(0.0, cmi_plugin - bias)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def stratified_cmi(x: np.ndarray, y: np.ndarray, s: np.ndarray, min_rows: int) -> float:
     """Plug-in I(x; y | s) summed over the strata of ``s`` (non-negative integer codes), skipping strata below ``min_rows`` rows."""
     n = x.shape[0]
@@ -909,7 +909,7 @@ def stratified_cmi(x: np.ndarray, y: np.ndarray, s: np.ndarray, min_rows: int) -
     return cmi
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def stratified_cmi_null(x: np.ndarray, y: np.ndarray, s: np.ndarray, sources: np.ndarray, min_rows: int) -> np.ndarray:
     """I(x_p; y | s) for every row ``p`` of ``sources``, where ``x_p[i] = x[sources[p, i]]`` is x permuted inside each stratum of ``s``."""
     n_perm = sources.shape[0]
@@ -938,7 +938,7 @@ from .supervised_binning import _mdlp_best_split_inc_njit as _mdlp_best_split_nj
 # the root is judged by the analytic test; otherwise it returns UNDECIDED and the caller takes the general route, which is also the route for an accepted root (it needs the cut and the children).
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _permuted_codes(perm, yc, rows):
     """Permuted target codes at the evaluation rows, their class count and the number of occupied classes."""
     ycp = np.empty(rows.shape[0], dtype=np.int64)
@@ -952,7 +952,7 @@ def _permuted_codes(perm, yc, rows):
     return ycp, ny, float((counts > 0).sum())
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _pool_max(pick, ycp, ny, ky_eff, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff):
     """The pool's largest Miller-Madow corrected MI (``corrected_mi_best``'s formula), ``-inf`` when a column has no winner."""
     res = 0.0

@@ -132,7 +132,7 @@ def _run_family_null_sweep():
     )
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _mi_one_column_into(col: np.ndarray, n_x: int, y_codes: np.ndarray, n_y: int, joint: np.ndarray) -> float:
     """Plug-in MI of one column, counting into a caller-owned buffer (no allocation per column and permutation).
 
@@ -163,7 +163,7 @@ def _mi_one_column_into(col: np.ndarray, n_x: int, y_codes: np.ndarray, n_y: int
     return mi
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def family_null_max_njit(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray, n_y: int) -> np.ndarray:
     """Maximum MI over every column of ``cols`` for each row of ``y_perms`` (a block of label permutations).
 
@@ -197,7 +197,7 @@ _perm_block_cache_bytes = 0
 _perm_block_cache_lock = threading.Lock()  # move_to_end, insert and the byte-budget eviction are one read-modify-write on shared state
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _fill_permutations(idx: np.ndarray, base_seed: int) -> None:
     """Fisher-Yates permutations of ``range(n)`` into the rows of ``idx``, one parallel task per row; row ``i`` is seeded ``base_seed + i`` so it does not depend on the thread schedule."""
     m = idx.shape[0]
@@ -652,7 +652,7 @@ _ANALYTIC_FAIL_FACTOR = 3.0
 _ANALYTIC_DENSITY = 4.0
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _occupied_bins(cols: np.ndarray, n_x: np.ndarray) -> np.ndarray:
     """Number of distinct codes present in every row of ``cols`` (k x n integer codes)."""
     k = cols.shape[0]
@@ -874,7 +874,7 @@ def _stack_codes_transposed(mats, widths) -> np.ndarray:
     return cols
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _transpose_into(src, dst, at):
     """``dst[at + j, i] = src[i, j]`` for every element of the ``(n, w)`` block ``src``, in cache-sized tiles, parallel over the rows of ``dst``."""
     n, w = src.shape

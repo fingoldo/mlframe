@@ -154,7 +154,7 @@ def _order_statistics_f32(cp, v_dev, ranks: np.ndarray):
     return bits.view(cp.float32)
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _few_levels_mask(v: np.ndarray, n_bins: int) -> np.ndarray:
     """True for the rows of ``v`` ``(columns, n)`` with at most ``n_bins`` distinct values (the early-exit scan ends within the first few values of a continuous row)."""
     out = np.zeros(v.shape[0], dtype=np.bool_)

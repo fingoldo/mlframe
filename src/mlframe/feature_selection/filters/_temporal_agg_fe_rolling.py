@@ -40,7 +40,7 @@ def engineered_name_rolling(value_col: str, entity_col: str, window: str, stat: 
     return f"troll_{stat}_{window}({value_col}|{entity_col})"
 
 
-@numba.njit(cache=True)
+@numba.njit(cache=True, nogil=True)
 def _rolling_stat_past_only_njit(times, vals, group_codes, td, stat_code, n_groups):
     """Rolling time-window stat over the strict past within each entity. Per-entity history is a newest->oldest
     linked list (``prev``/``last`` int arrays); for each row we walk back while ``times[j] >= t - td`` (ascending

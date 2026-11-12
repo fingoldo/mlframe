@@ -20,6 +20,7 @@ import logging
 
 import numpy as np
 
+from ._kernel_arch_macros import ARCH_THREADS_HEADER
 from ._kernel_types import render
 from ._honest_null_device import _pack_bits_cached
 from ._raw_module_cache import RawModuleCache
@@ -32,9 +33,9 @@ THREADS = 256
 SHARED_BUDGET_BYTES = 22 * 1024  # per table; the kernel holds two of them (row-space and sorted-space labels)
 _MARGIN = 1e-6
 
-_SRC = render(r"""
+_SRC = ARCH_THREADS_HEADER + render(r"""
 #define QCAP 512
-extern "C" __global__ void __launch_bounds__(512, 4) root_split_accept(const int* __restrict__ order, const unsigned int* __restrict__ valid, const unsigned int* __restrict__ ybits,
+extern "C" __global__ void __launch_bounds__(512, MLF_THREADS_PER_SM / 512) root_split_accept(const int* __restrict__ order, const unsigned int* __restrict__ valid, const unsigned int* __restrict__ ybits,
                                              const {ACC}* __restrict__ tab, const {ACC}* __restrict__ thr, const long long n, const int W, const int YW, const int m,
                                              const int B, const {ACC} h_full, const {ACC} pi,
                                              {ACC}* __restrict__ out_gain, int* __restrict__ out_ncand, int* __restrict__ out_idx

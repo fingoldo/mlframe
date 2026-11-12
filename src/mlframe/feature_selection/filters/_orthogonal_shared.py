@@ -31,6 +31,19 @@ def _full_edge_codes(arr: np.ndarray, nbins: int, out: np.ndarray) -> np.ndarray
     return full
 
 
+def mean_fill_nonfinite(x: np.ndarray) -> None:
+    """Replace the non-finite entries of ``x`` by the mean of its finite ones (0 when there are none), in place."""
+    finite_mask = np.isfinite(x)
+    if not finite_mask.all():
+        fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
+        np.copyto(x, np.where(finite_mask, x, fill))
+
+
+def leg_eng_col_name(cols: "tuple[str, ...]", code: str, degs: "tuple[int, ...]") -> str:
+    """``"{col_1}*...*{col_n}__{code}{deg_1}_..._{code}{deg_n}"``: the stable name of an engineered product of ``n`` basis legs (``code`` is the leg-1 basis code)."""
+    return "*".join(cols) + "__" + "_".join(f"{code}{d}" for d in degs)
+
+
 def quantile_bin_batched(arr: np.ndarray, nbins: int) -> np.ndarray:
     """Vectorised equi-frequency bin of a 2-D (n, k) all-finite float array.
 

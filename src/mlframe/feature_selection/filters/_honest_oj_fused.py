@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 _PERM_BLOCK = 64  # permutations drawn on the host and scored per kernel launch
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _fold_targets(perm, y_raw, nv, val_idx):
     """Fold targets ``y_raw[perm[val rows]]`` of one permutation and their class counts ``K = max + 1``."""
     n_f = nv.shape[0]
@@ -48,7 +48,7 @@ def _fold_targets(perm, y_raw, nv, val_idx):
     return vy, ky
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _mean_fold_mi(xb, kx, nv, vy, ky, j, m):
     """Mean fold MI of candidate ``m`` of column ``j`` (``-inf`` when no fold scored it)."""
     total = 0.0
@@ -63,7 +63,7 @@ def _mean_fold_mi(xb, kx, nv, vy, ky, j, m):
     return total / cells if cells > 0 else -np.inf
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _winners(xb, kx, nv, vy, ky):
     """Winning candidate index of every re-binned column (``-1`` when none was scored): the loop of ``_oj_pick_candidates``."""
     p, n_m = kx.shape[1], kx.shape[2]
@@ -78,7 +78,7 @@ def _winners(xb, kx, nv, vy, ky):
     return pick
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _px_table(xb, kx, nv):
     """``(F, P, M, max k_x)`` bin counts of every fold cell: they do not depend on the permutation (the codes are fixed, only the target moves)."""
     n_f, p, n_m = kx.shape
@@ -92,7 +92,7 @@ def _px_table(xb, kx, nv):
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _minority_rows(vy, nv, ky):
     """Per fold, the rows outside the most frequent class (``(F, max nv)`` row lists, their lengths) and that class: only those rows are scattered."""
     n_f = nv.shape[0]
@@ -111,7 +111,7 @@ def _minority_rows(vy, nv, ky):
     return idx, cnt, cmax
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _mi_from_minority(xrow, vy_f, rows, n_rows, px, k_x, k_y, cmax, n):
     """``_plug_in_mi_njit(xrow, vy_f, k_x, k_y, False)`` bit for bit: the joint counts of the majority class column are the bin counts ``px`` minus the
     other classes' (exact integers in double), so only the minority rows are scattered; Px, Py and the MI sum run in the same order."""
@@ -145,7 +145,7 @@ def _mi_from_minority(xrow, vy_f, rows, n_rows, px, k_x, k_y, cmax, n):
     return mi
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _winners_minority(xb, kx, nv, vy, ky, px):
     """:func:`_winners` with every fold MI from :func:`_mi_from_minority` (same picks, same numbers, fewer scattered rows)."""
     p, n_m = kx.shape[1], kx.shape[2]
@@ -170,24 +170,19 @@ def _winners_minority(xb, kx, nv, vy, ky, px):
     return pick
 
 
-@njit(cache=True, parallel=True)
-def _fused_block(perms, y_raw, yc, rows, xb, kx, nv, val_idx, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, out):
-    """``out[b]`` = the pool's largest corrected MI under permutation ``perms[b]``, ``-inf`` when a column had no scored candidate (the caller declines)."""
+@njit(cache=True, parallel=True, nogil=True)
+def _fused_block(perms, y_raw, yc, rows, xb, kx, nv, val_idx, px, minority, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, out):
+    """``out[b]`` = the pool's largest corrected MI under permutation ``perms[b]``, ``-inf`` when a column had no scored candidate (the caller declines).
+
+    ``minority`` picks the winners with :func:`_winners_minority` (bin counts ``px`` from :func:`_px_table`, the dispatched variant) or with the exact :func:`_winners` (``px``
+    is then unused, pass an empty array): the same ``out`` either way, which ``test_honest_oj_minority`` pins bit for bit."""
     for b in prange(perms.shape[0]):
         perm = perms[b]
         vy, ky = _fold_targets(perm, y_raw, nv, val_idx)
-        pick = _winners(xb, kx, nv, vy, ky)
-        ycp, ny, ky_eff = _permuted_codes(perm, yc, rows)
-        out[b] = _pool_max(pick, ycp, ny, ky_eff, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff)
-
-
-@njit(cache=True, parallel=True)
-def _fused_block_minority(perms, y_raw, yc, rows, xb, kx, nv, val_idx, px, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, out):
-    """:func:`_fused_block` with the winners from :func:`_winners_minority` (bin counts ``px`` from :func:`_px_table`); the same ``out``."""
-    for b in prange(perms.shape[0]):
-        perm = perms[b]
-        vy, ky = _fold_targets(perm, y_raw, nv, val_idx)
-        pick = _winners_minority(xb, kx, nv, vy, ky, px)
+        if minority:
+            pick = _winners_minority(xb, kx, nv, vy, ky, px)
+        else:
+            pick = _winners(xb, kx, nv, vy, ky)
         ycp, ny, ky_eff = _permuted_codes(perm, yc, rows)
         out[b] = _pool_max(pick, ycp, ny, ky_eff, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff)
 
@@ -200,7 +195,7 @@ def _declined(reason: str) -> None:
     return None
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _perm_block(n, base_seed, b0, b1):
     """``(b1 - b0, n)`` permutations ``seeded_permutation(n, base_seed + b)`` for ``b`` in ``[b0, b1)``, drawn in parallel (the same streams)."""
     out = np.empty((b1 - b0, n), dtype=np.int64)
@@ -209,7 +204,7 @@ def _perm_block(n, base_seed, b0, b1):
     return out
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _occupied_bins(pool_rc):
     """``(n_pool, n_counts)`` float number of distinct codes of every pool code row."""
     n_pool, n_m = pool_rc.shape[0], pool_rc.shape[1]
@@ -372,7 +367,7 @@ def _score_block(dev, dev_pool, perms, y_int, yc, rows, xb, kx, nv, val_idx, px,
 
         _pool_block(perms, picks, yc, rows, *pool_args, out)
     else:
-        _fused_block_minority(perms, y_int, yc, rows, xb, kx, nv, val_idx, px, *pool_args, out)
+        _fused_block(perms, y_int, yc, rows, xb, kx, nv, val_idx, px, True, *pool_args, out)
     return out, None
 
 

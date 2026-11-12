@@ -16,7 +16,7 @@ import numpy as np
 from numba import njit
 
 
-@njit(cache=True, inline="always")
+@njit(cache=True, inline="always", nogil=True)
 def seed_state(seed: int) -> np.uint64:
     """Non-zero xorshift state of ``seed`` (splitmix64 finaliser)."""
     z = np.uint64(seed) + np.uint64(0x9E3779B97F4A7C15)
@@ -28,7 +28,7 @@ def seed_state(seed: int) -> np.uint64:
     return np.uint64(x)
 
 
-@njit(cache=True, inline="always")
+@njit(cache=True, inline="always", nogil=True)
 def next_state(x: np.uint64) -> np.uint64:
     """One xorshift64 step."""
     x ^= x >> np.uint64(12)
@@ -37,14 +37,14 @@ def next_state(x: np.uint64) -> np.uint64:
     return x
 
 
-@njit(cache=True, inline="always")
+@njit(cache=True, inline="always", nogil=True)
 def bounded(x: np.uint64, bound: int) -> Any:
     """A value in ``[0, bound)`` from the state ``x`` (``bound`` at most 2**32)."""
     r = (x * np.uint64(2685821657736338717)) >> np.uint64(32)
     return np.int64((r * np.uint64(bound)) >> np.uint64(32))
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def shuffle_labels_into(src: np.ndarray, dst: np.ndarray, seed: int) -> None:
     """``dst`` = ``src`` read through the Fisher-Yates shuffle seeded ``seed`` (``src[seeded_permutation(len(src), seed)]``). The one permutation draw of the MDLP split tests: the serial
     per-node test, the per-node null and the batched level test all call it, so they cannot drift to different streams."""

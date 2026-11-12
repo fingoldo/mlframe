@@ -106,7 +106,7 @@ def _mi(counts, nb, ky, n_tot):
                 mi += (kk / n_tot) * np.log(kk * n_tot / (px[b] * py[c]))
     return mi
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def eval_candidates(Zt: np.ndarray, subsets: np.ndarray, sizes: np.ndarray, stats: np.ndarray, ycodes: np.ndarray, ky: int, nb: int, out_even: np.ndarray, out_odd: np.ndarray) -> None:
     """Even-row and odd-row plug-in MI of each candidate.
 
@@ -137,7 +137,7 @@ def eval_candidates(Zt: np.ndarray, subsets: np.ndarray, sizes: np.ndarray, stat
         out_even[b] = _mi(counts[0], nb, ky, n_even)
         out_odd[b] = _mi(counts[1], nb, ky, n - n_even)
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def stat_column(Zt: np.ndarray, subset: np.ndarray, k: int, stat: int) -> np.ndarray:
     """The statistic of every row of ``Zt`` over the columns ``subset[:k]`` (rows in parallel)."""
     n = Zt.shape[1]
@@ -303,7 +303,7 @@ def _mi_from_counts(counts, nb, ky, n_tot):
                 mi += (k / n_tot) * np.log(k * n_tot / (px[b] * py[c]))
     return mi
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def scan_offset_products(U: np.ndarray, tasks: np.ndarray, yr: np.ndarray, ycodes: np.ndarray, ky: int, nb: int, clips: np.ndarray, out_shift: np.ndarray, out_mi: np.ndarray) -> None:
     """Score every ``(column pair, unary pair)`` task.
 
@@ -369,7 +369,7 @@ def scan_offset_products(U: np.ndarray, tasks: np.ndarray, yr: np.ndarray, ycode
             for q in range(nf):
                 out_mi[k, sp, q] = _mi_from_counts(counts[q, sp], nb, ky, n_sp)
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def weighted_sum_heldout_mi(u: np.ndarray, v: np.ndarray, codes: np.ndarray, ky: int, nb: int, n_dirs: int) -> float:
     """Held-out MI of the best weighted sum ``cos(t) * u / sd(u) + sin(t) * v / sd(v)`` of the two factors, the direction ``t`` chosen over ``n_dirs`` directions of the full circle by the MI on
     the even rows and scored on the odd rows (edges from a ``N_EDGE_SUBSAMPLE``-row sample of the even rows, as in the scan).

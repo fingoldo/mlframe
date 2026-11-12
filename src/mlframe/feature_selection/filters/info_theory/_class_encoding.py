@@ -7,7 +7,7 @@ import numpy as np
 from numba import njit
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def merge_vars(
     factors_data: np.ndarray,
     vars_indices: Sequence[int],
@@ -97,7 +97,7 @@ def merge_vars(
     return final_classes, freqs / n_rows, current_nclasses
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def joint_freqs_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb_b: int) -> np.ndarray:
     """Normalized NONZERO joint-class frequencies for the column PAIR ``(ia, ib)`` -
     BIT-IDENTICAL to ``merge_vars(factors_data, [ia, ib], None, factors_nbins, dtype)[1]``

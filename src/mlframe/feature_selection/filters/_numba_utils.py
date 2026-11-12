@@ -62,7 +62,7 @@ from ._numba_utils_offset import (  # noqa: F401
 )
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def count_cand_nbins(X: Sequence[int], factors_nbins: np.ndarray) -> int:
     """Sum the bin count across the factors named in candidate ``X``. Used by ``screen_predictors`` to gate the confirmation step (permutation testing is
     skipped when the conditioning set has more bins than ``MAX_CONFIRMATION_CAND_NBINS``)."""
@@ -72,7 +72,7 @@ def count_cand_nbins(X: Sequence[int], factors_nbins: np.ndarray) -> int:
     return sum_cand_nbins
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def distribute_permutations(npermutations: int, n_workers: int) -> list:
     """Split ``npermutations`` across ``n_workers``; the remainder lands on the last worker."""
     avg_perms_per_worker = npermutations // n_workers
@@ -119,7 +119,7 @@ def _joint_mi_3d_njit(x: np.ndarray, z: np.ndarray, y: np.ndarray, K_x: int, K_z
     return max(0.0, mi)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _pair_mm_mi_njit(code_x, code_y, target, kx, ky, kt, min_rows_per_cell):
     """Fused O(n) Miller-Madow-corrected joint MI ``I({X,Y}; T)`` for a CODE PAIR - the
     nopython equivalent of ``joint_synergy_mi(code_x, code_y, target)``, with NO
@@ -183,7 +183,7 @@ def _pair_mm_mi_njit(code_x, code_y, target, kx, ky, kt, min_rows_per_cell):
     return val if val > 0.0 else 0.0
 
 
-@njit(cache=True, fastmath=True, inline="always")
+@njit(cache=True, fastmath=True, inline="always", nogil=True)
 def _edge_bin_codes(val: np.ndarray, n_bins: int, codes_out: np.ndarray) -> int:
     """Equi-frequency PERCENTILE-EDGE bin ``val`` (finite double) into ``codes_out`` (int32, in
     [0, n_bins)). Matches the GPU orth twin ``_hermite_fe_mi._plugin_mi_classif_batch_cuda_resident``
@@ -238,7 +238,7 @@ def _edge_bin_codes(val: np.ndarray, n_bins: int, codes_out: np.ndarray) -> int:
     return n_bins
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _plugin_mi_classif_edge_njit(x: np.ndarray, y: np.ndarray, n_bins: int) -> float:
     """Plain plug-in MI of continuous x (1-D double) with discrete y (1-D int64), EDGE-binning x.
     Same plug-in estimator (nats) and occupied-cell reduction order as
@@ -284,7 +284,7 @@ def _plugin_mi_classif_edge_njit(x: np.ndarray, y: np.ndarray, n_bins: int) -> f
     return mi
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def plugin_mi_classif_batch_edge_njit(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Edge-binning plain plug-in MI of each column of ``X_cols`` (continuous, (n,k) double) with discrete
     y. Parallel over columns. The CPU batcher's per-column MI core; identical (to ~fp reduction order) to
@@ -296,7 +296,7 @@ def plugin_mi_classif_batch_edge_njit(X_cols: np.ndarray, y: np.ndarray, n_bins:
     return out
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _plugin_mi_classif_njit(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
     """Plug-in MI estimator for continuous x (1-D double) and discrete y (1-D int64). Returns MI in nats.
     ~50x faster than sklearn for n<=10k, single-thread."""
@@ -344,7 +344,7 @@ def _plugin_mi_classif_njit(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> f
         mi = 0.0
     return mi
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _plugin_mi_regression_njit(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
     """Plug-in MI for continuous x (1-D) and continuous y (1-D). Bin both into n_bins equi-frequency bins, then plug-in estimator."""
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
@@ -382,7 +382,7 @@ def _plugin_mi_regression_njit(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -
     return mi
 
 
-@njit(cache=True)  # no fastmath: fastmath folds the NaN test below to False, so the NaN keying would silently disappear
+@njit(cache=True, nogil=True)  # no fastmath: fastmath folds the NaN test below to False, so the NaN keying would silently disappear
 def _quantile_bin_sorted_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Quantile-bin a 1-D continuous array into n_bins equi-frequency bins. Returns int32 bin indices in [0, n_bins).
 
@@ -432,7 +432,7 @@ def _quantile_bin_sorted_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     return out
 
 
-@njit(cache=True)  # no fastmath: the NaN test below must not be optimised away (a NaN would reach the selection)
+@njit(cache=True, nogil=True)  # no fastmath: the NaN test below must not be optimised away (a NaN would reach the selection)
 def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Quantile-bin a 1-D continuous array into n_bins equi-frequency bins. Returns int32 bin indices in [0, n_bins).
 
@@ -495,7 +495,7 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
 _EVALUATE_GAIN_DISK_CACHE = os.environ.get("CI", "").strip().lower() not in ("1", "true", "yes")
 
 
-@njit(cache=_EVALUATE_GAIN_DISK_CACHE)
+@njit(cache=_EVALUATE_GAIN_DISK_CACHE, nogil=True)
 def _jmim_additional_knowledge(X, Z, y, factors_data, factors_nbins, dtype, nexisting, confidence_mode, cached_jmim_MIs, jmim_hit_counter, jmim_discount_only):
     """JMIM joint MI ``I({X, Z}; Y)`` for one ``(X, Z)`` pair, read from / written to the JMIM cache, with the ``nexisting`` exponent applied.
 
@@ -547,7 +547,7 @@ def _jmim_additional_knowledge(X, Z, y, factors_data, factors_nbins, dtype, nexi
     return additional_knowledge
 
 
-@njit(cache=_EVALUATE_GAIN_DISK_CACHE)
+@njit(cache=_EVALUATE_GAIN_DISK_CACHE, nogil=True)
 def _fleuret_additional_knowledge(
     X: Any, Z: Any, y: Any, factors_data: Any, factors_nbins: Any, nexisting: Any, entropy_cache: Any, cached_cond_MIs: Any, cached_jmim_MIs: Any, jmim_hit_counter: Any,
     can_use_x_cache: Any, can_use_y_cache: Any, dtype: Any, confidence_mode: Any, use_su: Any, use_jmim: Any, jmim_discount_only: Any, use_mm: Any,
@@ -671,7 +671,7 @@ def _fleuret_additional_knowledge(
 # jmim_discount_only: MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY, read by the Python caller (see jmim_exponent_discount_only)
 # use_mm: N-F2: Miller-Madow toggle for the redundancy CMI, threaded like use_su so the redundancy carries the SAME bias correction as the MM relevance.
 #   Default False -> plug-in redundancy, unchanged.
-@njit(cache=_EVALUATE_GAIN_DISK_CACHE)
+@njit(cache=_EVALUATE_GAIN_DISK_CACHE, nogil=True)
 def evaluate_gain(
     current_gain: float, last_checked_k: int, direct_gain: float, X: np.ndarray, y: np.ndarray, nexisting: int, best_gain: float,
     factors_data: np.ndarray, factors_nbins: np.ndarray, selected_vars: np.ndarray, mrmr_relevance_algo: str = "fleuret",
@@ -765,7 +765,7 @@ def evaluate_gain(
 _DEFAULT_BASE_SEED = np.uint64(0)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _fleuret_shuffle_col_lcg(col: np.ndarray, state: np.uint64) -> np.uint64:
     """Inline Fisher-Yates over a 1-D column slice using the same LCG schedule as ``permutation.shuffle_arr_lcg``.
 
@@ -782,7 +782,7 @@ def _fleuret_shuffle_col_lcg(col: np.ndarray, state: np.uint64) -> np.uint64:
     return state
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _restore_saved_columns(data_copy, y, x, saved_y, saved_x, extra_x_shuffling):
     """Write the saved original values of the permuted ``y`` columns (and of ``x`` when it is shuffled too) back into ``data_copy``."""
     for _sj in range(len(y)):
@@ -792,7 +792,7 @@ def _restore_saved_columns(data_copy, y, x, saved_y, saved_x, extra_x_shuffling)
             data_copy[:, x[_sj]] = saved_x[_sj, :]
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def get_fleuret_criteria_confidence(
     data_copy: np.ndarray,
     factors_nbins: np.ndarray,

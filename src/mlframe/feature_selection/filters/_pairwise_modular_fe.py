@@ -204,7 +204,7 @@ def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: i
             out[idx] = float(mis[j])
     return out
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _residue_rank_scores(cols: np.ndarray, ia: np.ndarray, ib: np.ndarray, mods: np.ndarray, ycls: np.ndarray, n_cls: int) -> np.ndarray:
     """Plug-in MI of ``(a op b) mod k`` vs the class of y, best over the three pair operators and the moduli, for every pair ``(ia[q], ib[q])``.
 
@@ -234,7 +234,7 @@ def _residue_rank_scores(cols: np.ndarray, ia: np.ndarray, ib: np.ndarray, mods:
     return scores
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _residue_best_mi(cols, a, b, mods, ycls, n, n_cls, hy, joint, marg):
     """Best plug-in MI of ``(a op b) mod k`` vs the class over the three pair operators and every modulus in ``mods``.
 
@@ -320,7 +320,7 @@ def _rank_subsample(cols: Sequence[str], arrs: dict, yi: np.ndarray, seed: int) 
     return mat, ysub
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _residue_rank_scores3(cols: np.ndarray, ia: np.ndarray, ib: np.ndarray, ic: np.ndarray, mods: np.ndarray, ycls: np.ndarray, n_cls: int) -> np.ndarray:
     """Plug-in MI of ``(a + b + c) mod k`` vs the class of y, best over the moduli, for every triple ``(ia[q], ib[q], ic[q])``.
 

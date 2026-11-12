@@ -345,7 +345,7 @@ def edges(arr: np.ndarray, quantiles: Sequence[float] | np.ndarray) -> np.ndarra
     bin_edges = np.asarray(np.nanpercentile(arr, quantiles))
     return bin_edges
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _percentiles_like_numpy(values: np.ndarray, quantiles: np.ndarray) -> np.ndarray:
     """``np.percentile(values, quantiles)`` (linear method) with numpy's own lerp, evaluated in double precision.
 
@@ -370,7 +370,7 @@ def _percentiles_like_numpy(values: np.ndarray, quantiles: np.ndarray) -> np.nda
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform", min_value: Optional[float] = None, max_value: Optional[float] = None) -> np.ndarray:
     """Numba-jitted binning-edge calculator. Used by ``discretize_2d_array`` (itself ``@njit(parallel=True)`` and cannot dispatch to object-mode helpers).
 

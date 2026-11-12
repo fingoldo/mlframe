@@ -83,7 +83,7 @@ def _pair_maxt_max_rows() -> int:
     return v if v >= 0 else _default_pair_maxt_max_rows()
 
 
-@numba.njit(cache=True, parallel=True)
+@numba.njit(cache=True, parallel=True, nogil=True)
 def _pooled_gain_floor_perms_njit(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n):
     """Per-shuffle MAX corrected marginal MI over the candidate pool, fused into one njit pass.
 
@@ -129,7 +129,7 @@ def _pooled_gain_floor_perms_njit(scaled_flat, offsets, joint_card, h_x, mm_bias
     return maxes
 
 
-@numba.njit(cache=True, parallel=True)
+@numba.njit(cache=True, parallel=True, nogil=True)
 def _gen_target_shuffles_par_njit(y_codes, nperm, base_seed):
     """Generate ``nperm`` independent uniform target shuffles in a thread-parallel Fisher-Yates pass.
 
@@ -442,7 +442,7 @@ def pooled_permutation_null_gain_floor(
     return float(np.quantile(maxes, float(quantile)))
 
 
-@numba.njit(cache=True)
+@numba.njit(cache=True, nogil=True)
 def _pairwise_occupied_joint_k_njit(factors_data, pair_a, pair_b, nbins):
     """njit twin of :func:`_pairwise_occupied_joint_k`: counts the SAME distinct joint
     codes ``a*nbins_b + b`` per pair via a flat boolean ``seen`` buffer of length

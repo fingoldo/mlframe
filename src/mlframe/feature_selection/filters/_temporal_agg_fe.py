@@ -196,7 +196,7 @@ def _group_row_slices(codes_sorted: np.ndarray, n_codes: int) -> list[np.ndarray
 
 _EXPANDING_STAT_CODE = {"count": 0, "mean": 1, "std": 2, "min": 3, "max": 4}
 
-@numba.njit(cache=True)
+@numba.njit(cache=True, nogil=True)
 def _expanding_stat_past_only_njit(sorted_vals, group_codes, stat_code, n_groups):
     """Sequential per-entity expanding stat over the strict past. Dense int-code accumulator ARRAYS (indexed by the
     per-entity code) replace the Python dicts of the reference loop - same running arithmetic, bit-identical incl NaN.
@@ -353,7 +353,7 @@ def _reduce(arr: np.ndarray, stat: str) -> float:
 # Lag features
 # ---------------------------------------------------------------------------
 
-@numba.njit(cache=True)
+@numba.njit(cache=True, nogil=True)
 def _lag_ring_buffer_njit(sorted_vals, group_codes, lags_arr, n_groups):
     """Single pass emitting EVERY requested lag via a per-entity ring buffer of size ``max(lags_arr)``, replacing
     an independent per-lag rescan of the identical per-entity sequence (the previous per-lag Python loop redid

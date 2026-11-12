@@ -45,7 +45,7 @@ def _preprocess_zscore(x):
     return (x - mean) / std, dict(mean=mean, std=std)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _minmax_neg1_1_njit(x: np.ndarray):
     """Fused min/max + [-1, 1] rescale for the clean (non-heavy-tail) min-max preprocessor. One reduction pass + one
     output pass instead of numpy's np.min + np.max + elementwise (three full passes) on the 1M-row operand. Bit-identical

@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _bitpack_rows_njit(arr: np.ndarray) -> np.ndarray:
     """Fused per-row bit-pack of an (n, k) bool/uint8 isna block into one int64 per row.
 

@@ -62,7 +62,7 @@ if TYPE_CHECKING:
     import polars as pl
     from .engineered_recipes import EngineeredRecipe
 
-@numba.njit(cache=True, fastmath=False)
+@numba.njit(cache=True, fastmath=False, nogil=True)
 def _lattice_gcd_lcm_and_njit(a, b):
     """Fused (n, 3) integer-lattice block for the default ops order (gcd, lcm, bitwise_and): one pass computes the
     Euclidean gcd once, reuses it for lcm (|a|*|b|/gcd in float, matching the numpy path), and the bitwise-and.

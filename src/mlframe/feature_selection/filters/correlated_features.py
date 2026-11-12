@@ -56,7 +56,7 @@ def _su_pairs_python(codes: np.ndarray, ncats: np.ndarray, h: np.ndarray) -> np.
 
 if _HAVE_NUMBA:
 
-    @numba.njit(cache=True, parallel=True)
+    @numba.njit(cache=True, parallel=True, nogil=True)
     def _su_pairs_njit(codes, ncats, h):
         """Fused joint-histogram + entropy SU matrix. prange over row ``a`` writes ONLY the strict upper
         triangle (row a, cols > a) so no two threads touch the same cell; the caller symmetrises. Removes

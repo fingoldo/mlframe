@@ -75,7 +75,7 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
 
 
 # op codes for the fused kernel: 0=mod, 1=sin, 2=cos
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _modular_njit(arr: np.ndarray, p: float, op_code: int) -> np.ndarray:
     """Fused single-pass modular transform: residue ``x mod p`` (op 0), or
     ``sin``/``cos`` of its phase (ops 1/2), with NaN/inf -> 0. Replaces the
@@ -102,7 +102,7 @@ def _modular_njit(arr: np.ndarray, p: float, op_code: int) -> np.ndarray:
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _modular_all_ops_njit(arr: np.ndarray, p: float):
     """Fused single-pass kernel emitting all three modular ops (mod / sin / cos) for one ``(col, period)``.
 

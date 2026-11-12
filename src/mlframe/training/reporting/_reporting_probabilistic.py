@@ -280,143 +280,11 @@ def report_probabilistic_model_perf(
     # produced for the single most important classification chart, not just PNG.
     st._plot_outputs_dsl = plot_outputs if plot_outputs else None
 
-    st.true_classes = []
-    _report_probabilistic_step1_produced_single_most(
-        classes,
-        target_label_encoder,
-        st,
-        targets,
-        probs,
-        report_title,
-        model_name,
-        custom_ice_metric,
-        n_features,
-        columns,
-        custom_rice_metric,
-        calib_report_ndigits,
-        plot_file,
-        use_weights,
-        nbins,
-        group_ids,
-        figsize,
-        show_perf_chart,
-        verbose,
-        show_prob_histogram,
-        prob_histogram_yscale,
-        show_inline_population_labels,
-        plot_dpi,
-        reliability_smoothed,
-        title_metrics_tokens,
-        f1_opt_threshold,
-        tune_f1_threshold,
-        metrics,
-        calibration_binning,
-        reliability_show_ci,
-        print_report,
-        calibs,
-        pr_aucs,
-        report_ndigits,
-        roc_aucs,
-        brs,
-        integral_errors,
-        log_losses,
-        robust_integral_errors,
-    )
-
-    # audit batch: post-loop macro / weighted aggregation across
-    # classes. The per-class loop above stamped each class's KS / MCC / F1 /
-    # BSS / HL / AccuracyRatio / ROC_AUC / log_loss / ... but provided no
-    # single scalar to compare two multiclass models. We compute:
-    #   macro_<m>    = mean of class-m across classes (equal weight)
-    #   weighted_<m> = mean weighted by class true-support (prevalence)
-    # for every scalar emitted under per-class dicts. NaN-safe: a class
-    # whose metric is NaN (e.g. AUC on a single-class slice) is dropped
-    # from the macro mean and its support excluded from the weighted denom.
-    # Skipped entirely on binary (single positive class, aggregation
-    # collapses to the per-class value itself - no new information).
-    _report_probabilist_collapses_per_class_value(metrics, st.is_multilabel, classes, targets)
-
-    # Registered single-label classification scalars (quadratic_weighted_kappa / weighted_kappa /
-    # exploss from metrics_registry). Mirrors the multilabel dispatch below, but lands the values in
-    # the metrics dict so the suite reports them automatically for binary/multiclass targets. Each
-    # metric is isolated by iter_extra_metrics' own narrow try/except, so a degenerate class slice
-    # omits only that row (logged) rather than poisoning the report.
-    _report_probabilist_omits_only_row_logged(st.is_multilabel, probs, print_report, metrics, targets, preds, report_ndigits)
-
-    _report_probabilistic_step2_omits_only_row(
-        print_report,
-        st,
-        targets,
-        preds,
-        classes,
-        report_ndigits,
-        report_title,
-        model_name,
-        roc_aucs,
-        pr_aucs,
-        calibs,
-        brs,
-        log_losses,
-        integral_errors,
-        custom_ice_metric,
-        custom_rice_metric,
-        robust_integral_errors,
-        probs,
-    )
-
-    # Binary positive-class indicator (0/1) for the fairness + calibration-chart paths.
-    # Those consumers (fast_roc_auc, ECE binning) assume y_true is a 0/1 indicator;
-    # the raw ``targets`` may carry non-0/1 binary labels (e.g. {1,2} or strings),
-    # which silently inverts / NaNs the AUC and corrupts ECE base rates. Map once to
-    # the positive class (column 1 of probs == classes[1] by sklearn convention).
+    from mlframe.training.reporting._reporting_probabilistic_charts import _report_probabilistic_class_stages
+    _report_probabilistic_class_stages(st, classes, target_label_encoder, targets, probs, report_title, model_name, custom_ice_metric, n_features, columns, custom_rice_metric, calib_report_ndigits, plot_file, use_weights, nbins, group_ids, figsize, show_perf_chart, verbose, show_prob_histogram, prob_histogram_yscale, show_inline_population_labels, plot_dpi, reliability_smoothed, title_metrics_tokens, f1_opt_threshold, tune_f1_threshold, metrics, calibration_binning, reliability_show_ci, print_report, calibs, pr_aucs, report_ndigits, roc_aucs, brs, integral_errors, log_losses, robust_integral_errors, preds)
     st._y_true_pos_bin = None
-    if probs is not None and probs.shape[1] == 2:
-        st._pos_label = classes[1] if classes is not None and len(classes) > 1 else 1
-        st._y_true_pos_bin = (np.asarray(targets) == st._pos_label).astype(np.int8)
-
-    _report_probabilist_subgroups(
-        subgroups,
-        custom_ice_metric,
-        probs,
-        st._pos_label,
-        subset_index,
-        targets,
-        print_report,
-        metrics,
-        fairness_calibration_charts,
-        plot_file,
-        st._y_true_pos_bin,
-        plot_outputs,
-    )
-
-    # Per-feature calibration: a pooled reliability curve can hide miscalibration that varies with a continuous
-    # feature (calibrated for low values, overconfident for high). Render reliability+ECE conditioned on the
-    # top-importance feature(s) for binary targets. Default-ON when charts are saved AND a feature frame is present.
-    if calibration_by_feature_charts and plot_file and probs is not None and probs.shape[1] == 2 and df is not None:
-        _render_calibration_by_feature(
-            df=df,
-            columns=columns,
-            model=model,
-            y_true=st._y_true_pos_bin,
-            pos_score=probs[:, 1],
-            plot_file=plot_file,
-            plot_outputs=plot_outputs,
-            metrics=metrics,
-        )
-
-    # 2D calibration heatmap: a miscalibration pocket may surface only at a joint corner of the TOP-2 features (high f0
-    # AND high f1) that either 1D per-feature view averages away. Render the ECE grid for the top-2-importance pair.
-    if calibration_heatmap_2d_charts and plot_file and probs is not None and probs.shape[1] == 2 and df is not None:
-        _render_calibration_heatmap_2d(
-            df=df,
-            columns=columns,
-            model=model,
-            y_true=st._y_true_pos_bin,
-            pos_score=probs[:, 1],
-            plot_file=plot_file,
-            plot_outputs=plot_outputs,
-            metrics=metrics,
-        )
+    from mlframe.training.reporting._reporting_probabilistic_charts import _report_probabilistic_plot_charts
+    _report_probabilistic_plot_charts(probs, classes, st, targets, subgroups, custom_ice_metric, subset_index, print_report, metrics, fairness_calibration_charts, plot_file, plot_outputs, calibration_by_feature_charts, df, columns, model, calibration_heatmap_2d_charts)
 
     return preds, probs
 
@@ -488,6 +356,80 @@ def _append_class_summary(
         log_losses.append(f"{str_class_name}={ll:.{report_ndigits}f}")
     if rice_reported:
         robust_integral_errors.append(f"{str_class_name}={class_robust_integral_error:.{report_ndigits}f}")
+
+
+def _class_plot_paths(plot_file, str_class_name: str, class_id: int, n_classes: int) -> tuple:
+    """``(perfplot path, base path)`` of one class's reliability chart; ``("", "")`` without ``plot_file``.
+
+    Every class gets a distinct filename: a bare ``_perfplot.png`` reused inside the class loop kept only the LAST class's chart for multiclass and multilabel runs. The class id keeps the
+    name unique even when two labels slugify to the same string, the slug keeps it readable, and ``base_path`` carries the same per-class suffix so the DSL render path writes distinct files too."""
+    if not plot_file:
+        return "", ""
+    slug = _slugify_class(str_class_name)
+    suffix = f"_perfplot_c{class_id}_{slug}" if n_classes != 2 else "_perfplot"
+    return f"{plot_file}{suffix}.png", f"{plot_file}{suffix}"
+
+
+def _base_calibration_report_kwargs(
+    y_true, y_score, title, class_perfplot, use_weights, nbins, group_ids, figsize, show_perf_chart, calib_report_ndigits, verbose,
+    show_prob_histogram, prob_histogram_yscale, show_inline_population_labels, plot_dpi, reliability_smoothed,
+) -> dict:
+    """The fixed keyword arguments of one class's ``fast_calibration_report`` call (the optional ones are added by the caller).
+
+    ``plot_file`` and ``show_perf_chart`` are intentionally independent: ``plot_file`` (derived from ``data_dir``) controls whether plots are SAVED to disk, ``show_perf_chart`` only the
+    interactive DISPLAY (``plt.show``). Saving plots with ``show_perf_chart=False`` is deliberate: users get artifacts on disk without GUI popups, and the Agg save-only fast path in
+    ``show_calibration_plot`` handles it without Qt overhead."""
+    return dict(
+        y_true=y_true,
+        y_pred=y_score,
+        use_weights=use_weights,
+        nbins=nbins,
+        group_ids=group_ids,
+        title=title,
+        figsize=figsize,
+        plot_file=class_perfplot,
+        show_plots=show_perf_chart,
+        ndigits=calib_report_ndigits,
+        verbose=verbose,
+        show_prob_histogram=show_prob_histogram,
+        prob_histogram_yscale=prob_histogram_yscale,
+        show_inline_population_labels=show_inline_population_labels,
+        dpi=plot_dpi,
+        # Smoothed isotonic reliability overlay: fast_calibration_report forwards the per-row (y_pred, y_true) views it already holds as raw_probs/raw_labels,
+        # so the overlay is default-ON in suite reliability diagrams.
+        reliability_smoothed=reliability_smoothed,
+    )
+
+
+def _store_class_metrics(
+    metrics, class_id, str_class_name, y_true, y_score, roc_auc, pr_auc, calibration_mae, calibration_std, brier_loss, ece, brier_reliability,
+    brier_resolution, brier_uncertainty, ll, ice, class_integral_error, precision, recall, f1, custom_rice_metric, custom_ice_metric, class_robust_integral_error,
+) -> None:
+    """Record one class's metrics in ``metrics[class_id]``, extended with the confusion-derived and probability-derived blocks.
+
+    Both blocks are fused single-pass kernels, so the cost is dominated by ONE walk over ``(y_true, y_pred)`` and ONE over ``(y_true, y_score)``. Failures are narrow-catch and warn-loud
+    rather than silently dropping the new fields."""
+    class_metrics = dict(
+        roc_auc=roc_auc,
+        pr_auc=pr_auc,
+        calibration_mae=calibration_mae,
+        calibration_std=calibration_std,
+        brier_loss=brier_loss,
+        ece=ece,
+        brier_reliability=brier_reliability,
+        brier_resolution=brier_resolution,
+        brier_uncertainty=brier_uncertainty,
+        log_loss=ll,
+        ice=ice,
+        class_integral_error=class_integral_error,
+        precision=precision,
+        recall=recall,
+        f1=f1,
+    )
+    if custom_rice_metric and custom_rice_metric != custom_ice_metric:
+        class_metrics["class_robust_integral_error"] = class_robust_integral_error
+    _report_probabilist_dropping_new_fields(y_score, y_true, class_metrics, roc_auc, str_class_name)
+    metrics.update({class_id: class_metrics})
 
 
 def _report_probabilistic_step1_produced_single_most(
@@ -566,48 +508,11 @@ def _report_probabilistic_step1_produced_single_most(
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
             title += f", RICE={class_robust_integral_error:.{calib_report_ndigits}f}"
 
-        # Per-class plot path: every class gets a distinct filename. A bare
-        # ``_perfplot.png`` was reused inside this loop so only the LAST class's
-        # chart survived on disk for multiclass / multilabel runs. The class id
-        # guarantees uniqueness even when two labels slugify to the same string;
-        # the slug keeps the filename human-readable. ``base_path`` mirrors the
-        # same per-class suffix so the DSL render path writes distinct files too.
-        _class_perfplot = ""
-        _class_base_path = ""
-        if plot_file:
-            _slug = _slugify_class(str_class_name)
-            _suffix = f"_perfplot_c{class_id}_{_slug}" if len(classes) != 2 else "_perfplot"
-            _class_perfplot = f"{plot_file}{_suffix}.png"
-            _class_base_path = f"{plot_file}{_suffix}"
+        _class_perfplot, _class_base_path = _class_plot_paths(plot_file, str_class_name, class_id, len(classes))
 
-        # Build kwargs for fast_calibration_report. title_metrics_tokens is the
-        # post-validation tuple from ReportingConfig - if None, the function's
-        # own DEFAULT_TITLE_METRICS_TOKENS applies.
-        _fcr_kwargs: dict[str, Any] = dict(
-            y_true=y_true,
-            y_pred=y_score,
-            use_weights=use_weights,
-            nbins=nbins,
-            group_ids=group_ids,
-            title=title,
-            figsize=figsize,
-            # NOTE: plot_file and show_perf_chart are intentionally independent.
-            # `plot_file` (derived from `data_dir`) controls whether plots are SAVED
-            # to disk. `show_perf_chart` controls only interactive DISPLAY (plt.show).
-            # Saving plots even when show_perf_chart=False is deliberate - users get
-            # artifacts on disk without GUI popups. The Agg save-only fastpath in
-            # show_calibration_plot handles this case without Qt overhead.
-            plot_file=_class_perfplot,
-            show_plots=show_perf_chart,
-            ndigits=calib_report_ndigits,
-            verbose=verbose,
-            show_prob_histogram=show_prob_histogram,
-            prob_histogram_yscale=prob_histogram_yscale,
-            show_inline_population_labels=show_inline_population_labels,
-            dpi=plot_dpi,
-            # Smoothed isotonic reliability overlay: fast_calibration_report forwards the per-row (y_pred, y_true)
-            # views it already holds as raw_probs/raw_labels, so the overlay is default-ON in suite reliability diagrams.
-            reliability_smoothed=reliability_smoothed,
+        _fcr_kwargs = _base_calibration_report_kwargs(
+            y_true, y_score, title, _class_perfplot, use_weights, nbins, group_ids, figsize, show_perf_chart, calib_report_ndigits, verbose,
+            show_prob_histogram, prob_histogram_yscale, show_inline_population_labels, plot_dpi, reliability_smoothed,
         )
         _fcr_kwargs.update(_tuned_threshold_kwargs(len(classes) == 2 and class_id == 1, y_true, y_score, f1_opt_threshold, tune_f1_threshold, metrics))
         _apply_optional_report_kwargs(_fcr_kwargs, st, _class_base_path, title_metrics_tokens, calibration_binning, reliability_show_ci, classes, class_id)
@@ -659,35 +564,11 @@ def _report_probabilistic_step1_produced_single_most(
             )
 
         if metrics is not None:
-            class_metrics = dict(
-                roc_auc=roc_auc,
-                pr_auc=pr_auc,
-                calibration_mae=calibration_mae,
-                calibration_std=calibration_std,
-                brier_loss=brier_loss,
-                ece=ece,
-                brier_reliability=brier_reliability,
-                brier_resolution=brier_resolution,
-                brier_uncertainty=brier_uncertainty,
-                log_loss=ll,
-                ice=ice,
-                class_integral_error=class_integral_error,
-                precision=precision,
-                recall=recall,
-                f1=f1,
+            _store_class_metrics(
+                metrics, class_id, str_class_name, y_true, y_score, roc_auc, pr_auc, calibration_mae, calibration_std, brier_loss, ece, brier_reliability,
+                brier_resolution, brier_uncertainty, ll, ice, class_integral_error, precision, recall, f1, custom_rice_metric, custom_ice_metric,
+                class_robust_integral_error,
             )
-            if custom_rice_metric and custom_rice_metric != custom_ice_metric:
-                class_metrics["class_robust_integral_error"] = class_robust_integral_error
-
-            # audit: extend per-class metrics with the
-            # confusion-derived and probability-derived blocks. Both
-            # are fused single-pass kernels so the cost is dominated by
-            # ONE walk over (y_true, y_pred) and ONE over (y_true, y_score).
-            # Failures are narrow-catch and warn-loud rather than silently
-            # dropping the new fields.
-            _report_probabilist_dropping_new_fields(y_score, y_true, class_metrics, roc_auc, str_class_name)
-
-            metrics.update({class_id: class_metrics})
 
 
 def _report_probabilistic_step2_omits_only_row(

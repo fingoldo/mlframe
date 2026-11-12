@@ -41,7 +41,7 @@ def _tile_for(k: int, n_rows: int = 0) -> int:
     return max(1, min(_TILE, by_threads, by_bytes))
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _mi_of_hist(hist: np.ndarray, m: int) -> float:
     """Plug-in MI (nats) of the ``(bins, classes)`` count table ``hist`` of ``m`` rows, summed as ``_plugin_mi_classif_njit`` sums it."""
     n_bins, n_classes = hist.shape
@@ -67,7 +67,7 @@ def _mi_of_hist(hist: np.ndarray, m: int) -> float:
     return mi
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _replicate_mis(rk: np.ndarray, n_blocks: int, y_codes: np.ndarray, n_classes: int, idx: np.ndarray, lens: np.ndarray, binpos: np.ndarray, n_bins: int, out: np.ndarray, col: int) -> None:
     """``out[b, col]`` = MI of replicate ``b`` for a column whose rows have the dense ranks ``rk``: the draws are counted by rank, and every draw of one value takes the bin of
     that value's first position in the sorted resample (the tie rule of the rank binners: a run of equal values, repeats of one row included, is never split across bins)."""
@@ -88,7 +88,7 @@ def _replicate_mis(rk: np.ndarray, n_blocks: int, y_codes: np.ndarray, n_classes
         out[b, col] = _mi_of_hist(hist, m)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _radix_sort_pairs(vals: np.ndarray, va: np.ndarray, ra: np.ndarray, vb: np.ndarray, rb: np.ndarray) -> None:
     """Stable LSD radix sort (4 passes of 8 bits) of the ``uint32`` order-preserving keys ``vals`` carrying their row ids; the result is in ``(va, ra)``."""
     n = vals.shape[0]
@@ -113,7 +113,7 @@ def _radix_sort_pairs(vals: np.ndarray, va: np.ndarray, ra: np.ndarray, vb: np.n
             ra[i] = rb[i]
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _walk_sorted(
     ord_rows: np.ndarray,
     sv: np.ndarray,
@@ -161,7 +161,7 @@ def _walk_sorted(
         out[b, col] = _mi_of_hist(hist[b], pos[b])
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _float32_sort_keys(row, keys):
     """Order-preserving uint32 sort keys of one float32 column given as raw bits; False when the column has a non-finite value."""
     n = row.shape[0]
@@ -179,7 +179,7 @@ def _float32_sort_keys(row, keys):
     return True
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def _rank_blocks(va, ra, rk):
     """Dense rank of every row from the sorted values ``va`` (rows ordered by ``ra``) into ``rk``; returns the largest rank."""
     n = va.shape[0]
@@ -191,7 +191,7 @@ def _rank_blocks(va, ra, rk):
     return blk
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _bootstrap_rank_mi_f32(
     bits: np.ndarray,
     y_codes: np.ndarray,
@@ -247,7 +247,7 @@ def _bootstrap_rank_mi_f32(
     return out, ok
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def dense_ranks_f32(bits: np.ndarray, tile_width: int = 16) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
     """``(rk (k, n) int32, n_levels (k,), ok (k,))``: the dense rank of every row of each column of the float32 matrix given as raw ``uint32`` bits ``(n, k)`` (the ranks
     ``_bootstrap_rank_mi_f32`` feeds its counting sort), the number of distinct values and whether the column is finite (a non-finite column keeps ``ok`` False)."""
@@ -280,7 +280,7 @@ def dense_ranks_f32(bits: np.ndarray, tile_width: int = 16) -> "tuple[np.ndarray
 _NAN_SAFE_FASTMATH = {"nsz", "arcp", "contract", "afn", "reassoc"}  # no nnan/ninf: this kernel returns or tests NaN/inf
 
 
-@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, parallel=True)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, parallel=True, nogil=True)
 def _bootstrap_rank_mi_generic(arr: np.ndarray, y_codes: np.ndarray, n_classes: int, idx: np.ndarray, lens: np.ndarray, binpos: np.ndarray, n_bins: int):
     """:func:`_bootstrap_rank_mi_f32` for any float dtype: the dense ranks come from a stable argsort of the column, every column takes the counting sort of the draws."""
     n, k = arr.shape

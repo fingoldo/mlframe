@@ -27,7 +27,7 @@ QUANTILE = 0.95
 MAX_ROWS = 250_000
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _conditional_mi_columns(codes: np.ndarray, widths: np.ndarray, y: np.ndarray, z: np.ndarray, ky: int, kz: int, out: np.ndarray) -> None:
     """``out[j] = CMI(codes[j]; y | z)`` in nats (plug-in) for every row ``j`` of the ``(p, n)`` code matrix."""
     p, n = codes.shape
@@ -60,7 +60,7 @@ def _conditional_mi_columns(codes: np.ndarray, widths: np.ndarray, y: np.ndarray
         out[j] = cmi
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _gather_transposed(data: np.ndarray, step: int, cand: np.ndarray, out: np.ndarray) -> None:
     """``out[j, i] = data[i * step, cand[j]]`` for the ``(candidates, rows)`` output, in 64 x 64 tiles, parallel over the candidate tiles: the fancy column gather and the transpose of numpy
     (two strided passes, 4 s at 250000 rows x 600 candidates) in one."""
@@ -94,7 +94,7 @@ def _candidate_code_matrix(gathered: np.ndarray) -> "tuple[np.ndarray, np.ndarra
     return _shift_codes(codes)
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _row_range(codes: np.ndarray, low: np.ndarray, high: np.ndarray) -> None:
     """Smallest and largest code of every row of ``codes`` (parallel over the rows)."""
     for j in prange(codes.shape[0]):
@@ -110,7 +110,7 @@ def _row_range(codes: np.ndarray, low: np.ndarray, high: np.ndarray) -> None:
         high[j] = hi
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _shift_rows_int16(codes: np.ndarray, low: np.ndarray, out: np.ndarray) -> None:
     """``out[j, i] = codes[j, i] - low[j]`` as int16 (parallel over the rows; every width fits int16 by the caller's check)."""
     for j in prange(codes.shape[0]):

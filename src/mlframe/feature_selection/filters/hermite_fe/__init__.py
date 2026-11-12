@@ -77,7 +77,7 @@ except ImportError:
 # coefficients on the 12-regime sweep.
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _plugin_mi_classif_batch_njit(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Plug-in MI of each column of X_cols (continuous) with discrete y. Parallel over columns; for k~3 (one per binary func)
     parallelism is shallow but still saves ~2x over sequential."""
@@ -111,7 +111,7 @@ def _plugin_mi_classif_batch_njit(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     return out
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _plugin_mi_classif_batch_rows_njit(X_rows: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """ROW-major twin of ``_plugin_mi_classif_batch_njit``: takes (k, n) with each candidate column stored as a
     CONTIGUOUS row, so the per-column ``.copy()`` the (n, k) form needs before numba argsort disappears
@@ -204,7 +204,7 @@ def _plugin_mi_classif_cuda(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> f
 # overrides regardless of cache.
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True, nogil=True)
 def _plugin_mi_regression_batch_njit(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Plug-in MI of each column of X_cols (continuous) with continuous y."""
     k = X_cols.shape[1]
@@ -675,7 +675,7 @@ _DEFAULT_BIN_FUNCS = {
 # provided for each basis up to degree 4; returned list contains coefficient vectors of shape (degree + 1,).
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _moment_fingerprint_njit(x: np.ndarray):
     """Fused two-pass moment fingerprint (mean, std, skew, excess-kurtosis, min, max) for ``basis_route_by_moments``.
 

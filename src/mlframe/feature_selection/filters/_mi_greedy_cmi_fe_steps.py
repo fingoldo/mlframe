@@ -59,7 +59,7 @@ from ._mi_greedy_cmi_fe_binning import (  # noqa: F401  -- carved helpers
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _combine_factorize_njit(joint: np.ndarray, c: np.ndarray, mult: int) -> tuple:
     """Fused ``factorize(joint + c*mult)`` in ONE pass, no temporaries.
 
@@ -127,7 +127,7 @@ def _combine_factorize_njit(joint: np.ndarray, c: np.ndarray, mult: int) -> tupl
     return inv, nc
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _renumber_two_dense_njit(a: np.ndarray, b: np.ndarray) -> tuple:
     """Densify the joint of TWO non-negative int class arrays in ONE pass, skipping the
     separate ``factorize(a)`` pass the generic per-column path runs first.
@@ -287,7 +287,7 @@ def _renumber_joint_gpu(*cols):
     return joint, int(mult)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _entropy_from_classes_njit(classes: np.ndarray) -> tuple:
     """Single-pass plug-in entropy + occupied-cell count for a dense integer
     class array. Fuses the numpy ``bincount -> mask-copy -> p-array ->
@@ -316,7 +316,7 @@ def _entropy_from_classes_njit(classes: np.ndarray) -> tuple:
     return H, k
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _joint_entropy_two_dense_njit(a: np.ndarray, b: np.ndarray) -> tuple:
     """Fused densify+entropy of the JOINT of two non-negative int class arrays in ONE walk.
 

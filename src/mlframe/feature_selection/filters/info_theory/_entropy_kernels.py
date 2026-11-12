@@ -11,7 +11,7 @@ from .._njit_key_helpers import arr2str, unpack_and_sort
 from ._class_encoding import merge_vars, joint_freqs_2var
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
     """Shannon entropy in nats. Bins below ``min_occupancy`` (or zero by default) are filtered out before the log to avoid ``0 * log(0)``."""
     if min_occupancy:
@@ -21,14 +21,14 @@ def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
     return float(-(np.log(freqs) * freqs).sum())
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _check_class_in_range(newclass, expected_nclasses):
     """Raise when a joint class id falls outside the frequency array sized from the declared bin counts."""
     if newclass >= expected_nclasses or newclass < 0:
         raise ValueError("fused entropy kernel: class id out of range for the declared number of bins")
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _merge_vars_freqs(factors_data, vars_indices, factors_nbins, dtype=np.int32) -> np.ndarray:
     """Normalized NONZERO joint-class frequencies of ``vars_indices`` - BIT-IDENTICAL to
     ``merge_vars(factors_data, vars_indices, None, factors_nbins, dtype)[1]`` but WITHOUT allocating a
@@ -88,7 +88,7 @@ def _merge_vars_freqs(factors_data, vars_indices, factors_nbins, dtype=np.int32)
     return freqs / n_rows
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _entropy_xz_fused(factors_data, indices, factors_nbins, dtype=np.int32) -> float:
     """``H`` of the joint over ``indices`` (the sorted X u Z union), fused freqs-only. For the common
     2-variable union it uses the single-pass ``joint_freqs_2var`` (no ``final_classes`` at all); otherwise the
@@ -99,7 +99,7 @@ def _entropy_xz_fused(factors_data, indices, factors_nbins, dtype=np.int32) -> f
     return float(entropy(_merge_vars_freqs(factors_data, indices, factors_nbins, dtype)))
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _entropy_x_onto_classes(factors_data, xi, final_classes, current_nclasses, nb_x) -> float:
     """``H(X, Y, Z)`` melting a single candidate column ``xi`` onto the precomputed (Y,Z) class labels
     ``final_classes`` (``current_nclasses`` distinct labels). BIT-IDENTICAL to
@@ -124,7 +124,7 @@ def _entropy_x_onto_classes(factors_data, xi, final_classes, current_nclasses, n
     return float(entropy(nz / n_rows))
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float = 0) -> float:
     """Miller-Madow bias-corrected Shannon entropy.
 
@@ -156,7 +156,7 @@ def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float
     return float(h_plugin + (k - 1) / (2.0 * n_samples))
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def mi_miller_madow_correct(mi_plugin: float, k_x: int, k_y: int, n_samples: int, k_xy: int = 0) -> float:
     """Miller-Madow bias-correct a PLUG-IN mutual-information estimate.
 
@@ -195,7 +195,7 @@ def mi_miller_madow_correct(mi_plugin: float, k_x: int, k_y: int, n_samples: int
     return mi_plugin - (k_x - 1) * (k_y - 1) / (2.0 * n_samples)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def mi(
     factors_data: np.ndarray,
     x: np.ndarray,
@@ -250,7 +250,7 @@ def mi(
     return float(entropy_x + entropy_y - entropy_xy)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def mi_miller_madow(
     factors_data: np.ndarray,
     x: np.ndarray,
@@ -309,7 +309,7 @@ def mi_miller_madow(
     return float(mi_miller_madow_correct(mi_plugin, k_x, k_y, n_samples, k_xy))
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def entropy_chao_shen(freqs: np.ndarray, n: int) -> float:
     """Chao & Shen (2003) coverage-adjusted entropy from a normalized frequency vector ``freqs``
     (``freqs[i] = count_i / n``, as returned by ``merge_vars``) and the sample size ``n``. Recovers
@@ -343,7 +343,7 @@ def entropy_chao_shen(freqs: np.ndarray, n: int) -> float:
     return float(h)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def mi_chao_shen(
     factors_data: np.ndarray,
     x: np.ndarray,
@@ -560,7 +560,7 @@ def conditional_symmetric_uncertainty(
     return csu if csu <= 1.0 else 1.0
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _cmi_miller_madow_bias(factors_data, x, y, z, factors_nbins, dtype) -> float:
     """Analytic Miller-Madow bias of the plug-in CMI: ``(k_xyz + k_z - k_xz - k_yz) / (2n)`` where ``k_*`` are the
     OCCUPIED-cell counts of the four joint distributions. This is exactly the bias term ``_cmi_from_binned`` /
@@ -581,7 +581,7 @@ def _cmi_miller_madow_bias(factors_data, x, y, z, factors_nbins, dtype) -> float
     return float((k_xyz + k_z - k_xz - k_yz) / (2.0 * n))
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _cmi_entropy_z(factors_data, z, factors_nbins, dtype, entropy_cache) -> float:
     """``H(Z)``, memoised in ``entropy_cache`` under the sorted ``z`` key when a cache is supplied."""
     key_z = ""
@@ -603,7 +603,7 @@ def _cmi_entropy_z(factors_data, z, factors_nbins, dtype, entropy_cache) -> floa
     return entropy_z
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _cmi_entropy_xz(factors_data, x, z, factors_nbins, dtype, entropy_cache, can_use_x_cache) -> float:
     """``H(X, Z)`` via the fused freqs-only melt, memoised under the sorted ``X u Z`` key when ``can_use_x_cache`` allows it."""
     indices = unpack_and_sort(x, z)
@@ -621,7 +621,7 @@ def _cmi_entropy_xz(factors_data, x, z, factors_nbins, dtype, entropy_cache, can
     return entropy_xz
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _cmi_finalise(res: float, use_mm: bool, factors_data, x, y, z, factors_nbins, dtype) -> float:
     """Floor the CMI at zero and, when ``use_mm``, subtract the Miller-Madow bias before flooring again."""
     if res < 0.0:
@@ -633,7 +633,7 @@ def _cmi_finalise(res: float, use_mm: bool, factors_data, x, y, z, factors_nbins
     return res
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def conditional_mi(
     factors_data: np.ndarray,
     x: np.ndarray,

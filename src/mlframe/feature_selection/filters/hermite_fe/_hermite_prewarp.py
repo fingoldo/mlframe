@@ -24,7 +24,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 logger = logging.getLogger(__name__)
 
 
-@njit(cache=True, parallel=True, fastmath=False)
+@njit(cache=True, parallel=True, fastmath=False, nogil=True)
 def _fourier_adaptive_prewarp_njit(axis: np.ndarray, coef: np.ndarray, freqs: np.ndarray) -> np.ndarray:
     """Fused multi-frequency sin/cos prewarp replay: one prange pass over rows, one inner loop over
     frequencies per row - the SAME per-row accumulation order (i=0..K-1) as the Python

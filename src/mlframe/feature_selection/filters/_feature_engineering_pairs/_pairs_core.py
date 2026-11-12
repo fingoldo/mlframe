@@ -49,7 +49,7 @@ from ._pairs_core_steps import (  # noqa: F401  -- carved helpers
 from ._pairs_core_parts import (_check_prospective_fe_pairs_part10, _check_prospective_fe_pairs_part3, _check_prospective_fe_pairs_part5, _check_prospective_fe_pairs_part6, _check_prospective_fe_pairs_part7, _check_prospective_fe_pairs_part8, _check_prospective_fe_pairs_part9)
 
 
-@numba.njit(cache=True, fastmath=False)
+@numba.njit(cache=True, fastmath=False, nogil=True)
 def _abs_corr_zerofill_njit(a, b):
     """|Pearson corr| of ``a`` vs ``b`` treating any non-finite entry (NaN/+-inf) as 0.0 INLINE, in one pass -
     bit-equivalent to ``abs(np.corrcoef(np.nan_to_num(a), np.nan_to_num(b))[0, 1])`` without materialising either

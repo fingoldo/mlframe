@@ -43,9 +43,9 @@ def test_minority_kernel_equals_original(k_y, pos):
     perms, y, yc, rows, xb, kx, nv, val_idx, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff = a
     o1 = np.empty(perms.shape[0])
     o2 = np.empty(perms.shape[0])
-    F._fused_block(perms, y, yc, rows, xb, kx, nv, val_idx, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, o1)
     px = F._px_table(xb, kx, nv)
-    F._fused_block_minority(perms, y, yc, rows, xb, kx, nv, val_idx, px, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, o2)
+    F._fused_block(perms, y, yc, rows, xb, kx, nv, val_idx, px[:0], False, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, o1)
+    F._fused_block(perms, y, yc, rows, xb, kx, nv, val_idx, px, True, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, o2)
     assert np.array_equal(o1, o2)
 
 
@@ -62,7 +62,7 @@ def test_device_winners_equal_cpu_kernel(monkeypatch, k_y, pos, bitmask):
     px = F._px_table(xb, kx, nv)
     o1 = np.empty(perms.shape[0])
     o2 = np.empty(perms.shape[0])
-    F._fused_block_minority(perms, y, yc, rows, xb, kx, nv, val_idx, px, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, o1)
+    F._fused_block(perms, y, yc, rows, xb, kx, nv, val_idx, px, True, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, o1)
     picks = G.DeviceWinners(cp, xb, kx, nv, val_idx, y, px).picks(perms)
     assert picks is not None
     G._pool_block(perms, picks, yc, rows, pool_dep, pool_rc, pool_nb, pool_kxe, n_eff, o2)

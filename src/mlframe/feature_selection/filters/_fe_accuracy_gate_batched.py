@@ -24,6 +24,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._fe_accuracy_gate_newton import _GRAD_TOL, _MAX_ITER
 from ._fe_usability_signal import _crit_np_dtype
 
@@ -120,7 +122,7 @@ def _device_block_designs(cp, n_rows: int, k: int, itemsize: int) -> int:
     try:
         free_b = int(cp.cuda.runtime.memGetInfo()[0])
     except Exception as exc:  # no device information: a single modest block
-        logger.debug("gate batch: free VRAM unreadable (%r); one 64-design block", exc)
+        log_throttle(logger, "_fe_accuracy_gate_batched.free_vram", logging.INFO, "gate batch: free VRAM unreadable (%r); one 64-design block", exc)
         return 64
     per = max(1, int(n_rows) * max(1, int(k)) * int(itemsize))
     return max(1, int((free_b // 3) // per))

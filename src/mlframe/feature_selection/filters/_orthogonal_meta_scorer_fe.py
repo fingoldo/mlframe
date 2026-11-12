@@ -161,7 +161,7 @@ def _numeric_cols(X: pd.DataFrame, cols: Optional[Sequence[str]] = None):
 _VECTORISED = True  # the all-finite fingerprint statistics go through one matrix pass; False keeps the per-column pandas loops (the reference of the equivalence test)
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _distinct_counts_f32(cols_rows: np.ndarray, out: np.ndarray) -> None:
     """``out[j]`` = number of distinct values of the all-finite float32 row ``j`` (``-0.0`` equal to ``+0.0``): a radix order, then the count of value changes."""
     for j in prange(cols_rows.shape[0]):

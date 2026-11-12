@@ -203,7 +203,7 @@ def copula_mi(
     return _bin_mi_uniform_pair(u, v, n_bins=int(n_bins))
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _copula_mi_from_order(col: np.ndarray, order: np.ndarray, vi: np.ndarray, nb: int) -> float:
     """Miller-Madow copula MI of ``col`` against the y bins ``vi`` from an order that sorts ``col`` (equal values adjacent; their order among themselves does not
     matter, every one of them gets the mean rank of the run): the tie runs give the average-rule ranks, binned into ``nb`` equal-width bins."""
@@ -250,7 +250,7 @@ def _copula_mi_from_order(col: np.ndarray, order: np.ndarray, vi: np.ndarray, nb
     return mi if mi > 0.0 else 0.0
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _copula_columns_njit(cols_rows: np.ndarray, vi: np.ndarray, nb: int, out: np.ndarray) -> None:
     """``out[j]`` = Miller-Madow copula MI of the all-finite row ``j`` of ``cols_rows`` ``(k, n)`` against the y bins ``vi`` (equal-width bins of the y ranks).
 
@@ -262,7 +262,7 @@ def _copula_columns_njit(cols_rows: np.ndarray, vi: np.ndarray, nb: int, out: np
         out[j] = _copula_mi_from_order(col, np.argsort(col, kind="mergesort"), vi, nb)
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _copula_columns_radix_njit(cols_rows: np.ndarray, vi: np.ndarray, nb: int, out: np.ndarray) -> None:
     """:func:`_copula_columns_njit` for float32 rows: the order comes from a 4-pass LSD radix sort of the order-preserving uint32 key of each value (``-0.0`` keyed as
     ``+0.0``, which compare equal), not a comparison sort. Equal values end up adjacent as there, and the MI depends only on the tie runs, so the value is the same."""
@@ -270,6 +270,18 @@ def _copula_columns_radix_njit(cols_rows: np.ndarray, vi: np.ndarray, nb: int, o
     for j in prange(kk):
         col = cols_rows[j]
         out[j] = _copula_mi_from_order(col, radix_order_f32(col), vi, nb)
+
+
+def _copula_block_values(rows: np.ndarray, vi: np.ndarray, nb: int) -> np.ndarray:
+    """Copula MI of every row of ``rows`` (columns as rows): the device kernel when it applies and succeeds, else the compiled host kernel."""
+    from ._orthogonal_copula_gpu import copula_columns_device, use_device
+
+    vals = copula_columns_device(rows, vi, nb) if use_device(int(rows.shape[1])) else None
+    if vals is None:
+        vals = np.empty(rows.shape[0], dtype=np.float64)  # Intentional float64: statistic output kept f64
+        with parallel_kernel_entry():
+            (_copula_columns_radix_njit if rows.dtype == np.float32 else _copula_columns_njit)(rows, vi, nb, vals)
+    return vals
 
 
 def _copula_mi_batch(
@@ -328,13 +340,7 @@ def _copula_mi_batch(
                 break
             cols_idx = fast[s0 : s0 + block]
             rows = np.ascontiguousarray(X_arr[:, cols_idx].T)
-            from ._orthogonal_copula_gpu import copula_columns_device, use_device
-
-            vals = copula_columns_device(rows, vi_fast, nb_fast) if use_device(int(rows.shape[1])) else None
-            if vals is None:
-                vals = np.empty(len(cols_idx), dtype=np.float64)  # Intentional float64: statistic output kept f64
-                with parallel_kernel_entry():
-                    (_copula_columns_radix_njit if rows.dtype == np.float32 else _copula_columns_njit)(rows, vi_fast, nb_fast, vals)
+            vals = _copula_block_values(rows, vi_fast, nb_fast)
             out[cols_idx] = vals
             done[cols_idx] = True
     for j in range(X_arr.shape[1]):

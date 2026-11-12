@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # --- imports (managed) ---
 import hashlib
+import logging
 
 import numpy as np
 from mlframe._array_buffer import array_buffer
@@ -12,6 +13,7 @@ import os
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
 from typing import Optional, Any
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
+from mlframe.utils.log_throttle import log_throttle
 
 # --- end imports ---
 
@@ -151,7 +153,7 @@ def start_discretization_warmup(self: Any, X: Any, y: Any) -> None:
         y_for = np.asarray(vals[:, 0] if vals.ndim == 2 else vals)
         frame = X.copy()
     except Exception as exc:
-        logger.debug("discretisation warm-up skipped: %r", exc)
+        log_throttle(logger, "_binning.warmup_skipped", logging.INFO, "discretisation warm-up skipped: %r", exc)
         return
 
     def run() -> None:

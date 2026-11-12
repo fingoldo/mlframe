@@ -21,7 +21,7 @@ import numpy as np
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
 from ._device_sort_safe import device_argsort, device_room
-from ._ktc_fallback import device_from_rows
+from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._raw_module_cache import RawModuleCache
 from mlframe.utils.log_throttle import log_throttle
 
@@ -174,20 +174,14 @@ def _device(cols: np.ndarray, vi: np.ndarray, nb: int) -> np.ndarray:
     return out
 
 
-def _run_sweep() -> list:
-    """Time the host and the device kernel per row count; the device must agree with the host."""
-    from pyutilz.dev.benchmarking import sweep_backend_grid
-
-    return sweep_backend_grid({"host": _host, "device": _device}, {"n_samples": _SWEEP_ROWS}, _sweep_inputs, reference="host", repeats=3, equiv_rtol=1e-12, equiv_atol=1e-12)
+_run_sweep = host_device_sweep(__name__, _host, _device, repeats=3, rtol=1e-12)
 
 
 _SWEEP_ROWS = [5_000, 30_000, 100_000]
 _SALT = 1
 
 
-def _fallback_choice(n_samples: int) -> str:
-    """Pre-sweep fallback: the host unless ``DEVICE_FALLBACK_ROWS`` is lowered."""
-    return device_from_rows(n_samples, DEVICE_FALLBACK_ROWS)
+_fallback_choice = rows_fallback(__name__)
 
 
 try:

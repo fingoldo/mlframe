@@ -9,7 +9,7 @@ from mlframe.feature_selection.filters.discretization.shared import multiselect_
 # --- end imports ---
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _quantile_crossing_offsets(n_bins, cuts, crossing, n, x):
     """Crossing-run offsets of the equal values that straddle a bin boundary, for ``_quantile_bin_njit``."""
     canon = np.empty(n_bins - 1, dtype=np.int64)
@@ -30,7 +30,7 @@ def _quantile_crossing_offsets(n_bins, cuts, crossing, n, x):
     return below, canon, seen
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _quantile_crossing_cuts(n, n_bins, x):
     """Bin cut values and the boundary-crossing flags of an equi-frequency split, for ``_quantile_bin_njit``."""
     base = n // n_bins
