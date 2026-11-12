@@ -402,8 +402,12 @@ _BARE = re.compile(r"(?<![A-Za-z_])([a-e])(?![A-Za-z_])")
 
 
 def _bare_vars(name: str) -> set:
-    """Bare vars."""
-    return set(_BARE.findall(name))
+    """The source variables a..e of an engineered name: bare letters inside an expression, plus the single-letter tokens of the ``__``-joined name grammar (``gate_mask__d__c__t1.6``, ``(a__add__c)``)."""
+    out = set(_BARE.findall(name))
+    for token in re.split(r"[^A-Za-z0-9.\-]+|__", name):
+        if len(token) == 1 and token in "abcde":
+            out.add(token)
+    return out
 
 
 def _make_mrmr_fixture(seed=0, n=_N_E2E):
