@@ -11,6 +11,6 @@ Entry point profiled: `gpu_resident_pair_candidate_mi` (100000 rows, the pair-ca
 | `transpose_f32` | 24.4 | 7.5% | 4 |
 | `mi_hist_split_f32` + `mi_from_counts_col_f32` | 16.2 + 15.9 = 32.1 | 9.9% | 4 each |
 
-GPU total 323.4 ms over four calls (about 81 ms per call). The wall per call (60.5 ms) is below the summed kernel time because the kernels overlap on the stream. The sort is again the largest group; the float64-to-float32 copy and the transpose together are 17%, a candidate for removal by producing float32 at the source (contract point 3's crit dtype) and by writing the candidate block column-major directly.
+GPU total 323.4 ms over four calls (about 81 ms per call). The wall per call (60.5 ms) is below the summed kernel time because the kernels overlap on the stream. The sort is again the largest group; the float64-to-float32 copy and the transpose together are 17% of GPU time. The float32 candidate is already a documented rejection: the chain run entirely in float32 (bench of 2026-06-20) gave 1.09x at 100000 rows and flipped the winner at 300000 rows (a near-tie cluster, selection instability), so the copy is not removed. The transpose (writing the candidate block column-major directly) is the remaining candidate.
 
-Dispatch: the chunk size comes from `_gpu_k_chunk` (VRAM fraction, KTC kernel `gpu_fe_k_chunk_vram_fraction`). Optimization status: profiled; the two candidate changes above are not implemented.
+Dispatch: the chunk size comes from `_gpu_k_chunk` (VRAM fraction, KTC kernel `gpu_fe_k_chunk_vram_fraction`). Optimization status: profiled; the float32 candidate is a documented rejection (see above) and the column-major write is not implemented.
