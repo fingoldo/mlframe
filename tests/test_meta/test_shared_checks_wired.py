@@ -784,6 +784,7 @@ _DOC_PARITY_IGNORED = {
     "test_log_loss_micro",  # f"{split_name}_log_loss_micro"
     "--python-backtrace",  # nsys CLI flags, documented as absent/present in nsys itself
     "--python-functions-trace",
+    "--cuda-gpu-arch",  # clang-tidy / clang option in the CUDA.md clang-tidy recipe (LLVM clang, not this repo); the recipe is correct
     # CLAUDE.md: flags of external tools, a deliberately bad example name, and a rename it records
     "--write",  # py_ci_shared.black_filtered_apply
     "--metrics",  # nvprof
