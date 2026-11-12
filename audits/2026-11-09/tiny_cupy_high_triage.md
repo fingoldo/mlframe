@@ -29,8 +29,8 @@ Rows: 115.
 | feature_selection/filters/_fe_additive_fusion_gpu_resident.py | _subsumed_raw_operand_check_gpu | 467 | FALSE POSITIVE: loops over the few raw operand tokens of the halves, each one a check (the twin of the host check) |
 | feature_selection/filters/_fe_additive_fusion_gpu_resident.py | propose_additive_fusions_gpu | 422, 428 | OPEN: a nested loop over half pairs; the device work in its body has not been read yet |
 | feature_selection/filters/_fe_auto_escalation.py | _apply_pair_maxt_floor | 722 | REAL, not yet measured: a full permutation null per candidate, the same class as _collect_relevant_halves |
-| feature_selection/filters/_fe_auto_escalation.py | _best_admitted_column | 118 | OPEN |
-| feature_selection/filters/_fe_auto_escalation.py | _propose_pair_candidates | 411, 440 | OPEN |
+| feature_selection/filters/_fe_auto_escalation.py | _best_admitted_column | 118 | REAL, not yet measured: one marginal MI per admitted column, launch work per column |
+| feature_selection/filters/_fe_auto_escalation.py | _propose_pair_candidates | 411, 440 | FALSE POSITIVE: loops over the few eligible pairs, each trip one whole candidate proposer (heavy per-pair work) |
 | feature_selection/filters/_fe_auto_escalation.py | _slice_admitted_pool | 295 | OPEN |
 | feature_selection/filters/_fe_auto_escalation.py | find_underdelivering_pairs | 215 | OPEN |
 | feature_selection/filters/_fe_cmi_redundancy_gate.py | _gate_round | 486 | OPEN |
