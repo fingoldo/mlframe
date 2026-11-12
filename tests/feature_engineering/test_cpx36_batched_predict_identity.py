@@ -18,6 +18,8 @@ lgb = pytest.importorskip("lightgbm")
 from mlframe.feature_engineering.transformer.counterfactual_substitution import (
     compute_counterfactual_substitution_features as cfact_new,
 )
+from mlframe.feature_engineering.transformer import adversarial_flip as _advflip_mod
+from mlframe.feature_engineering.transformer import fisher_weighted_residual as _fisher_mod
 from mlframe.feature_engineering.transformer.adversarial_flip import (
     compute_adversarial_flip_features as advflip_new,
 )
@@ -26,12 +28,6 @@ from mlframe.feature_engineering.transformer.fisher_weighted_residual import (
 )
 from mlframe.feature_engineering._benchmarks._cpx36_baseline.counterfactual_substitution_old import (
     compute_counterfactual_substitution_features as cfact_old,
-)
-from mlframe.feature_engineering._benchmarks._cpx36_baseline.adversarial_flip_old import (
-    compute_adversarial_flip_features as advflip_old,
-)
-from mlframe.feature_engineering._benchmarks._cpx36_baseline.fisher_weighted_residual_old import (
-    compute_fisher_weighted_residual_features as fisher_old,
 )
 
 
@@ -47,11 +43,7 @@ def _data(task: str, n_train=600, n_query=120, d=12, seed=0):
 
 
 @pytest.mark.parametrize("task", ["regression", "binary"])
-@pytest.mark.parametrize(
-    "old_fn,new_fn",
-    [(cfact_old, cfact_new), (advflip_old, advflip_new), (fisher_old, fisher_new)],
-    ids=["counterfactual", "adversarial_flip", "fisher"],
-)
+@pytest.mark.parametrize("old_fn,new_fn", [(cfact_old, cfact_new)], ids=["counterfactual"])
 def test_batched_predict_bit_identical(old_fn, new_fn, task):
     """Batched predict bit identical."""
     Xt, y, Xq = _data(task)
@@ -62,3 +54,23 @@ def test_batched_predict_bit_identical(old_fn, new_fn, task):
     b = df_new.to_numpy()
     assert a.shape == b.shape
     assert np.array_equal(a, b), f"batched predict diverged from per-perturbation: max|d|={np.max(np.abs(a - b)):.3e}"
+
+
+# adversarial_flip and fisher_weighted_residual changed their semantics on purpose after the frozen baseline was taken (out-of-fold
+# banding and flip threshold; out-of-fold train predictions for the residual bands), so the frozen snapshot is no longer their
+# reference. The identity that still holds is batched vs per-perturbation within the current code: forcing the stack gate to 0
+# runs the per-feature loop, which must produce the same array as the stacked predict.
+@pytest.mark.parametrize("task", ["regression", "binary"])
+@pytest.mark.parametrize(
+    "module,new_fn",
+    [(_advflip_mod, advflip_new), (_fisher_mod, fisher_new)],
+    ids=["adversarial_flip", "fisher"],
+)
+def test_batched_predict_matches_per_perturbation_loop(monkeypatch, module, new_fn, task):
+    """Stacked predict equals the per-perturbation loop on the current code."""
+    Xt, y, Xq = _data(task)
+    batched = new_fn(Xt, y, Xq, seed=7, task=task).to_numpy()
+    monkeypatch.setattr(module, "_MAX_STACK_ELEMS", 0)
+    looped = new_fn(Xt, y, Xq, seed=7, task=task).to_numpy()
+    assert batched.shape == looped.shape
+    assert np.array_equal(batched, looped), f"batched predict diverged from the per-perturbation loop: max|d|={np.max(np.abs(batched - looped)):.3e}"
