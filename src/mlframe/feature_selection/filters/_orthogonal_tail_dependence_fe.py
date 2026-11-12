@@ -29,6 +29,8 @@ otherwise look like strong dependence.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 from numba import njit, prange
 
@@ -97,7 +99,8 @@ def tail_dependence_columns(cols_rows: "np.ndarray | None", y: np.ndarray, *, q:
 
     ``device_block`` is the same ``(k, n)`` block already on the device (the caller built it once for several scorers): the device path reads it in place, and ``cols_rows`` may then be
     ``None``; the host copy is fetched from the device only when the device path is not taken."""
-    k, n = (device_block if device_block is not None else cols_rows).shape
+    src: Any = device_block if device_block is not None else cols_rows
+    k, n = src.shape
     out = np.zeros(k, dtype=np.float64)  # Intentional float64: statistic output kept f64
     if n < 2 or (1.0 - q) <= 0.0 or k == 0:
         return out

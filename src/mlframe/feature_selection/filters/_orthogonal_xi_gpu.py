@@ -181,6 +181,7 @@ def xi_columns_device(cols: Any, seeds: np.ndarray, r_row: np.ndarray, l_row: np
                 order = _order_wide(cp, ordk, tk).ravel()
                 del ordk, tk
             else:
+                assert keys_buf is not None  # allocated for the float32 path above
                 keys = keys_buf[:w]
                 keys_k((grid_x, w), (keys_threads,), (col_d, seeds_d[c0 : c0 + w], keys, np.int64(n)))
                 if not resident:

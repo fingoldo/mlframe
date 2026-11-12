@@ -107,7 +107,7 @@ def _block_counts_chain(cp, x, v_d, n: int, hi: float, lo: float) -> np.ndarray:
     u = 0.5 * (first + 1 + end) / (n + 1.0)  # the host's order: 0.5 * (first + 1 + end), then the division
     u_hi = u > hi
     u_lo = u < lo
-    return cp.stack([u_hi.sum(axis=1), (u_hi & (vs > hi)).sum(axis=1), u_lo.sum(axis=1), (u_lo & (vs < lo)).sum(axis=1)]).get()
+    return np.asarray(cp.stack([u_hi.sum(axis=1), (u_hi & (vs > hi)).sum(axis=1), u_lo.sum(axis=1), (u_lo & (vs < lo)).sum(axis=1)]).get(), dtype=np.int64)
 
 
 def _block_counts_packed(cp, x, vflag, n: int, hi: float, lo: float) -> np.ndarray:
@@ -126,7 +126,7 @@ def _block_counts_packed(cp, x, vflag, n: int, hi: float, lo: float) -> np.ndarr
     out = cp.zeros((4, b), dtype=cp.int32)
     threads = block_size_for(kernel, work_items=n)
     kernel((b,), (threads,), (sorted_keys, np.int64(n), np.float64(hi), np.float64(lo), np.int32(b), out))  # Intentional float64: tail quantiles are compared with a double rank
-    return out.get().astype(np.int64)
+    return np.asarray(out.get(), dtype=np.int64)
 
 
 def _slice_counts(cols_rows: Any, c0: int, block: int, resident: bool, packed: bool, vflag: Any, v_d: Any, hi: float, lo: float) -> np.ndarray:
