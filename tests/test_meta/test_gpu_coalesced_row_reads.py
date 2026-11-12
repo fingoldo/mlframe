@@ -60,7 +60,7 @@ def _kernel_bodies(text: str) -> "list[tuple[str, str]]":
     return out
 
 
-_GROUP_INDEX_RE = re.compile(r"threadIdx\.x\s*/\s*(?!1)[A-Za-z_]\w*")
+_GROUP_INDEX_RE = re.compile(r"threadIdx\.x\s*/\s*(?!1\b)[A-Za-z_]\w*")
 
 
 def _thread_vars(body: str) -> "set[str]":
@@ -86,6 +86,7 @@ _SHARED_DECL_RE = re.compile(r"__shared__[^;]*;")
 # by its declared size. A dynamic ``extern __shared__`` array (its size comes from the launch) has no such bound and is not exempt.
 _STATIC_SHARED_DECL_RE = re.compile(r"(?<!extern )__shared__[^;]*;")
 _SHARED_NAME_RE = re.compile(r"(\w+)\s*\[")
+_ALIAS_RE = re.compile(r"\w+\s*\*\s*(\w+)\s*=\s*(\w+)\s*(?:\+[^;]*)?;")
 
 
 def _without_shared_subscripts(body: str) -> str:
@@ -97,6 +98,8 @@ def _without_shared_subscripts(body: str) -> str:
     for name in static_names:
         body = re.sub(rf"\b{re.escape(name)}\s*\[[^\]]*\]\s*=(?!=)[^;]*;", ";", body)
     all_names = {n for decl in _SHARED_DECL_RE.findall(body) for n in _SHARED_NAME_RE.findall(decl)}
+    for _ in range(3):  # ``int* ones = sh;`` / ``int* tot = sh + P * nbins;``: a pointer into a shared array is shared memory too
+        all_names |= {a for a, base in _ALIAS_RE.findall(body) if base in all_names}
     for name in all_names:
         body = re.sub(rf"\b{re.escape(name)}\s*\[[^\]]*\]", "0", body)
     return body
@@ -185,6 +188,16 @@ def test_row_group_index_of_a_column_tile_is_not_a_thread_stride():
         '"""'
     )
     assert not uncoalesced_kernels(tiled)
+
+
+def test_pointer_alias_of_a_shared_array_is_shared_memory():
+    """Reads through ``int* ones = sh;`` (``sh`` a dynamic shared array) are shared-memory reads and not flagged."""
+    src = (
+        'SRC = r"""' + chr(10) + 'extern "C" __global__ void k(int* out, int P, int nb) {' + chr(10)
+        + '    extern __shared__ int sh[]; int* ones = sh;' + chr(10)
+        + '    for (int p = threadIdx.x; p < P; p += blockDim.x) { out[p] = ones[p * nb + 1]; }' + chr(10) + '}' + chr(10) + '"""'
+    )
+    assert not uncoalesced_kernels(src)
 
 
 def test_static_shared_fill_is_exempt_and_dynamic_shared_fill_is_flagged():
