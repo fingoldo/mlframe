@@ -106,6 +106,12 @@ def gpu_pairs_fe_mi(
         # Narrow to float32 only when no two distinct values can merge: an offset that dwarfs the spread (the same test as the hermite binning) keeps float64.
         from ._hermite_fe_mi import _binning_dtype
 
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        # Admission before the upload: the candidate matrix, its resident codes and one temporary must fit the VRAM cushion; a refusal
+        # returns None, which is the CPU dispatcher's path for any device fault.
+        if not fe_gpu_has_vram_cushion(3 * int(np.asarray(cand).nbytes)):
+            return None
         cand_d = cp.asarray(np.ascontiguousarray(cand, dtype=_binning_dtype(cand)))
         codes_d = _gpu_resident_discretize_codes(cand_d, _nb, out_dtype=cp.int32)  # (n,K) RESIDENT int codes
         yc = np.ascontiguousarray(classes_y, dtype=np.int64)
