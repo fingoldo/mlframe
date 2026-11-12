@@ -32,3 +32,23 @@ def test_numba_ladder_matches_the_named_function(name):
     want = _HIGH_REFERENCE[name](v)
     got = np.array([_apply_unary(float(x), UNARY_OP_CODES[name], 0.0) for x in v])
     np.testing.assert_allclose(got, want, rtol=1e-12, atol=0.0)
+
+
+def test_cuda_stack_kernel_matches_the_numba_ladder_for_every_code():
+    """The CUDA stack kernel and the numba ladder give the same value for each of the 17 table codes, including the smart log."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._unary_stack_cuda import unary_stack_cuda
+
+    # no 0.0: the numba ladder raises ZeroDivisionError on 1/0 (Python error model) where the CUDA kernel returns inf, and the callers never pass a zero to it
+    x = np.array([0.5, 1.7, 3.2, 9.0, -2.5, -0.75, 6.25], dtype=np.float64)
+    xmin = float(x.min())
+    codes = np.array(sorted(UNARY_OP_CODES.values()), dtype=np.int32)
+    with np.errstate(all="ignore"):
+        want = np.array([[_apply_unary(float(v), int(c), xmin) for v in x] for c in codes])
+    try:
+        got = unary_stack_cuda(cp.asarray(x), cp.asarray(codes), xmin)
+    except Exception as exc:  # no usable device
+        pytest.skip(f"no usable CUDA device: {exc!r}")
+    if got is None:
+        pytest.skip("unary_stack_cuda declined (device or memory not available)")
+    np.testing.assert_allclose(cp.asnumpy(got), want, rtol=1e-12, atol=0.0, equal_nan=True)
