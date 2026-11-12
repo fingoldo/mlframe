@@ -5,6 +5,8 @@ import pytest
 
 from mlframe.feature_selection.filters import _gpu_resident_basis as gpu_basis
 
+from . import _untiled_reference_kernels as ref_k
+
 
 @pytest.mark.parametrize("n,k", [(1000, 37), (7, 5), (4096, 64)])
 @pytest.mark.parametrize("dtype", [np.float64, np.float32])
@@ -23,7 +25,7 @@ def test_tiled_matches_numpy_and_reference(n, k, dtype):
     assert np.allclose(cp.asnumpy(std), host.std(axis=0), rtol=1e-5 if dtype == np.float32 else 1e-10)
     # the one-block-per-column reference kernel still agrees
     real_t = "float" if dtype == np.float32 else "double"
-    ref = cp.RawKernel(gpu_basis._COL_MEANSTD_SRC.replace("{REAL}", real_t), "col_meanstd")
+    ref = cp.RawKernel(ref_k._COL_MEANSTD_SRC.replace("{REAL}", real_t), "col_meanstd")
     rmean = cp.empty(k, dtype=M.dtype)
     rstd = cp.empty(k, dtype=M.dtype)
     ref((k,), (128,), (M, np.int64(n), np.int32(k), rmean, rstd))
@@ -47,7 +49,7 @@ def test_tiled_minmax_matches_numpy_and_reference(n, k, dtype):
     assert np.array_equal(cp.asnumpy(mn), host.min(axis=0))
     assert np.array_equal(cp.asnumpy(mx), host.max(axis=0))
     real_t = "float" if dtype == np.float32 else "double"
-    ref = cp.RawKernel(gpu_basis._COL_MINMAX_SRC.replace("{REAL}", real_t), "col_minmax")
+    ref = cp.RawKernel(ref_k._COL_MINMAX_SRC.replace("{REAL}", real_t), "col_minmax")
     rmn = cp.empty(k, dtype=M.dtype)
     rmx = cp.empty(k, dtype=M.dtype)
     ref((k,), (128,), (M, np.int64(n), np.int32(k), rmn, rmx))
@@ -76,7 +78,7 @@ def test_tiled_heavy_tail_flags_equal_the_reference(n, k, dtype):
     tiled_kernel = gpu_basis._get_heavy_tail_stats_tiled_kernel(cp, real_t)
     tiled_kernel(((k + 31) // 32,), (32, 8), (M, med, scale, *args_tail, tiled))
     ref = cp.empty(k, dtype=cp.int8)
-    ref_kernel = gpu_basis._get_heavy_tail_stats_kernel(cp, real_t)
+    ref_kernel = ref_k.get_heavy_tail_stats_kernel(cp, real_t)
     ref_kernel((k,), (128,), (M, med, scale, *args_tail, ref))
     flags = cp.asnumpy(ref)
     assert flags.any() and not flags.all(), "the data must exercise both outcomes"
