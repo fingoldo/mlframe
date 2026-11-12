@@ -354,6 +354,33 @@ def _gpu_binary_labels(actual: Any) -> np.ndarray:
     return np.asarray(_binary_labels_01(host))
 
 
+_ROC_BLOCK_ELEMENTS = 1 << 24  # elements (rows x columns) ranked per block: bounds the float64 temporaries of the rank computation
+
+
+def _fractional_ranks_block(cp: Any, predicted: Any, order: Any) -> Any:
+    """``(N, B)`` fractional ranks of the ``(N, B)`` block ``predicted`` given each column's ascending ``order``: equal values share the mean of the strict ranks they occupy.
+
+    The columns are laid end to end in one flat array with a run boundary forced at each column start, so the runs of all columns come from one ``cumsum`` and one ``where``
+    (a run never spans two columns); the values are the ones a column-by-column computation gives.
+    """
+    n, b = predicted.shape
+    pred_t = cp.ascontiguousarray(predicted.T)  # (B, N)
+    order_t = cp.ascontiguousarray(order.T)
+    flat = cp.take_along_axis(pred_t, order_t, axis=1).ravel()
+    is_new = cp.empty(b * n, dtype=cp.bool_)
+    is_new[0] = True
+    is_new[1:] = flat[1:] != flat[:-1]
+    is_new[::n] = True  # a new run at the start of every column
+    run_id = cp.cumsum(is_new) - 1
+    run_starts = cp.where(is_new)[0]
+    run_sizes = cp.concatenate([run_starts[1:], cp.array([b * n])]) - run_starts
+    # Average strict rank per run = the run's 0-based start in its column + (size + 1) / 2.
+    avg_rank_per_run = (run_starts % n).astype(cp.float64) + (run_sizes + 1) / 2.0  # Intentional float64: rank sums need full precision
+    ranks_flat = cp.empty(b * n, dtype=cp.float64)  # Intentional float64: rank sums need full precision
+    ranks_flat[(order_t + (cp.arange(b, dtype=order_t.dtype) * n)[:, None]).ravel()] = avg_rank_per_run[run_id]
+    return ranks_flat.reshape(b, n).T
+
+
 def gpu_multiple_roc_auc_scores(actual: Any, predicted: Any) -> Any:
     """Vectorized ROC AUC across columns on GPU (cupy), tie-correct.
 
@@ -395,26 +422,11 @@ def gpu_multiple_roc_auc_scores(actual: Any, predicted: Any) -> Any:
     from mlframe.feature_selection.filters import shared as _safe_sort  # local: metrics must not import the filters package at module load
     order = _safe_sort.device_argsort(predicted, axis=0)
     ranks = cp.empty((N, M), dtype=cp.float64)
-    for j in range(M):
-        col = predicted[:, j]
-        col_sorted = col[order[:, j]]
-        # ``is_new[i]`` True iff position i starts a new run of equal values.
-        is_new = cp.concatenate(
-            [
-                cp.array([True]),
-                col_sorted[1:] != col_sorted[:-1],
-            ]
-        )
-        run_id = cp.cumsum(is_new) - 1
-        run_starts = cp.where(is_new)[0]
-        run_ends = cp.concatenate([run_starts[1:], cp.array([N])])
-        run_sizes = run_ends - run_starts
-        # Average strict rank per run = run_starts + (size+1)/2 (strict ranks are 1-based, run_starts 0-based; offset cancels).
-        avg_rank_per_run = run_starts.astype(cp.float64) + (run_sizes + 1) / 2.0
-        avg_ranks_sorted = avg_rank_per_run[run_id]
-        col_ranks = cp.empty(N, dtype=cp.float64)
-        col_ranks[order[:, j]] = avg_ranks_sorted
-        ranks[:, j] = col_ranks
+    # Columns are ranked in blocks: one set of array operations per block instead of about ten small ones per column. The block bounds the temporaries.
+    block_cols = max(1, _ROC_BLOCK_ELEMENTS // max(1, N))
+    for c0 in range(0, M, block_cols):
+        c1 = min(M, c0 + block_cols)
+        ranks[:, c0:c1] = _fractional_ranks_block(cp, predicted[:, c0:c1], order[:, c0:c1])
 
     aucs = (cp.sum(ranks[actual == 1, :], axis=0) - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
     return aucs

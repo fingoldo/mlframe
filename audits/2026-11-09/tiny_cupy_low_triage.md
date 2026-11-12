@@ -2,7 +2,7 @@
 
 The detector's `low` hits in the current source, one row per function; the same dispositions as the high table (FALSE POSITIVE, FALLBACK, REAL, LEGACY).
 
-Rows: 49.
+Rows: 48.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -51,7 +51,6 @@ Rows: 49.
 | feature_selection/filters/_tail_dependence_gpu.py | tail_dependence_columns_device | 164 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, k, block)`), each trip one batched operation over its block |
 | feature_selection/filters/_triple_mi_gpu.py | triple_mi_gpu | 113 | FALSE POSITIVE: a blocked loop (`for s in range(0, m, TRIPLES_PER_LAUNCH)`), each trip one batched operation over its block |
 | feature_selection/filters/_usability_pool_resident_pairs.py | _score_one_pair_combos | 37 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, nc, combo_chunk)`), each trip one batched operation over its block |
-| feature_selection/filters/_wavelet_basis_fe_batched.py | _select_wavelet_legs_batched_device._leg_blocks | 222 | FALSE POSITIVE: a blocked loop (`for b0 in range(0, len(all_legs), block_legs)`), each trip one batched operation over its block |
-| feature_selection/filters/_wavelet_basis_fe_batched.py | select_wavelet_legs_batched | 346 | FALSE POSITIVE: a blocked loop (`for b0 in range(0, len(metas), block_legs)`), each trip one batched operation over its block |
 | feature_selection/filters/discretization/_discretization_cuda.py | discretize_2d_array_cuda_row_chunked | 300, 312, 347 | FALSE POSITIVE: a blocked loop (`for row_start in range(0, n_rows, row_chunk_rows)`), each trip one batched operation over its block |
 | feature_selection/shap_proxied_fs/_shap_proxy_cluster_su.py | _pairwise_su_edges_gpu | 238 | FALSE POSITIVE: a blocked loop (`for i_start in range(0, n_features, pair_chunk_size)`), each trip one batched operation over its block |
+| metrics/_gpu_metrics.py | gpu_multiple_roc_auc_scores | 427 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, M, block_cols)`), each trip one flat rank pass over its block of columns |

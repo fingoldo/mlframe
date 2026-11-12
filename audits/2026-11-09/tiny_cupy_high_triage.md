@@ -3,7 +3,7 @@
 The detector's `high` hits in the current source, one row per function. The baseline (`tests/test_meta/_tiny_cupy_loops_baseline.json`) holds these keys.
 Dispositions to fill in: **FALSE POSITIVE** (the loop is a chunk, fold or fallback loop with a few trips and real work per trip), **FALLBACK** (the cupy loop runs only when a batched path is not taken, measured), **REAL** (a launch-bound loop, to restructure), **OPEN** (not yet read).
 
-Rows: 115.
+Rows: 113.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -109,7 +109,6 @@ Rows: 115.
 | feature_selection/filters/_wavelet_basis_fe.py | _heldout_incremental_mi_from_prep | 661 | FALSE POSITIVE: the fixed 12-permutation null, a few trips |
 | feature_selection/filters/_wavelet_basis_fe.py | _heldout_incremental_mi_prep | 590 | FALSE POSITIVE: the fixed 12-permutation baseline, a few trips |
 | feature_selection/filters/_wavelet_basis_fe_batched.py | _per_leg_matrices | 133 | FALLBACK when the fused builder fits one block; in the blocked mode each trip is an O(n) leg build over at least the block budget, so launch overhead is a small share (GPU11-68) |
-| feature_selection/filters/_wavelet_basis_fe_batched.py | _select_wavelet_legs_batched_device | 228 | FALSE POSITIVE: the byte-bounded block loop (GPU11-68), each trip one batched MI over its legs |
 | feature_selection/filters/batch_pair_mi_gpu.py | batch_pair_mi_cupy | 133 | REAL, not yet measured: several device ops per pair over n_pairs in the plain cupy path |
 | feature_selection/filters/hermite_fe/__init__.py | _polyeval_cuda_pick_devices | 314 | FALSE POSITIVE: loops over the devices (one to a few), each a memory query |
 | feature_selection/filters/hermite_fe/__init__.py | _polyeval_try_cuda | 398 | FALSE POSITIVE: loops over the devices with per-device fault isolation, each trip one launch |
@@ -120,5 +119,4 @@ Rows: 115.
 | feature_selection/shap_proxied_fs/_shap_proxy_gpu.py | brute_force_top_n_gpu | 141 | FALSE POSITIVE: loops over the few combination sizes, each one batched |
 | metrics/_gpu_metrics.py | compute_batch_aucs | 597 | FALLBACK: the per-column branch; the batched call over all columns is the default |
 | metrics/_gpu_metrics.py | gpu_multiple_pr_auc_scores | 462 | REAL, not yet measured: a sort and several ops per column over M columns |
-| metrics/_gpu_metrics.py | gpu_multiple_roc_auc_scores | 398 | REAL, not yet measured: a rank pass with ties per column over M columns |
 | models/ensembling/_correlation.py | _probs_pairs | 94 | FALSE POSITIVE: loops over the classes on host numpy arrays |

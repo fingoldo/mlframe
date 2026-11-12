@@ -212,35 +212,35 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         one_block = len(all_legs) * 8 * n_rows <= _DEVICE_LEG_BLOCK_BYTES
         block_legs = len(all_legs) if one_block else max(1, _DEVICE_LEG_BLOCK_BYTES // (8 * n_rows))
 
-        def _leg_blocks():
-            """The (metas, train codes, held-out codes) of the legs: a fused build when every leg fits one block, else one per-leg block at a time."""
-            if one_block and fused_switch_enabled(_FUSED_ENV):
-                fused = _fused_leg_matrices(cp, z_g, int(max_scale), _WAVELET_MIN_HALF_ROWS)
-                if fused is not None:
-                    yield fused
-                    return
-            for b0 in range(0, len(all_legs), block_legs):
-                yield _per_leg_matrices(cp, z_g, int(max_scale), tr_mask, va_mask, _WAVELET_MIN_HALF_ROWS, subset=all_legs[b0 : b0 + block_legs])
-
-        metas: list = []
-        mi_tr_parts: list = []
-        mi_va_parts: list = []
-        for metas_b, tr_b, va_b in _leg_blocks():
+        def _score_codes(metas_b, tr_b, va_b):
+            """``(metas, train MI, held-out MI)`` of one block of legs, or ``None`` when the block has no leg."""
             if not metas_b:
-                continue
+                return None
             kx_b = [3] * len(metas_b)
-            # Leave codes_trusted at the default (False) so the in-range guard runs, MIRRORING the host select_wavelet_legs_batched call (which does not trust).
-            # leg+1 is in {0,1,2} by construction, so the guard always passes; keeping it on matches the host path's illegal-address protection exactly.
             # The codes are in range by construction (the legs are leg + 1 in {0, 1, 2}; the labels are ``_bin_y_codes``, non-negative with cardinality max + 1),
             # so the in-range guard, a pair of device reductions per call, is skipped (codes_trusted).
-            mi_tr_parts.append(np.asarray(binned_mi_from_codes_gpu(tr_b, np.asarray(yb_tr), kx_per_col=kx_b, ky=ky_tr, codes_trusted=True), dtype=np.float64))
-            mi_va_parts.append(np.asarray(binned_mi_from_codes_gpu(va_b, np.asarray(yb_va), kx_per_col=kx_b, ky=ky_va, codes_trusted=True), dtype=np.float64))
-            metas.extend(metas_b)
-            del tr_b, va_b
-        if not metas:
+            mi_tr_b = np.asarray(binned_mi_from_codes_gpu(tr_b, np.asarray(yb_tr), kx_per_col=kx_b, ky=ky_tr, codes_trusted=True), dtype=np.float64)
+            mi_va_b = np.asarray(binned_mi_from_codes_gpu(va_b, np.asarray(yb_va), kx_per_col=kx_b, ky=ky_va, codes_trusted=True), dtype=np.float64)
+            return metas_b, mi_tr_b, mi_va_b
+
+        def _score_leg_block(lo, hi):
+            """One block of legs, built per leg (the fused builder builds every leg in one pass) and scored."""
+            return _score_codes(*_per_leg_matrices(cp, z_g, int(max_scale), tr_mask, va_mask, _WAVELET_MIN_HALF_ROWS, subset=all_legs[lo:hi]))
+
+        fused = _fused_leg_matrices(cp, z_g, int(max_scale), _WAVELET_MIN_HALF_ROWS) if one_block and fused_switch_enabled(_FUSED_ENV) else None
+        if fused is not None:
+            pieces = [_score_codes(*fused)]
+            fused = None
+        else:
+            from ._device_blocks import run_column_blocks  # runs the blocks in order, and halves a block that runs out of device memory
+
+            pieces = run_column_blocks(cp, len(all_legs), block_legs, _score_leg_block)
+        pieces = [pc for pc in pieces if pc is not None]
+        if not pieces:
             return []
-        mi_tr = np.concatenate(mi_tr_parts)
-        mi_va = np.concatenate(mi_va_parts)
+        metas = [m for pc in pieces for m in pc[0]]
+        mi_tr = np.concatenate([pc[1] for pc in pieces])
+        mi_va = np.concatenate([pc[2] for pc in pieces])
     except Exception as e:
         logger.debug("_select_wavelet_legs_batched_device: device batched-MI path failed, caller falls back to the host leg selection: %s", e)
         return None
@@ -342,16 +342,23 @@ def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: f
     # values as one stack, but the code matrices of all legs together (n x legs x 8 bytes per split) are not held at once.
     rows = max(len(yb_tr), len(yb_va), 1)
     block_legs = max(1, _LEG_BLOCK_BYTES // (8 * rows))
-    mi_tr_parts, mi_va_parts = [], []
-    for b0 in range(0, len(metas), block_legs):
-        b1 = min(b0 + block_legs, len(metas))
-        tr_mat = np.stack(tr_cols[b0:b1], axis=1)  # (n_tr, block)
-        va_mat = np.stack(va_cols[b0:b1], axis=1)  # (n_va, block)
-        mi_tr_parts.append(np.asarray(binned_mi_from_codes_gpu(tr_mat, np.asarray(yb_tr), kx_per_col=tr_kx[b0:b1], ky=ky_tr), dtype=np.float64))
-        mi_va_parts.append(np.asarray(binned_mi_from_codes_gpu(va_mat, np.asarray(yb_va), kx_per_col=va_kx[b0:b1], ky=ky_va), dtype=np.float64))
-        del tr_mat, va_mat
-    mi_tr = np.concatenate(mi_tr_parts)
-    mi_va = np.concatenate(mi_va_parts)
+
+    def _score_leg_block(lo, hi):
+        """``(train MI, held-out MI)`` of the legs ``lo`` to ``hi``, each split stacked into one code matrix."""
+        tr_mat = np.stack(tr_cols[lo:hi], axis=1)  # (n_tr, block)
+        va_mat = np.stack(va_cols[lo:hi], axis=1)  # (n_va, block)
+        return (
+            np.asarray(binned_mi_from_codes_gpu(tr_mat, np.asarray(yb_tr), kx_per_col=tr_kx[lo:hi], ky=ky_tr), dtype=np.float64),
+            np.asarray(binned_mi_from_codes_gpu(va_mat, np.asarray(yb_va), kx_per_col=va_kx[lo:hi], ky=ky_va), dtype=np.float64),
+        )
+
+    import cupy as cp
+
+    from ._device_blocks import run_column_blocks  # runs the blocks in order, and halves a block that runs out of device memory
+
+    pieces = run_column_blocks(cp, len(metas), block_legs, _score_leg_block)
+    mi_tr = np.concatenate([pc[0] for pc in pieces])
+    mi_va = np.concatenate([pc[1] for pc in pieces])
 
     heldout = np.asarray(mi_va, dtype=np.float64)  # Intentional float64: held-out MI statistic output
     if heldout.size >= 4:
