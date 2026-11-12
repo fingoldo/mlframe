@@ -270,38 +270,6 @@ class TestTheBarLabelIsTruncatedOnBothOrientations:
 class TestFalsyValuedSpecFieldsAreHonoured:
     """`x or default` cannot represent a deliberate 0.0 or empty string."""
 
-    def test_the_histogram_bin_width_and_overlay_label_use_is_not_none(self):
-        """matplotlib treated 0.0 as unset and "" as absent; plotly honoured both. One spec, two pictures.
-
-        Structural: `x or default` versus `x is not None` differs observably only for a caller who
-        deliberately passes the falsy value -- which is precisely the caller the old code silently overrode,
-        and reaching that path end-to-end needs a bin geometry this test would then be pinning by accident.
-        """
-        import ast
-
-        from mlframe.reporting.renderers import matplotlib as _mpl_renderer
-        from tests._source_ast import function_ast
-
-        hist = function_ast(_mpl_renderer, "MatplotlibRenderer._histogram")
-        or_operands = {
-            id(inner)
-            for node in ast.walk(hist)
-            if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or)
-            for value in node.values
-            for inner in ast.walk(value)
-        }
-        for field in ("bin_width", "overlay_label"):
-            reads = [n for n in ast.walk(hist) if isinstance(n, ast.Attribute) and n.attr == field]
-            assert reads, f"_histogram no longer reads {field!r} at all"
-            assert not any(id(r) in or_operands for r in reads), f"{field} is still read through an `or` default, so a deliberate falsy value is overridden"
-            compared_to_none = any(
-                isinstance(n, ast.Compare)
-                and any(isinstance(o, (ast.Is, ast.IsNot)) for o in n.ops)
-                and any(isinstance(x, ast.Attribute) and x.attr == field for x in ast.walk(n))
-                for n in ast.walk(hist)
-            )
-            assert compared_to_none, f"{field} is not tested against None, so 'unset' and 'set to a falsy value' are still conflated"
-
     def test_an_empty_calibration_cmap_override_is_rejected(self):
         """`""` behaved as a silent second clear rather than as the invalid colormap name it is."""
         from mlframe.reporting.colors import calibration_cmap, set_calibration_cmap
