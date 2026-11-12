@@ -40,3 +40,16 @@ Kernel-tuning entry `fe_xi_columns_device` (sweep over 5000 / 30000 / 100000 row
 Both device paths equal the host kernel exactly (`equal=True`). The device loses on this card at both sizes, so `use_device` keeps the host for float64 (the KTC default `DEVICE_FALLBACK_ROWS` is 10**9 and a sweep would also pick the host here).
 
 Where the device time goes, from the code, not yet from a GPU profile: the wide path runs three `device_argsort` calls per chunk (pass one on the (tie, row) keys, the dense-rank sort of the order values, and the composite sort), plus a cumsum, two gathers and one scatter over `(w, n)` u64 arrays. The float32 path runs one argsort. Next step before a KTC decision: an nvprof breakdown of the three sorts against the walk kernel, then a cheaper order: the rank sort can reuse the (tie, row) pass when the order values are already sorted, or the composite can be built from a radix pass over the 64-bit order alone.
+
+### nvprof breakdown of the float64 wide path (2026-11-12, GTX 1050 Ti, 30000 rows x 40 columns, 4 calls: one warm-up and three measured, whole script profiled)
+
+Command: `nvprof --csv` with `PATH` extended by the CUPTI directory of CUDA 12.8 (without it nvprof fails to load `cupti64_2025.1.0.dll`). Time column is milliseconds.
+
+| kernel | total ms | share of GPU time | launches |
+|---|---|---|---|
+| CUB radix sort (the three `device_argsort` calls: (tie, row) keys, the order values, the composite) | 111.1 | 78% | 300 |
+| `xi_keys_wide` (key build) | 1.19 | 0.8% | 4 |
+| `xi_walk` (Xi sums) | 1.84 | 1.3% | 4 |
+| all other kernels (cupy elementwise, take, scan, scatter, memcpy, memset) | about 28 | 20% | the rest |
+
+GPU total 142.2 ms over 4 calls, about 35 ms per call, which agrees with the synchronized wall time of 40 ms. The key build and the walk are negligible; the three 64-bit radix sorts are the device time, so the path is sort-bound. The host kernel does the same work in about 27 ms per call. Options that were considered: a 32-bit composite (only valid below 65536 rows), dropping the (tie, row) pass (needs stable order from the device, which the design avoids), and CUB begin/end-bit control (not exposed by cupy's argsort). None is a cheap change, so the host stays the float64 choice.
