@@ -77,3 +77,23 @@ def test_excess_and_floor_cap_actually_subsamples(monkeypatch):
     finally:
         m.__dict__.clear()
         m.__dict__.update(_orig_dict)
+
+
+def test_batched_device_null_refused_by_the_vram_cushion_returns_none(monkeypatch):
+    """A refused (n, nperm) build returns None before any device allocation, so the caller runs the per-permutation CPU loop."""
+    import numpy as np
+
+    from mlframe.feature_selection.filters import _fe_cmi_redundancy_null as R
+    from mlframe.feature_selection.filters import _fe_gpu_vram
+    from mlframe.feature_selection.filters import _mi_greedy_cmi_fe as M
+
+    rng = np.random.default_rng(2)
+    n = 3000
+    x = rng.integers(0, 6, n).astype(np.int64)
+    y = rng.integers(0, 3, n).astype(np.int64)
+    z = rng.integers(0, 4, n).astype(np.int64)
+    inp = R._NullInputs(x, y, seed=1, salt=3)
+    sup = R._StratifiedSupport(inp, z)
+    monkeypatch.setattr(M, "_cmi_gpu_enabled", lambda **kwargs: True)
+    monkeypatch.setattr(_fe_gpu_vram, "fe_gpu_has_vram_cushion", lambda *args, **kwargs: False)
+    assert R._conditional_batched_gpu_null(inp, sup, 4, 0.95) is None
