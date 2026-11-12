@@ -139,6 +139,13 @@ def _collect_gpu_candidate_halves(newly_engineered_names: list, engineered_recip
 
 def _upload_and_subsample(cp: Any, _vals_cols: list, n_rows: int, y_dense: np.ndarray, H: int) -> tuple:
     """Bulk H2D of the (n, H) half-values matrix and y codes plus the strided scoring subsample; returns ``(vals_dev, y_dev, vals_sc, y_dense_sc, y_dev_sc, stride)``."""
+    # Admission before the full (n, H) values and the (n,) target cross to the card: a refusal raises the device out-of-memory error the
+    # caller's handler already treats as a device fault, so the CPU fusion runs.
+    from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+    _need = 2 * int(n_rows) * int(H) * 8 + int(n_rows) * 8
+    if not fe_gpu_has_vram_cushion(_need):
+        raise cp.cuda.memory.OutOfMemoryError(_need, 0)
     # ---- ONE bulk H2D: the (n, H) half-values matrix + the y codes. Everything below stays resident. ----
     if all(hasattr(c, "dev") for c in _vals_cols):
         # Intentional float64: fused column values stay float64 so the fit and replay paths match exactly
