@@ -17,10 +17,10 @@ Rows: 115.
 | feature_selection/filters/_conditional_gate_fe.py | _gate_flush_pending | 717 | OPEN: the loop body has more device code than was read; to classify in the next pass || FALSE POSITIVE: one trip per pending candidate group (a few), each a host argmax and, for the groups that clear the margin, one fixed 12-permutation null; not a per-element loop |
 | feature_selection/filters/_conditional_gate_fe.py | _rank_and_prune | 615 | REAL, not yet measured: a per-column device loop in the main path (the column gathers and medians), not only in the fallback |
 | feature_selection/filters/_conditional_gate_fe.py | cheap_row_argmax_scan | 513 | REAL, deliberate and budgeted: one device argmax per 3-column combination, the source states that the launch count is kept on purpose until the suite is decoupled from pool ordering |
-| feature_selection/filters/_cupy_polynom_optimizer.py | _score_generation_gpu | 171 | OPEN |
-| feature_selection/filters/_cupy_polynom_optimizer.py | run_cupy_kernel_search | 251 | OPEN |
-| feature_selection/filters/_extra_fe_families_dispersion_resident.py | build_dispersion_matrix_gpu | 129 | OPEN |
-| feature_selection/filters/_extra_fe_families_dispersion_resident.py | build_residual_abs_matrix_gpu | 196 | OPEN |
+| feature_selection/filters/_cupy_polynom_optimizer.py | _score_generation_gpu | 171 | FALSE POSITIVE: loops over the fixed basis families (about nine), each one batched over the whole population |
+| feature_selection/filters/_cupy_polynom_optimizer.py | run_cupy_kernel_search | 251 | FALSE POSITIVE: loops over the sequential generations of the search, each trip one whole batched generation |
+| feature_selection/filters/_extra_fe_families_dispersion_resident.py | build_dispersion_matrix_gpu | 129 | REAL, not yet measured: one device build per output column, the same class as the binned-aggregate builder (GPU11-61) |
+| feature_selection/filters/_extra_fe_families_dispersion_resident.py | build_residual_abs_matrix_gpu | 196 | REAL, not yet measured: one device build per output column, the same class as build_dispersion_matrix_gpu |
 | feature_selection/filters/_family_maxt_gate.py | _family_null_max_device_bits | 356 | OPEN |
 | feature_selection/filters/_family_maxt_stream.py | streamed_null_max.null_max | 89 | OPEN |
 | feature_selection/filters/_fe_additive_fusion.py | _collect_relevant_halves | 204 | OPEN |
