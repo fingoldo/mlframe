@@ -31,18 +31,18 @@ Rows: 115.
 | feature_selection/filters/_fe_auto_escalation.py | _apply_pair_maxt_floor | 722 | REAL, not yet measured: a full permutation null per candidate, the same class as _collect_relevant_halves |
 | feature_selection/filters/_fe_auto_escalation.py | _best_admitted_column | 118 | REAL, not yet measured: one marginal MI per admitted column, launch work per column |
 | feature_selection/filters/_fe_auto_escalation.py | _propose_pair_candidates | 411, 440 | FALSE POSITIVE: loops over the few eligible pairs, each trip one whole candidate proposer (heavy per-pair work) |
-| feature_selection/filters/_fe_auto_escalation.py | _slice_admitted_pool | 295 | OPEN |
-| feature_selection/filters/_fe_auto_escalation.py | find_underdelivering_pairs | 215 | OPEN |
-| feature_selection/filters/_fe_cmi_redundancy_gate.py | _gate_round | 486 | OPEN |
-| feature_selection/filters/_fe_cmi_redundancy_null.py | _conditional_cpu_null | 440 | OPEN |
-| feature_selection/filters/_fe_pure_form_retention_gpu_resident.py | _batched_gate_scalars | 128 | OPEN |
-| feature_selection/filters/_fe_raw_redundancy_anchors.py | _build_raw_redundancy_step2_def_raw_codes | 262 | OPEN |
-| feature_selection/filters/_fe_raw_redundancy_drop.py | _drop_redundant_raw_o_step1_full_composite_bin | 708 | OPEN |
-| feature_selection/filters/_fe_raw_redundancy_drop.py | _some_consumer_adds_information | 370 | OPEN |
-| feature_selection/filters/_fe_stability_vote.py | _vote_recipe_over_folds | 222 | OPEN |
-| feature_selection/filters/_fe_sufficient_summary_pairs.py | best_pair_streamed | 412, 415 | OPEN |
-| feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py | _emit_pair_features_step2_read_here_once | 222 | OPEN |
-| feature_selection/filters/_gpu_resident_basis.py | _gpu_evaluate_basis_matrix | 808 | OPEN |
+| feature_selection/filters/_fe_auto_escalation.py | _slice_admitted_pool | 295 | OPEN: the body is host numpy with one MI per admitted feature; the device call inside the MI has not been read |
+| feature_selection/filters/_fe_auto_escalation.py | find_underdelivering_pairs | 215 | OPEN: host dict logic in the visible body; the device call the detector found has not been read |
+| feature_selection/filters/_fe_cmi_redundancy_gate.py | _gate_round | 486 | REAL, not yet measured: one resident CMI and permutation null per remaining candidate |
+| feature_selection/filters/_fe_cmi_redundancy_null.py | _conditional_cpu_null | 440 | OPEN: a per-shuffle host CMI loop; the cupy call in the callee has not been read |
+| feature_selection/filters/_fe_pure_form_retention_gpu_resident.py | _batched_gate_scalars | 128 | REAL, not yet measured: a device operation per pair over P pairs |
+| feature_selection/filters/_fe_raw_redundancy_anchors.py | _build_raw_redundancy_step2_def_raw_codes | 262 | REAL, not yet measured: one device code build per engineered column |
+| feature_selection/filters/_fe_raw_redundancy_drop.py | _drop_redundant_raw_o_step1_full_composite_bin | 708 | REAL, not yet measured: per-consumer device composite bins; the selection-exact short circuit skips some work |
+| feature_selection/filters/_fe_raw_redundancy_drop.py | _some_consumer_adds_information | 370 | REAL, not yet measured: one excess and permutation floor per consumer, with an early return |
+| feature_selection/filters/_fe_stability_vote.py | _vote_recipe_over_folds | 222 | FALSE POSITIVE: loops over the few folds, each trip a full replay and scoring over the fold's rows |
+| feature_selection/filters/_fe_sufficient_summary_pairs.py | best_pair_streamed | 412, 415 | FALSE POSITIVE: loops over the streamed column blocks, each trip a full block product |
+| feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py | _emit_pair_features_step2_read_here_once | 222 | FALSE POSITIVE: loops over the few transformation configurations, each trip a full feature emission |
+| feature_selection/filters/_gpu_resident_basis.py | _gpu_evaluate_basis_matrix | 808 | FALSE POSITIVE: loops over the few (basis, robust) groups, each trip one batched build |
 | feature_selection/filters/_gpu_resident_basis.py | _gpu_route_bases_batched | 949 | OPEN |
 | feature_selection/filters/_gpu_resident_extval.py | _candidate_matrix | 79, 81 | FALLBACK: the per-candidate loop runs only when `MLFRAME_EXTVAL_FUSED` is off; the default fused kernel builds all candidates in one launch |
 | feature_selection/filters/_gpu_resident_operand_build.py | _batched_unary_prepass | 222 | OPEN |
