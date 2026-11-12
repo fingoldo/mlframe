@@ -177,12 +177,11 @@ def group_stats_device(
             # One host-side pad + one upload instead of ``w`` per-column device writes: each column's sorted
             # global sample is a different length, so the pad has to happen somewhere - doing it on the host
             # before a single cp.asarray turns w tiny device launches into one.
+            # Intentional float64: sorted operand of the merge. One concatenation and one masked store fill the padded rows, no per-column host loop.
+            parts = [np.ascontiguousarray(global_sorted[c0 + j], dtype=np.float64).ravel() for j in range(w)]  # Intentional float64: sorted operand of the merge
+            gn = np.fromiter((p.size for p in parts), dtype=np.int64, count=w)
             g_host = np.zeros((w, gmax), dtype=np.float64)  # Intentional float64: sorted operand of the merge
-            gn = np.zeros(w, dtype=np.int64)
-            for j in range(w):
-                arr = np.ascontiguousarray(global_sorted[c0 + j], dtype=np.float64)  # Intentional float64: sorted operand of the merge
-                g_host[j, : arr.size] = arr
-                gn[j] = arr.size
+            g_host[np.arange(gmax)[None, :] < gn[:, None]] = np.concatenate(parts) if parts else np.zeros(0)
             g_d = cp.asarray(g_host)
             out_d = cp.zeros((w, n_groups), dtype=cp.float64)
             cnt64 = cnt_d.astype(cp.int64)
