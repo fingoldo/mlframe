@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 
 import mlframe.feature_selection.filters.discretization as disc_mod
+import mlframe.feature_selection.filters.discretization._discretization_cuda as disc_cuda_mod
 
 pytestmark = pytest.mark.skipif(
     not (getattr(disc_mod, "_DISCRETIZE_SPEC", None) is not None),
@@ -132,7 +133,7 @@ class TestRealHardware:
         rng = np.random.default_rng(3)
         arr = rng.standard_normal(size=(20_000, 6)).astype(np.float32)
         full = disc_mod.discretize_2d_array_cuda(arr, n_bins=10, method="uniform", dtype=np.int32)
-        monkeypatch.setattr(disc_mod, "_choose_discretize_row_chunk_rows", lambda *a, **kw: 777)
+        monkeypatch.setattr(disc_cuda_mod, "_choose_discretize_row_chunk_rows", lambda *a, **kw: 777)
         chunked = disc_mod.discretize_2d_array_cuda_row_chunked(arr, n_bins=10, method="uniform", dtype=np.int32)
         np.testing.assert_array_equal(full, chunked, err_msg="uniform min/max reduction must stay exact across many tiny row-chunks")
 
@@ -167,7 +168,7 @@ class TestRealHardware:
         n_cols = 1200
         n_bins = 10
         arr = rng.standard_normal(size=(20_000, n_cols)).astype(np.float32)
-        monkeypatch.setattr(disc_mod, "_choose_discretize_row_chunk_rows", lambda *a, **kw: 1777)  # forces >=10 chunks
+        monkeypatch.setattr(disc_cuda_mod, "_choose_discretize_row_chunk_rows", lambda *a, **kw: 1777)  # forces >=10 chunks
 
         calls = {"n": 0}
         orig_ascontig = cp.ascontiguousarray
