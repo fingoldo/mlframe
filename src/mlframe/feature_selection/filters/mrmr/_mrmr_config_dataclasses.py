@@ -102,29 +102,29 @@ class HybridOrthScorersConfig(_MRMRSubConfig):
     """Per-scorer enable/param pairs for the hybrid-orth FE family's synergy scorers - split out of
     ``HybridOrthConfig`` (proposal's own recommendation) since this sub-cluster alone is ~20 fields."""
 
-    ksg_enable: bool = False
+    ksg_enable: bool = True
     ksg_n_neighbors: int = Field(default=3, ge=1)
     ksg_min_uplift: float = 0.95
     ksg_min_abs_mi_frac: float = Field(default=0.05, ge=0.0)
-    copula_enable: bool = False
+    copula_enable: bool = True
     copula_n_bins: int = Field(default=20, ge=2)
-    dcor_enable: bool = False
+    dcor_enable: bool = True
     dcor_n_sample: int = Field(default=500, ge=1)
-    hsic_enable: bool = False
+    hsic_enable: bool = True
     hsic_kernel: Literal["rbf"] = "rbf"
     hsic_n_sample: int = Field(default=500, ge=1)
-    jmim_enable: bool = False
+    jmim_enable: bool = True
     jmim_n_bins: int = Field(default=10, ge=2)
-    tc_enable: bool = False
+    tc_enable: bool = True
     tc_n_bins: int = Field(default=10, ge=2)
-    cmim_enable: bool = False
+    cmim_enable: bool = True
     cmim_n_bins: int = Field(default=10, ge=2)
-    auto_scorer_enable: bool = False
+    auto_scorer_enable: bool = True
     auto_scorer_n_boot: int = Field(default=5, ge=1)
-    ensemble_enable: bool = False
+    ensemble_enable: bool = True
     ensemble_aggregator: Literal["mean_rank", "borda_count", "reciprocal_rank", "mutual_top_k"] = "mean_rank"
     ensemble_scorers: tuple[Literal["plug_in", "ksg", "copula", "dcor", "hsic", "xi", "tail_dep"], ...] = ("plug_in", "ksg", "copula", "dcor", "hsic")
-    meta_enable: bool = False
+    meta_enable: bool = True
     meta_force_scorer: Optional[Literal["plug_in", "ksg", "copula", "dcor", "hsic", "jmim", "cmim", "tc"]] = None
     default_scorer: Literal[
         "plug_in", "cmim", "jmim", "tc", "ksg", "copula", "dcor", "hsic", "auto", "ensemble", "meta", "lasso", "elasticnet", "auto_oracle"
@@ -158,42 +158,42 @@ class HybridOrthConfig(_MRMRSubConfig):
     quadruplet_seed_k: int = Field(default=12, ge=1)
     quadruplet_top_count: int = Field(default=6, ge=1)
 
-    adaptive_arity_enable: bool = False
+    adaptive_arity_enable: bool = True
     adaptive_arity_max_arity: int = Field(default=3, ge=1)
     adaptive_arity_max_degree: int = Field(default=1, ge=1)
     adaptive_arity_seed_k: int = Field(default=4, ge=1)
     adaptive_arity_top_count: int = Field(default=3, ge=1)
 
-    lasso_enable: bool = False
+    lasso_enable: bool = True
     lasso_alpha: float = Field(default=0.01, gt=0.0)
-    elasticnet_enable: bool = False
+    elasticnet_enable: bool = True
     elasticnet_alpha: float = Field(default=0.01, gt=0.0)
     elasticnet_l1_ratio: float = Field(default=0.5, ge=0.0, le=1.0)
 
-    adaptive_degree_enable: bool = False
+    adaptive_degree_enable: bool = True
     adaptive_degree_range: tuple = (1, 2, 3, 4, 5, 6)
     adaptive_degree_min_uplift: float = 1.05
 
-    conditional_routing_enable: bool = False
+    conditional_routing_enable: bool = True
     conditional_routing_top_k: int = Field(default=5, ge=1)
     conditional_routing_min_uplift: float = 1.10
     conditional_routing_degrees: tuple = (2, 3)
 
-    diff_basis_enable: bool = False
+    diff_basis_enable: bool = True
     diff_basis_corr_threshold: float = Field(default=0.7, gt=0.0, le=1.0)
     diff_basis_degrees: tuple = (1, 2, 3)
     diff_basis_top_k: int = Field(default=3, ge=1)
 
-    cluster_basis_enable: bool = False
+    cluster_basis_enable: bool = True
     cluster_basis_aggregator: Literal["mean_z", "median_z", "pc1"] = "mean_z"
     cluster_basis_degrees: tuple = (2, 3)
     cluster_basis_top_k: int = Field(default=3, ge=1)
 
-    bootstrap_enable: bool = False
+    bootstrap_enable: bool = True
     bootstrap_n_boot: int = Field(default=10, ge=1)
     bootstrap_sample_fraction: float = Field(default=0.8, gt=0.0, le=1.0)
 
-    three_gate_enable: bool = False
+    three_gate_enable: bool = True
     three_gate_n_folds: int = Field(default=5, ge=2)
     three_gate_cmi_min: float = Field(default=0.001, ge=0.0)
 
