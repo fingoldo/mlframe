@@ -349,25 +349,27 @@ def test_run_sweep_maps_the_child_process_outcome(monkeypatch):
 def test_the_cold_check_is_off_the_fit_s_critical_path_and_runs_once_per_registry(monkeypatch):
     """Entering the policy returns before the (slow) check finishes, and a later fit over the same registry does not re-check."""
     import threading
-    import time
 
     started = threading.Event()
+    release = threading.Event()
+    probe_done = threading.Event()
     calls = []
 
     def slow_probe():
-        """A probe as slow as the real one's first disk read."""
+        """A probe that stays busy until the test releases it, so only a policy that does not wait for it can run its body first."""
         started.set()
         calls.append(1)
-        time.sleep(0.4)
+        release.wait(5)
+        probe_done.set()
         return []
 
     monkeypatch.setattr(_policy, "cold_kernel_names", slow_probe)
     monkeypatch.setattr(_policy, "get_registry_keys", lambda: ["k1", "k2"])
-    t0 = time.perf_counter()
     with _policy.kernel_tuning_fit_policy():
-        entered_after = time.perf_counter() - t0
-    assert started.wait(5), "the check must start"
-    assert entered_after < 0.3, f"entering the policy waited for the check ({entered_after:.2f} s)"
+        # Entry returned while the probe is still held: the body runs before the probe completes.
+        assert not probe_done.is_set(), "entering the policy waited for the check"
+        assert started.wait(5), "the check must start"
+        release.set()
     _policy.wait_for_cold_check()
     assert calls == [1]
 

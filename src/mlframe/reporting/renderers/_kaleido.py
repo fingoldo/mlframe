@@ -124,6 +124,13 @@ def _record_kaleido_persistent_failure() -> bool:
         return False
 
 
+def _reset_kaleido_persistent_failures() -> None:
+    """A successful persistent write ends the run of failures, so the burn threshold counts consecutive failures only."""
+    global _KALEIDO_PERSISTENT_FAIL_COUNT
+    with _KALEIDO_STATE_LOCK:
+        _KALEIDO_PERSISTENT_FAIL_COUNT = 0
+
+
 def _mark_kaleido_persistent_burned() -> None:
     """Force-burn the persistent path (legacy entry, kept for tests
     and external callers)."""
@@ -289,6 +296,8 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
             except OSError as _mv_exc:
                 _exc[0] = _mv_exc
                 logger.debug("could not move the rendered chart into place: %s", _mv_exc)
+            else:
+                _reset_kaleido_persistent_failures()
         else:
             _abandon_scratch_file(_scratch)
         if th.is_alive():

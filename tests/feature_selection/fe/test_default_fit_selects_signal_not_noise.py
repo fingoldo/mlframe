@@ -21,7 +21,8 @@ def test_planted_signal_is_selected_and_noise_is_not(name):
     X, y, planted = GENERATORS[name](n=_N, p=_P, seed=0)
     MRMR._FIT_CACHE.clear()
     selected = list(MRMR(verbose=0, random_seed=0, n_jobs=1).fit(X, y).get_feature_names_out())
-    found = any(all(s in c for s in planted) for c in selected)
+    # An empty planted list would make all() vacuously true for every column, so require at least one planted source.
+    found = bool(planted) and any(all(s in c for s in planted) for c in selected)
     noise_only = [c for c in selected if not any(s in c for s in planted)]
     assert found, f"{name}: no selected column mentions every planted source {planted}; selected {selected}"
     assert not noise_only, f"{name}: noise-only columns selected: {noise_only}"

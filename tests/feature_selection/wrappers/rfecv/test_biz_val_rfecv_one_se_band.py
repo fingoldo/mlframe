@@ -2,7 +2,7 @@
 
 Multi-dataset evidence (13 datasets x 6 seeds x CatBoost/LightGBM/logistic-or-ridge, ``_benchmarks/bench_rfecv_one_se_rule.py``): paired vs the legacy band
 dOOS = +0.0004 +- 0.0002 (W/T/L 47/151/36), 7.4 fewer features on average (-78 on p>>n CatBoost, -35 on many-noise LightGBM).  This is a fast single-regime
-replay (400x200, 8 informative; over 5 seeds the SE band keeps 75 vs 105 features at +0.0025 AUC, measured 100 -> 75 on the two seeds used here, ratio 0.75): many noise columns, logistic model, selection rules replayed on ONE RFECV curve so the comparison is paired.
+replay (400x200, 8 informative; over 10 split seeds the SE band keeps 118.7 vs 133.7 features on average, ratio 0.888, mean AUC delta -0.0003): many noise columns, logistic model, selection rules replayed on ONE RFECV curve so the comparison is paired.
 """
 import warnings
 
@@ -40,5 +40,7 @@ def test_biz_val_rfecv_one_se_band_se_keeps_fewer_features_at_equal_oos():
                 kept = [c for c, m in zip(X.columns, _replay(sel, rule)) if m]
                 auc_out.append(roc_auc_score(yte, LogisticRegression(C=0.3, max_iter=300).fit(Xtr[kept], ytr).predict_proba(Xte[kept])[:, 1]))
                 n_out.append(len(kept))
-    assert np.mean(n_se) <= 0.85 * np.mean(n_legacy), (n_se, n_legacy)
+    # Measured over 10 split seeds (_benchmarks/bench_rfecv_one_se_seeds.py): mean n_se / mean n_legacy = 0.888, worst AUC delta -0.0016.
+    # The bar sits a few points above that measured ratio; the earlier 0.85 bar was tuned on the two seeds used here and does not hold across seeds.
+    assert np.mean(n_se) <= 0.92 * np.mean(n_legacy), (n_se, n_legacy)
     assert np.mean(auc_se) >= np.mean(auc_legacy) - 0.002, (auc_se, auc_legacy)

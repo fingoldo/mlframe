@@ -306,7 +306,7 @@ def _quantile_plan(cp: Any, n: int, q_fracs: Any) -> "tuple | None":
             )
     with _QUANTILE_PLANS_LOCK:
         if len(_QUANTILE_PLANS) >= 256:
-            _QUANTILE_PLANS.pop(next(iter(_QUANTILE_PLANS)))
+            _QUANTILE_PLANS.pop(next(iter(_QUANTILE_PLANS)))  # evict-ok: a quantile plan is a pure function of its key; a miss rebuilds the identical plan
         _QUANTILE_PLANS[key] = plan
     return plan
 
