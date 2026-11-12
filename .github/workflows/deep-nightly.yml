@@ -211,9 +211,20 @@ jobs:
           python -c "import mlframe; print('mlframe', mlframe.__version__)"
           python -c "import os; print('MLFRAME_FAST =', os.environ.get('MLFRAME_FAST') or '(unset -- full sweeps)')"
 
+      # The ruff config the test_meta ratchets run is `extend`ed from $PY_CI_SHARED_DIR/configs/ruff-base.toml, which
+      # lives in a py-ci-shared checkout, not in the installed package. Without it ruff exits 2 on every C901 check.
+      - name: Check out py-ci-shared (shared ruff config)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: fingoldo/py-ci-shared
+          ref: 19fdf001cc9548e96d2bae06dfe11222735bba48  # v1.23.10  # pragma: allowlist secret
+          path: py-ci-shared
+          persist-credentials: false
+
       - name: Run the deep suite
         env:
           SHARD_GROUP: ${{ matrix.group }}
+          PY_CI_SHARED_DIR: ${{ github.workspace }}/py-ci-shared
         run: |
           # --run-fuzz enables the fuzz-combo tests the conftest deselects by default.
           # -m keeps `slow` IN and only drops what this runner physically cannot do.
