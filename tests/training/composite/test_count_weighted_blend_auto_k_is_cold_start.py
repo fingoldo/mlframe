@@ -62,5 +62,5 @@ def test_auto_k_scores_do_not_depend_on_k_when_every_validation_entity_is_unseen
         metadata_cols=["meta"], auto_k=True, k_grid=[1.0, 10.0, 100.0], k_cv=3, random_state=0,
     )
     ens.fit(X, y)
-    scores = np.array(list(ens.k_cv_scores_.values()))
+    scores = np.array(list(ens.k_cold_scores_.values()))
     assert scores.max() - scores.min() < 1e-9
