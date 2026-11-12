@@ -143,8 +143,10 @@ def _shift_codes(codes: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     return codes.astype(np.int64) - low[:, None], widths
 
 
-#: Candidate-matrix cells (columns x rows) from which the null runs on the device: below it the upload costs about what the host kernel does.
-DEVICE_MIN_CELLS = 20_000_000
+#: Candidate-matrix cells (columns x rows) from which the null runs on the device. Interleaved best-of-3 of one strong operand's null (40 permutations): 100 candidates x 100000 rows host 436 ms / device 180 ms,
+#: 300 x 100000 1051 / 246, 100 x 250000 1152 / 496, 100 x 50000 213 / 85, 30 x 100000 233 / 151, 50 x 20000 55 / 31, 20 x 5000 15 / 10 (identical observed values and floor); the old 20M cutoff left every fit below
+#: 200 columns at 100000 rows on the host.
+DEVICE_MIN_CELLS = 1_000_000
 
 
 def _device_conditional_mi(codes, widths, targets, z, ky, kz) -> "Optional[np.ndarray]":

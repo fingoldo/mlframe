@@ -63,3 +63,8 @@ def test_gate_verdicts_do_not_depend_on_the_path(monkeypatch):
     assert on is not None and off is not None
     np.testing.assert_allclose(on[0], off[0], rtol=0, atol=1e-12)
     assert on[1] == pytest.approx(off[1], rel=0, abs=1e-12)
+
+
+def test_the_default_threshold_sends_a_default_fit_to_the_device():
+    """A default fit (100 candidate columns, 100000 rows) is above the device cutoff: the device measured 2.4x faster there (436 against 180 ms per strong operand)."""
+    assert 100 * 100_000 >= C.DEVICE_MIN_CELLS
