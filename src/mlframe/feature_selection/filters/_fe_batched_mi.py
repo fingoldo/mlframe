@@ -990,7 +990,7 @@ def cmi_device_argmax(mi_d: Any) -> tuple[int, float]:
 
 
 def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: bool = False, codes_trusted: bool = False,
-                    return_device: bool = False, precomp_yz: Any = None, kx: int = 0, ky: int = 0) -> Any:
+                    return_device: bool = False, precomp_yz: Any = None, kx: int = 0, ky: int = 0, precomp_xz: Any = None) -> Any:
     """Miller-Madow plug-in CMI(x_k; y | z) in nats for EVERY column of ``x_cols``, in ONE device workload.
 
     ``x_cols`` (n,K) int codes - a host ndarray OR an already-resident cupy array (born-on-device codes
@@ -1088,12 +1088,18 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
     # H(x_k, z) for all k. LAUNCH-FUSION: ONE block/column kernel (shared hist + tree-reduce) collapses the
     # atomicAdd-count + reduce into a single launch (drops the (K, Kx*Kz) f64 intermediate); falls back to the
     # two-launch count+reduce (in-kernel flat key k*(Kx*Kz)+x*Kz+z) when the per-column hist won't fit shared.
-    _fused = _batched_joint_entropy_and_k2(X, dz, Kx, Kz, inv_n)
-    if _fused is not None:
-        h_xz, k_xz = _fused
+    # ``precomp_xz`` (h, k): the (x, z) joint entropy and occupied-cell count shared by every column, for columns that are within-stratum shuffles of one candidate (the permutation null): a
+    # shuffle inside the strata of z leaves the (x, z) joint unchanged, so one count serves all of them.
+    if precomp_xz is not None:
+        h_xz = cp.full(X.shape[1], float(precomp_xz[0]), dtype=cp.float64)  # Intentional float64: entropy terms of the MI statistic
+        k_xz = cp.full(X.shape[1], int(precomp_xz[1]), dtype=cp.int64)
     else:
-        cnt_xz = _batched_joint_counts2(X, dz, Kx, Kz)  # (K, Kx*Kz) int32
-        h_xz, k_xz = _rows_entropy_and_k(cnt_xz, inv_n)
+        _fused = _batched_joint_entropy_and_k2(X, dz, Kx, Kz, inv_n)
+        if _fused is not None:
+            h_xz, k_xz = _fused
+        else:
+            cnt_xz = _batched_joint_counts2(X, dz, Kx, Kz)  # (K, Kx*Kz) int32
+            h_xz, k_xz = _rows_entropy_and_k(cnt_xz, inv_n)
     # H(x_k, y, z) for all k: in-kernel flat key k*(Kx*Kyz) + x*Kyz + yz (same fuse; large Kyz -> fallback)
     _fused = _batched_joint_entropy_and_k2(X, yz, Kx, Kyz, inv_n)
     if _fused is not None:

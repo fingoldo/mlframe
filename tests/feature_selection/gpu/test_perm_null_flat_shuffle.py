@@ -67,3 +67,22 @@ def test_the_null_matches_an_exact_host_shuffle_in_distribution():
     ref = cp.asnumpy(m._batched_cmi_resident_chunked(cp.asarray(exact), y, z_for_cmi))
     se = np.sqrt(got.var() / nperm + ref.var() / nperm)
     assert abs(got.mean() - ref.mean()) < 4 * se
+
+
+def test_a_shared_xz_entropy_gives_the_same_cmi_for_within_stratum_shuffles():
+    """Shuffles inside the strata of z keep the (x, z) joint, so ``precomp_xz`` computed on one of them gives every column's CMI exactly as the per-column count does."""
+    from mlframe.feature_selection.filters._fe_batched_mi import batched_cmi_gpu, joint_entropy_gpu
+
+    rng = np.random.default_rng(4)
+    n, nperm, kz = 6000, 9, 700
+    z, x, y = rng.integers(0, kz, n), rng.integers(0, 8, n), rng.integers(0, 3, n)
+    z_dev = cp.asarray(z)
+    _zc, order_d, z_rank_d = m._stratum_layout(cp, z_dev, None, None, n)
+    flat = m._flat_within_stratum_shuffle(cp, cp.random.RandomState(1), cp.asarray(x)[order_d], z_rank_d, nperm, 8, int(z_rank_d[-1, 0]) + 1)
+    xp = cp.empty((n, nperm), dtype=cp.int64)
+    xp[order_d, :] = flat.T
+    kz_eff = int(z.max()) + 1
+    h, k = joint_entropy_gpu([xp[:, 0] * kz_eff + z_dev], [8 * kz_eff], 1.0 / n)
+    with_pre = cp.asnumpy(batched_cmi_gpu(xp, y, z_dev, kx=8, precomp_xz=(float(h), int(k)), return_device=True))
+    without = cp.asnumpy(batched_cmi_gpu(xp, y, z_dev, kx=8, return_device=True))
+    np.testing.assert_allclose(with_pre, without, rtol=0, atol=1e-12)

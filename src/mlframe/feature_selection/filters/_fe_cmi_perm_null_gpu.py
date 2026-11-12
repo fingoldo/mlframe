@@ -309,7 +309,7 @@ def conditional_perm_null_gpu(
             Xp_d = cp.empty((n, nperm), dtype=cp.int64)
             Xp_d[order_d, :] = flat_xp.T  # xp[order] = the shuffled z-sorted x, per perm
             del flat_xp, x_sorted_d, z_rank_d
-            nulls_dev = _batched_cmi_resident_chunked(Xp_d, y_h, z_for_cmi)
+            nulls_dev = _batched_cmi_resident_chunked(Xp_d, y_h, z_for_cmi, shared_xz=True)
             return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
     _rb = max(1, int(np.ceil(np.log2(max(2, _nrank)))))
     _rand_bits = 31 - _rb
@@ -338,7 +338,7 @@ def conditional_perm_null_gpu(
     Xp_d[order_d, :] = x_sorted_d[within]  # xp[order] = x_sorted[within], per perm
     del keys, within, x_sorted_d, z_rank_d, order_d  # free the (n,nperm) build + per-call order/zrank
     # (dx is resident-cached -> retained by the cache, not freed here)
-    nulls_dev = _batched_cmi_resident_chunked(Xp_d, y_h, z_for_cmi)
+    nulls_dev = _batched_cmi_resident_chunked(Xp_d, y_h, z_for_cmi, shared_xz=True)
     return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
 
 
@@ -375,7 +375,7 @@ def _perm_null_sparse_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_CMI_PERM_NULL_SPARSE", "0").strip().lower() in ("1", "true", "on", "yes")
 
 
-def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z):
+def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z, shared_xz: bool = False):
     """CMI(perm_col; y | z) for every column of the RESIDENT (n, nperm) permutation matrix ``Xp_d``, chunking
     the perms so each ``batched_cmi_gpu`` call's dense joint fits free VRAM.
 
@@ -420,6 +420,11 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z):
     h_z, k_z = joint_entropy_gpu([_dz], [Kz], _inv_n)
     h_yz, k_yz = joint_entropy_gpu([_yzk], [Kyz], _inv_n)
     _precomp = (_dz, Kz, h_z, k_z, _yzk, Kyz, h_yz, k_yz)
+    # ``shared_xz``: every column of Xp_d is a within-stratum shuffle of one candidate, so they share one (x, z) joint: count it once, on the first column, and hand it to every chunk.
+    _precomp_xz = None
+    if shared_xz:
+        _h_xz, _k_xz = joint_entropy_gpu([Xp_d[:, 0] * Kz + _dz], [Kx * Kz], _inv_n)
+        _precomp_xz = (float(_h_xz), int(_k_xz))
     # The range guard of batched_cmi_gpu reads the same x / y / z arrays (two blocking syncs each) for EVERY chunk of permutations. The codes are the pipeline's own binner output and a permutation does not
     # change the value set, so MLFRAME_PERM_NULL_TRUSTED_CHUNKS=1 checks them once for the whole null and calls the chunks as trusted.
     # bench-attempt-rejected (2026-11-08): off by default. _benchmarks/profiling/bench_perm_null_trusted_chunks.py, alternating A/B, medians of 5, near-continuous support, 25 permutations: 100000 rows x1.018,
@@ -447,7 +452,7 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z):
         c = min(chunk, nperm - s)
         try:
             cols = cp.ascontiguousarray(Xp_d[:, s : s + c])  # contiguous (n, c) for the joint-hist kernels
-            nulls_dev[s : s + c] = batched_cmi_gpu(cols, _dy, z, precomp_yz=_precomp, kx=Kx, return_device=True, codes_trusted=trusted)
+            nulls_dev[s : s + c] = batched_cmi_gpu(cols, _dy, z, precomp_yz=_precomp, precomp_xz=_precomp_xz, kx=Kx, return_device=True, codes_trusted=trusted)
             del cols
             s += c
         except cp.cuda.memory.OutOfMemoryError:
