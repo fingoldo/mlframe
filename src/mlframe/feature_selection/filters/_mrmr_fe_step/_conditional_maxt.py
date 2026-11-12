@@ -149,11 +149,16 @@ def _shift_codes(codes: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
 DEVICE_MIN_CELLS = 1_000_000
 
 
-def _device_conditional_mi(codes, widths, targets, z, ky, kz) -> "Optional[np.ndarray]":
-    """The ``(targets, candidates)`` conditional MI on the device for a candidate matrix big enough to pay for the upload (and when the device is allowed), else ``None``."""
+def _device_allowed(codes) -> bool:
+    """Whether a candidate matrix is big enough for the device null and the device is allowed."""
     from .._gpu_policy import gpu_globally_disabled
 
-    if gpu_globally_disabled() or codes.shape[0] * codes.shape[1] < DEVICE_MIN_CELLS:
+    return not gpu_globally_disabled() and codes.shape[0] * codes.shape[1] >= DEVICE_MIN_CELLS
+
+
+def _device_conditional_mi(codes, widths, targets, z, ky, kz) -> "Optional[np.ndarray]":
+    """The ``(targets, candidates)`` conditional MI on the device for a candidate matrix big enough to pay for the upload (and when the device is allowed), else ``None``."""
+    if not _device_allowed(codes):
         return None
     from ._conditional_maxt_gpu import conditional_mi_targets_device
 
@@ -228,6 +233,13 @@ class ConditionalPartnerGate:
         z = z - z.min()
         kz = int(z.max()) + 1
         observed = np.empty(len(self._cand), dtype=np.float64)  # Intentional float64: plug-in MI statistic vector (exact permutation ties)
+        if _device_allowed(codes):
+            from ._conditional_maxt_gpu import conditional_mi_null_device
+
+            null = conditional_mi_null_device(codes, widths, y, z, ky, kz, N_PERMUTATIONS, self._seed + 7919 * strong_idx)
+            if null is not None:
+                observed[:] = null[0]
+                return observed, float(np.quantile(null[1:].max(axis=1), QUANTILE))
         order = np.argsort(z, kind="stable")
         bounds = np.flatnonzero(np.diff(z[order])) + 1
         strata = np.split(order, bounds)

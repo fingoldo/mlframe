@@ -7,6 +7,7 @@ cp = pytest.importorskip("cupy")
 
 from mlframe.feature_selection.filters._mrmr_fe_step import _conditional_maxt as C
 from mlframe.feature_selection.filters._mrmr_fe_step._conditional_maxt_gpu import conditional_mi_targets_device
+from mlframe.feature_selection.filters._mrmr_fe_step import _conditional_maxt_gpu as C_gpu
 
 
 def _device_ok() -> bool:
@@ -50,7 +51,7 @@ def test_oversized_tables_decline_to_the_host():
 
 
 def test_gate_verdicts_do_not_depend_on_the_path(monkeypatch):
-    """The partner gate gives the same observed values and nearly the same floor with the device path forced and with it off."""
+    """The partner gate gives the same observed values with the device path forced and with it off, and a floor of the same size: the device draws its own within-stratum shuffles."""
     rng = np.random.default_rng(5)
     n, p = 6000, 12
     data = rng.integers(0, 6, (n, p + 1)).astype(np.int8)
@@ -62,9 +63,22 @@ def test_gate_verdicts_do_not_depend_on_the_path(monkeypatch):
     off = C.ConditionalPartnerGate(data, y, list(range(1, p + 1)), seed=3)._compute(0)
     assert on is not None and off is not None
     np.testing.assert_allclose(on[0], off[0], rtol=0, atol=1e-12)
-    assert on[1] == pytest.approx(off[1], rel=0, abs=1e-12)
+    assert off[1] * 0.7 < on[1] < off[1] * 1.4
 
 
 def test_the_default_threshold_sends_a_default_fit_to_the_device():
     """A default fit (100 candidate columns, 100000 rows) is above the device cutoff: the device measured 2.4x faster there (436 against 180 ms per strong operand)."""
     assert 100 * 100_000 >= C.DEVICE_MIN_CELLS
+
+
+def test_device_null_rows_are_within_stratum_shuffles_of_the_target():
+    """Row 0 of the device null is the observed target's CMI; every other row is the CMI of a target permuted inside each stratum (same CMI as the host kernel on the same permuted target is covered above)."""
+    codes, widths, targets, z, ky, kz = _inputs(7)
+    y = targets[0]
+    null = C_gpu.conditional_mi_null_device(codes, widths, y, z, ky, kz, 12, 5)
+    assert null is not None and null.shape == (13, codes.shape[0])
+    want = np.empty(codes.shape[0])
+    C._conditional_mi_columns(codes, widths, y, z, ky, kz, want)
+    np.testing.assert_allclose(null[0], want, rtol=0, atol=1e-12)
+    assert (null[1:] != null[0]).any()
+    assert len({tuple(r) for r in null[1:]}) == 12

@@ -107,3 +107,41 @@ def conditional_mi_targets_device(codes: np.ndarray, widths: np.ndarray, targets
         else:
             logger.debug("device conditional MI unavailable (%r); using the host kernel", exc)
         return None
+
+
+def conditional_mi_null_device(codes: np.ndarray, widths: np.ndarray, y: np.ndarray, z: np.ndarray, ky: int, kz: int, n_permutations: int, seed: int) -> "np.ndarray | None":
+    """``(n_permutations + 1, p)``: row 0 the conditional MI of every column for the observed target ``y``, the other rows for ``y`` shuffled within the strata of ``z``, all drawn and counted on the device.
+
+    The host draws these targets with one ``rng.permutation`` per stratum and permutation (about 150 ms for 40 permutations of 100000 rows, five times the kernel); here one flat radix sort of
+    ``permutation | stratum | random bits | y`` gives all of them (the within-stratum shuffle of the GPU conditional null). The stream differs from the host's, so the null agrees with it in distribution,
+    not bit for bit. ``None`` when the device cannot take it, as in ``conditional_mi_targets_device``."""
+    p, n = int(codes.shape[0]), int(codes.shape[1])
+    if kz > 64 or ky > 16 or kz * int(widths.max()) * ky > MAX_CELLS or int(codes.max()) > 32767:
+        return None
+    try:
+        import cupy as cp
+
+        from .._fe_cmi_perm_null_gpu import _flat_within_stratum_shuffle
+
+        z_d = cp.asarray(np.ascontiguousarray(z, dtype=np.int32))
+        y_d = cp.asarray(np.ascontiguousarray(y, dtype=np.int32))
+        order = cp.argsort(z_d)
+        z_sorted = z_d[order]
+        rank = cp.zeros(n, dtype=cp.int64)
+        rank[1:] = cp.cumsum(z_sorted[1:] != z_sorted[:-1])
+        flat = _flat_within_stratum_shuffle(cp, cp.random.RandomState(int(seed) & 0x7FFFFFFF), y_d[order], rank[:, None], int(n_permutations), int(ky), int(rank[-1]) + 1)
+        if flat is None:
+            return None
+        targets = cp.empty((int(n_permutations) + 1, n), dtype=cp.int32)
+        targets[0] = y_d
+        targets[1:, order] = flat
+        codes_d = cp.asarray(np.ascontiguousarray(codes, dtype=np.int16))
+        w_d = cp.asarray(np.ascontiguousarray(widths, dtype=np.int64))
+        # Intentional float64: the kernel writes double sums
+        out = cp.empty((int(n_permutations) + 1, p), dtype=cp.float64)
+        max_w = int(widths.max())
+        _kernel(cp)((p * (int(n_permutations) + 1),), (_THREADS,), (codes_d, w_d, targets, z_d, np.int32(n), np.int32(p), np.int32(int(n_permutations) + 1), np.int32(ky), np.int32(kz), np.int32(max_w), out), shared_mem=kz * max_w * ky * 4)  # launch-ok: the kernel's shared reduction array and tree reduction are sized for 256 threads
+        return np.asarray(cp.asnumpy(out))
+    except Exception as exc:  # no device / out of memory / compile failure: the host draws and counts
+        logger.debug("device conditional null unavailable (%r); the host draws and counts", exc)
+        return None
