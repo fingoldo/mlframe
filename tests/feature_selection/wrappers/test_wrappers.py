@@ -616,7 +616,9 @@ class TestRFECVSyntheticClassification:
             rfecv.fit(X, y)
 
         # Get selected feature indices
-        selected_indices = set(rfecv.support_.tolist())
+        support = np.asarray(rfecv.support_)
+        # support_ is a boolean mask: its .tolist() is [False, True, ...], and True == 1 would count as column 1.
+        selected_indices = set(np.flatnonzero(support).tolist()) if support.dtype == bool else set(support.tolist())
         informative_set = set(informative_indices)
 
         # Check overlap - at least 60% of informative features should be selected
@@ -690,7 +692,9 @@ class TestRFECVSyntheticClassification:
             rfecv.fit(X, y)
 
         # Get selected feature indices
-        selected_indices = set(rfecv.support_.tolist())
+        support = np.asarray(rfecv.support_)
+        # support_ is a boolean mask: its .tolist() is [False, True, ...], and True == 1 would count as column 1.
+        selected_indices = set(np.flatnonzero(support).tolist()) if support.dtype == bool else set(support.tolist())
         informative_set = set(informative_indices)
 
         # With correlated features, at least some informative ones should be selected
@@ -713,7 +717,9 @@ class TestRFECVSyntheticRegression:
             rfecv.fit(X, y)
 
         # Get selected feature indices
-        selected_indices = set(rfecv.support_.tolist())
+        support = np.asarray(rfecv.support_)
+        # support_ is a boolean mask: its .tolist() is [False, True, ...], and True == 1 would count as column 1.
+        selected_indices = set(np.flatnonzero(support).tolist()) if support.dtype == bool else set(support.tolist())
         informative_set = set(informative_indices)
 
         # Check overlap

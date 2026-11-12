@@ -4,6 +4,7 @@ import threading
 
 import mlframe.training._trainer_configure as tc
 from mlframe.training.composite.discovery import _screening_tiny as st
+from mlframe.training.composite.discovery import _screening_tiny_shared as _shared
 
 
 def _hammer(fn, n_threads=8, n_iter=200):
@@ -48,9 +49,8 @@ def test_training_config_cache_never_holds_a_pin_without_its_entry(monkeypatch):
 
 def test_kfold_split_cache_serves_correct_splits_under_contention(monkeypatch):
     """Kfold split cache serves correct splits under contention."""
-    # _cached_kfold_splits reads the cap from _screening_tiny_shared, so the cap is patched there (the cache dict is shared)
-    from mlframe.training.composite.discovery import _screening_tiny_shared as _shared
-
+    # The bound is read from the module that owns the cache (the shared leaf); the re-export on _screening_tiny is a copy, so patching it
+    # would leave the real bound at 8 and the size check below would never hold the limit it names.
     monkeypatch.setattr(_shared, "_KFOLD_SPLIT_CACHE_MAX", 3)
     st._KFOLD_SPLIT_CACHE.clear()
 

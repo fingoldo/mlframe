@@ -46,7 +46,8 @@ def build_rfecv_fit_summary(self: Any, *, stop_reason: Optional[str], n_iters: i
             else:
                 k = int(fold_counts(self, [int(nf[top])])[0])
                 half = float(band_half_width(np.array([top_std]), np.array([k]))[0])
-                band_txt, arith = "one standard error (fold std / sqrt(k))", f"{mean[top]:.{ndigits}f} - {top_std:.{ndigits}f}/sqrt({k})"
+                # Print the divisor band_half_width actually applies: the sample standard error divides by sqrt(k - 1).
+                band_txt, arith = "one standard error (fold std / sqrt(k))", f"{mean[top]:.{ndigits}f} - {top_std:.{ndigits}f}/sqrt({max(k - 1, 1)})"
             parts.append(
                 f"Rule {rule} keeps the {which} evaluated size whose CV mean is >= best mean minus {band_txt} "
                 f"({arith} = {mean[top] - half:.{ndigits}f}); "

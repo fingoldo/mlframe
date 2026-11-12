@@ -129,7 +129,12 @@ def test_validator_wired_at_both_predict_entry_points(tmp_path, loader):
 
     from mlframe.training.core import _predict_main_suite, predict
 
-    joblib.dump({"schema_version": 99}, tmp_path / "metadata.joblib")
+    from mlframe.utils.safe_pickle import write_sidecar
+
+    metadata_file = tmp_path / "metadata.joblib"
+    joblib.dump({"schema_version": 99}, metadata_file)
+    # The loader refuses metadata without its sha256 sidecar before it reads the version, so write it as production does.
+    write_sidecar(str(metadata_file))
     load = {
         "load_mlframe_suite": lambda: predict.load_mlframe_suite(str(tmp_path)),
         "_load_suite_metadata": lambda: _predict_main_suite._load_suite_metadata(str(tmp_path), None, 0),

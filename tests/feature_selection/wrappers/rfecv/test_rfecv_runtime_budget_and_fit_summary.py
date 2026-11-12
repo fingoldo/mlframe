@@ -163,10 +163,10 @@ def _one_se_fitted(rule, k):
 
 def test_summary_states_standard_error_band_arithmetic():
     """Summary states standard error band arithmetic."""
-    # floor = -0.0400 - 0.0060/sqrt(9) = -0.0420
+    # floor = -0.0400 - 0.0060/sqrt(9 - 1) = -0.0421 (sample standard error, k - 1 degrees of freedom)
     text = build_rfecv_fit_summary(_one_se_fitted("one_se_max", 9), stop_reason=None, n_iters=3, elapsed_s=1.0)
     assert "one standard error (fold std / sqrt(k))" in text
-    assert "(-0.0400 - 0.0060/sqrt(9) = -0.0420)" in text
+    assert "(-0.0400 - 0.0060/sqrt(8) = -0.0421)" in text
 
 
 def test_summary_states_legacy_fold_std_band_for_foldstd_rule():

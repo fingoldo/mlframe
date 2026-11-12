@@ -250,8 +250,9 @@ def test_wave21_member_quality_gate_median_ignores_nan_member():
     base = np.linspace(0.1, 0.9, 50)
     members = [base, base + 0.01, base + 0.02, np.full(50, np.nan)]
     kept, excluded, stats = compute_member_quality_gate(members)
-    assert kept == [0, 1]
-    assert sorted(i for i, _ in excluded) == [2, 3]
+    # Member 2 sits at the cross-member median (MAE 0.01, the stated median), well inside the 2.5x threshold, so only the NaN member is dropped.
+    assert kept == [0, 1, 2]
+    assert sorted(i for i, _ in excluded) == [3]
     assert np.isfinite(stats["median_mae"]) and stats["median_mae"] == pytest.approx(0.01)
     assert stats["rel_mae_threshold"] == pytest.approx(2.5 * 0.01)
 

@@ -106,10 +106,10 @@ def test_categorical_to_string_array_numpy_float_with_nan():
 # -------------------------------------------------------------------------
 
 
-def test_woe_unseen_uses_prior_logodds_not_zero():
-    """Imbalanced binary y: unseen category WoE must not be 0.0 (which is neutral only when
-    prior=0.5). Pre-fix unseen categories returned 0.0; post-fix they return log(p/(1-p)) where
-    p is the (smoothed) positive rate."""
+def test_woe_unseen_is_neutral_zero():
+    """Imbalanced binary y: an unseen category is neutral (0.0) under WoE, and a seen category is distinguishable from it.
+    The prior log-odds fallback was replaced on purpose (d159bcb03): WoE is a ratio of class-conditional shares, so an
+    unseen category carries no evidence, and the prior log-odds read as strong evidence for the negative class."""
     from mlframe.training.feature_handling.target_encoders import LeakageSafeEncoder
 
     rng = np.random.default_rng(0)
@@ -120,8 +120,7 @@ def test_woe_unseen_uses_prior_logodds_not_zero():
     enc.fit_transform(cats, y)
     seen_encoded = enc.transform(["a"])[0]
     unseen_encoded = enc.transform(["__never_seen__"])[0]
-    # Unseen must reflect the imbalanced prior; far from 0.0.
-    assert abs(unseen_encoded) > 1.0, f"Expected |unseen WoE| > 1 for 5%-positive prior; got {unseen_encoded}"
+    assert unseen_encoded == 0.0, f"Unseen WoE must be the neutral 0.0; got {unseen_encoded}"
     # Distinguishable from seen-but-balanced cell.
     assert seen_encoded != unseen_encoded
 
