@@ -33,3 +33,18 @@ Measured on the public fused call (GTX 1050 Ti, interleaved, min of 10):
 Equivalence: the entropies equal the original kernel's (maxdiff 0) and the unfused count+reduce reference (maxdiff 0 on the production shape). `test_joint_entropy_tiled.py` (8 tests) covers K in {1, 9, 13, 16} with Kb in {2, 7}; a mutant that drops the column offset fails 6 cases.
 
 Still open: `batched_joint_entropy2_g` (global-scratch variant for joints over the shared limit) has the same row-major read and stays in the uncoalesced baseline.
+
+## Global-scratch joint entropy `batched_joint_entropy2_g`: tiled route and an untiled route for large joints (2026-11-12)
+
+The global-scratch kernel serves joints over the shared-memory limit. Its read was row-major with one column per block (the same K-element stride as the fused kernel). A tiled route now handles joints up to 6144 cells: a block walks groups of columns (8 for joints up to 1024 cells, otherwise one), its scratch holds one histogram per column, and the blocks per SM are doubled when the doubled scratch fits in a quarter of L2. Joints above 6144 cells keep the untiled kernel `batched_joint_entropy2_g_wide`, which measured faster there and stays in the uncoalesced baseline.
+
+Measured (GTX 1050 Ti, 6 SMs, interleaved, min of 8-10, committed tree vs new):
+- n = 30000, K = 930, M = 1000: 11.3 -> 6.1 ms.
+- n = 100000, K = 384, M = 400: 13.8 -> 6.9 ms.
+- n = 30000, K = 930, M = 5000: 14.7 -> 11.9 ms (one column per block; eight columns per block were 44 ms, so the column group is limited to joints up to 1024 cells).
+- n = 30000, K = 930, M = 15000: 23.3 -> 23.4 ms (untiled route, unchanged). Tiled at this size measured 26.6 ms, so it stays on the untiled route.
+- Fused path (the one-launch kernel with the shared-memory tile): old and new tiled versions agree within noise at M = 1000, 5000, 10000 (6.4, 11.1-11.4, 15.4 ms).
+
+Two measured dead ends: more blocks per SM at M = 1000 (4 per SM 14.8 ms, 2 per SM 6.8 ms), and dividing the flat index by the column count per element (the per-element division cost a few ms, replaced by a per-thread row index).
+
+Correctness: `test_joint_entropy_global_tiled.py` checks both routes against the unfused count+reduce reference with K in {1, 9, 13} (partial last group) and Kb in {2, 7, 40}. The test found a real bug first: with a block size not divisible by the group width, the row stride let threads past the grid count rows twice. Threads outside the g x rows grid now sit out. A mutant that drops the column offset fails 2 cases.
