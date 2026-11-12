@@ -231,6 +231,12 @@ def conditional_perm_null_gpu(
     y_h = np.ascontiguousarray(y_i, dtype=np.int64).ravel()
     n = int(dx.size)
 
+    # Admission before either O(n * nperm) build: a refusal raises, and the caller's handler runs the host path (a None return would not
+    # be read as a fallback there, since the caller expects the (floor, mean) pair).
+    from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+    if not fe_gpu_has_vram_cushion(2 * int(n) * int(nperm) * 8):
+        raise RuntimeError("the VRAM cushion refused the (n, nperm) permutation build; the caller runs the host path")
     if z_i is None:
         # MARGINAL null (seed step): free within-column shuffle -> null MARGINAL MI(x_perm; y). Draw an (n, nperm)
         # key matrix on device and argsort each column -> nperm independent free permutations, all resident.
