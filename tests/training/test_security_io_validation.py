@@ -85,10 +85,7 @@ def _symlink_created(target: str, link: str) -> bool:
 
 @pytest.mark.skipif(sys.platform.startswith("win"), reason="symlink on Windows needs admin; tested on POSIX only")
 def test_validate_symlink_escape_resolved(tmp_path):
-    # NOTE: _validate_trusted_path uses os.path.abspath, which does NOT resolve symlinks.
-    # A symlink file *inside* trusted_root still has abspath inside trusted_root,
-    # so the current implementation permits it (documented behavior).
-    # We verify at minimum that a symlink *outside* is rejected by abspath check.
+    # The validator resolves symlinks (realpath, DSR2-01): a link inside trusted_root whose target is outside it must be refused.
     """Validate symlink escape resolved."""
     outside = tmp_path / "outside.joblib"
     outside.write_text("")
@@ -97,10 +94,9 @@ def test_validate_symlink_escape_resolved(tmp_path):
     linkname = trusted / "link.joblib"
     if not _symlink_created(str(outside), str(linkname)):
         pytest.skip("symlink unavailable")
-    # abspath does NOT resolve symlinks, so link is considered inside trusted.
-    # This asserts current (documented) behavior, not a security claim.
     assert os.path.realpath(linkname) == os.path.realpath(outside)
-    assert _validate_trusted_path(str(linkname), str(trusted)) is None
+    with pytest.raises(ValueError, match="not inside trusted_root"):
+        _validate_trusted_path(str(linkname), str(trusted))
 
 
 def test_validate_symlink_skips_when_symlink_unavailable(monkeypatch, tmp_path):
