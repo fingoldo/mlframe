@@ -610,6 +610,33 @@ void col_meanstd(const {REAL}* __restrict__ M, const long long n, const int K,
     if (tid == 0) { out_mean[col] = ({REAL})mean; out_std[col] = ({REAL})sqrt(sh[0] / ({ACC})n); }
 }
 """)
+# Tiled version: a thread's column is the block's x index, so a warp reads 32 adjacent columns of one row (one coalesced transaction);
+# the older one-block-per-column kernel read M[i*K + col] with the threads of one block K elements apart. The row groups (y) are
+# summed in one shared tile, the same two passes as above.
+_COL_MEANSTD_TILED_SRC = render(r"""
+extern "C" __global__
+void col_meanstd_tiled(const {REAL}* __restrict__ M, const long long n, const int K,
+                       {REAL}* __restrict__ out_mean, {REAL}* __restrict__ out_std) {
+    __shared__ {ACC} sh[8][33];
+    const int tx = threadIdx.x, ty = threadIdx.y;
+    const int col = blockIdx.x * 32 + tx;
+    const bool ok = col < K;
+    {ACC} s = 0.0;
+    if (ok) for (long long i = ty; i < n; i += 8) s += ({ACC})M[i * (long long)K + col];
+    sh[ty][tx] = s; __syncthreads();
+    if (ty == 0) { {ACC} t = 0.0; for (int r = 0; r < 8; ++r) t += sh[r][tx]; sh[0][tx] = t; }
+    __syncthreads();
+    const {ACC} mean = sh[0][tx] / ({ACC})n;
+    __syncthreads();
+    {ACC} d2 = 0.0;
+    if (ok) for (long long i = ty; i < n; i += 8) { {ACC} dv = ({ACC})M[i * (long long)K + col] - mean; d2 += dv * dv; }
+    sh[ty][tx] = d2; __syncthreads();
+    if (ty == 0) { {ACC} t = 0.0; for (int r = 0; r < 8; ++r) t += sh[r][tx]; sh[0][tx] = t; }
+    __syncthreads();
+    if (ty == 0 && ok) { out_mean[col] = ({REAL})mean; out_std[col] = ({REAL})sqrt(sh[0][tx] / ({ACC})n); }
+}
+""")
+_COL_MEANSTD_TILED_KERNELS: dict = {}
 _COL_MEANSTD_KERNELS: dict = {}
 
 
@@ -617,16 +644,22 @@ def _col_meanstd(cp, Mc):
     """Per-column mean AND std (ddof=0, two-pass) of a C-contiguous (n, K) f64 matrix in ONE launch (vs
     Mc.mean(axis=0) + Mc.std(axis=0)). Same two-pass formula as cupy std -> rel ~1e-13 (basis path tol 1e-6)."""
     real_t = "float" if Mc.dtype == cp.float32 else "double"
-    with _KERNEL_CACHE_LOCK:
-        kern = _COL_MEANSTD_KERNELS.get(real_t)
-        if kern is None:
-            kern = cp.RawKernel(_COL_MEANSTD_SRC.replace("{REAL}", real_t), "col_meanstd")
-            _COL_MEANSTD_KERNELS[real_t] = kern
     n, K = int(Mc.shape[0]), int(Mc.shape[1])
     mean = cp.empty(K, dtype=Mc.dtype)
     std = cp.empty(K, dtype=Mc.dtype)
-    kern((K,), (block_size_for(kern, work_items=n, pow2=True, max_width=256),), (Mc, np.int64(n), np.int32(K), mean, std))
+    kern = _col_meanstd_tiled_kernel(cp, real_t)
+    kern(((K + 31) // 32,), (32, 8), (Mc, np.int64(n), np.int32(K), mean, std))  # launch-ok: 32x8 tile fixed by the kernel's shared layout
     return mean, std
+
+
+def _col_meanstd_tiled_kernel(cp, real_t):
+    """The tiled column mean/std kernel for the value type ``real_t`` (one module per type, cached under the kernel lock)."""
+    with _KERNEL_CACHE_LOCK:
+        kern = _COL_MEANSTD_TILED_KERNELS.get(real_t)
+        if kern is None:
+            kern = cp.RawKernel(_COL_MEANSTD_TILED_SRC.replace("{REAL}", real_t), "col_meanstd_tiled")
+            _COL_MEANSTD_TILED_KERNELS[real_t] = kern
+    return kern
 
 
 def _gpu_basis_preprocess_nonrobust_fused(cp, M, basis):
