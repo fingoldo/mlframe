@@ -18,3 +18,18 @@ Not done: counter-level profile (nvprof achieved occupancy, shared efficiency, s
 | device-memory read throughput | 61 GB/s | 81 GB/s (about 73 % of this card's ~112 GB/s) |
 
 Both kernels move the same bytes: the int64 code matrix is 200000 x 300 x 8 = 480 MB per launch, and the shared kernel (5.83 ms) reads it at 82 GB/s, close to the card's bandwidth. So the lever left in this kernel is the operand width, not the atomics: an int8 code matrix would read 60 MB (an 8x cut, 5.8 ms -> about 1 ms if bandwidth stays the limit). That needs the whole CMI path (`batched_cmi_gpu`, its marginal / entropy kernels, the callers that build the codes as int64) to carry narrow codes; not started.
+
+## Fused joint entropy `batched_joint_entropy2`: tiled coalesced reads (2026-11-12)
+
+The fused kernel gave one block per column and read X[i*K + col] with threads striding rows, so a warp's loads were K elements apart. It is the fused path, which the dispatch takes only for large joints (or when `MLFRAME_FE_GPU_FUSE_CMI_ENTROPY=1`).
+
+The tiled kernel keeps the same histogram and reduction per column, now with G columns per block: a flat loop over rows x G reads consecutive columns of one row, and each column keeps its own histogram in shared memory. The per-column reduction keeps the original tree order, so the sums match exactly.
+
+Measured on the public fused call (GTX 1050 Ti, interleaved, min of 10):
+- n = 100000, K = 384, M = 40: original 36.2 ms, tiled G = 8 4.1 ms (G = 4 8.9 ms, G = 2 11.5 ms, G = 16 3.9 ms; G = 8 chosen as the best that also fits the M = 1000 case).
+- n = 30000, K = 930, M = 1000: original 19.9-21.3 ms, tiled G = 8 6.4 ms.
+- n = 30000, K = 930, M = 40: original 22.0 ms, tiled G = 4 5.7 ms.
+
+Equivalence: the entropies equal the original kernel's (maxdiff 0) and the unfused count+reduce reference (maxdiff 0 on the production shape). `test_joint_entropy_tiled.py` (8 tests) covers K in {1, 9, 13, 16} with Kb in {2, 7}; a mutant that drops the column offset fails 6 cases.
+
+Still open: `batched_joint_entropy2_g` (global-scratch variant for joints over the shared limit) has the same row-major read and stays in the uncoalesced baseline.
