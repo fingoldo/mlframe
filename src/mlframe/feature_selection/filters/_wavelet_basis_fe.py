@@ -570,6 +570,13 @@ def _heldout_incremental_mi_prep(x: np.ndarray, y: np.ndarray, *, nbins: int = 1
                 from ._fe_batched_mi import binned_mi_from_codes_gpu
 
                 n_cls = int(y_va.max()) + 1 if y_va.size else 1
+                # Admission before the (n_va, n_perm) label matrix crosses to the card; a refusal raises the device out-of-memory error this
+                # block's handler already answers with the CPU path.
+                from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+                _need = 2 * int(Yp.nbytes) + int(xc.size) * 8
+                if not fe_gpu_has_vram_cushion(_need):
+                    raise cp.cuda.memory.OutOfMemoryError(_need, 0)
                 Yp_d = cp.asarray(Yp)
                 xc_d = cp.asarray(np.ascontiguousarray(xc.astype(np.int64)))
                 # Intentional float64: the device MI statistic matrix is float64 (MI output contract)
