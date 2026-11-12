@@ -69,7 +69,7 @@ def _config_corr(
         return None
 
 
-def _score_one_pair_step4_iteration_serialization_point(
+def _score_one_pair_step4_iteration_serialization_point(  # audit-exempt: duplicate_function_body_subset -- one-call wrapper; _score_one_pair_part4 passes the same arguments, the match is that delegation
     st,
     times_spent,
     verbose,

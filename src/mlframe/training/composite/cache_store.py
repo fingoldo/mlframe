@@ -588,7 +588,7 @@ class DiscoveryCache:
             # non-fatal: the file fsync already happened, only metadata durability is at risk.
             if os.name == "posix":
                 try:
-                    _dir_fd = os.open(self.cache_dir, os.O_RDONLY)
+                    _dir_fd = os.open(self.cache_dir, os.O_RDONLY)  # audit-exempt: resource_handle_safety -- the descriptor is closed in the finally on the next lines, which is the only exit path after this call
                     try:
                         os.fsync(_dir_fd)
                     finally:

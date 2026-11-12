@@ -405,7 +405,7 @@ def _split_and_cap_fourier(z01: np.ndarray, y: np.ndarray, n: int) -> Optional[t
     return z_tr, z_va, y_tr, y_va
 
 
-def _try_gpu_fourier_detect(z01: np.ndarray, y: np.ndarray, f_grid: Sequence[float], min_val_corr: float, min_rows: int, max_freqs: int) -> Optional[list[float]]:
+def _try_gpu_fourier_detect(z01: np.ndarray, y: np.ndarray, f_grid: Sequence[float], min_val_corr: float, min_rows: int, max_freqs: int) -> Optional[list[float]]:  # audit-exempt: duplicate_function_body_subset -- one-call wrapper; the match is the GPU dispatch call, not copied detector logic
     """Run the GPU-resident detector when the resident flag is on; None when it is off, unavailable, or hit a genuine device fault (caller falls back to CPU)."""
     # GPU-RESIDENT dispatch (residency contract, not a wall win): under the resident flag
     # (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT) keep the column operand + target resident on the

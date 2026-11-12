@@ -158,7 +158,7 @@ def apply_pair_family_gate_from_state(st: _SimpleNamespace, classes_y: np.ndarra
 # ``_score_one_pair`` - not recomputed here per admitted pair / per tied-leader.
 # [discretize_array]
 # framework callables (lazily imported in the parent)
-def _emit_pair_features(
+def _emit_pair_features(  # audit-exempt: duplicate_function_body_subset -- the match is the delegating call sequence to its own parts part1..part5, not copied statements
     *,
     raw_vars_pair,
     pair_mi,
