@@ -82,24 +82,24 @@ Rows: 115.
 | feature_selection/filters/_orthogonal_univariate_fe/_orth_dedup.py | _pc_corr_cupy | 199 | FALSE POSITIVE: the memory-tile loop, each trip one tile GEMM |
 | feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_null_max.py | _null_max_strict_gpu | 180 | REAL, not yet measured: one label upload and one batched MI per permutation, the same class as the pre-batched null (GPU11-62); whether a batched path precedes it is not checked |
 | feature_selection/filters/_orthogonal_univariate_fe/_streamed_gpu_mi.py | mi_classif_streamed | 157 | FALSE POSITIVE: the planned streaming loop over column blocks, each a full block MI |
-| feature_selection/filters/_orthogonal_univariate_fe/_streamed_gpu_mi.py | null_max_streamed | 221, 241 | OPEN |
-| feature_selection/filters/_pairwise_modular_resident.py | residue_grid_mis_resident | 143 | OPEN |
-| feature_selection/filters/_permutation_null_pair_resident.py | pooled_pair_permutation_null_joint_mi_floor_cupy | 144 | OPEN |
-| feature_selection/filters/_resident_candidate_mi.py | gate_grid_mi_resident | 376 | OPEN |
-| feature_selection/filters/_unified_fe_gate.py | unified_second_pass_gate | 570 | OPEN |
-| feature_selection/filters/_usability_aware_selection.py | _build_usability_cand_step1_ua_codes_none | 483, 484, 485 | OPEN |
-| feature_selection/filters/_usability_aware_selection.py | _build_usability_cand_step2_sub_quantum_cpu | 515 | OPEN |
-| feature_selection/filters/_usability_aware_selection.py | _build_usability_cand_step3_pidx_n1_n2 | 376 | OPEN |
-| feature_selection/filters/_usability_aware_selection.py | build_usability_candidate_pool | 252 | OPEN |
-| feature_selection/filters/_usability_greedy_clf_batched.py | _newton | 100 | OPEN |
-| feature_selection/filters/_usability_greedy_clf_batched.py | cv_candidates_binary | 34 | OPEN |
-| feature_selection/filters/_usability_greedy_clf_gpu_resident.py | _usability_greedy_c_range_min | 555, 560 | OPEN |
-| feature_selection/filters/_usability_greedy_clf_gpu_resident.py | _usability_greedy_clf_multinomial_fns._fit_multinomial | 338 | OPEN |
-| feature_selection/filters/_usability_greedy_clf_gpu_resident.py | _usability_greedy_clf_step1_def_fit_binary._fit_binary | 394 | OPEN |
-| feature_selection/filters/_usability_greedy_clf_gpu_resident.py | _usability_greedy_clf_step3_def_shortlist_sel._shortlist | 519 | OPEN |
-| feature_selection/filters/_usability_greedy_clf_gpu_resident.py | usability_greedy_clf_gpu_resident._cv_candidate | 266 | OPEN |
-| feature_selection/filters/_usability_greedy_gpu_resident.py | _usability_greedy_g_range_min | 418 | OPEN |
-| feature_selection/filters/_usability_greedy_gpu_resident.py | _usability_greedy_gpu_step2_def_shortlist_sel._shortlist | 273 | OPEN |
+| feature_selection/filters/_orthogonal_univariate_fe/_streamed_gpu_mi.py | null_max_streamed | 221, 241 | FALSE POSITIVE: the planned streaming loop over column blocks, each a full block null |
+| feature_selection/filters/_pairwise_modular_resident.py | residue_grid_mis_resident | 143 | FALSE POSITIVE: loops over the few effective-bin groups, each one batched MI |
+| feature_selection/filters/_permutation_null_pair_resident.py | pooled_pair_permutation_null_joint_mi_floor_cupy | 144 | REAL, not yet measured: a bincount and several small ops per pair over n_pairs |
+| feature_selection/filters/_resident_candidate_mi.py | gate_grid_mi_resident | 376 | REAL, not yet measured: one tau-grid matrix build (several ops) per spec before the batched MI |
+| feature_selection/filters/_unified_fe_gate.py | unified_second_pass_gate | 570 | REAL, not yet measured: one conditional MI per remaining candidate per greedy round |
+| feature_selection/filters/_usability_aware_selection.py | _build_usability_cand_step1_ua_codes_none | 483, 484, 485 | REAL, not yet measured: one device op per (unary, unary, binary) combination |
+| feature_selection/filters/_usability_aware_selection.py | _build_usability_cand_step2_sub_quantum_cpu | 515 | FALSE POSITIVE: a host loop that builds a recipe per kept candidate, with no device launch per trip |
+| feature_selection/filters/_usability_aware_selection.py | _build_usability_cand_step3_pidx_n1_n2 | 376 | REAL, not yet measured: one candidate build per operand pair, each running the combination loops |
+| feature_selection/filters/_usability_aware_selection.py | build_usability_candidate_pool | 252 | REAL, not yet measured: one marginal MI per raw column |
+| feature_selection/filters/_usability_greedy_clf_batched.py | _newton | 100 | FALSE POSITIVE: the sequential Newton iterations, each one batched over the candidates |
+| feature_selection/filters/_usability_greedy_clf_batched.py | cv_candidates_binary | 34 | FALSE POSITIVE: loops over the few folds, each one batched over the candidates |
+| feature_selection/filters/_usability_greedy_clf_gpu_resident.py | _usability_greedy_c_range_min | 555, 560 | FALSE POSITIVE: the sequential greedy rounds, each one batched cross-validation call |
+| feature_selection/filters/_usability_greedy_clf_gpu_resident.py | _usability_greedy_clf_multinomial_fns._fit_multinomial | 338 | FALSE POSITIVE: the sequential Newton iterations, each full-size |
+| feature_selection/filters/_usability_greedy_clf_gpu_resident.py | _usability_greedy_clf_step1_def_fit_binary._fit_binary | 394 | FALSE POSITIVE: the sequential Newton iterations, each full-size |
+| feature_selection/filters/_usability_greedy_clf_gpu_resident.py | _usability_greedy_clf_step3_def_shortlist_sel._shortlist | 519 | FALSE POSITIVE: a host shortlist loop over scored candidates with host correlation vectors |
+| feature_selection/filters/_usability_greedy_clf_gpu_resident.py | usability_greedy_clf_gpu_resident._cv_candidate | 266 | FALSE POSITIVE: loops over the few folds, each one device fit |
+| feature_selection/filters/_usability_greedy_gpu_resident.py | _usability_greedy_g_range_min | 418 | FALSE POSITIVE: the sequential greedy rounds, each one batched cross-validation call |
+| feature_selection/filters/_usability_greedy_gpu_resident.py | _usability_greedy_gpu_step2_def_shortlist_sel._shortlist | 273 | FALSE POSITIVE: a host shortlist loop with host correlation vectors |
 | feature_selection/filters/_usability_greedy_gpu_resident.py | _usability_greedy_gpu_step3_def_cv_candidates._cv_candidates | 353, 359 | OPEN |
 | feature_selection/filters/_usability_greedy_steps.py | _usability_greedy_step4_consistency_across_folds | 249 | OPEN |
 | feature_selection/filters/_usability_njit_pool.py | _gpu_marginal_mi | 218 | OPEN |
