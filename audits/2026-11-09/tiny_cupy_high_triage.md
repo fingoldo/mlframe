@@ -8,13 +8,13 @@ Rows: 115.
 | file | function | line(s) | disposition |
 |---|---|---|---|
 | feature_engineering/transformer/random_features.py | compute_rff_features | 190 | FALSE POSITIVE: the loop is the Mode A fold loop (5 to 10 trips), each a full fit and projection (GPU11-59) |
-| feature_selection/filters/_batch_mi_noise_gate_screen_v1.py | batch_mi_with_noise_gate_cupy_v1 | 139 | OPEN: a host loop over permutations, re-exported in batch_mi_noise_gate_gpu; its call sites are not yet checked |
+| feature_selection/filters/_batch_mi_noise_gate_screen_v1.py | batch_mi_with_noise_gate_cupy_v1 | 139 | LEGACY: no caller in src beyond the re-export and `__all__` of batch_mi_noise_gate_gpu (tests only); a host loop over permutations, not on a fit path |
 | feature_selection/filters/_binned_numeric_agg_resident.py | _binagg_null_max_vector | 592 | FALLBACK: runs only when the batched null is disabled or fails (counted 0 calls by default; GPU11-62) |
 | feature_selection/filters/_binned_numeric_agg_resident.py | _pair_fold_stat_tables | 372 | FALSE POSITIVE: the fallback fold loop, one full pass per fold (GPU11-60) |
 | feature_selection/filters/_binned_numeric_agg_resident.py | build_binagg_oof_matrix_gpu | 432 | REAL, measured partly launch-bound: 32 us per column launch at 100000 rows, batching open (GPU11-61) |
 | feature_selection/filters/_cat_confirm_permutation.py | _confirm_pairs_via_permutation | 919 | REAL, not yet measured: per surviving pair, a permutation null with launches per permutation; the same class as the batched-permutation item (GPU11-62) |
 | feature_selection/filters/_cat_confirm_permutation.py | _count_nfailed_joint_indep_cupy | 313 | REAL: one permutation per trip, about eight cupy launches per trip over N rows, launch-bound; batching the permutations (as the null path does) is the restructure |
-| feature_selection/filters/_conditional_gate_fe.py | _gate_flush_pending | 717 | OPEN: the loop body has more device code than was read; to classify in the next pass || FALSE POSITIVE: one trip per pending candidate group (a few), each a host argmax and, for the groups that clear the margin, one fixed 12-permutation null; not a per-element loop |
+| feature_selection/filters/_conditional_gate_fe.py | _gate_flush_pending | 717 | FALSE POSITIVE: one trip per pending candidate group (a few), each a host argmax and, for the groups that clear the margin, one fixed 12-permutation null; not a per-element loop |
 | feature_selection/filters/_conditional_gate_fe.py | _rank_and_prune | 615 | REAL, not yet measured: a per-column device loop in the main path (the column gathers and medians), not only in the fallback |
 | feature_selection/filters/_conditional_gate_fe.py | cheap_row_argmax_scan | 513 | REAL, deliberate and budgeted: one device argmax per 3-column combination, the source states that the launch count is kept on purpose until the suite is decoupled from pool ordering |
 | feature_selection/filters/_cupy_polynom_optimizer.py | _score_generation_gpu | 171 | FALSE POSITIVE: loops over the fixed basis families (about nine), each one batched over the whole population |
@@ -27,14 +27,14 @@ Rows: 115.
 | feature_selection/filters/_fe_additive_fusion.py | _subsumed_raw_operand_check | 489 | FALSE POSITIVE: loops over the few raw operand tokens of a pair, each one a full check |
 | feature_selection/filters/_fe_additive_fusion_gpu_resident.py | _gpu_relevant_halves | 207 | REAL, not yet measured: a full permutation null per half, the same class as _collect_relevant_halves |
 | feature_selection/filters/_fe_additive_fusion_gpu_resident.py | _subsumed_raw_operand_check_gpu | 467 | FALSE POSITIVE: loops over the few raw operand tokens of the halves, each one a check (the twin of the host check) |
-| feature_selection/filters/_fe_additive_fusion_gpu_resident.py | propose_additive_fusions_gpu | 422, 428 | OPEN: a nested loop over half pairs; the device work in its body has not been read yet |
+| feature_selection/filters/_fe_additive_fusion_gpu_resident.py | propose_additive_fusions_gpu | 422, 428 | REAL, not yet measured: one pair evaluation (OLS fits and MI on the device) per token-disjoint half pair, quadratic in the halves and capped by the fusion limit |
 | feature_selection/filters/_fe_auto_escalation.py | _apply_pair_maxt_floor | 722 | REAL, not yet measured: a full permutation null per candidate, the same class as _collect_relevant_halves |
 | feature_selection/filters/_fe_auto_escalation.py | _best_admitted_column | 118 | REAL, not yet measured: one marginal MI per admitted column, launch work per column |
 | feature_selection/filters/_fe_auto_escalation.py | _propose_pair_candidates | 411, 440 | FALSE POSITIVE: loops over the few eligible pairs, each trip one whole candidate proposer (heavy per-pair work) |
-| feature_selection/filters/_fe_auto_escalation.py | _slice_admitted_pool | 295 | OPEN: the body is host numpy with one MI per admitted feature; the device call inside the MI has not been read || REAL when the device path is taken, not yet measured: each admitted feature's marginal CMI takes the device route on its heuristic, one launch set per feature |
-| feature_selection/filters/_fe_auto_escalation.py | find_underdelivering_pairs | 215 | OPEN: host dict logic in the visible body; the device call the detector found has not been read |
+| feature_selection/filters/_fe_auto_escalation.py | _slice_admitted_pool | 295 | REAL when the device path is taken, not yet measured: each admitted feature's marginal CMI takes the device route on its heuristic, one launch set per feature |
+| feature_selection/filters/_fe_auto_escalation.py | find_underdelivering_pairs | 215 | REAL, not yet measured: per pair a best-column scan, two conditional MIs and a permutation null |
 | feature_selection/filters/_fe_cmi_redundancy_gate.py | _gate_round | 486 | REAL, not yet measured: one resident CMI and permutation null per remaining candidate |
-| feature_selection/filters/_fe_cmi_redundancy_null.py | _conditional_cpu_null | 440 | OPEN: a per-shuffle host CMI loop; the cupy call in the callee has not been read || REAL when the device path is taken, not yet measured: each shuffle's CMI takes the device route on its heuristic, one launch set per shuffle |
+| feature_selection/filters/_fe_cmi_redundancy_null.py | _conditional_cpu_null | 440 | REAL when the device path is taken, not yet measured: each shuffle's CMI takes the device route on its heuristic, one launch set per shuffle |
 | feature_selection/filters/_fe_pure_form_retention_gpu_resident.py | _batched_gate_scalars | 128 | REAL, not yet measured: a device operation per pair over P pairs |
 | feature_selection/filters/_fe_raw_redundancy_anchors.py | _build_raw_redundancy_step2_def_raw_codes | 262 | REAL, not yet measured: one device code build per engineered column |
 | feature_selection/filters/_fe_raw_redundancy_drop.py | _drop_redundant_raw_o_step1_full_composite_bin | 708 | REAL, not yet measured: per-consumer device composite bins; the selection-exact short circuit skips some work |
@@ -60,8 +60,8 @@ Rows: 115.
 | feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py | _block_verdicts | 66 | REAL, not yet measured: one conditional permutation null per column that does not apply the batched route |
 | feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py | _score_groups | 125 | REAL, not yet measured: one device block per anchor group, blocked by the column budget |
 | feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py | batched_asymmetric_relax_verdicts | 169 | REAL, not yet measured: one device block per partner group, blocked by the column budget |
-| feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py | _prepass_gate_and_usability_candidates | 538 | OPEN |
-| feature_selection/filters/_mrmr_fe_step/_step_score.py | _score_candidates_one_by_one | 57, 60 | OPEN |
+| feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py | _prepass_gate_and_usability_candidates | 538 | REAL, not yet measured: one prevalence-gate resolution per sorted pair; the relax verdicts are batched up front, the per-pair gate is not |
+| feature_selection/filters/_mrmr_fe_step/_step_score.py | _score_candidates_one_by_one | 57, 60 | REAL, not yet measured: per candidate one upload, one device quantile binning and one marginal MI over the whole CMI-gate pool |
 | feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py | _escalation_admitted_pool | 480, 483 | FALLBACK: the loop runs only when the batched escalation pool is not done (the iterable is empty otherwise) |
 | feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py | _fused_compound_codes | 608 | REAL, not yet measured: one device code conversion per fused feature |
 | feature_selection/filters/_mrmr_fit_impl/_fe_stage_concurrency.py | merge_stage_state | 107, 108 | FALSE POSITIVE: merges host attributes of the stage copies, with no device launch in the loop body |
@@ -100,25 +100,25 @@ Rows: 115.
 | feature_selection/filters/_usability_greedy_clf_gpu_resident.py | usability_greedy_clf_gpu_resident._cv_candidate | 266 | FALSE POSITIVE: loops over the few folds, each one device fit |
 | feature_selection/filters/_usability_greedy_gpu_resident.py | _usability_greedy_g_range_min | 418 | FALSE POSITIVE: the sequential greedy rounds, each one batched cross-validation call |
 | feature_selection/filters/_usability_greedy_gpu_resident.py | _usability_greedy_gpu_step2_def_shortlist_sel._shortlist | 273 | FALSE POSITIVE: a host shortlist loop with host correlation vectors |
-| feature_selection/filters/_usability_greedy_gpu_resident.py | _usability_greedy_gpu_step3_def_cv_candidates._cv_candidates | 353, 359 | OPEN |
-| feature_selection/filters/_usability_greedy_steps.py | _usability_greedy_step4_consistency_across_folds | 249 | OPEN |
-| feature_selection/filters/_usability_njit_pool.py | _gpu_marginal_mi | 218 | OPEN |
-| feature_selection/filters/_usability_njit_pool.py | _pair_combo_mi_cupy | 296 | OPEN |
-| feature_selection/filters/_usability_njit_pool.py | _pair_combo_mi_cupy_loop | 350 | OPEN |
-| feature_selection/filters/_usability_pool_resident.py | score_pair_combos_table_resident | 251 | OPEN |
-| feature_selection/filters/_wavelet_basis_fe.py | _heldout_incremental_mi_from_prep | 661 | OPEN |
-| feature_selection/filters/_wavelet_basis_fe.py | _heldout_incremental_mi_prep | 590 | OPEN |
-| feature_selection/filters/_wavelet_basis_fe_batched.py | _per_leg_matrices | 133 | OPEN |
-| feature_selection/filters/_wavelet_basis_fe_batched.py | _select_wavelet_legs_batched_device | 228 | OPEN |
-| feature_selection/filters/batch_pair_mi_gpu.py | batch_pair_mi_cupy | 133 | OPEN |
-| feature_selection/filters/hermite_fe/__init__.py | _polyeval_cuda_pick_devices | 314 | OPEN |
-| feature_selection/filters/hermite_fe/__init__.py | _polyeval_try_cuda | 398 | OPEN |
-| feature_selection/filters/hermite_fe/_als_fused_gpu.py | als_sweep_fused | 206 | OPEN |
-| feature_selection/filters/hermite_fe/_hermite_prewarp.py | warm_start_als_seed | 318 | OPEN |
-| feature_selection/filters/hermite_fe/_hermite_prewarp_gpu_resident.py | _als_sweep_gpu | 173 | OPEN |
-| feature_selection/shap_proxied_fs/_shap_proxy_cluster.py | _edges_blocked | 122 | OPEN |
-| feature_selection/shap_proxied_fs/_shap_proxy_gpu.py | brute_force_top_n_gpu | 141 | OPEN |
-| metrics/_gpu_metrics.py | compute_batch_aucs | 597 | OPEN |
-| metrics/_gpu_metrics.py | gpu_multiple_pr_auc_scores | 462 | OPEN |
-| metrics/_gpu_metrics.py | gpu_multiple_roc_auc_scores | 398 | OPEN |
-| models/ensembling/_correlation.py | _probs_pairs | 94 | OPEN |
+| feature_selection/filters/_usability_greedy_gpu_resident.py | _usability_greedy_gpu_step3_def_cv_candidates._cv_candidates | 353, 359 | REAL, not yet measured: several device ops per candidate over the folds, with one D2H per candidate |
+| feature_selection/filters/_usability_greedy_steps.py | _usability_greedy_step4_consistency_across_folds | 249 | FALSE POSITIVE: the sequential greedy rounds, each one batched scoring call |
+| feature_selection/filters/_usability_njit_pool.py | _gpu_marginal_mi | 218 | REAL, not yet measured: several small device ops per candidate row for the entropies |
+| feature_selection/filters/_usability_njit_pool.py | _pair_combo_mi_cupy | 296 | FALSE POSITIVE: loops over the few distinct binary operations, each one op over its columns |
+| feature_selection/filters/_usability_njit_pool.py | _pair_combo_mi_cupy_loop | 350 | REAL, not yet measured: one apply per combination; the grouped sibling batches by operation |
+| feature_selection/filters/_usability_pool_resident.py | score_pair_combos_table_resident | 251 | REAL, not yet measured: one scoring call per pair, with the D2H already collapsed to one per table |
+| feature_selection/filters/_wavelet_basis_fe.py | _heldout_incremental_mi_from_prep | 661 | FALSE POSITIVE: the fixed 12-permutation null, a few trips |
+| feature_selection/filters/_wavelet_basis_fe.py | _heldout_incremental_mi_prep | 590 | FALSE POSITIVE: the fixed 12-permutation baseline, a few trips |
+| feature_selection/filters/_wavelet_basis_fe_batched.py | _per_leg_matrices | 133 | FALLBACK when the fused builder fits one block; in the blocked mode each trip is an O(n) leg build over at least the block budget, so launch overhead is a small share (GPU11-68) |
+| feature_selection/filters/_wavelet_basis_fe_batched.py | _select_wavelet_legs_batched_device | 228 | FALSE POSITIVE: the byte-bounded block loop (GPU11-68), each trip one batched MI over its legs |
+| feature_selection/filters/batch_pair_mi_gpu.py | batch_pair_mi_cupy | 133 | REAL, not yet measured: several device ops per pair over n_pairs in the plain cupy path |
+| feature_selection/filters/hermite_fe/__init__.py | _polyeval_cuda_pick_devices | 314 | FALSE POSITIVE: loops over the devices (one to a few), each a memory query |
+| feature_selection/filters/hermite_fe/__init__.py | _polyeval_try_cuda | 398 | FALSE POSITIVE: loops over the devices with per-device fault isolation, each trip one launch |
+| feature_selection/filters/hermite_fe/_als_fused_gpu.py | als_sweep_fused | 206 | FALSE POSITIVE: the sequential ALS iterations, each a few fused kernels (launches are documented launch-ok) |
+| feature_selection/filters/hermite_fe/_hermite_prewarp.py | warm_start_als_seed | 318 | FALSE POSITIVE: the sequential ALS iterations of a host numpy seed, a few trips |
+| feature_selection/filters/hermite_fe/_hermite_prewarp_gpu_resident.py | _als_sweep_gpu | 173 | FALSE POSITIVE: the sequential ALS iterations, each a few fused device ops |
+| feature_selection/shap_proxied_fs/_shap_proxy_cluster.py | _edges_blocked | 122 | REAL, not yet measured: a where and slice per row of a block, two or more launches per row |
+| feature_selection/shap_proxied_fs/_shap_proxy_gpu.py | brute_force_top_n_gpu | 141 | FALSE POSITIVE: loops over the few combination sizes, each one batched |
+| metrics/_gpu_metrics.py | compute_batch_aucs | 597 | FALLBACK: the per-column branch; the batched call over all columns is the default |
+| metrics/_gpu_metrics.py | gpu_multiple_pr_auc_scores | 462 | REAL, not yet measured: a sort and several ops per column over M columns |
+| metrics/_gpu_metrics.py | gpu_multiple_roc_auc_scores | 398 | REAL, not yet measured: a rank pass with ties per column over M columns |
+| models/ensembling/_correlation.py | _probs_pairs | 94 | FALSE POSITIVE: loops over the classes on host numpy arrays |
