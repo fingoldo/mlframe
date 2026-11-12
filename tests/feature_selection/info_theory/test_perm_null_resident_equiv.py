@@ -90,3 +90,24 @@ def test_gpu_device_shuffle_gen_valid_permutations():
     ys = np.sort(y)
     assert all(np.array_equal(np.sort(h[k]), ys) for k in range(h.shape[0])), "each row must be a permutation of y"
     assert not np.array_equal(h[0], h[1]), "distinct permutations across rows"
+
+
+def test_floor_refused_by_the_vram_cushion_returns_none_without_tripping_the_breaker(monkeypatch):
+    """A refused upload returns None (the caller then runs the exact njit kernel) and does not trip the GPU circuit breaker: a busy card is not a GPU fault."""
+    from mlframe.feature_selection.filters import _fe_gpu_vram
+    from mlframe.feature_selection.filters import _permutation_null as P
+    from mlframe.feature_selection.filters import _permutation_null_resident as R
+
+    rng = np.random.default_rng(5)
+    n, ncand, nperm = 4000, 6, 4
+    scaled = rng.integers(0, 8, ncand * n).astype(np.int64)
+    offsets = np.arange(ncand + 1, dtype=np.int64) * n
+    jc = np.full(ncand, 8, dtype=np.int64)
+    hx = rng.uniform(0.1, 1.0, ncand)
+    mm = np.zeros(ncand)
+    yp = rng.integers(0, 3, (nperm, n)).astype(np.int64)
+    tripped = []
+    monkeypatch.setattr(R, "trip_order1_maxt_gpu_circuit_breaker", lambda: tripped.append(1))
+    monkeypatch.setattr(_fe_gpu_vram, "fe_gpu_has_vram_cushion", lambda *args, **kwargs: False)
+    assert P._resident_floor_maxes(scaled, offsets, jc, hx, mm, 0.5, None, yp, 1.0 / n) is None
+    assert not tripped
