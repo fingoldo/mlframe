@@ -7,12 +7,12 @@ Rows: 115.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
-| feature_engineering/transformer/random_features.py | compute_rff_features | 190 | OPEN |
-| feature_selection/filters/_batch_mi_noise_gate_screen_v1.py | batch_mi_with_noise_gate_cupy_v1 | 139 | OPEN |
-| feature_selection/filters/_binned_numeric_agg_resident.py | _binagg_null_max_vector | 592 | OPEN |
-| feature_selection/filters/_binned_numeric_agg_resident.py | _pair_fold_stat_tables | 372 | OPEN |
-| feature_selection/filters/_binned_numeric_agg_resident.py | build_binagg_oof_matrix_gpu | 432 | OPEN |
-| feature_selection/filters/_cat_confirm_permutation.py | _confirm_pairs_via_permutation | 919 | OPEN |
+| feature_engineering/transformer/random_features.py | compute_rff_features | 190 | FALSE POSITIVE: the loop is the Mode A fold loop (5 to 10 trips), each a full fit and projection (GPU11-59) |
+| feature_selection/filters/_batch_mi_noise_gate_screen_v1.py | batch_mi_with_noise_gate_cupy_v1 | 139 | OPEN: a host loop over permutations, re-exported in batch_mi_noise_gate_gpu; its call sites are not yet checked |
+| feature_selection/filters/_binned_numeric_agg_resident.py | _binagg_null_max_vector | 592 | FALLBACK: runs only when the batched null is disabled or fails (counted 0 calls by default; GPU11-62) |
+| feature_selection/filters/_binned_numeric_agg_resident.py | _pair_fold_stat_tables | 372 | FALSE POSITIVE: the fallback fold loop, one full pass per fold (GPU11-60) |
+| feature_selection/filters/_binned_numeric_agg_resident.py | build_binagg_oof_matrix_gpu | 432 | REAL, measured partly launch-bound: 32 us per column launch at 100000 rows, batching open (GPU11-61) |
+| feature_selection/filters/_cat_confirm_permutation.py | _confirm_pairs_via_permutation | 919 | REAL, not yet measured: per surviving pair, a permutation null with launches per permutation; the same class as the batched-permutation item (GPU11-62) |
 | feature_selection/filters/_cat_confirm_permutation.py | _count_nfailed_joint_indep_cupy | 313 | REAL: one permutation per trip, about eight cupy launches per trip over N rows, launch-bound; batching the permutations (as the null path does) is the restructure |
 | feature_selection/filters/_conditional_gate_fe.py | _gate_flush_pending | 717 | OPEN |
 | feature_selection/filters/_conditional_gate_fe.py | _rank_and_prune | 615 | OPEN |
