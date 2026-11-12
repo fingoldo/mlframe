@@ -3218,7 +3218,6 @@ class TestPolarsNativeFastpath:
             captured_configs.append(kwargs["config"].skip_categorical_encoding)
             return original_fit(**kwargs)
 
-        monkeypatch.setattr(_pipeline_mod, "fit_and_transform_pipeline", _spy_pipeline)
         monkeypatch.setattr(_phfit_mod, "fit_and_transform_pipeline", _spy_pipeline)
 
         train_mlframe_models_suite(
@@ -3588,7 +3587,6 @@ class TestPolarsNativeFastpath:
             captured_configs.append(kwargs["config"].skip_categorical_encoding)
             return original_fit(**kwargs)
 
-        monkeypatch.setattr(_pipeline_mod, "fit_and_transform_pipeline", _spy_pipeline)
         monkeypatch.setattr(_phfit_mod, "fit_and_transform_pipeline", _spy_pipeline)
 
         models, _metadata = train_mlframe_models_suite(

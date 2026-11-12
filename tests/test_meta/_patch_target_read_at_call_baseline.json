@@ -12,10 +12,6 @@
       "count": 2,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
     },
-    "patch-target-read-at-call::training/test_core.py::patch of mlframe.training.pipeline.fit_and_transform_pipeline changes nothing: 'fit_and_transform_pipeline' is only imported into mlframe.training.pipeline, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.pipeline.fit_and_transform_pipeline at call time": {
-      "count": 2,
-      "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
-    },
     "patch-target-read-at-call::training/test_module_caches_thread_safe.py::patch of mlframe.training.composite.discovery._screening_tiny._KFOLD_SPLIT_CACHE_MAX changes nothing: '_KFOLD_SPLIT_CACHE_MAX' is only imported into mlframe.training.composite.discovery._screening_tiny, and no function reads it through the module; the code under test keeps its own binding. Patch the name where it is read, or have the code read mlframe.training.composite.discovery._screening_tiny._KFOLD_SPLIT_CACHE_MAX at call time": {
       "count": 1,
       "note": "open in audits/2026-11-05/_TRACKER.md GATE-2: patch target is a re-export the code under test does not read"
