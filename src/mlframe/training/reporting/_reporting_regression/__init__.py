@@ -165,7 +165,7 @@ def report_regression_model_perf(
     if st.targets_arr.ndim == 2 and st.targets_arr.shape[1] >= 2:
         from ._mtr import render_mtr_report
 
-        mtr_options = dict(
+        mtr_options: dict[str, Any] = dict(
             metrics=metrics, print_report=print_report, plot_outputs=plot_outputs, plot_file=plot_file, figsize=figsize,
             plot_sample_size=plot_sample_size, plot_dpi=plot_dpi, report_title=report_title, verbose=verbose,
         )
