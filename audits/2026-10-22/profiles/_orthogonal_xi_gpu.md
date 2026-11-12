@@ -53,3 +53,16 @@ Command: `nvprof --csv` with `PATH` extended by the CUPTI directory of CUDA 12.8
 | all other kernels (cupy elementwise, take, scan, scatter, memcpy, memset) | about 28 | 20% | the rest |
 
 GPU total 142.2 ms over 4 calls, about 35 ms per call, which agrees with the synchronized wall time of 40 ms. The key build and the walk are negligible; the three 64-bit radix sorts are the device time, so the path is sort-bound. The host kernel does the same work in about 27 ms per call. Options that were considered: a 32-bit composite (only valid below 65536 rows), dropping the (tie, row) pass (needs stable order from the device, which the design avoids), and CUB begin/end-bit control (not exposed by cupy's argsort). None is a cheap change, so the host stays the float64 choice.
+
+## nvprof breakdown, float32 device path (2026-11-12, GTX 1050 Ti, 30000 rows x 40 columns, 1 warm-up and 3 measured calls)
+
+Command as in the float64 breakdown above (CUPTI directory on `PATH`). Time column in ms.
+
+| kernel | total ms | share | launches |
+|---|---|---|---|
+| CUB radix sort (the batched argsort of the sort keys, 44 + 4 + 44 launches) | 27.81 + 8.81 + 1.25 = 37.9 | 88% | 92 |
+| `xi_walk` (Xi sums) | 1.88 | 4.4% | 4 |
+| `xi_sort_keys` (key build) | 0.62 | 1.4% | 4 |
+| other (copies, memcpy HtoD) | about 2.6 | 6% | the rest |
+
+GPU total 43.0 ms over four calls, about 10.8 ms per call, against a host kernel of 23.6 ms at this size (the wall timing above). The walk and the key build are small; the batched sort is the cost. Optimization stays open with the same candidate as the copula module: one value sort shared by the scorers that take the same resample block.
