@@ -419,3 +419,21 @@ def test_batch_tail_concentration_empty_input_returns_empty_array():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "-x", "--no-cov"])
+
+
+@pytest.mark.skipif(not _CUDA_AVAIL, reason="CUDA not available")
+def test_dispatcher_refused_vram_cushion_falls_back_to_cpu(monkeypatch, caplog):
+    """A busy-VRAM refusal must return the CPU table (backend "cpu") and log the fallback warning, not raise."""
+    import logging
+
+    from mlframe.feature_selection.filters import _fe_gpu_vram
+
+    n, n_operands, n_pairs = 3000, 5, 20
+    y, operand_matrix, pair_a, pair_b = _build_pairs(n_operands, n_pairs, n, seed=8)
+    expected = batch_pair_usability_corr_njit_parallel(y, operand_matrix, pair_a, pair_b, ALL_FORM_IDS)
+    monkeypatch.setattr(_fe_gpu_vram, "fe_gpu_has_vram_cushion", lambda _nbytes: False)
+    with caplog.at_level(logging.WARNING):
+        dispatched, backend = dispatch_batch_pair_usability_corr(y, operand_matrix, pair_a, pair_b)
+    assert backend == "cpu"
+    assert "insufficient VRAM cushion" in caplog.text
+    assert np.array_equal(expected.astype(crit_float_dtype()), dispatched)
