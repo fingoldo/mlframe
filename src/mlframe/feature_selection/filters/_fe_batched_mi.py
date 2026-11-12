@@ -526,10 +526,11 @@ def _launch_mm_nek_tile(Xc: Any, Ec: Any, yv: Any, n: int, K: int, nbins: int, K
     if G < 1:
         return False
     try:
-        kern = _MM_NEK_TILE_KERNELS.get(bool(is_f32))
-        if kern is None:
-            kern = cp.RawKernel(render(_MM_NEK_TILE_TEMPLATE, real=np.float32 if is_f32 else np.float64), "mm_nek_tile")
-            _MM_NEK_TILE_KERNELS[bool(is_f32)] = kern
+        with _KERNEL_CACHE_LOCK:
+            kern = _MM_NEK_TILE_KERNELS.get(bool(is_f32))
+            if kern is None:
+                kern = cp.RawKernel(render(_MM_NEK_TILE_TEMPLATE, real=np.float32 if is_f32 else np.float64), "mm_nek_tile")
+                _MM_NEK_TILE_KERNELS[bool(is_f32)] = kern
         kern(((K + G - 1) // G,), (_MM_NEK_TILE_THREADS,), (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(nbins), np.int32(Ky), np.int32(G),  # launch-ok: the tile's edge cache and per-column reduction are written for a fixed 256-lane block (the loader strides by blockDim / G)
                                                              np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)), ne_k, mi_out),
              shared_mem=G * (4 * M + 256 * 8))
@@ -585,10 +586,11 @@ def _column_min_max(Xc: Any, n: int, K: int, is_f32: bool) -> tuple:
     import cupy as cp
 
     try:
-        kern = _COL_MINMAX_KERNELS.get(bool(is_f32))
-        if kern is None:
-            kern = cp.RawKernel(render(_COL_MINMAX_TEMPLATE, real=np.float32 if is_f32 else np.float64), "col_minmax")
-            _COL_MINMAX_KERNELS[bool(is_f32)] = kern
+        with _KERNEL_CACHE_LOCK:
+            kern = _COL_MINMAX_KERNELS.get(bool(is_f32))
+            if kern is None:
+                kern = cp.RawKernel(render(_COL_MINMAX_TEMPLATE, real=np.float32 if is_f32 else np.float64), "col_minmax")
+                _COL_MINMAX_KERNELS[bool(is_f32)] = kern
         cmin = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI edge bounds; compared at full precision
         cmax = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI edge bounds; compared at full precision
         kern(((K + 7) // 8,), (_COL_MINMAX_THREADS,), (Xc, np.int64(n), np.int32(K), cmin, cmax))  # launch-ok: 8 columns per block with the per-thread column index tid % 8: the shared min and max arrays are sized for 256 threads
