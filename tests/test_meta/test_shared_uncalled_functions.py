@@ -704,6 +704,7 @@ _KEPT_TEST_REFERENCES = {
     "fits_shared",  # the shared-memory fit predicate of the k3 kernel; test_honest_null_k3 exercises the kernel it gates
     "launch_k3",  # the k3 honest-null launcher, a measured variant kept under test; test_honest_null_k3 checks its output
     "get_kernel_k4f",  # the float-gain k4 kernel, rejected as too coarse for the significance test (see _honest_null_k4); test_honest_null_k4 pins that
+    "_get_heavy_tail_stats_kernel",  # the one-block-per-column heavy-tail kernel, replaced in production by the coalesced 32x8 tiled one; test_col_meanstd_tiled compares the tiled kernel's flags with it
 }
 
 #: Diagnostic hooks: the docstring says they are not for the production path (every transfer is hashed on the host anyway).
