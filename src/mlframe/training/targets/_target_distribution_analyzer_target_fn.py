@@ -277,7 +277,7 @@ def analyze_target_distribution(
             "reason": reason,
         }
 
-    def _report(kind: str, found: list) -> TargetDistributionReport:
+    def _report(kind: Literal["regression", "classification"], found: list) -> TargetDistributionReport:
         """The report for ``kind`` with the pathologies ``found`` and this call's overrides, diagnostics and provenance."""
         return TargetDistributionReport(
             target_type=kind,
