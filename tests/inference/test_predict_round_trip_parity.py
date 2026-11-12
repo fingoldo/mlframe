@@ -127,7 +127,7 @@ def test_in_memory_and_disk_predict_agree_on_simple_suite(tmp_path):
     fte = SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
     ext_cfg = PreprocessingExtensionsConfig(scaler="StandardScaler", verbose_logging=False)
 
-    def _atomic_write_bytes_threads_zero(target_path, writer_fn):
+    def _atomic_write_bytes_threads_zero(target_path, writer_fn, fsync=False):
         """Drop-in replacement that avoids the ``f.flush()`` AFTER stream_writer.close() race."""
         with open(target_path, "wb") as f:
             writer_fn(f)
@@ -231,7 +231,7 @@ def _train_multi_target_suite(df, target_type, tmp_path, model_name):
     return fte, models, metadata
 
 
-def _atomic_write_bytes_threads_zero(target_path, writer_fn):
+def _atomic_write_bytes_threads_zero(target_path, writer_fn, fsync=False):
     """Returns ``True`` (after 1 setup step)."""
     with open(target_path, "wb") as f:
         writer_fn(f)
