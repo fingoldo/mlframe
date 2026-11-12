@@ -25,10 +25,10 @@ Rows: 115.
 | feature_selection/filters/_family_maxt_stream.py | streamed_null_max.null_max | 89 | FALSE POSITIVE: loops over the column groups admitted by the stream, each trip one full device null over its group |
 | feature_selection/filters/_fe_additive_fusion.py | _collect_relevant_halves | 204 | REAL, not yet measured: a full permutation null per pre-candidate, per-candidate launch work |
 | feature_selection/filters/_fe_additive_fusion.py | _subsumed_raw_operand_check | 489 | FALSE POSITIVE: loops over the few raw operand tokens of a pair, each one a full check |
-| feature_selection/filters/_fe_additive_fusion_gpu_resident.py | _gpu_relevant_halves | 207 | OPEN |
-| feature_selection/filters/_fe_additive_fusion_gpu_resident.py | _subsumed_raw_operand_check_gpu | 467 | OPEN |
-| feature_selection/filters/_fe_additive_fusion_gpu_resident.py | propose_additive_fusions_gpu | 422, 428 | OPEN |
-| feature_selection/filters/_fe_auto_escalation.py | _apply_pair_maxt_floor | 722 | OPEN |
+| feature_selection/filters/_fe_additive_fusion_gpu_resident.py | _gpu_relevant_halves | 207 | REAL, not yet measured: a full permutation null per half, the same class as _collect_relevant_halves |
+| feature_selection/filters/_fe_additive_fusion_gpu_resident.py | _subsumed_raw_operand_check_gpu | 467 | FALSE POSITIVE: loops over the few raw operand tokens of the halves, each one a check (the twin of the host check) |
+| feature_selection/filters/_fe_additive_fusion_gpu_resident.py | propose_additive_fusions_gpu | 422, 428 | OPEN: a nested loop over half pairs; the device work in its body has not been read yet |
+| feature_selection/filters/_fe_auto_escalation.py | _apply_pair_maxt_floor | 722 | REAL, not yet measured: a full permutation null per candidate, the same class as _collect_relevant_halves |
 | feature_selection/filters/_fe_auto_escalation.py | _best_admitted_column | 118 | OPEN |
 | feature_selection/filters/_fe_auto_escalation.py | _propose_pair_candidates | 411, 440 | OPEN |
 | feature_selection/filters/_fe_auto_escalation.py | _slice_admitted_pool | 295 | OPEN |
