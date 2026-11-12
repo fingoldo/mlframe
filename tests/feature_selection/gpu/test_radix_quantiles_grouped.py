@@ -35,3 +35,15 @@ def test_single_launch_declines_many_bins():
     if int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024)) > 48 * 1024:
         pytest.skip("the card has more than 48 KB of shared memory per block, so one launch takes 64 bins")
     assert _radix_select_interior_edges(X, 64) is None
+
+
+def test_integer_input_is_quantiled_as_float64_not_read_as_double():
+    """An int16 column is converted to float64 before the double radix path, so its quantiles match the float64 reference."""
+    rng = np.random.default_rng(7)
+    x = rng.integers(-30000, 30000, size=(20011, 3)).astype(np.int16)
+    X = cp.asarray(x)
+    got = radix_quantiles_grouped(X, np.linspace(0.0, 100.0, 25)[1:-1] / 100.0)
+    assert got is not None
+    qs = cp.linspace(0.0, 100.0, 25)
+    want = cp.percentile(X.astype(cp.float64), qs, axis=0)[1:-1]
+    assert cp.array_equal(got, want.astype(got.dtype))

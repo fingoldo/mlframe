@@ -326,6 +326,8 @@ def _radix_quantiles(cand_gpu, q_fracs):
     import cupy as cp
 
     cand_gpu = cp.ascontiguousarray(cand_gpu)
+    if cand_gpu.dtype not in (cp.float32, cp.float64):  # Intentional float64: the radix kernels read double* on the f64 path, and the quantiles are float64 anyway
+        cand_gpu = cand_gpu.astype(cp.float64)
     n, K = cand_gpu.shape
     is_f32 = cand_gpu.dtype == cp.float32
     plan = _quantile_plan(cp, n, q_fracs)
