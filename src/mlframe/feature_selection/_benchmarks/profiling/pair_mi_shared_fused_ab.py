@@ -21,6 +21,8 @@ freqs = (np.bincount(y, minlength=2) / n).astype(np.float64)
 pa = rng.integers(0, nf, n_pairs).astype(np.int64)
 pb = ((pa + rng.integers(1, nf, n_pairs)) % nf).astype(np.int64)
 
+from mlframe.feature_selection.filters._benchmarks._pair_mi_row_major_src import ROW_MAJOR_SRC  # noqa: E402
+
 OLD = """    for (long long i = tid; i < n_samples; i += nt) {
         int va = factors_data[i * (long long)n_features + a];
         int vb = factors_data[i * (long long)n_features + b];
@@ -48,10 +50,10 @@ NEW = """    for (long long i0 = tid; i0 < n_samples; i0 += 4LL * nt) {
             }
         }
     }"""
-if not (M._PAIR_MI_SHARED_FUSED_SRC.count(OLD) == 1):
-    raise AssertionError('M._PAIR_MI_SHARED_FUSED_SRC.count(OLD) == 1')
-unrolled = cp.RawKernel(M._PAIR_MI_SHARED_FUSED_SRC.replace(OLD, NEW), "pair_mi_shared_fused")
-plain = M._get_shared_fused_kernel()
+if not (ROW_MAJOR_SRC.count(OLD) == 1):
+    raise AssertionError('ROW_MAJOR_SRC.count(OLD) == 1')
+unrolled = cp.RawKernel(ROW_MAJOR_SRC.replace(OLD, NEW), "pair_mi_shared_fused")
+plain = cp.RawKernel(ROW_MAJOR_SRC, "pair_mi_shared_fused")
 
 
 def run(kernel, threads):

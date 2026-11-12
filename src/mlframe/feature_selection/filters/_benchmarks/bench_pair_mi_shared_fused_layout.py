@@ -11,12 +11,11 @@ import numpy as np
 
 from mlframe.feature_selection.filters import _batch_pair_mi_cuda_shared_fused as shared
 
-ROW_SRC = shared._PAIR_MI_SHARED_FUSED_SRC
-OLD_A = "factors_data[i * (long long)n_features + a]"
-OLD_B = "factors_data[i * (long long)n_features + b]"
-if not (ROW_SRC.count(OLD_A) == 1 and ROW_SRC.count(OLD_B) == 1):
-    raise AssertionError("kernel text changed; update the bench")
-COL_SRC = ROW_SRC.replace(OLD_A, "factors_data[(long long)a * n_samples + i]").replace(OLD_B, "factors_data[(long long)b * n_samples + i]")
+from mlframe.feature_selection.filters._benchmarks._pair_mi_row_major_src import ROW_MAJOR_SRC
+
+ROW_SRC = ROW_MAJOR_SRC
+COL_SRC = shared._PAIR_MI_SHARED_FUSED_SRC
+k_row = cp.RawKernel(ROW_SRC, "pair_mi_shared_fused")
 k_col = cp.RawKernel(COL_SRC, "pair_mi_shared_fused")
 
 
@@ -54,7 +53,7 @@ for n, P in ((100_000, 2_000), (1_000_000, 500)):
     args_common = (np.int64(n), np.int32(F), np.int32(P), np.int32(max_joint), np.int32(NCY), np.float64(1.0 / n), d_out)
 
     def run_row():
-        shared._get_shared_fused_kernel()((P,), (128,), (d_row, d_pa, d_pb, d_nb, d_cy, d_fy, *args_common), shared_mem=shared_bytes)  # launch-ok: layout benchmark, the block size is part of the measured variant
+        k_row((P,), (128,), (d_row, d_pa, d_pb, d_nb, d_cy, d_fy, *args_common), shared_mem=shared_bytes)  # launch-ok: layout benchmark, the block size is part of the measured variant
 
     def run_col():
         k_col.max_dynamic_shared_size_bytes = max(shared_bytes, 0)
