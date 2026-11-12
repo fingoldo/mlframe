@@ -143,12 +143,16 @@ def _order_wide(cp: Any, ordk: Any, tk: Any) -> Any:
     return cp.take_along_axis(p1, p2, axis=1)
 
 
-def xi_columns_device(cols: Any, seeds: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, y_side: "YSide | None" = None) -> Optional[np.ndarray]:
+def xi_columns_device(cols: Any, seeds: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, y_side: "YSide | None" = None, *, allow_wide: bool = False) -> Optional[np.ndarray]:
     """Xi of each row of ``cols`` (columns, n; float32, numpy or a resident cupy array) with the column tie seeds ``seeds``; ``None`` when the device cannot take it (the caller runs the host kernel)."""
     kk, n = cols.shape
     if kk == 0 or n < 2 or str(cols.dtype) not in ("float32", "float64"):
         return None
     wide = str(cols.dtype) == "float64"
+    if wide and not allow_wide:
+        # The production criterion dtype is float32 (crit_float_dtype). The float64 wide path is exact but sort-bound and slower than the
+        # host kernel (audits/2026-10-22/profiles/_orthogonal_xi_gpu.md), so it runs only when a caller opts in.
+        return None
     try:
         import cupy as cp
 

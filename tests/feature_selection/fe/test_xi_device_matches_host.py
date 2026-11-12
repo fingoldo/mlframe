@@ -45,7 +45,7 @@ def test_float64_device_xi_equals_host(n, k, resident):
     wide = np.ascontiguousarray(cols.astype(np.float64))
     want = np.empty(k)
     host._xi_columns_njit(wide, seeds, r_row, l_row, want)
-    got = gpu.xi_columns_device(cp.asarray(wide) if resident else wide, seeds, r_row, l_row)
+    got = gpu.xi_columns_device(cp.asarray(wide) if resident else wide, seeds, r_row, l_row, allow_wide=True)
     assert got is not None
     np.testing.assert_array_equal(got, want)
 
@@ -77,3 +77,9 @@ def test_resident_block_is_used_by_the_batch_when_the_device_is_chosen(monkeypat
     monkeypatch.setattr(gpu, "use_device", lambda n_rows: True)
     got = host.xi_correlation_batch(X, y, random_state=9, device_block=cp.asarray(np.ascontiguousarray(X.T)))
     np.testing.assert_array_equal(got, want)
+
+
+def test_float64_stays_on_the_host_by_default():
+    """The production criterion dtype is float32; a float64 block without the opt-in is handed back to the host kernel."""
+    cols, seeds, r_row, l_row = _inputs(3000, 5, 2)
+    assert gpu.xi_columns_device(cols.astype(np.float64), seeds, r_row, l_row) is None
