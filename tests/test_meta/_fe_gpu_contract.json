@@ -3,7 +3,8 @@
   "note": "Ratchet of the FE GPU / streaming / profiling contract (audits/2026-10-22/fe_gpu_coverage.md). A module leaves 'pending' when it meets every point and enters 'compliant'. The list only shrinks: a new FE module must meet the contract at once.",
   "n_pending_at_creation": 226,
   "compliant": [
-    "_fe_sufficient_summary_pairs"
+    "_fe_sufficient_summary_pairs",
+    "hermite_fe"
   ],
   "exempt": {
     "_confirm_predictor_engineered": "ordering and decision helpers around the single-predictor confirmation: bookkeeping, no numeric kernel",
@@ -290,7 +291,6 @@
     "batch_pair_mi_gpu",
     "batch_pair_usability_corr_gpu",
     "feature_engineering",
-    "hermite_fe",
     "polynom_pair_fe"
   ]
 }

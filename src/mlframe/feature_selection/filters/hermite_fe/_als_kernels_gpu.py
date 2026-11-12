@@ -19,28 +19,28 @@ _LOCK = threading.Lock()
 _SRC = r"""
 extern "C" {
 __global__ void design_matvec(const {REAL}* B, const {REAL}* c, {REAL}* out, const long long n) {
-    double cc[D];
+    {ACC} cc[D];
     #pragma unroll
     for (int k = 0; k < D; ++k) cc[k] = c[k];
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
         const {REAL}* r = B + i * D;
-        double s = 0.0;
+        {ACC} s = 0.0;
         #pragma unroll
         for (int k = 0; k < D; ++k) s += r[k] * cc[k];
         out[i] = s;
     }
 }
-__global__ void weighted_gram(const {REAL}* B, const {REAL}* w, const {REAL}* y, double* part, const long long n, const int use_w) {
-    double acc[NACC];
+__global__ void weighted_gram(const {REAL}* B, const {REAL}* w, const {REAL}* y, {ACC}* part, const long long n, const int use_w) {
+    {ACC} acc[NACC];
     #pragma unroll
     for (int t = 0; t < NACC; ++t) acc[t] = 0.0;
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
         const {REAL}* r = B + i * D;
-        const double wi = use_w ? w[i] : 1.0;
-        double a[D];
+        const {ACC} wi = use_w ? w[i] : 1.0;
+        {ACC} a[D];
         #pragma unroll
         for (int k = 0; k < D; ++k) a[k] = r[k] * wi;
-        const double yi = y[i];
+        const {ACC} yi = y[i];
         int t = 0;
         #pragma unroll
         for (int j = 0; j < D; ++j) {
@@ -49,19 +49,19 @@ __global__ void weighted_gram(const {REAL}* B, const {REAL}* w, const {REAL}* y,
             acc[t] += a[j] * yi; ++t;
         }
     }
-    __shared__ double warp_sums[8][NACC];
+    __shared__ {ACC} warp_sums[8][NACC];
     const int lane = threadIdx.x & 31;
     const int warp = threadIdx.x >> 5;
     #pragma unroll
     for (int t = 0; t < NACC; ++t) {
-        double v = acc[t];
+        {ACC} v = acc[t];
         for (int o = 16; o > 0; o >>= 1) v += __shfl_down_sync(0xffffffffu, v, o);
         if (lane == 0) warp_sums[warp][t] = v;
     }
     __syncthreads();
     // Fixed-order block reduction: no atomics, so the sums are bit-reproducible run to run.
     if (threadIdx.x < NACC) {
-        double v = 0.0;
+        {ACC} v = 0.0;
         for (int wv = 0; wv < 8; ++wv) v += warp_sums[wv][threadIdx.x];
         part[(long long)blockIdx.x * NACC + threadIdx.x] = v;
     }
@@ -70,7 +70,7 @@ __global__ void weighted_gram(const {REAL}* B, const {REAL}* w, const {REAL}* y,
 """
 
 
-_MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float"))}
+_MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double").replace("{ACC}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float").replace("{ACC}", "double"))}
 
 
 def _modules_for(B: Any) -> Any:

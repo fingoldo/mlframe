@@ -27,38 +27,54 @@ logger = logging.getLogger(__name__)
 _KIND = {"fourier": 0, "rbf": 1, "sigmoid": 2, "pade": 3}
 
 _SRC = r"""
-extern "C" __global__ void nonpoly_cells(const {REAL}* __restrict__ x, const double* __restrict__ par, const int* __restrict__ cell_col, const int* __restrict__ cell_kind,
+extern "C" __global__ void nonpoly_cells(const {REAL}* __restrict__ x, const {ACC}* __restrict__ par, const int* __restrict__ cell_col, const int* __restrict__ cell_kind,
                                          const int* __restrict__ cell_deg, const long long n, const int K, const int C, {REAL}* __restrict__ out) {
-    const double two_pi = 6.283185307179586476925286766559;
-    for (long long idx = blockIdx.x * (long long)blockDim.x + threadIdx.x; idx < n * (long long)C; idx += (long long)gridDim.x * blockDim.x) {
-        const long long i = idx / C;
-        const int c = (int)(idx - i * C);
-        const double v = (double)x[i * (long long)K + cell_col[c]];
-        const double p0 = par[4 * c], p1 = par[4 * c + 1];
-        const int d = cell_deg[c];
-        double r = 0.0;
-        switch (cell_kind[c]) {
+    const {ACC} two_pi = 6.283185307179586476925286766559;
+    // The cell parameters of a block are staged once in shared memory when there are at most 256 cells (the common case); above that the
+    // block reads them from global memory. The branch is uniform in the block.
+    __shared__ int s_col[256], s_kind[256], s_deg[256];
+    __shared__ {ACC} s_p0[256], s_p1[256];
+    const bool staged = C <= 256;
+    if (staged) {
+        for (int t = threadIdx.x; t < C; t += blockDim.x) {
+            s_col[t] = cell_col[t]; s_kind[t] = cell_kind[t]; s_deg[t] = cell_deg[t];
+            s_p0[t] = par[4 * t]; s_p1[t] = par[4 * t + 1];
+        }
+        __syncthreads();
+    }
+    // 32-bit cell index: the output has n * C entries, far below 2^32 for every fit this kernel runs on.
+    const unsigned int UC = (unsigned int)C;
+    for (unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < (unsigned int)n * UC; idx += gridDim.x * blockDim.x) {
+        const unsigned int i = idx / UC;
+        const int c = (int)(idx - i * UC);
+        const int col = staged ? s_col[c] : cell_col[c];
+        const {ACC} v = ({ACC})x[(long long)i * K + col];
+        const {ACC} p0 = staged ? s_p0[c] : par[4 * c];
+        const {ACC} p1 = staged ? s_p1[c] : par[4 * c + 1];
+        const int d = staged ? s_deg[c] : cell_deg[c];
+        {ACC} r = 0.0;
+        switch (staged ? s_kind[c] : cell_kind[c]) {
         case 0: {   // fourier: p0 = lo, p1 = span (0 marks a degenerate column, z = 0)
-            const double z = p1 > 0.0 ? (v - p0) / p1 : 0.0;
+            const {ACC} z = p1 > 0.0 ? (v - p0) / p1 : 0.0;
             const int k = (d + 1) / 2;
-            const double ang = two_pi * (double)k * z;
+            const {ACC} ang = two_pi * ({ACC})k * z;
             r = (d & 1) ? sin(ang) : cos(ang);
             break;
         }
         case 1: {   // rbf: p0 = centre, p1 = 1 / bandwidth^2
-            const double dz = v - p0;
+            const {ACC} dz = v - p0;
             r = exp(-dz * dz * p1);
             break;
         }
         case 2: {   // sigmoid: p0 = threshold, p1 = slope; the sign-split form never overflows exp
-            const double arg = p1 * (v - p0);
-            if (arg >= 0.0) { r = 1.0 / (1.0 + exp(-arg)); } else { const double e = exp(arg); r = e / (1.0 + e); }
+            const {ACC} arg = p1 * (v - p0);
+            if (arg >= 0.0) { r = 1.0 / (1.0 + exp(-arg)); } else { const {ACC} e = exp(arg); r = e / (1.0 + e); }
             break;
         }
         default: {  // pade: p0 = mean, p1 = std (0 marks a degenerate column); 1 / (1 + z^d), zero within 1e-3 of a pole
-            const double z = p1 > 0.0 ? (v - p0) / p1 : 0.0;
-            double den = 1.0;
-            double zp = 1.0;
+            const {ACC} z = p1 > 0.0 ? (v - p0) / p1 : 0.0;
+            {ACC} den = 1.0;
+            {ACC} zp = 1.0;
             for (int t = 0; t < d; ++t) zp *= z;
             den = 1.0 + zp;
             r = fabs(den) < 1e-3 ? 0.0 : 1.0 / den;
@@ -69,7 +85,7 @@ extern "C" __global__ void nonpoly_cells(const {REAL}* __restrict__ x, const dou
 }
 """
 
-_MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float"))}
+_MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double").replace("{ACC}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float").replace("{ACC}", "double"))}
 
 
 def _module_for(M: Any) -> Any:
