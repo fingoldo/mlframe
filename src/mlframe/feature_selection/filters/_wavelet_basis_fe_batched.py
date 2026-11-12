@@ -118,7 +118,7 @@ def _fused_leg_matrices(cp, z_g, max_scale: int, min_half_rows: int):
     return leg_code_matrices(cp, z_g, max_scale, min_half_rows)
 
 
-def _per_leg_matrices(cp, z_g, max_scale: int, tr_mask, va_mask, min_half_rows: int):
+def _per_leg_matrices(cp, z_g, max_scale: int, tr_mask, va_mask, min_half_rows: int, subset=None):
     """The per-leg cupy build of the train / validation code matrices: ``(metas, tr_mat, va_mat)`` (the reference the fused kernels are tested against).
 
     Integer index arrays, not boolean masks, select the rows: a boolean-mask gather re-syncs on the nonzero count for every leg, an integer gather has a known output size."""
@@ -128,13 +128,14 @@ def _per_leg_matrices(cp, z_g, max_scale: int, tr_mask, va_mask, min_half_rows: 
     metas_all: list = []
     pos_all: list = []
     neg_all: list = []
-    for j in range(int(max_scale) + 1):
-        for k in range(2**j):
-            leg = _dyadic_haar_leg_gpu(cp, z_g, j, k)
-            legs_all.append(leg)
-            metas_all.append((int(j), int(k)))
-            pos_all.append((leg > 0).sum())
-            neg_all.append((leg < 0).sum())
+    # ``subset`` (a list of (j, k)) builds only those legs, so a caller can bound the device memory by blocks of legs
+    all_legs = subset if subset is not None else [(jj, kk) for jj in range(int(max_scale) + 1) for kk in range(2**jj)]
+    for j, k in all_legs:
+        leg = _dyadic_haar_leg_gpu(cp, z_g, j, k)
+        legs_all.append(leg)
+        metas_all.append((int(j), int(k)))
+        pos_all.append((leg > 0).sum())
+        neg_all.append((leg < 0).sum())
     metas: list = []
     tr_cols: list = []
     va_cols: list = []
@@ -200,26 +201,44 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         # different column with the same role re-uploads while the SAME column hits.
         z_g = resident_operand(np.ascontiguousarray(x), "wavelet_x", dtype=cp.float64)  # Intentional float64: GPU operand upload; kernel contract is float64
         z_g = cp.clip((z_g - float(lo)) / float(span), 0.0, 1.0)
-        fused = _fused_leg_matrices(cp, z_g, int(max_scale), _WAVELET_MIN_HALF_ROWS) if fused_switch_enabled(_FUSED_ENV) else None
-        if fused is not None:
-            metas, tr_mat, va_mat = fused
-            if not metas:
-                return []
-        else:
-            metas, tr_mat, va_mat = _per_leg_matrices(cp, z_g, int(max_scale), tr_mask, va_mask, _WAVELET_MIN_HALF_ROWS)
-            if not metas:
-                return []
         yb_tr = _bin_y_codes(y[tr_mask])
         yb_va = _bin_y_codes(y[va_mask])
         ky_tr = int(np.asarray(yb_tr).max()) + 1
         ky_va = int(np.asarray(yb_va).max()) + 1
-        tr_kx = [3] * len(metas)
-        va_kx = [3] * len(metas)
-        # Leave codes_trusted at the default (False) so the in-range guard runs, MIRRORING the host
-        # select_wavelet_legs_batched call (which does not trust). leg+1 is in {0,1,2} by construction, so the
-        # guard always passes; keeping it on matches the host path's illegal-address protection exactly.
-        mi_tr = binned_mi_from_codes_gpu(tr_mat, np.asarray(yb_tr), kx_per_col=tr_kx, ky=ky_tr)
-        mi_va = binned_mi_from_codes_gpu(va_mat, np.asarray(yb_va), kx_per_col=va_kx, ky=ky_va)
+        all_legs = [(j, k) for j in range(int(max_scale) + 1) for k in range(2**j)]
+        n_rows = int(tr_mask.sum()) + int(va_mask.sum())
+        # The legs are built and scored in blocks of at most ``_DEVICE_LEG_BLOCK_BYTES`` of int64 codes (train and held-out together). The fused
+        # builder builds every leg in one pass, so it is used only when all of them fit one block; otherwise each block is built per leg.
+        one_block = len(all_legs) * 8 * n_rows <= _DEVICE_LEG_BLOCK_BYTES
+        block_legs = len(all_legs) if one_block else max(1, _DEVICE_LEG_BLOCK_BYTES // (8 * n_rows))
+
+        def _leg_blocks():
+            """The (metas, train codes, held-out codes) of the legs: a fused build when every leg fits one block, else one per-leg block at a time."""
+            if one_block and fused_switch_enabled(_FUSED_ENV):
+                fused = _fused_leg_matrices(cp, z_g, int(max_scale), _WAVELET_MIN_HALF_ROWS)
+                if fused is not None:
+                    yield fused
+                    return
+            for b0 in range(0, len(all_legs), block_legs):
+                yield _per_leg_matrices(cp, z_g, int(max_scale), tr_mask, va_mask, _WAVELET_MIN_HALF_ROWS, subset=all_legs[b0 : b0 + block_legs])
+
+        metas: list = []
+        mi_tr_parts: list = []
+        mi_va_parts: list = []
+        for metas_b, tr_b, va_b in _leg_blocks():
+            if not metas_b:
+                continue
+            kx_b = [3] * len(metas_b)
+            # Leave codes_trusted at the default (False) so the in-range guard runs, MIRRORING the host select_wavelet_legs_batched call (which does not trust).
+            # leg+1 is in {0,1,2} by construction, so the guard always passes; keeping it on matches the host path's illegal-address protection exactly.
+            mi_tr_parts.append(np.asarray(binned_mi_from_codes_gpu(tr_b, np.asarray(yb_tr), kx_per_col=kx_b, ky=ky_tr), dtype=np.float64))
+            mi_va_parts.append(np.asarray(binned_mi_from_codes_gpu(va_b, np.asarray(yb_va), kx_per_col=kx_b, ky=ky_va), dtype=np.float64))
+            metas.extend(metas_b)
+            del tr_b, va_b
+        if not metas:
+            return []
+        mi_tr = np.concatenate(mi_tr_parts)
+        mi_va = np.concatenate(mi_va_parts)
     except Exception as e:
         logger.debug("_select_wavelet_legs_batched_device: device batched-MI path failed, caller falls back to the host leg selection: %s", e)
         return None
@@ -241,6 +260,7 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
 
 
 _LEG_BLOCK_BYTES = 256 << 20  # bytes of int64 leg codes stacked at once per split (the stacked legs were unbounded before)
+_DEVICE_LEG_BLOCK_BYTES = 256 << 20  # the device-born route's budget of int64 leg codes on the card, both splits together
 
 
 def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: float, *, max_scale: int, max_legs: int, scale_sigma: float) -> list:
