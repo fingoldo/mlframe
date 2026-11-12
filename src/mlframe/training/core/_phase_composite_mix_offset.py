@@ -17,7 +17,8 @@ def _add_mix_offset_targets(target_by_type: dict, metadata: dict, inputs: dict) 
     """Add ``<name>__mixoff`` for each regression target whose mix base the gate accepts; record the base and slope in metadata.
 
     The companion is an ordinary target in ``target_by_type``: it is trained like any other, and its predictions are returned
-    to the y scale by the add-back wrapper (wiring pending). A name collision leaves the existing target untouched."""
+    to the y scale at predict time by ``add_back_mix_offset`` (``_predict_main_suite`` and ``_predict_main_from_models``).
+    A name collision leaves the existing target untouched."""
     from ...feature_selection.filters import build_mix_offset_target
 
     out = dict(target_by_type)
