@@ -65,3 +65,38 @@ def test_resident_block_is_used_by_the_batch_when_the_device_is_chosen(monkeypat
     monkeypatch.setattr(gpu, "use_device", lambda n_rows: True)
     got = host._copula_mi_batch(X, y, n_bins=20, device_block=cp.asarray(np.ascontiguousarray(X.T)))
     np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parametrize("seed", [1, 2])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_device_copula_equals_host_on_independent_seeds(seed, dtype):
+    """The device copula MI equals the host kernel on further independent draws, not only the one seed the size grid uses."""
+    cols, vi = _inputs(12000, 8, seed, dtype)
+    want = np.empty(8)
+    (host._copula_columns_radix_njit if dtype == np.float32 else host._copula_columns_njit)(cols, vi, 20, want)
+    got = gpu.copula_columns_device(cols, vi, 20)
+    assert got is not None
+    np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parametrize("free_bytes", [1 << 22, 1 << 24])
+def test_streamed_blocks_equal_the_unblocked_result(monkeypatch, free_bytes):
+    """A small free-memory figure forces several column blocks; the streamed result equals the one-block result exactly."""
+    cols, vi = _inputs(20000, 9, 0, np.float32)
+    whole = gpu.copula_columns_device(cols, vi, 20)
+    monkeypatch.setattr(gpu, "device_room", lambda cp: free_bytes)
+    streamed = gpu.copula_columns_device(cols, vi, 20)
+    assert whole is not None and streamed is not None
+    np.testing.assert_array_equal(streamed, whole)
+
+
+def test_device_fault_falls_back_to_none(monkeypatch):
+    """A failing device call returns None (the caller runs the host kernel) instead of ending the request."""
+    cols, vi = _inputs(2000, 6, 0, np.float32)
+
+    def broken(cp):
+        """Stand-in for a device that cannot report its free memory."""
+        raise RuntimeError("no device memory figure")
+
+    monkeypatch.setattr(gpu, "device_room", broken)
+    assert gpu.copula_columns_device(cols, vi, 20) is None
