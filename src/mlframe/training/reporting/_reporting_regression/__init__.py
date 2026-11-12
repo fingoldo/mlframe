@@ -179,12 +179,11 @@ def report_regression_model_perf(
     from mlframe.training.reporting._reporting_regression._regression_stages import _report_regression_metric_stage
     _ext_Cindex, _ext_Huber, _ext_Kendall, _ext_MdAPE, _ext_RMSLE, _ext_Spearman = _report_regression_metric_stage(st, mase_naive_mae, model_name, MAE, MaxError, R2, RMSE, _ext_MBE, _ext_MAPE_mean, _ext_SMAPE, _ext_wMAPE, _ext_CV_RMSE, _ext_NSE, _ext_Pearson, _ext_EV, mase_seasonality, metrics, targets, preds)
 
-    st.metrics = {
-        "MAE": MAE, "MaxError": MaxError, "R2": R2, "RMSE": RMSE,
-        "_ext_CV_RMSE": _ext_CV_RMSE, "_ext_Cindex": _ext_Cindex, "_ext_EV": _ext_EV, "_ext_Huber": _ext_Huber, "_ext_Kendall": _ext_Kendall,
-        "_ext_MAPE_mean": _ext_MAPE_mean, "_ext_MBE": _ext_MBE, "_ext_MdAPE": _ext_MdAPE, "_ext_NSE": _ext_NSE, "_ext_Pearson": _ext_Pearson,
-        "_ext_RMSLE": _ext_RMSLE, "_ext_SMAPE": _ext_SMAPE, "_ext_Spearman": _ext_Spearman, "_ext_wMAPE": _ext_wMAPE,
-    }
+    st.metrics = dict(
+        MAE=MAE, MaxError=MaxError, R2=R2, RMSE=RMSE, _ext_CV_RMSE=_ext_CV_RMSE, _ext_Cindex=_ext_Cindex, _ext_EV=_ext_EV, _ext_Huber=_ext_Huber,
+        _ext_Kendall=_ext_Kendall, _ext_MAPE_mean=_ext_MAPE_mean, _ext_MBE=_ext_MBE, _ext_MdAPE=_ext_MdAPE, _ext_NSE=_ext_NSE, _ext_Pearson=_ext_Pearson,
+        _ext_RMSLE=_ext_RMSLE, _ext_SMAPE=_ext_SMAPE, _ext_Spearman=_ext_Spearman, _ext_wMAPE=_ext_wMAPE,
+    )
     show_perf_chart = _report_regression__warm_state_regression_report(show_perf_chart, plot_file)
 
     if show_perf_chart or plot_file:
