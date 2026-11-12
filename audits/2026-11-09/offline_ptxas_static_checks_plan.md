@@ -85,3 +85,10 @@ and gate the results the same way as the existing kernel contract (ratchet tests
   must be absent from the lower arches or exempt.
 - Per-arch failure table in the report, so a kernel that fails only on sm_52 is an exemption candidate, not a silent skip.
 - Coverage diff between files containing `__global__` and kernels extracted and checked, to catch silent drops.
+
+## Toolchain dispositions (recorded 2026-11-12)
+
+- **sm_52: TOOLCHAIN, not checked.** `atomicAdd(double*)` needs sm_60 or later, so every double-precision kernel fails to compile for sm_52 by design; the matrix in `test_cuda_kernels_offline_per_arch.py` excludes it (`_ALL_ARCHS`, with the reason in the comment). A kernel that fails only there is not a candidate defect.
+- **sm_61: checked while the toolkit supports it.** It is the local default (`_DEFAULT_ARCHS`) because the reference card (GTX 1050 Ti) is sm_61. nvcc 12.8 warns that offline compilation below sm_75 will be removed; when the toolkit drops it, the arch leaves the default with this section updated, not silently.
+- **ptxas version: the `.version` rewrite is a PTX-validity check.** The NVRTC that cupy ships can emit a PTX ISA newer than the installed ptxas (8.8 against 8.7 here). The rewrite lets ptxas accept the text; it does not claim that production runs that PTX. Production uses cupy's NVRTC and the driver JIT, so an instruction that only the rewrite hides would still be a driver-version question, recorded here rather than gated.
+- **Scope:** `_benchmarks/` and `kernel_prototypes/` are out, as decided on 2026-11-11 (item 9).
