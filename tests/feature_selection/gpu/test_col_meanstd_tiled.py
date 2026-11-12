@@ -29,3 +29,27 @@ def test_tiled_matches_numpy_and_reference(n, k, dtype):
     ref((k,), (128,), (M, np.int64(n), np.int32(k), rmean, rstd))
     assert np.allclose(cp.asnumpy(mean), cp.asnumpy(rmean), rtol=1e-6 if dtype == np.float32 else 1e-12)
     assert np.allclose(cp.asnumpy(std), cp.asnumpy(rstd), rtol=1e-6 if dtype == np.float32 else 1e-12)
+
+
+@pytest.mark.parametrize("n,k", [(1000, 37), (7, 5), (4096, 64)])
+@pytest.mark.parametrize("dtype", [np.float64, np.float32])
+def test_tiled_minmax_matches_numpy_and_reference(n, k, dtype):
+    """The tiled column min/max equals numpy and the one-block-per-column reference, on widths that are not a multiple of the tile."""
+    cp = pytest.importorskip("cupy")
+    try:
+        cp.cuda.runtime.getDeviceCount()
+    except Exception:
+        pytest.skip("no CUDA device")
+    rng = np.random.default_rng(n * 7 + k)
+    host = (rng.standard_normal((n, k)) * 3.0 + 1.5).astype(dtype)
+    M = cp.asarray(host)
+    mn, mx = gpu_basis._col_minmax(cp, M)
+    assert np.array_equal(cp.asnumpy(mn), host.min(axis=0))
+    assert np.array_equal(cp.asnumpy(mx), host.max(axis=0))
+    real_t = "float" if dtype == np.float32 else "double"
+    ref = cp.RawKernel(gpu_basis._COL_MINMAX_SRC.replace("{REAL}", real_t), "col_minmax")
+    rmn = cp.empty(k, dtype=M.dtype)
+    rmx = cp.empty(k, dtype=M.dtype)
+    ref((k,), (128,), (M, np.int64(n), np.int32(k), rmn, rmx))
+    assert np.array_equal(cp.asnumpy(mn), cp.asnumpy(rmn))
+    assert np.array_equal(cp.asnumpy(mx), cp.asnumpy(rmx))

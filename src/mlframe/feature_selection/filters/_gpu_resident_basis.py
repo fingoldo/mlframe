@@ -711,6 +711,27 @@ void col_minmax(const {REAL}* __restrict__ M, const long long n, const int K,
     if (tid == 0) { out_min[col] = sh_min[0]; out_max[col] = sh_max[0]; }
 }
 """)
+# Tiled version of col_minmax (same layout as col_meanstd_tiled): a warp reads 32 adjacent columns of one row.
+_COL_MINMAX_TILED_SRC = render(r"""
+extern "C" __global__
+void col_minmax_tiled(const {REAL}* __restrict__ M, const long long n, const int K,
+                      {REAL}* __restrict__ out_min, {REAL}* __restrict__ out_max) {
+    __shared__ {ACC} sh_min[8][33];
+    __shared__ {ACC} sh_max[8][33];
+    const int tx = threadIdx.x, ty = threadIdx.y;
+    const int col = blockIdx.x * 32 + tx;
+    const bool ok = col < K;
+    {ACC} lmin = 1e308, lmax = -1e308;
+    if (ok) for (long long i = ty; i < n; i += 8) { {ACC} v = M[i * (long long)K + col]; if (v < lmin) lmin = v; if (v > lmax) lmax = v; }
+    sh_min[ty][tx] = lmin; sh_max[ty][tx] = lmax; __syncthreads();
+    if (ty == 0) {
+        {ACC} mn = sh_min[0][tx], mx = sh_max[0][tx];
+        for (int r = 1; r < 8; ++r) { if (sh_min[r][tx] < mn) mn = sh_min[r][tx]; if (sh_max[r][tx] > mx) mx = sh_max[r][tx]; }
+        if (ok) { out_min[col] = mn; out_max[col] = mx; }
+    }
+}
+""")
+_COL_MINMAX_TILED_KERNELS: dict = {}
 _COL_MINMAX_KERNELS: dict = {}
 
 
@@ -718,16 +739,22 @@ def _col_minmax(cp, Mc):
     """Per-column min AND max of a C-contiguous (n, K) f64 matrix in ONE launch (vs Mc.min(axis=0) +
     Mc.max(axis=0)). min/max reduce order-independently -> bit-identical. Returns (mn (K,), mx (K,))."""
     real_t = "float" if Mc.dtype == cp.float32 else "double"
-    with _KERNEL_CACHE_LOCK:
-        kern = _COL_MINMAX_KERNELS.get(real_t)
-        if kern is None:
-            kern = cp.RawKernel(_COL_MINMAX_SRC.replace("{REAL}", real_t), "col_minmax")
-            _COL_MINMAX_KERNELS[real_t] = kern
     n, K = int(Mc.shape[0]), int(Mc.shape[1])
     mn = cp.empty(K, dtype=Mc.dtype)
     mx = cp.empty(K, dtype=Mc.dtype)
-    kern((K,), (block_size_for(kern, work_items=n, pow2=True, max_width=256),), (Mc, np.int64(n), np.int32(K), mn, mx))
+    kern = _col_minmax_tiled_kernel(cp, real_t)
+    kern(((K + 31) // 32,), (32, 8), (Mc, np.int64(n), np.int32(K), mn, mx))  # launch-ok: 32x8 tile fixed by the kernel's shared layout
     return mn, mx
+
+
+def _col_minmax_tiled_kernel(cp, real_t):
+    """The tiled column min/max kernel for the value type ``real_t`` (one module per type, cached under the kernel lock)."""
+    with _KERNEL_CACHE_LOCK:
+        kern = _COL_MINMAX_TILED_KERNELS.get(real_t)
+        if kern is None:
+            kern = cp.RawKernel(_COL_MINMAX_TILED_SRC.replace("{REAL}", real_t), "col_minmax_tiled")
+            _COL_MINMAX_TILED_KERNELS[real_t] = kern
+    return kern
 
 
 def _gpu_basis_preprocess_robust_fused(cp, M, basis):
