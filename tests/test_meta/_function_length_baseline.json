@@ -1,4 +1,4 @@
 {
   "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py::MRMR.__init__": 2885,
-  "src/mlframe/training/reporting/_reporting_regression/__init__.py::report_regression_model_perf": 173
+  "src/mlframe/training/reporting/_reporting_regression/__init__.py::report_regression_model_perf": 160
 }

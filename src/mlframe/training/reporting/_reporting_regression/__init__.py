@@ -197,26 +197,13 @@ def report_regression_model_perf(
     show_perf_chart = _report_regression__warm_state_regression_report(show_perf_chart, plot_file)
 
     if show_perf_chart or plot_file:
-        if _report_regression_chart_stage(
-            st=st,
-            **st.metrics,
-            columns=columns,
-            figsize=figsize,
-            model_name=model_name,
-            n_features=n_features,
-            plot_dpi=plot_dpi,
-            plot_file=plot_file,
-            plot_marker=plot_marker,
-            plot_outputs=plot_outputs,
-            plot_sample_size=plot_sample_size,
-            preds=preds,
-            print_report=print_report,
-            report_ndigits=report_ndigits,
-            report_title=report_title,
-            reporting_config=reporting_config,
-            show_perf_chart=show_perf_chart,
+        chart_inputs = dict(
+            columns=columns, figsize=figsize, model_name=model_name, n_features=n_features, plot_dpi=plot_dpi, plot_file=plot_file,
+            plot_marker=plot_marker, plot_outputs=plot_outputs, plot_sample_size=plot_sample_size, preds=preds, print_report=print_report,
+            report_ndigits=report_ndigits, report_title=report_title, reporting_config=reporting_config, show_perf_chart=show_perf_chart,
             targets=targets,
-        ):
+        )
+        if _report_regression_chart_stage(st=st, **st.metrics, **chart_inputs):
             return (st.preds_arr if st.full_quantile_preds is None else st.full_quantile_preds), None
 
     _report_regression__print_report(print_report, model_name, report_title, MAE, report_ndigits, RMSE, MaxError, R2, st._residual_audit, st._audit_log_enabled)
