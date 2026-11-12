@@ -33,7 +33,7 @@ def main() -> None:
         for seed in SEEDS:
             Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.33, random_state=seed, stratify=y)
             sel = RFECV(estimator=LogisticRegression(C=0.3, max_iter=300), cv=3, random_state=seed, max_refits=8, verbose=0).fit(Xtr, ytr)
-            row = {"seed": seed}
+            row: dict[str, float] = {"seed": float(seed)}
             for rule, tag in (("one_se_max_foldstd", "legacy"), ("one_se_max", "se")):
                 kept = [c for c, m in zip(X.columns, _replay(sel, rule)) if m]
                 row[f"n_{tag}"] = len(kept)
