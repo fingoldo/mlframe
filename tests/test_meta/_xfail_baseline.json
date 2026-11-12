@@ -1,14 +1,5 @@
 {
-  "entries": {
-    "untracked-reason::estimators/test_biz_val_early_stopping_wrapper.py::pytest.skip() reason names no external component or tracked issue: ': incompatible with continuous features ( )'": {
-      "count": 1,
-      "note": "Runtime skip: the base model rejects every continuous-feature shape the wrapper tries, and the reason is the last exception; a limit of the sklearn base model, not a parked bug."
-    },
-    "untracked-reason::training/fuzz/test_fuzz_suite.py::pytest.mark.skip reason names no external component or tracked issue: 'LTR combo  : requested models   have no native ranker (need cb/xgb/lgb/mlp)'": {
-      "count": 1,
-      "note": "Combo-gated: a learning-to-rank combo with no model that has a native ranker is not generated as a valid run; conditional on the combo, recorded for py-ci-shared."
-    }
-  },
+  "entries": {},
   "gate": "xfail",
   "schema": 1
 }

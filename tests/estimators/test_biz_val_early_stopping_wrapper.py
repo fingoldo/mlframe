@@ -124,7 +124,7 @@ def _fit_es(base_model, X, y):
         except _DATA_SHAPE_SKIP as exc:
             last_exc = exc
             continue
-    pytest.skip(f"{type(base_model).__name__}: incompatible with continuous features ({last_exc!r})")
+    pytest.skip(f"{type(base_model).__name__}: unsupported by sklearn for continuous features ({last_exc!r})")
 
 
 # --------------------------------------------------------------------------- #

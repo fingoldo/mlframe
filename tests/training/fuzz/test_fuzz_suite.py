@@ -65,7 +65,7 @@ _LTR_NATIVE_RANKER_MODELS = frozenset({"cb", "xgb", "lgb", "mlp"})
 def _combo_marks(combo: FuzzCombo) -> list:
     """Skip marker for an LTR combo none of whose models has a native ranker (need cb/xgb/lgb/mlp)."""
     if combo.target_type == "learning_to_rank" and not [m for m in combo.models if m.lower() in _LTR_NATIVE_RANKER_MODELS]:
-        return [pytest.mark.skip(reason=f"LTR combo {combo.short_id()}: requested models {combo.models} have no native ranker (need cb/xgb/lgb/mlp)")]
+        return [pytest.mark.skip(reason=f"LTR combo {combo.short_id()}: requested models {combo.models} are unsupported by any native ranker (need cb/xgb/lgb/mlp)")]
     return []
 
 
