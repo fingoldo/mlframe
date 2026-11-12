@@ -37,10 +37,17 @@ def test_device_xi_equals_host(n, k, resident):
     assert want[0] > want[3]  # the informative column scores above the constant one
 
 
-def test_float64_columns_stay_on_the_host():
-    """The device kernel takes float32 columns only; a float64 block is handed back."""
-    cols, seeds, r_row, l_row = _inputs(500, 5, 1)
-    assert gpu.xi_columns_device(cols.astype(np.float64), seeds, r_row, l_row) is None
+@pytest.mark.parametrize("n,k", [(5000, 9), (30000, 6)])
+@pytest.mark.parametrize("resident", [False, True])
+def test_float64_device_xi_equals_host(n, k, resident):
+    """Float64 columns on the device give the host float64 kernel's Xi per column: ties, a constant column and signed zeros included."""
+    cols, seeds, r_row, l_row = _inputs(n, k, 1)
+    wide = np.ascontiguousarray(cols.astype(np.float64))
+    want = np.empty(k)
+    host._xi_columns_njit(wide, seeds, r_row, l_row, want)
+    got = gpu.xi_columns_device(cp.asarray(wide) if resident else wide, seeds, r_row, l_row)
+    assert got is not None
+    np.testing.assert_array_equal(got, want)
 
 
 def test_public_batch_routes_through_the_device_when_chosen(monkeypatch):

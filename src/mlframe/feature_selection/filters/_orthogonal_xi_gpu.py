@@ -57,6 +57,18 @@ extern "C" __global__ void xi_sort_keys(const {REAL}* __restrict__ cols, const u
     keys[at] = ((u64)ord << 32) | (u64)tie;
 }
 
+// Float64 twin of xi_sort_keys: the order-preserving 64-bit image of each value and the (tie, row) key, kept apart because a 64-bit order and a 32-bit tie do not share one u64.
+extern "C" __global__ void xi_keys_wide(const {WIDE}* __restrict__ cols, const u64* __restrict__ seeds, u64* __restrict__ ordk, u64* __restrict__ tk, const long long n) {
+    const long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    const long long at = (long long)blockIdx.y * n + i;
+    u64 u = (u64)__double_as_longlong(cols[at]);
+    if (u == 0x8000000000000000ULL) u = 0ULL;  // -0.0 orders as +0.0
+    ordk[at] = (u & 0x8000000000000000ULL) ? ~u : (u | 0x8000000000000000ULL);
+    const u64 tie = mix64(seeds[blockIdx.y] + ((u64)i + 1ULL) * 0x9E3779B97F4A7C15ULL) >> 32;
+    tk[at] = (tie << 32) | (u64)i;
+}
+
 extern "C" __global__ void xi_walk(const long long* __restrict__ order, const int* __restrict__ codes, const {ACC}* __restrict__ r_tab, const {ACC}* __restrict__ l_tab,
                                    {ACC}* __restrict__ sums, const long long n) {
     __shared__ {ACC} red_s[256];
@@ -90,7 +102,7 @@ extern "C" __global__ void xi_walk(const long long* __restrict__ order, const in
 }
 """
 
-_MODULE = RawModuleCache(_SRC.replace("{REAL}", "float").replace("{ACC}", "double"))
+_MODULE = RawModuleCache(_SRC.replace("{REAL}", "float").replace("{ACC}", "double").replace("{WIDE}", "double"))
 
 
 class YSide:
@@ -112,38 +124,68 @@ class YSide:
         return self._device
 
 
+def _order_wide(cp: Any, ordk: Any, tk: Any) -> Any:
+    """Row order of each column of a ``(w, n)`` block by ``(order64, tie, row)``, the host's lexicographic rule, without relying on sort stability.
+
+    Pass one sorts the rows by ``(tie, row)``, unique keys. Pass two gives every distinct 64-bit order value a dense rank (equal values share one, found on a
+    sorted copy, so no tie order is taken from the sort) and sorts the unique composite ``rank * n + position`` in pass-one order."""
+    n = int(ordk.shape[1])
+    p1 = device_argsort(tk, axis=1)
+    ord_p = cp.take_along_axis(ordk, p1, axis=1)
+    r = device_argsort(ord_p, axis=1)
+    sv = cp.take_along_axis(ord_p, r, axis=1)
+    newg = cp.zeros(sv.shape, dtype=cp.int64)
+    newg[:, 1:] = (sv[:, 1:] != sv[:, :-1]).astype(cp.int64)
+    rank = cp.empty(sv.shape, dtype=cp.int64)
+    rank[cp.arange(sv.shape[0], dtype=cp.int64)[:, None], r] = cp.cumsum(newg, axis=1)
+    comp = rank * n + cp.arange(n, dtype=cp.int64)[None, :]
+    p2 = device_argsort(comp, axis=1)
+    return cp.take_along_axis(p1, p2, axis=1)
+
+
 def xi_columns_device(cols: Any, seeds: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, y_side: "YSide | None" = None) -> Optional[np.ndarray]:
     """Xi of each row of ``cols`` (columns, n; float32, numpy or a resident cupy array) with the column tie seeds ``seeds``; ``None`` when the device cannot take it (the caller runs the host kernel)."""
     kk, n = cols.shape
-    if kk == 0 or n < 2 or str(cols.dtype) != "float32":
+    if kk == 0 or n < 2 or str(cols.dtype) not in ("float32", "float64"):
         return None
+    wide = str(cols.dtype) == "float64"
     try:
         import cupy as cp
 
         module = _MODULE.get(cp)
         keys_k, walk_k = module.get_function("xi_sort_keys"), module.get_function("xi_walk")
+        keys_w = module.get_function("xi_keys_wide")
         ys = y_side if y_side is not None else YSide(r_row, l_row)
         codes_d, r_tab_d, l_tab_d = ys.device(cp)
         seeds_d = cp.asarray(np.ascontiguousarray(seeds, dtype=np.uint64))
         resident = isinstance(cols, cp.ndarray)
         free = device_room(cp)
-        per_col = n * (4 + 8 + 8 + 8 + 8 + 16)  # values, keys, order, sort temporaries
+        per_col = n * (8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8) if wide else n * (4 + 8 + 8 + 8 + 8 + 16)  # values, keys, order, sort temporaries
         block = int(max(1, min(kk, (_BUDGET_FRACTION * free) // per_col)))
         # xi_sort_keys has no shared memory (its block size is a free occupancy choice); xi_walk's block is fixed at 256 - its `red_s[256]`/`red_d[256]` reduction buffers are that size at
         # compile time, so a wider block would read past them - the walk kernel keeps _THREADS and carries its own launch-ok marker below.
-        keys_threads = block_size_for(keys_k, work_items=n, pow2=True)
+        keys_threads = block_size_for(keys_w, work_items=n, pow2=True)
         grid_x = (n + keys_threads - 1) // keys_threads
         walk_blocks = min((n + _THREADS - 1) // _THREADS, 64)
-        keys_buf = cp.empty((block, n), dtype=cp.uint64)  # one reusable sort-key buffer for every chunk, not one per chunk
+        keys_buf = None if wide else cp.empty((block, n), dtype=cp.uint64)  # one reusable sort-key buffer for every chunk, not one per chunk
         sums_dev = cp.zeros(2 * kk, dtype=cp.float64)  # one resident accumulator; one D2H after the loop instead of one per chunk
         for c0 in range(0, kk, block):
             w = min(block, kk - c0)
             col_d = cols[c0 : c0 + w] if resident else cp.asarray(np.ascontiguousarray(cols[c0 : c0 + w]))
-            keys = keys_buf[:w]
-            keys_k((grid_x, w), (keys_threads,), (col_d, seeds_d[c0 : c0 + w], keys, np.int64(n)))
-            if not resident:
-                del col_d
-            order = device_argsort(keys, axis=1)
+            if wide:
+                ordk = cp.empty((w, n), dtype=cp.uint64)
+                tk = cp.empty((w, n), dtype=cp.uint64)
+                keys_w((grid_x, w), (keys_threads,), (col_d, seeds_d[c0 : c0 + w], ordk, tk, np.int64(n)))
+                if not resident:
+                    del col_d
+                order = _order_wide(cp, ordk, tk).ravel()
+                del ordk, tk
+            else:
+                keys = keys_buf[:w]
+                keys_k((grid_x, w), (keys_threads,), (col_d, seeds_d[c0 : c0 + w], keys, np.int64(n)))
+                if not resident:
+                    del col_d
+                order = device_argsort(keys, axis=1)
             sums = sums_dev[2 * c0 : 2 * (c0 + w)]
             walk_k((walk_blocks, w), (_THREADS,), (order, codes_d, r_tab_d, l_tab_d, sums, np.int64(n)))  # launch-ok: _THREADS=256 is the compile-time size of xi_walk's red_s/red_d[256] reduction buffers
             del order
