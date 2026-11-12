@@ -13,7 +13,7 @@ Rows: 115.
 | feature_selection/filters/_binned_numeric_agg_resident.py | _pair_fold_stat_tables | 372 | OPEN |
 | feature_selection/filters/_binned_numeric_agg_resident.py | build_binagg_oof_matrix_gpu | 432 | OPEN |
 | feature_selection/filters/_cat_confirm_permutation.py | _confirm_pairs_via_permutation | 919 | OPEN |
-| feature_selection/filters/_cat_confirm_permutation.py | _count_nfailed_joint_indep_cupy | 313 | OPEN |
+| feature_selection/filters/_cat_confirm_permutation.py | _count_nfailed_joint_indep_cupy | 313 | REAL: one permutation per trip, about eight cupy launches per trip over N rows, launch-bound; batching the permutations (as the null path does) is the restructure |
 | feature_selection/filters/_conditional_gate_fe.py | _gate_flush_pending | 717 | OPEN |
 | feature_selection/filters/_conditional_gate_fe.py | _rank_and_prune | 615 | OPEN |
 | feature_selection/filters/_conditional_gate_fe.py | cheap_row_argmax_scan | 513 | OPEN |
@@ -44,13 +44,13 @@ Rows: 115.
 | feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py | _emit_pair_features_step2_read_here_once | 222 | OPEN |
 | feature_selection/filters/_gpu_resident_basis.py | _gpu_evaluate_basis_matrix | 808 | OPEN |
 | feature_selection/filters/_gpu_resident_basis.py | _gpu_route_bases_batched | 949 | OPEN |
-| feature_selection/filters/_gpu_resident_extval.py | _candidate_matrix | 79, 81 | OPEN |
+| feature_selection/filters/_gpu_resident_extval.py | _candidate_matrix | 79, 81 | FALLBACK: the per-candidate loop runs only when `MLFRAME_EXTVAL_FUSED` is off; the default fused kernel builds all candidates in one launch |
 | feature_selection/filters/_gpu_resident_operand_build.py | _batched_unary_prepass | 222 | OPEN |
 | feature_selection/filters/_gpu_resident_operand_build.py | _build_resident_operand_table_part1 | 268 | OPEN |
 | feature_selection/filters/_gpu_strict_fe/_state.py | build | 82 | OPEN |
 | feature_selection/filters/_hinge_basis_fe.py | _detect_hinge_breakpoints_for_columns | 551 | OPEN |
 | feature_selection/filters/_hinge_detect_gpu_resident.py | _hinge_full_scan | 193 | OPEN |
-| feature_selection/filters/_hinge_detect_gpu_resident_batch.py | _batched_precheck_gpu | 75 | OPEN |
+| feature_selection/filters/_hinge_detect_gpu_resident_batch.py | _batched_precheck_gpu | 75 | FALSE POSITIVE: the loop is over the fixed quantile levels (a few trips), each a K-wide vector operation |
 | feature_selection/filters/_hinge_detect_gpu_resident_batch.py | detect_hinge_breakpoints_gpu_batch | 147 | OPEN |
 | feature_selection/filters/_honest_oj_fused_gpu.py | picks | 342 | OPEN |
 | feature_selection/filters/_mi_greedy_cmi_fe_steps.py | _per_candidate_cmi_argmax | 877 | OPEN |
@@ -67,7 +67,7 @@ Rows: 115.
 | feature_selection/filters/_mrmr_fit_impl/_fe_stage_concurrency.py | merge_stage_state | 107, 108 | OPEN |
 | feature_selection/filters/_offset_product_gpu.py | scan_offset_products_device | 332, 335 | OPEN |
 | feature_selection/filters/_orth_auto_scorer_fe.py | _batched_bootstrap_values | 352 | OPEN |
-| feature_selection/filters/_orthogonal_adaptive_arity_fe.py | _best_cell_per_tuple | 166 | OPEN |
+| feature_selection/filters/_orthogonal_adaptive_arity_fe.py | _best_cell_per_tuple | 166 | FALSE POSITIVE: the loop is over arity (2 to max_arity, two or three trips), and each trip is one full batched MI call |
 | feature_selection/filters/_orthogonal_cmim_fe.py | _cmim_scores_device | 391 | OPEN |
 | feature_selection/filters/_orthogonal_cmim_fe.py | cmim_score | 306 | OPEN |
 | feature_selection/filters/_orthogonal_cmim_fe.py | score_features_by_cmim | 511 | OPEN |
