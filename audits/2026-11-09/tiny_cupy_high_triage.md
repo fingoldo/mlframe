@@ -57,18 +57,18 @@ Rows: 115.
 | feature_selection/filters/_mi_greedy_cmi_fe_steps.py | _renumber_joint_gpu | 282 | FALSE POSITIVE: loops over the few conditioning columns, each a full-size refactorisation |
 | feature_selection/filters/_mi_greedy_device.py | score_candidates_device | 142 | OPEN |
 | feature_selection/filters/_modular_codes_gpu.py | modular_family_codes_gpu | 131 | FALSE POSITIVE: loops over the streamed column blocks, each one full block build |
-| feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py | _block_verdicts | 66 | OPEN |
-| feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py | _score_groups | 125 | OPEN |
-| feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py | batched_asymmetric_relax_verdicts | 169 | OPEN |
+| feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py | _block_verdicts | 66 | REAL, not yet measured: one conditional permutation null per column that does not apply the batched route |
+| feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py | _score_groups | 125 | REAL, not yet measured: one device block per anchor group, blocked by the column budget |
+| feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py | batched_asymmetric_relax_verdicts | 169 | REAL, not yet measured: one device block per partner group, blocked by the column budget |
 | feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py | _prepass_gate_and_usability_candidates | 538 | OPEN |
 | feature_selection/filters/_mrmr_fe_step/_step_score.py | _score_candidates_one_by_one | 57, 60 | OPEN |
-| feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py | _escalation_admitted_pool | 480, 483 | OPEN |
-| feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py | _fused_compound_codes | 608 | OPEN |
-| feature_selection/filters/_mrmr_fit_impl/_fe_stage_concurrency.py | merge_stage_state | 107, 108 | OPEN |
-| feature_selection/filters/_offset_product_gpu.py | scan_offset_products_device | 332, 335 | OPEN |
-| feature_selection/filters/_orth_auto_scorer_fe.py | _batched_bootstrap_values | 352 | OPEN |
+| feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py | _escalation_admitted_pool | 480, 483 | FALLBACK: the loop runs only when the batched escalation pool is not done (the iterable is empty otherwise) |
+| feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py | _fused_compound_codes | 608 | REAL, not yet measured: one device code conversion per fused feature |
+| feature_selection/filters/_mrmr_fit_impl/_fe_stage_concurrency.py | merge_stage_state | 107, 108 | FALSE POSITIVE: merges host attributes of the stage copies, with no device launch in the loop body |
+| feature_selection/filters/_offset_product_gpu.py | scan_offset_products_device | 332, 335 | REAL but small: 0.1% of a 100000-row fit (profile 2026-11-05); restructuring not justified by the measured share |
+| feature_selection/filters/_orth_auto_scorer_fe.py | _batched_bootstrap_values | 352 | FALLBACK: the sequential resample loop is the else branch, used when the batched path is not taken |
 | feature_selection/filters/_orthogonal_adaptive_arity_fe.py | _best_cell_per_tuple | 166 | FALSE POSITIVE: the loop is over arity (2 to max_arity, two or three trips), and each trip is one full batched MI call |
-| feature_selection/filters/_orthogonal_cmim_fe.py | _cmim_scores_device | 391 | OPEN |
+| feature_selection/filters/_orthogonal_cmim_fe.py | _cmim_scores_device | 391 | REAL, not yet measured: one device update per selected reference over the candidate block |
 | feature_selection/filters/_orthogonal_cmim_fe.py | cmim_score | 306 | OPEN |
 | feature_selection/filters/_orthogonal_cmim_fe.py | score_features_by_cmim | 511 | OPEN |
 | feature_selection/filters/_orthogonal_jmim_fe.py | _jmim_scores_device | 223 | OPEN |
