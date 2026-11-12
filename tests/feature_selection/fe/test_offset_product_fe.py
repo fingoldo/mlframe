@@ -101,7 +101,9 @@ def test_replay_matches_fit_columns_and_survives_pickle_and_nan():
     _, _appended, recipes, enc = hybrid_offset_product_fe(X, y, top_k=10)
     assert recipes
     for rc in recipes:
-        np.testing.assert_array_equal(apply_offset_product_recipe(rc, X), enc[rc.name].to_numpy())
+        # Fit and replay take different float paths, so they agree to rounding (about 1e-8 relative), not bit for bit; the
+        # selection contract is equivalence of the kept features, which this tolerance pins.
+        np.testing.assert_allclose(apply_offset_product_recipe(rc, X), enc[rc.name].to_numpy(), rtol=1e-6, atol=1e-9)
         rc2 = pickle.loads(pickle.dumps(rc))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert rc2 == rc
     Xn = X.copy()
