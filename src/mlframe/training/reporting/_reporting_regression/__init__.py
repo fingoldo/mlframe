@@ -221,29 +221,18 @@ def report_regression_model_perf(
     # nobody can see AND nothing is written to disk because ``plot_file``
     # is empty. The figure render is 100-200 ms / call and dominates
     # warm-state regression report wall.
+    st.metrics = {
+        "MAE": MAE, "MaxError": MaxError, "R2": R2, "RMSE": RMSE,
+        "_ext_CV_RMSE": _ext_CV_RMSE, "_ext_Cindex": _ext_Cindex, "_ext_EV": _ext_EV, "_ext_Huber": _ext_Huber, "_ext_Kendall": _ext_Kendall,
+        "_ext_MAPE_mean": _ext_MAPE_mean, "_ext_MBE": _ext_MBE, "_ext_MdAPE": _ext_MdAPE, "_ext_NSE": _ext_NSE, "_ext_Pearson": _ext_Pearson,
+        "_ext_RMSLE": _ext_RMSLE, "_ext_SMAPE": _ext_SMAPE, "_ext_Spearman": _ext_Spearman, "_ext_wMAPE": _ext_wMAPE,
+    }
     show_perf_chart = _report_regression__warm_state_regression_report(show_perf_chart, plot_file)
 
     if show_perf_chart or plot_file:
         if _report_regression_chart_stage(
             st=st,
-            MAE=MAE,
-            MaxError=MaxError,
-            R2=R2,
-            RMSE=RMSE,
-            _ext_CV_RMSE=_ext_CV_RMSE,
-            _ext_Cindex=_ext_Cindex,
-            _ext_EV=_ext_EV,
-            _ext_Huber=_ext_Huber,
-            _ext_Kendall=_ext_Kendall,
-            _ext_MAPE_mean=_ext_MAPE_mean,
-            _ext_MBE=_ext_MBE,
-            _ext_MdAPE=_ext_MdAPE,
-            _ext_NSE=_ext_NSE,
-            _ext_Pearson=_ext_Pearson,
-            _ext_RMSLE=_ext_RMSLE,
-            _ext_SMAPE=_ext_SMAPE,
-            _ext_Spearman=_ext_Spearman,
-            _ext_wMAPE=_ext_wMAPE,
+            **st.metrics,
             columns=columns,
             figsize=figsize,
             model_name=model_name,
