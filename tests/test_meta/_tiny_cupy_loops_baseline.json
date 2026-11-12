@@ -158,5 +158,6 @@
  "src/mlframe/metrics/_gpu_metrics.py::compute_batch_aucs",
  "src/mlframe/metrics/_gpu_metrics.py::gpu_multiple_pr_auc_scores",
  "src/mlframe/metrics/_gpu_metrics.py::gpu_multiple_roc_auc_scores",
- "src/mlframe/models/ensembling/_correlation.py::_probs_pairs"
+ "src/mlframe/models/ensembling/_correlation.py::_probs_pairs",
+ "src/mlframe/feature_selection/filters/_tail_dependence_gpu.py::tail_dependence_columns_device"
 ]

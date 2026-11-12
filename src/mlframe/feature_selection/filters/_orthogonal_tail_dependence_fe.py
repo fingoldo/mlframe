@@ -99,6 +99,12 @@ def tail_dependence_columns(cols_rows: np.ndarray, y: np.ndarray, *, q: float = 
     if n < 2 or (1.0 - q) <= 0.0 or k == 0:
         return out
     v = _rank_to_uniform(np.asarray(y).ravel())
+    from ._tail_dependence_gpu import tail_dependence_columns_device, use_device
+
+    if use_device(n):
+        on_device = tail_dependence_columns_device(np.ascontiguousarray(cols_rows), v, float(q))
+        if on_device is not None:  # bit-identical to the host kernel; None leaves the columns to it
+            return on_device
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
     with parallel_kernel_entry():
