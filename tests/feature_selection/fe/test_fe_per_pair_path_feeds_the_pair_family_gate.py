@@ -3,13 +3,14 @@
 import numpy as np
 import pandas as pd
 
-import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core as core
+import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core_parts as parts
 import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_score as score
 
 
 def test_per_pair_path_gives_the_family_gate_its_codes(monkeypatch):
     """Without a chunk buffer the gate used to see no codes and silently skip every pair."""
-    monkeypatch.setattr(core, "_check_prospective__only_worth_chunking_least", lambda *a, **k: (None, False, {}))
+    # the chunking step runs inside _pairs_core_parts, which reads the name from its own globals
+    monkeypatch.setattr(parts, "_check_prospective__only_worth_chunking_least", lambda *a, **k: (None, False, {}))
     seen = []
     real = score.apply_pair_family_gate_from_state
 
