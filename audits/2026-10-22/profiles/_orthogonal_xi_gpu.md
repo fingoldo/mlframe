@@ -29,3 +29,14 @@ Timing, resident data, synchronised, mean of 5 (`bench_xi3.py`, 40 columns, 10 o
 ## Dispatch
 
 Kernel-tuning entry `fe_xi_columns_device` (sweep over 5000 / 30000 / 100000 rows, equivalence rtol 1e-12), sweep run on this host with `tune_spec`: host at 5000 and 30000, device at 100000. No environment switch; `MLFRAME_DISABLE_GPU` still turns the device off.
+
+## Float64 wide path, measured 2026-11-12 (GTX 1050 Ti, 40 columns, synchronized, best of 5)
+
+| rows | host `_xi_columns_njit` | device, host upload | device, resident |
+|---|---|---|---|
+| 30000 | 27.1 ms | 40.4 ms | 38.8 ms |
+| 100000 | 117.6 ms | 151.0 ms | 142.3 ms |
+
+Both device paths equal the host kernel exactly (`equal=True`). The device loses on this card at both sizes, so `use_device` keeps the host for float64 (the KTC default `DEVICE_FALLBACK_ROWS` is 10**9 and a sweep would also pick the host here).
+
+Where the device time goes, from the code, not yet from a GPU profile: the wide path runs three `device_argsort` calls per chunk (pass one on the (tie, row) keys, the dense-rank sort of the order values, and the composite sort), plus a cumsum, two gathers and one scatter over `(w, n)` u64 arrays. The float32 path runs one argsort. Next step before a KTC decision: an nvprof breakdown of the three sorts against the walk kernel, then a cheaper order: the rank sort can reuse the (tie, row) pass when the order values are already sorted, or the composite can be built from a radix pass over the 64-bit order alone.
