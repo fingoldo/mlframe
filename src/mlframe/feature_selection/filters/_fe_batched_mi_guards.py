@@ -67,7 +67,7 @@ def _assert_codes_in_range(arr, K: int, name: str, codes_trusted: bool = False) 
             hi = int(_lh[1])
             with _RANGE_LOCK:
                 if len(_RANGE_CACHE) >= _RANGE_CACHE_MAX:
-                    _RANGE_CACHE.pop(next(iter(_RANGE_CACHE)))
+                    _RANGE_CACHE.pop(next(iter(_RANGE_CACHE)))  # evict-ok: the cached min and max are a pure function of the key; a miss recomputes the same range
                 _RANGE_CACHE[_key] = (arr, lo, hi)
     else:
         lo = int(xp.min(arr))
