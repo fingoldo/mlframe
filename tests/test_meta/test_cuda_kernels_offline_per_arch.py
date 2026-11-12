@@ -25,7 +25,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from _offline_kernel_report import ARCH_LIMITS, build_ptx_and_report, entry_reports, local_device_limits, markdown, occupancy, required_arch
+from _offline_kernel_report import ARCH_LIMITS, build_ptx_and_report, entry_reports, launch_bounds_violations, local_device_limits, markdown, occupancy, required_arch
 from _offline_kernel_sources import KernelVariant, all_variants, leftover_placeholders
 
 _ALL_ARCHS = (61, 70, 75, 86, 89, 90, 120)  # sm_52 is out: double atomicAdd needs sm_60+, and its Maxwell cards are legacy
@@ -138,6 +138,8 @@ def test_kernel_assembles_without_spill_on_arch(variant: KernelVariant, arch: in
 
     warnings = [ln for ln in report.splitlines() if "warning" in ln.lower() and not any(k in ln for k in _WARNING_ALLOWLIST)]
     assert not warnings, f"sm_{arch}: unlisted ptxas warnings: {warnings[:3]}"
+    bounds_bad = launch_bounds_violations(ptx_text, report)
+    assert not bounds_bad, f"sm_{arch}: __launch_bounds__ not honoured (entry, registers, cap): {bounds_bad}"
 
 
 _LITERAL_MIN_BLOCKS = re.compile(r"__launch_bounds__\(\s*\w+\s*,\s*\d+\s*\)")  # second argument a bare number
@@ -211,3 +213,15 @@ def test_report_builds_and_can_be_written():
     out = os.environ.get("MLFRAME_OFFLINE_REPORT")
     if out:
         Path(out).write_text(text, encoding="utf-8")
+
+
+def test_launch_bounds_violation_is_detected_on_synthetic_resource_report():
+    """A register count above REGISTER_FILE // (threads * blocks) is reported; one at or under the cap is not (mutant check for the launch-bounds gate)."""
+    from _offline_kernel_report import REGISTER_FILE
+
+    ptx = ".visible .entry k(\n)\n.maxntid 128, 1, 1\n.minnctapersm 16\n{\n}\n"
+    cap = REGISTER_FILE // (128 * 16)
+    over = f"Compiling entry function 'k' for 'sm_61'\nUsed {cap + 8} registers"
+    under = f"Compiling entry function 'k' for 'sm_61'\nUsed {cap} registers"
+    assert launch_bounds_violations(ptx, over) == [("k", cap + 8, cap)]
+    assert launch_bounds_violations(ptx, under) == []

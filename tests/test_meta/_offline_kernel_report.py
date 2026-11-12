@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # arch -> (max threads per SM, max resident blocks per SM, registers per SM, max shared memory per SM in bytes)
+REGISTER_FILE = 65536  # 32-bit registers per SM, the same on every listed architecture
 ARCH_LIMITS = {
     61: (2048, 32, 65536, 96 * 1024),
     70: (2048, 32, 65536, 96 * 1024),
@@ -192,3 +193,31 @@ def markdown(rows: list, intrinsics: dict) -> str:
     lines += ["", "## Intrinsics that need a newer architecture than sm_61", "", "| kernel | needs |", "|---|---|"]
     lines += [f"| {k} | sm_{v} |" for k, v in sorted(intrinsics.items()) if v > 61]
     return "\n".join(lines) + "\n"
+
+
+def launch_bounds_of(ptx: str) -> dict:
+    """``{entry name: (max threads, min blocks per SM or None)}`` from the ``.maxntid`` / ``.minnctapersm`` directives NVRTC writes for ``__launch_bounds__``."""
+    out = {}
+    for name, text in _split_entries(ptx).items():
+        header = text.split("{", 1)[0]
+        ntid = re.search(r"\.maxntid\s+(\d+)", header)
+        nctas = re.search(r"\.minnctapersm\s+(\d+)", header)
+        if ntid:
+            out[name] = (int(ntid.group(1)), int(nctas.group(1)) if nctas else None)
+    return out
+
+
+def launch_bounds_violations(ptx: str, report: str) -> list:
+    """``(entry, registers, cap)`` for every entry whose ptxas register count exceeds ``REGISTER_FILE // (max threads * min blocks)``.
+
+    ``__launch_bounds__(T, B)`` makes ptxas cap registers so that B blocks of T threads fit the register file; a count above that cap means the bound was ignored.
+    """
+    regs = {m[0]: int(m[1]) for m in re.findall(r"Compiling entry function '(\w+)' for 'sm_\d+'.*?Used (\d+) registers", report, re.S)}
+    bad = []
+    for name, (threads, blocks) in launch_bounds_of(ptx).items():
+        if blocks is None or name not in regs:
+            continue
+        cap = REGISTER_FILE // (threads * blocks)
+        if regs[name] > cap:
+            bad.append((name, regs[name], cap))
+    return bad
