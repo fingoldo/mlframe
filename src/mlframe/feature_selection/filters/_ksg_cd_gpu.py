@@ -21,6 +21,7 @@ import numpy as np
 
 
 from ._device_sort_safe import device_argsort, device_room
+from ._gpu_resident_select_kernels import _transpose_to_cm
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._raw_module_cache import RawModuleCache
 from mlframe.utils.log_throttle import log_throttle
@@ -104,13 +105,15 @@ def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbo
         psi_dev = cp.asarray(psi)
         kernel = _MODULE.get(cp).get_function("ksg_psi_m_sums")
         free = device_room(cp)
-        per_col = n_kept * (8 + 8 + 8 + 4)  # values, sort order, sorted values, sorted labels
+        per_col = n_kept * (8 + 8 + 8 + 8 + 4)  # row-major upload, transposed values, sort order, sorted values, sorted labels
         block = int(max(1, min(n_cols, (_BUDGET_FRACTION * free) // per_col)))
         X_kept = X if n_kept == n else X[keep]
         partial_buf = cp.empty((block, _BLOCKS_PER_COLUMN), dtype=cp.float64)  # one reusable kernel-output buffer for every chunk, not one per chunk
         sum_m_dev = cp.empty(n_cols, dtype=cp.float64)  # one resident accumulator; one D2H after the loop instead of one per chunk
         for c0 in range(0, n_cols, block):
-            xd = cp.asarray(np.ascontiguousarray(X_kept[:, c0 : c0 + block].T, dtype=np.float64))  # transposed to (columns, rows) on the HOST (a view + one copy), one device upload; Intentional float64: the kernel signature is double*
+            # one host copy of the block's columns (a plain row-wise copy, none when the block is the whole array), one upload, then the (rows, columns) to (columns, rows) transpose on the device with the coalesced tiled kernel;
+            # the host transpose of this block took 180 ms of a 308 ms call at 100 columns x 100000 rows. Intentional float64: the kernel signature is double*
+            xd = _transpose_to_cm(cp.asarray(np.ascontiguousarray(X_kept[:, c0 : c0 + block], dtype=np.float64)))
             order = device_argsort(xd, axis=1)
             xs = cp.take_along_axis(xd, order, axis=1)  # already C-contiguous (checked directly); the extra ascontiguousarray was a redundant copy
             ds = d_dev[order]
