@@ -37,6 +37,13 @@ def _report_regression__targets_arr_ndim_targets(targets_arr, preds_arr, targets
     return _residual_audit
 
 
+# Short-circuit when there is NO consumer for the chart.
+# Same logic as ``mlframe.metrics.core.show_calibration_plot``: in a script /
+# CI / fuzz process (no IPython kernel, no ``sys.ps1``) the
+# ``show_perf_chart=True`` default renders a matplotlib figure that
+# nobody can see AND nothing is written to disk because ``plot_file``
+# is empty. The figure render is 100-200 ms / call and dominates
+# warm-state regression report wall.
 def _report_regression__warm_state_regression_report(show_perf_chart, plot_file):
     """Block of report_regression_model_perf starting at ``if show_perf_chart and not plot_file:``."""
     if show_perf_chart and not plot_file:

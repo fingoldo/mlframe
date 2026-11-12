@@ -5,6 +5,20 @@ Handles (N, K) targets/preds: aggregated metrics into the metrics dict + one per
 1-D-only paths (residual audit, fairness subgroups, MASE, prediction-envelope clip) stay skipped here by design.
 """
 
+# F-34: MULTI_TARGET_REGRESSION gate. This reporter
+# assumes 1-D targets + 1-D preds for the scatter/histogram chart,
+# the residual audit (skew/kurtosis), the prediction-envelope clip,
+# and the MASE / fairness subgroup paths. (N, K) targets/preds get
+# routed here:
+#   * aggregated metrics (rmse_macro / r2_macro / ...) via the
+#     metrics_registry MTR path -> stamped into the metrics dict
+#   * per-target charts (E1, F-34 follow-up): one chart file per
+#     target column at ``{plot_file}_target{k}{ext}``, each
+#     produced via the existing build_regression_panel_spec ->
+#     render_and_save pipeline (same as the single-target chart,
+#     just looped K times). Fairness / MASE / prediction-envelope
+#     clip stay skipped (they assume 1-D y).
+
 from __future__ import annotations
 
 import logging
