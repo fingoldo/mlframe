@@ -306,6 +306,14 @@ def conditional_perm_null_gpu(
     if not _perm_null_sparse_enabled():
         flat_xp = _flat_within_stratum_shuffle(cp, rs, x_sorted_d, z_rank_d, nperm, int(dx.max()) + 1, _nrank)
         if flat_xp is not None:
+            from ._cmi_null_strata_gpu import strata_null_cmi
+            from ._fe_resident_operands import resident_operand
+
+            _dy_dev = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)
+            _dz_dev = z_for_cmi if isinstance(z_for_cmi, cp.ndarray) else cp.asarray(z_for_cmi)
+            _strata = strata_null_cmi(cp, flat_xp, _dy_dev[order_d], z_rank_d[:, 0], _dz_dev, _dy_dev, int(dx.max()) + 1, order_d, x_sorted_d)
+            if _strata is not None:
+                return _floor_mean_from_nulls_dev(cp, _strata, quantile)
             Xp_d = cp.empty((n, nperm), dtype=cp.int64)
             Xp_d[order_d, :] = flat_xp.T  # xp[order] = the shuffled z-sorted x, per perm
             del flat_xp, x_sorted_d, z_rank_d

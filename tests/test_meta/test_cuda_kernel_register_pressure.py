@@ -38,6 +38,16 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "cmi_null_strata_gpu.strata_xy_entropy": (
+        "mlframe.feature_selection.filters._cmi_null_strata_gpu",
+        "kernel",
+        ("float32", "float64"),
+    ),
+    "cmi_null_strata_gpu.strata_xy_entropy_rows": (
+        "mlframe.feature_selection.filters._cmi_null_strata_gpu",
+        "kernel_rows",
+        ("float32", "float64"),
+    ),
 }
 
 # kernel name -> reason a register spill is accepted for it. Empty is the default: fix the kernel instead of exempting
