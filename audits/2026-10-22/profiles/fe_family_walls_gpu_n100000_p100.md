@@ -56,3 +56,19 @@ Script: `fe_family_wall_` of the fitted estimator, printed longest first. Fit wa
 ## Isolated hinge call (cProfile, after a numba warm-up)
 
 `hybrid_hinge_fe_with_recipes(X, y)` alone on the same 100000 x 100 frame: 2.11 s, 4 engineered columns, 4 recipes. `_detect_hinge_breakpoints_for_columns` 1.86 s (100 columns, 18 ms each), of which `_hinge_slope_change_plausible` 1.56 s (its numpy `qr` 0.46 s, `quantile`/`partition` 0.24 s). The remaining time is dedup (0.13 s) and std/var. The wrapper walls above overstate a family's own cost under stage concurrency; rank by isolated calls.
+
+## Isolated family calls, 100 columns (wall seconds, after a small-frame warm-up)
+
+The entry points called directly on the same synthetic frame, once with the default switch (outside a fit the `auto` strict gate has no fit shape, so this is the host path) and once with `MLFRAME_FE_GPU_STRICT=1` (device paths forced where they exist).
+
+| family | n=30000 host | n=30000 strict | n=100000 host | n=100000 strict | device path |
+|---|---|---|---|---|---|
+| `binned_numeric_agg` | 3.22 | 1.99 | 8.13 | 3.94 | partial (about 2x) |
+| `orth_mi_auto_scorer` | 1.98 | 1.99 | 8.06 | 8.20 | none (no change) |
+| `orth_mi_cmim` | 1.08 | 1.09 | 4.37 | 3.44 | small |
+| `orth_mi_bootstrap` | 0.93 | 0.99 | 2.74 | 3.02 | none (no change) |
+| hinge | | | 2.11 | | none |
+
+Inside the fit these stages run on the 30000-row decision subsample, so each costs 1 to 2 s, about 1 to 2% of the 120 s fit. The large costs of the fit are structural (the `stage:` rows: `decide_family_call` 56.5 s over 36 calls, `materialise_and_finalise` 27 s, `check_prospective_pairs` 14.9 s, `screen_predictors` 13.9 s), not single modules of the contract list.
+
+`binned_numeric_agg` at n=100000 (cProfile, host path): 7.9 s, of which `_quantile_bin` 3.7 s (504 columns, `np.quantile` 1.8 s and `searchsorted` 1.5 s), `_keep_linearly_usable` 2.5 s; it accepted 0 columns on this frame, so the work produced nothing here.
