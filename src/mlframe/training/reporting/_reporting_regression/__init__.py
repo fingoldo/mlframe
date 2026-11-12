@@ -165,20 +165,11 @@ def report_regression_model_perf(
     if st.targets_arr.ndim == 2 and st.targets_arr.shape[1] >= 2:
         from ._mtr import render_mtr_report
 
-        return render_mtr_report(
-            st.targets_arr,
-            st.preds_arr,
-            model_name,
-            metrics=metrics,
-            print_report=print_report,
-            plot_outputs=plot_outputs,
-            plot_file=plot_file,
-            figsize=figsize,
-            plot_sample_size=plot_sample_size,
-            plot_dpi=plot_dpi,
-            report_title=report_title,
-            verbose=verbose,
+        mtr_options = dict(
+            metrics=metrics, print_report=print_report, plot_outputs=plot_outputs, plot_file=plot_file, figsize=figsize,
+            plot_sample_size=plot_sample_size, plot_dpi=plot_dpi, report_title=report_title, verbose=verbose,
         )
+        return render_mtr_report(st.targets_arr, st.preds_arr, model_name, **mtr_options)
     # Generic prediction-envelope clip (carved to _sensors.py). Bounds preds to a sigma window around the train (or
     from mlframe.training.reporting._reporting_regression._regression_stages import _report_regression_clip_stage
     preds = _report_regression_clip_stage(st, y_train_min, y_train_max, y_train_std, model_name, report_title, preds)
