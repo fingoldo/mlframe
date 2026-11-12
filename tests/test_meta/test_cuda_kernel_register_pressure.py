@@ -55,10 +55,9 @@ _SPILL_EXEMPT: dict[str, str] = {
 def _cupy_or_skip() -> Any:
     """Import cupy or skip the test; skip again if the device present cannot actually compile/launch a kernel."""
     cp = pytest.importorskip("cupy")
-    try:
-        _ = cp.cuda.Device(0).compute_capability
-    except Exception as exc:  # pragma: no cover - environment without a usable CUDA device
-        pytest.skip(f"no usable CUDA device: {exc}")
+    # Skip only when there is no device; a real failure of the device query must surface, not turn into a skip.
+    if not cp.cuda.is_available():
+        pytest.skip("no usable CUDA device")
     return cp
 
 
