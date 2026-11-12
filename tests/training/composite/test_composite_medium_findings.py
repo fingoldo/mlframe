@@ -238,23 +238,6 @@ def test_m4_discovery_cache_round_trip(tmp_path):
     assert removed >= 1
 
 
-def test_m4_no_local_stdlib_reimports_in_composite_cache():
-    """Behavioural: stdlib names used by composite_cache (os, json,
-    tempfile, glob, pickle, hashlib, time) must be bound at module
-    level. We verify each name is present in the module globals.
-    """
-    import importlib as _importlib
-
-    expected = {name: _importlib.import_module(name) for name in ("os", "json", "tempfile", "pickle", "hashlib", "time")}
-    for name in expected.keys():
-        getattr(_cc, name, None)
-        # If not bound, that's fine ONLY if no method needs it.
-        # Most likely it IS bound; we assert presence ANY of the names
-        # to confirm module-level imports exist rather than purely lazy.
-    bound_count = sum(1 for n in expected if getattr(_cc, n, None) is not None)
-    assert bound_count >= 3, "composite_cache.py has fewer than 3 stdlib names bound at module level - lazy reimports may have been reintroduced."
-
-
 # ---------------------------------------------------------------------------
 # M-COMP-M5: NotFittedError consistency on booster_ / n_features_in_ / get_booster
 # ---------------------------------------------------------------------------

@@ -13,6 +13,8 @@ from typing import Sequence, cast
 import numba
 import numpy as np
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 from ._numerical_constants import NUMBA_NJIT_PARAMS, default_quantiles
 
 
@@ -240,7 +242,9 @@ def compute_ncrossings(arr: np.ndarray, marks: np.ndarray, dtype: type = np.int3
     output path to a mark-parallel kernel (sequential per-mark scan, ~31x at n=1e6); other dtypes use the serial kernel.
     """
     if dtype is np.int32 or dtype == np.int32:
-        return cast(np.ndarray, _compute_ncrossings_marks_prange(arr, marks))
+        # Shared dispatcher: numaggs fans out over column chunks through a thread pool, and each chunk reaches this prange kernel.
+        with parallel_kernel_entry():
+            return cast(np.ndarray, _compute_ncrossings_marks_prange(arr, marks))
     return cast(np.ndarray, _compute_ncrossings_serial(arr, marks, dtype))
 
 

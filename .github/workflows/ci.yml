@@ -197,7 +197,10 @@ jobs:
     # instead of raising cleanly. `tests/_hang_watchdog.py`'s autouse fixture is the safe alternative:
     # it dumps every thread's stack partway through a stalled test WITHOUT signalling it, so the next
     # hang names its exact blocking call in the live log instead of just "cancelled" 6 hours later.
-    timeout-minutes: 345  # below the 360-minute platform default (a value at or above it bounds nothing): headroom for a cold-cache shard, not a budget
+    # macOS shards run with one worker and have been seen to stall inside a native numba/OpenMP call for 5-6 hours before
+    # cancellation: the in-process timeout cannot fire there. The job-level cap is the only bound, so macOS gets 180 minutes
+    # rather than the 345 used elsewhere. Raise it if the shard durations artifacts show a healthy shard needing more.
+    timeout-minutes: ${{ matrix.os == 'macos-15' && 180 || 345 }}  # below the 360-minute platform default (a value at or above it bounds nothing)
     # Newest-Python rows are marked experimental so a single optional-extra
     # that has not yet published a cp314 wheel does not turn a required check
     # red while the ecosystem finishes catching up. The core stack (numpy /

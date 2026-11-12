@@ -118,10 +118,29 @@ class CountWeightedBlendEnsemble(RegressorMixin, BaseEstimator):
 
         entities = X[self.entity_col].to_numpy()
         n_entities = int(np.unique(entities).size)
+        # Cold splits hold whole entities out: each validation row is a new entity, whose blend weight is zero at every k, so these
+        # errors cannot rank k on their own. Warm splits hold rows out: validation rows belong to entities seen in training, where k
+        # sets the weight. Deployment sees both kinds, so k is chosen on the mean of the two pooled errors.
         if n_entities >= self.k_cv:
-            splits = list(GroupKFold(n_splits=self.k_cv).split(np.arange(len(X)), groups=entities))
+            cold_splits = list(GroupKFold(n_splits=self.k_cv).split(np.arange(len(X)), groups=entities))
         else:
-            splits = list(KFold(n_splits=self.k_cv, shuffle=True, random_state=self.random_state).split(np.arange(len(X))))
+            cold_splits = list(KFold(n_splits=self.k_cv, shuffle=True, random_state=self.random_state).split(np.arange(len(X))))
+        warm_splits = list(KFold(n_splits=self.k_cv, shuffle=True, random_state=self.random_state).split(np.arange(len(X))))
+        self.k_cold_scores_ = self._cv_errors_by_k(X, y_arr, meta_cols, fit_kwargs, cold_splits, grid)
+        warm = self._cv_errors_by_k(X, y_arr, meta_cols, fit_kwargs, warm_splits, grid)
+        self.k_cv_scores_ = {k: 0.5 * (self.k_cold_scores_[k] + warm[k]) for k in grid}
+        return min(self.k_cv_scores_, key=lambda k: self.k_cv_scores_[k])
+
+    def _cv_errors_by_k(
+        self,
+        X: pd.DataFrame,
+        y_arr: np.ndarray,
+        meta_cols: list[str],
+        fit_kwargs: dict[str, Any],
+        splits: list[tuple[np.ndarray, np.ndarray]],
+        grid: Sequence[float],
+    ) -> dict[float, float]:
+        """Pooled (sample-weighted) held-out squared error of the blend for every candidate ``k`` over the given folds."""
         sq_err_by_k: dict[float, list[np.ndarray]] = {k: [] for k in grid}
         # Validation-row weights, so the selection error is the same weighted loss the models were trained on.
         val_w_parts: list[np.ndarray] = []
@@ -151,11 +170,11 @@ class CountWeightedBlendEnsemble(RegressorMixin, BaseEstimator):
                 sq_err_by_k[k].append((pred - y_val) ** 2)
 
         val_w = np.concatenate(val_w_parts)
-        self.k_cv_scores_ = {}
+        scores: dict[float, float] = {}
         for k, errs in sq_err_by_k.items():
             err = np.concatenate(errs)
-            self.k_cv_scores_[k] = float(np.average(err, weights=val_w)) if all_weights is not None else float(np.mean(err))
-        return min(self.k_cv_scores_, key=lambda k: self.k_cv_scores_[k])
+            scores[k] = float(np.average(err, weights=val_w)) if all_weights is not None else float(np.mean(err))
+        return scores
 
     def fit(self, X: pd.DataFrame, y: Any, sample_weight: Optional[np.ndarray] = None) -> "CountWeightedBlendEnsemble":
         """Fit the entity-level and global models (and, if ``auto_k``, the blend constant ``k``) on ``X``, ``y``."""
