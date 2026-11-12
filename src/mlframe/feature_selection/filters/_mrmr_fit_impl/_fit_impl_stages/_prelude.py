@@ -48,7 +48,8 @@ def _record_fit_entry_nan_mask(X, _will_use_include_numeric_nan_guard, _will_use
             try:
                 _cv = X[_c]
                 _cv_np = np.asarray(_cv.to_numpy() if hasattr(_cv, "to_numpy") else _cv, dtype=_crit_np_dtype())
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as exc:
+                logger.debug("column %r does not convert to the criterion dtype, no non-finite mask: %s", _c, type(exc).__name__)
                 return None
             _nan_mask_c = ~np.isfinite(_cv_np)
             return _nan_mask_c if _nan_mask_c.any() else None

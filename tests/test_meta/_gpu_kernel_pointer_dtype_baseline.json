@@ -61,7 +61,7 @@
     "dtw_diagonal": "reviewed 2026-11-05: the GPU DTW kernels accumulate in double so the distances equal the CPU result (documented in the module); the host uploads float64 explicitly."
   },
   "src/mlframe/training/_benchmarks/bench_ewma_frac_diff_backends.py": {
-    "ewma_batched": "reviewed 2026-11-05: used by the training composite transforms (_nonlinear_ewma_fracdiff), not by MRMR. The recursive EWMA / fractional-difference filters carry a state across the whole series, where float32 rounding accumulates; every buffer is created as float64 in this file (np/cp.float64, no float32 anywhere).",
-    "frac_diff_inv_batched": "reviewed 2026-11-05: used by the training composite transforms (_nonlinear_ewma_fracdiff), not by MRMR. The recursive EWMA / fractional-difference filters carry a state across the whole series, where float32 rounding accumulates; every buffer is created as float64 in this file (np/cp.float64, no float32 anywhere)."
+    "ewma_batched": "reviewed 2026-11-12 (corrects the 2026-11-05 reason, which named a production user that does not exist): benchmark-only kernel; no production module calls it, and the transform `_nonlinear_ewma_fracdiff` uses its own njit paths. The module header measured this GPU variant 5-100x slower than njit at every size, so it stays a rejected variant kept for the benchmark.",
+    "frac_diff_inv_batched": "reviewed 2026-11-12 (corrects the 2026-11-05 reason, which named a production user that does not exist): benchmark-only kernel; no production module calls it, and the transform `_nonlinear_ewma_fracdiff` uses its own njit paths. The module header measured this GPU variant 5-100x slower than njit at every size, so it stays a rejected variant kept for the benchmark."
   }
 }

@@ -42,3 +42,28 @@ combined as cp.median does: (a + b) / 2 in the input dtype). `_radix_quantiles(.
 Conditional-CMI permutation null: the within-stratum `cp.argsort(keys, axis=0)` of the int32 shuffle keys (cub segmented merge sort, 0.26 s in the 50k fit)
 becomes one 1-D argsort of (column << 32 | key) from 300000 elements: equal orders, ties included (test_perm_null_composite_argsort); 50000 x 25 11.4 -> 7.0 ms,
 100000 x 25 23.0 -> 13.2 ms; smaller inputs keep the axis-0 sort (16667 x 8: 1.2 vs 1.35 ms). `MLFRAME_PERM_NULL_COMPOSITE_ARGSORT=0` keeps it everywhere.
+
+## Uncoalesced row-major `mi_from_codes` -> tiled coalesced kernel (2026-11-12)
+
+The plug-in `mi_from_codes` kernel reads the (n, K) row-major code matrix with one block per column: a warp's loads are a K-element stride apart. Its column-major twin (`mi_from_codes_cm_i16`, opt-in behind `MLFRAME_MI_FROM_CODES_V2`) is coalesced but needs a transpose on every call, which made it slower than the row-major path at 100000 x 100 (4.26 vs 2.94 ms) and faster only at 30000 x 930 (11.0 vs 19.8 ms). The fix keeps the layout and tiles the columns: `mi_from_codes_tile` gives one block G = 8 columns, the flat loop over rows x G makes consecutive threads read consecutive columns of one row, and each column keeps its own histogram in shared memory.
+
+Measured on the public `binned_mi_from_codes_gpu` call (best of 10, the two routes alternating; the row-major route forced by a zero tile width, so both run the same wrapper): 100000 x 100, tiled 2.20 ms vs row-major 2.91 ms; 30000 x 930, tiled 6.55 ms vs row-major 19.20 ms. Kernel-only sweep at 100000 x 100 with the production row-major block size 96: 2.01 ms row-major vs 1.25 ms tiled at 512 threads (1.78 ms at 256, 4.02 ms at 96). At 30000 x 930 the row-major block 256 gives 10.2 ms, tiled 512 gives 4.0 ms and 256 gives 3.9 ms.
+
+Equality: MAXDIFF 0 against the row-major result at both shapes; `test_mi_from_codes_tiled.py` checks the host plug-in MI for K in {1, 5, 8, 13, 100}, so the partial last column group is covered, and a mutant that drops the column offset fails it. The coalesced-read gate passes with the tiled kernel unflagged; the row-major kernel stays in the module as the fallback when the tiled launch raises, so its baseline entry stays.
+
+Benchmark: `_benchmarks/bench_mi_from_codes_tiled.py` (run with PYTHONPATH=src). Without PYTHONPATH the import resolves to the installed main checkout, so the numbers are not the worktree's; an earlier run of the benchmark without it measured the wrong code and is not used here.
+
+## Length-aware MM marginal MI: tiled coalesced kernel and coalesced column bounds (2026-11-12)
+
+Production `binned_mm_mi_from_values_gpu` launches `mi_mm_from_values_nek` (one block per column, X[i*K + c] read with threads striding rows) after computing the per-column bounds with two cupy axis-0 reductions. The plain `mi_mm_from_values` kernel has no production caller (only its getter), so it is not optimized here.
+
+Measured on the public call (GTX 1050 Ti, min of 10, sweep interleaved):
+- The two cupy axis-0 reductions alone (min + max, 100000 x 100 float64): 4.40 ms of an 8.31 ms call. Replaced by `col_minmax` (one coalesced pass, 8 columns per block, NaN propagates as in cupy): 4.85 ms total.
+- The one-column-per-block kernel replaced by `mm_nek_tile` (G = 4 columns per block, 256 threads, row-major X, edge cache per column in shared memory). Kernel sweep, G in {4, 8, 16} x threads in {256, 512}: G = 4 with 256 threads was fastest at both shapes (2.98 vs 3.38 ms for G = 8 at 100000 x 100; 7.48 vs 8.46 ms at 30000 x 930).
+- Public call after both changes: 100000 x 100 8.31 -> 4.58 ms (1.8x); 30000 x 930 19.46 -> 12.14 ms (1.6x).
+
+Equivalence: `test_mm_nek_tiled.py` (11 tests) compares the tiled route with the forced per-column route for K in {1, 3, 4, 9, 37}, float64 and float32, with a duplicate-edge column (shorter valid prefix) and NaN rows; `col_minmax` equals cupy's min and max exactly, NaN included. The mutant that drops the column offset fails 4 of the tiled cases.
+
+Correction: the earlier prototype check of this kernel reported MAXDIFF 0 but used independent random y with a made-up h_y, so every MI clamped to 0 and the comparison could not detect a wrong column. The test now computes h_y and k_y from y and makes y depend on X, so the outputs are positive and the mutant fails. The timings above are unaffected by the data (the kernel work does not depend on the values).
+
+Coalesced-read gate: both kernels use the row-group idiom (`int rg = threadIdx.x / tile` as an assignment, column index `threadIdx.x % tile`). The edge-cache loader first walked rows with the fast index, which the gate caught as a real strided read; it now walks columns fastest.

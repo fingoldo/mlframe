@@ -412,3 +412,18 @@ def test_resident_batch_cuda_matches_host_input(seed):
     mi_res = _plugin_mi_classif_batch_cuda_resident(cp.asarray(X), cp.asarray(y), 20)
     assert mi_host.shape == mi_res.shape == (k,)
     assert float(np.max(np.abs(mi_host - mi_res))) == 0.0, f"seed={seed}: resident MI must equal host-input MI bit-for-bit"
+
+
+def test_cuda_batch_refused_by_the_vram_cushion_returns_the_njit_reference(monkeypatch):
+    """With the VRAM cushion refusing the whole matrix, the CUDA batch returns the njit reference values instead of copying the matrix to the card."""
+    from mlframe.feature_selection.filters import _fe_gpu_vram
+    from mlframe.feature_selection.filters import _hermite_fe_mi as H
+
+    rng = np.random.default_rng(1)
+    X = rng.standard_normal((5000, 4))
+    y = rng.integers(0, 3, 5000)
+    from mlframe.feature_selection.filters.hermite_fe import _plugin_mi_classif_batch_njit
+
+    want = np.asarray(_plugin_mi_classif_batch_njit(X, y, 10))
+    monkeypatch.setattr(_fe_gpu_vram, "fe_gpu_has_vram_cushion", lambda *args, **kwargs: False)
+    np.testing.assert_array_equal(np.asarray(H._plugin_mi_classif_batch_cuda(X, y, 10)), want)

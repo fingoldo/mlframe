@@ -862,3 +862,18 @@ def test_fe_materialise_cm_bit_identical(monkeypatch):
 
         assert o_cm.shape == (n, K) == o_rm.shape
         assert bool(cp.array_equal(o_rm, o_cm)), f"cm materialise differs at n={n} K={K} nop={nop}"
+
+
+def test_candidate_matrix_refused_by_the_vram_cushion_takes_the_cpu_path(monkeypatch):
+    """At a size where the analytic device branch engages, a refused VRAM cushion returns None before the upload; with the real cushion the device branch runs."""
+    from mlframe.feature_selection.filters import _fe_gpu_vram
+    from mlframe.feature_selection.filters._gpu_resident_pair_mi import gpu_pairs_fe_mi
+
+    rng = np.random.default_rng(0)
+    n = 60_000  # >= analytic_null_min_n default (50k), so the refusal is what returns None
+    cand = rng.standard_normal((n, 6)).astype(np.float32)
+    yc = rng.integers(0, 4, n).astype(np.int64)
+    fy = np.bincount(yc, minlength=4).astype(np.float64) / n
+    assert gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 3, 0.0, False) is not None
+    monkeypatch.setattr(_fe_gpu_vram, "fe_gpu_has_vram_cushion", lambda *args, **kwargs: False)
+    assert gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 3, 0.0, False) is None

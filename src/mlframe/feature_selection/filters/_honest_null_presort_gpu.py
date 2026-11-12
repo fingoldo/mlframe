@@ -15,6 +15,7 @@ import os
 import numpy as np
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 from ._fe_gpu_vram import pool_column_block
+from ._gpu_resident_select_kernels import _transpose_to_cm
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def presort_and_ties_gpu(raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
             c1 = min(k, c0 + block)
             cols = idx = sv = tie_dev = None
             try:
-                cols = cp.asarray(np.ascontiguousarray(raw_cont[:, c0:c1].T))  # one contiguous row per column
+                cols = _transpose_to_cm(cp.asarray(np.ascontiguousarray(raw_cont[:, c0:c1])))  # one contiguous row per column, transposed on the device
                 idx = device_argsort(cols, axis=1)
                 sv = cp.take_along_axis(cols, idx, axis=1)
                 tie_dev = cp.zeros((c1 - c0, n), dtype=cp.uint8)

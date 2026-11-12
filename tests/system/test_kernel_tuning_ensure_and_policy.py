@@ -324,7 +324,7 @@ def test_run_sweep_maps_the_child_process_outcome(monkeypatch):
     """The real helper: exit 0 is ok, a non-zero exit is failed, subprocess.TimeoutExpired is timeout; the command targets the kernel by name."""
     seen = {}
 
-    def fake_run(cmd, timeout, check):
+    def fake_run(cmd, timeout, check, env=None):
         """Return a canned completed process for the given kernel."""
         seen["cmd"], seen["timeout"] = cmd, timeout
         return SimpleNamespace(returncode=seen.get("rc", 0))
@@ -336,7 +336,7 @@ def test_run_sweep_maps_the_child_process_outcome(monkeypatch):
     outcome, detail = _ensure._run_sweep(_spec("k"), 60.0)
     assert outcome == "failed" and "code 1" in detail
 
-    def hung(cmd, timeout, check):
+    def hung(cmd, timeout, check, env=None):
         """A sweep that never finishes."""
         raise subprocess.TimeoutExpired(cmd, timeout)
 
@@ -383,3 +383,28 @@ def test_the_cold_check_is_off_the_fit_s_critical_path_and_runs_once_per_registr
         pass
     _policy.wait_for_cold_check()
     assert calls == [1, 1], "a registry with a new spec is checked again"
+
+
+def test_sweep_child_imports_the_parent_mlframe_source_root(monkeypatch):
+    """The sweep child runs with the parent's ``mlframe`` source root first on PYTHONPATH, so it tunes the code of this checkout, not an editable install of another one."""
+    import os
+    import subprocess
+    import sys
+
+    import mlframe
+    from mlframe.system.kernel_tuning_cache import _ensure
+
+    seen: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        """Record the child's environment instead of starting a sweep."""
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setenv("PYTHONPATH", "keep_me")
+    spec = type("Spec", (), {"kernel_name": "k"})()
+    assert _ensure._run_sweep(spec, timeout_s=60) == ("ok", "")
+    expected_root = os.path.dirname(os.path.dirname(os.path.abspath(mlframe.__file__)))
+    assert seen["env"]["PYTHONPATH"].split(os.pathsep) == [expected_root, "keep_me"]
+    assert sys.executable  # the child is this interpreter

@@ -592,7 +592,8 @@ def _open_verified_bundle(file: str):
     try:
         with open(file, "rb") as src:  # audit-exempt: resource_handle_safety -- the bytes are read and the handle closed here; only the in-memory buffer is returned
             buf = _io.BytesIO(src.read())
-    except OSError:
+    except OSError as exc:
+        logger.debug("bundle %s unreadable here, the load below reports it: %s", file, type(exc).__name__)
         return None  # a missing or unreadable bundle fails in the load below, as before
     _verify_bundle_digest(file, buf)
     return buf

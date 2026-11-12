@@ -581,28 +581,74 @@ def _batched_marginal_counts(X, Kx):
 _BATCHED_JOINT_ENTROPY_SRC = render(r"""
 extern "C" __global__
 void batched_joint_entropy2(const long long* __restrict__ X, const long long* __restrict__ b,
-                            const int Kx, const int Kb, const long long n, const int K, const int M,
+                            const int Kx, const int Kb, const long long n, const int K, const int M, const int G,
                             const {ACC} inv_n, {ACC}* __restrict__ out_h, long long* __restrict__ out_k) {
-    extern __shared__ unsigned int hist[];
-    int col = blockIdx.x;
-    if (col >= K) return;
+    // One block owns G columns: a flat loop over rows x G reads X[i*K + c0 + j] with consecutive threads on consecutive j,
+    // so a warp's loads are one contiguous run of the row instead of a K-element stride. Each column keeps its own
+    // (Kx*Kb) histogram in shared memory; the per-column reduction keeps the original tree order, so the sums match bit for bit.
+    extern __shared__ unsigned int hist[];      // (G, M)
+    __shared__ {ACC} sh_h[256]; __shared__ {ACC} sh_k[256];
+    int c0 = blockIdx.x * G;
+    int g = min(G, K - c0);
     int tid = threadIdx.x, nt = blockDim.x;
-    for (int i = tid; i < M; i += nt) hist[i] = 0u;
+    for (int t = tid; t < g * M; t += nt) hist[t] = 0u;
     __syncthreads();
-    for (long long i = tid; i < n; i += nt) {
-        long long xv = X[i * (long long)K + col];
-        atomicAdd(&hist[(unsigned int)(xv * Kb + b[i])], 1u);
+    for (long long e = tid; e < n * g; e += nt) {
+        long long i = e / g;
+        int j = (int)(e - i * g);
+        long long xv = X[i * (long long)K + c0 + j];
+        atomicAdd(&hist[j * M + (unsigned int)(xv * Kb + b[i])], 1u);
     }
     __syncthreads();
-    {ACC} hloc = 0.0, kloc = 0.0;
-    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { {ACC} p = ({ACC})v * inv_n; hloc += p * log(p); kloc += 1.0; } }
-    __shared__ {ACC} sh_h[256]; __shared__ {ACC} sh_k[256];
-    sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
-    for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
-    if (tid == 0) { out_h[col] = -sh_h[0]; out_k[col] = (long long)(sh_k[0] + 0.5); }
+    for (int j = 0; j < g; ++j) {
+        {ACC} hloc = 0.0, kloc = 0.0;
+        unsigned int* h = hist + j * M;
+        for (int c = tid; c < M; c += nt) { unsigned int v = h[c]; if (v > 0u) { {ACC} p = ({ACC})v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+        sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
+        for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
+        if (tid == 0) { out_h[c0 + j] = -sh_h[0]; out_k[c0 + j] = (long long)(sh_k[0] + 0.5); }
+        __syncthreads();
+    }
 }
 extern "C" __global__
 void batched_joint_entropy2_g(const long long* __restrict__ X, const long long* __restrict__ b,
+                              const int Kx, const int Kb, const long long n, const int K, const int M, const int G,
+                              const {ACC} inv_n, unsigned int* __restrict__ scratch, {ACC}* __restrict__ out_h, long long* __restrict__ out_k) {
+    // Global-scratch twin of batched_joint_entropy2: a block walks groups of G columns; its scratch slice holds the G
+    // histograms, and the reads are the same coalesced row-group pattern (consecutive threads take consecutive columns).
+    unsigned int* hist = scratch + (long long)blockIdx.x * G * M;
+    int tid = threadIdx.x, nt = blockDim.x;
+    __shared__ {ACC} sh_h[256]; __shared__ {ACC} sh_k[256];
+    int groups = (K + G - 1) / G;
+    for (int cg = blockIdx.x; cg < groups; cg += gridDim.x) {
+        int c0 = cg * G;
+        int g = min(G, K - c0);
+        for (int t = tid; t < g * M; t += nt) hist[t] = 0u;
+        __syncthreads();
+        int rstride = nt / g;                         // rows per pass; threads past rstride * g (a partial last group) sit out, so no row is counted twice
+        int rg = threadIdx.x / g;                     // row group: consecutive threads take consecutive columns of one row
+        int jl = threadIdx.x % g;
+        if (rg < rstride) {
+            for (long long i = rg; i < n; i += rstride) {
+                long long xv = X[i * (long long)K + c0 + jl];
+                atomicAdd(&hist[jl * M + (unsigned int)(xv * Kb + b[i])], 1u);
+            }
+        }
+        __syncthreads();
+        for (int j = 0; j < g; ++j) {
+            {ACC} hloc = 0.0, kloc = 0.0;
+            unsigned int* h = hist + j * M;
+            for (int c = tid; c < M; c += nt) { unsigned int v = h[c]; if (v > 0u) { {ACC} p = ({ACC})v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+            sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
+            for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
+            if (tid == 0) { out_h[c0 + j] = -sh_h[0]; out_k[c0 + j] = (long long)(sh_k[0] + 0.5); }
+            __syncthreads();
+        }
+    }
+}
+
+extern "C" __global__
+void batched_joint_entropy2_g_wide(const long long* __restrict__ X, const long long* __restrict__ b,
                               const int Kx, const int Kb, const long long n, const int K, const int M,
                               const {ACC} inv_n, unsigned int* __restrict__ scratch, {ACC}* __restrict__ out_h, long long* __restrict__ out_k) {
     unsigned int* hist = scratch + (long long)blockIdx.x * M;      // this block's slice, reused for every column it owns
@@ -629,6 +675,14 @@ _BATCHED_JOINT_ENTROPY_KERNEL = None
 _BATCHED_JOINT_ENTROPY_G_KERNEL: list = []
 
 
+_JOINT_ENTROPY_TILE_MAX_COLS = 8  # columns per block for both fused joint-entropy kernels; measured fastest at 8 (see the profile record)
+# global-scratch route: the tiled kernel up to 6144 cells (measured faster at 5000: 11.9 vs 14.8 ms; at 8000 it ties and at 15000 it loses 26.6 vs 23.3 ms),
+# eight columns per block only up to 1024 cells (measured fastest at 1000; one column per block above)
+_JOINT_ENTROPY_GLOBAL_TILE_MAX_CELLS = 6144
+_JOINT_ENTROPY_GLOBAL_G8_MAX_CELLS = 1024
+_JOINT_ENTROPY_GLOBAL_MAX_BLOCK_MULT = 2  # global-scratch kernel: blocks per SM when the scratch fits a quarter of L2 (4 measured slower at M = 1000)
+
+
 def batched_joint_entropy_global(X: Any, b: Any, Kx: int, Kb: int, inv_n: float, blocks: int) -> "tuple[Any, Any]":
     """The fused per-column joint entropy with each block's histogram in global scratch (``batched_joint_entropy2_g``), for joints over the shared-memory
     limit: ``(h (K,), k (K,))``, the fused kernel's loop and reduction with ``blocks`` blocks walking the columns."""
@@ -636,14 +690,32 @@ def batched_joint_entropy_global(X: Any, b: Any, Kx: int, Kb: int, inv_n: float,
 
     if not _BATCHED_JOINT_ENTROPY_G_KERNEL:
         _BATCHED_JOINT_ENTROPY_G_KERNEL.append(cp.RawKernel(_BATCHED_JOINT_ENTROPY_SRC, "batched_joint_entropy2_g"))
+        _BATCHED_JOINT_ENTROPY_G_KERNEL.append(cp.RawKernel(_BATCHED_JOINT_ENTROPY_SRC, "batched_joint_entropy2_g_wide"))
     n, K = int(X.shape[0]), int(X.shape[1])
     M = int(Kx) * int(Kb)
-    g = max(1, min(int(blocks), K))
-    scratch = cp.empty(g * M, dtype=cp.uint32)
+    if M > _JOINT_ENTROPY_GLOBAL_TILE_MAX_CELLS:
+        # large joints: one column per block (the untiled kernel measured faster here; the column groups only pay for small histograms)
+        g = max(1, min(int(blocks), K))
+        scratch = cp.empty(g * M, dtype=cp.uint32)
+        out_h = cp.empty(K, dtype=cp.float64)  # Intentional float64: entropies, as the fused kernel writes them
+        out_k = cp.empty(K, dtype=cp.int64)
+        g_threads = _tree_block(_BATCHED_JOINT_ENTROPY_G_KERNEL[1], 0, n)
+        _BATCHED_JOINT_ENTROPY_G_KERNEL[1]((g,), (g_threads,), (cp.ascontiguousarray(X), b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), scratch, out_h, out_k))
+        return out_h, out_k
+    # Blocks and columns per block are sized so that all the blocks' scratch slices stay within L2: the caller admitted ``blocks`` (one per SM)
+    # against that budget, so extra blocks are taken only while the total still fits. More blocks lift the parallelism of the global atomics.
+    l2 = int(cp.cuda.Device().attributes.get("L2CacheSize", 0)) or (1 << 20)
+    # the second block layer only while its doubled scratch stays in a quarter of L2: at M = 15000 the full-L2 rule measured 29 ms against 23 ms with one per SM
+    mult = _JOINT_ENTROPY_GLOBAL_MAX_BLOCK_MULT if int(blocks) * _JOINT_ENTROPY_GLOBAL_MAX_BLOCK_MULT * M * 4 * 4 <= l2 else 1
+    # column groups only for small joints: G = 8 measured fastest at M = 1000, while G > 1 at M = 5000 and 15000 was slower than one column per block
+    G = _JOINT_ENTROPY_TILE_MAX_COLS if M <= _JOINT_ENTROPY_GLOBAL_G8_MAX_CELLS else 1
+    groups = (K + G - 1) // G
+    g = max(1, min(int(blocks) * mult, groups))
+    scratch = cp.empty(g * G * M, dtype=cp.uint32)
     out_h = cp.empty(K, dtype=cp.float64)  # Intentional float64: entropies, as the fused kernel writes them
     out_k = cp.empty(K, dtype=cp.int64)
     g_threads = _tree_block(_BATCHED_JOINT_ENTROPY_G_KERNEL[0], 0, n)
-    _BATCHED_JOINT_ENTROPY_G_KERNEL[0]((g,), (g_threads,), (cp.ascontiguousarray(X), b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), scratch, out_h, out_k))
+    _BATCHED_JOINT_ENTROPY_G_KERNEL[0]((g,), (g_threads,), (cp.ascontiguousarray(X), b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), np.int32(G), float(inv_n), scratch, out_h, out_k))
     return out_h, out_k
 _BATCHED_JOINT_ENTROPY_SH_LIMIT = None
 
@@ -661,6 +733,11 @@ def _get_batched_joint_entropy_kernel(cp):
             logging.getLogger(__name__).debug("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
             _BATCHED_JOINT_ENTROPY_SH_LIMIT = 48 * 1024
     return _BATCHED_JOINT_ENTROPY_KERNEL
+
+
+def _joint_entropy_tile_cols(M: int) -> int:
+    """Columns per block for ``batched_joint_entropy2``: at most 8, and G histograms of M uint32 plus the 4 KB of static reduction scratch fit the device limit."""
+    return max(1, min(8, (int(_BATCHED_JOINT_ENTROPY_SH_LIMIT or 48 * 1024) - 4096) // (4 * int(M))))
 
 
 def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
@@ -698,7 +775,7 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
             return None
         if X.dtype != cp.int64:
             X = X.astype(cp.int64)  # the fused entropy kernels read 64-bit codes; a byte matrix is widened here, on the rare path that takes them
-        ker = _get_batched_joint_entropy_kernel(cp)
+        ker = _get_batched_joint_entropy_kernel(cp)  # also probes the shared-memory limit for the tile width below
         assert _BATCHED_JOINT_ENTROPY_SH_LIMIT is not None  # populated by _get_batched_joint_entropy_kernel above
         # shared = M uint32 hist + 2*256 f64 reduction scratch (the sh_h/sh_k arrays are static, not counted here);
         # gate the dynamic hist against the device per-block limit (leave headroom for the static doubles).
@@ -716,9 +793,11 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out_h = cp.empty(K, dtype=cp.float64)
         out_k = cp.empty(K, dtype=cp.int64)
-        threads = _tree_block(ker, M * 4, n)
-        ker(
-            (K,), (threads,), (Xc, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), out_h, out_k), shared_mem=M * 4
+        G = _joint_entropy_tile_cols(M)
+        ker(  # launch-ok: the per-column tree reduction runs over static 256-entry scratch (sh_h, sh_k), so the block is fixed at 256 threads
+            ((K + G - 1) // G,), (256,),
+            (Xc, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), np.int32(G), float(inv_n), out_h, out_k),
+            shared_mem=G * M * 4,
         )
         return out_h, out_k
     except Exception:

@@ -161,106 +161,39 @@ def report_regression_model_perf(
     from mlframe.training.reporting._reporting_regression._regression_stages import _report_regression_quantile_stage
     preds, targets = _report_regression_quantile_stage(preds, model, df, targets, st, quantile_alphas)
 
-    # F-34: MULTI_TARGET_REGRESSION gate. This reporter
-    # assumes 1-D targets + 1-D preds for the scatter/histogram chart,
-    # the residual audit (skew/kurtosis), the prediction-envelope clip,
-    # and the MASE / fairness subgroup paths. (N, K) targets/preds get
-    # routed here:
-    #   * aggregated metrics (rmse_macro / r2_macro / ...) via the
-    #     metrics_registry MTR path -> stamped into the metrics dict
-    #   * per-target charts (E1, F-34 follow-up): one chart file per
-    #     target column at ``{plot_file}_target{k}{ext}``, each
-    #     produced via the existing build_regression_panel_spec ->
-    #     render_and_save pipeline (same as the single-target chart,
-    #     just looped K times). Fairness / MASE / prediction-envelope
-    #     clip stay skipped (they assume 1-D y).
+    # F-34 gate (multi-target routing): see the MTR comment above _mtr.py's render_mtr_report.
     if st.targets_arr.ndim == 2 and st.targets_arr.shape[1] >= 2:
         from ._mtr import render_mtr_report
 
-        return render_mtr_report(
-            st.targets_arr,
-            st.preds_arr,
-            model_name,
-            metrics=metrics,
-            print_report=print_report,
-            plot_outputs=plot_outputs,
-            plot_file=plot_file,
-            figsize=figsize,
-            plot_sample_size=plot_sample_size,
-            plot_dpi=plot_dpi,
-            report_title=report_title,
-            verbose=verbose,
+        mtr_options: dict[str, Any] = dict(
+            metrics=metrics, print_report=print_report, plot_outputs=plot_outputs, plot_file=plot_file, figsize=figsize,
+            plot_sample_size=plot_sample_size, plot_dpi=plot_dpi, report_title=report_title, verbose=verbose,
         )
+        return render_mtr_report(st.targets_arr, st.preds_arr, model_name, **mtr_options)
     # Generic prediction-envelope clip (carved to _sensors.py). Bounds preds to a sigma window around the train (or
     from mlframe.training.reporting._reporting_regression._regression_stages import _report_regression_clip_stage
     preds = _report_regression_clip_stage(st, y_train_min, y_train_max, y_train_std, model_name, report_title, preds)
-    # fused single-pass kernel for the 1-D regression-reporting case.
-    # On 1-D inputs the 4 separate ``fast_*`` calls each re-touched (y_true, y_pred)
-    # from RAM (4-5 passes total); the fused 2-pass kernel produces numerically
-    # equivalent results (<1e-12 abs diff vs sklearn baseline) at 2.3-3.4x the speed
-    # across 10k/500k/5M sizes. See ``fast_regression_metrics_block`` docstring +
-    # the ``mlframe.metrics._benchmarks.bench_fused_regression_metrics`` bench.
-    # 2-D / multioutput regression keeps the legacy per-output dispatch since the
-    # multioutput aggregation has a non-trivial dispatch and fusing one target's
-    # pass doesn't compose cleanly across outputs.
     from mlframe.training.reporting._reporting_regression._regression_stages import _report_regression_point_and_sensor_stage
     MAE, MaxError, R2, RMSE, _ext_CV_RMSE, _ext_EV, _ext_MAPE_mean, _ext_MBE, _ext_NSE, _ext_Pearson, _ext_SMAPE, _ext_wMAPE = _report_regression_point_and_sensor_stage(st, sample_weight, model_name, y_train_min, y_train_max, y_train_std, MAE, MaxError, R2, RMSE)
 
-    # audit: additional metrics that don't factor into the
-    # fused block (sort-based / log-based / parameterised). Each is gated
-    # by a narrow try-block so a degenerate input does not poison the
-    # whole report. RMSLE warns + returns NaN on negative inputs (the
-    # historical behaviour - see _regression_extras docstring).
     from mlframe.training.reporting._reporting_regression._regression_stages import _report_regression_metric_stage
     _ext_Cindex, _ext_Huber, _ext_Kendall, _ext_MdAPE, _ext_RMSLE, _ext_Spearman = _report_regression_metric_stage(st, mase_naive_mae, model_name, MAE, MaxError, R2, RMSE, _ext_MBE, _ext_MAPE_mean, _ext_SMAPE, _ext_wMAPE, _ext_CV_RMSE, _ext_NSE, _ext_Pearson, _ext_EV, mase_seasonality, metrics, targets, preds)
 
-    # Short-circuit when there is NO consumer for the chart.
-    # Same logic as ``mlframe.metrics.core.show_calibration_plot``: in a script /
-    # CI / fuzz process (no IPython kernel, no ``sys.ps1``) the
-    # ``show_perf_chart=True`` default renders a matplotlib figure that
-    # nobody can see AND nothing is written to disk because ``plot_file``
-    # is empty. The figure render is 100-200 ms / call and dominates
-    # warm-state regression report wall.
+    st.metrics = dict(
+        MAE=MAE, MaxError=MaxError, R2=R2, RMSE=RMSE, _ext_CV_RMSE=_ext_CV_RMSE, _ext_Cindex=_ext_Cindex, _ext_EV=_ext_EV, _ext_Huber=_ext_Huber,
+        _ext_Kendall=_ext_Kendall, _ext_MAPE_mean=_ext_MAPE_mean, _ext_MBE=_ext_MBE, _ext_MdAPE=_ext_MdAPE, _ext_NSE=_ext_NSE, _ext_Pearson=_ext_Pearson,
+        _ext_RMSLE=_ext_RMSLE, _ext_SMAPE=_ext_SMAPE, _ext_Spearman=_ext_Spearman, _ext_wMAPE=_ext_wMAPE,
+    )
     show_perf_chart = _report_regression__warm_state_regression_report(show_perf_chart, plot_file)
 
     if show_perf_chart or plot_file:
-        if _report_regression_chart_stage(
-            st=st,
-            MAE=MAE,
-            MaxError=MaxError,
-            R2=R2,
-            RMSE=RMSE,
-            _ext_CV_RMSE=_ext_CV_RMSE,
-            _ext_Cindex=_ext_Cindex,
-            _ext_EV=_ext_EV,
-            _ext_Huber=_ext_Huber,
-            _ext_Kendall=_ext_Kendall,
-            _ext_MAPE_mean=_ext_MAPE_mean,
-            _ext_MBE=_ext_MBE,
-            _ext_MdAPE=_ext_MdAPE,
-            _ext_NSE=_ext_NSE,
-            _ext_Pearson=_ext_Pearson,
-            _ext_RMSLE=_ext_RMSLE,
-            _ext_SMAPE=_ext_SMAPE,
-            _ext_Spearman=_ext_Spearman,
-            _ext_wMAPE=_ext_wMAPE,
-            columns=columns,
-            figsize=figsize,
-            model_name=model_name,
-            n_features=n_features,
-            plot_dpi=plot_dpi,
-            plot_file=plot_file,
-            plot_marker=plot_marker,
-            plot_outputs=plot_outputs,
-            plot_sample_size=plot_sample_size,
-            preds=preds,
-            print_report=print_report,
-            report_ndigits=report_ndigits,
-            report_title=report_title,
-            reporting_config=reporting_config,
-            show_perf_chart=show_perf_chart,
+        chart_inputs = dict(
+            columns=columns, figsize=figsize, model_name=model_name, n_features=n_features, plot_dpi=plot_dpi, plot_file=plot_file,
+            plot_marker=plot_marker, plot_outputs=plot_outputs, plot_sample_size=plot_sample_size, preds=preds, print_report=print_report,
+            report_ndigits=report_ndigits, report_title=report_title, reporting_config=reporting_config, show_perf_chart=show_perf_chart,
             targets=targets,
-        ):
+        )
+        if _report_regression_chart_stage(st=st, **st.metrics, **chart_inputs):
             return (st.preds_arr if st.full_quantile_preds is None else st.full_quantile_preds), None
 
     _report_regression__print_report(print_report, model_name, report_title, MAE, report_ndigits, RMSE, MaxError, R2, st._residual_audit, st._audit_log_enabled)

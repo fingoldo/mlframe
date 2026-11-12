@@ -373,6 +373,11 @@ def _conditional_batched_gpu_null(inp: _NullInputs, sup: _StratifiedSupport, npe
         keys = np.empty((inp.n_size, nperm), dtype=np.float64)
         for i in range(nperm):
             keys[:, i] = inp.rng.random(inp.n_size)  # per-perm draw -> SAME sequence as the CPU loop
+        # Admission before the (n, nperm) keys, orders and shuffled candidates: a refusal returns None, the per-permutation CPU loop the caller runs.
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        if not fe_gpu_has_vram_cushion(3 * int(inp.n_size) * int(nperm) * 8):
+            return None
         z_rank_d = cp.asarray(sup.z_rank)[:, None]
         within = device_argsort(z_rank_d + cp.asarray(keys), axis=0)  # (n, nperm) within-stratum orders
         x_sorted_d = cp.asarray(x_sorted)

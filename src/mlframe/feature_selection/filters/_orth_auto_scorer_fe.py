@@ -259,18 +259,23 @@ def _bootstrap_lcb_per_scorer(x_full: np.ndarray, y_arr: np.ndarray, boot_idx: l
 
 
 def _device_block(block: np.ndarray) -> "object | None":
-    """The resample's columns on the device, uploaded once for every scorer that takes a resident block (xi, copula MI), or ``None`` when neither is routed to the device for this row count."""
+    """The resample's columns as one ``(k, n)`` block on the device, built once for every scorer that takes a resident block (xi, copula MI, tail dependence), or ``None`` when none of them is routed to the device for this row count.
+
+    The ``(n, k)`` block is uploaded as it is and transposed on the device by the coalesced tiled kernel: transposing it on the host cost 14 ms at 30000 rows and 134 ms at 100000 for each scorer that did it."""
     if block.dtype != np.float32 or not np.isfinite(block).all():
         return None
     from ._orthogonal_copula_gpu import use_device as copula_on
     from ._orthogonal_xi_gpu import use_device as xi_on
+    from ._tail_dependence_gpu import use_device as tail_on
 
-    if not (xi_on(int(block.shape[0])) or copula_on(int(block.shape[0]))):
+    if not (xi_on(int(block.shape[0])) or copula_on(int(block.shape[0])) or tail_on(int(block.shape[0]))):
         return None
     try:
         import cupy as cp
 
-        device_block: object = cp.asarray(np.ascontiguousarray(block.T))
+        from ._gpu_resident_select_kernels import _transpose_to_cm
+
+        device_block: object = _transpose_to_cm(cp.asarray(np.ascontiguousarray(block)))
         return device_block
     except Exception as exc:
         log_throttle(logger, "orth_auto_scorer.device_block", logging.WARNING, "resample upload failed (%s: %s); the scorers use the host", type(exc).__name__, exc)
@@ -327,7 +332,7 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
         out["xi"][:, b] = xi_correlation_batch(block, yb, random_state=seed, device_block=dev)
         out["dcor"][:, b] = _dcor_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
         out["hsic"][:, b] = _hsic_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
-        out["tail_dep"][:, b] = tail_dependence_columns(np.ascontiguousarray(block.T), yb)
+        out["tail_dep"][:, b] = tail_dependence_columns(None if dev is not None else np.ascontiguousarray(block.T), yb, device_block=dev)  # the (k, n) block is built once on the device when any scorer uses it
 
     # The resamples are independent (own seed, own output column), so they run on the pool; the first runs on this thread so the njit kernels compile once.
     from ._adaptive_nbins import _resolve_edge_jobs

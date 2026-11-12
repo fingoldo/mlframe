@@ -25,7 +25,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from _offline_kernel_report import ARCH_LIMITS, build_ptx_and_report, entry_reports, local_device_limits, markdown, occupancy, required_arch
+from _offline_kernel_report import ARCH_LIMITS, build_ptx_and_report, entry_reports, launch_bounds_violations, local_device_limits, markdown, occupancy, required_arch
 from _offline_kernel_sources import KernelVariant, all_variants, leftover_placeholders
 
 _ALL_ARCHS = (61, 70, 75, 86, 89, 90, 120)  # sm_52 is out: double atomicAdd needs sm_60+, and its Maxwell cards are legacy
@@ -82,12 +82,11 @@ _VARIANTS = all_variants()
 _REPORT_ROWS: list = []  # filled by the per-arch test as it runs; the report test below reads it (a partial list under xdist only shortens the report)
 
 
-def test_every_spill_exemption_names_a_real_kernel_and_a_reason():
-    """An exemption must match an extracted kernel source and carry a reason; a stale or empty one fails."""
-    keys = {v.key for v in _VARIANTS}
-    for key, reason in _SPILL_EXEMPT.items():
-        assert key in keys, f"exemption for a kernel that is not extracted: {key}"
-        assert reason.strip(), f"empty reason for {key}"
+@pytest.mark.parametrize("key,reason", sorted(_SPILL_EXEMPT.items()) or [pytest.param(None, None, marks=pytest.mark.skip(reason="no spill exemptions registered"))])
+def test_every_spill_exemption_names_a_real_kernel_and_a_reason(key, reason):
+    """An exemption must match an extracted kernel source and carry a reason; a stale or empty one fails (an empty registry is a skip, not a silent pass)."""
+    assert key in {v.key for v in _VARIANTS}, f"exemption for a kernel that is not extracted: {key}"
+    assert reason.strip(), f"empty reason for {key}"
 
 
 def test_every_file_with_a_kernel_yields_a_variant():
@@ -111,10 +110,22 @@ def test_every_production_kernel_source_is_covered():
     assert not unresolved, f"placeholders without a fill in tests/test_meta/_offline_kernel_sources.py: {unresolved}"
 
 
+_FAILURE_ROWS: list = []  # (variant id, arch, first line of the failure), the per-architecture failure table of the report
+
+
 @pytest.mark.parametrize("arch", _archs())
 @pytest.mark.parametrize("variant", _VARIANTS, ids=_variant_id)
 def test_kernel_assembles_without_spill_on_arch(variant: KernelVariant, arch: int, tmp_path):
     """NVRTC then ptxas -v: compiles, one resource block per entry, no stack frame or spill, no unlisted warning."""
+    try:
+        _check_variant(variant, arch, tmp_path)
+    except BaseException as exc:  # pytest.fail raises a BaseException subclass; recorded, then re-raised unchanged
+        _FAILURE_ROWS.append((_variant_id(variant), arch, (str(exc).splitlines() or [type(exc).__name__])[0][:200]))
+        raise
+
+
+def _check_variant(variant: KernelVariant, arch: int, tmp_path) -> None:
+    """The body of the per-arch check (kept separate so the wrapper above can record its failure)."""
     pytest.importorskip("cupy_backends.cuda.libs.nvrtc")
     ptxas = _ptxas()
     if leftover_placeholders(variant):
@@ -139,6 +150,8 @@ def test_kernel_assembles_without_spill_on_arch(variant: KernelVariant, arch: in
 
     warnings = [ln for ln in report.splitlines() if "warning" in ln.lower() and not any(k in ln for k in _WARNING_ALLOWLIST)]
     assert not warnings, f"sm_{arch}: unlisted ptxas warnings: {warnings[:3]}"
+    bounds_bad = launch_bounds_violations(ptx_text, report)
+    assert not bounds_bad, f"sm_{arch}: __launch_bounds__ not honoured (entry, registers, cap): {bounds_bad}"
 
 
 _LITERAL_MIN_BLOCKS = re.compile(r"__launch_bounds__\(\s*\w+\s*,\s*\d+\s*\)")  # second argument a bare number
@@ -207,8 +220,28 @@ def test_report_builds_and_can_be_written():
         assert r.registers > 0 and r.registers <= 255, r
         occ, _ = occupancy(r.arch, r.registers, r.static_shared, 256)
         assert 0.0 <= occ <= 1.0
-    text = markdown(_REPORT_ROWS, {v.key: required_arch(v.source) for v in _VARIANTS})
+    text = markdown(_REPORT_ROWS, {v.key: required_arch(v.source) for v in _VARIANTS}, failures=_FAILURE_ROWS)
     assert "Offline kernel report" in text
+    assert "Per-architecture failure table" in text
     out = os.environ.get("MLFRAME_OFFLINE_REPORT")
     if out:
         Path(out).write_text(text, encoding="utf-8")
+
+
+def test_launch_bounds_violation_is_detected_on_synthetic_resource_report():
+    """A register count above REGISTER_FILE // (threads * blocks) is reported; one at or under the cap is not (mutant check for the launch-bounds gate)."""
+    from _offline_kernel_report import REGISTER_FILE
+
+    ptx = ".visible .entry k(\n)\n.maxntid 128, 1, 1\n.minnctapersm 16\n{\n}\n"
+    cap = REGISTER_FILE // (128 * 16)
+    over = f"Compiling entry function 'k' for 'sm_61'\nUsed {cap + 8} registers"
+    under = f"Compiling entry function 'k' for 'sm_61'\nUsed {cap} registers"
+    assert launch_bounds_violations(ptx, over) == [("k", cap + 8, cap)]
+    assert launch_bounds_violations(ptx, under) == []
+
+
+def test_failure_table_lists_each_failing_variant_per_arch():
+    """The report's failure table names every recorded failure with its arch, and says so when there is none."""
+    text = markdown([], {}, failures=[("mlframe/x.py::_SRC[float]", 61, "NVRTC failed on sm_61")])
+    assert "| mlframe/x.py::_SRC[float] | sm_61 | NVRTC failed on sm_61 |" in text
+    assert "none: every checked variant assembled" in markdown([], {}, failures=[])

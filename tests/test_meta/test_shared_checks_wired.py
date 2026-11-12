@@ -487,6 +487,26 @@ def test_no_lock_held_across_io():
 # Accepted check-then-act sites: a cache read, an unlocked compute, then a locked write. A concurrent miss computes the same
 # pure value twice, which is the cost of not holding the lock across the compute. Each entry is (file suffix, function name).
 _CHECK_THEN_ACT_EXEMPT: dict[tuple[str, str], str] = {
+    ("filters/_adaptive_nbins_columns.py", "compute_col_edges"): (
+        "edge memo of a pure computation keyed by the column's content and settings: two threads that both miss compute the same edges "
+        "and the last write stores an identical value; the lock is taken for each lookup and store, not across the compute."
+    ),
+    ("filters/_confirm_predictor_helpers.py", "top_up"): (
+        "prefetch table of one walk: top_up and result run only on the walk's own thread (confirm_in_gain_order calls both in sequence); "
+        "the pool workers run confirm() and never touch the table."
+    ),
+    ("filters/_fe_resident_operands.py", "resident_operand"): (
+        "resident-operand memo keyed by the content hash of the source and the target layout; a concurrent miss uploads the same bytes."
+    ),
+    ("filters/_gpu_resident_select.py", "_quantile_plan"): (
+        "quantile plan is a pure function of (n, quantile fractions, device); a concurrent miss rebuilds the identical plan."
+    ),
+    ("_orthogonal_univariate_fe/_orth_extra_basis_fe_helpers.py", "cached_stable_argsort"): (
+        "order memo keyed by the content hash of the 1-D array; a concurrent miss sorts the same content to the same order."
+    ),
+    ("filters/supervised_binning.py", "_encode_mdlp_target"): (
+        "target-encoding memo keyed by the target's content hash and the encoding settings; a concurrent miss encodes the same labels."
+    ),
     ("filters/_hermite_fe_mi.py", "plugin_mi_classif_batch_dispatch"): (
         "MI memo: a column's MI is a pure function of its content and bin count. Measured 1.72x on 4 threads (cold misses); "
         "holding the lock across the compute would serialise that."
@@ -784,6 +804,7 @@ _DOC_PARITY_IGNORED = {
     "test_log_loss_micro",  # f"{split_name}_log_loss_micro"
     "--python-backtrace",  # nsys CLI flags, documented as absent/present in nsys itself
     "--python-functions-trace",
+    "--cuda-gpu-arch",  # clang-tidy / clang option in the CUDA.md clang-tidy recipe (LLVM clang, not this repo); the recipe is correct
     # CLAUDE.md: flags of external tools, a deliberately bad example name, and a rename it records
     "--write",  # py_ci_shared.black_filtered_apply
     "--metrics",  # nvprof

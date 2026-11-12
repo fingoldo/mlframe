@@ -393,7 +393,10 @@ def _gate_round_batched(g: Any, _rem_list: list, _z_scored: Any, quantile: float
             # (device-born binning), stack them into a RESIDENT (n, K) cupy matrix so the derived codes
             # never re-cross H2D into ``batched_cmi_gpu`` (which accepts a resident ``x_cols``). Mixed /
             # host-fallback rounds keep the host int64 build (byte-identical codes -> same CMI).
-            if cand_bins_dev and all(_nm in cand_bins_dev for _nm in _rem_list):
+            from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+            # Admission before the (n, K) int64 build: a round too large for the VRAM cushion keeps the host build, which is byte-identical.
+            _resident_bytes = int(y_dense.shape[0]) * len(_rem_list) * 8
+            if cand_bins_dev and all(_nm in cand_bins_dev for _nm in _rem_list) and fe_gpu_has_vram_cushion(_resident_bytes):
                 import cupy as _cp
                 _Xc = _cp.empty((y_dense.shape[0], len(_rem_list)), dtype=_cp.int64)
                 for _j, _nm in enumerate(_rem_list):

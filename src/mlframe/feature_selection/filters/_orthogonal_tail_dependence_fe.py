@@ -29,6 +29,8 @@ otherwise look like strong dependence.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 from numba import njit, prange
 
@@ -90,19 +92,29 @@ def _tail_dep_columns_njit(cols_rows: np.ndarray, v: np.ndarray, q: float, out: 
         out[j] = best if best > 0.0 else 0.0
 
 
-def tail_dependence_columns(cols_rows: np.ndarray, y: np.ndarray, *, q: float = 0.95) -> np.ndarray:
+def tail_dependence_columns(cols_rows: "np.ndarray | None", y: np.ndarray, *, q: float = 0.95, device_block: object = None) -> np.ndarray:
     """Floored tail dependence (max of the two tails) of every row of ``cols_rows`` ``(k, n)`` against ``y``, in one parallel kernel; all values must be finite.
 
-    ``y`` is rank-uniformised once here. Zero for every column when ``n < 2`` or ``q`` leaves no tail."""
-    k, n = cols_rows.shape
+    ``y`` is rank-uniformised once here. Zero for every column when ``n < 2`` or ``q`` leaves no tail.
+
+    ``device_block`` is the same ``(k, n)`` block already on the device (the caller built it once for several scorers): the device path reads it in place, and ``cols_rows`` may then be
+    ``None``; the host copy is fetched from the device only when the device path is not taken."""
+    src: Any = device_block if device_block is not None else cols_rows
+    k, n = src.shape
     out = np.zeros(k, dtype=np.float64)  # Intentional float64: statistic output kept f64
     if n < 2 or (1.0 - q) <= 0.0 or k == 0:
         return out
     v = _rank_to_uniform(np.asarray(y).ravel())
+    from ._tail_dependence_gpu import tail_dependence_columns_device, use_device
+
+    if use_device(n):
+        on_device = tail_dependence_columns_device(device_block if device_block is not None else np.ascontiguousarray(cols_rows), v, float(q))
+        if on_device is not None:  # bit-identical to the host kernel; None leaves the columns to it
+            return on_device
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
     with parallel_kernel_entry():
-        rows = np.ascontiguousarray(cols_rows)
+        rows = np.ascontiguousarray(device_block.get() if cols_rows is None else cols_rows)  # type: ignore[attr-defined]
         _tail_dep_columns_njit(
             rows, np.ascontiguousarray(v, dtype=np.float64), float(q), out, rows.dtype == np.float32  # Intentional float64: the tail-dependence kernel takes float64 values
         )  # Intentional float64: ranks in double precision

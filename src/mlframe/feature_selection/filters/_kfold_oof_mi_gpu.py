@@ -55,6 +55,13 @@ def fold_mi_device(arr: np.ndarray, train_idx: np.ndarray, test_idx: np.ndarray,
         n_cols = int(arr.shape[1])
         if n_cols == 0:
             return np.zeros(0, dtype=np.float64)  # Intentional float64: score statistic output contract
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        # Admission before the copy: the fold's two row slices (and about as much again in temporaries) must fit the VRAM cushion,
+        # otherwise the host runs the fold. Checked first so a fold too large for the card is never copied to it.
+        fold_bytes = int(arr.itemsize) * n_cols * (len(train_idx) + len(test_idx))
+        if not fe_gpu_has_vram_cushion(2 * fold_bytes):
+            return None
         tr = cp.asarray(np.ascontiguousarray(arr[train_idx, :]))
         te = cp.asarray(np.ascontiguousarray(arr[test_idx, :]))
         qs = np.linspace(0.0, 1.0, int(nbins) + 1)[1:-1]

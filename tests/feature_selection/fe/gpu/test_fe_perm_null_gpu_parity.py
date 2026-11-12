@@ -32,3 +32,19 @@ def test_conditional_perm_null_gpu_bit_identical_to_cpu(seed, monkeypatch):
 
     assert abs(fh - fg) < 1e-9, f"seed={seed} floor host={fh} gpu={fg}"
     assert abs(mh - mg) < 1e-9, f"seed={seed} null_mean host={mh} gpu={mg}"
+
+
+def test_permutation_build_refused_by_the_vram_cushion_raises_for_the_host_path(monkeypatch):
+    """The device permutation build raises when the VRAM cushion refuses its (n, nperm) temporary, so the caller's handler runs the host path; with the real cushion it returns the (floor, mean) pair."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters import _fe_gpu_vram
+    from mlframe.feature_selection.filters._fe_cmi_perm_null_gpu import conditional_perm_null_gpu
+
+    rng = np.random.default_rng(3)
+    n = 4000
+    x = rng.integers(0, 6, n).astype(np.int64)
+    y = rng.integers(0, 3, n).astype(np.int64)
+    assert len(conditional_perm_null_gpu(x, y, None, order=None, z_rank=None, n_permutations=5, quantile=0.95, seed=1, salt=7)) == 2
+    monkeypatch.setattr(_fe_gpu_vram, "fe_gpu_has_vram_cushion", lambda *args, **kwargs: False)
+    with pytest.raises(RuntimeError, match="VRAM cushion refused"):
+        conditional_perm_null_gpu(x, y, None, order=None, z_rank=None, n_permutations=5, quantile=0.95, seed=1, salt=7)

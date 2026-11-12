@@ -55,7 +55,8 @@ def _host_free_bytes_safe() -> int:
         from .._orthogonal_univariate_fe._streamed_gpu_mi import _host_free_bytes
 
         return int(_host_free_bytes())
-    except Exception:
+    except Exception as exc:  # unreadable host memory: no budget, so the smallest path runs
+        logger.debug("host free memory unreadable, budgeting zero bytes: %s", type(exc).__name__)
         return 0
 
 

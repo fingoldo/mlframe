@@ -33,12 +33,23 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "nonpoly_cells_gpu.nonpoly_cells": (
+        "mlframe.feature_selection.filters.hermite_fe._nonpoly_cells_gpu",
+        "kernel",
+        ("float32", "float64"),
+    ),
 }
 
 # kernel name -> reason a register spill is accepted for it. Empty is the default: fix the kernel instead of exempting
 # it. Pack any thread-private triangular-matrix array (Hessian, Cholesky factor) before reaching for this dict - that
 # cut this kernel's spill from 1512 to 936 bytes/thread for free (see the reason string for what remains).
 _SPILL_EXEMPT: dict[str, str] = {
+    "nonpoly_cells_gpu.nonpoly_cells": (
+        "the float32 build reserves a 40-byte stack frame (local_size_bytes 40; ptxas: 40 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads) for the "
+        "libdevice trig slow path that its sin and cos calls use; cosf on a float argument reserves 32 bytes the same way, and the double build reserves none. "
+        "The frame is not register pressure (28 registers, no spill), so occupancy is unchanged. Measured in the register-pressure registry test (2026-11-12) and "
+        "audits/2026-10-22/profiles/hermite_fe.md; the cell kernel is FP64-bound regardless of this frame."
+    ),
     "fe_accuracy_gate_kernel.gate_logistic_auc": (
         "936 bytes/thread remain (down from 1512 after packing the per-thread Hessian/Cholesky arrays into their "
         "lower triangle) in the per-row gradient accumulation loop's g[MAXP]/x[MAXP]/h[MAXTRI] work vectors. k is a "
@@ -82,11 +93,11 @@ def test_registered_kernel_has_no_register_spill(name: str):
         )
 
 
-def test_every_exempted_kernel_states_its_reason():
-    """Every entry in _SPILL_EXEMPT names a registered kernel and carries a non-empty reason."""
-    for name, reason in _SPILL_EXEMPT.items():
-        assert name in _REGISTRY, f"{name} is exempted but not registered"
-        assert reason.strip(), f"{name} has an empty exemption reason"
+@pytest.mark.parametrize("name,reason", sorted(_SPILL_EXEMPT.items()) or [pytest.param(None, None, marks=pytest.mark.skip(reason="no spill exemptions registered"))])
+def test_every_exempted_kernel_states_its_reason(name, reason):
+    """Every entry in _SPILL_EXEMPT names a registered kernel and carries a non-empty reason (an empty registry is a skip, not a silent pass)."""
+    assert name in _REGISTRY, f"{name} is exempted but not registered"
+    assert reason.strip(), f"{name} has an empty exemption reason"
 
 
 _OFFLINE_ARCHS = (52, 61, 70, 75, 86, 89, 90, 120)

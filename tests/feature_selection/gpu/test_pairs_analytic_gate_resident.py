@@ -78,3 +78,19 @@ def test_other_dtypes_and_large_histograms_agree_with_the_host_kernels(dtype, nb
     gpu_mi, gpu_bins = resident_observed_mi_and_bins(cp.asarray(codes.astype(dtype)), y, ny)
     np.testing.assert_allclose(gpu_mi, cpu_mi, rtol=1e-10, atol=1e-12)
     np.testing.assert_array_equal(gpu_bins, _occupied_bins_per_col(np.ascontiguousarray(codes), numba.get_num_threads()))
+
+
+def test_streamed_generic_blocks_equal_the_fused_result(monkeypatch):
+    """The generic path, forced to several column blocks, gives the same observed MI and occupied bins as the one-pass fused kernel."""
+    from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_analytic_gpu as A
+
+    rng = np.random.default_rng(4)
+    n, K = 20_000, 37
+    codes = cp.asarray(rng.integers(0, 10, (n, K)).astype(np.int8))
+    yc = rng.integers(0, 2, n).astype(np.int64)
+    fused_mi, fused_bins = A.resident_observed_mi_and_bins(codes, yc, 2)
+    monkeypatch.setattr(A, "_fused_observed_mi_and_bins", lambda *args, **kwargs: None)
+    monkeypatch.setattr(A, "_BLOCK_ELEMENTS", n * 5)  # about five columns per block: several blocks over K = 37
+    streamed_mi, streamed_bins = A.resident_observed_mi_and_bins(codes, yc, 2)
+    np.testing.assert_allclose(streamed_mi, fused_mi, rtol=1e-12, atol=1e-12)
+    np.testing.assert_array_equal(streamed_bins, fused_bins)

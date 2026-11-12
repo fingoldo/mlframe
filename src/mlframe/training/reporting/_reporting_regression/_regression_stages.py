@@ -13,6 +13,11 @@ from mlframe.training.reporting._reporting_regression._small_blocks import _repo
 # --- end imports ---
 
 
+# audit: additional metrics that don't factor into the
+# fused block (sort-based / log-based / parameterised). Each is gated
+# by a narrow try-block so a degenerate input does not poison the
+# whole report. RMSLE warns + returns NaN on negative inputs (the
+# historical behaviour - see _regression_extras docstring).
 def _report_regression_metric_stage(st, mase_naive_mae, model_name, MAE, MaxError, R2, RMSE, _ext_MBE, _ext_MAPE_mean, _ext_SMAPE, _ext_wMAPE, _ext_CV_RMSE, _ext_NSE, _ext_Pearson, _ext_EV, mase_seasonality, metrics, targets, preds):
     """Stage of ``report_regression_model_perf``."""
     _ext_RMSLE = np.nan
@@ -69,6 +74,15 @@ def _report_regression_metric_stage(st, mase_naive_mae, model_name, MAE, MaxErro
     return _ext_Cindex, _ext_Huber, _ext_Kendall, _ext_MdAPE, _ext_RMSLE, _ext_Spearman
 
 
+# fused single-pass kernel for the 1-D regression-reporting case.
+# On 1-D inputs the 4 separate ``fast_*`` calls each re-touched (y_true, y_pred)
+# from RAM (4-5 passes total); the fused 2-pass kernel produces numerically
+# equivalent results (<1e-12 abs diff vs sklearn baseline) at 2.3-3.4x the speed
+# across 10k/500k/5M sizes. See ``fast_regression_metrics_block`` docstring +
+# the ``mlframe.metrics._benchmarks.bench_fused_regression_metrics`` bench.
+# 2-D / multioutput regression keeps the legacy per-output dispatch since the
+# multioutput aggregation has a non-trivial dispatch and fusing one target's
+# pass doesn't compose cleanly across outputs.
 def _report_regression_point_and_sensor_stage(st, sample_weight, model_name, y_train_min, y_train_max, y_train_std, MAE, MaxError, R2, RMSE):
     """Stage of ``report_regression_model_perf``."""
     MAE, RMSE, MaxError, R2, _ext_MBE, _ext_MAPE_mean, _ext_SMAPE, _ext_wMAPE, _ext_CV_RMSE, _ext_NSE, _ext_Pearson, _ext_EV = _report_regression_point_metrics(

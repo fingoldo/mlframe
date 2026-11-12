@@ -60,3 +60,21 @@ def test_device_router_picks_the_crafted_basis(basis):
     require_cuda_device()
     chosen = _gpu_route_bases_batched(cp, cp.asarray(x.astype(np.float32))[:, None], cp.asarray(y.astype(np.float64)), list(evaluable_bases()), DEGREES, robust_axis=True)
     assert chosen == [basis]
+
+
+@pytest.mark.parametrize("basis", ["fourier", "rbf"])
+def test_device_cells_above_the_shared_stage_limit_equal_host_cells(basis):
+    """Blocks with more than 256 cells read their parameters from global memory; the cells still equal the host cells (60 columns x 5 degrees = 300)."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters.hermite_fe._nonpoly_cells_gpu import nonpoly_block_gpu
+
+    base = _matrix(2000).astype(np.float64)
+    M = np.tile(base, (1, 12))[:, :60]  # 60 columns, each a shifted copy of the test columns
+    require_cuda_device()
+    block, cells = nonpoly_block_gpu(cp, cp.asarray(M), basis, [1, 2, 3, 4, 5])
+    assert len(cells) > 256
+    got = cp.asnumpy(block).astype(np.float64)
+    for j, (c, d) in enumerate(cells):
+        z, params = POLY_BASES[basis]["fit"](M[:, c])
+        want = eval_basis_cell(basis, z, d, params)
+        np.testing.assert_allclose(got[:, j], want, atol=1e-9 if basis == "fourier" else 1e-5, rtol=1e-4)

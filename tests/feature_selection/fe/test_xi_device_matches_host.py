@@ -37,10 +37,17 @@ def test_device_xi_equals_host(n, k, resident):
     assert want[0] > want[3]  # the informative column scores above the constant one
 
 
-def test_float64_columns_stay_on_the_host():
-    """The device kernel takes float32 columns only; a float64 block is handed back."""
-    cols, seeds, r_row, l_row = _inputs(500, 5, 1)
-    assert gpu.xi_columns_device(cols.astype(np.float64), seeds, r_row, l_row) is None
+@pytest.mark.parametrize("n,k", [(5000, 9), (30000, 6)])
+@pytest.mark.parametrize("resident", [False, True])
+def test_float64_device_xi_equals_host(n, k, resident):
+    """Float64 columns on the device give the host float64 kernel's Xi per column: ties, a constant column and signed zeros included."""
+    cols, seeds, r_row, l_row = _inputs(n, k, 1)
+    wide = np.ascontiguousarray(cols.astype(np.float64))
+    want = np.empty(k)
+    host._xi_columns_njit(wide, seeds, r_row, l_row, want)
+    got = gpu.xi_columns_device(cp.asarray(wide) if resident else wide, seeds, r_row, l_row, allow_wide=True)
+    assert got is not None
+    np.testing.assert_array_equal(got, want)
 
 
 def test_public_batch_routes_through_the_device_when_chosen(monkeypatch):
@@ -70,3 +77,32 @@ def test_resident_block_is_used_by_the_batch_when_the_device_is_chosen(monkeypat
     monkeypatch.setattr(gpu, "use_device", lambda n_rows: True)
     got = host.xi_correlation_batch(X, y, random_state=9, device_block=cp.asarray(np.ascontiguousarray(X.T)))
     np.testing.assert_array_equal(got, want)
+
+
+def test_float64_stays_on_the_host_by_default():
+    """The production criterion dtype is float32; a float64 block without the opt-in is handed back to the host kernel."""
+    cols, seeds, r_row, l_row = _inputs(3000, 5, 2)
+    assert gpu.xi_columns_device(cols.astype(np.float64), seeds, r_row, l_row) is None
+
+
+@pytest.mark.parametrize("free_bytes", [1 << 22, 1 << 24])
+def test_streamed_blocks_equal_the_unblocked_result(monkeypatch, free_bytes):
+    """A small free-memory figure forces several column blocks; the streamed float32 result equals the one-block result exactly."""
+    cols, seeds, r_row, l_row = _inputs(20000, 9, 0)
+    whole = gpu.xi_columns_device(cols, seeds, r_row, l_row)
+    monkeypatch.setattr(gpu, "device_room", lambda cp: free_bytes)
+    streamed = gpu.xi_columns_device(cols, seeds, r_row, l_row)
+    assert whole is not None and streamed is not None
+    np.testing.assert_array_equal(streamed, whole)
+
+
+def test_device_fault_falls_back_to_none(monkeypatch):
+    """A failing device call returns None so the caller runs the host kernel, and the request is not ended."""
+    cols, seeds, r_row, l_row = _inputs(2000, 6, 0)
+
+    def broken(cp):
+        """Stand-in for a device that cannot report its free memory."""
+        raise RuntimeError("no device memory figure")
+
+    monkeypatch.setattr(gpu, "device_room", broken)
+    assert gpu.xi_columns_device(cols, seeds, r_row, l_row) is None

@@ -397,8 +397,8 @@ def _check_prospective__no_config_nan_edge(verbose, best_mi, best_config, _sweep
             if _sweep_best_mi["name"] is not None:
                 _pf["best"] = f"{_short_fe_name(_sweep_best_mi['name'])}={_sweep_best_mi['mi']:.4f}"
             pair_pbar.set_postfix(_pf, refresh=False)
-        except (TypeError, ValueError, IndexError):
-            pass
+        except (TypeError, ValueError, IndexError) as exc:  # progress display only: the selection does not read it
+            logger.debug("progress postfix not updated: %s", type(exc).__name__)
 
 
 def _check_prospective__pair_scoped_copies_spec(prospective_pairs, _prewarp_spec_by_var, _fitted_specs):

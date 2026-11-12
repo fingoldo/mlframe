@@ -525,3 +525,23 @@ def test_binned_mi_histogram_bit_identical_to_legacy_double_loop(monkeypatch):
         else:
             y = rng.normal(size=n)
         assert _binned_mi(feat, y) == _binned_mi_legacy_reference(feat, y)
+
+
+def test_heldout_prep_refused_by_the_vram_cushion_falls_back_to_cpu_and_agrees(monkeypatch, caplog):
+    """With the VRAM cushion refusing the label matrix, the held-out prep takes the CPU fallback (logged) and agrees with the device result to round-off."""
+    import logging
+
+    from mlframe.feature_selection.filters import _fe_gpu_vram
+    from mlframe.feature_selection.filters import _wavelet_basis_fe as W
+
+    rng = np.random.default_rng(3)
+    x = rng.standard_normal(4000)
+    y = rng.integers(0, 3, 4000)
+    device = W._heldout_incremental_mi_prep(x, y)
+    monkeypatch.setattr(_fe_gpu_vram, "fe_gpu_has_vram_cushion", lambda *args, **kwargs: False)
+    with caplog.at_level(logging.WARNING):
+        refused = W._heldout_incremental_mi_prep(x, y)
+    assert any("falling back to the CPU path" in r.getMessage() for r in caplog.records), "the refusal must take the logged CPU fallback"
+    assert device is not None and refused is not None
+    np.testing.assert_allclose(np.asarray(refused["bm"]), np.asarray(device["bm"]), rtol=1e-12, atol=1e-12)
+    assert refused["base_mi"] == device["base_mi"] or abs(refused["base_mi"] - device["base_mi"]) <= 1e-12 * max(1.0, abs(device["base_mi"]))

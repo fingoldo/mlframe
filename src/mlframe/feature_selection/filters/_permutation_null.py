@@ -204,6 +204,13 @@ def _resident_floor_maxes(
     y_perms: Optional[np.ndarray], inv_n: float,
 ) -> Optional[np.ndarray]:
     """Per-shuffle MAX corrected MI from the resident cupy twin; None on any GPU fault (circuit breaker tripped) so the caller runs the exact njit kernel."""
+    # Admission before the device upload of the scaled codes and (when they are host-born) the (nperm, n) labels: a refusal is not a GPU
+    # fault, so no circuit breaker is tripped; None sends the caller to the exact njit kernel.
+    from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+    _upload_bytes = int(scaled_flat.nbytes) + (0 if y_perms_dev is not None or y_perms is None else int(y_perms.nbytes))
+    if not fe_gpu_has_vram_cushion(2 * _upload_bytes):
+        return None
     try:
         from ._permutation_null_resident import pooled_gain_floor_perms_cupy
 

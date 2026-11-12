@@ -38,7 +38,7 @@ extern "C" __global__ void root_split_stats_k3(const int* __restrict__ order, co
                                                int* __restrict__ out_ncand, int* __restrict__ out_idx) {
     extern __shared__ unsigned int sy[];
     const int b = blockIdx.y;
-    for (int w = threadIdx.x; w < words; w += blockDim.x) sy[w] = yb[(long long)w * B + b];
+    for (int w = threadIdx.x; w < words; w += blockDim.x) sy[w] = yb[(long long)b * words + w];
     __syncthreads();
     const int j = blockIdx.x * blockDim.x + threadIdx.x;
     if (j >= Kc) return;
@@ -105,11 +105,12 @@ def get_kernel_k3(cp: Any) -> Any:
 def launch_k3(cp: Any, order: Any, tie: Any, ybits_wb: Any, tab: Any, counts: Any, n: int, n_perm: int, kc: int, min_split: int, h_full: float, words: int, d_gain: Any, d_ncand: Any, d_idx: Any) -> None:
     """Launch v3: ``ybits_wb`` is the ``(words, permutations)`` uint32 table (the layout v2 reads), the outputs are the ``(kc * permutations)`` vectors v2 writes."""
     kernel = get_kernel_k3(cp)
+    ybits_bw = cp.ascontiguousarray(ybits_wb.T)  # (permutations, words): the block's shared fill reads consecutive words of one permutation
     threads = block_size_for(kernel, dyn_smem=4 * int(words), work_items=int(kc))
     blocks_x = (int(kc) + threads - 1) // threads
     kernel(
         (blocks_x, int(n_perm)),
         (threads,),
-        (order, tie, ybits_wb, tab, counts, np.int32(n), np.int32(n_perm), np.int32(kc), np.int32(min_split), np.float64(h_full), np.int32(words), d_gain, d_ncand, d_idx),  # Intentional float64: the kernel signature declares double
+        (order, tie, ybits_bw, tab, counts, np.int32(n), np.int32(n_perm), np.int32(kc), np.int32(min_split), np.float64(h_full), np.int32(words), d_gain, d_ncand, d_idx),  # Intentional float64: the kernel signature declares double
         shared_mem=4 * int(words),
     )

@@ -67,7 +67,7 @@ extern "C" __global__ void null_mi_perms(const {XT}* __restrict__ X, const {XT}*
 }
 #define PMAX_LANE 2
 #define NBMAX 32
-extern "C" __global__ void null_mi_perms_bits(const {XT}* __restrict__ X, const {XT}* __restrict__ edges, const unsigned int* __restrict__ ybits, const long long n,
+extern "C" __global__ void null_mi_perms_bits(const {XT}* __restrict__ X, const {XT}* __restrict__ edges_t, const unsigned int* __restrict__ ybits, const long long n,
                                               const int W, const int K, const int nbins, const int P, const {ACC} inv_n, {ACC}* __restrict__ out) {
     // Binary target: a warp bins 32 consecutive rows and keeps one ballot mask per bin; lane l counts the label-1 rows of permutation p = l, l + 32, ... in each bin
     // as popc(mask & label word). The bin totals do not depend on the permutation. Counts stay in registers and reach shared memory once per lane.
@@ -80,7 +80,7 @@ extern "C" __global__ void null_mi_perms_bits(const {XT}* __restrict__ X, const 
     for (int s = tid; s < P * nbins + nbins; s += blockDim.x) sh[s] = 0;
     __shared__ {XT} se[256];   // this column's interior edges, read per value by the search
     const bool cached = ne <= 256;
-    if (cached) for (int s = threadIdx.x; s < ne; s += blockDim.x) se[s] = edges[(long long)s * K + c];
+    if (cached) for (int s = threadIdx.x; s < ne; s += blockDim.x) se[s] = edges_t[(long long)c * ne + s];
     __syncthreads();
     int cnt[PMAX_LANE][NBMAX];
     int tl[NBMAX];
@@ -94,7 +94,7 @@ extern "C" __global__ void null_mi_perms_bits(const {XT}* __restrict__ X, const 
             const {XT} v = Xc[i];
             int lo = 0, hi = ne;                      // upper_bound: count of interior edges <= v
             if (v != v) lo = hi;                        // NaN sorts last: the last bin, as cp.searchsorted does
-            while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges[(long long)mid * K + c]) <= v) lo = mid + 1; else hi = mid; }
+            while (lo < hi) { int mid = (lo + hi) >> 1; if ((cached ? se[mid] : edges_t[(long long)c * ne + mid]) <= v) lo = mid + 1; else hi = mid; }
             code = lo;
         }
         unsigned int mb[NBMAX];
@@ -103,7 +103,7 @@ extern "C" __global__ void null_mi_perms_bits(const {XT}* __restrict__ X, const 
         for (int q = 0; q < PMAX_LANE; ++q) {
             const int p = lane + 32 * q;
             if (p >= P) break;
-            const unsigned int yw = ybits[(long long)p * W + w];
+            const unsigned int yw = ybits[(long long)w * P + p];  // (W, P): the lanes are permutations, so one word of all of them is contiguous
             for (int b = 0; b < nbins; ++b) cnt[q][b] += __popc(mb[b] & yw);
         }
     }
@@ -131,7 +131,7 @@ extern "C" __global__ void null_mi_perms_bits(const {XT}* __restrict__ X, const 
                 mi += ({ACC})nxy * inv_n * log((({ACC})nxy * inv_n) / (px * (({ACC})ry[yy] * inv_n)));
             }
         }
-        out[(long long)p * K + c] = mi > 0.0 ? mi : 0.0;
+        out[(long long)c * P + p] = mi > 0.0 ? mi : 0.0;  // (K, P): consecutive permutations of a thread group write contiguous words
     }
 }
 """
@@ -256,6 +256,7 @@ def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, per
     if int(n_classes) == 2 and int(nbins) <= 32:
         bits_kernel = module.get(cp).get_function("null_mi_perms_bits")
         words = (n + 31) // 32
+        edges_t = cp.ascontiguousarray(edges.T)  # (K, nbins - 1): a block's interior edges are one contiguous run, read coalesced by the bits kernel
         for p0 in range(0, len(perms), 64):  # PMAX_LANE x 32 permutations per launch
             block_len = min(64, len(perms) - p0)
             ybits = _cached_label_bits(labels_key, p0)
@@ -266,10 +267,11 @@ def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, per
                 ybits = cp.ascontiguousarray(cp.packbits(padded.ravel(), bitorder="little").view(cp.uint32).reshape(block_len, words))
                 del padded
                 _store_label_bits(labels_key, p0, ybits)
-            res = cp.empty((block_len, k), dtype=cp.float64)  # Intentional float64: MI accumulator, as the per-permutation kernel's
+            res = cp.empty((k, block_len), dtype=cp.float64)  # Intentional float64: MI accumulator, as the per-permutation kernel's; (K, P) from the bits kernel
+            ybits_t = cp.ascontiguousarray(ybits.T)  # (words, block_len): the bits kernel's lanes read one word of every permutation at once
             shared = (block_len * int(nbins) + int(nbins)) * 4
-            bits_kernel((k,), (_bits_width(bits_kernel, shared, n),), (x_cm, edges, ybits, np.int64(n), np.int32(words), np.int32(k), np.int32(nbins), np.int32(block_len), np.float64(1.0 / float(max(1, n))), res), shared_mem=shared)  # Intentional float64: the kernel reads float32 or float64 candidates
-            out[p0 : p0 + block_len] = cp.asnumpy(cp.nanmax(res, axis=1))
+            bits_kernel((k,), (_bits_width(bits_kernel, shared, n),), (x_cm, edges_t, ybits_t, np.int64(n), np.int32(words), np.int32(k), np.int32(nbins), np.int32(block_len), np.float64(1.0 / float(max(1, n))), res), shared_mem=shared)  # Intentional float64: the kernel reads float32 or float64 candidates
+            out[p0 : p0 + block_len] = cp.asnumpy(cp.nanmax(res, axis=0))
             del ybits, res
         return out
     for p0 in range(0, len(perms), per_launch):

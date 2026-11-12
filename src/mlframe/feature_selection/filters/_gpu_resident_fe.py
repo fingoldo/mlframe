@@ -686,12 +686,12 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     mi_parts: list[np.ndarray] = []
     for start in range(0, len(_COMBOS), k_chunk):
         block = _COMBOS[start : start + k_chunk]
-        cand = _fused_generate_block(ua_cm, ub_cm, block)  # one-launch fused generation
+        cand = _fused_generate_block(ua_cm, ub_cm, block, column_major=True)  # one-launch fused generation, (K, n) layout: no transpose in the scorer
         # Both operands are already device-resident (cand from the fused kernel, y_gpu uploaded once), so the
         # H2D-free resident MI scores the chunk with no per-chunk transfer (bit-identical to the host-input
         # variant - test_resident_batch_cuda_matches_host_input pins maxdiff 0). y_min/n_classes hoisted.
         mi_parts.append(
-            np.asarray(_plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins, y_min=_ymin, n_classes=_ncls, relax_binning=True), dtype=np.float64)  # Intentional float64: MI statistic output contract
+            np.asarray(_plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins, y_min=_ymin, n_classes=_ncls, relax_binning=True, x_is_cm=True), dtype=np.float64)  # Intentional float64: MI statistic output contract
         )
         del cand
     return _candidate_names(), np.concatenate(mi_parts) if mi_parts else np.empty(0)

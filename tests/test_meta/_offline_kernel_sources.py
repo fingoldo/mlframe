@@ -96,7 +96,7 @@ def _both_real(src: str, **extra: str) -> list:
 
 
 _RECIPES: dict = {
-    "_batch_mi_noise_gate_bits.py::_PACK_SRC": lambda s: [(f"DT={c}", _fill(s, **{"{DT}": c}), ("-DCAP=64", "-DNYC=4")) for c in ("unsigned char", "unsigned short", "int")],
+    "_batch_mi_noise_gate_bits.py::_PACK_SRC": lambda s: [(f"DT={c}", _fill(s, **{"{DT}": c}), ("-DCAP=32", "-DNYC=4")) for c in ("unsigned char", "unsigned short", "int")],
     "_family_maxt_cuda_bits.py::_SOURCE_V2": lambda s: [(f"{r} NY1=4", _fill(s, **{"{REAL}": r}), ("-DNY1=4",)) for r in _REAL_TYPES],
     "_fe_accuracy_gate_kernel.py::_SRC_TEMPLATE": lambda s: [
         (r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "__MAXK__": "8", "__WARPS__": "8", "__MAXVA__": "8", "__BLOCK__": "256"}), ("-std=c++11",)) for r in _REAL_TYPES
@@ -116,6 +116,7 @@ _RECIPES: dict = {
     "_orthogonal_univariate_fe/_extra_basis_fourier_cuda.py::_SRC": lambda s: [(r, _fill(s, **{"{MUL_RN}": "__fmul_rn" if r == "float" else "__dmul_rn", "{REAL}": r, "{ACC}": "double"}), ()) for r in _REAL_TYPES],
     "_orthogonal_univariate_fe/_fourier_batch_gpu.py::_SRC_TEMPLATE": lambda s: _both_real(s.replace("@VARIANCE_FLOOR@", "1e-12")),
     "_orthogonal_univariate_fe/_fourier_fused_gpu.py::_SRC_TEMPLATE": lambda s: _both_real(s.replace("@VARIANCE_FLOOR@", "1e-12")),
+    "_orthogonal_xi_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "{WIDE}": "double"}), ()) for r in _REAL_TYPES],
     "_quantile_codes_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "{TAG}": "f32" if r == "float" else "f64"}), ()) for r in _REAL_TYPES],
     "discretization/_discretization_cuda.py::_SEARCHSORTED_RIGHT_2D_TEMPLATE": lambda s: [(r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "{EDGE}": "double"}), ()) for r in _REAL_TYPES],
     "hermite_fe/_als_fused_gpu.py::_SRC": lambda s: [(f"{r} D={d}", _fill(s, **{"{REAL}": r, "{ACC}": "double"}), (f"-DD={d}", f"-DNACC={d * (d + 1) // 2 + d}")) for r in _REAL_TYPES for d in (3, 8)],
