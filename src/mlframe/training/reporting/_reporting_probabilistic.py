@@ -101,7 +101,7 @@ from ._reporting_common import _slugify_class  # moved to the leaf module; re-ex
 
 def _prepare_probabilistic_inputs(
     st: _SimpleNamespace,
-    probs: np.ndarray,
+    probs: np.ndarray | None,
     model: ClassifierMixin | None,
     df: pd.DataFrame | None,
     preds: np.ndarray | None,
