@@ -449,6 +449,156 @@ def _get_mi_mm_from_values_kernel():
     return _MI_MM_FROM_VALUES_KERNEL
 
 
+# TILED length-aware Miller-Madow MARGINAL MI (coalesced, row-major X, no transpose). The nek kernel gives one block per
+# column and reads X[i*K + c] with threads striding rows, so a warp's loads are K elements apart. This block owns G
+# columns: the flat loop over rows x G reads X[i*K + c0 + j] with consecutive threads on consecutive j (one contiguous
+# run of the row), and each column keeps its own (nbins, Ky) histogram and its cached interior edges in shared memory.
+# Same math as mi_mm_from_values_nek: each column searches only its valid prefix ne_k[c]. Measured on the GTX 1050 Ti
+# (interleaved, public call): G=4 with 256 threads was fastest of G in {4, 8, 16} x threads in {256, 512}.
+_MM_NEK_TILE_TEMPLATE = r"""
+extern "C" __global__
+void mm_nek_tile(const {REAL}* __restrict__ X, const double* __restrict__ edges,
+                 const long long* __restrict__ y, const long long n, const int K, const int nbins,
+                 const int Ky, const int G, const double inv_n, const double h_y, const int k_y,
+                 const int* __restrict__ ne_k, double* __restrict__ mi_out) {
+    extern __shared__ char smem[];
+    int M = nbins * Ky;
+    int* sh = (int*)smem;                        // (G, M) joint histograms
+    double* se = (double*)(smem + G * M * 4);    // (G, 256) cached interior edges of each column
+    int c0 = blockIdx.x * G;
+    int g = min(G, K - c0);
+    int tid = threadIdx.x, nt = blockDim.x;
+    for (int s = tid; s < g * M; s += nt) sh[s] = 0;
+    int rg = threadIdx.x / g;                    // row group: consecutive threads take consecutive columns of one edge row
+    int jl = threadIdx.x % g;
+    int ne_l = ne_k[c0 + jl];
+    for (int r = rg; r < 256; r += nt / g) {
+        if (r < ne_l && ne_l <= 256) se[jl * 256 + r] = edges[(long long)r * K + c0 + jl];
+    }
+    __syncthreads();
+    long long total = n * g;
+    for (long long e = tid; e < total; e += nt) {
+        long long i = e / g;
+        int j = (int)(e - i * g);
+        int c = c0 + j;
+        double v = X[i * (long long)K + c];
+        int ne = ne_k[c];
+        bool cached = ne <= 256;
+        int lo = 0, hi = ne;                     // upper_bound == cp.searchsorted side='right'
+        if (v != v) lo = hi;                     // NaN sorts last: the last bin, as cp.searchsorted does
+        while (lo < hi) {
+            int mid = (lo + hi) >> 1;
+            double em = cached ? se[j * 256 + mid] : edges[(long long)mid * K + c];
+            if (em <= v) lo = mid + 1; else hi = mid;
+        }
+        atomicAdd(&sh[j * M + lo * Ky + (int)y[i]], 1);
+    }
+    __syncthreads();
+    if (tid < g) {
+        int c = c0 + tid;
+        int* t = sh + tid * M;
+        double hx = 0.0, hxy = 0.0;
+        int kx_occ = 0, kxy = 0;
+        for (int xx = 0; xx < nbins; ++xx) {
+            long long rx = 0;
+            for (int yy = 0; yy < Ky; ++yy) { int nxy = t[xx * Ky + yy]; rx += nxy; if (nxy > 0) kxy++; }
+            if (rx == 0) continue;
+            kx_occ++;
+            double px = (double)rx * inv_n; hx -= px * log(px);
+            for (int yy = 0; yy < Ky; ++yy) { int nxy = t[xx * Ky + yy]; if (nxy > 0) { double pxy = (double)nxy * inv_n; hxy -= pxy * log(pxy); } }
+        }
+        double mi = hx + h_y - hxy + ((double)(kx_occ + k_y - kxy - 1)) * 0.5 * inv_n;
+        mi_out[c] = mi > 0.0 ? mi : 0.0;
+    }
+}
+"""
+_MM_NEK_TILE_COLS = 4
+_MM_NEK_TILE_THREADS = 256
+_MM_NEK_TILE_KERNELS: dict = {}  # {is_f32: RawKernel}; module-level, pickle-safe
+
+
+def _launch_mm_nek_tile(Xc: Any, Ec: Any, yv: Any, n: int, K: int, nbins: int, Ky: int, h_y: float, k_y: int, ne_k: Any, mi_out: Any, is_f32: bool) -> bool:
+    """Launch the tiled length-aware MM kernel on the row-major ``Xc``. Returns False when the tile does not fit shared memory or the launch raises, so the caller runs the one-column-per-block kernel."""
+    import cupy as cp
+
+    M = nbins * Ky
+    G = min(_MM_NEK_TILE_COLS, 44000 // (4 * M + 256 * 8))  # the same 44 KB shared budget as the other MI kernels
+    if G < 1:
+        return False
+    try:
+        kern = _MM_NEK_TILE_KERNELS.get(bool(is_f32))
+        if kern is None:
+            kern = cp.RawKernel(render(_MM_NEK_TILE_TEMPLATE, real=np.float32 if is_f32 else np.float64), "mm_nek_tile")
+            _MM_NEK_TILE_KERNELS[bool(is_f32)] = kern
+        kern(((K + G - 1) // G,), (_MM_NEK_TILE_THREADS,), (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(nbins), np.int32(Ky), np.int32(G),
+                                                             np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)), ne_k, mi_out),
+             shared_mem=G * (4 * M + 256 * 8))
+    except Exception:
+        logger.debug("mm_nek tiled launch failed; falling back to the one-column-per-block kernel", exc_info=True)
+        return False
+    return True
+
+
+# Per-column min and max of a row-major (n, K) matrix in ONE coalesced pass. cupy's axis-0 reductions cost 4.4 ms at
+# 100000 x 100 (more than the MM kernel they feed); here a block owns 8 columns, thread t reads column t % 8 of rows
+# t / 8 + k * (blockDim / 8), so each warp reads a contiguous run of a row. A NaN in a column makes its bound NaN, as
+# cupy's min and max do (fmin/fmax would skip it).
+_COL_MINMAX_TEMPLATE = r"""
+extern "C" __global__
+void col_minmax(const {REAL}* __restrict__ X, const long long n, const int K,
+                double* __restrict__ cmin, double* __restrict__ cmax) {
+    const int G = 8;
+    __shared__ double smin[256], smax[256];
+    __shared__ int snan[256];
+    int c0 = blockIdx.x * G;
+    int g = min(G, K - c0);
+    int tid = threadIdx.x, nt = blockDim.x;
+    int j = tid % G;
+    int rg = threadIdx.x / G;                    // row group of the 8 columns: a warp reads whole 64-byte runs of four rows
+    double lo = __longlong_as_double(0x7ff0000000000000LL), hi = __longlong_as_double(0xfff0000000000000LL);
+    int nan = 0;
+    if (j < g) {
+        for (long long i = rg; i < n; i += nt / G) {
+            double v = (double)X[i * (long long)K + c0 + j];
+            if (v != v) nan = 1;
+            else { if (v < lo) lo = v; if (v > hi) hi = v; }
+        }
+    }
+    smin[tid] = lo; smax[tid] = hi; snan[tid] = nan;
+    __syncthreads();
+    if (tid < g) {
+        double a = __longlong_as_double(0x7ff0000000000000LL), b = __longlong_as_double(0xfff0000000000000LL);
+        int z = 0;
+        for (int t = tid; t < nt; t += G) { a = fmin(a, smin[t]); b = fmax(b, smax[t]); z |= snan[t]; }
+        double nanv = __longlong_as_double(0x7ff8000000000000LL);
+        cmin[c0 + tid] = z ? nanv : a;
+        cmax[c0 + tid] = z ? nanv : b;
+    }
+}
+"""
+_COL_MINMAX_THREADS = 256  # a multiple of the 8 columns per block
+_COL_MINMAX_KERNELS: dict = {}  # {is_f32: RawKernel}; module-level, pickle-safe
+
+
+def _column_min_max(Xc: Any, n: int, K: int, is_f32: bool) -> tuple:
+    """``(cmin, cmax)`` float64 per-column bounds of the row-major ``Xc``: one coalesced kernel, cupy's axis-0 reductions when the launch fails."""
+    import cupy as cp
+
+    try:
+        kern = _COL_MINMAX_KERNELS.get(bool(is_f32))
+        if kern is None:
+            kern = cp.RawKernel(render(_COL_MINMAX_TEMPLATE, real=np.float32 if is_f32 else np.float64), "col_minmax")
+            _COL_MINMAX_KERNELS[bool(is_f32)] = kern
+        cmin = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI edge bounds; compared at full precision
+        cmax = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI edge bounds; compared at full precision
+        kern(((K + 7) // 8,), (_COL_MINMAX_THREADS,), (Xc, np.int64(n), np.int32(K), cmin, cmax))
+        return cmin, cmax
+    except Exception:
+        logger.debug("col_minmax launch failed; cupy axis-0 reductions", exc_info=True)
+        return (cp.ascontiguousarray(Xc.min(axis=0).astype(cp.float64, copy=False)),  # Intentional float64: GPU MI edge bounds; compared at full precision
+                cp.ascontiguousarray(Xc.max(axis=0).astype(cp.float64, copy=False)))  # Intentional float64: GPU MI edge bounds; compared at full precision
+
+
 def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nbins: int, ky: int, h_y: float, k_y: int, codes_trusted: bool = False,
                                  return_device: bool = False) -> Any:
     """Miller-Madow MARGINAL MI(col_k; y) for an (n,K) float matrix binned by per-column ``interior_edges``
@@ -484,8 +634,7 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     # NJIT-PARITY: dedup the per-column interior edges to njit's distinct-threshold set (drops duplicate +
     # boundary edges that over-bin low-cardinality columns), then bin on only each column's valid prefix.
     ne = int(E.shape[0])
-    cmin = cp.ascontiguousarray(Xc.min(axis=0).astype(cp.float64, copy=False))  # Intentional float64: GPU MI edge bounds; compared at full precision
-    cmax = cp.ascontiguousarray(Xc.max(axis=0).astype(cp.float64, copy=False))  # Intentional float64: GPU MI edge bounds; compared at full precision
+    cmin, cmax = _column_min_max(Xc, n, K, _is_f32)
     # cp.empty (not cp.zeros): the dedup kernel writes out[0:ne_k[c], c] for every column and the nek MI
     # kernel binary-searches ONLY each column's valid prefix (ne = ne_k[c]), so the uninitialised tail rows
     # of Ec are never read -> dropping the per-call (ne,K) zero-fill is bit-identical (was 17k zero-fills/fit).
@@ -499,11 +648,12 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     _launch_dedup_edges(E, cmin, cmax, ne, K, Ec, ne_k)
     _mm_nek = _get_mi_mm_from_values_nek_f32_kernel() if _is_f32 else _get_mi_mm_from_values_nek_kernel()
     mm_threads = block_size_for(_mm_nek, dyn_smem=int(nbins) * Ky * 4, work_items=n)
-    _mm_nek((K,), (mm_threads,),
-        (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(int(nbins)),
-         np.int32(Ky), np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)),  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
-         ne_k, mi_out),
-        shared_mem=int(nbins) * Ky * 4)
+    if not _launch_mm_nek_tile(Xc, Ec, yv, n, K, int(nbins), Ky, h_y, k_y, ne_k, mi_out, _is_f32):
+        _mm_nek((K,), (mm_threads,),
+            (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(int(nbins)),
+             np.int32(Ky), np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)),  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
+             ne_k, mi_out),
+            shared_mem=int(nbins) * Ky * 4)
     # return_device: hand the resident (K,) mi_out back so the caller can fuse a device-side mask + ONE D2H
     # (the resident pool path masks std<=1e-9 combos and gets both in a single sync) instead of two .get()s.
     if return_device:
