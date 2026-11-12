@@ -14,11 +14,13 @@ from typing import Optional, cast
 import threading
 import numpy as np
 
+from ._device_sort_safe import device_room
 from ._kernel_arch_macros import ARCH_THREADS_HEADER
 
 from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
+_DEVICE_BUDGET_FRACTION = 0.25  # share of the free device memory the column matrix and the residue table may take
 
 _BLOCK = 128
 _SHARED_LIMIT_BYTES = 48 * 1024
@@ -321,6 +323,12 @@ def residue_rank_scores_gpu(
         # 32-bit values when no pair product or triple sum can overflow an int: the modulo in the inner loop is then a 32-bit operation.
         biggest = int(np.max(np.abs(cols))) if cols.size else 0
         wide = biggest * biggest > _INT32_PRODUCT_LIMIT or 3 * biggest > _INT32_PRODUCT_LIMIT
+        # VRAM bound: the column matrix (int64 when wide, else int32) and the residue table must fit a quarter of the free device memory,
+        # otherwise the CPU kernel runs. Column-block streaming is not implemented yet; this refuses instead of allocating past the budget.
+        cols_bytes = int(cols.size) * (8 if wide else 4)
+        table_bytes = int(cols.shape[0]) * int(mods.shape[0]) * n if version in _TABLE_VERSIONS else 0
+        if cols_bytes + table_bytes > _DEVICE_BUDGET_FRACTION * device_room(cp):
+            return None
         cols_d = cp.asarray(np.ascontiguousarray(cols, dtype=np.int64 if wide else np.int32))
         ia_d = cp.asarray(ia.astype(np.int32))
         ib_d = cp.asarray(ib.astype(np.int32))

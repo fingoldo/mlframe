@@ -141,3 +141,19 @@ def test_kernel_fault_returns_none_so_the_caller_uses_the_cpu_kernel(monkeypatch
 
     monkeypatch.setattr(rg, "_get_kernel", broken)
     assert rg.residue_rank_scores_gpu(mat, ia, ib, None, _MODS, ysub, n_cls) is None
+
+
+def test_column_matrix_beyond_the_vram_budget_is_refused(monkeypatch):
+    """With a free-memory figure too small for the column matrix and table, the device path returns None (the CPU kernel runs); with the real figure it runs."""
+    _needs_gpu()
+    X, y = _frame(20)
+    cols = list(X.columns)
+    arrs = {c: np.asarray(X[c]) for c in cols}
+    mat, ysub = pm._rank_subsample(cols, arrs, pm.encode_y_for_classif_mi(y), 0)
+    pairs = np.array(list(itertools.combinations(range(len(cols)), 2)), dtype=np.int64)
+    ia, ib = pairs[:, 0].copy(), pairs[:, 1].copy()
+    n_cls = int(ysub.max()) + 1
+    monkeypatch.setattr(rg, "device_room", lambda cp: 1024)
+    assert rg.residue_rank_scores_gpu(mat, ia, ib, None, _MODS, ysub, n_cls) is None
+    monkeypatch.undo()
+    assert rg.residue_rank_scores_gpu(mat, ia, ib, None, _MODS, ysub, n_cls) is not None
