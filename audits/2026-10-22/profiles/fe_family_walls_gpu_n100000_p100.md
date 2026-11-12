@@ -72,3 +72,19 @@ The entry points called directly on the same synthetic frame, once with the defa
 Inside the fit these stages run on the 30000-row decision subsample, so each costs 1 to 2 s, about 1 to 2% of the 120 s fit. The large costs of the fit are structural (the `stage:` rows: `decide_family_call` 56.5 s over 36 calls, `materialise_and_finalise` 27 s, `check_prospective_pairs` 14.9 s, `screen_predictors` 13.9 s), not single modules of the contract list.
 
 `binned_numeric_agg` at n=100000 (cProfile, host path): 7.9 s, of which `_quantile_bin` 3.7 s (504 columns, `np.quantile` 1.8 s and `searchsorted` 1.5 s), `_keep_linearly_usable` 2.5 s; it accepted 0 columns on this frame, so the work produced nothing here.
+
+## `orth_mi_auto_scorer`: what one bootstrap resample costs (100 columns, seconds, one call each)
+
+The family scores every column with seven batched scorers on each of about 200 bootstrap resamples (pool of threads; cProfile sees only the main thread waiting). One resample, 100 columns:
+
+| scorer | n=30000 | n=100000 | device path |
+|---|---|---|---|
+| ksg (discrete target) | 0.127 | 0.550 | `_ksg_cd_gpu` through `_mi_cd_columns_auto`; the rest is host preparation (float64 copy, scaling, noise) |
+| tail_dep | 0.033 | 0.355 | none |
+| xi | 0.038 | 0.133 | device block when available |
+| copula | 0.041 | 0.092 | device block when available |
+| plug_in | 0.011 | 0.058 | partial |
+| hsic | 0.012 | 0.012 | n/a (sampled) |
+| dcor | 0.011 | 0.010 | n/a (sampled) |
+
+`tail_dependence_columns` (`_orthogonal_tail_dependence_fe`) is the one large scorer with no device path at all: about 30% of the per-resample cost at n=100000 and 12% at n=30000.
