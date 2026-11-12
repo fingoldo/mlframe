@@ -110,10 +110,22 @@ def test_every_production_kernel_source_is_covered():
     assert not unresolved, f"placeholders without a fill in tests/test_meta/_offline_kernel_sources.py: {unresolved}"
 
 
+_FAILURE_ROWS: list = []  # (variant id, arch, first line of the failure), the per-architecture failure table of the report
+
+
 @pytest.mark.parametrize("arch", _archs())
 @pytest.mark.parametrize("variant", _VARIANTS, ids=_variant_id)
 def test_kernel_assembles_without_spill_on_arch(variant: KernelVariant, arch: int, tmp_path):
     """NVRTC then ptxas -v: compiles, one resource block per entry, no stack frame or spill, no unlisted warning."""
+    try:
+        _check_variant(variant, arch, tmp_path)
+    except BaseException as exc:  # pytest.fail raises a BaseException subclass; recorded, then re-raised unchanged
+        _FAILURE_ROWS.append((_variant_id(variant), arch, (str(exc).splitlines() or [type(exc).__name__])[0][:200]))
+        raise
+
+
+def _check_variant(variant: KernelVariant, arch: int, tmp_path) -> None:
+    """The body of the per-arch check (kept separate so the wrapper above can record its failure)."""
     pytest.importorskip("cupy_backends.cuda.libs.nvrtc")
     ptxas = _ptxas()
     if leftover_placeholders(variant):
@@ -208,8 +220,9 @@ def test_report_builds_and_can_be_written():
         assert r.registers > 0 and r.registers <= 255, r
         occ, _ = occupancy(r.arch, r.registers, r.static_shared, 256)
         assert 0.0 <= occ <= 1.0
-    text = markdown(_REPORT_ROWS, {v.key: required_arch(v.source) for v in _VARIANTS})
+    text = markdown(_REPORT_ROWS, {v.key: required_arch(v.source) for v in _VARIANTS}, failures=_FAILURE_ROWS)
     assert "Offline kernel report" in text
+    assert "Per-architecture failure table" in text
     out = os.environ.get("MLFRAME_OFFLINE_REPORT")
     if out:
         Path(out).write_text(text, encoding="utf-8")
@@ -225,3 +238,10 @@ def test_launch_bounds_violation_is_detected_on_synthetic_resource_report():
     under = f"Compiling entry function 'k' for 'sm_61'\nUsed {cap} registers"
     assert launch_bounds_violations(ptx, over) == [("k", cap + 8, cap)]
     assert launch_bounds_violations(ptx, under) == []
+
+
+def test_failure_table_lists_each_failing_variant_per_arch():
+    """The report's failure table names every recorded failure with its arch, and says so when there is none."""
+    text = markdown([], {}, failures=[("mlframe/x.py::_SRC[float]", 61, "NVRTC failed on sm_61")])
+    assert "| mlframe/x.py::_SRC[float] | sm_61 | NVRTC failed on sm_61 |" in text
+    assert "none: every checked variant assembled" in markdown([], {}, failures=[])
