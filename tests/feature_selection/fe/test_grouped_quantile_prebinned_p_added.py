@@ -43,6 +43,7 @@ def test_prebinned_p_added_equals_host_binner(monkeypatch):
     with_pre = gq._p_added_by_column(eng, raw, y, src, host_bin, 10)
     monkeypatch.setattr(gq, "_prebinned_codes", lambda *a, **k: {})
     without = gq._p_added_by_column(eng, raw, y, src, host_bin, 10)
+    assert len(eng.columns) > 0, "no engineered columns: the loop would pass vacuously"
     for c in eng.columns:
         assert np.isclose(with_pre[c], without[c], rtol=1e-9, atol=1e-12, equal_nan=True), (c, with_pre[c], without[c])
 

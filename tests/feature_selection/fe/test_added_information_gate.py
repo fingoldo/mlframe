@@ -95,12 +95,15 @@ def test_a_frame_without_signal_yields_no_columns(fn):
 
 def test_a_copy_of_the_only_informative_column_is_not_returned():
     """The target depends on x0 only and the groups are irrelevant: the percentile rank of x0 inside a group is a copy of x0 and is never returned."""
+    assert SEEDS, "no seeds: the loop would pass vacuously"
+    assert SEEDS, "no seeds: the loop would pass vacuously"
     for s in SEEDS:
         assert not any(n.startswith("grppct(x0|") for n in _winners(hybrid_grouped_quantile_fe, "copy", s))
 
 
 def test_the_rank_inside_a_group_is_found_when_it_carries_the_target_and_nothing_else_is_returned():
     """The target depends on the rank of x0 inside its group: grppct(x0|g1) is returned in every seed, and it is the only column."""
+    assert SEEDS, "no seeds: the loop would pass vacuously"
     for s in SEEDS:
         assert _winners(hybrid_grouped_quantile_fe, "shifted", s) == ["grppct(x0|g1)"]
 

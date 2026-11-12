@@ -82,12 +82,11 @@ _VARIANTS = all_variants()
 _REPORT_ROWS: list = []  # filled by the per-arch test as it runs; the report test below reads it (a partial list under xdist only shortens the report)
 
 
-def test_every_spill_exemption_names_a_real_kernel_and_a_reason():
-    """An exemption must match an extracted kernel source and carry a reason; a stale or empty one fails."""
-    keys = {v.key for v in _VARIANTS}
-    for key, reason in _SPILL_EXEMPT.items():
-        assert key in keys, f"exemption for a kernel that is not extracted: {key}"
-        assert reason.strip(), f"empty reason for {key}"
+@pytest.mark.parametrize("key,reason", sorted(_SPILL_EXEMPT.items()) or [pytest.param(None, None, marks=pytest.mark.skip(reason="no spill exemptions registered"))])
+def test_every_spill_exemption_names_a_real_kernel_and_a_reason(key, reason):
+    """An exemption must match an extracted kernel source and carry a reason; a stale or empty one fails (an empty registry is a skip, not a silent pass)."""
+    assert key in {v.key for v in _VARIANTS}, f"exemption for a kernel that is not extracted: {key}"
+    assert reason.strip(), f"empty reason for {key}"
 
 
 def test_every_file_with_a_kernel_yields_a_variant():
