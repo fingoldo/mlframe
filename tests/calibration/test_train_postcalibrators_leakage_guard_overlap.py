@@ -31,7 +31,10 @@ def test_train_postcalibrators_raises_on_reordered_calib_target_reusing_test_row
     from sklearn.isotonic import IsotonicRegression
 
     n = 300
-    probs, target = _synth(n=n)
+    probs, _ = _synth(n=n)
+    # Continuous target: the reshuffle check only applies when the values identify rows. A binary target has the same
+    # sorted vector for any split with the same class counts, which the guard deliberately allows.
+    target = np.random.default_rng(2).normal(size=n)
     rng = np.random.default_rng(1)
     perm = rng.permutation(n)
     shuffled_target = target[perm]  # same multiset of values, different order -- same underlying rows
