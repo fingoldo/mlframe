@@ -122,3 +122,22 @@ def test_negative_values_keep_the_floored_residue(monkeypatch):
         monkeypatch.setattr(rg, "_kernel_version", lambda v=version: v)
         gpu = rg.residue_rank_scores_gpu(mat, pairs[:, 0].copy(), pairs[:, 1].copy(), None, _MODS, ysub, n_cls)
         assert gpu is not None and float(np.max(np.abs(cpu - gpu))) < 1e-10, f"kernel version {version} differs on negative values"
+
+
+def test_kernel_fault_returns_none_so_the_caller_uses_the_cpu_kernel(monkeypatch):
+    """A failing kernel launch returns None (the caller ranks on the CPU kernel) and does not end the request."""
+    _needs_gpu()
+    X, y = _frame(20)
+    cols = list(X.columns)
+    arrs = {c: np.asarray(X[c]) for c in cols}
+    mat, ysub = pm._rank_subsample(cols, arrs, pm.encode_y_for_classif_mi(y), 0)
+    pairs = np.array(list(itertools.combinations(range(len(cols)), 2)), dtype=np.int64)
+    ia, ib = pairs[:, 0].copy(), pairs[:, 1].copy()
+    n_cls = int(ysub.max()) + 1
+
+    def broken(*args, **kwargs):
+        """Stand-in for a kernel that cannot launch."""
+        raise RuntimeError("launch failed")
+
+    monkeypatch.setattr(rg, "_get_kernel", broken)
+    assert rg.residue_rank_scores_gpu(mat, ia, ib, None, _MODS, ysub, n_cls) is None
