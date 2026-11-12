@@ -55,7 +55,7 @@ Rows: 115.
 | feature_selection/filters/_honest_oj_fused_gpu.py | picks | 342 | FALSE POSITIVE: loops over the few folds, each a full array operation |
 | feature_selection/filters/_mi_greedy_cmi_fe_steps.py | _per_candidate_cmi_argmax | 877 | REAL when the device path is taken, not yet measured: one conditional MI per scanned candidate |
 | feature_selection/filters/_mi_greedy_cmi_fe_steps.py | _renumber_joint_gpu | 282 | FALSE POSITIVE: loops over the few conditioning columns, each a full-size refactorisation |
-| feature_selection/filters/_mi_greedy_device.py | score_candidates_device | 142 | OPEN |
+| feature_selection/filters/_mi_greedy_device.py | score_candidates_device | 142 | REAL, not yet measured: one device op plus a cast per candidate transform, then the MI is batched per block; thousands of candidates mean thousands of small elementwise launches |
 | feature_selection/filters/_modular_codes_gpu.py | modular_family_codes_gpu | 131 | FALSE POSITIVE: loops over the streamed column blocks, each one full block build |
 | feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py | _block_verdicts | 66 | REAL, not yet measured: one conditional permutation null per column that does not apply the batched route |
 | feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py | _score_groups | 125 | REAL, not yet measured: one device block per anchor group, blocked by the column budget |
@@ -69,19 +69,19 @@ Rows: 115.
 | feature_selection/filters/_orth_auto_scorer_fe.py | _batched_bootstrap_values | 352 | FALLBACK: the sequential resample loop is the else branch, used when the batched path is not taken |
 | feature_selection/filters/_orthogonal_adaptive_arity_fe.py | _best_cell_per_tuple | 166 | FALSE POSITIVE: the loop is over arity (2 to max_arity, two or three trips), and each trip is one full batched MI call |
 | feature_selection/filters/_orthogonal_cmim_fe.py | _cmim_scores_device | 391 | REAL, not yet measured: one device update per selected reference over the candidate block |
-| feature_selection/filters/_orthogonal_cmim_fe.py | cmim_score | 306 | OPEN |
-| feature_selection/filters/_orthogonal_cmim_fe.py | score_features_by_cmim | 511 | OPEN |
-| feature_selection/filters/_orthogonal_jmim_fe.py | _jmim_scores_device | 223 | OPEN |
-| feature_selection/filters/_orthogonal_routing_device.py | routing_scores_on_device | 110 | OPEN |
-| feature_selection/filters/_orthogonal_univariate_fe/_extra_basis_resident.py | _build_extra_basis_matrix_gpu | 156 | OPEN |
-| feature_selection/filters/_orthogonal_univariate_fe/_fourier_batch_gpu.py | _run_group | 281 | OPEN |
-| feature_selection/filters/_orthogonal_univariate_fe/_fourier_batch_gpu.py | detect_fourier_freqs_batch_gpu | 360 | OPEN |
-| feature_selection/filters/_orthogonal_univariate_fe/_fourier_detect_gpu_resident.py | detect_fourier_freqs_for_col_gpu | 356 | OPEN |
-| feature_selection/filters/_orthogonal_univariate_fe/_gpu_resident_cross_basis.py | _prefetch_legs | 260 | OPEN |
-| feature_selection/filters/_orthogonal_univariate_fe/_gpu_resident_cross_basis.py | build_leg_product_matrix_gpu | 179, 182 | OPEN |
-| feature_selection/filters/_orthogonal_univariate_fe/_orth_dedup.py | _pc_corr_cupy | 199 | OPEN |
-| feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_null_max.py | _null_max_strict_gpu | 180 | OPEN |
-| feature_selection/filters/_orthogonal_univariate_fe/_streamed_gpu_mi.py | mi_classif_streamed | 157 | OPEN |
+| feature_selection/filters/_orthogonal_cmim_fe.py | cmim_score | 306 | FALLBACK: the per-candidate host CMI path; score_features_by_cmim runs the batched device scores first (line 510) |
+| feature_selection/filters/_orthogonal_cmim_fe.py | score_features_by_cmim | 511 | FALSE POSITIVE: a host loop that assembles results from device scores computed once before it |
+| feature_selection/filters/_orthogonal_jmim_fe.py | _jmim_scores_device | 223 | REAL, not yet measured: one device update per selected reference over the candidate block, the same class as _cmim_scores_device |
+| feature_selection/filters/_orthogonal_routing_device.py | routing_scores_on_device | 110 | FALSE POSITIVE: loops over the few candidate bases, each one batched over the columns |
+| feature_selection/filters/_orthogonal_univariate_fe/_extra_basis_resident.py | _build_extra_basis_matrix_gpu | 156 | REAL, not yet measured: one device build per named column |
+| feature_selection/filters/_orthogonal_univariate_fe/_fourier_batch_gpu.py | _run_group | 281 | FALSE POSITIVE: the sequential frequency-peeling iterations (max_freqs, a few), each batched over the group's members |
+| feature_selection/filters/_orthogonal_univariate_fe/_fourier_batch_gpu.py | detect_fourier_freqs_batch_gpu | 360 | FALSE POSITIVE: loops over the few size groups, each one batched over its members |
+| feature_selection/filters/_orthogonal_univariate_fe/_fourier_detect_gpu_resident.py | detect_fourier_freqs_for_col_gpu | 356 | REAL, not yet measured: the single-column detector, several small launches per iteration per column; the batched twin exists |
+| feature_selection/filters/_orthogonal_univariate_fe/_gpu_resident_cross_basis.py | _prefetch_legs | 260 | FALSE POSITIVE: loops over the few degrees, each one stack of resident legs |
+| feature_selection/filters/_orthogonal_univariate_fe/_gpu_resident_cross_basis.py | build_leg_product_matrix_gpu | 179, 182 | REAL, not yet measured: one product per output column over its legs |
+| feature_selection/filters/_orthogonal_univariate_fe/_orth_dedup.py | _pc_corr_cupy | 199 | FALSE POSITIVE: the memory-tile loop, each trip one tile GEMM |
+| feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_null_max.py | _null_max_strict_gpu | 180 | REAL, not yet measured: one label upload and one batched MI per permutation, the same class as the pre-batched null (GPU11-62); whether a batched path precedes it is not checked |
+| feature_selection/filters/_orthogonal_univariate_fe/_streamed_gpu_mi.py | mi_classif_streamed | 157 | FALSE POSITIVE: the planned streaming loop over column blocks, each a full block MI |
 | feature_selection/filters/_orthogonal_univariate_fe/_streamed_gpu_mi.py | null_max_streamed | 221, 241 | OPEN |
 | feature_selection/filters/_pairwise_modular_resident.py | residue_grid_mis_resident | 143 | OPEN |
 | feature_selection/filters/_permutation_null_pair_resident.py | pooled_pair_permutation_null_joint_mi_floor_cupy | 144 | OPEN |
