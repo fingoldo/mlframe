@@ -325,7 +325,8 @@ def test_f7_binary_post_calibrator_warns_and_falls_back_when_unsupported(caplog)
     wrapper = BinaryPostCalibrator(calibrator=nw, fit_method_name="fit", transform_method_name="predict")
     with caplog.at_level(logging.WARNING, logger="mlframe.calibration.post"):
         wrapper.fit(probs, target, sample_weight=sample_weight)
-    assert nw.fitted
+    assert not hasattr(nw, "fitted")  # the wrapper fits a private copy (cb37b6923), so the caller's calibrator is untouched
+    assert wrapper.calibrator_.fitted
     assert any("does not accept sample_weight" in r.getMessage() for r in caplog.records)
 
 
