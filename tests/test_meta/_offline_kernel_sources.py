@@ -96,7 +96,7 @@ def _both_real(src: str, **extra: str) -> list:
 
 
 _RECIPES: dict = {
-    "_batch_mi_noise_gate_bits.py::_PACK_SRC": lambda s: [(f"DT={c}", _fill(s, **{"{DT}": c}), ("-DCAP=64", "-DNYC=4")) for c in ("unsigned char", "unsigned short", "int")],
+    "_batch_mi_noise_gate_bits.py::_PACK_SRC": lambda s: [(f"DT={c}", _fill(s, **{"{DT}": c}), ("-DCAP=32", "-DNYC=4")) for c in ("unsigned char", "unsigned short", "int")],
     "_family_maxt_cuda_bits.py::_SOURCE_V2": lambda s: [(f"{r} NY1=4", _fill(s, **{"{REAL}": r}), ("-DNY1=4",)) for r in _REAL_TYPES],
     "_fe_accuracy_gate_kernel.py::_SRC_TEMPLATE": lambda s: [
         (r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "__MAXK__": "8", "__WARPS__": "8", "__MAXVA__": "8", "__BLOCK__": "256"}), ("-std=c++11",)) for r in _REAL_TYPES
