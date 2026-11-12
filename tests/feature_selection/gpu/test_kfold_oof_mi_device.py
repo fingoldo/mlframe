@@ -31,3 +31,31 @@ def test_device_equals_host(monkeypatch, n_classes):
     for c in got.columns:
         if got[c].dtype.kind == "f":
             np.testing.assert_allclose(got[c].to_numpy(), want[c].to_numpy(), rtol=1e-9, atol=1e-12)
+
+
+def test_fold_beyond_the_vram_cushion_is_not_copied_to_the_device(monkeypatch):
+    """A fold the VRAM cushion refuses returns None before any copy: the device upload is never called, and the host runs the fold."""
+    from mlframe.feature_selection.filters import _fe_gpu_vram
+    from mlframe.feature_selection.filters import _kfold_oof_mi_gpu as G
+
+    rng = np.random.default_rng(0)
+    arr = rng.standard_normal((400, 6)).astype(np.float32)
+    y = rng.integers(0, 2, 400).astype(np.int64)
+    train, test = np.arange(300), np.arange(300, 400)
+
+    def no_room(*args, **kwargs):
+        """The cushion refuses this fold."""
+        return False
+
+    copies: list = []
+    real_asarray = cp.asarray
+
+    def recording_asarray(*args, **kwargs):
+        """Records every device copy; the fold must produce none."""
+        copies.append(1)
+        return real_asarray(*args, **kwargs)
+
+    monkeypatch.setattr(_fe_gpu_vram, "fe_gpu_has_vram_cushion", no_room)
+    monkeypatch.setattr(cp, "asarray", recording_asarray)
+    assert G.fold_mi_device(arr, train, test, y[test], 8) is None
+    assert not copies, "the fold was copied to the device before the admission check"
