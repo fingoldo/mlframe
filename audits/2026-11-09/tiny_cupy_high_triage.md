@@ -31,10 +31,10 @@ Rows: 115.
 | feature_selection/filters/_fe_auto_escalation.py | _apply_pair_maxt_floor | 722 | REAL, not yet measured: a full permutation null per candidate, the same class as _collect_relevant_halves |
 | feature_selection/filters/_fe_auto_escalation.py | _best_admitted_column | 118 | REAL, not yet measured: one marginal MI per admitted column, launch work per column |
 | feature_selection/filters/_fe_auto_escalation.py | _propose_pair_candidates | 411, 440 | FALSE POSITIVE: loops over the few eligible pairs, each trip one whole candidate proposer (heavy per-pair work) |
-| feature_selection/filters/_fe_auto_escalation.py | _slice_admitted_pool | 295 | OPEN: the body is host numpy with one MI per admitted feature; the device call inside the MI has not been read |
+| feature_selection/filters/_fe_auto_escalation.py | _slice_admitted_pool | 295 | OPEN: the body is host numpy with one MI per admitted feature; the device call inside the MI has not been read || REAL when the device path is taken, not yet measured: each admitted feature's marginal CMI takes the device route on its heuristic, one launch set per feature |
 | feature_selection/filters/_fe_auto_escalation.py | find_underdelivering_pairs | 215 | OPEN: host dict logic in the visible body; the device call the detector found has not been read |
 | feature_selection/filters/_fe_cmi_redundancy_gate.py | _gate_round | 486 | REAL, not yet measured: one resident CMI and permutation null per remaining candidate |
-| feature_selection/filters/_fe_cmi_redundancy_null.py | _conditional_cpu_null | 440 | OPEN: a per-shuffle host CMI loop; the cupy call in the callee has not been read |
+| feature_selection/filters/_fe_cmi_redundancy_null.py | _conditional_cpu_null | 440 | OPEN: a per-shuffle host CMI loop; the cupy call in the callee has not been read || REAL when the device path is taken, not yet measured: each shuffle's CMI takes the device route on its heuristic, one launch set per shuffle |
 | feature_selection/filters/_fe_pure_form_retention_gpu_resident.py | _batched_gate_scalars | 128 | REAL, not yet measured: a device operation per pair over P pairs |
 | feature_selection/filters/_fe_raw_redundancy_anchors.py | _build_raw_redundancy_step2_def_raw_codes | 262 | REAL, not yet measured: one device code build per engineered column |
 | feature_selection/filters/_fe_raw_redundancy_drop.py | _drop_redundant_raw_o_step1_full_composite_bin | 708 | REAL, not yet measured: per-consumer device composite bins; the selection-exact short circuit skips some work |
@@ -43,20 +43,20 @@ Rows: 115.
 | feature_selection/filters/_fe_sufficient_summary_pairs.py | best_pair_streamed | 412, 415 | FALSE POSITIVE: loops over the streamed column blocks, each trip a full block product |
 | feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py | _emit_pair_features_step2_read_here_once | 222 | FALSE POSITIVE: loops over the few transformation configurations, each trip a full feature emission |
 | feature_selection/filters/_gpu_resident_basis.py | _gpu_evaluate_basis_matrix | 808 | FALSE POSITIVE: loops over the few (basis, robust) groups, each trip one batched build |
-| feature_selection/filters/_gpu_resident_basis.py | _gpu_route_bases_batched | 949 | OPEN |
+| feature_selection/filters/_gpu_resident_basis.py | _gpu_route_bases_batched | 949 | FALSE POSITIVE: loops over the few candidate bases, each one batched over the columns |
 | feature_selection/filters/_gpu_resident_extval.py | _candidate_matrix | 79, 81 | FALLBACK: the per-candidate loop runs only when `MLFRAME_EXTVAL_FUSED` is off; the default fused kernel builds all candidates in one launch |
-| feature_selection/filters/_gpu_resident_operand_build.py | _batched_unary_prepass | 222 | OPEN |
-| feature_selection/filters/_gpu_resident_operand_build.py | _build_resident_operand_table_part1 | 268 | OPEN |
-| feature_selection/filters/_gpu_strict_fe/_state.py | build | 82 | OPEN |
-| feature_selection/filters/_hinge_basis_fe.py | _detect_hinge_breakpoints_for_columns | 551 | OPEN |
-| feature_selection/filters/_hinge_detect_gpu_resident.py | _hinge_full_scan | 193 | OPEN |
+| feature_selection/filters/_gpu_resident_operand_build.py | _batched_unary_prepass | 222 | FALSE POSITIVE: loops over the few batch-key groups, each one kernel over its group |
+| feature_selection/filters/_gpu_resident_operand_build.py | _build_resident_operand_table_part1 | 268 | REAL, not yet measured: one device build per column that is not in a batch |
+| feature_selection/filters/_gpu_strict_fe/_state.py | build | 82 | FALSE POSITIVE: loops over the few devices, each one bulk upload |
+| feature_selection/filters/_hinge_basis_fe.py | _detect_hinge_breakpoints_for_columns | 551 | REAL, not yet measured: one hinge scan per column, budgeted by the deadline |
+| feature_selection/filters/_hinge_detect_gpu_resident.py | _hinge_full_scan | 193 | FALSE POSITIVE: loops over the few breakpoint rounds, each a full projection |
 | feature_selection/filters/_hinge_detect_gpu_resident_batch.py | _batched_precheck_gpu | 75 | FALSE POSITIVE: the loop is over the fixed quantile levels (a few trips), each a K-wide vector operation |
-| feature_selection/filters/_hinge_detect_gpu_resident_batch.py | detect_hinge_breakpoints_gpu_batch | 147 | OPEN |
-| feature_selection/filters/_honest_oj_fused_gpu.py | picks | 342 | OPEN |
-| feature_selection/filters/_mi_greedy_cmi_fe_steps.py | _per_candidate_cmi_argmax | 877 | OPEN |
-| feature_selection/filters/_mi_greedy_cmi_fe_steps.py | _renumber_joint_gpu | 282 | OPEN |
+| feature_selection/filters/_hinge_detect_gpu_resident_batch.py | detect_hinge_breakpoints_gpu_batch | 147 | REAL, not yet measured: one single-column detection per column that passed the batched precheck |
+| feature_selection/filters/_honest_oj_fused_gpu.py | picks | 342 | FALSE POSITIVE: loops over the few folds, each a full array operation |
+| feature_selection/filters/_mi_greedy_cmi_fe_steps.py | _per_candidate_cmi_argmax | 877 | REAL when the device path is taken, not yet measured: one conditional MI per scanned candidate |
+| feature_selection/filters/_mi_greedy_cmi_fe_steps.py | _renumber_joint_gpu | 282 | FALSE POSITIVE: loops over the few conditioning columns, each a full-size refactorisation |
 | feature_selection/filters/_mi_greedy_device.py | score_candidates_device | 142 | OPEN |
-| feature_selection/filters/_modular_codes_gpu.py | modular_family_codes_gpu | 131 | OPEN |
+| feature_selection/filters/_modular_codes_gpu.py | modular_family_codes_gpu | 131 | FALSE POSITIVE: loops over the streamed column blocks, each one full block build |
 | feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py | _block_verdicts | 66 | OPEN |
 | feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py | _score_groups | 125 | OPEN |
 | feature_selection/filters/_mrmr_fe_step/_pair_admission_batch.py | batched_asymmetric_relax_verdicts | 169 | OPEN |
