@@ -247,24 +247,25 @@ class TestTheBarLabelIsTruncatedOnBothOrientations:
             assert labels[1] == "short", f"{orientation}: a short label must be left alone, got {labels[1]!r}"
             assert len(labels[0]) < len(long_name), f"{orientation}: the long label was not truncated ({len(labels[0])} chars)"
 
-    def test_the_thinning_policy_is_not_written_out_again(self):
-        """The label budget must come from the shared helpers, not from numbers re-typed in the branch.
+    def test_bar_labels_follow_the_shared_tick_budget(self, monkeypatch):
+        """The category labels shown are exactly the ones the shared ``ticks_that_fit`` budget allows.
 
-        Structural by necessity: "this policy is not reimplemented here" has no behavioural signature,
-        because an inlined copy renders identically right up until someone changes one of them. The old
-        flat cap (25 categories, keep 20) has been replaced by a measured budget, and that budget is what
-        must not be re-derived locally. Asserted on the parsed function rather than its text, so
-        reformatting and renamed locals do not move it.
+        Behavioural: the budget is replaced by a fixed answer, and the rendered axis must show that many labels.
+        A renderer that decides its own budget ignores the replacement and shows a different count.
         """
-        from mlframe.reporting.renderers import matplotlib as _mpl_renderer
-        from tests._source_ast import function_ast, loaded_names, numeric_literals
+        import matplotlib
 
-        bar = function_ast(_mpl_renderer, "MatplotlibRenderer._bar")
-        names = loaded_names(bar)
-        for helper in ("ticks_that_fit", "_thin_tick_positions", "rotated_tick_pitch_in", "label_width_pitch_in"):
-            assert helper in names, f"_bar does not use the shared {helper}; the label budget is being decided some other way"
-        inlined = {v for v in numeric_literals(bar) if v in (20, 25)}
-        assert not inlined, f"the retired flat cap is back in _bar: {sorted(inlined)}"
+        matplotlib.use("Agg")
+        from mlframe.reporting.renderers import matplotlib as _mpl_renderer
+        from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+        from mlframe.reporting.spec import BarPanelSpec, FigureSpec
+
+        monkeypatch.setattr(_mpl_renderer, "ticks_that_fit", lambda *a, **k: 3)
+        cats = tuple(f"c{i}" for i in range(40))
+        spec = BarPanelSpec(categories=cats, values=tuple(float(i) for i in range(40)), title="t", orientation="vertical")
+        fig = MatplotlibRenderer().render(FigureSpec(suptitle="s", panels=((spec,),)))
+        shown = [t.get_text() for t in fig.axes[0].get_xticklabels() if t.get_text()]
+        assert len(shown) == 3, f"the label budget from ticks_that_fit was not followed: {len(shown)} labels shown"
 
 
 class TestFalsyValuedSpecFieldsAreHonoured:
