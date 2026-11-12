@@ -553,16 +553,19 @@ def _eligible_engineered_gate(self, _eligible_idxs, target_indices, nbins, _ne_m
         from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
 
         _alpha_op = mrmr_null_signif_alpha() / max(1, len(_eligible_idxs))
+        _selected_ci = {int(_si) for _si in (selected_vars or [])}
         _seed_ne = int(getattr(self, "random_seed", 0) or 0)
 
         def _adds_information(_oi: int) -> bool:
             """Whether candidate column ``_oi`` adds information beyond the engineered feature(s) containing it; a candidate with no known owner is kept."""
-            if not _operand_owners.get(_oi):
+            # Only an engineered owner that is actually selected can make the operand redundant; owners that were gated out cannot.
+            _selected_owners = [_o for _o in _operand_owners.get(_oi) or [] if _o in _selected_ci]
+            if not _selected_owners:
                 return True
 
             def _probe() -> bool:
                 """Conditional-significance verdict of the candidate over its owners."""
-                return operand_adds_information(data, int(target_indices[0]), int(_oi), _operand_owners[_oi], _alpha_op, _seed_ne, str(cols[_oi]))
+                return operand_adds_information(data, int(target_indices[0]), int(_oi), _selected_owners, _alpha_op, _seed_ne, str(cols[_oi]))
 
             return bool(call_or_default(
                 _probe, True, key="mrmr_never_empty_conditional_probe_failed",
@@ -570,7 +573,9 @@ def _eligible_engineered_gate(self, _eligible_idxs, target_indices, nbins, _ne_m
             ))
 
         _informative = {_oi for _oi in _eligible_idxs if _adds_information(_oi)}
-        if not _informative:
+        # Only a surviving engineered feature can make the raw operands redundant; with none, the rescue below must re-attach one.
+        _has_eng_survivor = any(0 <= int(_si) < len(cols) and "(" in str(cols[int(_si)]) for _si in (selected_vars or []))
+        if not _informative and _has_eng_survivor:
             _names_ne = {cols[_oi] for _oi in _eligible_idxs}
             self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) | _names_ne
             self._redundancy_emptied_raw_ = True
@@ -614,7 +619,7 @@ def _eligible_engineered_gate(self, _eligible_idxs, target_indices, nbins, _ne_m
                     "stand-in (carries residual signal beyond the engineered child).",
                     _operand_name_ne, _best_rel_ne,
                 )
-    elif _operand_idxs and _subsumed_operand_names:
+    elif _operand_idxs and _subsumed_operand_names and any(0 <= int(_si) < len(cols) and "(" in str(cols[int(_si)]) for _si in (selected_vars or [])):
         # EVERY engineered operand is conditionally subsumed by a surviving
         # engineered child - the engineered recipe(s) ARE the complete feature
         # set. Record the verdict so the DOWNSTREAM empty-raw rescue (the
