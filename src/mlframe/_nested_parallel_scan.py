@@ -69,22 +69,19 @@ def _guarded_call_nodes(node: ast.AST) -> Set[int]:
     return guarded
 
 
+#: Calls that fan out through joblib. ``parallel_run`` is a thin shim over ``Parallel``, so it is one too.
+_FAN_OUT_CALLS = frozenset({"Parallel", "parallel_run"})
+
+
 def _starts_thread_pool(node: ast.AST) -> bool:
-    """True when a function starts a thread pool: a ``ThreadPoolExecutor``, or a joblib ``Parallel`` on the threading backend."""
+    """True when a function starts a thread fan-out: a ``ThreadPoolExecutor``, or any joblib ``Parallel`` / ``parallel_run`` call.
+
+    Every joblib call counts, whatever its backend. The backend is often a runtime value, and a fallback from the process
+    backend to threads (loky refusing to nest inside a worker thread) is exactly how the X6 crash reached numba.
+    """
     if "ThreadPoolExecutor" in _called_names(node):
         return True
-    for call in ast.walk(node):
-        if not isinstance(call, ast.Call):
-            continue
-        func = call.func
-        if (getattr(func, "id", None) or getattr(func, "attr", None)) != "Parallel":
-            continue
-        for kw in call.keywords:
-            if isinstance(kw.value, ast.Constant) and (
-                (kw.arg == "backend" and kw.value.value == "threading") or (kw.arg == "prefer" and kw.value.value == "threads")
-            ):
-                return True
-    return False
+    return any(isinstance(call, ast.Call) and (getattr(call.func, "id", None) or getattr(call.func, "attr", None)) in _FAN_OUT_CALLS for call in ast.walk(node))
 
 
 def _called_names(node: ast.AST) -> Set[str]:
