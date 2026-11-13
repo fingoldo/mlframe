@@ -713,8 +713,8 @@ def _dispatch_batch_pair_usability_corr_uncached(
     return result, "cpu"
 
 
-_SWEEP_PAIRS = (500, 5000, 50000)
-_SWEEP_ROWS = 5000
+_SWEEP_ROWS = [500, 5000, 50000]  # the swept axis ``n_samples`` is the number of operand pairs (the name is the one ``host_device_sweep`` reads)
+_SWEEP_N_ROWS = 5000
 _SWEEP_OPERANDS = 60
 _SALT = 1
 DEVICE_FALLBACK_PAIRS = 0  # measured: the warp kernel is 3.96-4.52x faster than the CPU backend at every tested scale (see the dispatcher), so the pre-sweep default is the device
@@ -724,8 +724,8 @@ def _sweep_inputs(dims: dict) -> tuple:
     """A target, an ``(operands, rows)`` matrix and ``dims["n_samples"]`` random operand pairs, for the host-versus-device sweep."""
     rng = np.random.default_rng(0)
     n_pairs = int(dims["n_samples"])
-    y = rng.standard_normal(_SWEEP_ROWS)  # Intentional float64: both backends compute in double by default, so the sweep can demand a tight agreement
-    operands = rng.standard_normal((_SWEEP_OPERANDS, _SWEEP_ROWS))  # Intentional float64: as above
+    y = rng.standard_normal(_SWEEP_N_ROWS).astype(np.float32)  # the criterion dtype the production caller passes
+    operands = rng.standard_normal((_SWEEP_OPERANDS, _SWEEP_N_ROWS)).astype(np.float32)
     pair_a = rng.integers(0, _SWEEP_OPERANDS, n_pairs).astype(np.int64)
     pair_b = rng.integers(0, _SWEEP_OPERANDS, n_pairs).astype(np.int64)
     return (y, operands, pair_a, pair_b, ALL_FORM_IDS)
@@ -749,8 +749,9 @@ try:
     _SPEC = kernel_tuner(
         kernel_name="fe_pair_usability_corr_backend",
         variant_fns=(),  # the two backends are timed by the sweep callable
-        tuner=host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=1e-9, atol=1e-12),
-        axes={"n_samples": list(_SWEEP_PAIRS)},
+        # the warp kernel returns float32 criterion values: measured worst absolute difference to the double CPU table 8.9e-8 (5000 and 50000 pairs)
+        tuner=host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=1e-6, atol=1e-6),
+        axes={"n_samples": list(_SWEEP_ROWS)},
         fallback=_fallback_choice,
         gpu_capable=True,
         salt=_SALT,

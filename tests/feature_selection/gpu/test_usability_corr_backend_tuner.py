@@ -14,7 +14,7 @@ def test_a_tuner_entry_is_registered_with_the_device_as_pre_sweep_default():
 def test_sweep_inputs_have_the_documented_layout():
     """Operands are rows of the matrix, the pairs index them, and every form is evaluated."""
     y, operands, pair_a, pair_b, forms = M._sweep_inputs({"n_samples": 40})
-    assert y.shape == (M._SWEEP_ROWS,) and operands.shape == (M._SWEEP_OPERANDS, M._SWEEP_ROWS)
+    assert y.shape == (M._SWEEP_N_ROWS,) and operands.shape == (M._SWEEP_OPERANDS, M._SWEEP_N_ROWS)
     assert pair_a.shape == pair_b.shape == (40,) and int(max(pair_a.max(), pair_b.max())) < M._SWEEP_OPERANDS
     assert np.array_equal(forms, M.ALL_FORM_IDS)
 
@@ -39,3 +39,14 @@ def test_device_choice_runs_the_warp_backend(monkeypatch):
     monkeypatch.setattr(M, "_device_wins", lambda n_pairs: True)
     _table, backend = M._dispatch_batch_pair_usability_corr_uncached(y, ops, np.array([0, 1]), np.array([2, 3]))
     assert backend == "cuda_warp"
+
+
+@pytest.mark.skipif(not M._CUDA_AVAIL, reason="no CUDA device")
+def test_the_registered_sweep_runs_and_the_backends_agree(monkeypatch):
+    """The sweep callable the tuner entry runs completes on a reduced grid and the float32 device table agrees with the host's to 1e-6."""
+    from mlframe.feature_selection.filters._ktc_fallback import host_device_sweep
+
+    monkeypatch.setattr(M, "_SWEEP_ROWS", [200, 800])
+    monkeypatch.setattr(M, "_SWEEP_N_ROWS", 800)
+    regions = host_device_sweep(M.__name__, M._sweep_host, M._sweep_device, rtol=1e-6, atol=1e-6)()
+    assert any(r.get("backend_choice") == "device" for r in regions), regions
