@@ -32,7 +32,21 @@ def _code_itemsize(mats: "list[np.ndarray]") -> int:
     """Bytes per code of the narrowest integer width that holds the codes of ``mats`` (as :func:`_stack_codes_transposed` chooses it)."""
     # A matrix whose dtype cannot exceed 127 (int8) needs no scan of its values: its maximum is bounded by the type. The family holds thousands of int8 matrices per call, so the scan cost seconds.
     scan = [m for m in mats if m.size and not (m.dtype.kind == "i" and np.iinfo(m.dtype).max <= 127)]
-    top = max((int(m.max()) for m in scan), default=0)
+    # The family's matrices are mostly single columns of a few block matrices (views of the binner's output): scanning a column view walks the whole parent at its row stride, once per
+    # column (75741 scans, 19.6 s over a default 100000 x 100 fit). The question asked is only which width the maximum needs, so when a parent is read at most twice over by its
+    # views, its own maximum (one contiguous pass) bounds them all; a parent over that, or one whose bound crosses a width, is answered by the views themselves.
+    by_root: "dict[int, list[np.ndarray]]" = {}
+    for m in scan:
+        by_root.setdefault(id(m.base) if isinstance(m.base, np.ndarray) else id(m), []).append(m)
+    top = 0
+    for views in by_root.values():
+        root = views[0].base
+        if isinstance(root, np.ndarray) and root.size <= 2 * sum(v.size for v in views):
+            bound = int(root.max())
+            if bound <= 127:
+                top = max(top, bound)
+                continue
+        top = max(top, max(int(v.max()) for v in views))
     return 1 if top <= 127 else (2 if top <= 32767 else 8)
 
 
