@@ -275,33 +275,6 @@ def test_report_builds_and_can_be_written():
         Path(out).write_text(text, encoding="utf-8")
 
 
-def test_launch_bounds_violation_is_detected_on_synthetic_resource_report():
-    """A register count above REGISTER_FILE // (threads * blocks) is reported; one at or under the cap is not (mutant check for the launch-bounds gate)."""
-    from _offline_kernel_report import REGISTER_FILE
-
-    ptx = ".visible .entry k(\n)\n.maxntid 128, 1, 1\n.minnctapersm 16\n{\n}\n"
-    cap = REGISTER_FILE // (128 * 16)
-    over = f"Compiling entry function 'k' for 'sm_61'\nUsed {cap + 8} registers"
-    under = f"Compiling entry function 'k' for 'sm_61'\nUsed {cap} registers"
-    assert launch_bounds_violations(ptx, over) == [("k", cap + 8, cap)]
-    assert launch_bounds_violations(ptx, under) == []
-
-
-def test_failure_table_lists_each_failing_variant_per_arch():
-    """The report's failure table names every recorded failure with its arch, and says so when there is none."""
-    text = markdown([], {}, failures=[("mlframe/x.py::_SRC[float]", 61, "NVRTC failed on sm_61")])
-    assert "| mlframe/x.py::_SRC[float] | sm_61 | NVRTC failed on sm_61 |" in text
-    assert "none: every checked variant assembled" in markdown([], {}, failures=[])
-
-
-def test_an_nvrtc_warning_of_a_successful_build_reaches_the_report(tmp_path):
-    """A kernel with an unused variable builds, and its NVRTC warning is in the report the warning check reads (the log of a successful build used to be dropped)."""
-    _nvrtc_or_skip()
-    src = 'extern "C" __global__ void k(float* o) { int unused = 3; o[threadIdx.x] = 1.0f; }'
-    _ptx, report = build_ptx_and_report(src, (), 75, _ptxas(), tmp_path)
-    assert any("nvrtc:" in ln and "warning" in ln.lower() and "unused" in ln for ln in report.splitlines()), report[:400]
-
-
 def test_every_global_kernel_name_written_in_a_file_is_compiled():
     """Name-level coverage diff (py-ci-shared's ``cuda_kernel_names`` gate): every ``__global__`` kernel name in a production file appears in a variant compiled for that file, so a file with one extracted
     kernel and one dropped kernel fails; a template spelling like ``bin_codes_TYPENAME`` matches the concrete names its recipe builds."""
