@@ -140,8 +140,10 @@ def contract_violations(name: str) -> list[str]:
     kernel_sources = [m.group(1) for m in KERNEL_STRING.finditer(text) if "__global__" in m.group(1)]
     if kernel_sources:
         joined = "\n".join(kernel_sources)
-        if "{REAL}" not in joined:
-            found.append("GPU kernel source has no {REAL} placeholder")
+        # {REAL} types the values a kernel reads, {ACC} its accumulators. A kernel over integer bin codes and class labels has no real-valued operand, so it is type-generic through {ACC} alone;
+        # either placeholder meets the point, and the bare-type check below still rejects a literal double / float in either kind.
+        if "{REAL}" not in joined and "{ACC}" not in joined:
+            found.append("GPU kernel source has neither a {REAL} (values) nor an {ACC} (accumulators) placeholder")
         if BARE_FP_TYPE.search(joined):
             found.append("GPU kernel source has a bare double / float (use {REAL}, or {ACC} for an accumulator)")
     record = PROFILES_DIR / f"{name}.md"

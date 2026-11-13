@@ -98,6 +98,7 @@ _RECIPES: dict = {
     "_fe_batched_qbin.py::_QBIN_CODER_TEMPLATE": lambda s: [
         (r, _fill(s, **{"{REAL}": r, **{"{" + k + "}": v for k, v in _qbin_variants()[r].items()}}), ()) for r in _REAL_TYPES
     ],
+    "_pair_mi_perm_cuda.py::_SRC": lambda s: [(f"KB={kb}", _fill(s, **{"{ACC}": "double"}), (f"-DKB={kb}",)) for kb in (1, 4, 8)],
     "_hsic_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "EXPF": "expf" if r == "float" else "exp"}), ()) for r in _REAL_TYPES],
     "_lof_gpu.py::_SRC": lambda s: [
         (f"{r} k={k} p={p}", _fill(s, **{"{REAL}": r, "{K}": str(k), "{P}": str(p)}), ()) for r in _REAL_TYPES for k, p in ((20, 3), (64, 16))

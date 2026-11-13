@@ -110,6 +110,7 @@
  "src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_streamed_gpu_mi.py::null_max_streamed",
  "src/mlframe/feature_selection/filters/_orthogonal_xi_fe.py::xi_correlation_batch",
  "src/mlframe/feature_selection/filters/_orthogonal_xi_gpu.py::xi_columns_device",
+ "src/mlframe/feature_selection/filters/_pair_mi_perm_cuda.py::pair_mi_perm_matrix_cuda",
  "src/mlframe/feature_selection/filters/_pairwise_modular_resident.py::residue_grid_mis_resident",
  "src/mlframe/feature_selection/filters/_parity_fe.py::hybrid_parity_fe_with_recipes",
  "src/mlframe/feature_selection/filters/_parity_gpu.py::parity_mi_grids_gpu",

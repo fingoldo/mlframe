@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters import batch_pair_usability_corr_gpu as M
+from mlframe.feature_selection.filters._pair_operand_blocks import operand_block_limit, pair_chunks_by_operand_block
 
 
 def test_chunks_cover_every_pair_once_and_respect_the_operand_limit():
@@ -10,7 +11,7 @@ def test_chunks_cover_every_pair_once_and_respect_the_operand_limit():
     rng = np.random.default_rng(0)
     a = rng.integers(0, 30, 400).astype(np.int64)
     b = rng.integers(0, 30, 400).astype(np.int64)
-    chunks = M._pair_chunks_by_operand_block(a, b, 6)
+    chunks = pair_chunks_by_operand_block(a, b, 6)
     assert sorted(np.concatenate(chunks).tolist()) == list(range(400))
     for c in chunks:
         assert np.unique(np.concatenate([a[c], b[c]])).size <= 6
@@ -22,10 +23,10 @@ def test_block_limit_halves_until_the_cushion_admits(monkeypatch):
     from mlframe.feature_selection.filters import _fe_gpu_vram
 
     monkeypatch.setattr(_fe_gpu_vram, "fe_gpu_has_vram_cushion", lambda need, **k: need <= 5_000_000)
-    assert M._operand_block_limit(64, 100_000, 0) in (32, 16, 8, 4, 2)
-    assert M._operand_block_limit(64, 100_000, 0) * 100_000 <= 5_000_000
+    assert operand_block_limit(64, 100_000, 0) in (32, 16, 8, 4, 2)
+    assert operand_block_limit(64, 100_000, 0) * 100_000 <= 5_000_000
     monkeypatch.setattr(_fe_gpu_vram, "fe_gpu_has_vram_cushion", lambda need, **k: False)
-    assert M._operand_block_limit(64, 100_000, 0) == 0
+    assert operand_block_limit(64, 100_000, 0) == 0
 
 
 @pytest.mark.skipif(not M._CUDA_AVAIL, reason="no CUDA device")

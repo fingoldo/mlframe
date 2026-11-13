@@ -2,7 +2,7 @@
 
 The detector's `low` hits in the current source, one row per function; the same dispositions as the high table (FALSE POSITIVE, FALLBACK, REAL, LEGACY).
 
-Rows: 50.
+Rows: 51.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -41,6 +41,7 @@ Rows: 50.
 | feature_selection/filters/_orthogonal_univariate_fe/_streamed_gpu_mi.py | mi_classif_streamed_fill | 275 | FALSE POSITIVE: a blocked loop (`for k in range(n_blocks)`), each trip one batched operation over its block |
 | feature_selection/filters/_orthogonal_xi_fe.py | xi_correlation_batch | 224 | FALSE POSITIVE: a blocked loop (`for s0 in range(0, finite.size, block)`), each trip one batched operation over its block |
 | feature_selection/filters/_orthogonal_xi_gpu.py | xi_columns_device | 176 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, kk, block)`), each trip one batched operation over its block |
+| feature_selection/filters/_pair_mi_perm_cuda.py | pair_mi_perm_matrix_cuda | 232 | FALSE POSITIVE: a blocked loop (`for chunk in pair_blocks`), each trip one batched operation over its block (the gather of a block's byte columns and one full `pair_mi_perm` launch over its pairs: 100 ms class against microsecond uploads); it only runs when the whole pool does not fit twice in free VRAM |
 | feature_selection/filters/_parity_fe.py | hybrid_parity_fe_with_recipes | 183 | FALSE POSITIVE: a blocked loop (`for start in range(0, len(cols), block)`), each trip one batched operation over its block |
 | feature_selection/filters/_parity_gpu.py | parity_mi_grids_gpu | 101 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, len(columns), COLUMN_BLOCK)`), each trip one batched operation over its block |
 | feature_selection/filters/_permutation_null_pair_tiles.py | _pooled_pair_null_perm_tiles | 18 | FALSE POSITIVE: a blocked loop (`for p0 in range(0, nperm, perm_chunk)`), each trip one batched operation over its block |

@@ -7,7 +7,7 @@ The pool of a conjunction fit holds 31878 pairs; against 25 shuffles of 15000 ro
 that exist take 3.8 s PER SHUFFLE on this shape because they read the row-major matrix with a stride of one row per thread (no coalescing) and know one target at a time. Here the data is uploaded
 column-major as bytes (consecutive threads read consecutive rows of a column), the K targets are a ``(K, n)`` byte matrix, and the result is the ``(K, n_pairs)`` MI matrix.
 
-The MI is the same ``sum jf * log(jf / (px * py))`` over the occupied cells the CPU kernel evaluates; the counts are exact integers and the final sums add in a fixed order, so a run is reproducible,
+The MI is the same ``sum jf * log(jf / (px * py))`` over the occupied cells the CPU kernel (``info_theory.batch_pair_mi_perm_batched``, an ``@njit`` kernel) evaluates; the counts are exact integers and the final sums add in a fixed order, so a run is reproducible,
 and it agrees with the CPU kernel to the last bits of a double (about 1e-17 absolute). A pair whose joint cardinality exceeds the cap gets zeros, as on the CPU.
 """
 
@@ -21,12 +21,12 @@ import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 from ._kernel_types import render
+from ._pair_operand_blocks import pair_chunks_by_operand_block
 
 logger = logging.getLogger(__name__)
 
 #: Dynamic shared memory the histogram may use (the 48 KB every device grants, less the static warp sums and the driver's reserve).
 _SHARED_BUDGET_BYTES = 44 * 1024
-_KERNEL: Any = None
 _KERNEL_LOCK = threading.Lock()
 
 
@@ -53,8 +53,8 @@ void pair_mi_perm(const unsigned char* __restrict__ cols, const long long* __res
     }
     const int joint = (int)(nb_a * nb_b);
     const int cells = joint * ky;
+    int* fx = sh + KB * cells;
     int* hist = sh;
-    int* fx = sh + cells;
     const unsigned char* ca = cols + a * n;
     const unsigned char* cb = cols + b * n;
     const int nbb = (int)nb_b;
@@ -62,47 +62,121 @@ void pair_mi_perm(const unsigned char* __restrict__ cols, const long long* __res
     __syncthreads();
     for (long long i = tid; i < n; i += nt) atomicAdd(&fx[(int)ca[i] * nbb + (int)cb[i]], 1);
     __syncthreads();
-    for (int k = 0; k < K; ++k) {
-        for (int i = tid; i < cells; i += nt) hist[i] = 0;
+    // KB targets share one pass over the rows: the joint code of a row is formed once and feeds KB shared histograms, so the byte loads and the index arithmetic are paid per KB targets
+    for (int k0 = 0; k0 < K; k0 += KB) {
+        const int kb = (K - k0 < KB) ? (K - k0) : KB;
+        for (int i = tid; i < kb * cells; i += nt) hist[i] = 0;
         __syncthreads();
-        const unsigned char* yk = yperm + (long long)k * n;
-        for (long long i = tid; i < n; i += nt) atomicAdd(&hist[((int)ca[i] * nbb + (int)cb[i]) * ky + (int)yk[i]], 1);
-        __syncthreads();
-        {ACC} loc = 0.0;
-        for (int idx = tid; idx < cells; idx += nt) {
-            const int jc = hist[idx];
-            if (jc == 0) continue;
-            const int ci = idx / ky;
-            const int cj = idx - ci * ky;
-            const int fxc = fx[ci];
-            if (fxc == 0) continue;
-            const {ACC} py = freqs_y[cj];
-            if (!(py > 0.0)) continue;
-            const {ACC} px = ({ACC})fxc * inv_n;
-            const {ACC} jf = ({ACC})jc * inv_n;
-            loc += jf * log(jf / (px * py));
-        }
-        for (int off = 16; off > 0; off >>= 1) loc += __shfl_down_sync(0xffffffffu, loc, off);
-        if ((tid & 31) == 0) warp_sums[tid >> 5] = loc;
-        __syncthreads();
-        if (tid == 0) {
-            {ACC} total = 0.0;
-            for (int w = 0; w < (nt >> 5); ++w) total += warp_sums[w];
-            mi_out[(long long)k * n_pairs + p] = total;
+        for (long long i = tid; i < n; i += nt) {
+            const int jc = ((int)ca[i] * nbb + (int)cb[i]) * ky;
+            #pragma unroll
+            for (int q = 0; q < KB; ++q) {
+                if (q < kb) atomicAdd(&hist[q * cells + jc + (int)yperm[(long long)(k0 + q) * n + i]], 1);
+            }
         }
         __syncthreads();
+        for (int q = 0; q < kb; ++q) {
+            {ACC} loc = 0.0;
+            const int* h = hist + q * cells;
+            for (int idx = tid; idx < cells; idx += nt) {
+                const int jcnt = h[idx];
+                if (jcnt == 0) continue;
+                const int ci = idx / ky;
+                const int cj = idx - ci * ky;
+                const int fxc = fx[ci];
+                if (fxc == 0) continue;
+                const {ACC} py = freqs_y[cj];
+                if (!(py > 0.0)) continue;
+                const {ACC} px = ({ACC})fxc * inv_n;
+                const {ACC} jf = ({ACC})jcnt * inv_n;
+                loc += jf * log(jf / (px * py));
+            }
+            for (int off = 16; off > 0; off >>= 1) loc += __shfl_down_sync(0xffffffffu, loc, off);
+            if ((tid & 31) == 0) warp_sums[tid >> 5] = loc;
+            __syncthreads();
+            if (tid == 0) {
+                {ACC} total = 0.0;
+                for (int w = 0; w < (nt >> 5); ++w) total += warp_sums[w];
+                mi_out[(long long)(k0 + q) * n_pairs + p] = total;
+            }
+            __syncthreads();
+        }
     }
 }
 """)
 
 
-def _kernel(cp: Any) -> Any:
-    """The compiled kernel, built once per process."""
-    global _KERNEL
+#: Targets that share one pass over the rows, largest first; the shared histograms of ``KB`` targets must fit the budget. Measured at 15000 rows x 2000 pairs x 25 targets (GTX 1050 Ti, 100 joint
+#: cells x 10 classes): 1 target 151 ms, 2 targets 142, 4 targets 137, 8 targets 132 ms, MI values equal to 1e-17.
+_TARGETS_PER_PASS = (8, 4, 2, 1)
+_KERNELS: dict = {}
+
+
+def _targets_per_pass(max_joint: int, ky: int, k: int) -> int:
+    """The largest ``KB`` of ``_TARGETS_PER_PASS`` (not above the number of targets) whose shared histograms and joint counts fit the shared budget."""
+    for kb in _TARGETS_PER_PASS:
+        if kb <= max(1, k) and (kb * max_joint * ky + max_joint) * 4 <= _SHARED_BUDGET_BYTES:
+            return kb
+    return 1
+
+
+def _kernel(cp: Any, kb: int = 1) -> Any:
+    """The kernel compiled for ``kb`` targets per pass, built once per process."""
     with _KERNEL_LOCK:
-        if _KERNEL is None:
-            _KERNEL = cp.RawKernel(_SRC, "pair_mi_perm")
-        return _KERNEL
+        kern = _KERNELS.get(kb)
+        if kern is None:
+            kern = _KERNELS[kb] = cp.RawModule(code="#define KB %d\n" % kb + _SRC).get_function("pair_mi_perm")
+        return kern
+
+
+def _launch_pairs(
+    cp: Any,
+    factors_data: np.ndarray,
+    a: np.ndarray,
+    b: np.ndarray,
+    nb: np.ndarray,
+    y_perms: np.ndarray,
+    freqs_y: np.ndarray,
+    cap: int,
+    n_pairs: int,
+    max_joint: int,
+) -> np.ndarray:
+    """Upload the byte columns, the pair index vectors and the targets of one set of pairs and run the kernel once: the ``(K, n_pairs)`` MI matrix."""
+    n = int(factors_data.shape[0])
+    K, ky = int(y_perms.shape[0]), int(freqs_y.shape[0])
+    cols = cp.asarray(np.ascontiguousarray(factors_data.T, dtype=np.uint8))
+    d_a, d_b = cp.asarray(a), cp.asarray(b)
+    d_nb = cp.asarray(nb.astype(np.int32))
+    d_y = cp.asarray(np.ascontiguousarray(y_perms, dtype=np.uint8))
+    d_fy = cp.asarray(np.ascontiguousarray(freqs_y, dtype=np.float64))  # Intentional float64: frequency vector of the MI formula (kernel contract double*)
+    out = cp.empty((K, n_pairs), dtype=cp.float64)  # Intentional float64: MI output buffer (kernel contract double*)
+    kb = _targets_per_pass(max_joint, ky, K)
+    shared = (kb * max_joint * ky + max_joint) * 4
+    pair_kernel = _kernel(cp, kb)
+    # one partial per warp in a shared array of 32 rows: any warp multiple up to 1024 threads
+    threads = block_size_for(pair_kernel, dyn_smem=shared, work_items=n, max_width=1024)
+    pair_kernel(
+        (n_pairs,),
+        (threads,),
+        (
+            cols,
+            d_a,
+            d_b,
+            d_nb,
+            d_y,
+            d_fy,
+            np.int64(n),
+            np.int32(n_pairs),
+            np.int32(K),
+            np.int32(ky),
+            np.int64(cap),
+            np.float64(1.0 / n),
+            out,
+        ),  # Intentional float64: MI scalar handed to the kernel (kernel contract double)
+        shared_mem=shared,
+    )
+    host: np.ndarray = cp.asnumpy(out)
+    return host
 
 
 def pair_mi_perm_matrix_cuda(
@@ -144,26 +218,27 @@ def pair_mi_perm_matrix_cuda(
     need = n_features * n + K * n + K * n_pairs * 8 + n_pairs * 16 + n_features * 4 + ky * 8
     try:
         free = int(cp.cuda.runtime.memGetInfo()[0])
-        if need * 2 > free:
+        if need * 2 <= free:
+            return _launch_pairs(cp, factors_data, a, b, nb, y_perms, freqs_y, cap, n_pairs, max_joint)
+        # the whole pool does not fit: stream it in column blocks. A chunk of pairs touches a bounded set of byte columns; only those are gathered and uploaded, so the card holds
+        # ``chunk_columns * n + K * n`` bytes of data and ``chunk_pairs * K * 8`` of output at a time (one pair block per launch, each launch the full kernel).
+        budget = free // 4 - K * n
+        max_columns = budget // max(1, n + 16)
+        if max_columns < 2:
             return None
-        cols = cp.asarray(np.ascontiguousarray(factors_data.T, dtype=np.uint8))
-        d_a, d_b = cp.asarray(a), cp.asarray(b)
-        d_nb = cp.asarray(nb.astype(np.int32))
-        d_y = cp.asarray(np.ascontiguousarray(y_perms, dtype=np.uint8))
-        d_fy = cp.asarray(np.ascontiguousarray(freqs_y, dtype=np.float64))  # Intentional float64: frequency vector of the MI formula (kernel contract double*)
-        out = cp.empty((K, n_pairs), dtype=cp.float64)  # Intentional float64: MI output buffer (kernel contract double*)
-        shared = (max_joint * ky + max_joint) * 4
-        pair_kernel = _kernel(cp)
-        # one partial per warp in a shared array of 32 rows: any warp multiple up to 1024 threads
-        threads = block_size_for(pair_kernel, dyn_smem=shared, work_items=n, max_width=1024)
-        pair_kernel(
-            (n_pairs,),
-            (threads,),
-            (cols, d_a, d_b, d_nb, d_y, d_fy, np.int64(n), np.int32(n_pairs), np.int32(K), np.int32(ky), np.int64(cap), np.float64(1.0 / n), out),  # Intentional float64: MI scalar handed to the kernel (kernel contract double*)
-            shared_mem=shared,
-        )
-        host: np.ndarray = cp.asnumpy(out)
-        return host
+        max_pairs = max(1, int((free // 4) // (K * 8 + 16)))
+        out = np.zeros((K, n_pairs), dtype=np.float64)  # Intentional float64: MI output matrix returned to the host (kernel contract double*)
+        pair_blocks = pair_chunks_by_operand_block(a, b, int(max_columns), max_pairs)
+        for chunk in pair_blocks:
+            cols_used, inverse = np.unique(np.concatenate([a[chunk], b[chunk]]), return_inverse=True)
+            k = chunk.shape[0]
+            sub = _launch_pairs(
+                cp, factors_data[:, cols_used], inverse[:k].astype(np.int64), inverse[k:].astype(np.int64), nb[cols_used], y_perms, freqs_y, cap, k, max_joint
+            )
+            if sub is None:
+                return None
+            out[:, chunk] = sub
+        return out
     except Exception as exc:  # nosec B110 - a device fault or an allocation failure falls back to the exact CPU kernel
         logger.warning("pair_mi_perm_matrix_cuda failed (%s: %s); using the CPU kernel", type(exc).__name__, exc)
         return None
@@ -177,7 +252,7 @@ _FLOOR_SWEEP_N_SAMPLES = [4000, 15000]
 _FLOOR_SWEEP_N_PAIRS = [300, 2000, 8000, 32000]
 _FLOOR_SWEEP_PERMUTATIONS = 25
 _FLOOR_FALLBACK_MIN_WORK = 2_000_000  # n_samples * n_pairs from which the device kernel is the fallback choice
-_FLOOR_SALT = 1
+_FLOOR_SALT = 2  # 2: the kernel takes several targets per pass, so the device times the sweep stored are measured again
 
 
 def _floor_fallback_choice(n_samples: int, n_pairs: int) -> str:
