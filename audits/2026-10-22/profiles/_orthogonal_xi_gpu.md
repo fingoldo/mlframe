@@ -66,3 +66,17 @@ Command as in the float64 breakdown above (CUPTI directory on `PATH`). Time colu
 | other (copies, memcpy HtoD) | about 2.6 | 6% | the rest |
 
 GPU total 43.0 ms over four calls, about 10.8 ms per call, against a host kernel of 23.6 ms at this size (the wall timing above). The walk and the key build are small; the batched sort is the cost. Optimization stays open with the same candidate as the copula module: one value sort shared by the scorers that take the same resample block.
+
+
+## cProfile of the public batch, launches per call (2026-11-13, GTX 1050 Ti, 100000 rows x 40 float32 columns, 10 of them rounded to ties, 5 calls after 2 warm-up calls)
+
+`xi_correlation_batch` through the device route (the tuner picks the device at 100000 rows; free host RAM 7.5 GiB, above the FE reserve), cProfile of the main thread: 91 ms per call.
+
+| function | cumulative per call | note |
+|---|---:|---|
+| `_score_block` | 80 ms | the column-block loop of the batch (one block here: 40 columns fit the memory budget) |
+| cupy `argsort` (`_sorted_per_vector`) | 39 ms | 40 per-column sorts per call (200 in 5 calls): from 80000 rows `device_argsort` sorts one vector per column |
+| numpy `argsort` | 4 ms | host side tie handling |
+| everything else | under 10 ms | key build launch, walk launch, result copy |
+
+Launches per call: 1 key-build kernel + 40 per-column radix sorts + 1 walk kernel for the block, so the call is sort-launch-bound; the walk and key build are two launches for any number of columns. The table above (nvprof) already gives occupancy 0.85 / 0.99 and the 30 GB/s of 112 GB/s throughput of the two kernels, and the cub sort share (90 percent of device time); GPU utilization over the call is therefore the sort's.

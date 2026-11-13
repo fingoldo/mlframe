@@ -5,7 +5,8 @@
   "compliant": [
     "_fe_sufficient_summary_pairs",
     "hermite_fe",
-    "_wavelet_basis_fe"
+    "_wavelet_basis_fe",
+    "_orthogonal_xi_gpu"
   ],
   "exempt": {
     "_confirm_predictor_engineered": "ordering and decision helpers around the single-predictor confirmation: bookkeeping, no numeric kernel",
@@ -233,7 +234,6 @@
     "_orthogonal_triplet_recipes",
     "_orthogonal_univariate_fe",
     "_orthogonal_xi_fe",
-    "_orthogonal_xi_gpu",
     "_pair_mi_perm_cuda",
     "_pair_operand_arrays",
     "_pair_residual_screen",

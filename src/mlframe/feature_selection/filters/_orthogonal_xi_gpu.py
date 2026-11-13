@@ -1,4 +1,4 @@
-"""Device twin of ``_orthogonal_xi_fe._xi_columns_radix_njit``: Chatterjee's Xi of many float32 columns against one target.
+"""Device twin of ``_orthogonal_xi_fe._xi_columns_radix_njit`` (an ``@njit`` host kernel there): Chatterjee's Xi of many float32 columns against one target.
 
 Both paths order the rows of a column by ``(value, tie key, row)`` where the tie key is a 32-bit counter hash of ``(column seed, row)`` (``_orthogonal_xi_fe.column_seeds`` / ``_tie_key``), so the
 tie-break stream is arithmetic, not a generator: nothing is drawn on the host or sent over the bus. A block of columns is processed in three launches with no table written between them that the
@@ -173,7 +173,7 @@ def xi_columns_device(cols: Any, seeds: np.ndarray, r_row: np.ndarray, l_row: np
         walk_blocks = min((n + _THREADS - 1) // _THREADS, 64)
         keys_buf = None if wide else cp.empty((block, n), dtype=cp.uint64)  # one reusable sort-key buffer for every chunk, not one per chunk
         sums_dev = cp.zeros(2 * kk, dtype=cp.float64)  # one resident accumulator; one D2H after the loop instead of one per chunk
-        for c0 in range(0, kk, block):
+        for c0 in range(0, kk, block):  # one column block per pass, bounded by the free-memory budget above
             w = min(block, kk - c0)
             col_d = cols[c0 : c0 + w] if resident else cp.asarray(np.ascontiguousarray(cols[c0 : c0 + w]))
             if wide:
