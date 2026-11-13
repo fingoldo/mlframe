@@ -39,7 +39,7 @@ _MIN_GROUP_COLUMNS = 1024
 _PACK_SRC = r"""
 // coalescing-ok: the strided access is the per-column bin count px[kl * CAP + a], updated once per bin after the word loop: CAP atomics per thread against CAP times words coalesced bit-set writes
 extern "C" __global__ void pack_bins(const {DT}* __restrict__ disc, const long long n, const int k_total, const int k0, const int kg, const int words,
-                                     unsigned long long* __restrict__ bits, long long* __restrict__ px) {
+                                     const int kout, const int o0, unsigned long long* __restrict__ bits, long long* __restrict__ px) {
     const int kl = blockIdx.x * blockDim.x + threadIdx.x;
     const int w = blockIdx.y;
     if (kl >= kg) return;
@@ -57,8 +57,8 @@ extern "C" __global__ void pack_bins(const {DT}* __restrict__ disc, const long l
     }
     #pragma unroll
     for (int a = 0; a < CAP; ++a) {
-        bits[((long long)a * words + w) * kg + kl] = acc[a];
-        atomicAdd((unsigned long long*)&px[(long long)kl * CAP + a], (unsigned long long)__popcll(acc[a]));
+        bits[((long long)a * words + w) * kout + o0 + kl] = acc[a];  // kout columns per bit-set row, this launch fills columns o0 .. o0 + kg
+        atomicAdd((unsigned long long*)&px[(long long)(o0 + kl) * CAP + a], (unsigned long long)__popcll(acc[a]));
     }
 }
 extern "C" __global__ void pack_cls(const int* __restrict__ y_all, const long long n, const int words, const int n_y,
@@ -197,7 +197,7 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gat
             bits = cp.empty((cap, words, kg), dtype=cp.uint64)
             px = cp.zeros((kg, cap), dtype=cp.int64)
             bins_block = block_size_for(pack_bins, work_items=kg)
-            pack_bins(((kg + bins_block - 1) // bins_block, words), (bins_block,), (codes, np.int64(n), np.int32(k_total), np.int32(lo), np.int32(kg), np.int32(words), bits, px))
+            pack_bins(((kg + bins_block - 1) // bins_block, words), (bins_block,), (codes, np.int64(n), np.int32(k_total), np.int32(lo), np.int32(kg), np.int32(words), np.int32(kg), np.int32(0), bits, px))
             c_a = table[px].sum(axis=1)
             part = cp.empty((n_perm, kg), dtype=table.dtype)
             launch_family_null(cp, n_y, words, bits, n_x_all[lo:hi], cls, table, c_a, px, const_b, n, cap, kg, n_perm, part)

@@ -103,20 +103,28 @@ class _FamilyOnDevice:
         group = max(1, int(min(_BUDGET_CAP_BYTES, free_bytes // 4) // (cap * words * 8)))
         self.groups = []
         occupied = []
-        offset = 0
-        for codes in parts:
-            kd = int(codes.shape[1])
-            pack_bins = _pack_module(cp, cap, self.n_y, _C_TYPES[codes.dtype]).get_function("pack_bins")
-            for lo in range(0, kd, group):
-                hi = min(lo + group, kd)
-                kg = hi - lo
-                bits = cp.empty((cap, words, kg), dtype=cp.uint64)
-                px = cp.zeros((kg, cap), dtype=cp.int64)
-                bins_block = block_size_for(pack_bins, work_items=kg)
-                pack_bins(((kg + bins_block - 1) // bins_block, words), (bins_block,), (codes, np.int64(n), np.int32(kd), np.int32(lo), np.int32(kg), np.int32(words), bits, px))
-                self.groups.append((offset + lo, offset + hi, bits, px, self.table[px].sum(axis=1)))
-                occupied.append((px > 0).sum(axis=1))
-            offset += kd
+        # One group per ``group`` columns of the whole family, however many device batches they come from: a launch per batch (hundreds of batches of a few columns) made a default fit
+        # launch the null kernel and its maximum 1.2 million times; the batches are packed into a group at their column offsets instead.
+        starts = np.cumsum([0, *[int(c.shape[1]) for c in parts]])
+        for g0 in range(0, k_total, group):
+            g1 = min(g0 + group, k_total)
+            kg = g1 - g0
+            bits = cp.empty((cap, words, kg), dtype=cp.uint64)
+            px = cp.zeros((kg, cap), dtype=cp.int64)
+            for codes, p0, p1 in zip(parts, starts[:-1], starts[1:]):
+                lo, hi = max(g0, int(p0)), min(g1, int(p1))
+                if lo >= hi:
+                    continue
+                pack_bins = _pack_module(cp, cap, self.n_y, _C_TYPES[codes.dtype]).get_function("pack_bins")
+                width = hi - lo
+                bins_block = block_size_for(pack_bins, work_items=width)
+                pack_bins(
+                    ((width + bins_block - 1) // bins_block, words),
+                    (bins_block,),
+                    (codes, np.int64(n), np.int32(codes.shape[1]), np.int32(lo - int(p0)), np.int32(width), np.int32(words), np.int32(kg), np.int32(lo - g0), bits, px),
+                )
+            self.groups.append((g0, g1, bits, px, self.table[px].sum(axis=1)))
+            occupied.append((px > 0).sum(axis=1))
         self.nx_occ = cp.asnumpy(cp.concatenate(occupied).astype(cp.int16)).astype(np.int64)  # occupied-level counts are at most MAX_BINS: int16 over the bus
 
     def _parts(self, cls_host: np.ndarray):

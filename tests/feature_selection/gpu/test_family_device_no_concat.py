@@ -53,3 +53,26 @@ def test_the_code_matrix_is_not_concatenated(monkeypatch):
     monkeypatch.setattr(cp, "concatenate", spy)
     _FamilyOnDevice(cp, devs, y, 3)
     assert not any(ndim == 2 for _n, ndim, _axis in seen), seen
+
+
+def test_many_small_batches_make_one_launch_group():
+    """Sixty batches of three columns fit one memory group: one bit-set group (one null launch and one maximum per permutation block), not sixty."""
+    devs, y = _batches(n=2000, widths=(3,) * 60, seed=2, dtypes=(np.int8,) * 60)
+    fam = _FamilyOnDevice(cp, devs, y, 3)
+    assert len(fam.groups) == 1 and fam.groups[0][:2] == (0, 180)
+    whole = _FamilyOnDevice(cp, [cp.concatenate(devs, axis=1)], y, 3)
+    np.testing.assert_array_equal(fam.nx_occ, whole.nx_occ)
+    np.testing.assert_allclose(fam.observed(), whole.observed(), rtol=0, atol=1e-12)
+
+
+def test_a_group_boundary_inside_a_batch_is_packed_from_both_sides(monkeypatch):
+    """A memory budget that ends a group in the middle of a batch splits that batch over two groups with the right column offsets."""
+    devs, y = _batches(n=3000, widths=(7, 11, 4), seed=3)
+    cap = max(int(d.max()) for d in devs) + 1
+    column_bytes = cap * ((3000 + 63) // 64) * 8
+    free = 3 * column_bytes * 22 + 3  # admits the 22 columns; the group is then 3/4 of them (16), which ends inside the second batch (columns 7 to 17)
+    monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", lambda: (free, 4 << 30))
+    fam = _FamilyOnDevice(cp, devs, y, 3)
+    assert len(fam.groups) >= 2
+    whole = _FamilyOnDevice(cp, [cp.concatenate(devs, axis=1)], y, 3)
+    np.testing.assert_allclose(fam.observed(), whole.observed(), rtol=0, atol=1e-12)
