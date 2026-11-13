@@ -1,4 +1,5 @@
 """The per-stratum Fisher-Yates kernel replacing the flat key sort in the conditional permutation null."""
+
 import numpy as np
 import pytest
 
@@ -60,3 +61,22 @@ def test_flat_shuffle_routes_to_kernel_above_the_gate(monkeypatch):
     seen.clear()
     assert pn._flat_within_stratum_shuffle(cp, cp.random.RandomState(1), x, zr[:, None], 5, 6, nr).shape == (5, 20000)
     assert not seen
+
+
+def test_fused_key_pack_equals_the_stepwise_composition():
+    """The one-pass key packing gives the keys of the stepwise OR-ing, so the sorted output is the same for one random stream."""
+    x, zr, nr, _ = _layout(20000, 5000, 6)
+    nperm = 7
+    col_bits, rank_bits, x_bits = (max(1, int(np.ceil(np.log2(max(2, v))))) for v in (nperm, nr, 6))
+    rand_bits = 62 - col_bits - rank_bits - x_bits
+    low = rank_bits + rand_bits + x_bits
+    r = cp.random.RandomState(9).randint(0, 1 << rand_bits, size=(nperm, 20000), dtype=cp.int64)
+    stepwise = (zr.astype(cp.int64) << (rand_bits + x_bits))[None, :] | (cp.arange(nperm, dtype=cp.int64) << low)[:, None]
+    stepwise |= r << x_bits
+    stepwise |= x.astype(cp.int64)[None, :]
+    fused = pn._key_pack_kernel(cp)(
+        zr.astype(cp.int64)[None, :], x.astype(cp.int64)[None, :], r, cp.arange(nperm, dtype=cp.int64)[:, None], rand_bits + x_bits, x_bits, low
+    )
+    assert bool((stepwise == fused).all())
+    out = pn._flat_within_stratum_shuffle(cp, cp.random.RandomState(9), x, zr[:, None], nperm, 6, nr)
+    assert out.shape == (nperm, 20000)
