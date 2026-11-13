@@ -166,12 +166,17 @@ def _edges_from_quantiles(x: np.ndarray, n_bins: int) -> np.ndarray:
     """
     if n_bins < 2:
         return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
-    x = np.asarray(x, dtype=np.float64).ravel()  # Intentional float64: bin-edge computation input; edges compared at full precision
+    x = np.asarray(x).ravel()
+    if x.dtype != np.float32:
+        x = np.asarray(x, dtype=np.float64)  # Intentional float64: bin-edge computation input; edges compared at full precision
     x = x[np.isfinite(x)]  # drop nan/+-inf: nanpercentile ignores nan but not inf, so an all/mostly-inf tail leaks an inf inner edge into searchsorted (phantom bin -> inflated K_x / MM bias)
     if x.size == 0:
         return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
     quantiles = np.linspace(0.0, 100.0, n_bins + 1)
-    full_edges = np.percentile(x, quantiles)
+    # A large float32 column takes the radix sort of a copy and numpy's interpolation in float64 (the same edges bit for bit as the percentile of the widened array, 4.4 ms of partition at 100000 values against 1 ms)
+    full_edges = sorted_quantiles(x, quantiles / 100.0)
+    if full_edges is None:
+        full_edges = np.percentile(x.astype(np.float64, copy=False), quantiles)  # Intentional float64: bin-edge computation input; edges compared at full precision
     full_edges = np.unique(full_edges)
     if full_edges.size <= 2:
         return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract

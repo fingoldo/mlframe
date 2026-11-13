@@ -81,3 +81,29 @@ def test_edges_qs_is_unchanged_for_float32_and_float64_columns(alpha, n, monkeyp
     np.testing.assert_array_equal(fast, slow)
     assert fast.dtype == np.float64 and fast.size > 0
     np.testing.assert_array_equal(ab.edges_qs(x32.astype(np.float64), alpha), slow)
+
+
+@pytest.mark.parametrize("n_bins", [2, 3, 5, 10, 33, 64])
+@pytest.mark.parametrize("kind", ["continuous", "ties", "constant", "zeros", "with_nonfinite"])
+def test_edges_from_quantiles_is_unchanged_for_float32_columns(n_bins, kind, monkeypatch):
+    """The fixed-bin quantile edges of a float32 column (radix route, NaN and inf dropped first) equal the numpy route's; a float64 column is untouched."""
+    rng = np.random.default_rng(n_bins + len(kind))
+    n = 20_000
+    if kind == "continuous":
+        x = rng.standard_normal(n).astype(np.float32)
+    elif kind == "ties":
+        x = rng.integers(0, 40, n).astype(np.float32)
+    elif kind == "constant":
+        x = np.full(n, 1.5, dtype=np.float32)
+    elif kind == "zeros":
+        x = np.where(rng.random(n) < 0.6, np.float32(0.0), rng.standard_normal(n).astype(np.float32))
+    else:
+        x = rng.standard_normal(n).astype(np.float32)
+        x[rng.random(n) < 0.03] = np.nan
+        x[rng.random(n) < 0.01] = np.inf
+        x[rng.random(n) < 0.01] = -np.inf
+    fast = ab._edges_from_quantiles(x, n_bins)
+    monkeypatch.setattr(ab, "sorted_quantiles", lambda values, quantiles: None)
+    slow = ab._edges_from_quantiles(x, n_bins)
+    np.testing.assert_array_equal(fast, slow)
+    np.testing.assert_array_equal(ab._edges_from_quantiles(x.astype(np.float64), n_bins), slow)
