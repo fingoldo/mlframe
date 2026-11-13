@@ -70,7 +70,6 @@ _REFRESH_FLAGS = [
     "--refresh-debt-baseline",
     "--refresh-docstring-baseline",
     "--refresh-env-write-restore-baseline",
-    "--refresh-fitted-attr-setstate-baseline",
     "--refresh-fe-budget-conflict-baseline",
     "--refresh-fe-noop-copy-baseline",
     "--refresh-logger-baseline",

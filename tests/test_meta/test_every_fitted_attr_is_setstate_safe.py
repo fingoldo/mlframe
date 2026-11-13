@@ -19,11 +19,17 @@ import ast
 import pathlib
 import sys
 
-import orjson
-
 _TESTS_META = pathlib.Path(__file__).resolve().parent
 _SRC = _TESTS_META.parents[1] / "src"
-_BASELINE = _TESTS_META / "_fitted_attr_setstate_baseline.json"
+
+# Fitted attributes a fit assigns that the roster deliberately does not backfill, each with the reason. A backfilled default would be wrong for every one: these are the
+# markers of "this estimator was fitted", present in every pickle of a fitted estimator from any release, so an estimator that lacks them was never fitted.
+_NOT_BACKFILLED = {
+    "feature_names_in_": "sklearn's fitted-input-names marker, set by every fit since the first release; an unfitted estimator must not gain it, and transform reads it through getattr(..., None)",
+    "n_features_in_": "sklearn's fitted-input-width marker, set by every fit since the first release; a backfilled value would make an unfitted estimator pass check_is_fitted",
+    "support_": "the selected column indices, the defining product of a fit and present in every fitted pickle; a backfilled empty array would silently select nothing",
+    "support_nonlinear_": "an alias of support_ set in the same step and re-synced under hasattr; no reader exists outside that re-sync, so a pickle without it needs no value",
+}
 
 # Where the estimator's fitted attributes are assigned: the class itself and the fit implementation it delegates to.
 _PACKAGES = (
@@ -71,27 +77,20 @@ def _uncovered() -> set:
     return _assigned_fitted_attrs() - _roster_keys()
 
 
-_REFRESH_FLAG = "--refresh-fitted-attr-setstate-baseline"
-
-
 def test_no_new_fitted_attribute_escapes_the_setstate_backfill():
-    """The uncovered set may shrink freely; growing it requires a deliberate decision, recorded in the baseline."""
-    if _REFRESH_FLAG in sys.argv:
-        regenerate_baseline(_BASELINE)
-        return
-    baseline = set(orjson.loads(_BASELINE.read_bytes()))
-    new = sorted(_uncovered() - baseline)
+    """The uncovered set may shrink freely; growing it requires a deliberate decision, recorded in _NOT_BACKFILLED."""
+    new = sorted(_uncovered() - set(_NOT_BACKFILLED))
     assert not new, (
         "fitted attribute(s) assigned by a fit but not backfilled by __setstate__, so they are absent from an estimator unpickled from an "
         "older release: " + ", ".join(new) + ". Add each to _SETSTATE_LEGACY_DEFAULTS with the default a fit would have produced, or, if "
-        "every read of it already passes a default to getattr, add it to " + _BASELINE.name + "."
+        "it is a fitted-state marker no default can stand in for, add it to _NOT_BACKFILLED with the reason."
     )
 
 
 def test_the_baseline_does_not_list_attributes_that_are_now_covered():
     """A baselined attribute that has since been given a roster entry must be removed, so the list stays a real inventory."""
-    stale = sorted(set(orjson.loads(_BASELINE.read_bytes())) & _roster_keys())
-    assert not stale, f"baselined attributes that are now in the roster and should be dropped from {_BASELINE.name}: {stale}"
+    stale = sorted(set(_NOT_BACKFILLED) & _roster_keys())
+    assert not stale, f"attributes now in the roster that should be dropped from _NOT_BACKFILLED: {stale}"
 
 
 def test_the_detector_sees_a_fitted_attribute_assignment():
@@ -101,6 +100,7 @@ def test_the_detector_sees_a_fitted_attribute_assignment():
     assert "fit" not in attrs and not any(a.endswith("__") for a in attrs), "the collector is picking up non-fitted names"
 
 
-def regenerate_baseline(path: pathlib.Path) -> None:
-    """Rewrite the baseline with the currently-uncovered fitted attributes (invoked by ``regen_baselines.py``)."""
-    path.write_bytes(orjson.dumps(sorted(_uncovered()), option=orjson.OPT_INDENT_2) + b"\n")
+def test_every_not_backfilled_attribute_states_its_reason_and_is_assigned():
+    """Each exempt attribute carries a reason and is still assigned by a fit, so the list cannot keep entries nothing sets any more."""
+    assert all(len(why) > 30 for why in _NOT_BACKFILLED.values())
+    assert set(_NOT_BACKFILLED) <= _assigned_fitted_attrs()
