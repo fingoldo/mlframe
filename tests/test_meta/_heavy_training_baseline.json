@@ -9,7 +9,6 @@
  "training/test_feature_selection.py": 10,
  "training/test_integration_prod_like_polars.py": 6,
  "training/test_perf_optimizations.py": 8,
- "training/test_prod_log_review_regression_sensors.py": 3,
  "training/test_splitting.py": 6,
  "training/test_stress.py": 13,
  "training/test_suite_coverage_gaps.py": 21

@@ -391,6 +391,79 @@ class TestCatBoostFastpathStickyFlag:
 # =====================================================================
 
 
+@pytest.fixture(scope="module")
+def mixed_polars_suite_run(tmp_path_factory):
+    """ONE cb+xgb+lgb suite run on a small polars frame with the trainer's INFO log captured, shared by the sensors that read different slots of it.
+
+    Returns ``(models, log_messages)``. Training the suite once replaces two near-identical runs (the pipeline-cache sensor and the polars-release sensor).
+    """
+    import logging as _logging
+    from mlframe.training.core import train_mlframe_models_suite
+    from mlframe.training.configs import TrainingBehaviorConfig
+    from mlframe.training import OutputConfig, PreprocessingConfig
+    from .shared import SimpleFeaturesAndTargetsExtractor
+
+    n = 600
+    rng = np.random.default_rng(0)
+    budget_cats = ["HOURLY", "FIXED", "MILESTONE"]
+    tier_cats = ["BEGINNER", "INTERMEDIATE", "EXPERT"]
+    workload_cats = ["LESS_THAN_30", "MORE_THAN_30", "FULL_TIME"]
+    pl_df = pl.DataFrame(
+        {
+            "num_feat_1": rng.standard_normal(n).astype(np.float32),
+            "num_feat_2": rng.standard_normal(n).astype(np.float32),
+            "num_feat_3": rng.standard_normal(n).astype(np.float32),
+            "budget_type": pl.Series([budget_cats[i % 3] for i in range(n)]).cast(pl.Enum(budget_cats)),
+            "contractor_tier": pl.Series([tier_cats[i % 3] for i in range(n)]).cast(pl.Enum(tier_cats)),
+            "workload": pl.Series([workload_cats[i % 3] for i in range(n)]).cast(pl.Enum(workload_cats)),
+            "target": rng.integers(0, 2, n),
+        }
+    )
+    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+    bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
+    records = []
+
+    class _CaptureHandler(_logging.Handler):
+        """Collects the formatted messages of the loggers it is attached to."""
+
+        def emit(self, record):
+            """Append the message."""
+            records.append(record.getMessage())
+
+    handler = _CaptureHandler(level=_logging.INFO)
+    loggers = [_logging.getLogger("mlframe.training.core"), _logging.getLogger("mlframe.training.utils")]
+    previous = [lg.level for lg in loggers]
+    for lg in loggers:
+        lg.addHandler(handler)
+        lg.setLevel(_logging.INFO)
+    try:
+        models, _metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="pipeline_cache_kind_test",
+            model_name="mix",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb", "xgb", "lgb"],
+            hyperparams_config={"iterations": 3},
+            behavior_config=bc,
+            preprocessing_config=PreprocessingConfig(drop_columns=[]),
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(
+                data_dir=str(tmp_path_factory.mktemp("mixed_suite")),
+                models_dir="models",
+                save_charts=False,
+                run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"],
+            ),
+            reporting_config=_lean_reporting_config(),
+            verbose=1,
+        )
+    finally:
+        for lg, level in zip(loggers, previous):
+            lg.removeHandler(handler)
+            lg.setLevel(level)
+    return models, records
+
+
 class TestPipelineCacheKindIsolation:
     """Lock in the 2026-04-23 fix: ``pipeline_cache`` entries written by a
     Polars-native strategy (XGB/CB/HGB) must not be returned to a
@@ -404,54 +477,10 @@ class TestPipelineCacheKindIsolation:
     log). After the fix: the cache key carries a container-kind suffix
     (``_kindpl`` / ``_kindpd``) so consumers never collide."""
 
-    def test_mixed_cb_xgb_lgb_suite_runs_single_lgb_conversion(self, tmp_path):
-        """End-to-end: run cb+xgb+lgb on a small polars frame. The trainer's
-        polars-frame raise (non-native models must receive pandas) stays
-        silent — proof that LGB gets pandas, not a cached polars frame from
-        XGB. If the raise fires, the kind-suffix fix has regressed.
-        """
-        from mlframe.training.core import train_mlframe_models_suite
-        from mlframe.training.configs import TrainingBehaviorConfig
-        from mlframe.training import OutputConfig, PreprocessingConfig
-        from .shared import SimpleFeaturesAndTargetsExtractor
-
-        n = 600
-        rng = np.random.default_rng(0)
-        budget_cats = ["HOURLY", "FIXED", "MILESTONE"]
-        tier_cats = ["BEGINNER", "INTERMEDIATE", "EXPERT"]
-        workload_cats = ["LESS_THAN_30", "MORE_THAN_30", "FULL_TIME"]
-        pl_df = pl.DataFrame(
-            {
-                "num_feat_1": rng.standard_normal(n).astype(np.float32),
-                "num_feat_2": rng.standard_normal(n).astype(np.float32),
-                "num_feat_3": rng.standard_normal(n).astype(np.float32),
-                "budget_type": pl.Series([budget_cats[i % 3] for i in range(n)]).cast(pl.Enum(budget_cats)),
-                "contractor_tier": pl.Series([tier_cats[i % 3] for i in range(n)]).cast(pl.Enum(tier_cats)),
-                "workload": pl.Series([workload_cats[i % 3] for i in range(n)]).cast(pl.Enum(workload_cats)),
-                "target": rng.integers(0, 2, n),
-            }
-        )
-        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
-
-        # This used to raise the trainer's ``RuntimeError: LGBMClassifier
-        # received pl.DataFrame`` because pipeline_cache leaked XGB's polars
-        # frame into LGB. Post-fix, the suite completes end-to-end.
-        models, _metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="pipeline_cache_kind_test",
-            model_name="mix",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb", "xgb", "lgb"],
-            hyperparams_config={"iterations": 3},
-            behavior_config=bc,
-            preprocessing_config=PreprocessingConfig(drop_columns=[]),
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
-            reporting_config=_lean_reporting_config(),
-            verbose=0,
-        )
+    def test_mixed_cb_xgb_lgb_suite_runs_single_lgb_conversion(self, mixed_polars_suite_run):
+        """End-to-end: cb+xgb+lgb on a small polars frame. The trainer's polars-frame raise (non-native models must receive pandas) stays silent -
+        proof that LGB gets pandas, not a cached polars frame from XGB. If the raise fires, the kind-suffix fix has regressed."""
+        models, _log = mixed_polars_suite_run
         assert models, "train_mlframe_models_suite returned empty models"
 
     def test_cache_key_includes_container_kind_suffix(self):
@@ -1015,74 +1044,13 @@ class TestPolarsReleaseBeforeNonNativeStrategy:
     strategy doesn't ``supports_polars``, drop the polars frames before
     triggering the lazy pandas conversion."""
 
-    def test_polars_originals_released_at_lgb_iteration_entry(self, tmp_path):
-        """End-to-end: cb (native) → xgb (native) → lgb (non-native).
-        Capture the log and assert the upfront-release line appears
+    def test_polars_originals_released_at_lgb_iteration_entry(self, mixed_polars_suite_run):
+        """End-to-end: cb (native) -> xgb (native) -> lgb (non-native). Read the captured log of the shared run and assert the upfront-release line appears
         BEFORE the lazy-conversion line for LGB."""
-        import logging as _logging
-        from mlframe.training.core import train_mlframe_models_suite
-        from mlframe.training.configs import TrainingBehaviorConfig
-        from mlframe.training import OutputConfig, PreprocessingConfig
-        from .shared import SimpleFeaturesAndTargetsExtractor
-
-        rng = np.random.default_rng(0)
-        n = 400
-        budget_cats = ["HOURLY", "FIXED", "MILESTONE"]
-        pl_df = pl.DataFrame(
-            {
-                "num_1": rng.standard_normal(n).astype(np.float32),
-                "num_2": rng.standard_normal(n).astype(np.float32),
-                "budget_type": pl.Series([budget_cats[i % 3] for i in range(n)]).cast(pl.Enum(budget_cats)),
-                "target": rng.integers(0, 2, n),
-            }
-        )
-        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
-
-        # Capture INFO log so we can sequence the events.
-        records = []
-
-        class _CaptureHandler(_logging.Handler):
-            """Groups tests covering capture handler."""
-            def emit(self, record):
-                """Emit."""
-                records.append((record.created, record.getMessage()))
-
-        handler = _CaptureHandler(level=_logging.INFO)
-        core_logger = _logging.getLogger("mlframe.training.core")
-        utils_logger = _logging.getLogger("mlframe.training.utils")
-        core_logger.addHandler(handler)
-        utils_logger.addHandler(handler)
-        prev_core_level = core_logger.level
-        prev_utils_level = utils_logger.level
-        core_logger.setLevel(_logging.INFO)
-        utils_logger.setLevel(_logging.INFO)
-        try:
-            trained, _meta = train_mlframe_models_suite(
-                df=pl_df,
-                target_name="release_test",
-                model_name="release",
-                features_and_targets_extractor=fte,
-                mlframe_models=["cb", "xgb", "lgb"],
-                hyperparams_config={"iterations": 3},
-                behavior_config=bc,
-                preprocessing_config=PreprocessingConfig(drop_columns=[]),
-                use_ordinary_models=True,
-                use_mlframe_ensembles=False,
-                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
-                reporting_config=_lean_reporting_config(),
-                verbose=1,
-            )
-        finally:
-            core_logger.removeHandler(handler)
-            utils_logger.removeHandler(handler)
-            core_logger.setLevel(prev_core_level)
-            utils_logger.setLevel(prev_utils_level)
-
+        trained, msgs = mixed_polars_suite_run
         # all three strategies (cb, xgb, lgb) must have trained despite the early release of the polars originals
         n_trained = sum(len(lst) for by_name in trained.values() for lst in by_name.values())
         assert n_trained == 3
-        msgs = [m for _, m in records]
         # Release indicator: any log line announcing that the pre-pipeline Polars originals were dropped (wording is incidental; we test the contract, not the phrasing). Accept either the
         # explicit pre-pipeline release or the post-pipeline release (both indicate the originals are no longer alive by the time LGB enters its lazy conversion).
         release_patterns = ("Released pre-pipeline Polars originals", "Released post-pipeline Polars DFs")
