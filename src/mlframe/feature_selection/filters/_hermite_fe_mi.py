@@ -614,19 +614,19 @@ _POLYEVAL_KERNEL_SRC = {
         r"""
 extern "C" __global__
 void hermeval_kernel(const {REAL}* __restrict__ x,
-                     const double* __restrict__ c,
+                     const {ACC}* __restrict__ c,
                      int nc, int n,
-                     double* __restrict__ out)
+                     {ACC}* __restrict__ out)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
-    double xi = (double)x[i];
+    {ACC} xi = ({ACC})x[i];
     if (nc == 0) { out[i] = 0.0; return; }
     if (nc == 1) { out[i] = c[0]; return; }
-    double p_prev = 1.0, p_curr = xi;
-    double s = c[0] + c[1] * p_curr;
+    {ACC} p_prev = 1.0, p_curr = xi;
+    {ACC} s = c[0] + c[1] * p_curr;
     for (int k = 2; k < nc; ++k) {
-        double p_next = xi * p_curr - (double)(k - 1) * p_prev;
+        {ACC} p_next = xi * p_curr - ({ACC})(k - 1) * p_prev;
         s += c[k] * p_next;
         p_prev = p_curr; p_curr = p_next;
     }
@@ -639,20 +639,20 @@ void hermeval_kernel(const {REAL}* __restrict__ x,
         r"""
 extern "C" __global__
 void legval_kernel(const {REAL}* __restrict__ x,
-                    const double* __restrict__ c,
+                    const {ACC}* __restrict__ c,
                     int nc, int n,
-                    double* __restrict__ out)
+                    {ACC}* __restrict__ out)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
-    double xi = (double)x[i];
+    {ACC} xi = ({ACC})x[i];
     if (nc == 0) { out[i] = 0.0; return; }
     if (nc == 1) { out[i] = c[0]; return; }
-    double p_prev = 1.0, p_curr = xi;
-    double s = c[0] + c[1] * p_curr;
+    {ACC} p_prev = 1.0, p_curr = xi;
+    {ACC} s = c[0] + c[1] * p_curr;
     for (int k = 2; k < nc; ++k) {
-        double inv_k = 1.0 / (double)k;
-        double p_next = ((double)(2 * k - 1) * xi * p_curr - (double)(k - 1) * p_prev) * inv_k;
+        {ACC} inv_k = 1.0 / ({ACC})k;
+        {ACC} p_next = (({ACC})(2 * k - 1) * xi * p_curr - ({ACC})(k - 1) * p_prev) * inv_k;
         s += c[k] * p_next;
         p_prev = p_curr; p_curr = p_next;
     }
@@ -665,19 +665,19 @@ void legval_kernel(const {REAL}* __restrict__ x,
         r"""
 extern "C" __global__
 void chebval_kernel(const {REAL}* __restrict__ x,
-                     const double* __restrict__ c,
+                     const {ACC}* __restrict__ c,
                      int nc, int n,
-                     double* __restrict__ out)
+                     {ACC}* __restrict__ out)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
-    double xi = (double)x[i];
+    {ACC} xi = ({ACC})x[i];
     if (nc == 0) { out[i] = 0.0; return; }
     if (nc == 1) { out[i] = c[0]; return; }
-    double p_prev = 1.0, p_curr = xi;
-    double s = c[0] + c[1] * p_curr;
+    {ACC} p_prev = 1.0, p_curr = xi;
+    {ACC} s = c[0] + c[1] * p_curr;
     for (int k = 2; k < nc; ++k) {
-        double p_next = 2.0 * xi * p_curr - p_prev;
+        {ACC} p_next = 2.0 * xi * p_curr - p_prev;
         s += c[k] * p_next;
         p_prev = p_curr; p_curr = p_next;
     }
@@ -690,20 +690,20 @@ void chebval_kernel(const {REAL}* __restrict__ x,
         r"""
 extern "C" __global__
 void lagval_kernel(const {REAL}* __restrict__ x,
-                    const double* __restrict__ c,
+                    const {ACC}* __restrict__ c,
                     int nc, int n,
-                    double* __restrict__ out)
+                    {ACC}* __restrict__ out)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
-    double xi = (double)x[i];
+    {ACC} xi = ({ACC})x[i];
     if (nc == 0) { out[i] = 0.0; return; }
     if (nc == 1) { out[i] = c[0]; return; }
-    double p_prev = 1.0, p_curr = 1.0 - xi;
-    double s = c[0] + c[1] * p_curr;
+    {ACC} p_prev = 1.0, p_curr = 1.0 - xi;
+    {ACC} s = c[0] + c[1] * p_curr;
     for (int k = 2; k < nc; ++k) {
-        double inv_k = 1.0 / (double)k;
-        double p_next = (((double)(2 * k - 1) - xi) * p_curr - (double)(k - 1) * p_prev) * inv_k;
+        {ACC} inv_k = 1.0 / ({ACC})k;
+        {ACC} p_next = ((({ACC})(2 * k - 1) - xi) * p_curr - ({ACC})(k - 1) * p_prev) * inv_k;
         s += c[k] * p_next;
         p_prev = p_curr; p_curr = p_next;
     }
@@ -714,8 +714,8 @@ void lagval_kernel(const {REAL}* __restrict__ x,
     ),
 }
 
-_CUDA_KERNELS: dict = {}  # basis -> kernel reading x as double (the historical entry point)
-_CUDA_KERNELS_BY_REAL: dict = {}  # (basis, "float" | "double") -> kernel
+_CUDA_KERNELS: dict = {}  # basis -> kernel reading x as {ACC} (the historical entry point)
+_CUDA_KERNELS_BY_REAL: dict = {}  # (basis, "float" | "{ACC}") -> kernel
 _CUDA_KERNELS_LOCK = threading.Lock()
 
 
@@ -728,7 +728,7 @@ def _polyeval_kernel(basis: str, real: str):
     import cupy as cp
 
     src, name = _POLYEVAL_KERNEL_SRC[basis]
-    kernel = cp.RawKernel(src.replace("{REAL}", real), name)
+    kernel = cp.RawKernel(src.replace("{REAL}", real).replace("{ACC}", "double"), name)  # Intentional float64: the recurrences accumulate in double for every x dtype (high-degree terms lose digits in float)
     with _CUDA_KERNELS_LOCK:
         return _CUDA_KERNELS_BY_REAL.setdefault(key, kernel)
 
