@@ -50,6 +50,11 @@ class _RankFTE(FeaturesAndTargetsExtractor):
 
 @pytest.fixture
 def synthetic_search_data():
+    """The search frame for a test that needs its own copy."""
+    return _make_search_data()
+
+
+def _make_search_data():
     """500 queries × 8 docs = 4000 rows. Strong signal in feature 0,
     moderate in feature 1, noise in 5 others. Graded relevance 0..3."""
     rng = np.random.default_rng(42)
@@ -68,42 +73,38 @@ def synthetic_search_data():
     return df
 
 
+@pytest.fixture(scope="module")
+def three_rankers_run():
+    """ONE cb+xgb+lgb LTR suite run with the ensemble, shared by the baseline, ensemble-quality and save/load sensors, which read different slots of it."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        models, meta = train_mlframe_models_suite(
+            df=_make_search_data(),
+            target_name="relevance",
+            model_name="bizvalue_ltr",
+            features_and_targets_extractor=_RankFTE(),
+            target_type=TargetTypes.LEARNING_TO_RANK,
+            mlframe_models=["cb", "xgb", "lgb"],
+            use_mlframe_ensembles=True,
+            verbose=0,
+        )
+    return models, meta
+
+
 class TestLTREndToEndSuite:
     """Full ``train_mlframe_models_suite`` LTR run with all three rankers."""
 
-    def test_individual_models_beat_strong_baseline(self, synthetic_search_data, tmp_path):
+    def test_individual_models_beat_strong_baseline(self, three_rankers_run):
         """Individual models beat strong baseline."""
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            models, meta = train_mlframe_models_suite(
-                df=synthetic_search_data,
-                target_name="relevance",
-                model_name="bizvalue_ltr",
-                features_and_targets_extractor=_RankFTE(),
-                target_type=TargetTypes.LEARNING_TO_RANK,
-                mlframe_models=["cb", "xgb", "lgb"],
-                use_mlframe_ensembles=True,
-                verbose=0,
-            )
+        models, meta = three_rankers_run
         assert meta["target_type"] == "learning_to_rank"
         for flavor in ["cb", "xgb", "lgb"]:
             ndcg = models[flavor]["test_metrics"]["ndcg@10"]
             assert ndcg >= 0.75, f"{flavor} test NDCG@10={ndcg:.4f} below 0.75 baseline; ranker is not learning the planted signal — plumbing broken?"
 
-    def test_ensemble_not_worse_than_best_individual_minus_2pp(self, synthetic_search_data):
+    def test_ensemble_not_worse_than_best_individual_minus_2pp(self, three_rankers_run):
         """Ensemble not worse than best individual minus 2pp."""
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            models, _ = train_mlframe_models_suite(
-                df=synthetic_search_data,
-                target_name="relevance",
-                model_name="bizvalue_ltr_ens",
-                features_and_targets_extractor=_RankFTE(),
-                target_type=TargetTypes.LEARNING_TO_RANK,
-                mlframe_models=["cb", "xgb", "lgb"],
-                use_mlframe_ensembles=True,
-                verbose=0,
-            )
+        models, _ = three_rankers_run
         individual = [models[f]["test_metrics"]["ndcg@10"] for f in ["cb", "xgb", "lgb"]]
         ensemble = models["ensemble"]["test_metrics"]["ndcg@10"]
         # Ensemble can be slightly below best individual on small data
@@ -136,22 +137,10 @@ class TestLTREndToEndSuite:
         # Borda should also produce a sensible ranking.
         assert models["ensemble"]["test_metrics"]["ndcg@10"] >= 0.70
 
-    def test_save_load_roundtrip_predictions_preserved(self, synthetic_search_data, tmp_path):
+    def test_save_load_roundtrip_predictions_preserved(self, three_rankers_run, tmp_path):
         """Save load roundtrip predictions preserved."""
         save_dir = str(tmp_path / "ltr_models")
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            models_a, _ = train_mlframe_models_suite(
-                df=synthetic_search_data,
-                target_name="relevance",
-                model_name="roundtrip",
-                features_and_targets_extractor=_RankFTE(),
-                target_type=TargetTypes.LEARNING_TO_RANK,
-                mlframe_models=["cb", "xgb", "lgb"],
-                use_mlframe_ensembles=False,
-                verbose=0,
-                # Need to supply a save dir; use output_config dict.
-            )
+        models_a, _ = three_rankers_run
 
         # Manually save+load via joblib (mirrors the save_dir path).
         import joblib

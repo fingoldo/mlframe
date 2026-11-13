@@ -1,5 +1,5 @@
 {
- "training/ranking/test_bizvalue_ranking.py": 6,
+ "training/ranking/test_bizvalue_ranking.py": 3,
  "training/test_all_models.py": 30,
  "training/test_core.py": 99,
  "training/test_core_coverage.py": 25,
