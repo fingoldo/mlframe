@@ -807,6 +807,7 @@ def _select_wavelet_legs(
     max_legs: int = _WAVELET_MAX_LEGS,
     scale_sigma: float = _WAVELET_SCALE_SIGMA,
     return_arrays: bool = False,
+    use_device: Optional[bool] = None,
 ) -> list:
     """Held-out scale-selection: rank the dyadic Haar legs by TRAIN-side marginal
     MI, keep only those whose HELD-OUT marginal MI clears a noise-aware MAD floor.
@@ -823,6 +824,8 @@ def _select_wavelet_legs(
     -> empty list (no wavelet). A genuine localized leg is a multi-sigma outlier
     in held-out MI -> admitted. Returns ``[]`` on too-few rows / degenerate x.
 
+    ``use_device``: ``None`` takes the policy (strict-residency flag, then the row-count tuner), ``False`` forces the host body, ``True`` the device route.
+
     ``return_arrays`` (default False, byte-identical legacy return of ``(j, k)`` tuples): when True, each
     admitted entry is ``(j, k, leg_array)`` - ``leg_array`` is the SAME ``_dyadic_haar_leg(z, j, k)`` array
     already built here to rank the candidate, so :func:`generate_wavelet_features` can reuse it instead of
@@ -834,7 +837,13 @@ def _select_wavelet_legs(
     # BATCHED born-on-device path under STRICT (default OFF -> CPU below, byte-identical). The batched twin
     # scores all candidate legs' train+held-out MI in two device workloads (one cp.bincount each) instead of
     # ~2 per-leg _binned_mi calls; parity-pinned to return the SAME admitted legs (test_wavelet_batched_mi_parity).
-    if _binnedmi_gpu_enabled(n=int(size_of(x))):
+    if use_device is None:
+        use_device = _binnedmi_gpu_enabled(n=int(size_of(x)))
+        if use_device:
+            from ._wavelet_legs_tuner import wavelet_device_chosen
+
+            use_device = wavelet_device_chosen(int(size_of(x)))  # the strict-residency flag admits the device; the row count (tuner) decides whether it pays
+    if use_device:
         _legs_gpu = _try_gpu_leg_selection(x, y, lo, span, max_scale, max_legs, scale_sigma, return_arrays)
         if _legs_gpu is not None:
             return _legs_gpu
