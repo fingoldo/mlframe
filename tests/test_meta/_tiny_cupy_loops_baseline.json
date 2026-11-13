@@ -4,6 +4,7 @@
  "src/mlframe/feature_selection/filters/_batch_mi_noise_gate_bits.py::bits_gate_mi",
  "src/mlframe/feature_selection/filters/_batch_mi_noise_gate_screen_v1.py::batch_mi_with_noise_gate_cupy_v1",
  "src/mlframe/feature_selection/filters/_batch_pair_mi_cuda_kernels.py::batch_pair_mi_cuda_row_chunked",
+ "src/mlframe/feature_selection/filters/_batch_pair_mi_cuda_shared_fused.py::batch_pair_mi_cuda_shared_fused",
  "src/mlframe/feature_selection/filters/_binned_agg_cheap_mi.py::_cheap_mi_group_selection_device",
  "src/mlframe/feature_selection/filters/_binned_numeric_agg_resident.py::_binagg_device_scores",
  "src/mlframe/feature_selection/filters/_binned_numeric_agg_resident.py::_binagg_null_max_vector",

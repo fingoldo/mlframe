@@ -65,6 +65,7 @@ def _clean_gpu_state():
 # the cupy twin accumulates in the criterion dtype, the njit reference in float64: agreement is a few dozen units of that dtype's epsilon
 _CUPY_TOL = 64 * float(np.finfo(_crit_np_dtype()).eps)
 
+
 def _build_pair_inputs(n_samples, n_features, n_pairs, n_classes_y, nbins_range, seed):
     """Build a random factors/pair/class fixture for the shared-fused-kernel test suite."""
     rng = np.random.default_rng(seed)
@@ -216,15 +217,42 @@ class TestParallelReductionRegression:
         # A serial reduction pays the full ~16x on one thread. A parallel one spreads it across 128
         # threads, so the growth is dominated by the unchanged histogram phase. 8.0 sits well between the
         # two without being tuned to any particular device.
-        assert ratio < 8.0, f"the kernel slowed {ratio:.2f}x for ~16x more joint cells ({small * 1000:.1f}ms -> {large * 1000:.1f}ms); the reduction looks serial again"
+        assert (
+            ratio < 8.0
+        ), f"the kernel slowed {ratio:.2f}x for ~16x more joint cells ({small * 1000:.1f}ms -> {large * 1000:.1f}ms); the reduction looks serial again"
 
-    def test_the_kernel_is_launched_with_a_full_block_of_threads(self):
-        """A parallel reduction needs threads to spread across; one thread per block cannot be parallel."""
-        import inspect
+    def test_the_kernel_is_launched_with_a_full_block_of_threads(self, monkeypatch):
+        """A parallel reduction needs threads to spread across; one thread per block cannot be parallel. The default block is chosen by the occupancy rule, so the launch itself is observed."""
+        import numpy as np
+        from mlframe.feature_selection.filters import _batch_pair_mi_cuda_shared_fused as S
 
-        sig = inspect.signature(batch_pair_mi_cuda_shared_fused)
-        threads = sig.parameters["threads_per_block"].default
-        assert threads > 1, f"the kernel defaults to {threads} thread(s) per block, so its reduction cannot be parallel"
+        seen = []
+        real = S._get_shared_fused_kernel()
+
+        class _Spy:
+            """Records the block shape of the launch and forwards everything else to the real kernel."""
+
+            def __call__(self, grid, block, args, **kw):
+                """Launch and remember the block."""
+                seen.append(block)
+                return real(grid, block, args, **kw)
+
+            def __getattr__(self, name):
+                """Forward attribute access (occupancy queries, the shared-memory opt-in) to the real kernel."""
+                return getattr(real, name)
+
+            def __setattr__(self, name, value):
+                """Forward attribute writes to the real kernel."""
+                setattr(real, name, value)
+
+        monkeypatch.setattr(S, "_get_shared_fused_kernel", lambda: _Spy())
+        rng = np.random.default_rng(0)
+        n, ncol = 4000, 6
+        fd = rng.integers(0, 4, (n, ncol)).astype(np.int32)
+        y = rng.integers(0, 3, n).astype(np.int32)
+        a, b = np.array([0, 1, 2]), np.array([3, 4, 5])
+        S.batch_pair_mi_cuda_shared_fused(fd, a, b, np.full(ncol, 4, np.int32), y, np.bincount(y, minlength=3) / n)
+        assert seen and seen[0][0] > 1 and seen[0][0] % 32 == 0, f"launched with block {seen}"
 
 
 class TestCupyResidentUploadRegression:
