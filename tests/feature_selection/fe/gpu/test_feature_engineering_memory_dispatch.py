@@ -145,7 +145,7 @@ class TestHoistHeadroomAcceptance:
     def _force_avail(self, monkeypatch, available_bytes):
         # Pin the OPT5 vmem cache so the decision is deterministic regardless of host RAM.
         """Force avail."""
-        monkeypatch.setattr(fe_mod, "_FE_VMEM_CACHE", (fe_mod._time.monotonic(), int(available_bytes)))
+        monkeypatch.setattr(fe_mod, "_FE_VMEM_CACHE", (fe_mod._time.monotonic(), int(available_bytes)))  # audit-exempt: patch_target_read_at_call -- the budget module reads this name through _get_live(), which prefers the parent module's attribute when loaded, so patching the parent is the designed override (a re-exported live value, not an inert binding)
 
     def test_small_buffer_at_abundant_ram_hoists(self, monkeypatch):
         """The F2 100k repro: 222.5 MiB buffer, 5.7 GiB available, 2 workers. The old relative
@@ -320,7 +320,7 @@ class TestAbsoluteBufferCeiling:
 
     def _force_avail(self, monkeypatch, available_bytes):
         """Force avail."""
-        monkeypatch.setattr(fe_mod, "_FE_VMEM_CACHE", (fe_mod._time.monotonic(), int(available_bytes)))
+        monkeypatch.setattr(fe_mod, "_FE_VMEM_CACHE", (fe_mod._time.monotonic(), int(available_bytes)))  # audit-exempt: patch_target_read_at_call -- the budget module reads this name through _get_live(), which prefers the parent module's attribute when loaded, so patching the parent is the designed override (a re-exported live value, not an inert binding)
 
     def test_budget_does_not_scale_unboundedly_with_available_ram(self, monkeypatch):
         """Pre-fix: the relative budget scales linearly with ``available`` with no cap, so a huge-RAM

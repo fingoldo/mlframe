@@ -31,7 +31,6 @@ Run from the repository root. The script re-runs each meta-test in
 - `_docstring_baseline.json` - missing-docstring allow-list
 - `_logger_lazy_baseline.json` - non-lazy logger format strings
 - `_module_state_test_reset_baseline.json` - module-level mutable state no test resets (py-ci-shared `module_state_test_reset`, shrink-only; audits/2026-11-05/_TRACKER.md GATE-1)
-- `_patch_target_read_at_call_baseline.json` - monkeypatches of names a module only re-exports (py-ci-shared `patch_target_read_at_call`, shrink-only; audits/2026-11-05/_TRACKER.md GATE-2)
 - `_loc_over_1k_baseline.json` - modules over 1000 lines and their one-way ceilings (`--refresh-loc-budget-baseline`)
 - `_audit_metadata_baseline.json` - audit/phase metadata leaking into code comments
 - `_cache_mutation_lock_baseline.json` - cache mutations performed without holding the module lock

@@ -225,4 +225,4 @@ def test_module_level_mutable_state_has_a_test_side_reset():
 
 def test_monkeypatches_target_the_binding_the_code_under_test_reads():
     """Patching a name a module only re-exports changes nothing: the code under test keeps its own binding."""
-    assert_patch_target_read_at_call([TESTS], [SRC], baseline_path=HERE / "_patch_target_read_at_call_baseline.json", min_files=MIN_SRC_FILES)
+    assert_patch_target_read_at_call([TESTS], [SRC], min_files=MIN_SRC_FILES)

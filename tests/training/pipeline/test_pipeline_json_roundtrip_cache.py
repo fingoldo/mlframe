@@ -190,8 +190,8 @@ def test_pipeline_json_disk_cache_version_invalidation(tmp_path, monkeypatch):
     import orjson as _orjson
 
     cache_file = str(tmp_path / "polars_ds_pipeline_roundtrip.json")
-    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_PATH", cache_file)
-    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", False)
+    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_PATH", cache_file)  # audit-exempt: patch_target_read_at_call -- the pipeline-cache module reads this name through _parent_attr(), which prefers the parent facade's attribute when loaded, so patching the facade is the designed override kept for callers that patched it before the split
+    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", False)  # audit-exempt: patch_target_read_at_call -- the pipeline-cache module reads this name through _parent_attr(), which prefers the parent facade's attribute when loaded, so patching the facade is the designed override kept for callers that patched it before the split
     sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
 
     # Hand-craft a cache file with a stale version tag.
@@ -216,8 +216,8 @@ def test_pipeline_json_disk_cache_corrupt_file_does_not_crash(tmp_path, monkeypa
     from mlframe.training.core import _setup_helpers as sh
 
     cache_file = str(tmp_path / "polars_ds_pipeline_roundtrip.json")
-    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_PATH", cache_file)
-    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", False)
+    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_PATH", cache_file)  # audit-exempt: patch_target_read_at_call -- the pipeline-cache module reads this name through _parent_attr(), which prefers the parent facade's attribute when loaded, so patching the facade is the designed override kept for callers that patched it before the split
+    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", False)  # audit-exempt: patch_target_read_at_call -- the pipeline-cache module reads this name through _parent_attr(), which prefers the parent facade's attribute when loaded, so patching the facade is the designed override kept for callers that patched it before the split
     sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
 
     with open(cache_file, "w", encoding="utf-8") as fh:
