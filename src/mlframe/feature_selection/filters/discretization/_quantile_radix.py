@@ -136,6 +136,60 @@ def sorted_quantiles(values: np.ndarray, quantiles: np.ndarray) -> "np.ndarray |
     return None
 
 
+@njit(nogil=True, cache=True)
+def _sort_xy_f32_njit(x: np.ndarray, y: np.ndarray):
+    """``(x[order].astype(float64), y[order])`` for the stable ascending order of the NaN-free float32 vector ``x``: a radix argsort (the order-preserving key of each float with its index riding along, four 8-bit LSD passes) and one gather of both arrays.
+
+    Equal ``x`` keep their input order (``np.argsort``'s quicksort leaves them in an unspecified one); the sorted ``x`` is identical, and so are the per-value label counts that the MDLP split search reads.
+    """
+    n = x.shape[0]
+    u = x.view(np.uint32)
+    keys = np.empty(n, dtype=np.uint32)
+    idx = np.empty(n, dtype=np.int64)
+    k2 = np.empty(n, dtype=np.uint32)
+    i2 = np.empty(n, dtype=np.int64)
+    cnt = np.empty(256, dtype=np.int64)
+    for i in range(n):
+        v = u[i]
+        if v & 0x80000000:
+            keys[i] = ~v
+        else:
+            keys[i] = v | 0x80000000
+        idx[i] = i
+    for shift in (0, 8, 16, 24):
+        cnt[:] = 0
+        for i in range(n):
+            cnt[(keys[i] >> shift) & 0xFF] += 1
+        s = 0
+        for b in range(256):
+            c = cnt[b]
+            cnt[b] = s
+            s += c
+        for i in range(n):
+            k = keys[i]
+            b = (k >> shift) & 0xFF
+            p = cnt[b]
+            k2[p] = k
+            i2[p] = idx[i]
+            cnt[b] = p + 1
+        keys, k2 = k2, keys
+        idx, i2 = i2, idx
+    xs = np.empty(n, dtype=np.float64)  # Intentional float64: the MDLP cut search runs at the production binning width
+    ys = np.empty(n, dtype=y.dtype)
+    for i in range(n):
+        j = idx[i]
+        xs[i] = x[j]
+        ys[i] = y[j]
+    return xs, ys
+
+
+def sort_xy(x: np.ndarray, y: np.ndarray) -> "tuple[np.ndarray, np.ndarray] | None":
+    """``(x sorted ascending as float64, y in that order)`` by the radix route for a large NaN-free float32 ``x`` with a 1-D integer ``y`` of the same length, else ``None`` (the caller sorts with numpy)."""
+    if x.dtype == np.float32 and x.ndim == 1 and x.size >= _UNIQUE_COUNTS_MIN_SIZE and y.ndim == 1 and y.shape[0] == x.shape[0] and y.dtype.kind in "iu":
+        return _sort_xy_f32_njit(np.ascontiguousarray(x), np.ascontiguousarray(y))
+    return None
+
+
 @njit(parallel=True, nogil=True, cache=True)
 def _quantile_edges_2d_radix_njit(arr2d: np.ndarray, quantiles: np.ndarray, edges_out: np.ndarray) -> None:
     """Per-column quantile edges of a NaN-free float32 ``arr2d`` (n_rows x n_cols), written into ``edges_out`` (n_q x n_cols, double).
