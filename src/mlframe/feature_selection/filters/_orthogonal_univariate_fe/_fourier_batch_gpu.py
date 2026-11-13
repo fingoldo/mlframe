@@ -57,6 +57,8 @@ __device__ __forceinline__ void trig(const {ACC} w, const T z, {ACC}* s, {ACC}* 
         sincos(w * ({ACC})z, s, c);
     }
 }
+// Kahan-compensated add of v into acc with the running compensation comp (both in the sample type)
+#define KAHAN_ADD(acc, comp, v) { const {REAL} yk_ = (v) - comp; const {REAL} tk_ = acc + yk_; comp = (tk_ - acc) - yk_; acc = tk_; }
 extern "C" {
 __device__ __forceinline__ {ACC} power_term({ACC} sv, {ACC} vv, {ACC} vy, {ACC} n, {ACC} y_ss) {
     const {ACC} v_ss = vv - sv * sv / n;
@@ -71,16 +73,20 @@ __global__ void periodogram_power_b(const {REAL}* Z, const {REAL}* YC, const {AC
     const {REAL}* z = Z + (long long)c * n;
     const {REAL}* yc = YC + (long long)c * n;
     const {ACC} w = 6.283185307179586 * freqs[(long long)c * F + f];
-    {ACC} ss = 0.0, sc = 0.0, vvs = 0.0, vvc = 0.0, vys = 0.0, vyc = 0.0;
+    // Per-thread partials in the SAMPLE type with Kahan compensation, combined in {ACC} below: the sine and cosine are taken in the sample type anyway (trig above), so double partials
+    // only paid the 1:32 double rate of the card for no accuracy the inputs carry (30000 x 64 columns x 96 frequencies: 77.6 -> 35.6 ms, power within 2.4e-5 relative, p99 4e-7, the argmax
+    // frequency of every column unchanged); the compensation keeps the long per-thread sums at the precision of their terms.
+    {REAL} ss = 0, sc = 0, vvs = 0, vvc = 0, vys = 0, vyc = 0;
+    {REAL} c_ss = 0, c_sc = 0, c_vvs = 0, c_vvc = 0, c_vys = 0, c_vyc = 0;
     for (long long i = threadIdx.x; i < n; i += blockDim.x) {
-        {ACC} s, co;
-        trig(w, z[i], &s, &co);
-        const {ACC} y = yc[i];
-        ss += s; sc += co; vvs += s * s; vvc += co * co; vys += s * y; vyc += co * y;
+        {ACC} s_, co_;
+        trig(w, z[i], &s_, &co_);
+        const {REAL} s = ({REAL})s_, co = ({REAL})co_, y = yc[i];
+        KAHAN_ADD(ss, c_ss, s) KAHAN_ADD(sc, c_sc, co) KAHAN_ADD(vvs, c_vvs, s * s) KAHAN_ADD(vvc, c_vvc, co * co) KAHAN_ADD(vys, c_vys, s * y) KAHAN_ADD(vyc, c_vyc, co * y)
     }
     __shared__ {ACC} sh[6][32];
     const int lane = threadIdx.x & 31, warp = threadIdx.x >> 5;
-    {ACC} vals[6] = {ss, sc, vvs, vvc, vys, vyc};
+    {ACC} vals[6] = {({ACC})ss, ({ACC})sc, ({ACC})vvs, ({ACC})vvc, ({ACC})vys, ({ACC})vyc};
     #pragma unroll
     for (int k = 0; k < 6; ++k) {
         {ACC} v = vals[k];
@@ -174,7 +180,10 @@ __global__ void apply_deflate_b(const {REAL}* Z, const {REAL}* Y, const {ACC}* c
 
 
 _SRC = render(_SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR)))  # Intentional float64: {ACC} is float64; {REAL} stays for the per-type modules
-_MODULES_BY_REAL = {"double": LazyRawModule(_SRC.replace("{REAL}", "double"), ("-std=c++14",)), "float": LazyRawModule(_SRC.replace("{REAL}", "float"), ("-std=c++14",))}
+_MODULES_BY_REAL = {
+    "double": LazyRawModule(_SRC.replace("{REAL}", "double"), ("-std=c++14",)),
+    "float": LazyRawModule(_SRC.replace("{REAL}", "float"), ("-std=c++14",)),
+}
 
 
 def _module_for(Z: Any) -> Any:
@@ -210,7 +219,9 @@ def _deflate(cp: Any, Z: Any, Y: Any, fvec: Any, active: Any) -> "tuple[Any, np.
     coef = cp.empty((C, 3), dtype=cp.float64)
     out = cp.empty((C, n), dtype=Z.dtype)  # the deflated target keeps the sample block's dtype; the projection is accumulated in double precision
     gram((blocks, C), (gram_threads,), (Z, Y, fvec, part, cp.int64(n), cp.int32(blocks)))
-    mod.get_function("solve3_b")((C,), (32,), (part, cp.int32(blocks), active, coef))  # launch-ok: one warp: threads 0-8 fold the nine partial sums, thread 0 solves the 3x3 system; a wider block adds nothing
+    mod.get_function("solve3_b")(
+        (C,), (32,), (part, cp.int32(blocks), active, coef)
+    )  # launch-ok: one warp: threads 0-8 fold the nine partial sums, thread 0 solves the 3x3 system; a wider block adds nothing
     deflate((blocks, C), (_block_for(deflate, n),), (Z, Y, coef, fvec, out, cp.int64(n)))
     singular = ~np.isfinite(cp.asnumpy(coef)).all(axis=1)
     return out, singular

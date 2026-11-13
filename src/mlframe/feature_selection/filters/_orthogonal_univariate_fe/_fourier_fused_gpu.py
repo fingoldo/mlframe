@@ -43,18 +43,23 @@ __device__ __forceinline__ {ACC} power_term({ACC} sv, {ACC} vv, {ACC} vy, {ACC} 
     const {ACC} denom = v_ss * y_ss;
     return (ok && denom > 0.0) ? (vy * vy) / denom : 0.0;
 }
+// Kahan-compensated add of v into acc with the running compensation comp (both in the sample type)
+#define KAHAN_ADD(acc, comp, v) { const {REAL} yk_ = (v) - comp; const {REAL} tk_ = acc + yk_; comp = (tk_ - acc) - yk_; acc = tk_; }
 __global__ void periodogram_power(const {REAL}* z, const {REAL}* yc, const {ACC}* freqs, {ACC}* out, const long long n, const {ACC} y_ss) {
     const {ACC} w = 6.283185307179586 * freqs[blockIdx.x];
-    {ACC} ss = 0.0, sc = 0.0, vvs = 0.0, vvc = 0.0, vys = 0.0, vyc = 0.0;
+    // Per-thread partials in the SAMPLE type with Kahan compensation, combined in {ACC} below (same change and measurements as the batch kernel: the trig is taken in the sample type, so double
+    // partials only paid the card's 1:32 double rate).
+    {REAL} ss = 0, sc = 0, vvs = 0, vvc = 0, vys = 0, vyc = 0;
+    {REAL} c_ss = 0, c_sc = 0, c_vvs = 0, c_vvc = 0, c_vys = 0, c_vyc = 0;
     for (long long i = threadIdx.x; i < n; i += blockDim.x) {
-        {ACC} s, c;
-        trig(w, z[i], &s, &c);
-        const {ACC} y = yc[i];
-        ss += s; sc += c; vvs += s * s; vvc += c * c; vys += s * y; vyc += c * y;
+        {ACC} s_, c_;
+        trig(w, z[i], &s_, &c_);
+        const {REAL} s = ({REAL})s_, c = ({REAL})c_, y = yc[i];
+        KAHAN_ADD(ss, c_ss, s) KAHAN_ADD(sc, c_sc, c) KAHAN_ADD(vvs, c_vvs, s * s) KAHAN_ADD(vvc, c_vvc, c * c) KAHAN_ADD(vys, c_vys, s * y) KAHAN_ADD(vyc, c_vyc, c * y)
     }
     __shared__ {ACC} sh[6][32];
     const int lane = threadIdx.x & 31, warp = threadIdx.x >> 5;
-    {ACC} vals[6] = {ss, sc, vvs, vvc, vys, vyc};
+    {ACC} vals[6] = {({ACC})ss, ({ACC})sc, ({ACC})vvs, ({ACC})vvc, ({ACC})vys, ({ACC})vyc};
     #pragma unroll
     for (int k = 0; k < 6; ++k) {
         {ACC} v = vals[k];
@@ -156,7 +161,9 @@ def power_sincos(cp: Any, z: Any, yc: Any, y_ss: float, freqs: Any) -> Any:
     out = cp.empty(int(f.shape[0]), dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     power = _modules_for(z).get(cp).get_function("periodogram_power")
-    power((int(f.shape[0]),), (block_size_for(power, work_items=int(z.shape[0]), max_width=1024),), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss)))  # Intentional float64: the power kernel accumulates in double
+    power(
+        (int(f.shape[0]),), (block_size_for(power, work_items=int(z.shape[0]), max_width=1024),), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss))
+    )  # Intentional float64: the power kernel accumulates in double
     return out
 
 
@@ -180,7 +187,9 @@ def deflate_sincos(cp: Any, z: Any, y: Any, freq: float) -> Optional[Any]:
     out = cp.empty(n, dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     gram((blocks,), (gram_threads,), (z, y, cp.float64(freq), part, cp.int64(n)))
-    mod.get_function("solve3")((1,), (32,), (part, cp.int32(blocks), coef))  # launch-ok: one warp: threads 0-8 fold the nine partial sums, thread 0 solves the 3x3 system; a wider block adds nothing
+    mod.get_function("solve3")(
+        (1,), (32,), (part, cp.int32(blocks), coef)
+    )  # launch-ok: one warp: threads 0-8 fold the nine partial sums, thread 0 solves the 3x3 system; a wider block adds nothing
     if not np.all(np.isfinite(cp.asnumpy(coef))):
         return None
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
