@@ -12,10 +12,10 @@ from __future__ import annotations
 import math
 
 import numpy as np
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from numba import cuda
 
 _MAX_CELLS = 1024
-_THREADS = 128
 
 
 def _make_family_mi_kernel(max_cells: int):
@@ -88,9 +88,10 @@ def family_null_max_device(cols: np.ndarray, n_x: np.ndarray, perms: np.ndarray,
     perms_d = cp.asarray(np.ascontiguousarray(perms, dtype=np.int64))
     out_d = cp.zeros((B, K), dtype=cp.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     total = B * K
-    blocks = (total + _THREADS - 1) // _THREADS
     cap = 64 if int(n_y) * (int(np.max(n_x)) if np.size(n_x) else 0) <= 64 else _MAX_CELLS
-    _KERNELS[cap][blocks, _THREADS](cols_d, nx_d, perms_d, np.int64(n_y), out_d)
+    threads = block_size_for(_KERNELS[cap], work_items=total)
+    blocks = (total + threads - 1) // threads
+    _KERNELS[cap][blocks, threads](cols_d, nx_d, perms_d, np.int64(n_y), out_d)
     best = cp.maximum(out_d.max(axis=1), 0.0)
     host: np.ndarray = cp.asnumpy(best)
     return host

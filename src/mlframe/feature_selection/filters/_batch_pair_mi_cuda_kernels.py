@@ -20,6 +20,7 @@ from typing import Any
 
 import numba
 import numpy as np
+from pyutilz.performance.gpu_hw_launch import block_size_for
 
 logger = logging.getLogger(__name__)
 
@@ -485,7 +486,7 @@ def _new_zeroed_device_array(shape: tuple, dtype) -> Any:
     arr = _nb_cuda.device_array(shape, dtype=dtype)
     n = int(np.prod(shape))
     flat = arr.reshape(n)
-    threads = 256
+    threads = block_size_for(_ZERO_FILL_KERNEL, work_items=n)
     blocks = min(1024, -(-n // threads))
     _ZERO_FILL_KERNEL[blocks, threads](flat, n)
     return arr

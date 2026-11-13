@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from numba import cuda
 
 if TYPE_CHECKING:
@@ -54,7 +55,7 @@ def device_permuted_y_batch(classes_y: np.ndarray, base_seed: object, first_perm
     y_dev = cp.asarray(np.ascontiguousarray(classes_y, dtype=np.int32))
     n = int(y_dev.shape[0])
     out = cp.empty((int(count), n), dtype=cp.int32)
-    threads = 128
+    threads = block_size_for(_lcg_permuted_y_cuda_kernel, work_items=int(count))
     blocks = (int(count) + threads - 1) // threads
     _lcg_permuted_y_cuda_kernel[blocks, threads](y_dev, seed, np.int64(first_perm), np.int64(count), out)
     return out

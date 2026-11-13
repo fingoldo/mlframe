@@ -155,7 +155,7 @@ if _NUMBA_CUDA_AVAILABLE:
     def _hermeval_numba_cuda(x_gpu, c_gpu):
         n = x_gpu.shape[0]
         out = cp.empty(n, dtype=cp.float64)
-        block = 256
+        block = block_size_for(_hermeval_numba_cuda_kernel, work_items=n)
         grid = (n + block - 1) // block
         # numba.cuda kernels accept cupy arrays directly via __cuda_array_interface__
         _hermeval_numba_cuda_kernel[grid, block](x_gpu, c_gpu, c_gpu.shape[0], n, out)
@@ -164,7 +164,7 @@ if _NUMBA_CUDA_AVAILABLE:
     def _legval_numba_cuda(x_gpu, c_gpu):
         n = x_gpu.shape[0]
         out = cp.empty(n, dtype=cp.float64)
-        block = 256
+        block = block_size_for(_legval_numba_cuda_kernel, work_items=n)
         grid = (n + block - 1) // block
         _legval_numba_cuda_kernel[grid, block](x_gpu, c_gpu, c_gpu.shape[0], n, out)
         return out
@@ -172,7 +172,7 @@ if _NUMBA_CUDA_AVAILABLE:
     def _chebval_numba_cuda(x_gpu, c_gpu):
         n = x_gpu.shape[0]
         out = cp.empty(n, dtype=cp.float64)
-        block = 256
+        block = block_size_for(_chebval_numba_cuda_kernel, work_items=n)
         grid = (n + block - 1) // block
         _chebval_numba_cuda_kernel[grid, block](x_gpu, c_gpu, c_gpu.shape[0], n, out)
         return out
@@ -180,7 +180,7 @@ if _NUMBA_CUDA_AVAILABLE:
     def _lagval_numba_cuda(x_gpu, c_gpu):
         n = x_gpu.shape[0]
         out = cp.empty(n, dtype=cp.float64)
-        block = 256
+        block = block_size_for(_lagval_numba_cuda_kernel, work_items=n)
         grid = (n + block - 1) // block
         _lagval_numba_cuda_kernel[grid, block](x_gpu, c_gpu, c_gpu.shape[0], n, out)
         return out

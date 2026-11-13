@@ -516,15 +516,23 @@ def _batched_joint_counts2(X, b, Kx, Kb):
         col_tiles = (K + tile - 1) // tile
         rows_per_block = _hist_rows_per_block(n, col_tiles)
         grid = ((n + rows_per_block - 1) // rows_per_block, col_tiles)
+        shared = tile * int(Kx) * int(Kb) * 4
+        # the lane layout is blockDim.x / tile lanes over the tile's columns, so any warp multiple works; the width is the device's occupancy answer for the kernel (256 on the GTX 1050 Ti)
         if u8:
-            _get_batched_joint_hist_u8_kernels()[3](
-                grid, (256,), (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(tile), np.int32(tile.bit_length() - 1), np.int64(rows_per_block), counts),
-                shared_mem=tile * int(Kx) * int(Kb) * 4,
+            tile_kernel = _get_batched_joint_hist_u8_kernels()[3]
+            tile_kernel(
+                grid,
+                (block_size_for(tile_kernel, dyn_smem=shared, work_items=rows_per_block * tile),),
+                (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(tile), np.int32(tile.bit_length() - 1), np.int64(rows_per_block), counts),
+                shared_mem=shared,
             )
             return counts.reshape(K, int(Kx) * int(Kb))
-        _get_batched_joint_hist_kernels()[4](
-            grid, (256,), (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(tile), np.int64(rows_per_block), counts),
-            shared_mem=tile * int(Kx) * int(Kb) * 4,
+        tile_kernel = _get_batched_joint_hist_kernels()[4]
+        tile_kernel(
+            grid,
+            (block_size_for(tile_kernel, dyn_smem=shared, work_items=rows_per_block * tile),),
+            (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(tile), np.int64(rows_per_block), counts),
+            shared_mem=shared,
         )
         return counts.reshape(K, int(Kx) * int(Kb))
     h2 = _get_batched_joint_hist_u8_kernels()[1] if u8 else _get_batched_joint_hist_kernels()[3]

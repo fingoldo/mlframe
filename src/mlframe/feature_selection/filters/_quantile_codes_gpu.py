@@ -33,7 +33,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-THREADS = 256
 #: Elements (columns x rows) from which the device radix path is the default choice for float32 blocks.
 STRICT_DEVICE_MIN_ELEMENTS = 20_000_000  # the strict-resident path keeps its bulk device-to-host traffic out of this coding unless the block is large (tests/feature_selection/gpu/test_cmi_residency_traffic.py)
 DEVICE_MIN_ELEMENTS = 1_500_000  # measured crossover on the GTX 1050 Ti (8 host threads): the device wins from about 1M elements at 20000 to 100000 rows (audits note), 20M was the first conservative bound
@@ -128,24 +127,26 @@ def _order_statistics_f32(cp, v_dev, ranks: np.ndarray):
     T = int(ranks.size)
     mod = _RADIX.get(cp)
     w = cp.asarray(ranks.astype(np.int64))
-    grid = (min(64, (n + THREADS - 1) // THREADS), cb)
+    hist1, hist2, hist3 = (mod.get_function(f"radix_hist{i}") for i in (1, 2, 3))
+    # the histograms use fixed shared tables and a grid-stride loop: any block width gives the same counts, so each launch takes its own from the device
+    t1, t2, t3 = (block_size_for(k, work_items=n) for k in (hist1, hist2, hist3))
 
     h1 = cp.zeros((cb, 2048), dtype=cp.uint32)
-    mod.get_function("radix_hist1")(grid, (THREADS,), (v_dev, np.int64(n), h1))
+    hist1((min(64, (n + t1 - 1) // t1), cb), (t1,), (v_dev, np.int64(n), h1))
     cs1 = cp.cumsum(h1, axis=1, dtype=cp.int64)
     bin1 = (cs1[:, None, :] <= w[None, :, None]).sum(axis=2).astype(cp.int32)  # (cb, T): first bin whose running count passes the rank
     before1 = cp.where(bin1 > 0, cp.take_along_axis(cs1, cp.maximum(bin1 - 1, 0).astype(cp.int64), axis=1), 0)
     r1 = (w[None, :] - before1).astype(cp.int32)
 
     h2 = cp.zeros((cb, T, 2048), dtype=cp.uint32)
-    mod.get_function("radix_hist2")(grid, (THREADS,), (v_dev, np.int64(n), cp.ascontiguousarray(bin1), np.int32(T), h2))
+    hist2((min(64, (n + t2 - 1) // t2), cb), (t2,), (v_dev, np.int64(n), cp.ascontiguousarray(bin1), np.int32(T), h2))
     cs2 = cp.cumsum(h2, axis=2, dtype=cp.int32)
     bin2 = (cs2 <= r1[:, :, None]).sum(axis=2).astype(cp.int32)
     before2 = cp.where(bin2 > 0, cp.take_along_axis(cs2, cp.maximum(bin2 - 1, 0).astype(cp.int64)[:, :, None], axis=2)[:, :, 0], 0)
     r2 = (r1 - before2).astype(cp.int32)
 
     h3 = cp.zeros((cb, T, 1024), dtype=cp.uint32)
-    mod.get_function("radix_hist3")(grid, (THREADS,), (v_dev, np.int64(n), cp.ascontiguousarray(bin1), cp.ascontiguousarray(bin2), np.int32(T), h3))
+    hist3((min(64, (n + t3 - 1) // t3), cb), (t3,), (v_dev, np.int64(n), cp.ascontiguousarray(bin1), cp.ascontiguousarray(bin2), np.int32(T), h3))
     cs3 = cp.cumsum(h3, axis=2, dtype=cp.int32)
     bin3 = (cs3 <= r2[:, :, None]).sum(axis=2).astype(cp.int32)
 
@@ -238,8 +239,9 @@ def quantile_codes_block_gpu(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: 
         keep[:, 1:] = (edges[:, 1:] != edges[:, :-1]).astype(cp.uint8)
         hi_code = cp.maximum(keep.sum(axis=1).astype(cp.int32) - 2, 0).astype(cp.int32)
         out = cp.empty((c1 - c0, n), dtype=cp.int16)
-        grid = (min(1024, (n + THREADS - 1) // THREADS), c1 - c0)
-        kernel(grid, (THREADS,), (v_dev, cp.ascontiguousarray(edges), keep, hi_code, np.int64(n), np.int32(nb1), out))
+        threads = block_size_for(kernel, work_items=n)  # grid-stride loop, edges staged in a table sized by the edge count: independent of the block width
+        grid = (min(1024, (n + threads - 1) // threads), c1 - c0)
+        kernel(grid, (threads,), (v_dev, cp.ascontiguousarray(edges), keep, hi_code, np.int64(n), np.int32(nb1), out))
         codes[c0:c1] = cp.asnumpy(out)
         nx[c0:c1] = cp.asnumpy(out.max(axis=1)).astype(np.int64) + 1
         if few.size:  # few distinct values: exact level codes, as the host kernel gives them

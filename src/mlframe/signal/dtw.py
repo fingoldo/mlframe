@@ -179,7 +179,7 @@ def dtw_cuda(
     band_h = np.full((n + 1, bw), np.float64(np.inf), dtype=np.float64)
     band_h[0, w] = np.float64(0.0)  # cost[0,0] -> band[0, w]
     band_d = _nb_cuda.to_device(band_h)
-    threads = 256
+    threads = block_size_for(_numba_cuda_banded_step, work_items=min(n, m))  # one thread per cell of an anti-diagonal, at most min(n, m)
     for k in range(1, n + m + 1):
         i_min = max(1, k - m)
         i_max = min(n, k - 1)

@@ -303,11 +303,15 @@ class DeviceWinners:
         c1 = cp.zeros((b_n * self.C * self.kxmax,), dtype=cp.int32)
         pm = np.int32(self.P * self.M)
         args = (self.masks, ybits, self.off, self.kx, np.int32(b_n), np.int32(self.C), np.int32(self.F), pm, np.int32(self.NW), np.int32(self.kxmax), c1)
-        _kernel(cp, "oj_count_ones")((self.C, (b_n + 7) // 8), (128,), args)
+        count_ones = _kernel(cp, "oj_count_ones")
+        # stride loop over the words and warp shuffles: any warp multiple of at least PB = 8 threads gives the same counts
+        count_ones((self.C, (b_n + 7) // 8), (block_size_for(count_ones, work_items=self.NW),), args)
         out = cp.empty((b_n, self.F, self.P, self.M), dtype=cp.float64)  # Intentional float64: MI statistic
         n_o = b_n * self.C
         args2 = (c1, self.px, self.kx, self.nv, ky, np.int32(b_n), np.int32(self.C), np.int32(self.F), pm, np.int32(self.kxmax), out)
-        _kernel(cp, "oj_mi_from_ones")(((n_o + 127) // 128,), (128,), args2)
+        mi_from_ones = _kernel(cp, "oj_mi_from_ones")
+        mi_width = block_size_for(mi_from_ones, work_items=n_o)
+        mi_from_ones(((n_o + mi_width - 1) // mi_width,), (mi_width,), args2)
         return out
 
     def _cell_mi_scatter(self, vy: Any, ky: Any, b_n: int, kymax: int) -> Any:
@@ -319,7 +323,7 @@ class DeviceWinners:
         private = self.kxmax * kymax <= 64 and self.NV <= 256 * 65535 and os.environ.get("MLFRAME_HONEST_OJ_GPU_PRIVATE", "0").strip() == "1"
         args = (self.xb, vy, self.kx, self.nv, ky, np.int32(self.F), np.int32(self.P * self.M), np.int32(self.NV), np.int32(self.kxmax), np.int32(kymax), out)
         smem = (2 * 64 * 256) if private else 4 * 8 * self.kxmax * kymax
-        _kernel(cp, "oj_cell_mi_private" if private else "oj_cell_mi")((self.C, b_n), (256,), args, shared_mem=smem)
+        _kernel(cp, "oj_cell_mi_private" if private else "oj_cell_mi")((self.C, b_n), (256,), args, shared_mem=smem)  # launch-ok: the per-warp histograms are sized for 8 warps (shared_mem = 4 * 8 * kxmax * kymax, or 2 * 64 * 256 for the private variant), so the width is the 8 x 32 threads that formula assumes; changing it means changing the smem formula and the kernel together
         return out
 
     def picks(self, perms: np.ndarray) -> Optional[np.ndarray]:
@@ -444,7 +448,9 @@ class DevicePool:
         self.nv = cp.asarray(np.array([r], dtype=np.int64))
         self.masks = cp.zeros((int(self.kx_h.sum()) * self.NW,), dtype=cp.uint32)
         args = (xb, self.off, self.kx, self.nv, np.int32(self.C), np.int32(self.C), np.int32(r), np.int32(self.NW), self.masks)
-        _kernel(cp, "oj_build_masks")(((self.C * r + 255) // 256,), (256,), args)
+        build_masks = _kernel(cp, "oj_build_masks")
+        mask_width = block_size_for(build_masks, work_items=self.C * r)
+        build_masks(((self.C * r + mask_width - 1) // mask_width,), (mask_width,), args)
         px = np.zeros((self.C, self.kxmax), dtype=np.int32)
         flat = pool_rc.reshape(self.C, r)
         for c in range(self.C):
@@ -468,7 +474,9 @@ class DevicePool:
         _launch_flat(cp, "oj_build_ybits", n_y, (vy, self.nv, np.int32(b_n), np.int32(1), np.int32(self.R), np.int32(self.NW), ybits))
         c1 = cp.zeros((b_n * self.C * self.kxmax,), dtype=cp.int32)
         args = (self.masks, ybits, self.off, self.kx, np.int32(b_n), np.int32(self.C), np.int32(1), np.int32(self.C), np.int32(self.NW), np.int32(self.kxmax), c1)
-        _kernel(cp, "oj_count_ones")((self.C, (b_n + 7) // 8), (128,), args)
+        count_ones = _kernel(cp, "oj_count_ones")
+        # stride loop over the words and warp shuffles: any warp multiple of at least PB = 8 threads gives the same counts
+        count_ones((self.C, (b_n + 7) // 8), (block_size_for(count_ones, work_items=self.NW),), args)
         mi = cp.empty((b_n, self.T, self.M), dtype=cp.float64)  # Intentional float64: MI statistic
         n_o = b_n * self.C
         _launch_flat(cp, "oj_pool_mi", n_o, (c1, self.px, self.kx, ones, np.int32(b_n), np.int32(self.C), np.int32(self.kxmax), np.int64(self.R), mi))

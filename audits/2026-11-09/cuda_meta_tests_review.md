@@ -28,7 +28,7 @@ disposition. Dispositions: **DONE** (implemented and tested, commit named in the
 
 | ID | Severity | Finding | Disposition |
 |---|---|---|---|
-| GT-1 | High | `py_ci_shared.cuda_launch_geometry._is_launch` needs a tuple grid and a tuple/list args: two literal-256 launches in `_fe_batched_mi_cmi.py` (grid a variable) are invisible; also `args=(...)` bound to a name, `block=` keyword, `B=(256,)` bound name, `(2*128,)`, `int(256)`, numba `kern[blocks, 256](x)`; the `# launch-ok:` marker accepts any text (verified on synthetic launches) | OPEN: fix belongs in py-ci-shared (design in MT11-08); the two live launches in `_fe_batched_mi_cmi.py` are checked by MT11-06 meanwhile |
+| GT-1 | High | `py_ci_shared.cuda_launch_geometry._is_launch` needs a tuple grid and a tuple/list args: two literal-256 launches in `_fe_batched_mi_cmi.py` (grid a variable) are invisible; also `args=(...)` bound to a name, `block=` keyword, `B=(256,)` bound name, `(2*128,)`, `int(256)`, numba `kern[blocks, 256](x)`; the `# launch-ok:` marker accepts any text (verified on synthetic launches) | **DONE** in py-ci-shared (commit `c3a6894`): the detector reports the loose shapes; 22 live launches in this package found and fixed, MT11-06 |
 | GT-2 | High | The uncoalesced detector matches only `loopvar * name` inside one bracket of a `for` loop: hoisted offsets, kernels without a `for`, data-dependent strides (`for (r = st[s]; r < st[s+1]; ++r) ... X[r]`, i.e. `strata_xy_entropy`, measured gld efficiency 6.7%), shifts, helper strides and `while` loops pass (verified by running `uncoalesced_kernels` on snippets and on the real file) | see MT11-09 |
 | GT-3 | High | No grid-fill gate: the 14-block histogram grid (occupancy 0.25) and the low-parallelism launches were invisible | see MT11-01 |
 | GT-4 | Med | Pointer-dtype gate checks only `double*`; a `{REAL}` anywhere in the parameters exempts the whole kernel; `__global__ __launch_bounds__(..) void` is not matched by `_KERNEL_RE` | OPEN: design in MT11-07 |
@@ -47,3 +47,9 @@ disposition. Dispositions: **DONE** (implemented and tested, commit named in the
 
 MT11-02 (NVRTC warnings and the dead variables they found), MT11-01 (grid-fill gate), MT11-03 (name-level coverage), MT11-04 (helper spills), MT11-05 (hard-fail switch and the ran-count),
 MT11-10 (registry completeness and shape grids), MT11-06 and MT11-09 (launch and stride shapes the gates miss), then the OPEN designs in MT11-07 / MT11-08.
+
+
+## Where these tests live (instruction of 2026-11-13)
+
+The generic part of every CUDA meta-test belongs in py-ci-shared (the central store the other gates use), with the package-specific data (recipes, grid models, exemptions) passed in by the consumer. The launch-geometry
+detector (GT-1) is the first one moved; MT11-11 in the tracker lists the rest in order.

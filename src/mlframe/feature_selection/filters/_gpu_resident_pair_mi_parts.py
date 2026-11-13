@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Optional, Any
 
 from mlframe.utils.log_throttle import log_throttle
 import numpy as np
+from pyutilz.performance.gpu_hw_launch import block_size_for
 
 if TYPE_CHECKING:
     pass
@@ -254,7 +255,7 @@ def _grand_fused_pair_mi_fused_part1(
             fy_d = cp.asarray(fy, dtype=cp.float64)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
             counts_flat = counts_dev.reshape(-1)
             out_mi = cp.empty((P1, blk), dtype=cp.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-            threads = 128
+            threads = block_size_for(mi_kernel, work_items=P1 * blk)
             grid = (P1 * blk + threads - 1) // threads
             ones_d = cp.ones(blk, dtype=cp.float64)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
             mi_kernel[grid, threads](counts_flat, col_off_d, nbins_d, fy_d, np.int64(n), np.int32(K_y), ones_d, np.int64(total_size), np.int32(P1), out_mi)

@@ -81,6 +81,7 @@ from typing import Any
 
 import numba
 import numpy as np
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from numba import prange
 
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
@@ -580,7 +581,7 @@ def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pa
     out_d = _nb_cuda.device_array((n_pairs, n_forms), dtype=crit_float_dtype())
 
     total = n_pairs * n_forms
-    threads_per_block = 128
+    threads_per_block = block_size_for(_CUDA_KERNEL, work_items=total)
     blocks = (total + threads_per_block - 1) // threads_per_block
     _CUDA_KERNEL[blocks, threads_per_block](y_d, operand_d, pair_a_d, pair_b_d, form_ids_d, _EPS_DENOM_FLOOR, _CV2_DEGENERATE_FLOOR, out_d)
     return np.asarray(out_d.copy_to_host())
