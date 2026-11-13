@@ -37,13 +37,15 @@ Falls back cleanly (returns ``None`` from the gate function) whenever the shape 
 opt-in budget, or CUDA/CuPy/the opt-in probe are unavailable - the existing ``batch_pair_mi_cuda`` /
 ``batch_pair_mi_cuda_row_chunked`` / CPU njit chain is untouched and remains the fallback of last resort.
 """
+
 from __future__ import annotations
 
 import logging
 import threading
-from typing import Any
+from typing import Optional, Any
 
 import numpy as np
+from pyutilz.performance.gpu_hw_launch import block_size_for
 from ._kernel_types import render
 
 # Guards the max_dynamic_shared_size_bytes property-set +
@@ -55,6 +57,7 @@ logger = logging.getLogger(__name__)
 
 try:
     import cupy as _cp
+
     _CUPY_AVAIL = True
 except ImportError:
     _cp = None
@@ -102,7 +105,13 @@ void pair_mi_shared_fused(
         int cls_x = va * nb_b + vb;
         int cls_y = classes_y[i];
         atomicAdd(&sh[cls_x * n_classes_y + cls_y], 1);
-        atomicAdd(&sh[n_joint_cells + cls_x], 1);
+    }
+    __syncthreads();
+    // The marginal counts of the joint code are the row sums of the joint table: summing them here (max_joint threads, n_classes_y cells each) replaces a second shared atomic per row.
+    for (int i = tid; i < max_joint; i += nt) {
+        int s = 0;
+        for (int j = 0; j < n_classes_y; ++j) s += sh[i * n_classes_y + j];
+        sh[n_joint_cells + i] = s;
     }
     __syncthreads();
 
@@ -201,7 +210,7 @@ def batch_pair_mi_cuda_shared_fused(
     nbins: np.ndarray,
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
-    threads_per_block: int = 128,
+    threads_per_block: Optional[int] = None,
 ) -> np.ndarray:
     """Single full-pass CUDA pair-MI kernel: one launch, one block per pair, dynamic (opt-in-extended)
     shared-memory histogram, no row/pair chunking. Requires the FULL ``factors_data`` to fit VRAM (the
@@ -210,7 +219,7 @@ def batch_pair_mi_cuda_shared_fused(
     VRAM fit; that's the caller's ``_gpu_upload_fits`` responsibility, matching the sibling backends'
     contract).
 
-    Bit-identical to :func:`batch_pair_mi_cuda_row_chunked`/:func:`batch_pair_mi_njit_prange` (same
+    Bit-identical to :func:`batch_pair_mi_cuda_row_chunked`/:func:`batch_pair_mi_njit_prange` (the ``@njit`` host kernel) (same
     ``sum jf*log(jf/(px*py))`` reduction over occupied cells, same iteration order i-then-j) up to ~1e-15
     ULP floating-point reduction-order difference vs those backends (this kernel's own reduction order is fixed, so repeated
     launches are bit-identical) - verified in ``tests/feature_selection/gpu/test_batch_pair_mi_shared_fused.py``.
@@ -222,7 +231,7 @@ def batch_pair_mi_cuda_shared_fused(
     if n_pairs == 0:
         return np.empty(0, dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision
 
-    if threads_per_block % 32 != 0 or not 32 <= threads_per_block <= 1024:
+    if threads_per_block is not None and (threads_per_block % 32 != 0 or not 32 <= threads_per_block <= 1024):
         raise ValueError(f"threads_per_block must be a multiple of 32 in [32, 1024]; got {threads_per_block}")
 
     n_samples = int(factors_data.shape[0])
@@ -235,7 +244,9 @@ def batch_pair_mi_cuda_shared_fused(
         return np.zeros(n_pairs, dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision
 
     nbins_i = np.ascontiguousarray(nbins, dtype=np.int32)
-    joint_cards = nbins_i[np.ascontiguousarray(pair_a, dtype=np.int64)].astype(np.int64) * nbins_i[np.ascontiguousarray(pair_b, dtype=np.int64)].astype(np.int64)
+    joint_cards = nbins_i[np.ascontiguousarray(pair_a, dtype=np.int64)].astype(np.int64) * nbins_i[np.ascontiguousarray(pair_b, dtype=np.int64)].astype(
+        np.int64
+    )
     if np.any(joint_cards < 1):
         bad = int(np.argmin(joint_cards))
         raise ValueError(f"degenerate pair ({int(pair_a[bad])}, {int(pair_b[bad])}): joint cardinality {int(joint_cards[bad])} < 1")
@@ -248,23 +259,76 @@ def batch_pair_mi_cuda_shared_fused(
         raise RuntimeError(f"batch_pair_mi_cuda_shared_fused: max_joint={max_joint} n_classes_y={n_classes_y} exceeds the opt-in shared-memory budget")
 
     kernel = _get_shared_fused_kernel()
+    if threads_per_block is None:
+        # One block per pair holds the whole joint table in shared memory, so a block per SM is all the table leaves room for and the threads of that one block are what hides the latency of the
+        # shared atomics: 100000 rows x 2000 pairs x 441 joint cells x 20 classes, 128 threads 83 ms, 256 57, 512 48, 1024 38 ms. The occupancy rule picks the widest block the table allows.
+        threads_per_block = block_size_for(kernel, dyn_smem=shared_bytes, work_items=n_samples, max_width=1024)
     static_budget = 49152 - _DRIVER_SHARED_MEM_HEADROOM_BYTES
 
+    # Column blocks: the kernel needs the columns of its pairs on the card as a column-major int32 block. The whole referenced set goes up at once when the VRAM cushion admits it; otherwise
+    # the pairs are split into chunks that touch a bounded set of columns and only those columns are gathered and uploaded for a chunk (``pair_chunks_by_operand_block``).
+    from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+    from ._pair_operand_blocks import operand_block_limit, pair_chunks_by_operand_block
+
+    pa_all = np.ascontiguousarray(pair_a, dtype=np.int64)
+    pb_all = np.ascontiguousarray(pair_b, dtype=np.int64)
+    n_used = int(np.unique(np.concatenate([pa_all, pb_all])).shape[0])
+    row_bytes = n_samples * (int(factors_data.dtype.itemsize) + 8)  # the host-narrowed upload, its int32 widening and the transposed column block
+    args = (kernel, shared_bytes, static_budget, max_joint, threads_per_block, n_samples, n_features, nbins_i, classes_y, freqs_y)
+    if fe_gpu_has_vram_cushion(n_used * row_bytes):
+        return _launch_pairs(
+            factors_data, pa_all, pb_all, *args
+        )  # the narrowed matrix goes up whole and the device gathers: 3x cheaper than gathering on the host (66.8 against 198.8 ms, 100000 x 100)
+    limit = operand_block_limit(n_used, row_bytes, 16)
+    if not limit:
+        raise RuntimeError("batch_pair_mi_cuda_shared_fused: not even two operand columns fit the VRAM cushion")
+    out = np.empty(n_pairs, dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision
+    pair_blocks = pair_chunks_by_operand_block(pa_all, pb_all, limit)
+    for chunk in pair_blocks:
+        out[chunk] = _launch_pairs(
+            factors_data, pa_all[chunk], pb_all[chunk], *args, gather_on_host=True
+        )  # the card cannot take the whole matrix: only the chunk's columns cross the bus
+    return out
+
+
+def _launch_pairs(
+    factors_data: np.ndarray,
+    pair_a: np.ndarray,
+    pair_b: np.ndarray,
+    kernel: Any,
+    shared_bytes: int,
+    static_budget: int,
+    max_joint: int,
+    threads_per_block: int,
+    n_samples: int,
+    n_features: int,
+    nbins_i: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    gather_on_host: bool = False,
+) -> np.ndarray:
+    """Gather the columns the given pairs reference, upload them column-major with the pair indices remapped into the block, and run the kernel once: the ``(len(pair_a),)`` MI vector."""
     from .info_theory.shared import host_codes_for_upload as _host_codes_for_upload, widen_on_device as _widen_on_device
 
-    # The kernel reads a column of its pair at consecutive rows, so the referenced columns are gathered once into a (columns, n) column-major block on the device
-    # (the row-major read put neighbouring threads n_features elements apart; 100000 rows, 2000 pairs: 173 ms -> 45 ms end to end). Pair indices are remapped into it.
-    pa_host = np.ascontiguousarray(pair_a, dtype=np.int64)
-    pb_host = np.ascontiguousarray(pair_b, dtype=np.int64)
-    used, inverse = np.unique(np.concatenate([pa_host, pb_host]), return_inverse=True)
-    d_rows = _widen_on_device(_cp, _host_codes_for_upload(factors_data))
-    d_factors = _cp.ascontiguousarray(d_rows[:, _cp.asarray(used)].T)
+    n_pairs = int(pair_a.shape[0])
+    n_classes_y = int(freqs_y.shape[0])
+    # The kernel reads a column of its pair at consecutive rows, so the referenced columns are gathered into a (columns, n) column-major block on the device (the row-major read put
+    # neighbouring threads n_features elements apart; 100000 rows, 2000 pairs: 173 ms -> 45 ms end to end). The gather happens on the HOST, so only the referenced columns cross the bus.
+    used, inverse = np.unique(np.concatenate([pair_a, pair_b]), return_inverse=True)
+    if gather_on_host:
+        d_rows = _widen_on_device(_cp, _host_codes_for_upload(np.ascontiguousarray(factors_data[:, used])))
+        d_factors = _cp.ascontiguousarray(d_rows.T)
+    else:
+        d_rows = _widen_on_device(_cp, _host_codes_for_upload(factors_data))
+        d_factors = _cp.ascontiguousarray(d_rows[:, _cp.asarray(used)].T)
     del d_rows
     d_pair_a = _cp.asarray(np.ascontiguousarray(inverse[:n_pairs], dtype=np.int64))
     d_pair_b = _cp.asarray(np.ascontiguousarray(inverse[n_pairs:], dtype=np.int64))
     d_nbins = _cp.asarray(np.ascontiguousarray(nbins_i[used]))
     d_classes_y = _cp.asarray(np.ascontiguousarray(classes_y, dtype=np.int32))
-    d_freqs_y = _cp.asarray(np.ascontiguousarray(freqs_y, dtype=np.float64))  # Intentional float64: the CUDA kernel signature declares double, so this must stay float64
+    d_freqs_y = _cp.asarray(
+        np.ascontiguousarray(freqs_y, dtype=np.float64)
+    )  # Intentional float64: the CUDA kernel signature declares double, so this must stay float64
     d_mi_out = _cp.zeros(n_pairs, dtype=_cp.float64)  # Intentional float64: the CUDA kernel signature declares double, so this must stay float64
 
     inv_n = 1.0 / float(n_samples)
@@ -278,11 +342,21 @@ def batch_pair_mi_cuda_shared_fused(
             # path where the static budget already suffices.
             kernel.max_dynamic_shared_size_bytes = shared_bytes
         kernel(
-            (n_pairs,), (threads_per_block,),
+            (n_pairs,),
+            (threads_per_block,),
             (
-                d_factors, d_pair_a, d_pair_b, d_nbins, d_classes_y, d_freqs_y,
-                np.int64(n_samples), np.int32(n_features), np.int32(n_pairs),
-                np.int32(max_joint), np.int32(n_classes_y), np.float64(inv_n),  # Intentional float64: kernel ABI declares double inv_n
+                d_factors,
+                d_pair_a,
+                d_pair_b,
+                d_nbins,
+                d_classes_y,
+                d_freqs_y,
+                np.int64(n_samples),
+                np.int32(n_features),
+                np.int32(n_pairs),
+                np.int32(max_joint),
+                np.int32(n_classes_y),
+                np.float64(inv_n),  # Intentional float64: kernel ABI declares double inv_n
                 d_mi_out,
             ),
             shared_mem=shared_bytes,

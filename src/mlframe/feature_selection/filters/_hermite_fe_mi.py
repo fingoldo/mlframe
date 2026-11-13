@@ -179,10 +179,14 @@ def _binning_dtype(X_cols: np.ndarray):
     columns are binned in double; ordinary columns keep the float32 criterion dtype, so the common case stays fast.
     """
     if isinstance(X_cols, np.ndarray) and X_cols.size:
-        x = np.asarray(X_cols, dtype=np.float64)  # Intentional float64: columns with a large offset are binned in double so the edges are not lost to float32 rounding
+        x = np.asarray(
+            X_cols, dtype=np.float64
+        )  # Intentional float64: columns with a large offset are binned in double so the edges are not lost to float32 rounding
         spread = x.std(axis=0)
         offset = np.abs(x.mean(axis=0))
-        if np.any(offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny)):  # Intentional float64: columns with a large offset are binned in double so the edges are not lost to float32 rounding
+        if np.any(
+            offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny)
+        ):  # Intentional float64: columns with a large offset are binned in double so the edges are not lost to float32 rounding
             return np.float64
     return crit_float_dtype()
 
@@ -288,7 +292,15 @@ def _radix_edges_in_column_blocks(cp, X_gpu, n_bins: int):
             return None
         parts.append(part)
         start = stop
-    log_throttle(logger, "radix_edges_column_blocks", logging.INFO, "radix edges for a %d x %d matrix computed in column blocks of %d (the whole transpose did not fit the pool)", n, k, width)
+    log_throttle(
+        logger,
+        "radix_edges_column_blocks",
+        logging.INFO,
+        "radix edges for a %d x %d matrix computed in column blocks of %d (the whole transpose did not fit the pool)",
+        n,
+        k,
+        width,
+    )
     return parts[0] if len(parts) == 1 else cp.concatenate(parts, axis=1)
 
 
@@ -382,7 +394,16 @@ def _resident_mi_candidates(X_gpu, n_bins: int, *, keep_dtype: bool, relax_binni
 
 
 def _plugin_mi_classif_batch_cuda_resident(
-    X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None, keep_dtype: bool = False, relax_binning: bool = False, x_is_cm: bool = False, candidate_cache: "dict | None" = None
+    X_gpu,
+    y_gpu,
+    n_bins: int = 20,
+    *,
+    y_min=None,
+    n_classes=None,
+    keep_dtype: bool = False,
+    relax_binning: bool = False,
+    x_is_cm: bool = False,
+    candidate_cache: "dict | None" = None,
 ):
     """MATRIX-NATIVE plug-in MI on ALREADY-RESIDENT cupy arrays - the H2D-FREE core of
     :func:`_plugin_mi_classif_batch_cuda`. ``X_gpu`` is an (n, k) cupy double precision candidate
@@ -516,7 +537,13 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
     on are exact repeats), and the MI of a column does not depend on the other columns of its batch, so a column seen before takes its stored value and only the new ones are scored. A host matrix only;
     ``MLFRAME_COLUMN_MI_MEMO=0`` switches it off."""
     with parallel_kernel_entry():
-        if not isinstance(X_cols, np.ndarray) or X_cols.ndim != 2 or X_cols.shape[1] == 0 or getattr(_MEMO_OFF, "on", False) or os.environ.get("MLFRAME_COLUMN_MI_MEMO", "1") == "0":
+        if (
+            not isinstance(X_cols, np.ndarray)
+            or X_cols.ndim != 2
+            or X_cols.shape[1] == 0
+            or getattr(_MEMO_OFF, "on", False)
+            or os.environ.get("MLFRAME_COLUMN_MI_MEMO", "1") == "0"
+        ):
             return _plugin_mi_classif_batch_dispatch_uncached(X_cols, y, n_bins)
         from mlframe.utils.disk_cache import hash_array_content
 
@@ -643,6 +670,10 @@ void legval_kernel(const {REAL}* __restrict__ x,
                     int nc, int n,
                     {ACC}* __restrict__ out)
 {
+    // 1 / k for the recurrence, divided once per block instead of once per element and degree (a double division is tens of instructions on a card with a 1:32 double rate); same correctly rounded value
+    __shared__ {ACC} rk[64];
+    for (int q = threadIdx.x; q < 64; q += blockDim.x) rk[q] = q > 0 ? 1.0 / ({ACC})q : 0.0;
+    __syncthreads();
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
     {ACC} xi = ({ACC})x[i];
@@ -651,7 +682,7 @@ void legval_kernel(const {REAL}* __restrict__ x,
     {ACC} p_prev = 1.0, p_curr = xi;
     {ACC} s = c[0] + c[1] * p_curr;
     for (int k = 2; k < nc; ++k) {
-        {ACC} inv_k = 1.0 / ({ACC})k;
+        {ACC} inv_k = (k < 64) ? rk[k] : 1.0 / ({ACC})k;
         {ACC} p_next = (({ACC})(2 * k - 1) * xi * p_curr - ({ACC})(k - 1) * p_prev) * inv_k;
         s += c[k] * p_next;
         p_prev = p_curr; p_curr = p_next;
@@ -694,6 +725,10 @@ void lagval_kernel(const {REAL}* __restrict__ x,
                     int nc, int n,
                     {ACC}* __restrict__ out)
 {
+    // 1 / k for the recurrence, divided once per block instead of once per element and degree (a double division is tens of instructions on a card with a 1:32 double rate); same correctly rounded value
+    __shared__ {ACC} rk[64];
+    for (int q = threadIdx.x; q < 64; q += blockDim.x) rk[q] = q > 0 ? 1.0 / ({ACC})q : 0.0;
+    __syncthreads();
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
     {ACC} xi = ({ACC})x[i];
@@ -702,7 +737,7 @@ void lagval_kernel(const {REAL}* __restrict__ x,
     {ACC} p_prev = 1.0, p_curr = 1.0 - xi;
     {ACC} s = c[0] + c[1] * p_curr;
     for (int k = 2; k < nc; ++k) {
-        {ACC} inv_k = 1.0 / ({ACC})k;
+        {ACC} inv_k = (k < 64) ? rk[k] : 1.0 / ({ACC})k;
         {ACC} p_next = ((({ACC})(2 * k - 1) - xi) * p_curr - ({ACC})(k - 1) * p_prev) * inv_k;
         s += c[k] * p_next;
         p_prev = p_curr; p_curr = p_next;
@@ -728,7 +763,9 @@ def _polyeval_kernel(basis: str, real: str):
     import cupy as cp
 
     src, name = _POLYEVAL_KERNEL_SRC[basis]
-    kernel = cp.RawKernel(src.replace("{REAL}", real).replace("{ACC}", "double"), name)  # Intentional float64: the recurrences accumulate in double for every x dtype (high-degree terms lose digits in float)
+    kernel = cp.RawKernel(
+        src.replace("{REAL}", real).replace("{ACC}", "double"), name
+    )  # Intentional float64: the recurrences accumulate in double for every x dtype (high-degree terms lose digits in float)
     with _CUDA_KERNELS_LOCK:
         return _CUDA_KERNELS_BY_REAL.setdefault(key, kernel)
 

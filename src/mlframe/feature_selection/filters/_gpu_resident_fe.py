@@ -455,12 +455,12 @@ _FULL_BINARY = (
 
 _PREWARP_TRANSFORM_SRC = r"""
 extern "C" __global__
-void prewarp_transform(const {REAL}* __restrict__ x, const int code, const double lo, const double span,
-                       const double mean, const double std_safe, const double clip_lo, const double clip_hi,
+void prewarp_transform(const {REAL}* __restrict__ x, const int code, const {ACC} lo, const {ACC} span,
+                       const {ACC} mean, const {ACC} std_safe, const {ACC} clip_lo, const {ACC} clip_hi,
                        const int has_clip, const long long n, {REAL}* __restrict__ out) {
     long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
-    double v = x[i], z;
+    {ACC} v = x[i], z;
     if (code == 1)       z = 2.0 * (v - lo) / span - 1.0;   // legendre/chebyshev min-max
     else if (code == 0)  z = (v - mean) / std_safe;          // hermite z-score
     else                 z = v - lo + 1e-9;                  // laguerre shift
@@ -481,7 +481,7 @@ def _get_prewarp_transform_kernel(cp, real_t: str = "double"):
     with _PREWARP_KERNEL_LOCK:
         kern = _PREWARP_TRANSFORM_KERNELS.get(real_t)
         if kern is None:
-            kern = cp.RawKernel(_PREWARP_TRANSFORM_SRC.replace("{REAL}", real_t), "prewarp_transform")
+            kern = cp.RawKernel(_PREWARP_TRANSFORM_SRC.replace("{ACC}", "double").replace("{REAL}", real_t), "prewarp_transform")  # Intentional float64: the transform computes in double for every buffer type
             _PREWARP_TRANSFORM_KERNELS[real_t] = kern
     return kern
 

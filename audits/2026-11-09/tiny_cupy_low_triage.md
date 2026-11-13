@@ -2,13 +2,15 @@
 
 The detector's `low` hits in the current source, one row per function; the same dispositions as the high table (FALSE POSITIVE, FALLBACK, REAL, LEGACY).
 
-Rows: 49.
+Rows: 53.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
 | data_valuation/_propagate_gpu_ktc.py | nearest_neighbor_value_resident | 73 | FALSE POSITIVE: a blocked loop (`for start in range(0, n_full, batch_full)`), each trip one batched operation over its block |
 | feature_selection/filters/_batch_mi_noise_gate_bits.py | bits_gate_mi | 194 | FALSE POSITIVE: a blocked loop (`for lo in range(0, k_total, group)`), each trip one batched operation over its block |
+| feature_selection/filters/_batch_pair_mi_cuda_fm.py | batch_pair_mi_cuda_feature_major | 176 | FALSE POSITIVE: a blocked loop (`for chunk in pair_blocks`), each trip one batched operation over its block (the host gather of a chunk's byte columns, their upload and transpose and one full `pair_mi_feature_major` launch over the chunk's pairs: tens of ms against microsecond index uploads); it only runs when the VRAM cushion refuses the referenced columns whole |
 | feature_selection/filters/_batch_pair_mi_cuda_kernels.py | batch_pair_mi_cuda_row_chunked | 709 | FALSE POSITIVE: a blocked loop (`for pair_start in range(0, n_pairs, pair_subchunk_rows)`), each trip one batched operation over its block |
+| feature_selection/filters/_batch_pair_mi_cuda_shared_fused.py | batch_pair_mi_cuda_shared_fused | 287 | FALSE POSITIVE: a blocked loop (`for chunk in pair_blocks`), each trip one batched operation over its block (the host gather of a chunk's columns, their upload and one full `pair_mi_shared_fused` launch over the chunk's pairs: tens of ms against microsecond index uploads); it only runs when the VRAM cushion refuses the whole referenced column set |
 | feature_selection/filters/_binned_agg_cheap_mi.py | _cheap_mi_group_selection_device | 130 | FALSE POSITIVE: a blocked loop (`for start in range(0, len(usable), width)`), each trip one batched operation over its block |
 | feature_selection/filters/_binned_numeric_agg_resident.py | _binagg_device_scores | 678 | FALSE POSITIVE: a blocked loop (`for s0 in range(0, len(col_specs), block)`), each trip one batched operation over its block |
 | feature_selection/filters/_bootstrap_rank_mi_gpu.py | distinct_walk_gpu | 147 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, k, block_cols)`), each trip one batched operation over its block |
@@ -17,6 +19,7 @@ Rows: 49.
 | feature_selection/filters/_family_maxt_gate.py | family_codes_of_rows | 595 | FALSE POSITIVE: a blocked loop (`for j0 in range(0, n_cols, block)`), each trip one batched operation over its block |
 | feature_selection/filters/_family_maxt_gate.py | family_null_max | 462 | FALSE POSITIVE: a blocked loop (`for start in range(0, int(n_perm), block)`), each trip one batched operation over its block |
 | feature_selection/filters/_family_maxt_gate_device.py | null_max | 156 | FALSE POSITIVE: a blocked loop (`for start in range(0, int(m), block)`), each trip one batched operation over its block |
+| feature_selection/filters/_fe_batched_qbin.py | batched_quantile_bin_gpu | 205 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, K, block_cols)`), each trip one batched operation over its block (a full radix select over n x block elements plus one fused coder launch: 10.9 ms and 9.5 ms at 100000 x 400, against about 25 edge-table kernels of 2 us); the loop only runs when the working set of the whole matrix does not fit the VRAM cushion |
 | feature_selection/filters/_feature_engineering_pairs/_pairs_analytic_gpu.py | resident_observed_mi_and_bins | 157 | FALSE POSITIVE: a blocked loop (`for start in range(0, k_total, step)`), each trip one batched operation over its block |
 | feature_selection/filters/_gpu_nan_quantile_codes.py | nan_aware_quantile_codes_gpu | 50 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, k, block)`), each trip one batched operation over its block |
 | feature_selection/filters/_gpu_resident_fe.py | gpu_resident_pair_candidate_mi | 687 | FALSE POSITIVE: a blocked loop (`for start in range(0, len(_COMBOS), k_chunk)`), each trip one batched operation over its block |
@@ -40,6 +43,7 @@ Rows: 49.
 | feature_selection/filters/_orthogonal_univariate_fe/_streamed_gpu_mi.py | mi_classif_streamed_fill | 275 | FALSE POSITIVE: a blocked loop (`for k in range(n_blocks)`), each trip one batched operation over its block |
 | feature_selection/filters/_orthogonal_xi_fe.py | xi_correlation_batch | 224 | FALSE POSITIVE: a blocked loop (`for s0 in range(0, finite.size, block)`), each trip one batched operation over its block |
 | feature_selection/filters/_orthogonal_xi_gpu.py | xi_columns_device | 176 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, kk, block)`), each trip one batched operation over its block |
+| feature_selection/filters/_pair_mi_perm_cuda.py | pair_mi_perm_matrix_cuda | 232 | FALSE POSITIVE: a blocked loop (`for chunk in pair_blocks`), each trip one batched operation over its block (the gather of a block's byte columns and one full `pair_mi_perm` launch over its pairs: 100 ms class against microsecond uploads); it only runs when the whole pool does not fit twice in free VRAM |
 | feature_selection/filters/_parity_fe.py | hybrid_parity_fe_with_recipes | 183 | FALSE POSITIVE: a blocked loop (`for start in range(0, len(cols), block)`), each trip one batched operation over its block |
 | feature_selection/filters/_parity_gpu.py | parity_mi_grids_gpu | 101 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, len(columns), COLUMN_BLOCK)`), each trip one batched operation over its block |
 | feature_selection/filters/_permutation_null_pair_tiles.py | _pooled_pair_null_perm_tiles | 18 | FALSE POSITIVE: a blocked loop (`for p0 in range(0, nperm, perm_chunk)`), each trip one batched operation over its block |

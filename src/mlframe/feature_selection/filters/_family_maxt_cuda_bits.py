@@ -93,7 +93,8 @@ _THREADS_V2 = 128  # the width without device information; the launches take it 
 
 def v2_block_width(kern: Any, shared_bytes: int, columns: int) -> int:
     """Threads per block of the v2 kernel from the device's limits: its class bitsets (``shared_bytes``, fixed per block) are shared by the block's columns, so the width that keeps the most threads resident on an SM wins
-    (256 at 100000 rows on a Pascal SM: 19 ms against 28 ms at 128, 300 permutations x 250 columns); ``MLFRAME_GPU_BLOCK_FAMILY_BITS`` overrides; ``_THREADS_V2`` without a device."""
+    (256 at 100000 rows on a Pascal SM: 19 ms against 28 ms at 128, 300 permutations x 250 columns); ``MLFRAME_GPU_BLOCK_FAMILY_BITS`` overrides; ``_THREADS_V2`` without a device.
+    """
     import os
 
     forced = os.environ.get("MLFRAME_GPU_BLOCK_FAMILY_BITS", "").strip()
@@ -102,11 +103,15 @@ def v2_block_width(kern: Any, shared_bytes: int, columns: int) -> int:
     from pyutilz.performance.gpu_hw_launch import fixed_shared_block_size
 
     try:
-        width = fixed_shared_block_size(shared_bytes, regs_per_thread=int(kern.num_regs), static_smem=int(kern.shared_size_bytes), min_width=32, max_width=1024, work_items=columns)
+        width = fixed_shared_block_size(
+            shared_bytes, regs_per_thread=int(kern.num_regs), static_smem=int(kern.shared_size_bytes), min_width=32, max_width=1024, work_items=columns
+        )
     except Exception as _silent_exc:
         logger.warning("_family_maxt_cuda_bits.py: block width not derived (%r); the default width is used", _silent_exc)
         width = 0
     return width if width > 0 else _THREADS_V2
+
+
 _MAX_CLASSES_V2 = 24  # registers hold ``n_y - 1`` counters per thread
 _SHARED_MARGIN = 1024
 
@@ -230,7 +235,9 @@ def _get_kernel_v3(cp, ny1: int, pb: int, cap: int, real: str):
     with _KERNEL_CACHE_LOCK:
         kern = _kernels_v3.get((ny1, pb, cap, real))
         if kern is None:
-            kern = cp.RawModule(code=_SOURCE_V3.replace("{REAL}", real), options=(f"-DNY1={int(ny1)}", f"-DPB={int(pb)}", f"-DCAP={int(cap)}")).get_function("family_null_bits_v3")
+            kern = cp.RawModule(code=_SOURCE_V3.replace("{REAL}", real), options=(f"-DNY1={int(ny1)}", f"-DPB={int(pb)}", f"-DCAP={int(cap)}")).get_function(
+                "family_null_bits_v3"
+            )
             _kernels_v3[(ny1, pb, cap, real)] = kern
     return kern
 
@@ -246,36 +253,55 @@ _FILL_BLOCKS_PER_SM = 2  # the launch aims for at least this many blocks per mul
 def fill_block_width(width: int, columns: int, other_blocks: int, sms: int) -> int:
     """Threads per block, narrowed from ``width`` (never under one warp) so the grid of ``other_blocks`` x ``ceil(columns / width)`` blocks reaches ``_FILL_BLOCKS_PER_SM`` blocks per multiprocessor.
 
-    The result is only a launch shape: every column is still computed by one thread, so the numbers do not change. At 100 columns and 40 permutations a 256-thread block gave 10 x 1 = 10 blocks on a 24-SM card."""
+    The result is only a launch shape: every column is still computed by one thread, so the numbers do not change. At 100 columns and 40 permutations a 256-thread block gave 10 x 1 = 10 blocks on a 24-SM card.
+    """
     want_tiles = max(1, -(-_FILL_BLOCKS_PER_SM * max(1, int(sms)) // max(1, int(other_blocks))))
     narrow = -(-max(1, int(columns)) // want_tiles)
     narrow = ((narrow + 31) // 32) * 32
     return int(max(32, min(int(width), narrow)))
 
 
-def launch_family_null(cp, n_y: int, words: int, bits, n_x, cls, table, c_a, px, const_b, n: int, cap: int, k: int, b: int, out) -> None:
-    """Launch the shared-memory family null kernel (v3 when it applies, else v2) over ``b`` permutations and ``k`` columns; ``out`` is ``(b, k)``.
+def family_null_launcher(cp, n_y: int, words: int, table, cls, n: int, cap: int, b: int):
+    """The kernel of the shared-memory family null (v3 when it applies, else v2) for ``b`` permutations, resolved ONCE, as a function ``launch(bits, n_x, c_a, px, const_b, k, out)`` for one
+    column group of ``k`` columns whose ``(b, k)`` output is ``out``.
 
-    The kernel's element type follows the resident MI ``table`` that the launch receives."""
+    Resolving the kernel (a cached compile) is the only cupy work besides the launch itself, so a loop over column groups calls this once and then only launches. The kernel's element
+    type follows the resident MI ``table``."""
     real = "float" if table.dtype == cp.float32 else "double"
     pb = _v3_plan(n_y, cap)
     if pb is not None:
         kern = _get_kernel_v3(cp, n_y - 1, pb, cap, real)
-        width = fill_block_width(v2_block_width(kern, pb * (n_y - 1) * _V3_TILE_WORDS * 8, k), k, (b + pb - 1) // pb, _sm_count())
-        kern(
-            ((b + pb - 1) // pb, (k + width - 1) // width),
+
+        def launch_v3(bits, n_x, c_a, px, const_b, k: int, out) -> None:
+            """Launch the v3 kernel over one column group."""
+            width = fill_block_width(v2_block_width(kern, pb * (n_y - 1) * _V3_TILE_WORDS * 8, k), k, (b + pb - 1) // pb, _sm_count())
+            kern(
+                ((b + pb - 1) // pb, (k + width - 1) // width),
+                (width,),
+                (bits, n_x, cls, table, c_a, px, const_b, np.int64(n), np.int32(cap), np.int32(words), np.int32(n_y), np.int32(k), np.int32(b), out),
+            )
+
+        return launch_v3
+    kern2 = _get_kernel_v2(cp, n_y - 1, real)
+
+    def launch_v2(bits, n_x, c_a, px, const_b, k: int, out) -> None:
+        """Launch the v2 kernel over one column group."""
+        width = fill_block_width(v2_block_width(kern2, (n_y - 1) * words * 8, k), k, b, _sm_count())
+        kern2(
+            (b, (k + width - 1) // width),
             (width,),
             (bits, n_x, cls, table, c_a, px, const_b, np.int64(n), np.int32(cap), np.int32(words), np.int32(n_y), np.int32(k), np.int32(b), out),
+            shared_mem=(n_y - 1) * words * 8,
         )
-        return
-    kern = _get_kernel_v2(cp, n_y - 1, real)
-    width = fill_block_width(v2_block_width(kern, (n_y - 1) * words * 8, k), k, b, _sm_count())
-    kern(
-        (b, (k + width - 1) // width),
-        (width,),
-        (bits, n_x, cls, table, c_a, px, const_b, np.int64(n), np.int32(cap), np.int32(words), np.int32(n_y), np.int32(k), np.int32(b), out),
-        shared_mem=(n_y - 1) * words * 8,
-    )
+
+    return launch_v2
+
+
+def launch_family_null(cp, n_y: int, words: int, bits, n_x, cls, table, c_a, px, const_b, n: int, cap: int, k: int, b: int, out) -> None:
+    """Launch the shared-memory family null kernel (v3 when it applies, else v2) over ``b`` permutations and ``k`` columns; ``out`` is ``(b, k)``.
+
+    One-shot form of :func:`family_null_launcher` (a loop over column groups builds the launcher once instead)."""
+    family_null_launcher(cp, n_y, words, table, cls, n, cap, b)(bits, n_x, c_a, px, const_b, k, out)
 
 
 def _v2_applies(cp, n_y: int, words: int) -> bool:
@@ -346,15 +372,22 @@ def _run(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray, reduce_m
     cls_d = cp.asarray(cls_host)
     # Intentional float64: label-entropy constants of the MI formula, converted to the table's element type below
     const_d = cp.asarray(np.ascontiguousarray(const_b, dtype=np.float64)).astype(dev.table.dtype, copy=False)
-    best = cp.zeros(B, dtype=cp.float64) if acc is None else acc  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    best = (
+        cp.zeros(B, dtype=cp.float64) if acc is None else acc
+    )  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     parts = []
     use_v2 = _v2_applies(cp, n_y, dev.words)
     kern = None if use_v2 else _get_kernel(cp, real)
-    for lo, hi, bits in dev.groups:
+    launch = family_null_launcher(cp, n_y, dev.words, dev.table, cls_d, dev.n, dev.cap, B) if use_v2 else None
+    widths = [hi - lo for lo, hi, _ in dev.groups]
+    # one backing buffer for every group's (B, k) block (a block is a contiguous slice), or one reused block when only the per-permutation maximum is kept
+    flat = cp.empty(max(1, B * (max(widths, default=0) if reduce_max else sum(widths))), dtype=dev.table.dtype)
+    offsets = np.concatenate([[0], np.cumsum(widths)]).astype(np.int64)
+    outs = [flat[: B * k].reshape(B, k) if reduce_max else flat[B * int(offsets[g]) : B * int(offsets[g + 1])].reshape(B, k) for g, k in enumerate(widths)]
+    for (lo, hi, bits), out in zip(dev.groups, outs):
         k = hi - lo
-        out = cp.empty((B, k), dtype=dev.table.dtype)
-        if use_v2:
-            launch_family_null(cp, n_y, dev.words, bits, dev.n_x[lo:hi], cls_d, dev.table, dev.c_a[lo:hi], dev.px[lo:hi], const_d, dev.n, dev.cap, k, B, out)
+        if launch is not None:
+            launch(bits, dev.n_x[lo:hi], dev.c_a[lo:hi], dev.px[lo:hi], const_d, k, out)
         else:
             assert kern is not None  # use_v2 is False on this branch, so the v1 kernel was fetched
             flat_threads = block_size_for(kern, work_items=B * k)

@@ -122,12 +122,17 @@ def test_binary_suite_renders_opt_in_heavy_diagnostics_when_enabled(tmp_path):
     assert "risk_coverage" in joined, f"risk-coverage not saved; files={files}"
 
 
-def test_binary_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg):
-    """Binary suite renders diagnostics default on."""
+@pytest.fixture(scope="module")
+def binary_default_run(tmp_path_factory):
+    """ONE default-config binary hgb suite run (with timestamps) shared by the default-on diagnostics sensor and the learning-curve-off-by-default sensor.
+
+    Returns ``(models, metadata, data_dir)``.
+    """
     skip_if_dependency_missing("hgb")
     df = _make_frame(900, binary=True)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False, ts_field="timestamp")
-    data_dir = str(tmp_path)
+    data_dir = str(tmp_path_factory.mktemp("binary_default"))
+    reporting = ReportingConfig(show_perf_chart=False, show_fi=False, plot_outputs="matplotlib[png]")
     models, metadata = train_mlframe_models_suite(
         df=df,
         target_name="diag_bin",
@@ -135,12 +140,18 @@ def test_binary_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg):
         features_and_targets_extractor=fte,
         mlframe_models=["hgb"],
         hyperparams_config=get_cpu_config("hgb", 20),
-        reporting_config=reporting_cfg,
+        reporting_config=reporting,
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         output_config=OutputConfig(data_dir=data_dir, models_dir="models", save_charts=True),
         verbose=0,
     )
+    return models, metadata, data_dir
+
+
+def test_binary_suite_renders_diagnostics_default_on(binary_default_run):
+    """Binary suite renders diagnostics default on."""
+    models, metadata, data_dir = binary_default_run
     assert TargetTypes.BINARY_CLASSIFICATION in models
     files = _saved_chart_files(data_dir)
     joined = " ".join(files)
@@ -476,25 +487,9 @@ def test_learning_curve_opt_in_when_enabled(tmp_path):
     assert "learning_curve" in joined, f"learning curve not saved when opted in; files={files}"
 
 
-def test_learning_curve_off_by_default(tmp_path, reporting_cfg):
+def test_learning_curve_off_by_default(binary_default_run):
     """Default config has no learning curve -- it is the opt-in cost-gated exception."""
-    skip_if_dependency_missing("hgb")
-    df = _make_frame(700, binary=True)
-    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-    data_dir = str(tmp_path)
-    train_mlframe_models_suite(
-        df=df,
-        target_name="diag_lc_off",
-        model_name="hgb_lc_off",
-        features_and_targets_extractor=fte,
-        mlframe_models=["hgb"],
-        hyperparams_config=get_cpu_config("hgb", 20),
-        reporting_config=reporting_cfg,
-        use_ordinary_models=True,
-        use_mlframe_ensembles=False,
-        output_config=OutputConfig(data_dir=data_dir, models_dir="models", save_charts=True),
-        verbose=0,
-    )
+    _models, _metadata, data_dir = binary_default_run
     files = _saved_chart_files(data_dir)
     assert not any("learning_curve" in f for f in files), f"learning curve rendered while off by default; files={files}"
 

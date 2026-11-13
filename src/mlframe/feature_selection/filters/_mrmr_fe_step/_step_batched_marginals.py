@@ -49,7 +49,9 @@ def batched_device_marginals(cols: list, y_codes: np.ndarray, nbins: int) -> Opt
                 block = cp.stack([c.dev.astype(crit_float_dtype(), copy=False) for c in chunk], axis=1)
             else:
                 block = np.column_stack([np.asarray(c, dtype=_crit_np_dtype()) for c in chunk])
-            codes = batched_quantile_bin_gpu(block, int(nbins))
+            codes = batched_quantile_bin_gpu(
+                block, int(nbins), byte_codes=True
+            )  # the codes go straight into batched_cmi_gpu, which reads a byte matrix with an eighth of the traffic
             # Intentional float64: batched MI output accumulator (ranking inputs stay exact)
             mi = np.asarray(batched_cmi_gpu(codes, y, None, kx=int(nbins), ky=ky), dtype=np.float64)
             out.extend(float(v) for v in mi)

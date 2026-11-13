@@ -8,6 +8,7 @@ cmi-joint / marginal-mi entropy kernels, ``joint_counts_gpu`` / ``joint_entropy_
 Function and kernel-source bodies are byte-for-byte the originals - NO logic change. The parent
 re-exports every public name for back-compat; importers continue to use ``from ._fe_batched_mi import X``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -229,7 +230,13 @@ def _rows_entropy_and_k(counts, inv_n):
         _ker((K,), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), out_h, out_k))
         return out_h, out_k
     except Exception as e:
-        log_throttle(logging.getLogger(__name__), "batched_mi_cmi.xlogx_rows", logging.WARNING, "batched CMI: the fused xlogx-rows kernel failed (%s), using the elementwise kernel", e)
+        log_throttle(
+            logging.getLogger(__name__),
+            "batched_mi_cmi.xlogx_rows",
+            logging.WARNING,
+            "batched CMI: the fused xlogx-rows kernel failed (%s), using the elementwise kernel",
+            e,
+        )
         if _XLOGX_ROWS_EK is None:
             # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             _XLOGX_ROWS_EK = cp.ElementwiseKernel("T c, float64 invn", "float64 o", "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_rows_ek")
@@ -375,6 +382,7 @@ def _get_joint_hist_kernels():
     global _JOINT_HIST_KERNELS
     if _JOINT_HIST_KERNELS is None:
         import cupy as cp
+
         mod = cp.RawModule(code=_JOINT_HIST_SRC)
         _JOINT_HIST_KERNELS = (mod.get_function("joint_hist1"), mod.get_function("joint_hist2"), mod.get_function("joint_hist3"))
     return _JOINT_HIST_KERNELS
@@ -474,8 +482,14 @@ def _get_batched_joint_hist_u8_kernels():
     global _BATCHED_JOINT_HIST_U8_KERNELS
     if _BATCHED_JOINT_HIST_U8_KERNELS is None:
         import cupy as cp
+
         mod = cp.RawModule(code=_JOINT_HIST_U8_SRC)
-        _BATCHED_JOINT_HIST_U8_KERNELS = (mod.get_function("batched_joint_hist1_i32_u8"), mod.get_function("batched_joint_hist2_i32_u8"), mod.get_function("batched_joint_hist2_i32_smem_u8"), mod.get_function("batched_joint_hist2_i32_smem_u8_v2"))
+        _BATCHED_JOINT_HIST_U8_KERNELS = (
+            mod.get_function("batched_joint_hist1_i32_u8"),
+            mod.get_function("batched_joint_hist2_i32_u8"),
+            mod.get_function("batched_joint_hist2_i32_smem_u8"),
+            mod.get_function("batched_joint_hist2_i32_smem_u8_v2"),
+        )
     return _BATCHED_JOINT_HIST_U8_KERNELS
 
 
@@ -487,12 +501,15 @@ def _get_batched_joint_hist_kernels():
     global _BATCHED_JOINT_HIST_KERNELS
     if _BATCHED_JOINT_HIST_KERNELS is None:
         import cupy as cp
+
         mod = cp.RawModule(code=_JOINT_HIST_SRC)
-        _BATCHED_JOINT_HIST_KERNELS = (mod.get_function("batched_joint_hist1"),
-                                       mod.get_function("batched_joint_hist2"),
-                                       mod.get_function("batched_joint_hist1_i32"),
-                                       mod.get_function("batched_joint_hist2_i32"),
-                                       mod.get_function("batched_joint_hist2_i32_smem"))
+        _BATCHED_JOINT_HIST_KERNELS = (
+            mod.get_function("batched_joint_hist1"),
+            mod.get_function("batched_joint_hist2"),
+            mod.get_function("batched_joint_hist1_i32"),
+            mod.get_function("batched_joint_hist2_i32"),
+            mod.get_function("batched_joint_hist2_i32_smem"),
+        )
     return _BATCHED_JOINT_HIST_KERNELS
 
 
@@ -524,7 +541,18 @@ def _batched_joint_counts2(X, b, Kx, Kb):
             tile_kernel(
                 grid,
                 (block_size_for(tile_kernel, dyn_smem=shared, work_items=rows_per_block * tile),),
-                (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(tile), np.int32(tile.bit_length() - 1), np.int64(rows_per_block), counts),
+                (
+                    X,
+                    b,
+                    np.int32(int(Kx)),
+                    np.int32(int(Kb)),
+                    np.int64(n),
+                    np.int32(K),
+                    np.int32(tile),
+                    np.int32(tile.bit_length() - 1),
+                    np.int64(rows_per_block),
+                    counts,
+                ),
                 shared_mem=shared,
             )
             return counts.reshape(K, int(Kx) * int(Kb))
@@ -549,7 +577,9 @@ _HIST_SMEM_BYTES = 40 * 1024  # shared bytes one block may spend on its histogra
 _HIST_SMEM_MAX_CELLS = 128
 
 
-_HIST_SMEM_MAX_CELLS_U8 = 256  # the byte-code kernel reads an eighth of the traffic, so shared histograms win up to 256 cells (200 cells, 30000 x 1000: 9.3 -> 7.8 ms per CMI call)
+_HIST_SMEM_MAX_CELLS_U8 = (
+    256  # the byte-code kernel reads an eighth of the traffic, so shared histograms win up to 256 cells (200 cells, 30000 x 1000: 9.3 -> 7.8 ms per CMI call)
+)
 
 
 def _hist_rows_per_block(n: int, col_tiles: int) -> int:
@@ -620,7 +650,7 @@ def _batched_marginal_counts(X, Kx):
 # block's histogram in a global scratch slice (G x M instead of the K x M count buffer), reused column after column so it stays in L2.
 _BATCHED_JOINT_ENTROPY_SRC = render(r"""
 extern "C" __global__
-void batched_joint_entropy2(const long long* __restrict__ X, const long long* __restrict__ b,
+void batched_joint_entropy2(const {XT}* __restrict__ X, const long long* __restrict__ b,
                             const int Kx, const int Kb, const long long n, const int K, const int M, const int G,
                             const {ACC} inv_n, {ACC}* __restrict__ out_h, long long* __restrict__ out_k) {
     // One block owns G columns: a flat loop over rows x G reads X[i*K + c0 + j] with consecutive threads on consecutive j,
@@ -651,7 +681,7 @@ void batched_joint_entropy2(const long long* __restrict__ X, const long long* __
     }
 }
 extern "C" __global__
-void batched_joint_entropy2_g(const long long* __restrict__ X, const long long* __restrict__ b,
+void batched_joint_entropy2_g(const {XT}* __restrict__ X, const long long* __restrict__ b,
                               const int Kx, const int Kb, const long long n, const int K, const int M, const int G,
                               const {ACC} inv_n, unsigned int* __restrict__ scratch, {ACC}* __restrict__ out_h, long long* __restrict__ out_k) {
     // Global-scratch twin of batched_joint_entropy2: a block walks groups of G columns; its scratch slice holds the G
@@ -689,7 +719,7 @@ void batched_joint_entropy2_g(const long long* __restrict__ X, const long long* 
 
 // coalescing-ok: kept for joints above 6144 cells, where the untiled kernel measured faster than the tiled one (tracker GPU11-54: 23.4 against 26.6 ms at 15000 cells); the tiled batched_joint_entropy2_g serves the smaller joints
 extern "C" __global__
-void batched_joint_entropy2_g_wide(const long long* __restrict__ X, const long long* __restrict__ b,
+void batched_joint_entropy2_g_wide(const {XT}* __restrict__ X, const long long* __restrict__ b,
                               const int Kx, const int Kb, const long long n, const int K, const int M,
                               const {ACC} inv_n, unsigned int* __restrict__ scratch, {ACC}* __restrict__ out_h, long long* __restrict__ out_k) {
     unsigned int* hist = scratch + (long long)blockIdx.x * M;      // this block's slice, reused for every column it owns
@@ -712,8 +742,8 @@ void batched_joint_entropy2_g_wide(const long long* __restrict__ X, const long l
     }
 }
 """)
-_BATCHED_JOINT_ENTROPY_KERNEL = None
-_BATCHED_JOINT_ENTROPY_G_KERNEL: list = []
+_BATCHED_JOINT_ENTROPY_KERNEL: dict = {}  # code type ('long long' or 'unsigned char') -> the shared-memory kernel
+_BATCHED_JOINT_ENTROPY_G_KERNEL: dict = {}  # code type -> [tiled global-scratch kernel, one-column-per-block kernel]
 
 
 _JOINT_ENTROPY_TILE_MAX_COLS = 8  # columns per block for both fused joint-entropy kernels; measured fastest at 8 (see the profile record)
@@ -729,9 +759,11 @@ def batched_joint_entropy_global(X: Any, b: Any, Kx: int, Kb: int, inv_n: float,
     limit: ``(h (K,), k (K,))``, the fused kernel's loop and reduction with ``blocks`` blocks walking the columns."""
     import cupy as cp
 
-    if not _BATCHED_JOINT_ENTROPY_G_KERNEL:
-        _BATCHED_JOINT_ENTROPY_G_KERNEL.append(cp.RawKernel(_BATCHED_JOINT_ENTROPY_SRC, "batched_joint_entropy2_g"))
-        _BATCHED_JOINT_ENTROPY_G_KERNEL.append(cp.RawKernel(_BATCHED_JOINT_ENTROPY_SRC, "batched_joint_entropy2_g_wide"))
+    xt = _code_type(X)
+    if xt not in _BATCHED_JOINT_ENTROPY_G_KERNEL:
+        src = _entropy_source(xt)
+        _BATCHED_JOINT_ENTROPY_G_KERNEL[xt] = [cp.RawKernel(src, "batched_joint_entropy2_g"), cp.RawKernel(src, "batched_joint_entropy2_g_wide")]
+    g_kernels = _BATCHED_JOINT_ENTROPY_G_KERNEL[xt]
     n, K = int(X.shape[0]), int(X.shape[1])
     M = int(Kx) * int(Kb)
     if M > _JOINT_ENTROPY_GLOBAL_TILE_MAX_CELLS:
@@ -740,8 +772,12 @@ def batched_joint_entropy_global(X: Any, b: Any, Kx: int, Kb: int, inv_n: float,
         scratch = cp.empty(g * M, dtype=cp.uint32)
         out_h = cp.empty(K, dtype=cp.float64)  # Intentional float64: entropies, as the fused kernel writes them
         out_k = cp.empty(K, dtype=cp.int64)
-        g_threads = _tree_block(_BATCHED_JOINT_ENTROPY_G_KERNEL[1], 0, n)
-        _BATCHED_JOINT_ENTROPY_G_KERNEL[1]((g,), (g_threads,), (cp.ascontiguousarray(X), b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), scratch, out_h, out_k))
+        g_threads = _tree_block(g_kernels[1], 0, n)
+        g_kernels[1](
+            (g,),
+            (g_threads,),
+            (cp.ascontiguousarray(X), b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), scratch, out_h, out_k),
+        )
         return out_h, out_k
     # Blocks and columns per block are sized so that all the blocks' scratch slices stay within L2: the caller admitted ``blocks`` (one per SM)
     # against that budget, so extra blocks are taken only while the total still fits. More blocks lift the parallelism of the global atomics.
@@ -755,25 +791,55 @@ def batched_joint_entropy_global(X: Any, b: Any, Kx: int, Kb: int, inv_n: float,
     scratch = cp.empty(g * G * M, dtype=cp.uint32)
     out_h = cp.empty(K, dtype=cp.float64)  # Intentional float64: entropies, as the fused kernel writes them
     out_k = cp.empty(K, dtype=cp.int64)
-    g_threads = _tree_block(_BATCHED_JOINT_ENTROPY_G_KERNEL[0], 0, n)
-    _BATCHED_JOINT_ENTROPY_G_KERNEL[0]((g,), (g_threads,), (cp.ascontiguousarray(X), b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), np.int32(G), float(inv_n), scratch, out_h, out_k))
+    g_threads = _tree_block(g_kernels[0], 0, n)
+    g_kernels[0](
+        (g,),
+        (g_threads,),
+        (
+            cp.ascontiguousarray(X),
+            b,
+            np.int32(int(Kx)),
+            np.int32(int(Kb)),
+            np.int64(n),
+            np.int32(K),
+            np.int32(M),
+            np.int32(G),
+            float(inv_n),
+            scratch,
+            out_h,
+            out_k,
+        ),
+    )
     return out_h, out_k
+
+
 _BATCHED_JOINT_ENTROPY_SH_LIMIT = None
 
 
-def _get_batched_joint_entropy_kernel(cp):
-    """Lazily compile and cache the ``batched_joint_entropy2`` RawKernel, and probe+cache the device's max shared memory per block (used to decide when the kernel's histogram fits in shared memory vs needs the split-kernel fallback)."""
-    global _BATCHED_JOINT_ENTROPY_KERNEL, _BATCHED_JOINT_ENTROPY_SH_LIMIT
-    if _BATCHED_JOINT_ENTROPY_KERNEL is None:
-        _BATCHED_JOINT_ENTROPY_KERNEL = cp.RawKernel(_BATCHED_JOINT_ENTROPY_SRC, "batched_joint_entropy2")
+def _code_type(X) -> str:
+    """The CUDA type the fused entropy kernels read the code matrix as: bytes stay bytes (an eighth of the traffic, no widening copy), everything else is 64-bit."""
+    return "unsigned char" if str(X.dtype) == "uint8" else "long long"
+
+
+def _entropy_source(xt: str) -> str:
+    """The fused entropy kernels' source with the code type ``xt`` filled in."""
+    return _BATCHED_JOINT_ENTROPY_SRC.replace("{XT}", xt)
+
+
+def _get_batched_joint_entropy_kernel(cp, xt: str = "long long"):
+    """Lazily compile and cache the ``batched_joint_entropy2`` RawKernel for the code type ``xt``, and probe+cache the device's max shared memory per block (used to decide when the kernel's histogram fits in shared memory vs global scratch)."""
+    global _BATCHED_JOINT_ENTROPY_SH_LIMIT
+    if xt not in _BATCHED_JOINT_ENTROPY_KERNEL:
+        _BATCHED_JOINT_ENTROPY_KERNEL[xt] = cp.RawKernel(_entropy_source(xt), "batched_joint_entropy2")
         try:
             _BATCHED_JOINT_ENTROPY_SH_LIMIT = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
         # best-effort: a smaller shared-memory limit only moves the dispatch to the global-memory kernel, which gives the same counts
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).debug("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
             _BATCHED_JOINT_ENTROPY_SH_LIMIT = 48 * 1024
-    return _BATCHED_JOINT_ENTROPY_KERNEL
+    return _BATCHED_JOINT_ENTROPY_KERNEL[xt]
 
 
 def _joint_entropy_tile_cols(M: int) -> int:
@@ -814,9 +880,9 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
 
         if _mode not in ("1", "true", "yes", "on") and fused_entropy_backend(n, M) != "fused":
             return None
-        if X.dtype != cp.int64:
-            X = X.astype(cp.int64)  # the fused entropy kernels read 64-bit codes; a byte matrix is widened here, on the rare path that takes them
-        ker = _get_batched_joint_entropy_kernel(cp)  # also probes the shared-memory limit for the tile width below
+        if X.dtype != cp.uint8 and X.dtype != cp.int64:
+            X = X.astype(cp.int64)  # a byte matrix is read as bytes by the fused kernels; any other dtype is widened to 64-bit
+        ker = _get_batched_joint_entropy_kernel(cp, _code_type(X))  # also probes the shared-memory limit for the tile width below
         assert _BATCHED_JOINT_ENTROPY_SH_LIMIT is not None  # populated by _get_batched_joint_entropy_kernel above
         # shared = M uint32 hist + 2*256 f64 reduction scratch (the sh_h/sh_k arrays are static, not counted here);
         # gate the dynamic hist against the device per-block limit (leave headroom for the static doubles).
@@ -836,13 +902,15 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
         out_k = cp.empty(K, dtype=cp.int64)
         G = _joint_entropy_tile_cols(M)
         ker(  # launch-ok: the per-column tree reduction runs over static 256-entry scratch (sh_h, sh_k), so the block is fixed at 256 threads
-            ((K + G - 1) // G,), (256,),
+            ((K + G - 1) // G,),
+            (256,),
             (Xc, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), np.int32(G), float(inv_n), out_h, out_k),
             shared_mem=G * M * 4,
         )
         return out_h, out_k
     except Exception:
         import logging
+
         logging.getLogger(__name__).debug("fused batched joint entropy failed; count+reduce fallback", exc_info=True)
         return None
 
@@ -897,7 +965,13 @@ def _ent_nnz_1d(c, inv_n):
         h_k = cp.asnumpy(out)
         return float(-h_k[0]), round(h_k[1])
     except Exception as e:
-        log_throttle(logging.getLogger(__name__), "batched_mi_cmi.nnz_1d", logging.WARNING, "batched CMI: the fused nnz-1d entropy kernel failed (%s), using the elementwise path", e)
+        log_throttle(
+            logging.getLogger(__name__),
+            "batched_mi_cmi.nnz_1d",
+            logging.WARNING,
+            "batched CMI: the fused nnz-1d entropy kernel failed (%s), using the elementwise path",
+            e,
+        )
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         cf = c.astype(cp.float64) if c.dtype != cp.float64 else c
         p = cf[cf > 0] * float(inv_n)
@@ -995,6 +1069,7 @@ def _get_joint_entropy_kernels():
     global _JOINT_ENTROPY_KERNELS, _JOINT_ENTROPY_SH_LIMIT
     if _JOINT_ENTROPY_KERNELS is None:
         import cupy as cp
+
         mod = cp.RawModule(code=_JOINT_ENTROPY_SRC)
         _JOINT_ENTROPY_KERNELS = (mod.get_function("joint_entropy1"), mod.get_function("joint_entropy2"), mod.get_function("joint_entropy3"))
         try:
@@ -1002,6 +1077,7 @@ def _get_joint_entropy_kernels():
         # best-effort: a smaller shared-memory limit only moves the dispatch to the global-memory kernel, which gives the same counts
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).debug("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
             _JOINT_ENTROPY_SH_LIMIT = 48 * 1024
     return _JOINT_ENTROPY_KERNELS
@@ -1033,13 +1109,17 @@ def joint_entropy_gpu(codes: Any, cards: Any, inv_n: float) -> tuple[float, int]
             elif len(codes) == 2:
                 kers[1]((1,), (tree_threads,), (codes[0], codes[1], np.int32(int(cards[1])), np.int64(n), np.int32(M), float(inv_n), out), shared_mem=shmem)
             else:
-                kers[2]((1,), (tree_threads,), (codes[0], codes[1], codes[2], np.int32(int(cards[1])),
-                                       np.int32(int(cards[2])), np.int64(n), np.int32(M), float(inv_n), out),
-                        shared_mem=shmem)
+                kers[2](
+                    (1,),
+                    (tree_threads,),
+                    (codes[0], codes[1], codes[2], np.int32(int(cards[1])), np.int32(int(cards[2])), np.int64(n), np.int32(M), float(inv_n), out),
+                    shared_mem=shmem,
+                )
             hk = cp.asnumpy(out)
             return float(-hk[0]), round(hk[1])
         except Exception as e:  # nosec B110 - best-effort/optional path, no module logger
             import logging
+
             logging.getLogger(__name__).debug("fused nnz-1d entropy path failed, falling back to joint_counts_gpu: %s", e)
     return _ent_nnz_1d(joint_counts_gpu(codes, cards), inv_n)  # type: ignore[no-any-return]
 
@@ -1109,12 +1189,17 @@ def cmi_joint_entropies_gpu(dx: Any, dy: Any, dz: Any, Kx: int, ky: int, kz: int
         n = int(dz.size)
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.zeros(8, dtype=cp.float64)
-        _CMI_JOINT_ENTROPIES_KERNEL((4,), (_tree_block(_CMI_JOINT_ENTROPIES_KERNEL, Mmax * 4, n),), (dx, dy, dz, np.int32(int(Kx)), np.int32(int(ky)),
-                                    np.int32(int(kz)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
+        _CMI_JOINT_ENTROPIES_KERNEL(
+            (4,),
+            (_tree_block(_CMI_JOINT_ENTROPIES_KERNEL, Mmax * 4, n),),
+            (dx, dy, dz, np.int32(int(Kx)), np.int32(int(ky)), np.int32(int(kz)), np.int64(n), float(inv_n), out),
+            shared_mem=Mmax * 4,
+        )
         hk = cp.asnumpy(out)
         return ((float(hk[0]), round(hk[1])), (float(hk[2]), round(hk[3])), (float(hk[4]), round(hk[5])), (float(hk[6]), round(hk[7])))
     except Exception:
         import logging
+
         logging.getLogger(__name__).debug("cmi_joint_entropies_gpu fused kernel failed; caller falls back to four joint_entropy_gpu launches", exc_info=True)
         return None
 
@@ -1182,11 +1267,17 @@ def marginal_mi_entropies_gpu(dx: Any, dy: Any, Kx: int, ky: int, inv_n: float) 
         n = int(dx.size)
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.zeros(6, dtype=cp.float64)
-        _MARGINAL_MI_ENTROPIES_KERNEL((3,), (_tree_block(_MARGINAL_MI_ENTROPIES_KERNEL, Mmax * 4, n),), (dx, dy, np.int32(int(Kx)), np.int32(int(ky)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
+        _MARGINAL_MI_ENTROPIES_KERNEL(
+            (3,),
+            (_tree_block(_MARGINAL_MI_ENTROPIES_KERNEL, Mmax * 4, n),),
+            (dx, dy, np.int32(int(Kx)), np.int32(int(ky)), np.int64(n), float(inv_n), out),
+            shared_mem=Mmax * 4,
+        )
         hk = cp.asnumpy(out)
         return ((float(hk[0]), round(hk[1])), (float(hk[2]), round(hk[3])), (float(hk[4]), round(hk[5])))
     except Exception:
         import logging
+
         logging.getLogger(__name__).debug("marginal_mi_entropies_gpu fused kernel failed; caller falls back to three joint_entropy_gpu launches", exc_info=True)
         return None
 
@@ -1224,17 +1315,27 @@ def _cmi_assemble(he1, he2, hc, kc1, kc2, kc, inv2n):
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.empty(K, dtype=cp.float64)
         threads = block_size_for(_CMI_ASSEMBLE_KERNEL, work_items=K)
-        _CMI_ASSEMBLE_KERNEL(((K + threads - 1) // threads,), (threads,),
-                             # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-                             (cp.ascontiguousarray(he1.astype(cp.float64, copy=False)),
-                              # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-                              cp.ascontiguousarray(he2.astype(cp.float64, copy=False)), float(hc),
-                              cp.ascontiguousarray(kc1.astype(cp.int64, copy=False)),
-                              cp.ascontiguousarray(kc2.astype(cp.int64, copy=False)), float(kc),
-                              float(inv2n), np.int32(K), out))
+        _CMI_ASSEMBLE_KERNEL(
+            ((K + threads - 1) // threads,),
+            (threads,),
+            # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
+            (
+                cp.ascontiguousarray(he1.astype(cp.float64, copy=False)),
+                # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
+                cp.ascontiguousarray(he2.astype(cp.float64, copy=False)),
+                float(hc),
+                cp.ascontiguousarray(kc1.astype(cp.int64, copy=False)),
+                cp.ascontiguousarray(kc2.astype(cp.int64, copy=False)),
+                float(kc),
+                float(inv2n),
+                np.int32(K),
+                out,
+            ),
+        )
         return out
     except Exception:
         import logging
+
         logging.getLogger(__name__).debug("_cmi_assemble RawKernel failed; falling back to the cupy chain", exc_info=True)
         return cp.maximum((he1 - he2 + hc) - ((kc1 - kc2) + kc) * inv2n, 0.0)
 
@@ -1247,6 +1348,7 @@ def _get_joint_nnz_kernels():
     global _JOINT_NNZ_KERNELS
     if _JOINT_NNZ_KERNELS is None:
         import cupy as cp
+
         mod = cp.RawModule(code=_JOINT_HIST_SRC)
         _JOINT_NNZ_KERNELS = (mod.get_function("joint_hist_nnz1"), mod.get_function("joint_hist_nnz2"), mod.get_function("joint_hist_nnz3"))
     return _JOINT_NNZ_KERNELS

@@ -17,7 +17,13 @@ from pathlib import Path
 
 import pytest
 
-from mlframe.feature_selection._benchmarks.fe_gpu_coverage_inventory import PROFILES_DIR, contract_violations, fe_modules
+from mlframe.feature_selection._benchmarks.fe_gpu_coverage_inventory import (
+    KTC_DISPATCHERS,
+    PROFILES_DIR,
+    contract_violations,
+    fe_modules,
+    ktc_dispatch_problems,
+)
 
 REGISTRY = Path(__file__).with_name("_fe_gpu_contract.json")
 
@@ -62,3 +68,11 @@ def test_every_exemption_states_its_reason(registry):
 def test_profile_records_live_in_the_audit_directory():
     """Profile records are kept next to the audit, so the meta-test can read them."""
     assert PROFILES_DIR.parent.is_dir(), PROFILES_DIR
+
+
+def test_every_tuner_dispatched_backend_names_a_real_dispatcher():
+    """A backend that meets the kernel-tuning point through its dispatcher: the dispatcher still registers a tuner entry and imports it, and the reason is stated."""
+    broken = {name: ktc_dispatch_problems(name) for name in KTC_DISPATCHERS if ktc_dispatch_problems(name)}
+    assert not broken, f"KTC_DISPATCHERS entries that no longer hold: {broken}"
+    assert all(len(why) > 30 for _dispatcher, why in KTC_DISPATCHERS.values())
+    assert all(name in set(fe_modules()) for name in KTC_DISPATCHERS), "an entry names a module that is not an FE module"

@@ -64,8 +64,17 @@ def _both_real(src: str, **extra: str) -> list:
     return [(real, _fill(src, **{"{REAL}": real, "{ACC}": "double"}, **extra), ()) for real in _REAL_TYPES]
 
 
+def _qbin_variants() -> dict:
+    """The key type, bit reinterpretation and sign mask the quantile-bin coder fills per column type (read from the module so the recipe cannot drift from production)."""
+    from mlframe.feature_selection.filters._fe_batched_qbin import _QBIN_VARIANTS
+
+    return _QBIN_VARIANTS
+
+
 _RECIPES: dict = {
-    "_batch_mi_noise_gate_bits.py::_PACK_SRC": lambda s: [(f"DT={c}", _fill(s, **{"{DT}": c}), ("-DCAP=32", "-DNYC=4")) for c in ("unsigned char", "unsigned short", "int")],
+    "_batch_mi_noise_gate_bits.py::_PACK_SRC": lambda s: [
+        (f"DT={c}", _fill(s, **{"{DT}": c}), ("-DCAP=32", "-DNYC=4")) for c in ("unsigned char", "unsigned short", "int")
+    ],
     "_family_maxt_cuda_bits.py::_SOURCE_V2": lambda s: [(f"{r} NY1=4", _fill(s, **{"{REAL}": r}), ("-DNY1=4",)) for r in _REAL_TYPES],
     "_family_maxt_cuda_bits.py::_SOURCE_V3": lambda s: [
         (f"{r} NY1={ny1} PB={pb} CAP={cap}", _fill(s, **{"{REAL}": r}), (f"-DNY1={ny1}", f"-DPB={pb}", f"-DCAP={cap}"))
@@ -73,30 +82,57 @@ _RECIPES: dict = {
         for ny1, pb, cap in ((1, 4, 8), (2, 2, 8), (1, 2, 2), (3, 2, 5), (4, 2, 4), (2, 4, 4), (1, 4, 4))
     ],
     "_fe_accuracy_gate_kernel.py::_SRC_TEMPLATE": lambda s: [
-        (r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "__MAXK__": "8", "__WARPS__": "8", "__MAXVA__": "8", "__BLOCK__": "256"}), ("-std=c++11",)) for r in _REAL_TYPES
+        (r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "__MAXK__": "8", "__WARPS__": "8", "__MAXVA__": "8", "__BLOCK__": "256"}), ("-std=c++11",))
+        for r in _REAL_TYPES
     ],
-    "_fe_batched_mi.py::_MI_MM_FROM_VALUES_TEMPLATE": lambda s: [(f"{r}/{e}", _fill(s, **{"{REAL}": r, "{ACC}": "double", "{EDGE}": e}), ()) for r in _REAL_TYPES for e in _REAL_TYPES],
+    "_fe_batched_mi.py::_MI_MM_FROM_VALUES_TEMPLATE": lambda s: [
+        (f"{r}/{e}", _fill(s, **{"{REAL}": r, "{ACC}": "double", "{EDGE}": e}), ()) for r in _REAL_TYPES for e in _REAL_TYPES
+    ],
     "_gpu_resident_discretize.py::_BIN_CODES_SRC": lambda s: [
-        (f"{t}/edge double", _fill(s.replace("bin_codes_TYPENAME", f"bin_codes_{t}").replace("OUTTYPE", "int").replace("TYPE", t), **{"{EDGE}": "double"}), ()) for t in _REAL_TYPES
+        (f"{t}/edge double", _fill(s.replace("bin_codes_TYPENAME", f"bin_codes_{t}").replace("OUTTYPE", "int").replace("TYPE", t), **{"{EDGE}": "double"}), ())
+        for t in _REAL_TYPES
     ],
     "_gpu_resident_discretize.py::_BIN_CODES_F32E_SRC": lambda s: [
         (o, s.replace("bin_codes_f32e_OUTNAME", "bin_codes_f32e_x").replace("OUTTYPE", o), ()) for o in ("signed char", "short", "int", "long long")
     ],
+    "_fe_batched_qbin.py::_QBIN_CODER_TEMPLATE": lambda s: [
+        (f"{r} out={o}", _fill(s, **{"{REAL}": r, "{OUT}": o, **{"{" + k + "}": v for k, v in _qbin_variants()[r].items()}}), ())
+        for r in _REAL_TYPES
+        for o in ("long long", "unsigned char")
+    ],
+    "_pair_mi_perm_cuda.py::_SRC": lambda s: [(f"KB={kb}", _fill(s, **{"{ACC}": "double"}), (f"-DKB={kb}",)) for kb in (1, 4, 8)],
+    "_fe_batched_mi_cmi.py::_BATCHED_JOINT_ENTROPY_SRC": lambda s: [(xt, _fill(s, **{"{ACC}": "double", "{XT}": xt}), ()) for xt in ("long long", "unsigned char")],
     "_hsic_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "EXPF": "expf" if r == "float" else "exp"}), ()) for r in _REAL_TYPES],
-    "_lof_gpu.py::_SRC": lambda s: [(f"{r} k={k} p={p}", _fill(s, **{"{REAL}": r, "{K}": str(k), "{P}": str(p)}), ()) for r in _REAL_TYPES for k, p in ((20, 3), (64, 16))],
-    "_modular_codes_gpu.py::_SRC": lambda s: [(t, _define(SRC_T=t) + s, ()) for t in _REAL_TYPES],
+    "_lof_gpu.py::_SRC": lambda s: [
+        (f"{r} k={k} p={p}", _fill(s, **{"{REAL}": r, "{K}": str(k), "{P}": str(p)}), ()) for r in _REAL_TYPES for k, p in ((20, 3), (64, 16))
+    ],
+    "_modular_codes_gpu.py::_SRC": lambda s: [(t, _define(SRC_T=t) + _fill(s, **{"{REAL}": "float", "{ACC}": "double"}), ()) for t in _REAL_TYPES],
     "_null_max_perm_gpu.py::_SRC": lambda s: [(x, _fill(s, **{"{XT}": x, "{REAL}": "float", "{ACC}": "double"}), ()) for x in _REAL_TYPES],
     "_offset_product_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"__NSUB__": "2000", "__NF__": "8", "__THREADS__": "256"}), ())],
-    "_orthogonal_univariate_fe/_extra_basis_fourier_cuda.py::_SRC": lambda s: [(r, _fill(s, **{"{MUL_RN}": "__fmul_rn" if r == "float" else "__dmul_rn", "{REAL}": r, "{ACC}": "double"}), ()) for r in _REAL_TYPES],
+    "_orthogonal_univariate_fe/_extra_basis_fourier_cuda.py::_SRC": lambda s: [
+        (r, _fill(s, **{"{MUL_RN}": "__fmul_rn" if r == "float" else "__dmul_rn", "{REAL}": r, "{ACC}": "double"}), ()) for r in _REAL_TYPES
+    ],
     "_orthogonal_univariate_fe/_fourier_batch_gpu.py::_SRC_TEMPLATE": lambda s: _both_real(s.replace("@VARIANCE_FLOOR@", "1e-12")),
     "_orthogonal_univariate_fe/_fourier_fused_gpu.py::_SRC_TEMPLATE": lambda s: _both_real(s.replace("@VARIANCE_FLOOR@", "1e-12")),
     "_orthogonal_xi_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "{WIDE}": "double"}), ()) for r in _REAL_TYPES],
     "_quantile_codes_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "{TAG}": "f32" if r == "float" else "f64"}), ()) for r in _REAL_TYPES],
-    "discretization/_discretization_cuda.py::_SEARCHSORTED_RIGHT_2D_TEMPLATE": lambda s: [(r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "{EDGE}": "double"}), ()) for r in _REAL_TYPES],
-    "hermite_fe/_als_fused_gpu.py::_SRC": lambda s: [(f"{r} D={d}", _fill(s, **{"{REAL}": r, "{ACC}": "double"}), (f"-DD={d}", f"-DNACC={d * (d + 1) // 2 + d}")) for r in _REAL_TYPES for d in (3, 8)],
-    "hermite_fe/_als_kernels_gpu.py::_SRC": lambda s: [(f"{r} D={d}", _fill(s, **{"{REAL}": r, "{ACC}": "double"}), (f"-DD={d}", f"-DNACC={d * (d + 1) // 2 + d}")) for r in _REAL_TYPES for d in (3, 8)],
+    "discretization/_discretization_cuda.py::_SEARCHSORTED_RIGHT_2D_TEMPLATE": lambda s: [
+        (r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "{EDGE}": "double"}), ()) for r in _REAL_TYPES
+    ],
+    "hermite_fe/_als_fused_gpu.py::_SRC": lambda s: [
+        (f"{r} D={d}", _fill(s, **{"{REAL}": r, "{ACC}": "double"}), (f"-DD={d}", f"-DNACC={d * (d + 1) // 2 + d}")) for r in _REAL_TYPES for d in (3, 8)
+    ],
+    "hermite_fe/_als_kernels_gpu.py::_SRC": lambda s: [
+        (f"{r} D={d}", _fill(s, **{"{REAL}": r, "{ACC}": "double"}), (f"-DD={d}", f"-DNACC={d * (d + 1) // 2 + d}")) for r in _REAL_TYPES for d in (3, 8)
+    ],
     "../shap_proxied_fs/_shap_proxy_treeshap_gpu.py::_KERNEL_SRC": lambda s: [("depth 6", _define(MAXW=8, MAXSP=28) + s, ())],
-    "../shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py::_KERNEL_SRC": lambda s: [("depth 6", _define(MAXW=8, MAXLVL=9, MAXP=16) + _str_constant("feature_selection/shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py", "_DEVICE_SRC") + s, ())],
+    "../shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py::_KERNEL_SRC": lambda s: [
+        (
+            "depth 6",
+            _define(MAXW=8, MAXLVL=9, MAXP=16) + _str_constant("feature_selection/shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py", "_DEVICE_SRC") + s,
+            (),
+        )
+    ],
 }
 
 
@@ -108,7 +144,11 @@ def _modular_rank_reduces(template_name: str) -> list:
     return [("reduce_v1", _str_constant(rel, "_REDUCE_V1")), ("reduce_v2", _str_constant(rel, "_REDUCE_V2"))]
 
 
-for _name, _bits in (("_KERNEL_TEMPLATE", ("", "__launch_bounds__(128, MLF_THREADS_PER_SM / 128)")), ("_KERNEL_V4_TEMPLATE", ("", "__launch_bounds__(128, MLF_THREADS_PER_SM / 128)")), ("_KERNEL_V7_TEMPLATE", ("__launch_bounds__(128, MLF_THREADS_PER_SM / 128)",))):
+for _name, _bits in (
+    ("_KERNEL_TEMPLATE", ("", "__launch_bounds__(128, MLF_THREADS_PER_SM / 128)")),
+    ("_KERNEL_V4_TEMPLATE", ("", "__launch_bounds__(128, MLF_THREADS_PER_SM / 128)")),
+    ("_KERNEL_V7_TEMPLATE", ("__launch_bounds__(128, MLF_THREADS_PER_SM / 128)",)),
+):
     _RECIPES[f"_pairwise_modular_rank_gpu.py::{_name}"] = lambda s, _b=_bits, _n=_name: [
         (f"bounds={b or 'none'} {w} {rname}", _fill(s, **{"__BOUNDS__": b, "__COLT__": w, "__REDUCE__": rtext, "{REAL}": "float", "{ACC}": "double"}), ())
         for b in _b

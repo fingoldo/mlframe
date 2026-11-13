@@ -42,82 +42,92 @@ _REFINE_FINE = (0.05, 0.0125)  # (half width, step) of the second scan around th
 _MIN_REFINE_FREQ = 0.05
 
 _SRC_TEMPLATE = r"""
-// sin / cos of w * z. A float z: the argument is reduced to [-pi, pi] in double (a few double operations) and the sine and cosine are taken in float, the full double sincos
-// being ~30 times slower on the cards this runs on; a double z keeps the double sincos. Outside the extern "C" block: C linkage cannot overload.
-__device__ __forceinline__ void trig(const double w, const float z, double* s, double* c) {
-    const double a = w * (double)z;
-    const double r = a - 6.283185307179586 * rint(a * 0.15915494309189535);
-    float sf, cf;
-    sincosf((float)r, &sf, &cf);
-    *s = (double)sf;
-    *c = (double)cf;
+// sin / cos of w * z for a sample type T. A 4-byte T: the argument is reduced to [-pi, pi] in {ACC} (a few {ACC} operations) and the sine and cosine are taken in T, the full {ACC} sincos
+// being ~30 times slower on the cards this runs on; an 8-byte T keeps the {ACC} sincos. One template: the branch is on sizeof(T), a compile-time constant. Outside the extern "C" block: C linkage cannot template.
+template <typename T>
+__device__ __forceinline__ void trig(const {ACC} w, const T z, {ACC}* s, {ACC}* c) {
+    if (sizeof(T) == 4) {
+        const {ACC} a = w * ({ACC})z;
+        const {ACC} r = a - 6.283185307179586 * rint(a * 0.15915494309189535);
+        T sf, cf;
+        sincos((T)r, &sf, &cf);
+        *s = ({ACC})sf;
+        *c = ({ACC})cf;
+    } else {
+        sincos(w * ({ACC})z, s, c);
+    }
 }
-__device__ __forceinline__ void trig(const double w, const double z, double* s, double* c) { sincos(w * z, s, c); }
+// Kahan-compensated add of v into acc with the running compensation comp (both in the sample type)
+#define KAHAN_ADD(acc, comp, v) { const {REAL} yk_ = (v) - comp; const {REAL} tk_ = acc + yk_; comp = (tk_ - acc) - yk_; acc = tk_; }
 extern "C" {
-__device__ __forceinline__ double power_term(double sv, double vv, double vy, double n, double y_ss) {
-    const double v_ss = vv - sv * sv / n;
+__device__ __forceinline__ {ACC} power_term({ACC} sv, {ACC} vv, {ACC} vy, {ACC} n, {ACC} y_ss) {
+    const {ACC} v_ss = vv - sv * sv / n;
     const bool ok = (v_ss > 1e-12 * vv) && (v_ss >= @VARIANCE_FLOOR@) && (y_ss >= @VARIANCE_FLOOR@);
-    const double denom = v_ss * y_ss;
+    const {ACC} denom = v_ss * y_ss;
     return (ok && denom > 0.0) ? (vy * vy) / denom : 0.0;
 }
 // grid (F, C): power of column c's centred target at its f-th frequency; padded frequencies (f >= nfreq[c]) get -1
-__global__ void periodogram_power_b(const {REAL}* Z, const {REAL}* YC, const double* freqs, const int* nfreq, const {REAL}* y_ss, double* out, const long long n, const int F) {
+__global__ void periodogram_power_b(const {REAL}* Z, const {REAL}* YC, const {ACC}* freqs, const int* nfreq, const {REAL}* y_ss, {ACC}* out, const long long n, const int F) {
     const int c = blockIdx.y, f = blockIdx.x;
     if (f >= nfreq[c]) { if (threadIdx.x == 0) out[(long long)c * F + f] = -1.0; return; }
     const {REAL}* z = Z + (long long)c * n;
     const {REAL}* yc = YC + (long long)c * n;
-    const double w = 6.283185307179586 * freqs[(long long)c * F + f];
-    double ss = 0.0, sc = 0.0, vvs = 0.0, vvc = 0.0, vys = 0.0, vyc = 0.0;
+    const {ACC} w = 6.283185307179586 * freqs[(long long)c * F + f];
+    // Per-thread partials in the SAMPLE type with Kahan compensation, combined in {ACC} below: the sine and cosine are taken in the sample type anyway (trig above), so double partials
+    // only paid the 1:32 double rate of the card for no accuracy the inputs carry (30000 x 64 columns x 96 frequencies: 77.6 -> 35.6 ms, power within 2.4e-5 relative, p99 4e-7, the argmax
+    // frequency of every column unchanged); the compensation keeps the long per-thread sums at the precision of their terms.
+    {REAL} ss = 0, sc = 0, vvs = 0, vvc = 0, vys = 0, vyc = 0;
+    {REAL} c_ss = 0, c_sc = 0, c_vvs = 0, c_vvc = 0, c_vys = 0, c_vyc = 0;
     for (long long i = threadIdx.x; i < n; i += blockDim.x) {
-        double s, co;
-        trig(w, z[i], &s, &co);
-        const double y = yc[i];
-        ss += s; sc += co; vvs += s * s; vvc += co * co; vys += s * y; vyc += co * y;
+        {ACC} s_, co_;
+        trig(w, z[i], &s_, &co_);
+        const {REAL} s = ({REAL})s_, co = ({REAL})co_, y = yc[i];
+        KAHAN_ADD(ss, c_ss, s) KAHAN_ADD(sc, c_sc, co) KAHAN_ADD(vvs, c_vvs, s * s) KAHAN_ADD(vvc, c_vvc, co * co) KAHAN_ADD(vys, c_vys, s * y) KAHAN_ADD(vyc, c_vyc, co * y)
     }
-    __shared__ double sh[6][32];
+    __shared__ {ACC} sh[6][32];
     const int lane = threadIdx.x & 31, warp = threadIdx.x >> 5;
-    double vals[6] = {ss, sc, vvs, vvc, vys, vyc};
+    {ACC} vals[6] = {({ACC})ss, ({ACC})sc, ({ACC})vvs, ({ACC})vvc, ({ACC})vys, ({ACC})vyc};
     #pragma unroll
     for (int k = 0; k < 6; ++k) {
-        double v = vals[k];
+        {ACC} v = vals[k];
         for (int o = 16; o > 0; o >>= 1) v += __shfl_down_sync(0xffffffffu, v, o);
         if (lane == 0) sh[k][warp] = v;
     }
     __syncthreads();
     if (threadIdx.x == 0) {
-        double tot[6];
+        {ACC} tot[6];
         const int nw = (blockDim.x + 31) >> 5;
-        for (int k = 0; k < 6; ++k) { double t = 0.0; for (int w2 = 0; w2 < nw; ++w2) t += sh[k][w2]; tot[k] = t; }
-        out[(long long)c * F + f] = power_term(tot[0], tot[2], tot[4], (double)n, y_ss[c]) + power_term(tot[1], tot[3], tot[5], (double)n, y_ss[c]);
+        for (int k = 0; k < 6; ++k) { {ACC} t = 0.0; for (int w2 = 0; w2 < nw; ++w2) t += sh[k][w2]; tot[k] = t; }
+        out[(long long)c * F + f] = power_term(tot[0], tot[2], tot[4], ({ACC})n, y_ss[c]) + power_term(tot[1], tot[3], tot[5], ({ACC})n, y_ss[c]);
     }
 }
 // grid (blocks, C): packed A'A (upper, 6) + A'y (3) of A = [1, sin, cos] per column and block
-__global__ void sincos_gram_b(const {REAL}* Z, const {REAL}* Y, const double* fvec, double* part, const long long n, const int blocks) {
+__global__ void sincos_gram_b(const {REAL}* Z, const {REAL}* Y, const {ACC}* fvec, {ACC}* part, const long long n, const int blocks) {
     const int c = blockIdx.y;
     const {REAL}* z = Z + (long long)c * n;
     const {REAL}* y = Y + (long long)c * n;
-    double acc[9];
+    {ACC} acc[9];
     #pragma unroll
     for (int t = 0; t < 9; ++t) acc[t] = 0.0;
-    const double w = 6.283185307179586 * fvec[c];
+    const {ACC} w = 6.283185307179586 * fvec[c];
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
-        double s, co;
+        {ACC} s, co;
         trig(w, z[i], &s, &co);
-        const double yi = y[i];
+        const {ACC} yi = y[i];
         acc[0] += 1.0; acc[1] += s; acc[2] += co; acc[3] += s * s; acc[4] += s * co; acc[5] += co * co;
         acc[6] += yi; acc[7] += s * yi; acc[8] += co * yi;
     }
-    __shared__ double sh[9][32];
+    __shared__ {ACC} sh[9][32];
     const int lane = threadIdx.x & 31, warp = threadIdx.x >> 5;
     #pragma unroll
     for (int k = 0; k < 9; ++k) {
-        double v = acc[k];
+        {ACC} v = acc[k];
         for (int o = 16; o > 0; o >>= 1) v += __shfl_down_sync(0xffffffffu, v, o);
         if (lane == 0) sh[k][warp] = v;
     }
     __syncthreads();
     if (threadIdx.x < 9) {
-        double t = 0.0;
+        {ACC} t = 0.0;
         const int nw = (blockDim.x + 31) >> 5;
         for (int w2 = 0; w2 < nw; ++w2) t += sh[threadIdx.x][w2];
         part[((long long)c * blocks + blockIdx.x) * 9 + threadIdx.x] = t;
@@ -127,12 +137,12 @@ __global__ void sincos_gram_b(const {REAL}* Z, const {REAL}* Y, const double* fv
 __global__ void solve3_b(const {ACC}* part, const int blocks, const int* active, {ACC}* coef) {
     const int c = blockIdx.x;
     if (!active[c]) { if (threadIdx.x < 3) coef[c * 3 + threadIdx.x] = 0.0; return; }
-    __shared__ double tot[9];
+    __shared__ {ACC} tot[9];
     if (threadIdx.x < 9) {
-        double s = 0.0, comp = 0.0;
+        {ACC} s = 0.0, comp = 0.0;
         for (int b = 0; b < blocks; ++b) {
-            const double x = part[((long long)c * blocks + b) * 9 + threadIdx.x];
-            const double t = s + x;
+            const {ACC} x = part[((long long)c * blocks + b) * 9 + threadIdx.x];
+            const {ACC} t = s + x;
             if (fabs(s) >= fabs(x)) comp += (s - t) + x; else comp += (x - t) + s;
             s = t;
         }
@@ -140,27 +150,27 @@ __global__ void solve3_b(const {ACC}* part, const int blocks, const int* active,
     }
     __syncthreads();
     if (threadIdx.x != 0) return;
-    double M[3][4] = {{tot[0], tot[1], tot[2], tot[6]}, {tot[1], tot[3], tot[4], tot[7]}, {tot[2], tot[4], tot[5], tot[8]}};
+    {ACC} M[3][4] = {{tot[0], tot[1], tot[2], tot[6]}, {tot[1], tot[3], tot[4], tot[7]}, {tot[2], tot[4], tot[5], tot[8]}};
     bool bad = false;
     for (int col = 0; col < 3 && !bad; ++col) {
-        int piv = col; double best = fabs(M[col][col]);
+        int piv = col; {ACC} best = fabs(M[col][col]);
         for (int r = col + 1; r < 3; ++r) if (fabs(M[r][col]) > best) { best = fabs(M[r][col]); piv = r; }
         if (!(best > 0.0) || !isfinite(best)) { bad = true; break; }
-        if (piv != col) for (int k = 0; k < 4; ++k) { double tmp = M[col][k]; M[col][k] = M[piv][k]; M[piv][k] = tmp; }
-        for (int r = col + 1; r < 3; ++r) { const double fct = M[r][col] / M[col][col]; for (int k = col; k < 4; ++k) M[r][k] -= fct * M[col][k]; }
+        if (piv != col) for (int k = 0; k < 4; ++k) { {ACC} tmp = M[col][k]; M[col][k] = M[piv][k]; M[piv][k] = tmp; }
+        for (int r = col + 1; r < 3; ++r) { const {ACC} fct = M[r][col] / M[col][col]; for (int k = col; k < 4; ++k) M[r][k] -= fct * M[col][k]; }
     }
     if (bad) { coef[c * 3] = nan(""); coef[c * 3 + 1] = nan(""); coef[c * 3 + 2] = nan(""); return; }
-    double x[3];
-    for (int r = 2; r >= 0; --r) { double s = M[r][3]; for (int k = r + 1; k < 3; ++k) s -= M[r][k] * x[k]; x[r] = s / M[r][r]; }
+    {ACC} x[3];
+    for (int r = 2; r >= 0; --r) { {ACC} s = M[r][3]; for (int k = r + 1; k < 3; ++k) s -= M[r][k] * x[k]; x[r] = s / M[r][r]; }
     coef[c * 3] = x[0]; coef[c * 3 + 1] = x[1]; coef[c * 3 + 2] = x[2];
 }
 // grid (blocks, C): y minus its projection (a zero coefficient vector leaves the column unchanged)
-__global__ void apply_deflate_b(const {REAL}* Z, const {REAL}* Y, const double* coef, const double* fvec, {REAL}* out, const long long n) {
+__global__ void apply_deflate_b(const {REAL}* Z, const {REAL}* Y, const {ACC}* coef, const {ACC}* fvec, {REAL}* out, const long long n) {
     const int c = blockIdx.y;
-    const double w = 6.283185307179586 * fvec[c];
-    const double c0 = coef[c * 3], c1 = coef[c * 3 + 1], c2 = coef[c * 3 + 2];
+    const {ACC} w = 6.283185307179586 * fvec[c];
+    const {ACC} c0 = coef[c * 3], c1 = coef[c * 3 + 1], c2 = coef[c * 3 + 2];
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
-        double s, co;
+        {ACC} s, co;
         trig(w, Z[(long long)c * n + i], &s, &co);
         out[(long long)c * n + i] = Y[(long long)c * n + i] - (c0 + c1 * s + c2 * co);
     }
@@ -170,7 +180,10 @@ __global__ void apply_deflate_b(const {REAL}* Z, const {REAL}* Y, const double* 
 
 
 _SRC = render(_SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR)))  # Intentional float64: {ACC} is float64; {REAL} stays for the per-type modules
-_MODULES_BY_REAL = {"double": LazyRawModule(_SRC.replace("{REAL}", "double"), ("-std=c++14",)), "float": LazyRawModule(_SRC.replace("{REAL}", "float"), ("-std=c++14",))}
+_MODULES_BY_REAL = {
+    "double": LazyRawModule(_SRC.replace("{REAL}", "double"), ("-std=c++14",)),
+    "float": LazyRawModule(_SRC.replace("{REAL}", "float"), ("-std=c++14",)),
+}
 
 
 def _module_for(Z: Any) -> Any:
@@ -206,7 +219,9 @@ def _deflate(cp: Any, Z: Any, Y: Any, fvec: Any, active: Any) -> "tuple[Any, np.
     coef = cp.empty((C, 3), dtype=cp.float64)
     out = cp.empty((C, n), dtype=Z.dtype)  # the deflated target keeps the sample block's dtype; the projection is accumulated in double precision
     gram((blocks, C), (gram_threads,), (Z, Y, fvec, part, cp.int64(n), cp.int32(blocks)))
-    mod.get_function("solve3_b")((C,), (32,), (part, cp.int32(blocks), active, coef))  # launch-ok: one warp: threads 0-8 fold the nine partial sums, thread 0 solves the 3x3 system; a wider block adds nothing
+    mod.get_function("solve3_b")(
+        (C,), (32,), (part, cp.int32(blocks), active, coef)
+    )  # launch-ok: one warp: threads 0-8 fold the nine partial sums, thread 0 solves the 3x3 system; a wider block adds nothing
     deflate((blocks, C), (_block_for(deflate, n),), (Z, Y, coef, fvec, out, cp.int64(n)))
     singular = ~np.isfinite(cp.asnumpy(coef)).all(axis=1)
     return out, singular

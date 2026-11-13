@@ -357,17 +357,17 @@ _DEDUP_EDGES_SRC = r"""
 extern "C" __global__
 void dedup_njit_edges(const {REAL}* __restrict__ edges, const {REAL}* __restrict__ cmin,
                       const {REAL}* __restrict__ cmax, const int ne, const int K,
-                      double* __restrict__ out, int* __restrict__ ne_out) {
+                      {ACC}* __restrict__ out, int* __restrict__ ne_out) {
     int c = blockIdx.x * blockDim.x + threadIdx.x;   // one thread per column
     if (c >= K) return;
     // de[0] is cmin; emit de[1:] (everything strictly AFTER the first distinct value) into out[*, c].
-    double prev = (double)cmin[c];
+    {ACC} prev = ({ACC})cmin[c];
     int w = 0;
     for (int e = 0; e < ne; ++e) {
-        double v = (double)edges[(long long)e * K + c];
+        {ACC} v = ({ACC})edges[(long long)e * K + c];
         if (v != prev) { out[(long long)w * K + c] = v; w++; prev = v; }
     }
-    double hv = (double)cmax[c];
+    {ACC} hv = ({ACC})cmax[c];
     if (hv != prev) { out[(long long)w * K + c] = hv; w++; }
     if (w >= 2) w -= 1;          // drop trailing de[-1] for m>=3 (njit de[1:-1]); keep [de[1]] for m==2
     ne_out[c] = w;
@@ -385,7 +385,7 @@ def _get_dedup_edges_kernel(real_t: str = "double"):
         kern = _DEDUP_EDGES_KERNELS.get(real_t)
         if kern is None:
             import cupy as cp
-            kern = cp.RawKernel(_DEDUP_EDGES_SRC.replace("{REAL}", real_t), "dedup_njit_edges")
+            kern = cp.RawKernel(_DEDUP_EDGES_SRC.replace("{ACC}", "double").replace("{REAL}", real_t), "dedup_njit_edges")  # Intentional float64: edges and bounds are deduplicated in double for every edge type
             _DEDUP_EDGES_KERNELS[real_t] = kern
     return kern
 
@@ -459,14 +459,14 @@ def _get_mi_mm_from_values_kernel():
 # (interleaved, public call): G=4 with 256 threads was fastest of G in {4, 8, 16} x threads in {256, 512}.
 _MM_NEK_TILE_TEMPLATE = r"""
 extern "C" __global__
-void mm_nek_tile(const {REAL}* __restrict__ X, const double* __restrict__ edges,
+void mm_nek_tile(const {REAL}* __restrict__ X, const {ACC}* __restrict__ edges,
                  const long long* __restrict__ y, const long long n, const int K, const int nbins,
-                 const int Ky, const int G, const double inv_n, const double h_y, const int k_y,
-                 const int* __restrict__ ne_k, double* __restrict__ mi_out) {
+                 const int Ky, const int G, const {ACC} inv_n, const {ACC} h_y, const int k_y,
+                 const int* __restrict__ ne_k, {ACC}* __restrict__ mi_out) {
     extern __shared__ char smem[];
     int M = nbins * Ky;
     int* sh = (int*)smem;                        // (G, M) joint histograms
-    double* se = (double*)(smem + G * M * 4);    // (G, 256) cached interior edges of each column
+    {ACC}* se = ({ACC}*)(smem + G * M * 4);    // (G, 256) cached interior edges of each column
     int c0 = blockIdx.x * G;
     int g = min(G, K - c0);
     int tid = threadIdx.x, nt = blockDim.x;
@@ -483,14 +483,14 @@ void mm_nek_tile(const {REAL}* __restrict__ X, const double* __restrict__ edges,
         long long i = e / g;
         int j = (int)(e - i * g);
         int c = c0 + j;
-        double v = X[i * (long long)K + c];
+        {ACC} v = X[i * (long long)K + c];
         int ne = ne_k[c];
         bool cached = ne <= 256;
         int lo = 0, hi = ne;                     // upper_bound == cp.searchsorted side='right'
         if (v != v) lo = hi;                     // NaN sorts last: the last bin, as cp.searchsorted does
         while (lo < hi) {
             int mid = (lo + hi) >> 1;
-            double em = cached ? se[j * 256 + mid] : edges[(long long)mid * K + c];
+            {ACC} em = cached ? se[j * 256 + mid] : edges[(long long)mid * K + c];
             if (em <= v) lo = mid + 1; else hi = mid;
         }
         atomicAdd(&sh[j * M + lo * Ky + (int)y[i]], 1);
@@ -499,17 +499,17 @@ void mm_nek_tile(const {REAL}* __restrict__ X, const double* __restrict__ edges,
     if (tid < g) {
         int c = c0 + tid;
         int* t = sh + tid * M;
-        double hx = 0.0, hxy = 0.0;
+        {ACC} hx = 0.0, hxy = 0.0;
         int kx_occ = 0, kxy = 0;
         for (int xx = 0; xx < nbins; ++xx) {
             long long rx = 0;
             for (int yy = 0; yy < Ky; ++yy) { int nxy = t[xx * Ky + yy]; rx += nxy; if (nxy > 0) kxy++; }
             if (rx == 0) continue;
             kx_occ++;
-            double px = (double)rx * inv_n; hx -= px * log(px);
-            for (int yy = 0; yy < Ky; ++yy) { int nxy = t[xx * Ky + yy]; if (nxy > 0) { double pxy = (double)nxy * inv_n; hxy -= pxy * log(pxy); } }
+            {ACC} px = ({ACC})rx * inv_n; hx -= px * log(px);
+            for (int yy = 0; yy < Ky; ++yy) { int nxy = t[xx * Ky + yy]; if (nxy > 0) { {ACC} pxy = ({ACC})nxy * inv_n; hxy -= pxy * log(pxy); } }
         }
-        double mi = hx + h_y - hxy + ((double)(kx_occ + k_y - kxy - 1)) * 0.5 * inv_n;
+        {ACC} mi = hx + h_y - hxy + (({ACC})(kx_occ + k_y - kxy - 1)) * 0.5 * inv_n;
         mi_out[c] = mi > 0.0 ? mi : 0.0;
     }
 }
@@ -549,20 +549,20 @@ def _launch_mm_nek_tile(Xc: Any, Ec: Any, yv: Any, n: int, K: int, nbins: int, K
 _COL_MINMAX_TEMPLATE = r"""
 extern "C" __global__
 void col_minmax(const {REAL}* __restrict__ X, const long long n, const int K,
-                double* __restrict__ cmin, double* __restrict__ cmax) {
+                {ACC}* __restrict__ cmin, {ACC}* __restrict__ cmax) {
     const int G = 8;
-    __shared__ double smin[256], smax[256];
+    __shared__ {ACC} smin[256], smax[256];
     __shared__ int snan[256];
     int c0 = blockIdx.x * G;
     int g = min(G, K - c0);
     int tid = threadIdx.x, nt = blockDim.x;
     int j = tid % G;
     int rg = threadIdx.x / G;                    // row group of the 8 columns: a warp reads whole 64-byte runs of four rows
-    double lo = __longlong_as_double(0x7ff0000000000000LL), hi = __longlong_as_double(0xfff0000000000000LL);
+    {ACC} lo = __longlong_as_double(0x7ff0000000000000LL), hi = __longlong_as_double(0xfff0000000000000LL);
     int nan = 0;
     if (j < g) {
         for (long long i = rg; i < n; i += nt / G) {
-            double v = (double)X[i * (long long)K + c0 + j];
+            {ACC} v = ({ACC})X[i * (long long)K + c0 + j];
             if (v != v) nan = 1;
             else { if (v < lo) lo = v; if (v > hi) hi = v; }
         }
@@ -570,10 +570,10 @@ void col_minmax(const {REAL}* __restrict__ X, const long long n, const int K,
     smin[tid] = lo; smax[tid] = hi; snan[tid] = nan;
     __syncthreads();
     if (tid < g) {
-        double a = __longlong_as_double(0x7ff0000000000000LL), b = __longlong_as_double(0xfff0000000000000LL);
+        {ACC} a = __longlong_as_double(0x7ff0000000000000LL), b = __longlong_as_double(0xfff0000000000000LL);
         int z = 0;
         for (int t = tid; t < nt; t += G) { a = fmin(a, smin[t]); b = fmax(b, smax[t]); z |= snan[t]; }
-        double nanv = __longlong_as_double(0x7ff8000000000000LL);
+        {ACC} nanv = __longlong_as_double(0x7ff8000000000000LL);
         cmin[c0 + tid] = z ? nanv : a;
         cmax[c0 + tid] = z ? nanv : b;
     }

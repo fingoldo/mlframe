@@ -88,6 +88,7 @@ from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_
 
 from ._content_memo import ContentMemo
 from ._ktc_fallback import host_device_sweep, rows_fallback
+from ._pair_operand_blocks import operand_block_limit, pair_chunks_by_operand_block
 
 logger = logging.getLogger(__name__)
 
@@ -201,8 +202,12 @@ def _abs_pearson_form_reduction(y, operand_matrix, a_idx, b_idx, form_id, eps, c
     sv: float | np.floating = 0.0
     for i in range(n_rows):
         yi = np.float64(y[i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
-        x0 = np.float64(operand_matrix[a_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
-        x1 = np.float64(operand_matrix[b_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
+        x0 = np.float64(
+            operand_matrix[a_idx, i]
+        )  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
+        x1 = np.float64(
+            operand_matrix[b_idx, i]
+        )  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
         v = _eval_form(form_id, x0, x1, eps)
         finite = math.isfinite(yi) and math.isfinite(v)
         av = yi if finite else 0.0
@@ -220,8 +225,12 @@ def _abs_pearson_form_reduction(y, operand_matrix, a_idx, b_idx, form_id, eps, c
     sav: float | np.floating = 0.0
     for i in range(n_rows):
         yi = np.float64(y[i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
-        x0 = np.float64(operand_matrix[a_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
-        x1 = np.float64(operand_matrix[b_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
+        x0 = np.float64(
+            operand_matrix[a_idx, i]
+        )  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
+        x1 = np.float64(
+            operand_matrix[b_idx, i]
+        )  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
         v = _eval_form(form_id, x0, x1, eps)
         finite = math.isfinite(yi) and math.isfinite(v)
         da = (yi - ma) if finite else 0.0
@@ -269,7 +278,9 @@ def batch_pair_usability_corr_njit_parallel(
     """
     n_pairs = pair_a.shape[0]
     n_forms = form_ids.shape[0]
-    out = np.zeros((n_pairs, n_forms), dtype=np.float64)  # Intentional float64: numba/CUDA kernel body, f64 Pearson output buffer (crit helper cannot run inside the kernel)
+    out = np.zeros(
+        (n_pairs, n_forms), dtype=np.float64
+    )  # Intentional float64: numba/CUDA kernel body, f64 Pearson output buffer (crit helper cannot run inside the kernel)
     total = n_pairs * n_forms
     for tid in prange(total):
         p = tid // n_forms
@@ -471,22 +482,30 @@ def _cuda_kernel_warp_factory(ft=np.float64):  # Intentional float64: the usabil
 
 def _float32_unsafe(y: np.ndarray, operand_matrix: np.ndarray) -> bool:
     """True when some column's offset is more than 1000 times its spread, or a value is not finite: the inputs float32 cannot represent."""
-    cols = np.concatenate([np.asarray(y, dtype=np.float64).reshape(-1, 1), np.asarray(operand_matrix, dtype=np.float64).reshape(len(y), -1)], axis=1)  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
+    cols = np.concatenate(
+        [np.asarray(y, dtype=np.float64).reshape(-1, 1), np.asarray(operand_matrix, dtype=np.float64).reshape(len(y), -1)], axis=1
+    )  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     if not np.all(np.isfinite(cols)):
         return True
     spread = cols.std(axis=0)
     offset = np.abs(cols.mean(axis=0))
-    return bool(np.any(offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny)))  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
+    return bool(
+        np.any(offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny))
+    )  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
 
 
 def _float32_unsafe_columns(y: np.ndarray, operand_matrix: np.ndarray) -> "tuple[bool, np.ndarray]":
     """``(y_unsafe, operand_unsafe)``: the per-column form of :func:`_float32_unsafe` (a non-finite value, or an offset more than 1000 times the spread). ``operand_unsafe`` is a boolean per operand row."""
     y_unsafe = _float32_unsafe(y, np.empty((len(y), 0)))
-    ops = np.asarray(operand_matrix, dtype=np.float64)  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
+    ops = np.asarray(
+        operand_matrix, dtype=np.float64
+    )  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     finite = np.isfinite(ops).all(axis=1)
     spread = ops.std(axis=1)
     offset = np.abs(ops.mean(axis=1))
-    unsafe = ~finite | (offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny))  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
+    unsafe = ~finite | (
+        offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny)
+    )  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     return bool(y_unsafe), unsafe
 
 
@@ -512,13 +531,17 @@ def batch_pair_usability_corr_cuda_warp(y: np.ndarray, operand_matrix: np.ndarra
     return _batch_pair_usability_corr_cuda_warp_typed(y, operand_matrix, pair_a, pair_b, form_ids, None)
 
 
-def _batch_pair_usability_corr_cuda_warp_typed(y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray, forced_ft: Any) -> np.ndarray:
+def _batch_pair_usability_corr_cuda_warp_typed(
+    y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray, forced_ft: Any
+) -> np.ndarray:
     """The warp backend at the float type ``forced_ft`` (``None``: the default rule, float32 unless the whole input is unsafe or ``MLFRAME_USABILITY_CORR_F32=0``)."""
     import os
 
     # float32 forms and moments by default: this kernel was float64-bound on a 1/32-double card (5778 pairs x 5 forms x 33334 rows: 0.74 s float64, 0.17 s
     # float32; |corr| within 1.7e-6, the best form of every pair unchanged). MLFRAME_USABILITY_CORR_F32=0 keeps the double kernel.
-    ft = np.float64 if os.environ.get("MLFRAME_USABILITY_CORR_F32", "1").strip() == "0" else np.float32  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
+    ft = (
+        np.float64 if os.environ.get("MLFRAME_USABILITY_CORR_F32", "1").strip() == "0" else np.float32
+    )  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     if forced_ft is not None:
         ft = forced_ft
     # float32 cannot hold an offset next to a small spread (1e8 + 0.1 * i has a step of 8 in float32, so the correlation of a
@@ -593,6 +616,23 @@ def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pa
 # ---------------------------------------------------------------------------
 
 
+def batch_pair_usability_corr_cuda_warp_blocked(
+    y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray, max_operands: int
+) -> np.ndarray:
+    """:func:`batch_pair_usability_corr_cuda_warp` for an operand matrix that does not fit the card whole: the pairs go in chunks that touch at most ``max_operands`` operand columns, and only
+    those columns are gathered and uploaded for a chunk (a column block of the operand matrix per chunk). The values are the unblocked call's, pair for pair."""
+    pa = np.asarray(pair_a, dtype=np.int64)
+    pb = np.asarray(pair_b, dtype=np.int64)
+    out = np.empty((pa.shape[0], int(np.asarray(form_ids).shape[0])), dtype=crit_float_dtype())
+    for chunk in pair_chunks_by_operand_block(pa, pb, max_operands):
+        used, inverse = np.unique(np.concatenate([pa[chunk], pb[chunk]]), return_inverse=True)
+        k = chunk.shape[0]
+        out[chunk] = batch_pair_usability_corr_cuda_warp(
+            y, np.ascontiguousarray(operand_matrix[used]), inverse[:k].astype(np.int64), inverse[k:].astype(np.int64), form_ids
+        )
+    return out
+
+
 def _required_gpu_bytes(operand_matrix: np.ndarray, n_pairs: int, n_forms: int) -> int:
     """Upload + output footprint for the VRAM cushion check: the operand matrix at its own dtype (the GPU path uploads it
     as given, so an f32 matrix is 4 bytes an element), the double (n_pairs, n_forms) output, and 1 MiB of slack for y and
@@ -600,6 +640,42 @@ def _required_gpu_bytes(operand_matrix: np.ndarray, n_pairs: int, n_forms: int) 
     operand_bytes = operand_matrix.nbytes
     output_bytes = n_pairs * n_forms * 8
     return int(operand_bytes + output_bytes + (1 << 20))  # +1MiB slack for y / index arrays
+
+
+def _try_blocked_backend(
+    y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray, force_backend: "str | None"
+) -> "tuple[np.ndarray, str] | None":
+    """The whole operand matrix does not fit the card: stream it in operand blocks when at least two columns fit (``(table, "cuda_warp_blocked")``), else ``None`` for the CPU backend."""
+    n_pairs, n_forms = int(pair_a.shape[0]), int(form_ids.shape[0])
+    n_used = int(np.unique(np.concatenate([np.asarray(pair_a), np.asarray(pair_b)])).shape[0])
+    row_bytes = int(operand_matrix.shape[1]) * int(operand_matrix.dtype.itemsize)
+    limit = operand_block_limit(n_used, row_bytes, n_forms * 8 * max(1, n_pairs // max(1, n_used)))
+    if limit and force_backend != "cuda":
+        try:
+            return batch_pair_usability_corr_cuda_warp_blocked(y, operand_matrix, pair_a, pair_b, form_ids, limit), "cuda_warp_blocked"
+        except Exception as exc:
+            logger.warning("batch_pair_usability_corr: blocked CUDA backend failed (%s: %s) -- falling back to CPU.", type(exc).__name__, exc)
+            return None
+    logger.warning("batch_pair_usability_corr: insufficient VRAM cushion for n_pairs=%d n_forms=%d -- falling back to CPU.", n_pairs, n_forms)
+    return None
+
+
+def _vram_verdict(
+    y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray, force_backend: "str | None"
+) -> "tuple[bool, tuple[np.ndarray, str] | None]":
+    """``(use_cuda, blocked_result)``: the whole matrix fits (``True, None``), it was streamed in operand blocks (``False, result``), or it fits neither way (``False, None``: the CPU backend).
+
+    A cushion check that cannot run is not a reason to give up the device: the answer is then ``True, None``."""
+    try:
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        if fe_gpu_has_vram_cushion(_required_gpu_bytes(operand_matrix, int(pair_a.shape[0]), int(form_ids.shape[0]))):
+            return True, None
+        blocked = _try_blocked_backend(y, operand_matrix, pair_a, pair_b, form_ids, force_backend)
+        return False, blocked
+    except Exception as exc:
+        logger.debug("batch_pair_usability_corr: VRAM cushion check unavailable (%s); proceeding.", exc)
+        return True, None
 
 
 def _dispatch_batch_pair_usability_corr_uncached(
@@ -625,7 +701,6 @@ def _dispatch_batch_pair_usability_corr_uncached(
         form_ids = ALL_FORM_IDS
     form_ids = np.asarray(form_ids, dtype=np.int64)
     n_pairs = int(pair_a.shape[0])
-    n_forms = int(form_ids.shape[0])
 
     use_cuda = _CUDA_AVAIL
     use_cuda_warp = False
@@ -670,18 +745,10 @@ def _dispatch_batch_pair_usability_corr_uncached(
             use_cuda_warp = False
 
     if use_cuda:
-        try:
-            from ._fe_gpu_vram import fe_gpu_has_vram_cushion
-
-            if not fe_gpu_has_vram_cushion(_required_gpu_bytes(operand_matrix, n_pairs, n_forms)):
-                logger.warning(
-                    "batch_pair_usability_corr: insufficient VRAM cushion for n_pairs=%d n_forms=%d -- falling back to CPU.",
-                    n_pairs,
-                    n_forms,
-                )
-                use_cuda = False
-        except Exception as exc:
-            logger.debug("batch_pair_usability_corr: VRAM cushion check unavailable (%s); proceeding.", exc)
+        fits, blocked = _vram_verdict(y, operand_matrix, pair_a, pair_b, form_ids, force_backend)
+        if blocked is not None:
+            return blocked
+        use_cuda = fits
 
     if use_cuda:
         try:
@@ -717,7 +784,9 @@ _SWEEP_ROWS = [500, 5000, 50000]  # the swept axis ``n_samples`` is the number o
 _SWEEP_N_ROWS = 5000
 _SWEEP_OPERANDS = 60
 _SALT = 1
-DEVICE_FALLBACK_PAIRS = 0  # measured: the warp kernel is 3.96-4.52x faster than the CPU backend at every tested scale (see the dispatcher), so the pre-sweep default is the device
+DEVICE_FALLBACK_PAIRS = (
+    0  # measured: the warp kernel is 3.96-4.52x faster than the CPU backend at every tested scale (see the dispatcher), so the pre-sweep default is the device
+)
 
 
 def _sweep_inputs(dims: dict) -> tuple:
@@ -809,7 +878,14 @@ def dispatch_batch_pair_usability_corr(
         # a later call over other pairs of the same operand rows (the dominant-pair scan's retry) reads the pairs it shares with the earlier calls from the per-pair table
         from ._pair_usability_table import serve
 
-        result = serve(y, operand_matrix, pair_a, pair_b, form_ids, lambda a, b, fb: _same_dtype(_dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, a, b, form_ids, fb)))
+        result = serve(
+            y,
+            operand_matrix,
+            pair_a,
+            pair_b,
+            form_ids,
+            lambda a, b, fb: _same_dtype(_dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, a, b, form_ids, fb)),
+        )
     else:
         result = _same_dtype(_dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, pair_a, pair_b, form_ids, force_backend))
     _CORR_MEMO.put(key, result)

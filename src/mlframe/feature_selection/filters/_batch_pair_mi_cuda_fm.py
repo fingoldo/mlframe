@@ -7,7 +7,7 @@ consecutive rows of a column as one 32-bit word, and the histogram counts stay i
 shared-fused kernel's, line for line, so the MI of a pair is the same double (`tests/feature_selection/gpu/test_batch_pair_mi_cuda_fm.py` checks equality with the row-major kernel).
 
 Applies when every code and class fits a byte (`nbins <= 256`, `n_classes_y <= 256`); otherwise the caller keeps the row-major kernels. Counts are exact integers, so the result does not depend
-on the order the threads add in.
+on the order the threads add in. Its CPU twin is ``batch_pair_mi_njit_prange`` (an ``@njit`` host kernel).
 """
 
 from __future__ import annotations
@@ -127,7 +127,13 @@ def _get_kernel() -> Any:
 
 
 def batch_pair_mi_cuda_feature_major(
-    factors_data: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, nbins: np.ndarray, classes_y: np.ndarray, freqs_y: np.ndarray, threads_per_block: int = 256,
+    factors_data: np.ndarray,
+    pair_a: np.ndarray,
+    pair_b: np.ndarray,
+    nbins: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    threads_per_block: int = 256,
 ) -> np.ndarray:
     """MI per pair (nats) from byte codes in feature-major layout; raises when the shape does not fit the kernel (byte codes, shared-memory budget), so the caller falls back to the row-major kernels."""
     if not _CUPY_AVAIL:
@@ -153,7 +159,49 @@ def batch_pair_mi_cuda_feature_major(
     if shared_bytes == 0:
         raise RuntimeError("batch_pair_mi_cuda_feature_major: histogram exceeds the shared-memory budget")
 
+    # Streaming in column blocks: the byte matrix goes up whole (and is transposed on the device) when the VRAM cushion admits the columns the pairs reference twice over (the row-major upload and the
+    # feature-major copy); otherwise the pairs go in chunks that touch a bounded set of columns and only each chunk's columns are gathered on the host and uploaded.
+    from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+    from ._pair_operand_blocks import operand_block_limit, pair_chunks_by_operand_block
+
     n_pad = (n_samples + 3) & ~3
+    n_used = int(np.unique(np.concatenate([pa, pb])).shape[0])
+    if fe_gpu_has_vram_cushion(n_used * (n_samples + n_pad)):
+        return _launch_pairs(factors_data, pa, pb, nbins_i, classes_y, freqs_y, max_joint, shared_bytes, threads_per_block, gather_on_host=False)
+    limit = operand_block_limit(n_used, n_samples + n_pad, 16)
+    if not limit:
+        raise RuntimeError("batch_pair_mi_cuda_feature_major: not even two operand columns fit the VRAM cushion")
+    out = np.empty(n_pairs, dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision
+    pair_blocks = pair_chunks_by_operand_block(pa, pb, limit)
+    for chunk in pair_blocks:
+        out[chunk] = _launch_pairs(
+            factors_data, pa[chunk], pb[chunk], nbins_i, classes_y, freqs_y, max_joint, shared_bytes, threads_per_block, gather_on_host=True
+        )
+    return out
+
+
+def _launch_pairs(
+    factors_data: np.ndarray,
+    pa: np.ndarray,
+    pb: np.ndarray,
+    nbins_i: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    max_joint: int,
+    shared_bytes: int,
+    threads_per_block: int,
+    gather_on_host: bool,
+) -> np.ndarray:
+    """Upload the byte codes (all columns, or with ``gather_on_host`` only the columns the pairs reference, indices remapped) feature-major and run the kernel once: the MI vector of the pairs."""
+    n_samples = int(factors_data.shape[0])
+    n_pairs = int(pa.shape[0])
+    n_classes_y = int(freqs_y.shape[0])
+    n_pad = (n_samples + 3) & ~3
+    if gather_on_host:
+        used, inverse = np.unique(np.concatenate([pa, pb]), return_inverse=True)
+        factors_data = np.ascontiguousarray(factors_data[:, used])
+        nbins_i = np.ascontiguousarray(nbins_i[used])
+        pa, pb = inverse[:n_pairs].astype(np.int64), inverse[n_pairs:].astype(np.int64)
     n_features = int(factors_data.shape[1])
     # transpose on the device: upload the row-major bytes once, then one (features, rows) copy with the rows padded to whole words
     d_rm = _cp.asarray(np.ascontiguousarray(factors_data, dtype=np.uint8))
@@ -172,8 +220,23 @@ def batch_pair_mi_cuda_feature_major(
         if shared_bytes > static_budget:
             kernel.max_dynamic_shared_size_bytes = shared_bytes
         kernel(
-            (n_pairs,), (int(threads_per_block),),
-            (d_cm, d_y, d_pa, d_pb, d_nbins, d_freqs, np.int64(n_samples), np.int64(n_pad), np.int32(n_pairs), np.int32(max_joint), np.int32(n_classes_y), np.float64(1.0 / float(n_samples)), d_out),  # Intentional float64: kernel ABI declares double inv_n
+            (n_pairs,),
+            (int(threads_per_block),),
+            (
+                d_cm,
+                d_y,
+                d_pa,
+                d_pb,
+                d_nbins,
+                d_freqs,
+                np.int64(n_samples),
+                np.int64(n_pad),
+                np.int32(n_pairs),
+                np.int32(max_joint),
+                np.int32(n_classes_y),
+                np.float64(1.0 / float(n_samples)),
+                d_out,
+            ),  # Intentional float64: kernel ABI declares double inv_n
             shared_mem=shared_bytes,
         )
     return np.asarray(_cp.asnumpy(d_out))

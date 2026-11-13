@@ -17,7 +17,9 @@ MRMR_LAYER = ("_mrmr_fit_impl", "mrmr", "_mrmr_fe_step")
 GPU_MARKERS = re.compile(r"\bcupy\b|\bcp\.|numba\.cuda|cuda\.jit|RawKernel|ElementwiseKernel|_cuda\b|_gpu\b|gpu_[a-z]|CUDA_AVAIL|_CUPY_AVAIL")
 DISPATCH_MARKERS = re.compile(r"kernel_tuner|kernel_tuning_cache|_backend_choice|dispatch_[a-z_]*\(|force_backend|gpu_globally_disabled")
 IMPORT = re.compile(r"from\s+(?:mlframe\.feature_selection\.filters|\.+)\s*\.?(_[A-Za-z0-9_]+|[a-z][A-Za-z0-9_]*)\s+import|from\s+\.+(_[A-Za-z0-9_]+)\s+import")
-FE_NAME = re.compile(r"_fe_|_fe\b|_fe\.|engineer|_basis|_wavelet|_fourier|_orth|_lattice|_modular|_gate|_argmax|_encoding|_target_enc|_synergy|_binned|_cell2d|_row_stat|_count_freq|_pair|_mi_greedy|_missingness|_ratio|_polynom|_hermite")
+FE_NAME = re.compile(
+    r"_fe_|_fe\b|_fe\.|engineer|_basis|_wavelet|_fourier|_orth|_lattice|_modular|_gate|_argmax|_encoding|_target_enc|_synergy|_binned|_cell2d|_row_stat|_count_freq|_pair|_mi_greedy|_missingness|_ratio|_polynom|_hermite"
+)
 
 
 def _direct_imports(files: list[Path]) -> set[str]:
@@ -98,6 +100,38 @@ PROFILES_DIR = REPO_ROOT / "audits" / "2026-10-22" / "profiles"
 CPU_KERNEL = re.compile(r"@njit|numba\.njit|\bnjit\(")
 GPU_KERNEL = re.compile(r"RawKernel|RawModule|cuda\.jit|ElementwiseKernel")
 KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
+
+#: Backend modules whose per-host choice is made by a tuned DISPATCHER module: backend -> (dispatcher, why the backend has no tuner entry of its own). The kernel-tuning point is met when the
+#: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
+#: (its own thresholds, variants, block size) registers itself instead.
+KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_batch_pair_mi_cuda_fm": (
+        "batch_pair_mi_gpu",
+        "chosen among the cpu / serial / parallel / cuda backends by batch_pair_mi_gpu._BPMI_SPEC; its own launch (256 threads) measured at the floor, nothing left to sweep",
+    ),
+    "_batch_pair_mi_cuda_shared_fused": (
+        "batch_pair_mi_gpu",
+        "chosen among the same backends by batch_pair_mi_gpu._BPMI_SPEC; its block size follows the occupancy rule (monotone, nothing to sweep)",
+    ),
+}
+
+
+def ktc_dispatch_problems(name: str) -> list[str]:
+    """Why ``name``'s ``KTC_DISPATCHERS`` entry does not hold (empty when it holds or there is none): the dispatcher must exist, register a ``kernel_tuner(`` entry and import ``name``."""
+    if name not in KTC_DISPATCHERS:
+        return []
+    dispatcher = KTC_DISPATCHERS[name][0]
+    text = module_text(dispatcher)
+    if text is None:
+        return [f"dispatcher {dispatcher} not found"]
+    problems = []
+    if not KTC_REGISTRATION.search(text):
+        problems.append(f"dispatcher {dispatcher} registers no kernel_tuner entry")
+    if not re.search(rf"\b{re.escape(name)}\b", text):
+        problems.append(f"dispatcher {dispatcher} does not import {name}")
+    return problems
+
+
 CRIT_DTYPE = re.compile(r"_crit_np_dtype|crit_float_dtype|Intentional float64")
 BLOCK_STREAMING = re.compile(r"block_cols|BLOCK_COLS|column block|best_pair_streamed")
 HOST_PROFILE = re.compile(r"cProfile")
@@ -128,10 +162,11 @@ def contract_violations(name: str) -> list[str]:
     if text is None:
         return ["module not found"]
     found = []
+    ktc_via_dispatcher = name in KTC_DISPATCHERS and not ktc_dispatch_problems(name)
     for pattern, message in (
         (CPU_KERNEL, "no numba CPU kernel"),
         (GPU_KERNEL, "no fused GPU kernel"),
-        (KTC_REGISTRATION, "not registered with the kernel-tuning cache"),
+        (re.compile(r".") if ktc_via_dispatcher else KTC_REGISTRATION, "not registered with the kernel-tuning cache"),
         (CRIT_DTYPE, "no crit dtype use"),
         (BLOCK_STREAMING, "no column-block streaming"),
     ):
@@ -140,8 +175,10 @@ def contract_violations(name: str) -> list[str]:
     kernel_sources = [m.group(1) for m in KERNEL_STRING.finditer(text) if "__global__" in m.group(1)]
     if kernel_sources:
         joined = "\n".join(kernel_sources)
-        if "{REAL}" not in joined:
-            found.append("GPU kernel source has no {REAL} placeholder")
+        # {REAL} types the values a kernel reads, {ACC} its accumulators. A kernel over integer bin codes and class labels has no real-valued operand, so it is type-generic through {ACC} alone;
+        # either placeholder meets the point, and the bare-type check below still rejects a literal double / float in either kind.
+        if "{REAL}" not in joined and "{ACC}" not in joined:
+            found.append("GPU kernel source has neither a {REAL} (values) nor an {ACC} (accumulators) placeholder")
         if BARE_FP_TYPE.search(joined):
             found.append("GPU kernel source has a bare double / float (use {REAL}, or {ACC} for an accumulator)")
     record = PROFILES_DIR / f"{name}.md"
@@ -174,7 +211,10 @@ def main() -> None:
     for name, kind, gpu, disp, loc in rows:
         verdict = "no GPU marker" if gpu == 0 else ("GPU code, no dispatcher" if disp == 0 else "GPU code + dispatcher")
         lines.append(f"| `{name}` | {kind} | {gpu} | {disp} | {loc} | {verdict} |")
-    counts = {v: sum(1 for r in rows if (("no GPU marker" if r[2] == 0 else ("GPU code, no dispatcher" if r[3] == 0 else "GPU code + dispatcher")) == v)) for v in ("no GPU marker", "GPU code, no dispatcher", "GPU code + dispatcher")}
+    counts = {
+        v: sum(1 for r in rows if (("no GPU marker" if r[2] == 0 else ("GPU code, no dispatcher" if r[3] == 0 else "GPU code + dispatcher")) == v))
+        for v in ("no GPU marker", "GPU code, no dispatcher", "GPU code + dispatcher")
+    }
     out = "\n".join(lines) + "\n\n" + f"{len(rows)} modules: " + ", ".join(f"{v}={c}" for v, c in counts.items()) + "\n"
     if len(sys.argv) > 1:
         Path(sys.argv[1]).write_text(out, encoding="utf-8")
