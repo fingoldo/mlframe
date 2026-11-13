@@ -41,12 +41,15 @@ def _device_codes(batches: Sequence[Any]) -> "Optional[list]":
 
 def _observed_from_noise_gate(batches: Sequence[Any], y: np.ndarray) -> "Optional[np.ndarray]":
     """The observed MI of every one-column batch as the noise gate already computed it for the chunk the columns come from, or ``None`` (every column must be a lazy column of a chunk whose
-    resident codes the noise gate scored against these labels). The same kernel produced the numbers, so they are the values ``_FamilyOnDevice.observed`` would compute and copy."""
+    resident codes the noise gate scored against these labels). The same kernel produced the numbers, so they are the values ``_FamilyOnDevice.observed`` would compute and copy.
+    """
     try:
         from ._batch_mi_noise_gate_bits import labels_key, recall_observed
         from ._feature_engineering_pairs._pairs_chunk_codes import LazyCodeColumn
 
-        if not all(isinstance(b, LazyCodeColumn) for b in batches):  # an isinstance test: ``getattr`` on a ``LazyHostCodes`` batch would copy the whole array to the host
+        if not all(
+            isinstance(b, LazyCodeColumn) for b in batches
+        ):  # an isinstance test: ``getattr`` on a ``LazyHostCodes`` batch would copy the whole array to the host
             return None
         key = labels_key(y)
         by_chunk: dict = {}
@@ -64,14 +67,22 @@ def _observed_from_noise_gate(batches: Sequence[Any], y: np.ndarray) -> "Optiona
             out[i] = vec[int(j)]
         return out
     except Exception as exc:
-        log_throttle(logger, "_family_maxt_gate_device.except_65", logging.WARNING, "the noise gate's observed MI is not usable for the family gate (%s: %s); computing it", type(exc).__name__, exc)
+        log_throttle(
+            logger,
+            "_family_maxt_gate_device.except_65",
+            logging.WARNING,
+            "the noise gate's observed MI is not usable for the family gate (%s: %s); computing it",
+            type(exc).__name__,
+            exc,
+        )
         return None
 
 
 def _multi_layout(cp: Any, parts: "list", n: int) -> "tuple | None":
     """Device tables for the one-launch kernels over every batch (``pack_bins_multi``, ``colmax_multi``), or ``None`` when the batches do not suit them.
 
-    They need one integer type that the packing module knows, row-major batches with a unit column stride (a column slice of a bigger matrix qualifies: it is read in place, with its row stride) and a row stride that is a whole number of elements. Returns ``(type name, pointers, row strides, first column of each batch, widths)``."""
+    They need one integer type that the packing module knows, row-major batches with a unit column stride (a column slice of a bigger matrix qualifies: it is read in place, with its row stride) and a row stride that is a whole number of elements. Returns ``(type name, pointers, row strides, first column of each batch, widths)``.
+    """
     from ._batch_mi_noise_gate_bits import _C_TYPES
 
     if not parts or any(d.ndim != 2 or d.dtype != parts[0].dtype or d.dtype not in _C_TYPES for d in parts):
@@ -163,7 +174,18 @@ class _FamilyOnDevice:
                     pack_bins(
                         ((width + bins_block - 1) // bins_block, words),
                         (bins_block,),
-                        (codes, np.int64(n), np.int32(codes.shape[1]), np.int32(lo - int(p0)), np.int32(width), np.int32(words), np.int32(kg), np.int32(lo - g0), bits, px),
+                        (
+                            codes,
+                            np.int64(n),
+                            np.int32(codes.shape[1]),
+                            np.int32(lo - int(p0)),
+                            np.int32(width),
+                            np.int32(words),
+                            np.int32(kg),
+                            np.int32(lo - g0),
+                            bits,
+                            px,
+                        ),
                     )
             self.groups.append((g0, g1, bits, px, self.table[px].sum(axis=1)))
             occupied.append((px > 0).sum(axis=1))
@@ -171,16 +193,19 @@ class _FamilyOnDevice:
 
     def _parts(self, cls_host: np.ndarray):
         """The ``(B, kg)`` MI block of every column group against the ``B`` label bit-set rows of ``cls_host``."""
-        from ._family_maxt_cuda_bits import launch_family_null
+        from ._family_maxt_cuda_bits import family_null_launcher
 
         cp = self.cp
         b = int(cls_host.shape[0])
         cls = cp.asarray(cls_host)
         const_b = cp.full(b, self.py_const, dtype=self.table.dtype)
-        for lo, hi, bits, px, c_a in self.groups:
-            kg = hi - lo
-            part = cp.empty((b, kg), dtype=self.table.dtype)
-            launch_family_null(cp, self.n_y, self.words, bits, self.n_x[lo:hi], cls, self.table, c_a, px, const_b, self.n, self.cap, kg, b, part)
+        launch = family_null_launcher(cp, self.n_y, self.words, self.table, cls, self.n, self.cap, b)
+        widths = [hi - lo for lo, hi, _bits, _px, _c_a in self.groups]
+        flat = cp.empty(b * sum(widths), dtype=self.table.dtype)  # one backing buffer; each group's (b, kg) block is a contiguous slice of it
+        offsets = np.concatenate([[0], np.cumsum(widths)]).astype(np.int64)
+        parts = [flat[b * int(offsets[g]) : b * int(offsets[g + 1])].reshape(b, kg) for g, kg in enumerate(widths)]
+        for (lo, hi, bits, px, c_a), part in zip(self.groups, parts):
+            launch(bits, self.n_x[lo:hi], c_a, px, const_b, hi - lo, part)
             yield part
 
     def observed(self) -> np.ndarray:
