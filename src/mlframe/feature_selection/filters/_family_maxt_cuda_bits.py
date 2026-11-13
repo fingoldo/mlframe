@@ -16,6 +16,8 @@ import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
+from ._fe_batched_mi_cmi import _sm_count
+
 logger = logging.getLogger(__name__)
 
 _SOURCE = r"""
@@ -216,6 +218,19 @@ def kernel_v3(cp, real, ny1: int = 1, pb: int = _V3_MAX_PB, cap: int = 8):
     return _get_kernel_v3(cp, ny1, pb, cap, "float" if np.dtype(real) == np.float32 else "double")
 
 
+_FILL_BLOCKS_PER_SM = 2  # the launch aims for at least this many blocks per multiprocessor when the columns allow it
+
+
+def fill_block_width(width: int, columns: int, other_blocks: int, sms: int) -> int:
+    """Threads per block, narrowed from ``width`` (never under one warp) so the grid of ``other_blocks`` x ``ceil(columns / width)`` blocks reaches ``_FILL_BLOCKS_PER_SM`` blocks per multiprocessor.
+
+    The result is only a launch shape: every column is still computed by one thread, so the numbers do not change. At 100 columns and 40 permutations a 256-thread block gave 10 x 1 = 10 blocks on a 24-SM card."""
+    want_tiles = max(1, -(-_FILL_BLOCKS_PER_SM * max(1, int(sms)) // max(1, int(other_blocks))))
+    narrow = -(-max(1, int(columns)) // want_tiles)
+    narrow = ((narrow + 31) // 32) * 32
+    return int(max(32, min(int(width), narrow)))
+
+
 def launch_family_null(cp, n_y: int, words: int, bits, n_x, cls, table, c_a, px, const_b, n: int, cap: int, k: int, b: int, out) -> None:
     """Launch the shared-memory family null kernel (v3 when it applies, else v2) over ``b`` permutations and ``k`` columns; ``out`` is ``(b, k)``.
 
@@ -224,7 +239,7 @@ def launch_family_null(cp, n_y: int, words: int, bits, n_x, cls, table, c_a, px,
     pb = _v3_plan(n_y, cap)
     if pb is not None:
         kern = _get_kernel_v3(cp, n_y - 1, pb, cap, real)
-        width = v2_block_width(kern, pb * (n_y - 1) * _V3_TILE_WORDS * 8, k)
+        width = fill_block_width(v2_block_width(kern, pb * (n_y - 1) * _V3_TILE_WORDS * 8, k), k, (b + pb - 1) // pb, _sm_count())
         kern(
             ((b + pb - 1) // pb, (k + width - 1) // width),
             (width,),
@@ -232,7 +247,7 @@ def launch_family_null(cp, n_y: int, words: int, bits, n_x, cls, table, c_a, px,
         )
         return
     kern = _get_kernel_v2(cp, n_y - 1, real)
-    width = v2_block_width(kern, (n_y - 1) * words * 8, k)
+    width = fill_block_width(v2_block_width(kern, (n_y - 1) * words * 8, k), k, b, _sm_count())
     kern(
         (b, (k + width - 1) // width),
         (width,),
