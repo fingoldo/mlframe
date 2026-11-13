@@ -101,6 +101,7 @@ _RECIPES: dict = {
         for o in ("long long", "unsigned char")
     ],
     "_pair_mi_perm_cuda.py::_SRC": lambda s: [(f"KB={kb}", _fill(s, **{"{ACC}": "double"}), (f"-DKB={kb}",)) for kb in (1, 4, 8)],
+    "_fe_batched_mi_cmi.py::_BATCHED_JOINT_ENTROPY_SRC": lambda s: [(xt, _fill(s, **{"{ACC}": "double", "{XT}": xt}), ()) for xt in ("long long", "unsigned char")],
     "_hsic_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "EXPF": "expf" if r == "float" else "exp"}), ()) for r in _REAL_TYPES],
     "_lof_gpu.py::_SRC": lambda s: [
         (f"{r} k={k} p={p}", _fill(s, **{"{REAL}": r, "{K}": str(k), "{P}": str(p)}), ()) for r in _REAL_TYPES for k, p in ((20, 3), (64, 16))
