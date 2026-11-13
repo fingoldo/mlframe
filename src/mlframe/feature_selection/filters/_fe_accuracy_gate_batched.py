@@ -77,7 +77,7 @@ def _sweep_gate_batch() -> list:
     variants = {"host": lambda *a: _gate_batch_host_variant(*a), "device": lambda *a: _gate_batch_device_variant(*a)}
     return list(
         sweep_backend_grid(
-            variants, {"n_designs": [8, 24, 64, 160, 400]}, _make_gate_batch_inputs, reference="host", repeats=2, equiv_rtol=5e-2, equiv_atol=5e-3
+            variants, {"n_designs": [8, 24, 64, 160, 400]}, _make_gate_batch_inputs, reference="host", repeats=2, equiv_rtol=1e-9, equiv_atol=1e-12  # measured 2026-11-13: host and device uplifts are bit-identical (max abs difference 0.0 at 8 to 400 designs)
         )
     )
 
@@ -93,7 +93,7 @@ try:
         axes={"n_designs": [8, 24, 64, 160, 400]},
         fallback=_gate_batch_fallback_choice,
         gpu_capable=True,
-        salt=1,
+        salt=2,  # 2: the equivalence tolerance went from 5e-2 to 1e-9, so regions swept under the loose one are measured again
         cli_label="fe_accuracy_gate_batch",
     )
 except Exception as e:  # the dispatcher falls back to the measured heuristic when the registry is unavailable

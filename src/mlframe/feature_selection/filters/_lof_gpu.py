@@ -151,7 +151,7 @@ def use_device_lof(n_rows: int) -> bool:
 
 
 _SWEEP_ROWS = [2_000, 20_000, 100_000]
-_SALT = 4  # 4: the kernel is specialised per (k, p) with a shared-memory top-k above 32, so its timings are measured again
+_SALT = 5  # 5: the equivalence tolerance went from 1e-5 to 1e-6, so regions swept under the looser one are measured again. 4: the kernel is specialised per (k, p) with a shared-memory top-k above 32, so its timings are measured again
 
 
 def _make_inputs(dims: dict) -> tuple:
@@ -186,7 +186,7 @@ def _run_sweep() -> list:
             _make_inputs,
             reference="host",
             repeats=3,
-            equiv_rtol=1e-5,  # float32 scores: the device scorer differs from the host by about 3e-7 relative (a 1e-9 tolerance rejected the device everywhere and the tuner stored 'host' for every size)
+            equiv_rtol=1e-6,  # float32 scores: the device scorer differs from the host by 4.5e-7 to 6.6e-7 relative (measured 2026-11-13, 2000 to 100000 rows) (a 1e-9 tolerance rejected the device everywhere and the tuner stored 'host' for every size)
             equiv_atol=1e-6,
         ),
     )

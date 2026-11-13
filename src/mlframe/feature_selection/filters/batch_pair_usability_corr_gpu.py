@@ -87,6 +87,7 @@ from numba import prange
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
 from ._content_memo import ContentMemo
+from ._ktc_fallback import host_device_sweep, rows_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -652,6 +653,8 @@ def _dispatch_batch_pair_usability_corr_uncached(
         # variant is validated against. See ``bench_batch_pair_usability_corr_gpu.py`` for the CPU-vs-cuda
         # numbers and this module's docstring for the cuda-vs-cuda_warp numbers.
         use_cuda_warp = use_cuda
+        if use_cuda and not _device_wins(n_pairs):
+            use_cuda = use_cuda_warp = False
 
     if use_cuda:
         # MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES="" is the project-wide "no GPU on this run" override
@@ -708,6 +711,65 @@ def _dispatch_batch_pair_usability_corr_uncached(
         form_ids,
     )
     return result, "cpu"
+
+
+_SWEEP_PAIRS = (500, 5000, 50000)
+_SWEEP_ROWS = 5000
+_SWEEP_OPERANDS = 60
+_SALT = 1
+DEVICE_FALLBACK_PAIRS = 0  # measured: the warp kernel is 3.96-4.52x faster than the CPU backend at every tested scale (see the dispatcher), so the pre-sweep default is the device
+
+
+def _sweep_inputs(dims: dict) -> tuple:
+    """A target, an ``(operands, rows)`` matrix and ``dims["n_samples"]`` random operand pairs, for the host-versus-device sweep."""
+    rng = np.random.default_rng(0)
+    n_pairs = int(dims["n_samples"])
+    y = rng.standard_normal(_SWEEP_ROWS)  # Intentional float64: both backends compute in double by default, so the sweep can demand a tight agreement
+    operands = rng.standard_normal((_SWEEP_OPERANDS, _SWEEP_ROWS))  # Intentional float64: as above
+    pair_a = rng.integers(0, _SWEEP_OPERANDS, n_pairs).astype(np.int64)
+    pair_b = rng.integers(0, _SWEEP_OPERANDS, n_pairs).astype(np.int64)
+    return (y, operands, pair_a, pair_b, ALL_FORM_IDS)
+
+
+def _sweep_host(y, operands, pair_a, pair_b, form_ids):
+    """The CPU backend, for the sweep."""
+    return batch_pair_usability_corr_njit_parallel(y, operands, pair_a, pair_b, np.asarray(form_ids, dtype=np.int64))
+
+
+def _sweep_device(y, operands, pair_a, pair_b, form_ids):
+    """The warp backend, for the sweep."""
+    return batch_pair_usability_corr_cuda_warp(y, operands, pair_a, pair_b, np.asarray(form_ids, dtype=np.int64))
+
+
+_fallback_choice = rows_fallback(__name__, "DEVICE_FALLBACK_PAIRS")
+
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+    _SPEC = kernel_tuner(
+        kernel_name="fe_pair_usability_corr_backend",
+        variant_fns=(),  # the two backends are timed by the sweep callable
+        tuner=host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=1e-9, atol=1e-12),
+        axes={"n_samples": list(_SWEEP_PAIRS)},
+        fallback=_fallback_choice,
+        gpu_capable=True,
+        salt=_SALT,
+        cli_label="fe_pair_usability_corr_backend",
+    )
+except Exception as e:  # best-effort: without a tuner entry the dispatcher keeps the measured default (the warp kernel)
+    logger.warning("kernel_tuner spec build for fe_pair_usability_corr_backend failed: %s", e)
+    _SPEC = None
+
+
+def _device_wins(n_pairs: int) -> bool:
+    """Whether ``n_pairs`` pairs take the warp kernel: the per-host kernel-tuning cache decides, the fallback is the device."""
+    if _SPEC is None:
+        return True
+    try:
+        return str(_SPEC.choose(n_samples=int(n_pairs))) == "device"
+    except Exception as exc:
+        logger.debug("fe_pair_usability_corr_backend: KTC choose() failed, using the device: %s", exc)
+        return True
 
 
 _CORR_MEMO = ContentMemo(max_entries=4)  # (result, backend) of the newest large requests, by input content
