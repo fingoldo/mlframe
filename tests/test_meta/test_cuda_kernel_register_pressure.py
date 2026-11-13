@@ -163,3 +163,42 @@ def test_lof_scores_has_no_spill_on_every_arch(arch: int, k: int, p: int, real: 
     spill = re.search(r"(\d+) bytes stack frame, (\d+) bytes spill stores, (\d+) bytes spill loads", report)
     assert spill is not None, report[-400:]
     assert spill.group(2) == "0" and spill.group(3) == "0", f"sm_{arch} k={k} p={p} {real}: {spill.group(0)}"
+
+
+def _factories_in_src() -> set:
+    """``{(module path, name)}`` of every module-level ``kernel`` / ``kernel_*`` function whose first two parameters are ``cp`` and ``real`` (the factory shape the registry compiles)."""
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "src"
+    found = set()
+    for path in sorted((root / "mlframe").rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if "def kernel" not in text:
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and (node.name == "kernel" or node.name.startswith("kernel_")):
+                params = [a.arg for a in node.args.args]
+                if params[:2] == ["cp", "real"]:
+                    module = ".".join(path.relative_to(root).with_suffix("").parts)
+                    found.add((module, node.name))
+    return found
+
+
+def test_every_kernel_factory_in_the_package_is_registered():
+    """A ``kernel(cp, real)``-style factory that is not in ``_REGISTRY`` is a kernel whose spills nobody checks on a device: register it (or rename it if it is not a kernel factory)."""
+    registered = {(module, factory) for module, factory, _dtypes in _REGISTRY.values()}
+    missing = sorted(_factories_in_src() - registered)
+    assert not missing, f"kernel factories missing from the register-pressure registry: {missing}"
+
+
+def test_the_factory_scan_sees_the_known_factories():
+    """The scan finds at least the factories registered today (a changed convention would make the completeness test vacuous)."""
+    registered = {(module, factory) for module, factory, _dtypes in _REGISTRY.values()}
+    assert registered <= _factories_in_src(), sorted(registered - _factories_in_src())

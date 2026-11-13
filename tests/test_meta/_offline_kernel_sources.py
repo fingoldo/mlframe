@@ -51,7 +51,7 @@ def _kernel_constants() -> dict:
             if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
                 continue
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            name = next((t.id for t in targets if isinstance(t, ast.Name)), None)
+            name = next((t.id for t in targets if isinstance(t, ast.Name)), None) or next((t.attr for t in targets if isinstance(t, ast.Attribute)), None)
             literals = []
             for sub in ast.walk(node.value):
                 if isinstance(sub, ast.Constant) and isinstance(sub.value, str) and "__global__" in sub.value:
@@ -62,8 +62,10 @@ def _kernel_constants() -> dict:
                     if "__global__" in joined:
                         literals.append(joined)
             if name and literals:
-                key = f"{path.relative_to(ROOT.parent).as_posix()}::{name}"
-                found.setdefault(key, literals[0])
+                # one key per kernel-bearing literal of the assignment (``NAME``, ``NAME#2``, ...): a dict of kernels or a sum of sources would otherwise keep only the first
+                for i, literal in enumerate(literals):
+                    key = f"{path.relative_to(ROOT.parent).as_posix()}::{name}" + (f"#{i + 1}" if i else "")
+                    found.setdefault(key, literal)
     return found
 
 
@@ -101,7 +103,7 @@ _RECIPES: dict = {
     "_family_maxt_cuda_bits.py::_SOURCE_V3": lambda s: [
         (f"{r} NY1={ny1} PB={pb} CAP={cap}", _fill(s, **{"{REAL}": r}), (f"-DNY1={ny1}", f"-DPB={pb}", f"-DCAP={cap}"))
         for r in _REAL_TYPES
-        for ny1, pb, cap in ((1, 4, 8), (2, 2, 8), (1, 2, 2), (3, 2, 5))
+        for ny1, pb, cap in ((1, 4, 8), (2, 2, 8), (1, 2, 2), (3, 2, 5), (4, 2, 4), (2, 4, 4), (1, 4, 4))
     ],
     "_fe_accuracy_gate_kernel.py::_SRC_TEMPLATE": lambda s: [
         (r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "__MAXK__": "8", "__WARPS__": "8", "__MAXVA__": "8", "__BLOCK__": "256"}), ("-std=c++11",)) for r in _REAL_TYPES

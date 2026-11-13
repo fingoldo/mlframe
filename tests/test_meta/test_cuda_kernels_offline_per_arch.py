@@ -83,6 +83,13 @@ def _archs() -> tuple:
     return tuple(int(x) for x in raw.split(",") if x.strip())
 
 
+def _skip_or_fail(reason: str):
+    """Skip when the toolchain is absent, or FAIL when ``MLFRAME_REQUIRE_OFFLINE=1`` (set it in the CI image that has the CUDA toolkit: a missing ptxas must not turn the whole suite into silent skips)."""
+    if os.environ.get("MLFRAME_REQUIRE_OFFLINE", "").strip() == "1":
+        pytest.fail(f"MLFRAME_REQUIRE_OFFLINE=1 but the offline toolchain is missing: {reason}")
+    pytest.skip(reason)
+
+
 def _ptxas() -> str:
     """Path of the toolkit's ptxas (CUDA_PATH, then PATH), or skip the test: the check needs the assembler, not a device."""
     exe = "ptxas.exe" if os.name == "nt" else "ptxas"
@@ -94,7 +101,15 @@ def _ptxas() -> str:
     for path in candidates:
         if path.exists():
             return str(path)
-    pytest.skip("no ptxas on PATH or under CUDA_PATH")
+    _skip_or_fail("no ptxas on PATH or under CUDA_PATH")
+
+
+def _nvrtc_or_skip() -> None:
+    """Import cupy's NVRTC binding, or skip (fail under ``MLFRAME_REQUIRE_OFFLINE=1``)."""
+    try:
+        import cupy_backends.cuda.libs.nvrtc  # noqa: F401
+    except ImportError as exc:
+        _skip_or_fail(f"cupy's NVRTC binding is not importable: {exc}")
 
 
 def _variant_id(v: KernelVariant) -> str:
@@ -150,7 +165,7 @@ def test_kernel_assembles_without_spill_on_arch(variant: KernelVariant, arch: in
 
 def _check_variant(variant: KernelVariant, arch: int, tmp_path) -> None:
     """The body of the per-arch check (kept separate so the wrapper above can record its failure)."""
-    pytest.importorskip("cupy_backends.cuda.libs.nvrtc")
+    _nvrtc_or_skip()
     ptxas = _ptxas()
     if leftover_placeholders(variant):
         pytest.fail(f"unresolved placeholders {leftover_placeholders(variant)}")
@@ -169,8 +184,11 @@ def _check_variant(variant: KernelVariant, arch: int, tmp_path) -> None:
     missing = [n for n in entry_names if n not in props]
     assert not missing, f"entries without a ptxas resource block: {missing}"
     spills = {n: props[n] for n in entry_names if props[n][1] != "0" or props[n][2] != "0"}
+    # a ``__noinline__`` helper has its own resource block: a spill there costs every call, and a check on the entries alone never sees it
+    helper_spills = {n: v for n, v in props.items() if n not in entry_names and (v[1] != "0" or v[2] != "0")}
     if variant.key not in _SPILL_EXEMPT and _variant_id(variant) not in _SPILL_EXEMPT:
         assert not spills, f"sm_{arch}: register spill (stack, spill st, spill ld) per entry: {spills}"
+        assert not helper_spills, f"sm_{arch}: register spill (stack, spill st, spill ld) in a device helper: {helper_spills}"
 
     warnings = [ln for ln in report.splitlines() if "warning" in ln.lower() and not any(k in ln for k in _WARNING_ALLOWLIST)]
     assert not warnings, f"sm_{arch}: unlisted NVRTC or ptxas warnings: {warnings[:3]}"
@@ -239,7 +257,12 @@ def test_kernels_using_a_newer_architecture_intrinsic_are_listed():
 def test_report_builds_and_can_be_written():
     """The occupancy / FP64 / intrinsic report builds from the collected rows (every row sane); ``MLFRAME_OFFLINE_REPORT=<path>`` writes it (CI keeps it as an artifact)."""
     if not _REPORT_ROWS:
-        pytest.skip("the per-arch test did not run in this process")
+        _skip_or_fail("the per-arch test did not run in this process")
+    if os.environ.get("MLFRAME_REQUIRE_OFFLINE", "").strip() == "1":
+        built = {(r.variant, r.arch) for r in _REPORT_ROWS}
+        failed = {(vid, arch) for vid, arch, _msg in _FAILURE_ROWS}
+        expected = {(_variant_id(v), a) for v in _VARIANTS for a in _archs()}
+        assert not (expected - built - failed), f"variants never built in this run: {sorted(expected - built - failed)[:5]}"
     for r in _REPORT_ROWS:
         assert r.registers > 0 and r.registers <= 255, r
         occ, _ = occupancy(r.arch, r.registers, r.static_shared, 256)
@@ -273,7 +296,50 @@ def test_failure_table_lists_each_failing_variant_per_arch():
 
 def test_an_nvrtc_warning_of_a_successful_build_reaches_the_report(tmp_path):
     """A kernel with an unused variable builds, and its NVRTC warning is in the report the warning check reads (the log of a successful build used to be dropped)."""
-    pytest.importorskip("cupy_backends.cuda.libs.nvrtc")
+    _nvrtc_or_skip()
     src = 'extern "C" __global__ void k(float* o) { int unused = 3; o[threadIdx.x] = 1.0f; }'
     _ptx, report = build_ptx_and_report(src, (), 75, _ptxas(), tmp_path)
     assert any("nvrtc:" in ln and "warning" in ln.lower() and "unused" in ln for ln in report.splitlines()), report[:400]
+
+
+_KERNEL_NAME_RE = re.compile(r"__global__\s+(?:void\s+)?(?:__launch_bounds__\([^)]*\)\s*)?(?:void\s+)?(\w+)\s*\(")
+
+
+def _template_name_prefix(name: str) -> str:
+    """The fixed part of a kernel name spelled with a template token (``bin_codes_TYPENAME`` -> ``bin_codes_``); the name itself when it has none."""
+    return re.split(r"[A-Z]{4,}", name)[0] if re.search(r"[A-Z]{4,}", name) else name
+
+
+def test_every_global_kernel_name_written_in_a_file_is_compiled():
+    """Name-level coverage diff: every ``__global__`` kernel name in a production file appears in the text of a compiled variant of that file (a template spelling like ``bin_codes_TYPENAME`` matches the
+    concrete names its recipe builds). The file-level test above passes when only one kernel of a file is extracted; this one does not."""
+    from _offline_kernel_sources import ROOT, _EXCLUDED_PARTS
+
+    compiled: dict = {}
+    for v in _VARIANTS:
+        compiled.setdefault(v.key.split("::")[0], set()).update(_KERNEL_NAME_RE.findall(v.source))
+    gaps = {}
+    for path in ROOT.rglob("*.py"):
+        if any(part in path.parts for part in _EXCLUDED_PARTS):
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if "__global__" not in text:
+            continue
+        rel = "mlframe/" + path.relative_to(ROOT).as_posix()
+        have = compiled.get(rel, set())
+        missing = []
+        for name in sorted(set(_KERNEL_NAME_RE.findall(text)) - {"void"}):
+            prefix = _template_name_prefix(name)
+            if name in have or (prefix != name and len(prefix) >= 5 and any(h.startswith(prefix) for h in have)):
+                continue
+            missing.append(name)
+        if missing:
+            gaps[rel] = missing
+    assert not gaps, f"kernel names written in a file but never compiled offline (extractor gap or a recipe that drops them): {gaps}"
+
+
+def test_the_template_name_rule_matches_only_a_fixed_prefix():
+    """``bin_codes_TYPENAME`` is matched by its prefix; a plain name, or a short or empty prefix, is never matched by prefix."""
+    assert _template_name_prefix("bin_codes_TYPENAME") == "bin_codes_"
+    assert _template_name_prefix("legval_kernel") == "legval_kernel"
+    assert _template_name_prefix("TYPENAME_k") == ""
