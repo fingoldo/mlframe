@@ -302,44 +302,13 @@ def test_an_nvrtc_warning_of_a_successful_build_reaches_the_report(tmp_path):
     assert any("nvrtc:" in ln and "warning" in ln.lower() and "unused" in ln for ln in report.splitlines()), report[:400]
 
 
-_KERNEL_NAME_RE = re.compile(r"__global__\s+(?:void\s+)?(?:__launch_bounds__\([^)]*\)\s*)?(?:void\s+)?(\w+)\s*\(")
-
-
-def _template_name_prefix(name: str) -> str:
-    """The fixed part of a kernel name spelled with a template token (``bin_codes_TYPENAME`` -> ``bin_codes_``); the name itself when it has none."""
-    return re.split(r"[A-Z]{4,}", name)[0] if re.search(r"[A-Z]{4,}", name) else name
-
-
 def test_every_global_kernel_name_written_in_a_file_is_compiled():
-    """Name-level coverage diff: every ``__global__`` kernel name in a production file appears in the text of a compiled variant of that file (a template spelling like ``bin_codes_TYPENAME`` matches the
-    concrete names its recipe builds). The file-level test above passes when only one kernel of a file is extracted; this one does not."""
+    """Name-level coverage diff (py-ci-shared's ``cuda_kernel_names`` gate): every ``__global__`` kernel name in a production file appears in a variant compiled for that file, so a file with one extracted
+    kernel and one dropped kernel fails; a template spelling like ``bin_codes_TYPENAME`` matches the concrete names its recipe builds."""
     from _offline_kernel_sources import ROOT, _EXCLUDED_PARTS
+    from py_ci_shared.cuda_kernel_names import assert_cuda_kernel_names
 
     compiled: dict = {}
     for v in _VARIANTS:
-        compiled.setdefault(v.key.split("::")[0], set()).update(_KERNEL_NAME_RE.findall(v.source))
-    gaps = {}
-    for path in ROOT.rglob("*.py"):
-        if any(part in path.parts for part in _EXCLUDED_PARTS):
-            continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if "__global__" not in text:
-            continue
-        rel = "mlframe/" + path.relative_to(ROOT).as_posix()
-        have = compiled.get(rel, set())
-        missing = []
-        for name in sorted(set(_KERNEL_NAME_RE.findall(text)) - {"void"}):
-            prefix = _template_name_prefix(name)
-            if name in have or (prefix != name and len(prefix) >= 5 and any(h.startswith(prefix) for h in have)):
-                continue
-            missing.append(name)
-        if missing:
-            gaps[rel] = missing
-    assert not gaps, f"kernel names written in a file but never compiled offline (extractor gap or a recipe that drops them): {gaps}"
-
-
-def test_the_template_name_rule_matches_only_a_fixed_prefix():
-    """``bin_codes_TYPENAME`` is matched by its prefix; a plain name, or a short or empty prefix, is never matched by prefix."""
-    assert _template_name_prefix("bin_codes_TYPENAME") == "bin_codes_"
-    assert _template_name_prefix("legval_kernel") == "legval_kernel"
-    assert _template_name_prefix("TYPENAME_k") == ""
+        compiled.setdefault(v.key.split("::")[0].split("mlframe/", 1)[1], []).append(v.source)
+    assert_cuda_kernel_names(ROOT, compiled=compiled, exclude=_EXCLUDED_PARTS, min_files=500)
