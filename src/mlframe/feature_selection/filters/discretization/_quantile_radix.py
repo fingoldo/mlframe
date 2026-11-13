@@ -99,6 +99,43 @@ def unique_with_counts(values: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     return np.unique(values, return_counts=True)
 
 
+@njit(nogil=True, cache=True)
+def _sorted_quantiles_f32_njit(x: np.ndarray, quantiles: np.ndarray) -> np.ndarray:
+    """``np.quantile(x.astype(float64), quantiles)`` (method ``linear``) of a NaN-free float32 vector from one radix sort of a copy.
+
+    The virtual index is ``(n - 1) * q``, the interpolation is numpy's ``_lerp`` in float64 (``a + (b - a) * t``, and ``b - (b - a) * (1 - t)`` from ``t >= 0.5``), so the float64 results are the ones numpy gives bit for bit.
+    """
+    n = x.shape[0]
+    col = x.copy()
+    keys = np.empty(n, dtype=np.uint32)
+    tmp = np.empty(n, dtype=np.uint32)
+    cnt = np.empty(256, dtype=np.int64)
+    _radix_sort_f32(col, keys, tmp, cnt)
+    out = np.empty(quantiles.shape[0], dtype=np.float64)
+    for qi in range(quantiles.shape[0]):
+        v = quantiles[qi] * (n - 1)
+        lo = math.floor(v)
+        if lo >= n - 1:
+            out[qi] = np.float64(col[n - 1])  # Intentional float64: the interpolation runs in double, as numpy's on the widened column
+        else:
+            a = np.float64(col[lo])  # Intentional float64: operands widened exactly before the interpolation
+            b = np.float64(col[lo + 1])  # Intentional float64: operands widened exactly before the interpolation
+            t = v - lo
+            diff = b - a
+            if t >= 0.5:
+                out[qi] = b - diff * (1.0 - t)
+            else:
+                out[qi] = a + diff * t
+    return out
+
+
+def sorted_quantiles(values: np.ndarray, quantiles: np.ndarray) -> "np.ndarray | None":
+    """Float64 quantiles (fractions in ``[0, 1]``) of a large NaN-free float32 vector by the radix route, or ``None`` when it does not apply (another dtype, a small vector): the caller then uses numpy."""
+    if values.dtype == np.float32 and values.ndim == 1 and values.size >= _UNIQUE_COUNTS_MIN_SIZE:
+        return _sorted_quantiles_f32_njit(np.ascontiguousarray(values), np.ascontiguousarray(quantiles, dtype=np.float64))
+    return None
+
+
 @njit(parallel=True, nogil=True, cache=True)
 def _quantile_edges_2d_radix_njit(arr2d: np.ndarray, quantiles: np.ndarray, edges_out: np.ndarray) -> None:
     """Per-column quantile edges of a NaN-free float32 ``arr2d`` (n_rows x n_cols), written into ``edges_out`` (n_q x n_cols, double).
