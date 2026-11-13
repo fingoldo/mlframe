@@ -61,3 +61,24 @@ def test_the_switch_forces_v2(monkeypatch):
     """``MLFRAME_FAMILY_BITS_V3=0`` selects v2 whatever the shape."""
     monkeypatch.setenv("MLFRAME_FAMILY_BITS_V3", "0")
     assert fb._v3_plan(2, 8) is None
+
+
+@pytest.mark.parametrize("ny", [2, 3])
+def test_v3_equals_v2_when_rows_have_no_bin(ny, monkeypatch):
+    """Rows without a code (-1) break the 'bins partition the rows' identity: the kernel must count every bin then and still equal v2."""
+    rng = np.random.default_rng(5)
+    n, k, b = 3001, 12, 5
+    levels = rng.integers(2, 9, k)
+    levels[0] = 8  # the derivation of the last bin applies from 8 bins
+    cols = np.stack([rng.integers(0, int(lv), n) for lv in levels]).astype(np.int64)
+    cols[:4][rng.random((4, n)) < 0.1] = -1
+    nx = (cols.max(axis=1) + 1).astype(np.int64)
+    y = rng.integers(0, ny, n).astype(np.int64)
+    perms = np.stack([y[rng.permutation(n)] for _ in range(b)]).astype(np.int64)
+    prep = bitset_groups(cols, nx)
+    dev = fb.DeviceBitsets(cp, prep, nx, n)
+    cls = label_bitsets_batch(perms, ny, (n + 63) // 64)
+    const_b = np.full(b, _label_const(prep[0], perms[0], ny), dtype=np.float64)
+    got = fb.mi_matrix_bits_device(dev, cls, const_b)
+    monkeypatch.setenv("MLFRAME_FAMILY_BITS_V3", "0")
+    np.testing.assert_array_equal(got, fb.mi_matrix_bits_device(dev, cls, const_b))

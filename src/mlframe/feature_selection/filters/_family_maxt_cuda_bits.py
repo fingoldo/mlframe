@@ -134,10 +134,18 @@ extern "C" __global__ void family_null_bits_v3(const unsigned long long* __restr
                                                const {REAL}* __restrict__ const_b, const long long n, const int cap, const int words, const int n_y, const int K, const int B,
                                                {REAL}* __restrict__ out) {
     __shared__ unsigned long long sh_cls[PB * NY1 * TW];
+    __shared__ int sh_tot[PB * NY1];  // rows of each stored class per permutation of this block (bins partition the rows, so the last bin of a column is a difference)
     const int b0 = blockIdx.x * PB;
     const int j = blockIdx.y * blockDim.x + threadIdx.x;
     const bool ok = j < K;
     const int nb = ok ? (int)n_x[j] : 0;
+    long long px_sum = 0;
+    if (CAP >= 8) {
+        for (int a = 0; a < nb; ++a) px_sum += px[(long long)j * cap + a];
+    }
+    const bool exact = CAP >= 8 && ok && nb >= 1 && px_sum == n;  // every row has a code in [0, nb): the last bin is then not counted but derived; measured a win from 8 bins, a 9 percent loss at 4
+    const int last = exact ? nb - 1 : nb;
+    for (int i = threadIdx.x; i < PB * NY1; i += blockDim.x) sh_tot[i] = 0;
     int cnt[CAP][PB][NY1];
     #pragma unroll
     for (int a = 0; a < CAP; ++a)
@@ -154,12 +162,14 @@ extern "C" __global__ void family_null_bits_v3(const unsigned long long* __restr
             const int c = rem / TW;
             const int w = rem - c * TW;
             const int bp = b0 + p;
-            sh_cls[i] = (bp < B && w < tw) ? cls[((long long)bp * n_y + c) * words + w0 + w] : 0ULL;
+            const unsigned long long v = (bp < B && w < tw) ? cls[((long long)bp * n_y + c) * words + w0 + w] : 0ULL;
+            sh_cls[i] = v;
+            if (CAP >= 8 && v) atomicAdd(&sh_tot[p * NY1 + c], __popcll(v));
         }
         __syncthreads();
         #pragma unroll
         for (int a = 0; a < CAP; ++a) {
-            if (a < nb) {
+            if (a < last) {
                 const unsigned long long* row = bits + (long long)a * words * K + (long long)w0 * K + j;
                 for (int w = 0; w < tw; ++w) {
                     const unsigned long long r = row[(long long)w * K];
@@ -172,16 +182,25 @@ extern "C" __global__ void family_null_bits_v3(const unsigned long long* __restr
             }
         }
     }
+    __syncthreads();
     if (!ok) return;
     #pragma unroll
     for (int p = 0; p < PB; ++p) {
         double s = 0.0;
+        int run[NY1];  // stored-class rows seen in the bins before this one: the last bin of an exact column is the class total minus them
+        #pragma unroll
+        for (int c = 0; c < NY1; ++c) run[c] = 0;
         #pragma unroll
         for (int a = 0; a < CAP; ++a) {
             if (a < nb) {
                 long long rest = px[(long long)j * cap + a];
                 #pragma unroll
-                for (int c = 0; c < NY1; ++c) { s += (double)table[cnt[a][p][c]]; rest -= cnt[a][p][c]; }
+                for (int c = 0; c < NY1; ++c) {
+                    const int v = (exact && a == nb - 1) ? sh_tot[p * NY1 + c] - run[c] : cnt[a][p][c];
+                    run[c] += v;
+                    s += (double)table[v];
+                    rest -= v;
+                }
                 s += (double)table[rest];
             }
         }
