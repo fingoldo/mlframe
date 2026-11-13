@@ -879,9 +879,12 @@ def _fit_impl_part1(_replay_from_fit_cache: Any, self: Any, _cache_key: Any, fe:
     # of seconds past a tiny max_runtime_mins. Enrichment-only: the core screen / greedy MI is never gated,
     # so an aborted pass still leaves a usable partial selection. Cleared in MRMR.fit's finally (the outer
     # call-site boundary, in _mrmr_class.py) - NOT here, since this function has no single exit point.
+    from .._fe_deadline import current_fe_deadline as _current_fe_deadline
     from .._fe_deadline import set_fe_deadline as _set_fe_deadline
 
-    _set_fe_deadline((start_time + self.max_runtime_mins * 60.0) if self.max_runtime_mins is not None else None)
+    # A fit nested in another one (the target-mix child) is bounded by whichever deadline is earlier: its own budget must not extend the enclosing fit's.
+    _deadlines = [d for d in ((start_time + self.max_runtime_mins * 60.0) if self.max_runtime_mins is not None else None, _current_fe_deadline()) if d is not None]
+    _set_fe_deadline(min(_deadlines) if _deadlines else None)
 
     def _fe_budget_ok() -> bool:
         """Between-FE-step wall-clock gate: True while remaining time under ``max_runtime_mins`` is unspent (or unset)."""
