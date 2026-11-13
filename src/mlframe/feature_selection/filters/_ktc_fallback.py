@@ -46,22 +46,33 @@ def rows_fallback(owner: str, name: str = "DEVICE_FALLBACK_ROWS"):
     return _fallback_choice
 
 
-def host_device_sweep(owner: str, host, device, *, repeats: int = 3, rtol: float = 1e-9, atol: float | None = None):
+def host_device_sweep(owner: str, host, device, *, repeats: int = 3, rtol: float = 1e-9, atol: float | None = None, residency: bool = False):
     """The kernel-tuning sweep of a host-versus-device kernel: time both per row count and require the device to agree with the host.
 
     ``host`` and ``device`` are the two callables; ``owner`` is the module's ``__name__``, in which ``_SWEEP_ROWS`` and ``_sweep_inputs`` are looked up at call time, so the module
-    can define them after the sweep is built. ``atol`` defaults to ``rtol``."""
+    can define them after the sweep is built. ``atol`` defaults to ``rtol``.
 
-    def _run_sweep() -> list:
-        """Time the host and the device kernel per row count; the device must agree with the host."""
+    ``residency=True`` makes the sweep scenario-aware (for an entry declared with ``residencies=``): the returned tuner takes ``data_in_residency`` and ``data_out_residency``, the
+    inputs are placed by the module's ``_sweep_place(inputs, residency)`` outside the timing, and both callables receive ``data_out_residency=`` and return their result in that
+    placement as a host-comparable value (a vector reduced on the side the result lives, so the comparison adds one small copy to both backends alike)."""
+
+    def _run_sweep(data_in_residency: str = "host", data_out_residency: str = "host") -> list:
+        """Time the host and the device kernel per row count in the given data placement; the device must agree with the host."""
         from pyutilz.dev.benchmarking import sweep_backend_grid
 
         module = sys.modules[owner]
+        make_inputs = module._sweep_inputs
+        host_fn, device_fn = host, device
+        if residency:
+            place = getattr(module, "_sweep_place", lambda inputs, res: inputs)
+            make_inputs = lambda dims: place(module._sweep_inputs(dims), data_in_residency)  # noqa: E731 - small adapter
+            host_fn = lambda *a: host(*a, data_out_residency=data_out_residency)  # noqa: E731
+            device_fn = lambda *a: device(*a, data_out_residency=data_out_residency)  # noqa: E731
         return list(
             sweep_backend_grid(
-                {"host": host, "device": device},
+                {"host": host_fn, "device": device_fn},
                 {"n_samples": module._SWEEP_ROWS},
-                module._sweep_inputs,
+                make_inputs,
                 reference="host",
                 repeats=repeats,
                 equiv_rtol=rtol,

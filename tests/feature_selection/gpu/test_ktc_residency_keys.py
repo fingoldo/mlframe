@@ -49,3 +49,34 @@ def test_residency_report_times_every_declared_scenario_and_derives_the_transfer
     assert 0.6 < share < 0.85
     resident = next(r for r in rows if r["scenario"] == ("device", "device"))
     assert resident["host_s"] is None
+
+
+def test_a_residency_sweep_places_the_inputs_and_hands_the_output_placement_to_both_backends(monkeypatch):
+    """``host_device_sweep(residency=True)`` builds a tuner taking the two placement keys: inputs go through ``_sweep_place`` for the input side, both callables receive ``data_out_residency``."""
+    import sys
+    import types
+
+    import pyutilz.dev.benchmarking as bench
+
+    from mlframe.feature_selection.filters._ktc_fallback import host_device_sweep
+
+    seen = {}
+
+    def fake_grid(variants, axes, make_inputs, **kw):
+        """Capture what the sweep would time instead of timing it."""
+        inputs = make_inputs({"n_samples": 7})
+        seen["inputs"] = inputs
+        seen["results"] = {name: fn(*inputs) for name, fn in variants.items()}
+        return [{"n_samples_max": 7, "backend_choice": "host"}]
+
+    monkeypatch.setattr(bench, "sweep_backend_grid", fake_grid)
+    m = types.ModuleType("fake_residency_sweep_module")
+    m._SWEEP_ROWS = [7]
+    m._sweep_inputs = lambda dims: (f"x{dims['n_samples']}",)
+    m._sweep_place = lambda inputs, residency: tuple(f"{residency}:{a}" for a in inputs)
+    monkeypatch.setitem(sys.modules, "fake_residency_sweep_module", m)
+    tuner = host_device_sweep("fake_residency_sweep_module", lambda x, data_out_residency: ("h", x, data_out_residency), lambda x, data_out_residency: ("d", x, data_out_residency), residency=True)
+    assert tuner(data_in_residency="device", data_out_residency="host") == [{"n_samples_max": 7, "backend_choice": "host"}]
+    assert seen["inputs"] == ("device:x7",)
+    assert seen["results"] == {"host": ("h", "device:x7", "host"), "device": ("d", "device:x7", "host")}
+    assert host_device_sweep("fake_residency_sweep_module", lambda x: 1, lambda x: 2).__code__.co_argcount == 2
