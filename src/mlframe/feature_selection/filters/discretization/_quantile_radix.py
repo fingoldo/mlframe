@@ -96,20 +96,27 @@ def _quantile_edges_2d_radix_njit(arr2d: np.ndarray, quantiles: np.ndarray, edge
 _TILE_COLS = 64
 
 
+def tile_cols_for(n_cols: int, threads: int) -> int:
+    """Tile width for ``n_cols`` columns on ``threads`` threads: ``_TILE_COLS`` unless that leaves threads without a tile, then ``ceil(n_cols / threads)``, never under 16 (one 64-byte line of float32 per row read)."""
+    return int(max(16, min(_TILE_COLS, -(-int(n_cols) // max(1, int(threads))))))
+
+
 @njit(parallel=True, nogil=True, cache=True)
-def _quantile_edges_2d_radix_tiled_njit(arr2d: np.ndarray, quantiles: np.ndarray, edges_out: np.ndarray) -> None:
+def _quantile_edges_2d_radix_tiled_njit(arr2d: np.ndarray, quantiles: np.ndarray, edges_out: np.ndarray, tile_cols: int = _TILE_COLS) -> None:
     """Tiled twin of :func:`_quantile_edges_2d_radix_njit`: BYTE-IDENTICAL edges. Each prange tile gathers ``_TILE_COLS`` adjacent columns
     with row-contiguous reads (``arr2d[r, j0:j1]`` is one cache line run), then radix-sorts each column of the tile in place. The
-    per-column gather from the C-ordered buffer otherwise costs one cache miss per element."""
+    per-column gather from the C-ordered buffer otherwise costs one cache miss per element.
+
+    ``tile_cols`` is the tile width (columns are independent, so it changes the schedule and never an edge): see :func:`tile_cols_for`, which narrows it so that every thread gets a tile."""
     n_rows = arr2d.shape[0]
     n_cols = arr2d.shape[1]
     n_q = quantiles.shape[0]
     if n_rows == 0 or n_cols == 0:
         return
-    n_tiles = (n_cols + _TILE_COLS - 1) // _TILE_COLS
+    n_tiles = (n_cols + tile_cols - 1) // tile_cols
     for t in prange(n_tiles):
-        j0 = t * _TILE_COLS
-        j1 = min(n_cols, j0 + _TILE_COLS)
+        j0 = t * tile_cols
+        j1 = min(n_cols, j0 + tile_cols)
         w = j1 - j0
         tile = np.empty((w, n_rows), dtype=np.float32)
         for r in range(n_rows):

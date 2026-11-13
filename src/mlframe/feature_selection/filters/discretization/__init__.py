@@ -20,7 +20,7 @@ from typing import Any, Optional, Union
 
 import numpy as np
 import pandas as pd
-from numba import njit, prange
+from numba import get_num_threads, njit, prange
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 from mlframe.utils.env_flags import env_float, env_int
@@ -514,7 +514,7 @@ from ._kernels import (
     _searchsorted_2d_right_njit,
     _searchsorted_2d_right_njit_parallel,
 )
-from ._quantile_radix import _quantile_edges_2d_radix_tiled_njit
+from ._quantile_radix import _quantile_edges_2d_radix_tiled_njit, tile_cols_for
 from ._count_le_rowmajor import _count_le_2d_rowmajor_njit, _count_le_2d_rowmajor_njit_parallel
 
 # Largest interior-edge count for which the branch-free count kernels beat the binary search (measured 1.25x at 31 edges).
@@ -542,7 +542,7 @@ def _finite_quantile_edges(arr2d: np.ndarray, quantiles: np.ndarray) -> np.ndarr
         # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
         with parallel_kernel_entry():
             if arr2d.dtype == np.float32:
-                _quantile_edges_2d_radix_tiled_njit(np.ascontiguousarray(arr2d), quantiles, edge_matrix)
+                _quantile_edges_2d_radix_tiled_njit(np.ascontiguousarray(arr2d), quantiles, edge_matrix, tile_cols_for(arr2d.shape[1], get_num_threads()))
             else:
                 _quantile_edges_2d_njit(np.ascontiguousarray(arr2d), quantiles, _kths, edge_matrix)
     return edge_matrix
