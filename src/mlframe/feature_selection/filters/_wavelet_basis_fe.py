@@ -829,6 +829,8 @@ def _select_wavelet_legs(
     rebuilding an identical array from scratch for every survivor. The GPU-batched delegate path (which
     returns bare ``(j, k)`` tuples only) rebuilds the array for survivors when ``return_arrays=True`` - still
     correct, just without the reuse (the batched twin lives in a separate module)."""
+    # Memory bound: this host body works on ONE column block (a single column) and holds one leg array at a time (the legs are counted and dropped, the admitted ones
+    # rebuilt); the batched twin stacks the legs of the column in blocks bounded by ``_LEG_BLOCK_BYTES`` (``_wavelet_basis_fe_batched``).
     # BATCHED born-on-device path under STRICT (default OFF -> CPU below, byte-identical). The batched twin
     # scores all candidate legs' train+held-out MI in two device workloads (one cp.bincount each) instead of
     # ~2 per-leg _binned_mi calls; parity-pinned to return the SAME admitted legs (test_wavelet_batched_mi_parity).
@@ -856,7 +858,6 @@ def _select_wavelet_legs(
     yb_tr = _bin_y_codes(y[tr])
     yb_va = _bin_y_codes(y[va])
     cand: list[tuple] = []  # (train_mi, heldout_mi, j, k)
-    leg_arrays: dict = {}
     js_list: list = []
     ks_list: list = []
     for j in range(int(max_scale) + 1):
@@ -869,8 +870,6 @@ def _select_wavelet_legs(
                 continue
             js_list.append(j)
             ks_list.append(k)
-            if return_arrays:
-                leg_arrays[(j, k)] = leg
     if not js_list:
         return []
     # Fused parallel-njit batch (see _wavelet_legs_mi_batch_njit's docstring): scores every surviving
@@ -910,5 +909,6 @@ def _select_wavelet_legs(
     admitted.sort(key=lambda c: c[0], reverse=True)
     top = admitted[: int(max_legs)]
     if return_arrays:
-        return [(int(c[2]), int(c[3]), leg_arrays[(int(c[2]), int(c[3]))]) for c in top]
+        # Only the admitted legs (at most ``max_legs``) are built again: keeping every surviving leg held up to 2**(max_scale+1) float arrays of n rows at once.
+        return [(int(c[2]), int(c[3]), _dyadic_haar_leg(z, int(c[2]), int(c[3]))) for c in top]
     return [(int(c[2]), int(c[3])) for c in top]

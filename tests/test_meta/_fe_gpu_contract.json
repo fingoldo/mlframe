@@ -4,7 +4,8 @@
   "n_pending_at_creation": 226,
   "compliant": [
     "_fe_sufficient_summary_pairs",
-    "hermite_fe"
+    "hermite_fe",
+    "_wavelet_basis_fe"
   ],
   "exempt": {
     "_confirm_predictor_engineered": "ordering and decision helpers around the single-predictor confirmation: bookkeeping, no numeric kernel",
@@ -283,7 +284,6 @@
     "_unified_fe_gate",
     "_usability_pool_resident_pairs",
     "_usability_row_stat_pool",
-    "_wavelet_basis_fe",
     "_wavelet_basis_fe_batched",
     "_wavelet_basis_fe_recipes",
     "_wavelet_legs_fused_gpu",
