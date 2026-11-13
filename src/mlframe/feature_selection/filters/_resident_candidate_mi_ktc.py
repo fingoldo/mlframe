@@ -22,6 +22,8 @@ import numpy as np
 from typing import cast
 from mlframe.utils.log_throttle import log_throttle
 
+from ._ktc_fallback import selection_view
+
 logger = logging.getLogger(__name__)
 
 # (n, k) grid. k spans the F2 gate distribution (small-k k~16) up to the wide orth-univariate / large-screen
@@ -29,7 +31,7 @@ logger = logging.getLogger(__name__)
 # host path (njit) - the resident path is OPT-IN-BY-MEASUREMENT only, never the un-tuned default.
 _RESCAND_SWEEP_N_SAMPLES = [50_000, 100_000, 300_000]
 _RESCAND_SWEEP_K = [16, 64, 128, 256]
-_RESCAND_SALT = 1
+_RESCAND_SALT = 2  # 2: the sweep compares the selection view (best candidates) at the strict tolerance
 
 
 def rescand_use_resident(n: int, k: int) -> bool:
@@ -81,7 +83,7 @@ def _rescand_njit(mat, y):
     """Sweep probe variant: score ``mat`` on the host exact njit batch plug-in MI (the path being gated against)."""
     from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit
 
-    return _plugin_mi_classif_batch_njit(mat, y, 20)
+    return selection_view(_plugin_mi_classif_batch_njit(mat, y, 20))
 
 
 def _rescand_resident(mat, y):
@@ -93,13 +95,13 @@ def _rescand_resident(mat, y):
 
     mat_gpu = cp.asarray(mat, dtype=cp.float64)  # Intentional float64: KTC probe device upload mirrors the gate's float64 host matrix
     y_gpu = cp.asarray(y, dtype=cp.int64)
-    return _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, 20)
+    return selection_view(np.asarray(_plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, 20), dtype=np.float64))  # Intentional float64: comparison vector
 
 
 def _run_rescand_sweep() -> list:
     """Time host njit MI vs the resident GPU plug-in MI across the (n, k) grid; faster EQUIVALENT wins per
-    region. The two binning schemes (rank vs percentile-edge) differ only at ties -> selection-equivalent, so
-    the equivalence tol is loosened (the approved FE-PAIR trade) and the sweep ranks by WALL."""
+    region. The two binning schemes (rank vs percentile-edge) differ only at ties -> selection-equivalent: the sweep
+    compares what the gate reads from a scoring pass (the best candidates, ``selection_view``) at the strict tolerance, and ranks by WALL."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"njit": _rescand_njit, "resident": _rescand_resident}
@@ -108,7 +110,7 @@ def _run_rescand_sweep() -> list:
         {"n_samples": _RESCAND_SWEEP_N_SAMPLES, "k": _RESCAND_SWEEP_K},
         _make_rescand_inputs,
         reference="njit",
-        repeats=3, equiv_rtol=5e-2, equiv_atol=5e-2,
+        repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6,
     ))
 
 

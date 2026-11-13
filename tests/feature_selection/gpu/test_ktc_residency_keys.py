@@ -80,3 +80,17 @@ def test_a_residency_sweep_places_the_inputs_and_hands_the_output_placement_to_b
     assert seen["inputs"] == ("device:x7",)
     assert seen["results"] == {"host": ("h", "device:x7", "host"), "device": ("d", "device:x7", "host")}
     assert host_device_sweep("fake_residency_sweep_module", lambda x: 1, lambda x: 2).__code__.co_argcount == 2
+
+
+def test_selection_view_counts_the_scores_and_marks_the_best_with_a_tie_band():
+    """The shared view: the first entry is the number of scored candidates, then a 0/1 mark for those at or within the tie band of the ``top``-th best."""
+    from mlframe.feature_selection.filters._ktc_fallback import selection_view
+
+    scores = np.array([0.5, 0.1, 0.4, 0.3, 0.2])
+    v = selection_view(scores, top=2, width=8)
+    assert v[0] == 5 and list(v[1:6]) == [1.0, 0.0, 1.0, 0.0, 0.0] and v[6:].sum() == 0
+    near = scores.copy()
+    near[2] = 0.4 * (1 - 1e-5)
+    assert np.array_equal(selection_view(near, top=2, width=8), v), "a value inside the tie band at the cut stays on the same side"
+    assert selection_view(scores[:-1], top=2, width=8)[0] == 4
+    assert selection_view(np.array([]), top=2, width=4)[0] == 0

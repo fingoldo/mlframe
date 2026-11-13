@@ -23,7 +23,7 @@ import pandas as pd
 
 from ._device_sort_safe import device_room
 from ._fe_usability_signal import _crit_np_dtype
-from ._ktc_fallback import rows_fallback
+from ._ktc_fallback import rows_fallback, selection_view
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -174,16 +174,11 @@ _SWEEP_NEAR_TIE = 1e-4  # relative width of the tie band at the cut: values this
 
 
 def _selection_view(mi: np.ndarray) -> np.ndarray:
-    """What the greedy step takes from a scoring pass: how many candidates were kept, and which of them are among the best ``_SWEEP_TOP`` (those at or within the tie band of the K-th best).
+    """What the greedy step takes from a scoring pass (see ``_ktc_fallback.selection_view``): how many candidates were kept, and which are among the best ``_SWEEP_TOP``.
 
     The two paths bin differently (device edge selection on float32 candidates against the host's arithmetic), so their MI values differ by the size of a few rows crossing a bin edge
     (2e-6 on a value of 2.5e-3 at 100000 rows) while the candidates they rank at the top, which is all the selection reads, agree; comparing that view needs no slack tolerance."""
-    out = np.zeros(1 + 1024, dtype=np.float64)  # Intentional float64: comparison vector
-    out[0] = mi.size
-    if mi.size:
-        kth = np.sort(mi)[-min(_SWEEP_TOP, mi.size)]
-        out[1 : 1 + mi.size] = (mi >= kth - _SWEEP_NEAR_TIE * abs(kth)).astype(np.float64)[:1024]
-    return out
+    return selection_view(mi, top=_SWEEP_TOP, tie_band=_SWEEP_NEAR_TIE)
 
 
 def _host(X: pd.DataFrame, candidates: list, y: np.ndarray, nbins: int) -> np.ndarray:
