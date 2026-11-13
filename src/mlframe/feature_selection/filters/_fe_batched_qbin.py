@@ -2,6 +2,7 @@
 
 Carved out of ``_fe_batched_mi`` for file size; ``_fe_batched_mi`` re-exports the public names.
 """
+
 from __future__ import annotations
 
 import logging
@@ -75,6 +76,9 @@ def _get_qbin_coder_kernel(real: str = "double"):
 
 def _edge_keys(cp: Any, edges_all: Any, interior: Any, ndistinct: Any, real: str) -> Any:
     """The ``(nbins + 2, K)`` integer key table of the edges for the coder of type ``real``: non-interior slots hold the key maximum, the last row the binary-column top edge."""
+    sign: Any
+    imax: Any
+    kdt: Any
     if real == "float":
         e64 = cp.ascontiguousarray(edges_all.astype(cp.float64, copy=False))
         e32 = e64.astype(cp.float32)
@@ -132,6 +136,7 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     edges_all = None
     try:
         from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled
+
         if fe_gpu_radix_edges_enabled():
             # with_extremes=True: min/max ride along as 2 extra exact order statistics in the SAME select
             # pass (ncu/nsys-driven) instead of two standalone Xd.min(axis=0)/Xd.max(axis=0)
@@ -142,7 +147,9 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
         edges_all = None
     if edges_all is None:
         qs = cp.linspace(0.0, 100.0, nbins + 1)
-        edges_all = device_percentile(Xd.astype(cp.float64) if single else Xd, qs, axis=0)  # (nbins+1, K) - one batched device sort; float32 input interpolates in double like the radix route  # Intentional float64: edge interpolation precision
+        edges_all = device_percentile(
+            Xd.astype(cp.float64) if single else Xd, qs, axis=0
+        )  # (nbins+1, K) - one batched device sort; float32 input interpolates in double like the radix route  # Intentional float64: edge interpolation precision
     # Vectorized per-column coding (replaces a K-iteration Python loop of cp.unique + cp.searchsorted +
     # per-column copy - ~3 kernel launches PER COLUMN, 617 columns = ~1850 launches per call on the
     # wellbore-100k trace). The searchsorted-on-deduped-interior-edges semantics reduce to counting, per
@@ -166,10 +173,18 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
         threads = block_size_for(kern, work_items=total)
         blocks = (total + threads - 1) // threads
         keys = _edge_keys(cp, edges_all, interior, ndistinct, real)
-        kern((int(blocks),), (threads,), (
-            cp.ascontiguousarray(Xd), keys,
-            np.int64(n), np.int64(K), np.int32(keys.shape[0]), codes,
-        ))
+        kern(
+            (int(blocks),),
+            (threads,),
+            (
+                cp.ascontiguousarray(Xd),
+                keys,
+                np.int64(n),
+                np.int64(K),
+                np.int32(keys.shape[0]),
+                codes,
+            ),
+        )
         return codes
     except Exception:
         logger.debug("qbin fused coder failed; broadcast-loop fallback", exc_info=True)

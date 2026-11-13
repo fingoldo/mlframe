@@ -70,6 +70,7 @@ Mirrors the spline / Fourier extra-basis FE module
 (uplift + noise-aware MAD floor) chain, and returns ``EngineeredRecipe`` objects
 for leak-safe transform-time replay.
 """
+
 from __future__ import annotations
 
 import logging
@@ -243,12 +244,18 @@ def _run_haar_leg_sweep() -> list:
         "serial": lambda *a: _call(_dyadic_haar_leg_njit_serial, *a),
         "parallel": lambda *a: _call(_dyadic_haar_leg_njit, *a),
     }
-    return cast(list, sweep_backend_grid(
-        variants,
-        {"n": _HAAR_LEG_SWEEP_N},
-        _make_haar_leg_inputs,
-        reference="serial", repeats=5, equiv_atol=0.0, equiv_rtol=0.0,
-    ))
+    return cast(
+        list,
+        sweep_backend_grid(
+            variants,
+            {"n": _HAAR_LEG_SWEEP_N},
+            _make_haar_leg_inputs,
+            reference="serial",
+            repeats=5,
+            equiv_atol=0.0,
+            equiv_rtol=0.0,
+        ),
+    )
 
 
 def _haar_leg_fallback_choice(n: int) -> str:
@@ -352,10 +359,12 @@ def _binnedmi_gpu_enabled(*, n: int | None = None, p: int | None = None) -> bool
     ``n``/``p`` (optional): the calling dispatch's own shape, forwarded to ``fe_gpu_strict_enabled`` so the
     STRICT/AUTO decision is size-aware for THIS call. Omit to preserve the shape-blind default."""
     import os as _os
+
     if _os.environ.get("MLFRAME_CMI_GPU", "") == "1":
         return True
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
+
         return bool(fe_gpu_strict_enabled(n=n, p=p))
     except Exception as e:
         # fallback: the GPU-strict probe is unavailable (typically no cupy); the host binned-MI path runs.
@@ -386,6 +395,7 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
     df = cp.asarray(np.asarray(feat, dtype=np.float64).ravel())
     if discrete:
         from ._fe_batched_mi import binned_mi_from_codes_gpu
+
         fb = (df - df.min()).astype(cp.int64)
         if y_codes is not None:
             yb = resident_operand(np.asarray(y_codes).ravel(), "wavelet_y_codes", dtype=np.int64)
@@ -393,6 +403,7 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
             dy = resident_operand(np.asarray(y).ravel(), "wavelet_y", dtype=np.int64)
             yb = dy - dy.min()
         return float(max(float(binned_mi_from_codes_gpu(fb[:, None], yb)[0]), 0.0))
+
     # Sort-free EXACT quantile edges via radix-select (launch-reduction): cp.quantile bins via a comparison
     # MERGE-sort; _radix_select_interior_edges returns the SAME interior order-statistic edges WITHOUT a sort
     # (bit-identical codes through cp.searchsorted/digitize, maxdiff 0). The cp.unique low-card check stays
@@ -402,6 +413,7 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
         """Compute equi-frequency bin-interior edges for ``v`` via the sort-free radix-select path when enabled (bit-identical to, but faster than, a comparison-sort quantile), falling back to ``cp.quantile`` when the radix path is disabled or unavailable."""
         try:
             from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled
+
             if fe_gpu_radix_edges_enabled():
                 e = _radix_select_interior_edges(v.reshape(-1, 1), nbins)
                 if e is not None:
@@ -433,6 +445,7 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
     # Same plain plug-in MI partition -> selection-equivalent. Falls back internally to the cupy path if the
     # (Kx*Ky) shared tile would not fit.
     from ._fe_batched_mi import binned_mi_from_codes_gpu
+
     fb = fb.astype(cp.int64, copy=False)
     yb = yb.astype(cp.int64, copy=False)
     mi = float(binned_mi_from_codes_gpu(fb[:, None], yb)[0])
@@ -594,12 +607,22 @@ def _heldout_incremental_mi_prep(x: np.ndarray, y: np.ndarray, *, nbins: int = 1
     xc_fine = _x_codes(x[va], nbins=2 * nbins)
     fine_mi = _binned_mi(
         # Intentional float64: fine-grained held-out binned-MI input is float64; parity needs float64
-        xc_fine.astype(np.float64), y[va], nbins=max(2 * nbins, int(xc_fine.max()) + 1), discrete=True,
+        xc_fine.astype(np.float64),
+        y[va],
+        nbins=max(2 * nbins, int(xc_fine.max()) + 1),
+        discrete=True,
     )
     smooth_gain = float(fine_mi - base_mi)
     return {
-        "va": va, "xc": xc, "y_va": y_va, "base_mi": base_mi, "base_nb": base_nb,
-        "n_perm": n_perm, "Yp": Yp, "bm": bm, "smooth_gain": smooth_gain,
+        "va": va,
+        "xc": xc,
+        "y_va": y_va,
+        "base_mi": base_mi,
+        "base_nb": base_nb,
+        "n_perm": n_perm,
+        "Yp": Yp,
+        "bm": bm,
+        "smooth_gain": smooth_gain,
     }
 
 
@@ -673,7 +696,11 @@ def _heldout_incremental_mi_from_prep(prep: Optional[dict], leg: np.ndarray) -> 
 
 
 def _heldout_incremental_mi(
-    x: np.ndarray, leg: np.ndarray, y: np.ndarray, *, nbins: int = 10,
+    x: np.ndarray,
+    leg: np.ndarray,
+    y: np.ndarray,
+    *,
+    nbins: int = 10,
 ) -> tuple[float, float]:
     """Held-out INCREMENTAL MI of adding ``leg`` to the binned raw column ``x``,
     scored on the ``%3`` stride slice, PLUS the gain of a SMOOTH refinement
@@ -797,6 +824,17 @@ def _try_gpu_leg_selection(x, y, lo, span, max_scale, max_legs, scale_sigma, ret
         return None
 
 
+def _wavelet_use_device(use_device: Optional[bool], n_rows: int) -> bool:
+    """The route of one leg selection: an explicit ``use_device`` wins, else the strict-residency flag admits the device and the row-count tuner decides whether it pays."""
+    if use_device is not None:
+        return use_device
+    if not _binnedmi_gpu_enabled(n=n_rows):
+        return False
+    from ._wavelet_legs_tuner import wavelet_device_chosen
+
+    return wavelet_device_chosen(n_rows)
+
+
 def _select_wavelet_legs(
     x: np.ndarray,
     y: np.ndarray,
@@ -837,13 +875,7 @@ def _select_wavelet_legs(
     # BATCHED born-on-device path under STRICT (default OFF -> CPU below, byte-identical). The batched twin
     # scores all candidate legs' train+held-out MI in two device workloads (one cp.bincount each) instead of
     # ~2 per-leg _binned_mi calls; parity-pinned to return the SAME admitted legs (test_wavelet_batched_mi_parity).
-    if use_device is None:
-        use_device = _binnedmi_gpu_enabled(n=int(size_of(x)))
-        if use_device:
-            from ._wavelet_legs_tuner import wavelet_device_chosen
-
-            use_device = wavelet_device_chosen(int(size_of(x)))  # the strict-residency flag admits the device; the row count (tuner) decides whether it pays
-    if use_device:
+    if _wavelet_use_device(use_device, int(size_of(x))):
         _legs_gpu = _try_gpu_leg_selection(x, y, lo, span, max_scale, max_legs, scale_sigma, return_arrays)
         if _legs_gpu is not None:
             return _legs_gpu
@@ -896,7 +928,11 @@ def _select_wavelet_legs(
             np.ascontiguousarray(z, dtype=np.float64),
             np.ascontiguousarray(yb_tr, dtype=np.int64),
             np.ascontiguousarray(yb_va, dtype=np.int64),
-            tr_idx, va_idx, n_y_classes, js_arr, ks_arr,
+            tr_idx,
+            va_idx,
+            n_y_classes,
+            js_arr,
+            ks_arr,
         )
     cand = [(float(mi_tr_arr[i]), float(mi_va_arr[i]), int(js_arr[i]), int(ks_arr[i])) for i in range(js_arr.size)]
     if not cand:

@@ -381,8 +381,8 @@ def _run(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray, reduce_m
     launch = family_null_launcher(cp, n_y, dev.words, dev.table, cls_d, dev.n, dev.cap, B) if use_v2 else None
     widths = [hi - lo for lo, hi, _ in dev.groups]
     # one backing buffer for every group's (B, k) block (a block is a contiguous slice), or one reused block when only the per-permutation maximum is kept
-    flat = cp.empty(B * (max(widths) if reduce_max else sum(widths)), dtype=dev.table.dtype) if widths else None
-    offsets = np.concatenate([[0], np.cumsum(widths)]).astype(np.int64) if widths else None
+    flat = cp.empty(max(1, B * (max(widths, default=0) if reduce_max else sum(widths))), dtype=dev.table.dtype)
+    offsets = np.concatenate([[0], np.cumsum(widths)]).astype(np.int64)
     outs = [flat[: B * k].reshape(B, k) if reduce_max else flat[B * int(offsets[g]) : B * int(offsets[g + 1])].reshape(B, k) for g, k in enumerate(widths)]
     for (lo, hi, bits), out in zip(dev.groups, outs):
         k = hi - lo
