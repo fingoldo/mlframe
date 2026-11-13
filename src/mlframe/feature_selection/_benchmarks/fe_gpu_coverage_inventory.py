@@ -113,7 +113,31 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
         "batch_pair_mi_gpu",
         "chosen among the same backends by batch_pair_mi_gpu._BPMI_SPEC; its block size follows the occupancy rule (monotone, nothing to sweep)",
     ),
+    "_fourier_batch_gpu": (
+        "_fourier_detect_batch",
+        "chosen against the host loop by fe_fourier_batch_backend (host_device_sweep over the row count) in _fourier_detect_batch; its block size follows the occupancy rule",
+    ),
 }
+
+#: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
+#: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
+CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_fourier_batch_gpu": (
+        "_orth_extra_basis_fe",
+        "the host side of the Fourier batch is _detect_fourier_freqs_host, whose coarse basis and power reductions are njit(parallel) kernels",
+    ),
+}
+
+
+def cpu_twin_problems(name: str) -> list[str]:
+    """Why ``name``'s ``CPU_TWINS`` entry does not hold (empty when it holds or there is none): the twin module must exist and carry a numba kernel."""
+    if name not in CPU_TWINS:
+        return []
+    twin = CPU_TWINS[name][0]
+    text = module_text(twin)
+    if text is None:
+        return [f"host twin {twin} not found"]
+    return [] if CPU_KERNEL.search(text) else [f"host twin {twin} has no numba kernel"]
 
 
 def ktc_dispatch_problems(name: str) -> list[str]:
@@ -163,8 +187,9 @@ def contract_violations(name: str) -> list[str]:
         return ["module not found"]
     found = []
     ktc_via_dispatcher = name in KTC_DISPATCHERS and not ktc_dispatch_problems(name)
+    cpu_via_twin = name in CPU_TWINS and not cpu_twin_problems(name)
     for pattern, message in (
-        (CPU_KERNEL, "no numba CPU kernel"),
+        (re.compile(r".") if cpu_via_twin else CPU_KERNEL, "no numba CPU kernel"),
         (GPU_KERNEL, "no fused GPU kernel"),
         (re.compile(r".") if ktc_via_dispatcher else KTC_REGISTRATION, "not registered with the kernel-tuning cache"),
         (CRIT_DTYPE, "no crit dtype use"),

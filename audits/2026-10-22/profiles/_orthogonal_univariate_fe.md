@@ -17,3 +17,7 @@ Achieved occupancy 0.536, multiprocessor activity 99.4 %, double FLOP efficiency
 ## Not changed
 
 `sincos_gram_b` and `apply_deflate_b` stay in double: they run once per accepted frequency, not per trial frequency, and their sums feed a 3x3 solve whose conditioning matters.
+
+## Host profile
+
+The host side of the detector (cProfile of a 16-column x 100000-row batch call, 0.231 s, nothing per column) and the backend choice between the host loop and this device batch are recorded in `_fourier_batch_gpu.md`.

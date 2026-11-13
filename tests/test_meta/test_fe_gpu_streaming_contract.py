@@ -18,10 +18,12 @@ from pathlib import Path
 import pytest
 
 from mlframe.feature_selection._benchmarks.fe_gpu_coverage_inventory import (
+    CPU_TWINS,
     KTC_DISPATCHERS,
     PROFILES_DIR,
     contract_violations,
     fe_modules,
+    cpu_twin_problems,
     ktc_dispatch_problems,
 )
 
@@ -76,3 +78,11 @@ def test_every_tuner_dispatched_backend_names_a_real_dispatcher():
     assert not broken, f"KTC_DISPATCHERS entries that no longer hold: {broken}"
     assert all(len(why) > 30 for _dispatcher, why in KTC_DISPATCHERS.values())
     assert all(name in set(fe_modules()) for name in KTC_DISPATCHERS), "an entry names a module that is not an FE module"
+
+
+def test_every_cpu_twin_names_a_real_module_with_a_numba_kernel():
+    """A device module that meets the CPU-kernel point through its host twin: the twin still carries an ``@njit`` kernel and the reason is stated."""
+    broken = {name: cpu_twin_problems(name) for name in CPU_TWINS if cpu_twin_problems(name)}
+    assert not broken, f"CPU_TWINS entries that no longer hold: {broken}"
+    assert all(len(why) > 30 for _twin, why in CPU_TWINS.values())
+    assert all(name in set(fe_modules()) for name in CPU_TWINS), "an entry names a module that is not an FE module"
