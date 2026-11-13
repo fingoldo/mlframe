@@ -81,11 +81,13 @@ class _FamilyOnDevice:
         if any(int(d.shape[0]) != n for d in devs):
             raise _NotApplicableError("batches of different length")
         # The batches are packed one by one at a column offset: concatenating them first copied the whole (n, k) code matrix (57 MB a call, 22 ms; 2.4 GB over a default fit) only so that one launch could read it.
-        parts = [cp.ascontiguousarray(d) for d in devs]
+        parts = [d if d.flags.c_contiguous else cp.ascontiguousarray(d) for d in devs]  # a contiguous batch needs no call (hundreds of batches per family, a Python call each)
         parts = [d if d.dtype in _C_TYPES else d.astype(cp.int64) for d in parts]
         k_total = int(sum(int(d.shape[1]) for d in parts))
         self.n, self.k_total = n, k_total
-        n_x = cp.concatenate([(d.max(axis=0) + 1).astype(cp.int64) for d in parts]) if k_total else cp.zeros(0, dtype=cp.int64)  # per-column level counts: k_total int64, not the code matrix
+        # per-column level counts: one maximum per batch, then ONE widening and ONE increment over the concatenated vector (the per-batch ``+ 1`` and ``astype`` were two more launches per batch,
+        # 84058 of them in a default fit); widening before the increment also keeps an int8 maximum of 127 from wrapping to -128
+        n_x = cp.concatenate([d.max(axis=0) for d in parts]).astype(cp.int64) + 1 if k_total else cp.zeros(0, dtype=cp.int64)
         # The host needs only the largest level count (the bit-set depth): one scalar crosses the bus, not the per-column vector (the same vector was copied once per family).
         cap = int(n_x.max()) if k_total else 0
         words = (n + 63) // 64

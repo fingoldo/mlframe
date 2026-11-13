@@ -99,6 +99,9 @@ def _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_
     return _ev_buf, _ev_col
 
 
+_EXTVAL_MIN_BATCH_BYTES = 64 << 20  # a one-factor batch of float64 candidates up to this size is taken even when the free-RAM budget refuses
+
+
 def _hstack_chunk_codes(chunks):
     """Column-wise concatenation of the code chunks of one batch: device-side for resident (lazy) chunks, so they are not copied back, ``np.hstack`` otherwise."""
     if all(hasattr(c, "dev") for c in chunks):
@@ -359,6 +362,11 @@ def _emit_pair_features_step2_read_here_once_part2(
     while _ev_chunk > 1 and not _ev_can_batch:
         _ev_chunk = max(1, _ev_chunk // 2)
         _ev_can_batch, _, _ = _can_hoist_shared_buffer(len(X) * _ev_chunk * _ev_n_bin * 8, n_workers=_n_workers)
+    # The smallest batch (one external factor against every op) needs no more memory than the per-candidate loop's own working set times the op count. When free RAM is under the
+    # reserve the budget refuses every buffer, 5 MiB included, and the pair fell to one ``discretize_array`` + ``mi_direct`` call per candidate (9540 of them, 18 s, in a default 100000 x 100 fit
+    # on a host with 2.4 GiB free). A minimal batch under the cap is therefore taken whatever the budget says; a larger one keeps the loop.
+    if not _ev_can_batch and _ev_param_bs and len(X) * _ev_n_bin * 8 <= _EXTVAL_MIN_BATCH_BYTES:
+        _ev_can_batch, _ev_chunk = True, 1
     return _pa_dev, param_a, best_valid_mi, config, _else_cols, _ev_param_bs, _pb_vals, _ev_can_batch, _ev_chunk
 
 
