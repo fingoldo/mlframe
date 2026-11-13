@@ -433,6 +433,45 @@ class TestSplitting:
 # ============================================================================
 
 
+def _ridge_run_metadata(df, data_dir, reporting_config):
+    """Metadata of one ridge suite run with the per-target drift diagnostics switched off (the file-wide autouse patch is function-scoped, so a module fixture applies its own)."""
+    import mlframe.reporting.diagnostics_dispatch as _diagnostics_dispatch
+
+    patch = pytest.MonkeyPatch()
+    patch.setattr(_diagnostics_dispatch, "render_target_drift_diagnostics", lambda *args, **kwargs: None)
+    try:
+        _models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="pipe_test",
+            features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True),
+            reporting_config=reporting_config,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
+            verbose=0,
+            hyperparams_config={"iterations": 10},
+            mlframe_models=["ridge"],
+        )
+    finally:
+        patch.undo()
+    return metadata
+
+
+@pytest.fixture(scope="module")
+def ridge_pandas_metadata(sample_regression_data, common_init_params, tmp_path_factory):
+    """Metadata of ONE ridge run on the pandas frame, read by the pipeline / cat-features / columns / no-polars-keys sensors."""
+    df, _, _ = sample_regression_data
+    return _ridge_run_metadata(df, str(tmp_path_factory.mktemp("ridge_pandas")), common_init_params)
+
+
+@pytest.fixture(scope="module")
+def ridge_polars_metadata(sample_regression_data, common_init_params, tmp_path_factory):
+    """Metadata of ONE ridge run on the polars version of the frame, read by the non-native-model and stored-columns sensors."""
+    df, _, _ = sample_regression_data
+    return _ridge_run_metadata(pl.from_pandas(df), str(tmp_path_factory.mktemp("ridge_polars")), common_init_params)
+
+
 class TestPipelineFitting:
     """Tests for Section 4 pipeline behavior in train_mlframe_models_suite."""
 
@@ -452,33 +491,26 @@ class TestPipelineFitting:
         defaults.update(kwargs)
         return train_mlframe_models_suite(df=df, **defaults)
 
-    def test_metadata_pipeline_key_present_pandas(self, sample_regression_data, temp_data_dir, common_init_params):
+    def test_metadata_pipeline_key_present_pandas(self, ridge_pandas_metadata):
         """Metadata pipeline key present pandas."""
-        df, _, _ = sample_regression_data
-        _, metadata = self._call(df, temp_data_dir, common_init_params, mlframe_models=["ridge"])
-        assert "pipeline" in metadata
+        assert "pipeline" in ridge_pandas_metadata
 
-    def test_metadata_cat_features_key_present(self, sample_regression_data, temp_data_dir, common_init_params):
+    def test_metadata_cat_features_key_present(self, ridge_pandas_metadata):
         """Metadata cat features key present."""
-        df, _, _ = sample_regression_data
-        _, metadata = self._call(df, temp_data_dir, common_init_params, mlframe_models=["ridge"])
-        assert "cat_features" in metadata
+        assert "cat_features" in ridge_pandas_metadata
 
-    def test_metadata_columns_contains_features(self, sample_regression_data, temp_data_dir, common_init_params):
+    def test_metadata_columns_contains_features(self, sample_regression_data, ridge_pandas_metadata):
         """Metadata columns contains features."""
-        df, feature_names, _ = sample_regression_data
-        _, metadata = self._call(df, temp_data_dir, common_init_params, mlframe_models=["ridge"])
-        assert "columns" in metadata
-        cols = list(metadata["columns"])
+        _, feature_names, _ = sample_regression_data
+        assert "columns" in ridge_pandas_metadata
+        cols = list(ridge_pandas_metadata["columns"])
         assert len(feature_names) > 0
         for f in feature_names:
             assert f in cols
 
-    def test_pandas_input_no_polars_pre_keys(self, sample_regression_data, temp_data_dir, common_init_params):
+    def test_pandas_input_no_polars_pre_keys(self, ridge_pandas_metadata):
         """Pandas input no polars pre keys."""
-        df, _, _ = sample_regression_data
-        _, metadata = self._call(df, temp_data_dir, common_init_params, mlframe_models=["ridge"])
-        assert "train_df_polars_pre" not in metadata
+        assert "train_df_polars_pre" not in ridge_pandas_metadata
 
     def test_auto_skip_encoding_all_polars_native(self, sample_regression_data, temp_data_dir, common_init_params):
         """All Polars-native models + Polars input → auto-skip encoding; training succeeds."""
@@ -494,19 +526,14 @@ class TestPipelineFitting:
         )
         assert "pipeline" in metadata
 
-    def test_no_auto_skip_with_non_native_model(self, sample_regression_data, temp_data_dir, common_init_params):
+    def test_no_auto_skip_with_non_native_model(self, ridge_polars_metadata):
         """ridge (non-native) on Polars input → auto-skip NOT triggered."""
-        df, _, _ = sample_regression_data
-        pl_df = pl.from_pandas(df)
-        _, metadata = self._call(pl_df, temp_data_dir, common_init_params, mlframe_models=["ridge"])
-        assert "pipeline" in metadata
+        assert "pipeline" in ridge_polars_metadata
 
-    def test_polars_input_columns_stored(self, sample_regression_data, temp_data_dir, common_init_params):
+    def test_polars_input_columns_stored(self, sample_regression_data, ridge_polars_metadata):
         """Polars input columns stored."""
-        df, feature_names, _ = sample_regression_data
-        pl_df = pl.from_pandas(df)
-        _, metadata = self._call(pl_df, temp_data_dir, common_init_params, mlframe_models=["ridge"])
-        cols = list(metadata["columns"])
+        _, feature_names, _ = sample_regression_data
+        cols = list(ridge_polars_metadata["columns"])
         assert len(feature_names) > 0
         for f in feature_names:
             assert f in cols
