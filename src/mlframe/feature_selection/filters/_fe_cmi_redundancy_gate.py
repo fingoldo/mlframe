@@ -94,6 +94,7 @@ All MI/CMI is computed via the production primitives
 ``_mi_greedy_cmi_fe``) - this module does NOT reimplement MI. The function is
 pure (no live framework state captured), so a fitted MRMR remains picklable.
 """
+
 from __future__ import annotations
 
 import functools
@@ -208,6 +209,7 @@ def _cmi_gate_resident_eligible(y_bin, names) -> bool:
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
+
         return bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(shape_of(y_bin)[0]), p=len(names)))
     except Exception as e:
         log_throttle(logger, "cmi_gate.resident_probe", logging.WARNING, "CMI gate: the resident-GPU eligibility probe failed, using the host path: %s", e)
@@ -254,9 +256,13 @@ def _gate_prepare(
     if len(names) < 2 or n_rows < _MIN_ROWS_FOR_CMI:
         for nm in names:
             diagnostics[nm] = dict(
-                accept=True, cmi=float(candidates[nm][1]),
-                cmi_excess=float(candidates[nm][1]), floor=0.0, null_mean=0.0,
-                rel_bar=0.0, reason="degenerate_marginal_admit",
+                accept=True,
+                cmi=float(candidates[nm][1]),
+                cmi_excess=float(candidates[nm][1]),
+                floor=0.0,
+                null_mean=0.0,
+                rel_bar=0.0,
+                reason="degenerate_marginal_admit",
             )
         return set(names), diagnostics
 
@@ -360,8 +366,11 @@ def _gate_seed(g: Any, n_permutations: int, quantile: float, seed: int, diagnost
     # Seed marginal perm-null from the RESIDENT candidate code when available (device-born), else host.
     seed_floor, seed_null_mean = _conditional_perm_null(
         cand_bins_dev.get(seed_name, cand_bins[seed_name]) if cand_bins_dev else cand_bins[seed_name],
-        y_dense, None,
-        n_permutations=n_permutations, quantile=quantile, seed=seed,
+        y_dense,
+        None,
+        n_permutations=n_permutations,
+        quantile=quantile,
+        seed=seed,
         salt=zlib.crc32(seed_name.encode("utf-8")),
     )
     seed_excess = max(0.0, marg[seed_name] - seed_null_mean)
@@ -371,12 +380,23 @@ def _gate_seed(g: Any, n_permutations: int, quantile: float, seed: int, diagnost
     admitted_excess.append(seed_excess)
     remaining.discard(seed_name)
     diagnostics[seed_name] = dict(
-        accept=True, cmi=marg[seed_name], cmi_excess=seed_excess,
-        floor=seed_floor, null_mean=seed_null_mean, rel_bar=0.0,
+        accept=True,
+        cmi=marg[seed_name],
+        cmi_excess=seed_excess,
+        floor=seed_floor,
+        null_mean=seed_null_mean,
+        rel_bar=0.0,
         reason="seed_marginal",
     )
     g.accepted, g.accepted_bins, g.accepted_bins_dev, g.admitted_excess = accepted, accepted_bins, accepted_bins_dev, admitted_excess
-    g.remaining, g.frag_cap, g.z_support, g._pending_z_support, g._pending_z_card, g._tie_key = remaining, frag_cap, z_support, _pending_z_support, _pending_z_card, _tie_key
+    g.remaining, g.frag_cap, g.z_support, g._pending_z_support, g._pending_z_card, g._tie_key = (
+        remaining,
+        frag_cap,
+        z_support,
+        _pending_z_support,
+        _pending_z_card,
+        _tie_key,
+    )
 
 
 def _gate_round_batched(g: Any, _rem_list: list, _z_scored: Any, quantile: float) -> tuple:
@@ -387,18 +407,22 @@ def _gate_round_batched(g: Any, _rem_list: list, _z_scored: Any, quantile: float
     _round_cards: dict = {}  # nm -> (k_z, k_xz, k_yz, k_xyz) from the batched return_cards workload
     try:
         from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
+
         if _cmi_gpu_enabled(n=int(y_dense.shape[0]), p=len(_rem_list)) and len(_rem_list) > 1:
             from ._fe_batched_mi import batched_cmi_gpu
+
             # RESIDENT candidate-matrix build: when every round candidate has a device-resident code
             # (device-born binning), stack them into a RESIDENT (n, K) cupy matrix so the derived codes
             # never re-cross H2D into ``batched_cmi_gpu`` (which accepts a resident ``x_cols``). Mixed /
             # host-fallback rounds keep the host int64 build (byte-identical codes -> same CMI).
             from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
             # Admission before the (n, K) int64 build: a round too large for the VRAM cushion keeps the host build, which is byte-identical.
             # The device build stacks the codes row-wise (coalesced writes) and transposes once: 2x the matrix is live at the peak (400 candidates x 100000 rows: 21 ms against 50 ms for the strided column writes).
             _resident_bytes = int(y_dense.shape[0]) * len(_rem_list) * 8 * 2
             if cand_bins_dev and all(_nm in cand_bins_dev for _nm in _rem_list) and fe_gpu_has_vram_cushion(_resident_bytes):
                 import cupy as _cp
+
                 _Xc = _cp.ascontiguousarray(_cp.stack([cand_bins_dev[_nm] for _nm in _rem_list], axis=0).astype(_cp.int64, copy=False).T)
             else:
                 _Xc = np.empty((y_dense.shape[0], len(_rem_list)), dtype=np.int64)
@@ -414,9 +438,16 @@ def _gate_round_batched(g: Any, _rem_list: list, _z_scored: Any, quantile: float
                 _kxyz_a = np.asarray(_kxyz)
                 _round_cards = {_nm: (int(_kz), int(_kxz_a[_j]), int(_kyz), int(_kxyz_a[_j])) for _j, _nm in enumerate(_rem_list)}
             # analytic floor/null for all candidates from the batched cards (matches _conditional_perm_null)
-            _round_floor = _apply_cmi_redundan_analytic_floor_null_all(n_rows, _rem_list, _kxyz, _kz, _kxz, _kyz, quantile, _round_floor, _j, _nm)
+            _round_floor = _apply_cmi_redundan_analytic_floor_null_all(n_rows, _rem_list, _kxyz, _kz, _kxz, _kyz, quantile, _round_floor)
     except Exception as e:
-        log_throttle(logger, "cmi_gate.round_cmi_floor", logging.WARNING, "CMI gate: the round CMI/floor computation failed (%s: %s), the round proceeds with empty CMI and floor tables", type(e).__name__, e)
+        log_throttle(
+            logger,
+            "cmi_gate.round_cmi_floor",
+            logging.WARNING,
+            "CMI gate: the round CMI/floor computation failed (%s: %s), the round proceeds with empty CMI and floor tables",
+            type(e).__name__,
+            e,
+        )
         _round_cmi = {}
         _round_floor = {}
     return _round_cmi, _round_floor, _round_cards
@@ -495,10 +526,15 @@ def _gate_round(
             floor, null_mean = _round_floor[nm]
         else:
             floor, null_mean = _conditional_perm_null(
-                _cb, y_dense, z_support,
-                n_permutations=n_permutations, quantile=quantile, seed=seed,
+                _cb,
+                y_dense,
+                z_support,
+                n_permutations=n_permutations,
+                quantile=quantile,
+                seed=seed,
                 salt=zlib.crc32(nm.encode("utf-8")),
-                precomp_cards=_round_cards.get(nm), z_support_dev=z_support_dev,
+                precomp_cards=_round_cards.get(nm),
+                z_support_dev=z_support_dev,
             )
         cmi_excess = max(0.0, cmi - null_mean)
         scored[nm] = (cmi, cmi_excess)
@@ -519,11 +555,13 @@ def _gate_round(
         if nm not in diagnostics:
             diagnostics[nm] = {}
         diagnostics[nm].update(
-            accept=False, cmi=cmi, cmi_excess=cmi_excess, floor=floor,
-            null_mean=null_mean, rel_bar=rel_bar,
-            reason=("redundant_below_floor" if not passes_floor
-                    else "pending" if (passes_rel or strongly_significant)
-                    else "redundant_below_rel_bar"),
+            accept=False,
+            cmi=cmi,
+            cmi_excess=cmi_excess,
+            floor=floor,
+            null_mean=null_mean,
+            rel_bar=rel_bar,
+            reason=("redundant_below_floor" if not passes_floor else "pending" if (passes_rel or strongly_significant) else "redundant_below_rel_bar"),
         )
         if passes and cmi_excess > best_excess:
             best_excess = cmi_excess
@@ -686,14 +724,18 @@ def _apply_cmi_redundan_gate_resident_np_isfinite(_gate_resident, vals, nbins, _
             import cupy as cp
 
             from mlframe.feature_selection.filters._mi_greedy_cmi_fe_binning import _quantile_bin_device
+
             if bool(cp.isfinite(vals.dev).all()):
                 _dev = _quantile_bin_device(vals.dev, nbins)
         except Exception as e:
-            log_throttle(logger, "cmi_gate.device_binning", logging.WARNING, "CMI gate: device binning of a device-backed candidate failed, using the host path: %s", e)
+            log_throttle(
+                logger, "cmi_gate.device_binning", logging.WARNING, "CMI gate: device binning of a device-backed candidate failed, using the host path: %s", e
+            )
             _dev = None
     elif _gate_resident and np.isfinite(vals).all():
         try:
             from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
+
             _dev = _quantile_bin_gpu_resident(vals, nbins)
         except Exception as e:  # best-effort: the host quantile binner is the reference path and yields the same codes as the device binner
             logger.debug("_quantile_bin_gpu_resident failed, falling back to the host path: %s", e)
@@ -769,8 +811,12 @@ def _apply_cmi_redundan_dups_collapsed(_dups_collapsed, _partition_rep, names, m
         names = [nm for nm in names if nm in _keep]
         for nm in _dups_collapsed:
             diagnostics[nm] = dict(
-                accept=False, cmi=float(marg.get(nm, candidates[nm][1])),
-                cmi_excess=0.0, floor=0.0, null_mean=0.0, rel_bar=0.0,
+                accept=False,
+                cmi=float(marg.get(nm, candidates[nm][1])),
+                cmi_excess=0.0,
+                floor=0.0,
+                null_mean=0.0,
+                rel_bar=0.0,
                 reason="redundant_partition_duplicate",
             )
         if verbose:
@@ -789,8 +835,12 @@ def _apply_cmi_redundan_permutation_null_cost_max(max_candidates, names, candida
         names = names_by_marg[: int(max_candidates)]
         for nm in _dropped_for_cost:
             diagnostics[nm] = dict(
-                accept=False, cmi=float(candidates[nm][1]),
-                cmi_excess=0.0, floor=0.0, null_mean=0.0, rel_bar=0.0,
+                accept=False,
+                cmi=float(candidates[nm][1]),
+                cmi_excess=0.0,
+                floor=0.0,
+                null_mean=0.0,
+                rel_bar=0.0,
                 reason="dropped_cost_cap",
             )
         if verbose:
@@ -798,8 +848,10 @@ def _apply_cmi_redundan_permutation_null_cost_max(max_candidates, names, candida
                 "CMI-redundancy gate: cost cap -- %d distinct-partition candidate(s) "
                 "exceed max_candidates=%d; kept the top %d by marginal MI, dropped %d "
                 "low-marginal-MI tail candidate(s) before the O(K^2) greedy.",
-                len(_dropped_for_cost) + int(max_candidates), int(max_candidates),
-                int(max_candidates), len(_dropped_for_cost),
+                len(_dropped_for_cost) + int(max_candidates),
+                int(max_candidates),
+                int(max_candidates),
+                len(_dropped_for_cost),
             )
     return names, nm
 
@@ -809,6 +861,7 @@ def _apply_cmi_redundan_gate_resident_accepted_bins(_gate_resident, accepted_bin
     if _gate_resident and accepted_bins_dev and all(_b is not None for _b in accepted_bins_dev):
         try:
             from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint_gpu
+
             z_support_dev, _ = _renumber_joint_gpu(*accepted_bins_dev)
         except Exception as e:
             log_throttle(logger, "cmi_gate.renumber_joint_gpu", logging.WARNING, "CMI gate: _renumber_joint_gpu failed, using the host path: %s", e)
@@ -831,12 +884,14 @@ def _apply_cmi_redundan_support_dev_none(z_support_dev, _prev_z_support, _prev_z
     return _z_card, z_support
 
 
-def _apply_cmi_redundan_analytic_floor_null_all(n_rows, _rem_list, _kxyz, _kz, _kxz, _kyz, quantile, _round_floor, _j, _nm):
+def _apply_cmi_redundan_analytic_floor_null_all(n_rows, _rem_list, _kxyz, _kz, _kxz, _kyz, quantile, _round_floor):
     """Block of apply_cmi_redundancy_gate starting at ``try:``."""
     try:
         from mlframe.feature_selection.filters._analytic_mi_null import _HAVE_CHI2, _chi2, _min_expected_cell, analytic_null_enabled
+
         if _HAVE_CHI2 and analytic_null_enabled() and n_rows >= _cmi_analytic_null_min_n():
-            _nf = float(max(1, n_rows)); _mincell = _min_expected_cell()
+            _nf = float(max(1, n_rows))
+            _mincell = _min_expected_cell()
             for _j, _nm in enumerate(_rem_list):
                 _df = int(_kxyz[_j]) + int(_kz) - int(_kxz[_j]) - int(_kyz)
                 _cells = max(1, int(_kxyz[_j]))
@@ -868,11 +923,14 @@ def _apply_cmi_redundan_verbose(verbose, names, diagnostics):
         for nm in names:
             d = diagnostics.get(nm, {})
             logger.debug(
-                "CMI-redundancy gate: %s accept=%s cmi=%.4f excess=%.4f "
-                "floor=%.4f rel_bar=%.4f (%s)",
-                nm, d.get("accept"), d.get("cmi", float("nan")),
-                d.get("cmi_excess", float("nan")), d.get("floor", float("nan")),
-                d.get("rel_bar", float("nan")), d.get("reason", "-"),
+                "CMI-redundancy gate: %s accept=%s cmi=%.4f excess=%.4f " "floor=%.4f rel_bar=%.4f (%s)",
+                nm,
+                d.get("accept"),
+                d.get("cmi", float("nan")),
+                d.get("cmi_excess", float("nan")),
+                d.get("floor", float("nan")),
+                d.get("rel_bar", float("nan")),
+                d.get("reason", "-"),
             )
 
 
