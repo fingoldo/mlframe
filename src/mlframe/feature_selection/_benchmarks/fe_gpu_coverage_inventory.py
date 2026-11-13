@@ -113,6 +113,10 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
         "batch_pair_mi_gpu",
         "chosen among the same backends by batch_pair_mi_gpu._BPMI_SPEC; its block size follows the occupancy rule (monotone, nothing to sweep)",
     ),
+    "_wavelet_legs_fused_gpu": (
+        "_wavelet_legs_tuner",
+        "its leg code matrices serve the device-born route that fe_wavelet_legs_backend (_wavelet_legs_tuner, host_device_sweep over the row count) chooses against the host body; its block size follows the occupancy rule",
+    ),
     "_fourier_batch_gpu": (
         "_fourier_detect_batch",
         "chosen against the host loop by fe_fourier_batch_backend (host_device_sweep over the row count) in _fourier_detect_batch; its block size follows the occupancy rule",
@@ -122,6 +126,10 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
 #: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_wavelet_legs_fused_gpu": (
+        "_wavelet_basis_fe",
+        "the host side of the same decision is _select_wavelet_legs, the fused parallel njit body of _wavelet_basis_fe (the leg codes and their MI in one pass)",
+    ),
     "_fourier_batch_gpu": (
         "_orth_extra_basis_fe",
         "the host side of the Fourier batch is _detect_fourier_freqs_host, whose coarse basis and power reductions are njit(parallel) kernels",

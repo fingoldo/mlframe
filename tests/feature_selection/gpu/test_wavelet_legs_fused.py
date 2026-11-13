@@ -142,3 +142,10 @@ def test_the_selection_is_unchanged_end_to_end(monkeypatch):
     monkeypatch.setenv("MLFRAME_FE_WAVELET_FUSED", "1")
     got = wb._select_wavelet_legs_batched_device(x, y, 0.0, 1.0, max_scale=3, max_legs=4, scale_sigma=3.0)
     assert got == want
+
+
+def test_the_deepest_supported_scale_matches_the_per_leg_loop_and_deeper_ones_decline():
+    """Scale 10 puts 2 * 2047 counters in the block-private shared histogram and still equals the loop; scale 11 would not fit and the fused path declines."""
+    z = cp.asarray(np.random.default_rng(3).uniform(size=12_000).astype(np.float32).astype(np.float64))  # exact in the critical dtype, so the loop and the kernels see the same row values
+    assert len(_same(z, 10, 2)) > 500
+    assert leg_code_matrices(cp, z, 11, 5) is None

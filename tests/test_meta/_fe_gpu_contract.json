@@ -12,7 +12,8 @@
     "_batch_pair_mi_cuda_fm",
     "_batch_pair_mi_cuda_shared_fused",
     "_fourier_batch_gpu",
-    "_orthogonal_univariate_fe"
+    "_orthogonal_univariate_fe",
+    "_wavelet_legs_fused_gpu"
   ],
   "exempt": {
     "_composite_group_agg_fe": "per-group mean/std/count over integer key codes: a numba kernel bit-equal to pandas (2 ms per 20000-row column, 30 columns x 3 stats in 0.062 s); the candidate scoring that follows is the device-batched CMI (batched_cmi_gpu, chunked on OOM). A device twin would need the pandas Kahan/Welford order replayed per group to stay bit-equal and saves less than its own column transfer (audit 73cm); revisit if the generation share of a fit grows",
@@ -289,7 +290,6 @@
     "_usability_row_stat_pool",
     "_wavelet_basis_fe_batched",
     "_wavelet_basis_fe_recipes",
-    "_wavelet_legs_fused_gpu",
     "batch_mi_noise_gate_gpu",
     "batch_pair_mi_gpu",
     "feature_engineering",
