@@ -135,6 +135,16 @@ def _dedupe_sorted_runs(x: np.ndarray, y: np.ndarray):
     return x_out, y_out, m
 
 
+def _present_classes(y: np.ndarray) -> np.ndarray:
+    """The sorted distinct labels of ``y`` as ``np.unique(y)`` gives them: by a count over the label range for a long non-negative integer vector whose largest label is small (one pass, no sort: 1.5 ms of ``np.unique`` at 100000 rows,
+    paid once per binned column at the root node), numpy's own sort otherwise."""
+    if y.dtype.kind in "iu" and y.size >= 4096:
+        top = int(y.max())
+        if int(y.min()) >= 0 and top < 4 * y.size + 1024:
+            return np.flatnonzero(np.bincount(y, minlength=top + 1))
+    return np.unique(y)
+
+
 def _dedupe_xy(x: np.ndarray, y_i: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     """Collapse exact-duplicate ``(x, y)`` rows to one occurrence each (first-seen order preserved).
 
@@ -466,7 +476,7 @@ def _mdlp_recurse_validated_bfs(
             if n < 2 * min_split_size or depth >= max_depth:
                 continue
             if counts_parent is None:
-                present = np.unique(y_node)
+                present = _present_classes(y_node)
             else:
                 present = np.flatnonzero(counts_parent)
             n_classes_full = present.size
@@ -553,7 +563,7 @@ def _mdlp_recurse_validated(
     if n < 2 * min_split_size or depth >= max_depth:
         return
     if counts_parent is None:
-        present = np.unique(y)
+        present = _present_classes(y)
     else:
         present = np.flatnonzero(counts_parent)
     n_classes_full = present.size
