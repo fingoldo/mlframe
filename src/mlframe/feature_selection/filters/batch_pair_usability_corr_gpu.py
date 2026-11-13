@@ -593,6 +593,51 @@ def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pa
 # ---------------------------------------------------------------------------
 
 
+def _operand_block_limit(n_used: int, row_bytes: int, out_bytes_per_operand: int) -> int:
+    """The most operand columns whose upload (plus the pair output share) the VRAM cushion admits, found by halving from ``n_used``; 0 when not even two fit."""
+    from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+    m = int(n_used)
+    while m >= 2 and not fe_gpu_has_vram_cushion(m * (row_bytes + out_bytes_per_operand) + (1 << 20)):
+        m //= 2
+    return m if m >= 2 else 0
+
+
+def _pair_chunks_by_operand_block(pair_a: np.ndarray, pair_b: np.ndarray, max_operands: int) -> "list[np.ndarray]":
+    """Index arrays splitting the pairs (ordered by ``(a, b)``) into chunks that touch at most ``max_operands`` distinct operand columns each."""
+    order = np.lexsort((pair_b, pair_a))
+    chunks: "list[list[int]]" = []
+    current: "list[int]" = []
+    seen: set = set()
+    for idx in order.tolist():
+        a, b = int(pair_a[idx]), int(pair_b[idx])
+        extra = (a not in seen) + (b not in seen and b != a)
+        if current and len(seen) + extra > max_operands:
+            chunks.append(current)
+            current, seen = [], set()
+        current.append(idx)
+        seen.add(a)
+        seen.add(b)
+    if current:
+        chunks.append(current)
+    return [np.asarray(c, dtype=np.int64) for c in chunks]
+
+
+def batch_pair_usability_corr_cuda_warp_blocked(
+    y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray, max_operands: int
+) -> np.ndarray:
+    """:func:`batch_pair_usability_corr_cuda_warp` for an operand matrix that does not fit the card whole: the pairs go in chunks that touch at most ``max_operands`` operand columns, and only
+    those columns are gathered and uploaded for a chunk (a column block of the operand matrix per chunk). The values are the unblocked call's, pair for pair."""
+    pa = np.asarray(pair_a, dtype=np.int64)
+    pb = np.asarray(pair_b, dtype=np.int64)
+    out = np.empty((pa.shape[0], int(np.asarray(form_ids).shape[0])), dtype=crit_float_dtype())
+    for chunk in _pair_chunks_by_operand_block(pa, pb, max_operands):
+        used, inverse = np.unique(np.concatenate([pa[chunk], pb[chunk]]), return_inverse=True)
+        k = chunk.shape[0]
+        out[chunk] = batch_pair_usability_corr_cuda_warp(y, np.ascontiguousarray(operand_matrix[used]), inverse[:k].astype(np.int64), inverse[k:].astype(np.int64), form_ids)
+    return out
+
+
 def _required_gpu_bytes(operand_matrix: np.ndarray, n_pairs: int, n_forms: int) -> int:
     """Upload + output footprint for the VRAM cushion check: the operand matrix at its own dtype (the GPU path uploads it
     as given, so an f32 matrix is 4 bytes an element), the double (n_pairs, n_forms) output, and 1 MiB of slack for y and
@@ -674,11 +719,21 @@ def _dispatch_batch_pair_usability_corr_uncached(
             from ._fe_gpu_vram import fe_gpu_has_vram_cushion
 
             if not fe_gpu_has_vram_cushion(_required_gpu_bytes(operand_matrix, n_pairs, n_forms)):
-                logger.warning(
-                    "batch_pair_usability_corr: insufficient VRAM cushion for n_pairs=%d n_forms=%d -- falling back to CPU.",
-                    n_pairs,
-                    n_forms,
-                )
+                # the whole matrix does not fit: stream it in operand blocks when at least two columns fit, else the CPU backend
+                n_used = int(np.unique(np.concatenate([np.asarray(pair_a), np.asarray(pair_b)])).shape[0])
+                row_bytes = int(operand_matrix.shape[1]) * int(operand_matrix.dtype.itemsize)
+                limit = _operand_block_limit(n_used, row_bytes, n_forms * 8 * max(1, n_pairs // max(1, n_used)))
+                if limit and force_backend != "cuda":
+                    try:
+                        return batch_pair_usability_corr_cuda_warp_blocked(y, operand_matrix, pair_a, pair_b, form_ids, limit), "cuda_warp_blocked"
+                    except Exception as exc:
+                        logger.warning("batch_pair_usability_corr: blocked CUDA backend failed (%s: %s) -- falling back to CPU.", type(exc).__name__, exc)
+                else:
+                    logger.warning(
+                        "batch_pair_usability_corr: insufficient VRAM cushion for n_pairs=%d n_forms=%d -- falling back to CPU.",
+                        n_pairs,
+                        n_forms,
+                    )
                 use_cuda = False
         except Exception as exc:
             logger.debug("batch_pair_usability_corr: VRAM cushion check unavailable (%s); proceeding.", exc)

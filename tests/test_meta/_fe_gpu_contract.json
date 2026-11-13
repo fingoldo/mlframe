@@ -6,7 +6,8 @@
     "_fe_sufficient_summary_pairs",
     "hermite_fe",
     "_wavelet_basis_fe",
-    "_orthogonal_xi_gpu"
+    "_orthogonal_xi_gpu",
+    "batch_pair_usability_corr_gpu"
   ],
   "exempt": {
     "_confirm_predictor_engineered": "ordering and decision helpers around the single-predictor confirmation: bookkeeping, no numeric kernel",
@@ -289,7 +290,6 @@
     "_wavelet_legs_fused_gpu",
     "batch_mi_noise_gate_gpu",
     "batch_pair_mi_gpu",
-    "batch_pair_usability_corr_gpu",
     "feature_engineering",
     "polynom_pair_fe"
   ]
