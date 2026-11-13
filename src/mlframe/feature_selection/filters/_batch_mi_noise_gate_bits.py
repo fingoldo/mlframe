@@ -63,24 +63,24 @@ extern "C" __global__ void pack_bins(const {DT}* __restrict__ disc, const long l
 }
 extern "C" __global__ void pack_cls(const int* __restrict__ y_all, const long long n, const int words, const int n_y,
                                     unsigned long long* __restrict__ cls, long long* __restrict__ cnt) {
-    const int w = blockIdx.x * blockDim.x + threadIdx.x;
+    // One warp per 64-row word: lane l reads rows 64w + l and 64w + 32 + l (consecutive ints, coalesced) and the class masks come from two ballots.
+    const int lane = threadIdx.x & 31;
+    const int w = blockIdx.x * (blockDim.x >> 5) + (threadIdx.x >> 5);
     const int p = blockIdx.y;
     if (w >= words) return;
-    unsigned long long acc[NYC];
-    #pragma unroll
-    for (int c = 0; c < NYC; ++c) acc[c] = 0ull;
-    const long long r0 = (long long)w * 64;
-    for (int r = 0; r < 64; ++r) {
-        const long long row = r0 + r;
-        if (row >= n) break;
-        const int y = y_all[(long long)p * n + row];
-        #pragma unroll
-        for (int c = 0; c < NYC; ++c) acc[c] |= ((unsigned long long)(y == c)) << r;
-    }
+    const long long r0 = (long long)w * 64 + lane;
+    const long long r1 = r0 + 32;
+    const int y0 = r0 < n ? y_all[(long long)p * n + r0] : -1;
+    const int y1 = r1 < n ? y_all[(long long)p * n + r1] : -1;
     #pragma unroll
     for (int c = 0; c < NYC; ++c) {
-        cls[((long long)p * n_y + c) * words + w] = acc[c];
-        atomicAdd((unsigned long long*)&cnt[(long long)p * n_y + c], (unsigned long long)__popcll(acc[c]));
+        const unsigned int lo = __ballot_sync(0xffffffffu, y0 == c);
+        const unsigned int hi = __ballot_sync(0xffffffffu, y1 == c);
+        if (lane == 0) {
+            const unsigned long long word = ((unsigned long long)hi << 32) | (unsigned long long)lo;
+            cls[((long long)p * n_y + c) * words + w] = word;
+            atomicAdd((unsigned long long*)&cnt[(long long)p * n_y + c], (unsigned long long)__popcll(word));
+        }
     }
 }
 """
@@ -178,8 +178,8 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gat
         cls = cp.empty((n_perm, n_y, words), dtype=cp.uint64)
         cnt = cp.zeros((n_perm, n_y), dtype=cp.int64)
         pack_cls = mod.get_function("pack_cls")
-        cls_block = block_size_for(pack_cls, work_items=words)
-        pack_cls(((words + cls_block - 1) // cls_block, n_perm), (cls_block,), (y_all, np.int64(n), np.int32(words), np.int32(n_y), cls, cnt))
+        cls_block = block_size_for(pack_cls, work_items=words * 32)  # a warp per word
+        pack_cls(((words * 32 + cls_block - 1) // cls_block, n_perm), (cls_block,), (y_all, np.int64(n), np.int32(words), np.int32(n_y), cls, cnt))
         # Intentional float64: the xlogx table of the MI formula (exact permutation ties); the kernel takes its element type from this buffer
         table = cp.asarray(xlogx_table(n))
         const_b = table[n] - table[cnt].sum(axis=1)
