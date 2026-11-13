@@ -12,6 +12,7 @@ from typing import Any, Optional, cast
 
 import numpy as np
 from mlframe.feature_selection.filters._lazy_host_codes import ndim_of
+from mlframe.feature_selection.filters.discretization._quantile_radix import unique_with_counts
 
 
 def _a() -> Any:
@@ -368,7 +369,7 @@ class OptimalJointPlanCache:
             return (key, *hit)
         finite = col[np.isfinite(col)]
         if finite.size > 0:
-            uniq, counts = np.unique(finite, return_counts=True)
+            uniq, counts = unique_with_counts(finite)
         else:
             uniq, counts = np.empty(0, dtype=col.dtype), np.empty(0, dtype=np.int64)
         size = int(finite.nbytes + uniq.nbytes + counts.nbytes)

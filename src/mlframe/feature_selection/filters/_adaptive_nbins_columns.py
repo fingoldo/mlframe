@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional
 import numpy as np
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters.discretization._quantile_radix import unique_with_counts
 
 logger = logging.getLogger("mlframe.feature_selection.filters._adaptive_nbins")
 
@@ -318,7 +319,7 @@ def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str
         # return_counts=True up front so the rare sparse-dominance fallback below (which needs the
         # per-value counts) reuses THIS array instead of re-running np.unique a second time.
         if _finite.size > 0:
-            _uniq, _uniq_counts = np.unique(_finite, return_counts=True)
+            _uniq, _uniq_counts = unique_with_counts(_finite)
         else:
             _uniq = np.empty(0, dtype=_crit_np_dtype())
             _uniq_counts = np.empty(0, dtype=np.int64)
