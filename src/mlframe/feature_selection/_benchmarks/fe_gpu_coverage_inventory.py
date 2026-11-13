@@ -126,6 +126,10 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
 #: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_modular_codes_gpu": (
+        "_periodic_fe",
+        "the host pool of the same decision is _modular_all_ops_into (njit) plus the njit quantile coder, built by modular_candidate_block",
+    ),
     "_wavelet_legs_fused_gpu": (
         "_wavelet_basis_fe",
         "the host side of the same decision is _select_wavelet_legs, the fused parallel njit body of _wavelet_basis_fe (the leg codes and their MI in one pass)",

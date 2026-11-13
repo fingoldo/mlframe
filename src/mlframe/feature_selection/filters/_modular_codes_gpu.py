@@ -5,9 +5,10 @@ On the host path the candidates are computed on the CPU (0.7 s for 1500 candidat
 source columns are uploaded once (in double precision, as the host residue is computed) and one kernel writes the three candidates of each period straight
 into the float32 rows the resident coder (``_quantile_codes_gpu.quantile_codes_resident_f32``) reads, a block of source columns at a time within the memory pool.
 
-Same arithmetic as ``_periodic_fe._modular_all_ops_into``: ``r = v - p * floor(v / p)`` in double precision, ``sin`` / ``cos`` of ``2 pi r / p``, non-finite to 0,
-stored at float32. The device ``sin`` / ``cos`` may differ from the host libm by an ulp of the double, which the float32 store almost always absorbs; a value
-that rounds differently can move one row across a bin edge, which leaves the family test's verdicts (a max over 1500 candidates) unchanged in practice.
+Same residue as ``_periodic_fe._modular_all_ops_into``: ``r = v - p * floor(v / p)`` in double precision (the host twin is that njit kernel). The angle ``2 pi r / p`` is formed in
+double and the ``sin`` / ``cos`` are taken at the stored float32 type (non-finite to 0), which keeps the card's 1:32 FP64 pipe out of the transcendental (kernel 37 -> 17.6 ms at
+16 sources x 5 periods x 400000 rows). The stored values differ from the host's by float rounding (max 2.7e-7): for continuous columns a few cells in a million land one bin over, for
+a column of exactly tied values the tied group splits differently, which is arbitrary on either side; the family test's verdicts (a max over 1500 candidates) are unchanged in practice.
 
 ``MLFRAME_MODULAR_CODES_DEVICE=0|1`` forces the path (default: on with a usable device for a pool of at least ``_quantile_codes_gpu`` device-size elements).
 """
@@ -17,13 +18,14 @@ from __future__ import annotations
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 import pandas as pd
 
+from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._raw_module_cache import RawModuleCache
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 from mlframe.utils.log_throttle import log_throttle
@@ -49,11 +51,13 @@ extern "C" __global__ void modular_all_ops(const SRC_T* __restrict__ S, const {A
         const {ACC} v = ({ACC})s[i];  // a float32 source widens exactly; the residue below is still {ACC}
         if (!isfinite(v)) { o_mod[i] = ({REAL})0; o_sin[i] = ({REAL})0; o_cos[i] = ({REAL})0; continue; }
         const {ACC} r = v - p * floor(v / p);
-        {ACC} sn, cs;
-        sincos(k * r, &sn, &cs);
+        // The angle k * r lies in [0, 2 pi] and is formed in {ACC}; the sine and cosine are taken at the stored type (the candidates are stored at {REAL}), which keeps the
+        // card's 1:32 FP64 pipe out of the transcendental.
+        {REAL} sn, cs;
+        sincos(({REAL})(k * r), &sn, &cs);
         o_mod[i] = isfinite(r) ? ({REAL})r : ({REAL})0;
-        o_sin[i] = isfinite(sn) ? ({REAL})sn : ({REAL})0;
-        o_cos[i] = isfinite(cs) ? ({REAL})cs : ({REAL})0;
+        o_sin[i] = isfinite(sn) ? sn : ({REAL})0;
+        o_cos[i] = isfinite(cs) ? cs : ({REAL})0;
     }
 }
 """
@@ -67,8 +71,84 @@ _MODULE_F32 = RawModuleCache(
 )  # source columns that are float32 already are uploaded as they are (half the copy and the transfer)
 
 
+DEVICE_FALLBACK_ROWS = 1_500_000  # elements (sources x candidates per source x rows); the measured crossover (GTX 1050 Ti), replaced per host by the tuner once a sweep has run
+_SWEEP_ROWS = [300_000, 1_500_000, 6_000_000, 24_000_000]  # elements of the pool, the "n_samples" axis of the sweep
+_SWEEP_SOURCES = 8
+_SWEEP_PERIODS = (7.0, 24.0, 52.0, 365.0, 12.5)
+_SWEEP_BINS = 10
+_SALT = 1
+
+
+def _sweep_inputs(dims: dict) -> tuple:
+    """A float32 frame of ``_SWEEP_SOURCES`` columns whose pool (3 candidates per period) holds ``dims["n_samples"]`` elements."""
+    n = max(64, int(dims["n_samples"]) // (_SWEEP_SOURCES * 3 * len(_SWEEP_PERIODS)))
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame({f"c{i}": (rng.random(n) * 1000.0).astype(np.float32) for i in range(_SWEEP_SOURCES)})
+    return (X,)
+
+
+def _code_fractions(codes: np.ndarray) -> np.ndarray:
+    """The share of cells in each bin over the whole pool. The device takes the sine and cosine at the stored type, so a handful of values (about 4 in a million) land one bin
+    over from the host's double result; that moves the share of a bin by a fraction of 1e-6, while a divergent kernel moves it by orders more. Row-exact equivalence of the
+    verdicts is pinned by the tests, not by this sweep."""
+    out = np.zeros(64, dtype=np.float64)  # Intentional float64: comparison vector
+    counts = np.bincount(np.asarray(codes).ravel().astype(np.int64, copy=False), minlength=1)[:64]
+    out[: counts.size] = counts / float(max(1, np.asarray(codes).size))
+    return out
+
+
+def _sweep_host(X: pd.DataFrame) -> np.ndarray:
+    """The host pool: candidates computed on the CPU, then coded."""
+    from ._family_maxt_gate import family_codes_of_rows
+    from ._periodic_fe import modular_candidate_block
+
+    _names, values = modular_candidate_block(X, list(X.columns), list(_SWEEP_PERIODS))
+    codes, _nx = family_codes_of_rows(values, _SWEEP_BINS)
+    return _code_fractions(codes)
+
+
+def _sweep_device(X: pd.DataFrame) -> np.ndarray:
+    """The device pool; a refusal raises so the sweep does not record the host fallback as a device time."""
+    got = modular_family_codes_gpu(X, list(X.columns), list(_SWEEP_PERIODS), _SWEEP_BINS, family_elements=1 << 40)
+    if got is None:
+        raise RuntimeError("device modular candidate codes unavailable")
+    return _code_fractions(got[1])
+
+
+_fallback_choice = rows_fallback(__name__)
+
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+    _SPEC: Any = kernel_tuner(
+        kernel_name="fe_modular_codes_backend",
+        variant_fns=(),  # the two backends are timed by the sweep callable
+        tuner=host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=1e-6, atol=1e-6),
+        axes={"n_samples": list(_SWEEP_ROWS)},
+        fallback=_fallback_choice,
+        gpu_capable=True,
+        salt=_SALT,
+        cli_label="fe_modular_codes_backend",
+    )
+except Exception as e:  # best-effort: without a tuner entry the element-count fallback decides
+    logger.warning("kernel_tuner spec build for fe_modular_codes_backend failed: %s", e)
+    _SPEC = None
+
+
+def modular_device_chosen(n_elements: int) -> bool:
+    """Whether a pool of ``n_elements`` takes the device: the per-host kernel-tuning cache, fallback ``DEVICE_FALLBACK_ROWS`` elements."""
+    if _SPEC is None:
+        return int(n_elements) >= DEVICE_FALLBACK_ROWS
+    try:
+        return str(_SPEC.choose(n_samples=int(n_elements))) == "device"
+    except Exception as exc:
+        logger.debug("fe_modular_codes_backend: KTC choose() failed, using the element-count fallback: %s", exc)
+        return int(n_elements) >= DEVICE_FALLBACK_ROWS
+
+
 def _use_device(n_elements: int) -> bool:
-    """Whether the device path runs: forced by ``MLFRAME_MODULAR_CODES_DEVICE``, else a float32 fit, the default copy policy and a large enough pool."""
+    """Whether the device path runs: forced by ``MLFRAME_MODULAR_CODES_DEVICE``, else a float32 fit, the default copy policy and a large enough pool (the strict-resident bound under the
+    strict path, whose residency contract keeps bulk device-to-host traffic out of small pools; otherwise the kernel-tuning cache)."""
     from ._gpu_policy import gpu_globally_disabled
 
     if gpu_globally_disabled():
@@ -79,13 +159,17 @@ def _use_device(n_elements: int) -> bool:
     if os.environ.get("MLFRAME_MODULAR_DROP_COPIES", "0").strip().lower() in ("1", "true", "on", "yes"):
         return False
     from ._fe_usability_signal import _crit_np_dtype
-    from ._quantile_codes_gpu import _device_min_elements
+    from ._quantile_codes_gpu import _device_min_elements, STRICT_DEVICE_MIN_ELEMENTS
 
-    return bool(np.dtype(_crit_np_dtype()) == np.float32 and n_elements >= _device_min_elements())
+    if np.dtype(_crit_np_dtype()) != np.float32:
+        return False
+    if _device_min_elements() == STRICT_DEVICE_MIN_ELEMENTS:
+        return int(n_elements) >= STRICT_DEVICE_MIN_ELEMENTS
+    return modular_device_chosen(int(n_elements))
 
 
 def _sources_per_block(cp, n_rows: int, per_source: int, source_bytes: int = _BYTES_PER_SOURCE_ROW) -> int:
-    """Source columns per launch: the double source block and its float32 candidates within ``_BUDGET_FRACTION`` of what the pool can hand out (at least 1)."""
+    """Source columns per launch (one column block): the double source block and its float32 candidates within ``_BUDGET_FRACTION`` of what the pool can hand out (at least 1)."""
     try:
         pool = cp.get_default_memory_pool()
         free_device = int(cp.cuda.runtime.memGetInfo()[0]) + int(pool.free_bytes())
