@@ -513,8 +513,9 @@ def _batched_joint_counts2(X, b, Kx, Kb):
     tile = _hist_smem_tile(int(Kx) * int(Kb), K, u8)
     if tile:
         # one block per (row chunk, column tile): shared histograms, one global add per occupied cell per block
-        rows_per_block = int(max(1024, min(n, 16384)))
-        grid = ((n + rows_per_block - 1) // rows_per_block, (K + tile - 1) // tile)
+        col_tiles = (K + tile - 1) // tile
+        rows_per_block = _hist_rows_per_block(n, col_tiles)
+        grid = ((n + rows_per_block - 1) // rows_per_block, col_tiles)
         if u8:
             _get_batched_joint_hist_u8_kernels()[3](
                 grid, (256,), (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(tile), np.int32(tile.bit_length() - 1), np.int64(rows_per_block), counts),
@@ -540,6 +541,36 @@ _HIST_SMEM_MAX_CELLS = 128
 
 
 _HIST_SMEM_MAX_CELLS_U8 = 256  # the byte-code kernel reads an eighth of the traffic, so shared histograms win up to 256 cells (200 cells, 30000 x 1000: 9.3 -> 7.8 ms per CMI call)
+
+
+def _hist_rows_per_block(n: int, col_tiles: int) -> int:
+    """Rows one block of the shared-memory joint histogram counts: enough blocks to fill the device, so a narrow matrix is not left to a handful of blocks.
+
+    The fixed 16384 rows per block gave a grid of (7, 2) = 14 blocks at 100000 rows x 25 columns on a 6-SM card: achieved occupancy 0.25, 75% of the issue stalls on memory dependency, 9 GB/s of DRAM
+    (nvprof). The target is ``_HIST_BLOCKS_PER_SM`` blocks per SM; each block adds one flush of ``tile * cells`` global atomics, small against its 1024 or more rows per column.
+    """
+    sms = _sm_count()
+    target = max(1, _HIST_BLOCKS_PER_SM * sms)
+    per_chunk = max(1, (target + col_tiles - 1) // col_tiles)
+    rows = -(-int(n) // per_chunk)
+    rows = ((rows + 255) // 256) * 256
+    return int(max(1024, min(int(n), 16384, rows)))
+
+
+_HIST_BLOCKS_PER_SM = 8
+_SM_COUNT: list = []
+
+
+def _sm_count() -> int:
+    """Multiprocessors of the current device (cached; 16 when it cannot be read)."""
+    if not _SM_COUNT:
+        try:
+            import cupy as cp
+
+            _SM_COUNT.append(int(cp.cuda.Device().attributes["MultiProcessorCount"]))
+        except Exception:
+            _SM_COUNT.append(16)
+    return _SM_COUNT[0]
 
 
 def _hist_smem_tile(cells: int, n_cols: int, u8: bool = False) -> int:

@@ -48,3 +48,14 @@ Measured (GTX 1050 Ti, 6 SMs, interleaved, min of 8-10, committed tree vs new):
 Two measured dead ends: more blocks per SM at M = 1000 (4 per SM 14.8 ms, 2 per SM 6.8 ms), and dividing the flat index by the column count per element (the per-element division cost a few ms, replaced by a per-thread row index).
 
 Correctness: `test_joint_entropy_global_tiled.py` checks both routes against the unfused count+reduce reference with K in {1, 9, 13} (partial last group) and Kb in {2, 7, 40}. The test found a real bug first: with a block size not divisible by the group width, the row stride let threads past the grid count rows twice. Threads outside the g x rows grid now sit out. A mutant that drops the column offset fails 2 cases.
+
+## Shared-memory joint histogram: row blocks that fill the device (2026-11-13)
+
+`batched_joint_hist2_i32_smem_u8_v2` (600 launches, 0.41 s of the 100000 x 100 fit survey) at 100000 rows x 25 uint8 columns, 10 x 2 cells, isolated harness `D:/Temp/exp/nv_hist2.py`: grid (7, 2) = 14 blocks of 256 threads
+on a 6-SM card (rows per block fixed at 16384), kernel 338 us, achieved occupancy 0.254, IPC 1.01, issue stalls 75.5% on memory dependency, DRAM read 8.9 GB/s, global load efficiency 33% (16 columns per tile read as 16
+consecutive bytes of a row, half a 32-byte sector), warp execution 78%. The limiter was the grid, not the access pattern: too few blocks to hide the load latency.
+
+Change: `_hist_rows_per_block(n, col_tiles)` sizes the row block for 8 blocks per SM (`_sm_count()`), a multiple of 256 rows, at least 1024 and at most the old 16384. After: grid (23, 2), kernel 122 us, occupancy 0.93, IPC 2.97,
+stalls on memory dependency 66.5%, DRAM read 25.9 GB/s; the load efficiency is unchanged (33%: the tile width, a separate lever). Interleaved A/B of the whole launcher, best of 9 (old / new ms): 100000 x 8 0.300 / 0.121,
+x 25 0.428 / 0.183, x 100 0.798 / 0.532, x 400 1.887 / 1.859; 30000 x 25 0.305 / 0.132, x 100 0.728 / 0.211; 1000000 x 25 and x 100 unchanged (1.56, 6.17: the old grid already filled the card); 100000 x 25 with 8 x 8 cells
+0.442 / 0.185; 5000 x 50 0.186 / 0.094. Counts are exact (`test_hist_rows_per_block.py`: bincount equality over six shapes, byte and int64 paths, two seeds; the mutant that drops the last partial block fails 20 of 26).
