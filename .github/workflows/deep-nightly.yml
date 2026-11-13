@@ -87,7 +87,7 @@ jobs:
         id: pyutilz-pin
         run: echo "sha=$(python3 scripts/read_pyutilz_pin.py uv.lock)" >> "$GITHUB_OUTPUT"
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@19fdf001cc9548e96d2bae06dfe11222735bba48  # v1.23.10  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@2e3181f79f97ec4d9b584d6a5046aca49c64420e  # v1.23.10  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev,mlflow]"
@@ -186,7 +186,7 @@ jobs:
         id: pyutilz-pin
         run: echo "sha=$(python3 scripts/read_pyutilz_pin.py uv.lock)" >> "$GITHUB_OUTPUT"
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@19fdf001cc9548e96d2bae06dfe11222735bba48  # v1.23.10  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@2e3181f79f97ec4d9b584d6a5046aca49c64420e  # v1.23.10  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev,mlflow]"
@@ -217,7 +217,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           repository: fingoldo/py-ci-shared
-          ref: 19fdf001cc9548e96d2bae06dfe11222735bba48  # v1.23.10  # pragma: allowlist secret
+          ref: 2e3181f79f97ec4d9b584d6a5046aca49c64420e  # v1.23.10  # pragma: allowlist secret
           path: py-ci-shared
           persist-credentials: false
 
@@ -261,7 +261,7 @@ jobs:
       #                       it, and adding two flags' percentages double-counts instead of unioning.
       - name: Upload coverage to Codecov (deep flag)
         if: success() || failure()
-        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@19fdf001cc9548e96d2bae06dfe11222735bba48  # v1.23.10  # pragma: allowlist secret
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@2e3181f79f97ec4d9b584d6a5046aca49c64420e  # v1.23.10  # pragma: allowlist secret
         with:
           files: ./coverage.xml
           flags: deep
