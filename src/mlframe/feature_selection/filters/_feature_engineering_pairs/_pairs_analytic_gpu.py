@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 # Codes per device block (n * k elements) of the generic fallback: the MI kernel widens a block to int64, so this bounds that transient to ~256 MB.
 _BLOCK_ELEMENTS = 1 << 25
 
+# Threads per block of the fused kernel (rounded to whole tiles): 128 measured best with four loads in flight, 20.4 to 19.2 ms at 100000 x 6000.
+_FUSED_THREADS = 128
+
 # Shared-memory budget per block for the fused kernel's joint histograms (bytes); 48 KB is available on every supported card.
 _SHARED_BUDGET = 48 * 1024
 
@@ -41,9 +44,25 @@ void analytic_obs_mi_bins_i8(const signed char* __restrict__ codes, const int* _
     __syncthreads();
     const long long col = col0 + cj;
     if (col < K) {
-        for (long long i = rg; i < n; i += ngroups) {
-            int cx = (int)codes[i * (long long)K + col];
-            int cy = y[i];
+        // four independent loads in flight per thread: one load per iteration left the card at 15 to 19 GB/s of 112 (latency bound), four give 27 to 31
+        long long i = rg;
+        for (; i + 3LL * ngroups < n; i += 4LL * ngroups) {
+            const int cx0 = (int)codes[i * (long long)K + col];
+            const int cy0 = y[i];
+            const int cx1 = (int)codes[(i + ngroups) * (long long)K + col];
+            const int cy1 = y[i + ngroups];
+            const int cx2 = (int)codes[(i + 2LL * ngroups) * (long long)K + col];
+            const int cy2 = y[i + 2LL * ngroups];
+            const int cx3 = (int)codes[(i + 3LL * ngroups) * (long long)K + col];
+            const int cy3 = y[i + 3LL * ngroups];
+            atomicAdd(&sh[cj * M + cx0 * Ky + cy0], 1);
+            atomicAdd(&sh[cj * M + cx1 * Ky + cy1], 1);
+            atomicAdd(&sh[cj * M + cx2 * Ky + cy2], 1);
+            atomicAdd(&sh[cj * M + cx3 * Ky + cy3], 1);
+        }
+        for (; i < n; i += ngroups) {
+            const int cx = (int)codes[i * (long long)K + col];
+            const int cy = y[i];
             atomicAdd(&sh[cj * M + cx * Ky + cy], 1);
         }
     }
@@ -74,6 +93,58 @@ void analytic_obs_mi_bins_i8(const signed char* __restrict__ codes, const int* _
 }
 """)
 
+# One pass over the int8 matrix for its smallest and largest code (the fused kernel needs the level count and a non-negativity check before it launches): cupy's min() and max() are two passes over
+# the whole matrix, 10 ms of a 44 ms call at 100000 x 6000. Each thread reads four bytes at a time (an int), folds them, and one atomic per warp merges the results.
+_MINMAX_SRC = r"""
+extern "C" __global__
+void minmax_i8(const signed char* __restrict__ a, const long long total, int* __restrict__ out) {
+    int lo = 127, hi = -128;
+    const long long total4 = total >> 2;
+    const int* __restrict__ a4 = (const int*)a;
+    const long long stride = (long long)gridDim.x * blockDim.x;
+    for (long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x; i < total4; i += stride) {
+        const int w = a4[i];
+        const int b0 = (signed char)(w & 0xff), b1 = (signed char)((w >> 8) & 0xff), b2 = (signed char)((w >> 16) & 0xff), b3 = (signed char)((w >> 24) & 0xff);
+        lo = min(lo, min(min(b0, b1), min(b2, b3)));
+        hi = max(hi, max(max(b0, b1), max(b2, b3)));
+    }
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (long long i = total4 << 2; i < total; ++i) {
+            const int v = (int)a[i];
+            lo = min(lo, v);
+            hi = max(hi, v);
+        }
+    }
+    for (int off = 16; off > 0; off >>= 1) {
+        lo = min(lo, __shfl_down_sync(0xffffffffu, lo, off));
+        hi = max(hi, __shfl_down_sync(0xffffffffu, hi, off));
+    }
+    if ((threadIdx.x & 31) == 0) {
+        atomicMin(&out[0], lo);
+        atomicMax(&out[1], hi);
+    }
+}
+"""
+
+_MINMAX_KERNEL = None
+
+
+def _minmax_i8(cp: Any, codes: Any) -> "tuple[int, int]":
+    """``(smallest, largest)`` code of a contiguous int8 matrix in one device pass and one 8-byte read."""
+    global _MINMAX_KERNEL
+    from pyutilz.performance.gpu_hw_launch import block_size_for
+
+    if _MINMAX_KERNEL is None:
+        _MINMAX_KERNEL = cp.RawKernel(_MINMAX_SRC, "minmax_i8")
+    out = cp.asarray(np.array([127, -128], dtype=np.int32))
+    total = int(codes.size)
+    threads = block_size_for(_MINMAX_KERNEL, work_items=max(1, total // 4))
+    blocks = max(1, min(4096, (total // 4 + threads - 1) // threads))
+    _MINMAX_KERNEL((blocks,), (threads,), (codes, np.int64(total), out))
+    lo, hi = (int(v) for v in out.get())
+    return lo, hi
+
+
 _FUSED_KERNEL = None
 
 
@@ -103,7 +174,8 @@ def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int) -> "
     if device_codes.dtype != cp.int8 or device_codes.ndim != 2:
         return None
     n, k_total = int(device_codes.shape[0]), int(device_codes.shape[1])
-    lo, hi = (int(v) for v in cp.stack([device_codes.min(), device_codes.max()]).get())  # one read: every code must sit inside its histogram
+    codes = cp.ascontiguousarray(device_codes)
+    lo, hi = _minmax_i8(cp, codes) if codes.size else (0, 0)  # one pass, one read: every code must sit inside its histogram
     if lo < 0:
         return None
     kx = hi + 1
@@ -114,13 +186,12 @@ def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int) -> "
     tile = _tile_for(kx * ky_eff)
     if tile == 0:
         return None
-    codes = cp.ascontiguousarray(device_codes)
     from mlframe.feature_selection.filters._fe_resident_operands import resident_operand
 
     y32 = resident_operand(yc.astype(np.int32), "analytic_gate_y32", dtype=np.int32).ravel()
     mi = cp.empty(k_total, dtype=cp.float64)  # Intentional float64: MI statistic output compared at full precision
     bins = cp.empty(k_total, dtype=cp.int32)
-    threads = tile * max(1, 256 // tile)
+    threads = tile * max(1, _FUSED_THREADS // tile)
     blocks = (k_total + tile - 1) // tile
     _fused_kernel()(
         (blocks,), (threads,),
