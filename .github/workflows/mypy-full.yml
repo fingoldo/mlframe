@@ -37,7 +37,7 @@ jobs:
   mypy-full:
     permissions:
       contents: read
-    uses: fingoldo/py-ci-shared/.github/workflows/mypy-full.yml@2e3181f79f97ec4d9b584d6a5046aca49c64420e  # v1.23.10  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/mypy-full.yml@5264e5d154aadc56028d46118b515166adaee7a5  # v1.23.11  # pragma: allowlist secret
     with:
       package-name: mlframe
       mypy-version: "2.1.0"
