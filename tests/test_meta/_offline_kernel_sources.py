@@ -8,11 +8,12 @@ error in this table, never a silent skip: ``leftover_placeholders`` reports it a
 
 from __future__ import annotations
 
-import ast
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+from py_ci_shared.cuda_kernel_sources import find_cuda_kernel_sources, module_str_constant
 
 ROOT = Path(__file__).resolve().parents[2] / "src" / "mlframe"
 _EXCLUDED_PARTS = ("_benchmarks", "kernel_prototypes")
@@ -31,52 +32,18 @@ class KernelVariant:
 
 
 def _kernel_constants() -> dict:
-    """``{"relative/path.py::NAME": source}`` for every assignment whose value holds a ``__global__`` kernel string.
+    """``{"mlframe/path.py::NAME": source}`` for every assignment whose value holds a ``__global__`` kernel string (see ``py_ci_shared.cuda_kernel_sources``).
 
-    The string may be a plain constant, wrapped in ``render(...)``/``.replace(...)``, concatenated, or an f-string; the first kernel-bearing string literal of the value is taken
-    (its remaining placeholders are filled by the recipe table). Assignments inside functions are included, since several modules build their source at call time.
+    The string may be a plain constant, wrapped in ``render(...)``/``.replace(...)``, concatenated, or an f-string; the first kernel-bearing string literal of the value is taken (its remaining
+    placeholders are filled by the recipe table) and further literals of one assignment get ``NAME#2``, ``NAME#3``. Assignments inside functions are included, since several modules build their
+    source at call time.
     """
-    found: dict = {}
-    for path in sorted(ROOT.rglob("*.py")):
-        if any(part in path.parts for part in _EXCLUDED_PARTS):
-            continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if "__global__" not in text:
-            continue
-        try:
-            tree = ast.parse(text)
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
-                continue
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            name = next((t.id for t in targets if isinstance(t, ast.Name)), None) or next((t.attr for t in targets if isinstance(t, ast.Attribute)), None)
-            literals = []
-            for sub in ast.walk(node.value):
-                if isinstance(sub, ast.Constant) and isinstance(sub.value, str) and "__global__" in sub.value:
-                    literals.append(sub.value)
-                elif isinstance(sub, ast.JoinedStr):
-                    parts = [p.value if isinstance(p, ast.Constant) else "{__FSTRING__}" for p in sub.values]
-                    joined = "".join(str(p) for p in parts)
-                    if "__global__" in joined:
-                        literals.append(joined)
-            if name and literals:
-                # one key per kernel-bearing literal of the assignment (``NAME``, ``NAME#2``, ...): a dict of kernels or a sum of sources would otherwise keep only the first
-                for i, literal in enumerate(literals):
-                    key = f"{path.relative_to(ROOT.parent).as_posix()}::{name}" + (f"#{i + 1}" if i else "")
-                    found.setdefault(key, literal)
-    return found
+    return find_cuda_kernel_sources(ROOT, exclude=_EXCLUDED_PARTS, key_base=ROOT.parent, min_files=500)
 
 
 def _str_constant(rel_path: str, name: str) -> str:
     """The module-level string constant ``name`` of ``src/mlframe/<rel_path>``, read by AST (a ``__device__`` helper that production compiles in front of a kernel)."""
-    tree = ast.parse((ROOT / rel_path).read_text(encoding="utf-8", errors="replace"))
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-            if any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
-                return node.value.value
-    raise KeyError(f"{rel_path}::{name}")
+    return module_str_constant(ROOT / rel_path, name)
 
 
 def _fill(src: str, **names: str) -> str:
