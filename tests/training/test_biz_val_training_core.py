@@ -110,17 +110,19 @@ _MACOS_LGB_LIBOMP_CRASH_SKIP = pytest.mark.skipif(
 )
 
 
-@_MACOS_LGB_LIBOMP_CRASH_SKIP
-def test_biz_val_training_suite_regression_completes(tmp_path):
-    """Suite must train a simple regression task and return a 2-tuple
-    ``(models, metadata)``."""
+@pytest.fixture(scope="module")
+def lgb_regression_run(tmp_path_factory):
+    """ONE lgb regression suite run (400 rows) shared by the quality sensor and the metadata-schema sensor, which read different slots of the same result.
+
+    Returns ``(df, models, metadata)``.
+    """
     pytest.importorskip("lightgbm")
     from mlframe.training import ReportingConfig
 
     train_mlframe_models_suite, OutputConfig, FTE = _try_import_suite()
     df = _make_regression_df(n=400, seed=42)
     fte = FTE(target_column="target", regression=True)
-    data_dir = str(tmp_path / "data")
+    data_dir = str(tmp_path_factory.mktemp("lgb_regression") / "data")
     models, metadata = train_mlframe_models_suite(
         df=df,
         target_name="test_target",
@@ -134,6 +136,14 @@ def test_biz_val_training_suite_regression_completes(tmp_path):
         verbose=0,
         hyperparams_config={"iterations": _QUALITY_ITERATIONS},
     )
+    return df, models, metadata
+
+
+@_MACOS_LGB_LIBOMP_CRASH_SKIP
+def test_biz_val_training_suite_regression_completes(lgb_regression_run):
+    """Suite must train a simple regression task and return a 2-tuple
+    ``(models, metadata)``."""
+    _df, models, metadata = lgb_regression_run
     assert metadata["model_name"] == "m_reg"
     from mlframe.training.configs import TargetTypes
 
@@ -274,28 +284,12 @@ def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
 
 
 @_MACOS_LGB_LIBOMP_CRASH_SKIP
-def test_biz_val_training_suite_metadata_dict_schema(tmp_path):
+def test_biz_val_training_suite_metadata_dict_schema(lgb_regression_run):
     """Suite must return ``metadata`` as a dict on success. Catches
     regressions in the suite-level metadata aggregation path."""
-    pytest.importorskip("lightgbm")
-    train_mlframe_models_suite, OutputConfig, FTE = _try_import_suite()
-    df = _make_regression_df(n=300, seed=42)
-    fte = FTE(target_column="target", regression=True)
-    data_dir = str(tmp_path / "data")
-    _models, metadata = train_mlframe_models_suite(
-        df=df,
-        target_name="test_target",
-        model_name="m_md",
-        features_and_targets_extractor=fte,
-        mlframe_models=["lgb"],
-        use_ordinary_models=True,
-        use_mlframe_ensembles=False,
-        output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
-        verbose=0,
-        hyperparams_config={"iterations": _QUALITY_ITERATIONS},
-    )
+    df, _models, metadata = lgb_regression_run
     assert isinstance(metadata, dict), f"metadata must be a dict; got {type(metadata).__name__}"
-    assert metadata["model_name"] == "m_md"
+    assert metadata["model_name"] == "m_reg"
     assert metadata["target_name"] == "test_target"
     n_rows = len(df)
     sizes = (metadata["train_size"], metadata["val_size"], metadata["test_size"])
