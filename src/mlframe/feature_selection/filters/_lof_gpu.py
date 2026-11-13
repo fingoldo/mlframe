@@ -40,6 +40,7 @@ _SRC = r"""
 #define BD(s) bd_regs[s]
 #define BJ(s) bj_regs[s]
 #endif
+// coalescing-ok: each thread owns one point and reads its P coordinates X[i * P + t] once, P being a compile-time constant (3 by default); the cost is the neighbour scan, which reads all points in a block coalesced
 extern "C" __global__ void lof_scores(const {REAL}* __restrict__ X, const {REAL}* __restrict__ ref, const {REAL}* __restrict__ kdist_ref, const {REAL}* __restrict__ lrd_ref,
                                       const long long n, const int m, const int cnt, {REAL}* __restrict__ out) {
     const long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x;

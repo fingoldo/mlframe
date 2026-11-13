@@ -37,6 +37,7 @@ _BUDGET_CAP_BYTES = 768 * 1024 * 1024  # bit sets of one column group, at most
 _MIN_GROUP_COLUMNS = 1024
 
 _PACK_SRC = r"""
+// coalescing-ok: the strided access is the per-column bin count px[kl * CAP + a], updated once per bin after the word loop: CAP atomics per thread against CAP times words coalesced bit-set writes
 extern "C" __global__ void pack_bins(const {DT}* __restrict__ disc, const long long n, const int k_total, const int k0, const int kg, const int words,
                                      unsigned long long* __restrict__ bits, long long* __restrict__ px) {
     const int kl = blockIdx.x * blockDim.x + threadIdx.x;

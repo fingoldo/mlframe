@@ -838,6 +838,7 @@ def _gpu_evaluate_basis_matrix(cp, M, bases, degrees, *, robust_axis, heavy_host
 
 _ABS_CORR_SRC = render(r"""
 #define REAL_T {REAL}
+// coalescing-ok: the scalar path below 32 columns, measured faster than the tiled one at this width (tracker GC11-40: width 4 0.218 against 0.583 ms, width 16 0.314 against 0.574 ms at 100000 rows); the dispatch already takes the tiled kernel from 32 columns
 extern "C" __global__
 void abs_corr(const REAL_T* __restrict__ cand, const REAL_T* __restrict__ yc, const REAL_T* __restrict__ mu, const long long n,
               const int m, const {ACC} Syy, {ACC}* __restrict__ out) {

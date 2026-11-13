@@ -60,7 +60,6 @@ FLAG_EXEMPT: dict[str, str] = {
     "_gpu_kernel_pointer_dtype_baseline.json": "edit by hand (test_gpu_kernel_pointer_dtype.py lists stale and new kernels)",
     # Hand-maintained ratchets over the speed anti-patterns; each test names its new and fixed entries, and the lists may only shrink.
     "_perm_loop_invariants_baseline.json": "edit by hand (test_perm_loop_invariants_hoisted.py lists new and fixed entries)",
-    "_gpu_uncoalesced_reads_baseline.json": "edit by hand (test_gpu_coalesced_row_reads.py lists new and fixed entries)",
     "_tiny_cupy_loops_baseline.json": "edit by hand (test_no_tiny_cupy_ops_in_python_loops.py lists new and fixed entries)",
 }
 

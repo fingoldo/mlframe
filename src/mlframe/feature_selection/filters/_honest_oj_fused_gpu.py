@@ -184,6 +184,7 @@ extern "C" __global__ void oj_count_ones(const unsigned int* __restrict__ masks,
 }
 
 // the cell MI of every (permutation, cell) from the ones and the fixed bin counts: hist[x, 1] = ones, hist[x, 0] = px - ones (exact integers)
+// coalescing-ok: a tail pass: one thread per (permutation, cell) reads its KXMAX counts c1[g * KXMAX + x] once after the popcount kernel that produces them; neither oj_* tail kernel is among the 24 largest kernels of the fit survey (audits/2026-11-09/gpu_kernel_survey_100kx100.md)
 extern "C" __global__ void oj_mi_from_ones(const int* __restrict__ c1, const int* __restrict__ px, const long long* __restrict__ kx,
                                            const long long* __restrict__ nv, const int* __restrict__ ky, int B, int C, int F, int PM, int KXMAX,
                                            {ACC}* __restrict__ out)
@@ -205,6 +206,7 @@ extern "C" __global__ void oj_mi_from_ones(const int* __restrict__ c1, const int
 }
 // pool MI of every (permutation, pool column, candidate count) cell, the loops of _mi_codes_njit with integer counts: ones from the popcounts,
 // zeros = fixed bin count - ones; py = (rows - ones total, ones total) of the permutation
+// coalescing-ok: a tail pass: one thread per (permutation, pool cell) reads its KXMAX counts c1[g * KXMAX + a] once after the popcount kernel that produces them; neither oj_* tail kernel is among the 24 largest kernels of the fit survey (audits/2026-11-09/gpu_kernel_survey_100kx100.md)
 extern "C" __global__ void oj_pool_mi(const int* __restrict__ c1, const int* __restrict__ px, const long long* __restrict__ kx, const int* __restrict__ ones,
                                       int B, int C, int KXMAX, long long n, {ACC}* __restrict__ out)
 {

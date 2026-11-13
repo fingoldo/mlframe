@@ -125,6 +125,7 @@ void rows_ent_nnz_i32_split(const int* __restrict__ counts, const {ACC} inv_n, c
     }
     if (tid == 0) { part_h[row * S + seg] = sh_h[0]; part_k[row * S + seg] = sh_k[0]; }
 }
+// coalescing-ok: a finishing pass: one thread per row sums its S block partials part_h[row * S + s], with S the number of row chunks of the counting pass; K * S values are read once against the n * K counting pass
 extern "C" __global__
 void rows_ent_nnz_finish(const {ACC}* __restrict__ part_h, const {ACC}* __restrict__ part_k,
                          const int K, const int S,
@@ -686,6 +687,7 @@ void batched_joint_entropy2_g(const long long* __restrict__ X, const long long* 
     }
 }
 
+// coalescing-ok: kept for joints above 6144 cells, where the untiled kernel measured faster than the tiled one (tracker GPU11-54: 23.4 against 26.6 ms at 15000 cells); the tiled batched_joint_entropy2_g serves the smaller joints
 extern "C" __global__
 void batched_joint_entropy2_g_wide(const long long* __restrict__ X, const long long* __restrict__ b,
                               const int Kx, const int Kb, const long long n, const int K, const int M,

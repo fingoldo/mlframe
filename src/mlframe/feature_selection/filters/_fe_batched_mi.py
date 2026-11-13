@@ -47,6 +47,7 @@ from ._kernel_types import render
 # math is identical to ``batched_binned_mi_gpu`` (plain plug-in MI, no MM bias) -> selection-equivalent
 # (fp reduction order ~1e-15). Used only when the shared tile (Kx*Ky int32) fits; else the cupy path.
 _MI_FROM_CODES_SRC = render(r"""
+// coalescing-ok: measured reject (tracker GPU11-45, GPU11-47): the flat grid-stride rewrite ran at 0.44x and the column-major int16 variant at 0.52x; the blocks stream the same rows in lockstep so the strided reads are served from L2, and the limiter is the shared histogram atomics every variant pays
 extern "C" __global__
 void mi_from_codes(const long long* __restrict__ codes,   // (n, K) row-major int codes in [0,Kx)
                    const long long* __restrict__ y,        // (n,) int codes in [0,Ky)
@@ -297,6 +298,7 @@ _MI_SPLIT_F32_KERNELS = None
 # cp.bincount + .max() sync loop in _gpu_marginal_mi). Selection-equivalent to the njit table (plug-in
 # entropies in fp64; reduction-order ~1e-15).
 _MI_MM_FROM_VALUES_TEMPLATE = r"""
+// coalescing-ok: measured reject of the column-major read (tracker UC11-07, bench_mi_mm_from_values_layout.py): the block is built per call and used once, so the transpose is paid every time and eats the 30 percent the kernel alone gains at K = 256; production runs the tiled mm_nek_tile and col_minmax twins
 extern "C" __global__
 void mi_mm_from_values(const {REAL}* __restrict__ X, const {EDGE}* __restrict__ edges,
                        const long long* __restrict__ y, const long long n, const int K, const int nbins,

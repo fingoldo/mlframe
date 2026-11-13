@@ -33,6 +33,7 @@ LONG_STRATUM_ROWS = 64
 
 # A third, staged variant (rows of the block loaded coalesced into shared memory, then read per thread) measured equal to ``rows`` at long strata and slower at short ones, and was dropped.
 _SRC = r"""
+// coalescing-ok: the kept direct version: one thread per stratum reads its own run, gld efficiency 6.7 percent (nvprof); it is the faster kernel for short strata (236 us against 270 us for strata_xy_entropy_rows at 5000 strata, 668 us against 1.06 ms with an 8 x 8 table), the rows kernel takes long strata; the win axis is written at the top of the module
 extern "C" __global__
 void strata_xy_entropy(const unsigned char* __restrict__ xs, const unsigned char* __restrict__ ys, const int* __restrict__ starts,
                        const int S, const int n, const int Ky, const int cells, const {ACC}* __restrict__ ent,
