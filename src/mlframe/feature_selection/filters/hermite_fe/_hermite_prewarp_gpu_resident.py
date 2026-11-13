@@ -92,11 +92,18 @@ def _build_basis_matrix_gpu(cp, basis: str, z_gpu, max_degree: int):
     n = x.shape[0]
     nc = int(max_degree) + 1
     if _fused_basis_enabled():
-        from ._basis_fused_gpu import build_basis_fused
+        from ._basis_fused_gpu import basis_fused_chosen, build_basis_fused
 
-        fused = build_basis_fused(cp, basis, x, nc)
-        if fused is not None:
-            return fused
+        if basis_fused_chosen(n):
+            fused = build_basis_fused(cp, basis, x, nc)
+            if fused is not None:
+                return fused
+    return _build_basis_matrix_loop(cp, basis, x, nc)
+
+
+def _build_basis_matrix_loop(cp, basis: str, x, nc: int):
+    """The cupy-op-per-degree recurrence for the resident column ``x`` (``nc`` columns): the reference the single-kernel build is tested and swept against."""
+    n = x.shape[0]
     B = cp.empty((n, nc), dtype=crit_float_dtype())
     B[:, 0] = 1.0
     if nc <= 1:

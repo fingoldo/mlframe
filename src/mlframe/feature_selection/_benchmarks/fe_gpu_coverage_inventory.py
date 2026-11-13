@@ -126,6 +126,10 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
 #: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_basis_fused_gpu": (
+        "hermite_fe",
+        "the host design is hermite_fe's build_basis_matrix (njit recurrence); the device build is only taken for a column that is already resident",
+    ),
     "_modular_codes_gpu": (
         "_periodic_fe",
         "the host pool of the same decision is _modular_all_ops_into (njit) plus the njit quantile coder, built by modular_candidate_block",
@@ -242,6 +246,7 @@ def fe_modules() -> list[str]:
 
 
 def main() -> None:
+    """Print the coverage table of every FE module (static verdicts) as markdown."""
     names = fe_modules()
     rows = [row(n) for n in names]
     lines = ["| module | kind | GPU markers | dispatcher markers | lines | static verdict |", "|---|---|---:|---:|---:|---|"]
