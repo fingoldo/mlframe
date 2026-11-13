@@ -34,6 +34,9 @@ def _case(n=3000, seed=0):
 
 def test_one_leg_per_block_admits_the_same_legs(host_body, monkeypatch):
     """A budget of one leg per block admits exactly the legs a single stack admits, in the same order."""
+    # The host body scores legs through the cupy MI kernel, so it cannot run without cupy. Production falls back to the CPU
+    # leg selection when cupy is missing (_try_gpu_leg_selection); this test only covers the GPU body, so it skips without cupy.
+    pytest.importorskip("cupy")
     x, y, lo, span = _case()
     kw = dict(max_scale=4, max_legs=40, scale_sigma=3.0)
     monkeypatch.setattr(B, "_LEG_BLOCK_BYTES", 1 << 40)
