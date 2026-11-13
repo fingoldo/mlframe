@@ -98,6 +98,11 @@ def _both_real(src: str, **extra: str) -> list:
 _RECIPES: dict = {
     "_batch_mi_noise_gate_bits.py::_PACK_SRC": lambda s: [(f"DT={c}", _fill(s, **{"{DT}": c}), ("-DCAP=32", "-DNYC=4")) for c in ("unsigned char", "unsigned short", "int")],
     "_family_maxt_cuda_bits.py::_SOURCE_V2": lambda s: [(f"{r} NY1=4", _fill(s, **{"{REAL}": r}), ("-DNY1=4",)) for r in _REAL_TYPES],
+    "_family_maxt_cuda_bits.py::_SOURCE_V3": lambda s: [
+        (f"{r} NY1={ny1} PB={pb} CAP={cap}", _fill(s, **{"{REAL}": r}), (f"-DNY1={ny1}", f"-DPB={pb}", f"-DCAP={cap}"))
+        for r in _REAL_TYPES
+        for ny1, pb, cap in ((1, 4, 8), (2, 2, 8), (1, 2, 2), (3, 2, 5))
+    ],
     "_fe_accuracy_gate_kernel.py::_SRC_TEMPLATE": lambda s: [
         (r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "__MAXK__": "8", "__WARPS__": "8", "__MAXVA__": "8", "__BLOCK__": "256"}), ("-std=c++11",)) for r in _REAL_TYPES
     ],

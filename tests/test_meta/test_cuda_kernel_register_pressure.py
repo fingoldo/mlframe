@@ -38,6 +38,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "family_maxt_cuda_bits.family_null_bits_v3": (
+        "mlframe.feature_selection.filters._family_maxt_cuda_bits",
+        "kernel_v3",
+        ("float32", "float64"),
+    ),
     "cmi_null_strata_gpu.strata_xy_entropy": (
         "mlframe.feature_selection.filters._cmi_null_strata_gpu",
         "kernel",

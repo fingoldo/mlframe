@@ -117,6 +117,130 @@ def _get_kernel_v2(cp, ny1: int, real: str):
     return kern
 
 
+# Win axis of v3 against v2 (both kept; ``MLFRAME_FAMILY_BITS_V3=0`` forces v2). v2 re-reads every column's bin bit sets once per permutation: 40 permutations x 100 MB = 4 GB through L2 for a 9 ms call
+# (nvprof: 78% of issue stalls on memory dependency, L2 190 GB/s, DRAM 23 GB/s; unrolling the word loop gains 6%, the compiler already unrolls it). v3 gives each block ``PB`` permutations and each thread the counters of
+# every bin of its column (``CAP`` bins, a compile-time constant), walks the words in tiles of ``TW`` class words staged in shared memory (4 KB: the whole-permutation tile of v2 is 12.5 KB per class and caps the
+# resident blocks), and loads each bin word ONCE for all ``PB`` permutations. The sums are accumulated per pair in v2's order (per bin: classes in order, then the remainder): bit-identical results.
+# Applies when ``CAP * PB * NY1 <= 32`` counters fit registers with ``PB >= 2``.
+_SOURCE_V3 = r"""
+#define TW 128
+extern "C" __global__ void family_null_bits_v3(const unsigned long long* __restrict__ bits, const long long* __restrict__ n_x, const unsigned long long* __restrict__ cls,
+                                               const {REAL}* __restrict__ table, const {REAL}* __restrict__ c_a, const long long* __restrict__ px,
+                                               const {REAL}* __restrict__ const_b, const long long n, const int cap, const int words, const int n_y, const int K, const int B,
+                                               {REAL}* __restrict__ out) {
+    __shared__ unsigned long long sh_cls[PB * NY1 * TW];
+    const int b0 = blockIdx.x * PB;
+    const int j = blockIdx.y * blockDim.x + threadIdx.x;
+    const bool ok = j < K;
+    const int nb = ok ? (int)n_x[j] : 0;
+    int cnt[CAP][PB][NY1];
+    #pragma unroll
+    for (int a = 0; a < CAP; ++a)
+        #pragma unroll
+        for (int p = 0; p < PB; ++p)
+            #pragma unroll
+            for (int c = 0; c < NY1; ++c) cnt[a][p][c] = 0;
+    for (int w0 = 0; w0 < words; w0 += TW) {
+        const int tw = min(TW, words - w0);
+        __syncthreads();
+        for (int i = threadIdx.x; i < PB * NY1 * TW; i += blockDim.x) {
+            const int p = i / (NY1 * TW);
+            const int rem = i - p * NY1 * TW;
+            const int c = rem / TW;
+            const int w = rem - c * TW;
+            const int bp = b0 + p;
+            sh_cls[i] = (bp < B && w < tw) ? cls[((long long)bp * n_y + c) * words + w0 + w] : 0ULL;
+        }
+        __syncthreads();
+        #pragma unroll
+        for (int a = 0; a < CAP; ++a) {
+            if (a < nb) {
+                const unsigned long long* row = bits + (long long)a * words * K + (long long)w0 * K + j;
+                for (int w = 0; w < tw; ++w) {
+                    const unsigned long long r = row[(long long)w * K];
+                    #pragma unroll
+                    for (int c = 0; c < NY1; ++c) {
+                        #pragma unroll
+                        for (int p = 0; p < PB; ++p) cnt[a][p][c] += __popcll(r & sh_cls[(p * NY1 + c) * TW + w]);
+                    }
+                }
+            }
+        }
+    }
+    if (!ok) return;
+    #pragma unroll
+    for (int p = 0; p < PB; ++p) {
+        double s = 0.0;
+        #pragma unroll
+        for (int a = 0; a < CAP; ++a) {
+            if (a < nb) {
+                long long rest = px[(long long)j * cap + a];
+                #pragma unroll
+                for (int c = 0; c < NY1; ++c) { s += (double)table[cnt[a][p][c]]; rest -= cnt[a][p][c]; }
+                s += (double)table[rest];
+            }
+        }
+        if (b0 + p < B) out[(long long)(b0 + p) * K + j] = ({REAL})((s + (double)const_b[b0 + p] - (double)c_a[j]) / (double)n);
+    }
+}
+"""
+
+_kernels_v3: dict = {}
+_V3_COUNTERS = 32  # CAP * PB * NY1 int registers of counters
+_V3_MAX_PB = 4
+_V3_TILE_WORDS = 128
+
+
+def _v3_plan(n_y: int, cap: int) -> "int | None":
+    """Permutations per block of the v3 kernel, or ``None`` when v2 runs (disabled, or the counters of ``cap`` bins x ``n_y - 1`` classes leave under two permutations in registers)."""
+    import os
+
+    if os.environ.get("MLFRAME_FAMILY_BITS_V3", "1").strip() == "0" or n_y < 2 or cap < 1:
+        return None
+    pb = min(_V3_MAX_PB, _V3_COUNTERS // (int(cap) * (n_y - 1)))
+    return pb if pb >= 2 else None
+
+
+def _get_kernel_v3(cp, ny1: int, pb: int, cap: int, real: str):
+    """Compile the permutation-blocked kernel for ``ny1`` stored classes, ``pb`` permutations per block, ``cap`` bins and one element type."""
+    with _KERNEL_CACHE_LOCK:
+        kern = _kernels_v3.get((ny1, pb, cap, real))
+        if kern is None:
+            kern = cp.RawModule(code=_SOURCE_V3.replace("{REAL}", real), options=(f"-DNY1={int(ny1)}", f"-DPB={int(pb)}", f"-DCAP={int(cap)}")).get_function("family_null_bits_v3")
+            _kernels_v3[(ny1, pb, cap, real)] = kern
+    return kern
+
+
+def kernel_v3(cp, real, ny1: int = 1, pb: int = _V3_MAX_PB, cap: int = 8):
+    """The v3 kernel for the value type ``real`` (float32 or float64), for the register-pressure registry: one stored class, four permutations per block, eight bins."""
+    return _get_kernel_v3(cp, ny1, pb, cap, "float" if np.dtype(real) == np.float32 else "double")
+
+
+def launch_family_null(cp, n_y: int, words: int, bits, n_x, cls, table, c_a, px, const_b, n: int, cap: int, k: int, b: int, out) -> None:
+    """Launch the shared-memory family null kernel (v3 when it applies, else v2) over ``b`` permutations and ``k`` columns; ``out`` is ``(b, k)``.
+
+    The kernel's element type follows the resident MI ``table`` that the launch receives."""
+    real = "float" if table.dtype == cp.float32 else "double"
+    pb = _v3_plan(n_y, cap)
+    if pb is not None:
+        kern = _get_kernel_v3(cp, n_y - 1, pb, cap, real)
+        width = v2_block_width(kern, pb * (n_y - 1) * _V3_TILE_WORDS * 8, k)
+        kern(
+            ((b + pb - 1) // pb, (k + width - 1) // width),
+            (width,),
+            (bits, n_x, cls, table, c_a, px, const_b, np.int64(n), np.int32(cap), np.int32(words), np.int32(n_y), np.int32(k), np.int32(b), out),
+        )
+        return
+    kern = _get_kernel_v2(cp, n_y - 1, real)
+    width = v2_block_width(kern, (n_y - 1) * words * 8, k)
+    kern(
+        (b, (k + width - 1) // width),
+        (width,),
+        (bits, n_x, cls, table, c_a, px, const_b, np.int64(n), np.int32(cap), np.int32(words), np.int32(n_y), np.int32(k), np.int32(b), out),
+        shared_mem=(n_y - 1) * words * 8,
+    )
+
+
 def _v2_applies(cp, n_y: int, words: int) -> bool:
     """Whether the shared-memory kernel can hold the class bit sets of one permutation: at least two classes, a bounded count, and a block's worth of shared memory."""
     if n_y < 2 or n_y - 1 > _MAX_CLASSES_V2:
@@ -188,33 +312,12 @@ def _run(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray, reduce_m
     best = cp.zeros(B, dtype=cp.float64) if acc is None else acc  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     parts = []
     use_v2 = _v2_applies(cp, n_y, dev.words)
-    kern = _get_kernel_v2(cp, n_y - 1, real) if use_v2 else _get_kernel(cp, real)
+    kern = None if use_v2 else _get_kernel(cp, real)
     for lo, hi, bits in dev.groups:
         k = hi - lo
         out = cp.empty((B, k), dtype=dev.table.dtype)
         if use_v2:
-            width = v2_block_width(kern, (n_y - 1) * dev.words * 8, k)
-            kern(
-                (B, (k + width - 1) // width),
-                (width,),
-                (
-                    bits,
-                    dev.n_x[lo:hi],
-                    cls_d,
-                    dev.table,
-                    dev.c_a[lo:hi],
-                    dev.px[lo:hi],
-                    const_d,
-                    np.int64(dev.n),
-                    np.int32(dev.cap),
-                    np.int32(dev.words),
-                    np.int32(n_y),
-                    np.int32(k),
-                    np.int32(B),
-                    out,
-                ),
-                shared_mem=(n_y - 1) * dev.words * 8,
-            )
+            launch_family_null(cp, n_y, dev.words, bits, dev.n_x[lo:hi], cls_d, dev.table, dev.c_a[lo:hi], dev.px[lo:hi], const_d, dev.n, dev.cap, k, B, out)
         else:
             flat_threads = block_size_for(kern, work_items=B * k)
             kern(

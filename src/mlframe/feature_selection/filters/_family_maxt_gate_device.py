@@ -73,7 +73,7 @@ class _FamilyOnDevice:
 
     def __init__(self, cp: Any, devs: "list", y: np.ndarray, n_y: int) -> None:
         from ._batch_mi_noise_gate_bits import _BUDGET_CAP_BYTES, _C_TYPES, MAX_BINS, _pack_module
-        from ._family_maxt_cuda_bits import _THREADS_V2, _get_kernel_v2, _v2_applies
+        from ._family_maxt_cuda_bits import _v2_applies
         from ._family_maxt_null_v2_njit import xlogx_table
 
         self.cp, self.y, self.n_y = cp, y, int(n_y)
@@ -100,8 +100,6 @@ class _FamilyOnDevice:
         self.table = cp.asarray(table_host)
         counts = np.bincount(y, minlength=self.n_y)
         self.py_const = float(table_host[n] - sum(float(table_host[int(c)]) for c in counts))
-        self._kernel = _get_kernel_v2(cp, self.n_y - 1, "float" if self.table.dtype == cp.float32 else "double")
-        self._threads = _THREADS_V2
         group = max(1, int(min(_BUDGET_CAP_BYTES, free_bytes // 4) // (cap * words * 8)))
         self.groups = []
         occupied = []
@@ -123,6 +121,8 @@ class _FamilyOnDevice:
 
     def _parts(self, cls_host: np.ndarray):
         """The ``(B, kg)`` MI block of every column group against the ``B`` label bit-set rows of ``cls_host``."""
+        from ._family_maxt_cuda_bits import launch_family_null
+
         cp = self.cp
         b = int(cls_host.shape[0])
         cls = cp.asarray(cls_host)
@@ -130,12 +130,7 @@ class _FamilyOnDevice:
         for lo, hi, bits, px, c_a in self.groups:
             kg = hi - lo
             part = cp.empty((b, kg), dtype=self.table.dtype)
-            self._kernel(
-                (b, (kg + self._threads - 1) // self._threads),
-                (self._threads,),
-                (bits, self.n_x[lo:hi], cls, self.table, c_a, px, const_b, np.int64(self.n), np.int32(self.cap), np.int32(self.words), np.int32(self.n_y), np.int32(kg), np.int32(b), part),
-                shared_mem=(self.n_y - 1) * self.words * 8,
-            )
+            launch_family_null(cp, self.n_y, self.words, bits, self.n_x[lo:hi], cls, self.table, c_a, px, const_b, self.n, self.cap, kg, b, part)
             yield part
 
     def observed(self) -> np.ndarray:
