@@ -158,7 +158,7 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gat
     try:
         import cupy as cp
 
-        from ._family_maxt_cuda_bits import _get_kernel_v2, _v2_applies, v2_block_width
+        from ._family_maxt_cuda_bits import _v2_applies, launch_family_null
         from ._family_maxt_null_v2_njit import xlogx_table
 
         codes = cp.asarray(d_disc)
@@ -187,7 +187,6 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gat
         from ._fe_resident_operands import resident_operand
 
         n_x_all = resident_operand(nbins, "bits_gate_nbins", dtype=np.int64)
-        kern = _get_kernel_v2(cp, n_y - 1, "float" if table.dtype == cp.float32 else "double")
         free_bytes = int(cp.cuda.runtime.memGetInfo()[0])
         group = max(_MIN_GROUP_COLUMNS, min(_BUDGET_CAP_BYTES, free_bytes // 4) // (cap * words * 8))
         out = cp.empty((n_perm, k_total), dtype=table.dtype)
@@ -201,13 +200,7 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gat
             pack_bins(((kg + bins_block - 1) // bins_block, words), (bins_block,), (codes, np.int64(n), np.int32(k_total), np.int32(lo), np.int32(kg), np.int32(words), bits, px))
             c_a = table[px].sum(axis=1)
             part = cp.empty((n_perm, kg), dtype=table.dtype)
-            width = v2_block_width(kern, (n_y - 1) * words * 8, kg)
-            kern(
-                (n_perm, (kg + width - 1) // width),
-                (width,),
-                (bits, n_x_all[lo:hi], cls, table, c_a, px, const_b, np.int64(n), np.int32(cap), np.int32(words), np.int32(n_y), np.int32(kg), np.int32(n_perm), part),
-                shared_mem=(n_y - 1) * words * 8,
-            )
+            launch_family_null(cp, n_y, words, bits, n_x_all[lo:hi], cls, table, c_a, px, const_b, n, cap, kg, n_perm, part)
             out[:, lo:hi] = part
             del bits, px, part
         if gate is not None:
