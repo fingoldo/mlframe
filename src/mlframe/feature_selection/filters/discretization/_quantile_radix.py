@@ -95,7 +95,8 @@ _UNIQUE_COUNTS_MIN_SIZE = 4096
 def unique_with_counts(values: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     """``np.unique(values, return_counts=True)``: the radix sort-and-scan for a large NaN-free float32 vector (6x faster), numpy for anything else."""
     if values.dtype == np.float32 and values.ndim == 1 and values.size >= _UNIQUE_COUNTS_MIN_SIZE:
-        return _unique_counts_f32_njit(np.ascontiguousarray(values))
+        radix: "tuple[np.ndarray, np.ndarray]" = _unique_counts_f32_njit(np.ascontiguousarray(values))
+        return radix
     return np.unique(values, return_counts=True)
 
 
@@ -132,7 +133,8 @@ def _sorted_quantiles_f32_njit(x: np.ndarray, quantiles: np.ndarray) -> np.ndarr
 def sorted_quantiles(values: np.ndarray, quantiles: np.ndarray) -> "np.ndarray | None":
     """Float64 quantiles (fractions in ``[0, 1]``) of a large NaN-free float32 vector by the radix route, or ``None`` when it does not apply (another dtype, a small vector): the caller then uses numpy."""
     if values.dtype == np.float32 and values.ndim == 1 and values.size >= _UNIQUE_COUNTS_MIN_SIZE:
-        return _sorted_quantiles_f32_njit(np.ascontiguousarray(values), np.ascontiguousarray(quantiles, dtype=np.float64))
+        found: np.ndarray = _sorted_quantiles_f32_njit(np.ascontiguousarray(values), np.ascontiguousarray(quantiles, dtype=np.float64))
+        return found
     return None
 
 
@@ -186,7 +188,8 @@ def _sort_xy_f32_njit(x: np.ndarray, y: np.ndarray):
 def sort_xy(x: np.ndarray, y: np.ndarray) -> "tuple[np.ndarray, np.ndarray] | None":
     """``(x sorted ascending as float64, y in that order)`` by the radix route for a large NaN-free float32 ``x`` with a 1-D integer ``y`` of the same length, else ``None`` (the caller sorts with numpy)."""
     if x.dtype == np.float32 and x.ndim == 1 and x.size >= _UNIQUE_COUNTS_MIN_SIZE and y.ndim == 1 and y.shape[0] == x.shape[0] and y.dtype.kind in "iu":
-        return _sort_xy_f32_njit(np.ascontiguousarray(x), np.ascontiguousarray(y))
+        pair: "tuple[np.ndarray, np.ndarray]" = _sort_xy_f32_njit(np.ascontiguousarray(x), np.ascontiguousarray(y))
+        return pair
     return None
 
 

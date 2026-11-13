@@ -141,8 +141,10 @@ def _present_classes(y: np.ndarray) -> np.ndarray:
     if y.dtype.kind in "iu" and y.size >= 4096:
         top = int(y.max())
         if int(y.min()) >= 0 and top < 4 * y.size + 1024:
-            return np.flatnonzero(np.bincount(y, minlength=top + 1))
-    return np.unique(y)
+            present: np.ndarray = np.flatnonzero(np.bincount(y, minlength=top + 1))
+            return present
+    unique: np.ndarray = np.unique(y)
+    return unique
 
 
 def _dedupe_xy(x: np.ndarray, y_i: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":

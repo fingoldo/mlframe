@@ -746,7 +746,7 @@ _fallback_choice = rows_fallback(__name__, "DEVICE_FALLBACK_PAIRS")
 try:
     from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
-    _SPEC = kernel_tuner(
+    _SPEC: Any = kernel_tuner(
         kernel_name="fe_pair_usability_corr_backend",
         variant_fns=(),  # the two backends are timed by the sweep callable
         # the warp kernel returns float32 criterion values: measured worst absolute difference to the double CPU table 8.9e-8 (5000 and 50000 pairs)
