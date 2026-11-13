@@ -36,30 +36,35 @@ _BUDGET_FRACTION = 0.2
 
 _SRC = r"""
 // dtype-ok: Intentional float64, reviewed 2026-11-05: float64 on purpose, floor(v / p) of a timestamp (~1.6e9) is noise at float32 resolution 128; the host uploads float64 explicitly.
-extern "C" __global__ void modular_all_ops(const SRC_T* __restrict__ S, const double* __restrict__ P, const long long n, const int n_periods, float* __restrict__ out) {
+extern "C" __global__ void modular_all_ops(const SRC_T* __restrict__ S, const {ACC}* __restrict__ P, const long long n, const int n_periods, {REAL}* __restrict__ out) {
     const int src = blockIdx.y / n_periods;
     const int ip = blockIdx.y - src * n_periods;
-    const double p = P[ip];
-    const double k = 2.0 * 3.141592653589793 / p;
+    const {ACC} p = P[ip];
+    const {ACC} k = 2.0 * 3.141592653589793 / p;
     const SRC_T* s = S + (long long)src * n;
-    float* o_mod = out + ((long long)blockIdx.y * 3) * n;
-    float* o_sin = o_mod + n;
-    float* o_cos = o_sin + n;
+    {REAL}* o_mod = out + ((long long)blockIdx.y * 3) * n;
+    {REAL}* o_sin = o_mod + n;
+    {REAL}* o_cos = o_sin + n;
     for (long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
-        const double v = (double)s[i];  // a float32 source widens exactly; the residue below is still double
-        if (!isfinite(v)) { o_mod[i] = 0.0f; o_sin[i] = 0.0f; o_cos[i] = 0.0f; continue; }
-        const double r = v - p * floor(v / p);
-        double sn, cs;
+        const {ACC} v = ({ACC})s[i];  // a float32 source widens exactly; the residue below is still {ACC}
+        if (!isfinite(v)) { o_mod[i] = ({REAL})0; o_sin[i] = ({REAL})0; o_cos[i] = ({REAL})0; continue; }
+        const {ACC} r = v - p * floor(v / p);
+        {ACC} sn, cs;
         sincos(k * r, &sn, &cs);
-        o_mod[i] = isfinite(r) ? (float)r : 0.0f;
-        o_sin[i] = isfinite(sn) ? (float)sn : 0.0f;
-        o_cos[i] = isfinite(cs) ? (float)cs : 0.0f;
+        o_mod[i] = isfinite(r) ? ({REAL})r : ({REAL})0;
+        o_sin[i] = isfinite(sn) ? ({REAL})sn : ({REAL})0;
+        o_cos[i] = isfinite(cs) ? ({REAL})cs : ({REAL})0;
     }
 }
 """
 
-_MODULE = RawModuleCache("#define SRC_T double\n" + _SRC)  # Intentional float64: source columns uploaded as float64
-_MODULE_F32 = RawModuleCache("#define SRC_T float\n" + _SRC)  # source columns that are float32 already are uploaded as they are (half the copy and the transfer)
+_SRC_RENDERED = _SRC.replace("{ACC}", "double").replace(
+    "{REAL}", "float"
+)  # Intentional float64: the residue and the angle are computed in double; the candidate rows are stored as float32
+_MODULE = RawModuleCache("#define SRC_T double\n" + _SRC_RENDERED)  # Intentional float64: source columns uploaded as float64
+_MODULE_F32 = RawModuleCache(
+    "#define SRC_T float\n" + _SRC_RENDERED
+)  # source columns that are float32 already are uploaded as they are (half the copy and the transfer)
 
 
 def _use_device(n_elements: int) -> bool:
@@ -93,7 +98,9 @@ def _sources_per_block(cp, n_rows: int, per_source: int, source_bytes: int = _BY
     return int(max(1, (_BUDGET_FRACTION * room) // per))
 
 
-def modular_family_codes_gpu(X: pd.DataFrame, cols: Sequence[str], periods: Sequence[float], n_bins: int, family_elements: Optional[int] = None) -> "Optional[tuple[list[str], np.ndarray, np.ndarray]]":
+def modular_family_codes_gpu(
+    X: pd.DataFrame, cols: Sequence[str], periods: Sequence[float], n_bins: int, family_elements: Optional[int] = None
+) -> "Optional[tuple[list[str], np.ndarray, np.ndarray]]":
     """``(names, codes, nx)`` of the modular candidates of ``cols`` (``modular_candidate_block`` names and order; ``family_codes_of_rows`` codes of its rows), or
     ``None`` when the device path does not apply or fails (the caller then builds the pool on the host)."""
     from ._periodic_fe import _numeric_cols, engineered_name_modular
