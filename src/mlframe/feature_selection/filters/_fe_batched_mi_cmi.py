@@ -579,7 +579,7 @@ def _sm_count() -> int:
             _SM_COUNT.append(int(cp.cuda.Device().attributes["MultiProcessorCount"]))
         except Exception:
             _SM_COUNT.append(16)
-    return _SM_COUNT[0]
+    return int(_SM_COUNT[0])
 
 
 def _hist_smem_tile(cells: int, n_cols: int, u8: bool = False) -> int:

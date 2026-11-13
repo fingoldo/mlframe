@@ -337,6 +337,7 @@ def _run(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray, reduce_m
         if use_v2:
             launch_family_null(cp, n_y, dev.words, bits, dev.n_x[lo:hi], cls_d, dev.table, dev.c_a[lo:hi], dev.px[lo:hi], const_d, dev.n, dev.cap, k, B, out)
         else:
+            assert kern is not None  # use_v2 is False on this branch, so the v1 kernel was fetched
             flat_threads = block_size_for(kern, work_items=B * k)
             kern(
                 ((B * k + flat_threads - 1) // flat_threads,),
