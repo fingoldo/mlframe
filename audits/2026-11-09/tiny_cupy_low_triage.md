@@ -2,12 +2,13 @@
 
 The detector's `low` hits in the current source, one row per function; the same dispositions as the high table (FALSE POSITIVE, FALLBACK, REAL, LEGACY).
 
-Rows: 52.
+Rows: 53.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
 | data_valuation/_propagate_gpu_ktc.py | nearest_neighbor_value_resident | 73 | FALSE POSITIVE: a blocked loop (`for start in range(0, n_full, batch_full)`), each trip one batched operation over its block |
 | feature_selection/filters/_batch_mi_noise_gate_bits.py | bits_gate_mi | 194 | FALSE POSITIVE: a blocked loop (`for lo in range(0, k_total, group)`), each trip one batched operation over its block |
+| feature_selection/filters/_batch_pair_mi_cuda_fm.py | batch_pair_mi_cuda_feature_major | 176 | FALSE POSITIVE: a blocked loop (`for chunk in pair_blocks`), each trip one batched operation over its block (the host gather of a chunk's byte columns, their upload and transpose and one full `pair_mi_feature_major` launch over the chunk's pairs: tens of ms against microsecond index uploads); it only runs when the VRAM cushion refuses the referenced columns whole |
 | feature_selection/filters/_batch_pair_mi_cuda_kernels.py | batch_pair_mi_cuda_row_chunked | 709 | FALSE POSITIVE: a blocked loop (`for pair_start in range(0, n_pairs, pair_subchunk_rows)`), each trip one batched operation over its block |
 | feature_selection/filters/_batch_pair_mi_cuda_shared_fused.py | batch_pair_mi_cuda_shared_fused | 287 | FALSE POSITIVE: a blocked loop (`for chunk in pair_blocks`), each trip one batched operation over its block (the host gather of a chunk's columns, their upload and one full `pair_mi_shared_fused` launch over the chunk's pairs: tens of ms against microsecond index uploads); it only runs when the VRAM cushion refuses the whole referenced column set |
 | feature_selection/filters/_binned_agg_cheap_mi.py | _cheap_mi_group_selection_device | 130 | FALSE POSITIVE: a blocked loop (`for start in range(0, len(usable), width)`), each trip one batched operation over its block |
