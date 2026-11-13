@@ -132,6 +132,15 @@ def _bin_held_block(blk, meta, pending, st, need_recompute_map, config_by_i, qua
         pending.append((_config, _tp, _nm, _uw, _col_codes))
 
 
+def _contiguous_column(cache: dict, matrix: np.ndarray, j: int) -> np.ndarray:
+    """Column ``j`` of the row-major ``matrix`` as a contiguous vector (the same values), copied once per call."""
+    col = cache.get(j)
+    if col is None:
+        col = np.ascontiguousarray(matrix[:, j])
+        cache[j] = col
+    return col
+
+
 def _score_recompute_blocked(
     st, final_transformed_vals, transformed_vars, vars_transformations, binary_transformations, _PREWARP_UNARY,
     quantization_nbins, quantization_dtype, quantization_method, discretize_array, classes_y, classes_y_safe, freqs_y,
@@ -149,6 +158,7 @@ def _score_recompute_blocked(
     _blk_cols = max(1, min(4096, (64 << 20) // max(1, _n_rows * np.dtype(_blk_dtype).itemsize)))
     _blk = np.empty((_blk_cols, _n_rows), dtype=_blk_dtype)  # one candidate per contiguous row; transposed once per block
     _meta: list = []  # (transformations_pair, bin_func_name, uses_pw, config index) of the columns held in _blk
+    _contiguous_cols: dict = {}  # column index -> contiguous copy of that column of ``transformed_vars``: every op below reads it, a strided view made each ufunc 2.6x slower
 
     def _close_block() -> None:
         """Bin the held columns in one call, score their MI and replay the tracking in order."""
@@ -172,8 +182,8 @@ def _score_recompute_blocked(
     for transformations_pair in st.combs:
         if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
             continue
-        param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
-        param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
+        param_a = _contiguous_column(_contiguous_cols, transformed_vars, vars_transformations[transformations_pair[0]])
+        param_b = _contiguous_column(_contiguous_cols, transformed_vars, vars_transformations[transformations_pair[1]])
         _uses_pw = transformations_pair[0][1] == _PREWARP_UNARY or transformations_pair[1][1] == _PREWARP_UNARY
         with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
             for bin_func_name, bin_func in binary_transformations.items():
