@@ -96,7 +96,9 @@ _RECIPES: dict = {
         (o, s.replace("bin_codes_f32e_OUTNAME", "bin_codes_f32e_x").replace("OUTTYPE", o), ()) for o in ("signed char", "short", "int", "long long")
     ],
     "_fe_batched_qbin.py::_QBIN_CODER_TEMPLATE": lambda s: [
-        (r, _fill(s, **{"{REAL}": r, **{"{" + k + "}": v for k, v in _qbin_variants()[r].items()}}), ()) for r in _REAL_TYPES
+        (f"{r} out={o}", _fill(s, **{"{REAL}": r, "{OUT}": o, **{"{" + k + "}": v for k, v in _qbin_variants()[r].items()}}), ())
+        for r in _REAL_TYPES
+        for o in ("long long", "unsigned char")
     ],
     "_pair_mi_perm_cuda.py::_SRC": lambda s: [(f"KB={kb}", _fill(s, **{"{ACC}": "double"}), (f"-DKB={kb}",)) for kb in (1, 4, 8)],
     "_hsic_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "EXPF": "expf" if r == "float" else "exp"}), ()) for r in _REAL_TYPES],

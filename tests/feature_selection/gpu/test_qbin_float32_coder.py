@@ -64,3 +64,26 @@ def test_both_coder_variants_compile():
     """The shared source compiles for the double and the float column type."""
     for real in ("double", "float"):
         assert Q._get_qbin_coder_kernel(real) is not None
+
+
+@pytest.mark.parametrize("nbins", [4, 10, 16])
+def test_byte_codes_equal_the_int64_codes_and_feed_the_cmi_unchanged(nbins):
+    """``byte_codes=True`` returns uint8 codes equal to the int64 ones, and the batched CMI over them (marginal and conditional) gives the same values."""
+    from mlframe.feature_selection.filters._fe_batched_mi import batched_cmi_gpu
+
+    x = cp.asarray(_frame(seed=7))
+    wide = Q.batched_quantile_bin_gpu(x, nbins)
+    byte = Q.batched_quantile_bin_gpu(x, nbins, byte_codes=True)
+    assert byte.dtype == cp.uint8 and wide.dtype == cp.int64
+    assert bool((byte.astype(cp.int64) == wide).all())
+    rng = np.random.default_rng(1)
+    y = rng.integers(0, 3, x.shape[0]).astype(np.int64)
+    z = cp.asarray(rng.integers(0, 4, x.shape[0]).astype(np.int64))
+    for cond in (None, z):
+        assert np.array_equal(np.asarray(batched_cmi_gpu(byte, y, cond, kx=nbins, ky=3)), np.asarray(batched_cmi_gpu(wide, y, cond, kx=nbins, ky=3)))
+
+
+def test_byte_codes_are_ignored_beyond_255_bins():
+    """More than 255 bins cannot be held in a byte: the request is ignored and int64 codes come back."""
+    x = cp.asarray(np.random.default_rng(0).standard_normal((3000, 3)).astype(np.float32))
+    assert Q.batched_quantile_bin_gpu(x, 300, byte_codes=True).dtype == cp.int64

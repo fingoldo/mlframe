@@ -30,7 +30,7 @@ __device__ __forceinline__ {KEY} mono_key({REAL} v) {
 }
 extern "C" __global__ void qbin_code(const {REAL}* __restrict__ x, const {KEY}* __restrict__ edge_keys,
                                      const long long n, const long long K, const int ne1,
-                                     long long* __restrict__ codes) {
+                                     {OUT}* __restrict__ codes) {
     // edge_keys is (ne1, K) with non-interior slots pre-set to the key maximum host-side (compare always false)
     // and the binary-column top-edge duplicated into the extra last row - so the whole coder is one
     // branch-free strided int-compare loop.
@@ -44,7 +44,7 @@ extern "C" __global__ void qbin_code(const {REAL}* __restrict__ x, const {KEY}* 
     for (int j = 1; j < ne1; ++j, idx += K) {
         c += (long long)(vk >= edge_keys[idx]);
     }
-    codes[t] = c;
+    codes[t] = ({OUT})c;
 }
 """
 _QBIN_VARIANTS = {
@@ -53,7 +53,7 @@ _QBIN_VARIANTS = {
 }
 
 
-def _get_qbin_coder_kernel(real: str = "double"):
+def _get_qbin_coder_kernel(real: str = "double", out: str = "long long"):
     """Fused one-pass coder for batched_quantile_bin_gpu: per element, count the distinct interior edge
     values <= x (plus the 2-distinct special case) in a single (n, K) read/write, instead of the
     ~3*(nbins+1) full-matrix elementwise passes the broadcast loop costs (nsys on the cupy polynom
@@ -64,14 +64,14 @@ def _get_qbin_coder_kernel(real: str = "double"):
     identically (signed compare) to key = b >= 0 ? b : b ^ 0x7FFF..F (flip magnitude bits of negatives), so convert x ONCE per element and the edges once per call, then all ne
     comparisons run on the integer pipeline. Signed zeros normalized via +0.0; non-finite values only occur in columns the caller discards wholesale. ``real`` is ``"double"`` or
     ``"float"``: a float32 column is coded without widening it (see ``batched_quantile_bin_gpu``)."""
-    kern = _QBIN_CODERS.get(real)
+    kern = _QBIN_CODERS.get((real, out))
     if kern is None:
         import cupy as cp
 
-        src = _QBIN_CODER_TEMPLATE.replace("{REAL}", real)
+        src = _QBIN_CODER_TEMPLATE.replace("{REAL}", real).replace("{OUT}", out)
         for key, value in _QBIN_VARIANTS[real].items():
             src = src.replace("{" + key + "}", value)
-        kern = _QBIN_CODERS[real] = cp.RawKernel(src, "qbin_code")
+        kern = _QBIN_CODERS[(real, out)] = cp.RawKernel(src, "qbin_code")
     return kern
 
 
@@ -118,7 +118,7 @@ def _edges_of_block(cp: Any, Xd: Any, nbins: int, single: bool, radix: bool) -> 
     return edges_all
 
 
-def _codes_of_block(cp: Any, Xd: Any, edges_all: Any, single: bool) -> Any:
+def _codes_of_block(cp: Any, Xd: Any, edges_all: Any, single: bool, byte_codes: bool = False) -> Any:
     """``(n, K)`` int64 codes of a contiguous block against its ``edges_all``.
 
     The searchsorted-on-deduped-interior-edges semantics reduce to counting, per row value x, the DISTINCT interior edge values <= x: with the ascending (nbins+1, K) edge matrix, a
@@ -134,8 +134,8 @@ def _codes_of_block(cp: Any, Xd: Any, edges_all: Any, single: bool) -> Any:
     ndistinct = first_occ.sum(axis=0).astype(cp.int64)  # (K,)
     try:
         real = "float" if single else "double"
-        kern = _get_qbin_coder_kernel(real)
-        codes = cp.empty((n, K), dtype=cp.int64)
+        kern = _get_qbin_coder_kernel(real, "unsigned char" if byte_codes else "long long")
+        codes = cp.empty((n, K), dtype=cp.uint8 if byte_codes else cp.int64)
         total = n * K
         threads = block_size_for(kern, work_items=total)
         blocks = (total + threads - 1) // threads
@@ -148,7 +148,7 @@ def _codes_of_block(cp: Any, Xd: Any, edges_all: Any, single: bool) -> Any:
     for j in range(1, int(edges_all.shape[0])):  # j=0 is never interior (== column min)
         codes += (interior[j, :][None, :] & (Xd >= edges_all[j, :][None, :])).astype(cp.int64)
     codes += ((ndistinct == 2)[None, :] & (Xd >= e_last[None, :])).astype(cp.int64)
-    return codes
+    return codes.astype(cp.uint8) if byte_codes else codes
 
 
 def _column_block_width(cp: Any, n: int, K: int, itemsize: int) -> int:
@@ -164,13 +164,16 @@ def _column_block_width(cp: Any, n: int, K: int, itemsize: int) -> int:
     return max(1, width)
 
 
-def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
+def batched_quantile_bin_gpu(x_cols: Any, nbins: int, byte_codes: bool = False) -> Any:
     """Born-on-device equi-frequency binning of an (n,K) float matrix -> (n,K) int codes, RESIDENT on GPU.
 
     Device twin of ``_mi_greedy_cmi_fe._quantile_bin`` applied per column (host twin: :func:`quantile_bin_host`). The edges of all K columns come from ONE batched radix select (or one
     ``cp.percentile``), and ONE fused coder launch counts the distinct interior edges below each value. Returns a cupy int64 (n,K) array (kept on device to feed ``batched_cmi_gpu``
     without a code H2D). Selection-equivalent to the host binning: same equi-frequency partition (value-edge, rank-based). Assumes all-finite input (the production nan-scrubbed
     case); the caller falls back to the host path otherwise.
+
+    ``byte_codes``: return the codes as ``uint8`` (applies when ``nbins <= 255``; a code never exceeds ``nbins - 1``). The coder then writes one byte per value instead of eight, and the batched
+    CMI / MI histogram kernels read a byte matrix with an eighth of the traffic (``batched_cmi_gpu`` keeps a uint8 matrix as bytes). Callers whose consumer does arithmetic on the codes keep the default.
 
     The working type is the INPUT dtype: a float32 column stays float32 (no (n, K) float64 copy, half the bytes read by the edge select and the coder, and the coder compares 32-bit
     keys against the edges rounded UP to float32: x >= edge <=> x >= ceil32(edge) for a float32 x, so the codes equal the float64 route's), every other input is binned in float64.
@@ -197,14 +200,15 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     from ._gpu_resident_select import fe_gpu_radix_edges_enabled
 
     radix = bool(fe_gpu_radix_edges_enabled())
+    byte_codes = bool(byte_codes) and int(nbins) <= 255
     block_cols = _column_block_width(cp, n, K, int(Xd.dtype.itemsize))
     if block_cols >= K:
         Xc = cp.ascontiguousarray(Xd)
-        return _codes_of_block(cp, Xc, _edges_of_block(cp, Xc, nbins, single, radix), single)
-    codes = cp.empty((n, K), dtype=cp.int64)
+        return _codes_of_block(cp, Xc, _edges_of_block(cp, Xc, nbins, single, radix), single, byte_codes)
+    codes = cp.empty((n, K), dtype=cp.uint8 if byte_codes else cp.int64)
     for c0 in range(0, K, block_cols):
         Xc = cp.ascontiguousarray(Xd[:, c0 : c0 + block_cols])
-        codes[:, c0 : c0 + Xc.shape[1]] = _codes_of_block(cp, Xc, _edges_of_block(cp, Xc, nbins, single, radix), single)
+        codes[:, c0 : c0 + Xc.shape[1]] = _codes_of_block(cp, Xc, _edges_of_block(cp, Xc, nbins, single, radix), single, byte_codes)
     return codes
 
 

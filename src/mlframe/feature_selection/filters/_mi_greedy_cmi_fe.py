@@ -38,6 +38,7 @@ the currently-selected binned columns - collapsed via the densely-renumbered
 contingency table so the joint stays computable even at d=8+ support cols
 (memory dominated by ``n``, not by the cartesian bin space).
 """
+
 from __future__ import annotations
 
 import logging
@@ -54,6 +55,7 @@ try:
     from numba import njit
     from numba.core import types as _nb_types
     from numba.typed import Dict as _NbDict
+
     _NUMBA_AVAILABLE = True
 except ImportError:  # pragma: no cover - numba is a hard dep in practice
     _NUMBA_AVAILABLE = False
@@ -132,8 +134,10 @@ from ._mi_greedy_cmi_fe_steps import (  # noqa: F401  -- carved helpers
     _greedy_cmi_fe_constr_step3_while_st_remaining,
 )
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
+
 
 @njit(cache=True, nogil=True)
 def _combine_factorize_serial_njit(joint: np.ndarray, c: np.ndarray, mult: int) -> tuple:
@@ -173,9 +177,14 @@ def _combine_factorize_serial_njit(joint: np.ndarray, c: np.ndarray, mult: int) 
                 nc += 1
     return inv, nc
 
+
 def _cmi_from_binned(
-    x: np.ndarray, y: np.ndarray, z_joint: Optional[np.ndarray], return_cards: bool = False,
-    kx: int = 0, kz: int = 0,
+    x: np.ndarray,
+    y: np.ndarray,
+    z_joint: Optional[np.ndarray],
+    return_cards: bool = False,
+    kx: int = 0,
+    kz: int = 0,
 ):
     """``CMI(X; Y | Z) = H(X,Z) + H(Y,Z) - H(Z) - H(X,Y,Z)`` from binned
     integer arrays. Miller-Madow bias correction applied: each plug-in
@@ -225,6 +234,7 @@ def _cmi_from_binned(
             )
             if _x_device:
                 import cupy as cp
+
                 x = cp.asnumpy(x)
                 if hasattr(y, "__cuda_array_interface__"):
                     y = cp.asnumpy(y)
@@ -269,6 +279,7 @@ def _cmi_from_binned(
     cmi_bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
     cmi = max(0.0, cmi_plugin - cmi_bias)
     return (cmi, (int(k_z), int(k_xz), int(k_yz), int(k_xyz))) if return_cards else cmi
+
 
 # Split out to `_mi_greedy_cmi_fe_gpu.py` for module size; re-exported by name so existing imports keep working.
 from ._mi_greedy_cmi_fe_gpu import (
@@ -343,12 +354,18 @@ def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_
                     _CMI_CHUNK_BY_SHAPE[shape_key] = step
             return out
         if step <= 1:
-            whole: np.ndarray = batched_cmi_gpu(codes, y_bin, z_joint, codes_trusted=True)  # nothing left to halve: let the error reach the caller's CPU fallback
+            whole: np.ndarray = batched_cmi_gpu(
+                codes, y_bin, z_joint, codes_trusted=True
+            )  # nothing left to halve: let the error reach the caller's CPU fallback
             return whole
         step = max(1, step // 2)
         log_throttle(
-            logger, "cmi_batch_oom_chunking", logging.WARNING,
-            "batched CMI of %d candidates ran out of device memory; scoring in chunks of %d columns", k, step,
+            logger,
+            "cmi_batch_oom_chunking",
+            logging.WARNING,
+            "batched CMI of %d candidates ran out of device memory; scoring in chunks of %d columns",
+            k,
+            step,
         )
 
 
@@ -377,7 +394,8 @@ def quantile_bin_columns(X: np.ndarray, nbins: int, dtype: Any = np.int64) -> "l
     """``_quantile_bin`` of every column of the host matrix ``X`` ``(n, k)``, as one int64 vector per column (the codes are consumed on the host).
 
     The all-finite columns are binned in parallel blocks by ``quantile_bin_block`` (the dedupe and two-class rules of ``_quantile_bin``, equal codes); a column with a NaN or infinity takes the scalar
-    host ``_quantile_bin``. Looping ``_quantile_bin`` over the columns ran one full device round trip (upload, two sorts, ~15 launches, download) per column on the strict GPU path."""
+    host ``_quantile_bin``. Looping ``_quantile_bin`` over the columns ran one full device round trip (upload, two sorts, ~15 launches, download) per column on the strict GPU path.
+    """
     from ._numba_utils import quantile_bin_block
 
     n, k = int(X.shape[0]), int(X.shape[1])
@@ -395,7 +413,9 @@ def quantile_bin_columns(X: np.ndarray, nbins: int, dtype: Any = np.int64) -> "l
             r = 0
             for j in range(j1 - j0):
                 if ok[j]:
-                    out[j0 + j] = codes[r].astype(dtype)  # ``dtype=np.int16`` keeps the kernel's codes as they are: 2 bytes a value instead of 8 (8 GB for 100 columns of 10 million rows at int64)
+                    out[j0 + j] = codes[r].astype(
+                        dtype
+                    )  # ``dtype=np.int16`` keeps the kernel's codes as they are: 2 bytes a value instead of 8 (8 GB for 100 columns of 10 million rows at int64)
                     r += 1
         for j in range(j1 - j0):
             if out[j0 + j] is None:
@@ -435,20 +455,26 @@ def _prebinned_candidates(X_cand: Any, cand_cols: list, nbins: int, score: "Call
 def _candidate_rows(X: pd.DataFrame, names: Sequence[str], dtype: Any) -> np.ndarray:
     """``(len(names), n)`` C-contiguous matrix whose row ``r`` is column ``names[r]`` of ``X`` at ``dtype``.
 
-    One block conversion and a transpose instead of a column-by-column fill (1900 columns of 100000 rows: 288 ms; a single-dtype frame hands over its own block, so the transpose is a view and costs nothing)."""
+    One block conversion and a transpose instead of a column-by-column fill (1900 columns of 100000 rows: 288 ms; a single-dtype frame hands over its own block, so the transpose is a view and costs nothing).
+    """
     names = list(names)
     sub = X if names == list(X.columns) else X[names]
     return np.ascontiguousarray(sub.to_numpy(dtype=dtype).T)
 
 
-def _binned_cmi_in_column_blocks(cp: Any, X_float: np.ndarray, nbins: int, y_bin: np.ndarray, z_joint: Any, batched_cmi_gpu: Any, batched_quantile_bin_gpu: Any) -> np.ndarray:
+def _binned_cmi_in_column_blocks(
+    cp: Any, X_float: np.ndarray, nbins: int, y_bin: np.ndarray, z_joint: Any, batched_cmi_gpu: Any, batched_quantile_bin_gpu: Any
+) -> np.ndarray:
     """``CMI(candidate; y | z)`` of every column of the host matrix ``X_float`` ``(n, k)``: the columns are binned and scored on the device in blocks sized from the free VRAM.
 
     Binning the whole candidate matrix at once converts it to a double-precision device copy plus the binner's temporaries (1920 candidates of 100000 rows: a 1.5 GB allocation against a 2.6 GB pool limit),
-    so the device path failed with an out-of-memory error and the whole batch fell to the per-candidate CPU loop. A block that still does not fit is halved and retried; a single column that does not fit raises."""
+    so the device path failed with an out-of-memory error and the whole batch fell to the per-candidate CPU loop. A block that still does not fit is halved and retried; a single column that does not fit raises.
+    """
     n, k = int(X_float.shape[0]), int(X_float.shape[1])
     if _conditioning_is_all_singletons(z_joint, n):
-        return np.zeros(k, dtype=np.float64)  # Intentional float64: score output contract kept f64; no column needs binning or uploading when every row is its own conditioning cell
+        return np.zeros(
+            k, dtype=np.float64
+        )  # Intentional float64: score output contract kept f64; no column needs binning or uploading when every row is its own conditioning cell
     per_col = max(1, n * 36)  # f32 upload + f64 copy + the binner's temporaries + int64 codes
     free = int(cp.cuda.runtime.memGetInfo()[0])
     block = int(max(1, min(k, (free // 3) // per_col)))
@@ -457,7 +483,9 @@ def _binned_cmi_in_column_blocks(cp: Any, X_float: np.ndarray, nbins: int, y_bin
     while j0 < k:
         j1 = min(k, j0 + block)
         try:
-            codes_dev = batched_quantile_bin_gpu(cp.asarray(np.ascontiguousarray(X_float[:, j0:j1])), nbins)
+            codes_dev = batched_quantile_bin_gpu(
+                cp.asarray(np.ascontiguousarray(X_float[:, j0:j1])), nbins, byte_codes=True
+            )  # scored by batched_cmi_gpu, which reads bytes with an eighth of the traffic
             parts.append(np.asarray(_batched_cmi_in_chunks(codes_dev, y_bin, z_joint, batched_cmi_gpu)))
             del codes_dev
             j0 = j1
@@ -477,7 +505,8 @@ def _support_joint(support: np.ndarray, nbins: int) -> np.ndarray:
     """Dense joint class of the quantile-binned conditioning columns of ``support`` ``(n, p)``, built a few columns at a time.
 
     Equal to ``_renumber_joint(*quantile_bin_columns(support, nbins))``: the columns are binned independently and the dense ids are numbered by first occurrence, so folding the columns into the running joint gives the same labels.
-    Once every row is its own cell no later column can split a cell further, so the remaining columns are not even binned (100 raw columns: the joint is all-singleton after about six, which cost 570 ms to bin and join in full)."""
+    Once every row is its own cell no later column can split a cell further, so the remaining columns are not even binned (100 raw columns: the joint is all-singleton after about six, which cost 570 ms to bin and join in full).
+    """
     n = int(support.shape[0])
     z: "np.ndarray | None" = None
     for s0 in range(0, int(support.shape[1]), _SUPPORT_CHUNK):
@@ -548,9 +577,12 @@ def score_candidates_by_cmi(
     # BATCHED born-on-device path under STRICT (default OFF -> per-candidate CPU loop, byte-identical):
     # bin all candidates into one (n, K) code matrix and score CMI for EVERY candidate in ONE device
     # workload (batched_cmi_gpu), instead of a per-candidate cp.unique CMI. Parity-pinned selection-equiv.
-    if (_cmi_gpu_enabled(n=int(y_bin.shape[0]), p=len(cand_cols)) or _cmi_candidate_batch_on_device(n=int(y_bin.shape[0]), p=len(cand_cols))) and len(cand_cols) > 1:
+    if (_cmi_gpu_enabled(n=int(y_bin.shape[0]), p=len(cand_cols)) or _cmi_candidate_batch_on_device(n=int(y_bin.shape[0]), p=len(cand_cols))) and len(
+        cand_cols
+    ) > 1:
         try:
             from ._fe_batched_mi import batched_cmi_gpu, batched_quantile_bin_gpu
+
             # filled as contiguous rows of the transpose (a column write into a C-ordered matrix strides over every row); the F-ordered view keeps every column block contiguous
             X_rows = _candidate_rows(X_cand, cand_cols, _crit_np_dtype())
             X_float = X_rows.T
@@ -558,6 +590,7 @@ def score_candidates_by_cmi(
                 # Born-on-device: bin the whole candidate matrix on the GPU (one batched cp.percentile
                 # sort) and keep the codes RESIDENT, scoring CMI on them without a code H2D round-trip.
                 import cupy as cp
+
                 # codes_trusted: binner-produced (batched_quantile_bin_gpu) + dense renumbered y/z are 0-based ->
                 # the range guard cannot fire; skip its 2 blocking min/max syncs on the resident hot path (FIX1).
                 cmis = _binned_cmi_in_column_blocks(cp, X_float, nbins, y_bin, z_joint, batched_cmi_gpu, batched_quantile_bin_gpu)
@@ -571,8 +604,13 @@ def score_candidates_by_cmi(
             return pd.Series({c: float(cmis[j]) for j, c in enumerate(cand_cols)}, dtype=np.float64)
         except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
             log_throttle(
-                logger, "cmi_gpu_batched_failed", logging.WARNING,
-                "GPU-resident batched CMI of %d candidates failed (%s: %s); scoring them one by one on the CPU", len(cand_cols), type(e).__name__, e,
+                logger,
+                "cmi_gpu_batched_failed",
+                logging.WARNING,
+                "GPU-resident batched CMI of %d candidates failed (%s: %s); scoring them one by one on the CPU",
+                len(cand_cols),
+                type(e).__name__,
+                e,
             )
     pre_scores: dict = {}
     pre_codes: dict = {}
@@ -606,9 +644,11 @@ def score_candidates_by_cmi(
     # Intentional float64: score output contract kept f64 (exact comparison)
     return pd.Series(dict(zip(cand_cols, scores)), dtype=np.float64)
 
+
 # ---------------------------------------------------------------------------
 # End-to-end greedy CMI constructor
 # ---------------------------------------------------------------------------
+
 
 def greedy_cmi_fe_construct(
     X: pd.DataFrame,
@@ -665,7 +705,14 @@ def greedy_cmi_fe_construct(
        selection sequence.
     """
     _ret_greedy_cmi_fe_construct_part1 = _greedy_cmi_fe_construct_part1(
-        cols, X, y, nbins, seed_cols_count, include_unary, include_trig_on_bounded, include_binary,
+        cols,
+        X,
+        y,
+        nbins,
+        seed_cols_count,
+        include_unary,
+        include_trig_on_bounded,
+        include_binary,
     )
     if _ret_greedy_cmi_fe_construct_part1[0]:
         _early_greedy_cmi_fe_construct_part1: tuple[pd.DataFrame, pd.DataFrame] = _ret_greedy_cmi_fe_construct_part1[1]
@@ -685,15 +732,25 @@ def greedy_cmi_fe_construct(
     cand_bins_dev: dict = {}
     st.cand_fp = {}
     st._resident_fp_ok = False
-    _host_bins, cand_bins_dev, rng_floor = _greedy_cmi_fe_constr_step1_content_hash_already(cand_names, engineered, nbins, st, _bin_fingerprint, seed, cand_bins_dev)
+    _host_bins, cand_bins_dev, rng_floor = _greedy_cmi_fe_constr_step1_content_hash_already(
+        cand_names, engineered, nbins, st, _bin_fingerprint, seed, cand_bins_dev
+    )
 
     _noise_floor_for_current_z = _greedy_cmi_fe_constr_step2_rng_raw_small(cand_names, rng_floor, y_bin, z_joint_dev, z_joint, cand_bins_dev, _host_bins, st)
-    _greedy_cmi_fe_constr_step3_while_st_remaining(st, top_k, _noise_floor_for_current_z, min_cmi_gain, z_joint_dev, z_joint, y_bin, cand_bins_dev, _host_bins, nbins)
+    _greedy_cmi_fe_constr_step3_while_st_remaining(
+        st, top_k, _noise_floor_for_current_z, min_cmi_gain, z_joint_dev, z_joint, y_bin, cand_bins_dev, _host_bins, nbins
+    )
 
-    st.scores = pd.DataFrame(st.rows, columns=[
-        "engineered_col", "transform", "source_cols",
-        "cmi_at_selection", "step",
-    ])
+    st.scores = pd.DataFrame(
+        st.rows,
+        columns=[
+            "engineered_col",
+            "transform",
+            "source_cols",
+            "cmi_at_selection",
+            "step",
+        ],
+    )
     if st.winners:
         st.X_aug = pd.concat([X, engineered[st.winners]], axis=1)
     else:
@@ -702,7 +759,13 @@ def greedy_cmi_fe_construct(
 
 
 def _greedy_cmi_fe_construct_part1(
-    cols: Optional[Sequence[str]], X: pd.DataFrame, y: np.ndarray, nbins: int, seed_cols_count: int, include_unary: bool, include_trig_on_bounded: bool,
+    cols: Optional[Sequence[str]],
+    X: pd.DataFrame,
+    y: np.ndarray,
+    nbins: int,
+    seed_cols_count: int,
+    include_unary: bool,
+    include_trig_on_bounded: bool,
     include_binary: bool,
 ) -> tuple[Any, ...]:
     """Extracted block of ``greedy_cmi_fe_construct`` (part 1); returns the names the caller still uses."""
@@ -713,10 +776,15 @@ def _greedy_cmi_fe_construct_part1(
     )
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
-    st.empty_scores = pd.DataFrame(columns=[
-        "engineered_col", "transform", "source_cols",
-        "cmi_at_selection", "step",
-    ])
+    st.empty_scores = pd.DataFrame(
+        columns=[
+            "engineered_col",
+            "transform",
+            "source_cols",
+            "cmi_at_selection",
+            "step",
+        ]
+    )
 
     st._cols_source = cols if cols is not None else X.columns
     st.candidates_pool = [c for c in st._cols_source if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
@@ -746,17 +814,25 @@ def _greedy_cmi_fe_construct_part1(
     #    BINARY only over the seeded subset (pair explosion control).
     st.cands = []
     if include_unary:
-        st.cands.extend(iter_candidates(
-            X, cols=st.candidates_pool,
-            include_unary=True, include_binary=False,
-            include_trig_on_bounded=include_trig_on_bounded,
-        ))
+        st.cands.extend(
+            iter_candidates(
+                X,
+                cols=st.candidates_pool,
+                include_unary=True,
+                include_binary=False,
+                include_trig_on_bounded=include_trig_on_bounded,
+            )
+        )
     if include_binary:
-        st.cands.extend(iter_candidates(
-            X, cols=st.binary_seed_cols,
-            include_unary=False, include_binary=True,
-            include_trig_on_bounded=False,
-        ))
+        st.cands.extend(
+            iter_candidates(
+                X,
+                cols=st.binary_seed_cols,
+                include_unary=False,
+                include_binary=True,
+                include_trig_on_bounded=False,
+            )
+        )
     engineered, st.parsed = generate_mi_greedy_features(X, st.cands)
     if engineered.empty:
         return True, (X, st.empty_scores)
@@ -777,6 +853,7 @@ def _greedy_cmi_fe_construct_part1(
     if _cmi_gpu_enabled(n=st.n_samples):
         try:
             from ._fe_resident_operands import resident_code_operand as _resident_code_operand
+
             st.y_bin_dev = _resident_code_operand(y_bin, "cmi_greedy_y_fixed")
         except Exception as e:
             logger.warning("resident_code_operand for y_bin failed, falling back to the per-call upload path: %s", e)
@@ -797,7 +874,9 @@ def _greedy_cmi_fe_construct_part1(
     def _bin_fingerprint(b: np.ndarray) -> bytes:
         """Hashable fingerprint of a binned candidate array; monotone-equivalent candidates (identical bin assignment under equi-frequency quantization) collapse to the same fingerprint for dedup against already-picked winners."""
         return b.tobytes()
+
     return False, st, y_bin, engineered, z_joint, z_joint_dev, cand_names, _bin_fingerprint
+
 
 @fe_timed("greedy_cmi_fe_construct")
 def greedy_cmi_fe_construct_with_recipes(
@@ -828,11 +907,17 @@ def greedy_cmi_fe_construct_with_recipes(
     from .engineered_recipes import build_mi_greedy_transform_recipe
 
     X_aug, scores = greedy_cmi_fe_construct(
-        X, y,
-        cols=cols, seed_cols_count=seed_cols_count, top_k=top_k,
-        include_unary=include_unary, include_binary=include_binary,
+        X,
+        y,
+        cols=cols,
+        seed_cols_count=seed_cols_count,
+        top_k=top_k,
+        include_unary=include_unary,
+        include_binary=include_binary,
         include_trig_on_bounded=include_trig_on_bounded,
-        min_cmi_gain=min_cmi_gain, nbins=nbins, seed=seed,
+        min_cmi_gain=min_cmi_gain,
+        nbins=nbins,
+        seed=seed,
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
     recipes = []
@@ -841,14 +926,22 @@ def greedy_cmi_fe_construct_with_recipes(
         parsed_un = _parse_unary_name(name)
         if parsed_bin is not None:
             tname, col_i, col_j = parsed_bin
-            recipes.append(build_mi_greedy_transform_recipe(
-                name=name, transform=tname, src_names=(col_i, col_j),
-            ))
+            recipes.append(
+                build_mi_greedy_transform_recipe(
+                    name=name,
+                    transform=tname,
+                    src_names=(col_i, col_j),
+                )
+            )
         elif parsed_un is not None:
             tname, col = parsed_un
-            recipes.append(build_mi_greedy_transform_recipe(
-                name=name, transform=tname, src_names=(col,),
-            ))
+            recipes.append(
+                build_mi_greedy_transform_recipe(
+                    name=name,
+                    transform=tname,
+                    src_names=(col,),
+                )
+            )
         else:
             log_throttle(
                 logger,
