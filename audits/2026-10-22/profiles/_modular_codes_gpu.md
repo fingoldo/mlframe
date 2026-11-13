@@ -19,3 +19,7 @@ Launches per call: one `modular_all_ops` launch per block of source columns (`_s
 ## Equivalence
 
 Residue rows code exactly as on the host. Sine / cosine rows: 3e-6 of cells move one bin on a continuous column, none on binary or heavy-tailed ones, 8 percent on a 500-level integer column where tied values split differently (arbitrary on either side). Tests pin the exact residue rows and these bounds.
+
+## What residency upstream could win (data_in / data_out residency)
+
+The entry is host-in / host-out. Its resident bound, from the nvprof summary of the 16 x 400000 call (GPU time 640 ms): the copies back to host memory are 20 % of it (130 ms: the int16 codes of 96 million cells plus the order statistics), the uploads of the source columns about 1 %, so a device-in / device-out chain (sources born on the card, codes consumed there by the family test) would save at most about a fifth of the device time and nothing on the host side of the call. That is a transfer share of about 0.2, under the half that would justify a refactor; the family test reads the codes on the host today (`_ModularChunks` keeps them in RAM and regenerates beyond its budget), so making them resident would also move 96 MB per chunk of codes onto a card with 4 GB. Not pursued; revisit if the family test gains a device reader. The device-in / device-out scenario is not declared on the entry for the same reason: no caller reaches it.
