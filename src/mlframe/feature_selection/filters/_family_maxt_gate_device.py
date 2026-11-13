@@ -68,6 +68,24 @@ def _observed_from_noise_gate(batches: Sequence[Any], y: np.ndarray) -> "Optiona
         return None
 
 
+def _multi_layout(cp: Any, parts: "list", n: int) -> "tuple | None":
+    """Device tables for the one-launch kernels over every batch (``pack_bins_multi``, ``colmax_multi``), or ``None`` when the batches do not suit them.
+
+    They need one integer type that the packing module knows, row-major batches with a unit column stride (a column slice of a bigger matrix qualifies: it is read in place, with its row stride) and a row stride that is a whole number of elements. Returns ``(type name, pointers, row strides, first column of each batch, widths)``."""
+    from ._batch_mi_noise_gate_bits import _C_TYPES
+
+    if not parts or any(d.ndim != 2 or d.dtype != parts[0].dtype or d.dtype not in _C_TYPES for d in parts):
+        return None
+    item = int(parts[0].dtype.itemsize)
+    if any(int(d.shape[0]) != n or int(d.shape[1]) < 1 or int(d.strides[1]) != item or int(d.strides[0]) % item for d in parts):
+        return None
+    widths = np.array([int(d.shape[1]) for d in parts], dtype=np.int64)
+    bstart = np.concatenate([[0], np.cumsum(widths)]).astype(np.int32)
+    ptrs = np.array([int(d.data.ptr) for d in parts], dtype=np.uint64)
+    ld = np.array([int(d.strides[0]) // item for d in parts], dtype=np.int64)
+    return _C_TYPES[parts[0].dtype], cp.asarray(ptrs), cp.asarray(ld), cp.asarray(bstart), widths
+
+
 class _FamilyOnDevice:
     """The column bit sets of one family on the device, with the observed-MI and null-maximum evaluations over them."""
 
@@ -81,13 +99,25 @@ class _FamilyOnDevice:
         if any(int(d.shape[0]) != n for d in devs):
             raise _NotApplicableError("batches of different length")
         # The batches are packed one by one at a column offset: concatenating them first copied the whole (n, k) code matrix (57 MB a call, 22 ms; 2.4 GB over a default fit) only so that one launch could read it.
-        parts = [d if d.flags.c_contiguous else cp.ascontiguousarray(d) for d in devs]  # a contiguous batch needs no call (hundreds of batches per family, a Python call each)
-        parts = [d if d.dtype in _C_TYPES else d.astype(cp.int64) for d in parts]
+        parts = [d if d.dtype in _C_TYPES else d.astype(cp.int64) for d in devs]
         k_total = int(sum(int(d.shape[1]) for d in parts))
         self.n, self.k_total = n, k_total
-        # per-column level counts: one maximum per batch, then ONE widening and ONE increment over the concatenated vector (the per-batch ``+ 1`` and ``astype`` were two more launches per batch,
-        # 84058 of them in a default fit); widening before the increment also keeps an int8 maximum of 127 from wrapping to -128
-        n_x = cp.concatenate([d.max(axis=0) for d in parts]).astype(cp.int64) + 1 if k_total else cp.zeros(0, dtype=cp.int64)
+        layout = _multi_layout(cp, parts, n) if n > 0 and k_total > 0 else None
+        if layout is None:
+            parts = [d if d.flags.c_contiguous else cp.ascontiguousarray(d) for d in parts]  # the per-batch kernels read a contiguous matrix
+        if layout is not None:
+            # one launch scans every column of every batch in place (a launch, a copy and a Python call per batch before: 101545 maxima in a default fit)
+            from ._batch_mi_noise_gate_bits import _pack_module as _pm
+
+            _c_type, _ptrs, _ld, _bstart, _widths = layout
+            _colmax = _pm(cp, 1, self.n_y, _c_type).get_function("colmax_multi")
+            n_x = cp.empty(k_total, dtype=cp.int64)
+            _blk = block_size_for(_colmax, work_items=k_total)
+            _colmax(((k_total + _blk - 1) // _blk,), (_blk,), (_ptrs, _ld, _bstart, np.int32(len(parts)), np.int64(n), np.int32(k_total), n_x))
+        else:
+            # per-column level counts: one maximum per batch, then ONE widening and ONE increment over the concatenated vector (the per-batch ``+ 1`` and ``astype`` were two more launches per batch);
+            # widening before the increment also keeps an int8 maximum of 127 from wrapping to -128
+            n_x = cp.concatenate([d.max(axis=0) for d in parts]).astype(cp.int64) + 1 if k_total else cp.zeros(0, dtype=cp.int64)
         # The host needs only the largest level count (the bit-set depth): one scalar crosses the bus, not the per-column vector (the same vector was copied once per family).
         cap = int(n_x.max()) if k_total else 0
         words = (n + 63) // 64
@@ -113,18 +143,28 @@ class _FamilyOnDevice:
             kg = g1 - g0
             bits = cp.empty((cap, words, kg), dtype=cp.uint64)
             px = cp.zeros((kg, cap), dtype=cp.int64)
-            for codes, p0, p1 in zip(parts, starts[:-1], starts[1:]):
-                lo, hi = max(g0, int(p0)), min(g1, int(p1))
-                if lo >= hi:
-                    continue
-                pack_bins = _pack_module(cp, cap, self.n_y, _C_TYPES[codes.dtype]).get_function("pack_bins")
-                width = hi - lo
-                bins_block = block_size_for(pack_bins, work_items=width)
-                pack_bins(
-                    ((width + bins_block - 1) // bins_block, words),
-                    (bins_block,),
-                    (codes, np.int64(n), np.int32(codes.shape[1]), np.int32(lo - int(p0)), np.int32(width), np.int32(words), np.int32(kg), np.int32(lo - g0), bits, px),
+            if layout is not None:
+                # every batch of the group in ONE launch: the group's columns are the threads, the batch of each found by binary search; 101591 launches of 3 to 10 threads each before
+                _pack_multi = _pack_module(cp, cap, self.n_y, layout[0]).get_function("pack_bins_multi")
+                _bb = block_size_for(_pack_multi, work_items=kg)
+                _pack_multi(
+                    ((kg + _bb - 1) // _bb, words),
+                    (_bb,),
+                    (layout[1], layout[2], layout[3], np.int32(len(parts)), np.int64(n), np.int32(words), np.int32(g0), np.int32(kg), bits, px),
                 )
+            else:
+                for codes, p0, p1 in zip(parts, starts[:-1], starts[1:]):
+                    lo, hi = max(g0, int(p0)), min(g1, int(p1))
+                    if lo >= hi:
+                        continue
+                    pack_bins = _pack_module(cp, cap, self.n_y, _C_TYPES[codes.dtype]).get_function("pack_bins")
+                    width = hi - lo
+                    bins_block = block_size_for(pack_bins, work_items=width)
+                    pack_bins(
+                        ((width + bins_block - 1) // bins_block, words),
+                        (bins_block,),
+                        (codes, np.int64(n), np.int32(codes.shape[1]), np.int32(lo - int(p0)), np.int32(width), np.int32(words), np.int32(kg), np.int32(lo - g0), bits, px),
+                    )
             self.groups.append((g0, g1, bits, px, self.table[px].sum(axis=1)))
             occupied.append((px > 0).sum(axis=1))
         self.nx_occ = cp.asnumpy(cp.concatenate(occupied).astype(cp.int16)).astype(np.int64)  # occupied-level counts are at most MAX_BINS: int16 over the bus

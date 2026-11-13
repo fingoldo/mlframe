@@ -83,6 +83,66 @@ extern "C" __global__ void pack_cls(const int* __restrict__ y_all, const long lo
         }
     }
 }
+// The code batches of a family are many small device matrices (a few columns each). ``ptrs[b]`` is the device address of element (0, 0) of batch ``b``, ``ld[b]`` its row stride in elements and
+// ``bstart`` the first global column of each batch (``nb + 1`` entries): one launch packs or scans all of them in place, the batch of a global column found by binary search.
+__device__ __forceinline__ int batch_of(const int* __restrict__ bstart, const int nb, const int g) {
+    int lo = 0, hi = nb;
+    while (hi - lo > 1) {
+        const int mid = (lo + hi) >> 1;
+        if (bstart[mid] <= g) lo = mid; else hi = mid;
+    }
+    return lo;
+}
+// coalescing-ok: lanes of a warp read adjacent columns of one batch row (disc[row * ld + col]); the per-column bin count px[(o0 + kl) * CAP + a] is updated once per bin after the word loop, as in pack_bins
+extern "C" __global__ void pack_bins_multi(const unsigned long long* __restrict__ ptrs, const long long* __restrict__ ld, const int* __restrict__ bstart, const int nb, const long long n,
+                                           const int words, const int g0, const int kg, unsigned long long* __restrict__ bits, long long* __restrict__ px) {
+    const int kl = blockIdx.x * blockDim.x + threadIdx.x;
+    const int w = blockIdx.y;
+    if (kl >= kg) return;
+    const int g = g0 + kl;
+    const int b = batch_of(bstart, nb, g);
+    const {DT}* __restrict__ disc = (const {DT}*)ptrs[b];
+    const long long ldb = ld[b];
+    const int col = g - bstart[b];
+    unsigned long long acc[CAP];
+    #pragma unroll
+    for (int a = 0; a < CAP; ++a) acc[a] = 0ull;
+    const long long r0 = (long long)w * 64;
+    for (int r = 0; r < 64; ++r) {
+        const long long row = r0 + r;
+        if (row >= n) break;
+        const int code = (int)disc[row * ldb + col];
+        #pragma unroll
+        for (int a = 0; a < CAP; ++a) acc[a] |= ((unsigned long long)(code == a)) << r;
+    }
+    #pragma unroll
+    for (int a = 0; a < CAP; ++a) {
+        bits[((long long)a * words + w) * kg + kl] = acc[a];
+        atomicAdd((unsigned long long*)&px[(long long)kl * CAP + a], (unsigned long long)__popcll(acc[a]));
+    }
+}
+// coalescing-ok: lanes of a warp read adjacent columns of one batch row (disc[row * ld + col]); one thread walks the rows of its column with four independent loads in flight
+extern "C" __global__ void colmax_multi(const unsigned long long* __restrict__ ptrs, const long long* __restrict__ ld, const int* __restrict__ bstart, const int nb, const long long n,
+                                        const int ntot, long long* __restrict__ out) {
+    const int g = blockIdx.x * blockDim.x + threadIdx.x;
+    if (g >= ntot) return;
+    const int b = batch_of(bstart, nb, g);
+    const {DT}* __restrict__ disc = (const {DT}*)ptrs[b];
+    const long long ldb = ld[b];
+    const int col = g - bstart[b];
+    int m0 = (int)disc[col], m1 = m0, m2 = m0, m3 = m0;
+    long long r = 1;
+    for (; r + 3 < n; r += 4) {
+        const int c0 = (int)disc[r * ldb + col], c1 = (int)disc[(r + 1) * ldb + col], c2 = (int)disc[(r + 2) * ldb + col], c3 = (int)disc[(r + 3) * ldb + col];
+        m0 = c0 > m0 ? c0 : m0; m1 = c1 > m1 ? c1 : m1; m2 = c2 > m2 ? c2 : m2; m3 = c3 > m3 ? c3 : m3;
+    }
+    for (; r < n; ++r) {
+        const int c0 = (int)disc[r * ldb + col];
+        m0 = c0 > m0 ? c0 : m0;
+    }
+    m0 = m1 > m0 ? m1 : m0; m2 = m3 > m2 ? m3 : m2; m0 = m2 > m0 ? m2 : m0;
+    out[g] = (long long)m0 + 1;  // the level count: one more than the largest code
+}
 """
 
 _modules: dict = {}

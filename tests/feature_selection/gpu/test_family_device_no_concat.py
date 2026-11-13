@@ -76,3 +76,40 @@ def test_a_group_boundary_inside_a_batch_is_packed_from_both_sides(monkeypatch):
     assert len(fam.groups) >= 2
     whole = _FamilyOnDevice(cp, [cp.concatenate(devs, axis=1)], y, 3)
     np.testing.assert_allclose(fam.observed(), whole.observed(), rtol=0, atol=1e-12)
+
+
+def test_column_slices_of_a_bigger_matrix_are_read_in_place():
+    """Batches that are column slices of one wider matrix (a row stride larger than their width) give the observed MI and level counts of the same columns copied out."""
+    rng = np.random.default_rng(7)
+    big = cp.asarray(rng.integers(0, 6, (2500, 40)).astype(np.int8))
+    slices = [big[:, 0:5], big[:, 5:6], big[:, 17:29], big[:, 30:40]]
+    y = rng.integers(0, 2, 2500).astype(np.int64)
+    in_place = _FamilyOnDevice(cp, slices, y, 2)
+    copied = _FamilyOnDevice(cp, [cp.ascontiguousarray(d) for d in slices], y, 2)
+    np.testing.assert_array_equal(in_place.nx_occ, copied.nx_occ)
+    np.testing.assert_allclose(in_place.observed(), copied.observed(), rtol=0, atol=1e-12)
+    np.testing.assert_allclose(in_place.null_max(5, np.random.default_rng(3)), copied.null_max(5, np.random.default_rng(3)), rtol=0, atol=1e-12)
+
+
+def test_a_fortran_ordered_batch_takes_the_per_batch_path_with_the_same_values():
+    """A batch without a unit column stride is not read in place: the family falls back to copying it, with identical statistics."""
+    rng = np.random.default_rng(8)
+    plain = cp.asarray(rng.integers(0, 5, (1500, 7)).astype(np.int8))
+    other = cp.asfortranarray(cp.asarray(rng.integers(0, 5, (1500, 4)).astype(np.int8)))
+    y = rng.integers(0, 3, 1500).astype(np.int64)
+    mixed = _FamilyOnDevice(cp, [plain, other], y, 3)
+    whole = _FamilyOnDevice(cp, [cp.concatenate([plain, other], axis=1)], y, 3)
+    np.testing.assert_array_equal(mixed.nx_occ, whole.nx_occ)
+    np.testing.assert_allclose(mixed.observed(), whole.observed(), rtol=0, atol=1e-12)
+
+
+def test_hundreds_of_batches_in_one_launch_equal_one_concatenated_matrix():
+    """Four hundred batches of one to five columns (the shape of a default fit's pair families) against one concatenated batch."""
+    rng = np.random.default_rng(9)
+    widths = rng.integers(1, 6, 400)
+    devs = [cp.asarray(rng.integers(0, 8, (1200, int(w))).astype(np.int8)) for w in widths]
+    y = rng.integers(0, 2, 1200).astype(np.int64)
+    many = _FamilyOnDevice(cp, devs, y, 2)
+    whole = _FamilyOnDevice(cp, [cp.concatenate(devs, axis=1)], y, 2)
+    np.testing.assert_array_equal(many.nx_occ, whole.nx_occ)
+    np.testing.assert_allclose(many.observed(), whole.observed(), rtol=0, atol=1e-12)
