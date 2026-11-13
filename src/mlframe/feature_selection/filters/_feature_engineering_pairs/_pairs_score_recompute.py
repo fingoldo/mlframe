@@ -23,14 +23,15 @@ def _columns_of_one_matrix(columns: list, n_rows: int) -> "np.ndarray | None":
     if not columns:
         return None
     base = columns[0].base
-    if base is None or base.ndim != 2 or base.shape != (n_rows, len(columns)) or not base.flags.c_contiguous:
+    if not isinstance(base, np.ndarray) or base.ndim != 2 or base.shape != (n_rows, len(columns)) or not base.flags.c_contiguous:
         return None
     start = base.__array_interface__["data"][0]
     step = base.strides[1]
     for j, col in enumerate(columns):
         if col.base is not base or col.shape != (n_rows,) or col.strides != (base.strides[0],) or col.__array_interface__["data"][0] != start + j * step:
             return None
-    return base
+    matrix: np.ndarray = base
+    return matrix
 
 
 def _score_pending_candidates(
