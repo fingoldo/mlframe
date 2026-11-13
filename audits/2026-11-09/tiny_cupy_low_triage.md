@@ -2,7 +2,7 @@
 
 The detector's `low` hits in the current source, one row per function; the same dispositions as the high table (FALSE POSITIVE, FALLBACK, REAL, LEGACY).
 
-Rows: 49.
+Rows: 50.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -17,6 +17,7 @@ Rows: 49.
 | feature_selection/filters/_family_maxt_gate.py | family_codes_of_rows | 595 | FALSE POSITIVE: a blocked loop (`for j0 in range(0, n_cols, block)`), each trip one batched operation over its block |
 | feature_selection/filters/_family_maxt_gate.py | family_null_max | 462 | FALSE POSITIVE: a blocked loop (`for start in range(0, int(n_perm), block)`), each trip one batched operation over its block |
 | feature_selection/filters/_family_maxt_gate_device.py | null_max | 156 | FALSE POSITIVE: a blocked loop (`for start in range(0, int(m), block)`), each trip one batched operation over its block |
+| feature_selection/filters/_fe_batched_qbin.py | batched_quantile_bin_gpu | 205 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, K, block_cols)`), each trip one batched operation over its block (a full radix select over n x block elements plus one fused coder launch: 10.9 ms and 9.5 ms at 100000 x 400, against about 25 edge-table kernels of 2 us); the loop only runs when the working set of the whole matrix does not fit the VRAM cushion |
 | feature_selection/filters/_feature_engineering_pairs/_pairs_analytic_gpu.py | resident_observed_mi_and_bins | 157 | FALSE POSITIVE: a blocked loop (`for start in range(0, k_total, step)`), each trip one batched operation over its block |
 | feature_selection/filters/_gpu_nan_quantile_codes.py | nan_aware_quantile_codes_gpu | 50 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, k, block)`), each trip one batched operation over its block |
 | feature_selection/filters/_gpu_resident_fe.py | gpu_resident_pair_candidate_mi | 687 | FALSE POSITIVE: a blocked loop (`for start in range(0, len(_COMBOS), k_chunk)`), each trip one batched operation over its block |

@@ -9,6 +9,7 @@ import logging
 from typing import Any
 
 import numpy as np
+from numba import njit, prange
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
@@ -95,25 +96,92 @@ def _edge_keys(cp: Any, edges_all: Any, interior: Any, ndistinct: Any, real: str
     return cp.ascontiguousarray(cp.concatenate([keys, extra[None, :]], axis=0).astype(kdt, copy=False))
 
 
+def _edges_of_block(cp: Any, Xd: Any, nbins: int, single: bool, radix: bool) -> Any:
+    """The ``(nbins + 1, K)`` quantile edge matrix (column min, interior edges, column max) of a contiguous ``(n, K)`` block.
+
+    ``radix``: the sort-free radix-select route (default ON): ``cp.percentile(axis=0)`` is ONE FULL MERGE SORT of the whole (n, K) matrix - nsys on the wellbore-100k strict fit showed
+    that cub DeviceMergeSort at 74% of ALL GPU time (143.5s, 180 launches, ~2.4s each at 61M elements). ``_radix_select_interior_edges`` produces bit-identical interior edges via rank-select
+    without sorting, and the column min / max ride along as 2 extra exact order statistics of the same pass. ``cp.percentile`` stays the exact route when radix is inapplicable (R /
+    shared-mem caps) or off (``MLFRAME_FE_GPU_RADIX_EDGES=0``, or the tuner's verdict for the shape)."""
+    edges_all = None
+    if radix:
+        try:
+            from ._gpu_resident_select import _radix_select_interior_edges
+
+            edges_all = _radix_select_interior_edges(Xd, int(nbins), with_extremes=True)
+        except Exception as e:
+            logger.warning("_radix_select_interior_edges failed, falling back to the percentile edges: %s", e)
+    if edges_all is None:
+        qs = cp.linspace(0.0, 100.0, nbins + 1)
+        # float32 input interpolates in double like the radix route
+        edges_all = device_percentile(Xd.astype(cp.float64) if single else Xd, qs, axis=0)  # Intentional float64: edge interpolation precision
+    return edges_all
+
+
+def _codes_of_block(cp: Any, Xd: Any, edges_all: Any, single: bool) -> Any:
+    """``(n, K)`` int64 codes of a contiguous block against its ``edges_all``.
+
+    The searchsorted-on-deduped-interior-edges semantics reduce to counting, per row value x, the DISTINCT interior edge values <= x: with the ascending (nbins+1, K) edge matrix, a
+    first-occurrence mask kills duplicate edges, and excluding each column's min/max edge leaves the interior. The <=2-distinct-edges branches fold in exactly: 1 distinct -> no
+    interior, all-zero codes; 2 distinct -> the legacy special case codes = (x >= max_edge), reproduced via the ndistinct==2 term. One fused coder launch for any K.
+    """
+    n, K = int(Xd.shape[0]), int(Xd.shape[1])
+    e_first = edges_all[0, :]  # (K,) column min edge (q=0)
+    e_last = edges_all[-1, :]  # (K,) column max edge (q=100)
+    first_occ = cp.ones(edges_all.shape, dtype=cp.bool_)
+    first_occ[1:, :] = edges_all[1:, :] != edges_all[:-1, :]
+    interior = first_occ & (edges_all > e_first[None, :]) & (edges_all < e_last[None, :])
+    ndistinct = first_occ.sum(axis=0).astype(cp.int64)  # (K,)
+    try:
+        real = "float" if single else "double"
+        kern = _get_qbin_coder_kernel(real)
+        codes = cp.empty((n, K), dtype=cp.int64)
+        total = n * K
+        threads = block_size_for(kern, work_items=total)
+        blocks = (total + threads - 1) // threads
+        keys = _edge_keys(cp, edges_all, interior, ndistinct, real)
+        kern((int(blocks),), (threads,), (Xd, keys, np.int64(n), np.int64(K), np.int32(keys.shape[0]), codes))
+        return codes
+    except Exception:
+        logger.debug("qbin fused coder failed; broadcast-loop fallback", exc_info=True)
+    codes = cp.zeros((n, K), dtype=cp.int64)
+    for j in range(1, int(edges_all.shape[0])):  # j=0 is never interior (== column min)
+        codes += (interior[j, :][None, :] & (Xd >= edges_all[j, :][None, :])).astype(cp.int64)
+    codes += ((ndistinct == 2)[None, :] & (Xd >= e_last[None, :])).astype(cp.int64)
+    return codes
+
+
+def _column_block_width(cp: Any, n: int, K: int, itemsize: int) -> int:
+    """The widest block of columns whose working set fits the VRAM cushion, found by halving from ``K``.
+
+    One column costs the contiguous input copy, the column-major copy the edge select reads, the int64 codes and the int64 stand-in for the coder's keys: ``n * (2 * itemsize + 8)``.
+    """
+    from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+    width = int(K)
+    while width > 1 and not fe_gpu_has_vram_cushion(width * n * (2 * itemsize + 8)):
+        width //= 2
+    return max(1, width)
+
+
 def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     """Born-on-device equi-frequency binning of an (n,K) float matrix -> (n,K) int codes, RESIDENT on GPU.
 
-    Device twin of ``_mi_greedy_cmi_fe._quantile_bin`` applied per column. ONE batched ``cp.percentile``
-    (axis=0) computes all K columns' edges in a single device sort - replacing K host ``np.quantile``
-    (introselect partition) calls - then per-column ``cp.searchsorted`` on the (deduped) inner edges. The
-    per-column ``cp.unique`` is over only (nbins+1) edge values (negligible), so the n-sized sort stays
-    batched. Returns a cupy int64 (n,K) array (kept on device to feed ``batched_cmi_gpu`` without a code
-    H2D). Selection-equivalent to the host binning: same equi-frequency partition (value-edge, rank-based).
-    Assumes all-finite input (the production nan-scrubbed case); the caller falls back to the host path
-    otherwise.
-    """
+    Device twin of ``_mi_greedy_cmi_fe._quantile_bin`` applied per column (host twin: :func:`quantile_bin_host`). The edges of all K columns come from ONE batched radix select (or one
+    ``cp.percentile``), and ONE fused coder launch counts the distinct interior edges below each value. Returns a cupy int64 (n,K) array (kept on device to feed ``batched_cmi_gpu``
+    without a code H2D). Selection-equivalent to the host binning: same equi-frequency partition (value-edge, rank-based). Assumes all-finite input (the production nan-scrubbed
+    case); the caller falls back to the host path otherwise.
+
+    The working type is the INPUT dtype: a float32 column stays float32 (no (n, K) float64 copy, half the bytes read by the edge select and the coder, and the coder compares 32-bit
+    keys against the edges rounded UP to float32: x >= edge <=> x >= ceil32(edge) for a float32 x, so the codes equal the float64 route's), every other input is binned in float64.
+    Narrowing a float64 column to the criterion dtype would change its codes for no gain, so the criterion dtype is not consulted here.
+
+    When the whole matrix's working set does not fit the VRAM cushion the columns go through in column blocks (``block_cols`` wide, each binned independently and written into the
+    one codes matrix): a column's codes depend on that column alone, so the blocks give the single-pass result."""
     import cupy as cp
 
     from ._device_upload_f64 import upload_as_float64  # Intentional float64: the quantile-bin kernel reads a float64 column
 
-    # The working type is the INPUT dtype: a float32 column stays float32 (no (n, K) float64 copy, half the bytes read by the edge select and the coder, and the coder compares 32-bit keys
-    # against the edges rounded UP to float32: x >= edge <=> x >= ceil32(edge) for a float32 x, so the codes equal the float64 route's), every other input is binned in float64 as
-    # before. Narrowing a float64 column to the criterion dtype would change its codes for no gain, so the criterion dtype is not consulted here.
     single = (x_cols.dtype == cp.float32) if isinstance(x_cols, cp.ndarray) else (getattr(x_cols, "dtype", None) == np.float32)
     if isinstance(x_cols, cp.ndarray):
         Xd = x_cols
@@ -126,70 +194,73 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     if not single:
         Xd = Xd.astype(cp.float64, copy=False)  # Intentional float64: GPU MI operand upload; the coder's float64 route
     n, K = int(Xd.shape[0]), int(Xd.shape[1])
-    # Sort-free radix-select edges first (default ON): cp.percentile(axis=0) implements the batched edge
-    # computation as ONE FULL MERGE SORT of the whole (n, K) matrix - nsys on the wellbore-100k strict fit
-    # showed exactly this cub DeviceMergeSort at 74% of ALL GPU time (143.5s, 180 launches, ~2.4s each at
-    # 61M elements). _radix_select_interior_edges produces bit-identical interior edges (documented maxdiff
-    # 0 in the resulting codes) via rank-select without sorting; q=0/q=100 are exact column min/max (plain
-    # reductions). cp.percentile stays the exact fallback when radix is inapplicable (R/shared-mem caps) or
-    # gated off via MLFRAME_FE_GPU_RADIX_EDGES=0.
-    edges_all = None
-    try:
-        from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled
+    from ._gpu_resident_select import fe_gpu_radix_edges_enabled
 
-        if fe_gpu_radix_edges_enabled():
-            # with_extremes=True: min/max ride along as 2 extra exact order statistics in the SAME select
-            # pass (ncu/nsys-driven) instead of two standalone Xd.min(axis=0)/Xd.max(axis=0)
-            # reduction kernels - returns the full (nbins+1, K) edge matrix directly, no concatenate.
-            edges_all = _radix_select_interior_edges(cp.ascontiguousarray(Xd), int(nbins), with_extremes=True)
-    except Exception as e:
-        logger.warning("_radix_select_interior_edges failed, falling back to the host edge computation: %s", e)
-        edges_all = None
-    if edges_all is None:
-        qs = cp.linspace(0.0, 100.0, nbins + 1)
-        edges_all = device_percentile(
-            Xd.astype(cp.float64) if single else Xd, qs, axis=0
-        )  # (nbins+1, K) - one batched device sort; float32 input interpolates in double like the radix route  # Intentional float64: edge interpolation precision
-    # Vectorized per-column coding (replaces a K-iteration Python loop of cp.unique + cp.searchsorted +
-    # per-column copy - ~3 kernel launches PER COLUMN, 617 columns = ~1850 launches per call on the
-    # wellbore-100k trace). The searchsorted-on-deduped-interior-edges semantics reduce to counting, per
-    # row value x, the DISTINCT interior edge values <= x: with the ascending (nbins+1, K) edge matrix,
-    # a first-occurrence mask kills duplicate edges, and excluding each column's min/max edge leaves the
-    # interior. The <=2-distinct-edges branches fold in exactly: 1 distinct -> no interior, all-zero codes;
-    # 2 distinct -> the legacy special case codes = (x >= max_edge), reproduced via the ndistinct==2 term.
-    # Total launches: ~nbins+3 fused elementwise ops over (n, K), independent of K.
-    e_first = edges_all[0, :]  # (K,) column min edge (q=0)
-    e_last = edges_all[-1, :]  # (K,) column max edge (q=100)
-    first_occ = cp.ones(edges_all.shape, dtype=cp.bool_)
-    first_occ[1:, :] = edges_all[1:, :] != edges_all[:-1, :]
-    interior = first_occ & (edges_all > e_first[None, :]) & (edges_all < e_last[None, :])
-    ndistinct = first_occ.sum(axis=0).astype(cp.int64)  # (K,)
-    try:
-        # Fused one-pass coder (see _get_qbin_coder_kernel) - bit-identical to the broadcast loop below.
-        real = "float" if single else "double"
-        kern = _get_qbin_coder_kernel(real)
-        codes = cp.empty((n, K), dtype=cp.int64)
-        total = n * K
-        threads = block_size_for(kern, work_items=total)
-        blocks = (total + threads - 1) // threads
-        keys = _edge_keys(cp, edges_all, interior, ndistinct, real)
-        kern(
-            (int(blocks),),
-            (threads,),
-            (
-                cp.ascontiguousarray(Xd),
-                keys,
-                np.int64(n),
-                np.int64(K),
-                np.int32(keys.shape[0]),
-                codes,
-            ),
-        )
-        return codes
-    except Exception:
-        logger.debug("qbin fused coder failed; broadcast-loop fallback", exc_info=True)
-    codes = cp.zeros((n, K), dtype=cp.int64)
-    for j in range(1, int(edges_all.shape[0])):  # j=0 is never interior (== column min)
-        codes += (interior[j, :][None, :] & (Xd >= edges_all[j, :][None, :])).astype(cp.int64)
-    codes += ((ndistinct == 2)[None, :] & (Xd >= e_last[None, :])).astype(cp.int64)
+    radix = bool(fe_gpu_radix_edges_enabled())
+    block_cols = _column_block_width(cp, n, K, int(Xd.dtype.itemsize))
+    if block_cols >= K:
+        Xc = cp.ascontiguousarray(Xd)
+        return _codes_of_block(cp, Xc, _edges_of_block(cp, Xc, nbins, single, radix), single)
+    codes = cp.empty((n, K), dtype=cp.int64)
+    for c0 in range(0, K, block_cols):
+        Xc = cp.ascontiguousarray(Xd[:, c0 : c0 + block_cols])
+        codes[:, c0 : c0 + Xc.shape[1]] = _codes_of_block(cp, Xc, _edges_of_block(cp, Xc, nbins, single, radix), single)
+    return codes
+
+
+@njit(cache=True, nogil=True, parallel=True)
+def _quantile_bin_columns_njit(X: np.ndarray, fractions: np.ndarray) -> np.ndarray:
+    """Host kernel of the equi-frequency binning of every column of the ``(n, K)`` matrix ``X``: the codes the device coder produces, one column per ``prange`` iteration.
+
+    ``fractions`` are the ``nbins + 1`` quantile fractions in [0, 1]. Edges are the 'linear' order-statistic interpolation of the sorted column (numpy's ``_lerp``), the interior edges are
+    the distinct ones strictly between the column minimum and maximum, a code is the number of interior edges not above the value, and exactly two distinct edges give ``x >= max``.
+    """
+    n, k = X.shape
+    ne = fractions.shape[0]
+    out = np.empty((n, k), dtype=np.int64)
+    for j in prange(k):
+        col = np.sort(X[:, j].copy())
+        edges = np.empty(ne, dtype=np.float64)  # Intentional float64: edge interpolation precision
+        for i in range(ne):
+            pos = fractions[i] * (n - 1)
+            below = int(np.floor(pos))
+            above = min(below + 1, n - 1)
+            t = pos - below
+            lo = np.float64(col[below])  # Intentional float64: edge interpolation precision
+            hi = np.float64(col[above])  # Intentional float64: edge interpolation precision
+            edges[i] = lo + (hi - lo) * t if t < 0.5 else hi - (hi - lo) * (1.0 - t)
+        first = edges[0]
+        last = edges[ne - 1]
+        distinct = 1
+        for i in range(1, ne):
+            if edges[i] != edges[i - 1]:
+                distinct += 1
+        interior = np.empty(ne, dtype=np.float64)  # Intentional float64: edge values
+        m = 0
+        for i in range(1, ne):
+            if edges[i] != edges[i - 1] and edges[i] > first and edges[i] < last:
+                interior[m] = edges[i]
+                m += 1
+        for r in range(n):
+            v = np.float64(X[r, j])  # Intentional float64: compared with the double edges
+            c = 0
+            for e in range(m):
+                if v >= interior[e]:
+                    c += 1
+            if distinct == 2 and v >= last:
+                c += 1
+            out[r, j] = c
+    return out
+
+
+def quantile_bin_host(x_cols: np.ndarray, nbins: int) -> np.ndarray:
+    """Host twin of :func:`batched_quantile_bin_gpu`: the same ``(n, K)`` int64 codes of a finite ``(n, K)`` float matrix, computed by the parallel ``@njit`` kernel."""
+    x = np.ascontiguousarray(x_cols)
+    if x.ndim == 1:
+        x = x[:, None]
+    fractions = np.linspace(0.0, 100.0, int(nbins) + 1) / 100.0
+    from mlframe._numba_parallel_guard import parallel_kernel_entry
+
+    with parallel_kernel_entry():
+        codes: np.ndarray = _quantile_bin_columns_njit(x, fractions)
     return codes
