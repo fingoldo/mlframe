@@ -6,6 +6,11 @@ numba.cuda), a per-host backend chooser via ``get_or_tune``, a measurement-backe
 fallback heuristic, a real CPU-vs-GPU sweep tuner, an availability-guarded
 dispatcher, and a ``@kernel_tuner`` registration.
 
+STREAMING: the resident gate allocates one ``(P, total_size)`` counts buffer for every candidate column; when it does not fit the free-VRAM cushion the candidate columns go through the
+device in column blocks (``_batch_mi_noise_gate_column_tiles``, contiguous tiles gated on their own and concatenated: a column's gate decision depends only on its own original and permuted
+MI), and the bit-set backend (``_batch_mi_noise_gate_bits``) runs its columns in blocks sized from the free memory. The family of carved modules is recorded once, under this name
+(``audits/2026-10-22/profiles/batch_mi_noise_gate_gpu.md``).
+
 BIT-IDENTITY (non-negotiable - FE recovery is pinned)
 ------------------------------------------------------
 The noise-gate rejection is a float comparison (``mi_perm >= original_mi``), so a

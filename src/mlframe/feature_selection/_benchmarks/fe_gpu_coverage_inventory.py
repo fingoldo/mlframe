@@ -188,13 +188,52 @@ BARE_FP_TYPE = re.compile(r"\b(?:double|float)\b")
 GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 
 
-def module_text(name: str) -> str | None:
-    """Source text of a filters-level module, the whole package for a directory module; ``None`` when the module does not exist."""
+#: Modules carved out of a parent module to keep it under the file-size ceiling: parent -> its carved children. The contract is judged on the family as one unit (the parent's text plus
+#: the children's, one profile record under the parent's name), and a child is covered by the parent's verdict as long as the parent still imports it (``carved_family_problems``).
+#: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
+#: would repeat the same measurements.
+CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "batch_mi_noise_gate_gpu": (
+        "_batch_mi_noise_gate_fused",
+        "_batch_mi_noise_gate_tuning",
+        "_batch_mi_noise_gate_column_tiles",
+        "_batch_mi_noise_gate_gpu_helpers",
+        "_batch_mi_noise_gate_screen_v1",
+        "_batch_mi_noise_gate_kernels",
+    ),
+}
+_CARVED_PARENT: dict[str, str] = {child: parent for parent, children in CARVED_FAMILIES.items() for child in children}
+
+
+def carved_family_problems(name: str) -> list[str]:
+    """Why ``name``'s ``CARVED_FAMILIES`` membership does not hold (empty when it holds or there is none): a child must exist and be imported by its parent."""
+    parent = _CARVED_PARENT.get(name)
+    if parent is None:
+        return []
+    f = module_file(parent)
+    if f is None:
+        return [f"parent {parent} not found"]
+    parent_text = f.read_text(encoding="utf-8", errors="ignore")
+    if module_file(name) is None:
+        return [f"carved module {name} not found"]
+    return [] if re.search(rf"\b{re.escape(name)}\b", parent_text) else [f"parent {parent} does not import {name}"]
+
+
+def _own_text(name: str) -> str | None:
+    """Source text of one filters-level module, the whole package for a directory module; ``None`` when the module does not exist."""
     f = module_file(name)
     if f is None:
         return None
     files = list(f.parent.rglob("*.py")) if f.name == "__init__.py" else [f]
     return "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in files)
+
+
+def module_text(name: str) -> str | None:
+    """Source text of a filters-level module, the whole package for a directory module, the parent plus its carved children for a family parent; ``None`` when the module does not exist."""
+    own = _own_text(name)
+    if own is None or name not in CARVED_FAMILIES:
+        return own
+    return "\n".join([own] + [_own_text(child) or "" for child in CARVED_FAMILIES[name]])
 
 
 def contract_violations(name: str) -> list[str]:
@@ -203,6 +242,12 @@ def contract_violations(name: str) -> list[str]:
     Static: it reads the source text and the profile record, so it pins that each requirement is present and recorded, and the behaviour tests of the
     module pin that it works (equivalence of the kernels, the memory bound).
     """
+    if name in _CARVED_PARENT:
+        problems = carved_family_problems(name)
+        if problems:
+            return problems
+        parent_problems = contract_violations(_CARVED_PARENT[name])
+        return [f"carved from {_CARVED_PARENT[name]}, which does not meet the contract: {parent_problems}"] if parent_problems else []
     text = module_text(name)
     if text is None:
         return ["module not found"]

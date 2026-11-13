@@ -94,3 +94,15 @@ def test_integer_code_kernels_meet_the_type_point_through_their_code_type_placeh
 
     assert {"{REAL}", "{ACC}", "{DT}", "{XT}"} <= set(_TYPE_PLACEHOLDERS)
     assert not [v for v in contract_violations("_batch_mi_noise_gate_bits") if "placeholder" in v]
+
+
+def test_every_carved_module_is_still_imported_by_its_parent_and_the_family_has_one_verdict():
+    """A carved module is judged with its parent only while the parent imports it; a child's verdict is the parent's, and the family has exactly the parent's record."""
+    from mlframe.feature_selection._benchmarks.fe_gpu_coverage_inventory import CARVED_FAMILIES, PROFILES_DIR, carved_family_problems
+
+    for parent, children in CARVED_FAMILIES.items():
+        assert (PROFILES_DIR / f"{parent}.md").is_file(), f"the family record of {parent} is missing"
+        for child in children:
+            assert not carved_family_problems(child), (parent, child, carved_family_problems(child))
+            assert not (PROFILES_DIR / f"{child}.md").exists(), f"{child} has its own record: the family is recorded once, under {parent}"
+    assert carved_family_problems("not_a_carved_module") == []

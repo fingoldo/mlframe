@@ -16,7 +16,14 @@
     "_wavelet_legs_fused_gpu",
     "_modular_codes_gpu",
     "_basis_fused_gpu",
-    "_batch_mi_noise_gate_bits"
+    "_batch_mi_noise_gate_bits",
+    "batch_mi_noise_gate_gpu",
+    "_batch_mi_noise_gate_fused",
+    "_batch_mi_noise_gate_tuning",
+    "_batch_mi_noise_gate_column_tiles",
+    "_batch_mi_noise_gate_gpu_helpers",
+    "_batch_mi_noise_gate_screen_v1",
+    "_batch_mi_noise_gate_kernels"
   ],
   "exempt": {
     "_composite_group_agg_fe": "per-group mean/std/count over integer key codes: a numba kernel bit-equal to pandas (2 ms per 20000-row column, 30 columns x 3 stats in 0.062 s); the candidate scoring that follows is the device-batched CMI (batched_cmi_gpu, chunked on OOM). A device twin would need the pandas Kahan/Welford order replayed per group to stay bit-equal and saves less than its own column transfer (audit 73cm); revisit if the generation share of a fit grows",
@@ -85,12 +92,6 @@
     "_added_information_gate",
     "_basis_cells_ktc",
     "_basis_name_codes",
-    "_batch_mi_noise_gate_column_tiles",
-    "_batch_mi_noise_gate_fused",
-    "_batch_mi_noise_gate_gpu_helpers",
-    "_batch_mi_noise_gate_kernels",
-    "_batch_mi_noise_gate_screen_v1",
-    "_batch_mi_noise_gate_tuning",
     "_batch_pair_mi_cuda_kernels",
     "_binned_agg_cheap_mi",
     "_binned_agg_linear_usability",
@@ -290,7 +291,6 @@
     "_usability_row_stat_pool",
     "_wavelet_basis_fe_batched",
     "_wavelet_basis_fe_recipes",
-    "batch_mi_noise_gate_gpu",
     "batch_pair_mi_gpu",
     "feature_engineering",
     "polynom_pair_fe"
