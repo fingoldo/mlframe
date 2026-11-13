@@ -126,6 +126,10 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
 #: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_batch_mi_noise_gate_bits": (
+        "batch_mi_noise_gate_gpu",
+        "the host noise gate of the same decision is batch_mi_noise_gate_gpu's njit permutation gate; the bit-set gate and the histogram pair are the two device backends chosen by the noise_gate_bits tuner entry",
+    ),
     "_basis_fused_gpu": (
         "hermite_fe",
         "the host design is hermite_fe's build_basis_matrix (njit recurrence); the device build is only taken for a column that is already resident",
@@ -179,6 +183,7 @@ GPU_PROFILE = re.compile(r"\bnsys\b|\bncu\b|\bnvprof\b")
 GPU_OCCUPANCY = re.compile(r"occupancy", re.IGNORECASE)
 LAUNCHES_RECORDED = re.compile(r"launches?\s+per", re.IGNORECASE)
 KERNEL_STRING = re.compile(r'(?:r)?"""(.*?)"""', re.DOTALL)
+_TYPE_PLACEHOLDERS = ("{REAL}", "{ACC}", "{DT}", "{XT}")
 BARE_FP_TYPE = re.compile(r"\b(?:double|float)\b")
 GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 
@@ -217,9 +222,10 @@ def contract_violations(name: str) -> list[str]:
     if kernel_sources:
         joined = "\n".join(kernel_sources)
         # {REAL} types the values a kernel reads, {ACC} its accumulators. A kernel over integer bin codes and class labels has no real-valued operand, so it is type-generic through {ACC} alone;
-        # either placeholder meets the point, and the bare-type check below still rejects a literal double / float in either kind.
-        if "{REAL}" not in joined and "{ACC}" not in joined:
-            found.append("GPU kernel source has neither a {REAL} (values) nor an {ACC} (accumulators) placeholder")
+        # either placeholder meets the point, and the bare-type check below still rejects a literal double / float in either kind. A kernel over integer codes of a caller-chosen width
+        # (the bit-set packers, the entropy kernels) is typed by {DT} / {XT}, the code type, and meets the point the same way.
+        if not any(ph in joined for ph in _TYPE_PLACEHOLDERS):
+            found.append("GPU kernel source has none of the type placeholders {REAL} (values), {ACC} (accumulators), {DT} / {XT} (integer code type)")
         if BARE_FP_TYPE.search(joined):
             found.append("GPU kernel source has a bare double / float (use {REAL}, or {ACC} for an accumulator)")
     record = PROFILES_DIR / f"{name}.md"
