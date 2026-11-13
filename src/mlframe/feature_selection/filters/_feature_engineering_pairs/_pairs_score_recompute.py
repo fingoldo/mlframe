@@ -18,6 +18,21 @@ from mlframe.utils.log_throttle import log_throttle
 from ._pairs_score_helpers import logger
 
 
+def _columns_of_one_matrix(columns: list, n_rows: int) -> "np.ndarray | None":
+    """The ``(n_rows, len(columns))`` matrix whose columns ``columns`` are, in order (each a view ``matrix[:, j]``), or ``None`` when they are not exactly that."""
+    if not columns:
+        return None
+    base = columns[0].base
+    if base is None or base.ndim != 2 or base.shape != (n_rows, len(columns)) or not base.flags.c_contiguous:
+        return None
+    start = base.__array_interface__["data"][0]
+    step = base.strides[1]
+    for j, col in enumerate(columns):
+        if col.base is not base or col.shape != (n_rows,) or col.strides != (base.strides[0],) or col.__array_interface__["data"][0] != start + j * step:
+            return None
+    return base
+
+
 def _score_pending_candidates(
     pending, n_rows, quantization_nbins, quantization_dtype, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence,
     use_su_normalization, batch_mi_with_noise_gate, _fe_env_gate, mi_direct,
@@ -26,10 +41,15 @@ def _score_pending_candidates(
     if batch_mi_with_noise_gate is not None and len(pending) > 1:
         try:
             _code_dtype: Any = _narrow_code_dtype(quantization_nbins, quantization_dtype)
-            _rows = np.empty((len(pending), n_rows), dtype=_code_dtype)
-            for _j, _entry in enumerate(pending):
-                _rows[_j] = _entry[4]
-            _block = rows_to_columns(_rows)
+            _whole = _columns_of_one_matrix([_entry[4] for _entry in pending], n_rows)
+            if _whole is not None:
+                # The candidates are the columns, in order, of the matrix the block binner returned: one sequential pass narrows it (the column-by-column copy into rows and the transpose back rebuilt this matrix).
+                _block = np.ascontiguousarray(_whole, dtype=_code_dtype)
+            else:
+                _rows = np.empty((len(pending), n_rows), dtype=_code_dtype)
+                for _j, _entry in enumerate(pending):
+                    _rows[_j] = _entry[4]
+                _block = rows_to_columns(_rows)
             _mi = _dispatch_batch_mi_with_noise_gate(
                 disc_2d=_block,
                 quantization_nbins=quantization_nbins,
