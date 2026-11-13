@@ -670,7 +670,7 @@ void legval_kernel(const {REAL}* __restrict__ x,
                     int nc, int n,
                     {ACC}* __restrict__ out)
 {
-    // 1 / k for the recurrence, divided once per block instead of once per element and degree (a double division is tens of instructions on a card with a 1:32 double rate); same correctly rounded value
+    // 1 / k for the recurrence, divided once per block instead of once per element and degree (an {ACC} division is tens of instructions on a card with a 1:32 FP64 rate); same correctly rounded value
     __shared__ {ACC} rk[64];
     for (int q = threadIdx.x; q < 64; q += blockDim.x) rk[q] = q > 0 ? 1.0 / ({ACC})q : 0.0;
     __syncthreads();
@@ -725,7 +725,7 @@ void lagval_kernel(const {REAL}* __restrict__ x,
                     int nc, int n,
                     {ACC}* __restrict__ out)
 {
-    // 1 / k for the recurrence, divided once per block instead of once per element and degree (a double division is tens of instructions on a card with a 1:32 double rate); same correctly rounded value
+    // 1 / k for the recurrence, divided once per block instead of once per element and degree (an {ACC} division is tens of instructions on a card with a 1:32 FP64 rate); same correctly rounded value
     __shared__ {ACC} rk[64];
     for (int q = threadIdx.x; q < 64; q += blockDim.x) rk[q] = q > 0 ? 1.0 / ({ACC})q : 0.0;
     __syncthreads();
