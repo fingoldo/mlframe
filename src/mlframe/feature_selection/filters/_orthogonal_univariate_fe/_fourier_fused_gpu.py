@@ -47,8 +47,8 @@ __device__ __forceinline__ {ACC} power_term({ACC} sv, {ACC} vv, {ACC} vy, {ACC} 
 #define KAHAN_ADD(acc, comp, v) { const {REAL} yk_ = (v) - comp; const {REAL} tk_ = acc + yk_; comp = (tk_ - acc) - yk_; acc = tk_; }
 __global__ void periodogram_power(const {REAL}* z, const {REAL}* yc, const {ACC}* freqs, {ACC}* out, const long long n, const {ACC} y_ss) {
     const {ACC} w = 6.283185307179586 * freqs[blockIdx.x];
-    // Per-thread partials in the SAMPLE type with Kahan compensation, combined in {ACC} below (same change and measurements as the batch kernel: the trig is taken in the sample type, so double
-    // partials only paid the card's 1:32 double rate).
+    // Per-thread partials in the SAMPLE type with Kahan compensation, combined in {ACC} below (same change and measurements as the batch kernel: the trig is taken in the sample type, so {ACC}
+    // partials would only pay the card's 1:32 FP64 rate).
     {REAL} ss = 0, sc = 0, vvs = 0, vvc = 0, vys = 0, vyc = 0;
     {REAL} c_ss = 0, c_sc = 0, c_vvs = 0, c_vvc = 0, c_vys = 0, c_vyc = 0;
     for (long long i = threadIdx.x; i < n; i += blockDim.x) {
