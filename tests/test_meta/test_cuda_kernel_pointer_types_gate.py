@@ -1,7 +1,6 @@
 """The shared ``cuda_kernel_pointer_types`` gate over the whole package: no untemplated ``double*`` kernel parameter, no kernel-type probe off the launched buffer.
 
-``test_gpu_kernel_pointer_dtype.py`` is the older, mlframe-only form of this check with a JSON baseline of reasons. The gate keeps each reason next to the kernel as ``// dtype-ok: <reason>``,
-which is where the next person editing the kernel reads it. Once py-ci-shared releases the gate and this repository pins that release, the JSON baseline and the older test go.
+The reason a kernel stays on a bare pointer type lives beside the kernel as ``// dtype-ok: <reason>``, where the next person editing it reads it; the older mlframe-only form of this check with a JSON baseline was retired.
 """
 
 from __future__ import annotations
