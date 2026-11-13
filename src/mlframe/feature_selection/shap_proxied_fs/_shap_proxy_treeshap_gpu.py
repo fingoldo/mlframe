@@ -62,7 +62,6 @@ void treeshap(const float* X, const int n, const int f,
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
     const int width = max_path + 2;        // entries per recursion level
-    const int n_levels = max_path + 2;
     // Per-thread path scratch (local memory). MAXW / MAXSP are injected #defines derived from the Python
     // ``_MAX_SUPPORTED_DEPTH`` cap (T1) so the buffer sizes can never drift out of sync with the host cap.
     int pf_feat[MAXW * MAXW];

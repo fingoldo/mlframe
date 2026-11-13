@@ -859,11 +859,10 @@ void abs_corr(const REAL_T* __restrict__ cand, const REAL_T* __restrict__ yc, co
     atomicAdd(&sh[0], pcc); atomicAdd(&sh[1], pcy);
     __syncthreads();
     if (tid == 0) {
-        {ACC} nf = ({ACC})n, scc = sh[0], scy = sh[1];
+        {ACC} scc = sh[0], scy = sh[1];
         {ACC} den = sqrt(scc * Syy);
         {ACC} corr = den > 1e-300 ? fabs(scy / den) : 0.0;
         bool ok = isfinite(corr) && (sqrt(scc) > 1e-12);   // same degenerate test as the cupy chain: cn = sqrt(sum cc^2) > 1e-12
-        (void)nf;
         out[c] = ok ? corr : -1.0;
     }
 }

@@ -38,12 +38,36 @@ _SPILL_EXEMPT: dict = {
         "(2026-11-12, bench of the three minBlocks values; gains bit-identical): minBlocks 4 = 10.05/12.81/60.21 ms, minBlocks 3 (40 regs, 16 B local) = 10.60/12.88/64.33 ms, minBlocks 2 (48 regs, no spill) "
         "= 10.72/13.01/62.55 ms at n = 20000/64000/100003. Removing the spill costs 0 to 7 percent, so the small L1-resident local spill is cheaper than the lost occupancy (CUDA.md section 3)."
     ),
+    "mlframe/feature_selection/filters/_pairwise_modular_rank_gpu.py::_KERNEL_TEMPLATE[bounds=__launch_bounds__(128, MLF_THREADS_PER_SM / 128) int reduce_v1]": (
+        "Versions 1 to 3 of residue_rank are built from ``_KERNEL_TEMPLATE`` with their real reduction fragments (the recipe compiled the template with an empty fragment until 2026-11-13). The capped build "
+        "(``__launch_bounds__(128, MLF_THREADS_PER_SM / 128)``, version 3: version 2 at 32 registers) spills 8 to 24 bytes/thread on sm_61 only. The file itself records why version 4 exists: its leaner body is the one "
+        "that meets the 32-register cap without spilling. Versions 1 and 2 (no cap) and every other arch assemble clean. Version 3 is a kept reference version (the default is 8, MLFRAME_MODULAR_RANK_KERNEL "
+        "selects others); loosening its cap would change what that version measures."
+    ),
+    "mlframe/feature_selection/filters/_pairwise_modular_rank_gpu.py::_KERNEL_TEMPLATE[bounds=__launch_bounds__(128, MLF_THREADS_PER_SM / 128) int reduce_v2]": (
+        "Versions 1 to 3 of residue_rank are built from ``_KERNEL_TEMPLATE`` with their real reduction fragments (the recipe compiled the template with an empty fragment until 2026-11-13). The capped build "
+        "(``__launch_bounds__(128, MLF_THREADS_PER_SM / 128)``, version 3: version 2 at 32 registers) spills 8 to 24 bytes/thread on sm_61 only. The file itself records why version 4 exists: its leaner body is the one "
+        "that meets the 32-register cap without spilling. Versions 1 and 2 (no cap) and every other arch assemble clean. Version 3 is a kept reference version (the default is 8, MLFRAME_MODULAR_RANK_KERNEL "
+        "selects others); loosening its cap would change what that version measures."
+    ),
+    "mlframe/feature_selection/filters/_pairwise_modular_rank_gpu.py::_KERNEL_TEMPLATE[bounds=__launch_bounds__(128, MLF_THREADS_PER_SM / 128) long long reduce_v1]": (
+        "Versions 1 to 3 of residue_rank are built from ``_KERNEL_TEMPLATE`` with their real reduction fragments (the recipe compiled the template with an empty fragment until 2026-11-13). The capped build "
+        "(``__launch_bounds__(128, MLF_THREADS_PER_SM / 128)``, version 3: version 2 at 32 registers) spills 8 to 24 bytes/thread on sm_61 only. The file itself records why version 4 exists: its leaner body is the one "
+        "that meets the 32-register cap without spilling. Versions 1 and 2 (no cap) and every other arch assemble clean. Version 3 is a kept reference version (the default is 8, MLFRAME_MODULAR_RANK_KERNEL "
+        "selects others); loosening its cap would change what that version measures."
+    ),
+    "mlframe/feature_selection/filters/_pairwise_modular_rank_gpu.py::_KERNEL_TEMPLATE[bounds=__launch_bounds__(128, MLF_THREADS_PER_SM / 128) long long reduce_v2]": (
+        "Versions 1 to 3 of residue_rank are built from ``_KERNEL_TEMPLATE`` with their real reduction fragments (the recipe compiled the template with an empty fragment until 2026-11-13). The capped build "
+        "(``__launch_bounds__(128, MLF_THREADS_PER_SM / 128)``, version 3: version 2 at 32 registers) spills 8 to 24 bytes/thread on sm_61 only. The file itself records why version 4 exists: its leaner body is the one "
+        "that meets the 32-register cap without spilling. Versions 1 and 2 (no cap) and every other arch assemble clean. Version 3 is a kept reference version (the default is 8, MLFRAME_MODULAR_RANK_KERNEL "
+        "selects others); loosening its cap would change what that version measures."
+    ),
     "mlframe/feature_selection/filters/_pairwise_modular_rank_gpu.py::_KERNEL_V4_TEMPLATE": (
         "Version 4 of residue_rank spills 8 bytes/thread on sm_70 only, at the 32-register cap of (128, MLF_THREADS_PER_SM / 128). It is a kept experimental version (the default is 8, "
         "MLFRAME_MODULAR_RANK_KERNEL selects others); loosening its cap would change what that version measures."
     ),
 }
-# ptxas warning substrings that are accepted everywhere, each with the reason.
+# NVRTC and ptxas warning substrings that are accepted everywhere, each with the reason.
 _WARNING_ALLOWLIST = {
     "Architectures prior to": "NVRTC deprecation notice for sm_52/sm_61, not a defect of the kernel (TOOLCHAIN disposition in the plan)",
 }
@@ -84,8 +108,8 @@ _REPORT_ROWS: list = []  # filled by the per-arch test as it runs; the report te
 
 @pytest.mark.parametrize("key,reason", sorted(_SPILL_EXEMPT.items()) or [pytest.param(None, None, marks=pytest.mark.skip(reason="no spill exemptions registered"))])
 def test_every_spill_exemption_names_a_real_kernel_and_a_reason(key, reason):
-    """An exemption must match an extracted kernel source and carry a reason; a stale or empty one fails (an empty registry is a skip, not a silent pass)."""
-    assert key in {v.key for v in _VARIANTS}, f"exemption for a kernel that is not extracted: {key}"
+    """An exemption must match an extracted kernel source (or one variant of it, by its ``key[label]`` id) and carry a reason; a stale or empty one fails (an empty registry is a skip, not a silent pass)."""
+    assert key in {v.key for v in _VARIANTS} or key in {_variant_id(v) for v in _VARIANTS}, f"exemption for a kernel or variant that is not extracted: {key}"
     assert reason.strip(), f"empty reason for {key}"
 
 
@@ -145,11 +169,11 @@ def _check_variant(variant: KernelVariant, arch: int, tmp_path) -> None:
     missing = [n for n in entry_names if n not in props]
     assert not missing, f"entries without a ptxas resource block: {missing}"
     spills = {n: props[n] for n in entry_names if props[n][1] != "0" or props[n][2] != "0"}
-    if variant.key not in _SPILL_EXEMPT:
+    if variant.key not in _SPILL_EXEMPT and _variant_id(variant) not in _SPILL_EXEMPT:
         assert not spills, f"sm_{arch}: register spill (stack, spill st, spill ld) per entry: {spills}"
 
     warnings = [ln for ln in report.splitlines() if "warning" in ln.lower() and not any(k in ln for k in _WARNING_ALLOWLIST)]
-    assert not warnings, f"sm_{arch}: unlisted ptxas warnings: {warnings[:3]}"
+    assert not warnings, f"sm_{arch}: unlisted NVRTC or ptxas warnings: {warnings[:3]}"
     bounds_bad = launch_bounds_violations(ptx_text, report)
     assert not bounds_bad, f"sm_{arch}: __launch_bounds__ not honoured (entry, registers, cap): {bounds_bad}"
 
@@ -245,3 +269,11 @@ def test_failure_table_lists_each_failing_variant_per_arch():
     text = markdown([], {}, failures=[("mlframe/x.py::_SRC[float]", 61, "NVRTC failed on sm_61")])
     assert "| mlframe/x.py::_SRC[float] | sm_61 | NVRTC failed on sm_61 |" in text
     assert "none: every checked variant assembled" in markdown([], {}, failures=[])
+
+
+def test_an_nvrtc_warning_of_a_successful_build_reaches_the_report(tmp_path):
+    """A kernel with an unused variable builds, and its NVRTC warning is in the report the warning check reads (the log of a successful build used to be dropped)."""
+    pytest.importorskip("cupy_backends.cuda.libs.nvrtc")
+    src = 'extern "C" __global__ void k(float* o) { int unused = 3; o[threadIdx.x] = 1.0f; }'
+    _ptx, report = build_ptx_and_report(src, (), 75, _ptxas(), tmp_path)
+    assert any("nvrtc:" in ln and "warning" in ln.lower() and "unused" in ln for ln in report.splitlines()), report[:400]

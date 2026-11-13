@@ -115,14 +115,17 @@ def find_ptxas() -> str | None:
 
 
 def build_ptx_and_report(source: str, options: tuple, arch: int, ptxas: str, workdir: Path) -> tuple:
-    """``(ptx text, ptxas -v report)`` for one build. NVRTC may emit a newer PTX ISA than the toolkit's ptxas accepts, so the ``.version`` line is lowered: this checks the PTX under
+    """``(ptx text, report)`` for one build: the report is the NVRTC log of the successful build (each line prefixed ``nvrtc: ``) followed by the ``ptxas -v`` output. NVRTC may emit a newer PTX ISA than the toolkit's ptxas accepts, so the ``.version`` line is lowered: this checks the PTX under
     the toolkit's ptxas, not the binary a user's driver builds."""
     from cupy_backends.cuda.libs import nvrtc
 
     prog = nvrtc.createProgram(source, "k.cu", [], [])
+    nvrtc_log = ""
     try:
-        nvrtc.compileProgram(prog, ["-std=c++14", f"-arch=compute_{arch}", *options])
+        std = [] if any(str(o).startswith("-std=") for o in options) else ["-std=c++14"]  # a variant that names its own standard is built with that one only
+        nvrtc.compileProgram(prog, [*std, f"-arch=compute_{arch}", *options])
         ptx = nvrtc.getPTX(prog)
+        nvrtc_log = nvrtc.getProgramLog(prog)  # the warnings of a SUCCESSFUL build (unused variables, narrowing, ignored launch bounds); a failed build raises below with its errors
     except Exception as exc:
         log = nvrtc.getProgramLog(prog)
         errors = [ln for ln in log.splitlines() if "error" in ln.lower()]
@@ -135,7 +138,7 @@ def build_ptx_and_report(source: str, options: tuple, arch: int, ptxas: str, wor
     res = subprocess.run([ptxas, "-v", f"-arch=sm_{arch}", "-o", str(workdir / "k.cubin"), str(path)], capture_output=True, text=True)
     if res.returncode != 0:
         raise RuntimeError(f"ptxas failed on sm_{arch}: {(res.stdout + res.stderr)[-500:]}")
-    return ptx.decode("ascii", errors="replace"), res.stdout + res.stderr
+    return ptx.decode("ascii", errors="replace"), "".join(f"nvrtc: {ln}\n" for ln in nvrtc_log.splitlines() if ln.strip()) + res.stdout + res.stderr
 
 
 def entry_reports(variant_id: str, arch: int, ptx: str, report: str) -> list:

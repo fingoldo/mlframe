@@ -379,7 +379,6 @@ extern "C" __global__ void searchsorted_right_2d(
     long long gid = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n_rows * n_cols;
     if (gid >= total) return;
-    long long row = gid / n_cols;
     long long col = gid % n_cols;
     {EDGE} v = arr[gid];                // a float32 value is promoted: the same comparison as on a double copy
     // searchsorted side='right': bin = first index i s.t. cuts[i] > v,

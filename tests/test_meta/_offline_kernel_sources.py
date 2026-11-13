@@ -130,9 +130,21 @@ _RECIPES: dict = {
     "../shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py::_KERNEL_SRC": lambda s: [("depth 6", _define(MAXW=8, MAXLVL=9, MAXP=16) + _str_constant("feature_selection/shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py", "_DEVICE_SRC") + s, ())],
 }
 
+
+def _modular_rank_reduces(template_name: str) -> list:
+    """The reduction fragments a pairwise-modular-rank template is built with in production (versions 1 and 2 of ``_KERNEL_TEMPLATE``); the other templates have no fragment slot."""
+    if template_name != "_KERNEL_TEMPLATE":
+        return [("", "")]
+    rel = "feature_selection/filters/_pairwise_modular_rank_gpu.py"
+    return [("reduce_v1", _str_constant(rel, "_REDUCE_V1")), ("reduce_v2", _str_constant(rel, "_REDUCE_V2"))]
+
+
 for _name, _bits in (("_KERNEL_TEMPLATE", ("", "__launch_bounds__(128, MLF_THREADS_PER_SM / 128)")), ("_KERNEL_V4_TEMPLATE", ("", "__launch_bounds__(128, MLF_THREADS_PER_SM / 128)")), ("_KERNEL_V7_TEMPLATE", ("__launch_bounds__(128, MLF_THREADS_PER_SM / 128)",))):
-    _RECIPES[f"_pairwise_modular_rank_gpu.py::{_name}"] = lambda s, _b=_bits: [
-        (f"bounds={b or 'none'} {w}", _fill(s, **{"__BOUNDS__": b, "__COLT__": w, "__REDUCE__": "", "{REAL}": "float", "{ACC}": "double"}), ()) for b in _b for w in ("int", "long long")
+    _RECIPES[f"_pairwise_modular_rank_gpu.py::{_name}"] = lambda s, _b=_bits, _n=_name: [
+        (f"bounds={b or 'none'} {w} {rname}", _fill(s, **{"__BOUNDS__": b, "__COLT__": w, "__REDUCE__": rtext, "{REAL}": "float", "{ACC}": "double"}), ())
+        for b in _b
+        for w in ("int", "long long")
+        for rname, rtext in _modular_rank_reduces(_n)
     ]
 
 
