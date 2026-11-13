@@ -73,8 +73,8 @@ __global__ void periodogram_power_b(const {REAL}* Z, const {REAL}* YC, const {AC
     const {REAL}* z = Z + (long long)c * n;
     const {REAL}* yc = YC + (long long)c * n;
     const {ACC} w = 6.283185307179586 * freqs[(long long)c * F + f];
-    // Per-thread partials in the SAMPLE type with Kahan compensation, combined in {ACC} below: the sine and cosine are taken in the sample type anyway (trig above), so double partials
-    // only paid the 1:32 double rate of the card for no accuracy the inputs carry (30000 x 64 columns x 96 frequencies: 77.6 -> 35.6 ms, power within 2.4e-5 relative, p99 4e-7, the argmax
+    // Per-thread partials in the SAMPLE type with Kahan compensation, combined in {ACC} below: the sine and cosine are taken in the sample type anyway (trig above), so {ACC} partials
+    // would only pay the 1:32 FP64 rate of the card for no accuracy the inputs carry (30000 x 64 columns x 96 frequencies: 77.6 -> 35.6 ms, power within 2.4e-5 relative, p99 4e-7, the argmax
     // frequency of every column unchanged); the compensation keeps the long per-thread sums at the precision of their terms.
     {REAL} ss = 0, sc = 0, vvs = 0, vvc = 0, vys = 0, vyc = 0;
     {REAL} c_ss = 0, c_sc = 0, c_vvs = 0, c_vvc = 0, c_vys = 0, c_vyc = 0;
