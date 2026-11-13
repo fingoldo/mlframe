@@ -99,6 +99,30 @@ try:
             out[i] = -h
         return out
 
+    @njit(nogil=True, cache=True, parallel=True)
+    def _batch_joint_entropy_columns(cols, a_slot, b_slot, nb_a_arr, nb_b_arr):
+        """:func:`_batch_joint_entropy_pairs` over contiguous per-column rows: ``cols[s]`` is a column's codes, ``a_slot`` / ``b_slot`` index ``cols`` and ``nb_a_arr`` /
+        ``nb_b_arr`` hold the bin counts of each pair's two columns. Same histogram and the same ascending-cell reduction, so the values are identical to the strided kernel's."""
+        k = a_slot.shape[0]
+        out = np.empty(k, dtype=np.float64)  # Intentional float64: symmetric-uncertainty output buffer (statistic)
+        n = cols.shape[1]
+        for i in prange(k):
+            ca = cols[a_slot[i]]
+            cb = cols[b_slot[i]]
+            nb_a = nb_a_arr[i]
+            size = nb_a * nb_b_arr[i]
+            hist = np.zeros(size, dtype=np.int64)
+            for r in range(n):
+                hist[ca[r] + cb[r] * nb_a] += 1
+            h = 0.0
+            for c in range(size):
+                cnt = hist[c]
+                if cnt != 0:
+                    p = cnt / n
+                    h += np.log(p) * p
+            out[i] = -h
+        return out
+
     _HAVE_NUMBA = True
 except ImportError:  # pragma: no cover - numba always present in prod
     _HAVE_NUMBA = False
@@ -117,6 +141,28 @@ def _validate_batch_joint_entropy_pairs_inputs(a_arr: np.ndarray, b_arr: np.ndar
     if int(nb_arr[a_arr].min(initial=1)) < 1 or int(nb_arr[b_arr].min(initial=1)) < 1:
         raise ValueError("_batch_joint_entropy_pairs: nbins must be >= 1 for every referenced column")
     _batch_joint_entropy_pairs = None
+
+
+#: Row width (bytes) and pair count from which the codes of the pairs' columns are copied into contiguous rows before the histograms are built. The strided kernel reads two codes
+#: per row at a stride of one full row of the matrix; measured at 100000 rows (int32 codes): 200 columns 60 pairs 113 -> 80 ms, 256 columns 32 pairs 74 -> 44 ms, 400 columns 60 pairs
+#: 155 -> 85 ms, 100 columns 100 pairs 81 -> 82 ms (equal), 100 columns 30 pairs 27 -> 35 ms (the copy loses), and from 150 pairs even 100 columns win (178 -> 119 ms at 200).
+_CONTIGUOUS_MIN_ROW_BYTES = 800
+_CONTIGUOUS_MIN_PAIRS_WIDE = 32
+_CONTIGUOUS_MIN_PAIRS_ANY = 150
+
+
+def joint_entropies_of_pairs(fd: np.ndarray, a_arr: np.ndarray, b_arr: np.ndarray, nb_arr: np.ndarray) -> np.ndarray:
+    """``H(X_a, X_b)`` of every pair: the strided kernel, or the same histograms over contiguous copies of the referenced columns where that measured faster (see the thresholds above)."""
+    k = int(a_arr.shape[0])
+    row_bytes = int(fd.shape[1]) * int(fd.dtype.itemsize)
+    contiguous = k >= _CONTIGUOUS_MIN_PAIRS_ANY or (k >= _CONTIGUOUS_MIN_PAIRS_WIDE and row_bytes >= _CONTIGUOUS_MIN_ROW_BYTES)
+    if not contiguous:
+        out: np.ndarray = _batch_joint_entropy_pairs(fd, a_arr, b_arr, nb_arr)
+        return out
+    used, inverse = np.unique(np.concatenate([a_arr, b_arr]), return_inverse=True)
+    cols = np.ascontiguousarray(fd[:, used].T)
+    joint: np.ndarray = _batch_joint_entropy_columns(cols, inverse[:k], inverse[k:], nb_arr[a_arr], nb_arr[b_arr])
+    return joint
 
 
 def _warm_marginal_entropies(state: Any, pairs_list: list, fd: Optional[np.ndarray], fn: Optional[np.ndarray], dtype: type) -> None:
@@ -216,7 +262,7 @@ def _precompute_joint_entropies(state: Any, pairs_list: list, fd: Optional[np.nd
                 a_arr = np.asarray(keys_a, dtype=np.int64)
                 b_arr = np.asarray(keys_b, dtype=np.int64)
                 _validate_batch_joint_entropy_pairs_inputs(a_arr, b_arr, fn_arr)
-                h_ab_vals = _batch_joint_entropy_pairs(fd, a_arr, b_arr, fn_arr)
+                h_ab_vals = joint_entropies_of_pairs(fd, a_arr, b_arr, fn_arr)
                 _joint_cache = {(int(a_arr[i]), int(b_arr[i])): float(h_ab_vals[i]) for i in range(a_arr.shape[0])}
                 state._joint_entropy_batch_cache = _joint_cache
             except Exception as e:  # pragma: no cover - defensive: fall back to serial joints
