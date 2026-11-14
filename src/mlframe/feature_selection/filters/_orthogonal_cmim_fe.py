@@ -102,7 +102,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 """
 from __future__ import annotations
 
-from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
+from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name, split_engineered_name
 
 import logging
 from typing import Optional, Sequence
@@ -497,7 +497,7 @@ def score_features_by_cmim(
     # O(p_eng * p_support) list-comprehension redo of a value identical for every column sharing a source.
     _sources_seen: list[str] = []
     for eng_name in engineered_X.columns:
-        _s = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+        _s = source_of_engineered_name(eng_name)
         if _s not in _sources_seen:
             _sources_seen.append(_s)
     filtered_by_source: dict[str, list] = {
@@ -506,7 +506,7 @@ def score_features_by_cmim(
 
     rows: list[dict] = []
     eng_bins = quantile_bin_columns(engineered_X.to_numpy(dtype=_crit_np_dtype()), int(n_bins), dtype=np.int16)  # int16 codes: 2 bytes a value, not 8  # every candidate column binned at once (not one device round trip per column)
-    eng_sources = [eng_name.split("__", 1)[0] if "__" in eng_name else eng_name for eng_name in engineered_X.columns]
+    eng_sources = [source_of_engineered_name(eng_name) for eng_name in engineered_X.columns]
     device_scores = _cmim_scores_device(eng_bins, y_bin, sel_bins, support_col_names, eng_sources, int(n_bins))
     for eng_idx, eng_name in enumerate(engineered_X.columns):
         source = eng_sources[eng_idx]
@@ -664,7 +664,7 @@ def hybrid_orth_mi_cmim_fe_with_recipes(
     for name in appended:
         if "__" not in name:
             continue
-        src, suffix = name.split("__", 1)
+        src, suffix = split_engineered_name(name)
         chosen_basis = None
         chosen_degree = None
         for code in BASIS_NAME_CODES:

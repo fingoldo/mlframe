@@ -61,7 +61,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 
 from __future__ import annotations
 
-from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
+from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name, split_engineered_name
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -505,7 +505,7 @@ def score_features_by_kfold_oof_mi(
     eng_cols = list(engineered_X.columns)
     n = len(raw_X)
 
-    src_map = {eng_name: (eng_name.split("__", 1)[0] if "__" in eng_name else eng_name) for eng_name in eng_cols}
+    src_map = {eng_name: (source_of_engineered_name(eng_name)) for eng_name in eng_cols}
     from ._fe_usability_signal import _crit_np_dtype
 
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
@@ -821,7 +821,7 @@ def hybrid_orth_mi_three_gate_fe_with_recipes(
     for name in appended:
         if "__" not in name:
             continue
-        src, suffix = name.split("__", 1)
+        src, suffix = split_engineered_name(name)
         chosen_basis = None
         chosen_degree = None
         for code in BASIS_NAME_CODES:

@@ -79,7 +79,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 """
 from __future__ import annotations
 
-from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
+from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name, split_engineered_name
 
 import logging
 from typing import Optional, Sequence
@@ -458,7 +458,7 @@ def score_features_by_tc_uplift(
 
     rows: list[dict] = []
     for j, eng_name in enumerate(eng_names_list):
-        source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+        source = source_of_engineered_name(eng_name)
         baseline = float(raw_mi_map.get(source, 0.0))
         cand_bin = eng_bins[j]
         new_info_term = _tc_new_info(cand_bin, y_bin, y_H, sup_sum_H, tc_before, H_S, joint_s_invariant, joint_sy_invariant)
@@ -590,7 +590,7 @@ def hybrid_orth_mi_tc_fe_with_recipes(
     for name in appended:
         if "__" not in name:
             continue
-        src, suffix = name.split("__", 1)
+        src, suffix = split_engineered_name(name)
         chosen_basis = None
         chosen_degree = None
         for code in BASIS_NAME_CODES:

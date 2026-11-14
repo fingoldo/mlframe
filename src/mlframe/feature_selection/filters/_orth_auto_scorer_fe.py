@@ -12,7 +12,7 @@ The ensemble-of-scorers rank-fusion path lives in the parent module
 """
 from __future__ import annotations
 
-from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
+from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name, split_engineered_name
 
 import functools
 import logging
@@ -510,7 +510,7 @@ def select_best_scorer_per_column(
     eng_tables = _bootstrap_lcb_tables([engineered_X[eng_name].to_numpy(dtype=_crit_np_dtype()) for eng_name in eng_cols], y_arr, boot_idx, random_state, _scorer_call, n_jobs, _batch_hyper)
     rows = []
     for eng_name, per_scorer in zip(eng_cols, eng_tables):
-        src = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+        src = source_of_engineered_name(eng_name)
         # Normalised score = per-scorer HEADROOM over its own raw baseline, on its own scale: ``(engineered_lcb - raw_max) / scale``. This is
         # dimensionless and self-calibrating, so the winner is the scorer that demonstrates the most REAL additional signal beyond the strongest
         # raw signal IT could detect - not the scorer with the largest natural scale, nor a scorer whose tiny raw ceiling would let any engineered
@@ -737,7 +737,7 @@ def hybrid_orth_mi_auto_scorer_fe_with_recipes(
     for name in appended:
         if "__" not in name:
             continue
-        src, suffix = name.split("__", 1)
+        src, suffix = split_engineered_name(name)
         chosen_basis = None
         chosen_degree = None
         for code in BASIS_NAME_CODES:

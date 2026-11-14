@@ -45,7 +45,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 """
 from __future__ import annotations
 
-from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
+from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name, split_engineered_name
 
 import logging
 import threading
@@ -288,7 +288,7 @@ def score_features_by_bootstrap_mi(
         for c in _raw_by_len:
             if eng_name.startswith(c + "__"):
                 return c
-        return eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+        return source_of_engineered_name(eng_name)
 
     src_map = {eng_name: _source_of(eng_name) for eng_name in eng_cols}
     # Per-engineered baseline lookup is via the raw_X MI vector; we cache the
@@ -470,7 +470,7 @@ def hybrid_orth_mi_bootstrap_fe_with_recipes(
     for name in appended:
         if "__" not in name:
             continue
-        src, suffix = name.split("__", 1)
+        src, suffix = split_engineered_name(name)
         chosen_basis = None
         chosen_degree = None
         for code in BASIS_NAME_CODES:

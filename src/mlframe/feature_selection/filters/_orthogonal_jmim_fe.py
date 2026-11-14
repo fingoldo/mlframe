@@ -86,7 +86,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 """
 from __future__ import annotations
 
-from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
+from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name, split_engineered_name
 
 import logging
 from typing import Optional, Sequence
@@ -398,7 +398,7 @@ def score_features_by_jmim(
 
     rows: list[dict] = []
     for j, eng_name in enumerate(eng_names):
-        source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+        source = source_of_engineered_name(eng_name)
         baseline = float(raw_mi_map.get(source, 0.0))
         # Bennasar 2015 JMIM scores the candidate against EVERY support
         # member - the min-construction is the redundancy filter.
@@ -558,7 +558,7 @@ def hybrid_orth_mi_jmim_fe_with_recipes(
     for name in appended:
         if "__" not in name:
             continue
-        src, suffix = name.split("__", 1)
+        src, suffix = split_engineered_name(name)
         chosen_basis = None
         chosen_degree = None
         for code in BASIS_NAME_CODES:

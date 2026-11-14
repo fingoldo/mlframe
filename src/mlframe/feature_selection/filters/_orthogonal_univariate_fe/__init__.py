@@ -45,7 +45,7 @@ genuinely separate, directly-callable opt-in utility for ad hoc use outside MRMR
 """
 from __future__ import annotations
 
-from .._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
+from .._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name
 
 import logging
 import threading
@@ -135,7 +135,7 @@ def _source_from_engineered_name(name: str, raw_names) -> str:
             cand = "__".join(parts[:k])
             if cand in raw_names:
                 return cand
-        return name.split("__", 1)[0] if "__" in name else name
+        return source_of_engineered_name(name)
     best = None
     for raw in raw_names:
         if name == raw or name.startswith(raw + "__"):
@@ -143,7 +143,7 @@ def _source_from_engineered_name(name: str, raw_names) -> str:
                 best = raw
     if best is not None:
         return str(best)
-    return name.split("__", 1)[0] if "__" in name else name
+    return source_of_engineered_name(name)
 
 def _evaluate_basis_column(
     x: np.ndarray,
