@@ -28,16 +28,30 @@ TRIPLES_PER_LAUNCH = 1 << 20
 
 _SRC = render(r"""
 extern "C" __global__ void triple_mi(const signed char* __restrict__ codes, const unsigned char* __restrict__ Y, const int* __restrict__ TI, const int* __restrict__ TJ,
-                                     const int* __restrict__ TK, const long long n, const int base, const int n_y, const int n_cells, {ACC}* __restrict__ out) {
+                                     const int* __restrict__ TK, const long long n, const long long stride, const int base, const int n_y, const int n_cells, {ACC}* __restrict__ out) {
     extern __shared__ int sh[];                       // (n_cells, n_y) joint table, cell-major
     const int t = blockIdx.x;
-    const signed char* ci = codes + (long long)TI[t] * n;
-    const signed char* cj = codes + (long long)TJ[t] * n;
-    const signed char* ck = codes + (long long)TK[t] * n;
+    const signed char* ci = codes + (long long)TI[t] * stride;   // rows are padded to a multiple of 4 bytes (``stride``), so every row starts on a 4-byte boundary
+    const signed char* cj = codes + (long long)TJ[t] * stride;
+    const signed char* ck = codes + (long long)TK[t] * stride;
     const int size = n_cells * n_y;
     for (int s = threadIdx.x; s < size; s += blockDim.x) sh[s] = 0;
     __syncthreads();
-    for (long long r = threadIdx.x; r < n; r += blockDim.x) {
+    // four rows per thread: one 4-byte load per array instead of four 1-byte loads, then the (up to three) rows left over
+    const unsigned int* ci4 = (const unsigned int*)ci;
+    const unsigned int* cj4 = (const unsigned int*)cj;
+    const unsigned int* ck4 = (const unsigned int*)ck;
+    const unsigned int* y4 = (const unsigned int*)Y;
+    for (long long q = threadIdx.x; q < (n >> 2); q += blockDim.x) {
+        const unsigned int a = ci4[q], b = cj4[q], c = ck4[q], yy = y4[q];
+#pragma unroll
+        for (int u = 0; u < 4; ++u) {
+            const int sh8 = 8 * u;
+            const int cell = (((int)(signed char)((a >> sh8) & 0xff) * base + (int)(signed char)((b >> sh8) & 0xff)) * base + (int)(signed char)((c >> sh8) & 0xff)) * n_y + (int)((yy >> sh8) & 0xff);
+            atomicAdd(&sh[cell], 1);
+        }
+    }
+    for (long long r = (n & ~3LL) + threadIdx.x; r < n; r += blockDim.x) {
         const int cell = (((int)ci[r] * base + (int)cj[r]) * base + (int)ck[r]) * n_y + (int)Y[r];
         atomicAdd(&sh[cell], 1);
     }
@@ -106,15 +120,18 @@ def triple_mi_gpu(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> "tup
     ti, tj, tk = _triples(p)
     m = int(ti.size)
     kernel = _MODULE.get(cp).get_function("triple_mi")
-    codes_dev = cp.asarray(np.ascontiguousarray(codes, dtype=np.int8))
-    y_dev = cp.asarray(np.ascontiguousarray(y, dtype=np.uint8))
+    stride = (n + 3) & ~3  # rows padded to 4 bytes for the 4-byte loads of the kernel; the pad is never read as a row
+    codes_dev = cp.zeros((p, stride), dtype=cp.int8)
+    codes_dev[:, :n] = cp.asarray(np.ascontiguousarray(codes, dtype=np.int8))
+    y_dev = cp.zeros(stride, dtype=cp.uint8)
+    y_dev[:n] = cp.asarray(np.ascontiguousarray(y, dtype=np.uint8))
     out = np.empty(m, dtype=np.float64)  # Intentional float64: MI statistic vector compared with the host's
     threads = block_size_for(kernel, dyn_smem=n_cells * n_y * 4, work_items=n)
     for s in range(0, m, TRIPLES_PER_LAUNCH):
         e = min(m, s + TRIPLES_PER_LAUNCH)
         # Intentional float64: MI statistic vector compared with the host's
         d_out = cp.empty(e - s, dtype=cp.float64)
-        kernel((e - s,), (threads,), (codes_dev, y_dev, cp.asarray(ti[s:e]), cp.asarray(tj[s:e]), cp.asarray(tk[s:e]), np.int64(n), np.int32(base), np.int32(n_y), np.int32(n_cells), d_out), shared_mem=n_cells * n_y * 4)
+        kernel((e - s,), (threads,), (codes_dev, y_dev, cp.asarray(ti[s:e]), cp.asarray(tj[s:e]), cp.asarray(tk[s:e]), np.int64(n), np.int64(stride), np.int32(base), np.int32(n_y), np.int32(n_cells), d_out), shared_mem=n_cells * n_y * 4)
         out[s:e] = cp.asnumpy(d_out)
     return ti.astype(np.int64), tj.astype(np.int64), tk.astype(np.int64), out
 
