@@ -3,10 +3,12 @@
 Carved from _fe_cmi_redundancy_gate.py: the significance-floor + debias null computation
 (``_conditional_perm_null``) plus the analytic-null size threshold. The gate facade re-imports
 every name; all heavy MI/GPU primitives are lazy-imported inside the function so import stays cheap."""
+
 from __future__ import annotations
 
 import logging
 import os as _os
+import threading
 from typing import Any, Optional
 
 import numpy as np
@@ -72,6 +74,7 @@ class _NullInputs:
         if self._host is None:
             if self.cand_dev is not None:
                 import cupy as _cp2
+
                 self._host = np.ascontiguousarray(_cp2.asnumpy(self.cand_dev), dtype=np.int64).ravel()
             else:
                 self._host = np.ascontiguousarray(self.cand_bin, dtype=np.int64).ravel()
@@ -82,7 +85,9 @@ class _NullInputs:
         return self.cand_dev if self.cand_dev is not None else self.host_x()
 
 
-def _analytic_cmi_null(inp: _NullInputs, z_support: Optional[np.ndarray], z_support_dev: Any, precomp_cards: Optional[tuple], quantile: float) -> Optional[tuple[float, float]]:
+def _analytic_cmi_null(
+    inp: _NullInputs, z_support: Optional[np.ndarray], z_support_dev: Any, precomp_cards: Optional[tuple], quantile: float
+) -> Optional[tuple[float, float]]:
     """ANALYTIC CMI NULL: ``(floor, null_mean)`` from the chi-square law, or ``None`` when it does not apply (small n, sparse cells, no scipy, an error).
 
     The 25 within-stratum permutations exist only to estimate
@@ -136,6 +141,7 @@ def _analytic_cmi_null(inp: _NullInputs, z_support: Optional[np.ndarray], z_supp
                 # host from the device-born copy (rare - a single D2H only when both device card paths miss).
                 if _z is None and z_support_dev is not None:
                     import cupy as _cp
+
                     _z = np.ascontiguousarray(_cp.asnumpy(z_support_dev), dtype=np.int64).ravel()
                 assert _z is not None  # the enclosing else-branch condition guarantees z_support or z_support_dev is present
                 _xh = inp.host_x()
@@ -170,6 +176,7 @@ def _gpu_resident_flag() -> bool:
     """Whether the GPU-resident perm-null is on (``perm_null_gpu_resident_enabled``); a failing check counts as off."""
     try:
         from ._fe_cmi_perm_null_gpu import perm_null_gpu_resident_enabled
+
         return bool(perm_null_gpu_resident_enabled())
     except Exception as e:
         # fallback: a failing flag check keeps the GPU-resident perm-null off, the host path that always works.
@@ -191,11 +198,18 @@ def _resident_support_null(inp: _NullInputs, z_support_dev: Any, n_permutations:
         return None
     try:
         from ._fe_cmi_perm_null_gpu import perm_null_gpu_resident_enabled, conditional_perm_null_gpu
+
         if perm_null_gpu_resident_enabled():
             return conditional_perm_null_gpu(
-                inp.resident_or_host(), inp.y, z_support_dev,
-                order=None, z_rank=None,
-                n_permutations=int(n_permutations), quantile=quantile, seed=seed, salt=salt,
+                inp.resident_or_host(),
+                inp.y,
+                z_support_dev,
+                order=None,
+                z_rank=None,
+                n_permutations=int(n_permutations),
+                quantile=quantile,
+                seed=seed,
+                salt=salt,
             )
     except Exception:
         logger.debug("resident-support GPU conditional perm-null failed; host order/z_rank path", exc_info=True)
@@ -219,11 +233,19 @@ def _marginal_perm_null(inp: _NullInputs, n_permutations: int, quantile: float, 
     if _gpu_resident_flag() and _cmi_gpu_enabled(n=inp.n_size, p=nperm, min_p=2) and nperm > 1:
         try:
             from ._fe_cmi_perm_null_gpu import conditional_perm_null_gpu
+
             # Pass the RESIDENT candidate code directly (conditional_perm_null_gpu resident-input branch) so
             # the marginal seed null never re-uploads the candidate; host code otherwise.
             return conditional_perm_null_gpu(
-                inp.resident_or_host(), inp.y, None, order=None, z_rank=None,
-                n_permutations=nperm, quantile=quantile, seed=seed, salt=salt,
+                inp.resident_or_host(),
+                inp.y,
+                None,
+                order=None,
+                z_rank=None,
+                n_permutations=nperm,
+                quantile=quantile,
+                seed=seed,
+                salt=salt,
             )
         except Exception:
             logger.debug("GPU-resident marginal perm-null failed; using host/CPU path", exc_info=True)
@@ -235,6 +257,7 @@ def _marginal_perm_null(inp: _NullInputs, n_permutations: int, quantile: float, 
             import cupy as cp
             from ._fe_batched_mi import batched_cmi_gpu
             from ._fe_cmi_perm_null_gpu import _floor_mean_from_nulls_dev
+
             Xp = np.empty((xh.size, nperm), dtype=np.int64)
             for i in range(nperm):
                 Xp[:, i] = xh[inp.rng.permutation(xh.size)]
@@ -255,6 +278,29 @@ def _marginal_perm_null(inp: _NullInputs, n_permutations: int, quantile: float, 
         x_perm = xh[inp.rng.permutation(xh.size)]
         nulls[i] = float(marginal_mi_binned_fixed_y(x_perm, y_i_m, h_y_m, k_y_m))
     return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+
+
+_SUPPORT_CACHE: list = []  # [(y copy, z copy, support)], newest last
+_SUPPORT_CACHE_MAX = 2
+_SUPPORT_CACHE_LOCK = threading.Lock()
+
+
+def _stratified_support_cached(inp: "_NullInputs", z: np.ndarray) -> "_StratifiedSupport":
+    """``_StratifiedSupport(inp, z)``, built once per (target, support) content.
+
+    The support holds only what ``y`` and ``z`` fix (the stratum order and ranks, the hoisted H(Y,Z) / H(Z) terms), none of it depends on the candidate or on the random
+    stream, and a gate round or a block of pairs scores many candidates against the same support (10 to 35 ms of host work per build at 100000 rows, as much as the device null).
+    A hit needs equal shapes and equal contents, so an array changed in place cannot return a stale support."""
+    y = np.asarray(inp.y)
+    with _SUPPORT_CACHE_LOCK:
+        for yc, zc, sup in _SUPPORT_CACHE:
+            if yc.shape == y.shape and zc.shape == z.shape and np.array_equal(zc, z) and np.array_equal(yc, y):
+                return sup
+    sup = _StratifiedSupport(inp, z)
+    with _SUPPORT_CACHE_LOCK:
+        _SUPPORT_CACHE.append((y.copy(), z.copy(), sup))
+        del _SUPPORT_CACHE[:-_SUPPORT_CACHE_MAX]
+    return sup
 
 
 class _StratifiedSupport:
@@ -310,7 +356,9 @@ class _StratifiedSupport:
             self.z_rank[1:] = np.cumsum(self.sorted_z[1:] != self.sorted_z[:-1])
 
 
-def _conditional_gpu_resident_null(inp: _NullInputs, sup: _StratifiedSupport, nperm: int, quantile: float, seed: int, salt: int) -> Optional[tuple[float, float]]:
+def _conditional_gpu_resident_null(
+    inp: _NullInputs, sup: _StratifiedSupport, nperm: int, quantile: float, seed: int, salt: int
+) -> Optional[tuple[float, float]]:
     """GPU-RESIDENT conditional null (DEFAULT ON under the RESIDENT path -> opt-out MLFRAME_FE_CMI_PERM_NULL_GPU=0).
 
     Holds the candidate / target / support codes resident on device, draws the within-stratum shuffle KEYS on
@@ -333,12 +381,20 @@ def _conditional_gpu_resident_null(inp: _NullInputs, sup: _StratifiedSupport, np
         return None
     try:
         from ._fe_cmi_perm_null_gpu import conditional_perm_null_gpu
+
         # Pass the RESIDENT candidate code directly (conditional_perm_null_gpu resident-input branch reorders
         # ``dx[order]`` on device), so the candidate never re-crosses H2D at the ``permnull_cand_x`` site;
         # host code otherwise.
         return conditional_perm_null_gpu(
-            inp.resident_or_host(), sup.y_i, sup.z_i, order=sup.order, z_rank=sup.z_rank,
-            n_permutations=nperm, quantile=quantile, seed=seed, salt=salt,
+            inp.resident_or_host(),
+            sup.y_i,
+            sup.z_i,
+            order=sup.order,
+            z_rank=sup.z_rank,
+            n_permutations=nperm,
+            quantile=quantile,
+            seed=seed,
+            salt=salt,
         )
     except Exception:
         logger.debug("GPU-resident conditional perm-null failed; using host/CPU path", exc_info=True)
@@ -359,6 +415,7 @@ def _conditional_batched_gpu_null(inp: _NullInputs, sup: _StratifiedSupport, npe
     try:
         from ._fe_batched_mi import batched_cmi_gpu
         import cupy as cp
+
         # DEVICE within-stratum shuffle. The host built the nperm shuffled candidate
         # columns with a per-perm np.argsort (the dominant steady-state host cost on sparse conditional
         # joints, where the analytic null falls back to permutations). Move only the ARGSORT + gather +
@@ -385,7 +442,8 @@ def _conditional_batched_gpu_null(inp: _NullInputs, sup: _StratifiedSupport, npe
         Xp_d = cp.empty((inp.n_size, nperm), dtype=cp.int64)
         Xp_d[order_d, :] = x_sorted_d[within]  # xp[order] = x_sorted[within], per perm
         from ._fe_cmi_perm_null_gpu import _floor_mean_from_nulls_dev
-        nulls_dev = batched_cmi_gpu(Xp_d, sup.y_i, sup.z_i, return_device=True)   # stays resident
+
+        nulls_dev = batched_cmi_gpu(Xp_d, sup.y_i, sup.z_i, return_device=True)  # stays resident
         return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
     except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
         logger.debug("GPU-resident CMI-null path failed (%s: %s) -- falling back to exact per-perm CPU loop", type(e).__name__, e)
@@ -510,6 +568,7 @@ def _conditional_perm_null(
         # GPU path unavailable/failed -> materialise host z once for the host order/z_rank fallback below.
         if z_support is None:
             import cupy as _cp
+
             z_support = np.ascontiguousarray(_cp.asnumpy(z_support_dev), dtype=np.int64).ravel()
 
     if (z_support is None or z_support.size == 0) and z_support_dev is None:
@@ -525,8 +584,9 @@ def _conditional_perm_null(
     # fallback. Materialize here as the final safety net, regardless of which branch above ran.
     if z_support is None and z_support_dev is not None:
         import cupy as _cp
+
         z_support = np.ascontiguousarray(_cp.asnumpy(z_support_dev), dtype=np.int64).ravel()
-    sup = _StratifiedSupport(inp, np.ascontiguousarray(z_support, dtype=np.int64).ravel())
+    sup = _stratified_support_cached(inp, np.ascontiguousarray(z_support, dtype=np.int64).ravel())
     if not sup.has_groups:
         return 0.0, 0.0
     nperm = int(n_permutations)
@@ -544,6 +604,7 @@ def _conditional_perm_n_precomp_cards_supplied_never(cand_bin, cand_dev):
     """Block of _conditional_perm_null starting at ``try:``."""
     try:
         import cupy as _cp_c
+
         if isinstance(cand_bin, _cp_c.ndarray):
             cand_dev = cand_bin.astype(_cp_c.int64, copy=False).ravel()
     except Exception as e:
@@ -562,6 +623,7 @@ def _conditional_perm_n_label_invariant_same_df(precomp_cards, n_size, cand_dev,
     elif _cmi_gpu_enabled(n=n_size, p=1):
         try:
             from mlframe.feature_selection.filters._mi_greedy_cmi_fe import joint_cardinalities_cupy
+
             # RESIDENT candidate code + RESIDENT support (joint_cardinalities_cupy resident-input
             # branch) -> no re-upload at the ``card_cand_x`` / ``cmi_z`` sites; host code otherwise.
             _ks = joint_cardinalities_cupy(cand_dev if cand_dev is not None else _host_x(), y, _z if _z is not None else z_support_dev)
