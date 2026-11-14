@@ -62,6 +62,8 @@ _CA_KW = dict(
     # + ``dcd_postoc_compose=False`` (default). These tests focus on
     # the cluster_aggregate path itself, so disable DCD.
     dcd_enable=False,
+    # the default-on SIR direction family builds a ``sir__`` column over the same reflections and displaces the aggregate being measured
+    fe_sir_direction_enable=False,
 )
 
 
