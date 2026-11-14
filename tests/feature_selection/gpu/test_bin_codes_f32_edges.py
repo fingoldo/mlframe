@@ -49,3 +49,25 @@ def test_codes_written_in_place_into_a_column_slice(monkeypatch, flag):
     host = cp.asnumpy(buf)
     assert np.array_equal(host[:, start : start + k], ref)
     assert (host[:, :start] == -7).all() and (host[:, start + k :] == -7).all()
+
+
+@pytest.mark.parametrize("n_edges", [3, 9, 63, 64])
+def test_v2_kernel_equals_v1_with_nan_inf_ties_and_infinite_edges(monkeypatch, n_edges):
+    """The instruction-lean V2 (running pointers, fixed-depth branchless search over edges padded with +inf) gives V1's codes on columns with NaN, +-inf, ties and +-inf edges; 64 edges keep V1."""
+    rng = np.random.default_rng(n_edges)
+    n, k = 5000, 70
+    x = rng.standard_normal((n, k)).astype(np.float32)
+    x[::13, ::7] = np.nan
+    x[::17, ::5] = np.inf
+    x[::19, ::3] = -np.inf
+    x[::11, ::2] = np.round(x[::11, ::2])
+    edges = np.sort(rng.standard_normal((n_edges, k)), axis=0)
+    edges[-1, ::9] = np.inf
+    edges[0, ::11] = -np.inf
+    edges = np.sort(edges, axis=0)
+    cand, e = cp.asarray(x), cp.asarray(edges)
+    monkeypatch.setenv("MLFRAME_BIN_CODES_F32E_V2", "0")
+    v1 = cp.asnumpy(_searchsorted_codes(cand, e, out_dtype=np.int8))
+    monkeypatch.setenv("MLFRAME_BIN_CODES_F32E_V2", "1")
+    v2 = cp.asnumpy(_searchsorted_codes(cand, e, out_dtype=np.int8))
+    assert np.array_equal(v1, v2)
