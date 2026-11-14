@@ -52,6 +52,24 @@ def clear_fe_deadline() -> None:
 
 
 @contextmanager
+def fit_deadline_boundary() -> Iterator[None]:
+    """The deadline bookkeeping of one ``MRMR.fit`` call.
+
+    A fit at the top level starts with no deadline, whatever an earlier caller left on the thread: a stale timestamp (a test or a stage that published one and never cleared it)
+    would otherwise cut the enrichment of every later fit short. A fit nested in another (the target-mix second pass fits a child estimator) keeps the enclosing fit's deadline, so
+    its own budget cannot extend it, and the enclosing deadline is back in force when the child returns instead of being cleared. The top-level fit leaves none behind."""
+    depth = getattr(_state, "fit_depth", 0)
+    outer = getattr(_state, "deadline", None) if depth > 0 else None
+    _state.fit_depth = depth + 1
+    _state.deadline = outer
+    try:
+        yield
+    finally:
+        _state.fit_depth = depth
+        _state.deadline = outer
+
+
+@contextmanager
 def fe_deadline_scope(deadline: float | None) -> Iterator[None]:
     """Publish ``deadline`` for the duration of the block, then restore whatever was set before.
 
@@ -87,7 +105,7 @@ def fe_budget_active() -> bool:
     return getattr(_state, "deadline", None) is not None
 
 
-__all__ = ["set_fe_deadline", "clear_fe_deadline", "fe_deadline_scope", "fe_deadline_passed", "fe_budget_active"]
+__all__ = ["set_fe_deadline", "clear_fe_deadline", "fe_deadline_scope", "fit_deadline_boundary", "fe_deadline_passed", "fe_budget_active"]
 
 
 def current_fe_deadline() -> "float | None":
