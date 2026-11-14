@@ -200,6 +200,7 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_fe_interaction_prerank": ("_fe_interaction_prerank_kernels",),
+    "_residual_rescue_fe": ("_residual_rescue_gpu", "_residual_rescue_ktc"),
     "_feature_engineering_pairs": (
         "_pairs_abs_corr_gpu",
         "_pairs_analytic_gpu",
