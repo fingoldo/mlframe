@@ -223,6 +223,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_group_distance_fe": ("_group_distance_gpu",),
     "_orthogonal_copula_mi_fe": ("_orthogonal_copula_gpu",),
     "_orthogonal_tail_dependence_fe": ("_tail_dependence_gpu",),
+    "_lof_fe": ("_lof_gpu",),
     "_fe_batched_mi": (
         "_fe_batched_mi_blocks",
         "_fe_batched_mi_cmi",

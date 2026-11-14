@@ -32,11 +32,11 @@ _SRC = r"""
 #define P {P}
 #define INF_D __longlong_as_double(0x7FF0000000000000LL)
 #if K > 32
-#define TOPK_DECL extern __shared__ unsigned char topk_smem[]; double* bd_base = (double*)topk_smem; int* bj_base = (int*)(topk_smem + K * blockDim.x * sizeof(double));
+#define TOPK_DECL extern __shared__ unsigned char topk_smem[]; {ACC}* bd_base = ({ACC}*)topk_smem; int* bj_base = (int*)(topk_smem + K * blockDim.x * sizeof({ACC}));
 #define BD(s) bd_base[(s) * blockDim.x + threadIdx.x]
 #define BJ(s) bj_base[(s) * blockDim.x + threadIdx.x]
 #else
-#define TOPK_DECL double bd_regs[K]; int bj_regs[K];
+#define TOPK_DECL {ACC} bd_regs[K]; int bj_regs[K];
 #define BD(s) bd_regs[s]
 #define BJ(s) bj_regs[s]
 #endif
@@ -46,23 +46,23 @@ extern "C" __global__ void lof_scores(const {REAL}* __restrict__ X, const {REAL}
     const long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x;
     if (i >= n) return;
     TOPK_DECL
-    double xi[P];
+    {ACC} xi[P];
 #pragma unroll
-    for (int t = 0; t < P; ++t) xi[t] = (double)X[i * P + t];
+    for (int t = 0; t < P; ++t) xi[t] = ({ACC})X[i * P + t];
 #pragma unroll
     for (int s = 0; s < K; ++s) { BD(s) = INF_D; BJ(s) = -1; }
     for (int j = 0; j < m; ++j) {
-        double d2 = 0.0;
+        {ACC} d2 = 0.0;
 #pragma unroll
-        for (int t = 0; t < P; ++t) { const double dd = xi[t] - (double)ref[(long long)j * P + t]; d2 += dd * dd; }
+        for (int t = 0; t < P; ++t) { const {ACC} dd = xi[t] - ({ACC})ref[(long long)j * P + t]; d2 += dd * dd; }
         if (d2 >= BD(K - 1)) continue;
         // one pass carries the candidate down the sorted list: every slot index is a compile-time constant
-        double cd = d2;
+        {ACC} cd = d2;
         int cj = j;
 #pragma unroll
         for (int s = 0; s < K; ++s) {
             if (cd < BD(s)) {
-                const double td = BD(s);
+                const {ACC} td = BD(s);
                 const int tj = BJ(s);
                 BD(s) = cd;
                 BJ(s) = cj;
@@ -71,17 +71,17 @@ extern "C" __global__ void lof_scores(const {REAL}* __restrict__ X, const {REAL}
             }
         }
     }
-    double sum_reach = 0.0, sum_lrd = 0.0;
+    {ACC} sum_reach = 0.0, sum_lrd = 0.0;
 #pragma unroll
     for (int t = 0; t < K; ++t) {
         if (BJ(t) < 0) continue;
-        const double d = sqrt(BD(t));
-        const double kd = (double)kdist_ref[BJ(t)];
+        const {ACC} d = sqrt(BD(t));
+        const {ACC} kd = ({ACC})kdist_ref[BJ(t)];
         sum_reach += kd > d ? kd : d;
-        sum_lrd += (double)lrd_ref[BJ(t)];
+        sum_lrd += ({ACC})lrd_ref[BJ(t)];
     }
-    const double mean_reach = sum_reach / cnt;
-    const double lrd_new = 1.0 / (mean_reach > 1e-12 ? mean_reach : 1e-12);
+    const {ACC} mean_reach = sum_reach / cnt;
+    const {ACC} lrd_new = 1.0 / (mean_reach > 1e-12 ? mean_reach : 1e-12);
     out[i] = ({REAL})((sum_lrd / cnt) / (lrd_new > 1e-12 ? lrd_new : 1e-12));
 }
 """
@@ -100,7 +100,7 @@ def kernel(cp: Any, real: Any, k: int = DEFAULT_K, p: int = DEFAULT_P) -> Any:
     with _LOCK:
         mod = _MODULES.get(key)
         if mod is None:
-            src = _SRC.replace("{REAL}", key[0]).replace("{K}", str(key[1])).replace("{P}", str(key[2]))
+            src = _SRC.replace("{REAL}", key[0]).replace("{ACC}", "double").replace("{K}", str(key[1])).replace("{P}", str(key[2]))
             mod = _MODULES[key] = cp.RawModule(code=src, options=("-std=c++14",))
         return mod.get_function("lof_scores")
 
