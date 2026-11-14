@@ -23,7 +23,7 @@ concurrency:
 jobs:
   collect-hang:
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 75
     env:
       UV_NO_SOURCES: "1"
       PYTHONUNBUFFERED: "1"
