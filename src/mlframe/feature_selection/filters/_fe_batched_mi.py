@@ -994,7 +994,7 @@ def cmi_device_argmax(mi_d: Any) -> tuple[int, float]:
     return best_idx, best_val
 
 
-def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: bool = False, codes_trusted: bool = False,
+def _batched_cmi_gpu_once(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: bool = False, codes_trusted: bool = False,
                     return_device: bool = False, precomp_yz: Any = None, kx: int = 0, ky: int = 0, precomp_xz: Any = None) -> Any:
     """Miller-Madow plug-in CMI(x_k; y | z) in nats for EVERY column of ``x_cols``, in ONE device workload.
 
@@ -1142,4 +1142,5 @@ from ._fe_batched_mi_cmi import (  # noqa: F401
     _cmi_assemble,
     joint_nnz_gpu,
 )
+from ._fe_batched_mi_blocks import batched_cmi_gpu  # noqa: F401  -- carved: the column-block driver around ``_batched_cmi_gpu_once``
 from mlframe.feature_selection.filters._lazy_host_codes import size_of
