@@ -479,18 +479,16 @@ def generate_conditional_residual_features(
         edges = _quantile_edges(xj, n_bins)
         codes_j = _digitize_with_edges(xj, edges)
         n_bins_eff = edges.size - 1
-        for x_i in num_cols:
-            if x_i == x_j:
-                continue
+        others = [c for c in num_cols if c != x_j]
+        from ._conditional_bin_moments import bin_moments_dispatch
+
+        # One batched pass per x_j (device kernel or the numba loops, chosen by ``cond_bin_moments_backend``) instead of a sum+count walk per (x_i, x_j)
+        mom_cnt, mom_mean, _mom_css = bin_moments_dispatch(codes_j, [col_vals[c] for c in others], n_bins_eff)
+        for k_i, x_i in enumerate(others):
             xi = col_vals[x_i]
             finite_i = finite_of[x_i]
             global_mean = global_mean_of[x_i]
-            # Fused single-pass sum+count (see _bin_sum_count_masked_njit) instead of building the
-            # codes_j[finite_i]/xi[finite_i] subsets and running two separate np.bincount passes.
-            bin_sum, bin_cnt = _bin_sum_count_masked_njit(codes_j, xi, finite_i, n_bins_eff)
-            bin_mean = np.where(
-                bin_cnt > 0.0, bin_sum / np.maximum(bin_cnt, 1.0), global_mean,
-            )
+            bin_mean = np.where(mom_cnt[k_i] > 0.0, mom_mean[k_i], global_mean)
             per_row_mean = bin_mean[codes_j]
             residual = np.where(finite_i, xi - per_row_mean, 0.0).astype(_crit_np_dtype())
             name = engineered_name_conditional_residual(x_i, x_j)
