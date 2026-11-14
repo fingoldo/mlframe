@@ -70,3 +70,25 @@ def test_family_null_max_device_runs_the_counts_path_first_and_falls_back_on_err
     monkeypatch.setattr(counts_path, "family_null_max_counts", broken)
     second = cuda.family_null_max_device(cols, n_x, perms, 20)
     np.testing.assert_array_equal(first, second)
+
+
+def test_a_declined_shape_and_a_failed_fused_path_each_warn_through_log_throttle(monkeypatch, caplog):
+    """Falling back to the thread-per-pair kernel is never silent: a declined shape and a device error each leave a (throttled) WARNING."""
+    import logging
+
+    cols, n_x, _y, perms = _family(6, 12, 800, 20, 4)
+    logger_name = cuda.logger.name
+    monkeypatch.setattr(counts_path, "family_null_max_counts", lambda *a, **k: None)
+    with caplog.at_level(logging.WARNING, logger=logger_name):
+        cuda.family_null_max_device(cols, n_x, perms, 20)
+    assert any("declined this shape" in r.getMessage() for r in caplog.records)
+    caplog.clear()
+
+    def broken(*a, **k):
+        """A fused path that fails."""
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(counts_path, "family_null_max_counts", broken)
+    with caplog.at_level(logging.WARNING, logger=logger_name):
+        cuda.family_null_max_device(cols, n_x, perms, 20)
+    assert any("failed (RuntimeError: boom)" in r.getMessage() for r in caplog.records)

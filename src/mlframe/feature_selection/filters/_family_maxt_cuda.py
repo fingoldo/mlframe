@@ -14,6 +14,7 @@ import math
 
 import numpy as np
 from pyutilz.performance.gpu_hw_launch import block_size_for
+from mlframe.utils.log_throttle import log_throttle
 from numba import cuda
 
 logger = logging.getLogger(__name__)
@@ -94,10 +95,26 @@ def family_null_max_device(cols: np.ndarray, n_x: np.ndarray, perms: np.ndarray,
         fused = family_null_max_counts(cols, n_x, perms, n_y)
         if fused is not None:
             return fused
+        log_throttle(
+            logger,
+            "family_null_max_device.fused_declined",
+            logging.WARNING,
+            "fused family null (tables) declined this shape (K=%d columns, n_y=%d classes, max bins %d): using the thread-per-pair kernel, which is 17 to 27x slower",
+            int(cols.shape[0]),
+            int(n_y),
+            int(np.max(n_x)) if np.size(n_x) else 0,
+        )
     except cp.cuda.memory.OutOfMemoryError:
         raise
     except Exception as exc:  # the thread-per-pair kernel answers, the maxima are the same
-        logger.warning("fused family null (tables) failed (%s: %s); using the thread-per-pair kernel", type(exc).__name__, exc)
+        log_throttle(
+            logger,
+            "family_null_max_device.fused_failed",
+            logging.WARNING,
+            "fused family null (tables) failed (%s: %s); using the thread-per-pair kernel, which is 17 to 27x slower",
+            type(exc).__name__,
+            exc,
+        )
     # Codes are uploaded in their own (int16) width: a (K, n) int64 copy of a wide family was 4x the bytes for the same values.
     cols_d = cp.asarray(np.ascontiguousarray(np.asarray(cols).T))
     nx_d = cp.asarray(np.ascontiguousarray(n_x, dtype=np.int64))
