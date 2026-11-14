@@ -32,3 +32,20 @@ def test_codes_equal_the_double_compare_kernel(monkeypatch, n, k, nbins, out_dty
     cand, ed = cp.asarray(x), cp.asarray(edges)
     od = np.dtype(out_dtype)
     assert cp.array_equal(_codes(monkeypatch, cand, ed, od, "1"), _codes(monkeypatch, cand, ed, od, "0"))
+
+
+@pytest.mark.parametrize("flag", ["1", "0"])
+def test_codes_written_in_place_into_a_column_slice(monkeypatch, flag):
+    """``out`` as a column slice of a wider buffer is filled at its row stride (both kernels) and the other columns stay untouched."""
+    rng = np.random.default_rng(3)
+    n, k, width, start = 1500, 37, 100, 21
+    x = cp.asarray(rng.standard_normal((n, k)).astype(np.float32))
+    edges = cp.asarray(np.quantile(cp.asnumpy(x).astype(np.float64), np.linspace(0, 1, 11)[1:-1], axis=0))
+    monkeypatch.setenv("MLFRAME_FE_BIN_CODES_F32EDGES", flag)
+    ref = cp.asnumpy(_searchsorted_codes(x, edges, out_dtype=np.int8))
+    buf = cp.full((n, width), -7, dtype=cp.int8)
+    got = _searchsorted_codes(x, edges, out=buf[:, start : start + k])
+    assert got.data.ptr == buf[:, start : start + k].data.ptr
+    host = cp.asnumpy(buf)
+    assert np.array_equal(host[:, start : start + k], ref)
+    assert (host[:, :start] == -7).all() and (host[:, start + k :] == -7).all()

@@ -124,7 +124,7 @@ def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
 _BIN_CODES_F32E_SRC = r"""
 extern "C" __global__
 void bin_codes_f32e_OUTNAME(const float* __restrict__ cand, const float* __restrict__ edges, const long long n, const int K, const int ne,
-                            OUTTYPE* __restrict__ out) {
+                            OUTTYPE* __restrict__ out, const long long ldo) {
     __shared__ float se[32 * 64];              // the tile's edges, se[e * 32 + tx]
     const int tx = threadIdx.x;
     const int col = blockIdx.x * 32 + tx;
@@ -142,7 +142,7 @@ void bin_codes_f32e_OUTNAME(const float* __restrict__ cand, const float* __restr
             const int mid = (lo + hi) >> 1;
             if (se[mid * 32 + tx] <= v) lo = mid + 1; else hi = mid;
         }
-        out[i * K + col] = (OUTTYPE)lo;
+        out[i * ldo + col] = (OUTTYPE)lo;      // ldo = the output row stride in elements (K for a fresh buffer, the full width for a column slice of a wider one)
     }
 }
 """
@@ -165,8 +165,12 @@ def _bin_codes_f32e_kernel(out_name: str):
 
 
 def _bin_codes_f32e(cp, cand_c, edges_f64, out):
-    """``out`` codes of the float32 C-order ``cand_c`` through the float32-edge tiled kernel; False when it does not apply (the caller runs ``bin_codes_f32``)."""
+    """``out`` codes of the float32 C-order ``cand_c`` through the float32-edge tiled kernel; False when it does not apply (the caller runs ``bin_codes_f32``).
+
+    ``out`` may be a column slice of a wider C-order buffer (unit column stride, any row stride): the codes are written in place at that stride."""
     ne = int(edges_f64.shape[0])
+    if out.strides[1] != out.itemsize:
+        return False
     if cand_c.dtype != cp.float32 or ne > _BIN_CODES_F32E_MAX_EDGES or os.environ.get("MLFRAME_FE_BIN_CODES_F32EDGES", "1").strip() == "0":
         return False
     from ._fe_batched_mi import _edges_rounded_up_f32
@@ -176,15 +180,17 @@ def _bin_codes_f32e(cp, cand_c, edges_f64, out):
     gx = (K + 31) // 32
     rows_per_block = 8
     gy = max(1, min((n + rows_per_block - 1) // rows_per_block, max(1, 2048 // gx)))
-    _bin_codes_f32e_kernel(out.dtype.name)((gx, gy), (32, rows_per_block), (cand_c, edges32, np.int64(n), np.int32(K), np.int32(ne), out))  # launch-ok: the 2-D block is the tile the kernel is written for (columns x row lanes), its shared arrays are sized by it
+    _bin_codes_f32e_kernel(out.dtype.name)((gx, gy), (32, rows_per_block), (cand_c, edges32, np.int64(n), np.int32(K), np.int32(ne), out, np.int64(out.strides[0] // out.itemsize)))  # launch-ok: the 2-D block is the tile the kernel is written for (columns x row lanes), its shared arrays are sized by it
     return True
 
 
-def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None):
+def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None, out=None):
     """Bin (n,K) ``cand_gpu`` against per-column ascending ``interior_edges`` (ne,K) -> int32 (n,K) codes,
     code = #(interior edges <= value) (== per-column cp.searchsorted side='right'). One fused kernel
     launch (no K searchsorted launches, no int64->int32 cast). Falls back to the per-column loop on any
-    kernel failure - bit-identical either way."""
+    kernel failure - bit-identical either way.
+
+    ``out``: an optional (n, K) destination of the codes (a column slice of a wider buffer is fine); it is filled in place and returned."""
     import cupy as cp
 
     n, K = cand_gpu.shape
@@ -201,9 +207,15 @@ def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None):
         # drops the downstream int32->int8 astype launch + the int32 (n,K) intermediate). Default int32 keeps
         # every other caller byte-identical. nbins<=255 -> int8 cannot overflow (codes in [0, nbins-1]).
         _od = cp.dtype(out_dtype) if out_dtype is not None else cp.dtype(cp.int32)
-        out = cp.empty((n, K), dtype=_od)
-        if n > 0 and K > 0 and _bin_codes_f32e(cp, cand_c, edges_c, out):
-            return out
+        if out is not None:
+            _od = out.dtype
+            dest = out
+        else:
+            dest = cp.empty((n, K), dtype=_od)
+        if n > 0 and K > 0 and _bin_codes_f32e(cp, cand_c, edges_c, dest):
+            return dest
+        if out is not None:
+            dest = cp.empty((n, K), dtype=_od)
         total = n * K
         bin_codes = _get_bin_codes_kernel(cand_c.dtype, _od.name)
         threads = block_size_for(bin_codes, work_items=total)
@@ -211,22 +223,26 @@ def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None):
         bin_codes(
             (blocks,),
             (threads,),
-            (cand_c, edges_c, np.int64(n), np.int32(K), np.int32(ne), out),
+            (cand_c, edges_c, np.int64(n), np.int32(K), np.int32(ne), dest),
         )
-        return out
+        if out is not None:
+            out[...] = dest
+            return out
+        return dest
     except Exception:
         import logging
 
         logging.getLogger(__name__).warning("fused bin-codes kernel failed; per-column searchsorted fallback", exc_info=True)
-        _od = cp.dtype(out_dtype) if out_dtype is not None else cp.dtype(cp.int32)
-        out = cp.empty((n, K), dtype=_od)
+        _od = out.dtype if out is not None else (cp.dtype(out_dtype) if out_dtype is not None else cp.dtype(cp.int32))
+        if out is None:
+            out = cp.empty((n, K), dtype=_od)
         ec = cp.ascontiguousarray(interior_edges)
         for j in range(K):
             out[:, j] = cp.searchsorted(ec[:, j], cand_gpu[:, j], side="right")
         return out
 
 
-def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint=None):
+def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint=None, out=None):
     """Quantile-bin a RESIDENT (n, K) cupy candidate matrix to ordinal codes ON the GPU. Mirrors
     ``discretize_2d_array_cuda`` - ``cp.percentile(.., linspace(0,100,nbins+1), axis=0)`` for per-column
     edges + per-column ``cp.searchsorted(edges[1:-1], col, side='right')`` - but keeps the input + output
@@ -279,7 +295,7 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint
             logging.getLogger(__name__).warning("radix-select edges failed; cp.percentile fallback", exc_info=True)
             interior = None
         if interior is not None:
-            return _searchsorted_codes(cand_gpu, interior, out_dtype=out_dtype)
+            return _searchsorted_codes(cand_gpu, interior, out_dtype=out_dtype, out=out)
 
     # Compute the quantile EDGES in float64 regardless of the binning working dtype. The radix-select edge path
     # (the default) interpolates its order statistics in float64 and so matches the CPU reference exactly
@@ -300,4 +316,4 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint
         bin_edges = device_percentile(edge_src.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
     else:
         bin_edges = device_percentile(edge_src, qs, axis=0)  # (nbins+1, K)
-    return _searchsorted_codes(cand_gpu, bin_edges[1:-1], out_dtype=out_dtype)
+    return _searchsorted_codes(cand_gpu, bin_edges[1:-1], out_dtype=out_dtype, out=out)
