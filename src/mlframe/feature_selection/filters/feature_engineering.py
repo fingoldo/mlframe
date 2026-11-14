@@ -9,6 +9,7 @@ Public functions:
 """
 from __future__ import annotations
 
+from ._device_power import small_power
 import logging
 import threading
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence
@@ -322,11 +323,11 @@ _GPU_UNARY_OPS = {
     "neg": lambda cp, x: -x,
     "abs": lambda cp, x: cp.abs(x),
     "rint": lambda cp, x: cp.rint(x),
-    "sqr": lambda cp, x: cp.power(x, 2),
-    "qubed": lambda cp, x: cp.power(x, 3),
-    "reciproc": lambda cp, x: cp.power(x, -1),
-    "invsquared": lambda cp, x: cp.power(x, -2),
-    "invqubed": lambda cp, x: cp.power(x, -3),
+    "sqr": lambda cp, x: small_power(cp, x, 2),
+    "qubed": lambda cp, x: small_power(cp, x, 3),
+    "reciproc": lambda cp, x: small_power(cp, x, -1),
+    "invsquared": lambda cp, x: small_power(cp, x, -2),
+    "invqubed": lambda cp, x: small_power(cp, x, -3),
     "cbrt": lambda cp, x: cp.cbrt(x),
     "sqrt": lambda cp, x: cp.sqrt(cp.abs(x)),
     "invcbrt": lambda cp, x: cp.power(x, -1.0 / 3.0),

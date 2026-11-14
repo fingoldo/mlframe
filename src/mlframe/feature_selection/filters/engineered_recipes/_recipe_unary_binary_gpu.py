@@ -25,6 +25,7 @@ try/except logs debug + falls back. NEVER calls
 
 from __future__ import annotations
 
+from .._device_power import small_power
 import logging
 from typing import Any, Optional
 
@@ -100,9 +101,9 @@ def _gpu_unary(cp, name: str, x, recipe: EngineeredRecipe, side: str):
     if name == "neg":
         return -x
     if name == "sqr":
-        return cp.power(x, 2)
+        return small_power(cp, x, 2)
     if name == "qubed":
-        return cp.power(x, 3)
+        return small_power(cp, x, 3)
     if name == "sqrt":
         return cp.sqrt(cp.abs(x))
     if name in _GPU_UNARY_CUPY_FN:
