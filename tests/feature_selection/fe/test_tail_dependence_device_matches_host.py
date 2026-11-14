@@ -50,7 +50,7 @@ def test_blocks_of_one_column_give_the_same_values(monkeypatch):
     monkeypatch.setattr(gpu, "_BUDGET_FRACTION", 1e-9)
     got = gpu.tail_dependence_columns_device(cols, v, 0.95)
     assert got is not None
-    np.testing.assert_array_equal(got, want)
+    assert np.array_equal(got, want), (got, want)
 
 
 def test_unsupported_dtype_is_left_to_the_host():

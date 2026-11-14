@@ -7,16 +7,23 @@ from mlframe.feature_selection.filters import _gpu_resident_basis as gpu_basis
 
 from . import _untiled_reference_kernels as ref_k
 
+cupy = pytest.importorskip("cupy")
+
+try:
+    cupy.cuda.runtime.getDeviceCount()
+    _HAVE_CUDA_DEVICE = True
+except Exception:  # no driver / no device: the only thing this probe decides is whether the GPU tests can run
+    _HAVE_CUDA_DEVICE = False
+
+pytestmark = pytest.mark.skipif(not _HAVE_CUDA_DEVICE, reason="no CUDA device")
+
 
 @pytest.mark.parametrize("n,k", [(1000, 37), (7, 5), (4096, 64)])
 @pytest.mark.parametrize("dtype", [np.float64, np.float32])
 def test_tiled_matches_numpy_and_reference(n, k, dtype):
     """The tiled mean/std equals numpy and the reference kernel on widths that are not a multiple of the 32-column tile."""
-    cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        pytest.skip("no CUDA device")
+    import cupy as cp
+
     rng = np.random.default_rng(n + k)
     host = (rng.standard_normal((n, k)) * 3.0 + 1.5).astype(dtype)
     M = cp.asarray(host)
@@ -37,11 +44,8 @@ def test_tiled_matches_numpy_and_reference(n, k, dtype):
 @pytest.mark.parametrize("dtype", [np.float64, np.float32])
 def test_tiled_minmax_matches_numpy_and_reference(n, k, dtype):
     """The tiled column min/max equals numpy and the one-block-per-column reference, on widths that are not a multiple of the tile."""
-    cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        pytest.skip("no CUDA device")
+    import cupy as cp
+
     rng = np.random.default_rng(n * 7 + k)
     host = (rng.standard_normal((n, k)) * 3.0 + 1.5).astype(dtype)
     M = cp.asarray(host)
@@ -61,11 +65,8 @@ def test_tiled_minmax_matches_numpy_and_reference(n, k, dtype):
 @pytest.mark.parametrize("dtype", [np.float64, np.float32])
 def test_tiled_heavy_tail_flags_equal_the_reference(n, k, dtype):
     """The tiled heavy-tail outlier flags equal the one-block-per-column reference on widths that are not a multiple of the tile."""
-    cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        pytest.skip("no CUDA device")
+    import cupy as cp
+
     rng = np.random.default_rng(n + 3 * k)
     host = rng.standard_normal((n, k)).astype(dtype)
     host[: max(1, n // 50), ::3] += 200.0  # a clearly separated outlier group on every third column: flagged

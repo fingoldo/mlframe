@@ -14,34 +14,36 @@ import pytest
 from mlframe.feature_selection.filters.discretization import _quantile_radix as qr
 
 
-def _same(values: np.ndarray) -> None:
-    """Values and counts equal numpy's (``array_equal`` compares -0.0 and +0.0 as equal, as the binner does)."""
+def _same(values: np.ndarray) -> np.ndarray:
+    """Values and counts equal numpy's (``array_equal`` compares -0.0 and +0.0 as equal, as the binner does); returns the counts."""
     got_v, got_c = qr.unique_with_counts(values)
     want_v, want_c = np.unique(values, return_counts=True)
     np.testing.assert_array_equal(got_v, want_v)
     np.testing.assert_array_equal(got_c, want_c)
     assert got_v.dtype == want_v.dtype and got_c.sum() == values.size
+    return got_c
 
 
 @pytest.mark.parametrize("n", [4095, 4096, 4097, 20_000, 100_003])
 def test_continuous_ties_and_zero_columns_match_numpy(n):
     """A continuous column, one with a few thousand levels, one with ten levels and one with zeros of both signs, at sizes around the switch-over."""
     rng = np.random.default_rng(n)
-    _same(rng.standard_normal(n).astype(np.float32))
-    _same(rng.integers(0, 3000, n).astype(np.float32))
-    _same(rng.integers(0, 10, n).astype(np.float32))
+    assert _same(rng.standard_normal(n).astype(np.float32)).sum() == n
+    assert _same(rng.integers(0, 3000, n).astype(np.float32)).size > 2000
+    assert _same(rng.integers(0, 10, n).astype(np.float32)).size == 10
     zeros = np.where(rng.random(n) < 0.4, np.float32(0.0), rng.standard_normal(n).astype(np.float32))
     zeros[rng.random(n) < 0.1] = np.float32(-0.0)
-    _same(zeros)
+    zero_counts = _same(zeros)
+    assert zero_counts.max() == np.count_nonzero(zeros == 0.0), "all zeros, of both signs, collapse into one level"
 
 
 def test_one_value_and_two_values_and_extremes():
     """A constant column, two levels, and the largest and smallest finite float32 values."""
     n = 8192
-    _same(np.full(n, 3.5, dtype=np.float32))
-    _same(np.where(np.arange(n) % 2 == 0, np.float32(1.0), np.float32(2.0)))
+    assert _same(np.full(n, 3.5, dtype=np.float32)).tolist() == [n]
+    assert _same(np.where(np.arange(n) % 2 == 0, np.float32(1.0), np.float32(2.0))).tolist() == [n // 2, n // 2]
     info = np.finfo(np.float32)
-    _same(np.where(np.arange(n) % 3 == 0, info.max, np.where(np.arange(n) % 3 == 1, info.min, np.float32(0.0))).astype(np.float32))
+    assert _same(np.where(np.arange(n) % 3 == 0, info.max, np.where(np.arange(n) % 3 == 1, info.min, np.float32(0.0))).astype(np.float32)).size == 3
 
 
 def test_other_dtypes_and_small_vectors_take_numpy():

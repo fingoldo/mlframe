@@ -65,9 +65,9 @@ def test_the_selection_view_marks_the_top_candidates_and_absorbs_rounding_noise(
 
 def test_the_sweep_runs_at_the_strict_tolerance_and_the_device_agrees_with_the_host():
     """The sweep callables agree on the selection view of the sweep input (this is the equivalence the tuner enforces at 1e-6)."""
-    cp = pytest.importorskip("cupy")
+    pytest.importorskip("cupy")
     from mlframe.feature_selection.filters import _mi_greedy_device as D
 
     args = D._sweep_inputs({"n_samples": 30_000})
-    np.testing.assert_allclose(D._host(*args), D._device(*args), rtol=1e-6, atol=1e-6)
-    assert cp is not None
+    host_view, device_view = D._host(*args), D._device(*args)
+    assert np.allclose(host_view, device_view, rtol=1e-6, atol=1e-6), (host_view, device_view)

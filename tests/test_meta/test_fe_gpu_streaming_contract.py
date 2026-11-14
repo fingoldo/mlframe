@@ -76,7 +76,7 @@ def test_every_tuner_dispatched_backend_names_a_real_dispatcher():
     """A backend that meets the kernel-tuning point through its dispatcher: the dispatcher still registers a tuner entry and imports it, and the reason is stated."""
     broken = {name: ktc_dispatch_problems(name) for name in KTC_DISPATCHERS if ktc_dispatch_problems(name)}
     assert not broken, f"KTC_DISPATCHERS entries that no longer hold: {broken}"
-    assert all(len(why) > 30 for _dispatcher, why in KTC_DISPATCHERS.values())
+    assert KTC_DISPATCHERS and all(len(why) > 30 for _dispatcher, why in KTC_DISPATCHERS.values())
     assert all(name in set(fe_modules()) for name in KTC_DISPATCHERS), "an entry names a module that is not an FE module"
 
 
@@ -84,7 +84,7 @@ def test_every_cpu_twin_names_a_real_module_with_a_numba_kernel():
     """A device module that meets the CPU-kernel point through its host twin: the twin still carries an ``@njit`` kernel and the reason is stated."""
     broken = {name: cpu_twin_problems(name) for name in CPU_TWINS if cpu_twin_problems(name)}
     assert not broken, f"CPU_TWINS entries that no longer hold: {broken}"
-    assert all(len(why) > 30 for _twin, why in CPU_TWINS.values())
+    assert CPU_TWINS and all(len(why) > 30 for _twin, why in CPU_TWINS.values())
     assert all(name in set(fe_modules()) for name in CPU_TWINS), "an entry names a module that is not an FE module"
 
 

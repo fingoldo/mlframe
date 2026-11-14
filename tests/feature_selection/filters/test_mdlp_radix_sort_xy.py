@@ -38,7 +38,7 @@ def test_radix_route_gives_the_edges_of_the_argsort_route(n, kind, n_classes, fa
     fast = sb.mdlp_bin_edges(x, y, fast_mode=fast_mode)
     monkeypatch.setattr(sb, "sort_xy", lambda a, b: None)
     slow = sb.mdlp_bin_edges(x, y, fast_mode=fast_mode)
-    np.testing.assert_array_equal(fast, slow)
+    assert np.array_equal(fast, slow), (fast, slow)
 
 
 @pytest.mark.parametrize("n", [4096, 20_000])
@@ -50,14 +50,14 @@ def test_sort_xy_sorts_x_and_carries_y_with_its_value(n, kind):
     y = rng.integers(0, 5, n).astype(np.int64)
     got = qr.sort_xy(x, y)
     assert got is not None
-    np.testing.assert_array_equal(got[0], np.sort(x).astype(np.float64))
+    assert np.array_equal(got[0], np.sort(x).astype(np.float64))
     want_pairs = np.lexsort((y, x.astype(np.float64) + 0.0))
     got_pairs = np.lexsort((got[1], got[0] + 0.0))
-    np.testing.assert_array_equal(got[0][got_pairs] + 0.0, x.astype(np.float64)[want_pairs] + 0.0)
-    np.testing.assert_array_equal(got[1][got_pairs], y[want_pairs])
+    assert np.array_equal(got[0][got_pairs] + 0.0, x.astype(np.float64)[want_pairs] + 0.0)
+    assert np.array_equal(got[1][got_pairs], y[want_pairs])
     stable = np.argsort(x, kind="stable") if kind != "zeros" else None
     if stable is not None:
-        np.testing.assert_array_equal(got[1], y[stable])  # without signed zeros the order of ties is the stable one
+        assert np.array_equal(got[1], y[stable])  # without signed zeros the order of ties is the stable one
 
 
 def test_other_dtypes_and_small_inputs_return_none():

@@ -68,6 +68,6 @@ def test_every_targets_per_pass_gives_the_same_matrix():
             results.append(P.pair_mi_perm_matrix_cuda(x, a, b, nb, perms, freqs, 10_000))
         finally:
             P._targets_per_pass = orig
-    assert all(r is not None for r in results) and n
+    assert len(results) == 4 and all(r is not None for r in results) and n
     for r in results[1:]:
         assert np.allclose(r, results[0], rtol=0, atol=1e-15)
