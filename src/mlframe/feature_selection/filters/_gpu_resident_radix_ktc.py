@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # curve) is intersected with / falls back to the derived set; 512 = the historical hardcoded default + the
 # pre-sweep / no-cupy / lookup-failure fallback. Block size NEVER changes the order statistics (sum-reduction
 # over the same column values) -> edges/codes/MI/selection bit-identical for every thread count.
-_RADIX_THREADS_SEED = [256, 512, 768, 1024]
+_RADIX_THREADS_SEED = [256, 384, 512, 768, 1024]
 _RADIX_THREADS_DEFAULT = 512  # historical hardcoded default + pre-sweep / no-cupy / lookup-failure fallback
 # Worst-case dynamic shared the radix histogram uses (R<=40 active -> the host gates R*256*4 > device limit
 # off; R=38 is the canonical F2 R -> 38*256*4 ~= 38KB). Used only to bound the OCCUPANCY candidate set.
@@ -75,8 +75,8 @@ def _radix_threads_variants() -> list:
 
 
 _RADIX_THREADS_VARIANTS = _radix_threads_variants()
-_RADIX_THREADS_SWEEP_N_SAMPLES = [50_000, 100_000, 300_000, 1_000_000]
-_RADIX_THREADS_SALT = 1
+_RADIX_THREADS_SWEEP_N_SAMPLES = [20_000, 30_000, 50_000, 100_000, 300_000, 1_000_000]
+_RADIX_THREADS_SALT = 2  # bumped: the v5 compaction kernel prefers 384 to 768 threads at 20000 to 30000 rows (the earlier sweep ran the v1 kernel from 50000 rows up)
 
 
 def radix_select_threads(n: int) -> int:

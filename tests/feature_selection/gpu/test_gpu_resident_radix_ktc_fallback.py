@@ -145,3 +145,12 @@ class TestOverrideWritesToOwningModule:
         finally:
             grsk._RADIX_THREADS_OVERRIDE = saved
         assert grsk._RADIX_THREADS_OVERRIDE == saved, "override must be fully restored after use"
+
+
+def test_thread_sweep_covers_the_small_row_counts_and_the_384_block():
+    """The thread sweep times the row counts that dominate a fit (20000 to 30000 rows) and the 384-thread block: the v5 compaction kernel runs 20000 x 1918 columns about 25 % faster at 768 than at 1024 threads, and the sweep that only started at 50000 rows had left 1024 chosen."""
+    from mlframe.feature_selection.filters import _gpu_resident_radix_ktc as ktc
+
+    assert {20_000, 30_000} <= set(ktc._RADIX_THREADS_SWEEP_N_SAMPLES)
+    assert 384 in ktc._RADIX_THREADS_SEED
+    assert ktc._RADIX_THREADS_SALT >= 2
