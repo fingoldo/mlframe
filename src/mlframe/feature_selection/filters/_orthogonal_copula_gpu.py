@@ -6,7 +6,7 @@ each sorted position (binary searches for the bounds of its tie run, the run's m
 integer atomics), and the MI of the integer tables is formed on the host in the host kernel's loop order. The counts are integers, so the tables equal the host's exactly; the MI then
 differs from the host's value only by the order of the final floating-point sum, which is the same here (same loops over the same integers).
 
-Columns go in blocks that fit ``_BUDGET_FRACTION`` of the free device memory; any device fault returns ``None`` and the caller runs the host kernel. ``MLFRAME_COPULA_DEVICE=0|1`` forces the
+Columns go in column blocks that fit ``_BUDGET_FRACTION`` of the free device memory; any device fault returns ``None`` and the caller runs the host kernel. ``MLFRAME_COPULA_DEVICE=0|1`` forces the
 The kernel-tuning cache decides by row count (fallback: the host).
 """
 

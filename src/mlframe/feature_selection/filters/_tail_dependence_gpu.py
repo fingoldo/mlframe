@@ -12,7 +12,7 @@ host kernel's order):
 * ``_block_counts_chain`` (float64 columns, and the reference the tests compare against): ``argsort`` of each column, then about twenty array operations with ``(b, n)`` int64 tables in
   global memory. Slower; kept for float64 input, which the 64-bit key cannot hold.
 
-Columns go to the device in blocks that fit ``_BUDGET_FRACTION`` of the room the allocator has left; on any device fault the caller runs the host kernel. The kernel-tuning cache decides by
+Columns go to the device in column blocks that fit ``_BUDGET_FRACTION`` of the room the allocator has left; on any device fault the caller runs the host kernel. The kernel-tuning cache decides by
 row count (fallback ``DEVICE_FALLBACK_ROWS``).
 """
 
@@ -25,6 +25,7 @@ import numpy as np
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
 from ._device_sort_safe import device_argsort, device_room, sort_room
+from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._raw_module_cache import RawModuleCache
 from mlframe.utils.log_throttle import log_throttle
@@ -37,23 +38,23 @@ _BYTES_PER_ELEMENT_CHAIN = 144  # per column element: values, sort order, permut
 _BYTES_PER_ELEMENT_PACKED = 48  # per column element: the float32 value, the 64-bit key sorted in place and the sort's scratch
 
 _SRC = r"""
-// dtype-ok: Intentional float64, reviewed 2026-11-12: the average rank of a run is formed in double exactly as the host kernel forms it (0.5 * (first + 1 + end) / (n + 1)) because it is compared
-// with the tail quantile; no pointer is double (keys are 64-bit integers, counts are int).
-// A key is (column << 34) | (order-preserving bits of the float32 value << 2) | (target above the upper tail << 1) | (target below the lower tail).
-// The packed path takes float32 columns only (the project's critical dtype): the 64-bit key has room for 32 value bits, 2 flag bits and the column number, not for a double.
-extern "C" __global__ void pack_keys(const float* __restrict__ x, const unsigned long long* __restrict__ vflag, const long long n, const long long total, unsigned long long* __restrict__ keys) {
+// The average rank of a run is formed in the {ACC} type exactly as the host kernel forms it (0.5 * (first + 1 + end) / (n + 1)) because it is compared with the tail quantile; no pointer is of that type
+// (keys are 64-bit integers, counts are int).
+// A key is (column << 34) | (order-preserving bits of the {REAL} value << 2) | (target above the upper tail << 1) | (target below the lower tail).
+// The packed path takes {REAL} columns only (the project's critical dtype): the 64-bit key has room for 32 value bits, 2 flag bits and the column number, not for a 64-bit value.
+extern "C" __global__ void pack_keys(const {REAL}* __restrict__ x, const unsigned long long* __restrict__ vflag, const long long n, const long long total, unsigned long long* __restrict__ keys) {
     const long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (t >= total) return;
     const long long c = t / n;
     const long long r = t - c * n;
-    float f = x[t];
+    {REAL} f = x[t];
     if (f == 0.0f) f = 0.0f;  // -0.0 and +0.0 are one value for the host, so they must be one key
     const unsigned int bits = __float_as_uint(f);
-    const unsigned int ordered = bits ^ ((bits >> 31) ? 0xFFFFFFFFu : 0x80000000u);  // order-preserving unsigned image of a finite float32
+    const unsigned int ordered = bits ^ ((bits >> 31) ? 0xFFFFFFFFu : 0x80000000u);  // order-preserving unsigned image of a finite {REAL}
     keys[t] = ((unsigned long long)c << 34) | ((unsigned long long)ordered << 2) | vflag[r];
 }
 
-extern "C" __global__ void tail_counts(const unsigned long long* __restrict__ keys, const long long n, const double hi, const double lo, const int b, int* __restrict__ out) {
+extern "C" __global__ void tail_counts(const unsigned long long* __restrict__ keys, const long long n, const {ACC} hi, const {ACC} lo, const int b, int* __restrict__ out) {
     __shared__ int acc[4];
     const int c = blockIdx.x;
     if (threadIdx.x < 4) acc[threadIdx.x] = 0;
@@ -70,7 +71,7 @@ extern "C" __global__ void tail_counts(const unsigned long long* __restrict__ ke
             cnt_lo += (int)(col[e] & 1ULL);
             ++e;
         }
-        const double u = 0.5 * (double)(i + 1 + e) / ((double)n + 1.0);
+        const {ACC} u = 0.5 * ({ACC})(i + 1 + e) / (({ACC})n + 1.0);
         if (u > hi) { n_u_hi += (int)(e - i); both_hi += cnt_hi; }
         if (u < lo) { n_u_lo += (int)(e - i); both_lo += cnt_lo; }
     }
@@ -82,6 +83,7 @@ extern "C" __global__ void tail_counts(const unsigned long long* __restrict__ ke
     if (threadIdx.x < 4) out[threadIdx.x * b + c] = acc[threadIdx.x];
 }
 """
+_SRC = render(_SRC, real=np.float32)  # the packed path takes float32 columns only; {ACC} is double (the rank is compared with the tail quantile)
 
 _MODULE = RawModuleCache(_SRC)
 
