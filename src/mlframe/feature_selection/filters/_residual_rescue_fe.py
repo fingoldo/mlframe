@@ -143,21 +143,33 @@ def _standardised(v: np.ndarray) -> Optional[np.ndarray]:
 _GRAM_MIN_CONDITION = (
     1e-6  # smallest eigenvalue over the largest of A'A for which the normal equations stand in for lstsq: the solve then loses at most ~1e-10 relative
 )
+_GRAM_RANK_CUTOFF = (
+    1e-13  # eigenvalues of A'A below this share of the largest are numerically empty directions (singular values below ~3e-7 of the largest) and are dropped
+)
 
 
 def _ols_solve(A: np.ndarray, B: np.ndarray) -> np.ndarray:
-    """Least-squares coefficients of ``A`` (rows x p) for the target(s) ``B``: the normal equations when A'A is well conditioned, ``np.linalg.lstsq`` otherwise.
+    """Least-squares coefficients of ``A`` (rows x p) for the target(s) ``B``: the normal equations when A'A is well conditioned, its eigen-decomposition pseudo-inverse when the design is rank-deficient or near-collinear, ``np.linalg.lstsq`` only if the decomposition fails.
 
     The design columns are standardised and the rows many, so A'A is a small p x p matrix that is solved in microseconds, where the SVD of ``lstsq`` costs seconds for the hundreds of
-    fits of a rescue scan (n=100000, p=80: 243 -> 15 ms, equal to 4e-15). A near-collinear design (a raw operand beside a composite built from it) fails the conditioning check and keeps ``lstsq``.
+    fits of a rescue scan (n=100000, p=80: 243 -> 15 ms, equal to 4e-15). A near-collinear design (a raw operand beside a composite built from it) fails the conditioning check and takes the pseudo-inverse of A'A.
     """
     # Intentional float64: the Gram matrix squares the condition number, so it is formed and solved in double precision whatever the criterion dtype of the columns is
     A64 = A if A.dtype == np.float64 else A.astype(np.float64)
     G = A64.T @ A64
     try:
-        w = np.linalg.eigvalsh(G)
+        w, V = np.linalg.eigh(G)
+        rhs = A64.T @ B
         if w[0] > _GRAM_MIN_CONDITION * w[-1] > 0.0:
-            return np.asarray(np.linalg.solve(G, A64.T @ B))
+            return np.asarray(np.linalg.solve(G, rhs))
+        # A rank-deficient or near-collinear design (duplicate columns, a raw operand beside a composite built from it): the minimum-norm solution on the eigen-directions of A'A that carry
+        # variance, from the decomposition already in hand instead of an SVD of the whole matrix. For an exactly rank-deficient design the fitted values are lstsq's; a copy of a column plus noise
+        # below the resolution of A'A (relative 1e-13 of the largest eigenvalue) is dropped as well, so the fit is that of the identifiable model, where an SVD solve would fit the noise direction.
+        if w[-1] > 0.0:
+            keep = w > _GRAM_RANK_CUTOFF * w[-1]
+            Vk = V[:, keep]
+            coef = (Vk.T @ rhs) / (w[keep] if rhs.ndim == 1 else w[keep][:, None])
+            return np.asarray(Vk @ coef)
     except np.linalg.LinAlgError:
         pass
     return np.asarray(np.linalg.lstsq(A, B, rcond=None)[0])
