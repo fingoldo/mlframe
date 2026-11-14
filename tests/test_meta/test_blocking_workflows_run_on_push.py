@@ -42,6 +42,7 @@ PUSH_EXEMPT: Dict[str, str] = {
     "numba-coverage.yml": "nightly; NUMBA_DISABLE_JIT makes it far slower than a push can absorb",
     "release.yml": "triggered by a tag, not by a push to master",
     "macos-abort-probe.yml": "on-demand probe for the X5 investigation",
+    "macos-collect-hang.yml": "on-demand probe that collects and runs the macOS shard's tests under a wall-clock limit and prints stacks; it gates nothing",
     "dependabot-auto-merge.yml": "reacts to Dependabot pull requests by design",
     "dependency-review.yml": "GitHub's action compares a PR against its base; it has no push semantics",
     "dep-floors.yml": "resolves the declared floors; scheduled and dispatch, not a per-push gate",
