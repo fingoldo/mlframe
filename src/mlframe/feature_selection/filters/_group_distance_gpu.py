@@ -35,7 +35,7 @@ _BUDGET_FRACTION = 0.25
 DEVICE_FALLBACK_ROWS = 10**9  # the tuner decides; until a sweep says the device wins the host loop runs
 MAX_GROUPS = 256
 _SHARED_BYTES = 40 * 1024
-_W1_STEPS = 512  # must equal W1_STEPS in the kernel source
+_W1_STEPS = 128  # must equal W1_STEPS in the kernel source
 
 _SRC = r"""
 // dtype-ok: Intentional float64: {ACC} holds the sums and the Wasserstein integral exactly as the host kernel does; {REAL} is the column type.
@@ -81,7 +81,7 @@ extern "C" __global__ void gd_sort_keys(const {REAL}* __restrict__ xs, const int
     keys[at] = ((u64)g << 32) | (u64)ord;
 }
 
-#define W1_STEPS 512  // merged elements one thread walks
+#define W1_STEPS 128  // merged elements one thread walks
 extern "C" __global__ void gd_w1(const {REAL}* __restrict__ xs_sorted, const {ACC}* __restrict__ gsorted, const long long* __restrict__ gn, const long long* __restrict__ offs,
                                  const int* __restrict__ cnt, {ACC}* __restrict__ out, const long long n, const long long gmax, const int ngroups, const int chunks) {
     const int col = blockIdx.y;
