@@ -85,7 +85,7 @@ _RECIPES: dict = {
         (r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "__MAXK__": "8", "__WARPS__": "8", "__MAXVA__": "8", "__BLOCK__": "256"}), ("-std=c++11",))
         for r in _REAL_TYPES
     ],
-    "_fe_batched_mi.py::_MI_MM_FROM_VALUES_TEMPLATE": lambda s: [
+    "_fe_batched_mi_mm_values.py::_MI_MM_FROM_VALUES_TEMPLATE": lambda s: [
         (f"{r}/{e}", _fill(s, **{"{REAL}": r, "{ACC}": "double", "{EDGE}": e}), ()) for r in _REAL_TYPES for e in _REAL_TYPES
     ],
     "_gpu_resident_discretize.py::_BIN_CODES_SRC": lambda s: [
