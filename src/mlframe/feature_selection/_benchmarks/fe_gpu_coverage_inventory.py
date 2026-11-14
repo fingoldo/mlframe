@@ -219,6 +219,10 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
         "_pairs_score_steps",
         "_pairs_setup",
     ),
+    "_fe_accuracy_gate_batched": (
+        "_fe_accuracy_gate_kernel",
+        "_fe_accuracy_gate_newton",
+    ),
     "_mi_greedy_cmi_fe": (
         "_mi_greedy_cmi_fe_binning",
         "_mi_greedy_cmi_fe_gpu",
