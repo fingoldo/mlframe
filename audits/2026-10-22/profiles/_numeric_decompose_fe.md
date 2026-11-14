@@ -33,3 +33,6 @@ Superseding the theoretical occupancy stated above (the counters were blocked by
 | decompose_columns | 82.4 % | 98.6 % | 12.9 GB/s | 20.1 GB/s | 72.9 % | 99.2 % | 0 (no shared memory) |
 
 Load efficiency 72.9 percent is the broadcast reads of the kinds / params tables; the value loads are coalesced.
+
+## Integer floor-mod in the digit output (2026-11-14)
+The counters showed 38.8 percent double-precision efficiency in `decompose_columns` (the digit outputs divide by 10 in double, one of the slowest operations of a card that runs double at 1/32 rate). For an integer-valued `f` with `|f| < 1e15` (below 2^50, where `f / 10` rounds without crossing an integer) the floor-mod `f - 10 * floor(f / 10)` equals the integer remainder, so the kernel takes `(long long)f % 10` (adjusted to be non-negative) and keeps the double formula above that bound. Bit-identical on columns with NaN, inf and values of 1e13 and 1e17 (`array_equal`). Interleaved A/B, 15 rounds, medians, kernel only on resident data (16 columns x 100,000 rows x 7 outputs): 2.77 -> 2.09 ms (1.33x). The whole call (56.5 vs 59.9 ms, noise) is bound by the 90 MB output download, so this is a kernel gain with no whole-call effect for host consumers; it matters for the resident path.

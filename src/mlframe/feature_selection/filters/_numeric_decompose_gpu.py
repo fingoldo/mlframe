@@ -33,7 +33,15 @@ void decompose_columns(const {REAL}* __restrict__ X, const long long n, const in
     } else {
         const {ACC} v = ({ACC})xr * params[o];               // the host loop multiplies in the accumulator type
         if (!isfinite(v)) { r = 0.0; }
-        else { const {ACC} f = floor(v); r = f - 10.0 * floor(f / 10.0); }
+        else {
+            const {ACC} f = floor(v);
+            if (fabs(f) < 1.0e15) {                              // an integer-valued value below 2^50: the integer floor-mod equals f - 10 * floor(f / 10) exactly, without the slow division of the wide type
+                const long long fi = (long long)f;
+                long long m = fi % 10;
+                if (m < 0) m += 10;
+                r = ({ACC})m;
+            } else { r = f - 10.0 * floor(f / 10.0); }
+        }
     }
     out[((long long)col * n_out + o) * n + i] = r;
 }
