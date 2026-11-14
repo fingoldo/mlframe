@@ -157,3 +157,20 @@ def test_column_matrix_beyond_the_vram_budget_is_refused(monkeypatch):
     assert rg.residue_rank_scores_gpu(mat, ia, ib, None, _MODS, ysub, n_cls) is None
     monkeypatch.undo()
     assert rg.residue_rank_scores_gpu(mat, ia, ib, None, _MODS, ysub, n_cls) is not None
+
+
+def test_over_budget_candidates_stream_in_blocks_and_match():
+    """With the VRAM budget forced to nothing the candidates are scored in blocks, each uploading only its columns, and the scores equal the unblocked call."""
+    _needs_gpu()
+    X, y = _frame(30)
+    cols = list(X.columns)
+    arrs = {c: np.asarray(X[c]) for c in cols}
+    mat, ysub = pm._rank_subsample(cols, arrs, pm.encode_y_for_classif_mi(y), 0)
+    pairs = np.array(list(itertools.combinations(range(len(cols)), 2)), dtype=np.int64)
+    ia, ib = pairs[:, 0].copy(), pairs[:, 1].copy()
+    n_cls = int(ysub.max()) + 1
+    whole = rg.residue_rank_scores_gpu(mat, ia, ib, None, _MODS, ysub, n_cls)
+    assert whole is not None
+    blocked = rg._score_candidate_blocks(mat, ia, ib, None, _MODS, ysub, n_cls)
+    assert blocked is not None
+    np.testing.assert_allclose(blocked, whole, rtol=0, atol=0)

@@ -225,6 +225,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_orthogonal_copula_mi_fe": ("_orthogonal_copula_gpu",),
     "_orthogonal_tail_dependence_fe": ("_tail_dependence_gpu",),
     "_lof_fe": ("_lof_gpu",),
+    "_pairwise_modular_fe": ("_pairwise_modular_rank_gpu", "_pairwise_modular_resident"),
     "_fe_batched_mi": (
         "_fe_batched_mi_blocks",
         "_fe_batched_mi_cmi",
