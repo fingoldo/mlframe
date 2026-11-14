@@ -152,6 +152,9 @@ def test_biz_cat_fe_disabled_recovers_no_synergy(xor_4way_dataset):
         # isolates "cat-FE disabled -> cat-FE itself produces nothing" (2026-06-15).
         fe_integer_lattice_enable=False,
         fe_pairwise_modular_enable=False,
+        # The cat-pair / cat-triple cross families are default-on and separate from CatFEConfig too: they emit cat_pair_cross recipes (cross_x1_x2) on this fixture.
+        fe_cat_pair_enable=False,
+        fe_cat_triple_enable=False,
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
