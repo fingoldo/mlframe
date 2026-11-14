@@ -12,7 +12,7 @@ Kernel launches per call: `xi_sort_keys` 1 launch (0.53 ms), `xi_walk` 1 launch 
 
 ## Occupancy and throughput
 
-nvprof counters (achieved occupancy, DRAM throughput, issue-slot utilization) were not collected on 2026-11-14 (`Internal profiling error 4211` for every kernel today). The kernels take their block size from the occupancy rule of `pyutilz.performance.gpu_hw_launch.block_size_for`; `xi_walk` handles 4 million sorted positions in 1.14 ms, one thread per position, 3.5 G positions/s, and reads a row index, its predecessor's and two small per-class tables (read-only cache) per position, about 12 bytes: 42 GB/s of the card's 112 GB/s. Throughput of the whole device call: 4 million elements (16 MB of values) in 54 ms, 0.3 GB/s of input, because the 64-bit key sort dominates.
+nvprof counters (achieved occupancy, DRAM throughput, issue-slot utilization) were not collected on 2026-11-14 (`Internal superseded by the Hardware counters section below` for every kernel today). The kernels take their block size from the occupancy rule of `pyutilz.performance.gpu_hw_launch.block_size_for`; `xi_walk` handles 4 million sorted positions in 1.14 ms, one thread per position, 3.5 G positions/s, and reads a row index, its predecessor's and two small per-class tables (read-only cache) per position, about 12 bytes: 42 GB/s of the card's 112 GB/s. Throughput of the whole device call: 4 million elements (16 MB of values) in 54 ms, 0.3 GB/s of input, because the 64-bit key sort dominates.
 
 ## Host-or-device choice
 
@@ -21,3 +21,12 @@ nvprof counters (achieved occupancy, DRAM throughput, issue-slot utilization) we
 ## Streaming
 
 `xi_columns_device` processes the columns in blocks that fit `_BUDGET_FRACTION` of the free device memory (column blocks) and returns `None` on any device fault so the caller runs the host kernel; the operands may already be resident.
+
+## Hardware counters (nvprof --metrics, elevated shell, 2026-11-14)
+Superseding the theoretical occupancy stated above (the counters were blocked by the driver's restriction until the process ran as administrator). Kernel alone, last sweep size, one profiled call after a warm call. Pascal sm_61: Nsight Compute reports the device as unsupported, nvprof is the tool.
+
+| kernel | achieved occupancy | SM efficiency | DRAM read | DRAM write | global load eff. | global store eff. | shared eff. |
+|---|---|---|---|---|---|---|---|
+| xi_walk | 99.1 % | 93.8 % | 11.9 GB/s | 0.90 GB/s | 31.3 % | 0 % | 75.2 % |
+
+Load efficiency 31 percent in `xi_walk`; shared efficiency 75 percent.

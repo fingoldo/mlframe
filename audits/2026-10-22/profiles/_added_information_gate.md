@@ -13,7 +13,7 @@ Kernel-tuning entry `added_information_backend`, swept by rows x candidates.
 Before the change `added_information_p` ran once per candidate inside the binning pool (the `np.bincount` of the joint key and the log terms of a (bs, bc, by) array per call); the host loop below is that cost.
 
 ## nvprof / nsys
-`added_information_g`: launches per source group: 1 per candidate block. nvprof counters fail on this machine today (profiling error 4211), so occupancy is theoretical: 256 threads, launch bounds 256,
+`added_information_g`: launches per source group: 1 per candidate block. nvprof counters fail on this machine today (superseded by the Hardware counters section below), so occupancy is theoretical: 256 threads, launch bounds 256,
 dynamic shared memory (cells + marginals) x 4 bytes, 4 x 10 x 2 + 40 + 8 + 4 = 132 ints = 528 bytes in the sweep, so 8 resident blocks per SM. Kernel alone, 256 candidates x 30,000 rows: 0.73 ms, effective
 read throughput 126.6 GB/s of the code traffic (above the card's 112 GB/s: the source and target vectors are re-read from L2 by every block).
 
@@ -27,3 +27,12 @@ read throughput 126.6 GB/s of the code traffic (above the card's 112 GB/s: the s
 
 The kernel is 0.73 ms of the 36.2 ms at 256 candidates; the rest is the conversion and upload of the 256 x 30,000 int64 code matrix (a 1.9x gain over the host loop, limited by the transfer, not the kernel).
 The swept choice on this host: host at 4 and 16 candidates, device at 64 and 256. Equality: p-values equal the host to 1e-9 relative, oversize tables take the host path (`tests/feature_selection/gpu/test_added_information_device.py`).
+
+## Hardware counters (nvprof --metrics, elevated shell, 2026-11-14)
+Superseding the theoretical occupancy stated above (the counters were blocked by the driver's restriction until the process ran as administrator). Kernel alone, last sweep size, one profiled call after a warm call. Pascal sm_61: Nsight Compute reports the device as unsupported, nvprof is the tool.
+
+| kernel | achieved occupancy | SM efficiency | DRAM read | DRAM write | global load eff. | global store eff. | shared eff. |
+|---|---|---|---|---|---|---|---|
+| added_information_g | 95.0 % | 97.4 % | 43.4 GB/s | 0.61 GB/s | 99.9 % | 25.0 % | 0.02 % |
+
+Shared efficiency 0.02 percent: same cause, the table has 80 cells.

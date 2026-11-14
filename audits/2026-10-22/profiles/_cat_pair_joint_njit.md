@@ -11,7 +11,7 @@ Pairs stream in blocks, each uploading only the code columns it references (halv
 The call is 3 ms in total: `cupy.array` uploads 1 ms (6 calls), `ndarray.get` 1 ms, the launch itself is asynchronous; nothing else exceeds 0.1 ms.
 
 ## nvprof / nsys
-`cat_pair_joint_mi`: launches per call: 1 per pair block (all 640 pairs in one). nvprof counters fail on this machine today (profiling error 4211), so occupancy is theoretical: 256 threads, launch bounds 256,
+`cat_pair_joint_mi`: launches per call: 1 per pair block (all 640 pairs in one). nvprof counters fail on this machine today (superseded by the Hardware counters section below), so occupancy is theoretical: 256 threads, launch bounds 256,
 dynamic shared memory 4 bytes x cells x classes (up to 32 KB, one resident block per SM at the largest table, 8 at the 12 x 12 x 3 tables of the sweep). Kernel alone, 640 pairs x 20,000 rows: 0.78 ms; effective read
 throughput 197 GB/s of code traffic, above the card's 112 GB/s because the six columns (480 KB) are re-read from L2 by every pair, not from DRAM.
 
@@ -24,3 +24,12 @@ throughput 197 GB/s of code traffic, above the card's 112 GB/s because the six c
 | 640 | 9.41 ms | 2.01 ms (4.7x) |
 
 The device wins from about 160 pairs; the swept choice on this host is host at 10 and 40 pairs, device at 160 and 640. Equality: 1e-12 against the numba pass (`tests/feature_selection/gpu/test_cat_pair_joint_device.py`).
+
+## Hardware counters (nvprof --metrics, elevated shell, 2026-11-14)
+Superseding the theoretical occupancy stated above (the counters were blocked by the driver's restriction until the process ran as administrator). Kernel alone, last sweep size, one profiled call after a warm call. Pascal sm_61: Nsight Compute reports the device as unsupported, nvprof is the tool.
+
+| kernel | achieved occupancy | SM efficiency | DRAM read | DRAM write | global load eff. | global store eff. | shared eff. |
+|---|---|---|---|---|---|---|---|
+| cat_pair_joint_mi | 72.6 % | 99.4 % | 0.72 GB/s | 0.34 GB/s | 99.5 % | 25.0 % | 0.92 % |
+
+Shared efficiency 0.92 percent: the integer count table is hit by a handful of cells, per-warp private tables are the lever.

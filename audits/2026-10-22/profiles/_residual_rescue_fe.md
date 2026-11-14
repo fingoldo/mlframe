@@ -12,7 +12,7 @@ One `residual_rescue` call, host path (`D:/Temp/exp/rescue_prof2.py`): 0.861 s u
 
 ## Occupancy and throughput
 
-nvprof counters (achieved occupancy, DRAM throughput, issue-slot utilization) could not be collected: every `--metrics` run on this machine ended with `Internal profiling error 4211` today, including a kernel that was measured with counters in the morning, so the figures below come from the resource usage and the timings. `rescue_score_columns`: 32 registers, 272 bytes of static and 448 bytes of dynamic shared memory at 256 threads, 8 resident blocks per SM by the thread limit (the register limit allows 8, the shared memory 136): theoretical occupancy 1.00. `rescue_codes`: 19 registers, no shared memory, 8 blocks per SM by threads (registers allow 13): theoretical occupancy 1.00. Throughput from the timings: the coding kernel handles 15 million elements (4 bytes read, 1 written) in 3.33 ms, 22.5 GB/s of the card's 112 GB/s peak; the scoring kernel reads the 15 million int32 codes in three passes over half the rows each (even rows once, odd rows twice, for the mean and then the variance), 90 MB of codes in 16.68 ms, 5.4 GB/s, with the 8-byte residual of each element read through the cache: it is bound by the dependent shared-memory loads of the bin sums, not by the memory system.
+nvprof counters (achieved occupancy, DRAM throughput, issue-slot utilization) could not be collected: every `--metrics` run on this machine ended with `Internal superseded by the Hardware counters section below` today, including a kernel that was measured with counters in the morning, so the figures below come from the resource usage and the timings. `rescue_score_columns`: 32 registers, 272 bytes of static and 448 bytes of dynamic shared memory at 256 threads, 8 resident blocks per SM by the thread limit (the register limit allows 8, the shared memory 136): theoretical occupancy 1.00. `rescue_codes`: 19 registers, no shared memory, 8 blocks per SM by threads (registers allow 13): theoretical occupancy 1.00. Throughput from the timings: the coding kernel handles 15 million elements (4 bytes read, 1 written) in 3.33 ms, 22.5 GB/s of the card's 112 GB/s peak; the scoring kernel reads the 15 million int32 codes in three passes over half the rows each (even rows once, odd rows twice, for the mean and then the variance), 90 MB of codes in 16.68 ms, 5.4 GB/s, with the 8-byte residual of each element read through the cache: it is bound by the dependent shared-memory loads of the bin sums, not by the memory system.
 
 ## Host-or-device choice
 
@@ -21,3 +21,12 @@ Two entries of the kernel-tuning cache (`_residual_rescue_ktc`), swept on the id
 ## Streaming
 
 Both twins move the pool to the device in column blocks (`_device_blocks.first_block` sizes the first block from the room under the pool, `run_column_blocks` halves a block that runs out of memory); the residual and the even mask are uploaded once. The tests pin that narrow blocks give exactly the single-block result.
+
+## Hardware counters (nvprof --metrics, elevated shell, 2026-11-14)
+Superseding the theoretical occupancy stated above (the counters were blocked by the driver's restriction until the process ran as administrator). Kernel alone, last sweep size, one profiled call after a warm call. Pascal sm_61: Nsight Compute reports the device as unsupported, nvprof is the tool.
+
+| kernel | achieved occupancy | SM efficiency | DRAM read | DRAM write | global load eff. | global store eff. | shared eff. |
+|---|---|---|---|---|---|---|---|
+| rescue_score_columns | 98.5 % | 97.8 % | 10.0 GB/s | 0.54 GB/s | 53.8 % | 0.16 % | 3.74 % |
+
+Load efficiency 53.8 percent: the pool is read as (column, row) int32 while the residual and mask are read per row by every column block. The `rescue_codes` kernel was not profiled.

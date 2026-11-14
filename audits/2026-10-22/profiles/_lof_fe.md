@@ -16,7 +16,7 @@ Kernel launches per call: 1 launch of `lof_scores` (106.8 ms, 99.7 percent of th
 
 ## Occupancy and throughput
 
-nvprof counters (achieved occupancy, DRAM throughput) could not be collected on 2026-11-14 (`Internal profiling error 4211` for every kernel today). From the resources of the compiled kernel: 130 registers per thread (the running top-k in registers), no spill, no static shared memory, 160 threads per block from `block_size_for`: 3 resident blocks per SM by the register limit (12 by the thread limit), theoretical occupancy 0.23. Throughput from the timing: 100000 x 2000 = 2.0e8 distance evaluations in 106.8 ms, 1.9 G pair-evaluations per second, each a 3-coordinate squared distance in double precision and an insertion test against the current k-th distance; the reference set is read through the cache by every thread. The kernel is arithmetic and register bound, not bandwidth bound.
+nvprof counters (achieved occupancy, DRAM throughput) could not be collected on 2026-11-14 (`Internal superseded by the Hardware counters section below` for every kernel today). From the resources of the compiled kernel: 130 registers per thread (the running top-k in registers), no spill, no static shared memory, 160 threads per block from `block_size_for`: 3 resident blocks per SM by the register limit (12 by the thread limit), theoretical occupancy 0.23. Throughput from the timing: 100000 x 2000 = 2.0e8 distance evaluations in 106.8 ms, 1.9 G pair-evaluations per second, each a 3-coordinate squared distance in double precision and an insertion test against the current k-th distance; the reference set is read through the cache by every thread. The kernel is arithmetic and register bound, not bandwidth bound.
 
 ## Host-or-device choice
 
@@ -25,3 +25,12 @@ Medians of 5 calls, ms, numpy matrix form / njit scan / device, float32, referen
 ## Streaming
 
 `lof_transform_gpu` takes the new rows in row blocks of `rows_per_launch` (default 4 000 000 rows) so the device memory is bounded whatever the number of rows; the host scan needs no blocks.
+
+## Hardware counters (nvprof --metrics, elevated shell, 2026-11-14)
+Superseding the theoretical occupancy stated above (the counters were blocked by the driver's restriction until the process ran as administrator). Kernel alone, last sweep size, one profiled call after a warm call. Pascal sm_61: Nsight Compute reports the device as unsupported, nvprof is the tool.
+
+| kernel | achieved occupancy | SM efficiency | DRAM read | DRAM write | global load eff. | global store eff. | shared eff. |
+|---|---|---|---|---|---|---|---|
+| lof_scores | 10.1 % | 98.7 % | 1.27 GB/s | 0.05 GB/s | 12.5 % | 0.12 % | 0 |
+
+`lof_scores` achieves 10.1 percent occupancy and 12.5 percent load efficiency: both are uncoalesced-read and occupancy defects to fix (the device twin is correct, the kernel is the slow part).

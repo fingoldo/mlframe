@@ -49,7 +49,7 @@ Kernel launches per call: `pack_keys` 4 launches (12.6 ms, 5.4 percent of the de
 
 ### Occupancy and throughput
 
-nvprof counters were not collected on 2026-11-14 (`Internal profiling error 4211` for every kernel today). `pack_keys` reads a 4-byte value and an 8-byte flag word and writes an 8-byte key, at most 20 bytes per element (the flag word is shared by all columns and cached), for 60 million elements in 12.6 ms: at most 95 GB/s of the card's 112 GB/s; `tail_counts` reads 480 MB of 64-bit keys in 72.2 ms, 6.7 GB/s, with one block per column (60 blocks for 6 SMs, a column's run walk is sequential inside its block): the run walk is the kernel to improve, not the packing. The kernel source now takes its types from the placeholders (`{REAL}` for the value, `{ACC}` for the rank formed in double precision), compiled for float32 columns; the result stays bit-equal to the host (`np.array_equal` at 5000 and 100000 rows after the change).
+nvprof counters were not collected on 2026-11-14 (`Internal superseded by the Hardware counters section below` for every kernel today). `pack_keys` reads a 4-byte value and an 8-byte flag word and writes an 8-byte key, at most 20 bytes per element (the flag word is shared by all columns and cached), for 60 million elements in 12.6 ms: at most 95 GB/s of the card's 112 GB/s; `tail_counts` reads 480 MB of 64-bit keys in 72.2 ms, 6.7 GB/s, with one block per column (60 blocks for 6 SMs, a column's run walk is sequential inside its block): the run walk is the kernel to improve, not the packing. The kernel source now takes its types from the placeholders (`{REAL}` for the value, `{ACC}` for the rank formed in double precision), compiled for float32 columns; the result stays bit-equal to the host (`np.array_equal` at 5000 and 100000 rows after the change).
 
 ### Host-or-device choice
 
@@ -58,3 +58,13 @@ Medians of 7 calls, host njit / device, ms, 60 columns: 5000 rows 2.04 / 2.67; 1
 ### Streaming
 
 `tail_dependence_columns_device` uploads the host array column block by column block (blocks fit `_BUDGET_FRACTION` of the room the allocator has left) or reads a resident cupy array in place; any device fault returns `None` and the caller runs the host kernel.
+
+## Hardware counters (nvprof --metrics, elevated shell, 2026-11-14)
+Superseding the theoretical occupancy stated above (the counters were blocked by the driver's restriction until the process ran as administrator). Kernel alone, last sweep size, one profiled call after a warm call. Pascal sm_61: Nsight Compute reports the device as unsupported, nvprof is the tool.
+
+| kernel | achieved occupancy | SM efficiency | DRAM read | DRAM write | global load eff. | global store eff. | shared eff. |
+|---|---|---|---|---|---|---|---|
+| tail_counts | 11.7 % | 98.0 % | 8.8 GB/s | 0.12 GB/s | 93.4 % | 4.2 % | 0.96 % |
+| pack_keys | 89.2 % | 98.9 % | 46.2 GB/s | 29.8 GB/s | 100 % | 99.7 % | 0 |
+
+`tail_counts` runs at 11.7 percent achieved occupancy: that is the lever, not the throughput.

@@ -12,7 +12,7 @@ Kernel launches per call: `gd_stats` 1 launch (3.42 ms, 3.9 percent of the devic
 
 ## Occupancy and throughput
 
-nvprof counters (achieved occupancy, DRAM throughput, issue-slot utilization) could not be collected on 2026-11-14 (`Internal profiling error 4211` for every kernel today). From the launch shape: `gd_w1` runs 480 threads, 15 warps, over 6 SMs (2.5 warps per SM of the 64 an SM holds): occupancy about 4 percent, which is why it takes 61 percent of the call for 4 million elements; a split of each cell's merge into segments is the next step for this kernel and is not done in this record. `gd_stats` reads the 4 million values once in 3.42 ms: 4.7 GB/s of float32 input (shared-memory histogram bound).
+nvprof counters (achieved occupancy, DRAM throughput, issue-slot utilization) could not be collected on 2026-11-14 (`Internal superseded by the Hardware counters section below` for every kernel today). From the launch shape: `gd_w1` runs 480 threads, 15 warps, over 6 SMs (2.5 warps per SM of the 64 an SM holds): occupancy about 4 percent, which is why it takes 61 percent of the call for 4 million elements; a split of each cell's merge into segments is the next step for this kernel and is not done in this record. `gd_stats` reads the 4 million values once in 3.42 ms: 4.7 GB/s of float32 input (shared-memory histogram bound).
 
 ## Host-or-device choice
 
@@ -21,3 +21,13 @@ nvprof counters (achieved occupancy, DRAM throughput, issue-slot utilization) co
 ## Streaming
 
 `group_stats_device` takes the numeric columns in column blocks sized from `_BUDGET_FRACTION` of the free device memory (`block = max(1, min(k, fraction * free // per_col))`), runs the three launches per block and returns `None` on a group count above `MAX_GROUPS`, a non-float32 block or any device fault, so the caller keeps the host loop.
+
+## Hardware counters (nvprof --metrics, elevated shell, 2026-11-14)
+Superseding the theoretical occupancy stated above (the counters were blocked by the driver's restriction until the process ran as administrator). Kernel alone, last sweep size, one profiled call after a warm call. Pascal sm_61: Nsight Compute reports the device as unsupported, nvprof is the tool.
+
+| kernel | achieved occupancy | SM efficiency | DRAM read | DRAM write | global load eff. | global store eff. | shared eff. |
+|---|---|---|---|---|---|---|---|
+| gd_w1 | 55.5 % | 97.0 % | 29.0 GB/s | 0.31 GB/s | 20.5 % | 0 % | 0 |
+| gd_stats | 99.0 % | 99.6 % | 7.4 GB/s | 0.13 GB/s | 100 % | 0 % | 0.54 % |
+
+`gd_w1` is 80 percent of the device call and reads at 20.5 percent load efficiency (uncoalesced); occupancy 55 percent, not the 4 percent stated earlier.

@@ -12,7 +12,7 @@ Kernel-tuning entry `cond_bin_moments_backend`, swept by the work n * p. Column 
 `bin_moments_host` 0.405 s cumulative (12 calls), `_zscore_from_bins_njit` 0.148 s, `_std_njit` 0.147 s, `_emit_kind` 0.124 s, `ascontiguousarray` 0.135 s. The moments are 32 percent of the call.
 
 ## nvprof / nsys
-`cond_bin_moments`: launches per x_j batch: 1 per column block (one block per column). nvprof counters fail on this machine today (profiling error 4211), so occupancy is theoretical:
+`cond_bin_moments`: launches per x_j batch: 1 per column block (one block per column). nvprof counters fail on this machine today (superseded by the Hardware counters section below), so occupancy is theoretical:
 256 threads per block, 4 * n_bins * 8 bytes of shared memory (320 bytes at 10 bins), launch bounds 256, so shared memory does not limit residency and 8 blocks of 256 threads (2048 threads, full occupancy on sm_61) fit an SM.
 
 ## Wall clock (64 columns x 50,000 rows, 10 bins)
@@ -29,3 +29,12 @@ The kernel-tuning sweep (`tune_spec(force=True)`) picks the host for host-reside
 
 ## Open
 Per-warp private histograms would remove the atomic contention (the same fix as the modular rank kernel version 6); not measured yet.
+
+## Hardware counters (nvprof --metrics, elevated shell, 2026-11-14)
+Superseding the theoretical occupancy stated above (the counters were blocked by the driver's restriction until the process ran as administrator). Kernel alone, last sweep size, one profiled call after a warm call. Pascal sm_61: Nsight Compute reports the device as unsupported, nvprof is the tool.
+
+| kernel | achieved occupancy | SM efficiency | DRAM read | DRAM write | global load eff. | global store eff. | shared eff. |
+|---|---|---|---|---|---|---|---|
+| cond_bin_moments | 97.7 % | 92.0 % | 10.9 GB/s | 0.64 GB/s | 99.96 % | 0.84 % | 0.37 % |
+
+Shared-memory efficiency 0.37 percent confirms the atomic bank contention on the 10 bins (the open item above); the `_scales` helper is a chain of tiny cupy kernels at 6 percent occupancy.
