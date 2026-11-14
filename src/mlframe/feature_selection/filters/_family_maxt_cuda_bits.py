@@ -30,7 +30,7 @@ extern "C" __global__ void family_null_bits(const unsigned long long* __restrict
     if (idx >= (long long)B * K) return;
     const int b = (int)(idx / K);
     const int j = (int)(idx - (long long)b * K);
-    double s = 0.0;
+    {ACC} s = 0.0;
     const int nb = (int)n_x[j];
     for (int a = 0; a < nb; ++a) {
         const unsigned long long* row = bits + (long long)a * words * K + j;
@@ -39,12 +39,12 @@ extern "C" __global__ void family_null_bits(const unsigned long long* __restrict
             const unsigned long long* cl = cls + ((long long)b * n_y + c) * words;
             int cnt = 0;
             for (int w = 0; w < words; ++w) cnt += __popcll(row[(long long)w * K] & cl[w]);
-            s += (double)table[cnt];
+            s += ({ACC})table[cnt];
             rest -= cnt;
         }
-        s += (double)table[rest];
+        s += ({ACC})table[rest];
     }
-    out[idx] = ({REAL})((s + (double)const_b[b] - (double)c_a[j]) / (double)n);
+    out[idx] = ({REAL})((s + ({ACC})const_b[b] - ({ACC})c_a[j]) / ({ACC})n);
 }
 """
 
@@ -66,7 +66,7 @@ extern "C" __global__ void family_null_bits_v2(const unsigned long long* __restr
     for (int i = threadIdx.x; i < NY1 * words; i += blockDim.x) sh_cls[i] = cls[((long long)b * n_y) * words + i];
     __syncthreads();
     if (j >= K) return;
-    double s = 0.0;
+    {ACC} s = 0.0;
     const int nb = (int)n_x[j];
     for (int a = 0; a < nb; ++a) {
         const unsigned long long* row = bits + (long long)a * words * K + j;
@@ -80,10 +80,10 @@ extern "C" __global__ void family_null_bits_v2(const unsigned long long* __restr
         }
         long long rest = px[(long long)j * cap + a];
         #pragma unroll
-        for (int c = 0; c < NY1; ++c) { s += (double)table[cnt[c]]; rest -= cnt[c]; }
-        s += (double)table[rest];
+        for (int c = 0; c < NY1; ++c) { s += ({ACC})table[cnt[c]]; rest -= cnt[c]; }
+        s += ({ACC})table[rest];
     }
-    out[(long long)b * K + j] = ({REAL})((s + (double)const_b[b] - (double)c_a[j]) / (double)n);
+    out[(long long)b * K + j] = ({REAL})((s + ({ACC})const_b[b] - ({ACC})c_a[j]) / ({ACC})n);
 }
 """
 
@@ -121,7 +121,7 @@ def _get_kernel_v2(cp, ny1: int, real: str):
     with _KERNEL_CACHE_LOCK:
         kern = _kernels_v2.get((ny1, real))
         if kern is None:
-            kern = cp.RawModule(code=_SOURCE_V2.replace("{REAL}", real), options=(f"-DNY1={int(ny1)}",)).get_function("family_null_bits_v2")
+            kern = cp.RawModule(code=_SOURCE_V2.replace("{REAL}", real).replace("{ACC}", "double"), options=(f"-DNY1={int(ny1)}",)).get_function("family_null_bits_v2")
             _kernels_v2[(ny1, real)] = kern
     return kern
 
@@ -191,7 +191,7 @@ extern "C" __global__ void family_null_bits_v3(const unsigned long long* __restr
     if (!ok) return;
     #pragma unroll
     for (int p = 0; p < PB; ++p) {
-        double s = 0.0;
+        {ACC} s = 0.0;
         int run[NY1];  // stored-class rows seen in the bins before this one: the last bin of an exact column is the class total minus them
         #pragma unroll
         for (int c = 0; c < NY1; ++c) run[c] = 0;
@@ -203,13 +203,13 @@ extern "C" __global__ void family_null_bits_v3(const unsigned long long* __restr
                 for (int c = 0; c < NY1; ++c) {
                     const int v = (exact && a == nb - 1) ? sh_tot[p * NY1 + c] - run[c] : cnt[a][p][c];
                     run[c] += v;
-                    s += (double)table[v];
+                    s += ({ACC})table[v];
                     rest -= v;
                 }
-                s += (double)table[rest];
+                s += ({ACC})table[rest];
             }
         }
-        if (b0 + p < B) out[(long long)(b0 + p) * K + j] = ({REAL})((s + (double)const_b[b0 + p] - (double)c_a[j]) / (double)n);
+        if (b0 + p < B) out[(long long)(b0 + p) * K + j] = ({REAL})((s + ({ACC})const_b[b0 + p] - ({ACC})c_a[j]) / ({ACC})n);
     }
 }
 """
@@ -235,9 +235,9 @@ def _get_kernel_v3(cp, ny1: int, pb: int, cap: int, real: str):
     with _KERNEL_CACHE_LOCK:
         kern = _kernels_v3.get((ny1, pb, cap, real))
         if kern is None:
-            kern = cp.RawModule(code=_SOURCE_V3.replace("{REAL}", real), options=(f"-DNY1={int(ny1)}", f"-DPB={int(pb)}", f"-DCAP={int(cap)}")).get_function(
-                "family_null_bits_v3"
-            )
+            kern = cp.RawModule(
+                code=_SOURCE_V3.replace("{REAL}", real).replace("{ACC}", "double"), options=(f"-DNY1={int(ny1)}", f"-DPB={int(pb)}", f"-DCAP={int(cap)}")
+            ).get_function("family_null_bits_v3")
             _kernels_v3[(ny1, pb, cap, real)] = kern
     return kern
 
@@ -323,7 +323,7 @@ def _get_kernel(cp, real: str):
     with _KERNEL_CACHE_LOCK:
         kern = _kernels.get(real)
         if kern is None:
-            kern = cp.RawKernel(_SOURCE.replace("{REAL}", real), "family_null_bits")
+            kern = cp.RawKernel(_SOURCE.replace("{REAL}", real).replace("{ACC}", "double"), "family_null_bits")
             _kernels[real] = kern
     return kern
 
