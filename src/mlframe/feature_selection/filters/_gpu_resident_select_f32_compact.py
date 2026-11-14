@@ -27,6 +27,8 @@ void radix_select_f32_v4(const float* __restrict__ data, const long long n, cons
     __shared__ unsigned int wsort[MAXR];   // wpref sorted ascending (distinct active window prefixes)
     __shared__ int wsort2w[MAXR];          // sorted position -> ORIGINAL window index (into wpref / sh)
     __shared__ int W;
+    __shared__ int win_bad;
+    __shared__ int wsum[2];
     __shared__ unsigned long long scount;
     __shared__ int have_cand;    // the candidate buffer holds every element the remaining passes can count
     __shared__ int overflowed;
@@ -36,12 +38,33 @@ void radix_select_f32_v4(const float* __restrict__ data, const long long n, cons
     for(int byte=3;byte>=0;--byte){
         int shift=byte*8;
         unsigned int hmask=(byte==3)?0u:(0xFFFFFFFFu<<((byte+1)*8));
-        if(tid==0){int w=0;for(int r=0;r<R;++r){unsigned int p=prefix[r]&hmask;int f=-1;
-            for(int q=0;q<w;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w]=p;rank2w[r]=w;w++;}else rank2w[r]=f;} W=w;
-            for(int q=0;q<w;++q){wsort[q]=wpref[q];wsort2w[q]=q;}
-            for(int a=1;a<w;++a){unsigned int kv=wsort[a];int kw=wsort2w[a];int b=a-1;
-                while(b>=0&&wsort[b]>kv){wsort[b+1]=wsort[b];wsort2w[b+1]=wsort2w[b];--b;}
-                wsort[b+1]=kv;wsort2w[b+1]=kw;}}
+        // WINDOWS: the ranks are distinct and ascending (every caller builds them with np.unique), so their prefixes never decrease; the windows are the runs of equal prefixes and the
+        // window of a rank is the running count of run starts. One flag per rank and a warp scan (two warps cover 64 ranks) replace the serial walk that compared every rank with every
+        // window (O(R^2), 125k of the 205k cycles of a block at 38 ranks: the serial part took 61 percent of the time). A decreasing prefix (never produced by the callers), or fewer than
+        // 64 threads with more than 32 ranks, takes the serial dedup below, unchanged.
+        if(tid==0)win_bad=0;
+        __syncthreads();
+        const bool par_ok=(R<=32)||(nt>=64);
+        {   unsigned int p=0u;int f=0;
+            if(tid<R){p=prefix[tid]&hmask;unsigned int pp=(tid>0)?(prefix[tid-1]&hmask):p;f=(tid==0)||(p!=pp);if(tid>0&&p<pp)atomicOr(&win_bad,1);}
+            int x=f;const int lane=tid&31;
+            #pragma unroll
+            for(int o=1;o<32;o<<=1){int y=__shfl_up_sync(0xffffffffu,x,o);if(lane>=o)x+=y;}
+            if((tid>>5)<2&&lane==31)wsum[tid>>5]=x;
+            __syncthreads();
+            if(par_ok&&!win_bad){
+                if((tid>>5)==1)x+=wsum[0];
+                if(tid<R){int widx=x-1;rank2w[tid]=widx;if(f){wpref[widx]=p;wsort[widx]=p;wsort2w[widx]=widx;}if(tid==R-1)W=x;}
+            } else {
+            if(tid==0){int w=0;for(int r=0;r<R;++r){unsigned int p=prefix[r]&hmask;int f=-1;
+                for(int q=0;q<w;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w]=p;rank2w[r]=w;w++;}else rank2w[r]=f;} W=w;
+                for(int q=0;q<w;++q){wsort[q]=wpref[q];wsort2w[q]=q;}
+                for(int a=1;a<w;++a){unsigned int kv=wsort[a];int kw=wsort2w[a];int b=a-1;
+                    while(b>=0&&wsort[b]>kv){wsort[b+1]=wsort[b];wsort2w[b+1]=wsort2w[b];--b;}
+                    wsort[b+1]=kv;wsort2w[b+1]=kw;}}
+
+            }
+        }
         __syncthreads();
         int Wl=W;
         for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
