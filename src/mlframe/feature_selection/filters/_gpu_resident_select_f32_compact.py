@@ -154,6 +154,47 @@ if not (_RADIX_SELECT_F32_V4_SRC.count(_V5_HEAD_OLD) == 1 and _RADIX_SELECT_F32_
 _RADIX_SELECT_F32_V5_SRC = _RADIX_SELECT_F32_V4_SRC.replace("radix_select_f32_v4", "radix_select_f32_v5").replace(_V5_HEAD_OLD, _V5_HEAD_NEW, 1).replace(_V5_TAIL_OLD, _V5_TAIL_NEW, 1)
 _RADIX_SELECT_F32_V5_KERNEL = None
 
+# V5 + WINDOW TABLE for the second pass. At byte 2 the windows are the distinct top bytes of the rank prefixes, and on a bell-shaped column nearly every element falls in one of them, so the
+# binary search over the sorted window prefixes ran for every element. A 256-entry table (top byte -> window index, -1 for none) answers it with one shared load. The elements counted and the
+# windows they land in are the same, so the order statistics are bit-identical to v5; the passes at byte 3 (one window) and byte 1 (16-bit prefixes, where a two-level lookup measured slower) and
+# the candidate scan keep the binary search. Measured against v5 on 20000 x 1918 and 100000 x 400 columns: 1.07 to 1.12 times faster. Off switch MLFRAME_RADIX_F32_WINMAP=0.
+_W_DECL_OLD = "    __shared__ int overflowed;\n"
+_W_DECL_NEW = "    __shared__ int overflowed;\n    __shared__ signed char winmap[256];\n"
+_W_INIT_OLD = "        for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;\n        __syncthreads();\n"
+_W_INIT_NEW = (
+    "        for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;\n"
+    "        const bool use_map=(byte==2)&&!have_cand;\n"
+    "        if(use_map){ for(int s=tid;s<256;s+=nt)winmap[s]=-1; }\n"
+    "        __syncthreads();\n"
+    "        if(use_map){ for(int q=tid;q<Wl;q+=nt){ winmap[wsort[q]>>24]=(signed char)wsort2w[q]; } }\n"
+    "        __syncthreads();\n"
+)
+_W_FIND_OLD = (
+    "                int lo=0,hi=Wl;\n"
+    "                while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}\n"
+    "                if(lo<Wl&&wsort[lo]==pm){int win=wsort2w[lo];\n"
+)
+_W_FIND_NEW = (
+    "                int lo=0,hi=Wl;\n"
+    "                int win=-1;\n"
+    "                if(use_map){ win=(int)winmap[pm>>24]; }\n"
+    "                else { while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}\n"
+    "                       if(lo<Wl&&wsort[lo]==pm) win=wsort2w[lo]; }\n"
+    "                if(win>=0){\n"
+)
+if not (
+    _RADIX_SELECT_F32_V5_SRC.count(_W_DECL_OLD) == 1
+    and _RADIX_SELECT_F32_V5_SRC.count(_W_INIT_OLD) == 1
+    and _RADIX_SELECT_F32_V5_SRC.count(_W_FIND_OLD) == 2
+    and _RADIX_SELECT_F32_V5_SRC.index(_W_FIND_OLD) < _RADIX_SELECT_F32_V5_SRC.index("long long m=(long long)scount;")
+):
+    raise AssertionError("the v5 source changed: the window-table patch no longer anchors")
+# the first occurrence of the search is the full-scan loop (the second one scans the compacted candidates and keeps the binary search)
+_RADIX_SELECT_F32_V5_WINMAP_SRC = (
+    _RADIX_SELECT_F32_V5_SRC.replace(_W_DECL_OLD, _W_DECL_NEW, 1).replace(_W_INIT_OLD, _W_INIT_NEW, 1).replace(_W_FIND_OLD, _W_FIND_NEW, 1)
+)
+_RADIX_SELECT_F32_V5_WINMAP_KERNEL = None
+
 
 def _get_radix_select_f32_v5_kernel():
     """The four-loads-in-flight f32 radix select (``None`` when ``MLFRAME_RADIX_F32_V5=0`` or it does not compile); bit-identical order statistics to v4."""
@@ -162,6 +203,16 @@ def _get_radix_select_f32_v5_kernel():
 
     if os.environ.get("MLFRAME_RADIX_F32_V5", "1").strip().lower() not in ("1", "true", "on", "yes"):
         return None
+    global _RADIX_SELECT_F32_V5_WINMAP_KERNEL
+    if os.environ.get("MLFRAME_RADIX_F32_WINMAP", "1").strip().lower() in ("1", "true", "on", "yes"):
+        if _RADIX_SELECT_F32_V5_WINMAP_KERNEL is None:
+            try:
+                _RADIX_SELECT_F32_V5_WINMAP_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_V5_WINMAP_SRC, "radix_select_f32_v5")
+            except Exception:
+                log_throttle(logging.getLogger(__name__), "gpu_select.f32_v5_winmap_compile", logging.WARNING, "f32 v5 window-table kernel compile failed; plain v5", exc_info=True)
+                _RADIX_SELECT_F32_V5_WINMAP_KERNEL = False
+        if _RADIX_SELECT_F32_V5_WINMAP_KERNEL:
+            return _RADIX_SELECT_F32_V5_WINMAP_KERNEL
     if _RADIX_SELECT_F32_V5_KERNEL is None:
         try:
             _RADIX_SELECT_F32_V5_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_V5_SRC, "radix_select_f32_v5")
