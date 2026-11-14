@@ -44,3 +44,30 @@ def test_construct_selects_the_same_winners_on_the_device(monkeypatch):
     assert list(x_dev.columns) == list(x_host.columns)
     pd.testing.assert_frame_equal(x_dev, x_host)
     assert len(s_dev) == len(s_host)
+
+
+def test_the_selection_view_marks_the_top_candidates_and_absorbs_rounding_noise():
+    """The sweep compares what the greedy step takes: the count and the set of the best ten, with a tie band at the cut so values that differ by rounding noise land on the same side."""
+    from mlframe.feature_selection.filters import _mi_greedy_device as D
+
+    rng = np.random.default_rng(0)
+    mi = rng.random(40) * 0.01
+    base = D._selection_view(mi)
+    assert base[0] == 40 and base[1:41].sum() == 10 and base[41:].sum() == 0
+    assert (base[1:41].astype(bool) == (mi >= np.sort(mi)[-10])).all()
+    noisy = mi + rng.standard_normal(40) * 1e-12
+    assert np.array_equal(D._selection_view(noisy), base)
+    shifted = mi.copy()
+    shifted[np.argmin(mi)] = mi.max() * 2
+    assert not np.array_equal(D._selection_view(shifted), base), "a candidate that enters the top ten must change the view"
+    assert D._selection_view(mi[:-1])[0] == 39, "a different number of kept candidates must change the view"
+
+
+def test_the_sweep_runs_at_the_strict_tolerance_and_the_device_agrees_with_the_host():
+    """The sweep callables agree on the selection view of the sweep input (this is the equivalence the tuner enforces at 1e-6)."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters import _mi_greedy_device as D
+
+    args = D._sweep_inputs({"n_samples": 30_000})
+    np.testing.assert_allclose(D._host(*args), D._device(*args), rtol=1e-6, atol=1e-6)
+    assert cp is not None

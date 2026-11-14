@@ -18,10 +18,12 @@ from pathlib import Path
 import pytest
 
 from mlframe.feature_selection._benchmarks.fe_gpu_coverage_inventory import (
+    CPU_TWINS,
     KTC_DISPATCHERS,
     PROFILES_DIR,
     contract_violations,
     fe_modules,
+    cpu_twin_problems,
     ktc_dispatch_problems,
 )
 
@@ -76,3 +78,31 @@ def test_every_tuner_dispatched_backend_names_a_real_dispatcher():
     assert not broken, f"KTC_DISPATCHERS entries that no longer hold: {broken}"
     assert all(len(why) > 30 for _dispatcher, why in KTC_DISPATCHERS.values())
     assert all(name in set(fe_modules()) for name in KTC_DISPATCHERS), "an entry names a module that is not an FE module"
+
+
+def test_every_cpu_twin_names_a_real_module_with_a_numba_kernel():
+    """A device module that meets the CPU-kernel point through its host twin: the twin still carries an ``@njit`` kernel and the reason is stated."""
+    broken = {name: cpu_twin_problems(name) for name in CPU_TWINS if cpu_twin_problems(name)}
+    assert not broken, f"CPU_TWINS entries that no longer hold: {broken}"
+    assert all(len(why) > 30 for _twin, why in CPU_TWINS.values())
+    assert all(name in set(fe_modules()) for name in CPU_TWINS), "an entry names a module that is not an FE module"
+
+
+def test_integer_code_kernels_meet_the_type_point_through_their_code_type_placeholder():
+    """A kernel over integer codes of a caller-chosen width is typed by {DT} / {XT}; the bit-set packer module (typed by {DT}) has no violation about type placeholders."""
+    from mlframe.feature_selection._benchmarks.fe_gpu_coverage_inventory import _TYPE_PLACEHOLDERS
+
+    assert {"{REAL}", "{ACC}", "{DT}", "{XT}"} <= set(_TYPE_PLACEHOLDERS)
+    assert not [v for v in contract_violations("_batch_mi_noise_gate_bits") if "placeholder" in v]
+
+
+def test_every_carved_module_is_still_imported_by_its_parent_and_the_family_has_one_verdict():
+    """A carved module is judged with its parent only while the parent imports it; a child's verdict is the parent's, and the family has exactly the parent's record."""
+    from mlframe.feature_selection._benchmarks.fe_gpu_coverage_inventory import CARVED_FAMILIES, PROFILES_DIR, carved_family_problems
+
+    for parent, children in CARVED_FAMILIES.items():
+        assert (PROFILES_DIR / f"{parent}.md").is_file(), f"the family record of {parent} is missing"
+        for child in children:
+            assert not carved_family_problems(child), (parent, child, carved_family_problems(child))
+            assert not (PROFILES_DIR / f"{child}.md").exists(), f"{child} has its own record: the family is recorded once, under {parent}"
+    assert carved_family_problems("not_a_carved_module") == []

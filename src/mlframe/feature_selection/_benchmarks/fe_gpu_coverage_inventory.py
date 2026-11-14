@@ -113,7 +113,51 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
         "batch_pair_mi_gpu",
         "chosen among the same backends by batch_pair_mi_gpu._BPMI_SPEC; its block size follows the occupancy rule (monotone, nothing to sweep)",
     ),
+    "_wavelet_legs_fused_gpu": (
+        "_wavelet_legs_tuner",
+        "its leg code matrices serve the device-born route that fe_wavelet_legs_backend (_wavelet_legs_tuner, host_device_sweep over the row count) chooses against the host body; its block size follows the occupancy rule",
+    ),
+    "_fourier_batch_gpu": (
+        "_fourier_detect_batch",
+        "chosen against the host loop by fe_fourier_batch_backend (host_device_sweep over the row count) in _fourier_detect_batch; its block size follows the occupancy rule",
+    ),
 }
+
+#: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
+#: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
+CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_batch_mi_noise_gate_bits": (
+        "batch_mi_noise_gate_gpu",
+        "the host noise gate of the same decision is batch_mi_noise_gate_gpu's njit permutation gate; the bit-set gate and the histogram pair are the two device backends chosen by the noise_gate_bits tuner entry",
+    ),
+    "_basis_fused_gpu": (
+        "hermite_fe",
+        "the host design is hermite_fe's build_basis_matrix (njit recurrence); the device build is only taken for a column that is already resident",
+    ),
+    "_modular_codes_gpu": (
+        "_periodic_fe",
+        "the host pool of the same decision is _modular_all_ops_into (njit) plus the njit quantile coder, built by modular_candidate_block",
+    ),
+    "_wavelet_legs_fused_gpu": (
+        "_wavelet_basis_fe",
+        "the host side of the same decision is _select_wavelet_legs, the fused parallel njit body of _wavelet_basis_fe (the leg codes and their MI in one pass)",
+    ),
+    "_fourier_batch_gpu": (
+        "_orth_extra_basis_fe",
+        "the host side of the Fourier batch is _detect_fourier_freqs_host, whose coarse basis and power reductions are njit(parallel) kernels",
+    ),
+}
+
+
+def cpu_twin_problems(name: str) -> list[str]:
+    """Why ``name``'s ``CPU_TWINS`` entry does not hold (empty when it holds or there is none): the twin module must exist and carry a numba kernel."""
+    if name not in CPU_TWINS:
+        return []
+    twin = CPU_TWINS[name][0]
+    text = module_text(twin)
+    if text is None:
+        return [f"host twin {twin} not found"]
+    return [] if CPU_KERNEL.search(text) else [f"host twin {twin} has no numba kernel"]
 
 
 def ktc_dispatch_problems(name: str) -> list[str]:
@@ -139,17 +183,57 @@ GPU_PROFILE = re.compile(r"\bnsys\b|\bncu\b|\bnvprof\b")
 GPU_OCCUPANCY = re.compile(r"occupancy", re.IGNORECASE)
 LAUNCHES_RECORDED = re.compile(r"launches?\s+per", re.IGNORECASE)
 KERNEL_STRING = re.compile(r'(?:r)?"""(.*?)"""', re.DOTALL)
+_TYPE_PLACEHOLDERS = ("{REAL}", "{ACC}", "{DT}", "{XT}")
 BARE_FP_TYPE = re.compile(r"\b(?:double|float)\b")
 GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 
 
-def module_text(name: str) -> str | None:
-    """Source text of a filters-level module, the whole package for a directory module; ``None`` when the module does not exist."""
+#: Modules carved out of a parent module to keep it under the file-size ceiling: parent -> its carved children. The contract is judged on the family as one unit (the parent's text plus
+#: the children's, one profile record under the parent's name), and a child is covered by the parent's verdict as long as the parent still imports it (``carved_family_problems``).
+#: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
+#: would repeat the same measurements.
+CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "batch_mi_noise_gate_gpu": (
+        "_batch_mi_noise_gate_fused",
+        "_batch_mi_noise_gate_tuning",
+        "_batch_mi_noise_gate_column_tiles",
+        "_batch_mi_noise_gate_gpu_helpers",
+        "_batch_mi_noise_gate_screen_v1",
+        "_batch_mi_noise_gate_kernels",
+    ),
+}
+_CARVED_PARENT: dict[str, str] = {child: parent for parent, children in CARVED_FAMILIES.items() for child in children}
+
+
+def carved_family_problems(name: str) -> list[str]:
+    """Why ``name``'s ``CARVED_FAMILIES`` membership does not hold (empty when it holds or there is none): a child must exist and be imported by its parent."""
+    parent = _CARVED_PARENT.get(name)
+    if parent is None:
+        return []
+    f = module_file(parent)
+    if f is None:
+        return [f"parent {parent} not found"]
+    parent_text = f.read_text(encoding="utf-8", errors="ignore")
+    if module_file(name) is None:
+        return [f"carved module {name} not found"]
+    return [] if re.search(rf"\b{re.escape(name)}\b", parent_text) else [f"parent {parent} does not import {name}"]
+
+
+def _own_text(name: str) -> str | None:
+    """Source text of one filters-level module, the whole package for a directory module; ``None`` when the module does not exist."""
     f = module_file(name)
     if f is None:
         return None
     files = list(f.parent.rglob("*.py")) if f.name == "__init__.py" else [f]
     return "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in files)
+
+
+def module_text(name: str) -> str | None:
+    """Source text of a filters-level module, the whole package for a directory module, the parent plus its carved children for a family parent; ``None`` when the module does not exist."""
+    own = _own_text(name)
+    if own is None or name not in CARVED_FAMILIES:
+        return own
+    return "\n".join([own] + [_own_text(child) or "" for child in CARVED_FAMILIES[name]])
 
 
 def contract_violations(name: str) -> list[str]:
@@ -158,13 +242,20 @@ def contract_violations(name: str) -> list[str]:
     Static: it reads the source text and the profile record, so it pins that each requirement is present and recorded, and the behaviour tests of the
     module pin that it works (equivalence of the kernels, the memory bound).
     """
+    if name in _CARVED_PARENT:
+        problems = carved_family_problems(name)
+        if problems:
+            return problems
+        parent_problems = contract_violations(_CARVED_PARENT[name])
+        return [f"carved from {_CARVED_PARENT[name]}, which does not meet the contract: {parent_problems}"] if parent_problems else []
     text = module_text(name)
     if text is None:
         return ["module not found"]
     found = []
     ktc_via_dispatcher = name in KTC_DISPATCHERS and not ktc_dispatch_problems(name)
+    cpu_via_twin = name in CPU_TWINS and not cpu_twin_problems(name)
     for pattern, message in (
-        (CPU_KERNEL, "no numba CPU kernel"),
+        (re.compile(r".") if cpu_via_twin else CPU_KERNEL, "no numba CPU kernel"),
         (GPU_KERNEL, "no fused GPU kernel"),
         (re.compile(r".") if ktc_via_dispatcher else KTC_REGISTRATION, "not registered with the kernel-tuning cache"),
         (CRIT_DTYPE, "no crit dtype use"),
@@ -176,9 +267,10 @@ def contract_violations(name: str) -> list[str]:
     if kernel_sources:
         joined = "\n".join(kernel_sources)
         # {REAL} types the values a kernel reads, {ACC} its accumulators. A kernel over integer bin codes and class labels has no real-valued operand, so it is type-generic through {ACC} alone;
-        # either placeholder meets the point, and the bare-type check below still rejects a literal double / float in either kind.
-        if "{REAL}" not in joined and "{ACC}" not in joined:
-            found.append("GPU kernel source has neither a {REAL} (values) nor an {ACC} (accumulators) placeholder")
+        # either placeholder meets the point, and the bare-type check below still rejects a literal double / float in either kind. A kernel over integer codes of a caller-chosen width
+        # (the bit-set packers, the entropy kernels) is typed by {DT} / {XT}, the code type, and meets the point the same way.
+        if not any(ph in joined for ph in _TYPE_PLACEHOLDERS):
+            found.append("GPU kernel source has none of the type placeholders {REAL} (values), {ACC} (accumulators), {DT} / {XT} (integer code type)")
         if BARE_FP_TYPE.search(joined):
             found.append("GPU kernel source has a bare double / float (use {REAL}, or {ACC} for an accumulator)")
     record = PROFILES_DIR / f"{name}.md"
@@ -205,6 +297,7 @@ def fe_modules() -> list[str]:
 
 
 def main() -> None:
+    """Print the coverage table of every FE module (static verdicts) as markdown."""
     names = fe_modules()
     rows = [row(n) for n in names]
     lines = ["| module | kind | GPU markers | dispatcher markers | lines | static verdict |", "|---|---|---:|---:|---:|---|"]

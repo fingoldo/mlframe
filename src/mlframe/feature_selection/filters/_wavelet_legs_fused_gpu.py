@@ -8,6 +8,10 @@ fractional part with exactly the comparisons the ``where`` chain makes.
 * ``leg_supports``: per leg, how many rows are ``+1`` and how many ``-1`` (the eligibility counts).
 * ``leg_codes``: for the eligible legs only, ``leg + 1`` written straight into the train and validation code matrices (the ``i % 3 == 0`` rows are validation), already in the
   row order and ``(rows, legs)`` layout the batched MI consumes.
+
+Streaming: the builder produces every leg in one pass, so the caller (``_wavelet_basis_fe_batched._select_wavelet_legs_batched_device``) uses it only when all legs fit one column block
+of ``_DEVICE_LEG_BLOCK_BYTES``; a larger leg set is built and scored per column block by the per-leg loop. Inside the builder the support histogram lives in shared memory (2 counters per
+leg, which bounds ``max_scale`` at 10) and the code matrices are cushion-checked before they are allocated.
 """
 
 from __future__ import annotations
@@ -29,6 +33,12 @@ __device__ __forceinline__ int leg_value(const {ACC} z, const int j, const int k
     return (t - c < 0.5) ? 1 : -1;
 }
 extern "C" __global__ void leg_supports(const {REAL}* __restrict__ z, const long long n, const int max_scale, int* __restrict__ counts) {
+    // Block-private histogram in shared memory (2 counters per leg; the caller bounds max_scale so it fits), one global atomic per counter per block at the end: the level-0 counters
+    // took one global atomic per row from every thread before.
+    extern __shared__ int sh_counts[];
+    const int n_counters = 2 * ((1 << (max_scale + 1)) - 1);
+    for (int c = threadIdx.x; c < n_counters; c += blockDim.x) sh_counts[c] = 0;
+    __syncthreads();
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
         const {ACC} zi = z[i];
         if (!(zi >= 0.0 && zi < 1.0)) continue;
@@ -37,9 +47,11 @@ extern "C" __global__ void leg_supports(const {REAL}* __restrict__ z, const long
             const {ACC} c = floor(t);
             const int leg = (1 << j) - 1 + (int)c;  // flat leg id: levels laid out one after the other
             const int sign_slot = (t - c < 0.5) ? 0 : 1;
-            atomicAdd(&counts[2 * leg + sign_slot], 1);
+            atomicAdd(&sh_counts[2 * leg + sign_slot], 1);
         }
     }
+    __syncthreads();
+    for (int c = threadIdx.x; c < n_counters; c += blockDim.x) if (sh_counts[c]) atomicAdd(&counts[c], sh_counts[c]);
 }
 extern "C" __global__ void leg_codes(const {REAL}* __restrict__ z, const long long n, const int* __restrict__ eligible_j, const int* __restrict__ eligible_k, const int n_legs,
                                      long long* __restrict__ tr, long long* __restrict__ va) {
@@ -66,7 +78,7 @@ def leg_code_matrices(cp: Any, z_g: Any, max_scale: int, min_half_rows: int) -> 
     code matrices (``leg + 1``) of the training rows and of the ``i % 3 == 0`` validation rows. ``([], None, None)`` when no leg is eligible."""
     import numpy as np
 
-    if max_scale < 0 or max_scale > 12:
+    if max_scale < 0 or max_scale > 10:  # the shared histogram holds 2 * (2^(max_scale+1) - 1) counters: 16 KB at 10
         return None
     n = int(z_g.shape[0])
     z = cp.ascontiguousarray(z_g, dtype=crit_float_dtype())
@@ -74,9 +86,9 @@ def leg_code_matrices(cp: Any, z_g: Any, max_scale: int, min_half_rows: int) -> 
     mod = _MODULES_BY_REAL["float" if z.dtype.itemsize == 4 else "double"].get(cp)  # the kernels read ``z`` at its own dtype and compare in double precision
     counts = cp.zeros(2 * n_legs_all, dtype=cp.int32)
     supports = mod.get_function("leg_supports")
-    support_threads = block_size_for(supports, work_items=n)
+    support_threads = block_size_for(supports, dyn_smem=2 * n_legs_all * 4, work_items=n)
     blocks = max(1, min(4096, (n + support_threads - 1) // support_threads))
-    supports((blocks,), (support_threads,), (z, cp.int64(n), cp.int32(max_scale), counts))
+    supports((blocks,), (support_threads,), (z, cp.int64(n), cp.int32(max_scale), counts), shared_mem=2 * n_legs_all * 4)
     host = cp.asnumpy(counts).reshape(n_legs_all, 2)
     elig = np.flatnonzero((host[:, 0] >= min_half_rows) & (host[:, 1] >= min_half_rows))
     if elig.size == 0:

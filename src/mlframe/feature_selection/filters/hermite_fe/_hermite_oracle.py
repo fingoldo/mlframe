@@ -29,11 +29,22 @@ _CUDA_THRESHOLD = env_int("MLFRAME_POLYEVAL_CUDA_THRESHOLD", 500000, minimum=0)
 def _lookup_polyeval_thresholds(basis: str, n: int) -> tuple[int, int]:
     """Consult kernel_tuning_cache for HW-tuned
     (par_threshold, cuda_threshold) crossovers; fall back to the
-    source-code defaults (which are env-var-overridable for tests)."""
+    source-code defaults (which are env-var-overridable for tests).
+
+    The entry holds one region per basis (``basis`` field, measured per basis by ``_run_sweep_polyeval``). The cache matcher only reads ``<axis>_max`` / ``<axis>_eq`` keys, so a
+    ``lookup(basis=...)`` of an entry written with a bare ``basis`` field returned the FIRST region (hermite) for every basis and the other bases ran on hermite's thresholds. The region
+    of the requested basis is therefore picked here from the entry's regions (``basis`` or ``basis_eq``), and a basis with no region of its own takes the source defaults (``lookup`` answers only for an entry that carries no basis field)."""
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
         _cache = KernelTuningCache.load_or_create()
-        _entry = _cache.lookup("polyeval", basis=basis, n_samples=n)
+        _entry = None
+        _regions = _cache.get_regions("polyeval") or []
+        for _region in _regions:
+            if _region.get("basis_eq", _region.get("basis")) == basis:
+                _entry = _region
+                break
+        if _entry is None and not any(("basis_eq" in r or "basis" in r) for r in _regions):
+            _entry = _cache.lookup("polyeval", basis=basis, n_samples=n)  # an entry that carries no basis at all: the matcher's answer
         _par = int(_entry["par_threshold"]) if _entry and "par_threshold" in _entry else _PAR_THRESHOLD
         _cuda = int(_entry["cuda_threshold"]) if _entry and "cuda_threshold" in _entry else _CUDA_THRESHOLD
         return _par, _cuda

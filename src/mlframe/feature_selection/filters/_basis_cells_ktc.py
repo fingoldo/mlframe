@@ -15,7 +15,7 @@ from typing import cast
 
 import numpy as np
 
-from ._ktc_fallback import device_from_rows
+from ._ktc_fallback import device_from_rows, selection_view
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ _SWEEP_ROWS = [2_000, 5_000, 20_000, 100_000]
 _SWEEP_COLUMNS = 6
 _BASES = ("hermite", "legendre", "chebyshev", "laguerre")
 _DEGREES = (2, 3)
-_SALT = 1
+_SALT = 2  # 2: the sweep compares the selection view at the strict tolerance
 
 
 def _make_inputs(dims: dict) -> tuple:
@@ -46,7 +46,7 @@ def _host_variant(X, ya):
     from ._orthogonal_routing_fe import PRE_TRANSFORM_NAMES, _enumerate_routing_cells, _mi_classif_batch, _stack_candidates
 
     _names, values, _meta = _enumerate_routing_cells(X, list(X.columns), PRE_TRANSFORM_NAMES, _BASES, _DEGREES)
-    return np.asarray(_mi_classif_batch(_stack_candidates(values), ya, nbins=10), dtype=np.float64)  # Intentional float64: MI statistic vector
+    return selection_view(_mi_classif_batch(_stack_candidates(values), ya, nbins=10))
 
 
 def _device_variant(X, ya):
@@ -57,11 +57,11 @@ def _device_variant(X, ya):
     got = routing_scores_on_device(X, list(X.columns), PRE_TRANSFORM_NAMES, _BASES, _DEGREES, ya, 10, "corr", force=True)
     if got is None:
         raise RuntimeError("device basis cells unavailable")
-    return np.asarray(got[2], dtype=np.float64)  # Intentional float64: MI statistic vector
+    return selection_view(got[2])
 
 
 def _run_sweep() -> list:
-    """Time the host and the device variant per row count; the fastest variant whose MI agrees with the host's (atol 1e-3: the device bins by edge selection) wins each region."""
+    """Time the host and the device variant per row count; the fastest variant that picks the same best cells as the host (``selection_view``, at the strict tolerance: the device bins by edge selection, so the MI values differ in the last digits while the cells the routing takes agree) wins each region."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     return cast(
@@ -72,8 +72,8 @@ def _run_sweep() -> list:
             _make_inputs,
             reference="host",
             repeats=3,
-            equiv_rtol=1e-2,
-            equiv_atol=1e-3,
+            equiv_rtol=1e-6,
+            equiv_atol=1e-6,
         ),
     )
 

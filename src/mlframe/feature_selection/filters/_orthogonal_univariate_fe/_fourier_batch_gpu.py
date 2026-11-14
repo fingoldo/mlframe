@@ -12,7 +12,7 @@ A column whose cubic detrend or deflation system is singular is handled by the s
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
@@ -33,6 +33,7 @@ def _block_for(kernel: Any, n: int) -> int:
     return block_size_for(kernel, work_items=n, max_width=1024)
 
 
+_BLOCK_COLS: Optional[int] = None  # a test or an operator sets a fixed column block width; None = derive it from the free VRAM
 _MIN_STD = 1e-9
 _MIN_Y_SS = VARIANCE_FLOOR
 _DUPLICATE_WINDOW = 0.25
@@ -73,8 +74,8 @@ __global__ void periodogram_power_b(const {REAL}* Z, const {REAL}* YC, const {AC
     const {REAL}* z = Z + (long long)c * n;
     const {REAL}* yc = YC + (long long)c * n;
     const {ACC} w = 6.283185307179586 * freqs[(long long)c * F + f];
-    // Per-thread partials in the SAMPLE type with Kahan compensation, combined in {ACC} below: the sine and cosine are taken in the sample type anyway (trig above), so double partials
-    // only paid the 1:32 double rate of the card for no accuracy the inputs carry (30000 x 64 columns x 96 frequencies: 77.6 -> 35.6 ms, power within 2.4e-5 relative, p99 4e-7, the argmax
+    // Per-thread partials in the SAMPLE type with Kahan compensation, combined in {ACC} below: the sine and cosine are taken in the sample type anyway (trig above), so {ACC} partials
+    // would only pay the 1:32 FP64 rate of the card for no accuracy the inputs carry (30000 x 64 columns x 96 frequencies: 77.6 -> 35.6 ms, power within 2.4e-5 relative, p99 4e-7, the argmax
     // frequency of every column unchanged); the compensation keeps the long per-thread sums at the precision of their terms.
     {REAL} ss = 0, sc = 0, vvs = 0, vvc = 0, vys = 0, vyc = 0;
     {REAL} c_ss = 0, c_sc = 0, c_vvs = 0, c_vvc = 0, c_vys = 0, c_vyc = 0;
@@ -372,19 +373,44 @@ def detect_fourier_freqs_batch_gpu(
             continue
         grid, z_tr, z_va, y_tr, y_va = prep
         groups.setdefault((z_tr.size, z_va.size), []).append((j, grid, z_tr, z_va, y_tr, y_va, core_span(z01)))
-    for members in groups.values():
-        Z_tr = np.ascontiguousarray(np.stack([m[2] for m in members]))
-        Z_va = np.ascontiguousarray(np.stack([m[3] for m in members]))
-        Y_tr = np.ascontiguousarray(np.stack([m[4] for m in members]))
-        Y_va = np.ascontiguousarray(np.stack([m[5] for m in members]))
-        job_ids = [m[0] for m in members]
-
-        def single_k(k: int, _ids=job_ids) -> list:
-            """Single-column detector for the group's column ``k``."""
-            z01, y, f_grid = jobs[_ids[k]]
-            return single(z01, y, f_grid)
-
-        out = _run_group(cp, Z_tr, Z_va, Y_tr, Y_va, [m[1] for m in members], [m[6] for m in members], min_val_corr, max_freqs, single_k)
-        for k, j in enumerate(job_ids):
-            results[j] = out[k]
+    for all_members in groups.values():
+        width = _column_block_width(all_members[0][2].size + all_members[0][3].size, len(all_members))
+        for start in range(0, len(all_members), width):
+            members = all_members[start : start + width]
+            _run_member_block(cp, members, jobs, results, single, min_val_corr, max_freqs)
     return results
+
+
+def _column_block_width(n_rows: int, n_cols: int) -> int:
+    """Columns per column block: the widest block whose working set fits the VRAM cushion, found by halving from the whole group (set ``_BLOCK_COLS`` to force a width).
+
+    One column holds both splits of the column and of the target, the cubic design matrices (four columns per split) and about eight more row vectors of the periodogram and deflation steps:
+    ``n_rows * 8 * 22`` bytes in double.
+    """
+    if _BLOCK_COLS is not None:
+        return max(1, int(_BLOCK_COLS))
+    from .._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+    width = max(1, int(n_cols))
+    while width > 1 and not fe_gpu_has_vram_cushion(width * int(n_rows) * 8 * 22):
+        width //= 2
+    return width
+
+
+def _run_member_block(cp: Any, members: list, jobs: Any, results: list, single: Any, min_val_corr: float, max_freqs: int) -> None:
+    """One column block of a group: stack its columns, run the detector loop and write the lists into ``results``."""
+    Z_tr = np.ascontiguousarray(np.stack([m[2] for m in members]))
+    Z_va = np.ascontiguousarray(np.stack([m[3] for m in members]))
+    Y_tr = np.ascontiguousarray(np.stack([m[4] for m in members]))
+    Y_va = np.ascontiguousarray(np.stack([m[5] for m in members]))
+    job_ids = [m[0] for m in members]
+
+    def single_k(k: int, _ids=job_ids) -> list:
+        """Single-column detector for the group's column ``k``."""
+        z01, y, f_grid = jobs[_ids[k]]
+        found: list = single(z01, y, f_grid)
+        return found
+
+    out = _run_group(cp, Z_tr, Z_va, Y_tr, Y_va, [m[1] for m in members], [m[6] for m in members], min_val_corr, max_freqs, single_k)
+    for k, j in enumerate(job_ids):
+        results[j] = out[k]

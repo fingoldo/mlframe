@@ -72,3 +72,7 @@ Run from the repository root. The script re-runs each meta-test in
 - `_unresolved_module_attributes_baseline.json` - `module.NAME` reads the gate cannot resolve (`unresolved_module_attributes`)
 - `_perm_loop_invariants_baseline.json` - functions that rebuild shuffle-independent array work inside a `for k in range(K)` permutation loop, as `module::function` (test_perm_loop_invariants_hoisted.py; edited by hand, may only shrink, hoisting the statement drops the entry)
 - `_tiny_cupy_loops_baseline.json` - Python `for` loops issuing several small cupy calls per iteration (launch-bound), as `module::function`; a worklist for batched kernels (test_no_tiny_cupy_ops_in_python_loops.py; edited by hand, may only shrink)
+
+## Entries that are decisions, not debt
+
+- `_function_length_baseline.json` `MRMR.__init__` and `_loc_over_1k_baseline.json` `_mrmr_class.py`: DO NOT TOUCH, DO NOT TRY TO "FIX" (user decision, 2026-11-14). `MRMR.__init__` has 551 parameters; 2282 of the 2843 signature lines are the per-parameter comments, and the 150-line function limit is only reachable by redesigning the public API (a config object or a generated signature), which is not wanted. Moving comments out, splitting the class or regenerating these two baselines is out of scope for every audit, ratchet and cleanup pass; the ceilings stay as they are (adding even a comment line to the file would trip the "may not grow" rule, so leave the file alone).

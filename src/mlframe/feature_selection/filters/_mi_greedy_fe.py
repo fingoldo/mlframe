@@ -221,17 +221,39 @@ def _parse_binary_name(name: str) -> Optional[tuple[str, str, str]]:
     if not (name.startswith("(") and name.endswith(")")):
         return None
     inner = name[1:-1]
-    # Split on the FIRST ``__`` of every candidate transform key. Because the
-    # transforms include ``add``, ``sub`` etc., we look for ``__<transform>__``
-    # anchored at known transform names.
-    for tname in BINARY_TRANSFORMS:
-        token = f"__{tname}__"
-        idx = inner.find(token)
-        if idx >= 0:
-            col_i = inner[:idx]
-            col_j = inner[idx + len(token) :]
-            return tname, col_i, col_j
-    return None
+    # The transform token that joins the two operands is the one at parenthesis depth 0: an operand is a column name, ``f(col)`` or ``(x__op__y)``, and the tokens of a nested operand
+    # (``__add__`` inside ``add(sqrt((a__add__c)),...)``) sit deeper. Searching the whole string for the first token of each transform in turn took such a nested token for the
+    # joint and cut the name in the wrong place (the recipe then looked up a column that does not exist). Among tokens at depth 0 the leftmost wins, and at one position the longest.
+    best: Optional[tuple[int, int, str]] = None  # (index, -len(token), transform)
+    depth = 0
+    i = 0
+    n = len(inner)
+    while i < n:
+        ch = inner[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif depth == 0 and ch == "_" and inner.startswith("__", i):
+            for tname in BINARY_TRANSFORMS:
+                token = f"__{tname}__"
+                if inner.startswith(token, i):
+                    cand = (i, -len(token), tname)
+                    if best is None or cand < best:
+                        best = cand
+            if best is not None and best[0] == i:
+                break
+        i += 1
+    if best is None:
+        # no token at depth 0 (a column name with unbalanced parentheses): the first token of the first transform that occurs, as before
+        for tname in BINARY_TRANSFORMS:
+            token = f"__{tname}__"
+            idx = inner.find(token)
+            if idx >= 0:
+                return tname, inner[:idx], inner[idx + len(token) :]
+        return None
+    idx, neg_len, tname = best
+    return tname, inner[:idx], inner[idx - neg_len :]
 
 # ---------------------------------------------------------------------------
 # Bounded-column fingerprint for trig auto-application.

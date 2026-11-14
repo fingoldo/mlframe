@@ -518,6 +518,19 @@ def _detect_fourier_freqs_for_col(
     _gpu_result = _try_gpu_fourier_detect(z01, y, f_grid, min_val_corr, min_rows, max_freqs)
     if _gpu_result is not None:
         return _gpu_result
+    return _detect_fourier_freqs_host(z01, y, f_grid=f_grid, min_val_corr=min_val_corr, min_rows=min_rows, max_freqs=max_freqs)
+
+
+def _detect_fourier_freqs_host(
+    z01: np.ndarray,
+    y: np.ndarray,
+    *,
+    f_grid: Sequence[float],
+    min_val_corr: float,
+    min_rows: int,
+    max_freqs: int,
+) -> list[float]:
+    """The host body of :func:`_detect_fourier_freqs_for_col` (njit sub-kernels, no device attempt): the host side of the Fourier batch backend tuner."""
     z01 = np.asarray(z01, dtype=_crit_np_dtype()).ravel()
     y = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     n = z01.size

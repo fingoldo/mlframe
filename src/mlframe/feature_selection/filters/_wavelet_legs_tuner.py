@@ -4,6 +4,8 @@
 ``_wavelet_basis_fe_batched`` (leg code matrices built on the card from the resident column, scored by the batched MI kernel). Which is faster depends on the row count: measured per
 column (GTX 1050 Ti, one column, 5 runs): 5000 rows host 1.5 ms / device 2.4, 20000 rows 2.6 / 2.5, 100000 rows 7.5 / 5.2, 400000 rows 42.3 / 18.5, the same legs everywhere.
 The switch used to be the strict-residency flag alone, whatever the row count; this entry makes the row count part of the decision. ``MLFRAME_CMI_GPU=1`` still forces the device.
+
+The device route builds its leg code matrices with the fused kernels of ``_wavelet_legs_fused_gpu`` when all legs fit one block, so this entry is also the tuner of that module.
 """
 
 from __future__ import annotations

@@ -42,6 +42,7 @@ So the port is a WIN, not a regression; it is now DEFAULT ON under STRICT (opt-o
 NEVER call free_all_blocks() here (it nukes the resident pool, +47s measured previously). The CPU path remains
 the rare-GPU-failure fallback (the caller wraps this in try/except -> CPU, debug-logged).
 """
+
 from __future__ import annotations
 
 import logging
@@ -93,6 +94,7 @@ def perm_null_gpu_resident_enabled() -> bool:
         return False
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+
         return bool(fe_gpu_strict_resident_enabled())
     except Exception as e:
         # fallback: the GPU residency gate is an optional probe; any failure keeps the CPU permutation-null path.
@@ -110,6 +112,7 @@ def _sparse_perm_null(
         # host numpy array. Removed the dead resident-y branch it guarded (misleading: implied a
         # resident-y fast path that does not exist).
         from ._fe_resident_operands import resident_operand
+
         dyd = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)
         Kx = int(dx.max()) + 1
         Ky = int(dyd.max()) + 1
@@ -169,7 +172,12 @@ def _column_argsort(cp, keys):
     from ._device_sort_safe import _PER_VECTOR_SORT_MIN_LEN
 
     # From 80000 rows device_argsort runs one 1-D sort per column, which beats the composite key (300000 x 40: 37 against 64 ms, 100000 x 25: 13 against 13 ms; same orders)
-    if keys.dtype != cp.int32 or n * p < _COMPOSITE_ARGSORT_MIN or n >= _PER_VECTOR_SORT_MIN_LEN or os.environ.get("MLFRAME_PERM_NULL_COMPOSITE_ARGSORT", "1").strip() == "0":
+    if (
+        keys.dtype != cp.int32
+        or n * p < _COMPOSITE_ARGSORT_MIN
+        or n >= _PER_VECTOR_SORT_MIN_LEN
+        or os.environ.get("MLFRAME_PERM_NULL_COMPOSITE_ARGSORT", "1").strip() == "0"
+    ):
         return device_argsort(keys, axis=0)
     col = cp.arange(p, dtype=cp.int64)
     order = device_argsort(((col[:, None] << 32) | keys.T.astype(cp.int64)).ravel())
@@ -178,6 +186,19 @@ def _column_argsort(cp, keys):
 
 # Random bits the flat-key shuffle must keep below the packed column / stratum / value fields: the same pair-tie bias argument as the int32 rank-pack, with room to spare.
 _FLAT_SHUFFLE_MIN_RAND_BITS = 20
+
+
+_KEY_PACK_KERNEL: Any = None
+
+
+def _key_pack_kernel(cp: Any) -> Any:
+    """The elementwise kernel that packs ``stratum rank | permutation column | random bits | value`` into one int64 key, built once per process."""
+    global _KEY_PACK_KERNEL
+    if _KEY_PACK_KERNEL is None:
+        _KEY_PACK_KERNEL = cp.ElementwiseKernel(
+            "int64 zr, int64 x, int64 r, int64 p, int32 a, int32 b, int32 l", "int64 key", "key = (zr << a) | (p << l) | (r << b) | x", "flat_strata_key_pack"
+        )
+    return _KEY_PACK_KERNEL
 
 
 def _flat_within_stratum_shuffle(cp: Any, rs: Any, x_sorted_d: Any, z_rank_d: Any, nperm: int, kx: int, nrank: int) -> Optional[Any]:
@@ -198,9 +219,17 @@ def _flat_within_stratum_shuffle(cp: Any, rs: Any, x_sorted_d: Any, z_rank_d: An
     if rand_bits < _FLAT_SHUFFLE_MIN_RAND_BITS:
         return None
     low = rank_bits + rand_bits + x_bits
-    key = (z_rank_d[:, 0].astype(cp.int64) << (rand_bits + x_bits))[None, :] | (cp.arange(nperm, dtype=cp.int64) << low)[:, None]  # (nperm, n)
-    key |= rs.randint(0, 1 << rand_bits, size=(nperm, n), dtype=cp.int64) << x_bits
-    key |= x_sorted_d.astype(cp.int64, copy=False)[None, :]
+    # one elementwise pass writes the packed key (the stratum rank, the permutation column, the random bits and the value are OR-ed in registers) instead of seven separate passes over the
+    # (nperm, n) matrix: 100000 rows x 25 permutations 9.7 -> 8.2 ms with the same keys (the sort of the keys is the rest)
+    key = _key_pack_kernel(cp)(
+        z_rank_d[:, 0].astype(cp.int64)[None, :],
+        x_sorted_d.astype(cp.int64, copy=False)[None, :],
+        rs.randint(0, 1 << rand_bits, size=(nperm, n), dtype=cp.int64),
+        cp.arange(nperm, dtype=cp.int64)[:, None],
+        rand_bits + x_bits,
+        x_bits,
+        low,
+    )
     flat = cp.sort(key.ravel())
     return (flat & np.int64((1 << x_bits) - 1)).reshape(nperm, n)
 
@@ -257,6 +286,7 @@ def conditional_perm_null_gpu(
     dx = x.astype(cp.int64, copy=False).ravel() if isinstance(x, cp.ndarray) else None
     if dx is None:
         from ._fe_resident_operands import resident_code_operand
+
         dx = resident_code_operand(np.asarray(x).ravel(), "permnull_cand_x")
     y_h = np.ascontiguousarray(y_i, dtype=np.int64).ravel()
     n = int(dx.size)
@@ -416,6 +446,7 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z, shared_xz: bool = Fa
     # is bit-identical; only the redundant recomputation is gone.
     from ._fe_batched_mi import joint_entropy_gpu
     from ._fe_resident_operands import resident_operand
+
     # `isinstance(y_h, cp.ndarray)` can never be True - y_h is
     # unconditionally a host numpy array at every production call site. Removed the dead resident-y branch.
     _dy = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)

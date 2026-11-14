@@ -57,7 +57,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 """
 from __future__ import annotations
 
-from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
+from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name, split_engineered_name
 
 import functools
 import logging
@@ -275,7 +275,7 @@ def _compute_per_scorer_rank_table(
     eng_batched = _batch_scores(engineered_X, eng_cols)
     rows = []
     for ci, eng_name in enumerate(eng_cols):
-        src = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+        src = source_of_engineered_name(eng_name)
         x_full = engineered_X[eng_name].to_numpy(dtype=_dt)
         row = {"engineered_col": eng_name, "source_col": src}
         for s in scorers:
@@ -669,7 +669,7 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
     for name in appended:
         if "__" not in name:
             continue
-        src, suffix = name.split("__", 1)
+        src, suffix = split_engineered_name(name)
         chosen_basis = None
         chosen_degree = None
         for code in BASIS_NAME_CODES:

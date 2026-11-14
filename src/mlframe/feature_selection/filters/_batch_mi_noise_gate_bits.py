@@ -8,6 +8,9 @@ MI matrix leaves the device.
 The MI is the plug-in value ``(sum xlogx(joint) + n log n - sum xlogx(px) - sum xlogx(py)) / n`` in nats, the same quantity the count-table reduction computes with a different order of additions: the two agree
 to a few ulps (selection-equivalent), and rows ``p = 0`` and ``p > 0`` share one arithmetic, so equal joint tables give equal values. The backend (this one or the histogram pair) is a kernel-tuning-cache choice
 over rows, columns, classes and bins; the fallback while the host has no entry is the measured crossover of ``nbins * (classes - 1)``.
+
+Streaming: the columns go through the kernels in column blocks (``group`` columns, sized from the free device memory and capped at ``_BUDGET_CAP_BYTES`` of bit sets), so the bit sets of the
+whole matrix never exist at once; only the ``(P, K)`` MI, or the ``(K,)`` gated vector, leaves the device.
 """
 
 from __future__ import annotations

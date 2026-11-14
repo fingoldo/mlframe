@@ -61,7 +61,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 """
 from __future__ import annotations
 
-from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
+from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name, split_engineered_name
 
 import logging
 from typing import Optional, Sequence
@@ -364,7 +364,7 @@ def score_features_by_dcor_uplift(
     )
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
-        source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+        source = source_of_engineered_name(eng_name)
         baseline = float(raw_mi_map.get(source, 0.0))
         emi = float(eng_mi[j])
         uplift = relative_uplift(emi, baseline)
@@ -493,7 +493,7 @@ def hybrid_orth_mi_dcor_fe_with_recipes(
     for name in appended:
         if "__" not in name:
             continue
-        src, suffix = name.split("__", 1)
+        src, suffix = split_engineered_name(name)
         chosen_basis = None
         chosen_degree = None
         for code in BASIS_NAME_CODES:

@@ -28,19 +28,7 @@ _EXEMPT_PATH_FRAGMENTS = ("__pycache__", "tests", "legacy", "profiling", "explor
 _MAX_TOLERANCE = 1e-6
 
 # "relpath::funcname" -> why a genuinely-different-algorithm comparison needs a loose tolerance.
-_USER_DEFERRED_LOOSE_TOLERANCE: dict[str, str] = {
-    "feature_selection/filters/_hsic_gpu.py::_run_hsic_sweep": (
-        "the device scorer works in the criterion dtype (float32) against the host's float64: measured worst relative difference 1.6e-6 over (m, k) from (200, 8) to (1000, 400), "
-        "so 1e-5 is the precision of the dtype, not a slack on an FP-reorder twin."
-    ),
-    "feature_selection/filters/_basis_cells_ktc.py::_run_sweep": (
-        "the module's own note on the 1e-3 absolute tolerance: the device bins by edge selection, which is not the host's arithmetic, so the MI values differ by the size of that binning difference."
-    ),
-    "feature_selection/filters/_resident_candidate_mi_ktc.py::_run_rescand_sweep": (
-        "rank binning vs percentile-edge binning are DIFFERENT binning schemes that disagree at ties; the "
-        "module documents this as the approved FE-PAIR selection-equivalence trade, not an FP-reorder twin."
-    ),
-}
+_USER_DEFERRED_LOOSE_TOLERANCE: dict[str, str] = {}
 
 
 def _tolerance_kwargs(call: ast.Call) -> dict[str, float]:
