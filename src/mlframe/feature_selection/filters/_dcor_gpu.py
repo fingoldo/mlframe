@@ -2,7 +2,7 @@
 
 One block per column, the column's subsample in shared memory; thread ``i`` owns the rows ``i`` it strides over and accumulates the row sum, ``sum d^2``, ``sum d B[i, q]``
 and ``(row / m)^2``; the block reduces the four totals and the host forms the same expressions as the host kernel. Everything is double: ``dvar2_x`` is
-``sum d^2 - 2 m sum r^2 + m^2 g^2``, a cancellation that float32 sums would not survive (CUDA.md ``{ACC}``; the host kernel's note records the same for the dense form).
+``sum d^2 - 2 m sum r^2 + m^2 g^2``, a cancellation that float32 sums would not survive (CUDA.md ``{ACC}``; the host kernel's note records the same for the dense form). The columns go up in column blocks bounded by a quarter of the free VRAM.
 """
 
 from __future__ import annotations
@@ -18,28 +18,28 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 _SRC = r"""
-// dtype-ok: Intentional float64, reviewed 2026-11-05: float32 values with double sums measured 45 ms against 46-49 ms (no gain, the double accumulations set the time); the host loads float64 on purpose (dvar2_x is a cancellation).
-extern "C" __global__ void dcor_cols(const double* __restrict__ xs, const double* __restrict__ b, const int m, const int k, double* __restrict__ sums) {
-    extern __shared__ double sm[];
-    double* sx = sm;                     // this column's m values
-    double* red = sm + m;                // 4 * blockDim.x partials
+// dtype-ok: Intentional wide accumulator type, reviewed 2026-11-05: narrow values with wide sums measured 45 ms against 46-49 ms (no gain, the {ACC} accumulations set the time); the host loads float64 on purpose (dvar2_x is a cancellation).
+extern "C" __global__ void dcor_cols(const {ACC}* __restrict__ xs, const {ACC}* __restrict__ b, const int m, const int k, {ACC}* __restrict__ sums) {
+    extern __shared__ {ACC} sm[];
+    {ACC}* sx = sm;                     // this column's m values
+    {ACC}* red = sm + m;                // 4 * blockDim.x partials
     const int j = blockIdx.x;
     if (j >= k) return;
     for (int a = threadIdx.x; a < m; a += blockDim.x) sx[a] = xs[(long long)j * m + a];
     __syncthreads();
-    double total = 0.0, sq = 0.0, cross = 0.0, sum_r2 = 0.0;
+    {ACC} total = 0.0, sq = 0.0, cross = 0.0, sum_r2 = 0.0;
     for (int i = threadIdx.x; i < m; i += blockDim.x) {
-        const double xi = sx[i];
-        const double* brow = b + (long long)i * m;
-        double row = 0.0;
+        const {ACC} xi = sx[i];
+        const {ACC}* brow = b + (long long)i * m;
+        {ACC} row = 0.0;
         for (int q = 0; q < m; ++q) {
-            const double d = fabs(xi - sx[q]);
+            const {ACC} d = fabs(xi - sx[q]);
             row += d;
             sq += d * d;
             cross += d * brow[q];
         }
         total += row;
-        const double r = row / m;
+        const {ACC} r = row / m;
         sum_r2 += r * r;
     }
     const int t = threadIdx.x, nt = blockDim.x;
@@ -65,7 +65,7 @@ def _dcor_kernel() -> Any:
     import cupy as cp
 
     if not _KERNEL:
-        _KERNEL.append(cp.RawKernel(_SRC, "dcor_cols"))
+        _KERNEL.append(cp.RawKernel(_SRC.replace("{ACC}", "double"), "dcor_cols"))
     return _KERNEL[0]
 
 
@@ -184,3 +184,19 @@ def _run_dcor_sweep():
         )
         or []
     )
+
+
+# The sweep is also registered with the central kernel-tuning registry under the name ``dcor_backend`` reads through ``get_or_tune`` (same tuner function and axes), so ``retune_all`` and the tuning CLI see
+# and refresh it; the lazy asynchronous sweep above is unchanged.
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+_SPEC = kernel_tuner(
+    kernel_name="dcor_columns_backend",
+    variant_fns=(),  # the two backends are timed by the sweep callable
+    tuner=_run_dcor_sweep,
+    axes={"m": [200, 500, 1000], "k": [8, 100, 400]},
+    fallback={"kernel_choice": "cpu"},
+    gpu_capable=True,
+    salt=2,
+    cli_label="dcor_columns_backend",
+)
