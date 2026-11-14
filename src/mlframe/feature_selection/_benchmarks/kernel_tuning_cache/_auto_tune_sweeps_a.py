@@ -519,6 +519,7 @@ def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
                     break
         regions.append({
             "basis": basis,
+            "basis_eq": basis,  # the matcher reads only <axis>_eq / <axis>_max keys: without this a lookup(basis=...) matched the first region for every basis
             "n_samples_max": None,
             "par_threshold": int(par_threshold),
             "cuda_threshold": int(cuda_threshold),
