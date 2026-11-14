@@ -82,3 +82,36 @@ def test_matrix_target_keeps_one_column_per_target_on_a_degenerate_design():
     beta = R._ols_solve(A, B)
     assert beta.shape == (4, 2)
     assert np.abs(A @ beta - A @ np.linalg.lstsq(A, B, rcond=None)[0]).max() < 1e-6
+
+
+def _reference_oos_gain(rest, candidate, y, std_full):
+    """``linear_oos_gain`` as it was written before the base design was shared: both full designs built and multiplied over all rows."""
+    yr = R._winsorised(np.asarray(y, dtype=np.float64).ravel())
+    n = len(yr)
+    even = np.arange(n) % 2 == 0
+    cols = [c for c in (std_full[k] for k in rest) if c is not None]
+    x = R._standardised(candidate)
+
+    def residual(columns):
+        """Odd-row residual of the OLS on ``columns`` fitted on the even rows."""
+        L = np.column_stack([*columns, np.ones(n)])
+        beta = np.linalg.lstsq(L[even], yr[even], rcond=None)[0]
+        return (yr - L @ beta)[~even]
+
+    d = residual(cols) ** 2 - residual([*cols, x]) ** 2
+    se = float(d.std()) / np.sqrt(len(d))
+    return float(d.mean() / se), float(d.mean() / (float(np.var(yr[~even])) or 1.0))
+
+
+@pytest.mark.parametrize("p", [1, 6, 25])
+def test_linear_oos_gain_equals_the_two_full_designs_form(p):
+    """The shared-base form gives the t statistic and the variance share of the form that built both designs in full."""
+    rng = np.random.default_rng(p)
+    n = 4000
+    rest = {f"c{i}": rng.standard_normal(n) for i in range(p)}
+    cand = 0.6 * rest["c0"] + rng.standard_normal(n)
+    y = rest["c0"] + 0.4 * cand + rng.standard_normal(n)
+    std_full = {k: R._standardised(v) for k, v in rest.items()}
+    got = R.linear_oos_gain(rest, cand, y, std_full=std_full)
+    want = _reference_oos_gain(rest, cand, y, std_full)
+    assert np.allclose(got, want, rtol=1e-9, atol=1e-9)

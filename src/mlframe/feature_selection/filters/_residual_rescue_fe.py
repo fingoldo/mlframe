@@ -233,13 +233,17 @@ def linear_oos_gain(
     if x is None:
         return 0.0, 0.0
 
-    def residual(columns):
-        """Odd-row residual of the OLS on ``columns`` fitted on the even rows."""
-        L = np.column_stack([*columns, np.ones(n)])
-        beta = _ols_solve(L[even], yr[even])
-        return (yr - L @ beta)[~even]
-
-    d = residual(cols) ** 2 - residual([*cols, x]) ** 2
+    # The base design (the other columns and an intercept) is built once and split into its even (fit) and odd (score) rows; the design with the candidate adds one column to the even rows,
+    # and the odd-row residual of either model is read from the odd rows only (the previous form built both full designs and multiplied all n rows to keep half: 1.4 times slower at
+    # n = 50000, p = 10 to 80, the same residuals to 3e-15).
+    odd = ~even
+    base = np.column_stack([*cols, np.ones(n)])
+    a_even, a_odd = base[even], base[odd]
+    e0 = yr[odd] - a_odd @ _ols_solve(a_even, yr[even])
+    beta1 = _ols_solve(np.column_stack([a_even, x[even]]), yr[even])
+    # Intentional float64: the standardised column is in the criterion dtype, and a float32 product here would carry its rounding into the paired difference of the two residuals
+    e1 = yr[odd] - (a_odd @ beta1[:-1] + x[odd].astype(np.float64) * beta1[-1])
+    d = e0**2 - e1**2
     sd = float(d.std())
     total = float(np.var(yr[~even])) or 1.0
     se = sd / np.sqrt(len(d))
