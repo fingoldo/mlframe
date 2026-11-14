@@ -38,8 +38,6 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["extra_basis_eng_mi_resident"]
 
-_FOURIER_BLOCK_MIN_NAMES = 4  # measured break-even on the GTX 1050 Ti: 3 to 4 names (0.25 ms per name per column vs 0.75 ms fixed for the block); 256 names 63 ms vs 1.4 ms
-
 
 def _fourier_col_gpu(cp, xg, m: dict):
     """Device twin of the host Fourier/chirp emission ``sin|cos(2*pi*freq*z)``.
@@ -145,8 +143,9 @@ def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict):
         if m is not None and m.get("basis") == "fourier" and m.get("src") in raw_X.columns:
             fourier_row[pos] = len(fourier_row)
     fourier_block = None
-    if len(fourier_row) >= _FOURIER_BLOCK_MIN_NAMES:
-        from ._extra_basis_fourier_cuda import fourier_block_cuda
+    from ._extra_basis_fourier_cuda import block_preferred, fourier_block_cuda
+
+    if block_preferred(len(fourier_row)):
 
         fourier_block = fourier_block_cuda(cp, [_raw(meta[names[pos]]["src"]) for pos in fourier_row], [meta[names[pos]] for pos in fourier_row])
     if fourier_block is not None and len(fourier_row) == len(names):

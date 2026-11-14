@@ -10,6 +10,7 @@ in-body to avoid a cycle.
 """
 from __future__ import annotations
 
+from ._fourier_block_host import sincos_legs
 import logging
 from typing import Optional, Sequence
 
@@ -303,9 +304,7 @@ def _emit_chirp_fourier_legs(x, col, y_adapt, adaptive_fe_ok, fourier_chirp, chi
                     max_freqs=6,
                 )
                 for _cf in _chirp_freqs:
-                    ang_c = 2.0 * np.pi * _cf * u_axis
-                    sc_vals = np.sin(ang_c)
-                    cc_vals = np.cos(ang_c)
+                    sc_vals, cc_vals = sincos_legs(u_axis, _cf)
                     if _std_vs(sc_vals, 1e-12) > 1e-12:
                         name_qs = f"{col}__qsin{_cf:g}"
                         out_cols[name_qs] = sc_vals
@@ -395,9 +394,7 @@ def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_
                         _adaptive_set.add(_af)
                 for freq in _freqs_for_col:
                     _is_adaptive = freq in _adaptive_set
-                    ang = 2.0 * np.pi * freq * z
-                    s_vals = np.sin(ang)
-                    c_vals = np.cos(ang)
+                    s_vals, c_vals = sincos_legs(z, freq)
                     if _std_vs(s_vals, 1e-12) > 1e-12:
                         name_s = f"{col}__{_pfx}sin{freq:g}"
                         out_cols[name_s] = s_vals
