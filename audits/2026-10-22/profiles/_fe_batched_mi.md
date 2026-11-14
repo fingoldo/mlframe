@@ -67,3 +67,27 @@ Equivalence: `test_mm_nek_tiled.py` (11 tests) compares the tiled route with the
 Correction: the earlier prototype check of this kernel reported MAXDIFF 0 but used independent random y with a made-up h_y, so every MI clamped to 0 and the comparison could not detect a wrong column. The test now computes h_y and k_y from y and makes y depend on X, so the outputs are positive and the mutant fails. The timings above are unaffected by the data (the kernel work does not depend on the values).
 
 Coalesced-read gate: both kernels use the row-group idiom (`int rg = threadIdx.x / tile` as an assignment, column index `threadIdx.x % tile`). The edge-cache loader first walked rows with the fast index, which the gate caught as a real strided read; it now walks columns fastest.
+
+## Family view with its carved modules (2026-11-14)
+
+Family: `_fe_batched_mi` (the batched MI / CMI entry points and the plug-in MI kernels) with `_fe_batched_mi_cmi` (the CMI driver), `_fe_batched_mi_cmi_hist` (row entropies and joint histograms), `_fe_batched_mi_cmi_lut` (the log lookup table of the entropy kernels), `_fe_batched_mi_guards` (code-range guards), `_fe_batched_mi_mm_values` and `_fe_batched_mi_mm_cm` (Miller-Madow MI from raw values and from a column-major block), `_fe_batched_qbin` (device equi-frequency coder) and `_fe_batched_mi_blocks` (the column-block driver).
+
+### cProfile
+
+Whole default fit (100000 x 100, one warm pass, `D:/Temp/exp/prof_tiny.py`): the family files hold 1.32 s of self time in a profile of 506 s, nothing above 0.3 s per function; the host cost of this family is the launches and the transfers around them (`cupy.ndarray.get` carries the waiting for the asynchronous kernels), not Python work.
+
+### Kernels (nvprof of the whole fit, 2026-11-14, idle machine, `fit_nv9`)
+
+Launches per call and share of the 105 s of GPU time of that fit: `rows_ent_nnz_i32_lut_split` 2.39 s over 518 launches (4.6 ms each, 2.27 percent), `mi_from_codes_tile` 1.27 s over 3771 launches (0.34 ms each, 1.21 percent), `batched_joint_hist2_i32` 1.14 s over 644 (1.77 ms each, 1.08 percent), `mi_from_counts_col_f32` 1.10 s over 2521 (0.44 ms, 1.05 percent), `batched_joint_entropy2` 0.65 s over 1435 (0.45 ms, 0.62 percent), `ent_nnz_1d` 0.44 s over 2479, `batched_joint_hist2_i32_u8` 0.41 s over 429, `mi_from_counts_col` 0.41 s over 2479, `rows_ent_nnz_i32_lut4` 0.32 s over 1443, `mi_mm_from_values_nek_cm_f32` 0.06 s over 10, `batched_joint_entropy2_g_wide` 0.05 s over 13; together about 8.3 s, 7.9 percent of the GPU time, in kernels of 0.3 to 4.6 ms: launch counts of 500 to 3800 per fit, not single long kernels. One CMI call is one workload (the y/z terms once, two counting passes over the flat joint index of all candidates), so the launches per call are 2 counting launches plus the entropy kernel, not one per candidate.
+
+### Occupancy and throughput
+
+nvprof counters (achieved occupancy, DRAM throughput) could not be collected on 2026-11-14 (`Internal profiling error 4211` for every kernel, a kernel measured with counters in the morning included), so the figures are the earlier measured ones above and the timings: the f32 fused MI kernel reads 400 MB in 16.5 ms, about 24 GB/s of the card's 112 GB/s peak, latency and occupancy bound rather than compare or atomic bound (section 2026-11-03); the fused joint entropy and the global-scratch twin were swept against count+reduce by the joint size M (sections above), the count buffers stay inside L2 for M up to 12000 cells in shared memory and while SMs x M x 4 bytes fit L2 for the global twin.
+
+### Host-or-device choice
+
+The batched CMI against the host loop is chosen per host by `cmi_candidate_batch_backend` (`_mi_greedy_cmi_fe_ktc`, host up to 120000 candidate-rows, device from 480000 on the development card); the kernel variant inside the family, count+reduce against the fused joint entropy, by `cmi_fused_entropy_backend` (`_fe_cmi_fused_backend`, fused from 300 joint cells without a measurement). The host twin of the CMI is the njit `_cmi_from_binned` of `_mi_greedy_cmi_fe`, the host twin of the equi-frequency coder `quantile_bin_columns`.
+
+### Streaming
+
+`batched_cmi_gpu` (`_fe_batched_mi_blocks`) splits the candidate matrix into column blocks sized from the room under the pool (`first_block`, `run_column_blocks`) and joins the block results in order; a block that runs out of memory is halved. `test_batched_cmi_column_blocks` pins that blocked and single-block results are equal.
