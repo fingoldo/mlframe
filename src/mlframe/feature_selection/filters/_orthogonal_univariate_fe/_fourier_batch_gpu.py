@@ -408,7 +408,8 @@ def _run_member_block(cp: Any, members: list, jobs: Any, results: list, single: 
     def single_k(k: int, _ids=job_ids) -> list:
         """Single-column detector for the group's column ``k``."""
         z01, y, f_grid = jobs[_ids[k]]
-        return single(z01, y, f_grid)
+        found: list = single(z01, y, f_grid)
+        return found
 
     out = _run_group(cp, Z_tr, Z_va, Y_tr, Y_va, [m[1] for m in members], [m[6] for m in members], min_val_corr, max_freqs, single_k)
     for k, j in enumerate(job_ids):

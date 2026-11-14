@@ -18,7 +18,7 @@ MIN_BATCH = 2  # a single job gains nothing from the batch kernels
 DEVICE_FALLBACK_ROWS = 12_000  # measured crossover (GTX 1050 Ti, 4 and 16 columns); the tuner replaces it per host once a sweep has run
 _SWEEP_ROWS = [5_000, 20_000, 100_000]
 _SWEEP_COLUMNS = 8
-_SWEEP_PARAMS = dict(min_val_corr=0.15, min_rows=500, max_freqs=6)
+_SWEEP_PARAMS: dict[str, Any] = dict(min_val_corr=0.15, min_rows=500, max_freqs=6)
 _SALT = 1
 
 
@@ -38,7 +38,7 @@ def _sweep_inputs(dims: dict) -> tuple:
 
 def _as_matrix(found: "list[list[float]]") -> np.ndarray:
     """The detected lists as a fixed-width matrix (zero padded), so two backends are compared on count, order and value."""
-    out = np.zeros((len(found), _SWEEP_PARAMS["max_freqs"]), dtype=np.float64)  # Intentional float64: comparison matrix
+    out = np.zeros((len(found), int(_SWEEP_PARAMS["max_freqs"])), dtype=np.float64)  # Intentional float64: comparison matrix
     for i, lst in enumerate(found):
         out[i, : len(lst)] = lst
     return out

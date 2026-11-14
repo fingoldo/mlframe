@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sys
 
+import numpy as np
+
 RESIDENCIES = ("host", "device")  # the two placements of an operand or a result; a sweep scenario is an (in, out) pair of them
 
 
@@ -83,14 +85,12 @@ def host_device_sweep(owner: str, host, device, *, repeats: int = 3, rtol: float
     return _run_sweep
 
 
-def selection_view(scores, top: int = 10, tie_band: float = 1e-4, width: int = 1024):
+def selection_view(scores: object, top: int = 10, tie_band: float = 1e-4, width: int = 1024) -> np.ndarray:
     """What a selection step reads from a scoring pass, as a fixed-length vector: how many candidates were scored, and which of them are among the best ``top`` (those at or within
     the relative ``tie_band`` of the ``top``-th best).
 
     Two scorers that bin or round differently differ in the last digits of the scores (a few rows across a bin edge) while ranking the same candidates at the top; comparing this view
     lets a sweep hold both to the strict tolerance instead of a slack one on the score values."""
-    import numpy as np
-
     scores = np.asarray(scores, dtype=np.float64)  # Intentional float64: comparison vector
     out = np.zeros(1 + int(width), dtype=np.float64)  # Intentional float64: comparison vector
     out[0] = scores.size
