@@ -29,7 +29,7 @@ def test_innermost_mlframe_frame_root_is_found_when_the_checkout_directory_is_al
     import traceback
     from types import SimpleNamespace
 
-    frame = SimpleNamespace(filename="/home/runner/work/mlframe/mlframe/src/mlframe/training/core.py", lineno=42, name="fit")
+    frame = SimpleNamespace(filename="work/mlframe/mlframe/src/mlframe/training/core.py", lineno=42, name="fit")
     monkeypatch.setattr(traceback, "extract_tb", lambda tb: [frame])
     assert _innermost_mlframe_frame(ValueError("boom")) == "src/mlframe/training/core.py:42 in fit"
 
