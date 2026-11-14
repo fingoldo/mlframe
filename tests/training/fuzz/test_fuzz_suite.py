@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import re
 import time
 import traceback
 from typing import Any
@@ -175,13 +176,18 @@ def _apply_bughunt_budget(combo: FuzzCombo) -> FuzzCombo:
     return _dataclasses.replace(combo, **changes)
 
 
+# The checkout directory itself is named mlframe (CI clones into work/mlframe/mlframe), so the root is the "mlframe/" that is followed by src/ or tests/:
+# splitting on every "/mlframe/" misses the second of two adjacent ones, whose leading slash the first match already consumed.
+_REPO_ROOT_RE = re.compile(r"(?:^|/)mlframe/(?=(?:src|tests)/)")
+
+
 def _innermost_mlframe_frame(exc: BaseException) -> str:
     """``file:line in func`` of the deepest traceback frame inside ``src/mlframe``, so a failure row names where it originated."""
     frames = [f for f in traceback.extract_tb(exc.__traceback__) if "mlframe" in f.filename.replace("\\", "/") and "site-packages" not in f.filename]
     if not frames:
         return ""
     last = frames[-1]
-    return f"{last.filename.replace(chr(92), '/').split('/mlframe/')[-1]}:{last.lineno} in {last.name}"
+    return f"{_REPO_ROOT_RE.split(last.filename.replace(chr(92), '/'))[-1]}:{last.lineno} in {last.name}"
 
 
 def _snapshot_caller_frame(combo: FuzzCombo, df: Any) -> tuple[Any, Any]:
