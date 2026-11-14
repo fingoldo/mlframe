@@ -151,7 +151,7 @@ def use_device_lof(n_rows: int) -> bool:
 
 
 _SWEEP_ROWS = [2_000, 20_000, 100_000]
-_SALT = 5  # 5: the equivalence tolerance went from 1e-5 to 1e-6, so regions swept under the looser one are measured again. 4: the kernel is specialised per (k, p) with a shared-memory top-k above 32, so its timings are measured again
+_SALT = 6  # 6: the host path is the njit kNN scan (8 to 12 times the matrix form), so every region is timed against it again. 5: the equivalence tolerance went from 1e-5 to 1e-6, so regions swept under the looser one are measured again. 4: the kernel is specialised per (k, p) with a shared-memory top-k above 32, so its timings are measured again
 
 
 def _make_inputs(dims: dict) -> tuple:

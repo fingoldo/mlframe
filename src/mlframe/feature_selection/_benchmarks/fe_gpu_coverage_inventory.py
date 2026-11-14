@@ -199,7 +199,8 @@ def ktc_dispatch_problems(name: str) -> list[str]:
 
 
 CRIT_DTYPE = re.compile(r"_crit_np_dtype|crit_float_dtype|Intentional float64")
-BLOCK_STREAMING = re.compile(r"block_cols|BLOCK_COLS|column block|best_pair_streamed")
+#: Device memory bounded by blocks: column blocks, or row blocks for a kernel whose operand is one small column set and many rows (a row-streamed scorer such as the LOF transform).
+BLOCK_STREAMING = re.compile(r"block_cols|BLOCK_COLS|column block|row block|best_pair_streamed")
 HOST_PROFILE = re.compile(r"cProfile")
 GPU_PROFILE = re.compile(r"\bnsys\b|\bncu\b|\bnvprof\b")
 GPU_OCCUPANCY = re.compile(r"occupancy", re.IGNORECASE)
