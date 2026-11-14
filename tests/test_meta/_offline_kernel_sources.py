@@ -104,7 +104,7 @@ _RECIPES: dict = {
     "_fe_batched_mi_cmi.py::_BATCHED_JOINT_ENTROPY_SRC": lambda s: [(xt, _fill(s, **{"{ACC}": "double", "{XT}": xt}), ()) for xt in ("long long", "unsigned char")],
     "_hsic_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "EXPF": "expf" if r == "float" else "exp"}), ()) for r in _REAL_TYPES],
     "_lof_gpu.py::_SRC": lambda s: [
-        (f"{r} k={k} p={p}", _fill(s, **{"{REAL}": r, "{ACC}": "double", "{K}": str(k), "{P}": str(p)}), ()) for r in _REAL_TYPES for k, p in ((20, 3), (64, 16))
+        (f"{r} k={k} p={p}", _fill(s, **{"{REAL}": r, "{ACC}": "double", "{K}": str(k), "{P}": str(p), "{SINGLE_FILTER}": "1" if r == "float" else "0"}), ()) for r in _REAL_TYPES for k, p in ((20, 3), (64, 16))
     ],
     "_modular_codes_gpu.py::_SRC": lambda s: [(t, _define(SRC_T=t) + _fill(s, **{"{REAL}": "float", "{ACC}": "double"}), ()) for t in _REAL_TYPES],
     "_family_maxt_counts_device.py::_SRC": lambda s: [("MAXC=64", _fill(s, **{"MAXC": "64"}), ())],
