@@ -29,11 +29,11 @@ void radix_select_f32_v4(const float* __restrict__ data, const long long n, cons
     __shared__ int W;
     __shared__ int win_bad;
     __shared__ int wsum[2];
-    __shared__ unsigned long long scount;
+    __shared__ unsigned int scount;      // 32-bit: a 64-bit shared atomic is a compare-and-swap loop on this architecture (the candidate buffer never holds 2^32 entries)
     __shared__ int have_cand;    // the candidate buffer holds every element the remaining passes can count
     __shared__ int overflowed;
     if(tid<R){prefix[tid]=0u;below[tid]=0ULL;}
-    if(tid==0){scount=0ULL;have_cand=0;overflowed=0;}
+    if(tid==0){scount=0u;have_cand=0;overflowed=0;}
     __syncthreads();
     for(int byte=3;byte>=0;--byte){
         int shift=byte*8;
@@ -79,8 +79,8 @@ void radix_select_f32_v4(const float* __restrict__ data, const long long n, cons
                 while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}
                 if(lo<Wl&&wsort[lo]==pm){int win=wsort2w[lo];
                     int dig=(int)((u>>shift)&0xFFu);atomicAdd(&sh[win*256+dig],1u);
-                    if(compact){unsigned long long slot=atomicAdd(&scount,1ULL);
-                        if(slot<(unsigned long long)cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
+                    if(compact){unsigned int slot=atomicAdd(&scount,1u);
+                        if((long long)slot<cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
             }
         } else {
             long long m=(long long)scount;
@@ -141,10 +141,10 @@ _V5_HEAD_NEW = """            for(long long i0=tid;i0<n;i0+=4LL*nt){
                 if(i<n){
                 float d=dv[k];unsigned int u;memcpy(&u,&d,4);
 """
-_V5_TAIL_OLD = """                        if(slot<(unsigned long long)cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
+_V5_TAIL_OLD = """                        if((long long)slot<cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
             }
         } else {"""
-_V5_TAIL_NEW = """                        if(slot<(unsigned long long)cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
+_V5_TAIL_NEW = """                        if((long long)slot<cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
                 }
               }
             }
