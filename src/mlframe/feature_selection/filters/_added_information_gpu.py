@@ -27,7 +27,7 @@ _THREADS = 256
 _SRC = render(
     r"""
 extern "C" __global__ __launch_bounds__(256)
-void added_information_g(const int* __restrict__ cand, const int* __restrict__ bcs, const int* __restrict__ s, const int* __restrict__ t,
+void added_information_g(const {CT}* __restrict__ cand, const int* __restrict__ bcs, const int* __restrict__ s, const int* __restrict__ t,
                          const long long n, const int bs, const int by, {ACC}* __restrict__ g_out) {
     extern __shared__ int tab[];                          // joint[bs * bc * by], n_sc[bs * bc], n_sy[bs * by], n_s[bs]
     __shared__ {ACC} red[32];
@@ -40,7 +40,7 @@ void added_information_g(const int* __restrict__ cand, const int* __restrict__ b
     const int total = cells + bs * bc + bs * by + bs;
     for (int q = threadIdx.x; q < total; q += blockDim.x) tab[q] = 0;
     __syncthreads();
-    const int* c = cand + (long long)k * n;
+    const {CT}* c = cand + (long long)k * n;
     for (long long i = threadIdx.x; i < n; i += blockDim.x) {
         const int sc = s[i] * bc + c[i];
         atomicAdd(&tab[sc * by + t[i]], 1);
@@ -69,15 +69,14 @@ void added_information_g(const int* __restrict__ cand, const int* __restrict__ b
 """,
 )
 
-_KERNEL: Any = None
+_KERNELS: dict = {}
 
 
-def _kernel(cp: Any) -> Any:
-    """The compiled kernel (one per process)."""
-    global _KERNEL
-    if _KERNEL is None:
-        _KERNEL = cp.RawKernel(_SRC, "added_information_g")
-    return _KERNEL
+def _kernel(cp: Any, narrow: bool) -> Any:
+    """The compiled kernel; candidate codes are read as bytes when every candidate has at most 127 levels, else as 32-bit integers (one build per code type)."""
+    if narrow not in _KERNELS:
+        _KERNELS[narrow] = cp.RawKernel(_SRC.replace("{CT}", "signed char" if narrow else "int"), "added_information_g")
+    return _KERNELS[narrow]
 
 
 def g_statistics_gpu(cands: np.ndarray, bcs: np.ndarray, s: np.ndarray, bs: int, t: np.ndarray, by: int) -> np.ndarray:
@@ -93,12 +92,13 @@ def g_statistics_gpu(cands: np.ndarray, bcs: np.ndarray, s: np.ndarray, bs: int,
         return out
     s_d = cp.asarray(np.ascontiguousarray(s, dtype=np.int32))
     t_d = cp.asarray(np.ascontiguousarray(t, dtype=np.int32))
-    kernel = _kernel(cp)
+    narrow = bool(bcs.max() <= 127)  # dense codes are below the level count: a byte holds them and the upload is a quarter of the 32-bit one
+    kernel = _kernel(cp, narrow)
 
     def block_work(lo: int, hi: int) -> int:
         """G of the candidates ``fits[lo:hi]`` (a column block of the candidate matrix)."""
         sel = fits[lo:hi]
-        c_d = cp.asarray(np.ascontiguousarray(cands[sel], dtype=np.int32))
+        c_d = cp.asarray(np.ascontiguousarray(cands[sel], dtype=np.int8 if narrow else np.int32))
         b_d = cp.asarray(np.ascontiguousarray(bcs[sel], dtype=np.int32))
         res = cp.empty(sel.shape[0], dtype=cp.float64)  # Intentional float64: G output
         cells = bs * int(bcs[sel].max()) * by
@@ -107,7 +107,7 @@ def g_statistics_gpu(cands: np.ndarray, bcs: np.ndarray, s: np.ndarray, bs: int,
         out[sel] = cp.asnumpy(res)
         return int(sel.shape[0])
 
-    block = first_block(cp, n, int(fits.size), 4, 2)
+    block = first_block(cp, n, int(fits.size), 1 if narrow else 4, 2)
     run_column_blocks(cp, int(fits.size), block, block_work)
     return out
 

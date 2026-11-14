@@ -36,3 +36,6 @@ Superseding the theoretical occupancy stated above (the counters were blocked by
 | added_information_g | 95.0 % | 97.4 % | 43.4 GB/s | 0.61 GB/s | 99.9 % | 25.0 % | 0.02 % |
 
 Shared efficiency 0.02 percent: same cause, the table has 80 cells.
+
+## Byte candidate codes (2026-11-14)
+The table above showed the 256-candidate call at 36.2 ms with a 0.73 ms kernel: the call is bound by the upload of the candidate code matrix (256 x 30,000 dense codes as 32-bit integers, 31 MB). Candidate codes are dense and below their level count, so when every candidate has at most 127 levels the matrix is converted to `int8` and uploaded as `signed char` (the kernel is compiled per code type, `{CT}`; the first block size follows the element). Outputs are bit-identical. Interleaved A/B, 9 rounds, medians, `g_statistics_gpu` on 256 candidates x 30,000 rows from host int64 codes: 35.3 -> 25.9 ms (1.36x). The remaining time is the host conversion of the int64 dense codes and the upload; producing the dense codes directly as bytes (`_dense_codes`) would remove the conversion and is the open step. The per-arch offline recipe compiles both code types.
