@@ -50,10 +50,30 @@ def test_narrow_integer_codes_equal_the_plain_transpose(shape, dtype):
     np.testing.assert_array_equal(got, x.T)
 
 
-def test_the_block_shape_launched_is_32_by_8():
+def test_the_block_shape_launched_is_32_by_8(monkeypatch):
     """The kernels are written for 8 thread rows per block; a launch with another shape would leave rows of the tile unwritten."""
-    import inspect
+    blocks = []
 
-    src = inspect.getsource(K)
-    assert src.count("(32, 8), (") == 3 and "(32, 32), (" not in src
-    assert "for (int j = 0; j < 32; j += 8)" in K._TRANSPOSE_F32_SRC
+    class _Spy:
+        """Forwards a launch to the real kernel and records its block shape."""
+
+        def __init__(self, real):
+            """Keep the kernel to forward to."""
+            self.real = real
+
+        def __call__(self, grid, block, args, **kw):
+            """Record ``block`` and launch."""
+            blocks.append(tuple(block))
+            return self.real(grid, block, args, **kw)
+
+    for name in ("_get_transpose_f32_kernel", "_get_transpose_f64_kernel"):
+        monkeypatch.setattr(K, name, (lambda real: lambda: _Spy(real()))(getattr(K, name)))
+    monkeypatch.setattr(K, "_get_transpose_int_kernel", (lambda real: lambda itemsize: _Spy(real(itemsize)))(K._get_transpose_int_kernel))
+    rng = np.random.default_rng(0)
+    K._transpose_to_cm(cp.asarray(_data(rng, (70, 33), np.float32)))
+    K._transpose_to_cm(cp.asarray(_data(rng, (70, 33), np.float64)))
+    K._transpose_cm_to_rm(cp.asarray(_data(rng, (33, 70), np.float32)))
+    K.transpose_codes_to_cm(cp.asarray(_data(rng, (70, 33), np.int8)))
+    K.transpose_codes_to_cm(cp.asarray(_data(rng, (70, 33), np.int16)))
+    assert len(blocks) == 5
+    assert set(blocks) == {(32, 8)}

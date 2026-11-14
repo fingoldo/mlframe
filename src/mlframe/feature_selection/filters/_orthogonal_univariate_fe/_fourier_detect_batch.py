@@ -129,9 +129,10 @@ def detect_fourier_freqs_batch(
     """Detected frequencies of each ``(z01, y, f_grid)`` job: the same lists the single-column detector (``_detect_fourier_freqs_for_col``) returns, one list per job."""
     from ._orth_extra_basis_fe import _detect_fourier_freqs_for_col
 
-    def single(z01, y, f_grid) -> list:
-        """The single-column detector with this batch's parameters."""
-        return _detect_fourier_freqs_for_col(z01, y, f_grid=f_grid, min_val_corr=min_val_corr, min_rows=min_rows, max_freqs=max_freqs)
+    # The single-column detector with this batch's parameters.
+    single = lambda z01, y, f_grid: _detect_fourier_freqs_for_col(  # noqa: E731 - a one-call adapter, not a second implementation
+        z01, y, f_grid=f_grid, min_val_corr=min_val_corr, min_rows=min_rows, max_freqs=max_freqs
+    )
 
     jobs = list(jobs)
     if len(jobs) >= MIN_BATCH:

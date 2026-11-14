@@ -7,6 +7,7 @@ import pytest
 
 cp = pytest.importorskip("cupy")
 
+from mlframe.feature_selection.filters import _gpu_resident_select as S
 from mlframe.feature_selection.filters import _gpu_resident_select_f32_compact as C
 
 
@@ -56,12 +57,13 @@ def test_non_ascending_ranks_take_the_serial_dedup_and_still_equal_the_sort(r):
     np.testing.assert_array_equal(cp.asnumpy(got), cp.asnumpy(_reference(x, ranks_h)))
 
 
-def test_the_callers_build_ascending_distinct_ranks():
-    """The warp scan relies on it: every plan builder takes its ranks from np.unique, which is ascending and distinct."""
-    import inspect
-
-    from mlframe.feature_selection.filters import _gpu_resident_select as S
-
-    src = inspect.getsource(S)
-    assert src.count("np.unique(") >= 3
-    assert "wsum[tid>>5]=x" in C._RADIX_SELECT_F32_V4_SRC and "win_bad" in C._RADIX_SELECT_F32_V4_SRC
+def test_the_public_entry_accepts_unordered_and_repeated_ranks_and_equals_the_sort():
+    """The warp scan relies on ascending distinct ranks; the public entry builds them itself (np.unique), so shuffled and repeated requests still return the sort's values in the requested order."""
+    rng = np.random.default_rng(11)
+    n, K = 3000, 5
+    x = cp.asarray(rng.standard_normal((n, K)).astype(np.float32))
+    ranks = np.array([2500, 3, 3, 1200, 0, 2999, 1200, 77], dtype=np.int64)
+    got = S.radix_order_statistics(x, ranks)
+    assert got is not None
+    want = cp.sort(x, axis=0)[cp.asarray(ranks)]
+    assert np.array_equal(cp.asnumpy(got), cp.asnumpy(want))

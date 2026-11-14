@@ -528,19 +528,23 @@ def test_default_path_self_limits_no_spurious_hinge(kind):
     assert not _hinge_survivors(m), f"{kind}: no hinge leg should survive into support_ on neutral data"
 
 
-def test_default_path_keeps_the_hinge_leg_of_a_smooth_quadratic():
-    """A smooth y = x**2 has a slope change at x = 0, so it is NOT neutral data: the default MRMR keeps a
-    hinge leg of ``a`` in support_, because the slope change carries signal the linear raw column cannot.
-    This pins that behaviour; the neutral-data check above covers only noise and a purely linear column."""
+@pytest.mark.parametrize("seed_offset", [0, 1, 2])
+def test_default_path_keeps_the_nonlinear_signal_of_a_smooth_quadratic(seed_offset):
+    """A smooth y = x**2 is NOT neutral data: its slope change at x = 0 carries signal the linear raw column cannot read, so the default MRMR output
+    must let a linear model recover it. Which engineered column carries it is not the contract and does change with the families that run (a hinge
+    leg of ``a``, its Chebyshev T2 child, abs of its rankgauss): the held-out linear R^2 on ``transform()`` is. Measured 0.986-0.993 on these seeds
+    against 0.735-0.749 on the raw columns; the neutral-data check above covers noise and a purely linear column."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    rng = np.random.default_rng(40 + len("smooth"))
+    rng = np.random.default_rng(40 + len("smooth") + seed_offset)
     b = rng.standard_normal(N)
     x = rng.uniform(-1, 1, N)
     y = x**2 + 0.5 * b + 0.05 * rng.standard_normal(N)
     X = pd.DataFrame({"a": x, "b": b})
     m = MRMR(max_runtime_mins=2, verbose=0, random_state=0)
     m.fit(X, y)
-    survivors = _hinge_survivors(m)
-    assert survivors, "a smooth quadratic should keep a hinge leg of its nonlinear source"
-    assert all(r.src_names == ("a",) for r in survivors), survivors
+    out = np.asarray(m.transform(X), dtype=float)
+    r2_out = _heldout_r2([out[:, i] for i in range(out.shape[1])], y)
+    r2_raw = _heldout_r2([x, b], y)
+    assert r2_out >= 0.95, (r2_out, list(m.get_feature_names_out()))
+    assert r2_out > r2_raw + 0.15, (r2_out, r2_raw)
