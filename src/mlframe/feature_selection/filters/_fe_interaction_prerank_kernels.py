@@ -292,10 +292,12 @@ def discrete_score_cupy(ZV: np.ndarray, ZV2: np.ndarray, Yc: np.ndarray) -> np.n
         """Scores of columns ``lo:hi`` (both operands, summed)."""
         c1 = cp.abs(cp.matmul(cp.asarray(ZV[:, lo:hi]).T, Ycd)).sum(axis=1)
         c2 = cp.abs(cp.matmul(cp.asarray(ZV2[:, lo:hi]).T, Ycd)).sum(axis=1)
-        return cp.asnumpy(c1 + c2)
+        block_scores: np.ndarray = cp.asnumpy(c1 + c2)
+        return block_scores
 
     block_cols = first_block(cp, n_rows, n_cols, int(ZV.dtype.itemsize), 4)  # two uploaded blocks and their transposed GEMM temporaries
-    return np.concatenate(run_column_blocks(cp, n_cols, block_cols, score_block))
+    scores: np.ndarray = np.concatenate(run_column_blocks(cp, n_cols, block_cols, score_block))
+    return scores
 
 
 # ---------------------------------------------------------------------------

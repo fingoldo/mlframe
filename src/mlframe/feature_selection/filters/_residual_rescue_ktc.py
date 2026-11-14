@@ -98,7 +98,8 @@ def score_columns_dispatch(host_score: Any, Q: np.ndarray, resid: np.ndarray, ev
             from mlframe.utils.log_throttle import log_throttle
 
             log_throttle(logger, "residual_rescue.score_device_failed", logging.WARNING, "residual-rescue device scoring failed (%s: %s); host loop", type(exc).__name__, exc)
-    return host_score(Q, resid, even, n_bins, shrink)
+    host_result: "tuple[np.ndarray, np.ndarray]" = host_score(Q, resid, even, n_bins, shrink)
+    return host_result
 
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -140,21 +141,21 @@ def _codes_device(M: np.ndarray) -> np.ndarray:
     return np.array([float(codes.sum()), float(ok.sum()), float(codes.shape[0])])
 
 
-def _codes_sweep_runner(owner: str):
-    """The sweep of the coding entry: ``host_device_sweep`` reads ``_SWEEP_ROWS`` and ``_sweep_inputs`` of ``owner``; this entry has its own, so they are bound for the call."""
-    import sys
+def _codes_sweep() -> list:
+    """Time the numba and the device coding per work size; the device codes must equal the host's exactly (the comparison vector holds integer sums)."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
 
-    def run() -> list:
-        """Time the numba and the device coding per work size; the device codes must equal the host's."""
-        module = sys.modules[owner]
-        saved = (module.__dict__.get("_SWEEP_ROWS"), module.__dict__.get("_sweep_inputs"))
-        module._SWEEP_ROWS, module._sweep_inputs = _CODES_SWEEP_ROWS, _codes_sweep_inputs
-        try:
-            return host_device_sweep(owner, _codes_host, _codes_device, rtol=0.0, atol=0.0)()
-        finally:
-            module._SWEEP_ROWS, module._sweep_inputs = saved
-
-    return run
+    return list(
+        sweep_backend_grid(
+            {"host": _codes_host, "device": _codes_device},
+            {"n_samples": _CODES_SWEEP_ROWS},
+            _codes_sweep_inputs,
+            reference="host",
+            repeats=3,
+            equiv_rtol=0.0,
+            equiv_atol=0.0,
+        )
+    )
 
 
 try:
@@ -163,7 +164,7 @@ try:
     _CODES_SPEC: Any = kernel_tuner(
         kernel_name="residual_rescue_codes_backend",
         variant_fns=(),
-        tuner=_codes_sweep_runner(__name__),
+        tuner=_codes_sweep,
         axes={"n_samples": list(_CODES_SWEEP_ROWS)},
         fallback=rows_fallback(__name__, "CODES_DEVICE_FALLBACK_ROWS"),
         gpu_capable=True,
@@ -202,4 +203,5 @@ def codes_matrix_dispatch(host_codes: Any, M: np.ndarray, n_bins: int, sample: i
             from mlframe.utils.log_throttle import log_throttle
 
             log_throttle(logger, "residual_rescue.codes_device_failed", logging.WARNING, "residual-rescue device coding failed (%s: %s); host loop", type(exc).__name__, exc)
-    return host_codes(M, n_bins, sample, min_finite, few_classes)
+    host_result: "tuple[np.ndarray, np.ndarray]" = host_codes(M, n_bins, sample, min_finite, few_classes)
+    return host_result
