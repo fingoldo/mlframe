@@ -74,7 +74,7 @@ void rows_ent_nnz_i32_lut1(const int* __restrict__ counts, const {ACC}* __restri
     if (tid == 0) { out_h[row] = (log_n * ({ACC})sh_c[0] - sh_s[0]) * inv_n; out_k[row] = (long long)sh_k[0]; }
 }
 // SPLIT-K lookup-table variant: the narrow-chunk, huge-row case (K < 48 rows of 2^20 or more cells) runs one block per (row, segment) so the SMs are not left idle (the split kernel
-// of _fe_batched_mi_cmi), and each cell takes c * ln(c) from the table instead of a double precision log (1/32 rate on Pascal). Each block writes its partial (sum of c ln c, sum of c,
+// of _fe_batched_mi_cmi), and each cell takes c * ln(c) from the table instead of a 64-bit log (1/32 rate on Pascal). Each block writes its partial (sum of c ln c, sum of c,
 // occupied cells) to a (K, S) scratch; the finish kernel folds the S partials of a row in segment order and applies the same closing formula as the one-block kernels.
 extern "C" __global__
 void rows_ent_nnz_i32_lut_split(const int* __restrict__ counts, const {ACC}* __restrict__ xlogx, const int nmax,
