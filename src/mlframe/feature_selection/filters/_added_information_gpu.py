@@ -88,6 +88,7 @@ def g_statistics_gpu(cands: np.ndarray, bcs: np.ndarray, s: np.ndarray, bs: int,
     k, n = cands.shape
     out = np.full(k, np.nan)  # Intentional float64: the G statistic compared to the host at full precision
     fits = np.nonzero(bs * bcs * by <= _MAX_CELLS)[0]
+    all_fit = bool(fits.size == k)
     if k == 0 or n == 0 or fits.size == 0:
         return out
     s_d = cp.asarray(np.ascontiguousarray(s, dtype=np.int32))
@@ -98,7 +99,8 @@ def g_statistics_gpu(cands: np.ndarray, bcs: np.ndarray, s: np.ndarray, bs: int,
     def block_work(lo: int, hi: int) -> int:
         """G of the candidates ``fits[lo:hi]`` (a column block of the candidate matrix)."""
         sel = fits[lo:hi]
-        c_d = cp.asarray(np.ascontiguousarray(cands[sel], dtype=np.int8 if narrow else np.int32))
+        rows = cands[lo:hi] if all_fit else cands[sel]  # a contiguous slice (no copy) when every candidate fits the table
+        c_d = cp.asarray(np.ascontiguousarray(rows, dtype=np.int8 if narrow else np.int32))
         b_d = cp.asarray(np.ascontiguousarray(bcs[sel], dtype=np.int32))
         res = cp.empty(sel.shape[0], dtype=cp.float64)  # Intentional float64: G output
         cells = bs * int(bcs[sel].max()) * by
@@ -206,7 +208,11 @@ def added_information_p_many(candidates: "list[np.ndarray]", source: "np.ndarray
 
             if cuda_available_for_run():
                 bcs = np.array([d[1] for d in dense], dtype=np.int64)
-                g = g_statistics_gpu(np.stack([d[0] for d in dense]), bcs, s, bs, t, by)
+                code_type = np.int8 if int(bcs.max()) <= 127 else np.int64  # the matrix is built at the width the kernel reads: no 64-bit copy of it
+                cand_mat = np.empty((k, n), dtype=code_type)
+                for j, d in enumerate(dense):
+                    cand_mat[j] = d[0]
+                g = g_statistics_gpu(cand_mat, bcs, s, bs, t, by)
                 todo = []
                 for j in range(k):
                     bc = int(bcs[j])
