@@ -147,7 +147,7 @@ def _entropy_table(cp: Any, n: int) -> Any:
             table = cp.zeros(n + 1, dtype=cp.float64)
             table[1:] = -(counts[1:] * inv_n) * cp.log(counts[1:] * inv_n)
             if len(_ENT_TABLES) >= _ENT_TABLES_MAX:
-                _ENT_TABLES.pop(next(iter(_ENT_TABLES)))
+                _ENT_TABLES.pop(next(iter(_ENT_TABLES)))  # evict-ok: a miss rebuilds the table, a pure function of n
             _ENT_TABLES[n] = table
         return table
 
