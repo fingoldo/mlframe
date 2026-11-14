@@ -140,8 +140,28 @@ def _sparse_perm_null(
     return None
 
 
+_LAYOUT_CACHE: list = []  # [(z array, layout)], newest last; the entry keeps ``z`` alive, so an identity match can never be a recycled buffer
+_LAYOUT_CACHE_MAX = 2
+
+
 def _stratum_layout(cp: Any, z_i: Any, order: Optional[np.ndarray], z_rank: Optional[np.ndarray], n: int) -> tuple:
-    """Support codes, stratum order and dense stratum rank on the device (derived on-device for a device-born ``z_i``); returns ``(z_for_cmi, order_d, z_rank_d)``."""
+    """Support codes, stratum order and dense stratum rank on the device (derived on-device for a device-born ``z_i``); returns ``(z_for_cmi, order_d, z_rank_d)``.
+
+    A device-born support is the same array object for every candidate of a gate round, and its layout (the argsort and the stratum ranks) holds no randomness, so the layout of the
+    last two supports is kept (an identity match; the entry holds the array, so a recycled buffer cannot match)."""
+    if isinstance(z_i, cp.ndarray):
+        for zk, lay in _LAYOUT_CACHE:
+            if zk is z_i:
+                return lay
+        lay = _stratum_layout_uncached(cp, z_i, order, z_rank, n)
+        _LAYOUT_CACHE.append((z_i, lay))
+        del _LAYOUT_CACHE[:-_LAYOUT_CACHE_MAX]
+        return lay
+    return _stratum_layout_uncached(cp, z_i, order, z_rank, n)
+
+
+def _stratum_layout_uncached(cp: Any, z_i: Any, order: Optional[np.ndarray], z_rank: Optional[np.ndarray], n: int) -> tuple:
+    """``_stratum_layout`` without the cache."""
     if isinstance(z_i, cp.ndarray):
         z_for_cmi = z_i.astype(cp.int64, copy=False).ravel()
         order_d = device_argsort(z_for_cmi)  # stratum grouping on device (ties broken by sort)
