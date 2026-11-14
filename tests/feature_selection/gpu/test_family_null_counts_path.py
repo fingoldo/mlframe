@@ -31,8 +31,8 @@ def test_counts_path_equals_the_thread_per_pair_kernel_bit_for_bit_and_the_cpu_k
     assert got is not None
     monkeypatch.setattr(counts_path, "family_null_max_counts", lambda *a, **k: None)  # the entry then runs the thread-per-pair kernel
     thread_per_pair = cuda.family_null_max_device(cols, n_x, perms, n_y)
-    np.testing.assert_array_equal(got, thread_per_pair)
-    np.testing.assert_allclose(got, family_null_max_njit(cols, n_x, perms, n_y), rtol=1e-14, atol=0)
+    assert np.array_equal(np.asarray(got), np.asarray(thread_per_pair))
+    assert np.allclose(np.asarray(got), family_null_max_njit(cols, n_x, perms, n_y), rtol=1e-14, atol=0)
 
 
 def test_tiles_over_columns_and_permutations_give_the_same_maxima(monkeypatch):
