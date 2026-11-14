@@ -107,6 +107,10 @@ KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 #: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
 #: (its own thresholds, variants, block size) registers itself instead.
 KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_hermite_fe_mi": (
+        "_resident_candidate_mi_ktc",
+        "its resident plug-in MI (_plugin_mi_classif_batch_cuda_resident) is timed against the host njit batch MI it replaces by fe_gate_resident_candidate_mi_crossover (kernel_tuner over (n, k)); the resident path engages only where measured faster",
+    ),
     "_fe_batched_mi": (
         "_mi_greedy_cmi_fe_ktc",
         "the batched device CMI (batched_cmi_gpu) is chosen against the host loop by cmi_candidate_batch_backend (host_device_sweep over the candidate-rows); the kernel variant inside the family is chosen by cmi_fused_entropy_backend of _fe_cmi_fused_backend",
