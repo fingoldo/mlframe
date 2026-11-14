@@ -24,6 +24,16 @@ def test_innermost_mlframe_frame_names_the_raising_line():
     assert origin.endswith(" in _raise_here")
 
 
+def test_innermost_mlframe_frame_root_is_found_when_the_checkout_directory_is_also_named_mlframe(monkeypatch):
+    """CI clones into ``work/mlframe/mlframe``: the two adjacent ``/mlframe/`` must not leave a stray ``mlframe/`` in front of the repository-relative path."""
+    import traceback
+    from types import SimpleNamespace
+
+    frame = SimpleNamespace(filename="/home/runner/work/mlframe/mlframe/src/mlframe/training/core.py", lineno=42, name="fit")
+    monkeypatch.setattr(traceback, "extract_tb", lambda tb: [frame])
+    assert _innermost_mlframe_frame(ValueError("boom")) == "src/mlframe/training/core.py:42 in fit"
+
+
 def test_innermost_mlframe_frame_empty_without_mlframe_frames():
     """An exception raised outside mlframe frames yields an empty origin rather than an error."""
     exc = RuntimeError("outside")
