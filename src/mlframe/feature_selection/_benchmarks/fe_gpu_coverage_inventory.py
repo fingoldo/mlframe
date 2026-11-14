@@ -98,7 +98,9 @@ def row(name: str) -> tuple[str, str, int, int, int]:
 REPO_ROOT = Path(__file__).resolve().parents[4]
 PROFILES_DIR = REPO_ROOT / "audits" / "2026-10-22" / "profiles"
 CPU_KERNEL = re.compile(r"@njit|numba\.njit|\bnjit\(")
-GPU_KERNEL = re.compile(r"RawKernel|RawModule|cuda\.jit|ElementwiseKernel")
+#: A fused GPU kernel is a RawKernel / RawModule / ElementwiseKernel / numba.cuda kernel, or a cuBLAS GEMM called explicitly on device arrays (``cp.matmul`` / ``cp.dot`` / ``cp.tensordot`` /
+#: ``cp.einsum``): a GEMM is the fused kernel of a family whose work is a matrix product (the interaction pre-rank), written as a library call because no hand kernel beats cuBLAS there.
+GPU_KERNEL = re.compile(r"RawKernel|RawModule|cuda\.jit|ElementwiseKernel|cp\.(?:matmul|dot|tensordot|einsum)\(")
 KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 
 #: Backend modules whose per-host choice is made by a tuned DISPATCHER module: backend -> (dispatcher, why the backend has no tuner entry of its own). The kernel-tuning point is met when the
@@ -197,6 +199,7 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_fe_interaction_prerank": ("_fe_interaction_prerank_kernels",),
     "_feature_engineering_pairs": (
         "_pairs_abs_corr_gpu",
         "_pairs_analytic_gpu",
