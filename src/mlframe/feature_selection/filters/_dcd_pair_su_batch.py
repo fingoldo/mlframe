@@ -1,5 +1,7 @@
 """Layer 51: batched pairwise-SU sibling for ``_dynamic_cluster_discovery``.
 
+The pair joint entropies have a device twin, ``_dcd_pair_su_gpu`` (pairs streamed in blocks, each uploading only its column block of the code matrix).
+
 Carved out of ``_dynamic_cluster_discovery.py`` (already > 1k LOC, per
 memory rule) so the batched-entry path stays a focused module.
 
@@ -152,7 +154,14 @@ _CONTIGUOUS_MIN_PAIRS_ANY = 150
 
 
 def joint_entropies_of_pairs(fd: np.ndarray, a_arr: np.ndarray, b_arr: np.ndarray, nb_arr: np.ndarray) -> np.ndarray:
-    """``H(X_a, X_b)`` of every pair: the strided kernel, or the same histograms over contiguous copies of the referenced columns where that measured faster (see the thresholds above)."""
+    """``H(X_a, X_b)`` of every pair: on the device when the kernel-tuning entry ``dcd_pair_entropy_backend`` says so (``_dcd_pair_su_gpu``, pairs in column blocks), else ``_joint_entropies_host``."""
+    from ._dcd_pair_su_gpu import joint_entropies_dispatch
+
+    return joint_entropies_dispatch(fd, a_arr, b_arr, nb_arr, _joint_entropies_host)
+
+
+def _joint_entropies_host(fd: np.ndarray, a_arr: np.ndarray, b_arr: np.ndarray, nb_arr: np.ndarray) -> np.ndarray:
+    """``H(X_a, X_b)`` of every pair on the host: the strided kernel, or the same histograms over contiguous copies of the referenced columns where that measured faster (see the thresholds above)."""
     k = int(a_arr.shape[0])
     row_bytes = int(fd.shape[1]) * int(fd.dtype.itemsize)
     contiguous = k >= _CONTIGUOUS_MIN_PAIRS_ANY or (k >= _CONTIGUOUS_MIN_PAIRS_WIDE and row_bytes >= _CONTIGUOUS_MIN_ROW_BYTES)
