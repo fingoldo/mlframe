@@ -137,9 +137,10 @@ class TestRebuildFullSurvivorColErrstate:
 
         # Negative control: the SAME arithmetic, unwrapped, DOES warn -- proves the scenario is
         # warning-triggering in principle (plain np.multiply overflow on huge float64 operands is not
-        # njit-compiled, so it goes through numpy's C-level warning machinery).
+        # njit-compiled, so it goes through numpy's C-level warning machinery). The error mode is set explicitly: it is per-thread
+        # global state, and a test that ran earlier on the same worker can leave overflow ignored, which silenced this control.
         huge = np.full(8, 1e200)
-        with warnings.catch_warnings(record=True) as w_ctrl:
+        with warnings.catch_warnings(record=True) as w_ctrl, np.errstate(over="warn"):
             warnings.simplefilter("always")
             np.multiply(huge, huge)
         assert any("overflow" in str(x.message) for x in w_ctrl), "control did not reproduce the overflow warning"
