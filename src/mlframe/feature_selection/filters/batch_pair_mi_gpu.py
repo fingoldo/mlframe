@@ -18,6 +18,10 @@ were measured on a single benchmark machine (CPU: 4 physical cores, GPU:
 GTX 1050 Ti compute_capability=6.1, 4GB VRAM); callers can override via the
 ``force_backend`` knob to lock a specific implementation.
 
+The device memory of a call is bounded by blocks: a call whose full upload does not fit the free VRAM takes the row-chunked backend (``factors_data`` in VRAM-sized row blocks, the joint
+histogram accumulated across them) and a large pair list is split into pair chunks (``_fallback_pair_chunk_size``), the column blocks of this family. The numba.cuda kernels live in
+``_batch_pair_mi_cuda_kernels``; the per-host choice is the ``kernel_tuner`` entry below.
+
 Numerical equivalence vs the ``merge_vars + compute_mi_from_classes`` legacy
 path is verified by ``tests/feature_selection/test_batch_pair_mi_prange.py``
 (CPU) and ``test_batch_pair_mi_gpu.py`` (GPU variants when CUDA is

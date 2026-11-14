@@ -12,6 +12,7 @@
     "_batch_mi_noise_gate_screen_v1",
     "_batch_mi_noise_gate_tuning",
     "_batch_pair_mi_cuda_fm",
+    "_batch_pair_mi_cuda_kernels",
     "_batch_pair_mi_cuda_shared_fused",
     "_binned_agg_cheap_mi",
     "_binned_agg_linear_usability",
@@ -75,6 +76,7 @@
     "_wavelet_basis_fe",
     "_wavelet_legs_fused_gpu",
     "batch_mi_noise_gate_gpu",
+    "batch_pair_mi_gpu",
     "batch_pair_usability_corr_gpu",
     "hermite_fe"
   ],
@@ -147,7 +149,6 @@
     "_added_information_gate",
     "_basis_cells_ktc",
     "_basis_name_codes",
-    "_batch_pair_mi_cuda_kernels",
     "_cat_pair_fe",
     "_cat_pair_joint_njit",
     "_cat_target_encoding_and_weighted",
@@ -298,7 +299,6 @@
     "_usability_row_stat_pool",
     "_wavelet_basis_fe_batched",
     "_wavelet_basis_fe_recipes",
-    "batch_pair_mi_gpu",
     "feature_engineering",
     "polynom_pair_fe"
   ]

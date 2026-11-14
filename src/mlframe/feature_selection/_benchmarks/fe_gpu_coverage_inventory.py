@@ -136,6 +136,10 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
 #: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "batch_pair_mi_gpu": (
+        "info_theory",
+        "the host backends of the dispatcher are the njit batch_pair_mi_serial / batch_pair_mi_prange kernels of the info_theory package, the numerical reference every device backend is checked against",
+    ),
     "_fe_batched_mi": (
         "_mi_greedy_cmi_fe",
         "the host twin of the batched device CMI is the njit per-candidate loop of _mi_greedy_cmi_fe (_cmi_from_binned with the hoisted (Y,Z) terms); the two are timed against each other by cmi_candidate_batch_backend",
@@ -213,6 +217,7 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_fe_interaction_prerank": ("_fe_interaction_prerank_kernels",),
     "_residual_rescue_fe": ("_residual_rescue_gpu", "_residual_rescue_ktc"),
+    "batch_pair_mi_gpu": ("_batch_pair_mi_cuda_kernels",),
     "_fe_batched_mi": (
         "_fe_batched_mi_blocks",
         "_fe_batched_mi_cmi",
