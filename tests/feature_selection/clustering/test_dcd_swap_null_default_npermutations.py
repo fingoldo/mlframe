@@ -67,6 +67,7 @@ def _three_dups_plus_strong_frame(n: int = 1500, seed: int = 0):
 
 class TestSwapNullKnobExists:
     """Groups tests covering TestSwapNullKnobExists."""
+
     def test_dcd_swap_npermutations_in_signature_default_199(self):
         """Dcd swap npermutations in signature default 199."""
         import inspect
@@ -93,6 +94,7 @@ class TestSwapNullKnobExists:
 
 class TestSwapFiresAtDefaultNpermutations:
     """Groups tests covering TestSwapFiresAtDefaultNpermutations."""
+
     def test_swap_fires_at_default_full_npermutations(self):
         """The headline regression: with DEFAULT full_npermutations (=3) and
         the opt-in dcd_cluster_size_threshold=2, a swap must fire on the
@@ -103,6 +105,7 @@ class TestSwapFiresAtDefaultNpermutations:
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
             dcd_enable=True,
+            fe_max_steps=0,  # the default feature engineering builds its own composites from the duplicates, so no duplicate cluster is left for the swap under test
             dcd_tau_cluster=0.4,  # the pairwise SU of the three duplicates is 0.54 to 0.55 on 10 quantile bins and falls just under 0.5 on the supervised bins the fit uses, which left one duplicate out of the cluster
             dcd_cluster_size_threshold=2,
             # NOTE: full_npermutations is NOT overridden -> the shipped default
@@ -128,6 +131,7 @@ class TestSwapFiresAtDefaultNpermutations:
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
             dcd_enable=True,
+            fe_max_steps=0,  # the default feature engineering builds its own composites from the duplicates, so no duplicate cluster is left for the swap under test
             dcd_tau_cluster=0.4,  # the pairwise SU of the three duplicates is 0.54 to 0.55 on 10 quantile bins and falls just under 0.5 on the supervised bins the fit uses, which left one duplicate out of the cluster
             dcd_cluster_size_threshold=2,
             dcd_swap_npermutations=3,  # structurally un-passable without the guard
@@ -150,6 +154,7 @@ class TestSwapFiresAtDefaultNpermutations:
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
             dcd_enable=True,
+            fe_max_steps=0,  # the default feature engineering builds its own composites from the duplicates, so no duplicate cluster is left for the swap under test
             dcd_tau_cluster=0.4,  # the pairwise SU of the three duplicates is 0.54 to 0.55 on 10 quantile bins and falls just under 0.5 on the supervised bins the fit uses, which left one duplicate out of the cluster
             dcd_cluster_size_threshold=2,
             full_npermutations=0,

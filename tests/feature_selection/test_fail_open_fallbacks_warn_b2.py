@@ -64,7 +64,7 @@ def test_per_feature_edges_warns_when_psutil_is_unavailable(monkeypatch, caplog)
     with caplog.at_level(logging.DEBUG):
         edges = mod.per_feature_edges(_x(), None, method="freedman_diaconis", n_jobs=-1)
     assert len(edges) == 3
-    assert _warnings_mentioning(caplog, "psutil.cpu_count(logical=False) failed")
+    assert _warnings_mentioning(caplog, "psutil.cpu_count(logical=True) failed")
 
 
 def test_binarize_aggregate_warns_and_degrades_when_quantile_fails(monkeypatch, caplog):
