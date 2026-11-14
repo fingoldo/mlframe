@@ -53,18 +53,18 @@ extern "C" __global__ void lof_scores(const {REAL}* __restrict__ X, const {REAL}
 #pragma unroll
     for (int s = 0; s < K; ++s) { BD(s) = INF_D; BJ(s) = -1; }
 #if SINGLE_FILTER
-    // the Pascal-class cards run double at 1/32 of the single rate, and almost every reference point is rejected: the rejection is decided in single precision with a margin far above its rounding
-    // error (the coordinates are exact singles, so a difference is rounded once), and only a survivor pays the exact double distance below, so the scores are bit-identical
-    float xf[P];
+    // the Pascal-class cards run the wide type at 1/32 of the narrow rate, and almost every reference point is rejected: the rejection is decided in the value type with a margin far above its rounding
+    // error (the coordinates are exact values of that type, so a difference is rounded once), and only a survivor pays the exact distance in the accumulator type below, so the scores are bit-identical
+    {REAL} xf[P];
 #pragma unroll
     for (int t = 0; t < P; ++t) xf[t] = X[i * P + t];
-    float worst_f = (float)BD(K - 1);
+    {REAL} worst_f = ({REAL})BD(K - 1);
 #endif
     for (int j = 0; j < m; ++j) {
 #if SINGLE_FILTER
-        float d2f = 0.0f;
+        {REAL} d2f = 0.0f;
 #pragma unroll
-        for (int t = 0; t < P; ++t) { const float df = xf[t] - ref[(long long)j * P + t]; d2f += df * df; }
+        for (int t = 0; t < P; ++t) { const {REAL} df = xf[t] - ref[(long long)j * P + t]; d2f += df * df; }
         if (d2f > worst_f * 1.00001f + 1e-30f) continue;
 #endif
         {ACC} d2 = 0.0;
@@ -86,7 +86,7 @@ extern "C" __global__ void lof_scores(const {REAL}* __restrict__ X, const {REAL}
             }
         }
 #if SINGLE_FILTER
-        worst_f = (float)BD(K - 1);
+        worst_f = ({REAL})BD(K - 1);
 #endif
     }
     {ACC} sum_reach = 0.0, sum_lrd = 0.0;
