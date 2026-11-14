@@ -130,7 +130,16 @@ _UNSET = object()
 # uses numba's internal parallelism, only two fits can no longer LAUNCH a parallel region at the
 # same instant. Linux/Windows are unaffected (numba's workqueue layer tolerates concurrent launch
 # there) so the lock is a no-op everywhere else.
-_MACOS_NUMBA_PARALLEL_FIT_LOCK = threading.Lock() if sys.platform == "darwin" else None
+def _macos_numba_parallel_fit_lock():
+    """The lock that serialises fit() bodies on macOS, ``None`` elsewhere.
+
+    It is reentrant on purpose: a fit can start another fit on the SAME thread (the target-mix second pass fits a child estimator from inside the residual rescue of the parent), and with a plain Lock the
+    child waits for the lock its own parent holds, so every macOS fit that reached that stage hung until the job cap. The child cannot launch a parallel region concurrently with its parent, which
+    is awaiting it in Python code, so letting the owning thread re-enter keeps the guarantee the lock exists for."""
+    return threading.RLock() if sys.platform == "darwin" else None
+
+
+_MACOS_NUMBA_PARALLEL_FIT_LOCK = _macos_numba_parallel_fit_lock()
 _FIT_REENTRANCY_LOCK_CREATE_LOCK = threading.Lock()
 
 

@@ -11,6 +11,7 @@ history.
 
 ## [Unreleased]
 ### Fixed
+- macOS: a fit that reached the target-mix second pass no longer hangs. The lock that serialises `MRMR.fit` bodies on macOS was a plain `Lock`, and the second pass fits a child estimator on the same thread from inside the parent's fit, so the child waited for the lock its own parent held until the job cap cancelled the shard. The lock is now reentrant.
 - `MRMR.fit` no longer takes two deep copies of a pandas input frame: the discretisation warm-up works on a shallow copy (own column index, shared buffers), and the meta-scorer fingerprint drops a redundant `.copy()` after a column-list selection. The caller's frame is still not mutated.
 - `_can_hoist_shared_buffer(0)` accepts an empty buffer whatever the free-RAM reading says; a reading of zero left the budget at zero and `0 < 0` declined it.
 - The Mahalanobis-density family, the class-Mahalanobis features and the Fisher-LDA projection fit their Ledoit-Wolf covariance in double precision. In float32 a column beyond about 1e10 (reciprocals, products and exponentials of engineered operands reach it) overflowed the covariance to NaN; sklearn raised "Input contains NaN" and the Mahalanobis-density stage silently dropped all its columns.
