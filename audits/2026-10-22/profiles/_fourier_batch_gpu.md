@@ -16,3 +16,16 @@ Measured 2026-11-14, GTX 1050 Ti (sm_61, 112 GB/s, double rate 1:32), 16 columns
 Launches per call: 38 `periodogram_power_b` (a coarse scan, two refinements and a confirmation per detector iteration, for the whole block at once), 16 `sincos_gram_b`, 16 `apply_deflate_b`, no launch per column. GPU time 349 ms under the profiler: `periodogram_power_b` 65 % (227 ms, 6.0 ms per launch), `sincos_gram_b` 10 %, the cupy standard deviations 7 %, `apply_deflate_b` 5 %, the batched cubic-detrend GEMVs 3.7 %.
 
 `periodogram_power_b` metrics: achieved occupancy 0.28 to 0.54 (the small refinement launches sit low, the coarse scan at 0.54), multiprocessor activity 80 to 99 %, global load efficiency 82 %, device-memory read throughput 1.3 to 28.8 GB/s of 112 (peak at the coarse scan), write throughput 0.03 to 3.0 GB/s. The kernel is bound by the arithmetic around the sine-cosine, not by memory (see `_orthogonal_univariate_fe.md`); the whole-GPU utilization is the multiprocessor activity above, the launch count is small enough that the card is not starved between launches.
+
+## Single-column fused kernels of the family (`_fourier_fused_gpu`), hardware counters (2026-11-14)
+One column of 100,000 rows (float64 input, the same sweep input, `detect_fourier_freqs_for_col_gpu`), elevated process, nvprof `--metrics`, kernels alone:
+
+| kernel | achieved occupancy | DP efficiency | DRAM read | global load efficiency |
+|---|---|---|---|---|
+| `periodogram_power` | 12.4 % | 10.4 % | 2.5 GB/s | 99.98 % |
+| `sincos_gram` | 51.0 % | 33.6 % | 6.1 GB/s | 99.99 % |
+| `solve3` | 1.6 % | 0.35 % | 6.2 GB/s | 75.0 % |
+| `apply_deflate` | 81.4 % | 26.9 % | 20.0 GB/s | 91.0 % |
+
+The single-column path is launch- and sync-bound, as the module docstring says: `sincos_gram` is 3.8 percent of the traced GPU time (8 launches, 55 us each), the cupy elementwise copies and the `gemv` / `dgemm` of the detrend are larger than the custom kernels, and the occupancy of `periodogram_power` (12.4 percent) and `solve3` (1.6 percent, a 3 x 3 solve) is that of a grid of one column. This is why the column-block versions (`periodogram_power_b` and the others above) and the tuned dispatcher `_fourier_detect_batch` exist; `solve3` is a tiny serial solve and not a target.
+The CPU twin of the whole detection is the numba coarse-basis detector of `_orth_extra_basis_fe` (`_detect_fourier_freqs_host`, timed against this batch by `fe_fourier_batch_backend`); utilization and throughput figures of the block kernels are in the sections above.
