@@ -100,7 +100,7 @@ def test_streamed_blocks_match_the_unblocked_call(monkeypatch):
     srcs, engs, y = _frame(n=1500, k=6)
     base_of = [0, 0, 1, 1, 2, 2]  # two candidates share each base, so a 1-design block still crosses a shared base
     unblocked = B.batched_uplift(srcs[:3], engs, y, folds=list(_kfold_pairs(y, n_splits=5, seed=0)), base_of=base_of)
-    monkeypatch.setattr(B, "_device_block_designs", lambda cp, n_rows, k, itemsize: 1)
+    monkeypatch.setattr(B, "_device_block_designs", lambda *_args: 1)
     streamed = B.batched_uplift(srcs[:3], engs, y, folds=list(_kfold_pairs(y, n_splits=5, seed=0)), base_of=base_of)
     assert unblocked is not None and streamed is not None
     assert np.array_equal(unblocked, streamed, equal_nan=True), f"streamed block output differs from the unblocked call: {streamed} vs {unblocked}"
@@ -120,7 +120,7 @@ def test_an_oversized_block_falls_back_to_the_host_probe(monkeypatch):
     than raising, so the caller keeps the per-candidate host probe."""
     srcs, engs, y = _frame(n=1500, k=6)
 
-    def _blow_up(cp, designs_host, y_host, fold_of, eval_folds, lam):
+    def _blow_up(*_args, **_kwargs):
         """Stand-in for _fold_auc_device that always raises, simulating a device fault mid-launch."""
         raise RuntimeError("out of memory allocating the design block (simulated)")
 

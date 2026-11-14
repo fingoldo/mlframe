@@ -11,6 +11,7 @@ history.
 
 ## [Unreleased]
 ### Fixed
+- `_can_hoist_shared_buffer(0)` accepts an empty buffer whatever the free-RAM reading says; a reading of zero left the budget at zero and `0 < 0` declined it.
 - The Mahalanobis-density family, the class-Mahalanobis features and the Fisher-LDA projection fit their Ledoit-Wolf covariance in double precision. In float32 a column beyond about 1e10 (reciprocals, products and exponentials of engineered operands reach it) overflowed the covariance to NaN; sklearn raised "Input contains NaN" and the Mahalanobis-density stage silently dropped all its columns.
 - A fit nested inside another one (the target-mix second pass fits a child estimator) no longer ends or extends the enclosing fit's `max_runtime_mins`: the child is bounded by the earlier of the two deadlines, and `MRMR.fit` restores the deadline it found instead of clearing it. Before, the first child fit left the parent with no budget for everything after it.
 - The CMIM and triplet-cross candidate scorers stop at the FE deadline and return the candidates already scored; they ignored `max_runtime_mins` before.

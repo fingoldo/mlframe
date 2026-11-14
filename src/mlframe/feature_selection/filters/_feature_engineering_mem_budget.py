@@ -388,6 +388,9 @@ def _decide_hoist_shared_buffer(
         # No psutil: preserve legacy behaviour (always hoist, OOM is the signal).
         logger.debug("_can_hoist_shared_buffer: no psutil -- legacy permissive hoist, buffer_bytes=%d", buffer_bytes)
         return True, buffer_bytes, -1
+    if buffer_bytes <= 0:
+        # An empty buffer fits whatever the reading says: a free-RAM reading of zero (a loaded runner) left the budget at zero and `0 < 0` declined it.
+        return True, buffer_bytes, available
     _ceiling = _fe_buffer_absolute_max_bytes()
     if buffer_bytes > _ceiling:
         # ABSOLUTE CEILING: refuse regardless of how much RAM is free - the anti-sawtooth
