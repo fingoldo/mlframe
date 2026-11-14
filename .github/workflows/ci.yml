@@ -100,7 +100,10 @@ jobs:
 
           # Sharded 10 ways on every leg: an unsharded run of this suite does not finish inside the cap on
           # a 2-vCPU runner (the unsharded 3.14 leg timed out on effectively every push before 2026-08-18).
-          GROUPS = [str(i) for i in range(1, 11)]
+          # macOS is cut into twenty: its tests average about 2.3 s, and ten shards of some 5300 tests needed over 175 minutes against the 180-minute cap (shard 1 had run 4837 of 5275).
+          def shard_groups(os_name):
+              return [str(i) for i in range(1, 21 if os_name == "macos-15" else 11)]
+
           # Mid-band, and the version whose wheels are most reliably published for macOS and Windows
           # alike. Read from the environment so the coverage gates below cannot name a different one.
           REPRESENTATIVE = os.environ["REPRESENTATIVE_PYTHON"]
@@ -108,14 +111,14 @@ jobs:
 
           if full:
               legs = [
-                  {"os": os_name, "python-version": v, "splits": "10", "group": g,
+                  {"os": os_name, "python-version": v, "splits": str(len(shard_groups(os_name))), "group": g,
                    # 3.14 and the non-Linux platforms stay non-blocking: cp314 wheels are still landing,
                    # and mlframe has never had a green run on Windows or macOS, so the first sweeps are a
                    # survey rather than a gate. Drop the flag per-platform once one passes.
                    "experimental": v == "3.14" or os_name != "ubuntu-24.04"}
                   for os_name in ("ubuntu-24.04", "windows-2025", "macos-15")
                   for v in ALL_VERSIONS
-                  for g in GROUPS
+                  for g in shard_groups(os_name)
               ]
           else:
               # TEMPORARY (audits/ci_review_2026-09-08/_TRACKER.md, X5): macOS-only push matrix while
@@ -123,10 +126,10 @@ jobs:
               # queues far fewer jobs and turns around faster. Revert to all three platforms once macOS
               # is confirmed stable across a few consecutive pushes.
               legs = [
-                  {"os": os_name, "python-version": REPRESENTATIVE, "splits": "10",
+                  {"os": os_name, "python-version": REPRESENTATIVE, "splits": str(len(shard_groups(os_name))),
                    "group": g, "experimental": False}
                   for os_name in ("macos-15",)
-                  for g in GROUPS
+                  for g in shard_groups(os_name)
               ]
 
           print("matrix=" + json.dumps({"include": legs}))
