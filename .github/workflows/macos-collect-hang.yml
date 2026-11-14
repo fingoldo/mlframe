@@ -64,5 +64,12 @@ jobs:
           sysctl -n machdep.cpu.brand_string 2>/dev/null || true
           python -c "import platform; print('python', platform.python_version(), platform.machine())"
 
+      - name: Install the contributor tooling and set the macOS numba environment, as the test job does
+        run: |
+          # tests/test_meta/conftest.py imports py_ci_shared at collection time, so collection errors out without it.
+          uv pip install --system -r requirements-dev.txt
+          echo "NUMBA_THREADING_LAYER=omp" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$(brew --prefix libomp)/lib" >> "$GITHUB_ENV"
+
       - name: Collect with a wall-clock limit and dump the stacks when it hangs
         run: bash scripts/macos_collect_hang_probe.sh
