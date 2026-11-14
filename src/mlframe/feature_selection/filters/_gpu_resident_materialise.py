@@ -186,6 +186,93 @@ void fe_materialise_cm(const float* __restrict__ tv_cm,
 """
 _FE_MATERIALISE_CM_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe)
 
+# ROW-TILED VARIANT. The kernel above reads two operand elements for every output element it writes: 240 MB of output at 30000 rows x 2000 candidates are 480 MB of operand reads, and the operand
+# table (n_operands x n, 12 MB at 100 columns) does not fit the 1 MB L2 of the card, so the call moves about 720 MB and ran at 28 GB/s of the output (8.6 ms for 240 MB). Here a block owns 32 rows: it
+# loads the 32-row tile of every operand column into shared memory once (128-byte coalesced segments), then walks all K candidates with the 16 candidate groups of its 512 threads, reading both operands
+# from shared memory and writing the 32 contiguous outputs of its row range for each candidate. The operand table is read once instead of K times; the per-element math is the op chain of the kernel
+# above, copied from its source text, so the output is bit-identical. Measured against it with equal outputs (array_equal incl. zeros): 30000 x 2000 10.6 -> 4.35 ms (2.44x), 100000 x 600 11.11 -> 5.01
+# (2.22x), 20000 x 1900 7.5 -> 3.18 (2.36x). It needs n_operands * 32 * 4 bytes of shared memory (at most 48 KB: 384 operand columns); a wider operand table keeps the kernel above.
+# Off switch MLFRAME_FE_MATERIALISE_TILED=0.
+_TILED_ROWS = 32
+_TILED_THREADS = 512
+_TILED_SHARED_LIMIT_BYTES = 48 * 1024
+# The kernel source is one literal (the offline NVRTC and ptxas checks read it from the module); the op chain below is the chain of the kernel above, and the test
+# ``test_tiled_source_repeats_the_op_chain_of_the_plain_kernel`` pins the two to the same text.
+_FE_MATERIALISE_CM_TILED_SRC = r"""
+extern "C" __global__
+void fe_materialise_cm_tiled(const float* __restrict__ tv_cm, const long long* __restrict__ a_cols, const long long* __restrict__ b_cols,
+                             const signed char* __restrict__ ops, const long long n, const long long n_operands, const int K, float* __restrict__ out) {
+    extern __shared__ float tile[];
+    const int ROWS = 32;
+    const long long i0 = (long long)blockIdx.x * ROWS;
+    const int nt = blockDim.x;
+    for (int idx = threadIdx.x; idx < (int)n_operands * ROWS; idx += nt) {
+        const int f = idx / ROWS, r = idx - f * ROWS;
+        tile[idx] = (i0 + r < n) ? tv_cm[(long long)f * n + i0 + r] : 0.0f;
+    }
+    __syncthreads();
+    const int r = threadIdx.x % ROWS;
+    const int kg = threadIdx.x / ROWS;
+    const int ngroups = nt / ROWS;
+    const bool live = (i0 + r) < n;
+    for (int k = kg; k < K; k += ngroups) {
+        const int ai = (int)a_cols[k];
+        const int bi = (int)b_cols[k];
+        const float a = tile[ai * ROWS + r];
+        const float b = tile[bi * ROWS + r];
+        int op = (int)ops[k];
+        float v;
+        if (op == 0) {            // mul
+            v = a * b;
+        } else if (op == 1) {     // add
+            v = a + b;
+        } else if (op == 2) {     // sub
+            v = a - b;
+        } else if (op == 3) {     // div = _safe_div (exact x/y for y!=0, eps floor only on exact-zero)
+            // For y != 0 the float quotient is the double quotient rounded to float: a double carries 53 >= 2 * 24 + 2 bits, so the double rounding is innocuous and the correctly rounded
+            // float division (__fdiv_rn) gives the same bits on every float pair (80 million pairs with zeros, infinities, NaN and denormals: no difference) at 2.4 times the speed on a
+            // card with a 1:32 double rate (op 3 alone 39.2 -> 16.2 ms). Only the exact-zero denominator keeps the double: its floor 1e-9 is not a float.
+            v = (b == 0.0f) ? (float)((double)a / 1e-9) : __fdiv_rn(a, b);
+        } else if (op == 4) {     // max = np.maximum (nan-propagating)
+            if (a != a || b != b) v = a + b; else v = (a > b) ? a : b;
+        } else if (op == 5) {     // min = np.minimum (nan-propagating)
+            if (a != a || b != b) v = a + b; else v = (a < b) ? a : b;
+        } else if (op == 6) {     // abs_diff = |a - b|
+            v = fabsf(a - b);
+        } else if (op == 7) {     // signed = sign(a)*|b| (nan-propagating)
+            if (a != a || b != b) {
+                v = a + b;
+            } else {
+                float sgn = (a == 0.0f) ? 0.0f : ((a > 0.0f) ? 1.0f : -1.0f);
+                v = sgn * fabsf(b);
+            }
+        } else {                  // op == 8: ratio_abs = double precision-promoted a/(|b|+1)
+            v = (float)((double)a / ((double)fabsf(b) + 1.0));
+        }
+        if (isnan(v) || isinf(v)) v = 0.0f;
+        if (live) out[(long long)k * n + i0 + r] = v;
+    }
+}
+"""
+if f"const int ROWS = {_TILED_ROWS};" not in _FE_MATERIALISE_CM_TILED_SRC:
+    raise AssertionError("the row-tiled materialise source does not match _TILED_ROWS")
+_FE_MATERIALISE_CM_TILED_KERNEL = None
+
+
+def fe_materialise_tiled_enabled() -> bool:
+    """Whether the row-tiled column-major materialise is active (default on; ``MLFRAME_FE_MATERIALISE_TILED=0`` keeps the one-thread-per-element kernel)."""
+    return os.environ.get("MLFRAME_FE_MATERIALISE_TILED", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _get_fe_materialise_cm_tiled_kernel():
+    """Lazily compile (once) and return the row-tiled column-major ``fe_materialise_cm_tiled`` RawKernel singleton."""
+    global _FE_MATERIALISE_CM_TILED_KERNEL
+    if _FE_MATERIALISE_CM_TILED_KERNEL is None:
+        import cupy as cp
+
+        _FE_MATERIALISE_CM_TILED_KERNEL = cp.RawKernel(_FE_MATERIALISE_CM_TILED_SRC, "fe_materialise_cm_tiled")
+    return _FE_MATERIALISE_CM_TILED_KERNEL
+
 # tv -> (n_operands, n) column-major copy cache (weakref-identity, mirrors _OPERAND_TABLE_CACHE): the
 # operand table is the SAME device array across a step's blocks/chunks, so transpose it ONCE per step.
 _OPERAND_TABLE_CM_CACHE: dict = {"ref": None, "cm": None}
@@ -260,13 +347,22 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block, ret
         try:
             tv_cm = _operand_table_cm(cp, tv_gpu)  # (n_operands, n) C-order, once/step (cached)
             cm_out = cp.empty((K, n), dtype=cp.float32)
-            materialise_cm = _get_fe_materialise_cm_kernel()
-            threads = block_size_for(materialise_cm, work_items=total)
-            materialise_cm(
-                ((total + threads - 1) // threads,),
-                (threads,),
-                (tv_cm, a_g, b_g, ops_g, np.int64(n), np.int64(n_operands), np.int32(K), cm_out),
-            )
+            shared_bytes = n_operands * _TILED_ROWS * 4
+            if fe_materialise_tiled_enabled() and 0 < shared_bytes <= _TILED_SHARED_LIMIT_BYTES:
+                _get_fe_materialise_cm_tiled_kernel()(
+                    ((n + _TILED_ROWS - 1) // _TILED_ROWS,),
+                    (_TILED_THREADS,),
+                    (tv_cm, a_g, b_g, ops_g, np.int64(n), np.int64(n_operands), np.int32(K), cm_out),
+                    shared_mem=shared_bytes,
+                )  # launch-ok: the 32-row tile and the 16 candidate groups per block are the design of the kernel
+            else:
+                materialise_cm = _get_fe_materialise_cm_kernel()
+                threads = block_size_for(materialise_cm, work_items=total)
+                materialise_cm(
+                    ((total + threads - 1) // threads,),
+                    (threads,),
+                    (tv_cm, a_g, b_g, ops_g, np.int64(n), np.int64(n_operands), np.int32(K), cm_out),
+                )
             rm = _transpose_cm_to_rm(cm_out)  # (K, n) -> (n, K) row-major (coalesced)
             # LAUNCH-FUSION: hand the cm buffer back so the radix-select edges step reuses it
             # instead of transposing rm back to cm (the inverse of the transpose just done). Bit-identical.
