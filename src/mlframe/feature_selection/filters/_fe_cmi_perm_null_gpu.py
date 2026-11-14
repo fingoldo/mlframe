@@ -140,7 +140,7 @@ def _sparse_perm_null(
     return None
 
 
-_LAYOUT_CACHE: list = []  # [(z array, layout)], newest last; the entry keeps ``z`` alive, so an identity match can never be a recycled buffer
+_LAYOUT_CACHE: list[tuple[Any, tuple[Any, ...]]] = []  # [(z array, layout)], newest last; the entry keeps ``z`` alive, so an identity match can never be a recycled buffer
 _LAYOUT_CACHE_MAX = 2
 
 

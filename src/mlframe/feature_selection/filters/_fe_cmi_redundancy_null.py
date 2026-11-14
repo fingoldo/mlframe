@@ -280,7 +280,7 @@ def _marginal_perm_null(inp: _NullInputs, n_permutations: int, quantile: float, 
     return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
 
 
-_SUPPORT_CACHE: list = []  # [(y copy, z copy, support)], newest last
+_SUPPORT_CACHE: "list[tuple[np.ndarray, np.ndarray, _StratifiedSupport]]" = []  # [(y copy, z copy, support)], newest last
 _SUPPORT_CACHE_MAX = 2
 _SUPPORT_CACHE_LOCK = threading.Lock()
 
