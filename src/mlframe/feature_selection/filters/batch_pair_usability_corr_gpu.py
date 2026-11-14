@@ -86,6 +86,8 @@ from numba import prange
 
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._content_memo import ContentMemo
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._pair_operand_blocks import operand_block_limit, pair_chunks_by_operand_block
@@ -838,7 +840,10 @@ def _device_wins(n_pairs: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_pairs))) == "device"
     except Exception as exc:
-        logger.debug("fe_pair_usability_corr_backend: KTC choose() failed, using the device: %s", exc)
+        log_throttle(
+            logger, "fe_pair_usability_corr_backend_choose_failed", logging.WARNING,
+            "fe_pair_usability_corr_backend: KTC choose() failed (%s: %s), using the device for this call", type(exc).__name__, exc,
+        )
         return True
 
 

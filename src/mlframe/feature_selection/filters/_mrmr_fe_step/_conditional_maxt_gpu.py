@@ -11,6 +11,8 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 #: Shared-memory table cells per block (``kz * widest code * ky`` ints, 4 bytes each) the kernel handles; larger tables take the host kernel.
@@ -143,5 +145,8 @@ def conditional_mi_null_device(codes: np.ndarray, widths: np.ndarray, y: np.ndar
         _kernel(cp)((p * (int(n_permutations) + 1),), (_THREADS,), (codes_d, w_d, targets, z_d, np.int32(n), np.int32(p), np.int32(int(n_permutations) + 1), np.int32(ky), np.int32(kz), np.int32(max_w), out), shared_mem=kz * max_w * ky * 4)  # launch-ok: the kernel's shared reduction array and tree reduction are sized for 256 threads
         return np.asarray(cp.asnumpy(out))
     except Exception as exc:  # no device / out of memory / compile failure: the host draws and counts
-        logger.debug("device conditional null unavailable (%r); the host draws and counts", exc)
+        log_throttle(
+            logger, "conditional_maxt_gpu_unavailable", logging.WARNING,
+            "device conditional null unavailable (%s: %s); the host draws and counts", type(exc).__name__, exc,
+        )
         return None
