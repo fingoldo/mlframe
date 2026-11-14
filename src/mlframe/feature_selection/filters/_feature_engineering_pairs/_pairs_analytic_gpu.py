@@ -33,7 +33,8 @@ _FUSED_SRC = render(r"""
 extern "C" __global__
 void analytic_obs_mi_bins_i8(const signed char* __restrict__ codes, const int* __restrict__ y, const long long n, const int K,
                              const int Kx, const int Ky, const int tile, const {ACC} inv_n,
-                             {ACC}* __restrict__ mi_out, int* __restrict__ bins_out) {
+                             {ACC}* __restrict__ mi_out, int* __restrict__ bins_out,
+                             const long long rows_per_split, int* __restrict__ hist_out) {
     extern __shared__ int sh[];                       // (tile, Kx*Ky) joint histograms
     const int M = Kx * Ky;
     const long long col0 = (long long)blockIdx.x * tile;
@@ -43,10 +44,13 @@ void analytic_obs_mi_bins_i8(const signed char* __restrict__ codes, const int* _
     for (int s = threadIdx.x; s < tile * M; s += blockDim.x) sh[s] = 0;
     __syncthreads();
     const long long col = col0 + cj;
+    // split mode (hist_out != 0): the block owns rows [r_lo, r_hi) of its tile of columns and adds its counts to the global table; ``analytic_mi_from_hist`` finishes the statistic
+    const long long r_lo = hist_out ? (long long)blockIdx.y * rows_per_split : 0;
+    const long long r_hi = hist_out ? min(n, r_lo + rows_per_split) : n;
     if (col < K) {
         // four independent loads in flight per thread: one load per iteration left the card at 15 to 19 GB/s of 112 (latency bound), four give 27 to 31
-        long long i = rg;
-        for (; i + 3LL * ngroups < n; i += 4LL * ngroups) {
+        long long i = r_lo + rg;
+        for (; i + 3LL * ngroups < r_hi; i += 4LL * ngroups) {
             const int cx0 = (int)codes[i * (long long)K + col];
             const int cy0 = y[i];
             const int cx1 = (int)codes[(i + ngroups) * (long long)K + col];
@@ -60,13 +64,17 @@ void analytic_obs_mi_bins_i8(const signed char* __restrict__ codes, const int* _
             atomicAdd(&sh[cj * M + cx2 * Ky + cy2], 1);
             atomicAdd(&sh[cj * M + cx3 * Ky + cy3], 1);
         }
-        for (; i < n; i += ngroups) {
+        for (; i < r_hi; i += ngroups) {
             const int cx = (int)codes[i * (long long)K + col];
             const int cy = y[i];
             atomicAdd(&sh[cj * M + cx * Ky + cy], 1);
         }
     }
     __syncthreads();
+    if (hist_out) {
+        if (col < K) for (int s = rg; s < M; s += ngroups) atomicAdd(&hist_out[col * (long long)M + s], sh[cj * M + s]);  // integer adds: the table does not depend on block order
+        return;
+    }
     if (rg == 0 && col < K) {
         const int* h = sh + cj * M;
         {ACC} mi = 0.0;
@@ -90,6 +98,35 @@ void analytic_obs_mi_bins_i8(const signed char* __restrict__ codes, const int* _
         mi_out[col] = mi > 0.0 ? mi : 0.0;
         bins_out[col] = occupied;
     }
+}
+
+// The statistic of the split mode: one thread per column over its global count table, the loops and the order of ``analytic_obs_mi_bins_i8``.
+extern "C" __global__
+void analytic_mi_from_hist(const int* __restrict__ hist, const int K, const int Kx, const int Ky, const {ACC} inv_n, {ACC}* __restrict__ mi_out, int* __restrict__ bins_out) {
+    const int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (col >= K) return;
+    const int M = Kx * Ky;
+    const int* h = hist + (long long)col * M;
+    {ACC} mi = 0.0;
+    int occupied = 0;
+    for (int xx = 0; xx < Kx; ++xx) {
+        long long rx = 0;
+        for (int yy = 0; yy < Ky; ++yy) rx += h[xx * Ky + yy];
+        if (rx == 0) continue;
+        occupied += 1;
+        {ACC} px = ({ACC})rx * inv_n;
+        for (int yy = 0; yy < Ky; ++yy) {
+            long long nxy = h[xx * Ky + yy];
+            if (nxy == 0) continue;
+            long long ry = 0;
+            for (int xx2 = 0; xx2 < Kx; ++xx2) ry += h[xx2 * Ky + yy];
+            {ACC} pxy = ({ACC})nxy * inv_n;
+            {ACC} py = ({ACC})ry * inv_n;
+            mi += pxy * log(pxy / (px * py));
+        }
+    }
+    mi_out[col] = mi > 0.0 ? mi : 0.0;
+    bins_out[col] = occupied;
 }
 """)
 
@@ -158,6 +195,31 @@ def _fused_kernel():
     return _FUSED_KERNEL
 
 
+_FINISH_KERNEL = None
+
+
+def _finish_kernel():
+    """Lazily compiled statistic kernel of the row-split mode."""
+    global _FINISH_KERNEL
+    if _FINISH_KERNEL is None:
+        import cupy as cp
+
+        _FINISH_KERNEL = cp.RawKernel(_FUSED_SRC, "analytic_mi_from_hist")
+    return _FINISH_KERNEL
+
+
+#: Blocks per multiprocessor the column tiles should fill; a narrower matrix cuts its rows into splits until it does (counts are integers added atomically, so the result is the unsplit kernel's, bit for bit).
+_BLOCKS_PER_SM = 4
+_MIN_SPLIT_ROWS = 8192
+
+
+def _row_splits(cp: Any, blocks: int, n: int) -> int:
+    """Row splits per column tile so that ``blocks * splits`` fill the card, none shorter than ``_MIN_SPLIT_ROWS`` rows; 1 keeps the unsplit kernel."""
+    sms = int(cp.cuda.Device().attributes["MultiProcessorCount"])
+    want = -(-_BLOCKS_PER_SM * sms // max(1, blocks))
+    return int(max(1, min(want, n // _MIN_SPLIT_ROWS)))
+
+
 def _tile_for(m_cells: int) -> int:
     """Columns per block so the tile's histograms fit the shared budget: the largest of 32/16/8/4 that fits, or 0 when even 4 columns do not."""
     for tile in (32, 16, 8, 4):
@@ -207,11 +269,24 @@ def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int) -> "
     mi = cp.empty(k_total, dtype=cp.float64)  # Intentional float64: MI statistic output compared at full precision
     bins = cp.empty(k_total, dtype=cp.int32)
     blocks = (k_total + tile - 1) // tile
-    _fused_kernel()(
-        (blocks,), (threads,),
-        (codes, y32, np.int64(n), np.int32(k_total), np.int32(kx), np.int32(ky_eff), np.int32(tile), np.float64(1.0 / float(max(1, n))), mi, bins),  # Intentional float64: the CUDA kernel signature declares double, so this must stay float64
-        shared_mem=tile * kx * ky_eff * 4,
-    )
+    splits = _row_splits(cp, blocks, n)
+    inv_n = np.float64(1.0 / float(max(1, n)))  # Intentional float64: the CUDA kernel signature declares the reciprocal in the accumulator type
+    if splits == 1:
+        _fused_kernel()(
+            (blocks,), (threads,),
+            (codes, y32, np.int64(n), np.int32(k_total), np.int32(kx), np.int32(ky_eff), np.int32(tile), inv_n, mi, bins, np.int64(0), np.uint64(0)),  # a null table pointer selects the unsplit kernel
+            shared_mem=tile * kx * ky_eff * 4,
+        )
+    else:
+        hist = cp.zeros(k_total * kx * ky_eff, dtype=cp.int32)
+        rows_per_split = -(-n // splits)
+        _fused_kernel()(
+            (blocks, splits), (threads,),
+            (codes, y32, np.int64(n), np.int32(k_total), np.int32(kx), np.int32(ky_eff), np.int32(tile), inv_n, mi, bins, np.int64(rows_per_split), hist),
+            shared_mem=tile * kx * ky_eff * 4,
+        )  # launch-ok: column tiles on x, row splits on y
+        fin_threads = 128
+        _finish_kernel()(((k_total + fin_threads - 1) // fin_threads,), (fin_threads,), (hist, np.int32(k_total), np.int32(kx), np.int32(ky_eff), inv_n, mi, bins))
     # one device-to-host copy for both outputs (each blocking read is a round trip of a few hundred microseconds on WDDM, and this runs once per pair); bin counts are exact in double
     both = cp.concatenate([mi, bins.astype(cp.float64)]).get()  # Intentional float64: bins are small integers, exact in double; one buffer with the MI values
     return np.asarray(both[:k_total], dtype=np.float64), both[k_total:].astype(np.int64)  # Intentional float64: MI statistic output compared at full precision
