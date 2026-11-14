@@ -214,5 +214,6 @@ def bin_moments_dispatch(codes: np.ndarray, cols: Sequence[np.ndarray], n_bins: 
 
             log_throttle(logger, "cond_bin_moments.device_failed", logging.WARNING, "conditional bin moments device path failed (%s: %s); host loop", type(exc).__name__, exc)
     if hasattr(cols, "device"):
-        cols = [c for c in cols.get()]
+        device_cols: Any = cols
+        return bin_moments_host(codes, list(device_cols.get()), n_bins)
     return bin_moments_host(codes, cols, n_bins)

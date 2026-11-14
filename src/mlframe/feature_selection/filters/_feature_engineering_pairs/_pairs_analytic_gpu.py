@@ -285,7 +285,9 @@ def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int) -> "
             (codes, y32, np.int64(n), np.int32(k_total), np.int32(kx), np.int32(ky_eff), np.int32(tile), inv_n, mi, bins, np.int64(rows_per_split), hist),
             shared_mem=tile * kx * ky_eff * 4,
         )  # launch-ok: column tiles on x, row splits on y
-        fin_threads = 128
+        from pyutilz.performance.gpu_hw_launch import block_size_for
+
+        fin_threads = block_size_for(_finish_kernel(), work_items=k_total)
         _finish_kernel()(((k_total + fin_threads - 1) // fin_threads,), (fin_threads,), (hist, np.int32(k_total), np.int32(kx), np.int32(ky_eff), inv_n, mi, bins))
     # one device-to-host copy for both outputs (each blocking read is a round trip of a few hundred microseconds on WDDM, and this runs once per pair); bin counts are exact in double
     both = cp.concatenate([mi, bins.astype(cp.float64)]).get()  # Intentional float64: bins are small integers, exact in double; one buffer with the MI values

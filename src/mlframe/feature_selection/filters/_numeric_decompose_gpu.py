@@ -8,7 +8,7 @@ with non-finite values mapped to 0. Both are per-element IEEE operations in doub
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 import numpy as np
 
@@ -117,13 +117,13 @@ def _sweep_inputs(dims: dict) -> tuple:
 def _sweep_host(cols: list) -> np.ndarray:
     """The host columns, summarised for the comparison (sum per output of the finite values)."""
     out = decompose_columns_host(cols, _SWEEP_KINDS, _SWEEP_PARAMS)
-    return np.nansum(out, axis=(0, 2))
+    return cast(np.ndarray, np.nansum(out, axis=(0, 2)))
 
 
 def _sweep_device(cols: list) -> np.ndarray:
     """The device kernel; a failed launch raises, so the sweep never records a host fallback as a device time."""
     out = decompose_columns_gpu(cols, _SWEEP_KINDS, _SWEEP_PARAMS)
-    return np.nansum(out, axis=(0, 2))
+    return cast(np.ndarray, np.nansum(out, axis=(0, 2)))
 
 
 try:

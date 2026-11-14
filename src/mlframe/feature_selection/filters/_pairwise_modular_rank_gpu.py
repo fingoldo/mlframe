@@ -317,7 +317,7 @@ def _score_candidate_blocks(
         if part is None:
             return None
         parts.append(part)
-    return np.concatenate(parts)
+    return cast(np.ndarray, np.concatenate(parts))
 
 
 def residue_rank_scores_gpu(
