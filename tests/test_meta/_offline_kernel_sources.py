@@ -118,7 +118,7 @@ _RECIPES: dict = {
         (f"{x}/{y}", _fill(s, **{"{XT}": x, "{YT}": y}), ()) for x, y in (("short", "signed char"), ("long long", "int"), ("unsigned char", "unsigned char"))
     ],
     "_null_max_perm_gpu.py::_SRC": lambda s: [(x, _fill(s, **{"{XT}": x, "{REAL}": "float", "{ACC}": "double"}), ()) for x in _REAL_TYPES],
-    "_offset_product_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"__NSUB__": "2000", "__NF__": "8", "__THREADS__": "256"}), ())],
+    "_offset_product_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"__NSUB__": "2000", "__NF__": "8", "__THREADS__": "256", "{ACC}": "double"}), ())],
     "_orthogonal_univariate_fe/_extra_basis_fourier_cuda.py::_SRC": lambda s: [
         (r, _fill(s, **{"{MUL_RN}": "__fmul_rn" if r == "float" else "__dmul_rn", "{REAL}": r, "{ACC}": "double"}), ()) for r in _REAL_TYPES
     ],

@@ -129,9 +129,9 @@ def ensure_offset_product_scan_tuning(force: bool = False) -> Optional[list[dict
     return cast("list[dict]", regions)
 
 
-from pyutilz.performance.kernel_tuning.registry import kernel_tuner as _ktuner
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
-_ktuner(
+kernel_tuner(
     kernel_name="offset_product_scan",
     variant_fns=(_run_sweep_offset_product_scan,),
     tuner=_run_sweep_offset_product_scan,
@@ -142,7 +142,7 @@ _ktuner(
     cli_label="offset_product_scan",
 )
 
-_ktuner(
+kernel_tuner(
     kernel_name="offset_product_njit_warmup",
     variant_fns=(_run_sweep_offset_product_njit_warmup,),
     tuner=_run_sweep_offset_product_njit_warmup,

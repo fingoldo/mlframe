@@ -82,6 +82,10 @@ def module_file(name: str) -> Path | None:
     for cand in FILTERS.glob(f"*/{name}/__init__.py"):
         if cand.is_file():
             return cand
+    # last: the shared kernel-tuning-cache package, whose sweep modules are the dispatchers of some families (``KTC_DISPATCHERS``)
+    cand = FILTERS.parent / "_benchmarks" / "kernel_tuning_cache" / f"{name}.py"
+    if cand.is_file():
+        return cand
     return None
 
 
@@ -107,6 +111,10 @@ KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 #: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
 #: (its own thresholds, variants, block size) registers itself instead.
 KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_offset_product_fe": (
+        "_auto_tune_sweeps_c",
+        "the njit/prange scan_offset_products and the fused CUDA scan (scan_offset_products_gpu) are timed per (scan rows, pool columns) cell by the offset_product_scan sweep, which _offset_product_fe._scan_all reads through lookup_offset_scan_backend",
+    ),
     "_gpu_resident_fe": (
         "_gpu_resident_k_chunk_ktc",
         "the candidate chunk width (K) of the resident generation + scoring loop is the kernel_tuner entry gpu_k_chunk of _gpu_resident_k_chunk_ktc, swept per host over the row count",
@@ -140,6 +148,10 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
 #: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_offset_product_fe": (
+        "_numba_utils_offset",
+        "scan_offset_products (njit, prange over the tasks) is the host scan _offset_product_fe._scan_all runs when the device is not chosen, and the reference the fused CUDA scan is timed against",
+    ),
     "_gpu_resident_fe": (
         "hermite_fe",
         "_gpu_resident_shared.cpu_pair_candidate_mi builds the same candidate grid with numpy and scores it with the production njit batch MI (plugin_mi_classif_batch_njit of the hermite_fe package); it is the baseline the resident path is checked against",
@@ -224,6 +236,7 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_offset_product_fe": ("_offset_product_gpu",),
     "_parity_fe": ("_parity_gpu",),
     "_orthogonal_dcor_fe": ("_dcor_gpu",),
     "_family_maxt_gate": ("_family_maxt_cuda_bits", "_family_maxt_cuda", "_family_maxt_stack", "_family_maxt_stream", "_family_maxt_null_v2_njit"),
