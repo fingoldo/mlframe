@@ -13,7 +13,8 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, cast
 
 from .._dynamic_cluster_discovery import set_dcd_active as _set_dcd_active
-from .._fe_deadline import clear_fe_deadline as _clear_fe_deadline
+from .._fe_deadline import current_fe_deadline as _current_fe_deadline
+from .._fe_deadline import set_fe_deadline as _set_fe_deadline
 from .._fe_family_timing import log_fe_family_summary as _log_fe_wall
 from .._mrmr_fe_provenance import record_family_wall as _record_family_wall
 from .._fe_gpu_strict import clear_auto_fit_n as _clear_auto_fit_n
@@ -480,20 +481,17 @@ class _MRMRFitStagesMixin:
             int(_fit_shape[0]) if _fit_shape is not None else None,
             int(_fit_shape[1]) if _fit_shape is not None and len(_fit_shape) > 1 else None,
         )
+        # The FE deadline in force before this fit: nonzero only for a fit nested inside another one (the target-mix second pass fits a child estimator).
+        _outer_fe_deadline = _current_fe_deadline()
         try:
             with _preserve_global_numpy_rng_state(self._effective_random_seed()):
                 result = self._fit_impl(X, y, groups, **fit_params)
         finally:
             _clear_auto_fit_n()
-            # _fit_impl_core.py sets the FE-enrichment wall-clock deadline (_fe_deadline.py) near its
-            # own top but - despite that module's docstring claiming "cleared in the finally below" -
-            # nothing ever actually cleared it: a fit with max_runtime_mins set left the deadline as a
-            # stale absolute timestamp for the rest of the process, silently short-circuiting every
-            # later fe_deadline_passed() consumer (including any subsequent MRMR.fit call that itself
-            # passed NO budget) once that timestamp elapsed. Mirrors _clear_auto_fit_n's own
-            # established pattern here - clear exactly once, at the SAME outer call-site boundary,
-            # regardless of how _fit_impl exited.
-            _clear_fe_deadline()
+            # _fit_impl publishes the FE-enrichment wall-clock deadline (_fe_deadline.py) for the whole fit, so it is reset here, once, at the outer call-site boundary however _fit_impl exited:
+            # left in place it is a stale absolute timestamp that truncates every later fe_deadline_passed() consumer, including a later fit given no budget. It is restored to what was in force
+            # before, not cleared: a nested fit that cleared it would end the enclosing fit's budget for everything that runs after it.
+            _set_fe_deadline(_outer_fe_deadline)
             _clear_memo = getattr(getattr(self, "_honest_null_codes_fn", None), "clear_memo", None)
             if _clear_memo is not None:
                 _clear_memo()  # the memo of re-binned codes under permuted targets lives for one fit only

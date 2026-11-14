@@ -508,7 +508,12 @@ def score_features_by_cmim(
     eng_bins = quantile_bin_columns(engineered_X.to_numpy(dtype=_crit_np_dtype()), int(n_bins), dtype=np.int16)  # int16 codes: 2 bytes a value, not 8  # every candidate column binned at once (not one device round trip per column)
     eng_sources = [source_of_engineered_name(eng_name) for eng_name in engineered_X.columns]
     device_scores = _cmim_scores_device(eng_bins, y_bin, sel_bins, support_col_names, eng_sources, int(n_bins))
+    from ._fe_deadline import fe_deadline_passed
+
     for eng_idx, eng_name in enumerate(engineered_X.columns):
+        # MRMR.fit's max_runtime_mins: score no further candidates once it passes; the ones already scored are returned.
+        if fe_deadline_passed():
+            break
         source = eng_sources[eng_idx]
         baseline = float(raw_mi_map.get(source, 0.0))
         cand_bin = eng_bins[eng_idx]

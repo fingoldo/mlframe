@@ -418,7 +418,13 @@ def score_triplet_cross_basis_by_cmi(
     n_perm = max(int(n_perm), int(np.ceil(_m / (1.0 - quantile))))
     quantile = 1.0 - (1.0 - quantile) / _m
     rows = []
+    from ._fe_deadline import fe_deadline_passed
+
     for eng_name, legs in legs_of.items():
+        # The permutation count above grows with the candidate count, so this loop is quadratic in it: honour MRMR.fit's
+        # max_runtime_mins here and return the triplets already scored.
+        if fe_deadline_passed():
+            break
         leg_mi = {leg: _stratified_cmi(raw_codes[leg], y_codes, np.zeros_like(y_codes)) for leg in legs}
         best_leg = max(legs, key=lambda leg: (leg_mi[leg], leg))
         strata = raw_codes[best_leg]

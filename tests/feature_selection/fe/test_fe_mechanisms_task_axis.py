@@ -300,7 +300,9 @@ def test_fe_mech_fits_transforms_and_lifts(
         y_ser = pd.Series(y, name="y")
 
         m_fe = MRMR(**mech_kwargs, **_ISOLATE).fit(X, y_ser)
-        m_no = MRMR(**_ISOLATE).fit(X, y_ser)
+        # Every mechanism under test is default-on, so the baseline must switch ITS OWN family off: with it left on the
+        # baseline auto-detects the same columns and the FE-minus-baseline lift measures restricted-vs-auto, not the mechanism.
+        m_no = MRMR(**{k: False for k, v in mech_kwargs.items() if k.endswith("_enable") and v}, **_ISOLATE).fit(X, y_ser)
 
         names_fe = list(m_fe.get_feature_names_out())
 
