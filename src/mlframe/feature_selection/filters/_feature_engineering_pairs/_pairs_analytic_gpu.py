@@ -166,6 +166,21 @@ def _tile_for(m_cells: int) -> int:
     return 0
 
 
+# A wide block reads 128 adjacent code bytes of a row, the width of a memory line, where a 32-column tile asks for a 32-byte piece of each row from DRAM pages 1500 bytes apart. Measured on the
+# card with equal outputs, 100000 rows x 1500 columns x 20 cells: 4.58 -> 3.89 ms (1.18x); x 6000 columns 19.1 -> 18.8 ms; narrower matrices keep the 32-column tile.
+_WIDE_TILE = 128
+_WIDE_TILE_MIN_COLUMNS = 512
+_WIDE_TILE_THREADS = 1024
+
+
+def _launch_shape(k_total: int, m_cells: int) -> "tuple[int, int]":
+    """``(columns per block, threads per block)`` of the fused kernel: the 128-column tile for a wide matrix whose histograms fit, else the 32-or-narrower tile of ``_tile_for``."""
+    if k_total >= _WIDE_TILE_MIN_COLUMNS and _WIDE_TILE * m_cells * 4 <= _SHARED_BUDGET:
+        return _WIDE_TILE, _WIDE_TILE_THREADS
+    tile = _tile_for(m_cells)
+    return tile, tile * max(1, _FUSED_THREADS // tile) if tile else 0
+
+
 def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int) -> "Optional[tuple[np.ndarray, np.ndarray]]":
     """Fused single-pass observed MI + occupied bins over an int8 ``(n, K)`` resident matrix, or ``None`` when the shape / dtype is outside what the kernel
     covers (the caller then takes the generic path)."""
@@ -183,7 +198,7 @@ def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int) -> "
         # A negative target code would index the shared histogram below zero (into a neighbouring column's cells); the generic path handles it.
         return None
     ky_eff = max(int(ky), int(yc.max()) + 1 if yc.size else 1)
-    tile = _tile_for(kx * ky_eff)
+    tile, threads = _launch_shape(k_total, kx * ky_eff)
     if tile == 0:
         return None
     from mlframe.feature_selection.filters._fe_resident_operands import resident_operand
@@ -191,7 +206,6 @@ def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int) -> "
     y32 = resident_operand(yc.astype(np.int32), "analytic_gate_y32", dtype=np.int32).ravel()
     mi = cp.empty(k_total, dtype=cp.float64)  # Intentional float64: MI statistic output compared at full precision
     bins = cp.empty(k_total, dtype=cp.int32)
-    threads = tile * max(1, _FUSED_THREADS // tile)
     blocks = (k_total + tile - 1) // tile
     _fused_kernel()(
         (blocks,), (threads,),
