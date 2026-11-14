@@ -28,6 +28,7 @@ from typing import Any, Optional
 
 import numpy as np
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
+from mlframe.feature_selection.filters._permutation_null_joint_kernel import perm_joint_counts
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -108,7 +109,7 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
         # (offsets[j] = j*n in the order-1 caller, but read via offsets to stay faithful to any layout).
         starts = d_off[c0:c1]
         row_idx = starts[:, None] + cp.arange(n, dtype=cp.int64)[None, :]
-        x_codes = d_scaled[row_idx].astype(cp.int64)  # (cc, n)
+        x_native = d_scaled[row_idx]  # (cc, n), at its own integer width
         d_hx_c = d_hx[c0:c1][:, None]
         d_mm_c = d_mm[c0:c1][:, None]
 
@@ -121,18 +122,20 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
             # Padding cells (code >= jc[cand]) cannot occur: x in [0, nbins_x*nbins_y) and y in [0, nbins_y)
             # so x+y < jc by construction; padding to max_jc only leaves trailing zero-count cells per (cand,
             # perm) slab, which contribute 0 to the entropy exactly like the njit ``if c>0`` short-circuit.
-            joint = (x_codes[:, None, :] + yp[None, :, :]).astype(cp.int64)  # (cc, pb, n)
-            base = (cp.arange(cc, dtype=cp.int64)[:, None] * pb + cp.arange(pb, dtype=cp.int64)[None, :]) * max_jc  # (cc, pb)
-            flat = (base[:, :, None] + joint).ravel()  # (cc*pb*n,)
-            # COALESCE: cp.bincount internally pulls the input max (+ a sizing scalar) to host on
-            # EVERY call - 2 tiny per-(cand,perm)-tile D2H scalar pulls that, summed over the floor's tile loop,
-            # are the canonical-fit's dominant tiny-D2H source (~2400 of ~2810 sub-4KB .get()s, F2 100k). The
-            # output extent is KNOWN here (cc*pb*max_jc, every flat code < it by construction), so scatter_add
-            # into a pre-zeroed buffer needs no max-pull and is sync-free (0 tiny D2H). int32 counts hold the
-            # per-cell totals (bounded by n) exactly; BIT-IDENTICAL integer histogram to bincount (verified
-            # array_equal). The downstream entropy upcasts to float64 just as the bincount path did.
-            counts_i = cp.zeros(cc * pb * max_jc, dtype=cp.int32)
-            cupyx.scatter_add(counts_i, flat, cp.int32(1))
+            # ONE fused launch builds every (candidate, shuffle) table (`_permutation_null_joint_kernel`: the cell index x + y_perm formed in-kernel, the table in shared memory;
+            # 20 to 30x the chain below at the production shapes, identical integer counts). A table too wide for shared memory takes the chain.
+            counts_2d = perm_joint_counts(cp, x_native, yp, max_jc)
+            if counts_2d is None:
+                x_codes = x_native.astype(cp.int64)  # (cc, n)
+                joint = (x_codes[:, None, :] + yp[None, :, :]).astype(cp.int64)  # (cc, pb, n)
+                base = (cp.arange(cc, dtype=cp.int64)[:, None] * pb + cp.arange(pb, dtype=cp.int64)[None, :]) * max_jc  # (cc, pb)
+                flat = (base[:, :, None] + joint).ravel()  # (cc*pb*n,)
+                # scatter_add into a pre-zeroed buffer needs no max-pull (cp.bincount pulls the input max to the host on every call) and is sync-free; int32 counts hold the per-cell
+                # totals (bounded by n) exactly; bit-identical integer histogram to bincount.
+                counts_i = cp.zeros(cc * pb * max_jc, dtype=cp.int32)
+                cupyx.scatter_add(counts_i, flat, cp.int32(1))
+                counts_2d = counts_i.reshape(cc * pb, max_jc)
+                del joint, flat, counts_i
 
             # Plug-in joint entropy H(x, y_perm) per (cand, perm): -sum p*log(p), p=count/n, 0-count -> 0.
             # The per-(cand,perm)-row entropy over the max_jc joint cells is exactly the fused rows-entropy
@@ -140,11 +143,11 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
             # where + log + where + sum chain. Same float64 plug-in entropy -> selection-equivalent.
             from ._fe_batched_mi import _rows_entropy_and_k
 
-            h_xy_flat, _ = _rows_entropy_and_k(counts_i.reshape(cc * pb, max_jc), inv_n)  # (cc*pb,)
+            h_xy_flat, _ = _rows_entropy_and_k(counts_2d, inv_n)  # (cc*pb,)
             h_xy = h_xy_flat.reshape(cc, pb)  # (cc, pb)
             mi = (d_hx_c + h_y) - h_xy - d_mm_c  # (cc, pb)
             d_best[p0:p1] = cp.maximum(d_best[p0:p1], cp.max(mi, axis=0))
-            del joint, flat, counts_i, h_xy_flat, h_xy, mi
+            del counts_2d, h_xy_flat, h_xy, mi
 
     return np.asarray(cp.asnumpy(d_best))
 

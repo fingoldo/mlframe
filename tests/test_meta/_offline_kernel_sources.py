@@ -107,6 +107,10 @@ _RECIPES: dict = {
         (f"{r} k={k} p={p}", _fill(s, **{"{REAL}": r, "{K}": str(k), "{P}": str(p)}), ()) for r in _REAL_TYPES for k, p in ((20, 3), (64, 16))
     ],
     "_modular_codes_gpu.py::_SRC": lambda s: [(t, _define(SRC_T=t) + _fill(s, **{"{REAL}": "float", "{ACC}": "double"}), ()) for t in _REAL_TYPES],
+    "_family_maxt_counts_device.py::_SRC": lambda s: [("MAXC=64", _fill(s, **{"MAXC": "64"}), ())],
+    "_permutation_null_joint_kernel.py::_SRC": lambda s: [
+        (f"{x}/{y}", _fill(s, **{"{XT}": x, "{YT}": y}), ()) for x, y in (("short", "signed char"), ("long long", "int"), ("unsigned char", "unsigned char"))
+    ],
     "_null_max_perm_gpu.py::_SRC": lambda s: [(x, _fill(s, **{"{XT}": x, "{REAL}": "float", "{ACC}": "double"}), ()) for x in _REAL_TYPES],
     "_offset_product_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"__NSUB__": "2000", "__NF__": "8", "__THREADS__": "256"}), ())],
     "_orthogonal_univariate_fe/_extra_basis_fourier_cuda.py::_SRC": lambda s: [

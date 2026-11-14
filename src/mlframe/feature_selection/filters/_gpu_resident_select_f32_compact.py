@@ -27,21 +27,44 @@ void radix_select_f32_v4(const float* __restrict__ data, const long long n, cons
     __shared__ unsigned int wsort[MAXR];   // wpref sorted ascending (distinct active window prefixes)
     __shared__ int wsort2w[MAXR];          // sorted position -> ORIGINAL window index (into wpref / sh)
     __shared__ int W;
-    __shared__ unsigned long long scount;
+    __shared__ int win_bad;
+    __shared__ int wsum[2];
+    __shared__ unsigned int scount;      // 32-bit: a 64-bit shared atomic is a compare-and-swap loop on this architecture (the candidate buffer never holds 2^32 entries)
     __shared__ int have_cand;    // the candidate buffer holds every element the remaining passes can count
     __shared__ int overflowed;
     if(tid<R){prefix[tid]=0u;below[tid]=0ULL;}
-    if(tid==0){scount=0ULL;have_cand=0;overflowed=0;}
+    if(tid==0){scount=0u;have_cand=0;overflowed=0;}
     __syncthreads();
     for(int byte=3;byte>=0;--byte){
         int shift=byte*8;
         unsigned int hmask=(byte==3)?0u:(0xFFFFFFFFu<<((byte+1)*8));
-        if(tid==0){int w=0;for(int r=0;r<R;++r){unsigned int p=prefix[r]&hmask;int f=-1;
-            for(int q=0;q<w;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w]=p;rank2w[r]=w;w++;}else rank2w[r]=f;} W=w;
-            for(int q=0;q<w;++q){wsort[q]=wpref[q];wsort2w[q]=q;}
-            for(int a=1;a<w;++a){unsigned int kv=wsort[a];int kw=wsort2w[a];int b=a-1;
-                while(b>=0&&wsort[b]>kv){wsort[b+1]=wsort[b];wsort2w[b+1]=wsort2w[b];--b;}
-                wsort[b+1]=kv;wsort2w[b+1]=kw;}}
+        // WINDOWS: the ranks are distinct and ascending (every caller builds them with np.unique), so their prefixes never decrease; the windows are the runs of equal prefixes and the
+        // window of a rank is the running count of run starts. One flag per rank and a warp scan (two warps cover 64 ranks) replace the serial walk that compared every rank with every
+        // window (O(R^2), 125k of the 205k cycles of a block at 38 ranks: the serial part took 61 percent of the time). A decreasing prefix (never produced by the callers), or fewer than
+        // 64 threads with more than 32 ranks, takes the serial dedup below, unchanged.
+        if(tid==0)win_bad=0;
+        __syncthreads();
+        const bool par_ok=(R<=32)||(nt>=64);
+        {   unsigned int p=0u;int f=0;
+            if(tid<R){p=prefix[tid]&hmask;unsigned int pp=(tid>0)?(prefix[tid-1]&hmask):p;f=(tid==0)||(p!=pp);if(tid>0&&p<pp)atomicOr(&win_bad,1);}
+            int x=f;const int lane=tid&31;
+            #pragma unroll
+            for(int o=1;o<32;o<<=1){int y=__shfl_up_sync(0xffffffffu,x,o);if(lane>=o)x+=y;}
+            if((tid>>5)<2&&lane==31)wsum[tid>>5]=x;
+            __syncthreads();
+            if(par_ok&&!win_bad){
+                if((tid>>5)==1)x+=wsum[0];
+                if(tid<R){int widx=x-1;rank2w[tid]=widx;if(f){wpref[widx]=p;wsort[widx]=p;wsort2w[widx]=widx;}if(tid==R-1)W=x;}
+            } else {
+            if(tid==0){int w=0;for(int r=0;r<R;++r){unsigned int p=prefix[r]&hmask;int f=-1;
+                for(int q=0;q<w;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w]=p;rank2w[r]=w;w++;}else rank2w[r]=f;} W=w;
+                for(int q=0;q<w;++q){wsort[q]=wpref[q];wsort2w[q]=q;}
+                for(int a=1;a<w;++a){unsigned int kv=wsort[a];int kw=wsort2w[a];int b=a-1;
+                    while(b>=0&&wsort[b]>kv){wsort[b+1]=wsort[b];wsort2w[b+1]=wsort2w[b];--b;}
+                    wsort[b+1]=kv;wsort2w[b+1]=kw;}}
+
+            }
+        }
         __syncthreads();
         int Wl=W;
         for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
@@ -56,8 +79,8 @@ void radix_select_f32_v4(const float* __restrict__ data, const long long n, cons
                 while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}
                 if(lo<Wl&&wsort[lo]==pm){int win=wsort2w[lo];
                     int dig=(int)((u>>shift)&0xFFu);atomicAdd(&sh[win*256+dig],1u);
-                    if(compact){unsigned long long slot=atomicAdd(&scount,1ULL);
-                        if(slot<(unsigned long long)cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
+                    if(compact){unsigned int slot=atomicAdd(&scount,1u);
+                        if((long long)slot<cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
             }
         } else {
             long long m=(long long)scount;
@@ -118,10 +141,10 @@ _V5_HEAD_NEW = """            for(long long i0=tid;i0<n;i0+=4LL*nt){
                 if(i<n){
                 float d=dv[k];unsigned int u;memcpy(&u,&d,4);
 """
-_V5_TAIL_OLD = """                        if(slot<(unsigned long long)cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
+_V5_TAIL_OLD = """                        if((long long)slot<cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
             }
         } else {"""
-_V5_TAIL_NEW = """                        if(slot<(unsigned long long)cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
+_V5_TAIL_NEW = """                        if((long long)slot<cap)cand[(long long)col*cap+(long long)slot]=u;else overflowed=1;}}
                 }
               }
             }

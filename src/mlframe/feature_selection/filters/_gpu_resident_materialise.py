@@ -643,9 +643,13 @@ def gpu_materialise_discretize_codes_host(
             codes_gpu = _gpu_resident_discretize_codes(cand, int(nbins))  # int32, internal transpose
             codes_out = codes_gpu.astype(cp.dtype(_cd), copy=False) if codes_gpu.dtype != _cd else codes_gpu
         else:
-            codes_gpu = _gpu_resident_discretize_codes(cand, int(nbins), out_dtype=_cd, cm_hint=cand_cm)
+            # The binning kernel writes this block's codes straight into the resident (n, K) buffer at its row stride: the strided slice assignment it replaces
+            # was a separate copy kernel (cupy_copy__int8_int8) whose rows are only a few bytes wide.
+            codes_gpu = _gpu_resident_discretize_codes(
+                cand, int(nbins), out_dtype=_cd, cm_hint=cand_cm, out=dev_codes[:, start:stop] if dev_codes is not None else None
+            )
             codes_out = codes_gpu
-        if dev_codes is not None:
+        if dev_codes is not None and codes_out.data.ptr != dev_codes[:, start:stop].data.ptr:  # already written in place by the binning kernel otherwise
             # Keep this block's narrow codes RESIDENT (the EXACT bytes we D2H below). Bit-identical to the
             # host ``out`` slice -> selection-equivalent when the resident gate consumes the device copy.
             dev_codes[:, start:stop] = codes_out

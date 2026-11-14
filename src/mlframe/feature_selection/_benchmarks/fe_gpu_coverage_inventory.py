@@ -193,6 +193,32 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_feature_engineering_pairs": (
+        "_pairs_abs_corr_gpu",
+        "_pairs_analytic_gpu",
+        "_pairs_chunk_codes",
+        "_pairs_chunks",
+        "_pairs_code_bins",
+        "_pairs_common",
+        "_pairs_core",
+        "_pairs_core_helpers",
+        "_pairs_core_parts",
+        "_pairs_core_steps",
+        "_pairs_dispatch",
+        "_pairs_emit",
+        "_pairs_emit_extval",
+        "_pairs_gate_dedupe",
+        "_pairs_gates",
+        "_pairs_gpu_gates",
+        "_pairs_materialise",
+        "_pairs_operand_floor",
+        "_pairs_score",
+        "_pairs_score_helpers",
+        "_pairs_score_recompute",
+        "_pairs_score_step4",
+        "_pairs_score_steps",
+        "_pairs_setup",
+    ),
     "batch_mi_noise_gate_gpu": (
         "_batch_mi_noise_gate_fused",
         "_batch_mi_noise_gate_tuning",
@@ -206,16 +232,20 @@ _CARVED_PARENT: dict[str, str] = {child: parent for parent, children in CARVED_F
 
 
 def carved_family_problems(name: str) -> list[str]:
-    """Why ``name``'s ``CARVED_FAMILIES`` membership does not hold (empty when it holds or there is none): a child must exist and be imported by its parent."""
+    """Why ``name``'s ``CARVED_FAMILIES`` membership does not hold (empty when it holds or there is none): a child must exist and be imported by its parent module, or, for a parent that
+    is a package, live inside the package directory."""
     parent = _CARVED_PARENT.get(name)
     if parent is None:
         return []
     f = module_file(parent)
     if f is None:
         return [f"parent {parent} not found"]
-    parent_text = f.read_text(encoding="utf-8", errors="ignore")
-    if module_file(name) is None:
+    child_file = module_file(name)
+    if child_file is None:
         return [f"carved module {name} not found"]
+    if f.name == "__init__.py":
+        return [] if f.parent in child_file.parents else [f"{name} is not inside the package {parent}"]
+    parent_text = f.read_text(encoding="utf-8", errors="ignore")
     return [] if re.search(rf"\b{re.escape(name)}\b", parent_text) else [f"parent {parent} does not import {name}"]
 
 

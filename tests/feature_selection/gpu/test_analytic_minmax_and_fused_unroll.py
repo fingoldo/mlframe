@@ -72,3 +72,25 @@ def test_a_negative_code_declines_the_fused_path():
     codes = np.random.default_rng(2).integers(0, 5, (300, 8)).astype(np.int8)
     codes[10, 3] = -1
     assert pag._fused_observed_mi_and_bins(cp.asarray(codes), np.zeros(300, dtype=np.int64), 2) is None
+
+
+@pytest.mark.parametrize("k", [511, 512, 513, 640, 897])
+def test_wide_matrices_take_the_128_column_tile_and_match_the_host_mi(k):
+    """From 512 columns the kernel runs 128 columns per block on 1024 threads; widths either side of the switch and a width that leaves a partial last tile give the host MI and bins."""
+    n = 1203
+    rng = np.random.default_rng(k)
+    codes = rng.integers(0, 9, (n, k)).astype(np.int8)
+    y = rng.integers(0, 3, n).astype(np.int64)
+    tile, threads = pag._launch_shape(k, 9 * 3)
+    assert (tile, threads) == ((128, 1024) if k >= 512 else (32, 128))
+    got_mi, got_bins = pag._fused_observed_mi_and_bins(cp.asarray(codes), y, 3)
+    want_mi, want_bins = _host_mi_and_bins(codes, y, 3)
+    np.testing.assert_allclose(got_mi, want_mi, rtol=1e-9, atol=1e-12)
+    np.testing.assert_array_equal(got_bins, want_bins)
+
+
+def test_a_histogram_too_large_for_the_wide_tile_keeps_the_narrow_tile():
+    """128 columns of 100 cells are 51200 bytes of shared histograms: over the 48 KB budget, so the 32-column tile is kept."""
+    assert pag._launch_shape(2000, 100) == (32, 128)
+    assert pag._launch_shape(2000, 96)[0] == 128
+    assert pag._launch_shape(100, 20) == (32, 128)

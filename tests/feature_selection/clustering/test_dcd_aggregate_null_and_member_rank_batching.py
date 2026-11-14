@@ -30,16 +30,16 @@ warnings.filterwarnings("ignore")
 
 
 def _three_dups_plus_strong_frame(n: int = 4000, seed: int = 0):
-    """Three dups plus strong frame."""
+    """Three dups plus strong frame. Per-duplicate noise 0.15 as in test_dcd_swap_null_default_npermutations: at 0.01 the duplicates are so close to one another that the aggregate's CMI edge over a single duplicate is too small for a B=199 permutation test to call significant."""
     rng = np.random.default_rng(int(seed))
     latent = rng.standard_normal(n)
     other = rng.standard_normal(n)
     X = pd.DataFrame(
         {
             "strong": other,
-            "dup_a": latent + 0.01 * rng.standard_normal(n),
-            "dup_b": latent + 0.01 * rng.standard_normal(n),
-            "dup_c": latent + 0.01 * rng.standard_normal(n),
+            "dup_a": latent + 0.15 * rng.standard_normal(n),
+            "dup_b": latent + 0.15 * rng.standard_normal(n),
+            "dup_c": latent + 0.15 * rng.standard_normal(n),
             "noise_0": rng.standard_normal(n),
             "noise_1": rng.standard_normal(n),
         }
@@ -58,7 +58,8 @@ def test_dcd_swap_fires_and_selects_a_duplicate_at_default_npermutations(seed):
     X, y = _three_dups_plus_strong_frame(seed=seed)
     m = MRMR(
         dcd_enable=True,
-        dcd_tau_cluster=0.5,
+        fe_max_steps=0,  # the default feature engineering builds its own composites from the duplicates, so no duplicate cluster is left for the swap under test
+        dcd_tau_cluster=0.4,  # the pairwise SU of the three duplicates falls just under 0.5 on the supervised bins the fit uses, which left one duplicate out of the cluster (as in test_dcd_swap_null_default_npermutations)
         dcd_cluster_size_threshold=2,
         dcd_swap_npermutations=199,
         dcd_swap_alpha=0.05,
@@ -83,7 +84,8 @@ def test_dcd_swap_tiny_b_stays_on_serial_fallback_and_still_fires():
     X, y = _three_dups_plus_strong_frame(seed=7)
     m = MRMR(
         dcd_enable=True,
-        dcd_tau_cluster=0.5,
+        fe_max_steps=0,  # the default feature engineering builds its own composites from the duplicates, so no duplicate cluster is left for the swap under test
+        dcd_tau_cluster=0.4,  # the pairwise SU of the three duplicates falls just under 0.5 on the supervised bins the fit uses, which left one duplicate out of the cluster (as in test_dcd_swap_null_default_npermutations)
         dcd_cluster_size_threshold=2,
         dcd_swap_npermutations=3,
         dcd_swap_alpha=0.5,  # B auto-raised to ceil(1/0.5)=2 < 8 -> serial path

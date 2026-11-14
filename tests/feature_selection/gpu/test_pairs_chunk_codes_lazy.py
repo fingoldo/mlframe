@@ -71,3 +71,20 @@ def test_switch_off_fills_the_host_block(monkeypatch):
     clear_resident_codes_handoff(host)
     assert got is host
     np.testing.assert_array_equal(host, cp.asnumpy(dev))
+
+
+def test_columns_t_rows_are_the_requested_columns_for_a_deferred_and_for_a_filled_chunk():
+    """``columns_t`` returns a C-contiguous (m, n) block whose row k is column idx[k] (any order, repeats), from the device and from the filled host copy; resolved columns are views of it."""
+    _host, ref, chunk = _deferred_chunk()
+    idx = [4, 0, 4, 6]
+    got = chunk.columns_t(idx)
+    assert got.shape == (4, 40) and got.flags.c_contiguous
+    np.testing.assert_array_equal(got, ref[:, idx].T)
+    assert not chunk.host_ready(), "the device path must not fill the host block"
+    cols = resolve_code_columns([code_column(chunk, j) for j in idx])
+    for c, j in zip(cols, idx):
+        assert c.shape == (40, 1) and c.flags.c_contiguous and c.base is not None, "a view of one row of the transposed block, not a copy"
+        np.testing.assert_array_equal(c, ref[:, j : j + 1])
+    np.asarray(chunk)  # a stray full read fills the host block
+    assert chunk.host_ready()
+    np.testing.assert_array_equal(chunk.columns_t(idx), ref[:, idx].T)
