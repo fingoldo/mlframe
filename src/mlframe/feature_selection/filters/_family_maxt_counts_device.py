@@ -23,6 +23,7 @@ _TABLE_BUDGET_BYTES = 96 * 1024 * 1024  # int32 tables of one (column block x pe
 _PERM_BLOCK = 32
 
 _SRC = r"""
+// dtype-ok: Intentional float64, the null-max statistic is compared at full precision (exact permutation ties) and the buffer is allocated as float64 by the one caller.
 extern "C" __global__
 void family_mi_from_tables(const int* __restrict__ counts, const long long* __restrict__ n_x, const int n_y, const int max_jc,
                            const int kc, const int pbc, const int k0, const int p0, const int K, const long long n,
