@@ -100,8 +100,7 @@ __all__ = [
 # above it wins and scales (500k 1.08x, 1M 1.06x, 2M 1.09x, 4M 1.12x, 16M 1.24x). At the cap (16M int64 =
 # 128 MB) the fill alone is ~28ms of the ~55ms call, so parallelising it is the single largest safe win on
 # this sequential kernel. Below the gate the fill stays serial -> bit-identical, zero regression.
-from ._mi_greedy_cmi_fe_steps import (  # noqa: F401  -- carved helpers
-    logger,
+from ._mi_greedy_cmi_fe_binning import (  # noqa: F401  -- carved helpers
     _qbin_float_dtype,
     _sync_free_qbin_codes,
     _quantile_bin_gpu,
@@ -109,6 +108,9 @@ from ._mi_greedy_cmi_fe_steps import (  # noqa: F401  -- carved helpers
     _quantile_bin,
     _FAC_ARRAY_CAP,
     _factorize_dense_njit,
+)
+from ._mi_greedy_cmi_fe_steps import (  # noqa: F401  -- carved helpers
+    logger,
     _FAC_PAR_MEMSET_MIN,
     _combine_factorize_njit,
     _renumber_two_dense_njit,
@@ -281,6 +283,7 @@ def _cmi_from_binned(
     return (cmi, (int(k_z), int(k_xz), int(k_yz), int(k_xyz))) if return_cards else cmi
 
 
+from ._mi_greedy_cmi_fe_ktc import candidate_batch_device_chosen  # noqa: F401  -- the host-or-device tuner entry of the batched candidate scorer
 # Split out to `_mi_greedy_cmi_fe_gpu.py` for module size; re-exported by name so existing imports keep working.
 from ._mi_greedy_cmi_fe_gpu import (
     _ENT_NNZ_KERNEL as _ENT_NNZ_KERNEL,
