@@ -218,6 +218,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_fe_interaction_prerank": ("_fe_interaction_prerank_kernels",),
     "_residual_rescue_fe": ("_residual_rescue_gpu", "_residual_rescue_ktc"),
     "batch_pair_mi_gpu": ("_batch_pair_mi_cuda_kernels",),
+    "_orthogonal_xi_fe": ("_orthogonal_xi_gpu",),
     "_fe_batched_mi": (
         "_fe_batched_mi_blocks",
         "_fe_batched_mi_cmi",
