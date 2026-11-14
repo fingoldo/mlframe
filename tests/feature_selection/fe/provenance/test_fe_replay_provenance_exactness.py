@@ -234,8 +234,10 @@ def test_unary_binary_transform_equals_apply_recipe_exactly():
     fs = _fit_mul(df, y)
     names = list(fs.get_feature_names_out())
     recipes = {r.name: r for r in fs._engineered_recipes_}
-    ub_names = [nm for nm in names if nm in recipes and recipes[nm].kind == "unary_binary"]
-    assert ub_names, f"MRMR engineered no unary_binary column on y=a*b (selected {names}); the exact-parity contract has nothing to pin"
+    # Every column the fit engineered, whichever stage produced it: the stage merge keeps the first producer of a name, so on y=a*b the
+    # same column arrives as a mi_greedy_transform or an orth_pair_cross as readily as a unary_binary, and the contract is the same for all.
+    ub_names = [nm for nm in names if nm in recipes]
+    assert ub_names, f"MRMR engineered no column on y=a*b (selected {names}); the exact-parity contract has nothing to pin"
 
     df_test, _yt, _tt = _make_mul(seed=511, n=3000)
     Xt = np.asarray(fs.transform(df_test))
@@ -247,7 +249,7 @@ def test_unary_binary_transform_equals_apply_recipe_exactly():
             direct,
             rtol=0,
             atol=0,
-            err_msg=(f"transform() vs apply_recipe() for unary_binary '{nm}' diverged; they execute the same recipe path so this must be bit-equal"),
+            err_msg=(f"transform() vs apply_recipe() for '{nm}' ({recipes[nm].kind}) diverged; they execute the same recipe path so this must be bit-equal"),
         )
 
 
@@ -270,7 +272,7 @@ def test_unary_binary_exact_parity_holds_on_majority_of_seeds():
         fs = _fit_mul(df, y)
         names = list(fs.get_feature_names_out())
         recipes = {r.name: r for r in fs._engineered_recipes_}
-        ub_names = [nm for nm in names if nm in recipes and recipes[nm].kind == "unary_binary"]
+        ub_names = [nm for nm in names if nm in recipes]
         if not ub_names:
             continue
         produced += 1
@@ -283,7 +285,7 @@ def test_unary_binary_exact_parity_holds_on_majority_of_seeds():
             if not np.array_equal(Xt[:, i], direct):
                 all_exact = False
         exact_seeds += int(all_exact)
-    assert produced >= 1, "no seed produced a unary_binary recipe to test"
+    assert produced >= 1, "no seed produced an engineered column to test"
     assert (
         exact_seeds == produced
     ), f"transform/apply bit-exact parity held on only {exact_seeds}/{produced} seeds; bit-equality on the same recipe path must hold on every seed"

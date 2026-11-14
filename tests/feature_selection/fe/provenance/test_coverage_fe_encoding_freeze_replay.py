@@ -81,7 +81,7 @@ def test_kfold_target_encoding_replay_matches_manual_lookup(fit_frame):
     )
     out = apply_recipe(rec, X)
     manual = np.array([mean_lookup.get(str(c), gmean) for c in X["cat"]])
-    np.testing.assert_allclose(out, manual, rtol=0, atol=1e-12)
+    np.testing.assert_allclose(out, manual, rtol=_REPLAY_RTOL, atol=0)
 
 
 def test_kfold_te_unseen_category_maps_to_global_mean(fit_frame):
