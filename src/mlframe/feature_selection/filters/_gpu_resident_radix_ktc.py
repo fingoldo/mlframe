@@ -76,7 +76,7 @@ def _radix_threads_variants() -> list:
 
 _RADIX_THREADS_VARIANTS = _radix_threads_variants()
 _RADIX_THREADS_SWEEP_N_SAMPLES = [20_000, 30_000, 50_000, 100_000, 300_000, 1_000_000]
-_RADIX_THREADS_SALT = 2  # bumped: the v5 compaction kernel prefers 384 to 768 threads at 20000 to 30000 rows (the earlier sweep ran the v1 kernel from 50000 rows up)
+_RADIX_THREADS_SALT = 3  # bumped: the warp-scan kernel (capped to 38 registers) re-ranks the thread counts; salt 2 was the v5 compaction kernel at 20000 to 30000 rows (the earlier sweep ran the v1 kernel from 50000 rows up)
 
 
 def radix_select_threads(n: int) -> int:

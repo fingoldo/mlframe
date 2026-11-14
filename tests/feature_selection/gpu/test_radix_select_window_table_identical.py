@@ -45,3 +45,20 @@ def test_window_table_equals_plain_v5(monkeypatch, n, kind, nbins):
     got = _edges(cp, X, monkeypatch, True, nbins)
     want = _edges(cp, X, monkeypatch, False, nbins)
     assert np.array_equal(got, want)
+
+
+@pytest.mark.parametrize("threads", [48, 96, 256, 384, 768, 1024])
+@pytest.mark.parametrize("nbins", [10, 38])
+def test_warp_scan_equals_serial_scan_at_every_block_size(monkeypatch, threads, nbins):
+    """The per-rank scan by a warp (block a whole number of warps) and the serial scan (48 threads is not) give the same edges, with fewer warps than ranks as well (96 threads, 38 ranks)."""
+    require_cuda_device()
+    import cupy as cp
+
+    from mlframe.feature_selection.filters import _gpu_resident_select_kernels as kernels
+
+    rng = np.random.default_rng(threads + nbins)
+    X = cp.asarray((rng.standard_normal((6000, 4)) * np.exp(rng.uniform(-3, 3, (6000, 4)))).astype(np.float32))
+    monkeypatch.setattr(kernels, "_RADIX_THREADS_OVERRIDE", threads)
+    got = _edges(cp, X, monkeypatch, True, nbins)
+    want = _edges(cp, X, monkeypatch, False, nbins)
+    assert np.array_equal(got, want)

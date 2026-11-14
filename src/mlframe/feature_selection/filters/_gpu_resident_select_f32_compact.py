@@ -194,9 +194,50 @@ if not (
     and _RADIX_SELECT_F32_V5_SRC.index(_W_FIND_OLD) < _RADIX_SELECT_F32_V5_SRC.index("long long m=(long long)scount;")
 ):
     raise AssertionError("the v5 source changed: the window-table patch no longer anchors")
+# PER-RANK SCAN BY A WARP. After each pass thread r walked the 256 bins of its window serially (256 dependent shared loads per rank and pass). A warp now owns a rank: each lane sums 8
+# consecutive bins, a shuffle scan gives the running totals, the lane whose range holds the rank walks its 8 bins; the chosen bin and the count below it are the serial loop's, and a rank that
+# never exceeds (the serial loop leaves chosen 0 and the full total) takes the same values. The serial loop stays for a block that is not a whole number of warps.
+# The warp code alone needs 48 registers, which leaves one 768-thread block per SM; the kernel is compiled with --maxrregcount=40 (38 registers, no spill), and then runs 1.09 to 1.33 times
+# faster than the serial scan at 768 threads on 20000 to 100000 row columns (interleaved medians; edges array_equal).
+_W_SCAN_OLD = (
+    "        if(tid<R){int w=rank2w[tid];unsigned long long acc=below[tid];int chosen=0;long long want=ranks[tid];\n"
+    "            for(int b=0;b<256;++b){unsigned long long c=sh[w*256+b];if(acc+c>(unsigned long long)want){chosen=b;break;}acc+=c;}\n"
+    "            below[tid]=acc;prefix[tid]=(prefix[tid]&hmask)|((unsigned int)chosen<<shift);}\n"
+)
+_W_SCAN_NEW = (
+    "        if((nt&31)==0){\n"
+    "            const int lane=tid&31, wid=tid>>5, nw=nt>>5;\n"
+    "            for(int r=wid;r<R;r+=nw){\n"
+    "                const int w=rank2w[r]; const unsigned long long acc0=below[r]; const unsigned long long want=(unsigned long long)ranks[r];\n"
+    "                const unsigned int* hrow=&sh[w*256+lane*8];\n"
+    "                unsigned int cv[8]; unsigned long long s=0ULL;\n"
+    "                #pragma unroll\n"
+    "                for(int k=0;k<8;++k){cv[k]=hrow[k]; s+=(unsigned long long)cv[k];}\n"
+    "                unsigned long long inc=s;\n"
+    "                #pragma unroll\n"
+    "                for(int o=1;o<32;o<<=1){unsigned long long y=__shfl_up_sync(0xffffffffu,inc,o); if(lane>=o)inc+=y;}\n"
+    "                const unsigned long long exc=inc-s;\n"
+    "                const unsigned long long tot=__shfl_sync(0xffffffffu,inc,31);\n"
+    "                const bool hit=(acc0+inc>want)&&(acc0+exc<=want);\n"
+    "                const unsigned int m=__ballot_sync(0xffffffffu,hit);\n"
+    "                if(m){\n"
+    "                    if(lane==(__ffs(m)-1)){\n"
+    "                        unsigned long long a=acc0+exc; int chosen=0;\n"
+    "                        for(int k=0;k<8;++k){ if(a+(unsigned long long)cv[k]>want){chosen=lane*8+k;break;} a+=(unsigned long long)cv[k]; }\n"
+    "                        below[r]=a; prefix[r]=(prefix[r]&hmask)|((unsigned int)chosen<<shift);\n"
+    "                    }\n"
+    "                } else if(lane==0){ below[r]=acc0+tot; prefix[r]=(prefix[r]&hmask); }\n"
+    "            }\n"
+    "        } else {\n" + _W_SCAN_OLD + "        }\n"
+)
+if _RADIX_SELECT_F32_V5_SRC.count(_W_SCAN_OLD) != 1:
+    raise AssertionError("the v5 source changed: the warp-scan patch no longer anchors")
 # the first occurrence of the search is the full-scan loop (the second one scans the compacted candidates and keeps the binary search)
 _RADIX_SELECT_F32_V5_WINMAP_SRC = (
-    _RADIX_SELECT_F32_V5_SRC.replace(_W_DECL_OLD, _W_DECL_NEW, 1).replace(_W_INIT_OLD, _W_INIT_NEW, 1).replace(_W_FIND_OLD, _W_FIND_NEW, 1)
+    _RADIX_SELECT_F32_V5_SRC.replace(_W_DECL_OLD, _W_DECL_NEW, 1)
+    .replace(_W_INIT_OLD, _W_INIT_NEW, 1)
+    .replace(_W_FIND_OLD, _W_FIND_NEW, 1)
+    .replace(_W_SCAN_OLD, _W_SCAN_NEW, 1)
 )
 _RADIX_SELECT_F32_V5_WINMAP_KERNEL = None
 
@@ -212,7 +253,7 @@ def _get_radix_select_f32_v5_kernel():
     if os.environ.get("MLFRAME_RADIX_F32_WINMAP", "1").strip().lower() in ("1", "true", "on", "yes"):
         if _RADIX_SELECT_F32_V5_WINMAP_KERNEL is None:
             try:
-                _RADIX_SELECT_F32_V5_WINMAP_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_V5_WINMAP_SRC, "radix_select_f32_v5")
+                _RADIX_SELECT_F32_V5_WINMAP_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_V5_WINMAP_SRC, "radix_select_f32_v5", options=("--maxrregcount=40",))
             except Exception:
                 log_throttle(logging.getLogger(__name__), "gpu_select.f32_v5_winmap_compile", logging.WARNING, "f32 v5 window-table kernel compile failed; plain v5", exc_info=True)
                 _RADIX_SELECT_F32_V5_WINMAP_KERNEL = False
