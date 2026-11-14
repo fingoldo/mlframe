@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
+import sys
+import types
+
 from mlframe.feature_selection.filters._mrmr_fit_impl._fe_stage_concurrency import concurrency_enabled
+
+
+def _install_fake_cupy(monkeypatch, device, pool):
+    """Put a stand-in ``cupy`` module in ``sys.modules`` that reports ``device`` and ``pool``: the memory check reads nothing else of the module, so these tests run on a host without cupy too."""
+    fake = types.ModuleType("cupy")
+    fake.cuda = types.SimpleNamespace(Device=lambda *a, **k: device)
+    fake.get_default_memory_pool = lambda: pool
+    monkeypatch.setitem(sys.modules, "cupy", fake)
 
 
 def test_default_on_and_off_switch(monkeypatch):
@@ -51,10 +62,7 @@ def test_concurrency_declines_when_the_scaled_peaks_do_not_fit(monkeypatch):
 
         mem_info = (3 * 2**30, 4 * 2**30)
 
-    import cupy as cp
-
-    monkeypatch.setattr(cp.cuda, "Device", lambda *a, **k: _Dev())
-    monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _Pool())
+    _install_fake_cupy(monkeypatch, _Dev(), _Pool())
     assert C._stages_fit_device(C.STAGE_VRAM_WEIGHTS, 50_000) is True
     assert C._stages_fit_device(C.STAGE_VRAM_WEIGHTS, 500_000) is False
     ran = []
@@ -88,11 +96,8 @@ def test_concurrency_respects_the_cap_of_the_memory_pool(monkeypatch):
 
         mem_info = (int(3.5 * 2**30), 4 * 2**30)
 
-    import cupy as cp
-
     pool = _Pool()
-    monkeypatch.setattr(cp.cuda, "Device", lambda *a, **k: _Dev())
-    monkeypatch.setattr(cp, "get_default_memory_pool", lambda: pool)
+    _install_fake_cupy(monkeypatch, _Dev(), pool)
     assert C._stages_fit_device(C.STAGE_VRAM_WEIGHTS_WITH_EARLY_A, 100_000) is True
     pool.limit = int(1.5 * 2**30)
     assert C._stages_fit_device(C.STAGE_VRAM_WEIGHTS_WITH_EARLY_A, 100_000) is False
