@@ -64,3 +64,51 @@ def test_a_count_above_the_table_range_falls_back_to_the_direct_log(monkeypatch)
     monkeypatch.setenv("MLFRAME_ENT_LUT", "1")
     h_lut, _ = bm._rows_entropy_and_k(counts, inv_n)
     assert np.allclose(cp.asnumpy(h_lut), cp.asnumpy(h_log), rtol=0.0, atol=1e-9)
+
+
+_SPLIT_M = 1 << 20  # the split path needs 2^20 or more cells per row and fewer than 48 rows
+
+
+@pytest.mark.parametrize("k", [3, 11])
+def test_split_lut_entropy_equals_the_split_log_kernel_and_the_lut_path_runs(monkeypatch, k):
+    """Narrow chunk of huge rows (the permutation-null case): the table form of the split kernel equals the double precision split kernel, and it is the one that ran."""
+    rng = np.random.default_rng(k)
+    n = 20000
+    counts = _sparse_counts(rng, k, _SPLIT_M, n)
+    inv_n = 1.0 / n
+    monkeypatch.setenv("MLFRAME_ENT_LUT", "0")
+    h_log, k_log = bm._rows_entropy_and_k(counts, inv_n)
+    monkeypatch.setenv("MLFRAME_ENT_LUT", "1")
+    calls = []
+    real = bm._rows_entropy_lut_split
+    monkeypatch.setattr(bm, "_rows_entropy_lut_split", lambda *a, **kw: calls.append(1) or real(*a, **kw))
+    h_lut, k_lut = bm._rows_entropy_and_k(counts, inv_n)
+    assert calls, "the table form of the split kernel did not run"
+    assert np.allclose(cp.asnumpy(h_lut), cp.asnumpy(h_log), rtol=0.0, atol=1e-12)
+    assert np.array_equal(cp.asnumpy(k_lut), cp.asnumpy(k_log))
+
+
+def test_split_lut_entropy_handles_masked_rows_and_counts_above_the_table(monkeypatch):
+    """A row with fewer samples than n, and a cell count above the table range, still equal the double precision split kernel."""
+    rng = np.random.default_rng(9)
+    host = np.zeros((4, _SPLIT_M), dtype=np.int32)
+    for r, m in enumerate((20000, 15000, 20000, 20000)):
+        np.add.at(host[r], rng.integers(0, _SPLIT_M, size=m), 1)
+    host[3, 7] = 30000  # above the stated row count of 20000: the direct log
+    counts = cp.asarray(host)
+    inv_n = 1.0 / 20000
+    monkeypatch.setenv("MLFRAME_ENT_LUT", "0")
+    h_log, k_log = bm._rows_entropy_and_k(counts, inv_n)
+    monkeypatch.setenv("MLFRAME_ENT_LUT", "1")
+    h_lut, k_lut = bm._rows_entropy_and_k(counts, inv_n)
+    assert np.allclose(cp.asnumpy(h_lut), cp.asnumpy(h_log), rtol=0.0, atol=1e-12)
+    assert np.array_equal(cp.asnumpy(k_lut), cp.asnumpy(k_log))
+
+
+def test_a_row_count_that_is_not_a_whole_number_keeps_the_double_precision_split_kernel(monkeypatch):
+    """inv_n that is not 1/integer: the table form declines (returns None) and the double precision split kernel answers."""
+    counts = _sparse_counts(np.random.default_rng(2), 2, _SPLIT_M, 5000)
+    monkeypatch.setenv("MLFRAME_ENT_LUT", "1")
+    assert bm._rows_entropy_lut_split(cp, counts, 1.0 / 5000.5, 4) is None
+    h, k = bm._rows_entropy_and_k(counts, 1.0 / 5000.5)
+    assert h.shape == (2,) and k.shape == (2,)
