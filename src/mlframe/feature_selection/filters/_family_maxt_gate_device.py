@@ -78,6 +78,13 @@ def _observed_from_noise_gate(batches: Sequence[Any], y: np.ndarray) -> "Optiona
         return None
 
 
+def _batch_fits_row_major(d: Any, n: int, item: int) -> bool:
+    """True when ``d`` has ``n`` rows, at least one column, a unit column stride and a row stride that is a whole number of ``item``-byte elements."""
+    if int(d.shape[0]) != n or int(d.shape[1]) < 1:
+        return False
+    return int(d.strides[1]) == item and int(d.strides[0]) % item == 0
+
+
 def _multi_layout(cp: Any, parts: "list", n: int) -> "tuple | None":
     """Device tables for the one-launch kernels over every batch (``pack_bins_multi``, ``colmax_multi``), or ``None`` when the batches do not suit them.
 
@@ -88,7 +95,7 @@ def _multi_layout(cp: Any, parts: "list", n: int) -> "tuple | None":
     if not parts or any(d.ndim != 2 or d.dtype != parts[0].dtype or d.dtype not in _C_TYPES for d in parts):
         return None
     item = int(parts[0].dtype.itemsize)
-    if any(int(d.shape[0]) != n or int(d.shape[1]) < 1 or int(d.strides[1]) != item or int(d.strides[0]) % item for d in parts):
+    if not all(_batch_fits_row_major(d, n, item) for d in parts):
         return None
     widths = np.array([int(d.shape[1]) for d in parts], dtype=np.int64)
     bstart = np.concatenate([[0], np.cumsum(widths)]).astype(np.int32)

@@ -781,7 +781,9 @@ def batched_joint_entropy_global(X: Any, b: Any, Kx: int, Kb: int, inv_n: float,
         return out_h, out_k
     # Blocks and columns per block are sized so that all the blocks' scratch slices stay within L2: the caller admitted ``blocks`` (one per SM)
     # against that budget, so extra blocks are taken only while the total still fits. More blocks lift the parallelism of the global atomics.
-    l2 = int(cp.cuda.Device().attributes.get("L2CacheSize", 0)) or (1 << 20)
+    l2 = int(cp.cuda.Device().attributes.get("L2CacheSize", 0))
+    if l2 <= 0:
+        l2 = 1 << 20  # L2 size unreported: assume 1 MiB
     # the second block layer only while its doubled scratch stays in a quarter of L2: at M = 15000 the full-L2 rule measured 29 ms against 23 ms with one per SM
     mult = _JOINT_ENTROPY_GLOBAL_MAX_BLOCK_MULT if int(blocks) * _JOINT_ENTROPY_GLOBAL_MAX_BLOCK_MULT * M * 4 * 4 <= l2 else 1
     # column groups only for small joints: G = 8 measured fastest at M = 1000, while G > 1 at M = 5000 and 15000 was slower than one column per block
@@ -844,7 +846,10 @@ def _get_batched_joint_entropy_kernel(cp, xt: str = "long long"):
 
 def _joint_entropy_tile_cols(M: int) -> int:
     """Columns per block for ``batched_joint_entropy2``: at most 8, and G histograms of M uint32 plus the 4 KB of static reduction scratch fit the device limit."""
-    return max(1, min(8, (int(_BATCHED_JOINT_ENTROPY_SH_LIMIT or 48 * 1024) - 4096) // (4 * int(M))))
+    limit = _BATCHED_JOINT_ENTROPY_SH_LIMIT
+    if limit is None:
+        limit = 48 * 1024
+    return max(1, min(8, (int(limit) - 4096) // (4 * int(M))))
 
 
 def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):

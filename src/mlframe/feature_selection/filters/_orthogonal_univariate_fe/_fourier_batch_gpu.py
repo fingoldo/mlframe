@@ -19,6 +19,7 @@ from pyutilz.performance.gpu_hw_launch import block_size_for
 import numpy as np
 
 from mlframe._numerical_floors import VARIANCE_FLOOR
+from mlframe.utils.env_flags import env_int
 from mlframe.feature_selection.filters._kernel_types import render
 from .._gpu_raw_module import LazyRawModule
 from ._fourier_core_cycles import core_span, freq_is_tail_aliased
@@ -33,7 +34,7 @@ def _block_for(kernel: Any, n: int) -> int:
     return block_size_for(kernel, work_items=n, max_width=1024)
 
 
-_BLOCK_COLS: Optional[int] = None  # a test or an operator sets a fixed column block width; None = derive it from the free VRAM
+_BLOCK_COLS: Optional[int] = env_int("MLFRAME_FOURIER_BLOCK_COLS", 0, minimum=0) or None  # 0/unset: derive the width from the free VRAM
 _MIN_STD = 1e-9
 _MIN_Y_SS = VARIANCE_FLOOR
 _DUPLICATE_WINDOW = 0.25

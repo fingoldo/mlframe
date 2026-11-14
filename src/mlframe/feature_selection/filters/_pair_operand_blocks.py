@@ -29,10 +29,10 @@ def pair_chunks_by_operand_block(pair_a: np.ndarray, pair_b: np.ndarray, max_ope
         extra = (a not in seen) + (b not in seen and b != a)
         if current and (len(seen) + extra > max_operands or (max_pairs is not None and len(current) >= max_pairs)):
             chunks.append(current)
-            current, seen = [], set()
-        current.append(idx)
-        seen.add(a)
-        seen.add(b)
+            current, seen = [idx], {a, b}
+        else:
+            current.append(idx)
+            seen.update((a, b))
     if current:
         chunks.append(current)
     return [np.asarray(c, dtype=np.int64) for c in chunks]

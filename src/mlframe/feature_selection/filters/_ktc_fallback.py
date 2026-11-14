@@ -66,7 +66,7 @@ def host_device_sweep(owner: str, host, device, *, repeats: int = 3, rtol: float
         make_inputs = module._sweep_inputs
         host_fn, device_fn = host, device
         if residency:
-            place = getattr(module, "_sweep_place", lambda inputs, res: inputs)
+            place = vars(module).get("_sweep_place", lambda inputs, res: inputs)  # optional module hook, see the docstring
             make_inputs = lambda dims: place(module._sweep_inputs(dims), data_in_residency)  # noqa: E731 - small adapter
             host_fn = lambda *a: host(*a, data_out_residency=data_out_residency)  # noqa: E731
             device_fn = lambda *a: device(*a, data_out_residency=data_out_residency)  # noqa: E731
@@ -109,8 +109,8 @@ def residency_report(owner: str, *, repeats: int = 3) -> list:
     import time
 
     module = sys.modules[owner]
-    scenarios = list(getattr(module, "_SWEEP_RESIDENCIES", [("host", "host")]))
-    place = getattr(module, "_sweep_place", lambda inputs, residency: inputs)
+    scenarios = list(vars(module).get("_SWEEP_RESIDENCIES", [("host", "host")]))
+    place = vars(module).get("_sweep_place", lambda inputs, residency: inputs)
 
     def _sync() -> None:
         """Wait for the queued device work (nothing to do without a device)."""
