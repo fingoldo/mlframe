@@ -9,11 +9,14 @@ Scope: histograms up to ``_MAX_CELLS`` joint cells (local-memory budget). Larger
 
 from __future__ import annotations
 
+import logging
 import math
 
 import numpy as np
 from pyutilz.performance.gpu_hw_launch import block_size_for
 from numba import cuda
+
+logger = logging.getLogger(__name__)
 
 _MAX_CELLS = 1024
 
@@ -82,6 +85,19 @@ def family_null_max_device(cols: np.ndarray, n_x: np.ndarray, perms: np.ndarray,
     from mlframe.utils.cupy_pinned import install_pinned_policy
 
     install_pinned_policy()
+    # The fused-table path first (`_family_maxt_counts_device`: the tables of every (column, permutation) pair counted in shared memory, then reduced with this kernel's own arithmetic and
+    # summation order, so the maxima are bit-identical; 17 to 27x on a 1200-column family at 30000 rows). The thread-per-pair kernel below stays for a table the fused path declines and for
+    # any device error of the fused path.
+    try:
+        from ._family_maxt_counts_device import family_null_max_counts
+
+        fused = family_null_max_counts(cols, n_x, perms, n_y)
+        if fused is not None:
+            return fused
+    except cp.cuda.memory.OutOfMemoryError:
+        raise
+    except Exception as exc:  # the thread-per-pair kernel answers, the maxima are the same
+        logger.warning("fused family null (tables) failed (%s: %s); using the thread-per-pair kernel", type(exc).__name__, exc)
     # Codes are uploaded in their own (int16) width: a (K, n) int64 copy of a wide family was 4x the bytes for the same values.
     cols_d = cp.asarray(np.ascontiguousarray(np.asarray(cols).T))
     nx_d = cp.asarray(np.ascontiguousarray(n_x, dtype=np.int64))
