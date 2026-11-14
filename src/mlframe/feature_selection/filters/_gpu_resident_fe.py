@@ -682,7 +682,7 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
     _ymin = int(_ymm[0])
     _ncls = int(_ymm[1]) - _ymin + 1
-    k_chunk = _gpu_k_chunk(n)
+    k_chunk = _gpu_k_chunk(n)  # candidates per chunk: each chunk is a column block of the candidate matrix, generated and scored before the next one, so peak VRAM is one block
     mi_parts: list[np.ndarray] = []
     for start in range(0, len(_COMBOS), k_chunk):
         block = _COMBOS[start : start + k_chunk]

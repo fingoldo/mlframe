@@ -107,6 +107,10 @@ KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 #: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
 #: (its own thresholds, variants, block size) registers itself instead.
 KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_gpu_resident_fe": (
+        "_gpu_resident_k_chunk_ktc",
+        "the candidate chunk width (K) of the resident generation + scoring loop is the kernel_tuner entry gpu_k_chunk of _gpu_resident_k_chunk_ktc, swept per host over the row count",
+    ),
     "_hermite_fe_mi": (
         "_resident_candidate_mi_ktc",
         "its resident plug-in MI (_plugin_mi_classif_batch_cuda_resident) is timed against the host njit batch MI it replaces by fe_gate_resident_candidate_mi_crossover (kernel_tuner over (n, k)); the resident path engages only where measured faster",
@@ -136,6 +140,10 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
 #: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_gpu_resident_fe": (
+        "hermite_fe",
+        "_gpu_resident_shared.cpu_pair_candidate_mi builds the same candidate grid with numpy and scores it with the production njit batch MI (plugin_mi_classif_batch_njit of the hermite_fe package); it is the baseline the resident path is checked against",
+    ),
     "batch_pair_mi_gpu": (
         "info_theory",
         "the host backends of the dispatcher are the njit batch_pair_mi_serial / batch_pair_mi_prange kernels of the info_theory package, the numerical reference every device backend is checked against",
