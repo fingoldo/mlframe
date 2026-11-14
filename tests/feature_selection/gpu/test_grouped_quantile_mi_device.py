@@ -35,3 +35,20 @@ def test_device_scores_equal_host(monkeypatch):
     assert list(got["engineered_col"]) == list(want["engineered_col"])
     np.testing.assert_allclose(got["mi"].to_numpy(), want["mi"].to_numpy(), rtol=0, atol=1e-12)
     pd.testing.assert_frame_equal(got.drop(columns=["mi", "uplift"]), want.drop(columns=["mi", "uplift"]))
+
+
+def test_tight_pool_limit_blocks_the_columns_instead_of_falling_back(monkeypatch):
+    """Under a pool limit that cannot hold all columns at once the device path scores them in smaller blocks, equal to the one-block scores."""
+    from mlframe.feature_selection.filters import _device_blocks
+    from mlframe.feature_selection.filters import _grouped_quantile_fe as G
+    from mlframe.feature_selection.filters._scorer_device_dispatch import forced_backend
+
+    rng = np.random.default_rng(5)
+    n = 20000
+    X = pd.DataFrame({f"c{i}": rng.standard_normal(n) for i in range(12)})
+    y = (X["c0"] + rng.standard_normal(n) > 0).astype(np.int64).to_numpy()
+    with forced_backend("device"):
+        want = G._grouped_quantile_mi_device(X, list(X.columns), y, 10)
+        monkeypatch.setattr(_device_blocks, "first_block", lambda cp_, n_rows, n_cols, itemsize, multiple: 3)
+        got = G._grouped_quantile_mi_device(X, list(X.columns), y, 10)
+    assert len(want) == 12 and got == want
