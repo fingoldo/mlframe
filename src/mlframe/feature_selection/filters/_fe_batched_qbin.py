@@ -9,7 +9,6 @@ import logging
 from typing import Any
 
 import numpy as np
-from numba import njit, prange
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
@@ -167,7 +166,7 @@ def _column_block_width(cp: Any, n: int, K: int, itemsize: int) -> int:
 def batched_quantile_bin_gpu(x_cols: Any, nbins: int, byte_codes: bool = False) -> Any:
     """Born-on-device equi-frequency binning of an (n,K) float matrix -> (n,K) int codes, RESIDENT on GPU.
 
-    Device twin of ``_mi_greedy_cmi_fe._quantile_bin`` applied per column (host twin: :func:`quantile_bin_host`). The edges of all K columns come from ONE batched radix select (or one
+    Device twin of ``_mi_greedy_cmi_fe._quantile_bin`` applied per column (host twin: ``_mi_greedy_cmi_fe.quantile_bin_columns``, the parallel ``quantile_bin_block`` kernel of ``_numba_utils``). The edges of all K columns come from ONE batched radix select (or one
     ``cp.percentile``), and ONE fused coder launch counts the distinct interior edges below each value. Returns a cupy int64 (n,K) array (kept on device to feed ``batched_cmi_gpu``
     without a code H2D). Selection-equivalent to the host binning: same equi-frequency partition (value-edge, rank-based). Assumes all-finite input (the production nan-scrubbed
     case); the caller falls back to the host path otherwise.
@@ -209,62 +208,4 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int, byte_codes: bool = False) 
     for c0 in range(0, K, block_cols):
         Xc = cp.ascontiguousarray(Xd[:, c0 : c0 + block_cols])
         codes[:, c0 : c0 + Xc.shape[1]] = _codes_of_block(cp, Xc, _edges_of_block(cp, Xc, nbins, single, radix), single, byte_codes)
-    return codes
-
-
-@njit(cache=True, nogil=True, parallel=True)
-def _quantile_bin_columns_njit(X: np.ndarray, fractions: np.ndarray) -> np.ndarray:
-    """Host kernel of the equi-frequency binning of every column of the ``(n, K)`` matrix ``X``: the codes the device coder produces, one column per ``prange`` iteration.
-
-    ``fractions`` are the ``nbins + 1`` quantile fractions in [0, 1]. Edges are the 'linear' order-statistic interpolation of the sorted column (numpy's ``_lerp``), the interior edges are
-    the distinct ones strictly between the column minimum and maximum, a code is the number of interior edges not above the value, and exactly two distinct edges give ``x >= max``.
-    """
-    n, k = X.shape
-    ne = fractions.shape[0]
-    out = np.empty((n, k), dtype=np.int64)
-    for j in prange(k):
-        col = np.sort(X[:, j].copy())
-        edges = np.empty(ne, dtype=np.float64)  # Intentional float64: edge interpolation precision
-        for i in range(ne):
-            pos = fractions[i] * (n - 1)
-            below = int(np.floor(pos))
-            above = min(below + 1, n - 1)
-            t = pos - below
-            lo = np.float64(col[below])  # Intentional float64: edge interpolation precision
-            hi = np.float64(col[above])  # Intentional float64: edge interpolation precision
-            edges[i] = lo + (hi - lo) * t if t < 0.5 else hi - (hi - lo) * (1.0 - t)
-        first = edges[0]
-        last = edges[ne - 1]
-        distinct = 1
-        for i in range(1, ne):
-            if edges[i] != edges[i - 1]:
-                distinct += 1
-        interior = np.empty(ne, dtype=np.float64)  # Intentional float64: edge values
-        m = 0
-        for i in range(1, ne):
-            if edges[i] != edges[i - 1] and edges[i] > first and edges[i] < last:
-                interior[m] = edges[i]
-                m += 1
-        for r in range(n):
-            v = np.float64(X[r, j])  # Intentional float64: compared with the double edges
-            c = 0
-            for e in range(m):
-                if v >= interior[e]:
-                    c += 1
-            if distinct == 2 and v >= last:
-                c += 1
-            out[r, j] = c
-    return out
-
-
-def quantile_bin_host(x_cols: np.ndarray, nbins: int) -> np.ndarray:
-    """Host twin of :func:`batched_quantile_bin_gpu`: the same ``(n, K)`` int64 codes of a finite ``(n, K)`` float matrix, computed by the parallel ``@njit`` kernel."""
-    x = np.ascontiguousarray(x_cols)
-    if x.ndim == 1:
-        x = x[:, None]
-    fractions = np.linspace(0.0, 100.0, int(nbins) + 1) / 100.0
-    from mlframe._numba_parallel_guard import parallel_kernel_entry
-
-    with parallel_kernel_entry():
-        codes: np.ndarray = _quantile_bin_columns_njit(x, fractions)
     return codes

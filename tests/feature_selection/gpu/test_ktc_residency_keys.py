@@ -1,30 +1,6 @@
-"""The residency vocabulary of the kernel-tuning entries: scenario names and the placement read from the operands."""
+"""The residency report and the residency-aware sweep of the kernel-tuning entries (the scenario vocabulary and the placement read from the operands live in ``pyutilz.performance.kernel_tuning.residency``)."""
 
 import numpy as np
-import pytest
-
-from mlframe.feature_selection.filters._ktc_fallback import RESIDENCIES, detect_residency, residency_entry_name
-
-
-def test_entry_names_cover_the_four_scenarios():
-    """Four distinct entry names, one per (in, out) pair."""
-    names = {residency_entry_name("k", a, b) for a in RESIDENCIES for b in RESIDENCIES}
-    assert names == {"k__host_host", "k__host_device", "k__device_host", "k__device_device"}
-    with pytest.raises(ValueError):
-        residency_entry_name("k", "host", "gpu")
-
-
-def test_host_arrays_and_scalars_read_as_host():
-    """Numpy operands (scalars ignored) are host; no array at all is host."""
-    assert detect_residency(np.zeros(3), 5, None, "x") == "host"
-    assert detect_residency() == "host"
-
-
-def test_cupy_operands_read_as_device_and_a_mix_as_host():
-    """All cupy arrays: device. One numpy operand among them: host, because the device path then pays that upload."""
-    cp = pytest.importorskip("cupy")
-    assert detect_residency(cp.zeros(3), cp.ones(2), 7) == "device"
-    assert detect_residency(cp.zeros(3), np.ones(2)) == "host"
 
 
 def test_residency_report_times_every_declared_scenario_and_derives_the_transfer_share(monkeypatch):
@@ -75,7 +51,12 @@ def test_a_residency_sweep_places_the_inputs_and_hands_the_output_placement_to_b
     m._sweep_inputs = lambda dims: (f"x{dims['n_samples']}",)
     m._sweep_place = lambda inputs, residency: tuple(f"{residency}:{a}" for a in inputs)
     monkeypatch.setitem(sys.modules, "fake_residency_sweep_module", m)
-    tuner = host_device_sweep("fake_residency_sweep_module", lambda x, data_out_residency: ("h", x, data_out_residency), lambda x, data_out_residency: ("d", x, data_out_residency), residency=True)
+    tuner = host_device_sweep(
+        "fake_residency_sweep_module",
+        lambda x, data_out_residency: ("h", x, data_out_residency),
+        lambda x, data_out_residency: ("d", x, data_out_residency),
+        residency=True,
+    )
     assert tuner(data_in_residency="device", data_out_residency="host") == [{"n_samples_max": 7, "backend_choice": "host"}]
     assert seen["inputs"] == ("device:x7",)
     assert seen["results"] == {"host": ("h", "device:x7", "host"), "device": ("d", "device:x7", "host")}
@@ -94,3 +75,22 @@ def test_selection_view_counts_the_scores_and_marks_the_best_with_a_tie_band():
     assert np.array_equal(selection_view(near, top=2, width=8), v), "a value inside the tie band at the cut stays on the same side"
     assert selection_view(scores[:-1], top=2, width=8)[0] == 4
     assert selection_view(np.array([]), top=2, width=4)[0] == 0
+
+
+def test_the_report_cli_prints_a_row_per_scenario(monkeypatch, capsys):
+    """``python -m ..._ktc_fallback <module>`` prints one line per swept size and declared scenario."""
+    import sys
+    import types
+
+    from mlframe.feature_selection.filters import _ktc_fallback as K
+
+    m = types.ModuleType("fake_ktc_cli_module")
+    m._SWEEP_ROWS = [10, 20]
+    m._sweep_inputs = lambda dims: ("x",)
+    m._sweep_host = lambda x: None
+    m._sweep_device = lambda x: None
+    monkeypatch.setitem(sys.modules, "fake_ktc_cli_module", m)
+    assert K._main(["fake_ktc_cli_module", "1"]) == 0
+    out = capsys.readouterr().out.strip().splitlines()
+    assert len(out) == 2 and all("scenario=('host', 'host')" in line for line in out)
+    assert K._main([]) == 2

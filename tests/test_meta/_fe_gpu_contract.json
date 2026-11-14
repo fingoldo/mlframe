@@ -68,7 +68,9 @@
     "_composite_group_agg_fe": "per-group mean/std/count over integer key codes: a numba kernel bit-equal to pandas (2 ms per 20000-row column, 30 columns x 3 stats in 0.062 s); the candidate scoring that follows is the device-batched CMI (batched_cmi_gpu, chunked on OOM). A device twin would need the pandas Kahan/Welford order replayed per group to stay bit-equal and saves less than its own column transfer (audit 73cm); revisit if the generation share of a fit grows",
     "_conditional_quantile_rank_fe": "measured exemption: its only consumer is the fe_conditional_quantile_rank_enable region, 0.28 s of a 141 s CPU fit at n=20000 (under 0.5 s, audits/2026-10-22/profiles/fe_family_walls_cpu_n20000.md); a device twin has no payoff at this shape. Re-profile and move it back to pending if the region crosses 0.5 s at another n or column count",
     "_confirm_predictor_engineered": "ordering and decision helpers around the single-predictor confirmation: bookkeeping, no numeric kernel",
+    "_family_maxt_gate_device": "measured exemption: dispatched by data residency, not by a crossover. Resident device batches take the device gate (kernels in _family_maxt_cuda_bits, recorded in its profile), anything else the host gate; on the same family the resident placement is faster at every measured size (20000 rows 0.009 vs 0.013 s, 100000 rows 0.031 vs 0.059, 400000 rows 0.029 vs 0.297; audits/2026-10-22/profiles/_family_maxt_gate_device.md), so there is no region where the other side wins and nothing for a sweep to choose. The module is orchestration over the bit-set kernels (no kernel of its own, no CPU twin: the host gate is _family_maxt_gate). Revisit when the residency scenarios are rolled out (RES11-01): the entry would then be the device-in scenario of the family gate.",
     "_fe_accuracy_gate": "bookkeeping, frame glue, recipes and names: no numeric kernel",
+    "_fe_batched_mi_blocks": "column-block driver around the one-shot batched CMI (blocks sized from the free VRAM, pieces joined in order): orchestration, it launches no kernel of its own (the kernels live in _fe_batched_mi and _fe_batched_mi_cmi)",
     "_fe_budget_learning": "orchestration of stages and budgets: no numeric kernel",
     "_fe_deadline": "orchestration of stages and budgets: no numeric kernel",
     "_fe_device_scheduler": "device and VRAM-budget planning for concurrent stages (memGetInfo, device properties, a private memory pool per thread): queries the devices, launches no kernel",
@@ -124,8 +126,7 @@
     "_wavelet_legs_tuner": "the kernel-tuning entry and the two sweep callables that choose the host or the device body of the wavelet leg selection by row count: no kernel of its own (the bodies live in _wavelet_basis_fe and _wavelet_basis_fe_batched)",
     "_y_encoding": "bookkeeping, frame glue, recipes and names: no numeric kernel",
     "cat_fe_state": "bookkeeping, frame glue, recipes and names: no numeric kernel",
-    "engineered_recipes": "bookkeeping, frame glue, recipes and names: no numeric kernel",
-    "_family_maxt_gate_device": "measured exemption: dispatched by data residency, not by a crossover. Resident device batches take the device gate (kernels in _family_maxt_cuda_bits, recorded in its profile), anything else the host gate; on the same family the resident placement is faster at every measured size (20000 rows 0.009 vs 0.013 s, 100000 rows 0.031 vs 0.059, 400000 rows 0.029 vs 0.297; audits/2026-10-22/profiles/_family_maxt_gate_device.md), so there is no region where the other side wins and nothing for a sweep to choose. The module is orchestration over the bit-set kernels (no kernel of its own, no CPU twin: the host gate is _family_maxt_gate). Revisit when the residency scenarios are rolled out (RES11-01): the entry would then be the device-in scenario of the family gate."
+    "engineered_recipes": "bookkeeping, frame glue, recipes and names: no numeric kernel"
   },
   "pending": [
     "_added_information_gate",

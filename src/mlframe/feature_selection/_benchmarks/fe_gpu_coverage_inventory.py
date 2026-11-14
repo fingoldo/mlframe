@@ -130,6 +130,10 @@ CPU_TWINS: dict[str, tuple[str, str]] = {
         "batch_mi_noise_gate_gpu",
         "the host noise gate of the same decision is batch_mi_noise_gate_gpu's njit permutation gate; the bit-set gate and the histogram pair are the two device backends chosen by the noise_gate_bits tuner entry",
     ),
+    "_fe_batched_qbin": (
+        "_mi_greedy_cmi_fe",
+        "the host twin of the device equi-frequency coder is quantile_bin_columns, which bins the finite columns in parallel with the njit quantile_bin_block kernel of _numba_utils (equal codes, checked by test_qbin_column_blocks)",
+    ),
     "_basis_fused_gpu": (
         "hermite_fe",
         "the host design is hermite_fe's build_basis_matrix (njit recurrence); the device build is only taken for a column that is already resident",

@@ -13,7 +13,6 @@ import pytest
 
 from mlframe.feature_selection.filters._fe_deadline import (
     DeadlineCarrying,
-    clear_fe_deadline,
     current_fe_deadline,
     fe_deadline_passed,
     set_fe_deadline,
@@ -23,9 +22,9 @@ from mlframe.feature_selection.filters._fe_deadline import (
 @pytest.fixture(autouse=True)
 def _no_leaked_deadline():
     """A deadline must never leak out of a test and into the rest of the session."""
-    clear_fe_deadline()
+    set_fe_deadline(None)
     yield
-    clear_fe_deadline()
+    set_fe_deadline(None)
 
 
 def _probe(_ignored):
@@ -65,7 +64,7 @@ def test_the_wrapper_captures_at_dispatch_not_at_call():
     set_fe_deadline(1234.5)
     carried = DeadlineCarrying(_probe)
     assert carried.deadline == 1234.5
-    clear_fe_deadline()
+    set_fe_deadline(None)
     assert current_fe_deadline() is None
     assert carried.deadline == 1234.5, "the wrapper re-read the thread-local instead of keeping what it captured"
 
@@ -74,7 +73,7 @@ def test_the_worker_deadline_does_not_outlive_the_call():
     """loky reuses workers, so a deadline written in one and left there would truncate later, budget-free fits."""
     set_fe_deadline(999.0)
     carried = DeadlineCarrying(lambda _x: current_fe_deadline())
-    clear_fe_deadline()
+    set_fe_deadline(None)
     inside = carried(None)
     assert inside == 999.0
     assert current_fe_deadline() is None, "the wrapper left its deadline published after the call returned"

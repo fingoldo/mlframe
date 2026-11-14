@@ -104,6 +104,11 @@ def _launch_radix_f32_v4(cp, data_cm, n: int, K: int, ranks_g, R: int, osv, thre
     if kern is None:
         return False
     kern = _get_radix_select_f32_v5_kernel() or kern
+    from ._gpu_resident_select_f32_wide import FIRST_DIGIT_SHARED_BYTES, _get_radix_select_f32_v6_kernel
+
+    kern6 = _get_radix_select_f32_v6_kernel()  # None unless MLFRAME_RADIX_F32_V6=1 (rejected as a default, see the module)
+    if kern6 is not None:
+        kern, shmem = kern6, max(int(shmem), FIRST_DIGIT_SHARED_BYTES)
     cap = max(1024, int(n) // 4)
     if not _scratch_fits(K * cap * 4):
         return False
