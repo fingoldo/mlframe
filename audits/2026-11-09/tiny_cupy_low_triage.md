@@ -30,7 +30,6 @@ Rows: 53.
 | feature_selection/filters/_gpu_resident_pair_mi_parts.py | _grand_fused_pair_mi_part1 | 67 | FALSE POSITIVE: a blocked loop (`for start in range(0, len(_COMBOS), k_chunk)`), each trip one batched operation over its block |
 | feature_selection/filters/_gpu_resident_select.py | radix_quantiles_grouped | 414 | FALSE POSITIVE: a blocked loop (`for s in range(0, int(fr.size), int(group))`), each trip one batched operation over its block |
 | feature_selection/filters/_group_distance_gpu.py | group_stats_device | 162 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, k, block)`), each trip one batched operation over its block |
-| feature_selection/filters/_grouped_quantile_fe.py | _grouped_quantile_mi_device | 679 | FALSE POSITIVE: a blocked loop (`for i in range(0, len(cols), step)`), each trip one batched operation over its block |
 | feature_selection/filters/_grouped_quantile_fe.py | _prebinned_codes | 709 | FALSE POSITIVE: a blocked loop (`for i in range(0, len(keep), step)`), each trip one batched operation over its block |
 | feature_selection/filters/_honest_null_accept_bits.py | _launch_pre | 357, 362 | FALSE POSITIVE: a blocked loop (`for b0 in range(0, n_perm, _PERM_CHUNK)`), each trip one batched operation over its block |
 | feature_selection/filters/_hsic_gpu.py | hsic_biased_columns_gpu | 104 | FALSE POSITIVE: a blocked loop (`for start in range(0, k, width)`), each trip one batched operation over its block |
