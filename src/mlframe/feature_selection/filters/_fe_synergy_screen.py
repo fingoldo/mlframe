@@ -29,6 +29,9 @@ WIRED (this docstring was stale): not via
 to ``selected_vars``), gated on ``interactions_max_order>=2``. This is the screen's validated core + its
 detection-vs-noise contract (test_fe_synergy_screen.py); gating stays behind the permutation/analytic null
 so noise pairs are never admitted.
+
+The combo sweep of ``detect_synergy_combos`` scores all pairs and triples together: on the device by ``_synergy_combo_gpu`` (one block per combo, a column block of the code matrix resident, kernel-tuning entry
+``synergy_combo_backend``) or with the numba kernels of this module, whichever the per-host sweep says is faster for the combo count.
 """
 from __future__ import annotations
 
@@ -257,7 +260,7 @@ def detect_synergy_combos(
     # MM-ratio gate is even consulted - the genuine low-cardinality XOR/parity synergies are unaffected
     # (a 2-3 way binary/low-card grid has hundreds of rows/cell), while a sparse high-card grid is skipped.
     _MIN_ROWS_PER_CELL = float(min_rows_per_cell)
-    out = []
+    cands: list = []  # (combo, joint cell count) of every combo that passes the cell and rows-per-cell filters, in sweep order
     _seen = 0
     for _order in range(max(2, int(min_order)), int(max_order) + 1):
         for combo in _it.combinations(idx, _order):
@@ -273,25 +276,45 @@ def detect_synergy_combos(
             # the MM debit cannot correct (false synergy on high-card noise) - skip it.
             if _MIN_ROWS_PER_CELL > 0.0 and _n < _MIN_ROWS_PER_CELL * float(_ncells):
                 continue
-            _cards = np.array([_ccard[_c] for _c in combo], dtype=np.int64)
-            # joint MI of the combo's mixed-radix cell-codes vs the target (MM-corrected, njit). Orders 2-3
-            # read the contiguous cached code columns DIRECTLY (no per-combo (n, order) _mat materialise, 1.71x);
-            # higher orders fall back to the general matrix kernel.
-            if _order <= 3:
-                _c2 = _ccode[combo[2]] if _order >= 3 else _ccode[combo[1]]
-                _jmi = float(_combo_mm_mi_cols_njit(_ccode[combo[0]], _ccode[combo[1]], _c2, _order, _cards, _yt, _kt, int(_ncells)))
-            else:
-                _mat = np.empty((_n, _order), dtype=np.int64)
-                for _k, _c in enumerate(combo):
-                    _mat[:, _k] = _ccode[_c]
-                _jmi = float(_combo_mm_mi_njit(_mat, _cards, _yt, _kt, int(_ncells)))
-            if _jmi < min_joint_mi:
-                continue
-            _msum = sum(_marg[c] for c in combo)
-            if _jmi >= synergy_ratio * max(_msum, 1e-12):
-                out.append((combo, _jmi))
+            cands.append((combo, int(_ncells)))
         if _seen > max_combos:
             break
+
+    def _host_scores(_codes, _combos, _cards_of, _target, _kt_):
+        """The numba kernels per combo. Orders 2-3 read the contiguous cached code columns DIRECTLY (no per-combo (n, order) _mat materialise, 1.71x); higher orders use the general matrix kernel."""
+        res = np.empty(len(_combos))
+        for q, _combo in enumerate(_combos):
+            _o = len(_combo)
+            _cs = np.array([_cards_of[_c] for _c in _combo], dtype=np.int64)
+            _nc = int(np.prod(_cs))
+            if _o <= 3:
+                _c2 = _codes[_combo[2]] if _o >= 3 else _codes[_combo[1]]
+                res[q] = float(_combo_mm_mi_cols_njit(_codes[_combo[0]], _codes[_combo[1]], _c2, _o, _cs, _target, _kt_, _nc))
+            else:
+                _mat = np.empty((_n, _o), dtype=np.int64)
+                for _k, _c in enumerate(_combo):
+                    _mat[:, _k] = _codes[_c]
+                res[q] = float(_combo_mm_mi_njit(_mat, _cs, _target, _kt_, _nc))
+        return res
+
+    # Orders 2 and 3 of the whole sweep are scored together (device when the kernel-tuning entry ``synergy_combo_backend`` says so, the numba kernel otherwise); higher orders stay on the host.
+    from ._synergy_combo_gpu import combo_mm_mi_dispatch
+
+    _jmis = np.empty(len(cands))
+    _low = [q for q, (cb, _) in enumerate(cands) if len(cb) <= 3]
+    _high = [q for q, (cb, _) in enumerate(cands) if len(cb) > 3]
+    if _low:
+        _jmis[_low] = combo_mm_mi_dispatch(_host_scores, _ccode, [cands[q][0] for q in _low], _ccard, _yt, _kt)
+    if _high:
+        _jmis[_high] = _host_scores(_ccode, [cands[q][0] for q in _high], _ccard, _yt, _kt)
+    out = []
+    for (combo, _), _jmi_v in zip(cands, _jmis):
+        _jmi = float(_jmi_v)
+        if _jmi < min_joint_mi:
+            continue
+        _msum = sum(_marg[c] for c in combo)
+        if _jmi >= synergy_ratio * max(_msum, 1e-12):
+            out.append((combo, _jmi))
     out.sort(key=lambda t: -t[1])
     return out
 
