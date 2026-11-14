@@ -585,14 +585,17 @@ def _grouped_quantile_mi_device(eng_X: pd.DataFrame, eng_cols: list, y_bin: np.n
             return {}
         n_cls = int(y_bin.max()) + 1 if y_bin.size else 1
         yd = cp.asarray(np.ascontiguousarray(y_bin, dtype=np.int64))
-        out: dict = {}
-        step = max(1, (256 << 20) // max(1, len(eng_X) * 4))  # float32 columns per upload block
-        for i in range(0, len(cols), step):
-            blk = cols[i : i + step]
-            Xd = cp.asarray(np.ascontiguousarray(eng_X[blk].to_numpy(dtype=_crit_np_dtype())))
-            mi = np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(n_bins), y_min=0, n_classes=n_cls, keep_dtype=True), dtype=np.float64)  # Intentional float64: MI statistic
-            out.update({c: float(v) for c, v in zip(blk, mi)})
-            del Xd
+        from ._device_blocks import first_block, run_column_blocks
+
+        def score_block(lo: int, hi: int) -> np.ndarray:
+            """Plug-in MI of ``cols[lo:hi]`` on the device."""
+            Xd = cp.asarray(np.ascontiguousarray(eng_X[cols[lo:hi]].to_numpy(dtype=_crit_np_dtype())))
+            mi = _plugin_mi_classif_batch_cuda_resident(Xd, yd, int(n_bins), y_min=0, n_classes=n_cls, keep_dtype=True)
+            return np.asarray(mi, dtype=np.float64)  # Intentional float64: MI statistic
+
+        # the batch needs about 9 bytes per cell beyond the upload (sort keys and ranks), so the block is sized from the room under the pool, and a block that still runs out is halved
+        block = first_block(cp, len(eng_X), len(cols), 8, 3)
+        out = dict(zip(cols, np.concatenate(run_column_blocks(cp, len(cols), block, score_block)).tolist()))
         return out
     except Exception as exc:
         log_throttle(logger, "_grouped_quantile_fe.except_646", logging.WARNING, "grouped-quantile device MI not used (%s: %s); host binner", type(exc).__name__, exc)

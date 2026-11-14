@@ -154,6 +154,93 @@ if not (_RADIX_SELECT_F32_V4_SRC.count(_V5_HEAD_OLD) == 1 and _RADIX_SELECT_F32_
 _RADIX_SELECT_F32_V5_SRC = _RADIX_SELECT_F32_V4_SRC.replace("radix_select_f32_v4", "radix_select_f32_v5").replace(_V5_HEAD_OLD, _V5_HEAD_NEW, 1).replace(_V5_TAIL_OLD, _V5_TAIL_NEW, 1)
 _RADIX_SELECT_F32_V5_KERNEL = None
 
+# V5 + WINDOW TABLE for the second pass. At byte 2 the windows are the distinct top bytes of the rank prefixes, and on a bell-shaped column nearly every element falls in one of them, so the
+# binary search over the sorted window prefixes ran for every element. A 256-entry table (top byte -> window index, -1 for none) answers it with one shared load. The elements counted and the
+# windows they land in are the same, so the order statistics are bit-identical to v5; the passes at byte 3 (one window) and byte 1 (16-bit prefixes, where a two-level lookup measured slower) and
+# the candidate scan keep the binary search; the byte-1 pass first tests the prefix against a 1024-bit Bloom filter of the window prefixes (no false negatives, so the same elements are counted) and
+# runs the binary search only for the few that pass. Measured against v5 on 20000 x 1918 and 100000 x 400 columns: 1.07 to 1.12 times faster with the table, 1.02 to 1.07 times more with the filter. Off switch MLFRAME_RADIX_F32_WINMAP=0.
+_W_DECL_OLD = "    __shared__ int overflowed;\n"
+_W_DECL_NEW = "    __shared__ int overflowed;\n    __shared__ signed char winmap[256];\n    __shared__ unsigned int bloom[32];\n"
+_W_INIT_OLD = "        for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;\n        __syncthreads();\n"
+_W_INIT_NEW = (
+    "        for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;\n"
+    "        const bool use_map=(byte==2)&&!have_cand;\n"
+    "        const bool use_bloom=(byte==1)&&!have_cand;\n"
+    "        if(use_map){ for(int s=tid;s<256;s+=nt)winmap[s]=-1; }\n"
+    "        if(use_bloom&&tid<32)bloom[tid]=0u;\n"
+    "        __syncthreads();\n"
+    "        if(use_map){ for(int q=tid;q<Wl;q+=nt){ winmap[wsort[q]>>24]=(signed char)wsort2w[q]; } }\n"
+    "        if(use_bloom){ for(int q=tid;q<Wl;q+=nt){ unsigned int hh=((wsort[q]>>16)*2654435761u)>>22; atomicOr(&bloom[hh>>5],1u<<(hh&31)); } }\n"
+    "        __syncthreads();\n"
+)
+_W_FIND_OLD = (
+    "                int lo=0,hi=Wl;\n"
+    "                while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}\n"
+    "                if(lo<Wl&&wsort[lo]==pm){int win=wsort2w[lo];\n"
+)
+_W_FIND_NEW = (
+    "                int lo=0,hi=Wl;\n"
+    "                int win=-1;\n"
+    "                if(use_map){ win=(int)winmap[pm>>24]; }\n"
+    "                else if(use_bloom&&!((bloom[(((pm>>16)*2654435761u)>>22)>>5]>>((((pm>>16)*2654435761u)>>22)&31))&1u)){ }\n"
+    "                else { while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}\n"
+    "                       if(lo<Wl&&wsort[lo]==pm) win=wsort2w[lo]; }\n"
+    "                if(win>=0){\n"
+)
+if not (
+    _RADIX_SELECT_F32_V5_SRC.count(_W_DECL_OLD) == 1
+    and _RADIX_SELECT_F32_V5_SRC.count(_W_INIT_OLD) == 1
+    and _RADIX_SELECT_F32_V5_SRC.count(_W_FIND_OLD) == 2
+    and _RADIX_SELECT_F32_V5_SRC.index(_W_FIND_OLD) < _RADIX_SELECT_F32_V5_SRC.index("long long m=(long long)scount;")
+):
+    raise AssertionError("the v5 source changed: the window-table patch no longer anchors")
+# PER-RANK SCAN BY A WARP. After each pass thread r walked the 256 bins of its window serially (256 dependent shared loads per rank and pass). A warp now owns a rank: each lane sums 8
+# consecutive bins, a shuffle scan gives the running totals, the lane whose range holds the rank walks its 8 bins; the chosen bin and the count below it are the serial loop's, and a rank that
+# never exceeds (the serial loop leaves chosen 0 and the full total) takes the same values. The serial loop stays for a block that is not a whole number of warps.
+# The warp code alone needs 48 registers, which leaves one 768-thread block per SM; the kernel is compiled with --maxrregcount=40 (38 registers, no spill), and then runs 1.09 to 1.33 times
+# faster than the serial scan at 768 threads on 20000 to 100000 row columns (interleaved medians; edges array_equal).
+_W_SCAN_OLD = (
+    "        if(tid<R){int w=rank2w[tid];unsigned long long acc=below[tid];int chosen=0;long long want=ranks[tid];\n"
+    "            for(int b=0;b<256;++b){unsigned long long c=sh[w*256+b];if(acc+c>(unsigned long long)want){chosen=b;break;}acc+=c;}\n"
+    "            below[tid]=acc;prefix[tid]=(prefix[tid]&hmask)|((unsigned int)chosen<<shift);}\n"
+)
+_W_SCAN_NEW = (
+    "        if((nt&31)==0){\n"
+    "            const int lane=tid&31, wid=tid>>5, nw=nt>>5;\n"
+    "            for(int r=wid;r<R;r+=nw){\n"
+    "                const int w=rank2w[r]; const unsigned long long acc0=below[r]; const unsigned long long want=(unsigned long long)ranks[r];\n"
+    "                const unsigned int* hrow=&sh[w*256+lane*8];\n"
+    "                unsigned int cv[8]; unsigned long long s=0ULL;\n"
+    "                #pragma unroll\n"
+    "                for(int k=0;k<8;++k){cv[k]=hrow[k]; s+=(unsigned long long)cv[k];}\n"
+    "                unsigned long long inc=s;\n"
+    "                #pragma unroll\n"
+    "                for(int o=1;o<32;o<<=1){unsigned long long y=__shfl_up_sync(0xffffffffu,inc,o); if(lane>=o)inc+=y;}\n"
+    "                const unsigned long long exc=inc-s;\n"
+    "                const unsigned long long tot=__shfl_sync(0xffffffffu,inc,31);\n"
+    "                const bool hit=(acc0+inc>want)&&(acc0+exc<=want);\n"
+    "                const unsigned int m=__ballot_sync(0xffffffffu,hit);\n"
+    "                if(m){\n"
+    "                    if(lane==(__ffs(m)-1)){\n"
+    "                        unsigned long long a=acc0+exc; int chosen=0;\n"
+    "                        for(int k=0;k<8;++k){ if(a+(unsigned long long)cv[k]>want){chosen=lane*8+k;break;} a+=(unsigned long long)cv[k]; }\n"
+    "                        below[r]=a; prefix[r]=(prefix[r]&hmask)|((unsigned int)chosen<<shift);\n"
+    "                    }\n"
+    "                } else if(lane==0){ below[r]=acc0+tot; prefix[r]=(prefix[r]&hmask); }\n"
+    "            }\n"
+    "        } else {\n" + _W_SCAN_OLD + "        }\n"
+)
+if _RADIX_SELECT_F32_V5_SRC.count(_W_SCAN_OLD) != 1:
+    raise AssertionError("the v5 source changed: the warp-scan patch no longer anchors")
+# the first occurrence of the search is the full-scan loop (the second one scans the compacted candidates and keeps the binary search)
+_RADIX_SELECT_F32_V5_WINMAP_SRC = (
+    _RADIX_SELECT_F32_V5_SRC.replace(_W_DECL_OLD, _W_DECL_NEW, 1)
+    .replace(_W_INIT_OLD, _W_INIT_NEW, 1)
+    .replace(_W_FIND_OLD, _W_FIND_NEW, 1)
+    .replace(_W_SCAN_OLD, _W_SCAN_NEW, 1)
+)
+_RADIX_SELECT_F32_V5_WINMAP_KERNEL = None
+
 
 def _get_radix_select_f32_v5_kernel():
     """The four-loads-in-flight f32 radix select (``None`` when ``MLFRAME_RADIX_F32_V5=0`` or it does not compile); bit-identical order statistics to v4."""
@@ -162,6 +249,16 @@ def _get_radix_select_f32_v5_kernel():
 
     if os.environ.get("MLFRAME_RADIX_F32_V5", "1").strip().lower() not in ("1", "true", "on", "yes"):
         return None
+    global _RADIX_SELECT_F32_V5_WINMAP_KERNEL
+    if os.environ.get("MLFRAME_RADIX_F32_WINMAP", "1").strip().lower() in ("1", "true", "on", "yes"):
+        if _RADIX_SELECT_F32_V5_WINMAP_KERNEL is None:
+            try:
+                _RADIX_SELECT_F32_V5_WINMAP_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_V5_WINMAP_SRC, "radix_select_f32_v5", options=("--maxrregcount=40",))
+            except Exception:
+                log_throttle(logging.getLogger(__name__), "gpu_select.f32_v5_winmap_compile", logging.WARNING, "f32 v5 window-table kernel compile failed; plain v5", exc_info=True)
+                _RADIX_SELECT_F32_V5_WINMAP_KERNEL = False
+        if _RADIX_SELECT_F32_V5_WINMAP_KERNEL:
+            return _RADIX_SELECT_F32_V5_WINMAP_KERNEL
     if _RADIX_SELECT_F32_V5_KERNEL is None:
         try:
             _RADIX_SELECT_F32_V5_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_V5_SRC, "radix_select_f32_v5")

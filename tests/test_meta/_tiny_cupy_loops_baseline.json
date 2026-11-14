@@ -64,7 +64,6 @@
  "src/mlframe/feature_selection/filters/_gpu_resident_select.py::radix_quantiles_grouped",
  "src/mlframe/feature_selection/filters/_gpu_strict_fe/_state.py::build",
  "src/mlframe/feature_selection/filters/_group_distance_gpu.py::group_stats_device",
- "src/mlframe/feature_selection/filters/_grouped_quantile_fe.py::_grouped_quantile_mi_device",
  "src/mlframe/feature_selection/filters/_grouped_quantile_fe.py::_prebinned_codes",
  "src/mlframe/feature_selection/filters/_hinge_basis_fe.py::_detect_hinge_breakpoints_for_columns",
  "src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py::_hinge_full_scan",

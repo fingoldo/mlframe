@@ -15,6 +15,12 @@ in ONE workload: the y/z-only terms (H(Z), H(Y,Z)) are computed once, then TWO c
 flat (k, cx, c*) joint index give H(X_k,Z) and H(X_k,Y,Z) for all k at once -> no per-candidate launch,
 one H2D of the (n,K) candidate code matrix. Same Miller-Madow plug-in CMI as the CPU path; partition-based
 -> value-order codes are fine -> selection-equivalent (fp reduction order ~1e-15).
+
+The family, one contract unit (``fe_gpu_coverage_inventory.CARVED_FAMILIES``): this module (the entry points and the plug-in MI kernels), ``_fe_batched_mi_cmi`` (the CMI driver) with
+``_fe_batched_mi_cmi_hist`` (row entropies, joint histograms) and ``_fe_batched_mi_cmi_lut`` (the log table of the entropy kernels), ``_fe_batched_mi_guards`` (code-range guards),
+``_fe_batched_mi_mm_values`` / ``_fe_batched_mi_mm_cm`` (Miller-Madow MI from raw values / from a column-major block), ``_fe_batched_qbin`` (device equi-frequency coder) and
+``_fe_batched_mi_blocks`` (the column block driver that bounds the device memory of a call). The host twin of the CMI is the njit loop of ``_mi_greedy_cmi_fe``; the
+host-or-device choice and the kernel variant are tuned by ``_mi_greedy_cmi_fe_ktc`` and ``_fe_cmi_fused_backend``.
 """
 from __future__ import annotations
 

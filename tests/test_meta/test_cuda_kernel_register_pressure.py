@@ -151,7 +151,7 @@ def test_lof_scores_has_no_spill_on_every_arch(arch: int, k: int, p: int, real: 
     nvrtc = pytest.importorskip("cupy_backends.cuda.libs.nvrtc")
     from mlframe.feature_selection.filters import _lof_gpu
 
-    src = _lof_gpu._SRC.replace("{REAL}", real).replace("{K}", str(k)).replace("{P}", str(p))
+    src = _lof_gpu._SRC.replace("{REAL}", real).replace("{ACC}", "double").replace("{K}", str(k)).replace("{P}", str(p))
     prog = nvrtc.createProgram(src, "lof.cu", [], [])
     try:
         nvrtc.compileProgram(prog, ["-std=c++14", f"-arch=compute_{arch}"])

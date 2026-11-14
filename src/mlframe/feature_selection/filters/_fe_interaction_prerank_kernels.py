@@ -279,15 +279,25 @@ def discrete_score_numba(ZV: np.ndarray, ZV2: np.ndarray, Yc: np.ndarray) -> np.
 # Variant: cupy GEMM (GPU; wins at p>=100k once H2D/D2H amortised).
 # ---------------------------------------------------------------------------
 def discrete_score_cupy(ZV: np.ndarray, ZV2: np.ndarray, Yc: np.ndarray) -> np.ndarray:
-    """cupy GEMM variant of ``discrete_score_numpy``; H2D-uploads the standardized operands then mirrors the numpy math on GPU."""
+    """cupy GEMM variant of ``discrete_score_numpy``: the candidate columns go to the device in column blocks (``block_cols`` sized from the room under the pool, halved when a block runs out
+    of memory), each block is two cuBLAS GEMMs against the resident class matrix; the column scores are independent, so the blocks join to the same vector as one GEMM over all columns."""
     import cupy as cp
 
-    ZVd = cp.asarray(ZV)
-    ZV2d = cp.asarray(ZV2)
+    from ._device_blocks import first_block, run_column_blocks
+
+    n_rows, n_cols = ZV.shape
     Ycd = cp.asarray(Yc)
-    c1 = cp.abs(ZVd.T @ Ycd).sum(axis=1)
-    c2 = cp.abs(ZV2d.T @ Ycd).sum(axis=1)
-    return np.asarray(cp.asnumpy(c1 + c2))
+
+    def score_block(lo: int, hi: int) -> np.ndarray:
+        """Scores of columns ``lo:hi`` (both operands, summed)."""
+        c1 = cp.abs(cp.matmul(cp.asarray(ZV[:, lo:hi]).T, Ycd)).sum(axis=1)
+        c2 = cp.abs(cp.matmul(cp.asarray(ZV2[:, lo:hi]).T, Ycd)).sum(axis=1)
+        block_scores: np.ndarray = cp.asnumpy(c1 + c2)
+        return block_scores
+
+    block_cols = first_block(cp, n_rows, n_cols, int(ZV.dtype.itemsize), 4)  # two uploaded blocks and their transposed GEMM temporaries
+    scores: np.ndarray = np.concatenate(run_column_blocks(cp, n_cols, block_cols, score_block))
+    return scores
 
 
 # ---------------------------------------------------------------------------

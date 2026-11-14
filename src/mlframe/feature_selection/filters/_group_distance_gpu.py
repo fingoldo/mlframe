@@ -11,7 +11,7 @@ The host builds the three distance features (z of the group mean, KL of the grou
    ``_wasserstein1_sorted_kernel``, in double precision).
 
 The caller forms z and KL from the tables exactly as the host does. A group count above ``MAX_GROUPS`` (the shared tables would not fit) or a non-float32 block hands the work back to the host.
-Columns go in blocks that fit ``_BUDGET_FRACTION`` of the free device memory; any device fault returns ``None``. The host/device choice is the kernel-tuning entry ``fe_group_distance_stats_device``
+Columns go in column blocks that fit ``_BUDGET_FRACTION`` of the free device memory; any device fault returns ``None``. The host/device choice is the kernel-tuning entry ``fe_group_distance_stats_device``
 (fallback: the host).
 """
 

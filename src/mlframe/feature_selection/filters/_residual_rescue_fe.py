@@ -13,6 +13,9 @@ downstream models is MAE / RMSE, i.e. the target's own scale, so this stage asks
   merely repeats an admitted one scores nothing in the next round.
 
 Columns are binned by their own quantiles (no target information), the bin means come from even rows and are scored on odd rows, so a noise column cannot score beyond the family-wise level.
+
+The scoring of the pool columns has a device twin, ``_residual_rescue_gpu.score_columns_gpu`` (one block per column, column blocks sized from the free pool room), and the choice between it and the
+numba loop below is made per host by the kernel-tuning entry of ``_residual_rescue_ktc`` (``residual_rescue_score_backend``).
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from numba import njit, prange
 from ._fe_scan_common import scan_index
 from ._numba_utils import _backfit
 from ._pair_residual_screen import BACKFIT_SWEEPS, FAMILY_ALPHA, OUTER_FENCE, SHRINK, _winsorised, main_effect_bins
+from ._residual_rescue_ktc import codes_matrix_dispatch, score_columns_dispatch
 from ._y_encoding import FEW_CLASSES_MAX
 
 __all__ = ["residual_rescue", "design_residual", "linear_oos_gain", "MAX_POOL", "DEFAULT_SCAN_ROWS", "MIN_ROWS"]
@@ -120,7 +124,7 @@ def _code_columns(cols: "Mapping[str, np.ndarray]", rows: np.ndarray, n_bins: in
     if not names:
         return [], np.empty((0, len(rows)), dtype=np.int64)
     M = np.ascontiguousarray(np.stack([np.asarray(cols[k])[rows] for k in names]).astype(_crit_np_dtype(), copy=False))
-    codes, ok = _codes_matrix(M, n_bins, CODE_SAMPLE, MIN_ROWS, FEW_CLASSES_MAX)
+    codes, ok = codes_matrix_dispatch(_codes_matrix, M, n_bins, CODE_SAMPLE, MIN_ROWS, FEW_CLASSES_MAX)  # numba loop or device coding, by the tuned crossover
     keep = np.flatnonzero(ok)
     return [names[k] for k in keep], np.ascontiguousarray(codes[keep])
 
@@ -351,7 +355,7 @@ def residual_rescue(
         t = np.full(len(pool_names), -np.inf)
         gain = np.zeros(len(pool_names))
         if idx.size:
-            t[idx], gain[idx] = _score_columns(np.ascontiguousarray(Qp[idx]), resid, even, n_main, SHRINK)
+            t[idx], gain[idx] = score_columns_dispatch(_score_columns, np.ascontiguousarray(Qp[idx]), resid, even, n_main, SHRINK)  # host loop or device kernel, by the tuned crossover
         if linear_channel:
             lin_idx = np.flatnonzero(alive)
             L = np.column_stack([*lin_cols, np.ones(len(rows))])

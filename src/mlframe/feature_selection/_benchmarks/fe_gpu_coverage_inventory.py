@@ -98,13 +98,23 @@ def row(name: str) -> tuple[str, str, int, int, int]:
 REPO_ROOT = Path(__file__).resolve().parents[4]
 PROFILES_DIR = REPO_ROOT / "audits" / "2026-10-22" / "profiles"
 CPU_KERNEL = re.compile(r"@njit|numba\.njit|\bnjit\(")
-GPU_KERNEL = re.compile(r"RawKernel|RawModule|cuda\.jit|ElementwiseKernel")
+#: A fused GPU kernel is a RawKernel / RawModule / ElementwiseKernel / numba.cuda kernel, or a cuBLAS GEMM called explicitly on device arrays (``cp.matmul`` / ``cp.dot`` / ``cp.tensordot`` /
+#: ``cp.einsum``): a GEMM is the fused kernel of a family whose work is a matrix product (the interaction pre-rank), written as a library call because no hand kernel beats cuBLAS there.
+GPU_KERNEL = re.compile(r"RawKernel|RawModule|cuda\.jit|ElementwiseKernel|cp\.(?:matmul|dot|tensordot|einsum)\(")
 KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 
 #: Backend modules whose per-host choice is made by a tuned DISPATCHER module: backend -> (dispatcher, why the backend has no tuner entry of its own). The kernel-tuning point is met when the
 #: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
 #: (its own thresholds, variants, block size) registers itself instead.
 KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_hermite_fe_mi": (
+        "_resident_candidate_mi_ktc",
+        "its resident plug-in MI (_plugin_mi_classif_batch_cuda_resident) is timed against the host njit batch MI it replaces by fe_gate_resident_candidate_mi_crossover (kernel_tuner over (n, k)); the resident path engages only where measured faster",
+    ),
+    "_fe_batched_mi": (
+        "_mi_greedy_cmi_fe_ktc",
+        "the batched device CMI (batched_cmi_gpu) is chosen against the host loop by cmi_candidate_batch_backend (host_device_sweep over the candidate-rows); the kernel variant inside the family is chosen by cmi_fused_entropy_backend of _fe_cmi_fused_backend",
+    ),
     "_batch_pair_mi_cuda_fm": (
         "batch_pair_mi_gpu",
         "chosen among the cpu / serial / parallel / cuda backends by batch_pair_mi_gpu._BPMI_SPEC; its own launch (256 threads) measured at the floor, nothing left to sweep",
@@ -126,6 +136,14 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
 #: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "batch_pair_mi_gpu": (
+        "info_theory",
+        "the host backends of the dispatcher are the njit batch_pair_mi_serial / batch_pair_mi_prange kernels of the info_theory package, the numerical reference every device backend is checked against",
+    ),
+    "_fe_batched_mi": (
+        "_mi_greedy_cmi_fe",
+        "the host twin of the batched device CMI is the njit per-candidate loop of _mi_greedy_cmi_fe (_cmi_from_binned with the hoisted (Y,Z) terms); the two are timed against each other by cmi_candidate_batch_backend",
+    ),
     "_batch_mi_noise_gate_bits": (
         "batch_mi_noise_gate_gpu",
         "the host noise gate of the same decision is batch_mi_noise_gate_gpu's njit permutation gate; the bit-set gate and the histogram pair are the two device backends chosen by the noise_gate_bits tuner entry",
@@ -197,6 +215,25 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_fe_interaction_prerank": ("_fe_interaction_prerank_kernels",),
+    "_residual_rescue_fe": ("_residual_rescue_gpu", "_residual_rescue_ktc"),
+    "batch_pair_mi_gpu": ("_batch_pair_mi_cuda_kernels",),
+    "_orthogonal_xi_fe": ("_orthogonal_xi_gpu",),
+    "_fe_sufficient_summary": ("_fe_sufficient_summary_pairs",),
+    "_group_distance_fe": ("_group_distance_gpu",),
+    "_orthogonal_copula_mi_fe": ("_orthogonal_copula_gpu",),
+    "_orthogonal_tail_dependence_fe": ("_tail_dependence_gpu",),
+    "_lof_fe": ("_lof_gpu",),
+    "_fe_batched_mi": (
+        "_fe_batched_mi_blocks",
+        "_fe_batched_mi_cmi",
+        "_fe_batched_mi_cmi_hist",
+        "_fe_batched_mi_cmi_lut",
+        "_fe_batched_mi_guards",
+        "_fe_batched_mi_mm_cm",
+        "_fe_batched_mi_mm_values",
+        "_fe_batched_qbin",
+    ),
     "_feature_engineering_pairs": (
         "_pairs_abs_corr_gpu",
         "_pairs_analytic_gpu",

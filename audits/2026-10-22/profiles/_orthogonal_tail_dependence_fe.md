@@ -36,3 +36,25 @@ CPU kernel: `_tail_dep_columns_njit`. Fused GPU kernels: `pack_keys` and `tail_c
 ## Shared (k, n) block inside the auto-scorer resample (2026-11-12)
 
 Each bootstrap resample builds an `(n, k)` float32 block and several scorers wanted it as `(k, n)`; each transposed it on the host (14 ms at 30000 rows, 134 ms at 100000 rows, float64 24 and 195 ms). `_device_block` now uploads the `(n, k)` block as it is and transposes it once on the device with the coalesced tiled kernel; xi, copula MI and tail dependence read that one block (`tail_dependence_columns(None, y, device_block=...)`), and the host copy is fetched from the device only when the device path is not taken. The whole family `hybrid_orth_mi_auto_scorer_fe_with_recipes`, 100 columns: 1.98 s -> 1.90 s at 30000 rows and 8.06 s -> 6.96 s at 100000 rows (this includes the device tail dependence and the KSG transpose change), with an identical augmented frame, score table and recipes on a fixed frame (40000 x 30). Scorers that need row-major data (the plug-in batch, the KSG preparation) keep the host block.
+
+## Contract view with fresh measurements (2026-11-14, idle machine)
+
+### cProfile
+
+The host path (`_host`, 60 float32 columns x 1 000 000 rows): 1.271 s under the profiler, all of it inside the njit kernel `_tail_dep_columns_njit` (6 function calls in total): a host call is its kernel.
+
+### Kernels (nvprof, one device call, 60 x 1 000 000)
+
+Kernel launches per call: `pack_keys` 4 launches (12.6 ms, 5.4 percent of the device time of 235 ms), `tail_counts` 4 launches (72.2 ms, 30.7 percent, 18 ms each: one block per column walks the runs of the sorted keys), the key sort as 32 cub radix-sort launches (95.0 ms, 40.5 percent) and 4 sort-bookkeeping launches (12.0 ms), 7 host-to-device copies (40.8 ms, 17.4 percent). Four launches of each kind: the 60 columns go in 4 column blocks.
+
+### Occupancy and throughput
+
+nvprof counters were not collected on 2026-11-14 (`Internal profiling error 4211` for every kernel today). `pack_keys` reads a 4-byte value and an 8-byte flag word and writes an 8-byte key, at most 20 bytes per element (the flag word is shared by all columns and cached), for 60 million elements in 12.6 ms: at most 95 GB/s of the card's 112 GB/s; `tail_counts` reads 480 MB of 64-bit keys in 72.2 ms, 6.7 GB/s, with one block per column (60 blocks for 6 SMs, a column's run walk is sequential inside its block): the run walk is the kernel to improve, not the packing. The kernel source now takes its types from the placeholders (`{REAL}` for the value, `{ACC}` for the rank formed in double precision), compiled for float32 columns; the result stays bit-equal to the host (`np.array_equal` at 5000 and 100000 rows after the change).
+
+### Host-or-device choice
+
+Medians of 7 calls, host njit / device, ms, 60 columns: 5000 rows 2.04 / 2.67; 10000 3.86 / 3.81; 30000 12.8 / 7.8; 100000 63.6 / 22.5; 300000 259.3 / 62.7; 1 000 000 1174.9 / 361.3 (3.3x). The counts are integers, so the result is `array_equal` to the host at every size; the device is ahead from 10000 rows.
+
+### Streaming
+
+`tail_dependence_columns_device` uploads the host array column block by column block (blocks fit `_BUDGET_FRACTION` of the room the allocator has left) or reads a resident cupy array in place; any device fault returns `None` and the caller runs the host kernel.
