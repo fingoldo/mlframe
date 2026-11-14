@@ -69,7 +69,9 @@ class ChunkCodes:
             return np.ascontiguousarray(self.host[:, list(idx)].T)
         import cupy as cp
 
-        return np.asarray(cp.asnumpy(cp.ascontiguousarray(self._dev[:, cp.asarray(list(idx), dtype=cp.int64)].T)))
+        from mlframe.feature_selection.filters._gpu_resident_select_kernels import transpose_codes_to_cm
+
+        return np.asarray(cp.asnumpy(transpose_codes_to_cm(self._dev[:, cp.asarray(list(idx), dtype=cp.int64)])))
 
     def __getitem__(self, key: Any) -> Any:
         """Any other indexing reads the filled host block."""
