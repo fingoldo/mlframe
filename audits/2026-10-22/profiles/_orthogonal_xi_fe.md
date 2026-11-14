@@ -30,3 +30,6 @@ Superseding the theoretical occupancy stated above (the counters were blocked by
 | xi_walk | 99.1 % | 93.8 % | 11.9 GB/s | 0.90 GB/s | 31.3 % | 0 % | 75.2 % |
 
 Load efficiency 31 percent in `xi_walk`; shared efficiency 75 percent.
+
+## `xi_walk` left-neighbour gather via shuffle: bit-identical, no case to ship (2026-11-14)
+The counters show `xi_walk` at 31 percent load efficiency (the permuted-target gather `codes[order[q]]`). Each row did two gathers (`c` for the row and `p` for its left neighbour); a variant takes `p` from the lane below with `__shfl_up_sync` (lane 0 and tail still load), so one gather per row. Result bit-equal to the base kernel (max diff 0.0). Whole device call, interleaved 11 rounds, 100,000 rows: 95.08 -> 86.66 ms. That 8 ms cannot come from the kernel, which is 2.15 ms of the 28 ms traced call (7.7 percent; the cub sorts are 62 percent and the host-to-device copies 15 percent), so the difference is the run-to-run noise of this machine and the change is not shipped. The lever of this family is the key sort, not the walk.
