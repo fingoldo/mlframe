@@ -3,6 +3,8 @@
   "note": "Ratchet of the FE GPU / streaming / profiling contract (audits/2026-10-22/fe_gpu_coverage.md). A module leaves 'pending' when it meets every point and enters 'compliant'. The list only shrinks: a new FE module must meet the contract at once.",
   "n_pending_at_creation": 226,
   "compliant": [
+    "_added_information_gate",
+    "_added_information_gpu",
     "_basis_fused_gpu",
     "_batch_mi_noise_gate_bits",
     "_batch_mi_noise_gate_column_tiles",
@@ -166,7 +168,6 @@
     "engineered_recipes": "bookkeeping, frame glue, recipes and names: no numeric kernel"
   },
   "pending": [
-    "_added_information_gate",
     "_basis_cells_ktc",
     "_basis_name_codes",
     "_cat_pair_fe",

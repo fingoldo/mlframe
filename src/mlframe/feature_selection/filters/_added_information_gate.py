@@ -8,6 +8,8 @@ maximum number of columns in every seed.
 The test here is the one that answers the question: ``G = 2 n CMI(candidate; y | source)`` is chi-square distributed with ``occupied_source_bins * (Bc - 1) * (By - 1)`` degrees of freedom when the
 candidate adds nothing to its source. A copy of the source has ``G`` near 0 whatever the sign of its MI difference; a noise column has ``G`` of the order of its degrees of freedom; a column that carries
 what the source lacks has a ``G`` many times larger. The gate keeps a candidate when its p-value is below ``alpha`` divided by the number of candidates scored (Bonferroni).
+
+The candidates of one source are scored together by ``_added_information_gpu.added_information_p_many`` (kernel-tuning entry ``added_information_backend``); on the device it streams the candidates in column blocks of their code matrix.
 """
 
 from __future__ import annotations

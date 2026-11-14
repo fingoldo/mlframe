@@ -56,7 +56,7 @@ import pandas as pd
 
 from ._internals import group_key_strings
 from ._y_encoding import encode_y_for_classif_mi
-from ._added_information_gate import added_information_p, passes_added_information
+from ._added_information_gate import passes_added_information
 from typing import TYPE_CHECKING
 from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
@@ -640,20 +640,32 @@ def _p_added_by_column(eng_X: pd.DataFrame, raw_X: pd.DataFrame, y_bin: np.ndarr
     y_dense = _dense_codes(y_bin)  # the target is the same for every candidate
     source_dense: dict = {}
 
-    def one(col: str) -> float:
-        """The p-value of one column (the source's codes are binned once and shared by its columns)."""
+    def codes_of(col: str) -> "np.ndarray | None":
+        """The bin codes of one column (the source's codes are binned once and shared by its columns); None when its source is not in ``raw_X``."""
         src = eng_to_source.get(col)
         if src not in raw_X.columns:
-            return float("nan")
+            return None
         if src not in source_codes:
             source_codes[src] = bin_one(raw_X[src].to_numpy())
-        codes = eng_pre[col] if col in eng_pre else bin_one(eng_X[col].to_numpy())
         if src not in source_dense:
             source_dense[src] = _dense_codes(source_codes[src])  # a race between two pool threads only repeats the same renumbering
-        return added_information_p(codes, source_codes[src], y_bin, y_dense=y_dense, source_dense=source_dense[src])
+        return eng_pre[col] if col in eng_pre else bin_one(eng_X[col].to_numpy())
 
     cols = list(eng_X.columns)
-    return dict(zip(cols, _bin_columns_pooled(one, cols))) if cols else {}
+    if not cols:
+        return {}
+    from ._added_information_gpu import added_information_p_many
+
+    coded = dict(zip(cols, _bin_columns_pooled(codes_of, cols)))
+    result = {c: float("nan") for c in cols}
+    by_source: dict = {}
+    for c in cols:
+        if coded[c] is not None:
+            by_source.setdefault(eng_to_source[c], []).append(c)
+    for src, members in by_source.items():  # the candidates of one source share its table dimension: one batched call each
+        ps = added_information_p_many([coded[c] for c in members], source_codes[src], y_bin, y_dense=y_dense, source_dense=source_dense[src])
+        result.update(zip(members, ps))
+    return result
 
 
 def score_grouped_quantile_by_mi_uplift(
