@@ -110,7 +110,9 @@ def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
             .replace("OUTTYPE", out_ctype)  # MUST precede the TYPE replace (TYPE is a substring of OUTTYPE)
             .replace("TYPE", ctype)
         )
-        k = cp.RawKernel(render(src, edge=np.float64), sym)  # Intentional float64: the edges and the comparison are float64: a float32 candidate is promoted, the codes are the double comparison's
+        k = cp.RawKernel(
+            render(src, edge=np.float64), sym
+        )  # Intentional float64: the edges and the comparison are float64: a float32 candidate is promoted, the codes are the double comparison's
         with _BIN_CODES_KERNELS_LOCK:
             k = _BIN_CODES_KERNELS.setdefault(cache_key, k)
     return k
@@ -149,6 +151,56 @@ void bin_codes_f32e_OUTNAME(const float* __restrict__ cand, const float* __restr
 _BIN_CODES_F32E_MAX_EDGES = 64  # the shared tile holds 32 x 64 float edges (8 KB); more interior edges take bin_codes_f32
 _BIN_CODES_F32E_KERNELS: dict = {}
 
+# V2 of the float32-edge kernel: the same codes with fewer instructions per element. The kernel is instruction-bound (nvprof, 30000 x 2000 int8 codes: issue slot utilisation 81 %, occupancy 0.96, DRAM
+# 40 GB/s read + 10 write of ~112): (1) the row loop walks running pointers instead of forming ``i * K + col`` and ``i * ldo + col`` in 64 bits per element (alone 1.12 to 1.17x), (2) the upper-bound
+# search is a fixed-depth branchless walk over the edges padded with +inf to 2^steps - 1 (alone 1.05x, together 1.32 to 1.39x on 30000 x 2000, 100000 x 1000, 9 / 19 / 63 edges); NaN takes the
+# last bin and the count is clamped to the real edge count, so a +inf value that counts the padding edges still gets ``ne``. Bit-equal to V1 on random columns with NaN, +-inf, ties and +-inf edges.
+# At most 63 edges (2^6 - 1 padded rows fit the shared tile); 64 edges keep V1. ``MLFRAME_BIN_CODES_F32E_V2=0`` keeps V1.
+_V2_OLD_SEARCH = """        int lo = 0, hi = ne;                   // upper_bound: #(edges <= v)
+        if (v != v) lo = hi;                   // NaN sorts after every edge, as searchsorted(side='right') gives
+        while (lo < hi) {
+            const int mid = (lo + hi) >> 1;
+            if (se[mid * 32 + tx] <= v) lo = mid + 1; else hi = mid;
+        }
+        out[i * ldo + col] = (OUTTYPE)lo;"""
+_V2_NEW_SEARCH = """        int pos = 0;                           // number of edges <= v over the edges padded with +inf to 2^steps - 1
+        #pragma unroll
+        for (int s = steps - 1; s >= 0; --s) {
+            const int half = 1 << s;
+            pos += (se[(pos + half - 1) * 32 + tx] <= v) ? half : 0;
+        }
+        pos = (v != v) ? ne : min(pos, ne);    // NaN sorts after every edge; padding edges counted for v = +inf are clamped away
+        *po = (OUTTYPE)pos;"""
+_V2_OLD_LOOP = """    for (long long i = (long long)blockIdx.y * blockDim.y + threadIdx.y; i < n; i += (long long)gridDim.y * blockDim.y) {
+        const float v = cand[i * K + col];"""
+_V2_NEW_LOOP = """    const long long rstride = (long long)gridDim.y * blockDim.y;
+    long long i = (long long)blockIdx.y * blockDim.y + threadIdx.y;
+    const float* pc = cand + i * K + col;
+    OUTTYPE* po = out + i * ldo + col;
+    const long long sc = rstride * K, so = rstride * ldo;
+    for (; i < n; i += rstride, pc += sc, po += so) {
+        const float v = *pc;"""
+_V2_OLD_FILL = "        se[s] = c < K ? edges[(long long)(s >> 5) * K + c] : 0.0f;"
+_V2_NEW_FILL = "        se[s] = (s >> 5) >= ne ? __int_as_float(0x7f800000) : (c < K ? edges[(long long)(s >> 5) * K + c] : 0.0f);"
+_V2_OLD_FILL_LOOP = "for (int s = threadIdx.y * 32 + tx; s < ne * 32; s += 32 * blockDim.y) {"
+_V2_NEW_FILL_LOOP = "for (int s = threadIdx.y * 32 + tx; s < npad * 32; s += 32 * blockDim.y) {"
+_V2_OLD_SIG = "const long long n, const int K, const int ne,"
+_V2_NEW_SIG = "const long long n, const int K, const int ne, const int steps, const int npad,"
+_BIN_CODES_F32E_V2_SRC = _BIN_CODES_F32E_SRC
+for _old, _new in (
+    (_V2_OLD_SEARCH, _V2_NEW_SEARCH),
+    (_V2_OLD_LOOP, _V2_NEW_LOOP),
+    (_V2_OLD_FILL, _V2_NEW_FILL),
+    (_V2_OLD_FILL_LOOP, _V2_NEW_FILL_LOOP),
+    (_V2_OLD_SIG, _V2_NEW_SIG),
+):
+    if _BIN_CODES_F32E_V2_SRC.count(_old) != 1:
+        raise AssertionError(_old)
+    _BIN_CODES_F32E_V2_SRC = _BIN_CODES_F32E_V2_SRC.replace(_old, _new)
+_BIN_CODES_F32E_V2_SRC = _BIN_CODES_F32E_V2_SRC.replace("bin_codes_f32e_OUTNAME", "bin_codes_f32e_v2_OUTNAME")
+_BIN_CODES_F32E_V2_MAX_EDGES = 63  # 2^6 - 1 padded rows fit the 64-row shared tile
+_BIN_CODES_F32E_V2_KERNELS: dict = {}
+
 
 def _bin_codes_f32e_kernel(out_name: str):
     """Lazily compiled float32-edge tiled binning kernel writing ``out_name`` codes, one per output type."""
@@ -161,6 +213,20 @@ def _bin_codes_f32e_kernel(out_name: str):
         k = cp.RawKernel(_BIN_CODES_F32E_SRC.replace("bin_codes_f32e_OUTNAME", sym).replace("OUTTYPE", _BIN_CODES_OUTTYPE.get(out_name, "int")), sym)
         with _BIN_CODES_KERNELS_LOCK:
             k = _BIN_CODES_F32E_KERNELS.setdefault(out_name, k)
+    return k
+
+
+def _bin_codes_f32e_v2_kernel(out_name: str):
+    """Lazily compiled V2 float32-edge binning kernel writing ``out_name`` codes."""
+    import cupy as cp
+
+    with _BIN_CODES_KERNELS_LOCK:
+        k = _BIN_CODES_F32E_V2_KERNELS.get(out_name)
+    if k is None:
+        sym = "bin_codes_f32e_v2_" + out_name
+        k = cp.RawKernel(_BIN_CODES_F32E_V2_SRC.replace("bin_codes_f32e_v2_OUTNAME", sym).replace("OUTTYPE", _BIN_CODES_OUTTYPE.get(out_name, "int")), sym)
+        with _BIN_CODES_KERNELS_LOCK:
+            k = _BIN_CODES_F32E_V2_KERNELS.setdefault(out_name, k)
     return k
 
 
@@ -180,7 +246,16 @@ def _bin_codes_f32e(cp, cand_c, edges_f64, out):
     gx = (K + 31) // 32
     rows_per_block = 8
     gy = max(1, min((n + rows_per_block - 1) // rows_per_block, max(1, 2048 // gx)))
-    _bin_codes_f32e_kernel(out.dtype.name)((gx, gy), (32, rows_per_block), (cand_c, edges32, np.int64(n), np.int32(K), np.int32(ne), out, np.int64(out.strides[0] // out.itemsize)))  # launch-ok: the 2-D block is the tile the kernel is written for (columns x row lanes), its shared arrays are sized by it
+    ldo = np.int64(out.strides[0] // out.itemsize)
+    if ne <= _BIN_CODES_F32E_V2_MAX_EDGES and os.environ.get("MLFRAME_BIN_CODES_F32E_V2", "1").strip() != "0":
+        steps = max(1, int(ne).bit_length())  # ceil(log2(ne + 1)): 2^steps - 1 >= ne
+        _bin_codes_f32e_v2_kernel(out.dtype.name)(
+            (gx, gy), (32, rows_per_block), (cand_c, edges32, np.int64(n), np.int32(K), np.int32(ne), np.int32(steps), np.int32((1 << steps) - 1), out, ldo)
+        )  # launch-ok: the 2-D block is the tile the kernel is written for (columns x row lanes), its shared arrays are sized by it
+        return True
+    _bin_codes_f32e_kernel(out.dtype.name)(
+        (gx, gy), (32, rows_per_block), (cand_c, edges32, np.int64(n), np.int32(K), np.int32(ne), out, ldo)
+    )  # launch-ok: the 2-D block is the tile the kernel is written for (columns x row lanes), its shared arrays are sized by it
     return True
 
 

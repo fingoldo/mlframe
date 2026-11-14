@@ -88,7 +88,9 @@ def _run_family_null_sweep():
     except Exception as exc:
         import logging
 
-        logging.getLogger("mlframe.feature_selection.filters.mrmr").debug("family null sweep unavailable (%s: %s); no regions recorded", type(exc).__name__, exc)
+        logging.getLogger("mlframe.feature_selection.filters.mrmr").debug(
+            "family null sweep unavailable (%s: %s); no regions recorded", type(exc).__name__, exc
+        )
         return []
 
     def _cpu(c, nx, p, ny):
@@ -188,10 +190,16 @@ def family_null_max_njit(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray,
     return out
 
 
-_PERM_CACHE_FULL_ROWS = 200_000  # up to this many rows the cache keeps its full byte cap (a 100000-row family stream is ~400 MB and is replayed by every family)
-_PERM_CACHE_LARGE_N_BYTES = 384 * 1024 * 1024  # beyond it the cache holds two blocks of the permutation budget at most: a million-row stream is gigabytes and held memory is what the fit runs out of
+_PERM_CACHE_FULL_ROWS = (
+    200_000  # up to this many rows the cache keeps its full byte cap (a 100000-row family stream is ~400 MB and is replayed by every family)
+)
+_PERM_CACHE_LARGE_N_BYTES = (
+    384 * 1024 * 1024
+)  # beyond it the cache holds two blocks of the permutation budget at most: a million-row stream is gigabytes and held memory is what the fit runs out of
 _PERM_BLOCK_BUDGET_BYTES = env_int("MLFRAME_PERM_BLOCK_BUDGET_MB", 192, minimum=1) * 1024 * 1024  # one block of permutation indices
-_PERM_BLOCK_CACHE_BYTES = env_int("MLFRAME_PERM_BLOCK_CACHE_MB", 1024, minimum=0) * 1024 * 1024  # one full permutation stream of a 100k-row family is ~400 MB; a smaller budget makes the cyclic re-reads of it miss every time
+_PERM_BLOCK_CACHE_BYTES = (
+    env_int("MLFRAME_PERM_BLOCK_CACHE_MB", 1024, minimum=0) * 1024 * 1024
+)  # one full permutation stream of a 100k-row family is ~400 MB; a smaller budget makes the cyclic re-reads of it miss every time
 _perm_block_cache: "OrderedDict[tuple, tuple]" = OrderedDict()
 _perm_block_cache_bytes = 0
 _perm_block_cache_lock = threading.Lock()  # move_to_end, insert and the byte-budget eviction are one read-modify-write on shared state
@@ -239,7 +247,11 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
     """
     global _perm_block_cache_bytes
     state_before = rng.bit_generator.state
-    key = (y.shape[0], int(m), repr(state_before))  # the indices depend on the row count and the generator state only, so every target of that length shares them
+    key = (
+        y.shape[0],
+        int(m),
+        repr(state_before),
+    )  # the indices depend on the row count and the generator state only, so every target of that length shares them
     n = y.shape[0]
     with _perm_block_cache_lock:
         hit = _perm_block_cache.get(key)
@@ -254,7 +266,10 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
         _fill_permutations(idx, int(rng.integers(0, 2**31 - 1)))
         _perm_block_cache[key] = (idx, rng.bit_generator.state)
         _perm_block_cache_bytes += idx.nbytes
-        while _perm_block_cache_bytes > (_PERM_BLOCK_CACHE_BYTES if n <= _PERM_CACHE_FULL_ROWS else min(_PERM_BLOCK_CACHE_BYTES, _PERM_CACHE_LARGE_N_BYTES)) and len(_perm_block_cache) > 1:
+        while (
+            _perm_block_cache_bytes > (_PERM_BLOCK_CACHE_BYTES if n <= _PERM_CACHE_FULL_ROWS else min(_PERM_BLOCK_CACHE_BYTES, _PERM_CACHE_LARGE_N_BYTES))
+            and len(_perm_block_cache) > 1
+        ):
             _, (old, _) = _perm_block_cache.popitem(last=False)
             _perm_block_cache_bytes -= old.nbytes
     return idx
@@ -334,11 +349,14 @@ def _label_bits_block(rng: np.random.Generator, y: np.ndarray, m: int, n_y: int,
     return labels
 
 
-def _family_null_max_device_bits(dev_bits, rng, y, n_y: int, n_perm: int, block: int, words: int, y_key: int, py_const: float, out: np.ndarray, acc: Any) -> "np.ndarray | None":
+def _family_null_max_device_bits(
+    dev_bits, rng, y, n_y: int, n_perm: int, block: int, words: int, y_key: int, py_const: float, out: np.ndarray, acc: Any
+) -> "np.ndarray | None":
     """The device bit-set null over all permutation blocks, the next block's class bit sets drawn on the host while the current one is scored on the device.
 
     The draws are host numba kernels (entered through the parallel guard); the device scoring is cupy only and runs outside the guard, so the two overlap (the device sat idle through every
-    host draw: 3 percent GPU in the timeline of a 1000000-row fit). Blocks are drawn in order by one worker, so the generator ends where a sequential run leaves it."""
+    host draw: 3 percent GPU in the timeline of a 1000000-row fit). Blocks are drawn in order by one worker, so the generator ends where a sequential run leaves it.
+    """
     from concurrent.futures import ThreadPoolExecutor
 
     from ._family_maxt_cuda_bits import null_max_bits_device
@@ -429,14 +447,23 @@ def _budgeted_perm_block(block: int, n: int) -> int:
 
 
 def family_null_max(
-    cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, n_perm: int, rng: np.random.Generator, block: int = 256, acc: Any = None, prep_cache: "dict | None" = None
+    cols: np.ndarray,
+    n_x: np.ndarray,
+    y: np.ndarray,
+    n_y: int,
+    n_perm: int,
+    rng: np.random.Generator,
+    block: int = 256,
+    acc: Any = None,
+    prep_cache: "dict | None" = None,
 ) -> np.ndarray | None:
     """Null maxima over ``n_perm`` label permutations drawn from ``rng`` in the same order as a per-permutation loop (results are identical).
 
     ``acc``: an optional device double vector of length ``n_perm``. The maxima are folded into it (elementwise, in place) and the
     function returns ``None``, so a caller that scores several column groups against the same draw reads the result back once.
 
-    ``prep_cache``: a dict a caller keeps for the calls that score the SAME columns (the blocks of one exact test): the column bit sets, host and device, are built by the first call and read from it by the rest."""
+    ``prep_cache``: a dict a caller keeps for the calls that score the SAME columns (the blocks of one exact test): the column bit sets, host and device, are built by the first call and read from it by the rest.
+    """
     out = np.empty(int(n_perm), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, or AUTO at scale) runs the null on the device; the permutations are drawn on the host in
     # the same order either way, so the decisions do not depend on the path.
@@ -607,7 +634,9 @@ def family_codes_of_rows(values: np.ndarray, n_bins: int) -> "tuple[np.ndarray, 
     return cols, nx
 
 
-def family_maxt_pass(candidates: "ArrayLike | pd.DataFrame", y: "ArrayLike", n_bins: int = 10, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> np.ndarray:
+def family_maxt_pass(
+    candidates: "ArrayLike | pd.DataFrame", y: "ArrayLike", n_bins: int = 10, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0
+) -> np.ndarray:
     """Boolean mask over the candidate columns: True where the exact family-wise permutation test passes at ``alpha``.
 
     ``candidates`` is a 2-D array-like (rows x candidates) or a DataFrame. Non-finite values are replaced by the column median before binning,
@@ -620,7 +649,9 @@ def family_maxt_pass(candidates: "ArrayLike | pd.DataFrame", y: "ArrayLike", n_b
     return family_maxt_pass_codes(cols, nx, y, alpha=alpha, n_perm=n_perm, seed=seed)
 
 
-def family_maxt_pass_codes(cols: np.ndarray, nx: np.ndarray, y: "ArrayLike", alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> np.ndarray:
+def family_maxt_pass_codes(
+    cols: np.ndarray, nx: np.ndarray, y: "ArrayLike", alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0
+) -> np.ndarray:
     """:func:`family_maxt_pass` on codes already built by :func:`_family_codes` (a caller that streams its candidates in chunks keeps only
     the int16 codes of every chunk and gates the whole family once)."""
     from ._y_encoding import encode_y_for_classif_mi
@@ -776,7 +807,8 @@ def _passes_for_certain(r_alive: np.ndarray, done: int, total: int, alpha: float
     """Whether every batch with ``r_alive`` exceedances in ``done`` draws will still satisfy ``(1 + R) / (total + 1) <= alpha`` after the remaining ``total - done`` draws, with probability at least ``1 - _CERTAINTY_DELTA`` each.
 
     The exceedance rate of a batch has the Clopper-Pearson upper bound ``q`` from its count so far; the exceedances still to come are at most ``(total - done) * q`` (their expectation under that rate). A batch with a strong signal has
-    no or few exceedances in the first couple of thousand draws, so its pass is settled long before the count of 9999 that the pair-level gate asks for; one near the threshold never satisfies the bound and runs to the end."""
+    no or few exceedances in the first couple of thousand draws, so its pass is settled long before the count of 9999 that the pair-level gate asks for; one near the threshold never satisfies the bound and runs to the end.
+    """
     if _CERTAINTY_DELTA <= 0.0 or done < 512 or r_alive.size == 0:
         return False
     from scipy.special import betaincinv
@@ -813,83 +845,18 @@ def _family_flags(cols, n_x, y, n_y, observed, starts, alpha, n_perm, seed) -> l
     return [bool(f) for f in flags]
 
 
-def _columns_contiguous(a: np.ndarray) -> bool:
-    """Whether the columns of the 2-D block ``a`` follow each other in memory within a row; the stride of an axis of length 1 carries no meaning (a single-column view may report any value)."""
-    return bool(a.shape[1] <= 1 or a.strides[1] == a.itemsize)
+from ._family_maxt_stack import (  # noqa: F401  -- carved: the stacking of the batches into one transposed code matrix
+    _column_runs,
+    _columns_contiguous,
+    _row_run_segments,
+    _stack_codes_transposed,
+    _transpose_into,
+)
 
 
-def _column_runs(mats, widths) -> list:
-    """``(block, merged)`` pairs: the batches as 2-D blocks, with every run of batches that are adjacent column blocks of one array merged into a single strided view (``merged`` True).
-
-    The pair family passes one single-column view per configuration, all cut from one code matrix in order; copying them one by one reads each column at the row stride of the whole matrix
-    and starts a parallel region per column. Two batches merge when they have the same dtype, row count and strides, the columns are contiguous within a row, and the second starts exactly one
-    batch width after the first in memory, so the merged view addresses nothing outside the batches' own memory. Anything else stays a block of its own.
-    """
-    runs: list = []
-    for m, w in zip(mats, widths):
-        if runs:
-            head, width = runs[-1]
-            if (
-                m.ndim == 2
-                and head.ndim == 2
-                and m.dtype == head.dtype
-                and m.shape[0] == head.shape[0]
-                and m.strides[0] == head.strides[0]
-                and _columns_contiguous(m)
-                and _columns_contiguous(head)
-                and m.__array_interface__["data"][0] == head.__array_interface__["data"][0] + width * head.itemsize
-            ):
-                runs[-1][1] = width + int(w)
-                continue
-        runs.append([m, int(w)])
-    blocks = []
-    for head, width in runs:
-        if width == head.shape[1]:
-            blocks.append((head, False))
-        else:
-            blocks.append((np.lib.stride_tricks.as_strided(head, shape=(head.shape[0], width), strides=(head.strides[0], head.itemsize), writeable=False), True))
-    return blocks
-
-
-def _stack_codes_transposed(mats, widths) -> np.ndarray:
-    """The (K_total, n) code matrix of the batches in the narrowest integer width that holds their codes, built in one pass.
-
-    The family of one pair spans every configuration scored for it (hundreds of batches of ~1500 columns at 30000 rows); upcasting each batch to
-    int64 and then stacking and transposing it held that family three times at eight bytes a code, which exhausted host memory on a wide frame.
-    Batches that are adjacent column blocks of one array are transposed together (see :func:`_column_runs`).
-    """
-    # bench-attempt-rejected (2026-10-16): one np.concatenate + transposed copy instead of this loop: 0.27 s vs 0.19 s for 1944 single-column int8 batches at 10000 rows.
-    n = int(mats[0].shape[0])
-    blocks = _column_runs(mats, widths)
-    top = max((int(b.max()) for b, _ in blocks if b.size), default=0)
-    dt = np.int8 if top <= np.iinfo(np.int8).max else (np.int16 if top <= np.iinfo(np.int16).max else np.int64)
-    cols = np.empty((int(sum(widths)), n), dtype=dt)
-    at = 0
-    for b, merged in blocks:
-        # A parallel blocked transpose into the shared buffer: numpy's strided ``m.T`` copy was the largest host cost of the family gate on a wide pair pool. A merged strided block is read
-        # in place (rows of a tile are contiguous in memory); a batch on its own is made contiguous first, as before.
-        with parallel_kernel_entry():
-            _transpose_into(b if merged else np.ascontiguousarray(b), cols, at)
-        at += int(b.shape[1])
-    return cols
-
-
-@njit(cache=True, parallel=True, nogil=True)
-def _transpose_into(src, dst, at):
-    """``dst[at + j, i] = src[i, j]`` for every element of the ``(n, w)`` block ``src``, in cache-sized tiles, parallel over the rows of ``dst``."""
-    n, w = src.shape
-    tile = 64
-    for j0 in prange((w + tile - 1) // tile):
-        j_lo = j0 * tile
-        j_hi = min(j_lo + tile, w)
-        for i0 in range(0, n, tile):
-            i_hi = min(i0 + tile, n)
-            for j in range(j_lo, j_hi):
-                for i in range(i0, i_hi):
-                    dst[at + j, i] = src[i, j]
-
-
-def family_pass_batches(batches: "Sequence[np.ndarray]", y_codes: np.ndarray, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> list:
+def family_pass_batches(
+    batches: "Sequence[np.ndarray]", y_codes: np.ndarray, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0
+) -> list:
     """Family-wise pass flags for several batches of candidate codes that form ONE family (e.g. every configuration of one pair).
 
     ``batches`` is a list of rows x K_b integer code matrices. The null is the maximum MI over the WHOLE family under the same label permutations,

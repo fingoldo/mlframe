@@ -6,32 +6,6 @@ import sys
 
 import numpy as np
 
-RESIDENCIES = ("host", "device")  # the two placements of an operand or a result; a sweep scenario is an (in, out) pair of them
-
-
-def residency_entry_name(kernel_name: str, residency_in: str, residency_out: str) -> str:
-    """The tuner entry of one scenario: ``<name>__<in>_<out>`` (``fe_modular_codes_backend__host_host``)."""
-    if residency_in not in RESIDENCIES or residency_out not in RESIDENCIES:
-        raise ValueError(f"residency must be one of {RESIDENCIES}, got ({residency_in!r}, {residency_out!r})")
-    return f"{kernel_name}__{residency_in}_{residency_out}"
-
-
-def detect_residency(*operands) -> str:
-    """``"device"`` when every array operand is a cupy array, ``"host"`` when none is; a mix is ``"host"`` (the device path pays the upload of the host operand, which is the host-in cost).
-
-    Non-array operands (scalars, strings, None) are ignored."""
-    flags = []
-    for op in operands:
-        if op is None or isinstance(op, (str, bytes, int, float, bool)):
-            continue
-        mod = type(op).__module__
-        if mod.startswith("cupy"):
-            flags.append(True)
-        elif hasattr(op, "shape"):
-            flags.append(False)
-    return "device" if flags and all(flags) else "host"
-
-
 def device_from_rows(n_samples: int, min_rows: int) -> str:
     """``"device"`` when ``n_samples`` reaches ``min_rows`` (the measured crossover of the kernel), else ``"host"``."""
     return "device" if int(n_samples) >= int(min_rows) else "host"
@@ -146,3 +120,23 @@ def residency_report(owner: str, *, repeats: int = 3) -> list:
         for scenario, (host_s, device_s) in timings.items():
             rows.append({"n_samples": n, "scenario": scenario, "host_s": host_s, "device_s": device_s, "transfer_share": share})
     return rows
+
+
+def _main(argv: "list[str] | None" = None) -> int:
+    """``python -m mlframe.feature_selection.filters._ktc_fallback <module> [repeats]``: print the residency report of a module that defines the sweep hooks (see :func:`residency_report`)."""
+    import importlib
+    import sys as _sys
+
+    args = list(_sys.argv[1:] if argv is None else argv)
+    if not args:
+        _sys.stdout.write("usage: python -m mlframe.feature_selection.filters._ktc_fallback <module> [repeats]" + chr(10))
+        return 2
+    importlib.import_module(args[0])
+    for row in residency_report(args[0], repeats=int(args[1]) if len(args) > 1 else 3):
+        share = "n/a" if row["transfer_share"] is None else f"{row['transfer_share']:.2f}"
+        _sys.stdout.write(f"n={row['n_samples']:>10}  scenario={row['scenario']}  host_s={row['host_s']}  device_s={row['device_s']:.6f}  transfer_share={share}" + chr(10))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

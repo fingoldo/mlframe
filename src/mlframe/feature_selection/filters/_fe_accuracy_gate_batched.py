@@ -118,7 +118,7 @@ def batched_enabled() -> bool:
 
 
 def _device_block_designs(cp, n_rows: int, k: int, itemsize: int) -> int:
-    """Designs held on the device at once: a third of the free VRAM over one design's bytes, at least one (CUDA.md section 5 sizes a block from free memory, never a constant)."""
+    """Designs held on the device at once, the width of one column block of the engineered candidates: a third of the free VRAM over one design's bytes, at least one (CUDA.md section 5 sizes a block from free memory, never a constant)."""
     try:
         free_b = int(cp.cuda.runtime.memGetInfo()[0])
     except Exception as exc:  # no device information: a single modest block

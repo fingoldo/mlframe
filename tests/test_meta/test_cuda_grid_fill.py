@@ -11,7 +11,7 @@ import pytest
 
 from mlframe.feature_selection.filters import _cmi_null_strata_gpu as strata
 from mlframe.feature_selection.filters import _family_maxt_cuda_bits as fam
-from mlframe.feature_selection.filters import _fe_batched_mi_cmi as cmi
+from mlframe.feature_selection.filters import _fe_batched_mi_cmi_hist as cmi
 
 _SMS = (6, 24)
 _BLOCKS_PER_SM = 2

@@ -130,6 +130,10 @@ CPU_TWINS: dict[str, tuple[str, str]] = {
         "batch_mi_noise_gate_gpu",
         "the host noise gate of the same decision is batch_mi_noise_gate_gpu's njit permutation gate; the bit-set gate and the histogram pair are the two device backends chosen by the noise_gate_bits tuner entry",
     ),
+    "_fe_batched_qbin": (
+        "_mi_greedy_cmi_fe",
+        "the host twin of the device equi-frequency coder is quantile_bin_columns, which bins the finite columns in parallel with the njit quantile_bin_block kernel of _numba_utils (equal codes, checked by test_qbin_column_blocks)",
+    ),
     "_basis_fused_gpu": (
         "hermite_fe",
         "the host design is hermite_fe's build_basis_matrix (njit recurrence); the device build is only taken for a column that is already resident",
@@ -218,6 +222,24 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
         "_pairs_score_step4",
         "_pairs_score_steps",
         "_pairs_setup",
+    ),
+    "_binned_numeric_agg_fe": (
+        "_binned_agg_cheap_mi",
+        "_binned_agg_linear_usability",
+        "_binned_numeric_agg_batches",
+        "_binned_numeric_agg_cands",
+        "_binned_numeric_agg_redundancy",
+        "_binned_numeric_agg_resident",
+    ),
+    "_fe_accuracy_gate_batched": (
+        "_fe_accuracy_gate_kernel",
+        "_fe_accuracy_gate_newton",
+    ),
+    "_mi_greedy_cmi_fe": (
+        "_mi_greedy_cmi_fe_binning",
+        "_mi_greedy_cmi_fe_gpu",
+        "_mi_greedy_cmi_fe_ktc",
+        "_mi_greedy_cmi_fe_steps",
     ),
     "batch_mi_noise_gate_gpu": (
         "_batch_mi_noise_gate_fused",

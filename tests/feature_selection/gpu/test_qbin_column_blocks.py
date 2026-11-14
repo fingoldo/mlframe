@@ -43,6 +43,9 @@ def test_blocked_codes_equal_the_single_pass(monkeypatch, nbins):
 
 @pytest.mark.parametrize("nbins", [4, 10, 16])
 def test_host_twin_equals_the_device_codes(nbins):
-    """The ``@njit`` host kernel gives the device coder's codes, column for column."""
+    """The parallel host binner of the CMI-greedy construction (``quantile_bin_columns``, the ``quantile_bin_block`` kernel) gives the device coder's codes, column for column."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import quantile_bin_columns
+
     x = _frame(seed=2)
-    assert np.array_equal(Q.quantile_bin_host(x, nbins), cp.asnumpy(Q.batched_quantile_bin_gpu(cp.asarray(x), nbins)))
+    host = np.stack(quantile_bin_columns(x, nbins), axis=1)
+    assert np.array_equal(host, cp.asnumpy(Q.batched_quantile_bin_gpu(cp.asarray(x), nbins)))

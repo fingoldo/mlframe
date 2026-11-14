@@ -160,7 +160,10 @@ void fe_materialise_cm(const float* __restrict__ tv_cm,
     } else if (op == 2) {     // sub
         v = a - b;
     } else if (op == 3) {     // div = _safe_div (exact x/y for y!=0, eps floor only on exact-zero)
-        v = (float)((double)a / ((b == 0.0f) ? 1e-9 : (double)b));
+        // For y != 0 the float quotient is the double quotient rounded to float: a double carries 53 >= 2 * 24 + 2 bits, so the double rounding is innocuous and the correctly rounded
+        // float division (__fdiv_rn) gives the same bits on every float pair (80 million pairs with zeros, infinities, NaN and denormals: no difference) at 2.4 times the speed on a
+        // card with a 1:32 double rate (op 3 alone 39.2 -> 16.2 ms). Only the exact-zero denominator keeps the double: its floor 1e-9 is not a float.
+        v = (b == 0.0f) ? (float)((double)a / 1e-9) : __fdiv_rn(a, b);
     } else if (op == 4) {     // max = np.maximum (nan-propagating)
         if (a != a || b != b) v = a + b; else v = (a > b) ? a : b;
     } else if (op == 5) {     // min = np.minimum (nan-propagating)

@@ -140,11 +140,47 @@ def _standardised(v: np.ndarray) -> Optional[np.ndarray]:
     return (v - v.mean()) / sd if sd > 0 else None
 
 
+_GRAM_MIN_CONDITION = (
+    1e-6  # smallest eigenvalue over the largest of A'A for which the normal equations stand in for lstsq: the solve then loses at most ~1e-10 relative
+)
+_GRAM_RANK_CUTOFF = (
+    1e-13  # eigenvalues of A'A below this share of the largest are numerically empty directions (singular values below ~3e-7 of the largest) and are dropped
+)
+
+
+def _ols_solve(A: np.ndarray, B: np.ndarray) -> np.ndarray:
+    """Least-squares coefficients of ``A`` (rows x p) for the target(s) ``B``: the normal equations when A'A is well conditioned, its eigen-decomposition pseudo-inverse when the design is rank-deficient or near-collinear, ``np.linalg.lstsq`` only if the decomposition fails.
+
+    The design columns are standardised and the rows many, so A'A is a small p x p matrix that is solved in microseconds, where the SVD of ``lstsq`` costs seconds for the hundreds of
+    fits of a rescue scan (n=100000, p=80: 243 -> 15 ms, equal to 4e-15). A near-collinear design (a raw operand beside a composite built from it) fails the conditioning check and takes the pseudo-inverse of A'A.
+    """
+    # Intentional float64: the Gram matrix squares the condition number, so it is formed and solved in double precision whatever the criterion dtype of the columns is
+    A64 = A if A.dtype == np.float64 else A.astype(np.float64)
+    G = A64.T @ A64
+    try:
+        w, V = np.linalg.eigh(G)
+        rhs = A64.T @ B
+        if w[0] > _GRAM_MIN_CONDITION * w[-1] > 0.0:
+            return np.asarray(np.linalg.solve(G, rhs))
+        # A rank-deficient or near-collinear design (duplicate columns, a raw operand beside a composite built from it): the minimum-norm solution on the eigen-directions of A'A that carry
+        # variance, from the decomposition already in hand instead of an SVD of the whole matrix. For an exactly rank-deficient design the fitted values are lstsq's; a copy of a column plus noise
+        # below the resolution of A'A (relative 1e-13 of the largest eigenvalue) is dropped as well, so the fit is that of the identifiable model, where an SVD solve would fit the noise direction.
+        if w[-1] > 0.0:
+            keep = w > _GRAM_RANK_CUTOFF * w[-1]
+            Vk = V[:, keep]
+            coef = (Vk.T @ rhs) / (w[keep] if rhs.ndim == 1 else w[keep][:, None])
+            return np.asarray(Vk @ coef)
+    except np.linalg.LinAlgError:
+        pass
+    return np.asarray(np.linalg.lstsq(A, B, rcond=None)[0])
+
+
 def _without_linear_part(lin_cols: "list[np.ndarray]", yr: np.ndarray, even: np.ndarray) -> np.ndarray:
     """``yr`` minus its least-squares fit (even rows) on the standardised design columns and an intercept. The free-form effects below are binned, so a smooth trend inside a bin is left in their
-    residual and a column that shares the trend (a raw operand beside an engineered column built from it) scores a spurious gain; fitting the linear part first removes that artefact."""
+    residual and a column that shares the trend (a raw operand beside an engineered column built from it) scores a spurious gain; fitting the linear part first removes that artefact.
+    """
     L = np.column_stack([*lin_cols, np.ones(len(yr))]) if lin_cols else np.ones((len(yr), 1))
-    beta, *_ = np.linalg.lstsq(L[even], yr[even], rcond=None)
+    beta = _ols_solve(L[even], yr[even])
     return np.asarray(yr - L @ beta)
 
 
@@ -176,7 +212,9 @@ def design_precompute(design: Mapping[str, np.ndarray], n: int, scan_rows: int =
     }
 
 
-def linear_oos_gain(rest: Mapping[str, np.ndarray], candidate: np.ndarray, y: np.ndarray, std_full: Optional[Mapping[str, Optional[np.ndarray]]] = None) -> "tuple[float, float]":
+def linear_oos_gain(
+    rest: Mapping[str, np.ndarray], candidate: np.ndarray, y: np.ndarray, std_full: Optional[Mapping[str, Optional[np.ndarray]]] = None
+) -> "tuple[float, float]":
     """Held-out gain of ``candidate`` for a LINEAR model on the other columns: ``(t statistic, share of the target variance)``.
 
     OLS (fence-clipped, standardised columns and an intercept) fitted on the even rows with and without the candidate; the evidence is the paired per-row reduction of the squared error on the odd rows,
@@ -195,13 +233,17 @@ def linear_oos_gain(rest: Mapping[str, np.ndarray], candidate: np.ndarray, y: np
     if x is None:
         return 0.0, 0.0
 
-    def residual(columns):
-        """Odd-row residual of the OLS on ``columns`` fitted on the even rows."""
-        L = np.column_stack([*columns, np.ones(n)])
-        beta, *_ = np.linalg.lstsq(L[even], yr[even], rcond=None)
-        return (yr - L @ beta)[~even]
-
-    d = residual(cols) ** 2 - residual([*cols, x]) ** 2
+    # The base design (the other columns and an intercept) is built once and split into its even (fit) and odd (score) rows; the design with the candidate adds one column to the even rows,
+    # and the odd-row residual of either model is read from the odd rows only (the previous form built both full designs and multiplied all n rows to keep half: 1.4 times slower at
+    # n = 50000, p = 10 to 80, the same residuals to 3e-15).
+    odd = ~even
+    base = np.column_stack([*cols, np.ones(n)])
+    a_even, a_odd = base[even], base[odd]
+    e0 = yr[odd] - a_odd @ _ols_solve(a_even, yr[even])
+    beta1 = _ols_solve(np.column_stack([a_even, x[even]]), yr[even])
+    # Intentional float64: the standardised column is in the criterion dtype, and a float32 product here would carry its rounding into the paired difference of the two residuals
+    e1 = yr[odd] - (a_odd @ beta1[:-1] + x[odd].astype(np.float64) * beta1[-1])
+    d = e0**2 - e1**2
     sd = float(d.std())
     total = float(np.var(yr[~even])) or 1.0
     se = sd / np.sqrt(len(d))
@@ -226,11 +268,12 @@ def _linear_scores(Z: np.ndarray, L: np.ndarray, r0: np.ndarray, even: np.ndarra
     """Held-out gain of each row of ``Z`` (a candidate column per row) for a LINEAR model that already holds the columns of ``L``: ``(t statistic, mean reduction of the squared error)``.
 
     ``r0`` is the linear residual of the target on ``L`` (fitted on the even rows). By the Frisch-Waugh argument adding a candidate to the OLS is the same as regressing ``r0`` on the candidate
-    orthogonalised against ``L`` (also on the even rows); the paired per-row reduction ``r0^2 - (r0 - b x)^2`` on the odd rows is the evidence, exactly as in ``linear_oos_gain`` but for a whole block."""
+    orthogonalised against ``L`` (also on the even rows); the paired per-row reduction ``r0^2 - (r0 - b x)^2`` on the odd rows is the evidence, exactly as in ``linear_oos_gain`` but for a whole block.
+    """
     ts, gains = [], []
     for start in range(0, Z.shape[0], 64):
         block = Z[start : start + 64].T.astype(_crit_np_dtype())
-        G, *_ = np.linalg.lstsq(L[even], block[even], rcond=None)
+        G = _ols_solve(L[even], block[even])
         P = block - L @ G
         den = np.maximum((P[even] ** 2).sum(0), 1e-12)
         b = (P[even] * r0[even, None]).sum(0) / den
@@ -261,7 +304,8 @@ def residual_rescue(
     ``design`` and ``pool`` map names to full-length columns; ``y`` is the continuous target. Empty when there are too few rows, no usable pool column or nothing passes.
 
     With ``linear_channel`` a candidate also qualifies when it improves the held-out fit of a LINEAR model on the design (a nonlinear form of a column the design holds raw, ``tanh(2 x)`` beside
-    ``x``, has no free-form gain and a large linear one); the family-wise level is then shared by the two channels. Candidates named in ``linear_only`` are scored by the linear channel alone."""
+    ``x``, has no free-form gain and a large linear one); the family-wise level is then shared by the two channels. Candidates named in ``linear_only`` are scored by the linear channel alone.
+    """
     from scipy.stats import norm
 
     n = len(y)
@@ -300,7 +344,9 @@ def residual_rescue(
         resid = _residual(Qd, _without_linear_part(lin_cols, yr, even), even, n_main)
         idx = np.flatnonzero(alive & ~only_linear)
         if idx.size > max_pool:
-            var = np.array([float(np.var(np.bincount(Qp[j], weights=resid, minlength=n_main) / np.maximum(np.bincount(Qp[j], minlength=n_main), 1))) for j in idx])
+            var = np.array(
+                [float(np.var(np.bincount(Qp[j], weights=resid, minlength=n_main) / np.maximum(np.bincount(Qp[j], minlength=n_main), 1))) for j in idx]
+            )
             idx = idx[np.argsort(-var, kind="stable")[:max_pool]]
         t = np.full(len(pool_names), -np.inf)
         gain = np.zeros(len(pool_names))

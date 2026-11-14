@@ -80,8 +80,10 @@ def test_split_lut_entropy_equals_the_split_log_kernel_and_the_lut_path_runs(mon
     h_log, k_log = bm._rows_entropy_and_k(counts, inv_n)
     monkeypatch.setenv("MLFRAME_ENT_LUT", "1")
     calls = []
+    from mlframe.feature_selection.filters import _fe_batched_mi_cmi_hist as owner
+
     real = bm._rows_entropy_lut_split
-    monkeypatch.setattr(bm, "_rows_entropy_lut_split", lambda *a, **kw: calls.append(1) or real(*a, **kw))
+    monkeypatch.setattr(owner, "_rows_entropy_lut_split", lambda *a, **kw: calls.append(1) or real(*a, **kw))  # the caller lives in the carved histogram module
     h_lut, k_lut = bm._rows_entropy_and_k(counts, inv_n)
     assert calls, "the table form of the split kernel did not run"
     assert np.allclose(cp.asnumpy(h_lut), cp.asnumpy(h_log), rtol=0.0, atol=1e-12)

@@ -46,11 +46,6 @@ def set_fe_deadline(deadline: float | None) -> None:
     _state.deadline = deadline
 
 
-def clear_fe_deadline() -> None:
-    """Explicitly reset the thread-local deadline to unset (equivalent to ``set_fe_deadline(None)``); called from the ``finally`` in MRMR.fit so a budget never leaks into the next fit on the same thread."""
-    _state.deadline = None
-
-
 @contextmanager
 def fit_deadline_boundary() -> Iterator[None]:
     """The deadline bookkeeping of one ``MRMR.fit`` call.
@@ -105,7 +100,7 @@ def fe_budget_active() -> bool:
     return getattr(_state, "deadline", None) is not None
 
 
-__all__ = ["set_fe_deadline", "clear_fe_deadline", "fe_deadline_scope", "fit_deadline_boundary", "fe_deadline_passed", "fe_budget_active"]
+__all__ = ["set_fe_deadline", "fe_deadline_scope", "fit_deadline_boundary", "fe_deadline_passed", "fe_budget_active"]
 
 
 def current_fe_deadline() -> "float | None":

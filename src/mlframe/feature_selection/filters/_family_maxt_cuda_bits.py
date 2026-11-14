@@ -243,8 +243,10 @@ def _get_kernel_v3(cp, ny1: int, pb: int, cap: int, real: str):
 
 
 def kernel_v3(cp, real, ny1: int = 1, pb: int = _V3_MAX_PB, cap: int = 8):
-    """The v3 kernel for the value type ``real`` (float32 or float64), for the register-pressure registry: one stored class, four permutations per block, eight bins."""
-    return _get_kernel_v3(cp, ny1, pb, cap, "float" if np.dtype(real) == np.float32 else "double")
+    """The v3 kernel for the value type ``real`` (a float32 / float64 dtype or the C type name ``"float"`` / ``"double"``): the launcher and the register-pressure registry both resolve it here;
+    the defaults are one stored class, four permutations per block, eight bins."""
+    c_type = real if isinstance(real, str) else ("float" if np.dtype(real) == np.float32 else "double")
+    return _get_kernel_v3(cp, ny1, pb, cap, c_type)
 
 
 _FILL_BLOCKS_PER_SM = 2  # the launch aims for at least this many blocks per multiprocessor when the columns allow it
@@ -270,7 +272,7 @@ def family_null_launcher(cp, n_y: int, words: int, table, cls, n: int, cap: int,
     real = "float" if table.dtype == cp.float32 else "double"
     pb = _v3_plan(n_y, cap)
     if pb is not None:
-        kern = _get_kernel_v3(cp, n_y - 1, pb, cap, real)
+        kern = kernel_v3(cp, real, n_y - 1, pb, cap)
 
         def launch_v3(bits, n_x, c_a, px, const_b, k: int, out) -> None:
             """Launch the v3 kernel over one column group."""
