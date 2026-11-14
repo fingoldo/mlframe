@@ -47,6 +47,5 @@ probe() {
 
 probe collect_errors 300 tests/integrations/test_embed_website_fd_not_leaked.py tests/integrations/test_mlflow_embed_refuses_script_schemes.py --collect-only -q --no-cov -p no:randomly -n 0
 probe core 900 tests/training/test_biz_val_training_core.py "${SELECT[@]}" -n 0 --no-cov -p no:randomly --timeout=300 --timeout-method=thread   -o faulthandler_timeout=240 -x -rfE -s
-probe shard1 1500 tests "${SELECT[@]}" --splits 10 --group 1 -n 1 --dist=loadgroup --no-cov -p no:randomly --timeout=900 --timeout-method=thread \
-  -o faulthandler_timeout=600 --durations=25 -rfE
+probe cluster_aggregate 1500 tests/feature_selection/biz_val/test_biz_val_cluster_aggregate.py "${SELECT[@]}" -n 0 --no-cov -p no:randomly --timeout=600 --timeout-method=thread   -o faulthandler_timeout=500 -x -rfE -s
 exit 0
