@@ -39,11 +39,14 @@ probe() {
   echo "${label} ended with exit code $? after about ${waited}s"
   echo "--- errors and failures in ${log}"
   grep -E "^(ERROR|FAILED)|Fatal Python error|Segmentation fault|Aborted|OMP: Error|Interrupted:" "$log" | head -40 | cut -c1-240
+  echo "--- the first timeout dump in ${log}"
+  grep -n -A90 -m1 "Timeout (0:" "$log" | cut -c1-240
   echo "--- last lines of ${log}"
   tail -n 25 "$log" | cut -c1-240
 }
 
-probe collect 900 tests --collect-only -q --no-cov -p no:randomly "${SELECT[@]}" -n 1 --dist=loadgroup
+probe collect_errors 300 tests/integrations/test_embed_website_fd_not_leaked.py tests/integrations/test_mlflow_embed_refuses_script_schemes.py --collect-only -q --no-cov -p no:randomly -n 0
+probe core 900 tests/training/test_biz_val_training_core.py "${SELECT[@]}" -n 0 --no-cov -p no:randomly --timeout=300 --timeout-method=thread   -o faulthandler_timeout=240 -x -rfE -s
 probe shard1 1500 tests "${SELECT[@]}" --splits 10 --group 1 -n 1 --dist=loadgroup --no-cov -p no:randomly --timeout=900 --timeout-method=thread \
   -o faulthandler_timeout=600 --durations=25 -rfE
 exit 0
