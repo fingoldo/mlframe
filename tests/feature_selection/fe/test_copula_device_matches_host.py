@@ -76,7 +76,7 @@ def test_device_copula_equals_host_on_independent_seeds(seed, dtype):
     (host._copula_columns_radix_njit if dtype == np.float32 else host._copula_columns_njit)(cols, vi, 20, want)
     got = gpu.copula_columns_device(cols, vi, 20)
     assert got is not None
-    np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-12)
+    assert np.allclose(got, want, rtol=1e-12, atol=1e-12), (got, want)
 
 
 @pytest.mark.parametrize("free_bytes", [1 << 22, 1 << 24])

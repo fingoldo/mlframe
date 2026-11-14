@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters.hermite_fe import _hermite_oracle as O
@@ -56,10 +57,17 @@ def test_an_entry_without_any_basis_field_still_answers_through_lookup(cache):
     assert O._lookup_polyeval_thresholds("hermite", 10) == (7, 9)
 
 
-def test_the_sweep_tags_each_region_with_basis_eq():
+def test_the_sweep_tags_each_region_with_basis_eq(monkeypatch):
     """New entries carry ``basis_eq`` so the cache matcher itself separates the bases."""
-    import inspect
-
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import _auto_tune_sweeps_a as S
 
-    assert '"basis_eq": basis' in inspect.getsource(S._run_sweep_polyeval)
+    tiny = np.zeros(1)
+    bases = ("hermite", "legendre", "chebyshev", "laguerre")
+    monkeypatch.setattr(S, "_NJIT_FUNCS", {b: (lambda x, c: tiny) for b in bases}, raising=False)
+    monkeypatch.setattr(S, "_NJIT_PAR_FUNCS", {b: (lambda x, c: tiny) for b in bases}, raising=False)
+    monkeypatch.setattr(S, "_CUDA_AVAILABLE", False, raising=False)
+
+    regions = S._run_sweep_polyeval(n_iters=1)
+
+    assert sorted(r["basis"] for r in regions) == sorted(bases)
+    assert {r["basis"]: r["basis_eq"] for r in regions} == {b: b for b in bases}, regions

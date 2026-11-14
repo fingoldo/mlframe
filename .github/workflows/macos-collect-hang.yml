@@ -1,0 +1,75 @@
+name: macOS collect hang
+
+# A full macOS shard of ci.yml prints `created: 1/1 worker` and then nothing until the job-level cap cancels it, so pytest never finishes
+# collecting. This workflow collects the same test set with a wall-clock limit and, when collection is still running at the limit, prints
+# the Python stack of every pytest process (the xdist worker included), which names the import or fixture that hangs.
+# workflow_dispatch only: it exists to answer one question.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to probe (defaults to the branch this is dispatched on)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-collect-hang
+  cancel-in-progress: true
+
+jobs:
+  collect-hang:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      UV_NO_SOURCES: "1"
+      PYTHONUNBUFFERED: "1"
+      MLFRAME_FAST: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install the OpenMP runtime LightGBM needs
+        run: brew install libomp
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Read the pyutilz revision from uv.lock
+        id: pyutilz-pin
+        run: echo "sha=$(python3 scripts/read_pyutilz_pin.py uv.lock)" >> "$GITHUB_OUTPUT"
+
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@5264e5d154aadc56028d46118b515166adaee7a5  # v1.23.11  # pragma: allowlist secret
+        with:
+          pyutilz-extras: "system,pandas,polars,database"
+          project-extras: ".[all,dev]"
+          pyutilz-ref: ${{ steps.pyutilz-pin.outputs.sha }}
+
+      - name: Report the architecture this leg is on
+        run: |
+          echo "runner label: macos-15"
+          uname -m
+          sysctl -n machdep.cpu.brand_string 2>/dev/null || true
+          python -c "import platform; print('python', platform.python_version(), platform.machine())"
+
+      - name: Install the contributor tooling and set the macOS numba environment, as the test job does
+        run: |
+          # tests/test_meta/conftest.py imports py_ci_shared at collection time, so collection errors out without it.
+          uv pip install --system -r requirements-dev.txt
+          echo "NUMBA_THREADING_LAYER=omp" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$(brew --prefix libomp)/lib" >> "$GITHUB_ENV"
+
+      - name: Collect with a wall-clock limit and dump the stacks when it hangs
+        run: bash scripts/macos_collect_hang_probe.sh

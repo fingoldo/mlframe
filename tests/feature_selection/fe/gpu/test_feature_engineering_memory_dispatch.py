@@ -122,6 +122,14 @@ class TestDispatcher:
         can, _bb, _av = _can_hoist_shared_buffer(0)
         assert can is True
 
+    def test_can_hoist_returns_true_on_zero_byte_request_when_no_ram_is_free(self, monkeypatch):
+        """A zero-byte buffer is accepted even when the free-RAM reading is zero, which leaves the budget at zero."""
+        from mlframe.feature_selection.filters import _feature_engineering_mem_budget as mem_budget
+
+        monkeypatch.setattr(mem_budget, "_available_ram_bytes_cached", lambda: 0)
+        can, _bb, _av = _can_hoist_shared_buffer(0)
+        assert can is True
+
     def test_dispatcher_picks_fallback_under_tight_budget(self, synthetic_pair_inputs, monkeypatch):
         """When budget ratio is zero, the hoist path can never be taken; the
         recompute fallback must run and still produce well-formed output."""
@@ -143,9 +151,12 @@ class TestHoistHeadroomAcceptance:
     footprint approaches available, so the OOM-protecting decline must still fire."""
 
     def _force_avail(self, monkeypatch, available_bytes):
-        # Pin the OPT5 vmem cache so the decision is deterministic regardless of host RAM.
+        # The reading is pinned at the function that makes it, not in the 0.25 s TTL cache: the decision's first call can take longer than that
+        # on a loaded host, the pinned entry expires, and the live psutil reading (tens of GB free) replaces the value under test.
         """Force avail."""
-        monkeypatch.setattr(fe_mod, "_FE_VMEM_CACHE", (fe_mod._time.monotonic(), int(available_bytes)))  # audit-exempt: patch_target_read_at_call -- the budget module reads this name through _get_live(), which prefers the parent module's attribute when loaded, so patching the parent is the designed override (a re-exported live value, not an inert binding)
+        from mlframe.feature_selection.filters import _feature_engineering_mem_budget as mem_budget
+
+        monkeypatch.setattr(mem_budget, "_available_ram_bytes_cached", lambda: int(available_bytes))
 
     def test_small_buffer_at_abundant_ram_hoists(self, monkeypatch):
         """The F2 100k repro: 222.5 MiB buffer, 5.7 GiB available, 2 workers. The old relative

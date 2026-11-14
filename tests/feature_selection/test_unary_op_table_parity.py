@@ -8,6 +8,16 @@ import pytest
 from mlframe.feature_selection.filters._numba_utils_usability import _apply_unary
 from mlframe.feature_selection.filters._unary_op_table import UNARY_OP_CODES
 
+try:
+    import cupy as _cupy
+
+    _cupy.cuda.runtime.getDeviceCount()
+    _HAVE_CUDA_DEVICE = True
+except Exception:  # cupy missing, or no driver / device: decides only whether the GPU tests can run
+    _HAVE_CUDA_DEVICE = False
+
+_needs_cuda = pytest.mark.skipif(not _HAVE_CUDA_DEVICE, reason="no CUDA device")
+
 _HIGH_REFERENCE = {
     "rint": np.rint,
     "qubed": lambda v: v * v * v,
@@ -34,9 +44,11 @@ def test_numba_ladder_matches_the_named_function(name):
     np.testing.assert_allclose(got, want, rtol=1e-12, atol=0.0)
 
 
+@_needs_cuda
 def test_cuda_stack_kernel_matches_the_numba_ladder_for_every_code():
     """The CUDA stack kernel and the numba ladder give the same value for each of the 17 table codes, including the smart log."""
-    cp = pytest.importorskip("cupy")
+    import cupy as cp
+
     from mlframe.feature_selection.filters._unary_stack_cuda import unary_stack_cuda
 
     # no 0.0: the numba ladder raises ZeroDivisionError on 1/0 (Python error model) where the CUDA kernel returns inf, and the callers never pass a zero to it
@@ -45,13 +57,9 @@ def test_cuda_stack_kernel_matches_the_numba_ladder_for_every_code():
     codes = np.array(sorted(UNARY_OP_CODES.values()), dtype=np.int32)
     with np.errstate(all="ignore"):
         want = np.array([[_apply_unary(float(v), int(c), xmin) for v in x] for c in codes])
-    try:
-        got = unary_stack_cuda(cp.asarray(x), cp.asarray(codes), xmin)
-    except Exception as exc:  # no usable device
-        pytest.skip(f"no usable CUDA device: {exc!r}")
-    if got is None:
-        pytest.skip("unary_stack_cuda declined (device or memory not available)")
-    np.testing.assert_allclose(cp.asnumpy(got), want, rtol=1e-12, atol=0.0, equal_nan=True)
+    got = unary_stack_cuda(cp.asarray(x), cp.asarray(codes), xmin)
+    assert got is not None, "unary_stack_cuda declined on a machine with a CUDA device"
+    assert np.allclose(cp.asnumpy(got), want, rtol=1e-12, atol=0.0, equal_nan=True)
 
 
 def _operand_build_reference():
@@ -66,10 +74,12 @@ def _operand_build_reference():
     }
 
 
+@_needs_cuda
 @pytest.mark.parametrize("sample", [[-0.85, -0.5, -0.1, 0.2, 0.6, 0.9], [1.5, 2.0, 3.25, 4.0]])
 def test_operand_build_kernel_matches_a_numpy_reference_for_every_op_of_its_table(sample):
     """Each op of ``_BATCH_UNARY_OPS`` runs through the real ``batch_unary`` kernel and equals its named numpy function (nan where the function is undefined)."""
-    cp = pytest.importorskip("cupy")
+    import cupy as cp
+
     from mlframe.feature_selection.filters._gpu_resident_operand_build import _BATCH_UNARY_OPS, _get_batch_unary_kernel
 
     ref = _operand_build_reference()
@@ -78,17 +88,14 @@ def test_operand_build_kernel_matches_a_numpy_reference_for_every_op_of_its_tabl
     n = x.size
     names = sorted(_BATCH_UNARY_OPS)
     ncols = len(names)
-    try:
-        kernel = _get_batch_unary_kernel(np.float64)
-        G = cp.asarray(x.reshape(n, 1))
-        slot = cp.zeros(ncols, dtype=cp.int64)
-        opc = cp.asarray(np.array([_BATCH_UNARY_OPS[nm] for nm in names], dtype=np.int32))
-        out_col = cp.arange(ncols, dtype=cp.int64)
-        out = cp.zeros((n, ncols), dtype=cp.float32)
-        kernel(((n * ncols + 127) // 128,), (128,), (G, slot, opc, out_col, np.int64(n), np.int32(1), np.int32(ncols), np.int32(ncols), out))
-        got = cp.asnumpy(out)
-    except Exception as exc:  # no usable device
-        pytest.skip(f"no usable CUDA device: {exc!r}")
+    kernel = _get_batch_unary_kernel(np.float64)
+    G = cp.asarray(x.reshape(n, 1))
+    slot = cp.zeros(ncols, dtype=cp.int64)
+    opc = cp.asarray(np.array([_BATCH_UNARY_OPS[nm] for nm in names], dtype=np.int32))
+    out_col = cp.arange(ncols, dtype=cp.int64)
+    out = cp.zeros((n, ncols), dtype=cp.float32)
+    kernel(((n * ncols + 127) // 128,), (128,), (G, slot, opc, out_col, np.int64(n), np.int32(1), np.int32(ncols), np.int32(ncols), out))
+    got = cp.asnumpy(out)
     with np.errstate(all="ignore"):
         for j, nm in enumerate(names):
             want = np.asarray(ref[nm](x), dtype=np.float64).astype(np.float32)

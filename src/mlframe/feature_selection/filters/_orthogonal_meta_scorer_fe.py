@@ -413,7 +413,7 @@ def fingerprint_signal(
             "dcor_proxy": 0.0,
         }
 
-    X_num = X[num_cols].copy()
+    X_num = X[num_cols]  # selecting a column list already returns a new frame with its own data
     # x_unique_avg: mean column-cardinality (capped at n to avoid weird
     # values on object cols that snuck through dtype check).
     x_unique_avg = _mean_distinct(X_num, num_cols, n)

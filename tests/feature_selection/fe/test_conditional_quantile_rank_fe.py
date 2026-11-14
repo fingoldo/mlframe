@@ -116,8 +116,9 @@ class TestConditionalQuantileRankUnit:
         np.testing.assert_allclose(replay, enc[name].to_numpy(), rtol=0, atol=0, equal_nan=True)
 
         head = X.head(500)
-        direct = apply_conditional_quantile_rank(head, {**raw[name]})
-        via_dispatch = np.asarray(apply_recipe(recipe, head), dtype=float)
+        # The dispatch returns the column in the precision policy's dtype, the direct function in float64: they agree exactly once both are in that dtype.
+        direct = np.asarray(apply_conditional_quantile_rank(head, {**raw[name]}), dtype=_crit_np_dtype())
+        via_dispatch = np.asarray(apply_recipe(recipe, head), dtype=_crit_np_dtype())
         np.testing.assert_allclose(direct, via_dispatch, rtol=0, atol=0, equal_nan=True)
 
     def test_recipe_pickle_round_trip(self):

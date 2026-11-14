@@ -40,7 +40,7 @@ def test_strata_counting_equals_the_dense_batched_cmi(kz, kx, ky, variant, seed)
     xp = cp.empty((n, nperm), dtype=cp.int64)
     xp[order_d, :] = flat.T
     want = m._batched_cmi_resident_chunked(xp, y_host, z_for_cmi, shared_xz=True)
-    np.testing.assert_allclose(cp.asnumpy(got), cp.asnumpy(want), rtol=0, atol=1e-12)
+    assert np.allclose(cp.asnumpy(got), cp.asnumpy(want), rtol=0, atol=1e-12)
 
 
 def test_routes_that_do_not_apply_return_none():

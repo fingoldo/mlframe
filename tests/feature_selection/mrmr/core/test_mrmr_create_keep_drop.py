@@ -95,9 +95,10 @@ def _warm_up_numba_kernels() -> None:
     BROAD case happens to run first on a given xdist worker pays that cold tax alone
     inside its own FIT_TIMEOUT window; under CI compile-contention (many workers
     JIT-compiling concurrently) that tax can exceed the quiet-machine measurement.
-    Runs at collection time (module import has no pytest-timeout attached) with a
-    throwaway small-n fit exercising the same fe_max_steps=2 kernel signatures, so the
-    cost is paid once per worker process, untimed, before any BROAD case's clock starts.
+    Runs from the module-scoped fixture below, with a throwaway small-n fit exercising the same
+    fe_max_steps=2 kernel signatures, so the cost is paid once per worker process before any BROAD
+    case's own clock starts. It must not run at import: every shard imports every test module while
+    collecting, and a full fit there stalled the macOS shards in collection until the job cap.
     """
     if os.environ.get("NUMBA_DISABLE_JIT") == "1":
         # Interpreted execution has no compile cost to amortize; warming here would
@@ -121,7 +122,10 @@ def _warm_up_numba_kernels() -> None:
         pass
 
 
-_warm_up_numba_kernels()
+@pytest.fixture(scope="module", autouse=True)
+def _numba_kernels_warm():
+    """Pay the numba compile once per worker, when the first test of this module is about to run (not while collecting)."""
+    _warm_up_numba_kernels()
 
 
 def _artifact_path(name: str) -> str:

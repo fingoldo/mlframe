@@ -51,4 +51,4 @@ def test_device_mi_accepts_float32_input_without_reading_past_the_buffer():
     want = host._mi_cd_columns(np.ascontiguousarray(X32.astype(np.float64)), d, int(d.max()) + 1, 3)
     got = gpu.mi_cd_columns_device(X32, d, int(d.max()) + 1, 3)
     assert got is not None
-    np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-9)
+    assert np.allclose(got, want, rtol=1e-9, atol=1e-9), (got, want)

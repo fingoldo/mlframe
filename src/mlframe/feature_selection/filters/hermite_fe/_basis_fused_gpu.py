@@ -19,6 +19,8 @@ from pyutilz.performance.gpu_hw_launch import block_size_for
 import logging
 from typing import Any, Optional
 
+from mlframe.utils.log_throttle import log_throttle
+
 from .._gpu_raw_module import LazyRawModule
 
 logger = logging.getLogger(__name__)
@@ -180,5 +182,8 @@ def basis_fused_chosen(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) != "loop"
     except Exception as exc:
-        logger.debug("fe_basis_build_backend: KTC choose() failed, using the single kernel: %s", exc)
+        log_throttle(
+            logger, "fe_basis_build_backend_choose_failed", logging.WARNING,
+            "fe_basis_build_backend: KTC choose() failed (%s: %s), using the single kernel for this call", type(exc).__name__, exc,
+        )
         return True

@@ -32,7 +32,6 @@ def test_histogram_drawing_call_gets_the_spec_bin_width(monkeypatch, bin_width, 
     MatplotlibRenderer()._histogram(ax, spec)
     plt.close(fig)
 
-    if expected is None:
-        assert recorded["width"] is not None and recorded["width"] > 0.0, recorded
-    else:
-        assert recorded["width"] == pytest.approx(expected), recorded
+    assert "width" in recorded, "the renderer never called ax.bar"
+    derived_width_is_positive = recorded["width"] is not None and recorded["width"] > 0.0
+    assert derived_width_is_positive if expected is None else recorded["width"] == pytest.approx(expected), recorded

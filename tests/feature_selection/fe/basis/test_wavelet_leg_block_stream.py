@@ -32,7 +32,8 @@ def _case(n=3000, seed=0):
     return x, y, lo, span
 
 
-def test_one_leg_per_block_admits_the_same_legs(host_body, monkeypatch):
+@pytest.mark.usefixtures("host_body")
+def test_one_leg_per_block_admits_the_same_legs(monkeypatch):
     """A budget of one leg per block admits exactly the legs a single stack admits, in the same order."""
     # The host body scores legs through the cupy MI kernel, so it cannot run without cupy. Production falls back to the CPU
     # leg selection when cupy is missing (_try_gpu_leg_selection); this test only covers the GPU body, so it skips without cupy.

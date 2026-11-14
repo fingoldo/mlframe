@@ -56,7 +56,10 @@ def _host_free_bytes_safe() -> int:
 
         return int(_host_free_bytes())
     except Exception as exc:  # unreadable host memory: no budget, so the smallest path runs
-        logger.debug("host free memory unreadable, budgeting zero bytes: %s", type(exc).__name__)
+        log_throttle(
+            logger, "host_free_bytes_unreadable", logging.WARNING,
+            "host free memory unreadable (%s), budgeting zero bytes so the smallest path runs", type(exc).__name__,
+        )
         return 0
 
 

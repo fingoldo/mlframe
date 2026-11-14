@@ -76,7 +76,8 @@ def mahalanobis_density_feature(
     if not (np.isfinite(X).all() and np.isfinite(fit_arr).all()):
         return np.full(n, np.nan, dtype=_crit_np_dtype())
 
-    lw = LedoitWolf().fit(fit_arr)
+    # The shrinkage estimator squares its inputs: in the policy float32 a column beyond ~1e10 overflows the covariance to NaN, so it is fitted in double precision.
+    lw = LedoitWolf().fit(np.asarray(fit_arr, dtype=np.float64))
     mu = lw.location_
     Sigma_inv = lw.get_precision()
 
@@ -114,7 +115,7 @@ def generate_mahalanobis_density_features(X: "pd.DataFrame", cols: Sequence[str]
     if p < 1 or n < p + 1 or not np.isfinite(X_cols).all():
         return pd.DataFrame(index=X.index), {}
 
-    lw = LedoitWolf().fit(X_cols)
+    lw = LedoitWolf().fit(np.asarray(X_cols, dtype=np.float64))  # double precision: the estimator squares its inputs, which overflows float32 beyond ~1e10
     # Intentional float64: serialised recipe payload (mu / Sigma_inv) keeps a fixed f64 contract across the policy switch.
     mu = np.asarray(lw.location_, dtype=np.float64).copy()
     # Intentional float64: serialised recipe payload (mu / Sigma_inv) keeps a fixed f64 contract across the policy switch

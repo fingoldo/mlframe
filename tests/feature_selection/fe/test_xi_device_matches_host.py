@@ -47,7 +47,7 @@ def test_float64_device_xi_equals_host(n, k, resident):
     host._xi_columns_njit(wide, seeds, r_row, l_row, want)
     got = gpu.xi_columns_device(cp.asarray(wide) if resident else wide, seeds, r_row, l_row, allow_wide=True)
     assert got is not None
-    np.testing.assert_array_equal(got, want)
+    assert np.array_equal(got, want), (got, want)
 
 
 def test_public_batch_routes_through_the_device_when_chosen(monkeypatch):

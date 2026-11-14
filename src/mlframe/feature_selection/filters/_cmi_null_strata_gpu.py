@@ -12,6 +12,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
@@ -145,7 +147,7 @@ def _entropy_table(cp: Any, n: int) -> Any:
             table = cp.zeros(n + 1, dtype=cp.float64)
             table[1:] = -(counts[1:] * inv_n) * cp.log(counts[1:] * inv_n)
             if len(_ENT_TABLES) >= _ENT_TABLES_MAX:
-                _ENT_TABLES.pop(next(iter(_ENT_TABLES)))
+                _ENT_TABLES.pop(next(iter(_ENT_TABLES)))  # evict-ok: a miss rebuilds the table, a pure function of n
             _ENT_TABLES[n] = table
         return table
 
@@ -203,6 +205,9 @@ def strata_null_cmi(cp: Any, shuffled_sorted: Any, y_sorted: Any, z_rank: Any, d
         h_xz = cp.broadcast_to(h_xz1, (P,))  # the (x, z) joint is the same for every shuffle; stays on the device
         k_xz = cp.broadcast_to(k_xz1, (P,))
         return _cmi_assemble(h_xz, h_xyz, float(h_yz - h_z), k_xyz, k_xz, float(k_z - k_yz), 1.0 / (2.0 * float(max(1, n))))
-    except Exception:
-        logger.debug("per-stratum null CMI failed; the dense route runs", exc_info=True)
+    except Exception as exc:
+        log_throttle(
+            logger, "cmi_null_strata_gpu_failed", logging.WARNING,
+            "per-stratum null CMI failed (%s: %s); the dense route runs for this call", type(exc).__name__, exc, exc_info=True,
+        )
         return None

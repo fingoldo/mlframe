@@ -151,7 +151,8 @@ def start_discretization_warmup(self: Any, X: Any, y: Any) -> None:
         kwargs = _strategy_kwargs(self, strategy)
         vals = self._coerce_target_dtype(_target_to_numpy_values(y))
         y_for = np.asarray(vals[:, 0] if vals.ndim == 2 else vals)
-        frame = X.copy()
+        # Shallow: its own column index keeps the FE stages' new columns out of the warm-up's view, and the buffers stay shared, so no second copy of the data is taken.
+        frame = X.copy(deep=False)
     except Exception as exc:
         log_throttle(logger, "_binning.warmup_skipped", logging.INFO, "discretisation warm-up skipped: %r", exc)
         return

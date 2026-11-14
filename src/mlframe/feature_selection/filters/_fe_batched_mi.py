@@ -536,8 +536,11 @@ def _launch_mm_nek_tile(Xc: Any, Ec: Any, yv: Any, n: int, K: int, nbins: int, K
         kern(((K + G - 1) // G,), (_MM_NEK_TILE_THREADS,), (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(nbins), np.int32(Ky), np.int32(G),  # launch-ok: the tile's edge cache and per-column reduction are written for a fixed 256-lane block (the loader strides by blockDim / G)
                                                              np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)), ne_k, mi_out),
              shared_mem=G * (4 * M + 256 * 8))
-    except Exception:
-        logger.debug("mm_nek tiled launch failed; falling back to the one-column-per-block kernel", exc_info=True)
+    except Exception as exc:
+        log_throttle(
+            logger, "mm_nek_tile_launch_failed", logging.WARNING,
+            "mm_nek tiled launch failed (%s: %s); falling back to the one-column-per-block kernel", type(exc).__name__, exc, exc_info=True,
+        )
         return False
     return True
 

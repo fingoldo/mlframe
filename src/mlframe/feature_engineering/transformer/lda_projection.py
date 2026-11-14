@@ -59,7 +59,7 @@ def _fisher_lda(X_pos: np.ndarray, X_neg: np.ndarray) -> Tuple[np.ndarray, float
     pooled = np.concatenate([Xp_c, Xn_c], axis=0)
     if pooled.shape[0] < 2:
         return diff, float(diff @ (0.5 * (mu_pos + mu_neg)))
-    lw = LedoitWolf().fit(pooled)
+    lw = LedoitWolf().fit(np.asarray(pooled, dtype=np.float64))  # the estimator squares its inputs: float32 overflows to NaN beyond ~1e10
     cov = lw.covariance_ + np.eye(d) * 1e-4  # ridge for stability
     # pinv handles near-singular cov that does not raise from inv() but whose
     # explicit inverse would amplify noise into the projection direction w.

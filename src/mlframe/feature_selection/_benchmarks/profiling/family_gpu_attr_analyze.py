@@ -1,4 +1,4 @@
-import pickle, pandas as pd, numpy as np, io, bisect
+import json, pandas as pd, numpy as np, io, bisect
 lines = open("D:/Temp/fam_gpu_trace.csv", encoding="utf8", errors="ignore").read().splitlines()
 h = next(i for i, l in enumerate(lines) if l.startswith('"Start"'))
 df = pd.read_csv(io.StringIO("\n".join([lines[h]] + lines[h + 2:])), low_memory=False)
@@ -8,7 +8,7 @@ dur_unit = lines[h + 1].split(",")[1].strip('"'); dmul = {"s": 1.0, "ms": 1e-3, 
 df["t"] = df["Start"].astype(float) * mul; df["d"] = df["Duration"].astype(float) * dmul
 k = df[df["Name"].notna() & df["Grid X"].notna()].copy()   # kernels have grid dims
 anc = k[k["Name"].str.contains("anchor_kernel_zz")]
-d = pickle.load(open("D:/Temp/fam_gpu_log.pkl", "rb"))
+d = json.load(open("D:/Temp/fam_gpu_log.json"))
 off = anc["t"].iloc[-1] - d["t_anchor"]   # trace time = perf + off (anchor launch precedes t_anchor by tiny)
 ivs = [(a + off, b + off, n) for n, a, b in d["log"]]
 k = k[k["t"] > anc["t"].iloc[-1]]

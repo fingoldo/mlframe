@@ -4,6 +4,7 @@ Verifies that CatBoost and HGB can train directly on Polars DataFrames
 (no pandas conversion) with early stopping on a separate Polars validation set.
 """
 
+import functools
 import inspect
 
 import numpy as np
@@ -164,8 +165,9 @@ class TestCatBoostPolarsRegression:
         assert preds.shape == (N_VAL,)
 
 
+@functools.cache
 def _gpu_available() -> bool:
-    """Check if CatBoost can use the GPU."""
+    """Check if CatBoost can use the GPU (fits a tiny model, so it runs once, when the first skipif below is evaluated, not at import)."""
     try:
         probe = CatBoostClassifier(iterations=1, task_type="GPU", devices="0", verbose=0)
         rng = np.random.default_rng(0)
@@ -177,10 +179,7 @@ def _gpu_available() -> bool:
         return False
 
 
-_has_gpu = _gpu_available()
-
-
-@pytest.mark.skipif(not _has_gpu, reason="No GPU available for CatBoost")
+@pytest.mark.skipif("not _gpu_available()", reason="No GPU available for CatBoost")
 class TestCatBoostPolarsGPUClassification:
     """CatBoostClassifier on GPU with Polars DataFrames."""
 
@@ -206,7 +205,7 @@ class TestCatBoostPolarsGPUClassification:
         assert preds.shape == (N_VAL, 2)
 
 
-@pytest.mark.skipif(not _has_gpu, reason="No GPU available for CatBoost")
+@pytest.mark.skipif("not _gpu_available()", reason="No GPU available for CatBoost")
 class TestCatBoostPolarsGPURegression:
     """CatBoostRegressor on GPU with Polars DataFrames."""
 
@@ -417,6 +416,7 @@ class TestXGBoostStrategyPreparePolars:
         assert result.equals(df)
 
 
+@functools.cache
 def _xgboost_has_native_polars_support() -> bool:
     """Feature-detect whether the installed xgboost's sklearn ``fit()`` dispatches a raw Polars
     ``DataFrame`` through its own categorical-aware backend, instead of silently falling through to
@@ -436,10 +436,7 @@ def _xgboost_has_native_polars_support() -> bool:
         return False
 
 
-_XGB_HAS_POLARS = _xgboost_has_native_polars_support()
-
-
-@pytest.mark.skipif(not _XGB_HAS_POLARS, reason="installed xgboost has no native Polars DataFrame dispatch (pre-3.x)")
+@pytest.mark.skipif("not _xgboost_has_native_polars_support()", reason="installed xgboost has no native Polars DataFrame dispatch (pre-3.x)")
 class TestXGBoostPolarsClassification:
     """XGBoost trained on Polars DataFrames with categorical features."""
 

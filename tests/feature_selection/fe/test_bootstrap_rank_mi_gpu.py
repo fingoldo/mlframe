@@ -87,7 +87,7 @@ def test_a_genuine_oom_notes_the_shared_cooldown(monkeypatch):
     arr, y, reps = _data(3000, 10)
     monkeypatch.setenv("MLFRAME_BOOTSTRAP_RANK_DEVICE", "1")
 
-    def _boom(cp_arg, n):
+    def _boom(*_args, **_kwargs):
         """Simulate a genuine device OutOfMemoryError, not a generic fault."""
         raise cp.cuda.memory.OutOfMemoryError(1, 0, 0)
 

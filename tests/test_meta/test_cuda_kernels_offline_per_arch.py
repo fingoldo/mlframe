@@ -157,14 +157,15 @@ _FAILURE_ROWS: list = []  # (variant id, arch, first line of the failure), the p
 def test_kernel_assembles_without_spill_on_arch(variant: KernelVariant, arch: int, tmp_path):
     """NVRTC then ptxas -v: compiles, one resource block per entry, no stack frame or spill, no unlisted warning."""
     try:
-        _check_variant(variant, arch, tmp_path)
+        entry_names = _check_variant(variant, arch, tmp_path)
     except BaseException as exc:  # pytest.fail raises a BaseException subclass; recorded, then re-raised unchanged
         _FAILURE_ROWS.append((_variant_id(variant), arch, (str(exc).splitlines() or [type(exc).__name__])[0][:200]))
         raise
+    assert entry_names, f"{_variant_id(variant)} sm_{arch}: no kernel entry was checked"
 
 
-def _check_variant(variant: KernelVariant, arch: int, tmp_path) -> None:
-    """The body of the per-arch check (kept separate so the wrapper above can record its failure)."""
+def _check_variant(variant: KernelVariant, arch: int, tmp_path) -> list[str]:
+    """The body of the per-arch check (kept separate so the wrapper above can record its failure); returns the kernel entries it verified."""
     _nvrtc_or_skip()
     ptxas = _ptxas()
     if leftover_placeholders(variant):
@@ -194,6 +195,7 @@ def _check_variant(variant: KernelVariant, arch: int, tmp_path) -> None:
     assert not warnings, f"sm_{arch}: unlisted NVRTC or ptxas warnings: {warnings[:3]}"
     bounds_bad = launch_bounds_violations(ptx_text, report)
     assert not bounds_bad, f"sm_{arch}: __launch_bounds__ not honoured (entry, registers, cap): {bounds_bad}"
+    return entry_names
 
 
 _LITERAL_MIN_BLOCKS = re.compile(r"__launch_bounds__\(\s*\w+\s*,\s*\d+\s*\)")  # second argument a bare number

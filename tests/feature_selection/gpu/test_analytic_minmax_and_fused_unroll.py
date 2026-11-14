@@ -63,8 +63,8 @@ def test_the_fused_kernel_matches_the_host_mi_around_the_unroll_and_tile_edges(n
     got = pag._fused_observed_mi_and_bins(cp.asarray(codes), y, 3)
     assert got is not None
     want_mi, want_bins = _host_mi_and_bins(codes, y, 3)
-    np.testing.assert_allclose(got[0], want_mi, rtol=1e-9, atol=1e-12)
-    np.testing.assert_array_equal(got[1], want_bins)
+    assert np.allclose(got[0], want_mi, rtol=1e-9, atol=1e-12), (got[0], want_mi)
+    assert np.array_equal(got[1], want_bins), (got[1], want_bins)
 
 
 def test_a_negative_code_declines_the_fused_path():
