@@ -5,7 +5,7 @@ Carved out of ``_binned_numeric_agg_fe``, which re-exports every name so the his
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 import logging
 from collections.abc import Sequence
 
@@ -17,15 +17,79 @@ from mlframe.feature_selection.filters._device_sort_safe import device_argsort, 
 
 logger = logging.getLogger("mlframe.feature_selection.filters._binned_numeric_agg_fe")
 
-# Columns at or above this many rows take the device quantile (a host np.quantile there costs 5-10x a device sort plus the upload it overlaps with).
+# Pre-sweep fallback of the device quantile: columns at or above this many rows take it (a host np.quantile there costs 5-10x a device sort plus the upload it overlaps with).
+# The per-host crossover is the kernel-tuning entry ``binagg_quantile_edges_backend`` below.
 _DEVICE_QUANTILE_MIN_N = 200_000
+_SWEEP_ROWS = [2_000, 5_000, 20_000, 100_000, 400_000, 1_600_000]
+_SWEEP_NBINS = 10
+_SWEEP_SALT = 1
+
+
+def _sweep_inputs(dims: dict) -> tuple:
+    """A float64 column of ``dims["n_samples"]`` rows with ties (rounded values), the case the tied-edge handling of the device quantile has to reproduce."""
+    rng = np.random.default_rng(0)
+    x = rng.standard_normal(int(dims["n_samples"]))
+    x[::7] = np.round(x[::7], 1)
+    return (x,)
+
+
+def _sweep_host(x: np.ndarray) -> np.ndarray:
+    """The host edges."""
+    qs = np.linspace(0.0, 1.0, _SWEEP_NBINS + 1)[1:-1]
+    return cast("np.ndarray", np.unique(np.quantile(np.asarray(x, dtype=np.float64), qs)))  # Intentional float64: edges from the host float64 values
+
+
+def _sweep_device(x: np.ndarray) -> np.ndarray:
+    """The device edges; ``None`` from the device path (no cupy, a failed self-check) raises, so the sweep never records a host fallback as a device time."""
+    from ._device_quantile import device_quantile
+
+    qs = np.linspace(0.0, 1.0, _SWEEP_NBINS + 1)[1:-1]
+    dev = device_quantile(np.asarray(x, dtype=np.float64), qs)  # Intentional float64: edges from the host float64 values
+    if dev is None:
+        raise RuntimeError("the device quantile does not apply")
+    return cast("np.ndarray", np.unique(dev))
+
+
+def _fallback_choice(n_samples: int) -> str:
+    """Pre-sweep fallback: the device from ``_DEVICE_QUANTILE_MIN_N`` rows."""
+    return "device" if int(n_samples) >= _DEVICE_QUANTILE_MIN_N else "host"
+
+
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+    from ._ktc_fallback import host_device_sweep
+
+    _SPEC: Any = kernel_tuner(
+        kernel_name="binagg_quantile_edges_backend",
+        variant_fns=(),  # the two backends are timed by the sweep callable
+        tuner=host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=1e-12, atol=1e-12),
+        axes={"n_samples": list(_SWEEP_ROWS)},
+        fallback=_fallback_choice,
+        gpu_capable=True,
+        salt=_SWEEP_SALT,
+        cli_label="binagg_quantile_edges_backend",
+    )
+except Exception as e:  # best-effort: without a tuner entry the row threshold decides
+    logger.warning("kernel_tuner spec build for binagg_quantile_edges_backend failed: %s", e)
+    _SPEC = None
+
+
+def device_quantile_chosen(n_rows: int) -> bool:
+    """Whether a column of ``n_rows`` rows takes the device quantile: the per-host kernel-tuning cache, else ``_DEVICE_QUANTILE_MIN_N``."""
+    if _SPEC is None:
+        return int(n_rows) >= _DEVICE_QUANTILE_MIN_N
+    try:
+        return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
+    except Exception as exc:
+        logger.debug("binagg_quantile_edges_backend: KTC choose() failed, using the row threshold: %s", exc)
+        return int(n_rows) >= _DEVICE_QUANTILE_MIN_N
 
 
 def quantile_edges(x: np.ndarray, nbins: int) -> np.ndarray:
     """Inner quantile cut points (unique-deduped); code = searchsorted(edges, v, side='right')."""
     qs = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
     x = np.asarray(x, dtype=np.float64)  # Intentional float64: the group and operand columns are binned by exact quantile edges from the host float64 values
-    if x.size >= _DEVICE_QUANTILE_MIN_N:
+    if device_quantile_chosen(x.size):
         # Large column under the strict-resident path: one device sort + the order statistics numpy would read, bit-identical to np.quantile (~115 ms
         # per 1M-row column on the host).
         try:
@@ -55,11 +119,13 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
     try:
         import os as _os
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+
         # No size gate under STRICT (user contract: 100% residency, no KTC-style size dispatch).
         if _os.environ.get("MLFRAME_FE_CHEAP_MI_GPU", "1").strip().lower() in ("1", "true", "on", "yes") and fe_gpu_strict_resident_enabled():
             import cupy as cp
             from ._resident_bincount import resident_bincount
             from ._fe_resident_operands import resident_operand
+
             cvd = cp.asarray(cv)
             _n = int(cvd.size)
             # Sync-free interior percentile edges (manual sort + linear interp, no cp.quantile host read) and NO
@@ -149,6 +215,7 @@ def _cheap_mi_group_selection(X: pd.DataFrame, gcands: Sequence[str], y_codes: n
     """
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+
         if fe_gpu_strict_resident_enabled():
             return _cheap_mi_group_selection_device(X, gcands, y_codes, nbins)
     except Exception as e:
@@ -157,7 +224,9 @@ def _cheap_mi_group_selection(X: pd.DataFrame, gcands: Sequence[str], y_codes: n
     valid_names: list = []
     valid_cols: list = []
     for g in gcands:
-        cv = np.asarray(X[g].to_numpy(), dtype=np.float64)  # Intentional float64: the group and operand columns are binned by exact quantile edges from the host float64 values
+        cv = np.asarray(
+            X[g].to_numpy(), dtype=np.float64
+        )  # Intentional float64: the group and operand columns are binned by exact quantile edges from the host float64 values
         if not np.isfinite(cv).all() or float(np.min(cv)) == float(np.max(cv)):
             out[g] = 0.0
             continue

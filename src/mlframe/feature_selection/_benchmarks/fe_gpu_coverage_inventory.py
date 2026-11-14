@@ -219,6 +219,14 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
         "_pairs_score_steps",
         "_pairs_setup",
     ),
+    "_binned_numeric_agg_fe": (
+        "_binned_agg_cheap_mi",
+        "_binned_agg_linear_usability",
+        "_binned_numeric_agg_batches",
+        "_binned_numeric_agg_cands",
+        "_binned_numeric_agg_redundancy",
+        "_binned_numeric_agg_resident",
+    ),
     "_fe_accuracy_gate_batched": (
         "_fe_accuracy_gate_kernel",
         "_fe_accuracy_gate_newton",
