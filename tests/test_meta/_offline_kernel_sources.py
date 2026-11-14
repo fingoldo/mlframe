@@ -102,7 +102,7 @@ _RECIPES: dict = {
     ],
     "_pair_mi_perm_cuda.py::_SRC": lambda s: [(f"KB={kb}", _fill(s, **{"{ACC}": "double"}), (f"-DKB={kb}",)) for kb in (1, 4, 8)],
     "_fe_batched_mi_cmi.py::_BATCHED_JOINT_ENTROPY_SRC": lambda s: [(xt, _fill(s, **{"{ACC}": "double", "{XT}": xt}), ()) for xt in ("long long", "unsigned char")],
-    "_hsic_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "EXPF": "expf" if r == "float" else "exp"}), ()) for r in _REAL_TYPES],
+    "_hsic_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "EXPF": "expf" if r == "float" else "exp"}), ()) for r in _REAL_TYPES],
     "_pair_residual_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
     "_synergy_combo_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],
     "_added_information_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],

@@ -23,24 +23,24 @@ from ._ktc_fallback import selection_view
 logger = logging.getLogger(__name__)
 
 _SRC = r"""
-extern "C" __global__ void hsic_biased_cols(const {REAL}* __restrict__ xs, const double* __restrict__ lc, const double* __restrict__ inv_two_s2,
-                                            const int m, const int k, double* __restrict__ tot_out) {
+extern "C" __global__ void hsic_biased_cols(const {REAL}* __restrict__ xs, const {ACC}* __restrict__ lc, const {ACC}* __restrict__ inv_two_s2,
+                                            const int m, const int k, {ACC}* __restrict__ tot_out) {
     extern __shared__ unsigned char smem[];
     {REAL}* sx = ({REAL}*)smem;                                  // this column's m values
-    double* red = (double*)(smem + ((m * sizeof({REAL}) + 7) / 8) * 8);
+    {ACC}* red = ({ACC}*)(smem + ((m * sizeof({REAL}) + 7) / 8) * 8);
     const int j = blockIdx.x;
     if (j >= k) return;
     for (int a = threadIdx.x; a < m; a += blockDim.x) sx[a] = xs[(long long)j * m + a];
     __syncthreads();
     const {REAL} g = ({REAL})inv_two_s2[j];
-    double acc = 0.0;
+    {ACC} acc = 0.0;
     for (int a = threadIdx.x; a < m - 1; a += blockDim.x) {
         const {REAL} xa = sx[a];
-        const double* row = lc + (long long)a * m;
-        double part = 0.0;
+        const {ACC}* row = lc + (long long)a * m;
+        {ACC} part = 0.0;
         for (int b = a + 1; b < m; ++b) {
             const {REAL} d = xa - sx[b];
-            part += (double)EXPF(-d * d * g) * row[b];   // Lc stays double: its rows sum to 0, which float32 rounding would break for flat columns
+            part += ({ACC})EXPF(-d * d * g) * row[b];   // Lc stays in the accumulator type: its rows sum to 0, which a narrow rounding would break for flat columns
         }
         acc += part;
     }
@@ -70,14 +70,14 @@ def _hsic_kernel(real: str) -> Any:
     with _MODULES_LOCK:
         kern = _MODULES.get(real)
         if kern is None:
-            src = _SRC.replace("{REAL}", real).replace("EXPF", "expf" if real == "float" else "exp")
+            src = _SRC.replace("{REAL}", real).replace("{ACC}", "double").replace("EXPF", "expf" if real == "float" else "exp")
             kern = _MODULES[real] = cp.RawKernel(src, "hsic_biased_cols")
     return kern
 
 
 def hsic_biased_columns_gpu(xs_rows: np.ndarray, lc: np.ndarray, sigmas: np.ndarray, denom: float) -> Optional[np.ndarray]:
     """Biased HSIC of every row of ``xs_rows`` ``(k, m)`` against the centred ``lc`` ``(m, m)`` with bandwidths ``sigmas`` ``(k,)``; ``None`` on any device fault or
-    a subsample over ``_MAX_M`` (the caller runs the host kernel). The columns go up in blocks bounded by a quarter of the free VRAM."""
+    a subsample over ``_MAX_M`` (the caller runs the host kernel). The columns go up in column blocks bounded by a quarter of the free VRAM."""
     try:
         import cupy as cp
 
@@ -210,3 +210,19 @@ def _run_hsic_sweep():
         )
         or []
     )
+
+
+# The sweep is also registered with the central kernel-tuning registry under the name ``hsic_biased_backend`` that ``hsic_backend`` reads through ``get_or_tune`` (same tuner function, same axes), so ``retune_all`` and
+# the tuning CLI see and refresh it; the lazy asynchronous sweep above is unchanged.
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+_SPEC = kernel_tuner(
+    kernel_name="hsic_biased_backend",
+    variant_fns=(),  # the two backends are timed by the sweep callable
+    tuner=_run_hsic_sweep,
+    axes={"m": [200, 500, 1000], "k": [8, 100, 400]},
+    fallback={"kernel_choice": "cpu"},
+    gpu_capable=True,
+    salt=2,
+    cli_label="hsic_biased_backend",
+)
