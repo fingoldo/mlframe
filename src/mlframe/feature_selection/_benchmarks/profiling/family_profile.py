@@ -6,7 +6,6 @@ python -m mlframe.feature_selection._benchmarks.profiling.family_profile <family
 """
 
 from __future__ import annotations
-from typing import Any
 
 import argparse
 import cProfile
