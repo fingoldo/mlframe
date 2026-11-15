@@ -58,7 +58,7 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_rows",
         ("float32", "float64"),
     ),
-    "extra_fe_families_dispersion_resident.disp_column": (
+    "extra_fe_families_dispersion_resident.disp_columns": (
         "mlframe.feature_selection.filters._extra_fe_families_dispersion_resident",
         "kernel",
         ("float32", "float64"),
@@ -67,6 +67,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "mlframe.feature_selection.filters._fe_pure_form_retention_gpu_resident",
         "kernel",
         ("float64",),
+    ),
+    "extra_fe_families_dispersion_resident.disp_bin_codes": (
+        "mlframe.feature_selection.filters._extra_fe_families_dispersion_resident",
+        "codes_kernel",
+        ("float32", "float64"),
     ),
     "rolling_window_gpu.rolling_stat_past_only": (
         "mlframe.feature_selection.filters._rolling_window_gpu",

@@ -112,6 +112,7 @@ _RECIPES: dict = {
     "_fe_batched_mi.py::_MI_FROM_CODES_TILE_SRC": lambda s: [(ct, _fill(s, **{"{ACC}": "double", "{CT}": ct}), ()) for ct in ("long long", "unsigned char")],
     "_extra_fe_families_dispersion_resident.py::_COLUMN_SRC": lambda s: [(f"{r}->{e}", _fill(s, **{"{REAL}": r, "{EDGE}": e, "{FABS}": "fabsf" if r == "float" else "fabs"}), ()) for r in _REAL_TYPES for e in _REAL_TYPES],
     "_fe_pure_form_retention_gpu_resident.py::_GRAM_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
+    "_extra_fe_families_dispersion_resident.py::_CODES_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r}), ()) for r in _REAL_TYPES],
     "_order_stats_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
     "_synergy_combo_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],
     "_added_information_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],

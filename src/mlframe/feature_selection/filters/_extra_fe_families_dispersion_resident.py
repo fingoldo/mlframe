@@ -70,7 +70,7 @@ __all__ = [
 _DISPERSION_SIGMA_FLOOR: float = 1e-9
 
 
-def _codes_from_edges_gpu(cp, xj_g, edges_g):
+def _codes_from_edges_gpu(cp, xj_g, edges_g):  # the cupy-op reference of ``disp_bin_codes`` (one column at a time)
     """Device twin of ``_extra_fe_families._digitize_with_edges``: assign each ``x_j`` value to a bin in
     ``[0, len(edges)-2]`` using the INTERIOR edges (``edges[1:-1]``), side='right'; clip; NaN ``x_j`` -> bin 0.
 
@@ -91,7 +91,7 @@ def _codes_from_edges_gpu(cp, xj_g, edges_g):
 
 def _emit_kind_gpu(cp, z, kind: str):
     """Device twin of ``_extra_fe_families_dispersion._emit_kind`` on cupy ops: map the signed z-score to the requested
-    emission kind (identity / abs / square). The builders run the fused ``disp_column`` kernel; this is its reference in the tests."""
+    emission kind (identity / abs / square). The builders run the fused ``disp_columns`` kernel; this is its reference in the tests."""
     if kind == "z":
         return z
     if kind == "absz":
@@ -104,27 +104,33 @@ def _emit_kind_gpu(cp, z, kind: str):
 _COLUMN_SRC = render(
     r"""
 extern "C" __global__
-void disp_column(const {REAL}* __restrict__ xi, const long long* __restrict__ codes, const {REAL}* __restrict__ mean, const {REAL}* __restrict__ std_,
-                 const long long n, const int mode, const {REAL} floor_v, {EDGE}* __restrict__ out) {
-    // One output column in one launch: gather the per-bin mean (and sigma), floor sigma exactly as _zscore_from_bins_njit (s < floor -> 1), z = (x - mu) / s, fold by `mode`
-    // (0 z, 1 |z|, 2 z^2, 3 the |x - mu| of the Family-B residual, no divide), rows with a non-finite x_i -> 0. Written straight into the output row (cast to the block's dtype).
-    const long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n) return;
-    const {REAL} x = xi[i];
-    const long long c = codes[i];
-    {REAL} r = ({REAL})0.0;
-    if (isfinite(x)) {
-        const {REAL} d = x - mean[c];
-        if (mode == 3) {
-            r = {FABS}(d);
-        } else {
-            {REAL} s = std_[c];
-            s = s < floor_v ? ({REAL})1.0 : s;
-            const {REAL} z = d / s;
-            r = mode == 0 ? z : (mode == 1 ? {FABS}(z) : z * z);
+void disp_columns(const {REAL}* __restrict__ xi_all, const long long* __restrict__ codes_all, const {REAL}* __restrict__ mean_tab, const {REAL}* __restrict__ std_tab, const int nbmax,
+                  const int* __restrict__ xi_idx, const int* __restrict__ code_idx, const int* __restrict__ tab_idx, const int* __restrict__ mode,
+                  const long long n, const long long K, const {REAL} floor_v, {EDGE}* __restrict__ out) {
+    // Every candidate column in ONE launch over the (K, n) output with the rows fastest (a warp reads consecutive rows of one operand and writes consecutive words of one output row).
+    // Column s: gather the per-bin mean (and sigma) of its pair table by the bin code of x_j, floor sigma exactly as _zscore_from_bins_njit (s < floor -> 1), z = (x_i - mu) / s, fold by
+    // `mode` (0 z, 1 |z|, 2 z^2, 3 the |x_i - mu| of the Family-B residual, no divide), rows with a non-finite x_i -> 0; the value is cast to the block's dtype.
+    for (long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x; t < K * n; t += (long long)gridDim.x * blockDim.x) {
+        const long long s = t / n;
+        const long long r = t - s * n;
+        const {REAL} x = xi_all[(long long)xi_idx[s] * n + r];
+        const long long c = codes_all[(long long)code_idx[s] * n + r];
+        const long long tb = (long long)tab_idx[s] * nbmax + c;
+        {REAL} v = ({REAL})0.0;
+        if (isfinite(x)) {
+            const {REAL} d = x - mean_tab[tb];
+            const int m = mode[s];
+            if (m == 3) {
+                v = {FABS}(d);
+            } else {
+                {REAL} sg = std_tab[tb];
+                sg = sg < floor_v ? ({REAL})1.0 : sg;
+                const {REAL} z = d / sg;
+                v = m == 0 ? z : (m == 1 ? {FABS}(z) : z * z);
+            }
         }
+        out[t] = ({EDGE})v;
     }
-    out[i] = ({EDGE})r;
 }
 """,
 )
@@ -133,129 +139,186 @@ _COLUMN_KERNELS: dict = {}
 
 
 def kernel(cp: Any, real: Any, out: Any = None) -> Any:
-    """``disp_column`` reading values of the dtype ``real`` and writing the dtype ``out`` (default ``real``); compiled once per pair of types."""
+    """``disp_columns`` reading values of the dtype ``real`` and writing the dtype ``out`` (default ``real``); compiled once per pair of types."""
     out = real if out is None else out
     key = (np.dtype(real).str, np.dtype(out).str)
     compiled = _COLUMN_KERNELS.get(key)
     if compiled is None:
         src = render(_COLUMN_SRC, real=real, edge=out).replace("{FABS}", "fabsf" if np.dtype(real) == np.float32 else "fabs")
-        compiled = _COLUMN_KERNELS[key] = cp.RawKernel(src, "disp_column")
+        compiled = _COLUMN_KERNELS[key] = cp.RawKernel(src, "disp_columns")
     return compiled
 
 
-def _fused_column(cp, out_row, xi_g, codes_g, mean_g, std_g, mode: int) -> None:
-    """Write one candidate column into ``out_row`` with one ``disp_column`` launch."""
+def _fused_columns(cp: Any, out: Any, xi_all: Any, codes_all: Any, mean_tab: Any, std_tab: Any, xi_idx: Any, code_idx: Any, tab_idx: Any, mode: Any) -> None:
+    """Write the (K, n) candidate block ``out`` with ONE ``disp_columns`` launch: column s uses operand row ``xi_idx[s]`` of ``xi_all``, bin codes ``code_idx[s]`` of ``codes_all``, table row ``tab_idx[s]``
+    of the padded (tables, nbmax) mean / sigma matrices and the emission ``mode[s]``."""
     from pyutilz.performance.gpu_hw_launch import block_size_for
 
-    n = int(xi_g.shape[0])
-    kern = kernel(cp, xi_g.dtype, out_row.dtype)
-    threads = block_size_for(kern, work_items=n)
-    kern(((n + threads - 1) // threads,), (threads,), (xi_g, codes_g, mean_g, std_g, np.int64(n), np.int32(mode), xi_g.dtype.type(_DISPERSION_SIGMA_FLOOR), out_row))
+    K, n = int(out.shape[0]), int(out.shape[1])
+    kern = kernel(cp, xi_all.dtype, out.dtype)
+    threads = block_size_for(kern, work_items=K * n)
+    sms = int(cp.cuda.Device().attributes["MultiProcessorCount"])
+    grid = int(max(1, min((K * n + threads - 1) // threads, sms * 32)))
+    kern((grid,), (threads,), (xi_all, codes_all, mean_tab, std_tab, np.int32(int(mean_tab.shape[1])), xi_idx, code_idx, tab_idx, mode, np.int64(n), np.int64(K), xi_all.dtype.type(_DISPERSION_SIGMA_FLOOR), out))
 
 
-def build_dispersion_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], column_major: bool = False, out_dtype: Any = None) -> Any:
-    """Build the conditional-dispersion candidate matrix ON the device, one column per ``col_specs`` entry, in
-    the GIVEN order. Reproduces ``generate_conditional_dispersion_features``'s per-pair body on device from
-    resident operand columns.
+def _fused_column(cp: Any, out_row: Any, xi_g: Any, codes_g: Any, mean_g: Any, std_g: Any, mode: int) -> None:
+    """One candidate column through :func:`_fused_columns` (a block of one)."""
+    z = cp.zeros(1, dtype=cp.int32)
+    _fused_columns(cp, out_row[None, :], xi_g[None, :], codes_g[None, :], mean_g[None, :], std_g[None, :], z, z, z, cp.asarray(np.array([mode], dtype=np.int32)))
 
-    ``col_specs`` is a list of per-output dicts ``{name, x_i, x_j, edges, bin_mean, bin_std, kind}`` (exactly
-    the recipe fields) - the columns the host ``enc_df`` carries, in the SAME order. Returns an (n, K) cupy
-    double precision matrix whose columns are the device reconstructions, structurally bit-identical to the host (same
-    bin codes, same sigma-floor, same NaN-fold, same emission fold); only the f64 divide differs at ~1e-10 ULP.
 
-    Operands (the two raw columns per pair) ride through the resident-operand cache so each distinct raw column
-    uploads ONCE per fit. The per-bin ``(mu_hat, sigma_hat)`` + edges are SMALL host-stored recipe constants
-    uploaded once per distinct (x_j) / pair. The candidate matrix itself is device-born + transient (NOT
-    cached)."""
+_CODES_SRC = render(
+    r"""
+extern "C" __global__
+void disp_bin_codes(const {REAL}* __restrict__ xj_all, const {REAL}* __restrict__ edges, const int* __restrict__ n_interior, const int emax, const long long n, const long long J,
+                    long long* __restrict__ out) {
+    // The bin codes of every distinct x_j in ONE launch over the (J, n) output (rows fastest): the number of interior edges (edges[1:-1] of the stored quantile edges) that are <= x, i.e.
+    // np.searchsorted(side="right"), clipped to the top bin, with a non-finite x in bin 0 (the host's _digitize_with_edges). Edges and values are compared at the criterion dtype, as the host
+    // digitiser rounds x before it compares.
+    for (long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x; t < J * n; t += (long long)gridDim.x * blockDim.x) {
+        const long long j = t / n;
+        const {REAL} x = xj_all[t];
+        const int m = n_interior[j];
+        const {REAL}* e = edges + j * emax;
+        int lo = 0, hi = m;
+        while (lo < hi) {
+            const int mid = (lo + hi) >> 1;
+            if (e[mid] <= x) lo = mid + 1; else hi = mid;
+        }
+        out[t] = isfinite(x) ? (long long)lo : 0LL;
+    }
+}
+""",
+)
+_CODES_KERNELS: dict = {}
+
+
+def codes_kernel(cp: Any, real: Any) -> Any:
+    """``disp_bin_codes`` for values of the dtype ``real``; compiled once per type."""
+    key = np.dtype(real).str
+    compiled = _CODES_KERNELS.get(key)
+    if compiled is None:
+        compiled = _CODES_KERNELS[key] = cp.RawKernel(render(_CODES_SRC, real=real), "disp_bin_codes")
+    return compiled
+
+
+def _bin_codes_block(cp: Any, xj_list: list, edge_rows: list) -> Any:
+    """The (J, n) int64 bin codes of the resident columns ``xj_list`` against their stored edges ``edge_rows`` (host arrays, ``edges[1:-1]`` is the interior), one ``disp_bin_codes`` launch."""
+    from pyutilz.performance.gpu_hw_launch import block_size_for
+
+    dt = crit_float_dtype()
+    xj_all = cp.stack([cp.asarray(c, dtype=dt) for c in xj_list])
+    inner = [np.asarray(e, dtype=_crit_np_dtype())[1:-1] for e in edge_rows]
+    emax = max(1, max(int(e.shape[0]) for e in inner))
+    tab = np.zeros((len(inner), emax), dtype=_crit_np_dtype())
+    for k, e in enumerate(inner):
+        tab[k, : e.shape[0]] = e
+    J, n = int(xj_all.shape[0]), int(xj_all.shape[1])
+    out = cp.empty((J, n), dtype=cp.int64)
+    kern = codes_kernel(cp, dt)
+    threads = block_size_for(kern, work_items=J * n)
+    sms = int(cp.cuda.Device().attributes["MultiProcessorCount"])
+    grid = int(max(1, min((J * n + threads - 1) // threads, sms * 32)))
+    kern((grid,), (threads,), (xj_all, cp.asarray(tab, dtype=dt), cp.asarray(np.array([e.shape[0] for e in inner], dtype=np.int32)), np.int32(emax), np.int64(n), np.int64(J), out))
+    return out
+
+
+def _stage_columns(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], table_keys: "tuple[str, str | None]", out_dtype: Any) -> Any:
+    """The device operands of a candidate block: ``(out, xi_all, codes_all, mean_tab, std_tab, xi_idx, code_idx, tab_idx, mode)`` for ``col_specs``.
+
+    Each distinct raw column is uploaded once through the resident-operand cache (``("disp_xi", x_i)``), every distinct x_j is binned from its stored edges in one ``disp_bin_codes`` launch, and the per-pair (mean, sigma)
+    tables, small host constants, go up as one padded matrix. ``table_keys`` is ``("bin_mean", "bin_std")`` for the dispersion block and ``("bin_mean", None)`` for the residual block (modes 3)."""
     from ._fe_resident_operands import resident_operand
 
     n = len(X)
-
-    # Per x_j the edges / codes are SHARED across all (x_i, x_j) columns + kinds -> compute once, keyed on x_j.
-    # Per x_i the raw column is SHARED across all its (x_i, x_j) pairs -> uploaded once via the operand cache.
-    # The (bin_mean, bin_std) are per-(x_i, x_j) recipe constants (uploaded once per pair). The per-kind fold is
-    # the only per-column tail work after the shared z-score.
-    code_cache: dict = {}  # x_j -> codes_g
-    pair_cache: dict = {}  # (x_i, x_j) -> (x_i on the device, per-bin mean, per-bin sigma)
-    dt = crit_float_dtype() if out_dtype is None else out_dtype
-    out = cp.empty((len(col_specs), n), dtype=dt)  # one row per output column, in col_specs order
-    for k, spec in enumerate(col_specs):
-        x_i = spec["x_i"]
-        x_j = spec["x_j"]
-        kind = str(spec["kind"])
-        if kind not in _KIND_MODE:
-            raise ValueError(f"conditional_dispersion: unknown kind {kind!r}")
-        codes_g = code_cache.get(x_j)
-        if codes_g is None:
+    xi_names: dict = {}
+    xj_names: dict = {}
+    pair_names: dict = {}
+    xi_cols: list = []
+    xj_cols: list = []
+    edge_rows: list = []
+    mean_rows: list = []
+    std_rows: list = []
+    xi_idx: list = []
+    code_idx: list = []
+    tab_idx: list = []
+    modes: list = []
+    for spec in col_specs:
+        x_i, x_j = spec["x_i"], spec["x_j"]
+        if table_keys[1] is not None:
+            kind = str(spec["kind"])
+            if kind not in _KIND_MODE:
+                raise ValueError(f"conditional_dispersion: unknown kind {kind!r}")
+            modes.append(_KIND_MODE[kind])
+        else:
+            modes.append(3)
+        if x_j not in xj_names:
             xj = np.asarray(X[x_j].to_numpy(), dtype=_crit_np_dtype())
-            edges = np.asarray(spec["edges"], dtype=_crit_np_dtype())
-            xj_g = resident_operand(np.ascontiguousarray(xj), ("disp_xj", x_j), dtype=crit_float_dtype())
-            edges_g = resident_operand(np.ascontiguousarray(edges), ("disp_edges", x_j), dtype=crit_float_dtype())
-            codes_g = _codes_from_edges_gpu(cp, xj_g, edges_g)
-            code_cache[x_j] = codes_g
-        operands = pair_cache.get((x_i, x_j))
-        if operands is None:  # the kinds of one pair share its operands: the content-keyed uploads are asked for once per pair
+            xj_names[x_j] = len(xj_cols)
+            xj_cols.append(resident_operand(np.ascontiguousarray(xj), ("disp_xj", x_j), dtype=crit_float_dtype()))
+            edge_rows.append(np.asarray(spec["edges"], dtype=_crit_np_dtype()))
+        if x_i not in xi_names:
             xi = np.asarray(X[x_i].to_numpy(), dtype=_crit_np_dtype())
-            xi_g = resident_operand(np.ascontiguousarray(xi), ("disp_xi", x_i), dtype=crit_float_dtype())
-            bin_mean = np.asarray(spec["bin_mean"], dtype=_crit_np_dtype())
-            bin_std = np.asarray(spec["bin_std"], dtype=_crit_np_dtype())
-            mean_g = resident_operand(np.ascontiguousarray(bin_mean), ("disp_mean", x_i, x_j), dtype=crit_float_dtype())
-            std_g = resident_operand(np.ascontiguousarray(bin_std), ("disp_std", x_i, x_j), dtype=crit_float_dtype())
-            operands = pair_cache[(x_i, x_j)] = (xi_g, mean_g, std_g)
-        _fused_column(cp, out[k], operands[0], codes_g, operands[1], operands[2], _KIND_MODE[kind])
+            xi_names[x_i] = len(xi_cols)
+            xi_cols.append(resident_operand(np.ascontiguousarray(xi), ("disp_xi", x_i), dtype=crit_float_dtype()))
+        if (x_i, x_j) not in pair_names:
+            pair_names[(x_i, x_j)] = len(mean_rows)
+            mean_rows.append(np.asarray(spec[table_keys[0]], dtype=_crit_np_dtype()))
+            std_rows.append(np.asarray(spec[table_keys[1]], dtype=_crit_np_dtype()) if table_keys[1] is not None else mean_rows[-1])
+        xi_idx.append(xi_names[x_i])
+        code_idx.append(xj_names[x_j])
+        tab_idx.append(pair_names[(x_i, x_j)])
+    nbmax = max(int(r.shape[0]) for r in mean_rows)
+    mean_h = np.zeros((len(mean_rows), nbmax), dtype=_crit_np_dtype())
+    std_h = np.zeros((len(mean_rows), nbmax), dtype=_crit_np_dtype())
+    for k, (m_row, s_row) in enumerate(zip(mean_rows, std_rows)):
+        mean_h[k, : m_row.shape[0]] = m_row
+        std_h[k, : s_row.shape[0]] = s_row
+    dt = crit_float_dtype()
+    out = cp.empty((len(col_specs), n), dtype=out_dtype)
+    return (
+        out, cp.stack([cp.asarray(c, dtype=dt) for c in xi_cols]), _bin_codes_block(cp, xj_cols, edge_rows), cp.asarray(mean_h, dtype=dt), cp.asarray(std_h, dtype=dt),
+        cp.asarray(np.asarray(xi_idx, dtype=np.int32)), cp.asarray(np.asarray(code_idx, dtype=np.int32)), cp.asarray(np.asarray(tab_idx, dtype=np.int32)), cp.asarray(np.asarray(modes, dtype=np.int32)),
+    )
 
+
+def build_dispersion_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], column_major: bool = False, out_dtype: Any = None) -> Any:
+    """Build the conditional-dispersion candidate matrix ON the device, one column per ``col_specs`` entry, in the GIVEN order, with ONE ``disp_columns`` launch.
+    Reproduces ``generate_conditional_dispersion_features``'s per-pair body on device from resident operand columns.
+
+    ``col_specs`` is a list of per-output dicts ``{name, x_i, x_j, edges, bin_mean, bin_std, kind}`` (exactly the recipe fields) - the columns the host ``enc_df`` carries, in the SAME order.
+    Returns an (n, K) cupy matrix at ``out_dtype`` (the criterion dtype by default; the (K, n) block when ``column_major``) whose columns are the device reconstructions, structurally bit-identical
+    to the host (same bin codes, same sigma-floor, same NaN-fold, same emission fold); only the divide differs at ~1e-10 ULP.
+
+    Operands (the two raw columns per pair) ride through the resident-operand cache so each distinct raw column uploads ONCE per fit. The per-bin ``(mu_hat, sigma_hat)`` + edges are SMALL
+    host-stored recipe constants. The candidate matrix itself is device-born + transient (NOT cached)."""
+    n = len(X)
+    dt = crit_float_dtype() if out_dtype is None else out_dtype
     if not len(col_specs):
         return cp.empty((0, n) if column_major else (n, 0), dtype=dt)
+    staged = _stage_columns(cp, X, col_specs, ("bin_mean", "bin_std"), dt)
+    _fused_columns(cp, *staged)
+    out = staged[0]
     # column_major: the rows of the (K, n) block are the columns - what the edge select and the MI kernel read, so no transpose follows
     return out if column_major else cp.ascontiguousarray(out.T)
 
 
 def build_residual_abs_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], column_major: bool = False, out_dtype: Any = None) -> Any:
-    """Build the ABSOLUTE Family-B mean-residual matrix ``|x_i - E[x_i|bin(x_j)]|`` ON the device, one column
-    per ``col_specs`` entry, in the GIVEN order. Reproduces ``_extra_fe_families.generate_conditional_residual_features``'s
-    per-pair body on device from resident operand columns - the SAME bin-code gather + per-bin-mean subtract
-    the device dispersion builder uses, but WITHOUT the ``/sigma`` step (this is the dispersion z-score
-    NUMERATOR before the divide), then ``cp.abs``.
+    """Build the ABSOLUTE Family-B mean-residual matrix ``|x_i - E[x_i|bin(x_j)]|`` ON the device, one column per ``col_specs`` entry, in the GIVEN order, with ONE ``disp_columns`` launch (mode 3).
+    Reproduces ``_extra_fe_families.generate_conditional_residual_features``'s per-pair body on device from resident operand columns - the SAME bin-code gather + per-bin-mean subtract the
+    dispersion builder uses, but WITHOUT the ``/sigma`` step, then the absolute value.
 
-    ``col_specs`` is a list of per-output dicts ``{x_i, x_j, edges, bin_mean}`` (the Family-B recipe fields).
-    Returns an (n, K) cupy double precision matrix whose columns are ``|residual|``, structurally bit-identical to the
-    host (same x_j bin codes via the SAME stored edges, same per-bin mean gather, same NaN ``x_i`` -> 0.0
-    fold). There is NO divide here - only a per-element gather + subtract + abs - so the emitted values match
-    the host to the last ULP (per-element independent f64).
-
-    The bin codes reuse the SAME ``("disp_xj", x_j)`` / ``("disp_edges", x_j)`` resident operands the dispersion
-    builder caches (the x_j edges are computed the SAME way - ``_quantile_edges`` - in both families, so a
-    column built on the same ``(x_i, x_j)`` pair shares the codes); ``x_i`` rides ``("disp_xi", x_i)``; the
-    per-bin mean is the Family-B-specific ``("resid_mean", x_i, x_j)`` constant uploaded once per pair. The
-    candidate matrix itself is device-born + transient (NOT cached)."""
-    from ._fe_resident_operands import resident_operand
-
+    ``col_specs`` is a list of per-output dicts ``{x_i, x_j, edges, bin_mean}`` (the Family-B recipe fields). Returns an (n, K) cupy matrix whose columns are ``|residual|`` (the (K, n) block when
+    ``column_major``), structurally bit-identical to the host (same x_j bin codes via the SAME stored edges, same per-bin mean gather, same NaN ``x_i`` -> 0.0 fold); there is no divide, so the values
+    match the host to the last ULP. The bin codes and ``x_i`` reuse the ``("disp_xj", x_j)`` / ``("disp_edges", x_j)`` / ``("disp_xi", x_i)`` resident operands of the dispersion builder."""
     n = len(X)
-
-    code_cache: dict = {}  # x_j -> codes_g (shared across all (x_i, x_j) pairs on the same x_j)
     dt = crit_float_dtype()
-    out = cp.empty((len(col_specs), n), dtype=dt)  # one row per output column, in col_specs order
-    for k, spec in enumerate(col_specs):
-        x_i = spec["x_i"]
-        x_j = spec["x_j"]
-        codes_g = code_cache.get(x_j)
-        if codes_g is None:
-            xj = np.asarray(X[x_j].to_numpy(), dtype=_crit_np_dtype())
-            edges = np.asarray(spec["edges"], dtype=_crit_np_dtype())
-            xj_g = resident_operand(np.ascontiguousarray(xj), ("disp_xj", x_j), dtype=crit_float_dtype())
-            edges_g = resident_operand(np.ascontiguousarray(edges), ("disp_edges", x_j), dtype=crit_float_dtype())
-            codes_g = _codes_from_edges_gpu(cp, xj_g, edges_g)
-            code_cache[x_j] = codes_g
-        xi = np.asarray(X[x_i].to_numpy(), dtype=_crit_np_dtype())
-        xi_g = resident_operand(np.ascontiguousarray(xi), ("disp_xi", x_i), dtype=crit_float_dtype())
-        bin_mean = np.asarray(spec["bin_mean"], dtype=_crit_np_dtype())
-        mean_g = resident_operand(np.ascontiguousarray(bin_mean), ("resid_mean", x_i, x_j), dtype=crit_float_dtype())
-        # mode 3: the per-bin mean gather, the subtract and the abs, NaN x_i rows -> 0.0 (the host fold); the sigma pointer is not read
-        _fused_column(cp, out[k], xi_g, codes_g, mean_g, mean_g, 3)
-
     if not len(col_specs):
         return cp.empty((0, n) if column_major else (n, 0), dtype=dt)
-    # column_major: the rows of the (K, n) block are the columns - what the edge select and the MI kernel read, so no transpose follows
+    staged = _stage_columns(cp, X, col_specs, ("bin_mean", None), dt)
+    _fused_columns(cp, *staged)
+    out = staged[0]
     return out if column_major else cp.ascontiguousarray(out.T)
 
 

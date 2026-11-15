@@ -3,7 +3,7 @@
 The detector's `high` hits in the current source, one row per function. The baseline (`tests/test_meta/_tiny_cupy_loops_baseline.json`) holds these keys.
 Dispositions to fill in: **FALSE POSITIVE** (the loop is a chunk, fold or fallback loop with a few trips and real work per trip), **FALLBACK** (the cupy loop runs only when a batched path is not taken, measured), **REAL** (a launch-bound loop, to restructure), **OPEN** (not yet read).
 
-Rows: 108.
+Rows: 107.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -18,8 +18,6 @@ Rows: 108.
 | feature_selection/filters/_conditional_gate_fe.py | cheap_row_argmax_scan | 513 | REAL, deliberate and budgeted: one device argmax per 3-column combination, the source states that the launch count is kept on purpose until the suite is decoupled from pool ordering |
 | feature_selection/filters/_cupy_polynom_optimizer.py | _score_generation_gpu | 171 | FALSE POSITIVE: loops over the fixed basis families (about nine), each one batched over the whole population |
 | feature_selection/filters/_cupy_polynom_optimizer.py | run_cupy_kernel_search | 251 | FALSE POSITIVE: loops over the sequential generations of the search, each trip one whole batched generation |
-| feature_selection/filters/_extra_fe_families_dispersion_resident.py | build_dispersion_matrix_gpu | 182 | REAL, measured and reduced: each column is one `disp_column` launch (the gathers, the sigma floor, the divide and the fold fused, written into its output row; was about ten cupy launches per pair plus a fold, a cast and a stack): 396 columns at 100000 rows 241 -> 146 ms interleaved (1.65x); what remains per column is the host-side operand lookup and one launch |
-| feature_selection/filters/_extra_fe_families_dispersion_resident.py | build_residual_abs_matrix_gpu | 238 | REAL, reduced the same way (mode 3 of `disp_column`: gather, subtract, abs, one launch per column); remaining per column: the operand lookup and one launch |
 | feature_selection/filters/_family_maxt_gate.py | _family_null_max_device_bits | 356 | FALSE POSITIVE: loops over permutation blocks (n_perm over the block size), each trip one batched device null over a block of permutations |
 | feature_selection/filters/_family_maxt_stream.py | streamed_null_max.null_max | 89 | FALSE POSITIVE: loops over the column groups admitted by the stream, each trip one full device null over its group |
 | feature_selection/filters/_fe_additive_fusion.py | _collect_relevant_halves | 204 | REAL, not yet measured: a full permutation null per pre-candidate, per-candidate launch work |
@@ -115,3 +113,4 @@ Rows: 108.
 | models/ensembling/_correlation.py | _probs_pairs | 94 | FALSE POSITIVE: loops over the classes on host numpy arrays |
 | feature_selection/filters/_extra_fe_families_dispersion.py | generate_conditional_dispersion_features | 337 | REAL, not yet measured: one batched device call per numeric column (`bin_moments_dispatch` over the other p-1 columns), so p launches of a kernel that is itself batched; fusing the x_j loop into one launch over all (x_j, x_i) pairs is open |
 | feature_selection/filters/_grouped_quantile_fe.py | _p_added_by_column | 665 | FALSE POSITIVE: a blocked loop (`for src, members in by_source.items()`), each trip one batched device call over all candidates of that source (`added_information_p_many`); the trips are the number of source columns |
+| feature_selection/filters/_extra_fe_families_dispersion_resident.py | _stage_columns | 190 | REAL, measured and small: the loop is over candidates and costs host dictionary lookups plus one cached resident upload per distinct x_i and x_j; the bin codes of all distinct x_j are ONE `disp_bin_codes` launch and the candidate build ONE `disp_columns` launch (396 columns at 100000 rows 210 -> 17 ms; the 60-candidate scoring 15.8 -> 10.0 ms wall). What remains per distinct column is the resident-operand lookup (content hash), not a launch |

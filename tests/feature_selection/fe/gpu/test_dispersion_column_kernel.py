@@ -1,4 +1,4 @@
-"""The fused ``disp_column`` kernel reproduces the cupy-op chain of the dispersion and residual builders exactly, for float32 and double operands, every emission kind, a floored sigma, NaN x_i and NaN x_j rows, and a narrower output dtype."""
+"""The fused ``disp_columns`` kernel reproduces the cupy-op chain of the dispersion and residual builders exactly, for float32 and double operands, every emission kind, a floored sigma, NaN x_i and NaN x_j rows, and a narrower output dtype."""
 
 from __future__ import annotations
 
@@ -59,3 +59,26 @@ def test_residual_mode_equals_the_cupy_chain(real):
     dr._fused_column(cp, out, xg, cg, mg, mg, 3)
     want = cp.where(cp.isfinite(xg), cp.abs(xg - mg[cg]), 0.0)
     np.testing.assert_array_equal(cp.asnumpy(out), cp.asnumpy(want))
+
+
+@pytest.mark.parametrize("real", [np.float32, np.float64])
+def test_bin_codes_kernel_equals_the_searchsorted_reference(real):
+    """``disp_bin_codes`` (one launch for several x_j with different edge counts) equals the per-column searchsorted / clip / NaN-to-bin-0 reference: tied edges, values on an edge, below and above all edges, NaN and inf."""
+    cp = _cp()
+    rng = np.random.default_rng(3)
+    n = 7001
+    cols, edge_rows = [], []
+    for nb in (3, 10, 25):
+        x = rng.standard_normal(n).astype(real)
+        x[::53] = np.nan
+        x[1::97] = np.inf
+        edges = np.quantile(x[np.isfinite(x)], np.linspace(0, 1, nb + 1)).astype(real)
+        edges[2] = edges[1]  # a tied edge
+        x[5], x[6] = edges[3], edges[-1]  # values exactly on an edge
+        cols.append(x)
+        edge_rows.append(edges)
+    got = cp.asnumpy(dr._bin_codes_block(cp, [cp.asarray(c) for c in cols], edge_rows))
+    for k, (x, e) in enumerate(zip(cols, edge_rows)):
+        # production uploads the stored edges at the criterion dtype (``resident_operand(..., dtype=crit_float_dtype())``), and both routes compare the value rounded to it with those edges
+        want = cp.asnumpy(dr._codes_from_edges_gpu(cp, cp.asarray(x), cp.asarray(e, dtype=dr.crit_float_dtype())))
+        np.testing.assert_array_equal(got[k], want)
