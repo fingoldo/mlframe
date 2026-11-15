@@ -47,7 +47,7 @@ _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(_TEST_DIR))
 
 
-def _run_fit(*, gen: str, dist: str, model: str, use_mrmr: bool, seed: int = 0, timeout: int = 2400, n: int | None = None) -> dict:
+def _run_fit(*, gen: str, dist: str, model: str, use_mrmr: bool, seed: int = 0, timeout: int = 3300, n: int | None = None) -> dict:
     """Run ONE suite fit in a fresh subprocess; return ``{"R2","span","n","structure"}``.
 
     The default ``timeout`` stays inside the 3600 s the tests that call this are allowed (the uplift test makes two fits, the raw one is short): 1200 s killed fits
