@@ -608,6 +608,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_solve",
         ("float32", "float64"),
     ),
+    "modular_codes_gpu.modular_all_ops": (
+        "mlframe.feature_selection.filters._modular_codes_gpu",
+        "kernel_for_source",
+        ("float32", "float64"),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",
@@ -629,6 +634,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
 # it. Pack any thread-private triangular-matrix array (Hessian, Cholesky factor) before reaching for this dict - that
 # cut this kernel's spill from 1512 to 936 bytes/thread for free (see the reason string for what remains).
 _SPILL_EXEMPT: dict[str, str] = {
+    "modular_codes_gpu.modular_all_ops": (
+        "32 bytes/thread with no thread-private array in the source: the stack frame libdevice reserves for the slow path of the single-precision `sincos` (the sine and cosine are taken at the "
+        "stored type to keep the 1:32 FP64 pipe out of the transcendental); no register spill, memory-bound residue / sin / cos writes. Same effect as the exempted `nonpoly_cells` and "
+        "`fourier_block`."
+    ),
     "als_fused_gpu.solve_small": (
         "576 bytes/thread at the reference width d = 8 (96 at d = 3) = the augmented matrix `{ACC} M[D][D + 1]` (8 x 9 doubles) of the normal equations, eliminated with a run-time pivot row "
         "by one block (thread 0 solves), so it is a stack-frame array and not a register spill; one launch per half sweep, tiny next to the Gram partials, nothing occupancy-bound. The frame "

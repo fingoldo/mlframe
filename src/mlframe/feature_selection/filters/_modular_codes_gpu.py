@@ -168,6 +168,11 @@ def _use_device(n_elements: int) -> bool:
     return modular_device_chosen(int(n_elements))
 
 
+def kernel_for_source(cp, real):
+    """``modular_all_ops`` for source columns of dtype ``real`` (float32 sources are read as they are, anything else as double): compile point of the caller and of the register-pressure registry."""
+    return (_MODULE_F32 if np.dtype(real) == np.float32 else _MODULE).get(cp).get_function("modular_all_ops")
+
+
 def _sources_per_block(cp, n_rows: int, per_source: int, source_bytes: int = _BYTES_PER_SOURCE_ROW) -> int:
     """Source columns per launch (one column block): the double source block and its float32 candidates within ``_BUDGET_FRACTION`` of what the pool can hand out (at least 1)."""
     try:
@@ -205,7 +210,7 @@ def modular_family_codes_gpu(
         # float32 sources (the project dtype) go up as float32: every value widens exactly to the double the residue is computed in, so the codes are the same
         # Intentional float64: non-float32 sources go up as float64, the residue is double
         src_dtype = np.float32 if all(np.dtype(X[c].dtype) == np.float32 for c in cols) else np.float64
-        kernel = (_MODULE_F32 if src_dtype == np.float32 else _MODULE).get(cp).get_function("modular_all_ops")
+        kernel = kernel_for_source(cp, src_dtype)
         p_dev = cp.asarray(np.asarray(periods, dtype=np.float64))  # Intentional float64: the residue is computed in double precision, as on the host
         codes = np.empty((len(cols) * per_source, n), dtype=np.int16)
         nx = np.empty(len(cols) * per_source, dtype=np.int64)
