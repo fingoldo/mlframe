@@ -413,9 +413,12 @@ def _gpu_robust_lo_hi_batched(cp, M, med, scale):
 _HEAVY_TAIL_STATS_TILED_SRC = render(r"""
 extern "C" __global__
 void heavy_tail_stats_tiled(const {REAL}* __restrict__ M, const {REAL}* __restrict__ med,
-                            const {REAL}* __restrict__ scale, const {ACC} outerK, const {ACC} gapthr,
-                            const {ACC} maxfrac, const long long n, const int K,
-                            signed char* __restrict__ out_v) {
+                            const {REAL}* __restrict__ scale, const {ACC} outerK,
+                            const long long n, const int K,
+                            long long* __restrict__ part_n, {ACC}* __restrict__ part_b, {ACC}* __restrict__ part_o) {
+    // One 32-column x 8-row tile per block, and blockIdx.y owns a share of the rows (grid fill: 8 columns used to be a single block): the partial outer count, the largest bulk deviation and
+    // the smallest outer deviation of the row share go to (blockIdx.y, column). The three reductions are order independent (an exact integer sum, a max, a min), so the combine in
+    // ``heavy_tail_finish`` gives the single-block values whatever the number of shares.
     __shared__ long long sh_n[8][33];
     __shared__ {ACC} sh_b[8][33];
     __shared__ {ACC} sh_o[8][33];
@@ -427,7 +430,7 @@ void heavy_tail_stats_tiled(const {REAL}* __restrict__ M, const {REAL}* __restri
     {ACC} thr = outerK * sc;
     long long nloc = 0;
     {ACC} bulk = -1e308, omin = 1e308;
-    if (ok) for (long long i = ty; i < n; i += 8) {
+    if (ok) for (long long i = (long long)blockIdx.y * 8 + ty; i < n; i += 8LL * gridDim.y) {
         {ACC} dev = fabs(({ACC})M[i * (long long)K + col] - mc);
         if (dev > thr) { nloc += 1; if (dev < omin) omin = dev; }
         else if (dev > bulk) bulk = dev;
@@ -442,23 +445,61 @@ void heavy_tail_stats_tiled(const {REAL}* __restrict__ M, const {REAL}* __restri
             if (sh_b[r][tx] > bmax) bmax = sh_b[r][tx];
             if (sh_o[r][tx] < omn) omn = sh_o[r][tx];
         }
-        {ACC} bk = bmax > 1e-12 ? bmax : 1e-12;
-        {ACC} gap = omn / bk;
-        out_v[col] = ((sc > 1e-12) && (no > 0) && (({ACC})no <= maxfrac * ({ACC})n) && (gap >= gapthr)) ? 1 : 0;
+        part_n[(long long)blockIdx.y * K + col] = no;
+        part_b[(long long)blockIdx.y * K + col] = bmax;
+        part_o[(long long)blockIdx.y * K + col] = omn;
     }
+}
+
+extern "C" __global__
+void heavy_tail_finish(const {REAL}* __restrict__ scale, const long long* __restrict__ part_n, const {ACC}* __restrict__ part_b, const {ACC}* __restrict__ part_o,
+                       const int shares, const {ACC} gapthr, const {ACC} maxfrac, const long long n, const int K, signed char* __restrict__ out_v) {
+    // The verdict of column `col` from the partials of its row shares: sc > 1e-12, some outer rows, at most maxfrac of the rows outer, and the outer minimum at least gapthr times the bulk maximum.
+    const int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (col >= K) return;
+    long long no = 0;
+    {ACC} bmax = -1e308, omn = 1e308;
+    for (int s = 0; s < shares; ++s) {
+        no += part_n[(long long)s * K + col];
+        if (part_b[(long long)s * K + col] > bmax) bmax = part_b[(long long)s * K + col];
+        if (part_o[(long long)s * K + col] < omn) omn = part_o[(long long)s * K + col];
+    }
+    const {ACC} sc = ({ACC})scale[col];
+    {ACC} bk = bmax > 1e-12 ? bmax : 1e-12;
+    {ACC} gap = omn / bk;
+    out_v[col] = ((sc > 1e-12) && (no > 0) && (({ACC})no <= maxfrac * ({ACC})n) && (gap >= gapthr)) ? 1 : 0;
 }
 """)
 _HEAVY_TAIL_STATS_TILED_KERNELS: dict = {}
 
 
 def _get_heavy_tail_stats_tiled_kernel(cp, real_t: str = "double"):
-    """The tiled ``heavy_tail_stats`` RawKernel for the element type ``real_t`` (one module per type, cached under the kernel lock)."""
+    """The tiled ``heavy_tail_stats`` and ``heavy_tail_finish`` RawKernels for the element type ``real_t`` (one module per type, cached under the kernel lock)."""
     with _KERNEL_CACHE_LOCK:
         kern = _HEAVY_TAIL_STATS_TILED_KERNELS.get(real_t)
         if kern is None:
-            kern = cp.RawKernel(_HEAVY_TAIL_STATS_TILED_SRC.replace("{REAL}", real_t), "heavy_tail_stats_tiled")
+            src = _HEAVY_TAIL_STATS_TILED_SRC.replace("{REAL}", real_t)
+            kern = (cp.RawKernel(src, "heavy_tail_stats_tiled"), cp.RawKernel(src, "heavy_tail_finish"))
             _HEAVY_TAIL_STATS_TILED_KERNELS[real_t] = kern
     return kern
+
+
+def _launch_heavy_tail(cp, Mc, med_c, scale_c, n: int, K: int, out_v, shares: "int | None" = None) -> None:
+    """Write the per-column heavy-tail verdicts (int8) of the contiguous (n, K) matrix ``Mc`` into ``out_v``: the tiled stats kernel over ``shares`` row shares (default: enough for about eight blocks per
+    SM) and the finishing kernel that combines the partials."""
+    real_t = "float" if Mc.dtype == cp.float32 else "double"
+    heavy, finish = _get_heavy_tail_stats_tiled_kernel(cp, real_t)
+    col_blocks = (K + 31) // 32
+    if shares is None:
+        sms = int(cp.cuda.Device().attributes["MultiProcessorCount"])
+        shares = int(max(1, min(64, -(-(sms * 8) // col_blocks), max(1, n // 256))))  # grid fill: enough row shares for about eight blocks per SM
+    part_n = cp.empty((shares, K), dtype=cp.int64)
+    part_b = cp.empty((shares, K), dtype=cp.float64)  # Intentional float64: deviation partials compared with thresholds at full precision
+    part_o = cp.empty((shares, K), dtype=cp.float64)  # Intentional float64: deviation partials compared with thresholds at full precision
+    heavy((col_blocks, shares), (32, 8),  # launch-ok: 32x8 tile fixed by the kernel's shared layout
+        (Mc, med_c, scale_c, float(_GPU_ROBUST_AXIS_OUTER_K), np.int64(n), np.int32(K), part_n, part_b, part_o))
+    finish(((K + 127) // 128,), (128,),  # launch-ok: one thread per column, the block width has no effect
+        (scale_c, part_n, part_b, part_o, np.int32(shares), float(_GPU_ROBUST_AXIS_GAP), float(_GPU_ROBUST_AXIS_MAX_FRAC), np.int64(n), np.int32(K), out_v))
 
 
 def _gpu_detect_heavy_tail_batched(cp, M):
@@ -479,13 +520,7 @@ def _gpu_detect_heavy_tail_batched(cp, M):
         Mc = cp.ascontiguousarray(M.astype(crit_float_dtype(), copy=False))
         K = int(Mc.shape[1])
         out_v = cp.empty(K, dtype=cp.int8)
-        real_t = "float" if Mc.dtype == cp.float32 else "double"
-        heavy = _get_heavy_tail_stats_tiled_kernel(cp, real_t)
-        heavy(((K + 31) // 32,), (32, 8),  # launch-ok: 32x8 tile fixed by the kernel's shared layout
-            (Mc, cp.ascontiguousarray(med.astype(crit_float_dtype(), copy=False)),
-             cp.ascontiguousarray(scale.astype(crit_float_dtype(), copy=False)),
-             float(_GPU_ROBUST_AXIS_OUTER_K), float(_GPU_ROBUST_AXIS_GAP),
-             float(_GPU_ROBUST_AXIS_MAX_FRAC), np.int64(n), np.int32(K), out_v))
+        _launch_heavy_tail(cp, Mc, cp.ascontiguousarray(med.astype(crit_float_dtype(), copy=False)), cp.ascontiguousarray(scale.astype(crit_float_dtype(), copy=False)), n, K, out_v)
         return out_v.astype(cp.bool_)
     except Exception as e:
         import logging

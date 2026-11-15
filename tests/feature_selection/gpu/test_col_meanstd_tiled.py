@@ -75,12 +75,13 @@ def test_tiled_heavy_tail_flags_equal_the_reference(n, k, dtype):
     scale = cp.asarray((np.median(np.abs(host - np.median(host, axis=0)), axis=0) * 1.4826).astype(dtype))
     real_t = "float" if dtype == np.float32 else "double"
     args_tail = (np.float64(gpu_basis._GPU_ROBUST_AXIS_OUTER_K), np.float64(gpu_basis._GPU_ROBUST_AXIS_GAP), np.float64(gpu_basis._GPU_ROBUST_AXIS_MAX_FRAC), np.int64(n), np.int32(k))
-    tiled = cp.empty(k, dtype=cp.int8)
-    tiled_kernel = gpu_basis._get_heavy_tail_stats_tiled_kernel(cp, real_t)
-    tiled_kernel(((k + 31) // 32,), (32, 8), (M, med, scale, *args_tail, tiled))
     ref = cp.empty(k, dtype=cp.int8)
     ref_kernel = ref_k.get_heavy_tail_stats_kernel(cp, real_t)
     ref_kernel((k,), (128,), (M, med, scale, *args_tail, ref))
     flags = cp.asnumpy(ref)
     assert flags.any() and not flags.all(), "the data must exercise both outcomes"
-    assert np.array_equal(cp.asnumpy(tiled), flags)
+    # one row share (the former single block per column), a few shares, many shares and the default grid fill all give the reference flags: the partials combine with an exact sum, a max and a min
+    for shares in (1, 3, 17, None):
+        tiled = cp.empty(k, dtype=cp.int8)
+        gpu_basis._launch_heavy_tail(cp, M, med, scale, n, k, tiled, shares=shares)
+        assert np.array_equal(cp.asnumpy(tiled), flags), f"shares={shares}"
