@@ -219,9 +219,9 @@ def main_effect_z_columns(cols: Sequence[np.ndarray], bins: int, t: np.ndarray, 
 
 
 def _sweep_inputs(dims: dict) -> tuple:
-    """``(columns, n_bins)``: ``_SWEEP_COLS`` float32 columns of ``dims["n_rows"]`` rows."""
+    """``(columns, n_bins)``: ``_SWEEP_COLS`` float32 columns of ``dims["n_samples"]`` rows."""
     rng = np.random.default_rng(0)
-    x = rng.standard_normal((_SWEEP_COLS, int(dims["n_rows"]))).astype(np.float32)
+    x = rng.standard_normal((_SWEEP_COLS, int(dims["n_samples"]))).astype(np.float32)
     return (list(x), _SWEEP_BINS)
 
 

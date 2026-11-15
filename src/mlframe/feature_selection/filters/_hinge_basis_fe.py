@@ -515,6 +515,23 @@ def _hinge_batch_min_k() -> int:
     return 2
 
 
+def _precheck_survivors(cols_x: list, y_arr: np.ndarray) -> list:
+    """The ``(col_name, x)`` pairs of ``cols_x`` whose coarse hinge probe clears ``_HINGE_PRECHECK_MIN_SSE_DROP``, from ONE batched pass over the block (:mod:`._hinge_precheck_gpu`: the numba kernel or the
+    fused CUDA kernel, per the kernel-tuning cache) instead of one ``np.linalg.qr`` per column inside :func:`_detect_hinge_breakpoints` (1.14 s against 0.10 s on 100 columns x 100000 rows). A column the
+    probe drops is one the per-column detector would have returned ``[]`` for; the survivors still run the detector, whose own precheck and pinned QR are unchanged. Any failure keeps every column."""
+    if len(cols_x) < 2 or int(np.asarray(y_arr).size) < _HINGE_MIN_ROWS:
+        return cols_x
+    try:
+        from ._hinge_precheck_gpu import hinge_precheck_drops
+
+        xs = np.stack([np.asarray(x, dtype=np.float64).ravel() for _c, x in cols_x])
+        drops = hinge_precheck_drops(xs, np.asarray(y_arr, dtype=np.float64).ravel(), _HINGE_PRECHECK_QS, _HINGE_MIN_SEG_ROWS)
+        return [item for item, d in zip(cols_x, drops) if d >= _HINGE_PRECHECK_MIN_SSE_DROP]
+    except Exception as exc:
+        log_throttle(logger, "hinge_precheck_batch_failed", logging.WARNING, "hinge: the batched precheck failed (%s: %s); every column goes to the per-column detector", type(exc).__name__, exc)
+        return cols_x
+
+
 def _detect_hinge_breakpoints_for_columns(
     cols_x: list, y_arr: np.ndarray, *, max_breakpoints: int, min_heldout_r2_uplift: float,
 ) -> dict:
@@ -548,6 +565,7 @@ def _detect_hinge_breakpoints_for_columns(
             logger.debug("generate_hinge_features: batched detector unavailable (%s); per-column fallback", exc)
     from ._fe_deadline import fe_deadline_passed
 
+    remaining = _precheck_survivors(remaining, y_arr)
     for col, x in remaining:
         # Optional-enrichment wall-clock budget: stop the per-column hinge-breakpoint scan once MRMR.fit's
         # deadline passes; return whatever was engineered so far. No-op without a budget (mirrors the

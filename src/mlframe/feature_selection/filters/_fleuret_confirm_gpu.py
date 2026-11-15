@@ -328,9 +328,9 @@ _SALT = 2
 
 
 def _sweep_inputs(dims: dict) -> tuple:
-    """``(data, nbins, candidate columns, target column, selected columns)``: a code frame of ``dims["n_rows"]`` rows whose target depends on the first two columns."""
+    """``(data, nbins, candidate columns, target column, selected columns)``: a code frame of ``dims["n_samples"]`` rows whose target depends on the first two columns."""
     rng = np.random.default_rng(0)
-    n = int(dims["n_rows"])
+    n = int(dims["n_samples"])
     cols = [rng.integers(0, _SWEEP_NBINS, n) for _ in range(_SWEEP_COLS)]
     y = (cols[0] + cols[1] + rng.integers(0, 2, n)) % 3
     data = np.column_stack([*cols, y]).astype(np.int8)

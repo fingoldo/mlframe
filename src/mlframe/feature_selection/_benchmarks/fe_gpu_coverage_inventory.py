@@ -298,6 +298,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_residual_rescue_fe": ("_residual_rescue_gpu", "_residual_rescue_ktc"),
     "batch_pair_mi_gpu": ("_batch_pair_mi_cuda_kernels",),
     "_orthogonal_xi_fe": ("_orthogonal_xi_gpu",),
+    "_hinge_basis_fe": ("_hinge_precheck_gpu", "_hinge_detect_gpu_resident", "_hinge_detect_gpu_resident_batch"),
     "_fe_sufficient_summary": ("_fe_sufficient_summary_pairs",),
     "_group_distance_fe": ("_group_distance_gpu",),
     "_orthogonal_copula_mi_fe": ("_orthogonal_copula_gpu",),

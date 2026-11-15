@@ -628,6 +628,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "hinge_precheck_gpu.hinge_precheck_drops": (
+        "mlframe.feature_selection.filters._hinge_precheck_gpu",
+        "kernel",
+        ("float32", "float64"),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",
