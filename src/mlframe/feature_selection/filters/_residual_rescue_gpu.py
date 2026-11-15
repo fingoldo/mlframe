@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 
+from ._gpu_strict_fe._audit import audit_tag
 from ._kernel_types import render
 
 __all__ = ["score_columns_gpu", "codes_matrix_gpu"]
@@ -214,8 +215,11 @@ def codes_matrix_gpu(M: np.ndarray, n_bins: int, sample: int, min_finite: int, f
         usable_u8 = usable.astype(cp.uint8)
         threads = 256
         kernel(((n + threads - 1) // threads, hi - lo), (threads,), (X, cp.ascontiguousarray(edges), np.int64(n), np.int32(ne), usable_u8, q))  # launch-ok: columns on the grid y axis, rows on x
-        codes_out[lo:hi] = cp.asnumpy(q)
-        ok_out[lo:hi] = cp.asnumpy(usable)
+        # The int8 codes are the result of this function: the rescue scorer that reads them is host (njit) code, so they cross the bus on purpose, one byte per cell;
+        # the residency audit files them under their own tag instead of counting them as intermediate traffic.
+        with audit_tag("residual_rescue_codes_host"):
+            codes_out[lo:hi] = cp.asnumpy(q)
+            ok_out[lo:hi] = cp.asnumpy(usable)
         return hi - lo
 
     block = first_block(cp, n, p, 12, 3)
