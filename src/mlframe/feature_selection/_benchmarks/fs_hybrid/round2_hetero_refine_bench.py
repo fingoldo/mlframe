@@ -7,6 +7,7 @@ force permutation importance in the panel (R2b-8). If NO refinement lifts hetero
 level, the rejections are confirmed by measurement (not hand-wave). Across the 6 fs_hybrid scenarios x 2 seeds.
 """
 from __future__ import annotations
+from typing import Any
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -48,7 +49,7 @@ def boruta(X, y):
 def main():
     rows = []
     # R2b-3 threshold/percentile grid + R2b-8 permutation panel importance. Default panel (tree/linear/distance).
-    VARIANTS = {
+    VARIANTS: dict[str, Any] = {
         "boruta_ref": None,
         "hetero_vt0.5": dict(vote_threshold=0.5, percentile=100.0),
         "hetero_vt0.34": dict(vote_threshold=0.34, percentile=100.0),  # R2b-3 permissive (>=1 of 3)

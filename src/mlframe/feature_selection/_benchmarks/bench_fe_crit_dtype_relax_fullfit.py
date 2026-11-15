@@ -9,6 +9,7 @@ for paired timing, and asserts the SELECTION is unchanged (the FE/MRMR bar is se
 Run: python -m mlframe.feature_selection._benchmarks.bench_fe_crit_dtype_relax_fullfit
 """
 from __future__ import annotations
+from typing import Any
 
 import os
 import time
@@ -57,7 +58,8 @@ def main():
     _run("1", X, y)
 
     f64_times, f32_times = [], []
-    sel64 = sel32 = None
+    sel64: Any = None
+    sel32: Any = None
     for _ in range(TRIALS):
         dt64, sel64 = _run("0", X, y)  # alternate f64/f32 so shared-machine load cancels in the paired compare
         dt32, sel32 = _run("1", X, y)

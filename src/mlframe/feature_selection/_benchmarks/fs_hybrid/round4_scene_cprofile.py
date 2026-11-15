@@ -9,6 +9,7 @@ rows to keep the profile tractable (the per-pair Python overhead is largely n-in
 at small n -- and if the wall barely drops with n, that itself confirms the bottleneck is n-independent Python).
 """
 from __future__ import annotations
+from typing import Any, cast
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,12 +31,12 @@ def _disable_kernel_tuning_sweep():
         import pyutilz.performance.kernel_tuning.cache as _M
         from _downstream_shared import no_sweep_get_or_tune
 
-        _M.KernelTuningCache.get_or_tune = no_sweep_get_or_tune
+        cast(Any, _M.KernelTuningCache).get_or_tune = no_sweep_get_or_tune
         # The postgres-loaded disk makes the per-host cache load_or_create() block for MINUTES (disk + filelock).
         # Use a throwaway in-memory cache so profiling the FE hotspot is not gated on disk I/O (we already force the
         # fallback above, so the cache content is irrelevant here).
         _inmem = _M.KernelTuningCache(in_memory=True)
-        _M.KernelTuningCache.load_or_create = classmethod(lambda cls: _inmem)
+        cast(Any, _M.KernelTuningCache).load_or_create = classmethod(lambda cls: _inmem)
         print("[kernel-tuning sweep+disk DISABLED for profiling -> in-memory fallback]", flush=True)
     except Exception as e:
         logger.debug("no-sweep patch failed: %s", e)
@@ -60,9 +61,9 @@ def main():
     pr.disable(); dt = time.time() - t0
     out = list(m.transform(X.iloc[:5]).columns)
     print(f"fit {dt:.1f}s; selected n={len(out)} (raw+eng); engineered={sum(1 for c in out if c not in X.columns)}", flush=True)
-    s = io.StringIO(); ps = pstats.Stats(pr, stream=s)
+    buf = io.StringIO(); ps = pstats.Stats(pr, stream=buf)
     print("\n========== TOP 35 by TOTTIME (where the serial time is actually spent) ==========")
-    ps.sort_stats("tottime").print_stats(35); print(s.getvalue())
+    ps.sort_stats("tottime").print_stats(35); print(buf.getvalue())
     s2 = io.StringIO(); ps2 = pstats.Stats(pr, stream=s2)
     print("\n========== TOP 25 by CUMTIME ==========")
     ps2.sort_stats("cumulative").print_stats(25); print(s2.getvalue())

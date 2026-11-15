@@ -13,6 +13,7 @@ EXACT synthetic frame at both shapes, warm + multi-iteration, to separate real
 cost from attribution noise.
 """
 from __future__ import annotations
+from typing import Any
 
 import json
 import logging
@@ -67,7 +68,7 @@ def _is_object_array_col(df, c) -> bool:
 
 def main():
     _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = {"label": "drift-value-counts-microbench", "shapes": []}
+    out: dict[str, Any] = {"label": "drift-value-counts-microbench", "shapes": []}
     # MEASURED: emb (object-dtype ndarray cells) value_counts is 4.24s wall @ n=2000
     # and DID NOT COMPLETE in 12+ min @ 40k (pandas PyObjectHashTable hashing each
     # ndarray cell -- super-linear). That non-completion IS the result. The bench
@@ -77,11 +78,11 @@ def main():
     for n in _ns:
         df = _make_synthetic_frame("regression", n, seed=11)
         cat_cols = _categorical_columns(df)
-        rec = {"n_rows": n, "cat_cols": cat_cols, "per_col": {}}
+        rec: dict[str, Any] = {"n_rows": n, "cat_cols": cat_cols, "per_col": {}}
         # Per-column wall time of _col_value_counts (the flagged hotspot).
         for c in cat_cols:
             try:
-                nun = int(df[c].nunique(dropna=False))
+                nun: Any = int(df[c].nunique(dropna=False))
             except Exception as e:
                 logger.debug("nunique() failed for column %s: %s", c, e)
                 nun = f"UNHASHABLE:{type(e).__name__}"
