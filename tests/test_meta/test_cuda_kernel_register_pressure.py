@@ -468,6 +468,36 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_k2",
         ("float64",),
     ),
+    "gpu_resident_select_f32_compact.radix_select_f32_v4": (
+        "mlframe.feature_selection.filters._gpu_resident_select_f32_compact",
+        "kernel_v4",
+        ("float64",),
+    ),
+    "gpu_resident_select_f32_compact.radix_select_f32_v5": (
+        "mlframe.feature_selection.filters._gpu_resident_select_f32_compact",
+        "kernel_v5",
+        ("float64",),
+    ),
+    "gpu_resident_select_f32_compact.radix_select_f32_v5_winmap": (
+        "mlframe.feature_selection.filters._gpu_resident_select_f32_compact",
+        "kernel_v5_winmap",
+        ("float64",),
+    ),
+    "gpu_resident_materialise.fe_materialise": (
+        "mlframe.feature_selection.filters._gpu_resident_materialise",
+        "kernel",
+        ("float64",),
+    ),
+    "gpu_resident_materialise.fe_materialise_cm": (
+        "mlframe.feature_selection.filters._gpu_resident_materialise",
+        "kernel_cm",
+        ("float64",),
+    ),
+    "gpu_resident_materialise.fe_materialise_cm_tiled": (
+        "mlframe.feature_selection.filters._gpu_resident_materialise",
+        "kernel_cm_tiled",
+        ("float64",),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",
