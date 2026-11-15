@@ -198,6 +198,31 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_batched_joint_hist1_i32_u8",
         ("int64",),
     ),
+    "fe_batched_mi_mm_values.mi_mm_from_values": (
+        "mlframe.feature_selection.filters._fe_batched_mi_mm_values",
+        "kernel",
+        ("float64",),
+    ),
+    "fe_batched_mi_mm_values.mi_mm_from_values_nek": (
+        "mlframe.feature_selection.filters._fe_batched_mi_mm_values",
+        "kernel_nek",
+        ("float32", "float64"),
+    ),
+    "fe_batched_mi_mm_values.mm_nek_tile": (
+        "mlframe.feature_selection.filters._fe_batched_mi_mm_values",
+        "kernel_tile",
+        ("float32", "float64"),
+    ),
+    "fe_batched_mi_mm_values.col_minmax": (
+        "mlframe.feature_selection.filters._fe_batched_mi_mm_values",
+        "kernel_minmax",
+        ("float32", "float64"),
+    ),
+    "fe_batched_mi_mm_values.dedup_njit_edges": (
+        "mlframe.feature_selection.filters._fe_batched_mi_mm_values",
+        "kernel_dedup",
+        ("float32", "float64"),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",

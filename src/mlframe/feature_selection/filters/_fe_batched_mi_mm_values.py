@@ -116,6 +116,31 @@ def _get_dedup_edges_kernel(real_t: str = "double"):
     return kern
 
 
+def kernel(cp, real):
+    """``mi_mm_from_values`` (double values); the register-pressure registry compiles it through this."""
+    return _get_mi_mm_from_values_kernel()
+
+
+def kernel_nek(cp, real):
+    """``mi_mm_from_values_nek`` for values of dtype ``real`` (float32: the ``_nek_f32`` twin); registry factory."""
+    return _get_mi_mm_from_values_nek_f32_kernel() if np.dtype(real) == np.float32 else _get_mi_mm_from_values_nek_kernel()
+
+
+def kernel_tile(cp, real):
+    """``mm_nek_tile`` for values of dtype ``real``; registry factory."""
+    return cp.RawKernel(render(_MM_NEK_TILE_TEMPLATE, real=np.float32 if np.dtype(real) == np.float32 else np.float64), "mm_nek_tile")
+
+
+def kernel_minmax(cp, real):
+    """``col_minmax`` for values of dtype ``real``; registry factory."""
+    return cp.RawKernel(render(_COL_MINMAX_TEMPLATE, real=np.float32 if np.dtype(real) == np.float32 else np.float64), "col_minmax")
+
+
+def kernel_dedup(cp, real):
+    """``dedup_njit_edges`` for edges of dtype ``real``; registry factory."""
+    return _get_dedup_edges_kernel("float" if np.dtype(real) == np.float32 else "double")
+
+
 def _launch_dedup_edges(E, cmin, cmax, ne: int, K: int, Ec, ne_k) -> None:
     """Run ``dedup_njit_edges`` over ``(ne, K)`` edges and ``(K,)`` bounds, reading each at its own dtype (``E.dtype``) and writing the double ``Ec`` / int32 ``ne_k``."""
     import cupy as cp
