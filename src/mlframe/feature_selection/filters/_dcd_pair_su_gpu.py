@@ -91,7 +91,7 @@ def joint_entropies_gpu(fd: np.ndarray, a_arr: np.ndarray, b_arr: np.ndarray, nb
         """Entropies of the pairs ``fits[lo:hi]``, uploading only the columns they reference as contiguous rows."""
         sel = fits[lo:hi]
         used, inverse = np.unique(np.concatenate([a_arr[sel], b_arr[sel]]), return_inverse=True)
-        m = sel.shape[0]
+        m = int(sel.shape[0])
         cols_d = cp.asarray(np.ascontiguousarray(fd[:, used].T, dtype=np.int32))
         a_d = cp.asarray(inverse[:m].astype(np.int32))
         b_d = cp.asarray(inverse[m:].astype(np.int32))

@@ -134,7 +134,7 @@ def combo_mm_mi_gpu(code_cols: Sequence[np.ndarray], combos: Sequence[Sequence[i
     def block_work(lo: int, hi: int) -> int:
         """Score the combos ``fits[lo:hi]`` (a block of combos; the code matrix is already resident)."""
         sel = fits[lo:hi]
-        m = sel.shape[0]
+        m = int(sel.shape[0])
         c0 = np.empty(m, dtype=np.int32)
         c1 = np.empty(m, dtype=np.int32)
         c2 = np.full(m, -1, dtype=np.int32)
