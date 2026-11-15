@@ -10,8 +10,9 @@ History of the number on this development box (GTX 1050 Ti 4 GB, Pascal sm_61, 6
 - CPU only, 2026-10-31: 458 s -> about 310 s.
 - GPU, 2026-11-01: 237-272 s. 2026-11-03: 91.5 / 101.1 s (the ~100 s target was met). 2026-11-04: 85-86 s. 2026-11-05: about 82 s (``optimal_joint`` binning 96-100 s).
 - 2026-11-08: 76-79 s on a quiet machine (repeatable to +-1-3 s). 2026-11-10: 62-69 s, mean CPU load 30 %, mean GPU load 23 %.
-- Later changes (see audits/2026-11-09/_TRACKER.md, the PF11 / CF11 rows) were verified by equality of results and by counters; the whole-fit wall of 2026-11-15 A/Bs spread 267-380 s while a foreign
-  CPU-heavy process ran, so only quiet-machine numbers count.
+- 2026-11-15: 60.7 s (one run, machine not fully quiet: background CPU about 27 %, GPU 83 C, desktop holding 0.5 GB of the card; two concurrent stage sections of 11.7-12.8 s and 10.9-15.1 s, no OOM).
+  Later changes (see audits/2026-11-09/_TRACKER.md, the PF11 / CF11 rows) were verified by equality of results and by counters; the strict 100000 x 100 fit of the 2026-11-15 A/Bs spread 267-380 s
+  while a foreign CPU-heavy process ran, so only quiet-machine numbers count.
 
 The target. 50 s was set on 2026-11-08 as a rough guide, not as a hard bar. The real goal (owner, 2026-11-10) is near-100 % CPU and GPU occupancy during the fit with every GPU kernel conforming to
 CUDA.md; once that is reached at 100000 x 100, the same work is done at 100000 x 1000. nsys on this fit: kernels busy about 15 % of the window, 133k launches, copies about 1 %: the fit is bound by the
