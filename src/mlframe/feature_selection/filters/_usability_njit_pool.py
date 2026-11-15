@@ -41,7 +41,7 @@ import os
 import numpy as np
 
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
-from typing import cast
+from typing import Union, cast
 from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
@@ -478,9 +478,9 @@ def score_pair_combos(
     y_codes: np.ndarray,
     y_terms: tuple[np.ndarray, float, int],
     nbins: int,
-    ua_codes: Sequence[int],
-    ub_codes: Sequence[int],
-    bn_codes: Sequence[int],
+    ua_codes: Union[Sequence[int], np.ndarray],
+    ub_codes: Union[Sequence[int], np.ndarray],
+    bn_codes: Union[Sequence[int], np.ndarray],
 ) -> np.ndarray:
     """Score every ``(ua, ub, bn)`` combo for a pair, returning the per-combo MI array (sentinel -1.0
     for an ``std<=1e-9`` value). ``ua_codes``/``ub_codes`` are the per-unary op-codes (in preset order),

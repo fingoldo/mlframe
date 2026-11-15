@@ -995,7 +995,7 @@ exclude = '''
 [tool.ruff]
 extend = "$PY_CI_SHARED_DIR/configs/ruff-base.toml"
 target-version = "py39"
-exclude = ["tests", "scripts", ".git", "__pycache__", "build", "dist", "legacy", "profiling"]
+exclude = ["tests", "scripts", ".git", "__pycache__", "build", "dist", "legacy"]
 
 [tool.ruff.lint]
 extend-select = [
@@ -1010,7 +1010,7 @@ extend-select = [
               # that line, which defeats mypy's own warn_unused_ignores ratchet and hides the next, unrelated
               # error at the same site. Enabled 2026-09-08: all 46 findings closed -- the type-ignore codes
               # were measured by running mypy over an identical checkout with every blanket ignore stripped,
-              # not guessed, and the _benchmarks trees are exempt below because mypy does not check them.
+              # not guessed.
     "PLW0127",  # self-assigning-variable: a dead statement where a real operation was intended. Two findings,
                 # both dead rather than wrong (see models/ensembling/predict.py's shape-restore branch).
     "PLE2515",  # invalid-character-zero-width-space: an invisible character inside a string literal.
@@ -1056,7 +1056,7 @@ max-complexity = 25
 # declaration needed.
 
 [tool.ruff.lint.per-file-ignores]
-# PGH003 wants every `type: ignore` to name its error code. mypy does not check the _benchmarks
+# PGH003 wants every `type: ignore` to name its error code. The _benchmarks trees keep bare ignores
 # trees, so there is no reported code to name there and a blanket ignore hides nothing.
 "**/_benchmarks/**" = ["PGH003"]
 "__init__.py" = ["F401", "F403"]
@@ -1133,7 +1133,7 @@ check_untyped_defs = true
 # Ratchet added 2026-07-08 after the mypy sweep closed the error backlog to ~0: flags now-dead
 # `# type: ignore` comments (zero true-positive burden today; guards against future drift).
 warn_unused_ignores = true
-exclude = "(legacy|_?benchmarks|profiling)/"
+exclude = "(legacy)/"
 
 [[tool.mypy.overrides]]
 module = "tests.*"

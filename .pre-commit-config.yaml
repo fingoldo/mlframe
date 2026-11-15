@@ -161,7 +161,7 @@ repos:
         # CI's lint-blocking job scopes codespell to codespell-paths: src/mlframe -- this hook
         # must match (bug found 2026-07-17 alongside the black-filtered/interrogate/bandit scope
         # gaps above). tests/ gets its own dedicated lint job/hooks.
-        exclude: (^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/
+        exclude: (^|/)(tests|scripts|legacy)/
         stages: [pre-commit, pre-merge-commit]
 
   # Actionlint: lints .github/workflows/*.yml for syntax AND semantic bugs
@@ -246,7 +246,7 @@ repos:
         # scope must match, or it silently over-applies to any staged tests/ file (bug found
         # 2026-07-17 when a tests/-only formatting commit was blocked here despite mirroring CI,
         # since CI never checks tests/ at all). tests/ gets its own dedicated lint job/hooks.
-        exclude: (^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/
+        exclude: (^|/)(tests|scripts|legacy)/
         stages: [pre-commit, pre-merge-commit]
 
   # Mypy: scoped to the full strict-mode beachhead per [tool.mypy.overrides] in pyproject.toml.
@@ -373,7 +373,7 @@ repos:
         # CI's lint-blocking job scopes bandit to source-path: src/mlframe -- this hook must match
         # (bug found 2026-07-17 alongside the black-filtered/interrogate/codespell scope gaps
         # below). tests/ gets its own dedicated lint job/hooks.
-        exclude: (^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/
+        exclude: (^|/)(tests|scripts|legacy)/
         stages: [pre-commit, pre-merge-commit]
 
   # Dead-code gate: vulture --min-confidence 80. Blocking since 2026-07-09 -- triaged to 0
@@ -685,10 +685,8 @@ repos:
         # [tool.mypy]'s own `exclude` regex only applies to mypy's own directory-recursive
         # discovery, never to files passed explicitly on the command line (mypy's documented
         # behavior) -- and this hook's `pass_filenames: true` always passes explicit paths. So
-        # the [tool.mypy] exclude alone can never keep _benchmarks/benchmarks/profiling/legacy
-        # files out of this hook; it has to be excluded here too, mirroring every other
-        # pre-commit hook's own exclude (see e.g. black-filtered/ruff below).
-        exclude: '(^|/)(legacy|_?benchmarks|profiling)/'
+        # the [tool.mypy] exclude is mirrored here so both discoveries agree on legacy/.
+        exclude: '(^|/)(legacy)/'
         # --cache-dir is LOCAL to this checkout (2026-08-05, was shared across every sibling
         # worktree at ../.mlframe_mypy_cache_shared) -- moved off the shared cache for the exact
         # reason the two sibling hooks above already were on 2026-08-03: a worktree on a
