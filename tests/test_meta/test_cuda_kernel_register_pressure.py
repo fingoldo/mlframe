@@ -423,6 +423,21 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_mi_from_classes",
         ("int64",),
     ),
+    "pairs_analytic_gpu.minmax_i8": (
+        "mlframe.feature_selection.filters._feature_engineering_pairs._pairs_analytic_gpu",
+        "kernel_minmax",
+        ("float64",),
+    ),
+    "pairs_analytic_gpu.analytic_obs_mi_bins_i8": (
+        "mlframe.feature_selection.filters._feature_engineering_pairs._pairs_analytic_gpu",
+        "kernel",
+        ("float64",),
+    ),
+    "pairs_analytic_gpu.analytic_mi_from_hist": (
+        "mlframe.feature_selection.filters._feature_engineering_pairs._pairs_analytic_gpu",
+        "kernel_finish",
+        ("float64",),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",

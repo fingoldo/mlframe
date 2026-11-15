@@ -166,13 +166,28 @@ void minmax_i8(const signed char* __restrict__ a, const long long total, int* __
 _MINMAX_KERNEL = None
 
 
+def kernel_minmax(cp: Any, real: Any = None) -> Any:
+    """``minmax_i8`` (the code range of an int8 matrix; ``real`` unused): compile point of the getter and of the register-pressure registry."""
+    return cp.RawKernel(_MINMAX_SRC, "minmax_i8")
+
+
+def kernel(cp: Any, real: Any = None) -> Any:
+    """``analytic_obs_mi_bins_i8`` (the fused observed-MI + bin-count kernel, double accumulators); registry factory."""
+    return cp.RawKernel(_FUSED_SRC, "analytic_obs_mi_bins_i8")
+
+
+def kernel_finish(cp: Any, real: Any = None) -> Any:
+    """``analytic_mi_from_hist`` (the reduction stage of the split launch); registry factory."""
+    return cp.RawKernel(_FUSED_SRC, "analytic_mi_from_hist")
+
+
 def _minmax_i8(cp: Any, codes: Any) -> "tuple[int, int]":
     """``(smallest, largest)`` code of a contiguous int8 matrix in one device pass and one 8-byte read."""
     global _MINMAX_KERNEL
     from pyutilz.performance.gpu_hw_launch import block_size_for
 
     if _MINMAX_KERNEL is None:
-        _MINMAX_KERNEL = cp.RawKernel(_MINMAX_SRC, "minmax_i8")
+        _MINMAX_KERNEL = kernel_minmax(cp)
     out = cp.asarray(np.array([127, -128], dtype=np.int32))
     total = int(codes.size)
     threads = block_size_for(_MINMAX_KERNEL, work_items=max(1, total // 4))
@@ -191,7 +206,7 @@ def _fused_kernel():
     if _FUSED_KERNEL is None:
         import cupy as cp
 
-        _FUSED_KERNEL = cp.RawKernel(_FUSED_SRC, "analytic_obs_mi_bins_i8")
+        _FUSED_KERNEL = kernel(cp)
     return _FUSED_KERNEL
 
 
@@ -204,7 +219,7 @@ def _finish_kernel():
     if _FINISH_KERNEL is None:
         import cupy as cp
 
-        _FINISH_KERNEL = cp.RawKernel(_FUSED_SRC, "analytic_mi_from_hist")
+        _FINISH_KERNEL = kernel_finish(cp)
     return _FINISH_KERNEL
 
 
