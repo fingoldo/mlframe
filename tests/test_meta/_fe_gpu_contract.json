@@ -156,6 +156,7 @@
     "hermite_fe"
   ],
   "exempt": {
+    "_basis_cells_ktc": "the tuner entry of the device basis-cell path (kernel_tuner fe_basis_cells_device, sweep over the row count against the host variant at 1e-6 equivalence, fallback = the measured row mark, MLFRAME_BASIS_CELLS_DEVICE=0|1 forces a side): it owns no kernel and no array work; the cell kernels and their profile belong to _orthogonal_routing_device and _orthogonal_adaptive_degree_device, which are tracked in this registry as pending",
     "_basis_name_codes": "engineered-column name codes and a regular expression that splits a column name; string handling only, no array work",
     "_cat_pair_search_tuner": "the tuner entry of _gpu_pairs (cat_pair_search_backend): it owns no kernel, it times the njit pair search against the batched device pair MI of _gpu_pairs, which meets the contract (profile record _gpu_pairs.md)",
     "_composite_group_agg_fe": "per-group mean/std/count over integer key codes: a numba kernel bit-equal to pandas (2 ms per 20000-row column, 30 columns x 3 stats in 0.062 s); the candidate scoring that follows is the device-batched CMI (batched_cmi_gpu, chunked on OOM). A device twin would need the pandas Kahan/Welford order replayed per group to stay bit-equal and saves less than its own column transfer (audit 73cm); revisit if the generation share of a fit grows",
@@ -242,7 +243,6 @@
     "engineered_recipes": "bookkeeping, frame glue, recipes and names: no numeric kernel"
   },
   "pending": [
-    "_basis_cells_ktc",
     "_cat_pair_fe",
     "_cat_triple_fe",
     "_categorical_encoding",
