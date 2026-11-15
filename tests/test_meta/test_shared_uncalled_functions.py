@@ -81,6 +81,9 @@ _PUBLIC_API = {
 #: Re-exported from a package ``__init__`` (``from x import f`` or ``__all__``): the package's public surface for library
 #: users, so no production call site is expected. Classified as public API; new names must be added here with the export.
 _REEXPORTED_PUBLIC_API = {
+    "evaluate_candidates",  # the thread-worker entry of the candidate scorer, public name of the filters package (_legacy.__all__, mrmr/__init__); the screen scores serially now, the entry stays for callers that run it on their own threads
+    "sanitize",  # the dict / list copier, public name of the filters package (_legacy.__all__, mrmr/__init__); the per-worker copies of the retired scoring pool were its only internal use
+    "get_fleuret_criteria_confidence_parallel",  # the segmented Fleuret confirmation (the former joblib route, now sequential segments), public name of the filters package (_legacy, mrmr/__init__) and the reference of the worker-count tests
     "get_stage1_survivors",  # listed in the _shap_proxy_prefilter module __all__: public accessor for the stage-1 survivor mask
     "train_postcalibrators",  # re-exported by the calibration.post facade (from ._post_train_calibrators import ...)
     "_baseline_inputs_hash",

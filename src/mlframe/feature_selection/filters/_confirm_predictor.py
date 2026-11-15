@@ -28,7 +28,6 @@ import logging
 from timeit import default_timer as timer
 from typing import Any, Callable, Optional, cast
 
-import os
 
 import numba
 import numpy as np
@@ -36,10 +35,9 @@ from ._fe_usability_signal import _crit_np_dtype
 from numba.core import types
 
 
-from ._internals import MAX_ITERATIONS_TO_TRACK, NMAX_NONPARALLEL_ITERS
+from ._internals import MAX_ITERATIONS_TO_TRACK
 from .evaluation import (
     evaluate_candidate,
-    evaluate_candidates,
     find_best_partial_gain,
     get_candidate_name,
     handle_best_candidate,
@@ -52,25 +50,6 @@ from ._honest_mdlp_null import honest_candidate_nfailed
 
 logger = logging.getLogger(__name__)
 
-# OPT-IN (default OFF): ``score_candidates``'s ``evaluate_candidates`` threading-pool dispatch used to gate on
-# ``n_workers > 1`` alone. Isolated/warmed/best-of-3+ A/B at this call site's realistic scales found the pool
-# NEVER wins over the serial fallback below: m=10 candidates -> 0.03x, m=320 (wellbore-scale) -> 0.72-0.73x,
-# m=820/n_workers=8 -> 0.81x, confirming GIL-bound dispatch-boundary contention. The serial path therefore
-# stays the default; ``MLFRAME_MRMR_EVAL_POOL=1`` re-enables the parallel branch so it remains reachable (not
-# dead code) for a workload shape a future host-specific measurement might favor. The parallel merge-back is
-# selection-identical to the serial path. ``n_workers`` is still accepted/threaded through regardless (other
-# call sites, e.g. the Fleuret conditional-confirmation gate further down, branch on it).
-#: Test override for the candidate-pool gate; ``None`` reads ``MLFRAME_MRMR_EVAL_POOL`` at call time.
-_EVALUATE_CANDIDATES_POOL_ENABLED: "bool | None" = None
-
-
-def _evaluate_candidates_pool_enabled() -> bool:
-    """Whether the candidate pool is on; the environment is read per call so it can change after import."""
-    if _EVALUATE_CANDIDATES_POOL_ENABLED is not None:  # audit-exempt: guard_decidable_from_constants -- the module global is a seam that tests rebind with monkeypatch; the source never assigns it
-        return bool(_EVALUATE_CANDIDATES_POOL_ENABLED)
-    return os.environ.get("MLFRAME_MRMR_EVAL_POOL", "0").strip().lower() in ("1", "true", "on", "yes")
-
-
 # ``_mrmr_fit_impl`` imports ``_extract_single_raw_parent`` from this module by name (raw-retention pass).
 from ._confirm_predictor_engineered import (
     _confirmable_engineered_child,
@@ -82,7 +61,7 @@ from ._confirm_predictor_engineered import (
 # _confirm_predictor_context.py to clear the repo's enforced hard 1000-LOC CI gate (this file had crept
 # back to 1007 lines). Re-exported here so every existing import keeps working unchanged.
 from ._confirm_predictor_context import ScreenContext
-from ._confirm_predictor_score import score_candidates_parallel, score_candidates_serial
+from ._confirm_predictor_score import score_candidates_serial
 from ._confirm_predictor_helpers import confirm_in_gain_order, fleuret_conditional_recheck, marginal_confirm_use_gpu
 
 
@@ -105,10 +84,6 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate: Any, 
     engineered_lineage = ctx.engineered_lineage
     dcd_state = getattr(ctx, "dcd_state", None)  # dynamic cluster discovery state
     reduce_gain_on_subelement_chosen = ctx.reduce_gain_on_subelement_chosen
-    n_workers = ctx.n_workers
-    use_simple_mode = ctx.use_simple_mode
-    cached_MIs = ctx.cached_MIs
-    num_possible_candidates = ctx.num_possible_candidates
     # JMIM joint-MI cache + hit counter (see ScreenContext). Lazily
     # provisioned for direct ScreenContext callers that don't set them, so the
     # serial evaluate_candidate path always gets a real numba dict (the @njit
@@ -152,20 +127,12 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate: Any, 
 
         feasible_candidates.append((cand_idx, X, nexisting if reduce_gain_on_subelement_chosen else 0))
 
-    if (
-        _evaluate_candidates_pool_enabled()
-        and n_workers > 1
-        and (not use_simple_mode or len(cached_MIs) < num_possible_candidates)
-        and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS
-    ):
-        best_gain, best_candidate, run_out_of_time = score_candidates_parallel(
-            ctx, feasible_candidates, best_gain, best_candidate, expected_gains, evaluate_candidates,
-        )
-    else:
-        best_gain, best_candidate, run_out_of_time = score_candidates_serial(
-            ctx, feasible_candidates, best_gain, best_candidate, expected_gains, cached_jmim_MIs, jmim_hit_counter,
-            _prefill_cond_MIs_gpu, evaluate_candidate, handle_best_candidate,
-        )
+    # The candidates are scored one after the other in this thread. A worker pool for this dispatch was measured against it (m=10 candidates 0.03x, m=320 0.72x, m=820 with 8 workers 0.81x: GIL-bound at the
+    # dispatch boundary) and removed together with joblib from the screen; the parallelism of the screen is in its njit kernels and the prefetch window of the confirmations.
+    best_gain, best_candidate, run_out_of_time = score_candidates_serial(
+        ctx, feasible_candidates, best_gain, best_candidate, expected_gains, cached_jmim_MIs, jmim_hit_counter,
+        _prefill_cond_MIs_gpu, evaluate_candidate, handle_best_candidate,
+    )
 
     if verbose > 2 and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
         logger.info("evaluate_candidates took %.1f sec.", timer() - eval_start)

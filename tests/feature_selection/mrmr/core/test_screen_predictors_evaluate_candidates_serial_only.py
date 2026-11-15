@@ -3,10 +3,9 @@
 
 Isolated/warmed/best-of-3+ measurement at this call site's realistic scales found the pool never wins over
 serial: m=10 candidates -> 0.03x, m=320 (wellbore-scale) -> 0.72-0.73x, m=820/n_workers=8 -> 0.81x. The fix
-makes ``_screen_predictors.py`` always set ``workers_pool = None`` (never call ``joblib.Parallel``) and adds
-a defense-in-depth ``_confirm_predictor._EVALUATE_CANDIDATES_POOL_ENABLED = False`` gate around the
-consuming branch. ``n_workers`` remains an accepted knob (other call sites, e.g. the Fleuret conditional-
-confirmation gate, still branch on it) -- this test only pins that THIS specific pool is never built.
+makes ``_screen_predictors.py`` always set ``workers_pool = None``; the retired consuming branch, its
+environment switch and joblib itself are now removed from the screen altogether. ``n_workers`` remains an accepted knob (the
+Fleuret recheck still cuts its permutation budget into one segment per worker) -- this test pins that no joblib pool exists in the screen.
 """
 
 from __future__ import annotations
@@ -26,23 +25,17 @@ def _wide_xy(n=600, p=30, seed=1):
     return X, y
 
 
-def test_screen_predictors_never_builds_evaluate_candidates_pool(monkeypatch):
-    """``MRMR(n_workers=4).fit(...)`` must never construct a ``joblib.Parallel`` pool for the
-    ``evaluate_candidates`` dispatch, even though ``n_workers > 1`` is explicitly requested."""
+def test_screen_predictors_never_builds_evaluate_candidates_pool():
+    """``MRMR(n_workers=4).fit(...)`` constructs no ``joblib.Parallel`` pool in the screen although ``n_workers > 1`` is requested: the screening modules import no joblib and the fit still
+    selects the planted columns."""
+    import mlframe.feature_selection.filters._confirm_predictor as _cp
+    import mlframe.feature_selection.filters.fleuret as _fl
 
-    constructed = []
-
-    def _boom(*args, **kwargs):
-        """Sensor stub: any call proves the retired evaluate_candidates pool branch fired."""
-        constructed.append(1)
-        raise AssertionError("Parallel() must never be constructed for the evaluate_candidates dispatch (site 3, retired)")
-
-    monkeypatch.setattr(_sp, "Parallel", _boom)
-
+    for mod in (_sp, _cp, _fl):
+        assert not hasattr(mod, "Parallel"), f"{mod.__name__} must not import joblib.Parallel"
     X, y = _wide_xy()
     m = MRMR(n_workers=4, max_runtime_mins=1.0)
     m.fit(X, y)
-    assert constructed == []
     assert {"f0", "f1", "f2"} <= {str(m.feature_names_in_[i]) for i in m.support_}
 
 

@@ -400,6 +400,44 @@ def fleuret_base_seed(random_seed: Any, n_selected: int, X: Any) -> int:
     return int(((int(random_seed or 0) * 2654435761) + n_selected + 1 + hash(X)) & 0xFFFFFFFFFFFFFFFF)
 
 
+def uses_worker_segments(ctx: Any) -> bool:
+    """Whether the recheck follows the segmented semantics of the multi-worker route: several workers and a budget above ``NMAX_NONPARALLEL_ITERS``. Then the budget is split into one segment per worker
+    (the stop at ``max_failed`` applies per segment) and the verdict is the add-one p-value of the full budget; otherwise one segment and a plain failure rate. (The route used a joblib pool; the semantics
+    are kept, the pool is gone.) The scoring statistic does not depend on it: the confirmation always uses the criterion the candidate's gain was scored with (:func:`fleuret_toggles`)."""
+    return bool(ctx.n_workers and ctx.n_workers > 1 and ctx.full_npermutations > NMAX_NONPARALLEL_ITERS)
+
+
+def fleuret_toggles(ctx: Any) -> tuple:
+    """``(use_su, use_mm, use_jmim, jmim_discount_only)`` as the fitting thread has them, read once per screen and kept on ``ctx``: the prefetch threads have only the thread-local defaults, so the first
+    call (made by the walk in the fitting thread before any thread starts) decides for all."""
+    toggles = ctx.__dict__.get("fleuret_toggles")
+    if toggles is None:
+        from .evaluation import jmim_exponent_discount_only
+        from .info_theory import use_jmim_aggregator, use_mi_miller_madow, use_su_normalization
+
+        su = bool(use_su_normalization())
+        toggles = (su, bool(use_mi_miller_madow()) and not su, bool(use_jmim_aggregator()), bool(jmim_exponent_discount_only()))
+        ctx.__dict__["fleuret_toggles"] = toggles
+    return toggles
+
+
+def statistic_of(toggles: tuple) -> str:
+    """The statistic name of the toggles: JMIM first, then SU, then Miller-Madow, else the plug-in conditional MI (the order ``_fleuret_additional_knowledge`` tries them)."""
+    su, mm, jmim, _ = toggles
+    return "jmim" if jmim else ("su" if su else ("mm" if mm else "cmi"))
+
+
+def _route_kwargs(ctx: Any) -> dict:
+    """The ``fleuret_confirm_batch`` keyword arguments of the recheck: the statistic and JMIM discount of the scoring toggles, and the worker segments when the route is segmented."""
+    toggles = fleuret_toggles(ctx)
+    kwargs: dict = {"statistic": statistic_of(toggles), "jmim_discount_only": bool(toggles[3])}
+    if uses_worker_segments(ctx):
+        from ._numba_utils import distribute_permutations
+
+        kwargs["worker_loads"] = [int(w) for w in distribute_permutations(npermutations=int(ctx.full_npermutations), n_workers=int(ctx.n_workers))]
+    return kwargs
+
+
 def _window_store(ctx: Any) -> dict:
     """The per-screen dict of precomputed rechecks, ``{(candidate, selected tuple): (nfailed, nchecked)}``, created on first use."""
     return ctx.__dict__.setdefault("fleuret_batch", {})
@@ -428,13 +466,11 @@ def precompute_window(ctx: Any, candidates: Sequence[tuple], gains: Sequence[flo
 
     Does nothing (the host kernel then runs per candidate) when the settings are not the Fleuret criterion, when the tuner prefers the host for this row count, when fewer than two candidates need it,
     or when the device declines. The window's results are speculative in the way the prefetch itself is: a candidate the walk never reaches, or one the marginal bootstrap rejects, costs a share of one launch.
-    The prefetch threads run the serial kernels with the default statistic, so this is the plug-in criterion; the joblib route is :func:`device_parallel_recheck`."""
+    The statistic, the worker segments and the stop rule follow the route the recheck takes (:func:`uses_worker_segments`), so the stored counts are the ones the host kernels would give."""
     if not _settings_supported(ctx):
         return
     from ._numba_utils import count_cand_nbins
 
-    if ctx.n_workers and ctx.n_workers > 1 and ctx.full_npermutations > NMAX_NONPARALLEL_ITERS:
-        return
     if not fleuret_confirm_on_device(int(ctx.data_copy.shape[0])):
         return
     sel = tuple(ctx.selected_vars)
@@ -449,30 +485,26 @@ def precompute_window(ctx: Any, candidates: Sequence[tuple], gains: Sequence[flo
         got = fleuret_confirm_batch(
             ctx.data_copy, ctx.factors_nbins, [tuple(int(c) for c in x) for x, _ in group], int(ctx.y[0]), list(sel), int(ctx.full_npermutations), [float(g) for _, g in group],
             int(ctx.max_failed), [_nexisting(x, sel) for x, _ in group], bool(ctx.extra_x_shuffling), [fleuret_base_seed(ctx.random_seed, len(sel), x) for x, _ in group],
-            max_order=int(ctx.max_veteranes_interactions_order),
+            max_order=int(ctx.max_veteranes_interactions_order), **_route_kwargs(ctx),
         )
         if got is not None:
             for (x, _), counts in zip(group, got):
                 store[(x, sel)] = counts
 
 
-def device_parallel_recheck(ctx: Any, X: tuple, next_best_gain: float, base_seed: int, statistic: str, jmim_discount_only: bool) -> Optional[tuple]:
-    """``(nfailed, nchecked)`` of the joblib route (``get_fleuret_criteria_confidence_parallel``) for candidate ``X`` from one device launch, with the permutations split over the workers exactly as
-    that route splits them (the stop at ``max_failed`` applies per worker), or ``None`` for the host route. ``statistic`` is the scoring toggle the route forwards (``cmi``, ``mm``, ``su``, ``jmim``)."""
+def device_recheck(ctx: Any, X: tuple, next_best_gain: float, base_seed: int) -> Optional[tuple]:
+    """``(nfailed, nchecked)`` of the recheck of the single candidate ``X`` from one device launch, following the route the recheck takes (:func:`uses_worker_segments`: the scoring toggles, the worker
+    segments), or ``None`` when the device path does not apply (the caller runs the host kernels)."""
     if not _settings_supported(ctx) or not fleuret_confirm_on_device(int(ctx.data_copy.shape[0])):
         return None
-    from ._numba_utils import distribute_permutations
-
     sel = tuple(ctx.selected_vars)
-    loads = [int(w) for w in distribute_permutations(npermutations=int(ctx.full_npermutations), n_workers=int(ctx.n_workers))]
     got = fleuret_confirm_batch(
         ctx.data_copy, ctx.factors_nbins, [tuple(int(c) for c in X)], int(ctx.y[0]), list(sel), int(ctx.full_npermutations), [float(next_best_gain)], int(ctx.max_failed),
-        [_nexisting(X, sel)], bool(ctx.extra_x_shuffling), [int(base_seed)], max_order=int(ctx.max_veteranes_interactions_order), statistic=statistic,
-        jmim_discount_only=bool(jmim_discount_only), worker_loads=loads,
+        [_nexisting(X, sel)], bool(ctx.extra_x_shuffling), [int(base_seed)], max_order=int(ctx.max_veteranes_interactions_order), **_route_kwargs(ctx),
     )
     return got[0] if got is not None else None
 
 
 __all__ = [
-    "fleuret_confirm_batch", "fleuret_confirm_on_device", "fleuret_base_seed", "precompute_window", "take_precomputed_recheck", "device_parallel_recheck", "kernel", "MAX_SHARED_CELLS",
+    "fleuret_confirm_batch", "fleuret_confirm_on_device", "fleuret_base_seed", "precompute_window", "take_precomputed_recheck", "device_recheck", "uses_worker_segments", "fleuret_toggles", "statistic_of", "kernel", "MAX_SHARED_CELLS",
 ]

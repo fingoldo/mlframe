@@ -1,5 +1,7 @@
-"""Fleuret-criterion permutation-confidence step. Three layers: ``get_fleuret_criteria_confidence_parallel`` (joblib pool spawner) ->
-``parallel_fleuret`` (joblib worker) -> ``get_fleuret_criteria_confidence`` (``@njit`` core looping over the permutation budget).
+"""Fleuret-criterion permutation-confidence step. Three layers: ``get_fleuret_criteria_confidence_parallel`` (splits the budget into worker segments) ->
+``parallel_fleuret`` (one segment) -> ``get_fleuret_criteria_confidence`` (``@njit`` core looping over the permutation budget). The segments run one after the other in the calling thread: there is no
+joblib pool any more (the njit core releases the GIL, the screen parallelises over candidates with its prefetch threads, and the device path of ``_fleuret_confirm_gpu`` replaces the pool for large
+row counts); the segmentation is kept because the early stop at ``max_failed`` is per segment, which the counts of this route have always depended on.
 
 Known weakness: the Fleuret formulation ``gain = I(X; Y) - max_k I(X; Y | S_k)`` rejects synergistic features (a candidate
 uninformative on its own but critical in combination with an already-selected variable scores ``gain < 0``). The synergy-aware mitigation
@@ -30,7 +32,6 @@ from typing import Optional
 
 import numpy as np
 import numba
-from joblib import Parallel, delayed
 from numba.core import types
 
 from pyutilz.numbalib import python_dict_2_numba_dict
@@ -41,7 +42,7 @@ from .evaluation import jmim_exponent_discount_only
 from .info_theory import use_su_normalization, use_mi_miller_madow, use_jmim_aggregator
 
 
-def get_fleuret_criteria_confidence_parallel(
+def fleuret_segment_counts(
     data_copy: np.ndarray,
     factors_nbins: np.ndarray,
     x: tuple,
@@ -58,23 +59,20 @@ def get_fleuret_criteria_confidence_parallel(
     sink_threshold: float = -1.0,
     cached_cond_MIs: Optional[dict] = None,
     n_workers: int = 1,
-    workers_pool: Optional[Parallel] = None,
+    workers_pool: Optional[object] = None,
     parallel_kwargs: Optional[dict] = None,
     entropy_cache: Optional[dict] = None,
     extra_x_shuffling: bool = True,
     dtype: type = np.int32,
     base_seed: int = 0,
+    toggles: Optional[tuple] = None,
 ) -> tuple:
-    """Joblib-parallel Fleuret permutation-confirmation: splits ``npermutations`` across workers (with independent-yet-reproducible per-worker seeds), forwarding the SU/Miller-Madow/JMIM scoring toggles into each worker thread."""
-    if parallel_kwargs is None:
-        parallel_kwargs = {}
+    """``(nfailed, nchecked, entropy_cache)`` of the Fleuret permutation-confirmation: ``npermutations`` split across ``n_workers`` segments (independent-yet-reproducible per-segment offsets), the SU/Miller-Madow/JMIM scoring toggles forwarded, the segments run one after the other in the calling thread (no joblib), the stop at ``max_failed`` applying per segment. ``toggles`` is the ``(use_su, use_mm, use_jmim, jmim_discount_only)`` to forward; ``None`` reads the calling thread's settings (a prefetch thread has the defaults, so a caller that runs in one passes the settings it read in the fitting thread)."""
     if entropy_cache is None:
         entropy_cache = {}
     nfailed = 0
 
-    # Pool construction is deferred to the dispatch branch below (n_workers<=1 skips joblib entirely).
-
-    # Read SU toggle once here (Python-level) and thread into every joblib worker.
+    # Read the SU toggle once here (Python-level) and thread it into every segment.
     _use_su = use_su_normalization()
     # N-F2: same for the Miller-Madow toggle - when MM relevance is active the redundancy CMI carries the SAME bias
     # correction (SU path excluded: it uses conditional_symmetric_uncertainty, not conditional_mi).
@@ -83,13 +81,15 @@ def get_fleuret_criteria_confidence_parallel(
     # null. Thread the JMIM toggle so evaluate_gain confirms JMIM picks against the JMIM criterion.
     _use_jmim = use_jmim_aggregator()
     _jmim_discount_only = jmim_exponent_discount_only()
+    if toggles is not None:
+        _use_su, _use_mm, _use_jmim, _jmim_discount_only = toggles
 
     # Seeding is per PERMUTATION (outer base_seed plus the permutation's global number): the workers share the base seed and each starts at its offset, so the
     # draws are the same for any worker count.
     _worker_loads = list(distribute_permutations(npermutations=npermutations, n_workers=n_workers))
     _offsets = np.concatenate(([0], np.cumsum(_worker_loads)[:-1])) if _worker_loads else np.zeros(0, dtype=np.int64)
     _calls = [
-        delayed(parallel_fleuret)(
+        dict(
             data=data_copy,
             factors_nbins=factors_nbins,
             x=x,
@@ -117,18 +117,7 @@ def get_fleuret_criteria_confidence_parallel(
         )
         for _widx, worker_npermutations in enumerate(_worker_loads)
     ]
-    if n_workers is None or int(n_workers) <= 1:
-        # joblib.Parallel(n_jobs<=1) never actually spawns a worker thread (empirically confirmed:
-        # every delayed() call runs inline on the calling thread even with backend="threading"), but
-        # it still pays its own dispatch/BatchCompletionCallBack/generator bookkeeping per call. This
-        # function's only production call site (``_confirm_predictor.py``) already gates on
-        # ``n_workers > 1`` before calling it, so this branch is a defensive parity fix for any other
-        # caller (tests, future call sites) that passes n_workers<=1 - bypass joblib entirely.
-        res = [_c[0](*_c[1], **_c[2]) for _c in _calls]
-    else:
-        if workers_pool is None:
-            workers_pool = Parallel(n_jobs=n_workers, **parallel_kwargs)
-        res = workers_pool(_calls)
+    res = [parallel_fleuret(**_kw) for _kw in _calls]
 
     nchecked = 0
     for worker_nfailed, worker_i, entropy_cache_dict in res:
@@ -137,6 +126,60 @@ def get_fleuret_criteria_confidence_parallel(
         for key, value in entropy_cache_dict.items():
             entropy_cache[key] = value
 
+    return nfailed, nchecked, entropy_cache
+
+
+def get_fleuret_criteria_confidence_parallel(
+    data_copy: np.ndarray,
+    factors_nbins: np.ndarray,
+    x: tuple,
+    y: tuple,
+    selected_vars: list,
+    bootstrapped_gain: float,
+    npermutations: int,
+    max_failed: int,
+    nexisting: int,
+    mrmr_relevance_algo: str = "fleuret",
+    mrmr_redundancy_algo: str = "fleuret",
+    max_veteranes_interactions_order: int = 1,
+    extra_knowledge_multipler: float = -1.0,
+    sink_threshold: float = -1.0,
+    cached_cond_MIs: Optional[dict] = None,
+    n_workers: int = 1,
+    workers_pool: Optional[object] = None,
+    parallel_kwargs: Optional[dict] = None,
+    entropy_cache: Optional[dict] = None,
+    extra_x_shuffling: bool = True,
+    dtype: type = np.int32,
+    base_seed: int = 0,
+    toggles: Optional[tuple] = None,
+) -> tuple:
+    """Fleuret permutation-confirmation of one candidate: :func:`fleuret_segment_counts`, then the gain zeroed at ``max_failed`` failures and the confidence from the add-one p-value of the full budget. ``workers_pool`` and ``parallel_kwargs`` are accepted for the old signature and unused."""
+    nfailed, nchecked, entropy_cache = fleuret_segment_counts(
+        data_copy=data_copy,
+        factors_nbins=factors_nbins,
+        x=x,
+        y=y,
+        selected_vars=selected_vars,
+        bootstrapped_gain=bootstrapped_gain,
+        npermutations=npermutations,
+        max_failed=max_failed,
+        nexisting=nexisting,
+        mrmr_relevance_algo=mrmr_relevance_algo,
+        mrmr_redundancy_algo=mrmr_redundancy_algo,
+        max_veteranes_interactions_order=max_veteranes_interactions_order,
+        extra_knowledge_multipler=extra_knowledge_multipler,
+        sink_threshold=sink_threshold,
+        cached_cond_MIs=cached_cond_MIs,
+        n_workers=n_workers,
+        workers_pool=workers_pool,
+        parallel_kwargs=parallel_kwargs,
+        entropy_cache=entropy_cache,
+        extra_x_shuffling=extra_x_shuffling,
+        dtype=dtype,
+        base_seed=base_seed,
+        toggles=toggles,
+    )
     if nfailed >= max_failed:
         bootstrapped_gain = 0.0
 

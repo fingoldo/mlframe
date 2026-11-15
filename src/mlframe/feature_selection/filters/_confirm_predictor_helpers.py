@@ -6,16 +6,13 @@ from timeit import default_timer as timer
 from typing import Any, Callable
 
 import numpy as np
-from joblib import Parallel
 
 from ._confirm_predictor_engineered import _conditioning_rows_per_cell
-from ._internals import MAX_ITERATIONS_TO_TRACK, NMAX_NONPARALLEL_ITERS
+from ._internals import MAX_ITERATIONS_TO_TRACK
 from ._numba_utils import count_cand_nbins, get_fleuret_criteria_confidence
-from ._fleuret_confirm_gpu import device_parallel_recheck, fleuret_base_seed, precompute_window, take_precomputed_recheck
+from ._fleuret_confirm_gpu import device_recheck, fleuret_base_seed, fleuret_toggles, precompute_window, take_precomputed_recheck, uses_worker_segments
 from .evaluation import get_candidate_name
-from .evaluation import jmim_exponent_discount_only
-from .fleuret import get_fleuret_criteria_confidence_parallel
-from .info_theory import use_jmim_aggregator, use_mi_miller_madow, use_su_normalization
+from .fleuret import fleuret_segment_counts
 from .permutation import _addone_pvalue_enabled, _perm_pvalue
 
 logger = logging.getLogger("mlframe.feature_selection.filters._confirm_predictor")
@@ -51,19 +48,8 @@ def fleuret_conditional_recheck(ctx: Any, X: tuple, next_best_gain: float, boots
     selected_vars = ctx.selected_vars
     factors_nbins = ctx.factors_nbins
     factors_names = ctx.factors_names
-    n_workers = ctx.n_workers
-    workers_pool = ctx.workers_pool
-    parallel_kwargs = ctx.parallel_kwargs
     max_confirmation_cand_nbins = ctx.max_confirmation_cand_nbins
-    data_copy = ctx.data_copy
-    y = ctx.y
     max_failed = ctx.max_failed
-    mrmr_relevance_algo = ctx.mrmr_relevance_algo
-    mrmr_redundancy_algo = ctx.mrmr_redundancy_algo
-    max_veteranes_interactions_order = ctx.max_veteranes_interactions_order
-    cached_cond_MIs = ctx.cached_cond_MIs
-    entropy_cache = ctx.entropy_cache
-    extra_x_shuffling = ctx.extra_x_shuffling
     random_seed = ctx.random_seed
     verbose = ctx.verbose
     ndigits = ctx.ndigits
@@ -117,79 +103,50 @@ def fleuret_conditional_recheck(ctx: Any, X: tuple, next_best_gain: float, boots
         # confirmed at the same selected_vars depth within one greedy round drew the IDENTICAL
         # permutation stream for the Fleuret conditional recheck.
         _fleuret_base_seed = fleuret_base_seed(random_seed, len(selected_vars), X)
-        if n_workers and n_workers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
-            # Build the Fleuret parallel pool ONCE per
-            # screen round and cache it on ``ctx`` - pre-fix, ``workers_pool`` was always None here
-            # (deliberately, per the RETIRED note above, for the UNRELATED evaluate_candidates path),
-            # so ``get_fleuret_criteria_confidence_parallel`` rebuilt a fresh joblib.Parallel pool on
-            # EVERY candidate needing the conditional recheck, even though the same ctx/round can
-            # confirm dozens of candidates. Reusing one pool across the round amortises the
-            # construction cost while every other candidate/round still gets a fresh pool as before.
-            if workers_pool is None:
-                workers_pool = Parallel(n_jobs=n_workers, **(parallel_kwargs or {}))
-                ctx.workers_pool = workers_pool
-            _dev = _device_parallel_outcome(ctx, X, next_best_gain, _fleuret_base_seed)
-            if _dev is not None:
-                return _dev
-            bootstrapped_gain, confidence, parallel_entropy_cache = get_fleuret_criteria_confidence_parallel(
-                data_copy=data_copy,
-                factors_nbins=factors_nbins,
-                x=X,
-                y=y,
-                selected_vars=selected_vars,
-                bootstrapped_gain=next_best_gain,
-                npermutations=full_npermutations,
-                max_failed=max_failed,
-                nexisting=nexisting,
-                mrmr_relevance_algo=mrmr_relevance_algo,
-                mrmr_redundancy_algo=mrmr_redundancy_algo,
-                max_veteranes_interactions_order=max_veteranes_interactions_order,
-                cached_cond_MIs=cached_cond_MIs,
-                entropy_cache=entropy_cache,
-                extra_x_shuffling=extra_x_shuffling,
-                n_workers=n_workers,
-                workers_pool=workers_pool,
-                parallel_kwargs=parallel_kwargs,
-                base_seed=_fleuret_base_seed,
-            )
-            for key, value in parallel_entropy_cache.items():
-                entropy_cache[key] = value
+        nfailed, nchecked = take_precomputed_recheck(ctx, X) or _recheck_counts(ctx, X, next_best_gain, nexisting, _fleuret_base_seed)
+        if uses_worker_segments(ctx):
+            # The multi-worker semantics (formerly a joblib pool, now the device launch or the sequential segments): the candidate keeps its expected gain, and the verdict is the add-one p-value of the full
+            # budget, since the stop at ``max_failed`` per segment makes ``nchecked`` data-dependent and the stopped ratio would overstate the failure rate.
+            bootstrapped_gain = next_best_gain
+            confidence = 1.0 - _perm_pvalue(nfailed, nchecked, full_budget=int(full_npermutations))
         else:
-            nfailed, nchecked = take_precomputed_recheck(ctx, X) or _host_recheck_counts(ctx, X, next_best_gain, nexisting, _fleuret_base_seed)
-            # The SERIAL confirm runs only at the screen's tiny default budget (full_npermutations=3,
-            # below NMAX_NONPARALLEL_ITERS) where the parallel path is never taken - so there is no serial-vs-
+            # The SERIAL confirm runs at the screen's tiny default budget (full_npermutations=3, below NMAX_NONPARALLEL_ITERS) - so there is no serial-vs-
             # parallel comparison to reconcile here. The add-one estimator's ceiling at budget 3 is 1-1/4=0.75,
             # which lowers gain*confidence ~25% below min_relevance_gain and STARVES the screen (a prior C4
             # attempt to add-one this path regressed cluster-aggregate / FE recovery). Keep the raw rate: a clean
             # null (nfailed=0) correctly yields confidence 1.0 so genuine signals clear the small-budget screen.
             confidence = 1 - nfailed / nchecked
-            if nfailed >= max_failed:
-                bootstrapped_gain = 0.0
+        if nfailed >= max_failed:
+            bootstrapped_gain = 0.0
 
         if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
             logger.debug("get_fleuret_criteria_confidence bootstrapped eval took %.1f sec.", timer() - eval_start)
     return bootstrapped_gain, confidence
 
 
-def _device_parallel_outcome(ctx: Any, X: tuple, next_best_gain: float, base_seed: int) -> "tuple | None":
-    """``(bootstrapped_gain, confidence)`` of the joblib route for candidate ``X`` from one device launch (the scoring toggles the route reads are forwarded as the statistic), or ``None`` when the
-    device path does not apply. The outcome is what ``get_fleuret_criteria_confidence_parallel`` makes of the same counts: the gain zeroed at ``max_failed`` failures and the confidence from the
-    add-one p-value of the full budget."""
-    su = use_su_normalization()
-    jmim = use_jmim_aggregator()
-    statistic = "jmim" if jmim else ("su" if su else ("mm" if use_mi_miller_madow() else "cmi"))
-    counts = device_parallel_recheck(ctx, X, next_best_gain, base_seed, statistic, jmim_exponent_discount_only())
-    if counts is None:
-        return None
-    nfailed, nchecked = counts
-    gain = 0.0 if nfailed >= ctx.max_failed else next_best_gain
-    return gain, 1.0 - _perm_pvalue(nfailed, nchecked, full_budget=int(ctx.full_npermutations))
+def _recheck_counts(ctx: Any, X: tuple, next_best_gain: float, nexisting: int, base_seed: int) -> tuple:
+    """``(nfailed, nchecked)`` of the Fleuret recheck of ``X`` when no window launch stored it: with the multi-worker semantics (:func:`uses_worker_segments`) one device launch or, without a card, the
+    sequential worker segments of the njit core (the scoring toggles of the fitting thread forwarded); otherwise the thread-parallel twin or the serial kernel."""
+    if not uses_worker_segments(ctx):
+        return _host_recheck_counts(ctx, X, next_best_gain, nexisting, base_seed)
+    counts = device_recheck(ctx, X, next_best_gain, base_seed)
+    if counts is not None:
+        return counts
+    cd, cnb, cx, cy, csel, cent = _compact_confidence_inputs(ctx.data_copy, ctx.factors_nbins, X, ctx.y, ctx.selected_vars, ctx.entropy_cache)
+    nfailed, nchecked, _ = fleuret_segment_counts(
+        data_copy=cd, factors_nbins=cnb, x=cx, y=cy, selected_vars=csel, bootstrapped_gain=float(next_best_gain), npermutations=ctx.full_npermutations, max_failed=ctx.max_failed, nexisting=nexisting,
+        mrmr_relevance_algo=ctx.mrmr_relevance_algo, mrmr_redundancy_algo=ctx.mrmr_redundancy_algo, max_veteranes_interactions_order=ctx.max_veteranes_interactions_order,
+        cached_cond_MIs=dict(cent[1]), entropy_cache=dict(cent[0]), extra_x_shuffling=ctx.extra_x_shuffling, n_workers=int(ctx.n_workers), base_seed=int(base_seed), toggles=fleuret_toggles(ctx),
+    )
+    return nfailed, nchecked
 
 
 def _host_recheck_counts(ctx: Any, X: tuple, next_best_gain: float, nexisting: int, base_seed: int) -> tuple:
-    """``(nfailed, nchecked)`` of the Fleuret recheck of ``X`` by the host kernels: the thread-parallel twin when it applies, else the serial kernel, on the compact inputs."""
+    """``(nfailed, nchecked)`` of the Fleuret recheck of ``X`` by the host kernels on the compact inputs, with the scoring toggles of the fitting thread (the criterion the candidate's gain was scored with):
+    the thread-parallel twin when no toggle is on, else the serial kernel, which forwards them."""
     _cd, _cnb, _cx, _cy, _csel, _cent = _compact_confidence_inputs(ctx.data_copy, ctx.factors_nbins, X, ctx.y, ctx.selected_vars, ctx.entropy_cache)
-    _conf = _fleuret_confidence_prange_or_none(_cd, _cnb, _cx, _cy, _csel, ctx.full_npermutations, next_best_gain, ctx.max_failed, nexisting, ctx.mrmr_relevance_algo,
+    use_su, use_mm, use_jmim, discount = fleuret_toggles(ctx)
+    _conf = None if (use_su or use_mm or use_jmim) else _fleuret_confidence_prange_or_none(_cd, _cnb, _cx, _cy, _csel, ctx.full_npermutations, next_best_gain, ctx.max_failed, nexisting, ctx.mrmr_relevance_algo,
                                                ctx.mrmr_redundancy_algo, ctx.max_veteranes_interactions_order, ctx.extra_x_shuffling, base_seed)
     if _conf is not None:
         return _conf
@@ -210,6 +167,10 @@ def _host_recheck_counts(ctx: Any, X: tuple, next_best_gain: float, nexisting: i
         entropy_cache=_cent[0],
         extra_x_shuffling=ctx.extra_x_shuffling,
         base_seed=np.uint64(base_seed),
+        use_su=use_su,
+        use_mm=use_mm,
+        use_jmim=use_jmim,
+        jmim_discount_only=discount,
     )
 
 
@@ -274,8 +235,8 @@ class _ConfirmPrefetch:
 
     A candidate's confirmation reads ``ctx`` and its own seed (``hash(X)``) and writes only ``cached_confident_MIs[X]``, and the walk decides on each result in order, so confirming
     the next few ahead gives the verdicts the walk would compute itself; the candidates the walk never reaches cost wasted work only. The Fleuret recheck of each runs the
-    thread-parallel permutation kernel, whose short blocks (about 3 permutations) leave most cores idle when the candidates follow one another. It is not used where the
-    confirmation fans out over the shared joblib pool (more than one worker and a budget above ``NMAX_NONPARALLEL_ITERS``)."""
+    thread-parallel permutation kernel, whose short blocks (about 3 permutations) leave most cores idle when the candidates follow one another; with a card the rechecks of the whole window are
+    one device launch (``_fleuret_confirm_gpu``), made before the threads start."""
 
     def __init__(self, ctx: Any, gain_order: Any, expected_gains: Any, confirm_candidate: Callable[..., Any]) -> None:
         import os
@@ -284,8 +245,8 @@ class _ConfirmPrefetch:
             window = int(os.environ.get("MLFRAME_SCREEN_CONFIRM_PREFETCH", "4") or 0)
         except ValueError:
             window = 0
-        shared_pool = bool(ctx.n_workers and ctx.n_workers > 1 and ctx.full_npermutations > NMAX_NONPARALLEL_ITERS)
-        self.window = 0 if (shared_pool or not ctx.full_npermutations) else max(0, window)
+        self.window = 0 if not ctx.full_npermutations else max(0, window)
+        fleuret_toggles(ctx)  # read the scoring toggles here, in the fitting thread, before any prefetch thread asks for them
         self.ctx, self.order, self.gains, self.confirm = ctx, gain_order, expected_gains, confirm_candidate
         self.futures: dict = {}
 
