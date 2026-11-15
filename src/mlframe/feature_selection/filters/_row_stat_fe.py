@@ -20,7 +20,7 @@ import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
-from ._fe_gain_stats import held_out_codes, paired_gain_se, plugin_mi_of_codes, quantile_codes
+from ._fe_gain_stats import has_few_distinct, held_out_codes, paired_gain_se, plugin_mi_of_codes, quantile_codes
 from ._fe_scan_common import rank_scaled as _rank_scaled
 from ._fe_scan_common import scan_index as _scan_index
 from ._numba_utils import MAX_SUBSET, STAT_NAMES, eval_candidates, stat_column
@@ -89,7 +89,7 @@ def _pool_columns(X: "pd.DataFrame", cols: Sequence[str], rows: np.ndarray, code
     for c in cols:
         x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
         finite = np.isfinite(x)
-        if finite.sum() < _MIN_ROWS or np.unique(x[finite]).size <= FEW_CLASSES_MAX:
+        if finite.sum() < _MIN_ROWS or has_few_distinct(x[finite], FEW_CLASSES_MAX):
             continue
         x = np.where(finite, x, np.median(x[finite]))
         mi = max(plugin_mi_of_codes(quantile_codes(x, N_MI_BINS), N_MI_BINS, codes, ky), plugin_mi_of_codes(quantile_codes(np.abs(x - np.median(x)), N_MI_BINS), N_MI_BINS, codes, ky))

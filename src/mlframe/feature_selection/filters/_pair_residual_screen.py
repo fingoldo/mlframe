@@ -25,7 +25,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 import pandas as pd
 from numba import njit, prange
 
-from ._fe_gain_stats import quantile_codes
+from ._fe_gain_stats import has_few_distinct, quantile_codes
 from ._numba_utils import _backfit
 from ._y_encoding import FEW_CLASSES_MAX
 
@@ -114,7 +114,7 @@ def pair_interaction_screen(
     for c in cand:
         x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
         finite = np.isfinite(x)
-        if finite.sum() < _MIN_ROWS or np.unique(x[finite]).size <= FEW_CLASSES_MAX:
+        if finite.sum() < _MIN_ROWS or has_few_distinct(x[finite], FEW_CLASSES_MAX):
             continue
         names.append(c)
         codes.append(quantile_codes(x, N_BINS))

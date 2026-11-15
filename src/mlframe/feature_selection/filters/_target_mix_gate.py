@@ -16,7 +16,7 @@ import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
-from ._fe_gain_stats import quantile_codes
+from ._fe_gain_stats import has_few_distinct, quantile_codes
 from ._pair_residual_screen import FAMILY_ALPHA, MAX_COLS, N_BINS, main_effect_bins, pair_interaction_screen
 from ._y_encoding import FEW_CLASSES_MAX
 
@@ -42,7 +42,7 @@ def target_has_structure(X: "pd.DataFrame", target: np.ndarray, *, scan_rows: in
     for c in cols:
         x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
         finite = np.isfinite(x)
-        if finite.sum() < _MIN_ROWS or np.unique(x[finite]).size <= FEW_CLASSES_MAX:
+        if finite.sum() < _MIN_ROWS or has_few_distinct(x[finite], FEW_CLASSES_MAX):
             continue
         q = quantile_codes(x, bins)
         cnt = np.bincount(q[even], minlength=bins)
