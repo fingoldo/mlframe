@@ -21,3 +21,11 @@ Achieved occupancy 0.536, multiprocessor activity 99.4 %, double FLOP efficiency
 ## Host profile
 
 The host side of the detector (cProfile of a 16-column x 100000-row batch call, 0.231 s, nothing per column) and the backend choice between the host loop and this device batch are recorded in `_fourier_batch_gpu.md`.
+
+## 2026-11-15: three modules of the package carved under this family
+
+- `_orth_basis_memo`: the content-keyed memo of the univariate basis expansion shared by every scorer of one fit (carved out of the package `__init__` for file size; host code, no kernel).
+- `_orth_scoring_memo`: the fit-scoped memo of the raw-column MI baselines and of the dense NaN-filled correlation matrix, shared by the opt-in scorer layers that would otherwise each recompute them over the same numeric universe (host code, no kernel).
+- `_orth_gpu_resident`: the matrix-native device build and resident MI scoring of the univariate basis (carved out of the package `__init__` in the monolith split; it checks the VRAM room before building and falls back to the whole-matrix upload on a fault). It has no kernel of its own: the candidate builds go through the batched basis evaluator of `_gpu_resident_basis` (counters in `_gpu_resident_fe.md`) and the resident plug-in MI. The extra-basis and cross-basis siblings of this package, which do hold launches, carry their own records (`_extra_basis_resident.md`, `_gpu_resident_cross_basis.md`).
+
+No new counters were taken for these three.
