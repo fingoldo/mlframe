@@ -162,6 +162,26 @@ def _get_rows_ent_nnz_split_kernels(cp):
     return _ROWS_ENT_NNZ_SPLIT_KERNELS
 
 
+def kernel(cp, real=None):
+    """``rows_ent_nnz`` (double accumulators; the entropy kernels read integer counts, so ``real`` is unused); the register-pressure registry compiles it through this."""
+    return _get_rows_ent_nnz_kernel(cp)
+
+
+def kernel_i32(cp, real=None):
+    """``rows_ent_nnz_i32`` (int32 counts); registry factory."""
+    return _get_rows_ent_nnz_i32_kernel(cp)
+
+
+def kernel_split(cp, real=None):
+    """``rows_ent_nnz_i32_split`` (the partial-sum stage of the wide-row path); registry factory."""
+    return _get_rows_ent_nnz_split_kernels(cp)[0]
+
+
+def kernel_finish(cp, real=None):
+    """``rows_ent_nnz_finish`` (the reduction stage of the wide-row path); registry factory."""
+    return _get_rows_ent_nnz_split_kernels(cp)[1]
+
+
 from ._fe_batched_mi_cmi_lut import (  # noqa: F401 -- carved lookup-table entropy kernels, re-exported
     _ROWS_ENT_NNZ_LUT_SRC,
     _XLOGX_TABLES,

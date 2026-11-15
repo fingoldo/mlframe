@@ -103,6 +103,26 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "fe_batched_mi_cmi_hist.rows_ent_nnz": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel",
+        ("float64",),
+    ),
+    "fe_batched_mi_cmi_hist.rows_ent_nnz_i32": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_i32",
+        ("float64",),
+    ),
+    "fe_batched_mi_cmi_hist.rows_ent_nnz_i32_split": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_split",
+        ("float64",),
+    ),
+    "fe_batched_mi_cmi_hist.rows_ent_nnz_finish": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_finish",
+        ("float64",),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",
