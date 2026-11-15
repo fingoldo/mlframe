@@ -1,3 +1,5 @@
+"""Times row-major against column-major device layouts for the min-max kernel across row counts, with and without the transpose."""
+
 import time
 import numpy as np
 import cupy as cp

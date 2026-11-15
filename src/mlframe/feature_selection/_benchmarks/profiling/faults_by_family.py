@@ -1,5 +1,6 @@
-import types
 """Wall seconds of every _stage_* family function of the mid_a / mid_b / early_b cascades in one warm 100k x 100 GPU fit (wrapper timing, no profiler)."""
+
+import types
 import os, sys, time, threading, warnings, importlib, functools
 import psutil
 _me = psutil.Process()

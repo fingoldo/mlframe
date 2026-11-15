@@ -23,14 +23,11 @@ if __name__ == "__main__":
 
     _ORIG = extras._KS_INLINE_ORDERED_MIN_N
 
-
     def call():
         return fast_calibration_report(y_true=y_true, y_pred=y_pred, nbins=10, show_plots=False, use_weights=True)
 
-
     def set_gate(on):
         extras._KS_INLINE_ORDERED_MIN_N = 150_000 if on else 10**18
-
 
     # Identity: the 17-scalar metrics tuple (incl. ks at index 10) must match exactly.
     set_gate(False); res_old = call()

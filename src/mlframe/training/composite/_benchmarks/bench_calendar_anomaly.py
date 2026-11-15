@@ -34,10 +34,7 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         _run(n_days, n_calls, recurrence_period=7)
         wall = time.perf_counter() - t0
-        print(
-            f"[recurrence_period=7] n_days={n_days:>9,} n_calls={n_calls:>3} -> "
-            f"{wall * 1000:9.2f} ms total, {wall / n_calls * 1000:9.3f} ms/call"
-        )
+        print(f"[recurrence_period=7] n_days={n_days:>9,} n_calls={n_calls:>3} -> " f"{wall * 1000:9.2f} ms total, {wall / n_calls * 1000:9.3f} ms/call")
 
     profiler = cProfile.Profile()
     profiler.enable()

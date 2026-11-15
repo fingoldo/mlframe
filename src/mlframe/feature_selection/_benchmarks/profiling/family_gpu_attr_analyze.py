@@ -1,3 +1,5 @@
+"""Aggregates the own GPU time per MRMR feature-engineering family from a saved profiler trace CSV."""
+
 import json, pandas as pd, numpy as np, io, bisect
 lines = open("D:/Temp/fam_gpu_trace.csv", encoding="utf8", errors="ignore").read().splitlines()
 h = next(i for i, l in enumerate(lines) if l.startswith('"Start"'))

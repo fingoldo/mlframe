@@ -1,3 +1,5 @@
+"""Compares the old and the new pair-code validation in the shared fused batch pair-MI kernel on 100k rows by 120 features, and checks that invalid codes raise."""
+
 import time, numpy as np
 from mlframe.feature_selection.filters import _batch_pair_mi_cuda_shared_fused as M
 rng=np.random.default_rng(0); n,nf,nb=100_000,120,12

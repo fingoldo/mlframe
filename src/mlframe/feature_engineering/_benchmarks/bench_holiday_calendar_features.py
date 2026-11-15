@@ -49,9 +49,7 @@ def _run_cross_locale(n_years: int, n_calls: int, cross_locale_shrinkage: float 
     y = rng.normal(100.0, 5.0, size=len(names))
     order = np.arange(len(names))
     for _ in range(n_calls):
-        holiday_name_target_encode_cross_locale(
-            names, countries, y, order=order, smoothing=1.0, cross_locale_shrinkage=cross_locale_shrinkage
-        )
+        holiday_name_target_encode_cross_locale(names, countries, y, order=order, smoothing=1.0, cross_locale_shrinkage=cross_locale_shrinkage)
 
 
 if __name__ == "__main__":

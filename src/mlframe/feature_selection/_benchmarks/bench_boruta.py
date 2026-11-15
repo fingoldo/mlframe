@@ -56,10 +56,7 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         _run(n_rows, n_features, n_iterations, **kwargs)
         wall = time.perf_counter() - t0
-        print(
-            f"n_rows={n_rows:>6,} n_features={n_features:>3} n_iterations={n_iterations:>3} "
-            f"kwargs={kwargs} -> {wall * 1000:9.2f} ms"
-        )
+        print(f"n_rows={n_rows:>6,} n_features={n_features:>3} n_iterations={n_iterations:>3} " f"kwargs={kwargs} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()

@@ -27,9 +27,7 @@ def _make_data(n_entities: int, events_per_entity: int, seed: int) -> pd.DataFra
 
 def _run(n_entities: int, events_per_entity: int, causal: bool = False) -> None:
     events_df = _make_data(n_entities, events_per_entity, seed=0)
-    two_step_recency_weighted_target_encode(
-        events_df, "entity", ["cat1"], events_df["y"].to_numpy(), "t", decay_half_life=2.0, causal=causal
-    )
+    two_step_recency_weighted_target_encode(events_df, "entity", ["cat1"], events_df["y"].to_numpy(), "t", decay_half_life=2.0, causal=causal)
 
 
 if __name__ == "__main__":

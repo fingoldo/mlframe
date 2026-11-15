@@ -1,7 +1,6 @@
 """Wall time of one pass of each shift family over the 578 (unary, unary, role) pairs of the medium preset at n=30000; backs the cost rows of the report.
 Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.stat_study.time_cost``."""
 
-
 import numpy as np
 
 from .core import family_eval, get_presets, rank01, unary_mat

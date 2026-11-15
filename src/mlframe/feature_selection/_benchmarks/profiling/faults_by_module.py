@@ -1,5 +1,6 @@
-import types
 """Inclusive wall seconds of every function of the given modules in one warm GPU fit (wrapper timing, all threads summed). Usage: module_walls.py n p mod1 mod2 ..."""
+
+import types
 import os, sys, time, threading, warnings, importlib, functools, types
 import psutil
 _me = psutil.Process()

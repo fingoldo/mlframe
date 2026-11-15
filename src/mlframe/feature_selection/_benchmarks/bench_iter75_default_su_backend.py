@@ -13,7 +13,6 @@ from __future__ import annotations
 import time
 
 
-
 def _make(width, n_rows, n_informative=5, seed=0):
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
 

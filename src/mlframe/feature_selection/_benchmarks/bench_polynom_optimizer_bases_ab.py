@@ -72,8 +72,7 @@ def run_combo(opt: str, basis: str, case: str, seed: int) -> dict:
     best_mi, best_first_at, best_restart = 0.0, float("nan"), -1
     restarts = []
     for ro in range(RESTARTS):
-        res = optimise_hermite_pair(x_a=xa, x_b=xb, y=y, seed=seed + ro, optimizer=opt,
-                                    n_trials=N_TRIALS, basis=basis, **BASE)
+        res = optimise_hermite_pair(x_a=xa, x_b=xb, y=y, seed=seed + ro, optimizer=opt, n_trials=N_TRIALS, basis=basis, **BASE)
         t_done = time.perf_counter() - t0
         mi = float(res.mi) if res is not None else 0.0
         restarts.append({"restart": ro, "mi": mi, "done_at_s": round(t_done, 3)})

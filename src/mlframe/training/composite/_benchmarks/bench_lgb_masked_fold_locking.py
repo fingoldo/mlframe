@@ -64,10 +64,7 @@ def _worker(mode: str, seed: int, rounds: int, n_rows: int, n_cols: int, n_estim
 
 def _run(mode: str, n_threads: int, rounds: int, n_rows: int, n_cols: int, n_estimators: int, specs: int) -> float:
     """Wall time of one mode."""
-    threads = [
-        threading.Thread(target=_worker, args=(mode, i, rounds, n_rows, n_cols, n_estimators, specs))
-        for i in range(n_threads)
-    ]
+    threads = [threading.Thread(target=_worker, args=(mode, i, rounds, n_rows, n_cols, n_estimators, specs)) for i in range(n_threads)]
     t0 = time.perf_counter()
     for t in threads:
         t.start()

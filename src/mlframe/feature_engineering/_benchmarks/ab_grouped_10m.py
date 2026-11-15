@@ -32,9 +32,7 @@ def _dump_old_revision(old_rev: str) -> str:
         ["git", "rev-parse", "--show-toplevel"], cwd=_GROUPED_PY.parent, capture_output=True, text=True, check=True
     ).stdout.strip()
     rel_path = _GROUPED_PY.relative_to(Path(repo_root)).as_posix()
-    content = subprocess.run(  # nosec B603,B607
-        ["git", "show", f"{old_rev}:{rel_path}"], cwd=repo_root, capture_output=True, text=True, check=True
-    ).stdout
+    content = subprocess.run(["git", "show", f"{old_rev}:{rel_path}"], cwd=repo_root, capture_output=True, text=True, check=True).stdout  # nosec B603,B607
     fd, tmp_path = tempfile.mkstemp(suffix="_grouped_old.py", prefix="mlframe_ab_")
     with open(fd, "w", encoding="utf-8") as f:
         f.write(content)

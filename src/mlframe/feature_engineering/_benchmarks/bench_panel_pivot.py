@@ -43,9 +43,7 @@ def _run(
     value_cols = [c for c in df.columns if c.startswith("x")]
     effective_max_lags = max_hist if max_lags is None else max_lags
     for _ in range(n_calls):
-        pivot_time_indexed_panel(
-            df, "id", "t", value_cols, max_lags=effective_max_lags, add_time_gaps=add_time_gaps, agg_stats=agg_stats
-        )
+        pivot_time_indexed_panel(df, "id", "t", value_cols, max_lags=effective_max_lags, add_time_gaps=add_time_gaps, agg_stats=agg_stats)
 
 
 if __name__ == "__main__":

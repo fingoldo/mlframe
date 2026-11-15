@@ -1,11 +1,12 @@
-import logging
-
-logger = logging.getLogger(__name__)
 """Does smearing help the quantile-normal and chain transforms on the y scale? RMSE with and without smearing on right-skewed targets (3 seeds).
 
 Result 2026-11-04: quantile_normal_y 6.86/6.86, 6.37/6.26, 5.67/5.64; chain_linres_cbrt_qn 6.89/6.91, 6.40/6.42, 5.80/5.81; chain_linres_cbrt
 6.89/7.01, 6.45/6.65, 5.75/5.93 (without / with smearing). The gain is under 2% and the chains get worse, so they stay out of SMEARED_TRANSFORMS.
 """
+
+import logging
+
+logger = logging.getLogger(__name__)
 import numpy as np, pandas as pd, warnings
 warnings.filterwarnings("ignore")
 from sklearn.ensemble import HistGradientBoostingRegressor

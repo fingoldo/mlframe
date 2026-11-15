@@ -31,7 +31,7 @@ def _make_dataset(n_rows: int, n_cols: int, n_informative: int, n_categorical: i
 
 def main():
     N_ROWS = 60_000  # representative wide-p shape at a tractable profiling n; family-level RELATIVE cost
-    N_COLS = 420     # is expected to hold reasonably across n since most families are O(n) or O(n*p).
+    N_COLS = 420  # is expected to hold reasonably across n since most families are O(n) or O(n*p).
     N_CATEGORICAL = 20
     N_INFORMATIVE = 6
 

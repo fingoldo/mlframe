@@ -41,10 +41,7 @@ if __name__ == "__main__":
         _run(n_entities, n_periods, n_calls, include_activation_count=True)
         wall = time.perf_counter() - t0
         n_rows = n_entities * n_periods
-        print(
-            f"[activation_count] rows={n_rows:>9,} entities={n_entities:>7,} -> "
-            f"{wall * 1000:9.2f} ms total, {wall / n_calls * 1000:8.4f} ms/call"
-        )
+        print(f"[activation_count] rows={n_rows:>9,} entities={n_entities:>7,} -> " f"{wall * 1000:9.2f} ms total, {wall / n_calls * 1000:8.4f} ms/call")
 
     profiler = cProfile.Profile()
     profiler.enable()

@@ -36,9 +36,7 @@ def _run(n_groups: int, rows_per_group: int, n_features: int, n_subsamples: int)
 def _run_segment_conditional(n_groups: int, rows_per_group: int, n_features: int, n_subsamples: int, n_segments: int) -> None:
     df, y = _make_data(n_groups, rows_per_group, n_features, seed=0, n_segments=n_segments)
     feature_cols = [c for c in df.columns if c not in ("group", "segment")]
-    monotonic_deviation_stability_filter(
-        df, y, group_col="group", feature_cols=feature_cols, n_subsamples=n_subsamples, random_state=0, segment_col="segment"
-    )
+    monotonic_deviation_stability_filter(df, y, group_col="group", feature_cols=feature_cols, n_subsamples=n_subsamples, random_state=0, segment_col="segment")
 
 
 if __name__ == "__main__":

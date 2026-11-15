@@ -61,9 +61,6 @@ if __name__ == "__main__":
         cp.cuda.Stream.null.synchronize()
         t_percol = time.perf_counter() - t0
 
-        mismatches = sum(
-            1 for b, r in zip(batch_out, percol_out)
-            if sorted(round(t, 6) for t in (b or [])) != sorted(round(t, 6) for t in (r or []))
-        )
+        mismatches = sum(1 for b, r in zip(batch_out, percol_out) if sorted(round(t, 6) for t in (b or [])) != sorted(round(t, 6) for t in (r or [])))
         winner = "batch" if t_batch < t_percol else "per-col"
         print(f"{k:5d}  {t_batch*1000:10.1f}  {t_percol*1000:10.1f}  {t_percol/t_batch:8.2f}x  {winner}  mismatches={mismatches}")

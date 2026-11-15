@@ -62,8 +62,7 @@ if __name__ == "__main__":
 
         speedup = wall_loop / wall_multi if wall_multi > 0 else float("inf")
         print(
-            f"n_entities={n_entities:>7,} n_days={n_days:>3} -> multi={wall_multi * 1000:9.2f} ms  "
-            f"loop={wall_loop * 1000:9.2f} ms  speedup={speedup:5.2f}x"
+            f"n_entities={n_entities:>7,} n_days={n_days:>3} -> multi={wall_multi * 1000:9.2f} ms  " f"loop={wall_loop * 1000:9.2f} ms  speedup={speedup:5.2f}x"
         )
 
     profiler = cProfile.Profile()

@@ -1,3 +1,5 @@
+"""Times the engineered base-set construction with and without its token cache over 40 raw column names, after checking that both give identical output."""
+
 import re, time, random
 if __name__ == "__main__":
     _TOKEN_SPLIT = re.compile(r"[^0-9a-zA-Z_]+")

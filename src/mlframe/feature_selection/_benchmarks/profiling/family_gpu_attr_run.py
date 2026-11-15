@@ -1,3 +1,5 @@
+"""Runs one warm GPU MRMR fit with the family timers on and prints the per-family wall times for the attribution analysis."""
+
 import os, sys, time, warnings, json
 warnings.simplefilter("ignore")
 

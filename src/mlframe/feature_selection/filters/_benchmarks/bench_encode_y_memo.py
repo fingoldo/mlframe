@@ -39,9 +39,7 @@ def main() -> None:
         _y_encoding.encode_y_for_classif_mi(y)
         t_hit = _best(lambda: _y_encoding.encode_y_for_classif_mi(y), reps)
         np.testing.assert_array_equal(_y_encoding.encode_y_for_classif_mi(y), _y_encoding._encode_y_uncached(y))
-        print(
-            f"{n:>10} {t_unc * 1e3:>12.2f} {t_hit * 1e3:>9.2f} {t_unc / t_hit:>11.1f} {t_unc * _N_STAGES:>20.3f} {t_unc + t_hit * (_N_STAGES - 1):>16.3f}"
-        )
+        print(f"{n:>10} {t_unc * 1e3:>12.2f} {t_hit * 1e3:>9.2f} {t_unc / t_hit:>11.1f} {t_unc * _N_STAGES:>20.3f} {t_unc + t_hit * (_N_STAGES - 1):>16.3f}")
 
 
 if __name__ == "__main__":

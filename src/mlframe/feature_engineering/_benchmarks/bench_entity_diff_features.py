@@ -44,10 +44,7 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         _run_multilag(n_entities, rows_per_entity, n_features, lags)
         wall = time.perf_counter() - t0
-        print(
-            f"[multilag={lags}] n_entities={n_entities:>7,} rows/entity={rows_per_entity:>3} "
-            f"n_features={n_features:>3} -> {wall * 1000:9.2f} ms"
-        )
+        print(f"[multilag={lags}] n_entities={n_entities:>7,} rows/entity={rows_per_entity:>3} " f"n_features={n_features:>3} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()

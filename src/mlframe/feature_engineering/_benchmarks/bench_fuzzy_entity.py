@@ -55,9 +55,7 @@ def _run_fuzzy(n_entities: int, events_per_entity: int, n_values: int, n_calls: 
     values = np.asarray(rng.integers(0, n_values, size=n))
     order = np.arange(n, dtype=np.float64)
     for _ in range(n_calls):
-        fuzzy_entity_group_features(
-            keys, values, time_order=order, fuzzy_key_matching=True, fuzzy_max_distance=1, fuzzy_block_prefix_len=10
-        )
+        fuzzy_entity_group_features(keys, values, time_order=order, fuzzy_key_matching=True, fuzzy_max_distance=1, fuzzy_block_prefix_len=10)
 
 
 if __name__ == "__main__":

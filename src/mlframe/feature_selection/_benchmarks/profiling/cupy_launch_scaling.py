@@ -1,3 +1,5 @@
+"""Measures CuPy kernel launch throughput (ElementwiseKernel, RawKernel and plain ops) with one and with three Python threads."""
+
 import threading, time, numpy as np, cupy as cp
 x = cp.random.rand(20000).astype(cp.float32)
 ek = cp.ElementwiseKernel("float32 x", "float32 y", "y = sqrtf(x * 1.0001f + 0.1f)", "fused_sq")
