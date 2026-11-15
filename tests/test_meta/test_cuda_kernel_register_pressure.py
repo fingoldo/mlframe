@@ -513,6 +513,16 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_f32e_v2",
         ("int8", "int16", "int32"),
     ),
+    "shap_proxy_treeshap_gpu.treeshap": (
+        "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu",
+        "kernel",
+        ("float64",),
+    ),
+    "shap_proxy_treeshap_interactions_gpu.treeshap_interactions": (
+        "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu",
+        "kernel",
+        ("float64",),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",
@@ -534,6 +544,17 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
 # it. Pack any thread-private triangular-matrix array (Hessian, Cholesky factor) before reaching for this dict - that
 # cut this kernel's spill from 1512 to 936 bytes/thread for free (see the reason string for what remains).
 _SPILL_EXEMPT: dict[str, str] = {
+    "shap_proxy_treeshap_gpu.treeshap": (
+        "2688 bytes/thread at the reference depth 6 (MAXW 8, MAXSP 28) = the per-thread TreeSHAP path scratch: the extend / unwind weight arrays indexed by the unique-path depth and "
+        "the explicit DFS stack that replaces recursion, all dynamically indexed, so they live in the stack frame (54 registers, no register spill). The module header states the design; the "
+        "frame grows with the square of the depth, which is why `_ensure_kernel` sizes it by the ensemble's real depth and not the cap (at the cap of 24 it reserved gigabytes of device "
+        "local memory and starved later GPU paths). Removing the frame means a different algorithm (the shared-memory tile of the tree), not a register fix."
+    ),
+    "shap_proxy_treeshap_interactions_gpu.treeshap_interactions": (
+        "3136 bytes/thread at depth 6 with 16 features (MAXW 8, MAXLVL 9, MAXP 16) = the same per-thread path scratch as treeshap plus the conditioned-pass accumulators (one level deeper, "
+        "one slot per feature), dynamically indexed so they sit in the stack frame (64 registers, no register spill). Sized by the ensemble's real depth and feature count in "
+        "`_ensure_kernel` (the caps would reserve about 2.6 GB of local memory on a 4 GB card); the frame is the algorithm's working set, not live-value pressure."
+    ),
     "honest_null_device.root_split_stats": (
         "256 bytes/thread = the per-thread class-count arrays `long long cl[16], cr[16]` (2 x 16 x 8), indexed by the runtime label `yi`: a dynamically indexed array lives in the "
         "stack frame (local memory, L1-resident), it is not a spill of live values (48 registers, far under the cap). The alternative layout that keeps the counters elsewhere "
