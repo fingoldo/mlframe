@@ -84,7 +84,7 @@ Rows: 108.
 | feature_selection/filters/_usability_aware_selection.py | _build_usability_cand_step1_ua_codes_none | 483, 484, 485 | REAL, not yet measured: one device op per (unary, unary, binary) combination |
 | feature_selection/filters/_usability_aware_selection.py | _build_usability_cand_step2_sub_quantum_cpu | 515 | FALSE POSITIVE: a host loop that builds a recipe per kept candidate, with no device launch per trip |
 | feature_selection/filters/_usability_aware_selection.py | _build_usability_cand_step3_pidx_n1_n2 | 376 | REAL, not yet measured: one candidate build per operand pair, each running the combination loops |
-| feature_selection/filters/_usability_aware_selection.py | build_usability_candidate_pool | 252 | REAL, not yet measured: one marginal MI per raw column |
+| feature_selection/filters/_usability_aware_selection.py | build_usability_candidate_pool | 252 | FALSE POSITIVE: the per-raw-column MI is host work (`_binned_mi` bins with `_quantile_bin(host_only=True)` and scores with the njit `marginal_mi_binned_fixed_y`); the detector reaches cupy only through a callee of the same function that the loop does not call
 | feature_selection/filters/_usability_greedy_clf_batched.py | _newton | 100 | FALSE POSITIVE: the sequential Newton iterations, each one batched over the candidates |
 | feature_selection/filters/_usability_greedy_clf_batched.py | cv_candidates_binary | 34 | FALSE POSITIVE: loops over the few folds, each one batched over the candidates |
 | feature_selection/filters/_usability_greedy_clf_gpu_resident.py | _usability_greedy_c_range_min | 555, 560 | FALSE POSITIVE: the sequential greedy rounds, each one batched cross-validation call |
