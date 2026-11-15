@@ -20,7 +20,8 @@ import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
-from ._fe_gain_stats import has_few_distinct, held_out_codes, paired_gain_se, plugin_mi_of_codes, quantile_codes
+from ._fe_gain_stats import has_few_distinct, held_out_codes, paired_gain_se, plugin_mi_of_codes
+from ._gain_stats_codes_gpu import quantile_codes_columns
 from ._fe_scan_common import rank_scaled as _rank_scaled
 from ._fe_scan_common import scan_index as _scan_index
 from ._numba_utils import MAX_SUBSET, STAT_NAMES, eval_candidates, stat_column
@@ -85,15 +86,20 @@ def _noise_scale(n_even: int, nb: int, ky: int) -> float:
 
 def _pool_columns(X: "pd.DataFrame", cols: Sequence[str], rows: np.ndarray, codes: np.ndarray, ky: int) -> "list[str]":
     """Up to ``MAX_POOL`` numeric columns, ranked by the larger of the MI of the column and the MI of its distance from the median (a spread effect is symmetric and invisible to the first)."""
-    scored = []
+    kept, xs = [], []
     for c in cols:
         x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
         finite = np.isfinite(x)
         if finite.sum() < _MIN_ROWS or has_few_distinct(x[finite], FEW_CLASSES_MAX):
             continue
-        x = np.where(finite, x, np.median(x[finite]))
-        mi = max(plugin_mi_of_codes(quantile_codes(x, N_MI_BINS), N_MI_BINS, codes, ky), plugin_mi_of_codes(quantile_codes(np.abs(x - np.median(x)), N_MI_BINS), N_MI_BINS, codes, ky))
-        scored.append((mi, c))
+        kept.append(c)
+        xs.append(np.where(finite, x, np.median(x[finite])))
+    if not xs:
+        return []
+    # the codes of every kept column and of its distance from the median, each set in one device launch (or the host form per column)
+    q_value = quantile_codes_columns(xs, N_MI_BINS)[0]
+    q_spread = quantile_codes_columns([np.abs(x - np.median(x)) for x in xs], N_MI_BINS)[0]
+    scored = [(max(plugin_mi_of_codes(q_value[i], N_MI_BINS, codes, ky), plugin_mi_of_codes(q_spread[i], N_MI_BINS, codes, ky)), kept[i]) for i in range(len(kept))]
     scored.sort(key=lambda t: -t[0])
     return [c for _, c in scored[:MAX_POOL]]
 
