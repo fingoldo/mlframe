@@ -121,7 +121,12 @@ def _analytic_cmi_null(
     try:
         _n = float(max(1, inp.n_size))
         if (z_support is None or z_support.size == 0) and z_support_dev is None:
-            _, k_x = _entropy_from_classes(inp.host_x())
+            if inp.cand_dev is not None:
+                import cupy as _cp_k
+
+                k_x = int(_cp_k.unique(inp.cand_dev).size)  # occupied classes counted on the card: one scalar crosses instead of the whole code column
+            else:
+                _, k_x = _entropy_from_classes(inp.host_x())
             _, k_y = _entropy_from_classes(inp.y)
             _df = (int(k_x) - 1) * (int(k_y) - 1)
             _cells = max(1, int(k_x) * int(k_y))
