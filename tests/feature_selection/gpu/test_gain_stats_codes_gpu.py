@@ -102,3 +102,45 @@ def test_screens_keep_their_verdicts_whether_the_device_or_the_host_codes_them(m
     assert answers["device"][0] == answers["host"][0] and answers["device"][1] == answers["host"][1]
     assert answers["device"][2] == answers["host"][2], "pair statistics must be identical"
     assert answers["device"][0] is True, "the pair target must be found, otherwise the comparison proves nothing"
+
+
+@pytest.mark.parametrize("dt", [np.float32, np.float64])
+def test_device_main_effect_statistics_equal_the_host_loop(dt):
+    """The held-out-gain t statistic of every column computed on the card equals the host loop (to 1e-9 relative), for continuous and heavily tied columns; a signal column is the strongest."""
+    if not has_device(cp):
+        pytest.skip("no usable device")
+    from mlframe.feature_selection.filters._pair_residual_screen import main_effect_bins
+
+    rng = np.random.default_rng(0)
+    n = 30_000
+    cols = [rng.standard_normal(n).astype(dt) for _ in range(30)]
+    cols[3] = np.round(cols[3] * 30).astype(dt)
+    t = rng.standard_normal(n) + 0.5 * cols[7].astype(np.float64) ** 2
+    even = np.arange(n) % 2 == 0
+    base = float(t[even].mean())
+    bins = main_effect_bins(int(even.sum()))
+    got = mod.main_effect_z_device(cols, bins, t, even, base)
+    assert got is not None
+
+    def host(c):
+        """The loop body of ``target_has_structure`` before the device statistic."""
+        q = quantile_codes(c, bins)
+        cnt = np.bincount(q[even], minlength=bins)
+        mean = np.where(cnt > 0, np.bincount(q[even], weights=t[even], minlength=bins) / np.maximum(cnt, 1), base)
+        d = (t[~even] - base) ** 2 - (t[~even] - mean[q[~even]]) ** 2
+        sd = float(d.std())
+        return float(d.mean()) / (sd / np.sqrt(len(d))) if sd > 0.0 else 0.0
+
+    want = np.array([host(c) for c in cols])
+    assert np.allclose(got, want, rtol=1e-9, atol=1e-9), float(np.abs(got - want).max())
+    assert int(np.argmax(got)) == int(np.argmax(want)) == 7
+
+
+def test_main_effect_statistics_decline_on_non_finite_columns_and_small_inputs():
+    """A column with a non-finite value, one bin, and a parity with fewer than two rows send the caller to its host loop."""
+    cols = _columns(np.float32, 3000)
+    even = np.arange(3000) % 2 == 0
+    t = np.ones(3000)
+    assert mod.main_effect_z_device(cols, 10, t, even, 1.0) is None  # the last-but-one column holds NaN
+    assert mod.main_effect_z_device(cols[:3], 1, t, even, 1.0) is None
+    assert mod.main_effect_z_device(cols[:3], 10, t, np.zeros(3000, dtype=bool), 1.0) is None

@@ -91,8 +91,8 @@ def _numpy_edges(cp: Any, sorted_cols: Any, n_bins: int) -> Any:
     return cp.ascontiguousarray(cp.where(t >= 0.5, b - diff * (1 - t), a + diff * t))
 
 
-def _codes_of_block(cp: Any, block: np.ndarray, bins: Sequence[int]) -> list:
-    """For an all-finite ``(kb, n)`` host block, one ``(kb, n)`` uint8 code matrix per entry of ``bins`` (one sort of the block serves them all)."""
+def _codes_of_block(cp: Any, block: np.ndarray, bins: Sequence[int], on_device: bool = False) -> list:
+    """For an all-finite ``(kb, n)`` host block, one ``(kb, n)`` uint8 code matrix per entry of ``bins`` (one sort of the block serves them all); with ``on_device`` the matrices stay cupy arrays."""
     from pyutilz.performance.gpu_hw_launch import block_size_for
 
     from ._device_sort_safe import device_sort
@@ -110,7 +110,7 @@ def _codes_of_block(cp: Any, block: np.ndarray, bins: Sequence[int]) -> list:
         threads = min(_THREADS, block_size_for(kern, dyn_smem=shared, work_items=n))
         grid_x = int(max(1, min((n + threads - 1) // threads, sms * _BLOCKS_PER_SM)))
         kern((grid_x, kb), (threads,), (xd, edges, np.int64(n), np.int32(edges.shape[1]), out), shared_mem=shared)  # launch-ok: one launch codes every column of the block
-        results.append(out.get())
+        results.append(out if on_device else out.get())
     return results
 
 
@@ -155,6 +155,60 @@ def quantile_codes_columns_device(cols: Sequence[np.ndarray], bins: Any) -> Opti
     except Exception as exc:
         logger.debug("device quantile codes failed (%s: %s); host form", type(exc).__name__, exc)
         return None
+
+
+def _main_effect_z(cp: Any, codes: Any, t_dev: Any, even_idx: Any, odd_idx: Any, bins: int, base: float) -> Any:
+    """``(kb,)`` t statistics of the held-out gain of a per-bin mean model: the target mean of each bin of the even rows predicts the odd rows against the constant ``base``, the statistic is
+    mean(d) / (std(d) / sqrt(m)) of ``d = (t - base)^2 - (t - mean[bin])^2`` over the m odd rows (0 where d has no spread; a one-level column has rounding noise in d on the host as well, and the callers skip such columns). Every column of the ``(kb, n)`` device ``codes`` at once, no Python loop."""
+    kb = int(codes.shape[0])
+    t_even, t_odd = t_dev[even_idx], t_dev[odd_idx]
+    key = codes[:, even_idx].astype(cp.int64) + (cp.arange(kb, dtype=cp.int64) * bins)[:, None]
+    flat = key.ravel()
+    cnt = cp.bincount(flat, minlength=kb * bins).astype(cp.float64)  # Intentional float64: bin counts and sums of the target feed a threshold test
+    total = cp.bincount(flat, weights=cp.broadcast_to(t_even, key.shape).ravel(), minlength=kb * bins)
+    mean = cp.where(cnt > 0, total / cp.maximum(cnt, 1.0), base).reshape(kb, bins)
+    mean_odd = cp.take_along_axis(mean, codes[:, odd_idx].astype(cp.int64), axis=1)
+    d = (t_odd - base) ** 2 - (t_odd[None, :] - mean_odd) ** 2
+    sd = d.std(axis=1)
+    return cp.where(sd > 0.0, d.mean(axis=1) / cp.maximum(sd / np.sqrt(float(d.shape[1])), 1e-300), 0.0)
+
+
+def main_effect_z_device(cols: Sequence[np.ndarray], bins: int, t: np.ndarray, even: np.ndarray, base: float) -> Optional[np.ndarray]:
+    """``(k,)`` held-out-gain t statistics of the columns ``cols`` on the device (codes never leave the card), or ``None`` when the device path does not apply (no card, a bin count outside
+    2 to 255, a column with a non-finite value, fewer than two rows of either parity) or faulted; the caller then codes on the host and runs its own loop."""
+    k = len(cols)
+    if k == 0 or int(bins) < 2 or int(bins) > MAX_DEVICE_BINS:
+        return None
+    try:
+        import cupy as cp
+
+        n = int(np.asarray(cols[0]).shape[0])
+        even_idx, odd_idx = np.flatnonzero(even), np.flatnonzero(~even)
+        if n < 2 or even_idx.size < 2 or odd_idx.size < 2:
+            return None
+        dtypes = {np.asarray(c).dtype for c in cols}
+        work = np.float32 if dtypes == {np.dtype(np.float32)} else np.float64  # Intentional float64: any other mix is binned in double, as numpy would compare it
+        x = np.ascontiguousarray(np.stack([np.asarray(c, dtype=work) for c in cols]))
+        if not np.isfinite(x).all():
+            return None
+        t_dev = cp.asarray(np.asarray(t, dtype=np.float64))  # Intentional float64: target labels kept exact
+        ev, od = cp.asarray(even_idx), cp.asarray(odd_idx)
+        out = np.empty(k, dtype=np.float64)  # Intentional float64: the statistic is compared with a threshold
+        width = _block_width(cp, n, k, int(x.dtype.itemsize))
+        for c0 in range(0, k, width):
+            codes = _codes_of_block(cp, np.ascontiguousarray(x[c0 : c0 + width]), [int(bins)], on_device=True)[0]
+            out[c0 : c0 + width] = cp.asnumpy(_main_effect_z(cp, codes, t_dev, ev, od, int(bins), float(base)))
+        return out
+    except Exception as exc:
+        logger.debug("device main-effect statistics failed (%s: %s); host form", type(exc).__name__, exc)
+        return None
+
+
+def main_effect_z_columns(cols: Sequence[np.ndarray], bins: int, t: np.ndarray, even: np.ndarray, base: float) -> Optional[np.ndarray]:
+    """:func:`main_effect_z_device` when the tuner says the device for this row count, else ``None`` (the caller's host loop)."""
+    if len(cols) and quantile_codes_on_device(int(np.asarray(cols[0]).shape[0])):
+        return main_effect_z_device(cols, bins, t, even, base)
+    return None
 
 
 def _sweep_inputs(dims: dict) -> tuple:
@@ -221,4 +275,4 @@ def quantile_codes_columns(cols: Sequence[np.ndarray], bins: Any) -> list:
     return [_host_codes(cols, b) for b in bin_list]
 
 
-__all__ = ["quantile_codes_columns", "quantile_codes_columns_device", "quantile_codes_on_device", "kernel"]
+__all__ = ["main_effect_z_columns", "main_effect_z_device", "quantile_codes_columns", "quantile_codes_columns_device", "quantile_codes_on_device", "kernel"]
