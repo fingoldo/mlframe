@@ -83,6 +83,11 @@ def _kernel(cp: Any, integer_time: bool) -> Any:
     return _KERNELS[key]
 
 
+def kernel(cp: Any, real: Any) -> Any:
+    """``rolling_stat_past_only`` for a time type of the dtype ``real`` (an integer dtype: the int64 nanosecond variant, else double); the register-pressure registry compiles it through this."""
+    return _kernel(cp, np.dtype(real).kind in "iu")
+
+
 def _prev_links(group_codes: np.ndarray) -> np.ndarray:
     """``prev[j]``: the newest row before j in j's entity, -1 when absent; the same links the host sweep builds in row order."""
     n = group_codes.shape[0]

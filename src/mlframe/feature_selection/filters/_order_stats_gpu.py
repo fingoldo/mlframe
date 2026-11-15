@@ -93,6 +93,11 @@ def _kernel(cp: Any) -> Any:
     return _KERNEL
 
 
+def kernel(cp: Any, real: Any) -> Any:
+    """``segment_order_stats`` (double only: the statistics are formed in double); the register-pressure registry compiles it through this."""
+    return _kernel(cp)
+
+
 _STAT_BITS = ("median", "trimmed_mean", "q10", "q90", "iqr", "min", "max")
 
 

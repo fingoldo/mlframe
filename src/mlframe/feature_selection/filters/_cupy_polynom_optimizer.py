@@ -154,23 +154,29 @@ _BF_FUNCS = {"float": {"ATAN2": "atan2f", "LOG": "logf", "FABS": "fabsf"}, "doub
 _BF_KERNELS: dict = {}
 
 
+def kernel(cp, real):
+    """``bf_apply`` for the dtype ``real`` (float32 or double), compiled once with ``--fmad=false``."""
+    key = "float" if np.dtype(real) == np.float32 else "double"
+    compiled = _BF_KERNELS.get(key)
+    if compiled is None:
+        src = render(_BF_SRC, real=real)
+        for name, value in _BF_FUNCS[key].items():
+            src = src.replace("{" + name + "}", value)
+        compiled = _BF_KERNELS[key] = cp.RawKernel(src, "bf_apply", options=("--fmad=false",))
+    return compiled
+
+
 def _bf_apply_checked(cp, bf_idx: int, A, Bm):
     """``(C, ok)``: the binary function ``_BF_ORDER[bf_idx]`` of two (n, P) device matrices in one launch, and the per-column mask of columns whose inputs and result are all finite."""
     from pyutilz.performance.gpu_hw_launch import block_size_for
 
     A, Bm = cp.ascontiguousarray(A), cp.ascontiguousarray(Bm)
-    real = "float" if A.dtype == cp.float32 else "double"
-    kernel = _BF_KERNELS.get(real)
-    if kernel is None:
-        src = render(_BF_SRC, real=A.dtype)
-        for key, value in _BF_FUNCS[real].items():
-            src = src.replace("{" + key + "}", value)
-        kernel = _BF_KERNELS[real] = cp.RawKernel(src, "bf_apply", options=("--fmad=false",))
+    kernel_ = kernel(cp, A.dtype)
     total, P = int(A.size), int(A.shape[1])
     C = cp.empty_like(A)
     bad = cp.zeros(P, dtype=cp.int32)
-    threads = block_size_for(kernel, work_items=total)
-    kernel(((total + threads - 1) // threads,), (threads,), (A, Bm, np.int32(bf_idx), np.int64(total), np.int32(P), C, bad))
+    threads = block_size_for(kernel_, work_items=total)
+    kernel_(((total + threads - 1) // threads,), (threads,), (A, Bm, np.int32(bf_idx), np.int64(total), np.int32(P), C, bad))
     return C, bad == 0
 
 

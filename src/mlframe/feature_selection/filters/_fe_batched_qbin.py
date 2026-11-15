@@ -86,6 +86,11 @@ def _get_qbin_coder_kernel(real: str = "double", out: str = "long long"):
     return kern
 
 
+def kernel(cp: Any, real: Any) -> Any:
+    """``qbin_code`` for a column of dtype ``real`` writing byte codes; the register-pressure registry compiles it through this."""
+    return _get_qbin_coder_kernel("float" if np.dtype(real) == np.float32 else "double", "unsigned char")
+
+
 def _edge_keys(cp: Any, edges_all: Any, interior: Any, ndistinct: Any, real: str) -> Any:
     """The ``(nbins + 2, K)`` integer key table of the edges for the coder of type ``real``: non-interior slots hold the key maximum, the last row the binary-column top edge."""
     sign: Any

@@ -58,6 +58,31 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_rows",
         ("float32", "float64"),
     ),
+    "rolling_window_gpu.rolling_stat_past_only": (
+        "mlframe.feature_selection.filters._rolling_window_gpu",
+        "kernel",
+        ("int64", "float64"),
+    ),
+    "order_stats_gpu.segment_order_stats": (
+        "mlframe.feature_selection.filters._order_stats_gpu",
+        "kernel",
+        ("float64",),
+    ),
+    "cupy_polynom_optimizer.bf_apply": (
+        "mlframe.feature_selection.filters._cupy_polynom_optimizer",
+        "kernel",
+        ("float32", "float64"),
+    ),
+    "fe_batched_qbin.qbin_code": (
+        "mlframe.feature_selection.filters._fe_batched_qbin",
+        "kernel",
+        ("float32", "float64"),
+    ),
+    "fe_batched_mi.mi_from_codes_tile": (
+        "mlframe.feature_selection.filters._fe_batched_mi",
+        "kernel",
+        ("uint8", "int64"),
+    ),
 }
 
 # kernel name -> reason a register spill is accepted for it. Empty is the default: fix the kernel instead of exempting
