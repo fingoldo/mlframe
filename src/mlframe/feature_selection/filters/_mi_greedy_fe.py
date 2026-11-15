@@ -345,19 +345,23 @@ def iter_candidates(
 # ---------------------------------------------------------------------------
 
 def _materialise_candidate(
-    X: pd.DataFrame, src_cols: tuple[str, ...], tname: str,
+    X: pd.DataFrame, src_cols: tuple[str, ...], tname: str, col_cache: Optional[dict] = None,
 ) -> Optional[np.ndarray]:
-    """Compute ONE candidate column as a double ndarray. NaN/Inf scrubbed."""
+    """Compute ONE candidate column as a double ndarray. NaN/Inf scrubbed. ``col_cache`` (column name -> ndarray) replaces the per-candidate frame lookup of the source columns."""
+    def _col(name: str) -> np.ndarray:
+        """The source column as an array, from the cache when one is given."""
+        return col_cache[name] if col_cache is not None else X[name].to_numpy()
+
     try:
         if len(src_cols) == 1:
-            x = X[src_cols[0]].to_numpy()
+            x = _col(src_cols[0])
             fn = UNARY_TRANSFORMS.get(tname) or TRIG_BOUNDED_TRANSFORMS.get(tname)
             if fn is None:
                 return None
             out = fn(x)
         elif len(src_cols) == 2:
-            a = X[src_cols[0]].to_numpy()
-            b = X[src_cols[1]].to_numpy()
+            a = _col(src_cols[0])
+            b = _col(src_cols[1])
             fn_b = BINARY_TRANSFORMS.get(tname)
             if fn_b is None:
                 return None
@@ -390,8 +394,7 @@ def generate_mi_greedy_features(
         Aligned with the engineered DataFrame's columns; lets the caller
         rebuild recipes without re-parsing the names.
     """
-    out_cols: dict[str, np.ndarray] = {}
-    parsed: list[tuple[tuple[str, ...], str]] = []
+    specs: list[tuple[str, tuple[str, ...], str]] = []
     seen_names: set[str] = set()
     for src_cols, tname in candidates:
         if len(src_cols) == 1:
@@ -402,16 +405,27 @@ def generate_mi_greedy_features(
             continue
         if name in seen_names:
             continue
-        arr = _materialise_candidate(X, src_cols, tname)
+        seen_names.add(name)
+        specs.append((name, src_cols, tname))
+    # The source columns are read from the frame once (a candidate used to look its operands up in the frame: 2 lookups of 0.1 ms each per candidate), and the candidates are built on the edge pool
+    # (the transforms are numpy ufuncs on whole columns, which release the GIL) and folded in the enumeration order, so the frame is the serial one.
+    col_cache = {c: X[c].to_numpy() for c in dict.fromkeys(c for _n, sc, _t in specs for c in sc)}
+
+    def _build(spec: tuple[str, tuple[str, ...], str]) -> Optional[np.ndarray]:
+        """The candidate array of ``spec``, or ``None`` when it is not built or has no spread (constant or near-constant columns carry zero MI and clutter the score table)."""
+        arr = _materialise_candidate(X, spec[1], spec[2], col_cache)
+        return None if arr is None or float(arr.std()) <= 1e-12 else arr
+
+    from ._edge_pool import map_on_edge_pool
+
+    built = map_on_edge_pool(_build, specs, min_items=8)
+    out_cols: dict[str, np.ndarray] = {}
+    parsed: list[tuple[tuple[str, ...], str]] = []
+    for (name, src_cols, tname), arr in zip(specs, built):
         if arr is None:
-            continue
-        # Drop constant or near-constant columns - they carry zero MI and
-        # clutter the score table.
-        if float(arr.std()) <= 1e-12:
             continue
         out_cols[name] = arr
         parsed.append((src_cols, tname))
-        seen_names.add(name)
     return pd.DataFrame(out_cols, index=X.index), parsed
 
 def _greedy_score_and_select(
