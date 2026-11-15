@@ -43,6 +43,7 @@ pool (a +47s regression measured previously on the CMI perm-null port).
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import numpy as np
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
@@ -54,6 +55,22 @@ from mlframe.feature_selection.filters._device_sort_safe import device_argsort, 
 # -> ~192MB per int64 buffer, comfortably under 4GB with headroom for the resident cls_x matrix and uploads.
 # Mirrors ``_permutation_null_resident._PERMNULL_TILE_CELLS``.
 _PERMNULL_PAIR_TILE_CELLS = 24_000_000  # pb * n_pairs * n upper bound (int64 cells)
+
+
+def _joint_code_entropies(cp: Any, cls_x: Any, max_joint: int, inv_n: float) -> Any:
+    """``-sum p log p`` of every row of the (n_pairs, n) joint X-code matrix ``cls_x`` (codes in ``[0, max_joint)``): one bincount over offset codes for a block of pairs and one row reduction, instead of a
+    bincount, a mask and a reduction per pair. Cells beyond a pair's own cardinality are empty and add exactly zero."""
+    n_pairs = int(cls_x.shape[0])
+    # Intentional float64: entropy accumulator of a permutation floor, exact ties decide the selection
+    h_x = cp.empty(n_pairs, dtype=cp.float64)
+    block = max(1, min(n_pairs, (1 << 24) // max(1, int(max_joint))))  # a block's (pairs, max_joint) count table stays within 2^24 cells
+    for p0 in range(0, n_pairs, block):
+        p1 = min(n_pairs, p0 + block)
+        flat = cls_x[p0:p1] + (cp.arange(p1 - p0, dtype=cls_x.dtype) * max_joint)[:, None]
+        px = cp.bincount(flat.ravel(), minlength=(p1 - p0) * max_joint).reshape(p1 - p0, max_joint).astype(cp.float64) * inv_n  # Intentional float64: see above
+        nz = px > 0
+        h_x[p0:p1] = -cp.sum(cp.where(nz, px * cp.log(cp.where(nz, px, 1.0)), 0.0), axis=1)
+    return h_x
 
 
 def pooled_pair_permutation_null_joint_mi_floor_cupy(
@@ -140,13 +157,7 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
 
         # Marginal H(x) per pair (permutation-invariant): -sum p log p over the joint X-code counts.
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-        h_x = cp.empty(n_pairs, dtype=cp.float64)
-        for p in range(n_pairs):
-            # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-            cnt = cp.bincount(cls_x[p], minlength=int(joint_card[p]))[: int(joint_card[p])].astype(cp.float64)
-            px = cnt * inv_n
-            nz = px > 0
-            h_x[p] = -cp.sum(cp.where(nz, px * cp.log(cp.where(nz, px, 1.0)), 0.0))
+        h_x = _joint_code_entropies(cp, cls_x, max_joint, inv_n)
         h_x = h_x[:, None]  # (n_pairs, 1)
 
         # H(y) is permutation-invariant (freqs_y unchanged under relabelling) -> one host scalar.

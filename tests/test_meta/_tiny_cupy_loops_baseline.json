@@ -116,7 +116,7 @@
  "src/mlframe/feature_selection/filters/_pairwise_modular_resident.py::residue_grid_mis_resident",
  "src/mlframe/feature_selection/filters/_parity_fe.py::hybrid_parity_fe_with_recipes",
  "src/mlframe/feature_selection/filters/_parity_gpu.py::parity_mi_grids_gpu",
- "src/mlframe/feature_selection/filters/_permutation_null_pair_resident.py::pooled_pair_permutation_null_joint_mi_floor_cupy",
+ "src/mlframe/feature_selection/filters/_permutation_null_pair_resident.py::_joint_code_entropies",
  "src/mlframe/feature_selection/filters/_permutation_null_pair_tiles.py::_pooled_pair_null_perm_tiles",
  "src/mlframe/feature_selection/filters/_permutation_null_resident.py::pooled_gain_floor_perms_cupy",
  "src/mlframe/feature_selection/filters/_qbin_block_gpu.py::resident_qbin_codes_block",

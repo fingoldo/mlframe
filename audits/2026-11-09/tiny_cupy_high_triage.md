@@ -3,7 +3,7 @@
 The detector's `high` hits in the current source, one row per function. The baseline (`tests/test_meta/_tiny_cupy_loops_baseline.json`) holds these keys.
 Dispositions to fill in: **FALSE POSITIVE** (the loop is a chunk, fold or fallback loop with a few trips and real work per trip), **FALLBACK** (the cupy loop runs only when a batched path is not taken, measured), **REAL** (a launch-bound loop, to restructure), **OPEN** (not yet read).
 
-Rows: 111.
+Rows: 110.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -82,7 +82,6 @@ Rows: 111.
 | feature_selection/filters/_orthogonal_univariate_fe/_streamed_gpu_mi.py | mi_classif_streamed | 157 | FALSE POSITIVE: the planned streaming loop over column blocks, each a full block MI |
 | feature_selection/filters/_orthogonal_univariate_fe/_streamed_gpu_mi.py | null_max_streamed | 221, 241 | FALSE POSITIVE: the planned streaming loop over column blocks, each a full block null |
 | feature_selection/filters/_pairwise_modular_resident.py | residue_grid_mis_resident | 143 | FALSE POSITIVE: loops over the few effective-bin groups, each one batched MI |
-| feature_selection/filters/_permutation_null_pair_resident.py | pooled_pair_permutation_null_joint_mi_floor_cupy | 144 | REAL, not yet measured: a bincount and several small ops per pair over n_pairs |
 | feature_selection/filters/_resident_candidate_mi.py | gate_grid_mi_resident | 376 | REAL, not yet measured: one tau-grid matrix build (several ops) per spec before the batched MI |
 | feature_selection/filters/_unified_fe_gate.py | unified_second_pass_gate | 570 | REAL, not yet measured: one conditional MI per remaining candidate per greedy round |
 | feature_selection/filters/_usability_aware_selection.py | _build_usability_cand_step1_ua_codes_none | 483, 484, 485 | REAL, not yet measured: one device op per (unary, unary, binary) combination |
