@@ -10,7 +10,8 @@ from mlframe.feature_selection.filters._gpu_resident_select_kernels import _tran
 
 SRC_ROW = m._MI_MM_FROM_VALUES_NEK_F32_SRC
 OLD = "X[i * (long long)K + c]"
-assert SRC_ROW.count(OLD) == 1, SRC_ROW.count(OLD)
+if SRC_ROW.count(OLD) != 1:
+    raise RuntimeError(f"kernel text changed: {OLD!r} occurs {SRC_ROW.count(OLD)} times, expected once")
 KERNEL_ROW = cp.RawKernel(SRC_ROW, "mi_mm_from_values_nek_f32")
 KERNEL_COL = cp.RawKernel(SRC_ROW.replace(OLD, "X[(long long)c * n + i]"), "mi_mm_from_values_nek_f32")
 NBINS, KY = 10, 2

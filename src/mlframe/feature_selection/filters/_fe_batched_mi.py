@@ -620,8 +620,8 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
                                                    np.float64(1.0 / float(max(1, n))), mi_out),  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
                  shared_mem=G * Kx * Ky * 4)
             return mi_out if as_device else np.asarray(cp.asnumpy(mi_out))
-        except Exception:
-            logger.debug("mi_from_codes tiled launch failed; falling back to the row-major kernel", exc_info=True)
+        except Exception as exc:
+            log_throttle(logger, "mi_from_codes_tile_failed", logging.WARNING, "mi_from_codes tiled launch failed (%s: %s); falling back to the row-major kernel", type(exc).__name__, exc)
             if byte_codes:
                 C = cp.ascontiguousarray(C.astype(cp.int64))
     v2 = _get_mi_from_codes_v2_kernels()

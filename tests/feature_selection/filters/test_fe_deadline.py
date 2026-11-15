@@ -10,11 +10,15 @@ from __future__ import annotations
 from timeit import default_timer as timer
 
 from mlframe.feature_selection.filters._fe_deadline import (
-    clear_fe_deadline,
     fe_budget_active,
     fe_deadline_passed,
     set_fe_deadline,
 )
+
+
+def clear_fe_deadline() -> None:
+    """Reset the thread-local deadline to unset; ``set_fe_deadline(None)`` is the module's own spelling of it (the separate helper was removed as an orphan)."""
+    set_fe_deadline(None)
 
 
 def teardown_function():

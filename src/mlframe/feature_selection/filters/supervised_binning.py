@@ -188,6 +188,17 @@ def _mdlp_sorted_splits(
     return splits
 
 
+def _sorted_by_x(x: np.ndarray, y: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+    """``(x, y)`` ordered by ``x``: for a large float32 column one radix argsort and one gather (8.4 ms of ``np.argsort`` for 100000 values became 1.7 ms), else ``np.argsort`` with the
+    column widened to the production binning width."""
+    radix_sorted = sort_xy(x, y)
+    if radix_sorted is not None:
+        return radix_sorted
+    sorter = np.argsort(x)
+    # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
+    return np.ascontiguousarray(x[sorter].astype(np.float64)), np.ascontiguousarray(y[sorter])
+
+
 def mdlp_bin_edges(
     x: np.ndarray,
     y: np.ndarray,
@@ -326,14 +337,7 @@ def mdlp_bin_edges(
         # All-NaN / all-non-finite input: no splits computable.
         return np.array([-np.inf, np.inf], dtype=np.float64)  # Intentional float64: bin-edge / cut vector, compared against values at full precision
 
-    radix_sorted = sort_xy(x, y)  # a large float32 column: one radix argsort and one gather (8.4 ms of np.argsort for 100000 values became 1.7 ms)
-    if radix_sorted is not None:
-        x_sorted, y_sorted = radix_sorted
-    else:
-        sorter = np.argsort(x)
-        # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
-        x_sorted = np.ascontiguousarray(x[sorter].astype(np.float64))
-        y_sorted = np.ascontiguousarray(y[sorter])
+    x_sorted, y_sorted = _sorted_by_x(x, y)
 
     splits = _mdlp_sorted_splits(
         x_sorted, y_sorted, fast_mode=fast_mode, backend=backend, min_split_size=int(min_split_size), max_depth=int(max_depth),

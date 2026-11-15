@@ -101,7 +101,9 @@ def test_every_carved_module_is_still_in_its_parent_and_the_family_has_one_verdi
     parent's name. A child may keep a record of its own with deeper per-module measurements, but is never required to have one."""
     from mlframe.feature_selection._benchmarks.fe_gpu_coverage_inventory import CARVED_FAMILIES, PROFILES_DIR, carved_family_problems
 
+    assert CARVED_FAMILIES, "the registry must hold carved families"
     for parent, children in CARVED_FAMILIES.items():
+        assert children, f"{parent} is listed without a child"
         assert (PROFILES_DIR / f"{parent}.md").is_file(), f"the family record of {parent} is missing"
         for child in children:
             assert not carved_family_problems(child), (parent, child, carved_family_problems(child))

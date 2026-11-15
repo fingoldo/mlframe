@@ -24,8 +24,10 @@ def test_each_stratum_keeps_its_multiset():
     x, zr, nr, rank = _layout(20000, 5000, 6)
     out = cp.asnumpy(strata_shuffle(cp, cp.random.RandomState(3), x, zr, 7, nr))
     xh = cp.asnumpy(x)
-    for p in range(out.shape[0]):
-        assert np.array_equal(np.bincount(rank * 6 + out[p], minlength=nr * 6), np.bincount(rank * 6 + xh, minlength=nr * 6))
+    permutations = list(out)
+    assert len(permutations) == 7, "seven permutations were drawn"
+    for perm in permutations:
+        assert np.array_equal(np.bincount(rank * 6 + perm, minlength=nr * 6), np.bincount(rank * 6 + xh, minlength=nr * 6))
 
 
 def test_shuffles_move_values_and_differ_between_permutations():

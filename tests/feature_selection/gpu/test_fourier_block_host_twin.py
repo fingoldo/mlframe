@@ -36,6 +36,14 @@ def _args(xs: np.ndarray, metas: list) -> tuple:
     return (xs, src, cosine, params[:, 4].astype(np.int64), params[:, 5].astype(np.int64), params[:, 0], params[:, 1], params[:, 2], params[:, 3], w)
 
 
+def _needs_gpu():
+    """cupy with a usable CUDA device, else skip."""
+    cp = pytest.importorskip("cupy")
+    if not has_device(cp):
+        pytest.skip("no usable CUDA device")
+    return cp
+
+
 @pytest.mark.parametrize("dt,tol", [(np.float32, 1e-5), (np.float64, 1e-12)])
 def test_block_equals_the_numpy_chain(dt, tol):
     """Every name of the block equals the per-column numpy expression of ``_fourier_col_gpu`` run on numpy arrays."""
@@ -51,9 +59,7 @@ def test_block_equals_the_numpy_chain(dt, tol):
 @pytest.mark.parametrize("dt,tol", [(np.float32, 2e-5), (np.float64, 1e-11)])
 def test_block_equals_the_device_kernel(dt, tol):
     """The host twin and the device kernel agree to the rounding of the element type."""
-    cp = pytest.importorskip("cupy")
-    if not has_device(cp):
-        pytest.skip("no usable CUDA device")
+    cp = _needs_gpu()
     rng = np.random.default_rng(2)
     xs = rng.standard_normal((6, 5003)).astype(dt)
     metas = _metas(32, 6)
@@ -80,9 +86,7 @@ def test_sincos_legs_double_axis_is_exact_and_single_axis_defers_to_numpy():
 
 def test_name_blocks_give_the_same_block(monkeypatch):
     """Forcing one name per block (each stacking only its own source column) gives the single-launch block bit for bit."""
-    cp = pytest.importorskip("cupy")
-    if not has_device(cp):
-        pytest.skip("no usable CUDA device")
+    cp = _needs_gpu()
     from mlframe.feature_selection.filters import _device_blocks as db
 
     rng = np.random.default_rng(4)

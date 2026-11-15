@@ -41,6 +41,7 @@ def test_cards_and_resident_forms_join_in_order(monkeypatch):
     X, y, z = _data(1)
     for dev in (False, True):
         once, blocked = _both(monkeypatch, X, y, z, return_cards=True, return_device=dev)
+        assert len(once) == len(blocked) > 0, "the card form must return the cards"
         for a, b in zip(once, blocked):
             assert np.array_equal(cp.asnumpy(a) if hasattr(a, "get") else np.asarray(a), cp.asnumpy(b) if hasattr(b, "get") else np.asarray(b))
 

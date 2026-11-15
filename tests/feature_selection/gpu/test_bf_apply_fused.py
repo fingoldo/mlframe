@@ -10,14 +10,20 @@ from tests.feature_selection.gpu._gpu_support import has_device
 from mlframe.feature_selection.filters import _cupy_polynom_optimizer as m
 
 
+def _needs_gpu():
+    """cupy with a usable CUDA device, else skip."""
+    cp = pytest.importorskip("cupy")
+    if not has_device(cp):
+        pytest.skip("no usable CUDA device")
+    return cp
+
+
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("bf", list(m._BF_ORDER))
 @pytest.mark.parametrize("n,p", [(1, 3), (257, 5), (30_001, 100)])
 def test_matches_the_cupy_chain(dtype, bf, n, p):
     """Values equal (NaN in the same cells), the finite mask equals isfinite().all(axis=0) of inputs and result; exact zeros in B cover the safe divide, tiny values the logabs sign."""
-    cp = pytest.importorskip("cupy")
-    if not has_device(cp):
-        pytest.skip("no usable CUDA device")
+    cp = _needs_gpu()
     rng = np.random.default_rng(7)
     a = rng.standard_normal((n, p)).astype(dtype)
     b = rng.standard_normal((n, p)).astype(dtype)

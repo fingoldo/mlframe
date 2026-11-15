@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.feature_selection.gpu._gpu_support import has_device
+
 from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_cluster as sc
 
 
@@ -46,9 +48,7 @@ def test_pairs_and_order_equal_the_row_scan(use_gpu, block, threshold):
     """Equal arrays; with an edge cap one below the count the result is None, at the count it is the pairs."""
     if use_gpu:
         cp = pytest.importorskip("cupy")
-        try:
-            cp.cuda.runtime.getDeviceCount()
-        except Exception:
+        if not has_device(cp):
             pytest.skip("no usable CUDA device")
     Z = _data()
     want = _reference(Z, threshold, 10**9, block)
@@ -56,6 +56,6 @@ def test_pairs_and_order_equal_the_row_scan(use_gpu, block, threshold):
     np.testing.assert_array_equal(got[0], want[0])
     np.testing.assert_array_equal(got[1], want[1])
     count = want[0].size
-    if count:
-        assert sc._edges_blocked(Z, threshold, count - 1, block, use_gpu) is None
-        assert sc._edges_blocked(Z, threshold, count, block, use_gpu) is not None
+    assert count > 0, "the planted correlated groups must produce edges at every threshold of the test"
+    assert sc._edges_blocked(Z, threshold, count - 1, block, use_gpu) is None
+    assert sc._edges_blocked(Z, threshold, count, block, use_gpu) is not None

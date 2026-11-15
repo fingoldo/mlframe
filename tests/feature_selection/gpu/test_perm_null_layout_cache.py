@@ -21,6 +21,7 @@ def test_same_support_returns_the_cached_layout_and_equals_a_fresh_one():
     first = M._stratum_layout(cp, z, None, None, z.size)
     assert M._stratum_layout(cp, z, None, None, z.size) is first
     fresh = M._stratum_layout_uncached(cp, z, None, None, z.size)
+    assert len(first) == len(fresh) > 0, "the layout must hold arrays"
     for a, b in zip(first, fresh):
         assert bool((a == b).all())
 

@@ -18,13 +18,12 @@ def _cases():
         yield np.where(rng.random(n) < 0.1, -np.inf, rng.integers(0, 2, n)).astype(np.float32)
 
 
-@pytest.mark.parametrize("vals", list(_cases()))
+# a group with no finite member never reaches the rank path (the caller handles it), so it is not a case of this test
+@pytest.mark.parametrize("vals", [v for v in _cases() if np.isfinite(v).any()])
 def test_kernel_ranks_equal_the_numpy_twin(vals):
     """Every member's rank matches the twin bit for bit, non-finite members included."""
     finite = np.isfinite(vals)
     fin = vals[finite]
-    if fin.size == 0:
-        pytest.skip("no finite member: the caller never reaches the rank path")
     order = np.argsort(fin, kind="stable")
     sv = fin[order]
     got = G._member_pct_ranks(order, sv, vals, finite)

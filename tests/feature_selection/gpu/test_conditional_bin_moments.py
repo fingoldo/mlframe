@@ -46,6 +46,7 @@ def test_device_moments_reproducible_and_resident_input():
     a = cbm.bin_moments_gpu(codes, cols, 10)
     b = cbm.bin_moments_gpu(codes, cols, 10)
     c = cbm.bin_moments_gpu(codes, cp.asarray(np.stack(cols)), 10)
+    assert len(a) == len(b) == len(c) > 0, "the moments must come back"
     for x, y, z in zip(a, b, c):
         assert np.array_equal(x, y) and np.array_equal(x, z)
 

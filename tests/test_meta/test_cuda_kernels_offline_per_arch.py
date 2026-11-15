@@ -233,14 +233,15 @@ def test_occupancy_arithmetic_on_known_cases():
     assert (occ, why) == (0.5, "blocks")
 
 
+_LOCAL_LIMITS = local_device_limits()
+
+
+@pytest.mark.skipif(_LOCAL_LIMITS is None, reason="no CUDA device to read limits from")
+@pytest.mark.skipif(_LOCAL_LIMITS is not None and _LOCAL_LIMITS[0] not in ARCH_LIMITS, reason="the local compute capability is not in the table")
 def test_architecture_limit_table_matches_the_local_device():
     """The threads-per-SM and blocks-per-SM rows of ARCH_LIMITS agree with what the local device reports (the other rows are the documented table, not a measurement)."""
-    local = local_device_limits()
-    if local is None:
-        pytest.skip("no CUDA device to read limits from")
-    arch, threads, blocks = local
-    if arch not in ARCH_LIMITS:
-        pytest.skip(f"sm_{arch} is not in the table")
+    assert _LOCAL_LIMITS is not None
+    arch, threads, blocks = _LOCAL_LIMITS
     assert (threads, blocks) == ARCH_LIMITS[arch][:2], f"sm_{arch}: device says {(threads, blocks)}, table says {ARCH_LIMITS[arch][:2]}"
 
 
