@@ -103,6 +103,16 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "relaxmrmr_pair_gpu.relaxmrmr_pair": (
+        "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
+        "kernel",
+        ("uint8", "int32"),
+    ),
+    "synergy_combo_gpu.synergy_combo": (
+        "mlframe.feature_selection.filters._synergy_combo_gpu",
+        "kernel",
+        ("uint8", "int32"),
+    ),
     "fe_batched_mi.mi_from_codes_tile": (
         "mlframe.feature_selection.filters._fe_batched_mi",
         "kernel",

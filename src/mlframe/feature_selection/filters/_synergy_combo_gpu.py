@@ -105,6 +105,11 @@ def _kernel(cp: Any, narrow: bool) -> Any:
     return _KERNELS[narrow]
 
 
+def kernel(cp: Any, real: Any) -> Any:
+    """``synergy_combo`` for codes of dtype ``real`` (uint8: byte codes, else 32-bit integers); the register-pressure registry compiles it through this."""
+    return _kernel(cp, np.dtype(real) == np.uint8)
+
+
 def combo_mm_mi_gpu(code_cols: Sequence[np.ndarray], combos: Sequence[Sequence[int]], cards: Sequence[int], target: np.ndarray, kt: int) -> np.ndarray:
     """MM-corrected joint MI of each combo (indices into ``code_cols``, two or three of them, ``cards`` the cardinality of every column) with ``target``; NaN for a combo over the table limit. Raises on a device fault."""
     import cupy as cp
