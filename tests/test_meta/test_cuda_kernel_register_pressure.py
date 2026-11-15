@@ -553,6 +553,46 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "fourier_fused_gpu.periodogram_power": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_fused_gpu",
+        "kernel_power",
+        ("float32", "float64"),
+    ),
+    "fourier_fused_gpu.sincos_gram": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_fused_gpu",
+        "kernel_gram",
+        ("float32", "float64"),
+    ),
+    "fourier_fused_gpu.solve3": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_fused_gpu",
+        "kernel_solve",
+        ("float32", "float64"),
+    ),
+    "fourier_fused_gpu.apply_deflate": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_fused_gpu",
+        "kernel_deflate",
+        ("float32", "float64"),
+    ),
+    "fourier_batch_gpu.periodogram_power_b": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_batch_gpu",
+        "kernel_power",
+        ("float32", "float64"),
+    ),
+    "fourier_batch_gpu.sincos_gram_b": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_batch_gpu",
+        "kernel_gram",
+        ("float32", "float64"),
+    ),
+    "fourier_batch_gpu.solve3_b": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_batch_gpu",
+        "kernel_solve",
+        ("float32", "float64"),
+    ),
+    "fourier_batch_gpu.apply_deflate_b": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_batch_gpu",
+        "kernel_deflate",
+        ("float32", "float64"),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",
@@ -574,6 +614,38 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
 # it. Pack any thread-private triangular-matrix array (Hessian, Cholesky factor) before reaching for this dict - that
 # cut this kernel's spill from 1512 to 936 bytes/thread for free (see the reason string for what remains).
 _SPILL_EXEMPT: dict[str, str] = {
+    "fourier_fused_gpu.solve3": (
+        "96 bytes/thread = the augmented matrix `{ACC} M[3][4]` (12 doubles) of the 3 x 3 normal equations, pivoted at run time by one thread, so it is a stack-frame array and not a register "
+        "spill; one warp, one tiny solve per launch (per column in the batched twin), nothing occupancy-bound."
+    ),
+    "fourier_fused_gpu.periodogram_power": (
+        "40 bytes/thread (double build; the float build has none) with no thread-private array of that size in the source: the stack frame libdevice reserves for the slow path of the double "
+        "`sincos` (large-argument reduction), the same effect as the exempted `nonpoly_cells`; no register spill, arithmetic-bound kernel."
+    ),
+    "fourier_fused_gpu.sincos_gram": (
+        "40 bytes/thread (double build; the float build has none) with no thread-private array of that size in the source: the stack frame libdevice reserves for the slow path of the double "
+        "`sincos` (large-argument reduction), the same effect as the exempted `nonpoly_cells`; no register spill, arithmetic-bound kernel."
+    ),
+    "fourier_fused_gpu.apply_deflate": (
+        "40 bytes/thread (double build; the float build has none) with no thread-private array of that size in the source: the stack frame libdevice reserves for the slow path of the double "
+        "`sincos` (large-argument reduction), the same effect as the exempted `nonpoly_cells`; no register spill, arithmetic-bound kernel."
+    ),
+    "fourier_batch_gpu.solve3_b": (
+        "96 bytes/thread = the augmented matrix `{ACC} M[3][4]` (12 doubles) of the 3 x 3 normal equations, pivoted at run time by one thread, so it is a stack-frame array and not a register "
+        "spill; one warp, one tiny solve per launch (per column in the batched twin), nothing occupancy-bound."
+    ),
+    "fourier_batch_gpu.periodogram_power_b": (
+        "40 bytes/thread (double build; the float build has none) with no thread-private array of that size in the source: the stack frame libdevice reserves for the slow path of the double "
+        "`sincos` (large-argument reduction), the same effect as the exempted `nonpoly_cells`; no register spill, arithmetic-bound kernel."
+    ),
+    "fourier_batch_gpu.sincos_gram_b": (
+        "40 bytes/thread (double build; the float build has none) with no thread-private array of that size in the source: the stack frame libdevice reserves for the slow path of the double "
+        "`sincos` (large-argument reduction), the same effect as the exempted `nonpoly_cells`; no register spill, arithmetic-bound kernel."
+    ),
+    "fourier_batch_gpu.apply_deflate_b": (
+        "40 bytes/thread (double build; the float build has none) with no thread-private array of that size in the source: the stack frame libdevice reserves for the slow path of the double "
+        "`sincos` (large-argument reduction), the same effect as the exempted `nonpoly_cells`; no register spill, arithmetic-bound kernel."
+    ),
     "offset_product_gpu.scan_offset_products": (
         "160 bytes/thread = `{ACC} M[4][5]` (20 doubles): the augmented matrix of the 4 x 4 normal equations the kernel solves per task by Gaussian elimination, indexed by the run-time pivot row, "
         "so it is a stack-frame array, not a spill (register spill is zero, `--fmad=false` build). The same system solved with the matrix in registers would need the elimination fully unrolled "

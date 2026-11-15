@@ -197,6 +197,31 @@ def _module_for(Z: Any) -> Any:
     return _MODULES_BY_REAL["float" if Z.dtype.itemsize == 4 else "double"]
 
 
+def _entry(cp: Any, real: Any, name: str) -> Any:
+    """One entry point of the module compiled for the element type ``real`` (float32 or float64)."""
+    return _module_for(cp.empty(0, dtype=real)).get(cp).get_function(name)
+
+
+def kernel_power(cp: Any, real: Any) -> Any:
+    """``periodogram_power_b`` (all columns at their own frequencies) for samples of dtype ``real``: compile point of the caller and of the register-pressure registry."""
+    return _entry(cp, real, "periodogram_power_b")
+
+
+def kernel_gram(cp: Any, real: Any) -> Any:
+    """``sincos_gram_b`` (the nine partial sums per column); registry factory."""
+    return _entry(cp, real, "sincos_gram_b")
+
+
+def kernel_solve(cp: Any, real: Any) -> Any:
+    """``solve3_b`` (the 3 x 3 system of each column by one thread); registry factory."""
+    return _entry(cp, real, "solve3_b")
+
+
+def kernel_deflate(cp: Any, real: Any) -> Any:
+    """``apply_deflate_b`` (each column minus its projection); registry factory."""
+    return _entry(cp, real, "apply_deflate_b")
+
+
 def _power(cp: Any, Z: Any, YC: Any, freqs: Any, nfreq: Any, y_ss: Any) -> Any:
     """``(C, F)`` periodogram power of each column's centred target at its own frequencies (padded entries are -1)."""
     C, n = int(Z.shape[0]), int(Z.shape[1])
@@ -205,7 +230,7 @@ def _power(cp: Any, Z: Any, YC: Any, freqs: Any, nfreq: Any, y_ss: Any) -> Any:
     y_ss = cp.ascontiguousarray(y_ss, dtype=Z.dtype)
     # Intentional float64: the power statistic (a ratio of sums), accumulated and stored in double precision.
     out = cp.empty((C, F), dtype=cp.float64)
-    power = _module_for(Z).get(cp).get_function("periodogram_power_b")
+    power = kernel_power(cp, Z.dtype)
     power((F, C), (_block_for(power, n),), (Z, YC, freqs, nfreq, y_ss, out, cp.int64(n), cp.int32(F)))
     return out
 
@@ -213,9 +238,8 @@ def _power(cp: Any, Z: Any, YC: Any, freqs: Any, nfreq: Any, y_ss: Any) -> Any:
 def _deflate(cp: Any, Z: Any, Y: Any, fvec: Any, active: Any) -> "tuple[Any, np.ndarray]":
     """Deflate ``[1, sin, cos]`` at ``fvec[c]`` out of every ACTIVE column; returns the new block and the host mask of columns whose 3x3 system was singular (their rows hold NaN)."""
     C, n = int(Z.shape[0]), int(Z.shape[1])
-    mod = _module_for(Z).get(cp)
-    gram = mod.get_function("sincos_gram_b")
-    deflate = mod.get_function("apply_deflate_b")
+    gram = kernel_gram(cp, Z.dtype)
+    deflate = kernel_deflate(cp, Z.dtype)
     gram_threads = _block_for(gram, n)
     blocks = max(1, min(64, (n + gram_threads - 1) // gram_threads))
     Y = cp.ascontiguousarray(Y, dtype=Z.dtype)
@@ -225,7 +249,7 @@ def _deflate(cp: Any, Z: Any, Y: Any, fvec: Any, active: Any) -> "tuple[Any, np.
     coef = cp.empty((C, 3), dtype=cp.float64)
     out = cp.empty((C, n), dtype=Z.dtype)  # the deflated target keeps the sample block's dtype; the projection is accumulated in double precision
     gram((blocks, C), (gram_threads,), (Z, Y, fvec, part, cp.int64(n), cp.int32(blocks)))
-    mod.get_function("solve3_b")(
+    kernel_solve(cp, Z.dtype)(
         (C,), (32,), (part, cp.int32(blocks), active, coef)
     )  # launch-ok: one warp: threads 0-8 fold the nine partial sums, thread 0 solves the 3x3 system; a wider block adds nothing
     deflate((blocks, C), (_block_for(deflate, n),), (Z, Y, coef, fvec, out, cp.int64(n)))
