@@ -237,6 +237,7 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_target_encoding_order_stats": ("_order_stats_gpu",),
+    "_temporal_agg_fe_rolling": ("_rolling_window_gpu",),
     "_relaxmrmr_pair_loop": ("_relaxmrmr_pair_gpu",),
     "_hermite_fe_mi": ("_fe_edge_mi",),
     "_orthogonal_triplet_fe": ("_triple_mi_gpu",),

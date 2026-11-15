@@ -131,6 +131,11 @@ def _rolling_stat_past_only(
         td_num = float(_numeric_window(window))
     gc = np.ascontiguousarray(group_codes, dtype=np.int64)
     n_groups = int(gc.max()) + 1 if gc.size else 1
+    from ._rolling_window_gpu import rolling_dispatch
+
+    dev = rolling_dispatch(t_num, np.ascontiguousarray(vals, dtype=_STAT_DTYPE), gc, td_num, _EXPANDING_STAT_CODE[stat])
+    if dev is not None:
+        return dev
     return np.asarray(_rolling_stat_past_only_njit(
         t_num, np.ascontiguousarray(vals, dtype=_STAT_DTYPE), gc, td_num, _EXPANDING_STAT_CODE[stat], n_groups,
     ))
