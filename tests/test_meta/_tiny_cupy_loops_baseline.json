@@ -60,6 +60,7 @@
  "src/mlframe/feature_selection/filters/_gpu_resident_materialise.py::gpu_materialise_discretize_codes_host",
  "src/mlframe/feature_selection/filters/_gpu_resident_operand_build.py::_batched_unary_prepass",
  "src/mlframe/feature_selection/filters/_gpu_resident_operand_build.py::_build_resident_operand_table_part1",
+ "src/mlframe/feature_selection/filters/_gpu_resident_operand_build.py::build_resident_operand_table",
  "src/mlframe/feature_selection/filters/_gpu_resident_pair_mi_parts.py::_grand_fused_pair_mi_fused_part1",
  "src/mlframe/feature_selection/filters/_gpu_resident_pair_mi_parts.py::_grand_fused_pair_mi_part1",
  "src/mlframe/feature_selection/filters/_gpu_resident_select.py::radix_quantiles_grouped",

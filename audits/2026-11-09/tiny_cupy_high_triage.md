@@ -3,7 +3,7 @@
 The detector's `high` hits in the current source, one row per function. The baseline (`tests/test_meta/_tiny_cupy_loops_baseline.json`) holds these keys.
 Dispositions to fill in: **FALSE POSITIVE** (the loop is a chunk, fold or fallback loop with a few trips and real work per trip), **FALLBACK** (the cupy loop runs only when a batched path is not taken, measured), **REAL** (a launch-bound loop, to restructure), **OPEN** (not yet read).
 
-Rows: 107.
+Rows: 108.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -114,3 +114,4 @@ Rows: 107.
 | feature_selection/filters/_extra_fe_families_dispersion.py | generate_conditional_dispersion_features | 337 | REAL, not yet measured: one batched device call per numeric column (`bin_moments_dispatch` over the other p-1 columns), so p launches of a kernel that is itself batched; fusing the x_j loop into one launch over all (x_j, x_i) pairs is open |
 | feature_selection/filters/_grouped_quantile_fe.py | _p_added_by_column | 665 | FALSE POSITIVE: a blocked loop (`for src, members in by_source.items()`), each trip one batched device call over all candidates of that source (`added_information_p_many`); the trips are the number of source columns |
 | feature_selection/filters/_extra_fe_families_dispersion_resident.py | _stage_columns | 190 | REAL, measured and small: the loop is over candidates and costs host dictionary lookups plus one cached resident upload per distinct x_i and x_j; the bin codes of all distinct x_j are ONE `disp_bin_codes` launch and the candidate build ONE `disp_columns` launch (396 columns at 100000 rows 210 -> 17 ms; the 60-candidate scoring 15.8 -> 10.0 ms wall). What remains per distinct column is the resident-operand lookup (content hash), not a launch |
+| feature_selection/filters/_gpu_resident_operand_build.py | build_resident_operand_table | 182 | FALSE POSITIVE: a blocked loop (`for block in _spec_blocks(...)`), each trip one raw-operand group upload and one batched unary launch for a block of specs; one trip when the distinct raw operands fit a quarter of the pool room (the 54-column pool of the sweep is one trip) |

@@ -1,6 +1,7 @@
 """GPU-resident FE: batched plain-unary op-code kernel + ``build_resident_operand_table`` (carve sibling of ``_gpu_resident_materialise``).
 
-Moved VERBATIM; ``_gpu_resident_materialise`` re-exports every name here. ``_gpu_apply_prewarp`` stays lazy-imported
+Moved VERBATIM; ``_gpu_resident_materialise`` re-exports every name here. The raw operands are uploaded one column block of specs at a time (``_spec_blocks``), and the kernel-tuning entry
+``operand_table_backend`` chooses between rebuilding the plain columns on the device and uploading the host table. ``_gpu_apply_prewarp`` stays lazy-imported
 from ``_gpu_resident_fe`` inside the function body to avoid an import cycle.
 """
 
@@ -63,7 +64,7 @@ extern "C" __global__
 void batch_unary(const {REAL}* __restrict__ G, const long long* __restrict__ slot,
                  const int* __restrict__ opc, const long long* __restrict__ out_col,
                  const long long n, const int m, const int ncols, const int n_operands,
-                 float* __restrict__ out) {
+                 {EDGE}* __restrict__ out) {   // the operand table is stored at float32 whatever the group type
     long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n * (long long)ncols;
     if (t >= total) return;
@@ -102,10 +103,10 @@ void batch_unary(const {REAL}* __restrict__ G, const long long* __restrict__ slo
         case 27: r = atanh(x); break;
         default: r = x; break;
     }
-    out[row * (long long)n_operands + out_col[c]] = (float)r;
+    out[row * (long long)n_operands + out_col[c]] = ({EDGE})r;
 }
 """
-_BATCH_UNARY_SRC = render(_BATCH_UNARY_TEMPLATE, real=np.float64)  # Intentional float64: the float64 source, kept under its old name for the modules that re-export it
+_BATCH_UNARY_SRC = render(_BATCH_UNARY_TEMPLATE, real=np.float64, edge=np.float32)  # Intentional float64: the float64 source, kept under its old name for the modules that re-export it
 _BATCH_UNARY_KERNELS: dict = {}
 _BATCH_UNARY_KERNELS_LOCK = threading.Lock()
 
@@ -118,8 +119,28 @@ def _get_batch_unary_kernel(real: Any = np.float64):  # Intentional float64: eac
         if kernel is None:
             import cupy as cp
 
-            kernel = _BATCH_UNARY_KERNELS[key] = cp.RawKernel(render(_BATCH_UNARY_TEMPLATE, real=real), "batch_unary")
+            kernel = _BATCH_UNARY_KERNELS[key] = cp.RawKernel(render(_BATCH_UNARY_TEMPLATE, real=real, edge=np.float32), "batch_unary")
     return kernel
+
+
+def _spec_blocks(col_specs: Sequence[Any], fb: Any, n: int, budget_bytes: int) -> "list[list]":
+    """``col_specs`` cut into consecutive blocks whose DISTINCT GPU-buildable raw operands hold at most ``budget_bytes`` (at least one raw per block, in the raw's native dtype).
+
+    A raw operand is counted in the first block that uses it; the specs of one raw sit next to each other in the operand table, so a raw is normally uploaded by one block only."""
+    blocks: "list[list]" = [[]]
+    seen: set = set()
+    used = 0
+    for spec in col_specs:
+        raw_vals = spec[1]
+        if raw_vals is not None and spec[2] not in fb and id(raw_vals) not in seen:
+            nbytes = int(n) * int(np.dtype(getattr(raw_vals, "dtype", np.float64)).itemsize)
+            if blocks[-1] and used + nbytes > budget_bytes:
+                blocks.append([])
+                used = 0
+            seen.add(id(raw_vals))
+            used += nbytes
+        blocks[-1].append(spec)
+    return blocks
 
 
 def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequence[Any], *, fallback_unaries: Sequence[str] = ()) -> Any:
@@ -149,10 +170,20 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
     # and GPU-build the plain columns from them; the FEW non-plain / failed columns are copied from the host
     # one column at a time. Columns with no spec (the unused tail, if any) are zero-filled - they are never
     # read by the materialise (operand indices are always < the used width), so their content is irrelevant.
+    if not operand_table_device_chosen(int(n), int(n_operands)):
+        # the kernel-tuning entry says uploading the host table is faster than rebuilding its plain columns on the device at this size
+        return cp.asarray(np.ascontiguousarray(transformed_vars, dtype=np.float32)), 0, int(n_operands)
     g = cp.zeros((n, n_operands), dtype=cp.float32)
-    _ret_build_resident_operand_table_part1 = _build_resident_operand_table_part1(col_specs, fb, cp, n, n_operands, g, _gpu_apply_prewarp, transformed_vars)
-    if _ret_build_resident_operand_table_part1[0]:
-        return _ret_build_resident_operand_table_part1[1]
+    # The raw operands are uploaded a column block of specs at a time (the distinct raws of a block are at most a quarter of the room under this thread's pool limit), so the group
+    # matrices of a wide table are not all resident at once; the device table ``g`` itself is written column by column in place.
+    from ._device_sort_safe import device_room
+
+    n_gpu = n_cpu = 0
+    for block in _spec_blocks(col_specs, fb, int(n), int(device_room(cp) // 4)):
+        _ret_build_resident_operand_table_part1 = _build_resident_operand_table_part1(block, fb, cp, n, n_operands, g, _gpu_apply_prewarp, transformed_vars)
+        n_gpu += int(_ret_build_resident_operand_table_part1[1][1])
+        n_cpu += int(_ret_build_resident_operand_table_part1[1][2])
+    return cp.ascontiguousarray(g), n_gpu, n_cpu
 
 
 def _group_raw_operands(col_specs, fb):
@@ -224,9 +255,11 @@ def _batched_unary_prepass(cp, col_specs, _raw_slot, _dev_groups, fb, g, n, n_op
                 _dev = _dev_groups[_dk]
                 m = int(_dev.shape[1]) if _dev.ndim > 1 else 1
                 G = cp.ascontiguousarray(_dev)  # the group's own element type: the kernel is compiled for it
-                slot = cp.asarray(np.asarray(s, dtype=np.int64))
-                opc = cp.asarray(np.asarray(o, dtype=np.int32))
-                out_col = cp.asarray(np.asarray(oc, dtype=np.int64))
+                # columns sorted by op code: the threads of a warp run consecutive columns of one row, so equal ops sit side by side and a warp takes one or two switch branches instead of one per op
+                order = np.argsort(np.asarray(o, dtype=np.int32), kind="stable")
+                slot = cp.asarray(np.asarray(s, dtype=np.int64)[order])
+                opc = cp.asarray(np.asarray(o, dtype=np.int32)[order])
+                out_col = cp.asarray(np.asarray(oc, dtype=np.int64)[order])
                 ncols = len(s)
                 total = n * ncols
                 threads = block_size_for(_ker, work_items=total)
@@ -306,3 +339,101 @@ def _build_resident_operand_table_part1(
         else:
             n_gpu += 1
     return True, (cp.ascontiguousarray(g), n_gpu, n_cpu)
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Host or device for the operand table: the kernel-tuning entry ``operand_table_backend``
+DEVICE_FALLBACK_ROWS = 20_000  # rows from which the plain columns are rebuilt on the device before a sweep has run
+_SWEEP_ROWS = [5_000, 30_000, 100_000]
+_SALT = 1
+_SWEEP_RAWS = 6
+_SWEEP_UNARIES = ("identity", "neg", "abs", "sqr", "sin", "cos", "tanh", "cbrt", "exp")
+
+
+def _sweep_inputs(dims: dict) -> tuple:
+    """``dims["n_samples"]`` rows: ``_SWEEP_RAWS`` raw float64 operands, the host operand table of every plain unary of ``_SWEEP_UNARIES`` over each (float32, as the CPU path stores it) and the column specs."""
+    rng = np.random.default_rng(0)
+    n = int(dims["n_samples"])
+    raws = [rng.standard_normal(n) for _ in range(_SWEEP_RAWS)]
+    unaries = [u for u in _SWEEP_UNARIES if u in _BATCH_UNARY_OPS]
+    specs: list = []
+    cols: list = []
+    for raw in raws:
+        for u in unaries:
+            specs.append((len(specs), raw, u))
+            with np.errstate(all="ignore"):
+                cols.append(_unary_apply(np, u, raw).astype(np.float32))
+    return (np.ascontiguousarray(np.stack(cols, axis=1)), specs)
+
+
+def _table_stats(cp: Any, table: Any) -> np.ndarray:
+    """Per-column mean of the finite values and the count of non-finite values of a device table, as one host vector (the comparison view of the sweep)."""
+    finite = cp.isfinite(table)
+    safe = cp.where(finite, table, 0.0)
+    mean = safe.sum(axis=0, dtype=cp.float64) / cp.maximum(finite.sum(axis=0), 1)  # Intentional float64: comparison statistic
+    return np.asarray(np.concatenate([cp.asnumpy(mean), cp.asnumpy((~finite).sum(axis=0))]), dtype=np.float64)  # Intentional float64: comparison statistic
+
+
+def _sweep_host(table: np.ndarray, specs: list) -> np.ndarray:
+    """The upload path: the host table to the device."""
+    import cupy as cp
+
+    return _table_stats(cp, cp.asarray(np.ascontiguousarray(table, dtype=np.float32)))
+
+
+def _sweep_device(table: np.ndarray, specs: list) -> np.ndarray:
+    """The rebuild path: the plain columns built on the device from the raw operands (the table is read only for the columns without a recipe)."""
+    import cupy as cp
+
+    global _FORCE_DEVICE
+    _FORCE_DEVICE = True
+    try:
+        dev, n_gpu, _n_cpu = build_resident_operand_table(table, specs)
+    finally:
+        _FORCE_DEVICE = False
+    if n_gpu == 0:
+        raise RuntimeError("no column was built on the device")
+    return _table_stats(cp, dev)
+
+
+_FORCE_DEVICE = False
+
+
+def _run_sweep() -> list:
+    """Time the upload and the rebuild per row count; both tables must agree column by column (means to 1e-4 relative, the same non-finite counts)."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    return list(sweep_backend_grid({"host": _sweep_host, "device": _sweep_device}, {"n_samples": _SWEEP_ROWS}, _sweep_inputs, reference="host", repeats=3, equiv_rtol=1e-4, equiv_atol=1e-4))
+
+
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+    from ._ktc_fallback import rows_fallback
+
+    _SPEC: Any = kernel_tuner(
+        kernel_name="operand_table_backend",
+        variant_fns=(),  # the two backends are timed by the sweep callable
+        tuner=_run_sweep,
+        axes={"n_samples": list(_SWEEP_ROWS)},
+        fallback=rows_fallback(__name__),
+        gpu_capable=True,
+        salt=_SALT,
+        cli_label="operand_table_backend",
+    )
+except Exception as e:  # best-effort: without a tuner entry the floor decides
+    logger.warning("kernel_tuner spec build for operand_table_backend failed: %s", e)
+    _SPEC = None
+
+
+def operand_table_device_chosen(n_rows: int, n_operands: int = 0) -> bool:
+    """Whether the plain columns of the operand table are rebuilt on the device (else the host table is uploaded): the per-host cache by the row count, else the ``DEVICE_FALLBACK_ROWS`` floor."""
+    if _FORCE_DEVICE:
+        return True
+    if _SPEC is None:
+        return int(n_rows) >= DEVICE_FALLBACK_ROWS
+    try:
+        return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
+    except Exception as exc:
+        logger.debug("operand_table_backend: KTC choose() failed, using the floor: %s", exc)
+        return int(n_rows) >= DEVICE_FALLBACK_ROWS
