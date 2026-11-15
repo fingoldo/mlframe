@@ -115,7 +115,7 @@ def _rank_bin_batched_gpu(cp, M, n_bins: int):
     arguably more correct on genuine ties; the e2e winner-recovery regressions pin the quality bar."""
     from ._fe_batched_mi import batched_quantile_bin_gpu
 
-    return batched_quantile_bin_gpu(M, n_bins)
+    return batched_quantile_bin_gpu(M, n_bins, byte_codes=True)
 
 
 _FINITE_SRC = render(

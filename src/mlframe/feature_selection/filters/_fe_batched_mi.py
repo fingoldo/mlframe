@@ -103,7 +103,7 @@ void mi_from_codes(const long long* __restrict__ codes,   // (n, K) row-major in
 # 2.20 vs 2.91 ms at 100000x100 and 6.55 vs 19.20 ms at 30000x930 (bench_mi_from_codes_tiled.py, interleaved).
 _MI_FROM_CODES_TILE_SRC = render(r"""
 extern "C" __global__
-void mi_from_codes_tile(const long long* __restrict__ codes,  // (n, K) row-major int codes in [0,Kx)
+void mi_from_codes_tile(const {CT}* __restrict__ codes,  // (n, K) row-major int codes in [0,Kx); one byte per code when the binner wrote bytes
                         const long long* __restrict__ y,       // (n,) int codes in [0,Ky)
                         const long long n, const int K, const int G, const int Kx, const int Ky,
                         const {ACC} inv_n, {ACC}* __restrict__ mi_out) {
@@ -118,9 +118,9 @@ void mi_from_codes_tile(const long long* __restrict__ codes,  // (n, K) row-majo
     for (long long e = tid; e < total; e += nt) {
         long long i = e / g;
         int j = (int)(e - i * g);
-        long long cx = codes[i * K + c0 + j];
-        long long cy = y[i];
-        atomicAdd(&sh[j * M + (int)cx * Ky + (int)cy], 1);
+        const int cx = (int)codes[i * K + c0 + j];
+        const int cy = (int)y[i];
+        atomicAdd(&sh[j * M + cx * Ky + cy], 1);
     }
     __syncthreads();
     if (tid < g) {
@@ -146,7 +146,7 @@ void mi_from_codes_tile(const long long* __restrict__ codes,  // (n, K) row-majo
 }
 """)
 _MI_FROM_CODES_TILE_COLS = 8
-_MI_FROM_CODES_TILE_KERNEL = None
+_MI_FROM_CODES_TILE_KERNELS: dict = {}
 
 
 def _mi_from_codes_tile_width(cells: int) -> int:
@@ -154,13 +154,14 @@ def _mi_from_codes_tile_width(cells: int) -> int:
     return min(_MI_FROM_CODES_TILE_COLS, _MI_FROM_CODES_MAX_SHARED // (4 * max(1, cells)))
 
 
-def _get_mi_from_codes_tile_kernel():
-    """Lazy-compile + cache the tiled coalesced ``mi_from_codes_tile`` RawKernel (module-level singleton, pickle-safe)."""
-    global _MI_FROM_CODES_TILE_KERNEL
-    if _MI_FROM_CODES_TILE_KERNEL is None:
+def _get_mi_from_codes_tile_kernel(byte_codes: bool = False):
+    """Lazy-compile + cache the tiled coalesced ``mi_from_codes_tile`` RawKernel for int64 or byte codes (module-level, pickle-safe)."""
+    kern = _MI_FROM_CODES_TILE_KERNELS.get(bool(byte_codes))
+    if kern is None:
         import cupy as cp
-        _MI_FROM_CODES_TILE_KERNEL = cp.RawKernel(_MI_FROM_CODES_TILE_SRC, "mi_from_codes_tile")
-    return _MI_FROM_CODES_TILE_KERNEL
+
+        kern = _MI_FROM_CODES_TILE_KERNELS[bool(byte_codes)] = cp.RawKernel(_MI_FROM_CODES_TILE_SRC.replace("{CT}", "unsigned char" if byte_codes else "long long"), "mi_from_codes_tile")
+    return kern
 
 
 # FUSED VALUES->BIN->HIST->MI RawKernel (mega-fusion). For an (n,K) FLOAT matrix + per-column
@@ -583,7 +584,8 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
     C = code_cols if isinstance(code_cols, cp.ndarray) else cp.asarray(np.ascontiguousarray(code_cols).astype(np.int64))
     if C.ndim == 1:
         C = C[:, None]
-    C = cp.ascontiguousarray(C.astype(cp.int64, copy=False))
+    byte_codes = C.dtype == cp.uint8  # the binner's byte matrix goes to the tiled kernel as it is (an eighth of the traffic); every other route widens it below
+    C = cp.ascontiguousarray(C if byte_codes else C.astype(cp.int64, copy=False))
     n, K = int(C.shape[0]), int(C.shape[1])
     # code_cols is the per-candidate code matrix (transient) -> NOT cached. A host y_codes is a fit-constant
     # re-uploaded per candidate batch -> resident operand cache (uploaded once per fit; same int64 labels).
@@ -597,14 +599,16 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
     Kx = max(Kx, 1)
     _assert_codes_in_range(C, Kx, "binned_mi_from_codes_gpu X codes", codes_trusted)
     _assert_codes_in_range(y, Ky, "binned_mi_from_codes_gpu y codes", codes_trusted)
+    G = _mi_from_codes_tile_width(Kx * Ky)
+    if byte_codes and (G < 1 or Kx * Ky * 4 > _MI_FROM_CODES_MAX_SHARED):
+        C, byte_codes = cp.ascontiguousarray(C.astype(cp.int64)), False
     if Kx * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
         from ._wavelet_basis_fe_batched import batched_binned_mi_gpu
         out = batched_binned_mi_gpu(C, y, kx_per_col=kx_per_col, ky=Ky)
         return cp.asarray(out) if as_device else out
     mi_out = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI output accumulator
-    G = _mi_from_codes_tile_width(Kx * Ky)
     if G >= 1:
-        tile = _get_mi_from_codes_tile_kernel()
+        tile = _get_mi_from_codes_tile_kernel(byte_codes)
         try:
             # 512 threads: fastest at 100000x100 (1.25 vs 1.78 ms at 256; block_size_for's 96 gives 4.02 ms), within 3% of 256 at 30000x930 (4.01 vs 3.89 ms). Interleaved sweep.
             tile(((K + G - 1) // G,), (512,),(C.ravel(), y, np.int64(n), np.int32(K), np.int32(G), np.int32(Kx), np.int32(Ky),  # launch-ok: 512 threads measured fastest of 96/128/256/512 at 100000 x 100 and 30000 x 930 (interleaved sweep: 1.25 vs 4.02 ms at 96, the block_size_for choice)
@@ -613,6 +617,8 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
             return mi_out if as_device else np.asarray(cp.asnumpy(mi_out))
         except Exception:
             logger.debug("mi_from_codes tiled launch failed; falling back to the row-major kernel", exc_info=True)
+            if byte_codes:
+                C = cp.ascontiguousarray(C.astype(cp.int64))
     v2 = _get_mi_from_codes_v2_kernels()
     if v2 is not None and Kx < 32768 and Ky < 32768:
         try:
