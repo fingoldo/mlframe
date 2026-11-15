@@ -24,7 +24,7 @@ import numpy as np
 import polars as pl
 
 try:
-    import xxhash  # type: ignore[import-untyped]
+    import xxhash
     HAVE_XX = True
 except ImportError:
     HAVE_XX = False

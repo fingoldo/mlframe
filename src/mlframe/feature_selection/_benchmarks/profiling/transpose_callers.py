@@ -1,5 +1,5 @@
 """Callers of the radix select's row-to-column-major transpose in one warm GPU fit, with the shapes and the wall of each call."""
-from typing import Any
+from typing import Any, cast
 import collections, inspect, os, time, warnings
 warnings.simplefilter("ignore")
 for k, v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1", "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1"}.items():
@@ -32,7 +32,7 @@ def wrapped(x, *a, **k):
     return out
 
 
-S._transpose_to_cm = wrapped
+cast(Any, S)._transpose_to_cm = wrapped
 data = F._make(100000, 100, 0)
 t0 = time.perf_counter()
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*data)

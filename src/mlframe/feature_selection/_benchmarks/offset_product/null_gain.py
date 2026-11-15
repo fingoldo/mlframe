@@ -5,7 +5,7 @@ The acceptance margin ``ACCEPT_MARGIN_C / n`` of ``_offset_product_fe`` must sit
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 import numpy as np
 import pandas as pd
 
@@ -25,7 +25,7 @@ def _best_gain(X: pd.DataFrame, y: np.ndarray) -> Any:
 
 def main() -> None:
     """Print, per size, the per-seed maximum null gain times n for a noise target and for a ratio target."""
-    m.ACCEPT_MARGIN_C = NO_MARGIN
+    cast(Any, m).ACCEPT_MARGIN_C = NO_MARGIN
     for n in SIZES:
         noise, ratio = [], []
         for seed in range(SEEDS):

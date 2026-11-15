@@ -1,5 +1,5 @@
 """Wall of every map_on_edge_pool call in one warm GPU fit, with the caller and the time since the fit started."""
-from typing import Any
+from typing import Any, cast
 import os, time, threading, warnings, functools, inspect
 warnings.simplefilter("ignore")
 for k, v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1", "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1"}.items():
@@ -33,7 +33,7 @@ def wrapped(fn, items, *a, **k):
 import sys as _s
 for name, mod in list(_s.modules.items()):
     if name.startswith("mlframe") and getattr(mod, "map_on_edge_pool", None) is real:
-        mod.map_on_edge_pool = wrapped
+        cast(Any, mod).map_on_edge_pool = wrapped
 data = F._make(100000, 100, 0)
 t0[0] = time.perf_counter()
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*data)

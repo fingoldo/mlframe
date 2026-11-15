@@ -1,7 +1,7 @@
 """Same-process A/B of releasing an ended stage's cores to the pools of the stages still running.
 
 Needs the experimental RELEASE_ENDED_STAGES flag of _edge_pool (not in the tree: the experiment was reverted, see stage_sample_100k_gpu_2026_11_05.md)."""
-from typing import Any
+from typing import Any, cast
 import os, sys, time, logging, warnings
 warnings.simplefilter("ignore")
 for k, v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1", "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1"}.items():
@@ -20,7 +20,7 @@ h=H(); lg=logging.getLogger("mlframe.feature_selection.filters._mrmr_fit_impl._f
 data = F._make(int(sys.argv[1]), int(sys.argv[2]), 0)
 order = [True, False, True, False] if len(sys.argv) < 4 else [x == "1" for x in sys.argv[3].split(",")]
 for flag in order:
-    E.RELEASE_ENDED_STAGES = flag
+    cast(Any, E).RELEASE_ENDED_STAGES = flag
     MRMR._FIT_CACHE.clear()
     h.lines.clear()
     t = time.perf_counter(); m = MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*data); w = time.perf_counter() - t

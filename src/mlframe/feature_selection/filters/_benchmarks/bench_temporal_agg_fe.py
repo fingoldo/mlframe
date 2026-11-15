@@ -43,6 +43,7 @@ def _load_baseline():
     mod = importlib.util.module_from_spec(spec)
     sys.modules["_temporal_agg_fe_baseline"] = mod
     assert spec is not None
+    assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod
 

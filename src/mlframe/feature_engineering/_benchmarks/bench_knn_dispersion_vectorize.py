@@ -37,6 +37,7 @@ def _load_baseline_module():
     assert spec is not None
     mod = importlib.util.module_from_spec(spec)
     assert spec is not None
+    assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod
 

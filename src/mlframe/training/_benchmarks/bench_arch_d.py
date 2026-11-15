@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 def _free_ram_bytes() -> int:
     """Best-effort free RAM in bytes; falls back to a generous 12 GB if psutil absent."""
     try:
-        import psutil  # type: ignore[import-untyped]
+        import psutil
         return int(psutil.virtual_memory().available)
     except Exception as exc:
         logger.debug("_free_ram_bytes: psutil probe failed, using 12 GB fallback: %s", exc)
