@@ -373,6 +373,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_orthogonal_meta_scorer_fe": ("_meta_fingerprint_gpu",),
     "_orthogonal_ksg_mi_fe": ("_ksg_cd_fast", "_ksg_cd_gpu"),
     "_grouped_quantile_fe": ("_grouped_quantile_ranks", "_grouped_quantile_gpu"),
+    "_orthogonal_bootstrap_mi_fe": ("_bootstrap_rank_mi_njit", "_bootstrap_rank_mi_gpu", "_bootstrap_rank_mi_tied_gpu"),
     "_hinge_basis_fe": ("_hinge_precheck_gpu", "_hinge_detect_gpu_resident", "_hinge_detect_gpu_resident_batch"),
     "_fe_sufficient_summary": ("_fe_sufficient_summary_pairs",),
     "_group_distance_fe": ("_group_distance_gpu",),

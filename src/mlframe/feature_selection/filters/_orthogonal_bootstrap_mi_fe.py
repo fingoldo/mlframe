@@ -42,7 +42,12 @@ the existing ``_apply_orth_univariate`` path.
 
 NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_bootstrap_enable=True``.
+
+Kernels: the rank-binned MI of the resamples is the numba kernel family of ``_bootstrap_rank_mi_njit`` (sort once, walk the order with the resample multiplicities), with its CUDA twins
+``_bootstrap_rank_mi_gpu`` (the distinct-column walk) and ``_bootstrap_rank_mi_tied_gpu`` (tied columns), each behind its kernel-tuning entry (``fe_bootstrap_rank_device``). Profile record:
+``audits/2026-10-22/profiles/_orthogonal_bootstrap_mi_fe.md``.
 """
+
 from __future__ import annotations
 
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name, split_engineered_name
