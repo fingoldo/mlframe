@@ -100,7 +100,7 @@ def main() -> None:
 
     # Warm phase: same fits, cache fully warm.
     print("\n--- warm phase (all caches hit) ---")
-    warm = []
+    warm: list[Any] = []
     for n_rows, n_features in _SIZES:
         try:
             X, y = _build(n_rows, n_features, seed=11)

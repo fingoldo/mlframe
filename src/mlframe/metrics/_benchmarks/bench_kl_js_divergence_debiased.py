@@ -42,7 +42,7 @@ def _truth(metric: str, mu: float, ngrid: int = 400, big: int = 400_000) -> floa
             if u[i] > 0:
                 s += u[i] * np.log(u[i] / max(v[i], eps))
         return s
-    return kl(p, q) if metric == "kl" else 0.5 * kl(p, m) + 0.5 * kl(q, m)
+    return float(kl(p, q) if metric == "kl" else 0.5 * kl(p, m) + 0.5 * kl(q, m))
 
 
 def run() -> dict:

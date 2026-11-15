@@ -6,7 +6,7 @@ Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.wave2
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 import argparse
 import itertools
 import json
@@ -86,7 +86,7 @@ def one_case(op: str, case: str, n: int, seed: int, downstream: bool = True, hgb
     row["gain_n"] = row["gain"] * h
     row["n_fit"] = h
     if op != "G":
-        fb_avg = rep(rec, XB, mode="foldavg")
+        fb_avg = cast(Any, rep)(rec, XB, mode="foldavg")
         row["newfa_te"] = heldout_mi(fa, fb_avg, yb)[1]
     if truth is not None:
         row["truth_te"] = heldout_mi(truth[:h], truth[h:], yb)[1]

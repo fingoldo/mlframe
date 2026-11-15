@@ -3,6 +3,7 @@
 Run: ``python -m mlframe.feature_engineering._benchmarks.bench_latent_interaction_svd``
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import cProfile
 import pstats
@@ -28,7 +29,7 @@ def _run(n_entities: int, n_items: int, n_events: int) -> None:
 def _run_transform_new_entities(n_entities: int, n_items: int, n_events: int, n_new_entities: int, n_new_events: int) -> None:
     """Fit the SVD basis once on ``n_entities`` entities, then embed a DISJOINT ``n_new_entities`` batch on it."""
     fit_events_df = _make_data(n_entities, n_items, n_events, seed=0)
-    _, _, fitted = latent_interaction_features(fit_events_df, "entity", "item", n_components=10, return_fitted=True)
+    _, _, fitted = cast(Any, latent_interaction_features(fit_events_df, "entity", "item", n_components=10, return_fitted=True))
 
     rng = np.random.default_rng(1)
     new_events_df = pd.DataFrame(

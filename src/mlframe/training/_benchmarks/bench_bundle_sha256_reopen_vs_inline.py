@@ -17,7 +17,7 @@ Run:
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 import hashlib
 import os
 import tempfile
@@ -102,7 +102,7 @@ def _frame_equivalence_probe() -> None:
 
     buf = _io.BytesIO()
     tee = _HashTee(buf)
-    with zstd.ZstdCompressor(level=4, write_checksum=True, write_content_size=True, threads=-1).stream_writer(tee, closefd=False) as zf:
+    with zstd.ZstdCompressor(level=4, write_checksum=True, write_content_size=True, threads=-1).stream_writer(cast(Any, tee), closefd=False) as zf:
         zf.write(raw)
     teed = buf.getvalue()
     print("\nframe-equivalence probe (why inline is not a free swap):")

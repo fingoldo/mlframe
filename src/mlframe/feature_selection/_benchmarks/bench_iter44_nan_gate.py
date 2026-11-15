@@ -44,7 +44,7 @@ def _any_nan_2d_par(arr2d) -> bool:
                 f = True
                 break
         flags[j] = f
-    return flags.any()
+    return bool(flags.any())
 
 
 def _bench(fn, arr, iters):

@@ -346,14 +346,14 @@ def emulate_gram4_cuda(U, V, yr, nblk=NBLK, threads=CUDA_THREADS):
                 part[b, a] = s_
         tot = np.empty(14)
         for a in range(14):
-            s = 0.0
+            s_tot = 0.0
             comp = 0.0
             for b in range(nblk):
                 x = part[b, a]
-                t = s + x
-                comp += ((s - t) + x) if abs(s) >= abs(x) else ((x - t) + s)
-                s = t
-            tot[a] = s + comp
+                t = s_tot + x
+                comp += ((s_tot - t) + x) if abs(s_tot) >= abs(x) else ((x - t) + s_tot)
+                s_tot = t
+            tot[a] = s_tot + comp
         M = np.zeros((4, 5))
         t = 0
         for j in range(4):

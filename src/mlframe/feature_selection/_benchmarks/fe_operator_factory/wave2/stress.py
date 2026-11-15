@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 import itertools
 import json
 import time
@@ -80,7 +80,7 @@ def fit_G2(XA, ya, cols, yb, seed):
 
 def fit_op(op: str, XA, ya, cols, yb, seed, **kw):
     """Dispatch to the fit function of operator ``op`` (``B``, ``C`` or ``G``)."""
-    return {"B": fit_B2, "C": fit_C2, "G": fit_G2}[op](XA, ya, cols, yb, seed, **kw)
+    return cast(Any, {"B": fit_B2, "C": fit_C2, "G": fit_G2})[op](XA, ya, cols, yb, seed, **kw)
 
 
 def replay_op(op: str, rec: dict, X) -> np.ndarray:
