@@ -498,6 +498,21 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_cm_tiled",
         ("float64",),
     ),
+    "gpu_resident_discretize.bin_codes": (
+        "mlframe.feature_selection.filters._gpu_resident_discretize",
+        "kernel_bin",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_discretize.bin_codes_f32e": (
+        "mlframe.feature_selection.filters._gpu_resident_discretize",
+        "kernel_f32e",
+        ("int8", "int16", "int32"),
+    ),
+    "gpu_resident_discretize.bin_codes_f32e_v2": (
+        "mlframe.feature_selection.filters._gpu_resident_discretize",
+        "kernel_f32e_v2",
+        ("int8", "int16", "int32"),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",
