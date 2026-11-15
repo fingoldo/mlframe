@@ -259,6 +259,118 @@ def build_residual_abs_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[
     return out if column_major else cp.ascontiguousarray(out.T)
 
 
+def _mi_by_column_blocks(cp: Any, builder: Callable[..., Any], raw_X: pd.DataFrame, col_specs: Sequence[dict], y_bin: Any, nbins: int) -> np.ndarray:
+    """Plug-in MI of every candidate column of ``builder(cp, raw_X, specs, column_major=True, out_dtype=...)`` against ``y_bin``, a column block at a time.
+
+    The candidate matrix is ``K x n`` at the relaxed candidate dtype; a block of columns is built, scored by the resident MI and released, so the working set is a block (a quarter of the room under this
+    thread's pool limit, about three copies live) however many candidates there are. Each column's MI depends on that column alone (its own edges, its own histogram), so the blocks give the
+    single-matrix values."""
+    from ._device_sort_safe import device_room
+    from ._fe_resident_operands import resident_operand
+    from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident, relaxed_candidate_dtype
+
+    dt = relaxed_candidate_dtype(cp)
+    n = len(raw_X)
+    _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
+    y_gpu = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
+    _ymin = int(_yi.min()) if _yi.size else 0
+    _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
+    block_cols = int(max(1, min(len(col_specs), (device_room(cp) // 4) // max(1, 3 * n * np.dtype(dt).itemsize))))
+    parts = []
+    for c0 in range(0, len(col_specs), block_cols):
+        mat_gpu = builder(cp, raw_X, list(col_specs[c0 : c0 + block_cols]), column_major=True, out_dtype=dt)
+        if mat_gpu.shape[0] == 0:
+            continue
+        parts.append(np.asarray(
+            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
+            dtype=_crit_np_dtype(),
+        ))
+        del mat_gpu
+    return np.concatenate(parts) if parts else np.empty((0,), dtype=_crit_np_dtype())
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Host or device for the Tier-1 gate scoring: the kernel-tuning entry ``dispersion_gate_backend``
+DEVICE_FALLBACK_ROWS = 20_000  # rows from which the device-born build is taken before a sweep has run
+_SWEEP_ROWS = [5_000, 30_000, 100_000]
+_SALT = 1
+_SWEEP_COLS = 6
+_SWEEP_TOP = 10
+
+
+def _sweep_inputs(dims: dict) -> tuple:
+    """``dims["n_samples"]`` rows of ``_SWEEP_COLS`` numeric columns with a conditional-variance signal, the host-generated candidate matrix and recipes of every ordered pair (absz and z2), a binary target."""
+    from ._extra_fe_families_dispersion import generate_conditional_dispersion_features
+
+    rng = np.random.default_rng(0)
+    n = int(dims["n_samples"])
+    X = pd.DataFrame(rng.standard_normal((n, _SWEEP_COLS)).astype(_crit_np_dtype()), columns=[f"x{i}" for i in range(_SWEEP_COLS)])
+    X["x1"] = X["x1"] * (1.0 + np.abs(X["x0"]))
+    y = ((np.abs(X["x1"]) + 0.5 * rng.standard_normal(n)) > 1.0).astype(np.int64).to_numpy()
+    enc_df, recipes = generate_conditional_dispersion_features(X, list(X.columns), n_bins=10, kinds=("absz", "z2"))
+    return (X, enc_df, recipes, y, 10)
+
+
+def _view(mi: np.ndarray) -> np.ndarray:
+    """The selection view of a scoring pass: how many candidates, and which are among the best ``_SWEEP_TOP`` (``_ktc_fallback.selection_view``)."""
+    from ._ktc_fallback import selection_view
+
+    return selection_view(np.asarray(mi, dtype=np.float64), top=_SWEEP_TOP, tie_band=1e-4)  # Intentional float64: MI statistic
+
+
+def _sweep_host(X: pd.DataFrame, enc_df: pd.DataFrame, recipes: dict, y: np.ndarray, nbins: int) -> np.ndarray:
+    """The host gate's scoring: MI of the host-built candidate matrix."""
+    from ._orthogonal_univariate_fe import mi_classif_batch_chunked
+
+    return _view(mi_classif_batch_chunked(enc_df, y, nbins=nbins))
+
+
+def _sweep_device(X: pd.DataFrame, enc_df: pd.DataFrame, recipes: dict, y: np.ndarray, nbins: int) -> np.ndarray:
+    """The device-born scoring from the recipes; a failed launch raises, so the sweep never records a host fallback as a device time."""
+    import cupy as cp
+
+    specs = [{"name": c, **{k: recipes[c][k] for k in ("x_i", "x_j", "edges", "bin_mean", "bin_std", "kind")}} for c in enc_df.columns]
+    return _view(_mi_by_column_blocks(cp, build_dispersion_matrix_gpu, X, specs, y, nbins))
+
+
+def _run_sweep() -> list:
+    """Time the host and the device scoring per row count; both must put the same candidates at the top."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    return list(sweep_backend_grid({"host": _sweep_host, "device": _sweep_device}, {"n_samples": _SWEEP_ROWS}, _sweep_inputs, reference="host", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6))
+
+
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+    from ._ktc_fallback import rows_fallback
+
+    _SPEC: Any = kernel_tuner(
+        kernel_name="dispersion_gate_backend",
+        variant_fns=(),  # the two backends are timed by the sweep callable
+        tuner=_run_sweep,
+        axes={"n_samples": list(_SWEEP_ROWS)},
+        fallback=rows_fallback(__name__),
+        gpu_capable=True,
+        salt=_SALT,
+        cli_label="dispersion_gate_backend",
+    )
+except Exception as e:  # best-effort: without a tuner entry the floor decides
+    logger.warning("kernel_tuner spec build for dispersion_gate_backend failed: %s", e)
+    _SPEC = None
+
+
+def dispersion_device_chosen(n_rows: int) -> bool:
+    """Whether the dispersion gate of ``n_rows`` rows is scored on the device: the per-host cache by the row count, else the ``DEVICE_FALLBACK_ROWS`` floor."""
+    if _SPEC is None:
+        return int(n_rows) >= DEVICE_FALLBACK_ROWS
+    try:
+        return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
+    except Exception as exc:
+        logger.debug("dispersion_gate_backend: KTC choose() failed, using the floor: %s", exc)
+        return int(n_rows) >= DEVICE_FALLBACK_ROWS
+
+
 def dual_uplift_sibling_mi_resident(
     raw_X: pd.DataFrame,
     y_bin: Any,
@@ -283,20 +395,7 @@ def dual_uplift_sibling_mi_resident(
     if not col_specs:
         return np.empty((0,), dtype=_crit_np_dtype())
     try:
-        from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident, relaxed_candidate_dtype
-        from ._fe_resident_operands import resident_operand
-
-        mat_gpu = build_residual_abs_matrix_gpu(cp, raw_X, list(col_specs), column_major=True, out_dtype=relaxed_candidate_dtype(cp))
-        if mat_gpu.shape[0] == 0:
-            return np.empty((0,), dtype=_crit_np_dtype())
-        _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
-        y_gpu = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
-        _ymin = int(_yi.min()) if _yi.size else 0
-        _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
-        return np.asarray(
-            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
-            dtype=_crit_np_dtype(),
-        )
+        return _mi_by_column_blocks(cp, build_residual_abs_matrix_gpu, raw_X, list(col_specs), y_bin, int(nbins))
     except Exception as _exc:
         logger.debug("dual_uplift_sibling_mi_resident: GPU path failed (%s); host fallback", _exc)
         return None
@@ -334,6 +433,8 @@ def local_mi_gate_dispersion_resident(
         return None
     if not isinstance(enc_df, pd.DataFrame) or enc_df.shape[1] == 0:
         return []
+    if raw_X is not None and not dispersion_device_chosen(len(raw_X)):
+        return None  # the kernel-tuning entry says the host gate scores this row count faster: the caller runs it
     cand_cols = [c for c in enc_df.columns if pd.api.types.is_numeric_dtype(enc_df[c])]
     if not cand_cols:
         return []
@@ -356,20 +457,9 @@ def local_mi_gate_dispersion_resident(
     y_bin = _coerce_y_classes(y)
 
     try:
-        from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident, relaxed_candidate_dtype
-        from ._fe_resident_operands import resident_operand
-
-        mat_gpu = build_dispersion_matrix_gpu(cp, raw_X, col_specs, column_major=True, out_dtype=relaxed_candidate_dtype(cp))
-        if mat_gpu.shape[0] == 0:
+        cand_mi = _mi_by_column_blocks(cp, build_dispersion_matrix_gpu, raw_X, col_specs, y_bin, int(nbins))
+        if cand_mi.shape[0] == 0:
             return []
-        _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
-        y_gpu = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
-        _ymin = int(_yi.min()) if _yi.size else 0
-        _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
-        cand_mi = np.asarray(
-            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
-            dtype=_crit_np_dtype(),
-        )
     except Exception as _exc:
         logger.debug("local_mi_gate_dispersion_resident: GPU path failed (%s); host fallback", _exc)
         return None

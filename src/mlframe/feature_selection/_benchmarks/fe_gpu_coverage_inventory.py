@@ -152,6 +152,10 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
 #: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_extra_fe_families_dispersion_resident": (
+        "_extra_fe_families_dispersion",
+        "generate_conditional_dispersion_features builds the same candidate matrix on the host (the per-bin z-score is the numba kernel _zscore_from_bins_njit) and mi_classif_batch_chunked scores it; it is the path the resident gate falls back to and the reference the device columns are compared with",
+    ),
     "_cupy_polynom_optimizer": (
         "_numba_polynom_optimizer",
         "run_numba_kernel_search (one @njit(parallel=True) kernel inlining the polynomial evaluation, the six binary functions and the plug-in MI) is the all-host twin of the same search, with the same return contract and the same candidate scoring",

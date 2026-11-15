@@ -139,11 +139,46 @@ def test_resident_gate_selection_identical_to_host(monkeypatch):
     from mlframe.feature_selection.filters._extra_fe_families_dispersion_resident import (
         local_mi_gate_dispersion_resident,
     )
+    from mlframe.feature_selection.filters import _extra_fe_families_dispersion_resident as dr
     from mlframe.feature_selection.filters._unified_fe_gate import local_mi_gate
 
+    monkeypatch.setattr(dr, "dispersion_device_chosen", lambda n: True)  # 6000 rows sit below the tuned crossover: this test is about the device route itself
     X, y, enc_df, recipes = _build_host(seed=13, n=6000)
     assert enc_df.shape[1] > 0
     host_keep = set(local_mi_gate(enc_df, y, raw_X=X))
     dev_keep = local_mi_gate_dispersion_resident(enc_df, y, raw_X=X, recipes=recipes)
     assert dev_keep is not None, "resident gate returned None (GPU path unavailable under STRICT)"
     assert set(dev_keep) == host_keep, f"device survivors {set(dev_keep)} != host {host_keep}"
+
+
+def test_gate_returns_none_when_the_tuner_chooses_the_host(monkeypatch):
+    """With the kernel-tuning entry choosing the host the resident gate hands back None (the caller runs the host gate); with the device chosen it returns the survivors."""
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_RESIDENT", "1")
+    monkeypatch.setenv("MLFRAME_CMI_GPU", "1")
+    from mlframe.feature_selection.filters import _extra_fe_families_dispersion_resident as dr
+
+    X, y, enc_df, recipes = _build_host(seed=13, n=6000)
+    monkeypatch.setattr(dr, "dispersion_device_chosen", lambda n: False)
+    assert dr.local_mi_gate_dispersion_resident(enc_df, y, raw_X=X, recipes=recipes) is None
+    monkeypatch.setattr(dr, "dispersion_device_chosen", lambda n: True)
+    assert dr.local_mi_gate_dispersion_resident(enc_df, y, raw_X=X, recipes=recipes) is not None
+
+
+def test_column_blocks_give_the_single_matrix_mi(monkeypatch):
+    """Scoring the candidates a few columns at a time returns the MI of the whole-matrix pass."""
+    import cupy as cp
+
+    from mlframe.feature_selection.filters import _device_sort_safe as dss
+    from mlframe.feature_selection.filters import _extra_fe_families_dispersion_resident as dr
+    from mlframe.feature_selection.filters._unified_fe_gate import _coerce_y_classes
+
+    X, y, enc_df, recipes = _build_host(seed=5, n=4000)
+    specs = [{"name": c, **{k: recipes[c][k] for k in ("x_i", "x_j", "edges", "bin_mean", "bin_std", "kind")}} for c in enc_df.columns]
+    yb = _coerce_y_classes(y)
+    whole = dr._mi_by_column_blocks(cp, dr.build_dispersion_matrix_gpu, X, specs, yb, 10)
+    # a room that holds about three columns of 4000 rows forces several blocks
+    monkeypatch.setattr(dss, "device_room", lambda cp_: 4 * 3 * 3 * 4000 * 4)
+    blocked = dr._mi_by_column_blocks(cp, dr.build_dispersion_matrix_gpu, X, specs, yb, 10)
+    assert whole.shape == blocked.shape == (len(specs),)
+    np.testing.assert_array_equal(whole, blocked)
