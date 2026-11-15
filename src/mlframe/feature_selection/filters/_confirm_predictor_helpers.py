@@ -150,7 +150,7 @@ def _host_recheck_counts(ctx: Any, X: tuple, next_best_gain: float, nexisting: i
                                                ctx.mrmr_redundancy_algo, ctx.max_veteranes_interactions_order, ctx.extra_x_shuffling, base_seed)
     if _conf is not None:
         return _conf
-    return get_fleuret_criteria_confidence(
+    counts: tuple = get_fleuret_criteria_confidence(
         data_copy=_cd,
         factors_nbins=_cnb,
         x=_cx,
@@ -172,6 +172,7 @@ def _host_recheck_counts(ctx: Any, X: tuple, next_best_gain: float, nexisting: i
         use_jmim=use_jmim,
         jmim_discount_only=discount,
     )
+    return counts
 
 
 def _fleuret_confidence_prange_or_none(cd, cnb, cx, cy, csel, npermutations, gain, max_failed, nexisting, relevance_algo, redundancy_algo, max_order,

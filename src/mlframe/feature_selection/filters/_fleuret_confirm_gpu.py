@@ -418,7 +418,8 @@ def fleuret_toggles(ctx: Any) -> tuple:
         su = bool(use_su_normalization())
         toggles = (su, bool(use_mi_miller_madow()) and not su, bool(use_jmim_aggregator()), bool(jmim_exponent_discount_only()))
         ctx.__dict__["fleuret_toggles"] = toggles
-    return toggles
+    cached: tuple = toggles
+    return cached
 
 
 def statistic_of(toggles: tuple) -> str:
@@ -440,7 +441,8 @@ def _route_kwargs(ctx: Any) -> dict:
 
 def _window_store(ctx: Any) -> dict:
     """The per-screen dict of precomputed rechecks, ``{(candidate, selected tuple): (nfailed, nchecked)}``, created on first use."""
-    return ctx.__dict__.setdefault("fleuret_batch", {})
+    store: dict = ctx.__dict__.setdefault("fleuret_batch", {})
+    return store
 
 
 def take_precomputed_recheck(ctx: Any, X: tuple) -> Optional[tuple]:
