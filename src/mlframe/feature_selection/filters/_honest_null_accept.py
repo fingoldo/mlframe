@@ -74,8 +74,9 @@ def _order_and_ties(raw_cont):
     return order, _tie_flags(raw_cont, order)
 
 
-def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx_table, cp, n_perm, min_split_size, alpha, accepted_c, order, tie):
-    """Stage of ``honest_null_columns_device``."""
+def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx_table, cp, n_perm, min_split_size, alpha, accepted_c, order, tie, overlap_host_work=None):
+    """Stage of ``honest_null_columns_device``. ``overlap_host_work``: a host callable run once the accept kernels are launched and before the blocking read of their results, so the host prepares the
+    next device pass while the device scans (the launches are asynchronous; the read is the wait). It runs exactly once, here or, with no continuous column, not at all (the caller then runs it)."""
     if kc:
         _t0 = perf_counter()
         order, tie = _order_and_ties(raw_cont)
@@ -138,6 +139,8 @@ def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx
                     d_idx,
                 ),
             )
+        if overlap_host_work is not None:
+            overlap_host_work()
         gain = np.ascontiguousarray(cp.asnumpy(d_gain).reshape(kc, n_perm).T)  # the blocking read: waits for the accept kernel
         record_fe_family_wall("stage:honest_accept_kernel_and_wait", perf_counter() - _t0)
         _t0 = perf_counter()

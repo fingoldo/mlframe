@@ -474,31 +474,46 @@ def honest_null_columns_device(
     kc = raw_cont.shape[1] if bool(is_cont.any()) else 0
     if not eligible(n, n_classes_total, analytic_min_n, analytic_min_cell):
         return None
-    codes, nx, kx = _fallback_codes(raw_cont, is_cont, fixed_codes, fixed_nbins, col_slot, q_fallback, q_fallback_len, eval_rows, nan_cont)
-    if int(nx.max()) > MAX_BINS:
-        return None
-    # the permuted codes keep their own narrow integer type (int8 for a binary target): widening them to int64 made an 8x copy of the (permutations, rows) matrix
-    ys = y_codes_perm if (eval_rows.shape[0] == y_codes_perm.shape[1] and bool(np.array_equal(eval_rows, np.arange(eval_rows.shape[0])))) else np.ascontiguousarray(y_codes_perm[:, eval_rows])
-    ny = int(ys.max()) + 1
-    if ny > MAX_CLASSES:
-        return None
+    prep_box: dict = {}
+
+    def host_prep() -> None:
+        """The host side of the MI pass (fallback codes, label bitsets, column bitset groups, class counts), run while the device scans for the acceptance when there are continuous columns."""
+        _t = perf_counter()
+        codes, nx, kx = _fallback_codes(raw_cont, is_cont, fixed_codes, fixed_nbins, col_slot, q_fallback, q_fallback_len, eval_rows, nan_cont)
+        prep_box["codes"], prep_box["nx"], prep_box["kx"] = codes, nx, kx
+        if int(nx.max()) > MAX_BINS:
+            return
+        # the permuted codes keep their own narrow integer type (int8 for a binary target): widening them to int64 made an 8x copy of the (permutations, rows) matrix
+        ys = y_codes_perm if (eval_rows.shape[0] == y_codes_perm.shape[1] and bool(np.array_equal(eval_rows, np.arange(eval_rows.shape[0])))) else np.ascontiguousarray(y_codes_perm[:, eval_rows])
+        ny = int(ys.max()) + 1
+        prep_box["ys"], prep_box["ny"] = ys, ny
+        if ny > MAX_CLASSES:
+            return
+        words = (m + 63) // 64
+        prep_box["cls"] = label_bitsets_batch(ys, ny, words)
+        prep_box["prep"] = bitset_groups(np.ascontiguousarray(codes), nx)
+        if ys is y_codes_perm:
+            # every row of the full permuted-label matrix is a permutation of the same labels: one class-count vector serves all (256 serial bincounts of 2000000 labels were 2.4 s of a 14 s call)
+            prep_box["counts_b"] = np.broadcast_to(np.bincount(ys[0], minlength=ny), (n_perm, ny))
+        else:
+            prep_box["counts_b"] = np.stack([np.bincount(ys[b], minlength=ny) for b in range(n_perm)])
+        record_fe_family_wall("stage:honest_host_prep", perf_counter() - _t)
+
     order = np.zeros((0, n), dtype=np.int32)
     tie = np.zeros((0, n), dtype=np.uint8)
     accepted_c = np.zeros((n_perm, 0), dtype=np.bool_)
     try:
         from mlframe.feature_selection.filters._honest_null_accept import _continuous_accept_block
         _t0 = perf_counter()
-        accepted_c, order, tie = _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx_table, cp, n_perm, min_split_size, alpha, accepted_c, order, tie)
+        accepted_c, order, tie = _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx_table, cp, n_perm, min_split_size, alpha, accepted_c, order, tie, overlap_host_work=host_prep)
         record_fe_family_wall("stage:honest_accept_block", perf_counter() - _t0)
+        if "codes" not in prep_box:
+            host_prep()
+        if int(prep_box["nx"].max()) > MAX_BINS or "cls" not in prep_box:  # too many bins, or too many classes (the prep stopped before the bitsets)
+            return None
+        nx, kx, counts_b = prep_box["nx"], prep_box["kx"], prep_box["counts_b"]
+        cls, prep = prep_box["cls"], prep_box["prep"]
         _t0 = perf_counter()
-        words = (m + 63) // 64
-        cls = label_bitsets_batch(ys, ny, words)
-        prep = bitset_groups(np.ascontiguousarray(codes), nx)
-        if ys is y_codes_perm:
-            # every row of the full permuted-label matrix is a permutation of the same labels: one class-count vector serves all (256 serial bincounts of 2000000 labels were 2.4 s of a 14 s call)
-            counts_b = np.broadcast_to(np.bincount(ys[0], minlength=ny), (n_perm, ny))
-        else:
-            counts_b = np.stack([np.bincount(ys[b], minlength=ny) for b in range(n_perm)])
         tab_m = xlogx_table(m)
         const_b = tab_m[m] - tab_m[counts_b].sum(axis=1)
         record_fe_family_wall("stage:honest_host_prep", perf_counter() - _t0)
