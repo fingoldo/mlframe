@@ -66,6 +66,13 @@ _SWEEP_BINS = 15
 _SALT = 1
 
 
+def _bin_list(bins: Any) -> list:
+    """The bin counts asked for as a list of ints (one int or a sequence of them)."""
+    if isinstance(bins, (int, np.integer)):
+        return [int(bins)]
+    return [int(b) for b in bins]
+
+
 def kernel(cp: Any, real: Any) -> Any:
     """``quantile_codes_right`` for columns of dtype ``real`` (float32 or float64); compile point of :func:`_codes_of_block` and of the register-pressure registry."""
     return _MODULES["float" if np.dtype(real) == np.float32 else "double"].get(cp).get_function("quantile_codes_right")
@@ -127,7 +134,7 @@ def quantile_codes_columns_device(cols: Sequence[np.ndarray], bins: Any) -> Opti
 
     Columns with a non-finite value are coded on the host, the rest in blocks of columns that fit the VRAM cushion; a column's codes depend on that column alone, so the blocks give the
     one-pass result."""
-    bin_list = [int(bins)] if np.isscalar(bins) else [int(b) for b in bins]
+    bin_list = _bin_list(bins)
     k = len(cols)
     if k == 0 or not bin_list or min(bin_list) < 2 or max(bin_list) > MAX_DEVICE_BINS:
         return None
@@ -228,7 +235,8 @@ def _sweep_device(cols: Sequence[np.ndarray], n_bins: int) -> np.ndarray:
     got = quantile_codes_columns_device(cols, n_bins)
     if got is None:
         raise RuntimeError("device quantile codes declined")
-    return got[0]
+    codes: np.ndarray = got[0]
+    return codes
 
 
 _fallback_choice = rows_fallback(__name__)
@@ -265,7 +273,7 @@ def quantile_codes_on_device(n_rows: int) -> bool:
 def quantile_codes_columns(cols: Sequence[np.ndarray], bins: Any) -> list:
     """One ``(k, n)`` int64 code matrix per bin count in ``bins`` (an int gives a one-element list) for the equal-length host vectors ``cols``: the device when the tuner says so for this row
     count and a card is usable, else the host ``quantile_codes`` per column."""
-    bin_list = [int(bins)] if np.isscalar(bins) else [int(b) for b in bins]
+    bin_list = _bin_list(bins)
     if len(cols) == 0:
         return [np.empty((0, 0), dtype=np.int64) for _ in bin_list]
     if quantile_codes_on_device(int(np.asarray(cols[0]).shape[0])):

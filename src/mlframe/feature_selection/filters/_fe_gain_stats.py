@@ -64,7 +64,8 @@ def quantile_codes(x: np.ndarray, n_bins: int = N_BINS) -> np.ndarray:
     x = np.where(np.isfinite(x), x, -np.inf)
     finite = x[np.isfinite(x)]
     edges = np.quantile(finite, np.linspace(0.0, 1.0, n_bins + 1)[1:-1]) if finite.size else np.zeros(n_bins - 1)
-    return _codes_right(np.ascontiguousarray(x), np.ascontiguousarray(edges))
+    codes: np.ndarray = _codes_right(np.ascontiguousarray(x), np.ascontiguousarray(edges))
+    return codes
 
 
 def pointwise_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> np.ndarray:
