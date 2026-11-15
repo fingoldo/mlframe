@@ -115,7 +115,7 @@ def _codes_of_block(cp: Any, block: np.ndarray, bins: Sequence[int]) -> list:
 
 
 def _block_width(cp: Any, n: int, k: int, itemsize: int) -> int:
-    """Columns per device block: the input block, its sorted copy, the gathered order statistics and the byte codes must fit the VRAM cushion; halved from ``k``."""
+    """Columns per device block (the column blocks the launch loop streams through): the input block, its sorted copy, the gathered order statistics and the byte codes must fit the VRAM cushion; halved from ``k``."""
     from ._fe_gpu_vram import pool_column_block
 
     return min(int(k), pool_column_block(cp, n, bytes_per_column_row=3 * itemsize + 6, budget_fraction=_BUDGET_FRACTION, min_block=1, fallback=16, what="device gain-stats codes"))
