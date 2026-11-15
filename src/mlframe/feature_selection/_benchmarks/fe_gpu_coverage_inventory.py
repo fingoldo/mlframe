@@ -259,6 +259,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_target_encoding_order_stats": ("_order_stats_gpu",),
     "_temporal_agg_fe_rolling": ("_rolling_window_gpu",),
     "_periodic_fe": ("_modular_codes_gpu",),
+    "hermite_fe": ("_hermite_basis_eval", "_hermite_oracle", "_hermite_prewarp", "_hermite_prewarp_gpu_resident", "_hermite_robust"),
     "_extra_basis_resident": ("_orth_extra_basis_fe_generate",),
     "_gpu_resident_fe": ("_gpu_resident_basis",),
     "_wavelet_basis_fe": ("_wavelet_basis_fe_batched",),
