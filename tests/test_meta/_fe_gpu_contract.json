@@ -61,6 +61,7 @@
     "_fourier_detect_batch",
     "_fourier_detect_gpu_resident",
     "_fourier_fused_gpu",
+    "_gpu_pairs",
     "_gpu_resident_basis",
     "_gpu_resident_cross_basis",
     "_gpu_resident_fe",
@@ -154,6 +155,7 @@
     "hermite_fe"
   ],
   "exempt": {
+    "_cat_pair_search_tuner": "the tuner entry of _gpu_pairs (cat_pair_search_backend): it owns no kernel, it times the njit pair search against the batched device pair MI of _gpu_pairs, which meets the contract (profile record _gpu_pairs.md)",
     "_composite_group_agg_fe": "per-group mean/std/count over integer key codes: a numba kernel bit-equal to pandas (2 ms per 20000-row column, 30 columns x 3 stats in 0.062 s); the candidate scoring that follows is the device-batched CMI (batched_cmi_gpu, chunked on OOM). A device twin would need the pandas Kahan/Welford order replayed per group to stay bit-equal and saves less than its own column transfer (audit 73cm); revisit if the generation share of a fit grows",
     "_conditional_quantile_rank_fe": "measured exemption: its only consumer is the fe_conditional_quantile_rank_enable region, 0.28 s of a 141 s CPU fit at n=20000 (under 0.5 s, audits/2026-10-22/profiles/fe_family_walls_cpu_n20000.md); a device twin has no payoff at this shape. Re-profile and move it back to pending if the region crosses 0.5 s at another n or column count",
     "_confirm_predictor_engineered": "ordering and decision helpers around the single-predictor confirmation: bookkeeping, no numeric kernel",
@@ -262,7 +264,6 @@
     "_fe_usability_signal",
     "_feature_engineering_mem_budget",
     "_fourier_core_cycles",
-    "_gpu_pairs",
     "_grouped_agg_fe",
     "_grouped_quantile_fe",
     "_hermite_fe_diverse",

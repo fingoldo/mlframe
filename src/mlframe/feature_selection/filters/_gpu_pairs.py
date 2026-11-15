@@ -29,6 +29,8 @@ _SHARED_MEM_SET_LOCK = threading.Lock()
 
 # CUDA gridDim.y is capped at 65535, and the pair index rides on gridDim.y.
 _MAX_PAIRS_PER_LAUNCH = 65535
+# Device memory is bounded by pair blocks: a request over the limit is split into column blocks of the pair table (``pair_chunk_bounds``), each one histogrammed and reduced alone, and the
+# 4 GiB guard in ``_mi_direct_gpu_batched_pairs_part1`` refuses a block whose joint tables would not fit.
 
 def pair_chunk_bounds(n_pairs: int, limit: int) -> list:
     """``[(start, stop), ...]`` slices of ``range(n_pairs)`` holding at most ``limit`` pairs each."""
@@ -291,10 +293,19 @@ def _mi_direct_gpu_batched_pairs_part1(
     # just wrong MI numbers). The CPU path validates via ``merge_vars``;
     # the GPU path didn't. Cheap host-side max-per-column scan.
     _ref_cols = np.unique(np.concatenate([np.asarray(pairs_a), np.asarray(pairs_b)]))
-    for _c in _ref_cols:
+    # The matrix goes up as it is and is transposed on the card (a strided host transpose of 100000 x 60 codes cost 58 ms, the device copy about 1 ms); the range check reduces
+    # whole rows of that transposed copy and brings back two small vectors.
+    factors_data_T_gpu = cp.ascontiguousarray(cp.asarray(np.ascontiguousarray(factors_data, dtype=np.int32)).T)
+    if factors_data_T_gpu.shape[1]:
+        _rows = factors_data_T_gpu[cp.asarray(_ref_cols.astype(np.int64))]
+        _his, _los = cp.asnumpy(_rows.max(axis=1)), cp.asnumpy(_rows.min(axis=1))
+        del _rows
+    else:
+        _his = np.full(_ref_cols.size, -1)
+        _los = np.zeros(_ref_cols.size)
+    for _c, _hi, _lo in zip(_ref_cols, _his, _los):
         _c_int = int(_c)
-        _col = factors_data[:, _c_int]
-        _hi = int(_col.max()) if _col.size else -1
+        _hi = int(_hi)
         _nb = int(factors_nbins[_c_int])
         if _hi >= _nb:
             raise ValueError(
@@ -304,8 +315,8 @@ def _mi_direct_gpu_batched_pairs_part1(
                 f"``merged = va + vb * nba`` arithmetic would overflow "
                 f"the pair's joint slice."
             )
-        if _col.size and int(_col.min()) < 0:
-            raise ValueError(f"mi_direct_gpu_batched_pairs: factors_data[:, {_c_int}] " f"contains negative values; factor codes must be >= 0.")
+        if int(_lo) < 0:
+            raise ValueError(f"mi_direct_gpu_batched_pairs: factors_data[:, {_c_int}] contains negative values; factor codes must be >= 0.")
 
     # Per-pair joint cardinalities ((nbins_a * nbins_b) cells for the MERGED dim) plus prefix-sum offsets. Each pair's joint table has shape (merged_size, nbins_y),
     # flattened row-major.
@@ -342,8 +353,6 @@ def _mi_direct_gpu_batched_pairs_part1(
     # generally differs call-to-call and the resident cache will practically never hit for it in this
     # single-call-per-fit codepath - kept for correctness/consistency, not for a measured win.
     from ._fe_resident_operands import resident_operand
-    factors_data_T = np.ascontiguousarray(factors_data.T.astype(np.int32))
-    factors_data_T_gpu = resident_operand(factors_data_T, "pairs_factors_data_T", dtype=np.int32)
     classes_y_gpu = resident_operand(np.asarray(classes_y), "pairs_classes_y", dtype=np.int32)
     pairs_a_gpu = cp.asarray(pairs_a.astype(np.int32))
     pairs_b_gpu = cp.asarray(pairs_b.astype(np.int32))

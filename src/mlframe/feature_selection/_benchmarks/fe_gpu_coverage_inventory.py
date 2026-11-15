@@ -143,6 +143,10 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
         "_wavelet_legs_tuner",
         "its leg code matrices serve the device-born route that fe_wavelet_legs_backend (_wavelet_legs_tuner, host_device_sweep over the row count) chooses against the host body; its block size follows the occupancy rule",
     ),
+    "_gpu_pairs": (
+        "_cat_pair_search_tuner",
+        "the categorical pair search is chosen against the njit prange kernel by cat_pair_search_backend (host_device_sweep over the row count, 60 columns = 1770 pairs of 12-bin codes, same joint MI); the histogram launch follows the joint_hist_multi_pair block-size entry",
+    ),
     "_fourier_batch_gpu": (
         "_fourier_detect_batch",
         "chosen against the host loop by fe_fourier_batch_backend (host_device_sweep over the row count) in _fourier_detect_batch; its block size follows the occupancy rule",
@@ -203,6 +207,10 @@ CPU_TWINS: dict[str, tuple[str, str]] = {
     "_wavelet_legs_fused_gpu": (
         "_wavelet_basis_fe",
         "the host side of the same decision is _select_wavelet_legs, the fused parallel njit body of _wavelet_basis_fe (the leg codes and their MI in one pass)",
+    ),
+    "_gpu_pairs": (
+        "cat_interactions",
+        "_pair_search_kernel_njit (njit, prange over the pairs) is the host pair search the cat interaction step runs when the device is not chosen, and the reference the device joint MI is checked against",
     ),
     "_fourier_batch_gpu": (
         "_orth_extra_basis_fe",
