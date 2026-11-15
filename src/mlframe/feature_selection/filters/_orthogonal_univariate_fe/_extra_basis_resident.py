@@ -205,6 +205,38 @@ def _bspline_block_gpu(cp, xs_list: list, metas: list):
     return out
 
 
+def _rows_of_basis(names, meta: dict, raw_X: pd.DataFrame, basis: str) -> dict:
+    """``{position in names: row in that basis's block}`` for the names whose fit metadata says ``basis`` and whose source column is in ``raw_X`` (the order of the block's rows)."""
+    rows: dict = {}
+    for pos, name in enumerate(names):
+        m = meta.get(name)
+        if m is not None and m.get("basis") == basis and m.get("src") in raw_X.columns:
+            rows[pos] = len(rows)
+    return rows
+
+
+def _one_extra_column(cp, m: dict, name: str, xg, pos: int, fourier_block, fourier_row: dict, spline_block, spline_row: dict):
+    """The device column of one name: its row of the Fourier or spline block when the block was built, else the per-column chain; the wavelet legs are always per column."""
+    from .._wavelet_basis_fe_batched import _dyadic_haar_leg_gpu
+
+    basis = m.get("basis")
+    if basis == "fourier":
+        return fourier_block[fourier_row[pos]] if fourier_block is not None else _fourier_col_gpu(cp, xg, m)
+    if basis == "spline":
+        if spline_block is not None:
+            return spline_block[spline_row[pos]]
+        span = float(m["hi"]) - float(m["lo"])
+        span = span if span > 1e-12 else 1e-12
+        z = cp.clip((xg - float(m["lo"])) / span, 0.0, 1.0)
+        return _bspline_col_gpu(cp, z, m["knots"], int(m["idx"]), degree=3)
+    if basis == "wavelet":
+        span = float(m["span"])
+        span = span if span > 1e-12 else 1e-12
+        z = cp.clip((xg - float(m["lo"])) / span, 0.0, 1.0)
+        return _dyadic_haar_leg_gpu(cp, z, int(m["j"]), int(m["k"]))
+    raise ValueError(f"extra-basis device build: unsupported basis {basis!r} for {name!r}")
+
+
 def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict, column_major: bool = False):
     """Build the (n, K) device engineered matrix for ``names`` from the resident raw operands + ``meta``.
 
@@ -214,8 +246,6 @@ def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict, co
     from .._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     from .._fe_resident_operands import resident_operand
-    from .._wavelet_basis_fe_batched import _dyadic_haar_leg_gpu
-
     n = len(raw_X)
     op_cache: dict = {}
 
@@ -233,11 +263,7 @@ def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict, co
         return g
 
     # Every Fourier / chirp name of a pool in ONE launch (bit-identical to the per-column build); the per-column loop below is the fallback and builds the other bases.
-    fourier_row: dict = {}
-    for pos, name in enumerate(names):
-        m = meta.get(name)
-        if m is not None and m.get("basis") == "fourier" and m.get("src") in raw_X.columns:
-            fourier_row[pos] = len(fourier_row)
+    fourier_row = _rows_of_basis(names, meta, raw_X, "fourier")
     fourier_block = None
     from ._extra_basis_fourier_cuda import block_preferred, fourier_block_cuda
 
@@ -248,11 +274,7 @@ def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict, co
         return cp.ascontiguousarray(fourier_block.astype(crit_float_dtype(), copy=False)) if column_major else cp.ascontiguousarray(fourier_block.T.astype(crit_float_dtype(), copy=False))
 
     # Every cubic-spline name of the pool in ONE launch as well (the per-column Cox-de Boor chain below is the reference and the fallback).
-    spline_row: dict = {}
-    for pos, name in enumerate(names):
-        m = meta.get(name)
-        if m is not None and m.get("basis") == "spline" and m.get("src") in raw_X.columns:
-            spline_row[pos] = len(spline_row)
+    spline_row = _rows_of_basis(names, meta, raw_X, "spline")
     spline_block = None
     if spline_row:
         spline_block = _bspline_block_gpu(cp, [_raw(meta[names[pos]]["src"]) for pos in spline_row], [meta[names[pos]] for pos in spline_row])
@@ -262,28 +284,10 @@ def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict, co
         m = meta.get(name)
         if m is None:
             raise ValueError(f"extra-basis device build: no meta for {name!r}")
-        basis = m.get("basis")
         src = m.get("src")
         if src is None or src not in raw_X.columns:
             raise ValueError(f"extra-basis device build: src {src!r} not in raw_X for {name!r}")
-        xg = _raw(src)
-        if basis == "fourier":
-            col = fourier_block[fourier_row[pos]] if fourier_block is not None else _fourier_col_gpu(cp, xg, m)
-        elif basis == "spline":
-            if spline_block is not None:
-                col = spline_block[spline_row[pos]]
-            else:
-                span = float(m["hi"]) - float(m["lo"])
-                span = span if span > 1e-12 else 1e-12
-                z = cp.clip((xg - float(m["lo"])) / span, 0.0, 1.0)
-                col = _bspline_col_gpu(cp, z, m["knots"], int(m["idx"]), degree=3)
-        elif basis == "wavelet":
-            span = float(m["span"])
-            span = span if span > 1e-12 else 1e-12
-            z = cp.clip((xg - float(m["lo"])) / span, 0.0, 1.0)
-            col = _dyadic_haar_leg_gpu(cp, z, int(m["j"]), int(m["k"]))
-        else:
-            raise ValueError(f"extra-basis device build: unsupported basis {basis!r} for {name!r}")
+        col = _one_extra_column(cp, m, name, _raw(src), pos, fourier_block, fourier_row, spline_block, spline_row)
         cols.append(col.astype(crit_float_dtype(), copy=False))
     if not cols:
         return cp.empty((0, n) if column_major else (n, 0), dtype=crit_float_dtype())
