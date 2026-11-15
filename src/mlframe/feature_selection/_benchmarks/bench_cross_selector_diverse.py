@@ -108,8 +108,8 @@ def main():
     wn = load_wine(); d, s = _run("real_wine(0_vs_rest)", wn.data, (wn.target == 0).astype(int)); daucs.append(d); sps.append(s)
     dg = load_digits(); d, s = _run("real_digits(even_odd)", dg.data, (dg.target % 2)); daucs.append(d); sps.append(s)
     print("=" * 100)
-    daucs = np.array(daucs)
-    print(f"AUC delta (reduced - full): min={daucs.min():+.4f} mean={daucs.mean():+.4f} max={daucs.max():+.4f}")
+    daucs_arr = np.array(daucs)
+    print(f"AUC delta (reduced - full): min={daucs_arr.min():+.4f} mean={daucs_arr.mean():+.4f} max={daucs_arr.max():+.4f}")
     print(f"speedup: min={min(sps):.2f}x mean={np.mean(sps):.2f}x max={max(sps):.2f}x")
     print(f"SAFE (all dAUC >= -0.01)? {bool((daucs >= -0.01).all())}")
     bad = [i for i, d in enumerate(daucs) if d < -0.01]

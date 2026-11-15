@@ -29,6 +29,7 @@ primary, madelon final stress only (cached + env-skippable). stdout -> file. ASC
 On OOM the outer driver sleeps 90s and retries once.
 """
 from __future__ import annotations
+from typing import Any
 import os, sys, time, gc
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -110,7 +111,9 @@ def holdout_greedy_accept(base_mat, prod_dict, y, floor=GREEDY_FLOOR, seed=0):
         clf.fit(sc.transform(Mtr), yi_tr)
         return roc_auc_score(yi_va, clf.predict_proba(sc.transform(Mva))[:, 1])
 
-    accepted, acc_tr, acc_va = [], [], []
+    accepted: list[Any] = []
+    acc_tr: list[Any] = []
+    acc_va: list[Any] = []
     cur = probe_auc([], [])
     remaining = list(prod_dict.keys())
     while remaining:

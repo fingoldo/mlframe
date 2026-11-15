@@ -27,6 +27,7 @@ Run:
 """
 from __future__ import annotations
 
+from typing import Any
 import numpy as np
 
 from mlframe.feature_selection._benchmarks._bench_shared import occupied_k as _occupied_k, plugin_mi_1d as _plugin_mi, discretize_quantile_10bin as _disc
@@ -56,7 +57,10 @@ def _joint_ratio(eng_col, op_a, op_b, y_codes, ky, n):
 
 
 def main():
-    raw_g, deb_g, raw_x, deb_x = [], [], [], []
+    raw_g: list[Any] = []
+    deb_g: list[Any] = []
+    raw_x: list[Any] = []
+    deb_x: list[Any] = []
     for seed in range(8):
         rng = np.random.default_rng(seed)
         n = 2500

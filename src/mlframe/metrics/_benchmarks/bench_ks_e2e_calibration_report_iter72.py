@@ -49,9 +49,9 @@ if __name__ == "__main__":
 
     extras._KS_INLINE_ORDERED_MIN_N = _ORIG
 
-    old_t = np.array(old_t); new_t = np.array(new_t)
+    old_t_arr = np.array(old_t); new_t = np.array(new_t)
     faster = int((new_t < old_t).sum())
     print(f"e2e fast_calibration_report @n={N}, paired x{TRIALS}:")
-    print(f"  OLD (gate off): min {old_t.min()*1e3:.2f}ms  med {np.median(old_t)*1e3:.2f}ms")
+    print(f"  OLD (gate off): min {old_t_arr.min()*1e3:.2f}ms  med {np.median(old_t)*1e3:.2f}ms")
     print(f"  NEW (gate on) : min {new_t.min()*1e3:.2f}ms  med {np.median(new_t)*1e3:.2f}ms")
-    print(f"  NEW faster in {faster}/{TRIALS} trials | min-speedup {old_t.min()/new_t.min():.3f}x  med {np.median(old_t)/np.median(new_t):.3f}x")
+    print(f"  NEW faster in {faster}/{TRIALS} trials | min-speedup {old_t_arr.min()/new_t.min():.3f}x  med {np.median(old_t)/np.median(new_t):.3f}x")

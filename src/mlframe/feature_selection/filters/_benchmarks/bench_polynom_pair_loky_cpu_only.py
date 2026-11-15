@@ -12,6 +12,7 @@ Run:  CUDA_VISIBLE_DEVICES not set (parent keeps GPU), from repo root:
   PYTHONPATH=src python src/mlframe/feature_selection/filters/_benchmarks/bench_polynom_pair_loky_cpu_only.py
 """
 
+from typing import Any
 import logging
 import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import threading
@@ -82,7 +83,9 @@ def _run(n_jobs, sample_vram):
     n_cols = len(cols)
     pairs = [(i, j) for i in range(n_cols) for j in range(i + 1, n_cols)]
     prospective_pairs = {((i, j), 0.5): None for (i, j) in pairs}
-    eng_feats, eng_recipes, herm = set(), {}, []
+    eng_feats: set[Any] = set()
+    eng_recipes: dict[Any, Any] = {}
+    herm: list[Any] = []
 
     sampler = None
     if sample_vram:

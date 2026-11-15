@@ -21,6 +21,7 @@ Memory-frugal (heavy concurrent load): n_jobs=4, n_estimators<=200, synth/hard_s
 stress only (artifact cached). stdout -> file. ASCII-only prints (cp1251).
 """
 from __future__ import annotations
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -102,7 +103,9 @@ def holdout_greedy_accept(base_df, prod_dict, y, floor=0.0015, seed=0):
         m.fit(Mtr, yi_tr)
         return roc_auc_score(yi_va, m.predict_proba(Mva)[:, 1])
 
-    accepted, acc_tr, acc_va = [], [], []
+    accepted: list[Any] = []
+    acc_tr: list[Any] = []
+    acc_va: list[Any] = []
     cur = fit_auc([], [])
     remaining = list(prod_dict.keys())
     while remaining:
