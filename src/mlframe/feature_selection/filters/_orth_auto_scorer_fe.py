@@ -354,6 +354,25 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
     return out
 
 
+#: Host bytes of one column block of a resample (the ``(n, k)`` block of its columns in the criterion dtype); the batched scorers see at most this many columns at a time.
+_BOOTSTRAP_BLOCK_BYTES = 256 * 1024 * 1024
+
+
+def _batched_bootstrap_values_in_column_blocks(columns: list, y_arr: np.ndarray, boot_idx: list, random_state: int, hyper: dict) -> "dict | None":
+    """:func:`_batched_bootstrap_values` over column blocks sized by ``_BOOTSTRAP_BLOCK_BYTES``: the scorers are column-separable (each column's value depends on that column, the resample and its seed
+    only), so the blocks laid side by side are the values of one call, and the host and the device never hold more than one block of each resample (a 1000-column frame of a million rows was a 4 GB block)."""
+    if not columns:
+        return None
+    itemsize = int(np.dtype(_crit_np_dtype()).itemsize)
+    width = max(1, _BOOTSTRAP_BLOCK_BYTES // max(1, len(boot_idx[0]) * itemsize)) if len(boot_idx) else len(columns)
+    if len(columns) <= width:
+        return _batched_bootstrap_values(columns, y_arr, boot_idx, random_state, hyper)
+    parts = [_batched_bootstrap_values(columns[a : a + width], y_arr, boot_idx, random_state, hyper) for a in range(0, len(columns), width)]
+    if any(p is None for p in parts):
+        return None
+    return {s: np.concatenate([p[s] for p in parts], axis=0) for s in parts[0]}
+
+
 def _guarded_bootstrap_lcb(x, y_arr: np.ndarray, boot_idx: list, random_state: int, scorer_call: Callable, pre: "dict | None"):
     """``_bootstrap_lcb_per_scorer`` for one column from a pool thread: its scorers reach numba ``parallel=True`` kernels, entered one thread at a time."""
     with parallel_kernel_entry():
@@ -376,7 +395,7 @@ def _bootstrap_lcb_tables(columns: list, y_arr: np.ndarray, boot_idx: list, rand
     if hyper is not None:
         # The batched scorers need all-finite columns: the finite columns are batched together and only a column with a missing value takes the per-column path (a single NaN column used to send every column there).
         finite_idx = [i for i, c in enumerate(columns) if np.isfinite(c).all()]
-        batched = _batched_bootstrap_values([columns[i] for i in finite_idx], y_arr, boot_idx, random_state, hyper) if finite_idx else None
+        batched = _batched_bootstrap_values_in_column_blocks([columns[i] for i in finite_idx], y_arr, boot_idx, random_state, hyper) if finite_idx else None
         if batched is not None:
             for pos, i in enumerate(finite_idx):
                 precomputed[i] = {s: v[pos] for s, v in batched.items()}

@@ -94,7 +94,7 @@ def test_every_gpu_backend_is_a_real_module_that_meets_the_contract_itself():
 
     broken = {name: gpu_backend_problems(name) for name in GPU_BACKENDS if gpu_backend_problems(name)}
     assert not broken, f"GPU_BACKENDS entries that no longer hold: {broken}"
-    assert GPU_BACKENDS and all(len(why) > 30 for _backend, why in GPU_BACKENDS.values())
+    assert GPU_BACKENDS and all(backends and len(why) > 30 for backends, why, _tuned in GPU_BACKENDS.values())
     assert all(name in set(fe_modules()) for name in GPU_BACKENDS), "an entry names a module that is not an FE module"
 
 

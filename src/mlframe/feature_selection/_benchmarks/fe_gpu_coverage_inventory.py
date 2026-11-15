@@ -165,17 +165,42 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: Modules whose device path is a COMPOSITION of the fused kernels of another module that itself meets the whole contract: module -> (kernel module, why the module has no kernel of its own). The point is
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
-GPU_BACKENDS: dict[str, tuple[str, str]] = {
+GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
     "_orthogonal_adaptive_degree_fe": (
-        "_gpu_resident_basis",
+        ("_gpu_resident_basis",),
         (
             "the device path (_orthogonal_adaptive_degree_device, carved into this family) routes the basis per column with the batched router, builds every (column, degree) cell with the fused Clenshaw "
             "kernel clenshaw_basis and the non-polynomial cell kernel nonpoly_cells, checks the cells with the fused validity pass and scores them with the resident plug-in MI; those kernels are owned by _gpu_resident_basis"
         ),
+        False,
+    ),
+    "_orth_auto_scorer_fe": (
+        (
+            "_orthogonal_ksg_mi_fe",
+            "_orthogonal_copula_mi_fe",
+            "_orthogonal_xi_fe",
+            "_orthogonal_dcor_fe",
+            "_orthogonal_hsic_fe",
+            "_orthogonal_tail_dependence_fe",
+            "_orthogonal_univariate_fe",
+        ),
+        (
+            "the auto scorer draws the bootstrap resamples, builds the (n, k) block and its transposed device copy once per resample and hands them to the seven batched scorers (KSG, copula MI, xi, dCor, HSIC, "
+            "tail dependence, plug-in MI); each scorer's numba and CUDA kernels and its tuner entry (the per-host device choice of the resample block comes from their use_device) are owned by the modules named here, "
+            "every one of which meets the whole contract itself"
+        ),
+        True,
     ),
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_orth_auto_scorer_fe": (
+        "_ksg_cd_fast",
+        (
+            "the host form of the scorers the auto scorer batches: the k-nearest-neighbour MI of the dominant scorer is the numba kernel _mi_cd_columns of _ksg_cd_fast (parallel over columns), the plug-in, "
+            "xi, dCor and HSIC batches are numba / numpy kernels of their own modules; it is the path every device scorer falls back to and the reference its values are compared with"
+        ),
+    ),
     "_orthogonal_adaptive_degree_fe": (
         "hermite_fe",
         (
@@ -247,19 +272,20 @@ CPU_TWINS: dict[str, tuple[str, str]] = {
 
 
 def gpu_backend_problems(name: str) -> list[str]:
-    """Why ``name``'s ``GPU_BACKENDS`` entry does not hold (empty when it holds or there is none): the kernel module must exist, be named by ``name``'s text, and meet the whole contract itself."""
+    """Why ``name``'s ``GPU_BACKENDS`` entry does not hold (empty when it holds or there is none): every kernel module must exist, be named by ``name``'s text, and meet the whole contract itself."""
     if name not in GPU_BACKENDS:
         return []
-    backend = GPU_BACKENDS[name][0]
-    text, backend_text = module_text(name), module_text(backend)
-    if backend_text is None:
-        return [f"kernel module {backend} not found"]
+    text = module_text(name)
     problems = []
-    if text is None or not re.search(rf"\b{re.escape(backend)}\b", text):
-        problems.append(f"{name} does not name its kernel module {backend}")
-    inner = contract_violations(backend)
-    if inner:
-        problems.append(f"kernel module {backend} does not meet the contract: {inner}")
+    for backend in GPU_BACKENDS[name][0]:
+        if module_text(backend) is None:
+            problems.append(f"kernel module {backend} not found")
+            continue
+        if text is None or not re.search(rf"\b{re.escape(backend)}\b", text):
+            problems.append(f"{name} does not name its kernel module {backend}")
+        inner = contract_violations(backend)
+        if inner:
+            problems.append(f"kernel module {backend} does not meet the contract: {inner}")
     return problems
 
 
@@ -473,10 +499,11 @@ def contract_violations(name: str) -> list[str]:
     ktc_via_dispatcher = name in KTC_DISPATCHERS and not ktc_dispatch_problems(name)
     cpu_via_twin = name in CPU_TWINS and not cpu_twin_problems(name)
     gpu_via_backend = name in GPU_BACKENDS and not gpu_backend_problems(name)
+    ktc_via_backends = gpu_via_backend and GPU_BACKENDS[name][2]
     for pattern, message in (
         (re.compile(r".") if cpu_via_twin else CPU_KERNEL, "no numba CPU kernel"),
         (re.compile(r".") if gpu_via_backend else GPU_KERNEL, "no fused GPU kernel"),
-        (re.compile(r".") if ktc_via_dispatcher else KTC_REGISTRATION, "not registered with the kernel-tuning cache"),
+        (re.compile(r".") if (ktc_via_dispatcher or ktc_via_backends) else KTC_REGISTRATION, "not registered with the kernel-tuning cache"),
         (CRIT_DTYPE, "no crit dtype use"),
         (BLOCK_STREAMING, "no column-block streaming"),
     ):
