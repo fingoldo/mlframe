@@ -31,7 +31,7 @@ import json
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Callable, Dict, List
+from typing import Any, Callable, Dict, List
 
 import numpy as np
 
@@ -203,7 +203,7 @@ def print_summary(results_dicts):
     print("=" * 110)
     from collections import defaultdict
     by_est = defaultdict(list)
-    by_est_sig = defaultdict(lambda: defaultdict(list))
+    by_est_sig: Any = defaultdict(lambda: defaultdict(list))
     for r in results_dicts:
         by_est[r["estimator"]].append(r)
         by_est_sig[r["estimator"]][r["signal"]].append(r)

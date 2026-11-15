@@ -229,7 +229,7 @@ def _make_inputs(n: int, n_bins: int, seed: int = 17):
 
 def run() -> dict:
     sizes = [(100_000, 10), (100_000, 20), (1_000_000, 10), (1_000_000, 20)]
-    out = {"median": [], "quantile": []}
+    out: Any = {"median": [], "quantile": []}
     for n, n_bins in sizes:
         y, bin_idx, n_bins_eff = _make_inputs(n, n_bins)
 

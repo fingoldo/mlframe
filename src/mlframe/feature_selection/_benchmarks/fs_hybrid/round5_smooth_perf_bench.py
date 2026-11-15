@@ -14,6 +14,7 @@ Run: python round5_smooth_perf_bench.py
 """
 from __future__ import annotations
 
+from typing import Any
 import sys
 import os
 
@@ -66,7 +67,7 @@ def run(seeds=range(40), noise=0.04, ngrid=None, rule="auto"):
     kinds = ["peak", "plateau", "broad", "early", "noisy_flat"]
     smooths = [0, 1, 3, 5]
     # accumulate mean TRUE-score-at-pick per (kind, smooth)
-    acc = {(k, s): [] for k in kinds for s in smooths}
+    acc: Any = {(k, s): [] for k in kinds for s in smooths}
     for kind in kinds:
         nf, t = true_curve(kind, ngrid)
         std_curve = np.full_like(t, noise)

@@ -1,4 +1,5 @@
 """H2: O(p) interaction-propensity ranking recall of planted PURE-pair operands."""
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -134,7 +135,7 @@ if __name__ == "__main__":
         return len(top & operands) / len(operands)
 
     # recall_table[crit][L][m] = list over seeds
-    table = {name: {L: {m: [] for m in MS} for L in LEAKS} for name, _ in CRITS}
+    table: Any = {name: {L: {m: [] for m in MS} for L in LEAKS} for name, _ in CRITS}
     # random baseline expected recall = m/p
     for L in LEAKS:
         for seed in SEEDS:

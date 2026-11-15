@@ -1,5 +1,6 @@
 """Self-time of a cProfile run bucketed by library (cupy, mlframe, numpy, pandas, ...): where the wall goes by who spends it. Reads ``PROF_FILE`` written by ``profile_fit_gpu.py``."""
 
+from typing import Any
 import sys
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from mlframe.feature_selection._benchmarks.profiling._paths import PROF_FILE
 
 import pstats, collections
 p = pstats.Stats(str(PROF_FILE)); st = p.stats
-b = collections.Counter(); tot = 0.0
+b: Any = collections.Counter(); tot = 0.0
 for k, v in st.items():
     fn = k[0].replace(chr(92), '/')
     tt = v[2]; tot += tt

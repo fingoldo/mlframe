@@ -19,6 +19,7 @@ Usage: ``python bench_binagg_cap_gate_probe.py [n_rows] [seed]``.
 
 from __future__ import annotations
 
+from typing import Any
 import sys
 
 import numpy as np
@@ -50,7 +51,7 @@ def _aux_by_g_columns(result) -> list:
 
 def main(n: int = 20000, seed: int = 0) -> None:
     """Print how many ``(aux|g)`` columns survive for each decoy count, cap and gate setting."""
-    settings = (("no gates", {"mi_gate": False, "redundancy_gate": False}), ("default gates", {}))
+    settings: Any = (("no gates", {"mi_gate": False, "redundancy_gate": False}), ("default gates", {}))
     for n_decoys in (0, 3, 11):
         X, y = _frame(n_decoys, n, seed)
         for cap in (64, 400):

@@ -16,6 +16,7 @@ mlframe.feature_selection._benchmarks.bench_frontier_candidates``
 """
 from __future__ import annotations
 
+from typing import Any
 import json
 import time
 from datetime import datetime
@@ -218,7 +219,7 @@ def _concordance_cand(X, cols):
 
 
 def main():
-    results = {"gate": [], "chain": [], "controls": []}
+    results: Any = {"gate": [], "chain": [], "controls": []}
 
     results["gate"].append(_run_family("gate_select", make_gate_select, gate_baselines, None, is_tp=True))
     results["gate"].append(_run_family("gate_mask", make_gate_mask, gate_baselines, None, is_tp=True))

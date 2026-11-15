@@ -1,4 +1,5 @@
 """Callers of the radix select's row-to-column-major transpose in one warm GPU fit, with the shapes and the wall of each call."""
+from typing import Any
 import collections, inspect, os, time, warnings
 warnings.simplefilter("ignore")
 for k, v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1", "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1"}.items():
@@ -12,7 +13,7 @@ kw = F.all_families_kwargs()
 kw["nbins_strategy"] = os.environ.get("BENCH_NBINS", "mdlp")
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20000, 30, 1))
 
-stats = collections.defaultdict(lambda: [0, 0.0, 0])
+stats: Any = collections.defaultdict(lambda: [0, 0.0, 0])
 real = S._transpose_to_cm
 
 

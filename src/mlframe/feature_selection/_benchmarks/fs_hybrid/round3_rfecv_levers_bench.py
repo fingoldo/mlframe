@@ -11,6 +11,7 @@ settled) yields the support + an FI ranking; the post-process variants are appli
 Reports downstream honest-holdout AUC vs the baseline RFECV.
 """
 from __future__ import annotations
+from typing import Any
 import os, sys
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -105,7 +106,7 @@ def main():
         rec("R3-6_clustcollapse", [c for c in dict.fromkeys(expanded) if c in X.columns])
         # R3-4 stability re-rank: bootstrap freq, equal-N swap
         from collections import Counter
-        freq = Counter()
+        freq: Any = Counter()
         for b in range(10):
             rng = np.random.default_rng(7 * sd + b)
             idx = rng.choice(len(Xtr), int(0.7 * len(Xtr)), replace=False)

@@ -15,6 +15,7 @@ Baseline = the shipped tree-member hybrid (binary cluster vote=1). PASS for any 
 >= +0.005 on a bed without regressing the others > 0.005. Reported with ALL numbers (no top-N filtering).
 """
 from __future__ import annotations
+from typing import Any
 import logging, os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -71,7 +72,7 @@ class SynergyHybrid(HybridSelector):
         """Per-feature continuous confidence from the members + Boruta tiers + normalized shared FI."""
         fi = self.fi_; fmax = max(fi.values()) if fi else 1.0
         sel_sets = {m: set(s) for m, s in member_sel.items()}
-        acc = getattr(self, "_boruta_accepted_", set()); ten = getattr(self, "_boruta_tentative_", set())
+        acc: Any = getattr(self, "_boruta_accepted_", set()); ten = getattr(self, "_boruta_tentative_", set())
         conf = {}
         for f in self.cluster_of_:
             votes = sum(1 for m, s in sel_sets.items() if f in s)

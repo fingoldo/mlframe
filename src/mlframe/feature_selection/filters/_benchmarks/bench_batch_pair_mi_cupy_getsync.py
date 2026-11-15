@@ -42,6 +42,7 @@ def _load_old_module():
     mod = importlib.util.module_from_spec(spec)
     mod.__package__ = "mlframe.feature_selection.filters"  # so the file's relative imports resolve
     sys.modules[modname] = mod
+    assert spec is not None
     spec.loader.exec_module(mod)
     return mod
 

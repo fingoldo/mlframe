@@ -7,6 +7,7 @@ Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.wave2
 
 from __future__ import annotations
 
+from typing import Any
 import argparse
 import itertools
 import json
@@ -104,7 +105,7 @@ def one_case(kind: str, n: int, seed: int, hard: bool, downstream: bool) -> dict
         sets = {"raw": XB}
         feats = {}
         for nm in SCREENS:
-            pair = tuple(row[f"{nm}|top"])
+            pair: Any = tuple(row[f"{nm}|top"])
             for fn, (fa, fb) in _engineer(XA, XB, ya, yb, pair).items():
                 row[f"mi_te|{nm}|{fn}"] = MI(fa, fb, yb)[1]
                 if (nm, fn) in CV_ARMS:

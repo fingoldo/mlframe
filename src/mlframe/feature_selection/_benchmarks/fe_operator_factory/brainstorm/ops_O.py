@@ -1,6 +1,7 @@
 """Operator O: random symbolic expression-tree search scored by MI (a cost reference, 26x the preset); cases O_W1 O_W2 O_N O_0.
 Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.brainstorm.ops_O <case names> [--seeds S] [--n N]``."""
 
+from typing import Any
 import numpy as np
 
 from ..common._paths import scratch_dir
@@ -34,7 +35,7 @@ def evalt(t, a, b):
 def O_new(Xtr, ytr, Xte, rng, nt=6000):
     """Operator O: best of ``nt`` random trees by train MI; returns train / test feature and the tree."""
     yb = ybins(ytr, ytr)
-    best = None
+    best: Any = None
     for t in make_trees(nt):
         ft = evalt(t, Xtr[:, 0], Xtr[:, 1])
         if ft.std() == 0:

@@ -45,6 +45,7 @@ def main() -> None:
         spec = importlib.util.spec_from_file_location("mlframe.feature_engineering.transformer._mdl_old", baseline)
         OLD = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = OLD
+        assert spec is not None
         spec.loader.exec_module(OLD)
         t = time.perf_counter()
         OLD.compute_mdl_binning_pairwise_features(X, y, X_query=Xq, seed=1)

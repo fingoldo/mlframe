@@ -264,12 +264,12 @@ def summarize(smoke):
               f"{_mean([r['n_selected'] for r in g]):>5.1f} {len(g):>5}")
 
     # paired wins vs default, per regime
-    by = defaultdict(dict)
+    by: Any = defaultdict(dict)
     for r in rows:
         by[(r["regime"], int(r["n"]), int(r["seed"]))][r["variant"]] = r
     print("\n=== PAIRED WINS vs default (per regime) ===")
     for target in ("jmim", "auto"):
-        agg = defaultdict(lambda: {"rec": [0, 0, 0], "auc": [0, 0, 0]})
+        agg: Any = defaultdict(lambda: {"rec": [0, 0, 0], "auc": [0, 0, 0]})
         for (reg, _n, _s), vs in by.items():
             if "default" not in vs or target not in vs:
                 continue

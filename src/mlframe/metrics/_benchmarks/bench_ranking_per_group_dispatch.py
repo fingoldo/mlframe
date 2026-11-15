@@ -33,6 +33,7 @@ def _load_leaf(name, fname):
     spec = importlib.util.spec_from_file_location(f"{pkg}.{name}", os.path.join(_METRICS_DIR, fname))
     mod = importlib.util.module_from_spec(spec)
     sys.modules[f"{pkg}.{name}"] = mod
+    assert spec is not None
     spec.loader.exec_module(mod)
     return mod
 

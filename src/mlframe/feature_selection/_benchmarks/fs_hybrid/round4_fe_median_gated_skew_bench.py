@@ -4,6 +4,7 @@ gate beat threshold-0? Uses SHIFTED/SKEWED operands (median far from 0). Multi-s
 Leak-safe: median from TRAIN only, replayed on TEST.
 """
 from __future__ import annotations
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -76,8 +77,8 @@ def auc(Xtr, ytr, Xte, yte):
 
 def run(name, mk, kinds):
     print(f"\n# bed={name} (multi-seed mean d vs raw_only)")
-    acc = {k: [] for k in (["raw_only", *kinds])}
-    accl = {k: [] for k in (["raw_only", *kinds])}
+    acc: Any = {k: [] for k in (["raw_only", *kinds])}
+    accl: Any = {k: [] for k in (["raw_only", *kinds])}
     for s in SEEDS:
         X, y = mk(s); tr, te = split(len(X), s)
         Xtr, Xte, ytr, yte = X[tr], X[te], y[tr], y[te]

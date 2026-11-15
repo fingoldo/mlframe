@@ -51,7 +51,7 @@ def _train_mi(f: np.ndarray, yb: tuple) -> Any:
 
 def fit_B2(XA, ya, cols, yb, seed, m: float = 3.0, ks=(6, 10)):
     """Operator B: over all pairs of ``cols`` and the grid sizes ``ks`` keep the cross-fitted cell table with the best train MI; returns (train column, recipe, info)."""
-    best = None
+    best: Any = None
     for i, j in itertools.combinations(cols, 2):
         for K in ks:
             f, rec = oof_fit("cell2d", XA, ya, [i, j], seed=seed, K=K, m=m)
@@ -63,7 +63,7 @@ def fit_B2(XA, ya, cols, yb, seed, m: float = 3.0, ks=(6, 10)):
 
 def fit_C2(XA, ya, cols, yb, seed, nb: int = 20):
     """Operator C: per column a cross-fitted ``nb``-bin warp; keep the column with the best train MI; returns (train column, recipe, info)."""
-    best = None
+    best: Any = None
     for j in cols:
         f, rec = oof_fit("warp1d", XA, ya, [j], seed=seed, nb=nb)
         score = _train_mi(f, yb)

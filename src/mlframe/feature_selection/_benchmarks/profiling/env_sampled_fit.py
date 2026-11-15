@@ -11,7 +11,7 @@ kw: dict[str, Any] = {f: True for f in F._flag_names()}; kw["nbins_strategy"] = 
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20000, 30, 1))
 data = F._make(100000, 100, 0)
 me = psutil.Process()
-samples = []; stop = threading.Event()
+samples: Any = []; stop = threading.Event()
 def gpu_util():
     try:
         from mlframe.training._gpu_state_probe import _resolve_smi

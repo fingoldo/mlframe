@@ -3,6 +3,7 @@
 100000 rows x 120 columns, 3000 pairs of 12-bin columns against a 2-class target (joint cells 144 x 2), the kind of block the pair gate sends. The variant keeps the histogram
 updates in the same per-thread order within each chunk of four, so the counts (integers) and therefore the MI are equal.
 """
+from typing import Any
 import time
 import warnings
 
@@ -67,7 +68,7 @@ def run(kernel, threads):
 configs = [("plain", plain, 128), ("plain", plain, 256), ("plain", plain, 512), ("unroll4", unrolled, 128), ("unroll4", unrolled, 256)]
 for _, k, th in configs:
     run(k, th)
-times = {i: [] for i in range(len(configs))}
+times: Any = {i: [] for i in range(len(configs))}
 ref = None
 for _ in range(5):
     for i, (_, k, th) in enumerate(configs):

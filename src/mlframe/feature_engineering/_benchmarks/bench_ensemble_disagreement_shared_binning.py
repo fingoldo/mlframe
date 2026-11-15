@@ -43,6 +43,7 @@ def _load_old_module() -> types.ModuleType:
         fh.write(old_src)
     spec = importlib.util.spec_from_file_location("ensemble_features_old", path)
     mod = importlib.util.module_from_spec(spec)
+    assert spec is not None
     spec.loader.exec_module(mod)
     return mod
 

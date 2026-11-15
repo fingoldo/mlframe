@@ -254,7 +254,7 @@ def _eval_dataset(name, X, y, discrete_target, *, n_splits, top_k, n_trials, max
 
     cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42) if discrete_target else KFold(n_splits=n_splits, shuffle=True, random_state=42)
     methods = ["baseline", *_BASES, "ensemble"]
-    results = {m: [] for m in methods}
+    results: Any = {m: [] for m in methods}
     pair_log = []  # for diagnostics
     for fold, (tr_idx, va_idx) in enumerate(cv.split(X, y)):
         X_tr_raw, X_va_raw = X[tr_idx], X[va_idx]

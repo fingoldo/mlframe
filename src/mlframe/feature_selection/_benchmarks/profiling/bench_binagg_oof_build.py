@@ -22,6 +22,7 @@ def _load(path: str):
     spec = importlib.util.spec_from_file_location("binagg_reference", path)
     mod = importlib.util.module_from_spec(spec)
     sys.modules["binagg_reference"] = mod
+    assert spec is not None
     spec.loader.exec_module(mod)
     return mod
 

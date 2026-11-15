@@ -88,7 +88,7 @@ def shallow_tree_signals(X, y, n_estimators=80, max_depth=3, top_pairs=12):
     ranked = [c for c in imp.index if imp[c] > 0]
     tdf = m.booster_.trees_to_dataframe()
     tdf = tdf[tdf["split_feature"].notna()]
-    pair_w = Counter()
+    pair_w: Any = Counter()
     for _tree_id, g in tdf.groupby("tree_index"):
         feats = sorted(set(g["split_feature"].tolist()))
         gain = float(g["split_gain"].sum()) + 1e-9

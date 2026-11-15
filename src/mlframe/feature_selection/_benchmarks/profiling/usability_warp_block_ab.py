@@ -2,6 +2,7 @@
 
 The kernel gives one warp to each (pair, form), so every width is a whole number of warps; the call returns the host copy of the result, so each timing includes the kernel's end.
 """
+from typing import Any
 import time
 import warnings
 
@@ -20,7 +21,7 @@ forms = np.arange(5, dtype=np.int64)
 
 G.batch_pair_usability_corr_cuda_warp(y, operand, pa, pb, forms)
 widths = (32, 64, 128, 256, 512)
-times = {w: [] for w in widths}
+times: Any = {w: [] for w in widths}
 reference = None
 for _rep in range(5):
     for w in widths:

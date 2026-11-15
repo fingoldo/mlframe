@@ -6,6 +6,7 @@ std (the robustness target) and (ii) selection stability (Jaccard of selected se
 Impurity importance (fast) - the question is about the SELECTION aggregation, not the importance metric.
 """
 from __future__ import annotations
+from typing import Any
 import os, sys, json
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -56,7 +57,7 @@ def main():
             # single fit
             ss = fit_support(Xtr, ytr, sd); single_sets.append(ss); single_aucs.append(auc(Xtr, Xte, ytr, yte, ss))
             # aggregate over B bootstrap resamples (frequency vote >= B/2)
-            cnt = Counter()
+            cnt: Any = Counter()
             for b in range(B):
                 rng = np.random.default_rng(1000 * sd + b)
                 idx = rng.choice(len(Xtr), len(Xtr), replace=True)

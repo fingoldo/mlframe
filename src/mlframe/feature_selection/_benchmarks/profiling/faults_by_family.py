@@ -1,5 +1,6 @@
 """Wall seconds of every _stage_* family function of the mid_a / mid_b / early_b cascades in one warm 100k x 100 GPU fit (wrapper timing, no profiler)."""
 
+from typing import Any
 import types
 import os, sys, time, threading, warnings, importlib, functools
 import psutil
@@ -12,7 +13,7 @@ from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 from mlframe.feature_selection.filters.mrmr import MRMR
 kw = F.all_families_kwargs(); kw["nbins_strategy"] = "mdlp"
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20000, 30, 1))
-walls = {}; stats = types.SimpleNamespace(faults={}); lock = threading.Lock()
+walls: Any = {}; stats = types.SimpleNamespace(faults={}); lock = threading.Lock()
 pkg = "mlframe.feature_selection.filters._mrmr_fit_impl"
 import pkgutil
 mods = importlib.import_module(pkg)
