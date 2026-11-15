@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import zlib
 from typing import Optional, cast
 from collections.abc import Sequence
@@ -62,6 +63,7 @@ from .hermite_fe import basis_route_by_moments
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from ._orthogonal_shared import coerce_y_classif, leg_eng_col_name, mean_fill_nonfinite
 from ._cmi_strata_njit import permutation_seed, permutation_sources_chunk, strata_layout, stratified_cmi, stratified_cmi_null
+from ._cmi_strata_tables_njit import StratifiedNull
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch,
@@ -375,10 +377,16 @@ def _null_quantile_or_bound(x_d, y_d, s_d, strata, cmi: float, n_perm: int, quan
     need = int(np.floor((n_perm - 1) * (1.0 - quantile))) + 2
     parts: list = []
     exceed = 0
-    layout = strata_layout(strata)  # one stable sort of the strata for every chunk of the null
+    shuffle = os.environ.get("MLFRAME_TRIPLET_NULL_SHUFFLE", "0").strip() == "1"
+    # the null table of each stratum drawn directly from the multivariate hypergeometric law of a within-stratum shuffle (O(strata x levels) a permutation, not O(rows)); the shuffle path stays as the reference
+    table_null = None if shuffle else StratifiedNull(x_d, y_d, s_d, _MIN_STRATUM_ROWS)
+    layout = strata_layout(strata) if shuffle else None  # one stable sort of the strata for every chunk of the shuffled null
     for first in range(0, n_perm, _NULL_CHUNK):
         count = min(_NULL_CHUNK, n_perm - first)
-        part = stratified_cmi_null(x_d, y_d, s_d, permutation_sources_chunk(strata, first, count, seed, layout), _MIN_STRATUM_ROWS)
+        if table_null is not None:
+            part = table_null.chunk(first, count, seed)
+        else:
+            part = stratified_cmi_null(x_d, y_d, s_d, permutation_sources_chunk(strata, first, count, seed, layout), _MIN_STRATUM_ROWS)
         parts.append(part)
         exceed += int((part >= cmi).sum())
         if exceed >= need:

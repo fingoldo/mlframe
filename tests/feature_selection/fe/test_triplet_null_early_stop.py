@@ -26,8 +26,9 @@ def _codes(rng, n=3000):
     return strong, noise, y, s.astype(np.int64)
 
 
-def test_quantile_is_exact_without_a_stop_and_a_bound_with_one():
-    """Strong candidate (never stops) gets numpy's quantile of the full null; a noise candidate stops with a value at or above its cmi, so its gain is not positive, as with the full null."""
+def test_quantile_is_exact_without_a_stop_and_a_bound_with_one(monkeypatch):
+    """On the shuffle path (``MLFRAME_TRIPLET_NULL_SHUFFLE=1``, the reference; the default draws the tables directly, see test_cmi_strata_tables.py): strong candidate (never stops) gets numpy's quantile of the full null; a noise candidate stops with a value at or above its cmi, so its gain is not positive, as with the full null."""
+    monkeypatch.setenv("MLFRAME_TRIPLET_NULL_SHUFFLE", "1")
     rng = np.random.default_rng(5)
     strong, noise, y, s = _codes(rng)
     n_perm, quantile = 400, 1.0 - 0.01 / 20
