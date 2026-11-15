@@ -517,7 +517,7 @@ def score_features_by_cmim(
     # ``np.unique`` calls per support member (~6x speedup on a typical
     # n=2500, p=20 fixture). Bit-equivalent to the per-call path.
     n_rows = float(max(1, y_bin.size))
-    full_cache = _build_cmi_yz_cache(y_bin, sel_bins)
+    full_cache: Optional[list] = None  # the host loop's per-reference (yz, z, entropy) terms; built only when the fused scorer does not answer
 
     # Precompute the (support member != source) filtered cache list ONCE PER UNIQUE SOURCE:
     # cache_filtered depends only on ``source``, which repeats across every degree/basis variant of the
@@ -528,9 +528,16 @@ def score_features_by_cmim(
         _s = source_of_engineered_name(eng_name)
         if _s not in _sources_seen:
             _sources_seen.append(_s)
-    filtered_by_source: dict[str, list] = {
-        source: [entry for entry, sname in zip(full_cache, support_col_names) if sname != source] for source in _sources_seen
-    }
+    filtered_by_source: dict[str, list] = {}
+
+    def _filtered(source: str) -> list:
+        """The cached terms of the references that are not ``source``'s own column, built on first use (the host paths only)."""
+        nonlocal full_cache
+        if full_cache is None:
+            full_cache = _build_cmi_yz_cache(y_bin, sel_bins)
+        if source not in filtered_by_source:
+            filtered_by_source[source] = [entry for entry, sname in zip(full_cache, support_col_names) if sname != source]
+        return filtered_by_source[source]
 
     rows: list[dict] = []
     eng_bins = quantile_bin_columns(engineered_X.to_numpy(dtype=_crit_np_dtype()), int(n_bins), dtype=np.int16)  # int16 codes: 2 bytes a value, not 8  # every candidate column binned at once (not one device round trip per column)
@@ -554,13 +561,12 @@ def score_features_by_cmim(
         # source). We want the redundancy filter to penalise OVERLAP
         # with OTHER support members; the self-source overlap is
         # accounted for by ranking on engineered_mi vs baseline_mi.
-        cache_filtered = filtered_by_source[source]
         if device_scores is not None and np.isfinite(device_scores[eng_idx]):
             score = float(device_scores[eng_idx])
-        elif not cache_filtered:
+        elif not any(sname != source for sname in support_col_names):
             score = float(_cmi_from_binned(cand_bin, y_bin, None))
         else:
-            score = _cmim_score_cached(cand_bin, y_bin, cache_filtered, n_rows)
+            score = _cmim_score_cached(cand_bin, y_bin, _filtered(source), n_rows)
         uplift = relative_uplift(score, baseline)
         rows.append({
             "engineered_col": eng_name,
