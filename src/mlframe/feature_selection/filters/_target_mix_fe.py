@@ -26,6 +26,7 @@ import pandas as pd
 from mlframe.utils.log_throttle import log_throttle
 
 from ._analytic_mi_null import analytic_null_min_n_lowered
+from ._fe_deadline import fe_deadline_passed
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,9 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
     from ._target_mix_gate import target_has_structure
 
     for name, u, beta in bases:
+        if fe_deadline_passed():
+            log_throttle(logger, "target_mix_fe.deadline", logging.INFO, "MRMR target-mix second pass stopped at the base %r: the max_runtime_mins budget is spent.", name)
+            break
         mixed = y[train] - beta * u[train]
         # A base that explains all but a sliver of the target leaves a mixed target that is rounding and binning noise: whatever a child fit found there would be measured against that tiny variance and
         # look large. The residual has to carry at least the share of the target variance that a rescue admission needs.
