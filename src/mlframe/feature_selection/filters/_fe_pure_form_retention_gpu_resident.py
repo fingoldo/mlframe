@@ -103,12 +103,12 @@ _GRAM_SRC = render(
 extern "C" __global__
 void pair_gram_blocks(const {ACC}* __restrict__ bc, const {ACC}* __restrict__ fc, const long long* __restrict__ ia, const long long* __restrict__ ib, const long long n,
                       const long long row_stride, const long long col_stride, const int rows_per_chunk, {ACC}* __restrict__ part) {
-    // For the pair p = blockIdx.x over the row chunk blockIdx.y: the 6 x 6 cross Gram of its two centered operand blocks (bc is (U, n, 6)) and the two X^T fc products, 48 sums
+    // For the pair p = blockIdx.x over the row chunk blockIdx.y: the 6 x 6 cross Gram of its two centered operand blocks (bc is (U, 6, n)) and the two X^T fc products, 48 sums
     // (0..35 cross, 36..41 A^T f, 42..47 B^T f), f = fc[r * row_stride + p * col_stride]. Per-thread sums, a fixed-order warp shuffle and block reduction, one partial row per
     // (pair, chunk): the host adds the chunks in a fixed order, so the result is the same on every run.
     __shared__ {ACC} red[4][48];
     const int p = blockIdx.x;
-    const {ACC}* A = bc + ia[p] * n * 6;
+    const {ACC}* A = bc + ia[p] * n * 6;  // (U, 6, n): feature k of row r is A[k * n + r], consecutive rows are consecutive words (coalesced)
     const {ACC}* B = bc + ib[p] * n * 6;
     {ACC} acc[48];
     #pragma unroll
@@ -118,7 +118,7 @@ void pair_gram_blocks(const {ACC}* __restrict__ bc, const {ACC}* __restrict__ fc
     for (long long r = r0 + threadIdx.x; r < r1; r += blockDim.x) {
         {ACC} a[6], b[6];
         #pragma unroll
-        for (int k = 0; k < 6; ++k) { a[k] = A[r * 6 + k]; b[k] = B[r * 6 + k]; }
+        for (int k = 0; k < 6; ++k) { a[k] = A[k * n + r]; b[k] = B[k * n + r]; }
         const {ACC} f = fc[r * row_stride + p * col_stride];
         #pragma unroll
         for (int k = 0; k < 6; ++k) {
@@ -158,15 +158,31 @@ def kernel(cp: Any, real: Any = None) -> Any:
 
 
 def _gram_sums(cp: Any, bc: Any, fc: Any, ia_d: Any, ib_d: Any, row_stride: int, col_stride: int) -> Any:
-    """The (P, 48) sums of ``pair_gram_blocks`` for the pairs ``(ia_d[p], ib_d[p])`` over all rows of the (U, n, 6) operand blocks."""
-    P, n = int(ia_d.shape[0]), int(bc.shape[1])
+    """The (P, 48) sums of ``pair_gram_blocks`` for the pairs ``(ia_d[p], ib_d[p])`` over all rows of the (U, 6, n) operand blocks."""
+    P, n = int(ia_d.shape[0]), int(bc.shape[2])
     chunks = max(1, -(-n // _GRAM_ROWS_PER_CHUNK))
     part = cp.empty((P, chunks, 48), dtype=cp.float64)  # Intentional float64: Gram sums feeding a ridge solve
     kernel(cp)((P, chunks), (_GRAM_THREADS,), (bc, fc, ia_d, ib_d, np.int64(n), np.int64(row_stride), np.int64(col_stride), np.int32(_GRAM_ROWS_PER_CHUNK), part))  # launch-ok: one block per (pair, row chunk) is the design
     return part.sum(axis=1)
 
 
-def _batched_gate_scalars(cp: Any, Vdev: Any, basis_by_idx: list, name_to_idx: dict, src_pairs: list, yc_rel: Any, P: int) -> Any:
+def _stage_operands(cp: Any, basis_by_idx: list, name_to_idx: dict, src_pairs: list) -> Any:
+    """``(bc, slot, cache)`` for the pairs ``src_pairs``: the centered additive basis of every distinct operand as one (U, 6, n) double block and the map of operand name to its slot; ``None`` when a
+    pair names an operand outside ``name_to_idx``. Centering is per column, so a pair's centered design is its two operands' blocks side by side."""
+    names = []
+    for a, b in src_pairs:
+        for nm in (a, b):
+            if name_to_idx.get(nm) is None:
+                return None
+            if nm not in names:
+                names.append(nm)
+    slot = {nm: k for k, nm in enumerate(names)}
+    # Intentional float64: the Gram sums feed a ridge solve and the Gram kernel reads double operands (a float32 operand would be read as garbage), so every input is widened here
+    bc = cp.stack([cp.asarray(basis_by_idx[name_to_idx[nm]], dtype=cp.float64).T for nm in names])  # (U, 6, n): feature-major, so the per-feature mean is a contiguous reduction
+    return bc - bc.mean(axis=2, keepdims=True), slot, {}  # the dict holds the per-operand Gram sums once a call has formed them
+
+
+def _batched_gate_scalars(cp: Any, Vdev: Any, basis_by_idx: list, name_to_idx: dict, src_pairs: list, yc_rel: Any, P: int, staged: Any = None) -> Any:
     """Per-candidate gate scalars ``(form std, residual std, residual SS, residual.y dot)`` from one batched normal-equations solve; ``None`` if an operand is unknown."""
     # BATCHED-READ gate (residency): the per-candidate OLS keeps the EXACT per-candidate lstsq
     # (SVD, same solver + values as before - cusolver runs fully on device, no host read), but each
@@ -182,23 +198,14 @@ def _batched_gate_scalars(cp: Any, Vdev: Any, basis_by_idx: list, name_to_idx: d
     # A tiny trace-scaled ridge makes every Gram solvable in one batched call (negligible ~1e-10 shift;
     # handles the near-collinear designs lstsq would rank-cut - the gate scalars still do not flip, F2 +
     # the retention suites confirm). f_std / the four gate scalars read back in ONE batched D2H.
-    _nrows = float(int(Vdev.shape[0]))
-    ia_l, ib_l = [], []
-    for j in range(P):
-        ia = name_to_idx.get(src_pairs[j][0])
-        ib = name_to_idx.get(src_pairs[j][1])
-        if ia is None or ib is None:
+    if staged is None:
+        staged = _stage_operands(cp, basis_by_idx, name_to_idx, src_pairs)
+        if staged is None:
             return None  # operand missing from the resident base set -> exact CPU path
-        ia_l.append(ia)
-        ib_l.append(ib)
-    # The centered basis of every distinct operand once as an (operands, n, 6) block: centering is per column, so a pair's centered design is the two operands' blocks side by side.
-    used = sorted(set(ia_l) | set(ib_l))
-    slot = {u: k for k, u in enumerate(used)}
-    # Intentional float64: the Gram sums feed a ridge solve and the Gram kernel reads double operands (a float32 operand would be read as garbage), so every input is widened here
-    bc = cp.stack([cp.asarray(basis_by_idx[u], dtype=cp.float64) for u in used])  # (U, n, 6)
-    bc = bc - bc.mean(axis=1, keepdims=True)
-    ia_d = cp.asarray(np.fromiter((slot[i] for i in ia_l), dtype=np.int64, count=P))
-    ib_d = cp.asarray(np.fromiter((slot[i] for i in ib_l), dtype=np.int64, count=P))
+    bc, slot, stage_cache = staged
+    ia_d = cp.asarray(np.fromiter((slot[src_pairs[j][0]] for j in range(P)), dtype=np.int64, count=P))
+    ib_d = cp.asarray(np.fromiter((slot[src_pairs[j][1]] for j in range(P)), dtype=np.int64, count=P))
+    _nrows = float(int(Vdev.shape[0]))
     Vdev = cp.asarray(Vdev, dtype=cp.float64)  # Intentional float64: see above
     yc_rel = cp.asarray(yc_rel, dtype=cp.float64)  # Intentional float64: see above
     FC = Vdev - Vdev.mean(axis=0, keepdims=True)  # (n, P) centered form values
@@ -213,9 +220,11 @@ def _batched_gate_scalars(cp: Any, Vdev: Any, basis_by_idx: list, name_to_idx: d
     _xy = cp.empty((P, 12), dtype=cp.float64)
     # The Gram of a pair is [[Gaa, Gab], [Gab^T, Gbb]]: the diagonal blocks and X^T y depend on one operand and are formed once per distinct operand; the cross block and the two X^T fc
     # products are one ``pair_gram_blocks`` launch for all pairs, each block reading the two operands' rows once (no gathered copies, no 6 x 6 batched GEMM over n rows).
-    nu = len(used)
+    nu = int(bc.shape[0])
     ar = cp.arange(nu, dtype=cp.int64)
-    diag = _gram_sums(cp, bc, yc_rel, ar, ar, 1, 0)  # (U, 48): [:36] the operand's own Gram, [36:42] X^T y
+    diag = stage_cache.get("diag")
+    if diag is None:
+        diag = stage_cache["diag"] = _gram_sums(cp, bc, yc_rel, ar, ar, 1, 0)  # (U, 48): [:36] the operand's own Gram, [36:42] X^T y
     cross = _gram_sums(cp, bc, FC, ia_d, ib_d, int(FC.shape[1]), 1)  # (P, 48)
     gab = cross[:, :36].reshape(P, 6, 6)
     gd = diag[:, :36].reshape(nu, 6, 6)
@@ -239,7 +248,7 @@ def _batched_gate_scalars(cp: Any, Vdev: Any, basis_by_idx: list, name_to_idx: d
 
 
 def _upload_pure_form_inputs(cp, form_values, base_columns, rel_host, n, P, B):
-    """ONE bulk host-to-device upload of the form-value matrix, the raw-operand matrix and the relevance target; ``None`` on a ragged column."""
+    """ONE bulk host-to-device upload of the raw-operand matrix and the relevance target, and the host form-value matrix (its pair blocks are uploaded one at a time); ``None`` on a ragged column."""
     from ._usability_aware_selection import _f64, _scrub
 
     # ---- ONE bulk H2D: the (n, P) form-value matrix, the (n, B) raw-operand matrix, the (n,) target. ----
@@ -258,7 +267,7 @@ def _upload_pure_form_inputs(cp, form_values, base_columns, rel_host, n, P, B):
             return None
         Bhost[:, i] = col
 
-    return cp.asarray(Vhost), cp.asarray(Bhost), cp.asarray(rel_host)
+    return Vhost, cp.asarray(Bhost), cp.asarray(rel_host)
 
 
 def _basis_stack(cp, xcol):
@@ -290,7 +299,7 @@ def _verdict_flags(_gate, P, min_resid_frac, min_resid_corr, y_std, ss_yrel) -> 
     return out
 
 
-def adds_nonlinear_value_batch_gpu_resident(
+def _device_verdicts(
     form_values: list,
     src_pairs: list,
     base_names: list,
@@ -351,7 +360,7 @@ def adds_nonlinear_value_batch_gpu_resident(
         uploaded = _upload_pure_form_inputs(cp, form_values, base_columns, rel_host, n, P, B)
         if uploaded is None:
             return None
-        Vdev, Bdev, ydev = uploaded
+        Vhost, Bdev, ydev = uploaded
 
         # Precompute the 6-function additive basis for EVERY distinct raw operand ONCE (resident, (n, 6) each),
         # so a candidate's design is two index lookups - not a re-derivation/re-upload per candidate.
@@ -364,13 +373,137 @@ def adds_nonlinear_value_batch_gpu_resident(
         ss_yrel = float(cp.dot(yc_rel, yc_rel))  # scalar; bounded
         y_std = float(ydev.std())
 
-        _gate = _batched_gate_scalars(cp, Vdev, basis_by_idx, name_to_idx, src_pairs, yc_rel, P)
-        if _gate is None:
+        staged = _stage_operands(cp, basis_by_idx, name_to_idx, src_pairs)
+        if staged is None:
             return None  # operand missing from the resident base set -> exact CPU path
+        # The form-value columns are uploaded a column block of pairs at a time (a block is a quarter of the room under this thread's pool limit over four copies of its columns: the form block, its
+        # centering and the products), so the working set does not grow with the number of candidates; the operand blocks stay resident for every block.
+        from ._device_sort_safe import device_room
+
+        block = int(max(1, min(P, (device_room(cp) // 4) // max(1, 4 * n * 8))))
+        parts = []
+        for p0 in range(0, P, block):
+            p1 = min(P, p0 + block)
+            part = _batched_gate_scalars(cp, cp.asarray(Vhost[:, p0:p1]), basis_by_idx, name_to_idx, src_pairs[p0:p1], yc_rel, p1 - p0, staged)
+            parts.append(part)
+        _gate = np.concatenate(parts, axis=0)
         return _verdict_flags(_gate, P, min_resid_frac, min_resid_corr, y_std, ss_yrel)
     except _DEV_ERRS as _exc:
         logger.debug("adds_nonlinear_value_batch_gpu_resident fell back to its default after %s", type(_exc).__name__)
         return None  # genuine cupy/device/linalg fault in setup/upload -> exact CPU path (logic bugs propagate)
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Host or device for the batched gate: the kernel-tuning entry ``pure_form_gate_backend``
+DEVICE_FALLBACK_ROWS = 20_000  # rows from which the device batch is taken before a sweep has run
+_SWEEP_ROWS = [5_000, 30_000, 100_000]
+_SALT = 1
+_SWEEP_OPERANDS = 8
+_SWEEP_PAIRS = 40
+
+
+def _host_verdicts(form_values: list, base_columns: list, src_pairs: list, base_names: list, rel_host: np.ndarray, min_resid_frac: float, min_resid_corr: float) -> Optional[list]:
+    """The verdicts of the batched gate on the host: :func:`_pure_form_gate_njit.host_gate_scalars` and the same :func:`_verdict_flags`; ``None`` when an operand is unknown."""
+    from ._pure_form_gate_njit import host_gate_scalars
+
+    gate = host_gate_scalars(form_values, base_columns, src_pairs, base_names, rel_host)
+    if gate is None:
+        return None
+    yc = np.asarray(rel_host, dtype=np.float64) - float(np.mean(rel_host))  # Intentional float64: centered relevance target
+    return _verdict_flags(gate, len(form_values), min_resid_frac, min_resid_corr, float(np.std(rel_host)), float(np.dot(yc, yc)))
+
+
+def _sweep_inputs(dims: dict) -> tuple:
+    """``dims["n_samples"]`` rows: ``_SWEEP_OPERANDS`` raw operands, ``_SWEEP_PAIRS`` candidate forms (a ratio, a sum and noise forms over random operand pairs) and a target carrying one ratio."""
+    rng = np.random.default_rng(0)
+    n = int(dims["n_samples"])
+    cols = [rng.standard_normal(n) for _ in range(_SWEEP_OPERANDS)]
+    names = [f"x{i}" for i in range(_SWEEP_OPERANDS)]
+    pairs, forms = [], []
+    for k in range(_SWEEP_PAIRS):
+        a, b = rng.choice(_SWEEP_OPERANDS, 2, replace=False)
+        pairs.append((names[a], names[b]))
+        forms.append((cols[a] ** 2 / (1.5 + cols[b])) if k % 3 == 0 else (cols[a] + cols[b] if k % 3 == 1 else rng.standard_normal(n)))
+    y = cols[0] ** 2 / (1.5 + cols[1]) + 0.3 * rng.standard_normal(n)
+    return (forms, pairs, names, cols, y)
+
+
+def _sweep_host(forms: list, pairs: list, names: list, cols: list, y: np.ndarray) -> np.ndarray:
+    """The host verdicts of the sweep pool."""
+    return np.asarray(_host_verdicts(forms, cols, pairs, names, y, 0.10, 0.08), dtype=np.float64)  # Intentional float64: comparison vector
+
+
+def _sweep_device(forms: list, pairs: list, names: list, cols: list, y: np.ndarray) -> np.ndarray:
+    """The device verdicts; a failed launch returns None from the device path, which raises here so the sweep never records a host fallback as a device time."""
+    out = _device_verdicts(forms, pairs, names, cols, y, min_resid_frac=0.10, min_resid_corr=0.08)
+    if out is None:
+        raise RuntimeError("device pure-form gate unavailable")
+    return np.asarray(out, dtype=np.float64)  # Intentional float64: comparison vector
+
+
+def _run_sweep() -> list:
+    """Time the host and the device batch per row count; both must give the same verdicts."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    return list(sweep_backend_grid({"host": _sweep_host, "device": _sweep_device}, {"n_samples": _SWEEP_ROWS}, _sweep_inputs, reference="host", repeats=3, equiv_rtol=0.0, equiv_atol=0.0))
+
+
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+    from ._ktc_fallback import rows_fallback
+
+    _SPEC: Any = kernel_tuner(
+        kernel_name="pure_form_gate_backend",
+        variant_fns=(),  # the two backends are timed by the sweep callable
+        tuner=_run_sweep,
+        axes={"n_samples": list(_SWEEP_ROWS)},
+        fallback=rows_fallback(__name__),
+        gpu_capable=True,
+        salt=_SALT,
+        cli_label="pure_form_gate_backend",
+    )
+except Exception as e:  # best-effort: without a tuner entry the floor decides
+    logger.warning("kernel_tuner spec build for pure_form_gate_backend failed: %s", e)
+    _SPEC = None
+
+
+def pure_form_device_chosen(n_rows: int, n_pairs: int = 0) -> bool:
+    """Whether the batched gate of ``n_rows`` rows is scored on the device: the per-host cache by the row count, else the ``DEVICE_FALLBACK_ROWS`` floor."""
+    if _SPEC is None:
+        return int(n_rows) >= DEVICE_FALLBACK_ROWS
+    try:
+        return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
+    except Exception as exc:
+        logger.debug("pure_form_gate_backend: KTC choose() failed, using the floor: %s", exc)
+        return int(n_rows) >= DEVICE_FALLBACK_ROWS
+
+
+def adds_nonlinear_value_batch_gpu_resident(
+    form_values: list,
+    src_pairs: list,
+    base_names: list,
+    base_columns: list,
+    rel_y: np.ndarray,
+    *,
+    min_resid_frac: float,
+    min_resid_corr: float,
+) -> Optional[list]:
+    """The batched non-separability verdicts of the pool (see :func:`_device_verdicts` for the inputs): on the device when the kernel-tuning entry ``pure_form_gate_backend`` says so for the row
+    count, else on the host with the numba kernel of ``_pure_form_gate_njit`` (the same scalars and verdicts); ``None`` on an empty or degenerate pool or an unknown operand, where the caller
+    runs the exact per-candidate CPU path."""
+    if not form_values:
+        return None
+    n_rows = int(np.asarray(rel_y).shape[0])
+    if n_rows >= 2 and not pure_form_device_chosen(n_rows, len(form_values)):
+        try:
+            from ._usability_aware_selection import _f64, _scrub
+
+            rel_host = _f64(_scrub(np.asarray(rel_y, dtype=np.float64)))  # Intentional float64: host copy of the relevance target
+            return _host_verdicts(form_values, base_columns, src_pairs, base_names, rel_host, min_resid_frac, min_resid_corr)
+        except Exception as exc:
+            logger.debug("host batched pure-form gate unavailable (%s); device path", exc)
+    return _device_verdicts(form_values, src_pairs, base_names, base_columns, rel_y, min_resid_frac=min_resid_frac, min_resid_corr=min_resid_corr)
 
 
 __all__ = ["adds_nonlinear_value_batch_gpu_resident"]

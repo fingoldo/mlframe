@@ -38,6 +38,14 @@ def _need_cuda() -> bool:
 pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 
+@pytest.fixture(autouse=True)
+def _device_route(monkeypatch):
+    """These tests are about the device batch: the row counts here sit below the tuned host/device crossover, so the tuner's choice is pinned to the device."""
+    from mlframe.feature_selection.filters import _fe_pure_form_retention_gpu_resident as m
+
+    monkeypatch.setattr(m, "pure_form_device_chosen", lambda n, p=0: True)
+
+
 def _host_basis(xcol: np.ndarray) -> np.ndarray:
     """The exact 6-function additive single-operand basis (standardized x, x^2, x^3, signed-sqrt,
     signed-log1p, reciprocal-magnitude), matching both the CPU sklearn path and the GPU kernel."""

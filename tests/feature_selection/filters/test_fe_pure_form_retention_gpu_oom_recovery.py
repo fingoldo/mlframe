@@ -18,6 +18,14 @@ cp = pytest.importorskip("cupy")
 
 pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
+
+@pytest.fixture(autouse=True)
+def _device_route(monkeypatch):
+    """These tests are about the device batch: the row counts here sit below the tuned host/device crossover, so the tuner's choice is pinned to the device."""
+    from mlframe.feature_selection.filters import _fe_pure_form_retention_gpu_resident as m
+
+    monkeypatch.setattr(m, "pure_form_device_chosen", lambda n, p=0: True)
+
 from mlframe.feature_selection.filters._fe_pure_form_retention_gpu_resident import (
     adds_nonlinear_value_batch_gpu_resident,
 )

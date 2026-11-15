@@ -251,6 +251,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_target_encoding_order_stats": ("_order_stats_gpu",),
     "_temporal_agg_fe_rolling": ("_rolling_window_gpu",),
     "_periodic_fe": ("_modular_codes_gpu",),
+    "_fe_pure_form_retention_gpu_resident": ("_pure_form_gate_njit",),
     "_cupy_polynom_optimizer": ("_polynom_search_backend",),
     "_relaxmrmr_pair_loop": ("_relaxmrmr_pair_gpu",),
     "_hermite_fe_mi": ("_fe_edge_mi",),
