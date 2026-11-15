@@ -108,6 +108,7 @@ _RECIPES: dict = {
     "_pair_residual_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
     "_relaxmrmr_pair_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],
     "_rolling_window_gpu.py::_SRC": lambda s: [(tt, _fill(s, **{"{TT}": tt, "{ACC}": "double"}), ()) for tt in ("long long", "double")],
+    "_cupy_polynom_optimizer.py::_FINITE_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r}), ()) for r in _REAL_TYPES],
     "_order_stats_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
     "_synergy_combo_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],
     "_added_information_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],

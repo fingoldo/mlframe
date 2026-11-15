@@ -41,6 +41,8 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from ._kernel_types import render
+
 logger = logging.getLogger(__name__)
 
 _BASIS_IDS = {"hermite": 0, "legendre": 1, "chebyshev": 2, "laguerre": 3}
@@ -116,22 +118,43 @@ def _rank_bin_batched_gpu(cp, M, n_bins: int):
     return batched_quantile_bin_gpu(M, n_bins)
 
 
-_ALL_FINITE_AXIS0_KERNEL = None
+_FINITE_SRC = render(
+    r"""
+extern "C" __global__
+void col_all_finite(const {REAL}* __restrict__ x, const long long n, const int p, const long long rows_per_block, int* __restrict__ bad) {
+    // x is (n, p) row-major: the threads of a warp read consecutive columns of one row (coalesced); blockIdx.y owns a slab of rows, so the grid fills the card at p = 100
+    const int c = blockIdx.x * blockDim.x + threadIdx.x;
+    if (c >= p) return;
+    const long long r0 = (long long)blockIdx.y * rows_per_block;
+    const long long r1 = min(n, r0 + rows_per_block);
+    for (long long r = r0; r < r1; ++r) {
+        if (!isfinite(x[r * p + c])) {
+            bad[c] = 1;
+            return;
+        }
+    }
+}
+""",
+)
+_FINITE_KERNELS: dict = {}
 
 
-def _get_all_finite_axis0_kernel(cp):
-    """Lazy-compiled ``cp.ReductionKernel`` fusing ``cp.isfinite(x).all(axis=0)`` into ONE kernel launch
-    (nsys, 2026-07-15: the two-kernel form - elementwise isfinite materializing a full boolean array, then
-    a separate .all() reduce - cost cupy_isfinite 5.9%% + cupy_all 10%% of GPU time in the cupy-search
-    microbench, ~480 launches each). Bit-identical (verified incl. NaN columns): 'isfinite(x)' as the map
-    expression, '&&' as the reduce, avoids ever materializing the intermediate boolean array. ~7x faster
-    isolated at (20, 20000)."""
-    global _ALL_FINITE_AXIS0_KERNEL
-    if _ALL_FINITE_AXIS0_KERNEL is None:
-        _ALL_FINITE_AXIS0_KERNEL = cp.ReductionKernel(
-            "T x", "bool y", "isfinite(x)", "a && b", "y = a", "true", "all_finite_axis0",
-        )
-    return _ALL_FINITE_AXIS0_KERNEL
+def _col_all_finite(cp, x):
+    """``cp.isfinite(x).all(axis=0)`` for an (n, p) matrix in one coalesced launch: the former column-wise ``ReductionKernel`` read it at 23 GB/s (1.8 ms for 100000 x 100 float32)."""
+    from pyutilz.performance.gpu_hw_launch import block_size_for
+
+    x = cp.ascontiguousarray(x)
+    n, p = int(x.shape[0]), int(x.shape[1])
+    key = str(x.dtype)
+    if key not in _FINITE_KERNELS:
+        _FINITE_KERNELS[key] = cp.RawKernel(render(_FINITE_SRC, real=x.dtype), "col_all_finite")
+    kernel = _FINITE_KERNELS[key]
+    bad = cp.zeros(p, dtype=cp.int32)
+    threads = min(128, block_size_for(kernel, work_items=p))
+    gx = (p + threads - 1) // threads
+    gy = max(1, min((n + 63) // 64, 512))
+    kernel((gx, gy), (threads,), (x, np.int64(n), np.int32(p), np.int64((n + gy - 1) // gy), bad))
+    return bad == 0
 
 
 def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int, l2_penalty: float, direction_only: bool, bf_names: Sequence[str]):
@@ -145,8 +168,6 @@ def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
     100k GPU-strict trace showed cudaStreamSynchronize/cudaMemcpyAsync call counts consistent with this
     exact multiplicity. Selection logic (upd/where) is bit-identical, just evaluated on-device."""
     from ._fe_batched_mi import binned_mi_from_codes_gpu
-
-    all_finite0 = _get_all_finite_axis0_kernel(cp)
 
     P = Ca.shape[0]
     if direction_only:
@@ -163,14 +184,14 @@ def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
 
     HA = Ba @ Ca.T  # (n, P)
     HB = Bb @ Cb.T
-    col_finite = all_finite0(HA, axis=0) & all_finite0(HB, axis=0)
+    col_finite = _col_all_finite(cp, HA) & _col_all_finite(cp, HB)
 
     best_score = cp.full(P, -cp.inf)
     best_raw = cp.zeros(P)
     best_bf = cp.full(P, -1, dtype=cp.int64)
     for k, bf in enumerate(bf_names):
         C = _bf_apply_gpu(cp, bf, HA, HB)
-        finite = col_finite & all_finite0(C, axis=0)
+        finite = col_finite & _col_all_finite(cp, C)
         codes = _rank_bin_batched_gpu(cp, C, n_bins)
         # kx_per_col=n_bins (codes are always in [0, n_bins) by construction of the quantile binner) skips
         # binned_mi_from_codes_gpu's int(C.max())+1 fallback - a BLOCKING device sync that nsys showed
