@@ -3,7 +3,7 @@
 The detector's `high` hits in the current source, one row per function. The baseline (`tests/test_meta/_tiny_cupy_loops_baseline.json`) holds these keys.
 Dispositions to fill in: **FALSE POSITIVE** (the loop is a chunk, fold or fallback loop with a few trips and real work per trip), **FALLBACK** (the cupy loop runs only when a batched path is not taken, measured), **REAL** (a launch-bound loop, to restructure), **OPEN** (not yet read).
 
-Rows: 112.
+Rows: 111.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -34,7 +34,6 @@ Rows: 112.
 | feature_selection/filters/_fe_auto_escalation.py | find_underdelivering_pairs | 215 | REAL, not yet measured: per pair a best-column scan, two conditional MIs and a permutation null |
 | feature_selection/filters/_fe_cmi_redundancy_gate.py | _gate_round | 486 | REAL, measured: 18.6 of 104 s of a 100000 x 100 default fit (cProfile), 420 per-candidate conditional permutation nulls of about 45 ms (the loop runs only for candidates the batched analytic floor does not cover); the cost is the null itself, whose within-stratum shuffle sort was cut by a flat key (GPU11-77); batching candidates would not reduce the bytes sorted |
 | feature_selection/filters/_fe_cmi_redundancy_null.py | _conditional_cpu_null | 440 | REAL when the device path is taken, not yet measured: each shuffle's CMI takes the device route on its heuristic, one launch set per shuffle |
-| feature_selection/filters/_fe_pure_form_retention_gpu_resident.py | _batched_gate_scalars | 128 | REAL, not yet measured: a device operation per pair over P pairs |
 | feature_selection/filters/_fe_raw_redundancy_anchors.py | _build_raw_redundancy_step2_def_raw_codes | 262 | REAL, not yet measured: one device code build per engineered column |
 | feature_selection/filters/_fe_raw_redundancy_drop.py | _drop_redundant_raw_o_step1_full_composite_bin | 708 | REAL, not yet measured: per-consumer device composite bins; the selection-exact short circuit skips some work |
 | feature_selection/filters/_fe_raw_redundancy_drop.py | _some_consumer_adds_information | 370 | REAL, not yet measured: one excess and permutation floor per consumer, with an early return |

@@ -59,6 +59,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from ._kernel_types import render
+
 from ._safe_scale import standardise
 
 logger = logging.getLogger(__name__)
@@ -96,6 +98,74 @@ def _device_error_types(cp: Any) -> tuple:
     return tuple(_dev_errs)
 
 
+_GRAM_SRC = render(
+    r"""
+extern "C" __global__
+void pair_gram_blocks(const {ACC}* __restrict__ bc, const {ACC}* __restrict__ fc, const long long* __restrict__ ia, const long long* __restrict__ ib, const long long n,
+                      const long long row_stride, const long long col_stride, const int rows_per_chunk, {ACC}* __restrict__ part) {
+    // For the pair p = blockIdx.x over the row chunk blockIdx.y: the 6 x 6 cross Gram of its two centered operand blocks (bc is (U, n, 6)) and the two X^T fc products, 48 sums
+    // (0..35 cross, 36..41 A^T f, 42..47 B^T f), f = fc[r * row_stride + p * col_stride]. Per-thread sums, a fixed-order warp shuffle and block reduction, one partial row per
+    // (pair, chunk): the host adds the chunks in a fixed order, so the result is the same on every run.
+    __shared__ {ACC} red[4][48];
+    const int p = blockIdx.x;
+    const {ACC}* A = bc + ia[p] * n * 6;
+    const {ACC}* B = bc + ib[p] * n * 6;
+    {ACC} acc[48];
+    #pragma unroll
+    for (int k = 0; k < 48; ++k) acc[k] = 0.0;
+    const long long r0 = (long long)blockIdx.y * rows_per_chunk;
+    const long long r1 = min(n, r0 + rows_per_chunk);
+    for (long long r = r0 + threadIdx.x; r < r1; r += blockDim.x) {
+        {ACC} a[6], b[6];
+        #pragma unroll
+        for (int k = 0; k < 6; ++k) { a[k] = A[r * 6 + k]; b[k] = B[r * 6 + k]; }
+        const {ACC} f = fc[r * row_stride + p * col_stride];
+        #pragma unroll
+        for (int k = 0; k < 6; ++k) {
+            #pragma unroll
+            for (int m = 0; m < 6; ++m) acc[k * 6 + m] += a[k] * b[m];
+            acc[36 + k] += a[k] * f;
+            acc[42 + k] += b[k] * f;
+        }
+    }
+    const int lane = threadIdx.x & 31, warp = threadIdx.x >> 5;
+    #pragma unroll
+    for (int k = 0; k < 48; ++k) {
+        {ACC} v = acc[k];
+        for (int o = 16; o > 0; o >>= 1) v += __shfl_down_sync(0xffffffffu, v, o);
+        if (lane == 0) red[warp][k] = v;
+    }
+    __syncthreads();
+    if (threadIdx.x < 48) {
+        {ACC} t = 0.0;
+        for (int w = 0; w < (int)(blockDim.x >> 5); ++w) t += red[w][threadIdx.x];
+        part[((long long)p * gridDim.y + blockIdx.y) * 48 + threadIdx.x] = t;
+    }
+}
+""",
+)
+_GRAM_KERNEL: Any = None
+_GRAM_THREADS = 128
+_GRAM_ROWS_PER_CHUNK = 4096
+
+
+def kernel(cp: Any, real: Any = None) -> Any:
+    """``pair_gram_blocks`` (double only: the Gram feeds a ridge solve); compiled once. The register-pressure registry compiles it through this."""
+    global _GRAM_KERNEL
+    if _GRAM_KERNEL is None:
+        _GRAM_KERNEL = cp.RawKernel(_GRAM_SRC, "pair_gram_blocks")
+    return _GRAM_KERNEL
+
+
+def _gram_sums(cp: Any, bc: Any, fc: Any, ia_d: Any, ib_d: Any, row_stride: int, col_stride: int) -> Any:
+    """The (P, 48) sums of ``pair_gram_blocks`` for the pairs ``(ia_d[p], ib_d[p])`` over all rows of the (U, n, 6) operand blocks."""
+    P, n = int(ia_d.shape[0]), int(bc.shape[1])
+    chunks = max(1, -(-n // _GRAM_ROWS_PER_CHUNK))
+    part = cp.empty((P, chunks, 48), dtype=cp.float64)  # Intentional float64: Gram sums feeding a ridge solve
+    kernel(cp)((P, chunks), (_GRAM_THREADS,), (bc, fc, ia_d, ib_d, np.int64(n), np.int64(row_stride), np.int64(col_stride), np.int32(_GRAM_ROWS_PER_CHUNK), part))  # launch-ok: one block per (pair, row chunk) is the design
+    return part.sum(axis=1)
+
+
 def _batched_gate_scalars(cp: Any, Vdev: Any, basis_by_idx: list, name_to_idx: dict, src_pairs: list, yc_rel: Any, P: int) -> Any:
     """Per-candidate gate scalars ``(form std, residual std, residual SS, residual.y dot)`` from one batched normal-equations solve; ``None`` if an operand is unknown."""
     # BATCHED-READ gate (residency): the per-candidate OLS keeps the EXACT per-candidate lstsq
@@ -113,33 +183,50 @@ def _batched_gate_scalars(cp: Any, Vdev: Any, basis_by_idx: list, name_to_idx: d
     # handles the near-collinear designs lstsq would rank-cut - the gate scalars still do not flip, F2 +
     # the retention suites confirm). f_std / the four gate scalars read back in ONE batched D2H.
     _nrows = float(int(Vdev.shape[0]))
+    ia_l, ib_l = [], []
+    for j in range(P):
+        ia = name_to_idx.get(src_pairs[j][0])
+        ib = name_to_idx.get(src_pairs[j][1])
+        if ia is None or ib is None:
+            return None  # operand missing from the resident base set -> exact CPU path
+        ia_l.append(ia)
+        ib_l.append(ib)
+    # The centered basis of every distinct operand once as an (operands, n, 6) block: centering is per column, so a pair's centered design is the two operands' blocks side by side.
+    used = sorted(set(ia_l) | set(ib_l))
+    slot = {u: k for k, u in enumerate(used)}
+    # Intentional float64: the Gram sums feed a ridge solve and the Gram kernel reads double operands (a float32 operand would be read as garbage), so every input is widened here
+    bc = cp.stack([cp.asarray(basis_by_idx[u], dtype=cp.float64) for u in used])  # (U, n, 6)
+    bc = bc - bc.mean(axis=1, keepdims=True)
+    ia_d = cp.asarray(np.fromiter((slot[i] for i in ia_l), dtype=np.int64, count=P))
+    ib_d = cp.asarray(np.fromiter((slot[i] for i in ib_l), dtype=np.int64, count=P))
+    Vdev = cp.asarray(Vdev, dtype=cp.float64)  # Intentional float64: see above
+    yc_rel = cp.asarray(yc_rel, dtype=cp.float64)  # Intentional float64: see above
+    FC = Vdev - Vdev.mean(axis=0, keepdims=True)  # (n, P) centered form values
+    _fstd_v = Vdev.std(axis=0)
+    _sfc = (FC * FC).sum(axis=0)
+    _fyr = yc_rel @ FC
     # Intentional float64: batched Gram solve, the 1e-10 trace ridge is below float32 epsilon so the solve needs double
     _G = cp.empty((P, 12, 12), dtype=cp.float64)
     # Intentional float64: batched Gram solve, the 1e-10 trace ridge is below float32 epsilon so the solve needs double
     _rhs = cp.empty((P, 12), dtype=cp.float64)
     # Intentional float64: batched Gram solve, the 1e-10 trace ridge is below float32 epsilon so the solve needs double
     _xy = cp.empty((P, 12), dtype=cp.float64)
-    # Intentional float64: batched Gram solve, the 1e-10 trace ridge is below float32 epsilon so the solve needs double
-    _sfc = cp.zeros(P, dtype=cp.float64)
-    # Intentional float64: batched Gram solve, the 1e-10 trace ridge is below float32 epsilon so the solve needs double
-    _fyr = cp.zeros(P, dtype=cp.float64)
-    # Intentional float64: batched Gram solve, the 1e-10 trace ridge is below float32 epsilon so the solve needs double
-    _fstd_v = cp.zeros(P, dtype=cp.float64)
-    for j in range(P):
-        ia = name_to_idx.get(src_pairs[j][0])
-        ib = name_to_idx.get(src_pairs[j][1])
-        if ia is None or ib is None:
-            return None  # operand missing from the resident base set -> exact CPU path
-        fv = Vdev[:, j]
-        _fstd_v[j] = fv.std()
-        Xr = cp.concatenate([basis_by_idx[ia], basis_by_idx[ib]], axis=1)  # (n, 12)
-        Xc = Xr - Xr.mean(axis=0, keepdims=True)
-        fc = fv - fv.mean()
-        _G[j] = Xc.T @ Xc
-        _rhs[j] = Xc.T @ fc
-        _xy[j] = Xc.T @ yc_rel
-        _sfc[j] = cp.dot(fc, fc)
-        _fyr[j] = cp.dot(fc, yc_rel)
+    # The Gram of a pair is [[Gaa, Gab], [Gab^T, Gbb]]: the diagonal blocks and X^T y depend on one operand and are formed once per distinct operand; the cross block and the two X^T fc
+    # products are one ``pair_gram_blocks`` launch for all pairs, each block reading the two operands' rows once (no gathered copies, no 6 x 6 batched GEMM over n rows).
+    nu = len(used)
+    ar = cp.arange(nu, dtype=cp.int64)
+    diag = _gram_sums(cp, bc, yc_rel, ar, ar, 1, 0)  # (U, 48): [:36] the operand's own Gram, [36:42] X^T y
+    cross = _gram_sums(cp, bc, FC, ia_d, ib_d, int(FC.shape[1]), 1)  # (P, 48)
+    gab = cross[:, :36].reshape(P, 6, 6)
+    gd = diag[:, :36].reshape(nu, 6, 6)
+    _G[:, :6, :6] = gd[ia_d]
+    _G[:, 6:, 6:] = gd[ib_d]
+    _G[:, :6, 6:] = gab
+    _G[:, 6:, :6] = gab.transpose(0, 2, 1)
+    _rhs[:, :6] = cross[:, 36:42]
+    _rhs[:, 6:] = cross[:, 42:48]
+    _xy[:, :6] = diag[ia_d, 36:42]
+    _xy[:, 6:] = diag[ib_d, 36:42]
     # Intentional float64: batched Gram solve, the 1e-10 trace ridge is below float32 epsilon so the solve needs double
     _ridge = (1e-10 * cp.einsum("pii->p", _G) / 12.0 + 1e-30)[:, None, None] * cp.eye(12, dtype=cp.float64)
     _beta = cp.linalg.solve(_G + _ridge, _rhs[:, :, None])[:, :, 0]  # (P, 12) batched

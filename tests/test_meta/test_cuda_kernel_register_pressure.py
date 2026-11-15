@@ -63,6 +63,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "fe_pure_form_retention_gpu_resident.pair_gram_blocks": (
+        "mlframe.feature_selection.filters._fe_pure_form_retention_gpu_resident",
+        "kernel",
+        ("float64",),
+    ),
     "rolling_window_gpu.rolling_stat_past_only": (
         "mlframe.feature_selection.filters._rolling_window_gpu",
         "kernel",
