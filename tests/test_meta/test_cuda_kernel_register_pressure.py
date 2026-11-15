@@ -58,6 +58,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_rows",
         ("float32", "float64"),
     ),
+    "extra_fe_families_dispersion_resident.disp_column": (
+        "mlframe.feature_selection.filters._extra_fe_families_dispersion_resident",
+        "kernel",
+        ("float32", "float64"),
+    ),
     "rolling_window_gpu.rolling_stat_past_only": (
         "mlframe.feature_selection.filters._rolling_window_gpu",
         "kernel",
