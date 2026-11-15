@@ -618,6 +618,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "fleuret_confirm_gpu.fleuret_cmi_blocks": (
+        "mlframe.feature_selection.filters._fleuret_confirm_gpu",
+        "kernel",
+        ("uint8", "int16", "int32"),
+    ),
     "gain_stats_codes_gpu.quantile_codes_right": (
         "mlframe.feature_selection.filters._gain_stats_codes_gpu",
         "kernel",
