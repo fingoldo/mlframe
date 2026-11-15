@@ -25,6 +25,9 @@ from .._fe_usability_signal import (  # shared leaf detectors (numpy-only, no cy
 )
 from mlframe.utils.log_throttle import log_throttle
 
+# Candidate columns of one pair reduced by a single |corr| launch: 64 columns x 100000 rows x 4 bytes is 26 MB of the materialised block.
+_ABS_CORR_BLOCK = 64
+
 # DEGENERATE-PAIR |corr| threshold. A prospective pair is DEGENERATE when its winning
 # composite is numerically ~= a SINGLE one of its own (warped) operands - the other operand's transform
 # collapsed to ~constant so the binary op is just a re-wrap of one source and adds NO genuine joint
@@ -152,6 +155,39 @@ def _score_one_pair_step1_reads_buffer_have(
             st._chunk_entry = chunk_state["mi_cache"].get(raw_vars_pair)
 
 
+def _batched_abs_corr(chunk_state, transformed_vars, buf_cols, y, y_finite):
+    """|corr(y)| of every candidate column in ``buf_cols`` from ONE materialise block and ONE reduction launch per ``_ABS_CORR_BLOCK`` columns (one value per column, in order), or ``None``
+    when a column is already on the host, there is no target, or the device path faults (the caller then runs the per-column capability)."""
+    if y is None or y_finite is None or not len(buf_cols):
+        return None
+    if any(chunk_state["resolved_cols"].get(c) is not None for c in buf_cols):
+        return None
+    try:
+        import cupy as cp
+        from mlframe.feature_selection.filters._gpu_resident_fe import _fe_materialise_block_gpu, _resident_operand_table
+
+        if chunk_state["tv_gpu"] is None:
+            chunk_state["tv_gpu"] = _resident_operand_table(cp, transformed_vars)
+        meta = chunk_state["defer_meta"]
+        if chunk_state.get("defer_meta_dev_src") is not meta:
+            chunk_state["defer_meta_dev"] = (cp.asarray(meta[0]), cp.asarray(meta[1]), cp.asarray(meta[2]))
+            chunk_state["defer_meta_dev_src"] = meta
+        a, b, ops = chunk_state["defer_meta_dev"]
+        if int(a.shape[0]) and int(chunk_state["tv_gpu"].shape[0]) != int(y.shape[0]):
+            return None
+        from ._pairs_abs_corr_gpu import abs_corr_finite_batch_gpu
+
+        out: list = []
+        for lo in range(0, len(buf_cols), _ABS_CORR_BLOCK):
+            idx = cp.asarray(np.asarray(buf_cols[lo : lo + _ABS_CORR_BLOCK], dtype=np.int64))
+            rm, cm = _fe_materialise_block_gpu(chunk_state["tv_gpu"], a[idx], b[idx], ops[idx], return_cm=True)
+            out.extend(abs_corr_finite_batch_gpu(cm if cm is not None else cp.ascontiguousarray(rm.T), y, y_finite))
+        return out
+    except Exception as e:
+        logger.debug("batched device |corr| failed, caller runs it per column: %s", e)
+        return None
+
+
 def _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, transformed_vars):
     """Step 2 of _score_one_pair: lines starting at ``def _resolve_col(_buf_col):``."""
 
@@ -198,7 +234,12 @@ def _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, t
 
             if chunk_state["tv_gpu"] is None:
                 chunk_state["tv_gpu"] = _resident_operand_table(cp, transformed_vars)
-            _a, _b, _ops = chunk_state["defer_meta"]
+            _meta = chunk_state["defer_meta"]
+            # the three index arrays of the chunk cross the bus once, not once per candidate column (0.42 -> 0.31 ms a column, 100000 rows)
+            if chunk_state.get("defer_meta_dev_src") is not _meta:
+                chunk_state["defer_meta_dev"] = (cp.asarray(_meta[0]), cp.asarray(_meta[1]), cp.asarray(_meta[2]))
+                chunk_state["defer_meta_dev_src"] = _meta
+            _a, _b, _ops = chunk_state["defer_meta_dev"]
             return _fe_materialise_block_gpu(chunk_state["tv_gpu"], _a[_buf_col : _buf_col + 1], _b[_buf_col : _buf_col + 1], _ops[_buf_col : _buf_col + 1])[
                 :, 0
             ]
@@ -216,7 +257,14 @@ def _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, t
         _col_dev = _device_col(_buf_col)
         return None if _col_dev is None else abs_corr_or_none(_col_dev, _y, _y_finite)
 
-    _resolve_col.abs_corr = _abs_corr  # type: ignore[attr-defined]  # optional capabilities probed with getattr by the emit step
+    def _abs_corr_many(_buf_cols, _y, _y_finite):
+        """|corr(y)| of every candidate column in ``_buf_cols`` from ONE materialise block and ONE reduction launch (see :func:`_batched_abs_corr`), or ``None`` for a host-resident chunk."""
+        if final_transformed_vals is not None:
+            return None
+        return _batched_abs_corr(chunk_state, transformed_vars, _buf_cols, _y, _y_finite)
+
+    _resolve_col.abs_corr = _abs_corr  # type: ignore[attr-defined]
+    _resolve_col.abs_corr_many = _abs_corr_many  # type: ignore[attr-defined]  # optional capabilities probed with getattr by the emit step
     _resolve_col.device = _device_col  # type: ignore[attr-defined]
     return _resolve_col
 

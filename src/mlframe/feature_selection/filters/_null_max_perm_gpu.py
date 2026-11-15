@@ -70,7 +70,7 @@ extern "C" __global__ void null_mi_perms(const {XT}* __restrict__ X, const {XT}*
 extern "C" __global__ void null_mi_perms_bits(const {XT}* __restrict__ X, const {XT}* __restrict__ edges_t, const unsigned int* __restrict__ ybits, const long long n,
                                               const int W, const int K, const int nbins, const int P, const {ACC} inv_n, {ACC}* __restrict__ out) {
     // Binary target: a warp bins 32 consecutive rows and keeps one ballot mask per bin; lane l counts the label-1 rows of permutation p = l, l + 32, ... in each bin
-    // as popc(mask & label word). The bin totals do not depend on the permutation. Counts stay in registers and reach shared memory once per lane.
+    // as popc(mask & label word). The bin totals do not depend on the permutation. The counts live in the thread's own stack frame (cnt, tl and mb: 512 bytes, L1-resident, indexed by the run-time bin), not in shared memory, and reach shared memory once per lane.
     extern __shared__ int sh[];                       // ones[P * nbins], then tot[nbins]
     int* ones = sh;
     int* tot = sh + P * nbins;
@@ -141,6 +141,21 @@ extern "C" __global__ void null_mi_perms_bits(const {XT}* __restrict__ X, const 
 # the double edges rounded up to float32 (``e <= x`` iff ``up(e) <= x``, so the bins are the double comparison's); the MI terms and sum stay {ACC} (a statistic
 # thresholded against the observed maximum).
 _MODULES_BY_X = {xt: RawModuleCache(render(_SRC.replace("{XT}", xt))) for xt in ("float", "double")}
+
+
+def _entry(cp: Any, real: Any, name: str) -> Any:
+    """One entry point of the module compiled for float32 or float64 candidates (compiled once per type by the module cache)."""
+    return _MODULES_BY_X["float" if np.dtype(real) == np.float32 else "double"].get(cp).get_function(name)
+
+
+def kernel_counts(cp: Any, real: Any) -> Any:
+    """``null_mi_perms`` (per-permutation count tables in shared memory) for candidates of dtype ``real``; compile point of the caller and of the register-pressure registry."""
+    return _entry(cp, real, "null_mi_perms")
+
+
+def kernel_bits(cp: Any, real: Any) -> Any:
+    """``null_mi_perms_bits`` (binary target, ballot masks and popcount) for candidates of dtype ``real``; registry factory."""
+    return _entry(cp, real, "null_mi_perms_bits")
 
 
 def _bits_width(kernel: Any, shared_bytes: int, n: int) -> int:
@@ -242,11 +257,10 @@ def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, per
     ``interior`` (``(nbins - 1, K)``, the edges ``binned_mi_from_values_gpu`` uses); ``None`` when the path does not apply (the caller keeps one launch per permutation)."""
     if x_cm.dtype not in (cp.float32, cp.float64) or not x_cm.flags.c_contiguous or int(n_classes) > 255:  # Intentional float64: the kernel reads float32 or float64 candidates
         return None
-    module = _MODULES_BY_X["float" if x_cm.dtype == cp.float32 else "double"]
     k, n = int(x_cm.shape[0]), int(x_cm.shape[1])
     m = int(nbins) * int(n_classes)
     per_launch = max(1, _SHARED_BUDGET_BYTES // (4 * m))
-    kernel = module.get(cp).get_function("null_mi_perms")
+    kernel = kernel_counts(cp, x_cm.dtype)
     from ._fe_batched_mi import _edges_rounded_up_f32
 
     edges64 = cp.ascontiguousarray(interior.astype(cp.float64, copy=False))  # Intentional float64: the double edges the float32 ones are rounded from
@@ -254,7 +268,7 @@ def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, per
     y8 = y_shifted.astype(cp.uint8)
     out = np.empty(len(perms), dtype=np.float64)  # Intentional float64: null maxima (statistic vector)
     if int(n_classes) == 2 and int(nbins) <= 32:
-        bits_kernel = module.get(cp).get_function("null_mi_perms_bits")
+        bits_kernel = kernel_bits(cp, x_cm.dtype)
         words = (n + 31) // 32
         edges_t = cp.ascontiguousarray(edges.T)  # (K, nbins - 1): a block's interior edges are one contiguous run, read coalesced by the bits kernel
         for p0 in range(0, len(perms), 64):  # PMAX_LANE x 32 permutations per launch

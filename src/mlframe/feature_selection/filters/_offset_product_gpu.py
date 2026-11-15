@@ -240,13 +240,18 @@ def _shared_bytes(nb: int, ky: int) -> int:
     return N_EDGE_SUBSAMPLE * 8 + _N_FEATURES * 2 * nb * ky * 4
 
 
+def kernel(cp: Any, real: Any = None) -> Any:
+    """``scan_offset_products`` (double accumulators, ``--fmad=false`` so the products and sums round separately like the CPU reference; ``real`` unused): compile point of ``_kernel`` and of the register-pressure registry."""
+    src = _SRC.replace("{ACC}", "double").replace("__NSUB__", str(N_EDGE_SUBSAMPLE)).replace("__NF__", str(_N_FEATURES)).replace("__THREADS__", str(_THREADS))
+    return cp.RawKernel(src, "scan_offset_products", options=("--fmad=false", "-std=c++14"))
+
+
 def _kernel(cp: Any) -> Any:
     """Compile the scan kernel once (``--fmad=false`` keeps the products and sums as separately rounded as the CPU reference)."""
     global _KERNEL
     with _LOCK:
         if _KERNEL is None:
-            src = _SRC.replace("{ACC}", "double").replace("__NSUB__", str(N_EDGE_SUBSAMPLE)).replace("__NF__", str(_N_FEATURES)).replace("__THREADS__", str(_THREADS))
-            _KERNEL = cp.RawKernel(src, "scan_offset_products", options=("--fmad=false", "-std=c++14"))
+            _KERNEL = kernel(cp)
         return _KERNEL
 
 

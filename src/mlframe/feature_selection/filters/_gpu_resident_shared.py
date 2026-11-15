@@ -523,13 +523,30 @@ _FUSED_GEN_CM_F32_SRC = render(_FUSED_GEN_CM_TEMPLATE, real=np.float32).replace(
 _FUSED_GEN_CM_F32_KERNEL = None
 
 
+def kernel(cp, real=None):
+    """``fused_gen`` (double build; ``real`` unused): the row-major fused candidate generator; the register-pressure registry compiles it through this."""
+    return cp.RawKernel(_FUSED_GEN_SRC, "fused_gen")
+
+
+def kernel_cm(cp, real):
+    """``fused_gen_cm`` for values of dtype ``real`` (float32: the ``fused_gen_cm_f32`` twin); registry factory."""
+    if np.dtype(real) == np.float32:
+        return cp.RawKernel(_FUSED_GEN_CM_F32_SRC, "fused_gen_cm_f32")
+    return cp.RawKernel(_FUSED_GEN_CM_SRC, "fused_gen_cm")
+
+
+def kernel_bin_hist(cp, real=None):
+    """``fused_gen_bin_hist`` (the grand-fusion generate + bin + histogram kernel); registry factory."""
+    return cp.RawKernel(_FUSED_GEN_BIN_HIST_SRC, "fused_gen_bin_hist")
+
+
 def _get_fused_gen_kernel():
     """Lazily compiles and caches the row-major fused-generation ``RawKernel`` (one launch fills the whole (n,K) candidate matrix)."""
     global _FUSED_GEN_KERNEL
     if _FUSED_GEN_KERNEL is None:
         import cupy as cp
 
-        _FUSED_GEN_KERNEL = cp.RawKernel(_FUSED_GEN_SRC, "fused_gen")
+        _FUSED_GEN_KERNEL = kernel(cp)
     return _FUSED_GEN_KERNEL
 
 
@@ -540,10 +557,10 @@ def _get_fused_gen_cm_kernel(float32: bool = False):
 
     if float32:
         if _FUSED_GEN_CM_F32_KERNEL is None:
-            _FUSED_GEN_CM_F32_KERNEL = cp.RawKernel(_FUSED_GEN_CM_F32_SRC, "fused_gen_cm_f32")
+            _FUSED_GEN_CM_F32_KERNEL = kernel_cm(cp, np.float32)
         return _FUSED_GEN_CM_F32_KERNEL
     if _FUSED_GEN_CM_KERNEL is None:
-        _FUSED_GEN_CM_KERNEL = cp.RawKernel(_FUSED_GEN_CM_SRC, "fused_gen_cm")
+        _FUSED_GEN_CM_KERNEL = kernel_cm(cp, np.float64)
     return _FUSED_GEN_CM_KERNEL
 
 
@@ -622,7 +639,7 @@ def _get_fused_gen_bin_hist_kernel():
     if _FUSED_GEN_BIN_HIST_KERNEL is None:
         import cupy as cp
 
-        _FUSED_GEN_BIN_HIST_KERNEL = cp.RawKernel(_FUSED_GEN_BIN_HIST_SRC, "fused_gen_bin_hist")
+        _FUSED_GEN_BIN_HIST_KERNEL = kernel_bin_hist(cp)
     return _FUSED_GEN_BIN_HIST_KERNEL
 
 

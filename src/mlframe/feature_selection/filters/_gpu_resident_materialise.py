@@ -104,13 +104,28 @@ void fe_materialise(const float* __restrict__ tv,
 _FE_MATERIALISE_KERNEL = None  # module-level singleton (lazy-compiled; never on an instance -> pickle-safe)
 
 
+def kernel(cp: Any, real: Any = None) -> Any:
+    """``fe_materialise`` (row-major fused engineered-column build; ``real`` unused): compile point of the getter and of the register-pressure registry."""
+    return cp.RawKernel(_FE_MATERIALISE_SRC, "fe_materialise")
+
+
+def kernel_cm(cp: Any, real: Any = None) -> Any:
+    """``fe_materialise_cm`` (column-major twin); registry factory."""
+    return cp.RawKernel(_FE_MATERIALISE_CM_SRC, "fe_materialise_cm")
+
+
+def kernel_cm_tiled(cp: Any, real: Any = None) -> Any:
+    """``fe_materialise_cm_tiled`` (tiled column-major build); registry factory."""
+    return cp.RawKernel(_FE_MATERIALISE_CM_TILED_SRC, "fe_materialise_cm_tiled")
+
+
 def _get_fe_materialise_kernel():
     """Lazily compile (once) and return the module-level row-major ``fe_materialise`` RawKernel singleton."""
     global _FE_MATERIALISE_KERNEL
     if _FE_MATERIALISE_KERNEL is None:
         import cupy as cp
 
-        _FE_MATERIALISE_KERNEL = cp.RawKernel(_FE_MATERIALISE_SRC, "fe_materialise")
+        _FE_MATERIALISE_KERNEL = kernel(cp)
     return _FE_MATERIALISE_KERNEL
 
 
@@ -270,7 +285,7 @@ def _get_fe_materialise_cm_tiled_kernel():
     if _FE_MATERIALISE_CM_TILED_KERNEL is None:
         import cupy as cp
 
-        _FE_MATERIALISE_CM_TILED_KERNEL = cp.RawKernel(_FE_MATERIALISE_CM_TILED_SRC, "fe_materialise_cm_tiled")
+        _FE_MATERIALISE_CM_TILED_KERNEL = kernel_cm_tiled(cp)
     return _FE_MATERIALISE_CM_TILED_KERNEL
 
 # tv -> (n_operands, n) column-major copy cache (weakref-identity, mirrors _OPERAND_TABLE_CACHE): the
@@ -294,7 +309,7 @@ def _get_fe_materialise_cm_kernel():
     if _FE_MATERIALISE_CM_KERNEL is None:
         import cupy as cp
 
-        _FE_MATERIALISE_CM_KERNEL = cp.RawKernel(_FE_MATERIALISE_CM_SRC, "fe_materialise_cm")
+        _FE_MATERIALISE_CM_KERNEL = kernel_cm(cp)
     return _FE_MATERIALISE_CM_KERNEL
 
 

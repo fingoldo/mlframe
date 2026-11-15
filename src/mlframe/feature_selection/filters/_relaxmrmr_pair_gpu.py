@@ -126,6 +126,11 @@ def _kernel(cp: Any, narrow: bool) -> Any:
     return _KERNELS[narrow]
 
 
+def kernel(cp: Any, real: Any) -> Any:
+    """``relaxmrmr_pair`` for codes of dtype ``real`` (uint8: byte codes, else 32-bit integers); the register-pressure registry compiles it through this."""
+    return _kernel(cp, np.dtype(real) == np.uint8)
+
+
 def _cells(k_x: int, k_y: int, k_sel: np.ndarray, pi: np.ndarray, pj: np.ndarray) -> np.ndarray:
     """Shared integer entries one block needs for each pair."""
     kz = k_sel[pi].astype(np.int64) * k_sel[pj].astype(np.int64)

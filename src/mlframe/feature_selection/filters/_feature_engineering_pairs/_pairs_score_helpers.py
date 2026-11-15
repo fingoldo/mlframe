@@ -7,6 +7,7 @@ from timeit import default_timer as timer
 
 import numpy as np
 
+from ._pairs_abs_corr_gpu import candidate_abs_corr
 from ._pairs_common import _TIMES_SPENT_LOCK
 from ._pairs_code_bins import scrub_nonfinite
 from ._pairs_gates import (
@@ -389,12 +390,31 @@ def _score_one_pair_warp_spec_round_trip(_passes_joint_gate, _prewarp_accept, be
 
 def _score_one_pair_flips(var_pairs_perf, _resolve_col, _safe_abs_corr, _use_map):
     """Block of _score_one_pair starting at ``for _cfg in var_pairs_perf.keys():``."""
+    many = getattr(_resolve_col, "abs_corr_many", None)
+    target = getattr(_safe_abs_corr, "target", None)
+    if many is not None and target is not None and target[0] is not None and len(var_pairs_perf) > 1:
+        # every config of the pair in one materialise block and one reduction launch; a fault or a host-resident column leaves the per-config loop below to do the work
+        cfgs = list(var_pairs_perf.keys())
+        try:
+            got = many([c[2] for c in cfgs], target[0], target[1])
+        except Exception as e:  # nosec B110 - best-effort, the per-config loop is the reference path
+            logger.debug("batched |corr| of the pair failed: %s", e)
+            got = None
+        if got is not None and len(got) == len(cfgs):
+            _use_map.update(zip(cfgs, got))
+            return
     for _cfg in var_pairs_perf.keys():
         try:
+            # On the deferred-float GPU path the |corr| is computed on the device and only the scalar crosses (the column was copied back for every config of every pair before:
+            # 4104 of the 5014 bulk D2H ops of the strict full fit); the host column is read only when the device capability is absent or faulted.
+            _dev_corr = candidate_abs_corr(_resolve_col, _safe_abs_corr, _cfg[2])
+            if _dev_corr is not None:
+                _use_map[_cfg] = _dev_corr
+                continue
             _cv = _resolve_col(_cfg[2])
             if _cv is not None:
                 _use_map[_cfg] = _safe_abs_corr(_cv)
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
             continue
 

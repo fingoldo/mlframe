@@ -89,6 +89,22 @@ _BIN_CODES_KERNELS: dict = {}
 _BIN_CODES_KERNELS_LOCK = threading.Lock()
 
 
+def kernel_bin(cp, real, out_name: str = "int32"):
+    """``bin_codes_<f32|f64>_<out_name>``: the fused binning kernel for float32 / float64 input (``real``) writing ``out_name`` codes; compile point of the getter and of the register-pressure registry."""
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
+    in_key = "f64" if real == cp.float64 else "f32"
+    ctype = "double" if in_key == "f64" else "float"
+    out_ctype = _BIN_CODES_OUTTYPE.get(out_name, "int")
+    # TYPENAME is part of the C symbol name (must be a valid identifier); fold the output dtype into it so the int8/int16/int32 kernels get distinct symbols.
+    sym = "bin_codes_" + in_key + "_" + out_name
+    src = (
+        _BIN_CODES_SRC.replace("bin_codes_TYPENAME", sym)
+        .replace("OUTTYPE", out_ctype)  # MUST precede the TYPE replace (TYPE is a substring of OUTTYPE)
+        .replace("TYPE", ctype)
+    )
+    return cp.RawKernel(render(src, edge=np.float64), sym)  # Intentional float64: the edges and the comparison are float64: a float32 candidate is promoted
+
+
 def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
     """Lazy-compiled (pickle-safe, module-level cache) fused binning RawKernel for f32 / f64 input
     and a templated narrow OUTPUT dtype (int8/int16/int32/int64). Keyed on (input, output)."""
@@ -100,19 +116,7 @@ def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
     with _BIN_CODES_KERNELS_LOCK:
         k = _BIN_CODES_KERNELS.get(cache_key)
     if k is None:
-        ctype = "double" if in_key == "f64" else "float"
-        out_ctype = _BIN_CODES_OUTTYPE.get(out_name, "int")
-        # TYPENAME is part of the C symbol name (must be a valid identifier); fold the output dtype into it
-        # so the int8/int16/int32 kernels get distinct symbols within one translation unit per instantiation.
-        sym = "bin_codes_" + in_key + "_" + out_name
-        src = (
-            _BIN_CODES_SRC.replace("bin_codes_TYPENAME", sym)
-            .replace("OUTTYPE", out_ctype)  # MUST precede the TYPE replace (TYPE is a substring of OUTTYPE)
-            .replace("TYPE", ctype)
-        )
-        k = cp.RawKernel(
-            render(src, edge=np.float64), sym
-        )  # Intentional float64: the edges and the comparison are float64: a float32 candidate is promoted, the codes are the double comparison's
+        k = kernel_bin(cp, dtype, out_name)
         with _BIN_CODES_KERNELS_LOCK:
             k = _BIN_CODES_KERNELS.setdefault(cache_key, k)
     return k
@@ -202,6 +206,20 @@ _BIN_CODES_F32E_V2_MAX_EDGES = 63  # 2^6 - 1 padded rows fit the 64-row shared t
 _BIN_CODES_F32E_V2_KERNELS: dict = {}
 
 
+def kernel_f32e(cp, real):
+    """``bin_codes_f32e_<out>`` (float32-edge tiled binning) writing codes of dtype ``real`` (int8 / int16 / int32); registry factory and compile point of the getter."""
+    out_name = np.dtype(real).name
+    sym = "bin_codes_f32e_" + out_name
+    return cp.RawKernel(_BIN_CODES_F32E_SRC.replace("bin_codes_f32e_OUTNAME", sym).replace("OUTTYPE", _BIN_CODES_OUTTYPE.get(out_name, "int")), sym)
+
+
+def kernel_f32e_v2(cp, real):
+    """``bin_codes_f32e_v2_<out>`` (the V2 float32-edge binning) writing codes of dtype ``real``; registry factory and compile point of the getter."""
+    out_name = np.dtype(real).name
+    sym = "bin_codes_f32e_v2_" + out_name
+    return cp.RawKernel(_BIN_CODES_F32E_V2_SRC.replace("bin_codes_f32e_v2_OUTNAME", sym).replace("OUTTYPE", _BIN_CODES_OUTTYPE.get(out_name, "int")), sym)
+
+
 def _bin_codes_f32e_kernel(out_name: str):
     """Lazily compiled float32-edge tiled binning kernel writing ``out_name`` codes, one per output type."""
     import cupy as cp
@@ -209,8 +227,7 @@ def _bin_codes_f32e_kernel(out_name: str):
     with _BIN_CODES_KERNELS_LOCK:
         k = _BIN_CODES_F32E_KERNELS.get(out_name)
     if k is None:
-        sym = "bin_codes_f32e_" + out_name
-        k = cp.RawKernel(_BIN_CODES_F32E_SRC.replace("bin_codes_f32e_OUTNAME", sym).replace("OUTTYPE", _BIN_CODES_OUTTYPE.get(out_name, "int")), sym)
+        k = kernel_f32e(cp, np.dtype(out_name))
         with _BIN_CODES_KERNELS_LOCK:
             k = _BIN_CODES_F32E_KERNELS.setdefault(out_name, k)
     return k
@@ -223,8 +240,7 @@ def _bin_codes_f32e_v2_kernel(out_name: str):
     with _BIN_CODES_KERNELS_LOCK:
         k = _BIN_CODES_F32E_V2_KERNELS.get(out_name)
     if k is None:
-        sym = "bin_codes_f32e_v2_" + out_name
-        k = cp.RawKernel(_BIN_CODES_F32E_V2_SRC.replace("bin_codes_f32e_v2_OUTNAME", sym).replace("OUTTYPE", _BIN_CODES_OUTTYPE.get(out_name, "int")), sym)
+        k = kernel_f32e_v2(cp, np.dtype(out_name))
         with _BIN_CODES_KERNELS_LOCK:
             k = _BIN_CODES_F32E_V2_KERNELS.setdefault(out_name, k)
     return k

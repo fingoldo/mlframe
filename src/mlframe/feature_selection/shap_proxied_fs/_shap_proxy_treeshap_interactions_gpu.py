@@ -265,6 +265,17 @@ def _block_size() -> int:
     return block_size_from_tuning_cache("shap_proxy_treeshap", "interaction_gpu_block_size", _DEFAULT_BLOCK_SIZE)
 
 
+def kernel_for_size(cp, max_depth: int, n_features: int):
+    """``treeshap_interactions`` with the scratch sized for one (depth, feature count): the __device__ scan precedes the kernel that calls it and both compile as one module."""
+    module = cp.RawModule(code=_defines_header(int(max_depth), int(n_features)) + _DEVICE_SRC + _KERNEL_SRC)
+    return module.get_function("treeshap_interactions")
+
+
+def kernel(cp, real=None):
+    """``treeshap_interactions`` at depth 6 with 16 features (the reference size of the offline per-arch recipe; ``real`` unused); registry factory."""
+    return kernel_for_size(cp, 6, 16)
+
+
 def _ensure_kernel(max_depth: int, n_features: int):
     """Compile (once per size pair, double-checked-locked) and cache the ``treeshap_interactions`` RawModule kernel.
 
@@ -280,8 +291,7 @@ def _ensure_kernel(max_depth: int, n_features: int):
 
             # The __device__ scan must precede the kernel that calls it; compile them as one module
             # and fetch the kernel entry point. Scratch-size #defines are injected at the very front.
-            module = cp.RawModule(code=_defines_header(int(max_depth), int(n_features)) + _DEVICE_SRC + _KERNEL_SRC)
-            kernel = module.get_function("treeshap_interactions")
+            kernel = kernel_for_size(cp, int(max_depth), int(n_features))
             _INTERACTION_KERNELS[key] = kernel
     return kernel
 

@@ -420,6 +420,9 @@ def test_strict_fit_copies_back_only_result_columns(pair_search_audit):
     _names, _cnt, rep, n = pair_search_audit
     budget = 10 * n * 8
     assert sum(rep.d2h) <= budget, f"strict fit copied {sum(rep.d2h)} B back to the host (budget {budget} B = 10 columns): {rep.summary()}"
+    # the one documented host handoff of bulk codes: the residual-rescue scorer is host code, so its int8 code matrix crosses on purpose, one byte per cell and at most
+    # 64 columns of the pool; it is filed under its own tag, not counted above, and bounded here
+    assert sum(rep.tagged.get("residual_rescue_codes_host", [])) <= 64 * n, f"residual-rescue codes handoff: {rep.tagged}"
 
 
 def test_pair_search_residency_operand_table_uploaded_bounded(pair_search_audit):

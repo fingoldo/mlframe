@@ -126,6 +126,36 @@ _GPU_POOL_LOCK = threading.RLock()
 _KERNEL_INIT_LOCK = multiprocessing.Lock()
 
 
+def kernel_joint_hist(cp: Any, real: Any = None) -> Any:
+    """``compute_joint_hist_cuda`` (integer kernel, ``real`` unused); compile point of ``init_kernels`` and of the register-pressure registry."""
+    return cp.RawKernel(COMPUTE_JOINT_HIST_CUDA_SRC, "compute_joint_hist_cuda")
+
+
+def kernel_joint_hist_batched(cp: Any, real: Any = None) -> Any:
+    """``compute_joint_hist_batched_cuda`` (integer kernel, ``real`` unused); compile point of ``init_kernels`` and of the register-pressure registry."""
+    return cp.RawKernel(COMPUTE_JOINT_HIST_BATCHED_CUDA_SRC, "compute_joint_hist_batched_cuda")
+
+
+def kernel_joint_hist_batched_shared(cp: Any, real: Any = None) -> Any:
+    """``compute_joint_hist_batched_shared_cuda`` (integer kernel, ``real`` unused); compile point of ``init_kernels`` and of the register-pressure registry."""
+    return cp.RawKernel(COMPUTE_JOINT_HIST_BATCHED_SHARED_CUDA_SRC, "compute_joint_hist_batched_shared_cuda")
+
+
+def kernel_multi_pair(cp: Any, real: Any = None) -> Any:
+    """``compute_joint_hist_multi_pair_cuda`` (integer kernel, ``real`` unused); compile point of ``init_kernels`` and of the register-pressure registry."""
+    return cp.RawKernel(COMPUTE_JOINT_HIST_MULTI_PAIR_CUDA_SRC, "compute_joint_hist_multi_pair_cuda")
+
+
+def kernel_multi_pair_shared(cp: Any, real: Any = None) -> Any:
+    """``compute_joint_hist_multi_pair_shared_cuda`` (integer kernel, ``real`` unused); compile point of ``init_kernels`` and of the register-pressure registry."""
+    return cp.RawKernel(COMPUTE_JOINT_HIST_MULTI_PAIR_SHARED_CUDA_SRC, "compute_joint_hist_multi_pair_shared_cuda")
+
+
+def kernel_mi_from_classes(cp: Any, real: Any = None) -> Any:
+    """``compute_mi_from_classes_cuda`` (integer kernel, ``real`` unused); compile point of ``init_kernels`` and of the register-pressure registry."""
+    return cp.RawKernel(COMPUTE_MI_FROM_CLASSES_CUDA_SRC, "compute_mi_from_classes_cuda")
+
+
 def init_kernels() -> None:
     """Build the CuPy ``RawKernel`` objects and attach them to this module's namespace. Idempotent under the lock.
 
@@ -163,20 +193,14 @@ def init_kernels() -> None:
             _exc,
         )
 
-    module.compute_joint_hist_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-        COMPUTE_JOINT_HIST_CUDA_SRC,
-        "compute_joint_hist_cuda",
-    )
+    module.compute_joint_hist_cuda = kernel_joint_hist(cp)  # type: ignore[attr-defined]
 
     # Joint-hist batched, global-atomic variant. Win axis: large joint_size
     # (>> shared-mem budget). Each thread directly atomically increments the
     # global-memory bin; correctness-simple but global atomics are 10-100x
     # slower than shared-memory atomics on cc 6.x. Kept available for
     # back-compat + fall-back when joint_size exceeds the shared-mem budget.
-    module.compute_joint_hist_batched_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-        COMPUTE_JOINT_HIST_BATCHED_CUDA_SRC,
-        "compute_joint_hist_batched_cuda",
-    )
+    module.compute_joint_hist_batched_cuda = kernel_joint_hist_batched(cp)  # type: ignore[attr-defined]
 
     # Joint-hist batched, SHARED-MEM atomic variant. Win axis: small joint_size
     # (<= shared-mem budget, typical for MRMR nbins_x*nbins_y in 4-256 range).
@@ -188,10 +212,7 @@ def init_kernels() -> None:
     # See ``feedback_keep_all_kernel_versions``: ``compute_joint_hist_batched_cuda``
     # (the global-atomic version above) stays available; the dispatcher picks
     # this faster path only when joint_size fits.
-    module.compute_joint_hist_batched_shared_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-        COMPUTE_JOINT_HIST_BATCHED_SHARED_CUDA_SRC,
-        "compute_joint_hist_batched_shared_cuda",
-    )
+    module.compute_joint_hist_batched_shared_cuda = kernel_joint_hist_batched_shared(cp)  # type: ignore[attr-defined]
     # Multi-pair batched joint histogram kernel. Processes B pairs per launch via 3D grid (blocks along rows, blocks along pairs). Each (pair, row) thread atomically
     # adds into the pair-local joint hist.
     #   factors_data_T: (n_cols, n) row-major int32 - transposed for coalesced reads when iterating over rows of a column.
@@ -200,10 +221,7 @@ def init_kernels() -> None:
     #   joint_offsets: (n_pairs + 1,) prefix-sum into joint_counts_flat.
     #   joint_counts_flat: (sum(nbins_a*nbins_b),) flat output buffer.
     #   n_rows, n_pairs: grid dims.
-    module.compute_joint_hist_multi_pair_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-        COMPUTE_JOINT_HIST_MULTI_PAIR_CUDA_SRC,
-        "compute_joint_hist_multi_pair_cuda",
-    )
+    module.compute_joint_hist_multi_pair_cuda = kernel_multi_pair(cp)  # type: ignore[attr-defined]
 
     # Shared-mem multi-pair variant. Win axis: small per-pair joint_size_y
     # (joint_size_y = nbins_a * nbins_b * nbins_y). Each block builds the
@@ -213,15 +231,9 @@ def init_kernels() -> None:
     # smaller joint_size only use the first slice of sm_hist; the rest is
     # wasted shared-mem - acceptable when the variance across pairs is
     # bounded (mlframe cat-FE typically has uniform nbins).
-    module.compute_joint_hist_multi_pair_shared_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-        COMPUTE_JOINT_HIST_MULTI_PAIR_SHARED_CUDA_SRC,
-        "compute_joint_hist_multi_pair_shared_cuda",
-    )
+    module.compute_joint_hist_multi_pair_shared_cuda = kernel_multi_pair_shared(cp)  # type: ignore[attr-defined]
 
-    module.compute_mi_from_classes_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-        COMPUTE_MI_FROM_CLASSES_CUDA_SRC,
-        "compute_mi_from_classes_cuda",
-    )
+    module.compute_mi_from_classes_cuda = kernel_mi_from_classes(cp)  # type: ignore[attr-defined]
 
 
 compute_joint_hist_multi_pair_cuda: Any = None

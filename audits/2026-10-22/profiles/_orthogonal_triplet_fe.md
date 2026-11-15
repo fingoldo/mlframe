@@ -20,3 +20,7 @@ The call is its kernel wait: the host side is the five uploads (1 ms) and the tr
 | 59 (32,509) | 245.7 ms | 41.7 ms (5.9x) |
 
 Agreement 2.9e-15 relative on every triple; blocks of 7 triples (touching few columns) equal the single launch exactly (`tests/feature_selection/gpu/test_triple_mi_row_remainders.py`). The device wins at every swept size on this host; the sweep and the floor still decide per host.
+
+## 2026-11-15: `_orthogonal_triplet_recipes` carved under this family
+
+`_orthogonal_triplet_recipes` holds the recipe construction and the with-recipes entry point of the triplet family; it was carved out of `_orthogonal_triplet_fe` for file size and the parent re-exports every name defined there. It has no kernel and no device code of its own, so it is judged with the parent and no counters were taken for it; the triplet's device work is recorded above (`_triple_mi_gpu`).

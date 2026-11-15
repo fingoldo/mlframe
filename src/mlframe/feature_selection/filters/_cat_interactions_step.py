@@ -21,32 +21,16 @@ from types import SimpleNamespace as _SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
-# cfg.backend="auto" GPU-eligibility floor: the ORIGINAL two-independent-thresholds contract was
-# "n_cols_eff >= 200 AND n_samples >= 500_000" (see the docstring at ``run_cat_interaction_step``'s
-# work-based gate below for why that's structurally wrong). Kept as named constants - not inlined -
-# so the SAME combined work magnitude is reused, not duplicated, at the one call site.
-_AUTO_GPU_MIN_COLS = 200
-_AUTO_GPU_MIN_N = 500_000
-
-
 def _cat_fe_auto_wants_gpu(n_samples: int, n_cols_eff: int) -> bool:
-    """Whether ``cfg.backend="auto"`` should attempt the GPU dispatch for this (n_samples, n_cols_eff)
-    shape (CuPy availability is checked separately by the caller).
+    """Whether ``cfg.backend="auto"`` should attempt the GPU dispatch for this (n_samples, n_cols_eff) shape (CuPy availability is checked separately by the caller).
 
-    WORK-BASED gate. The old rule required BOTH ``n_cols_eff >= _AUTO_GPU_MIN_COLS`` AND
-    ``n_samples >= _AUTO_GPU_MIN_N`` as two INDEPENDENT thresholds - ignoring their PRODUCT, so a wide-
-    but-under-500k-row fit could NEVER qualify purely for sitting under the row mark, no matter how many
-    columns it had (and vice versa: a huge-row, ~100-column fit never qualified either, despite comparable
-    total work). Converted to a work-PRODUCT check against the SAME combined magnitude the original two-
-    threshold rule implied (no new/invented calibration - the same two constants, now multiplied instead
-    of AND'ed), plus the SAME p-floor the validated n*p CPU/CUDA crossover uses elsewhere in MRMR
-    (``_should_use_cuda`` / ``_fe_gpu_strict._STRICT_MIN_CALL_P``) so a degenerate huge-n/tiny-p shape with
-    no real column-batching parallelism still declines GPU. Note this does NOT, by itself, flip the
-    wellbore-100k shape (n=99401, ~500 candidate cols, work~49.7M) to GPU - that shape is still under the
-    100M combined floor; a fit with either somewhat more columns or somewhat more rows at comparable width
-    now correctly qualifies where the old AND-of-independent-thresholds rule never could, regardless of how
-    large one dimension grew alone."""
-    return n_cols_eff >= _STRICT_MIN_CALL_P and (n_samples * n_cols_eff) >= (_AUTO_GPU_MIN_COLS * _AUTO_GPU_MIN_N)
+    The pair search needs at least ``_STRICT_MIN_CALL_P`` candidate columns (fewer pairs than that leave the device launches nothing to amortise over); above the floor the row
+    count is decided by the per-host ``cat_pair_search_backend`` kernel-tuning entry of ``_cat_pair_search_tuner``, which times the njit prange kernel against the batched device
+    kernels on the same pairs. Its row mark, until a sweep has run on the host, is the old hand-set 500000 rows. The device measured faster than the host from 20000 rows up on the
+    development card, so the hand-set work product (200 columns x 500000 rows) kept it off for most fits."""
+    from ._cat_pair_search_tuner import cat_pair_search_on_device
+
+    return n_cols_eff >= _STRICT_MIN_CALL_P and cat_pair_search_on_device(n_samples)
 
 
 def _quantile_bin_with_edges(raw: np.ndarray, n_bins: int) -> tuple:

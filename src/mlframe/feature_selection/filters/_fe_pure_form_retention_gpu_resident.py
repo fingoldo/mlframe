@@ -107,6 +107,8 @@ void pair_gram_blocks(const {ACC}* __restrict__ bc, const {ACC}* __restrict__ fc
     // (0..35 cross, 36..41 A^T f, 42..47 B^T f), f = fc[r * row_stride + p * col_stride]. Per-thread sums, a fixed-order warp shuffle and block reduction, one partial row per
     // (pair, chunk): the host adds the chunks in a fixed order, so the result is the same on every run.
     __shared__ {ACC} red[4][48];
+    // coalescing-ok: the f read strides by row_stride (one word per row of the (n, P) form matrix), but it is 1 of 13 loads per row and the kernel is bound by the 48 accumulators, not by it: measured on
+    // the GTX 1050 Ti (n = 100000, 200 pairs, 60 operands, min of 7) the strided kernel runs 29.4 ms and the same kernel on a (P, n) transposed copy 29.1 ms, and that copy itself costs 18.8 ms.
     const int p = blockIdx.x;
     const {ACC}* A = bc + ia[p] * n * 6;  // (U, 6, n): feature k of row r is A[k * n + r], consecutive rows are consecutive words (coalesced)
     const {ACC}* B = bc + ib[p] * n * 6;

@@ -8,10 +8,55 @@ spread of those differences over sqrt(n) (delta method). Bin edges for the held-
 from __future__ import annotations
 
 import numpy as np
+from numba import njit
 
-__all__ = ["quantile_codes", "pointwise_mi", "held_out_codes", "paired_gain_se", "plugin_mi_of_codes"]
+__all__ = ["has_few_distinct", "quantile_codes", "pointwise_mi", "held_out_codes", "paired_gain_se", "plugin_mi_of_codes"]
 
 N_BINS = 10
+
+
+@njit(cache=True, nogil=True)
+def _codes_right(x, edges):  # pragma: no cover - numba body
+    """``np.searchsorted(edges, x, side="right")`` for ascending ``edges``: the number of edges that are <= each value (same comparisons, no promotion copy of ``x``)."""
+    out = np.empty(x.shape[0], dtype=np.int64)
+    m = edges.shape[0]
+    for i in range(x.shape[0]):
+        v = x[i]
+        lo = 0
+        hi = m
+        while lo < hi:
+            mid = (lo + hi) >> 1
+            if edges[mid] <= v:
+                lo = mid + 1
+            else:
+                hi = mid
+        out[i] = lo
+    return out
+
+
+@njit(cache=True, nogil=True)
+def _more_than_distinct(v, cap):  # pragma: no cover - numba body
+    """True when the finite array ``v`` holds more than ``cap`` distinct values; stops at the ``cap + 1``-th distinct value, so a continuous column costs ``cap + 1`` reads, not a sort."""
+    seen = np.empty(cap + 1, dtype=np.float64)
+    k = 0
+    for i in range(v.shape[0]):
+        x = v[i]
+        dup = False
+        for j in range(k):
+            if seen[j] == x:
+                dup = True
+                break
+        if not dup:
+            if k == cap:
+                return True
+            seen[k] = x
+            k += 1
+    return False
+
+
+def has_few_distinct(v: np.ndarray, cap: int) -> bool:
+    """``np.unique(v).size <= cap`` for an array without NaN, without sorting it (the early exit of :func:`_more_than_distinct`)."""
+    return not bool(_more_than_distinct(np.ascontiguousarray(v), int(cap)))
 
 
 def quantile_codes(x: np.ndarray, n_bins: int = N_BINS) -> np.ndarray:
@@ -19,7 +64,8 @@ def quantile_codes(x: np.ndarray, n_bins: int = N_BINS) -> np.ndarray:
     x = np.where(np.isfinite(x), x, -np.inf)
     finite = x[np.isfinite(x)]
     edges = np.quantile(finite, np.linspace(0.0, 1.0, n_bins + 1)[1:-1]) if finite.size else np.zeros(n_bins - 1)
-    return np.searchsorted(edges, x, side="right").astype(np.int64)
+    codes: np.ndarray = _codes_right(np.ascontiguousarray(x), np.ascontiguousarray(edges))
+    return codes
 
 
 def pointwise_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> np.ndarray:

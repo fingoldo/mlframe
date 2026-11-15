@@ -12,14 +12,133 @@ from typing import Any, Optional, cast
 
 import numpy as np
 
+from .._kernel_types import render
+from .._raw_module_cache import RawModuleCache
 from ._pairs_common import _DEGENERATE_REL_TOL
 
 logger = logging.getLogger(__name__)
 
+# One block per column (blockIdx.x indexes the row of a (K, n) column-major batch; K = 1 is the single-column call): pass 1 reduces the joint-finite row count, the two sums (for the means) and the two maxima of |value|; pass 2 reduces the centred sums of squares and the cross product. Both
+# passes use the fixed tree below, so the value is the same on every run. It replaces about twenty small cupy operations (3.0 ms a call at 40000 rows, 5792 calls in a child fit of the strict fit
+# profile) by one launch and one read of six doubles; the formulas are those of the cupy chain it keeps as ``_abs_corr_finite_cupy`` (the reference of the equivalence test and the fallback).
+_SRC = render(
+    r"""
+extern "C" __global__ void abs_corr_finite_stats(const {REAL}* __restrict__ a, const {ACC}* __restrict__ y, const unsigned char* __restrict__ fin, const long long n, {ACC}* __restrict__ out) {
+    __shared__ {ACC} red[3][256];
+    const int t = threadIdx.x;
+    a += (long long)blockIdx.x * n;
+    out += (long long)blockIdx.x * 6;
+    {ACC} cnt = 0.0, sa = 0.0, sy = 0.0, amax = 0.0, ymax = 0.0;
+    for (long long i = t; i < n; i += blockDim.x) {
+        const {ACC} av = ({ACC})a[i];
+        if (fin[i] != 0 && isfinite(av)) {
+            const {ACC} yv = y[i];
+            cnt += 1.0; sa += av; sy += yv;
+            amax = fmax(amax, fabs(av)); ymax = fmax(ymax, fabs(yv));
+        }
+    }
+    red[0][t] = sa; red[1][t] = sy; red[2][t] = cnt;
+    __syncthreads();
+    for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (t < s) { red[0][t] += red[0][t + s]; red[1][t] += red[1][t + s]; red[2][t] += red[2][t + s]; }
+        __syncthreads();
+    }
+    const {ACC} n_f = red[2][0];
+    const {ACC} ma = n_f > 0.0 ? red[0][0] / n_f : 0.0, my = n_f > 0.0 ? red[1][0] / n_f : 0.0;
+    __syncthreads();
+    // the two maxima ride in the same shared array after the sums have been consumed
+    red[0][t] = amax; red[1][t] = ymax;
+    __syncthreads();
+    for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (t < s) { red[0][t] = fmax(red[0][t], red[0][t + s]); red[1][t] = fmax(red[1][t], red[1][t + s]); }
+        __syncthreads();
+    }
+    const {ACC} amax_all = red[0][0], ymax_all = red[1][0];
+    __syncthreads();
+    {ACC} saa = 0.0, syy = 0.0, say = 0.0;
+    for (long long i = t; i < n; i += blockDim.x) {
+        const {ACC} av = ({ACC})a[i];
+        if (fin[i] != 0 && isfinite(av)) {
+            const {ACC} da = av - ma, dy = y[i] - my;
+            saa += da * da; syy += dy * dy; say += da * dy;
+        }
+    }
+    red[0][t] = saa; red[1][t] = syy; red[2][t] = say;
+    __syncthreads();
+    for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (t < s) { red[0][t] += red[0][t + s]; red[1][t] += red[1][t + s]; red[2][t] += red[2][t + s]; }
+        __syncthreads();
+    }
+    if (t == 0) { out[0] = n_f; out[1] = red[0][0]; out[2] = red[1][0]; out[3] = red[2][0]; out[4] = amax_all; out[5] = ymax_all; }
+}
+""",
+)
+_MODULES = {"float": RawModuleCache(_SRC.replace("{REAL}", "float")), "double": RawModuleCache(_SRC.replace("{REAL}", "double"))}
+
+
+def kernel(cp: Any, real: Any) -> Any:
+    """``abs_corr_finite_stats`` for columns of dtype ``real`` (float32 or float64); compile point of :func:`abs_corr_finite_gpu` and of the register-pressure registry."""
+    return _MODULES["float" if np.dtype(real) == np.float32 else "double"].get(cp).get_function("abs_corr_finite_stats")
+
+
+def _finish(stats: Any, min_n: int) -> float:
+    """The degenerate handling and the ratio, from ``(n, sum da^2, sum dy^2, sum da dy, max |a|, max |y|)``."""
+    cnt, va, vy, cay, amax, ymax = (float(v) for v in stats)
+    if cnt < min_n:
+        return 0.0
+    n_i = int(cnt)
+    if va <= n_i * (_DEGENERATE_REL_TOL * amax) ** 2 or vy <= n_i * (_DEGENERATE_REL_TOL * ymax) ** 2:
+        return 0.0
+    denom = (va * vy) ** 0.5
+    if denom <= 0.0:
+        return 0.0
+    return float(abs(cay / denom))
+
+
+def abs_corr_finite_batch_gpu(cols_dev: Any, y: np.ndarray, y_finite: np.ndarray, min_n: int = 8) -> list:
+    """:func:`abs_corr_finite_gpu` for every row of the C-contiguous device batch ``cols_dev`` of shape ``(K, n)`` (float32 or float64) in ONE launch (a block per column) and
+    one read of ``6 K`` doubles; the value of row ``k`` equals the single-column call on that row (same kernel, same fixed tree)."""
+    import cupy as cp
+
+    from mlframe.feature_selection.filters._fe_resident_operands import resident_operand
+
+    k, n = int(cols_dev.shape[0]), int(cols_dev.shape[1])
+    # Intentional float64: the target is reduced in float64 (a target at offset ~1e7 keeps no variance in float32).
+    y_dev = resident_operand(y, ("abs_corr_y",), dtype=np.float64).ravel()
+    fin_dev = resident_operand(np.asarray(y_finite, dtype=np.uint8), ("abs_corr_yfin",), dtype=np.uint8).ravel()
+    a = cols_dev if cols_dev.dtype in (cp.float32, cp.float64) else cols_dev.astype(np.float64)  # Intentional float64: any other dtype widens to double
+    a = cp.ascontiguousarray(a)
+    out = cp.empty((k, 6), dtype=cp.float64)  # Intentional float64: the six reduced sums of every column
+    kernel(cp, a.dtype)((k,), (256,), (a, y_dev, fin_dev, np.int64(n), out))  # launch-ok: one block per column, 256 threads reduce both passes in a fixed tree
+    return [_finish(row, min_n) for row in out.get()]
+
 
 def abs_corr_finite_gpu(a_dev: Any, y: np.ndarray, y_finite: np.ndarray, min_n: int = 8) -> float:
     """|Pearson corr| of the device column ``a_dev`` against the host target ``y`` over rows where both are finite; same two-pass arithmetic and degenerate
-    handling as ``_abs_corr_finite_njit`` (``0.0`` below ``min_n`` joint-finite rows or for a near-constant side). Only scalars cross to the host."""
+    handling as ``_abs_corr_finite_njit`` (``0.0`` below ``min_n`` joint-finite rows or for a near-constant side). Only scalars cross to the host.
+
+    One kernel launch and one read of six doubles; any fault of the kernel path runs the cupy chain (:func:`_abs_corr_finite_cupy`) instead."""
+    import cupy as cp
+
+    from mlframe.feature_selection.filters._fe_resident_operands import resident_operand
+
+    try:
+        # Intentional float64: the target is reduced in float64 (a target at offset ~1e7 keeps no variance in float32).
+        y_dev = resident_operand(y, ("abs_corr_y",), dtype=np.float64).ravel()
+        fin_dev = resident_operand(np.asarray(y_finite, dtype=np.uint8), ("abs_corr_yfin",), dtype=np.uint8).ravel()
+        a = a_dev.ravel() if a_dev.dtype in (cp.float32, cp.float64) else a_dev.astype(np.float64).ravel()  # Intentional float64: any other dtype widens to double
+        a = cp.ascontiguousarray(a)
+        out = cp.empty(6, dtype=cp.float64)  # Intentional float64: the six reduced sums
+        kern = kernel(cp, a.dtype)
+        kern((1,), (256,), (a, y_dev, fin_dev, np.int64(a.shape[0]), out))  # launch-ok: one column per call, 256 threads reduce both passes in a fixed tree
+        return _finish(out.get(), min_n)
+    except Exception as exc:
+        logger.debug("abs_corr_finite kernel failed (%s: %s); cupy chain", type(exc).__name__, exc)
+        return _abs_corr_finite_cupy(a_dev, y, y_finite, min_n)
+
+
+def _abs_corr_finite_cupy(a_dev: Any, y: np.ndarray, y_finite: np.ndarray, min_n: int = 8) -> float:
+    """The cupy-operation form of :func:`abs_corr_finite_gpu` (about twenty small launches): the reference of the equivalence test and the fallback."""
     import cupy as cp
 
     from mlframe.feature_selection.filters._fe_resident_operands import resident_operand

@@ -57,13 +57,19 @@ _kernels: dict = {}
 _LOCK = threading.Lock()
 
 
+def kernel(cp: Any, real: Any) -> Any:
+    """``fourier_block`` for values of dtype ``real`` (float32 / float64); compile point of ``_kernel`` and of the register-pressure registry."""
+    name = "float" if np.dtype(real) == np.float32 else "double"
+    source = _SRC.replace("{MUL_RN}", "__fmul_rn" if name == "float" else "__dmul_rn").replace("{REAL}", name)
+    return cp.RawModule(code=source).get_function("fourier_block")
+
+
 def _kernel(cp: Any, real: str) -> Any:
     """The compiled kernel for one element type, built once per process."""
     with _LOCK:
         kern = _kernels.get(real)
         if kern is None:
-            source = _SRC.replace("{MUL_RN}", "__fmul_rn" if real == "float" else "__dmul_rn").replace("{REAL}", real)
-            kern = cp.RawModule(code=source).get_function("fourier_block")
+            kern = kernel(cp, np.float32 if real == "float" else np.float64)
             _kernels[real] = kern
         return kern
 

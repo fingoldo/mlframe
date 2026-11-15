@@ -192,6 +192,16 @@ def _block_size() -> int:
     return block_size_from_tuning_cache("shap_proxy_treeshap", "gpu_block_size", _DEFAULT_BLOCK_SIZE)
 
 
+def kernel_for_depth(cp, max_depth: int):
+    """``treeshap`` with the per-thread path scratch sized for one ensemble depth: compile point of ``_ensure_kernel``."""
+    return cp.RawKernel(_kernel_source(int(max_depth)), "treeshap")
+
+
+def kernel(cp, real=None):
+    """``treeshap`` at depth 6 (the reference depth of the offline per-arch recipe; ``real`` unused); the register-pressure registry compiles it through this."""
+    return kernel_for_depth(cp, 6)
+
+
 def _ensure_kernel(max_depth: int):
     """Compile (once per depth, under a module-global lock with double-checked locking) and cache the ``cp.RawKernel``
     for the TreeSHAP scan (the lookup and the compile share one lock block, so a hit costs one lock acquire). The per-thread scratch is sized by the ensemble's real depth, not the cap: at the cap's
@@ -202,7 +212,7 @@ def _ensure_kernel(max_depth: int):
         if kernel is None:
             import cupy as cp
 
-            kernel = cp.RawKernel(_kernel_source(key), "treeshap")
+            kernel = kernel_for_depth(cp, key)
             _TREESHAP_KERNELS[key] = kernel
     return kernel
 

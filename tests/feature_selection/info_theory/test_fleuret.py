@@ -375,37 +375,29 @@ def test_parallel_pool_returns_three_tuple(xor_factors):
     assert bg in (0.1, 0.0)
 
 
-def test_parallel_pool_n_workers_one_bypasses_joblib_parallel(xor_factors, monkeypatch):
-    """``n_workers<=1`` must skip ``joblib.Parallel`` entirely (both construction and dispatch) rather than
-    build a pool and dispatch a single job through it. joblib.Parallel(n_jobs=1) never actually spawns a
-    worker thread (every delayed() call runs inline on the calling thread even with backend="threading"),
-    but it still pays its own per-call dispatch/BatchCompletionCallBack bookkeeping -- pure overhead when
-    there is nothing to parallelize. This is a regression sensor for that fast path: it fails if
-    ``get_fleuret_criteria_confidence_parallel`` ever routes n_workers<=1 back through ``Parallel``.
-    """
+def test_worker_segments_build_no_joblib_pool_for_any_worker_count(xor_factors):
+    """The multi-worker route splits the permutation budget into segments and runs them in the calling thread: the module has no joblib ``Parallel`` at all, and one, three and eight
+    segments all confirm the XOR target with high confidence (the stop at ``max_failed`` is per segment, so the counts differ by worker count only when failures occur)."""
     import mlframe.feature_selection.filters.fleuret as _fleuret_mod
 
-    def _boom(*args, **kwargs):
-        """Sensor stub: any call proves the n_workers<=1 fast path did not bypass ``Parallel``."""
-        raise AssertionError("Parallel() must not be constructed when n_workers<=1")
-
-    monkeypatch.setattr(_fleuret_mod, "Parallel", _boom)
+    assert not hasattr(_fleuret_mod, "Parallel") and not hasattr(_fleuret_mod, "delayed"), "the Fleuret route must not import joblib"
     factors_data, factors_nbins = xor_factors
-    _, conf, _ = get_fleuret_criteria_confidence_parallel(
-        data_copy=factors_data,
-        factors_nbins=factors_nbins,
-        x=(1,),
-        y=np.asarray([3], dtype=np.int64),
-        selected_vars=[0],
-        bootstrapped_gain=0.1,
-        npermutations=100,
-        max_failed=100,
-        nexisting=0,
-        cached_cond_MIs={},
-        entropy_cache={},
-        n_workers=1,
-    )
-    assert conf >= 0.9, f"expected XOR confidence >= 0.9 on the serial fast path, got {conf}"
+    for n_workers in (1, 3, 8):
+        _, conf, _ = get_fleuret_criteria_confidence_parallel(
+            data_copy=factors_data,
+            factors_nbins=factors_nbins,
+            x=(1,),
+            y=np.asarray([3], dtype=np.int64),
+            selected_vars=[0],
+            bootstrapped_gain=0.1,
+            npermutations=100,
+            max_failed=100,
+            nexisting=0,
+            cached_cond_MIs={},
+            entropy_cache={},
+            n_workers=n_workers,
+        )
+        assert conf >= 0.9, f"expected XOR confidence >= 0.9 with {n_workers} segments, got {conf}"
 
 
 def test_parallel_pool_xor_high_confidence(xor_factors):

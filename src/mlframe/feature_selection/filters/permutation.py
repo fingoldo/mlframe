@@ -17,7 +17,6 @@ import logging
 from typing import Optional, cast
 
 import numpy as np
-from joblib import Parallel
 from numba import njit, prange
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
@@ -512,7 +511,7 @@ def mi_direct(
     classes_y_safe: Optional[np.ndarray] = None,
     freqs_y: Optional[np.ndarray] = None,
     n_workers: int = 1,
-    workers_pool: Optional[Parallel] = None,
+    workers_pool: Optional[object] = None,
     parallel_kwargs: Optional[dict] = None,
     parallelism: str = "outer",
     base_seed: int = 0,

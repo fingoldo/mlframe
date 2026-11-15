@@ -111,9 +111,37 @@ def _get_dedup_edges_kernel(real_t: str = "double"):
         kern = _DEDUP_EDGES_KERNELS.get(real_t)
         if kern is None:
             import cupy as cp
-            kern = cp.RawKernel(_DEDUP_EDGES_SRC.replace("{ACC}", "double").replace("{REAL}", real_t), "dedup_njit_edges")  # Intentional float64: edges and bounds are deduplicated in double for every edge type
+            kern = kernel_dedup(cp, np.float32 if real_t == "float" else np.float64)  # Intentional float64: edges and bounds are deduplicated in double for every edge type
             _DEDUP_EDGES_KERNELS[real_t] = kern
     return kern
+
+
+def kernel(cp, real):
+    """``mi_mm_from_values`` (double values); the register-pressure registry compiles it through this."""
+    return cp.RawKernel(_MI_MM_FROM_VALUES_SRC, "mi_mm_from_values")
+
+
+def kernel_nek(cp, real):
+    """``mi_mm_from_values_nek`` for values of dtype ``real`` (float32: the ``_nek_f32`` twin); registry factory."""
+    if np.dtype(real) == np.float32:
+        return cp.RawKernel(_MI_MM_FROM_VALUES_NEK_F32_SRC, "mi_mm_from_values_nek_f32")
+    return cp.RawKernel(_MI_MM_FROM_VALUES_NEK_SRC, "mi_mm_from_values_nek")
+
+
+def kernel_tile(cp, real):
+    """``mm_nek_tile`` for values of dtype ``real``; registry factory."""
+    return cp.RawKernel(render(_MM_NEK_TILE_TEMPLATE, real=np.float32 if np.dtype(real) == np.float32 else np.float64), "mm_nek_tile")
+
+
+def kernel_minmax(cp, real):
+    """``col_minmax`` for values of dtype ``real``; registry factory."""
+    return cp.RawKernel(render(_COL_MINMAX_TEMPLATE, real=np.float32 if np.dtype(real) == np.float32 else np.float64), "col_minmax")
+
+
+def kernel_dedup(cp, real):
+    """``dedup_njit_edges`` for edges of dtype ``real``; registry factory."""
+    real_t = "float" if np.dtype(real) == np.float32 else "double"
+    return cp.RawKernel(_DEDUP_EDGES_SRC.replace("{ACC}", "double").replace("{REAL}", real_t), "dedup_njit_edges")  # Intentional float64: edges and bounds are deduplicated in double
 
 
 def _launch_dedup_edges(E, cmin, cmax, ne: int, K: int, Ec, ne_k) -> None:
@@ -155,7 +183,7 @@ def _get_mi_mm_from_values_nek_kernel():
     global _MI_MM_FROM_VALUES_NEK_KERNEL
     if _MI_MM_FROM_VALUES_NEK_KERNEL is None:
         import cupy as cp
-        _MI_MM_FROM_VALUES_NEK_KERNEL = cp.RawKernel(_MI_MM_FROM_VALUES_NEK_SRC, "mi_mm_from_values_nek")
+        _MI_MM_FROM_VALUES_NEK_KERNEL = kernel_nek(cp, np.float64)
     return _MI_MM_FROM_VALUES_NEK_KERNEL
 
 
@@ -164,7 +192,7 @@ def _get_mi_mm_from_values_nek_f32_kernel():
     global _MI_MM_FROM_VALUES_NEK_F32_KERNEL
     if _MI_MM_FROM_VALUES_NEK_F32_KERNEL is None:
         import cupy as cp
-        _MI_MM_FROM_VALUES_NEK_F32_KERNEL = cp.RawKernel(_MI_MM_FROM_VALUES_NEK_F32_SRC, "mi_mm_from_values_nek_f32")
+        _MI_MM_FROM_VALUES_NEK_F32_KERNEL = kernel_nek(cp, np.float32)
     return _MI_MM_FROM_VALUES_NEK_F32_KERNEL
 
 
@@ -173,7 +201,7 @@ def _get_mi_mm_from_values_kernel():
     global _MI_MM_FROM_VALUES_KERNEL
     if _MI_MM_FROM_VALUES_KERNEL is None:
         import cupy as cp
-        _MI_MM_FROM_VALUES_KERNEL = cp.RawKernel(_MI_MM_FROM_VALUES_SRC, "mi_mm_from_values")
+        _MI_MM_FROM_VALUES_KERNEL = kernel(cp, np.float64)
     return _MI_MM_FROM_VALUES_KERNEL
 
 
@@ -257,7 +285,7 @@ def _launch_mm_nek_tile(Xc: Any, Ec: Any, yv: Any, n: int, K: int, nbins: int, K
         with _KERNEL_CACHE_LOCK:
             kern = _MM_NEK_TILE_KERNELS.get(bool(is_f32))
             if kern is None:
-                kern = cp.RawKernel(render(_MM_NEK_TILE_TEMPLATE, real=np.float32 if is_f32 else np.float64), "mm_nek_tile")
+                kern = kernel_tile(cp, np.float32 if is_f32 else np.float64)
                 _MM_NEK_TILE_KERNELS[bool(is_f32)] = kern
         kern(((K + G - 1) // G,), (_MM_NEK_TILE_THREADS,), (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(nbins), np.int32(Ky), np.int32(G),  # launch-ok: the tile's edge cache and per-column reduction are written for a fixed 256-lane block (the loader strides by blockDim / G)
                                                              np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)), ne_k, mi_out),
@@ -320,7 +348,7 @@ def _column_min_max(Xc: Any, n: int, K: int, is_f32: bool) -> tuple:
         with _KERNEL_CACHE_LOCK:
             kern = _COL_MINMAX_KERNELS.get(bool(is_f32))
             if kern is None:
-                kern = cp.RawKernel(render(_COL_MINMAX_TEMPLATE, real=np.float32 if is_f32 else np.float64), "col_minmax")
+                kern = kernel_minmax(cp, np.float32 if is_f32 else np.float64)
                 _COL_MINMAX_KERNELS[bool(is_f32)] = kern
         cmin = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI edge bounds; compared at full precision
         cmax = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI edge bounds; compared at full precision

@@ -111,6 +111,13 @@ KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 #: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
 #: (its own thresholds, variants, block size) registers itself instead.
 KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_orthogonal_adaptive_degree_fe": (
+        "_basis_cells_ktc",
+        (
+            "the device cell enumeration is asked for through use_device_cells of _basis_cells_ktc (kernel_tuner fe_basis_cells_device: a sweep over the row count of the host cells against the device cells at 1e-6 "
+            "equivalence, the measured row mark as fallback, MLFRAME_BASIS_CELLS_DEVICE=0|1 forces a side); the adaptive-degree family is one of its two consumers"
+        ),
+    ),
     "_cupy_polynom_optimizer": (
         "_polynom_search_backend",
         "the polynom_generation_backend sweep times one generation of 100 candidates on the host (_eval_coef_pair_batch) and on the device (_score_generation_gpu) per row count and requires the same top candidates; the pair search asks it before taking the cupy_kernel route",
@@ -143,6 +150,10 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
         "_wavelet_legs_tuner",
         "its leg code matrices serve the device-born route that fe_wavelet_legs_backend (_wavelet_legs_tuner, host_device_sweep over the row count) chooses against the host body; its block size follows the occupancy rule",
     ),
+    "_gpu_pairs": (
+        "_cat_pair_search_tuner",
+        "the categorical pair search is chosen against the njit prange kernel by cat_pair_search_backend (host_device_sweep over the row count, 60 columns = 1770 pairs of 12-bin codes, same joint MI); the histogram launch follows the joint_hist_multi_pair block-size entry",
+    ),
     "_fourier_batch_gpu": (
         "_fourier_detect_batch",
         "chosen against the host loop by fe_fourier_batch_backend (host_device_sweep over the row count) in _fourier_detect_batch; its block size follows the occupancy rule",
@@ -151,7 +162,27 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 
 #: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
 #: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
+#: Modules whose device path is a COMPOSITION of the fused kernels of another module that itself meets the whole contract: module -> (kernel module, why the module has no kernel of its own). The point is
+#: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
+#: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
+GPU_BACKENDS: dict[str, tuple[str, str]] = {
+    "_orthogonal_adaptive_degree_fe": (
+        "_gpu_resident_basis",
+        (
+            "the device path (_orthogonal_adaptive_degree_device, carved into this family) routes the basis per column with the batched router, builds every (column, degree) cell with the fused Clenshaw "
+            "kernel clenshaw_basis and the non-polynomial cell kernel nonpoly_cells, checks the cells with the fused validity pass and scores them with the resident plug-in MI; those kernels are owned by _gpu_resident_basis"
+        ),
+    ),
+}
+
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_orthogonal_adaptive_degree_fe": (
+        "hermite_fe",
+        (
+            "the host path builds each (column, degree) cell through _evaluate_basis_column, the numba polynomial evaluators of the hermite_fe package, and scores the stacked matrix with the batched MI of the "
+            "orthogonal layer; it is the path the device twin falls back to and the reference its cells are compared with"
+        ),
+    ),
     "_extra_basis_resident": (
         "_fourier_block_host",
         "fourier_block_host (numba, prange over the rows of every name) is the host evaluation of the Fourier / chirp columns of the pool the device block replaces, and the host generators of the family (generate_extra_basis_features) build the spline and wavelet columns the device columns are checked against; the host matrix is what the resident scorer falls back to",
@@ -204,11 +235,32 @@ CPU_TWINS: dict[str, tuple[str, str]] = {
         "_wavelet_basis_fe",
         "the host side of the same decision is _select_wavelet_legs, the fused parallel njit body of _wavelet_basis_fe (the leg codes and their MI in one pass)",
     ),
+    "_gpu_pairs": (
+        "cat_interactions",
+        "_pair_search_kernel_njit (njit, prange over the pairs) is the host pair search the cat interaction step runs when the device is not chosen, and the reference the device joint MI is checked against",
+    ),
     "_fourier_batch_gpu": (
         "_orth_extra_basis_fe",
         "the host side of the Fourier batch is _detect_fourier_freqs_host, whose coarse basis and power reductions are njit(parallel) kernels",
     ),
 }
+
+
+def gpu_backend_problems(name: str) -> list[str]:
+    """Why ``name``'s ``GPU_BACKENDS`` entry does not hold (empty when it holds or there is none): the kernel module must exist, be named by ``name``'s text, and meet the whole contract itself."""
+    if name not in GPU_BACKENDS:
+        return []
+    backend = GPU_BACKENDS[name][0]
+    text, backend_text = module_text(name), module_text(backend)
+    if backend_text is None:
+        return [f"kernel module {backend} not found"]
+    problems = []
+    if text is None or not re.search(rf"\b{re.escape(backend)}\b", text):
+        problems.append(f"{name} does not name its kernel module {backend}")
+    inner = contract_violations(backend)
+    if inner:
+        problems.append(f"kernel module {backend} does not meet the contract: {inner}")
+    return problems
 
 
 def cpu_twin_problems(name: str) -> list[str]:
@@ -259,14 +311,18 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_target_encoding_order_stats": ("_order_stats_gpu",),
     "_temporal_agg_fe_rolling": ("_rolling_window_gpu",),
     "_periodic_fe": ("_modular_codes_gpu",),
+    "batch_pair_usability_corr_gpu": ("_pair_usability_table",),
+    "_orthogonal_univariate_fe": ("_orth_scoring_memo", "_orth_basis_memo", "_orth_gpu_resident",),
+    "hermite_fe": ("_hermite_basis_eval", "_hermite_oracle", "_hermite_prewarp", "_hermite_prewarp_gpu_resident", "_hermite_robust"),
     "_extra_basis_resident": ("_orth_extra_basis_fe_generate",),
     "_gpu_resident_fe": ("_gpu_resident_basis",),
+    "_gpu_resident_basis": ("_gpu_resident_basis_factories",),
     "_wavelet_basis_fe": ("_wavelet_basis_fe_batched",),
     "_fe_pure_form_retention_gpu_resident": ("_pure_form_gate_njit",),
     "_cupy_polynom_optimizer": ("_polynom_search_backend",),
     "_relaxmrmr_pair_loop": ("_relaxmrmr_pair_gpu",),
     "_hermite_fe_mi": ("_fe_edge_mi",),
-    "_orthogonal_triplet_fe": ("_triple_mi_gpu",),
+    "_orthogonal_triplet_fe": ("_triple_mi_gpu", "_orthogonal_triplet_recipes",),
     "_offset_product_fe": ("_offset_product_gpu",),
     "_parity_fe": ("_parity_gpu",),
     "_orthogonal_dcor_fe": ("_dcor_gpu",),
@@ -286,6 +342,9 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_residual_rescue_fe": ("_residual_rescue_gpu", "_residual_rescue_ktc"),
     "batch_pair_mi_gpu": ("_batch_pair_mi_cuda_kernels",),
     "_orthogonal_xi_fe": ("_orthogonal_xi_gpu",),
+    "_orthogonal_adaptive_degree_fe": ("_orthogonal_adaptive_degree_device",),
+    "_orthogonal_cmim_fe": ("_cmim_min_gpu",),
+    "_hinge_basis_fe": ("_hinge_precheck_gpu", "_hinge_detect_gpu_resident", "_hinge_detect_gpu_resident_batch"),
     "_fe_sufficient_summary": ("_fe_sufficient_summary_pairs",),
     "_group_distance_fe": ("_group_distance_gpu",),
     "_orthogonal_copula_mi_fe": ("_orthogonal_copula_gpu",),
@@ -411,9 +470,10 @@ def contract_violations(name: str) -> list[str]:
     found = []
     ktc_via_dispatcher = name in KTC_DISPATCHERS and not ktc_dispatch_problems(name)
     cpu_via_twin = name in CPU_TWINS and not cpu_twin_problems(name)
+    gpu_via_backend = name in GPU_BACKENDS and not gpu_backend_problems(name)
     for pattern, message in (
         (re.compile(r".") if cpu_via_twin else CPU_KERNEL, "no numba CPU kernel"),
-        (GPU_KERNEL, "no fused GPU kernel"),
+        (re.compile(r".") if gpu_via_backend else GPU_KERNEL, "no fused GPU kernel"),
         (re.compile(r".") if ktc_via_dispatcher else KTC_REGISTRATION, "not registered with the kernel-tuning cache"),
         (CRIT_DTYPE, "no crit dtype use"),
         (BLOCK_STREAMING, "no column-block streaming"),

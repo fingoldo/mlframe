@@ -1,5 +1,7 @@
 """Kernel-tuning-cache dispatch of the device basis-cell path (conditional routing and adaptive-degree FE).
 
+Its consumers are the conditional routing (`_orthogonal_routing_device`) and the adaptive-degree family (`_orthogonal_adaptive_degree_fe`, through its carved device module `_orthogonal_adaptive_degree_device`).
+
 Both families can build and score their (column, basis, degree) cells on the host (one vector per cell, stacked MI) or on the device (batched Clenshaw kernels, MI on the device). The device wins at
 every size measured on the development GPU, but a faster host or a slower card moves the crossover, so the choice is looked up per host from the kernel-tuning cache (sweep over the row count, fastest
 variant whose MI agrees with the host's), with the measured fallback ``n >= BASIS_CELLS_DEVICE_FALLBACK_ROWS``. ``MLFRAME_BASIS_CELLS_DEVICE=0|1`` forces the host or the device path.

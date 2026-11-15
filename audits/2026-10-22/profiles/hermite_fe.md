@@ -40,3 +40,15 @@ pairs; on this card the double-precision rate is 1/32 of the single-precision ra
 The cell kernel is double-precision bound. The two options that would cut its arithmetic: a float32 accumulation path for the fourier and rbf cells (the device
 values are already float64 by the crit-dtype contract, so this changes the result precision and needs the equivalence tolerance re-decided), and a harmonic
 recurrence for the fourier cells (one `sincos` per row and column, higher harmonics by the Chebyshev recurrence) instead of one `sin` or `cos` per cell.
+
+## 2026-11-15: the modules of the package carved under this family
+
+`hermite_fe` is a package; five of its modules are judged with it (the family has one verdict and this record, as `CARVED_FAMILIES` requires; none of them adds a CUDA kernel of its own):
+
+- `_hermite_basis_eval`: the per-degree Horner njit evaluators (single and `prange`), the GEMV-style basis-matrix builders and the `build_basis_matrix` dispatcher: the numba CPU side of the family, and the baseline the fused device kernel (`_basis_fused_gpu`, 8 to 13 times over the cupy loop at 20000 to 1.6M rows, see its tuner entry) is checked against.
+- `_hermite_oracle`: the `polyeval` njit-versus-njit_par backend oracle (gated off by default) and `_lookup_polyeval_thresholds`, the per-basis lookup of the kernel-tuning entry `polyeval` (its tests pin the per-basis region choice and the defaults for a basis without a region).
+- `_hermite_prewarp`: the closed-form per-operand warps, the rank-1 ALS warm start and the saturating L2 penalty (host, numba).
+- `_hermite_prewarp_gpu_resident`: the device twin of the ALS warm start and the per-degree cupy loop `_build_basis_matrix_loop` that `_basis_fused_gpu` replaced. By its own contract it is a residency twin, not a wall win: the ALS system is tiny and strictly sequential (one initial solve plus two dependent normal-equation solves per iteration), so the host solve stays the default and the device twin is off unless the resident flags are set.
+- `_hermite_robust`: the outlier-robust axis normalisation and warp-coefficient fitting, each behind its own switch and heavy-tail gated; its device counterpart is the heavy-tail kernel of `_gpu_resident_basis` (row-share grid fill, 2.85 -> 0.54 ms, see `_gpu_resident_fe.md`).
+
+No new counters were taken for these five: they hold host code, a tuner lookup and a residency twin whose kernels are the ones recorded above.

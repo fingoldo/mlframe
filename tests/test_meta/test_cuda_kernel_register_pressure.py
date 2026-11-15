@@ -78,6 +78,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_spline",
         ("float32", "float64"),
     ),
+    "gpu_pairs.pair_joint_mi": (
+        "mlframe.feature_selection.filters._gpu_pairs",
+        "kernel",
+        ("float64",),
+    ),
     "rolling_window_gpu.rolling_stat_past_only": (
         "mlframe.feature_selection.filters._rolling_window_gpu",
         "kernel",
@@ -98,6 +103,551 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "fe_batched_mi_cmi_hist.rows_ent_nnz": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel",
+        ("float64",),
+    ),
+    "fe_batched_mi_cmi_hist.rows_ent_nnz_i32": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_i32",
+        ("float64",),
+    ),
+    "fe_batched_mi_cmi_hist.rows_ent_nnz_i32_split": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_split",
+        ("float64",),
+    ),
+    "fe_batched_mi_cmi_hist.rows_ent_nnz_finish": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_finish",
+        ("float64",),
+    ),
+    "fe_batched_mi_cmi_hist.joint_hist1": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_joint_hist1",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.joint_hist2": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_joint_hist2",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.joint_hist3": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_joint_hist3",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist2": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist2",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist1": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist1",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist2_i32": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist2_i32",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist2_i32_smem": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist2_i32_smem",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist1_i32": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist1_i32",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.joint_hist_nnz1": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_joint_hist_nnz1",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.joint_hist_nnz2": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_joint_hist_nnz2",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.joint_hist_nnz3": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_joint_hist_nnz3",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist2_i32_u8": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist2_i32_u8",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist2_i32_smem_u8": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist2_i32_smem_u8",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist2_i32_smem_u8_v2": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist2_i32_smem_u8_v2",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist1_i32_u8": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist1_i32_u8",
+        ("int64",),
+    ),
+    "fe_batched_mi_mm_values.mi_mm_from_values": (
+        "mlframe.feature_selection.filters._fe_batched_mi_mm_values",
+        "kernel",
+        ("float64",),
+    ),
+    "fe_batched_mi_mm_values.mi_mm_from_values_nek": (
+        "mlframe.feature_selection.filters._fe_batched_mi_mm_values",
+        "kernel_nek",
+        ("float32", "float64"),
+    ),
+    "fe_batched_mi_mm_values.mm_nek_tile": (
+        "mlframe.feature_selection.filters._fe_batched_mi_mm_values",
+        "kernel_tile",
+        ("float32", "float64"),
+    ),
+    "fe_batched_mi_mm_values.col_minmax": (
+        "mlframe.feature_selection.filters._fe_batched_mi_mm_values",
+        "kernel_minmax",
+        ("float32", "float64"),
+    ),
+    "fe_batched_mi_mm_values.dedup_njit_edges": (
+        "mlframe.feature_selection.filters._fe_batched_mi_mm_values",
+        "kernel_dedup",
+        ("float32", "float64"),
+    ),
+    "fe_batched_mi_cmi.batched_joint_entropy2": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_entropy",
+        ("uint8", "int64"),
+    ),
+    "fe_batched_mi_cmi.batched_joint_entropy2_g": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_entropy_g",
+        ("uint8", "int64"),
+    ),
+    "fe_batched_mi_cmi.batched_joint_entropy2_g_wide": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_entropy_g_wide",
+        ("uint8", "int64"),
+    ),
+    "fe_batched_mi_cmi.ent_nnz_1d": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_ent_nnz",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi.joint_entropy1": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_joint1",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi.joint_entropy2": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_joint2",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi.joint_entropy3": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_joint3",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi.cmi_joint_entropies": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_cmi_joint",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi.marginal_mi_entropies": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_marginal",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi.cmi_assemble": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_assemble",
+        ("int64",),
+    ),
+    "gpu_resident_select_kernels.radix_select_f64": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_radix_f64",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.radix_select_f32": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_radix_f32",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.radix_select_f32_bsearch": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_radix_f32_bsearch",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.radix_select_f32_v3": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_radix_f32_v3",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.radix_select_interp_f64": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_interp_f64",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.radix_select_interp_f64_v2": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_interp_f64_v2",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.radix_select_interp_f64_v3": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_interp_f64_v3",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.transpose_f32": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_transpose_f32",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.transpose_f64": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_transpose_f64",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.transpose_i8": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_transpose_i8",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.transpose_i16": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_transpose_i16",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.radix_interp": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_interp",
+        ("float64",),
+    ),
+    "gpu_resident_shared.fused_gen": (
+        "mlframe.feature_selection.filters._gpu_resident_shared",
+        "kernel",
+        ("float64",),
+    ),
+    "gpu_resident_shared.fused_gen_cm": (
+        "mlframe.feature_selection.filters._gpu_resident_shared",
+        "kernel_cm",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_shared.fused_gen_bin_hist": (
+        "mlframe.feature_selection.filters._gpu_resident_shared",
+        "kernel_bin_hist",
+        ("float64",),
+    ),
+    "gpu_resident_basis.clenshaw_basis": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_clenshaw",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.robust_scale_combine": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_robust_scale",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.heavy_tail_stats_tiled": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_heavy_tail",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.heavy_tail_finish": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_heavy_tail_finish",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.basis_preprocess": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_preprocess",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.basis_preprocess_nr": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_preprocess_nr",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.col_meanstd_tiled": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_meanstd",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.col_minmax_tiled": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_minmax",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.abs_corr": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_abs_corr",
+        ("float32", "float64"),
+    ),
+    "gpu.compute_joint_hist_cuda": (
+        "mlframe.feature_selection.filters.gpu",
+        "kernel_joint_hist",
+        ("int64",),
+    ),
+    "gpu.compute_joint_hist_batched_cuda": (
+        "mlframe.feature_selection.filters.gpu",
+        "kernel_joint_hist_batched",
+        ("int64",),
+    ),
+    "gpu.compute_joint_hist_batched_shared_cuda": (
+        "mlframe.feature_selection.filters.gpu",
+        "kernel_joint_hist_batched_shared",
+        ("int64",),
+    ),
+    "gpu.compute_joint_hist_multi_pair_cuda": (
+        "mlframe.feature_selection.filters.gpu",
+        "kernel_multi_pair",
+        ("int64",),
+    ),
+    "gpu.compute_joint_hist_multi_pair_shared_cuda": (
+        "mlframe.feature_selection.filters.gpu",
+        "kernel_multi_pair_shared",
+        ("int64",),
+    ),
+    "gpu.compute_mi_from_classes_cuda": (
+        "mlframe.feature_selection.filters.gpu",
+        "kernel_mi_from_classes",
+        ("int64",),
+    ),
+    "pairs_analytic_gpu.minmax_i8": (
+        "mlframe.feature_selection.filters._feature_engineering_pairs._pairs_analytic_gpu",
+        "kernel_minmax",
+        ("float64",),
+    ),
+    "pairs_analytic_gpu.analytic_obs_mi_bins_i8": (
+        "mlframe.feature_selection.filters._feature_engineering_pairs._pairs_analytic_gpu",
+        "kernel",
+        ("float64",),
+    ),
+    "pairs_analytic_gpu.analytic_mi_from_hist": (
+        "mlframe.feature_selection.filters._feature_engineering_pairs._pairs_analytic_gpu",
+        "kernel_finish",
+        ("float64",),
+    ),
+    "honest_null_k4.root_split_stats_k4f": (
+        "mlframe.feature_selection.filters._honest_null_k4",
+        "kernel_k4f",
+        ("float64",),
+    ),
+    "honest_null_k4.root_split_stats_k5": (
+        "mlframe.feature_selection.filters._honest_null_k4",
+        "kernel_k5",
+        ("float64",),
+    ),
+    "honest_null_k4.root_split_stats_k4": (
+        "mlframe.feature_selection.filters._honest_null_k4",
+        "kernel_k4",
+        ("float64",),
+    ),
+    "honest_null_device.root_split_stats": (
+        "mlframe.feature_selection.filters._honest_null_device",
+        "kernel_v1",
+        ("float64",),
+    ),
+    "honest_null_device.root_split_stats_v2": (
+        "mlframe.feature_selection.filters._honest_null_device",
+        "kernel_v2",
+        ("float64",),
+    ),
+    "honest_null_device.root_split_stats_k2": (
+        "mlframe.feature_selection.filters._honest_null_device",
+        "kernel_k2",
+        ("float64",),
+    ),
+    "gpu_resident_select_f32_compact.radix_select_f32_v4": (
+        "mlframe.feature_selection.filters._gpu_resident_select_f32_compact",
+        "kernel_v4",
+        ("float64",),
+    ),
+    "gpu_resident_select_f32_compact.radix_select_f32_v5": (
+        "mlframe.feature_selection.filters._gpu_resident_select_f32_compact",
+        "kernel_v5",
+        ("float64",),
+    ),
+    "gpu_resident_select_f32_compact.radix_select_f32_v5_winmap": (
+        "mlframe.feature_selection.filters._gpu_resident_select_f32_compact",
+        "kernel_v5_winmap",
+        ("float64",),
+    ),
+    "gpu_resident_materialise.fe_materialise": (
+        "mlframe.feature_selection.filters._gpu_resident_materialise",
+        "kernel",
+        ("float64",),
+    ),
+    "gpu_resident_materialise.fe_materialise_cm": (
+        "mlframe.feature_selection.filters._gpu_resident_materialise",
+        "kernel_cm",
+        ("float64",),
+    ),
+    "gpu_resident_materialise.fe_materialise_cm_tiled": (
+        "mlframe.feature_selection.filters._gpu_resident_materialise",
+        "kernel_cm_tiled",
+        ("float64",),
+    ),
+    "gpu_resident_discretize.bin_codes": (
+        "mlframe.feature_selection.filters._gpu_resident_discretize",
+        "kernel_bin",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_discretize.bin_codes_f32e": (
+        "mlframe.feature_selection.filters._gpu_resident_discretize",
+        "kernel_f32e",
+        ("int8", "int16", "int32"),
+    ),
+    "gpu_resident_discretize.bin_codes_f32e_v2": (
+        "mlframe.feature_selection.filters._gpu_resident_discretize",
+        "kernel_f32e_v2",
+        ("int8", "int16", "int32"),
+    ),
+    "shap_proxy_treeshap_gpu.treeshap": (
+        "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu",
+        "kernel",
+        ("float64",),
+    ),
+    "shap_proxy_treeshap_interactions_gpu.treeshap_interactions": (
+        "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu",
+        "kernel",
+        ("float64",),
+    ),
+    "null_max_perm_gpu.null_mi_perms": (
+        "mlframe.feature_selection.filters._null_max_perm_gpu",
+        "kernel_counts",
+        ("float32", "float64"),
+    ),
+    "null_max_perm_gpu.null_mi_perms_bits": (
+        "mlframe.feature_selection.filters._null_max_perm_gpu",
+        "kernel_bits",
+        ("float32", "float64"),
+    ),
+    "offset_product_gpu.scan_offset_products": (
+        "mlframe.feature_selection.filters._offset_product_gpu",
+        "kernel",
+        ("float64",),
+    ),
+    "perm_labels_device.fy_permutations": (
+        "mlframe.feature_selection.filters._perm_labels_device",
+        "kernel_fy",
+        ("int64",),
+    ),
+    "perm_labels_device.pack_class_bits": (
+        "mlframe.feature_selection.filters._perm_labels_device",
+        "kernel_pack",
+        ("int64",),
+    ),
+    "extra_basis_fourier_cuda.fourier_block": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._extra_basis_fourier_cuda",
+        "kernel",
+        ("float32", "float64"),
+    ),
+    "fourier_fused_gpu.periodogram_power": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_fused_gpu",
+        "kernel_power",
+        ("float32", "float64"),
+    ),
+    "fourier_fused_gpu.sincos_gram": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_fused_gpu",
+        "kernel_gram",
+        ("float32", "float64"),
+    ),
+    "fourier_fused_gpu.solve3": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_fused_gpu",
+        "kernel_solve",
+        ("float32", "float64"),
+    ),
+    "fourier_fused_gpu.apply_deflate": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_fused_gpu",
+        "kernel_deflate",
+        ("float32", "float64"),
+    ),
+    "fourier_batch_gpu.periodogram_power_b": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_batch_gpu",
+        "kernel_power",
+        ("float32", "float64"),
+    ),
+    "fourier_batch_gpu.sincos_gram_b": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_batch_gpu",
+        "kernel_gram",
+        ("float32", "float64"),
+    ),
+    "fourier_batch_gpu.solve3_b": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_batch_gpu",
+        "kernel_solve",
+        ("float32", "float64"),
+    ),
+    "fourier_batch_gpu.apply_deflate_b": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._fourier_batch_gpu",
+        "kernel_deflate",
+        ("float32", "float64"),
+    ),
+    "als_fused_gpu.matvec_stats": (
+        "mlframe.feature_selection.filters.hermite_fe._als_fused_gpu",
+        "kernel_matvec",
+        ("float32", "float64"),
+    ),
+    "als_fused_gpu.gram_scaled": (
+        "mlframe.feature_selection.filters.hermite_fe._als_fused_gpu",
+        "kernel_gram",
+        ("float32", "float64"),
+    ),
+    "als_fused_gpu.solve_small": (
+        "mlframe.feature_selection.filters.hermite_fe._als_fused_gpu",
+        "kernel_solve",
+        ("float32", "float64"),
+    ),
+    "modular_codes_gpu.modular_all_ops": (
+        "mlframe.feature_selection.filters._modular_codes_gpu",
+        "kernel_for_source",
+        ("float32", "float64"),
+    ),
+    "pairs_abs_corr_gpu.abs_corr_finite_stats": (
+        "mlframe.feature_selection.filters._feature_engineering_pairs._pairs_abs_corr_gpu",
+        "kernel",
+        ("float32", "float64"),
+    ),
+    "fleuret_confirm_gpu.fleuret_cmi_blocks": (
+        "mlframe.feature_selection.filters._fleuret_confirm_gpu",
+        "kernel",
+        ("uint8", "int16", "int32"),
+    ),
+    "gain_stats_codes_gpu.quantile_codes_right": (
+        "mlframe.feature_selection.filters._gain_stats_codes_gpu",
+        "kernel",
+        ("float32", "float64"),
+    ),
+    "cmim_min_gpu.cmim_min_blocks": (
+        "mlframe.feature_selection.filters._cmim_min_gpu",
+        "kernel",
+        ("uint8", "int16"),
+    ),
+    "hinge_precheck_gpu.hinge_precheck_drops": (
+        "mlframe.feature_selection.filters._hinge_precheck_gpu",
+        "kernel",
+        ("float32", "float64"),
+    ),
+    "relaxmrmr_pair_gpu.relaxmrmr_pair": (
+        "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
+        "kernel",
+        ("uint8", "int32"),
+    ),
+    "synergy_combo_gpu.synergy_combo": (
+        "mlframe.feature_selection.filters._synergy_combo_gpu",
+        "kernel",
+        ("uint8", "int32"),
+    ),
     "fe_batched_mi.mi_from_codes_tile": (
         "mlframe.feature_selection.filters._fe_batched_mi",
         "kernel",
@@ -109,6 +659,94 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
 # it. Pack any thread-private triangular-matrix array (Hessian, Cholesky factor) before reaching for this dict - that
 # cut this kernel's spill from 1512 to 936 bytes/thread for free (see the reason string for what remains).
 _SPILL_EXEMPT: dict[str, str] = {
+    "modular_codes_gpu.modular_all_ops": (
+        "32 bytes/thread with no thread-private array in the source: the stack frame libdevice reserves for the slow path of the single-precision `sincos` (the sine and cosine are taken at the "
+        "stored type to keep the 1:32 FP64 pipe out of the transcendental); no register spill, memory-bound residue / sin / cos writes. Same effect as the exempted `nonpoly_cells` and "
+        "`fourier_block`."
+    ),
+    "als_fused_gpu.solve_small": (
+        "576 bytes/thread at the reference width d = 8 (96 at d = 3) = the augmented matrix `{ACC} M[D][D + 1]` (8 x 9 doubles) of the normal equations, eliminated with a run-time pivot row "
+        "by one block (thread 0 solves), so it is a stack-frame array and not a register spill; one launch per half sweep, tiny next to the Gram partials, nothing occupancy-bound. The frame "
+        "grows with the square of the width (D <= 12 supported), which is the size of the system itself."
+    ),
+    "fourier_fused_gpu.solve3": (
+        "96 bytes/thread = the augmented matrix `{ACC} M[3][4]` (12 doubles) of the 3 x 3 normal equations, pivoted at run time by one thread, so it is a stack-frame array and not a register "
+        "spill; one warp, one tiny solve per launch (per column in the batched twin), nothing occupancy-bound."
+    ),
+    "fourier_fused_gpu.periodogram_power": (
+        "40 bytes/thread (double build; the float build has none) with no thread-private array of that size in the source: the stack frame libdevice reserves for the slow path of the double "
+        "`sincos` (large-argument reduction), the same effect as the exempted `nonpoly_cells`; no register spill, arithmetic-bound kernel."
+    ),
+    "fourier_fused_gpu.sincos_gram": (
+        "40 bytes/thread (double build; the float build has none) with no thread-private array of that size in the source: the stack frame libdevice reserves for the slow path of the double "
+        "`sincos` (large-argument reduction), the same effect as the exempted `nonpoly_cells`; no register spill, arithmetic-bound kernel."
+    ),
+    "fourier_fused_gpu.apply_deflate": (
+        "40 bytes/thread (double build; the float build has none) with no thread-private array of that size in the source: the stack frame libdevice reserves for the slow path of the double "
+        "`sincos` (large-argument reduction), the same effect as the exempted `nonpoly_cells`; no register spill, arithmetic-bound kernel."
+    ),
+    "fourier_batch_gpu.solve3_b": (
+        "96 bytes/thread = the augmented matrix `{ACC} M[3][4]` (12 doubles) of the 3 x 3 normal equations, pivoted at run time by one thread, so it is a stack-frame array and not a register "
+        "spill; one warp, one tiny solve per launch (per column in the batched twin), nothing occupancy-bound."
+    ),
+    "fourier_batch_gpu.periodogram_power_b": (
+        "40 bytes/thread (double build; the float build has none) with no thread-private array of that size in the source: the stack frame libdevice reserves for the slow path of the double "
+        "`sincos` (large-argument reduction), the same effect as the exempted `nonpoly_cells`; no register spill, arithmetic-bound kernel."
+    ),
+    "fourier_batch_gpu.sincos_gram_b": (
+        "40 bytes/thread (double build; the float build has none) with no thread-private array of that size in the source: the stack frame libdevice reserves for the slow path of the double "
+        "`sincos` (large-argument reduction), the same effect as the exempted `nonpoly_cells`; no register spill, arithmetic-bound kernel."
+    ),
+    "fourier_batch_gpu.apply_deflate_b": (
+        "40 bytes/thread (double build; the float build has none) with no thread-private array of that size in the source: the stack frame libdevice reserves for the slow path of the double "
+        "`sincos` (large-argument reduction), the same effect as the exempted `nonpoly_cells`; no register spill, arithmetic-bound kernel."
+    ),
+    "offset_product_gpu.scan_offset_products": (
+        "160 bytes/thread = `{ACC} M[4][5]` (20 doubles): the augmented matrix of the 4 x 4 normal equations the kernel solves per task by Gaussian elimination, indexed by the run-time pivot row, "
+        "so it is a stack-frame array, not a spill (register spill is zero, `--fmad=false` build). The same system solved with the matrix in registers would need the elimination fully unrolled "
+        "for every pivot order; the kernel is measured at 0.1 percent of a 100000-row fit (the tiny-cupy row for `scan_offset_products_device`), so the frame is not worth a rewrite."
+    ),
+    "perm_labels_device.pack_class_bits": (
+        "128 bytes/thread = `unsigned long long acc[16]`, one 64-bit word of the class bit set per class (at most 16 classes), indexed by the run-time class label of the permuted row, so it "
+        "lives in the stack frame; no register spill. The array is the output accumulator of the pack."
+    ),
+    "extra_basis_fourier_cuda.fourier_block": (
+        "32 bytes/thread (float) and 40 (double) with no thread-private array in the source: the frame is the one libdevice reserves for the slow path of `sin` / `cos` (a large-argument "
+        "reduction), the same effect as the exempted `nonpoly_cells` (40 bytes for its trig calls); no register spill, and the kernel is arithmetic-bound, not occupancy-bound."
+    ),
+    "null_max_perm_gpu.null_mi_perms_bits": (
+        "512 bytes/thread = the three per-thread arrays `int cnt[PMAX_LANE][NBMAX]` (2 x 32 x 4 = 256), `int tl[NBMAX]` (128) and `unsigned mb[NBMAX]` (128), indexed by the "
+        "run-time bin, so they sit in the stack frame (L1-resident local memory) next to 39 registers and no register spill. Holding the 256 lane counters in registers is not possible "
+        "(the unrolled form would need over 200 registers and spill for real); the alternative that moves them to shared atomics is the layout the ballot / popcount design replaces (UC11-05 "
+        "measured the coalescing rewrite of this kernel and rejected it). The comment of the kernel used to say the counts stay in registers; it now says where they are."
+    ),
+    "shap_proxy_treeshap_gpu.treeshap": (
+        "2688 bytes/thread at the reference depth 6 (MAXW 8, MAXSP 28) = the per-thread TreeSHAP path scratch: the extend / unwind weight arrays indexed by the unique-path depth and "
+        "the explicit DFS stack that replaces recursion, all dynamically indexed, so they live in the stack frame (54 registers, no register spill). The module header states the design; the "
+        "frame grows with the square of the depth, which is why `_ensure_kernel` sizes it by the ensemble's real depth and not the cap (at the cap of 24 it reserved gigabytes of device "
+        "local memory and starved later GPU paths). Removing the frame means a different algorithm (the shared-memory tile of the tree), not a register fix."
+    ),
+    "shap_proxy_treeshap_interactions_gpu.treeshap_interactions": (
+        "3136 bytes/thread at depth 6 with 16 features (MAXW 8, MAXLVL 9, MAXP 16) = the same per-thread path scratch as treeshap plus the conditioned-pass accumulators (one level deeper, "
+        "one slot per feature), dynamically indexed so they sit in the stack frame (64 registers, no register spill). Sized by the ensemble's real depth and feature count in "
+        "`_ensure_kernel` (the caps would reserve about 2.6 GB of local memory on a 4 GB card); the frame is the algorithm's working set, not live-value pressure."
+    ),
+    "honest_null_device.root_split_stats": (
+        "256 bytes/thread = the per-thread class-count arrays `long long cl[16], cr[16]` (2 x 16 x 8), indexed by the runtime label `yi`: a dynamically indexed array lives in the "
+        "stack frame (local memory, L1-resident), it is not a spill of live values (48 registers, far under the cap). The alternative layout that keeps the counters elsewhere "
+        "(version 3, shared/bit-packed) was measured 1.4 to 1.8 times SLOWER than this one (see the header of _honest_null_k3.py and FM11-02), so the frame is the faster design. "
+        "The kernel is the retained v1 of the --fmad=false root-split family."
+    ),
+    "honest_null_device.root_split_stats_v2": (
+        "256 bytes/thread = the same `long long cl[16], cr[16]` class-count arrays as root_split_stats (runtime-indexed by the label, so they sit in the stack frame, 48 registers, no "
+        "register spill); v2 only reads the next row's label one step ahead. Version 3, which moves the counters out of local memory, measured 1.4 to 1.8 times slower (_honest_null_k3.py "
+        "header, FM11-02). v2 is the default of the family."
+    ),
+    "honest_null_device.root_split_stats_k2": (
+        "40 bytes/thread = `int ybuf[TILE + 1]` (9 ints rounded up), the tile of look-ahead labels, indexed by the loop variable `t` of the scoring loop whose trip count depends on the rows "
+        "left (so it cannot be fully unrolled); 56 registers, no register spill. The tile is what makes the label loads independent of the entropy chain (the measured gain of k2 over v2 at the "
+        "binary-target shapes); an unrolled copy would add a second code path for the tail."
+    ),
     "nonpoly_cells_gpu.nonpoly_cells": (
         "the float32 build reserves a 40-byte stack frame (local_size_bytes 40; ptxas: 40 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads) for the "
         "libdevice trig slow path that its sin and cos calls use; cosf on a float argument reserves 32 bytes the same way, and the double build reserves none. "

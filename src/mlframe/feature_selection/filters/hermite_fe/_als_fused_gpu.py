@@ -160,6 +160,29 @@ __global__ void solve_small(const {ACC}* part, const int nblocks, {ACC}* coef) {
 _MODULES_BY_REAL = {np.dtype(t): RawModuleCache(render(_SRC, real=t)) for t in (np.float32, np.float64)}  # Intentional float64: one module per design element type
 
 
+_REFERENCE_WIDTH = 8  # the design width the register-pressure registry compiles (the widest one the tests and the offline recipe use; the supported maximum is 12)
+
+
+def _entry(cp: Any, real: Any, d: int, name: str) -> Any:
+    """One entry point of the module compiled for the element type ``real`` and the design width ``d`` (compiled once per pair by the module cache)."""
+    return _MODULES_BY_REAL[np.dtype(real)].get(cp, int(d)).get_function(name)
+
+
+def kernel_matvec(cp: Any, real: Any, d: int = _REFERENCE_WIDTH) -> Any:
+    """``matvec_stats`` (design times coefficients, with the moments of the result) for designs of dtype ``real`` and width ``d``: compile point of the sweep and of the register-pressure registry."""
+    return _entry(cp, real, d, "matvec_stats")
+
+
+def kernel_gram(cp: Any, real: Any, d: int = _REFERENCE_WIDTH) -> Any:
+    """``gram_scaled`` (the weighted Gram partials per block); registry factory."""
+    return _entry(cp, real, d, "gram_scaled")
+
+
+def kernel_solve(cp: Any, real: Any, d: int = _REFERENCE_WIDTH) -> Any:
+    """``solve_small`` (the d x d normal equations by one block); registry factory."""
+    return _entry(cp, real, d, "solve_small")
+
+
 def als_sweep_fused(cp: Any, Ba: Any, Bb: Any, yc: Any, iters: int) -> Optional[tuple]:
     """Both coefficient vectors of the alternating sweep as host arrays, or ``None`` when the fused path cannot give a finite answer (the caller runs the original path).
 
@@ -171,10 +194,9 @@ def als_sweep_fused(cp: Any, Ba: Any, Bb: Any, yc: Any, iters: int) -> Optional[
     ba = cp.ascontiguousarray(Ba, dtype=real)
     bb = cp.ascontiguousarray(Bb, dtype=real)
     y = cp.ascontiguousarray(yc, dtype=real)
-    mod = _MODULES_BY_REAL[real].get(cp, d)
-    matvec_stats = mod.get_function("matvec_stats")
-    gram_scaled = mod.get_function("gram_scaled")
-    solve_small = mod.get_function("solve_small")
+    matvec_stats = kernel_matvec(cp, real, d)
+    gram_scaled = kernel_gram(cp, real, d)
+    solve_small = kernel_solve(cp, real, d)
     nacc = d * (d + 1) // 2 + d
     gram_blocks = int(min(4096, max(1, (n + 255) // 256)))
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.

@@ -153,6 +153,31 @@ def _modules_for(z) -> Any:
     return _MODULES_BY_REAL["float" if z.dtype.itemsize == 4 else "double"]
 
 
+def _entry(cp: Any, real: Any, name: str) -> Any:
+    """One entry point of the module compiled for the element type ``real`` (float32 or float64)."""
+    return _modules_for(cp.empty(0, dtype=real)).get(cp).get_function(name)
+
+
+def kernel_power(cp: Any, real: Any) -> Any:
+    """``periodogram_power`` for samples of dtype ``real``: compile point of the caller and of the register-pressure registry."""
+    return _entry(cp, real, "periodogram_power")
+
+
+def kernel_gram(cp: Any, real: Any) -> Any:
+    """``sincos_gram`` (the nine partial sums of the 3 x 3 normal equations); registry factory."""
+    return _entry(cp, real, "sincos_gram")
+
+
+def kernel_solve(cp: Any, real: Any) -> Any:
+    """``solve3`` (Gaussian elimination of the 3 x 3 system by one thread); registry factory."""
+    return _entry(cp, real, "solve3")
+
+
+def kernel_deflate(cp: Any, real: Any) -> Any:
+    """``apply_deflate`` (the target minus its projection); registry factory."""
+    return _entry(cp, real, "apply_deflate")
+
+
 def power_sincos(cp: Any, z: Any, yc: Any, y_ss: float, freqs: Any) -> Any:
     """Resident ``(F,)`` periodogram power of ``yc`` at each frequency in ``freqs`` (one block per frequency). ``z`` and ``yc`` are double precision ``(n,)``."""
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
@@ -160,7 +185,7 @@ def power_sincos(cp: Any, z: Any, yc: Any, y_ss: float, freqs: Any) -> Any:
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = cp.empty(int(f.shape[0]), dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-    power = _modules_for(z).get(cp).get_function("periodogram_power")
+    power = kernel_power(cp, z.dtype)
     power(
         (int(f.shape[0]),), (block_size_for(power, work_items=int(z.shape[0]), max_width=1024),), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss))
     )  # Intentional float64: the power kernel accumulates in double
@@ -174,9 +199,8 @@ def deflate_sincos(cp: Any, z: Any, y: Any, freq: float) -> Optional[Any]:
     import numpy as np
 
     n = int(z.shape[0])
-    mod = _modules_for(z).get(cp)
-    gram = mod.get_function("sincos_gram")
-    deflate = mod.get_function("apply_deflate")
+    gram = kernel_gram(cp, z.dtype)
+    deflate = kernel_deflate(cp, z.dtype)
     gram_threads = block_size_for(gram, work_items=n, max_width=1024)  # one partial per warp in a shared array of 32 rows: any warp multiple up to 1024
     blocks = max(1, min(64, (n + gram_threads - 1) // gram_threads))
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
@@ -187,7 +211,7 @@ def deflate_sincos(cp: Any, z: Any, y: Any, freq: float) -> Optional[Any]:
     out = cp.empty(n, dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     gram((blocks,), (gram_threads,), (z, y, cp.float64(freq), part, cp.int64(n)))
-    mod.get_function("solve3")(
+    kernel_solve(cp, z.dtype)(
         (1,), (32,), (part, cp.int32(blocks), coef)
     )  # launch-ok: one warp: threads 0-8 fold the nine partial sums, thread 0 solves the 3x3 system; a wider block adds nothing
     if not np.all(np.isfinite(cp.asnumpy(coef))):

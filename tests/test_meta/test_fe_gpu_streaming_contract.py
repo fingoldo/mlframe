@@ -88,6 +88,16 @@ def test_every_cpu_twin_names_a_real_module_with_a_numba_kernel():
     assert all(name in set(fe_modules()) for name in CPU_TWINS), "an entry names a module that is not an FE module"
 
 
+def test_every_gpu_backend_is_a_real_module_that_meets_the_contract_itself():
+    """A module that meets the GPU-kernel point through the fused kernels of another module: that module is named by the text, exists, and has no contract violation of its own."""
+    from mlframe.feature_selection._benchmarks.fe_gpu_coverage_inventory import GPU_BACKENDS, gpu_backend_problems
+
+    broken = {name: gpu_backend_problems(name) for name in GPU_BACKENDS if gpu_backend_problems(name)}
+    assert not broken, f"GPU_BACKENDS entries that no longer hold: {broken}"
+    assert GPU_BACKENDS and all(len(why) > 30 for _backend, why in GPU_BACKENDS.values())
+    assert all(name in set(fe_modules()) for name in GPU_BACKENDS), "an entry names a module that is not an FE module"
+
+
 def test_integer_code_kernels_meet_the_type_point_through_their_code_type_placeholder():
     """A kernel over integer codes of a caller-chosen width is typed by {DT} / {XT}; the bit-set packer module (typed by {DT}) has no violation about type placeholders."""
     from mlframe.feature_selection._benchmarks.fe_gpu_coverage_inventory import _TYPE_PLACEHOLDERS

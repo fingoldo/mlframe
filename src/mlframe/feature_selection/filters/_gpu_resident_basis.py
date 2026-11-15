@@ -185,13 +185,20 @@ _CLENSHAW_KERNELS: dict = {}
 _KERNEL_CACHE_LOCK = threading.RLock()
 
 
+def _basis_factories():
+    """The compile-point module of this file's kernels (imported on first use: it imports the sources from here)."""
+    from . import _gpu_resident_basis_factories
+
+    return _gpu_resident_basis_factories
+
+
 def _get_clenshaw_kernel(real_t: str = "double"):
     """Lazily compile-and-cache the ``clenshaw_basis`` RawKernel for the element type ``real_t`` (``"float"`` or ``"double"``); the recurrence runs in double either way."""
     with _KERNEL_CACHE_LOCK:
         kern = _CLENSHAW_KERNELS.get(real_t)
         if kern is None:
             import cupy as cp
-            kern = cp.RawKernel(_CLENSHAW_SRC.replace("{REAL}", real_t), "clenshaw_basis")
+            kern = _basis_factories().kernel_clenshaw(cp, np.float32 if real_t == "float" else np.float64)
             _CLENSHAW_KERNELS[real_t] = kern
     return kern
 
@@ -362,7 +369,7 @@ def _get_robust_scale_combine_kernel(cp, real_t: str = "double"):
     with _KERNEL_CACHE_LOCK:
         kern = _ROBUST_SCALE_COMBINE_KERNELS.get(real_t)
         if kern is None:
-            kern = cp.RawKernel(_ROBUST_SCALE_COMBINE_SRC.replace("{REAL}", real_t), "robust_scale_combine")
+            kern = _basis_factories().kernel_robust_scale(cp, np.float32 if real_t == "float" else np.float64)
             _ROBUST_SCALE_COMBINE_KERNELS[real_t] = kern
     return kern
 
@@ -478,8 +485,8 @@ def _get_heavy_tail_stats_tiled_kernel(cp, real_t: str = "double"):
     with _KERNEL_CACHE_LOCK:
         kern = _HEAVY_TAIL_STATS_TILED_KERNELS.get(real_t)
         if kern is None:
-            src = _HEAVY_TAIL_STATS_TILED_SRC.replace("{REAL}", real_t)
-            kern = (cp.RawKernel(src, "heavy_tail_stats_tiled"), cp.RawKernel(src, "heavy_tail_finish"))
+            f = _basis_factories()
+            kern = (f.kernel_heavy_tail(cp, np.float32 if real_t == "float" else np.float64), f.kernel_heavy_tail_finish(cp, np.float32 if real_t == "float" else np.float64))
             _HEAVY_TAIL_STATS_TILED_KERNELS[real_t] = kern
     return kern
 
@@ -582,7 +589,7 @@ def _get_basis_preprocess_kernel(cp, real_t: str = "double"):
     with _KERNEL_CACHE_LOCK:
         kern = _BASIS_PREPROCESS_KERNELS.get(real_t)
         if kern is None:
-            kern = cp.RawKernel(_BASIS_PREPROCESS_SRC.replace("{REAL}", real_t), "basis_preprocess")
+            kern = _basis_factories().kernel_preprocess(cp, np.float32 if real_t == "float" else np.float64)
             _BASIS_PREPROCESS_KERNELS[real_t] = kern
     return kern
 
@@ -618,7 +625,7 @@ def _get_basis_preprocess_nr_kernel(cp, real_t: str = "double"):
     with _KERNEL_CACHE_LOCK:
         kern = _BASIS_PREPROCESS_NR_KERNELS.get(real_t)
         if kern is None:
-            kern = cp.RawKernel(_BASIS_PREPROCESS_NR_SRC.replace("{REAL}", real_t), "basis_preprocess_nr")
+            kern = _basis_factories().kernel_preprocess_nr(cp, np.float32 if real_t == "float" else np.float64)
             _BASIS_PREPROCESS_NR_KERNELS[real_t] = kern
     return kern
 
@@ -669,7 +676,7 @@ def _col_meanstd_tiled_kernel(cp, real_t):
     with _KERNEL_CACHE_LOCK:
         kern = _COL_MEANSTD_TILED_KERNELS.get(real_t)
         if kern is None:
-            kern = cp.RawKernel(_COL_MEANSTD_TILED_SRC.replace("{REAL}", real_t), "col_meanstd_tiled")
+            kern = _basis_factories().kernel_meanstd(cp, np.float32 if real_t == "float" else np.float64)
             _COL_MEANSTD_TILED_KERNELS[real_t] = kern
     return kern
 
@@ -743,7 +750,7 @@ def _col_minmax_tiled_kernel(cp, real_t):
     with _KERNEL_CACHE_LOCK:
         kern = _COL_MINMAX_TILED_KERNELS.get(real_t)
         if kern is None:
-            kern = cp.RawKernel(_COL_MINMAX_TILED_SRC.replace("{REAL}", real_t), "col_minmax_tiled")
+            kern = _basis_factories().kernel_minmax(cp, np.float32 if real_t == "float" else np.float64)
             _COL_MINMAX_TILED_KERNELS[real_t] = kern
     return kern
 
@@ -871,52 +878,7 @@ def _gpu_evaluate_basis_matrix(cp, M, bases, degrees, *, robust_axis, heavy_host
     return cp.ascontiguousarray(cp.concatenate(cand_blocks, axis=1)), meta
 
 
-_ABS_CORR_SRC = render(r"""
-#define REAL_T {REAL}
-// coalescing-ok: the scalar path below 32 columns, measured faster than the tiled one at this width (tracker GC11-40: width 4 0.218 against 0.583 ms, width 16 0.314 against 0.574 ms at 100000 rows); the dispatch already takes the tiled kernel from 32 columns
-extern "C" __global__
-void abs_corr(const REAL_T* __restrict__ cand, const REAL_T* __restrict__ yc, const REAL_T* __restrict__ mu, const long long n,
-              const int m, const {ACC} Syy, {ACC}* __restrict__ out) {
-    // Centred accumulation: yc is the centred target and mu the per-column means, so the sums below are sum((v-mean)^2) and
-    // sum((v-mean)*yc) directly. The raw-power-sum form n*sum(v^2) - (sum v)^2 cancels to rounding noise once a column's mean is far
-    // above its spread, and then reported a corrupted |corr| or the -1.0 skip sentinel for a perfectly usable column.
-    int c = blockIdx.x;
-    if (c >= m) return;
-    __shared__ {ACC} sh[2];                       // sum_cc, sum_cy
-    int tid = threadIdx.x, nt = blockDim.x;
-    if (tid < 2) sh[tid] = 0.0;
-    __syncthreads();
-    {ACC} pcc = 0.0, pcy = 0.0;
-    {ACC} muc = ({ACC})mu[c];
-    for (long long i = tid; i < n; i += nt) {
-        {ACC} d = ({ACC})cand[i * (long long)m + c] - muc;
-        pcc += d * d; pcy += d * ({ACC})yc[i];
-    }
-    atomicAdd(&sh[0], pcc); atomicAdd(&sh[1], pcy);
-    __syncthreads();
-    if (tid == 0) {
-        {ACC} scc = sh[0], scy = sh[1];
-        {ACC} den = sqrt(scc * Syy);
-        {ACC} corr = den > 1e-300 ? fabs(scy / den) : 0.0;
-        bool ok = isfinite(corr) && (sqrt(scc) > 1e-12);   // same degenerate test as the cupy chain: cn = sqrt(sum cc^2) > 1e-12
-        out[c] = ok ? corr : -1.0;
-    }
-}
-""")
-_ABS_CORR_KERNELS: dict = {}
-
-
-def _get_abs_corr_kernel(real_t: str = "double"):
-    """Lazily compile-and-cache the ``abs_corr`` RawKernel for the input element type ``real_t`` (``"float"`` or ``"double"``); the sums accumulate in double either way."""
-    with _KERNEL_CACHE_LOCK:
-        kern = _ABS_CORR_KERNELS.get(real_t)
-        if kern is None:
-            import cupy as cp
-            kern = cp.RawKernel(_ABS_CORR_SRC.replace("{REAL}", real_t), "abs_corr")
-            _ABS_CORR_KERNELS[real_t] = kern
-    return kern
-
-
+from ._gpu_resident_basis_factories import _ABS_CORR_KERNELS, _ABS_CORR_SRC, _get_abs_corr_kernel  # noqa: F401 -- carved with its compile point
 def _gpu_batched_abs_corr(cp, cand, y_cont, mu=None):
     """|Pearson corr| of every column of ``cand`` (n, m) with the (n,) continuous ``y_cont``, on device.
     Degenerate columns (std <= 1e-12) or non-finite results -> -1.0 (so the host argmax skips them, mirroring

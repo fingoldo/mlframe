@@ -15,7 +15,6 @@ from collections.abc import Iterable, Sequence
 
 import numba
 import numpy as np
-from joblib import Parallel
 from numba.core import types
 
 from pyutilz.numbalib import set_numba_random_seed
@@ -352,7 +351,7 @@ def screen_predictors(
     prefer_engineered_rel_eps: float = 0.15, screen_fdr_null_permutations: int = 999, screen_fdr_null_quantile: float = 0.998,
     honest_null_codes_fn: "Callable | None" = None, screen_fdr_min_features: int = 30, screen_fdr_target_oversplit_ratio: float = 1.0,
     screen_fdr_min_rows_per_joint_cell: float = 7.0, existing_dcd_state: "DCDState | None" = None, seed_caches: "tuple | None" = None,
-    seed_maxt_floor_cache: "dict | None" = None, seed_workers_pool: "Parallel | None" = None,
+    seed_maxt_floor_cache: "dict | None" = None, seed_workers_pool: "object | None" = None,
 ) -> tuple:
     """Finds best predictors for the target; the full documentation is attached by ``set_doc``."""
     factors_names, max_confirmation_cand_nbins, parallel_kwargs, st, targets_data = _screen_predictors_step1_block(

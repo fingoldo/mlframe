@@ -16,7 +16,8 @@ import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
-from ._fe_gain_stats import quantile_codes
+from ._fe_gain_stats import has_few_distinct
+from ._gain_stats_codes_gpu import main_effect_z_columns, quantile_codes_columns
 from ._pair_residual_screen import FAMILY_ALPHA, MAX_COLS, N_BINS, main_effect_bins, pair_interaction_screen
 from ._y_encoding import FEW_CLASSES_MAX
 
@@ -39,18 +40,25 @@ def target_has_structure(X: "pd.DataFrame", target: np.ndarray, *, scan_rows: in
     base = float(t[even].mean())
     bins = main_effect_bins(int(even.sum()))
     stats = []
+    kept = []
     for c in cols:
         x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
         finite = np.isfinite(x)
-        if finite.sum() < _MIN_ROWS or np.unique(x[finite]).size <= FEW_CLASSES_MAX:
+        if finite.sum() < _MIN_ROWS or has_few_distinct(x[finite], FEW_CLASSES_MAX):
             continue
-        q = quantile_codes(x, bins)
-        cnt = np.bincount(q[even], minlength=bins)
-        mean = np.where(cnt > 0, np.bincount(q[even], weights=t[even], minlength=bins) / np.maximum(cnt, 1), base)
-        odd = ~even
-        d = (t[odd] - base) ** 2 - (t[odd] - mean[q[odd]]) ** 2
-        sd = float(d.std())
-        stats.append(float(d.mean()) / (sd / np.sqrt(len(d))) if sd > 0.0 else 0.0)
+        kept.append(x)
+    z_device = main_effect_z_columns(kept, bins, t, even, base) if kept else None  # codes and statistics of every kept column on the card; None -> the host loop below
+    if z_device is not None:
+        stats = [float(v) for v in z_device]
+    else:
+        codes = quantile_codes_columns(kept, bins)[0] if kept else []  # one device launch (or the host form) codes every kept column
+        for q in codes:
+            cnt = np.bincount(q[even], minlength=bins)
+            mean = np.where(cnt > 0, np.bincount(q[even], weights=t[even], minlength=bins) / np.maximum(cnt, 1), base)
+            odd = ~even
+            d = (t[odd] - base) ** 2 - (t[odd] - mean[q[odd]]) ** 2
+            sd = float(d.std())
+            stats.append(float(d.mean()) / (sd / np.sqrt(len(d))) if sd > 0.0 else 0.0)
     if stats and max(stats) > float(norm.isf(FAMILY_ALPHA / len(stats))):
         return True
     return bool(pair_interaction_screen(X, t if len(rows) == n else _expand(t, rows, n), cols, scan_rows=scan_rows, max_cols=MAX_COLS))

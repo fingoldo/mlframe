@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any, Optional
 
 import numpy as np
@@ -254,6 +255,31 @@ def _flat_within_stratum_shuffle(cp: Any, rs: Any, x_sorted_d: Any, z_rank_d: An
     return (flat & np.int64((1 << x_bits) - 1)).reshape(nperm, n)
 
 
+_MARGINAL_PERM_CACHE: list = []  # [(key, perm)], newest last; one entry: the permutations are a pure function of (seed, rows, draws)
+_MARGINAL_PERM_CACHE_MAX_BYTES = 256 * 1024 * 1024
+_MARGINAL_PERM_LOCK = threading.Lock()
+
+
+def _marginal_permutations(cp, rs, dev_seed: int, n: int, nperm: int):
+    """The ``(n, nperm)`` free-permutation matrix of the marginal null: int32 random keys from the seeded device generator, argsorted per column.
+
+    The draw is a pure function of ``(dev_seed, n, nperm)`` (``rs`` is freshly seeded with ``dev_seed`` by the caller), and a gate that nulls many candidate columns over the same rows asks for the
+    same matrix once per column; the argsort is the dominant cost of the call (305 ms at 1M rows x 25 draws), so the last matrix is kept and returned when the key matches (keyed by device too, guarded by a lock, bounded to
+    ``_MARGINAL_PERM_CACHE_MAX_BYTES``: a larger matrix is recomputed). The values are the ones a fresh draw gives, bit for bit."""
+    key = (int(cp.cuda.Device().id), int(dev_seed), int(n), int(nperm))
+    with _MARGINAL_PERM_LOCK:
+        for k, perm in _MARGINAL_PERM_CACHE:
+            if k == key:
+                return perm
+    keys = rs.randint(0, np.iinfo(np.int32).max, size=(n, nperm), dtype=cp.int32)
+    perm = device_argsort(keys, axis=0)
+    if int(perm.nbytes) <= _MARGINAL_PERM_CACHE_MAX_BYTES:
+        with _MARGINAL_PERM_LOCK:
+            _MARGINAL_PERM_CACHE.append((key, perm))
+            del _MARGINAL_PERM_CACHE[:-1]
+    return perm
+
+
 def conditional_perm_null_gpu(
     x: np.ndarray,
     y_i: np.ndarray,
@@ -325,8 +351,7 @@ def conditional_perm_null_gpu(
         # column with probability ~C(n,2)/2^32; a tie sorts in stable index order - a microscopically
         # non-uniform but valid permutation (this is a NULL estimate; selection-equivalent, same bar as the
         # device-RNG stream itself).
-        keys = rs.randint(0, np.iinfo(np.int32).max, size=(n, nperm), dtype=cp.int32)
-        perm = device_argsort(keys, axis=0)  # (n, nperm) free permutations
+        perm = _marginal_permutations(cp, rs, dev_seed, n, nperm)  # (n, nperm) free permutations
         Xp_d = dx[perm]  # (n, nperm) shuffled candidate columns
         nulls_dev = batched_cmi_gpu(Xp_d, y_h, None, return_device=True)  # null CMI vector stays RESIDENT
         return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)

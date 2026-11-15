@@ -81,6 +81,9 @@ _PUBLIC_API = {
 #: Re-exported from a package ``__init__`` (``from x import f`` or ``__all__``): the package's public surface for library
 #: users, so no production call site is expected. Classified as public API; new names must be added here with the export.
 _REEXPORTED_PUBLIC_API = {
+    "evaluate_candidates",  # the thread-worker entry of the candidate scorer, public name of the filters package (_legacy.__all__, mrmr/__init__); the screen scores serially now, the entry stays for callers that run it on their own threads
+    "sanitize",  # the dict / list copier, public name of the filters package (_legacy.__all__, mrmr/__init__); the per-worker copies of the retired scoring pool were its only internal use
+    "get_fleuret_criteria_confidence_parallel",  # the segmented Fleuret confirmation (the former joblib route, now sequential segments), public name of the filters package (_legacy, mrmr/__init__) and the reference of the worker-count tests
     "get_stage1_survivors",  # listed in the _shap_proxy_prefilter module __all__: public accessor for the stage-1 survivor mask
     "train_postcalibrators",  # re-exported by the calibration.post facade (from ._post_train_calibrators import ...)
     "_baseline_inputs_hash",
@@ -695,6 +698,11 @@ _KEPT_SUPERSEDED_REFERENCES = {
 #: lose the reference the test checks the production twin against; restoring a caller would route production to a variant that
 #: was measured as slower, coarser or unsafe.
 _KEPT_TEST_REFERENCES = {
+    "_bf_apply_gpu",  # the cupy-op chain the fused bf_apply kernel replaced; test_bf_apply_fused compares the kernel against it value for value
+    "_codes_from_edges_gpu",  # the cupy-op bin coder the disp_bin_codes kernel replaced; test_dispersion_column_kernel compares them
+    "_emit_kind_gpu",  # the cupy-op candidate emitter the disp_columns kernel replaced; test_dispersion_column_kernel compares them
+    "_fused_column",  # the per-candidate cupy build of one dispersion column, the reference of the one-launch disp_columns kernel (test_dispersion_column_kernel)
+    "fourier_block_host",  # the numba host evaluation of the Fourier / chirp block, the reference the device fourier_block is checked against (test_fourier_block_host_twin)
     "_rff_analytic_mixed_partial_energy",  # the closed-form mixed-partial energy of the RFF seeder, the oracle test_gradient_energy_gram checks the sampled estimate against
     "_member_pct_ranks_numpy",  # the numpy oracle of the nogil numba member-rank kernel; test_member_pct_ranks_kernel compares them
     "_bspline_basis_values_numpy",  # the numpy oracle of the compiled B-spline twin; test_bspline_basis_kernel compares them

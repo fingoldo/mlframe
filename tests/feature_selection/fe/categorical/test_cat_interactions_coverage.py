@@ -539,45 +539,41 @@ class TestPermKernelDispatch:
 
 
 class TestCatFEAutoBackendWorkGate:
-    """Regression for the 2026-07-16 fix: ``cfg.backend="auto"`` used to require BOTH
-    ``n_cols_eff >= 200`` AND ``n_samples >= 500_000`` as two INDEPENDENT thresholds, so a wide-but-
-    under-500k-row fit could never qualify for GPU no matter how many columns it had. Fixed to a
-    work-PRODUCT check against the SAME combined magnitude (200*500_000) plus a p-floor of 64."""
+    """``cfg.backend="auto"`` takes the device for the pair search when there are at least 64 candidate columns and the ``cat_pair_search_backend`` tuner entry says device for the row count."""
 
-    def test_old_rule_shape_still_qualifies(self):
-        """Old rule shape still qualifies."""
-        # The exact old-rule boundary (200 cols, 500_000 rows) must still qualify under the new rule
-        # (work = 100M, exactly at the floor) -- the fix must never NARROW what already qualified.
+    @pytest.fixture
+    def tuner_says(self, monkeypatch):
+        """Pin the tuner answer: the fixture returns the setter."""
+        from mlframe.feature_selection.filters import _cat_pair_search_tuner as tuner
+
+        def _set(device_rows_from):
+            """Make the row mark the only thing that decides."""
+            monkeypatch.setattr(tuner, "_SPEC", None)
+            monkeypatch.setattr(tuner, "DEVICE_FALLBACK_ROWS", device_rows_from)
+
+        return _set
+
+    def test_rows_at_or_above_the_tuner_mark_qualify(self, tuner_says):
+        """With the tuner at its row mark, the mark itself and larger fits qualify."""
+        tuner_says(500_000)
         assert _cat_fe_auto_wants_gpu(n_samples=500_000, n_cols_eff=200) is True
-
-    def test_wide_under_500k_rows_now_qualifies(self):
-        """Wide under 500k rows now qualifies."""
-        # The bug this fixes: n_cols_eff=1000 far exceeds the old col floor, and n_samples=200_000 was
-        # PREVIOUSLY DISQUALIFYING purely for being under 500_000, despite work=200M >> the 100M floor.
-        assert _cat_fe_auto_wants_gpu(n_samples=200_000, n_cols_eff=1000) is True
-
-    def test_tall_under_200_cols_now_qualifies(self):
-        """Tall under 200 cols now qualifies."""
-        # Symmetric case: n_cols_eff=100 was PREVIOUSLY DISQUALIFYING purely for being under 200,
-        # despite n_samples=2_000_000 giving work=200M >> the 100M floor.
         assert _cat_fe_auto_wants_gpu(n_samples=2_000_000, n_cols_eff=100) is True
 
-    def test_degenerate_tiny_p_declines_despite_huge_work(self):
-        """Degenerate tiny p declines despite huge work."""
-        # A huge-n/tiny-p shape clears the work product but has no real column-batching parallelism
-        # for the GPU kernel to amortize over -- the p-floor must still decline it.
-        assert _cat_fe_auto_wants_gpu(n_samples=1_000_000_000, n_cols_eff=1) is False
-
-    def test_genuinely_small_shape_declines(self):
-        """Genuinely small shape declines."""
-        assert _cat_fe_auto_wants_gpu(n_samples=1000, n_cols_eff=10) is False
-
-    def test_wellbore_100k_shape_still_declines(self):
-        """Wellbore 100k shape still declines."""
-        # Documented in the fix's docstring: this specific production shape sits under the 100M floor
-        # (work ~49.7M) even after the fix -- pinned here so a future recalibration is a deliberate,
-        # visible change rather than an accidental side effect.
+    def test_rows_below_the_tuner_mark_decline(self, tuner_says):
+        """Under the mark the host kernel keeps the fit, however many columns there are."""
+        tuner_says(500_000)
         assert _cat_fe_auto_wants_gpu(n_samples=99_401, n_cols_eff=500) is False
+
+    def test_a_lower_measured_mark_admits_the_wellbore_100k_shape(self, tuner_says):
+        """A host whose sweep put the crossover at 20000 rows takes the device for the 99401 x 500 production shape."""
+        tuner_says(20_000)
+        assert _cat_fe_auto_wants_gpu(n_samples=99_401, n_cols_eff=500) is True
+
+    def test_degenerate_tiny_p_declines_whatever_the_rows(self, tuner_says):
+        """Under 64 candidate columns the device declines, even at a mark of one row."""
+        tuner_says(1)
+        assert _cat_fe_auto_wants_gpu(n_samples=1_000_000_000, n_cols_eff=1) is False
+        assert _cat_fe_auto_wants_gpu(n_samples=1000, n_cols_eff=10) is False
 
 
 # ---------------------------------------------------------------------------

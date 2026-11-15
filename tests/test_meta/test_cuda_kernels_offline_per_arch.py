@@ -2,8 +2,13 @@
 
 Plan and critique: audits/2026-11-09/offline_ptxas_static_checks_plan.md (tracker GPU11-32). For each kernel variant (a source with the placeholders its
 call site fills) and each compute capability this asserts: the source has no unresolved placeholder, NVRTC and ptxas accept it (static shared memory
-over the limit is a ptxas error, so it fails here), every ``.entry`` has a resource block, none has a stack frame or spill, and ptxas prints no warning
+over the limit is a ptxas error, so it fails here), every ``.entry`` has a resource block, none has a register SPILL (spill stores or spill loads), and ptxas prints no warning
 outside the allowlist.
+
+A STACK FRAME is read but not failed: a thread-private array indexed at run time (class counters, tile buffers, a small solver matrix) lives in the stack frame by
+design, it is not a spill of live values. On sm_61, 32 distinct entries of the 276 variants carry one (32 bytes in ``modular_all_ops`` up to 3136 in ``treeshap_interactions``; the table is in the
+tracker, GPU11-70). The frame sizes are in the report rows; the kernels that have a device-checked register-pressure entry are pinned for ``local_size_bytes`` by
+``test_cuda_kernel_register_pressure.py``, with reasoned exemptions where the frame is the design.
 
 What this does NOT prove: production compiles through cupy's NVRTC and the driver JIT, while this uses the toolkit's ptxas on the PTX NVRTC emits (its
 ``.version`` line is lowered when NVRTC is newer than ptxas). It is a PTX-validity and resource check under the toolkit's ptxas, not a statement about the
@@ -155,7 +160,7 @@ _FAILURE_ROWS: list = []  # (variant id, arch, first line of the failure), the p
 @pytest.mark.parametrize("arch", _archs())
 @pytest.mark.parametrize("variant", _VARIANTS, ids=_variant_id)
 def test_kernel_assembles_without_spill_on_arch(variant: KernelVariant, arch: int, tmp_path):
-    """NVRTC then ptxas -v: compiles, one resource block per entry, no stack frame or spill, no unlisted warning."""
+    """NVRTC then ptxas -v: compiles, one resource block per entry, no register spill (stack frames are reported, not failed), no unlisted warning."""
     try:
         entry_names = _check_variant(variant, arch, tmp_path)
     except BaseException as exc:  # pytest.fail raises a BaseException subclass; recorded, then re-raised unchanged

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 import os
 
@@ -109,6 +111,21 @@ void radix_select_f32_v4(const float* __restrict__ data, const long long n, cons
 _RADIX_SELECT_F32_V4_KERNEL = None
 
 
+def kernel_v4(cp: Any, real: Any = None) -> Any:
+    """``radix_select_f32_v4`` (float32 values; ``real`` unused): compile point of the getter and of the register-pressure registry."""
+    return cp.RawKernel(_RADIX_SELECT_F32_V4_SRC, "radix_select_f32_v4")
+
+
+def kernel_v5(cp: Any, real: Any = None) -> Any:
+    """``radix_select_f32_v5`` (four loads per thread); registry factory."""
+    return cp.RawKernel(_RADIX_SELECT_F32_V5_SRC, "radix_select_f32_v5")
+
+
+def kernel_v5_winmap(cp: Any, real: Any = None) -> Any:
+    """``radix_select_f32_v5`` with the window table, capped at 40 registers per thread; registry factory."""
+    return cp.RawKernel(_RADIX_SELECT_F32_V5_WINMAP_SRC, "radix_select_f32_v5", options=("--maxrregcount=40",))
+
+
 def _get_radix_select_f32_v4_kernel():
     """The compaction v4 f32 radix select (``None`` when ``MLFRAME_RADIX_F32_V4=0`` or it does not compile); bit-identical order statistics to v3."""
     global _RADIX_SELECT_F32_V4_KERNEL
@@ -118,7 +135,7 @@ def _get_radix_select_f32_v4_kernel():
         return None
     if _RADIX_SELECT_F32_V4_KERNEL is None:
         try:
-            _RADIX_SELECT_F32_V4_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_V4_SRC, "radix_select_f32_v4")
+            _RADIX_SELECT_F32_V4_KERNEL = kernel_v4(cp)
         except Exception:
             log_throttle(logging.getLogger(__name__), "gpu_select.f32_v4_compile", logging.WARNING, "f32 v4 compaction kernel compile failed; v3", exc_info=True)
             _RADIX_SELECT_F32_V4_KERNEL = False
@@ -253,7 +270,7 @@ def _get_radix_select_f32_v5_kernel():
     if os.environ.get("MLFRAME_RADIX_F32_WINMAP", "1").strip().lower() in ("1", "true", "on", "yes"):
         if _RADIX_SELECT_F32_V5_WINMAP_KERNEL is None:
             try:
-                _RADIX_SELECT_F32_V5_WINMAP_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_V5_WINMAP_SRC, "radix_select_f32_v5", options=("--maxrregcount=40",))
+                _RADIX_SELECT_F32_V5_WINMAP_KERNEL = kernel_v5_winmap(cp)
             except Exception:
                 log_throttle(logging.getLogger(__name__), "gpu_select.f32_v5_winmap_compile", logging.WARNING, "f32 v5 window-table kernel compile failed; plain v5", exc_info=True)
                 _RADIX_SELECT_F32_V5_WINMAP_KERNEL = False
@@ -261,7 +278,7 @@ def _get_radix_select_f32_v5_kernel():
             return _RADIX_SELECT_F32_V5_WINMAP_KERNEL
     if _RADIX_SELECT_F32_V5_KERNEL is None:
         try:
-            _RADIX_SELECT_F32_V5_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_V5_SRC, "radix_select_f32_v5")
+            _RADIX_SELECT_F32_V5_KERNEL = kernel_v5(cp)
         except Exception:
             log_throttle(logging.getLogger(__name__), "gpu_select.f32_v5_compile", logging.WARNING, "f32 v5 four-loads kernel compile failed; v4", exc_info=True)
             _RADIX_SELECT_F32_V5_KERNEL = False

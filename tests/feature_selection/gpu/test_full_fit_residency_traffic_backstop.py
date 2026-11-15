@@ -55,7 +55,10 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 # LOF, wavelet and the rest), and the count scales with the number of families, 1343 being the figure of the older default set. Largest uploaders by site in that run: ``resident_operand``
 # 2362 (268 MB), ``upload_as_float64`` 1645 (1.2 GB), ``_null_max_perm_gpu._permuted_labels`` 702, ``gpu_materialise_discretize_codes_host`` 536, ``group_stats_device`` 280. Budget ~1.5x the
 # observed count, same policy as before.
-_BULK_H2D_BUDGET = 12500
+# Tightened 2026-11-15 on request, from 12500 to 10200 (about 1.2x over the largest count of any clean run on this fixture: 8493 on 2026-11-10, 8369 on 2026-11-15, the other runs 6961-8359). Clean means
+# the only process on the card: a run that shared the card with another job counted 23537 bulk H2D ops through out-of-memory fallbacks (the flips loop then reads its columns back on the host), and
+# pinning the free-VRAM reading (as test_cmi_residency_traffic.py does) measured 7263 but made the fit take 882 s of the 900 s test limit, so the fixture does not pin it.
+_BULK_H2D_BUDGET = 10200
 _BULK_D2H_BUDGET = 1200
 
 

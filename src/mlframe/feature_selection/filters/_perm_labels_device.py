@@ -62,13 +62,22 @@ _KERNELS: dict = {}
 _KERNELS_LOCK = threading.Lock()
 
 
+def kernel_fy(cp, real=None):
+    """``fy_permutations`` (Fisher-Yates label permutations; ``real`` unused): compile point of ``_kernels`` and of the register-pressure registry."""
+    return cp.RawModule(code=_FY_SRC).get_function("fy_permutations")
+
+
+def kernel_pack(cp, real=None):
+    """``pack_class_bits`` (class bit sets of the permuted labels); registry factory."""
+    return cp.RawModule(code=_FY_SRC).get_function("pack_class_bits")
+
+
 def _kernels(cp):
     """The compiled ``(fy_permutations, pack_class_bits)`` pair."""
     with _KERNELS_LOCK:
         if not _KERNELS:
-            module = cp.RawModule(code=_FY_SRC)
-            _KERNELS["fy"] = module.get_function("fy_permutations")
-            _KERNELS["pack"] = module.get_function("pack_class_bits")
+            _KERNELS["fy"] = kernel_fy(cp)
+            _KERNELS["pack"] = kernel_pack(cp)
     return _KERNELS["fy"], _KERNELS["pack"]
 
 

@@ -5,26 +5,20 @@ Usage (elevated shell with the CUPTI directory on ``PATH`` for the nvprof column
     python -m mlframe.feature_selection._benchmarks.bench_fmad_ab
 
 Each case builds its inputs, runs the entry point once warm and then ``REPS`` times with ``cupy`` synchronisation (the result stays on the device: no download in the timing), once per setting (interleaved), and prints the median milliseconds of both and the
-maximum absolute difference of the outputs. A kernel whose "free" column is not clearly faster keeps the flag: the equality with the cupy chain it replaces costs nothing. Kernels of the list
-below that are not measured yet are named in ``PENDING`` so the next session can add a case.
+maximum absolute difference of the outputs. A kernel whose "free" column is not clearly faster keeps the flag: the equality with the cupy chain it replaces costs nothing. Kernels that ship with the flag and have no case yet are named in ``PENDING`` so the next session can add one.
 """
 
 from __future__ import annotations
 
 import time
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import numpy as np
 
 REPS = 25
 
 #: production kernels compiled with ``--fmad=false`` that have no case below yet (module, kernel)
-PENDING = (
-    ("_honest_null_device", "root_split_stats / root_split_stats_v2 / root_split_stats_k2"),
-    ("_honest_null_k3", "root_split_stats_k3"),
-    ("_honest_null_k4", "root_split_stats_k4 / k4f / k5"),
-    ("_offset_product_gpu", "scan_offset_products"),
-)
+PENDING: "tuple[tuple[str, str], ...]" = ()
 
 
 def _median_ms(cp: Any, fn: Callable[[], Any]) -> float:
@@ -91,7 +85,60 @@ def _case_basis_fused(cp: Any) -> "tuple[Callable[[bool], Callable[[], Any]], st
     return make, "build_basis_fused hermite (1000000 rows x 7, float32)"
 
 
-CASES = (_case_bspline, _case_bf_apply, _case_basis_fused)
+def _case_honest_null(cp: Any) -> "tuple[Callable[[bool], Callable[[], Any]], str]":
+    """The whole device root-split pipeline of the honest null (``root_split_stats`` v1 / v2 / k2 / k3 / k4 / k5 kernels as the dispatch picks them), n = 100000, 100 permutations, 2 classes.
+
+    ``--fmad=false`` is stripped from every ``cp.RawKernel`` those modules compile (their kernel globals are reset so each setting recompiles)."""
+    import tests.feature_selection.discretization.test_honest_null_device_equivalence as eq
+    from mlframe.feature_selection.filters import _honest_null_device as hd
+    from mlframe.feature_selection.filters import _honest_null_k3 as k3
+    from mlframe.feature_selection.filters import _honest_null_k4 as k4
+
+    n = 100_000
+    args = eq._inputs(n, 2, 100, seed=2)
+    no_nan = np.zeros(args[0].shape, dtype=bool)
+    real_raw_kernel = cp.RawKernel
+    modules = (hd, k3, k4)
+
+    def make(free: bool) -> Callable[[], Any]:
+        def raw_kernel(code, name, options=(), *a, **k):
+            return real_raw_kernel(code, name, tuple(o for o in options if not (free and o == "--fmad=false")), *a, **k)
+
+        cp.RawKernel = raw_kernel
+        for mod in modules:  # every module-level kernel cache is dropped: the next launch compiles with the setting of this build
+            for attr in [a for a in vars(mod) if a.startswith("_kernel")]:
+                setattr(mod, attr, None)
+        return lambda: cast(Any, hd).honest_null_columns_device(*args, no_nan)
+
+    return make, "honest-null device pipeline (100000 rows, 100 permutations, 8 columns)"
+
+
+def _case_offset_scan(cp: Any) -> "tuple[Callable[[bool], Callable[[], Any]], str]":
+    """``scan_offset_products`` (the offset-product scan kernel) on the sweep inputs of the kernel-tuning entry: 100000 rows, a 12-column pool."""
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache import _auto_tune_sweeps_c as sweeps
+    from mlframe.feature_selection.filters import _offset_product_gpu as op
+
+    U, tasks, yr, codes, ky, clips = sweeps._scan_inputs(100_000, 12)
+    real_raw_kernel = cp.RawKernel
+
+    def make(free: bool) -> Callable[[], Any]:
+        def raw_kernel(code, name, options=(), *a, **k):
+            return real_raw_kernel(code, name, tuple(o for o in options if not (free and o == "--fmad=false")), *a, **k)
+
+        cp.RawKernel = raw_kernel
+        op._KERNEL = None  # recompile with the setting of this build
+        return lambda: op.scan_offset_products_gpu(U, tasks, yr, codes, ky, sweeps.N_BINS, clips)
+
+    return make, "scan_offset_products (100000 rows, 12-column pool)"
+
+
+CASES = (_case_bspline, _case_bf_apply, _case_basis_fused, _case_honest_null, _case_offset_scan)
+
+
+def _host(cp: Any, out: Any) -> "tuple":
+    """The outputs of a case as a tuple of host arrays (a case returns one device array or a tuple of host / device arrays)."""
+    items = out if isinstance(out, tuple) else (out,)
+    return tuple(cp.asnumpy(i) if hasattr(i, "get") else np.asarray(i) for i in items)
 
 
 def main() -> None:
@@ -101,10 +148,10 @@ def main() -> None:
     for case in CASES:
         make, label = case(cp)
         shipped, free = make(False), None
-        out_shipped = cp.asnumpy(shipped())
+        out_shipped = _host(cp, shipped())
         free = make(True)
-        out_free = cp.asnumpy(free())
-        diff = float(np.nanmax(np.abs(np.asarray(out_shipped, dtype=np.float64) - np.asarray(out_free, dtype=np.float64))))  # Intentional float64: comparison statistic
+        out_free = _host(cp, free())
+        diff = max(float(np.nanmax(np.abs(np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64)))) for a, b in zip(out_shipped, out_free))  # Intentional float64: comparison statistic
         t_free = _median_ms(cp, free)
         shipped = make(False)
         t_ship = _median_ms(cp, shipped)
