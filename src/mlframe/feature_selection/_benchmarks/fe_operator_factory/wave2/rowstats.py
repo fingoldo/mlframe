@@ -63,7 +63,7 @@ def fit_rowstat(X: np.ndarray, y: np.ndarray, src: list, scan_rows: int = 20000,
         """Train MI of statistic ``nm`` over the column subset ``S``."""
         return mi_b(qbin(row_stat(nm, Zs[:, list(S)]), 10), yb, 10, 10)
 
-    best = (-1.0, None, None)
+    best: tuple[Any, Any, Any] = (-1.0, None, None)
     for nm in STATS:
         m, S = max(((score(nm, S), list(S)) for S in itertools.combinations(range(p), 2)), key=lambda t: t[0])
         while len(S) < p:
@@ -79,7 +79,7 @@ def fit_rowstat(X: np.ndarray, y: np.ndarray, src: list, scan_rows: int = 20000,
     return {"kind": "row_stat", "src": [src[j] for j in S], "stat": best[1], "mu": mu[S].tolist(), "sd": sd[S].tolist(), "train_mi": float(best[0])}
 
 
-def replay_rowstat(recipe: dict, X) -> np.ndarray:
+def replay_rowstat(recipe: dict, X) -> Any:
     """Transform-time row statistic from the recipe and the source columns of ``X`` (DataFrame: by name, ndarray: by position)."""
     if hasattr(X, "columns"):
         A = np.column_stack([np.asarray(X[s], dtype=np.float64) for s in recipe["src"]])

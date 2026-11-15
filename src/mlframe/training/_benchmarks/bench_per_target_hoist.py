@@ -172,7 +172,7 @@ def _cprofile_one_run(df: pd.DataFrame, n_targets: int) -> dict:
     return {"top_15_cumulative": sio.getvalue().splitlines()[:60]}
 
 
-def main() -> dict:
+def main() -> Any:
     # Two scales: a small sanity run + a larger run that more closely mirrors a real suite.
     # Small run also serves as a CI-fast smoke under the biz_value test (which calls this
     # main()).

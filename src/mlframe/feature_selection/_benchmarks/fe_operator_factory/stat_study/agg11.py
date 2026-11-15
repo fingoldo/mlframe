@@ -67,9 +67,9 @@ for nn in (5000, 30000):
 
         ftop3 = None
         res = []
-        for nm, f in (("F_near", fnear), ("F_syn", fsyn)):
-            rec = np.mean([f(r) for r in rs if r["planted"]])
-            kept = np.mean([sum(f(r) for r in rs[s * 10 : (s + 1) * 10]) for s in range(seeds)])
+        for nm, fn in (("F_near", fnear), ("F_syn", fsyn)):
+            rec = np.mean([fn(r) for r in rs if r["planted"]])
+            kept = np.mean([sum(fn(r) for r in rs[s * 10 : (s + 1) * 10]) for s in range(seeds)])
             res.append(f"{nm}: recall {rec:.2f} kept {kept:.1f}")
         top3 = []
         for s in range(seeds):

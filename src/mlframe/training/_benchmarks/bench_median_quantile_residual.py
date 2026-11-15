@@ -227,7 +227,7 @@ def _make_inputs(n: int, n_bins: int, seed: int = 17):
     return y, bin_idx.astype(np.intp), n_bins_eff
 
 
-def run() -> dict:
+def run() -> Any:
     sizes = [(100_000, 10), (100_000, 20), (1_000_000, 10), (1_000_000, 20)]
     out: Any = {"median": [], "quantile": []}
     for n, n_bins in sizes:

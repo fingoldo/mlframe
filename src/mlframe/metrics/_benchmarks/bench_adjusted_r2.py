@@ -33,7 +33,7 @@ def _r2(yt: np.ndarray, yp: np.ndarray) -> Any:
     return 1.0 - ((yt - yp) ** 2).sum() / ((yt - yt.mean()) ** 2).sum()
 
 
-def _adj_r2(yt: np.ndarray, yp: np.ndarray, p: int) -> float:
+def _adj_r2(yt: np.ndarray, yp: np.ndarray, p: int) -> Any:
     n = len(yt)
     return 1.0 - (1.0 - _r2(yt, yp)) * (n - 1) / (n - p - 1)
 

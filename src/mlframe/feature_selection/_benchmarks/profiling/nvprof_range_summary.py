@@ -4,9 +4,11 @@ import re, sys
 with open(sys.argv[1], encoding="utf-8", errors="ignore") as _fh:
     txt = _fh.read().splitlines()
 def tms(s):
+    m = re.match(r"([\d.]+)(ns|us|ms|s)$", s)
     assert m is not None
-    m = re.match(r"([\d.]+)(ns|us|ms|s)$", s); return float(m.group(1)) * {"ns": 1e-6, "us": 1e-3, "ms": 1, "s": 1000}[m.group(2)]
-cur = None; res = {}
+    return float(m.group(1)) * {"ns": 1e-6, "us": 1e-3, "ms": 1, "s": 1000}[m.group(2)]
+cur = None
+res: dict[Any, Any] = {}
 for l in txt:
     m = re.search(r'Range "([^"]+)"', l)
     if m: cur = m.group(1); res.setdefault(cur, [0, 0.0, 0, 0.0]); continue
