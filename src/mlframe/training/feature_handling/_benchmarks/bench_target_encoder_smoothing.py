@@ -136,6 +136,7 @@ def main():
                     best_auc, best_sm = auc, sm
                 if ll < best_ll:
                     best_ll, best_sm_ll = ll, sm
+            assert best_sm is not None and best_sm_ll is not None
             wins[best_sm] += 1
             wins_ll[best_sm_ll] += 1
 

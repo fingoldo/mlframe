@@ -4,11 +4,12 @@ silently drift out of sync across copies.
 """
 from __future__ import annotations
 
+import cProfile
 import io
 import pstats
 
 
-def profile_table(profiler: pstats.Stats, sort_key: str, top_n: int) -> str:
+def profile_table(profiler: cProfile.Profile, sort_key: str, top_n: int) -> str:
     """Render the top ``top_n`` rows of ``profiler`` sorted by ``sort_key`` (e.g. "cumulative"/"tottime") as text."""
     s = io.StringIO()
     pstats.Stats(profiler, stream=s).sort_stats(sort_key).print_stats(top_n)

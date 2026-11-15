@@ -35,7 +35,7 @@ def compute_fisher_weighted_residual_features(
     eps: float = 0.05,
     standardize: bool = True,
     column_prefix: str = "fishres",
-    dtype: np.dtype = np.float32,
+    dtype: Any = np.float32,
 ) -> pl.DataFrame:
     """Fisher-weighted residual band features.
 

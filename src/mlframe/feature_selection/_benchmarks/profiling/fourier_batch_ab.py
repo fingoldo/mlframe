@@ -19,8 +19,8 @@ P: dict[str, Any] = dict(min_val_corr=0.15, min_rows=500, max_freqs=6)
 def loop(): return [_detect_fourier_freqs_for_col(z, y, f_grid=g, **P) for z, y, g in jobs]
 def batch(): return detect_fourier_freqs_batch(jobs, **P)
 res = {}
-for name, f in (("loop", loop), ("batch", batch), ("loop", loop), ("batch", batch)):
-    f(); cp.cuda.Stream.null.synchronize(); t = time.perf_counter(); out = f(); cp.cuda.Stream.null.synchronize(); dt_ = time.perf_counter() - t
+for name, fn in (("loop", loop), ("batch", batch), ("loop", loop), ("batch", batch)):
+    fn(); cp.cuda.Stream.null.synchronize(); t = time.perf_counter(); out = fn(); cp.cuda.Stream.null.synchronize(); dt_ = time.perf_counter() - t
     res[name] = out; print(name, round(dt_, 2), "s")
 tol = 8 * float(np.finfo(dt).eps)
 same = all(len(a) == len(b) and all(abs(x - y) <= max(tol, 1e-6) for x, y in zip(a, b)) for a, b in zip(res["loop"], res["batch"]))

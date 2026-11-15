@@ -28,6 +28,9 @@ from mlframe.feature_selection.wrappers.rfecv._stability_select import select_op
 class _Mock:
     """Minimal carrier exposing the attributes select_optimal_nfeatures_ reads."""
 
+    cv_results_: dict[str, Any]
+    n_features_: int
+
     def __init__(self, nfeat, smooth_perf):
         self.mean_perf_weight = 1.0
         self.std_perf_weight = 0.1

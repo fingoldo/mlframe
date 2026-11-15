@@ -17,6 +17,7 @@ Two bit-identical hoists (row-order invariance of the histogram-plug-in CMI/MI):
 Run:  python -m mlframe.feature_selection.filters._benchmarks.bench_perm_null_row_order_hoist
 """
 from __future__ import annotations
+from typing import Any
 
 import time
 import numpy as np
@@ -101,7 +102,7 @@ def _best_of(fn, args, reps=15):
 def main():
     print("=== CONDITIONAL loop (empty_like+scatter removed) ===")
     for n, ns, kx, ky in [(2000, 200, 8, 4), (10000, 1500, 12, 4), (30000, 3000, 16, 6)]:
-        base = _make_cond(n, ns, kx, ky)
+        base: tuple[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any] = _make_cond(n, ns, kx, ky)
         seed = 12345
         to, ro = _best_of(lambda: _cond_old(*base, np.random.default_rng(seed)), ())
         tn, rn = _best_of(lambda: _cond_new(*base, np.random.default_rng(seed)), ())

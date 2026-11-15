@@ -12,6 +12,7 @@ Usage::
     python -m mlframe.feature_selection._benchmarks.profile_hotspots --n 5000 --p 200 --runs 2
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import argparse
 import cProfile
@@ -86,7 +87,7 @@ def _format_top(stats: pstats.Stats, top_n: int = 30) -> str:
     """Return a markdown-formatted top-N table by cumulative time, filtered to
     mlframe + numba-dispatched functions (drops Python stdlib noise)."""
     out = io.StringIO()
-    stats.stream = out
+    cast(Any, stats).stream = out
     stats.sort_stats("cumulative")
     stats.print_stats(top_n)
     return out.getvalue()
@@ -94,7 +95,7 @@ def _format_top(stats: pstats.Stats, top_n: int = 30) -> str:
 
 def _filter_to_filters(stats: pstats.Stats, top_n: int = 30) -> str:
     out = io.StringIO()
-    stats.stream = out
+    cast(Any, stats).stream = out
     stats.sort_stats("cumulative")
     stats.print_stats("filters", top_n)
     return out.getvalue()

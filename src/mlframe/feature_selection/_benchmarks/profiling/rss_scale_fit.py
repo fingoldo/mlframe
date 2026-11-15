@@ -51,8 +51,7 @@ base = proc.memory_info().rss
 peak = [base]
 events: list[Any] = []
 stop = threading.Event()
-main_id = threading.main_thread().ident
-assert main_id is not None
+main_id: int = threading.main_thread().ident or 0
 
 
 def proc_cpu() -> Any:
