@@ -13,6 +13,8 @@ import threading
 
 import numpy as np
 
+from ._kernel_types import render
+
 from ._internals import GPU_MAX_BLOCK_SIZE
 from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 
@@ -63,6 +65,75 @@ def joint_mi_from_flat_counts(
     return joint_mi_out
 
 # ============================================================================
+
+_JOINT_MI_SRC = render(
+    r"""
+extern "C" __global__
+void pair_joint_mi(const int* __restrict__ counts, const int* __restrict__ offsets, const long long* __restrict__ merged, const int nbins_y, const {ACC} n_total,
+                   int* __restrict__ marg_m_flat, {ACC}* __restrict__ out) {
+    // One block per pair k: its (merged, nbins_y) joint table starts at offsets[k] in the flat count buffer. MI = sum over non-empty cells of (c / n) * log(c * n / (marg_m * marg_y)), the
+    // expression of ``joint_mi_from_flat_counts``. The two marginals are exact integer sums (shared atomics for the target marginal, global atomics into `marg_m_flat` for the merged-row
+    // marginal, whose row r of pair k lives at offsets[k] / nbins_y + r), the cell terms are summed per thread and combined by a fixed-order tree: the same value on every run.
+    extern __shared__ int sh_my[];
+    __shared__ {ACC} red[256];
+    const int k = blockIdx.x;
+    const long long cells = merged[k] * (long long)nbins_y;
+    const int* tab = counts + offsets[k];
+    int* mm_row = marg_m_flat + offsets[k] / nbins_y;
+    for (int y = threadIdx.x; y < nbins_y; y += blockDim.x) sh_my[y] = 0;
+    __syncthreads();
+    for (long long e = threadIdx.x; e < cells; e += blockDim.x) {
+        const int c = tab[e];
+        if (c != 0) {
+            atomicAdd(&sh_my[(int)(e % nbins_y)], c);
+            atomicAdd(&mm_row[e / nbins_y], c);
+        }
+    }
+    __syncthreads();
+    {ACC} part = 0.0;
+    for (long long e = threadIdx.x; e < cells; e += blockDim.x) {
+        const int c = tab[e];
+        if (c > 0) {
+            const {ACC} mm = ({ACC})mm_row[e / nbins_y], my = ({ACC})sh_my[(int)(e % nbins_y)];
+            part += (({ACC})c / n_total) * log((({ACC})c * n_total) / (mm * my));
+        }
+    }
+    red[threadIdx.x] = part;
+    __syncthreads();
+    for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (threadIdx.x < s) red[threadIdx.x] += red[threadIdx.x + s];
+        __syncthreads();
+    }
+    if (threadIdx.x == 0) out[k] = red[0];
+}
+""",
+)
+_JOINT_MI_KERNEL: Any = None
+_JOINT_MI_MAX_SHARED_Y = 8192  # nbins_y whose int32 marginal fits the shared budget; wider targets take the host reduction
+
+
+def kernel(cp: Any, real: Any = None) -> Any:
+    """``pair_joint_mi`` (double accumulators); compiled once. The register-pressure registry compiles it through this."""
+    global _JOINT_MI_KERNEL
+    if _JOINT_MI_KERNEL is None:
+        _JOINT_MI_KERNEL = cp.RawKernel(_JOINT_MI_SRC, "pair_joint_mi")
+    return _JOINT_MI_KERNEL
+
+
+def joint_mi_on_device(cp: Any, joint_counts_flat: Any, joint_offsets_gpu: Any, pair_merged_sizes: np.ndarray, nbins_y: int, n_pairs: int, n_total: float) -> np.ndarray:
+    """Per-pair joint MI (nats) from the flat device count buffer in one launch: only the ``n_pairs`` results cross back, not the whole count buffer.
+
+    Equal to :func:`joint_mi_from_flat_counts` up to the order of the double sums (~1e-13)."""
+    from pyutilz.performance.gpu_hw_launch import block_size_for
+
+    kern = kernel(cp)
+    threads = min(256, block_size_for(kern, dyn_smem=4 * int(nbins_y), work_items=int(pair_merged_sizes.max()) * int(nbins_y)))
+    threads = 1 << (int(threads).bit_length() - 1)  # a power of two for the reduction tree
+    scratch = cp.zeros(int(pair_merged_sizes.sum()), dtype=cp.int32)
+    out = cp.zeros(int(n_pairs), dtype=cp.float64)  # Intentional float64: MI statistic ranked at full precision
+    kern((int(n_pairs),), (threads,), (joint_counts_flat, joint_offsets_gpu, cp.asarray(pair_merged_sizes.astype(np.int64)), np.int32(nbins_y), np.float64(n_total), scratch, out), shared_mem=4 * int(nbins_y))
+    return np.asarray(cp.asnumpy(out))
+
 
 def mi_direct_gpu_batched_pairs(
     factors_data: np.ndarray,
@@ -163,6 +234,8 @@ def mi_direct_gpu_batched_pairs(
                 joint_counts_flat, n_rows, n_pairs, nbins_y,
             ),
         )
+    if int(nbins_y) <= _JOINT_MI_MAX_SHARED_Y:
+        return joint_mi_on_device(cp, joint_counts_flat, joint_offsets_gpu, pair_merged_sizes, int(nbins_y), n_pairs, float(n_rows))
     joint_counts_host = cp.asnumpy(joint_counts_flat)
 
     # Per-pair MI from joint counts (numpy). joint shape = (merged_size, nbins_y); marg_m = joint.sum(axis=1); marg_y = joint.sum(axis=0); total = n_rows.

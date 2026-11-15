@@ -78,6 +78,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_spline",
         ("float32", "float64"),
     ),
+    "gpu_pairs.pair_joint_mi": (
+        "mlframe.feature_selection.filters._gpu_pairs",
+        "kernel",
+        ("float64",),
+    ),
     "rolling_window_gpu.rolling_stat_past_only": (
         "mlframe.feature_selection.filters._rolling_window_gpu",
         "kernel",
