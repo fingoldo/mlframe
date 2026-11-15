@@ -87,7 +87,7 @@ def _build_basis(cp, x, degree: int, basis_id: int, dtype):
 
 
 def _bf_apply_gpu(cp, bf_name: str, A, Bm):
-    """Elementwise binary function on (n, P) device matrices, bit-parity with _DEFAULT_BIN_FUNCS."""
+    """Elementwise binary function on (n, P) device matrices, bit-parity with _DEFAULT_BIN_FUNCS; the cupy-op reference of the fused ``bf_apply`` kernel (``_bf_apply_checked``) that the search runs."""
     if bf_name == "mul":
         return A * Bm
     if bf_name == "add":
@@ -118,43 +118,56 @@ def _rank_bin_batched_gpu(cp, M, n_bins: int):
     return batched_quantile_bin_gpu(M, n_bins, byte_codes=True)
 
 
-_FINITE_SRC = render(
+_BF_SRC = render(
     r"""
 extern "C" __global__
-void col_all_finite(const {REAL}* __restrict__ x, const long long n, const int p, const long long rows_per_block, int* __restrict__ bad) {
-    // x is (n, p) row-major: the threads of a warp read consecutive columns of one row (coalesced); blockIdx.y owns a slab of rows, so the grid fills the card at p = 100
-    const int c = blockIdx.x * blockDim.x + threadIdx.x;
-    if (c >= p) return;
-    const long long r0 = (long long)blockIdx.y * rows_per_block;
-    const long long r1 = min(n, r0 + rows_per_block);
-    for (long long r = r0; r < r1; ++r) {
-        if (!isfinite(x[r * p + c])) {
-            bad[c] = 1;
-            return;
-        }
+void bf_apply(const {REAL}* __restrict__ A, const {REAL}* __restrict__ B, const int bf, const long long total, const int P, {REAL}* __restrict__ C, int* __restrict__ bad) {
+    // C = bf(A, B) elementwise on (n, P) row-major matrices, and bad[column] = 1 when A, B or the result holds a non-finite value in that column. The matrices are read and written once
+    // (the former chain of cupy elementwise ops made 3 to 7 passes per function, plus one reduction launch per matrix for the finiteness check). Compiled with --fmad=false so a*b+eps
+    // rounds as the separate cupy multiply and add did.
+    const long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (t >= total) return;
+    const {REAL} a = A[t];
+    const {REAL} b = B[t];
+    const {REAL} eps = ({REAL})1e-9;
+    {REAL} r;
+    if (bf == 0) r = a * b;
+    else if (bf == 1) r = a + b;
+    else if (bf == 2) r = a - b;
+    else if (bf == 3) r = a / (b == ({REAL})0.0 ? eps : b);   // _safe_div: exact sign-preserving divide, eps only at an exact zero
+    else if (bf == 4) r = {ATAN2}(a, b);
+    else {                                                    // logabs: sign(a*b + eps) * (log(|a|+eps) + log(|b|+eps))
+        const {REAL} s = a * b + eps;
+        const {REAL} sg = ({REAL})((s > ({REAL})0.0) - (s < ({REAL})0.0));
+        r = sg * ({LOG}({FABS}(a) + eps) + {LOG}({FABS}(b) + eps));
     }
+    C[t] = r;
+    if (!isfinite(a) || !isfinite(b) || !isfinite(r)) bad[t % P] = 1;
 }
 """,
 )
-_FINITE_KERNELS: dict = {}
+_BF_FUNCS = {"float": {"ATAN2": "atan2f", "LOG": "logf", "FABS": "fabsf"}, "double": {"ATAN2": "atan2", "LOG": "log", "FABS": "fabs"}}
+_BF_KERNELS: dict = {}
 
 
-def _col_all_finite(cp, x):
-    """``cp.isfinite(x).all(axis=0)`` for an (n, p) matrix in one coalesced launch: the former column-wise ``ReductionKernel`` read it at 23 GB/s (1.8 ms for 100000 x 100 float32)."""
+def _bf_apply_checked(cp, bf_idx: int, A, Bm):
+    """``(C, ok)``: the binary function ``_BF_ORDER[bf_idx]`` of two (n, P) device matrices in one launch, and the per-column mask of columns whose inputs and result are all finite."""
     from pyutilz.performance.gpu_hw_launch import block_size_for
 
-    x = cp.ascontiguousarray(x)
-    n, p = int(x.shape[0]), int(x.shape[1])
-    key = str(x.dtype)
-    if key not in _FINITE_KERNELS:
-        _FINITE_KERNELS[key] = cp.RawKernel(render(_FINITE_SRC, real=x.dtype), "col_all_finite")
-    kernel = _FINITE_KERNELS[key]
-    bad = cp.zeros(p, dtype=cp.int32)
-    threads = min(128, block_size_for(kernel, work_items=p))
-    gx = (p + threads - 1) // threads
-    gy = max(1, min((n + 63) // 64, 512))
-    kernel((gx, gy), (threads,), (x, np.int64(n), np.int32(p), np.int64((n + gy - 1) // gy), bad))
-    return bad == 0
+    A, Bm = cp.ascontiguousarray(A), cp.ascontiguousarray(Bm)
+    real = "float" if A.dtype == cp.float32 else "double"
+    kernel = _BF_KERNELS.get(real)
+    if kernel is None:
+        src = render(_BF_SRC, real=A.dtype)
+        for key, value in _BF_FUNCS[real].items():
+            src = src.replace("{" + key + "}", value)
+        kernel = _BF_KERNELS[real] = cp.RawKernel(src, "bf_apply", options=("--fmad=false",))
+    total, P = int(A.size), int(A.shape[1])
+    C = cp.empty_like(A)
+    bad = cp.zeros(P, dtype=cp.int32)
+    threads = block_size_for(kernel, work_items=total)
+    kernel(((total + threads - 1) // threads,), (threads,), (A, Bm, np.int32(bf_idx), np.int64(total), np.int32(P), C, bad))
+    return C, bad == 0
 
 
 def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int, l2_penalty: float, direction_only: bool, bf_names: Sequence[str]):
@@ -184,14 +197,12 @@ def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
 
     HA = Ba @ Ca.T  # (n, P)
     HB = Bb @ Cb.T
-    col_finite = _col_all_finite(cp, HA) & _col_all_finite(cp, HB)
 
     best_score = cp.full(P, -cp.inf)
     best_raw = cp.zeros(P)
     best_bf = cp.full(P, -1, dtype=cp.int64)
     for k, bf in enumerate(bf_names):
-        C = _bf_apply_gpu(cp, bf, HA, HB)
-        finite = col_finite & _col_all_finite(cp, C)
+        C, finite = _bf_apply_checked(cp, _BF_ORDER.index(bf), HA, HB)
         codes = _rank_bin_batched_gpu(cp, C, n_bins)
         # kx_per_col=n_bins (codes are always in [0, n_bins) by construction of the quantile binner) skips
         # binned_mi_from_codes_gpu's int(C.max())+1 fallback - a BLOCKING device sync that nsys showed
