@@ -11,6 +11,7 @@ Discriminating tests (not deferrals):
 Measures downstream honest-holdout AUC, base recall, noise, interaction-operand recovery.
 """
 from __future__ import annotations
+from typing import Any
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -29,7 +30,7 @@ BASEKW = dict(classification=True, n_splits=3, top_n=20, min_features=8, prefilt
 
 
 def mk(p, **over):
-    kw = dict(BASEKW); kw["prefilter_top"] = min(40, p); kw.update(over)
+    kw: dict[str, Any] = dict(BASEKW); kw["prefilter_top"] = min(40, p); kw.update(over)
     return ShapProxiedFS(**kw)
 
 

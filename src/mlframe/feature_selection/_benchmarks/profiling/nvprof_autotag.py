@@ -13,10 +13,9 @@ import pstats
 from pathlib import Path
 
 import sys
-from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))  # this checkout, not an installed copy
-from mlframe.feature_selection._benchmarks.profiling._paths import OUT_DIR, PROF_FILE  # noqa: E402
+from mlframe.feature_selection._benchmarks.profiling._paths import OUT_DIR, PROF_FILE
 
 NVPROF_BASE = Path(__file__).with_name("nvprof_fit.py")
 p = pstats.Stats(str(PROF_FILE)); st = p.stats
@@ -32,7 +31,7 @@ for k, v in st.items():
     cands.append((v[3], mod, name))
 cands.sort(reverse=True)
 seen = set(); out = []
-for ct, mod, name in cands[:70]:
+for _ct, mod, name in cands[:70]:
     if (mod, name) in seen: continue
     seen.add((mod, name)); out.append((mod, name))
 src = NVPROF_BASE.read_text(encoding="utf-8")
@@ -52,7 +51,7 @@ def _tag(modname, name, label):
     g.__name__ = name
     setattr(mod, name, g)
 '''
-for i, (mod, name) in enumerate(out):
+for _i, (mod, name) in enumerate(out):
     inject += f'_tag({mod!r}, {name!r}, "A_{name}")\n'
 src = src.replace("\nfit(1)\n", inject + "\nfit(1)\n", 1)
 (OUT_DIR / "nvprof_auto.py").write_text(src, encoding="utf-8")

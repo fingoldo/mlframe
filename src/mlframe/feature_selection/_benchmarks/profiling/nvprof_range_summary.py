@@ -1,4 +1,5 @@
 """Per-NVTX-range kernel launches and GPU time from an ``nvprof --print-gpu-summary`` log. Usage: ``python nvprof_range_summary.py out.txt [kernel-name-substring]``; with a substring it lists, per range, the launches and GPU ms of the kernels whose name contains it (for example ``cupy_copy__float64_float64``, the same-dtype copies)."""
+from typing import Any
 import re, sys
 with open(sys.argv[1], encoding="utf-8", errors="ignore") as _fh:
     txt = _fh.read().splitlines()
@@ -20,7 +21,7 @@ for k, (n, t, mc, mt) in sorted(res.items(), key=lambda x: -x[1][0]):
 
 if len(sys.argv) > 2:
     needle = sys.argv[2]
-    hits = {}
+    hits: dict[Any, Any] = {}
     cur = None
     for l in txt:
         m = re.search(r'Range "([^"]+)"', l)

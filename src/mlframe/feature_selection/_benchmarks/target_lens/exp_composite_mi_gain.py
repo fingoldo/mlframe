@@ -13,6 +13,7 @@ Usage: ``python -m mlframe.feature_selection._benchmarks.target_lens.exp_composi
 
 from __future__ import annotations
 
+from typing import Any
 import sys
 import warnings
 
@@ -92,7 +93,7 @@ def _mi_gain(X_no_base: np.ndarray, y: np.ndarray, T: np.ndarray) -> float:
     """The production definition: mean over the columns of the marginal binned MI with T minus the same with y."""
     from mlframe.training.composite.discovery.screening import _mi_to_target
 
-    kw = dict(n_neighbors=3, random_state=0, estimator="bin", nbins=N_BINS, aggregation="mean")
+    kw: dict[str, Any] = dict(n_neighbors=3, random_state=0, estimator="bin", nbins=N_BINS, aggregation="mean")
     return float(_mi_to_target(X_no_base, T, **kw) - _mi_to_target(X_no_base, y, **kw))
 
 

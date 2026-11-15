@@ -17,7 +17,7 @@ yperm=np.stack([rng.permutation(y) for _ in range(n_perm)]).astype(np.int8)
 acc=np.zeros((n_perm,0),dtype=np.bool_); order=np.zeros((0,n),dtype=np.int32); tie=np.zeros((0,n),dtype=np.uint8)
 def run():
     cp.cuda.Device().synchronize(); t=time.perf_counter()
-    r=_continuous_accept_block(kc,raw,yperm,2,n,xlogx_table,cp,n_perm,max(10,int(0.001*n)),0.05,acc,order,tie)
+    _r=_continuous_accept_block(kc,raw,yperm,2,n,xlogx_table,cp,n_perm,max(10,int(0.001*n)),0.05,acc,order,tie)
     cp.cuda.Device().synchronize(); return time.perf_counter()-t
 run()
 ts=[run() for _ in range(reps)]

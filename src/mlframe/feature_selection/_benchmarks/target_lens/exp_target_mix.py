@@ -18,6 +18,7 @@ Usage: ``python -m mlframe.feature_selection._benchmarks.target_lens.exp_target_
 
 from __future__ import annotations
 
+from typing import Any
 import sys
 import time
 import warnings
@@ -36,7 +37,7 @@ warnings.simplefilter("ignore")
 N_TEST = 20000
 ARMS_ON = {"B", "C", "D", "E"}  # which of the arms besides A to fit
 N_BASES = 3
-MRMR_KW = dict(verbose=0, n_jobs=1)
+MRMR_KW: dict[str, Any] = dict(verbose=0, n_jobs=1)
 
 
 def _cols(n, rng, k=5):
@@ -128,7 +129,7 @@ def _frame(fs, X):
 
 
 def _union(frames):
-    cols = {}
+    cols: dict[Any, Any] = {}
     for f in frames:
         for c in f.columns:
             cols.setdefault(str(c), np.asarray(f[c], dtype=np.float64))

@@ -17,6 +17,7 @@ Also guarded on synth (must not regress the FE-saturated easy bed) + hard_synth 
 KILL: still <=3 on madelon, OR readmits noise (AUC drops like the rescue), OR regresses synth.
 """
 from __future__ import annotations
+from typing import Any
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -35,7 +36,7 @@ _SAFE = re.compile(r"^[A-Za-z0-9_]+$")
 def mrmr_fe(X, y, fe_strict=False, jmim=False):
     """Fit MRMR+FE; return (selected_df_transformer, n_selected, raw_selected_count)."""
     from mlframe.feature_selection.filters import MRMR
-    kw = {}
+    kw: dict[Any, Any] = {}
     if fe_strict:
         kw.update(fe_synergy_min_prevalence=1.5, fe_min_engineered_mi_prevalence=0.97)
     if jmim:

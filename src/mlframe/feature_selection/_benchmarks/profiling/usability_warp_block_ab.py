@@ -22,7 +22,7 @@ G.batch_pair_usability_corr_cuda_warp(y, operand, pa, pb, forms)
 widths = (32, 64, 128, 256, 512)
 times = {w: [] for w in widths}
 reference = None
-for rep in range(5):
+for _rep in range(5):
     for w in widths:
         G._WARP_BLOCK_THREADS = w
         t = time.perf_counter()

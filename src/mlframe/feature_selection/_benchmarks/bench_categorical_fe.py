@@ -32,6 +32,7 @@ numbers -- numbers will rot, ratios survive hardware changes.
 
 from __future__ import annotations
 
+from typing import Any
 import cProfile
 import json
 import os
@@ -86,7 +87,7 @@ def time_one(n: int, n_cat: int, cfg_overrides: dict | None = None, signal_pair:
     """Run cat-FE once on the (n, n_cat) shape, return timing dict."""
     data, nbins, cls_y, fq_y, tgt = make_synthetic(n, n_cat, signal_pair)
     cols_names = [f"c{i}" for i in range(n_cat)] + ["y"]
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         enable=True,
         top_k_pairs=16,
         min_interaction_information=0.05,

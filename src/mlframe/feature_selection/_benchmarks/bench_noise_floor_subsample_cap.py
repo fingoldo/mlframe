@@ -3,6 +3,7 @@
 The cap changes the null the reject decision uses (mi_real vs null_p95 x 1.5). Selection-equivalence bar:
 for a batch of engineered pairs at 1M, the accept/reject verdict (r is None) must match between the
 full-n noise-floor (env cap disabled) and the 30k cap (default). Also time the noise-floor block."""
+from typing import Any
 import os, time
 import numpy as np
 
@@ -27,7 +28,7 @@ if __name__ == "__main__":
         y = np.digitize(yc, np.quantile(yc, np.linspace(0, 1, 11)[1:-1])).astype(np.int64)
         return np.nan_to_num(a), np.nan_to_num(b), y
 
-    kw = dict(n_trials=100, min_degree=3, max_degree=6, basis="chebyshev",
+    kw: dict[str, Any] = dict(n_trials=100, min_degree=3, max_degree=6, basis="chebyshev",
               mi_estimator="plugin", plugin_n_bins=20, optimizer="cma_batch",
               discrete_target=True, sweep_degrees=True, seed=42, noise_floor_n_perms=50)
 

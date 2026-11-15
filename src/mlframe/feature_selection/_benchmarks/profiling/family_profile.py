@@ -101,7 +101,6 @@ def main() -> None:
         faulthandler.dump_traceback_later(a.dump_every, repeat=True)
     warnings.simplefilter("ignore")
     _set_mode(a.mode)
-    from mlframe.feature_selection.filters import _fe_family_timing as FT
 
     data = F._make(a.n, a.p, 0)
     base = None

@@ -13,6 +13,7 @@ Run:
 """
 from __future__ import annotations
 
+from typing import Any
 import importlib.util
 import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import tempfile
@@ -70,7 +71,7 @@ def main():
     for n_q in (5_000, 50_000):
         ref, q, reg_labels, cls_labels = _make_data(20_000, n_q)
         for task, labels in (("regression", reg_labels), ("classification", cls_labels)):
-            kw = dict(k=10, task=task)
+            kw: dict[str, Any] = dict(k=10, task=task)
             t_old, r_old = _best_of(lambda: base.knn_label_dispersion_features(q, ref, labels, **kw))
             t_new, r_new = _best_of(lambda: new_mod.knn_label_dispersion_features(q, ref, labels, **kw))
             max_abs = _cmp(r_old, r_new)

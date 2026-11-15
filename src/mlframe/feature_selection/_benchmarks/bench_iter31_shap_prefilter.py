@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from mlframe.feature_selection._benchmarks._bench_shared import recovered
 
+from typing import Any
 import argparse
 import cProfile
 import io
@@ -34,7 +35,7 @@ def _make_dataset(*, n_features=1000, n_rows=5000, n_inf=12, snr=8.0, seed=0):
 def _build_selector(seed: int, *, shap_prefilter_enabled: bool):
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
-    kwargs = dict(
+    kwargs: dict[str, Any] = dict(
         classification=True, metric="brier", optimizer="auto",
         prefilter_top=500, cluster_features=True, cluster_corr_threshold=0.7,
         top_n=20, n_splits=4, n_revalidation_models=3, trust_guard=True, n_anchors=24,
@@ -118,7 +119,7 @@ def main(argv=None):
     print(f"Live regime: width={args.n_features} rows={args.n_rows} n_inf={args.n_inf} " f"snr={args.snr}")
     print(f"Modes: {modes}  Seeds: {seeds}", flush=True)
 
-    results = {}
+    results: dict[Any, Any] = {}
     for mode in modes:
         results[mode] = []
         enabled = mode == "new"

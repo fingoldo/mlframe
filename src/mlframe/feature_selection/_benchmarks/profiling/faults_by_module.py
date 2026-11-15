@@ -1,7 +1,7 @@
 """Inclusive wall seconds of every function of the given modules in one warm GPU fit (wrapper timing, all threads summed). Usage: module_walls.py n p mod1 mod2 ..."""
 
 import types
-import os, sys, time, threading, warnings, importlib, functools, types
+import os, sys, time, threading, warnings, importlib, functools
 import psutil
 _me = psutil.Process()
 os.environ['MLFRAME_FE_STAGE_CONCURRENCY'] = '0'  # serial stages: the process-wide fault counter then belongs to the running function

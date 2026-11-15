@@ -146,7 +146,7 @@ def _run_one(scenario: _datasets.Scenario, seed: int, profile: bool) -> dict[str
 
     record("data_built")
 
-    mrmr_kwargs = dict(
+    mrmr_kwargs: dict[str, Any] = dict(
         quantization_nbins=10,
         interactions_max_order=1,
         full_npermutations=3,

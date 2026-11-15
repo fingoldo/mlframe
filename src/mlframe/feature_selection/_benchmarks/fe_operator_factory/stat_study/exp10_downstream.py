@@ -5,6 +5,7 @@ Features are chosen inside each training fold. Each record holds ``mae`` and ``r
 improvement over the raw-columns baseline. R^2 is not a decision metric and is not computed (records from before 2026-10-10 hold R^2 under ``r2`` and are legacy).
 """
 
+from typing import Any
 import argparse
 import functools
 import json
@@ -62,7 +63,7 @@ def run(i, n, seed):
     y = tr + rng.standard_normal(n) * tr.std()
     base = np.column_stack([x, z, rng.random(n), rng.random(n)])
     UX, UZ = unary_mat(UN, x), unary_mat(UN, z)
-    acc = {}
+    acc: dict[Any, Any] = {}
     for trn, ten in KFold(5, shuffle=True, random_state=seed).split(x):
         yb = qbin(y[trn], 10)
         yr = rank01(y[trn])

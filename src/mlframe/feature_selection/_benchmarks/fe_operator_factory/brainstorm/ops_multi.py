@@ -1,6 +1,7 @@
 """Multi-column operators F (count above median), G (row statistics), J (log-sum-exp), K (tropical), L (parity), AA (compositional shares / entropy), S (bit features) with their W / N / 0 cases.
 Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.brainstorm.ops_multi <case names, e.g. G_W G_N G_0> [--seeds S] [--n N]``."""
 
+from typing import Any
 import itertools
 
 import numpy as np
@@ -225,7 +226,7 @@ def P(f, p):
     return (f, p)
 
 
-C = {}
+C: dict[Any, Any] = {}
 
 
 def add(nm, X, sig, new, truth=None, nz=0.3, null=False, pairs=True, cols=None):

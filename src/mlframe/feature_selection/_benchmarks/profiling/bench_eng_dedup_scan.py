@@ -24,7 +24,8 @@ for j in range(120):
     if j%3==0: v[r.random(n)<0.05]=np.nan                                      # a third of the columns carry NaN
     cols[f"e{j}"]=v
 X=pd.DataFrame(cols)
-prefer=lambda cand,kept: False
+def prefer(cand, kept):
+    return False
 def run():
     t=time.perf_counter(); keep,drop,_,_=scan_engineered_duplicates(X,list(cols),set(),prefer); return time.perf_counter()-t,keep,drop
 run()

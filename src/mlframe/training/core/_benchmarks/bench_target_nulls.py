@@ -18,7 +18,7 @@ import pstats
 import tempfile
 import threading
 import time
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -104,7 +104,7 @@ def _suite(df: pd.DataFrame, targets: list, data_dir: str, policy: str, quiet: b
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
-    reporting_kwargs = dict(show_perf_chart=False, show_fi=False)
+    reporting_kwargs: dict[str, Any] = dict(show_perf_chart=False, show_fi=False)
     extra: dict = {}
     if quiet:
         reporting_kwargs.update(

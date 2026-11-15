@@ -66,6 +66,7 @@ Run: python -m mlframe.training._benchmarks.bench_ablation_shared_dataset
 """
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ def bench_binning_fraction() -> None:
 
     Xdf, y, _cols = _make_data()
     Xtr, _, ytr, _ = train_test_split(Xdf, y, test_size=0.2, random_state=101, stratify=y)
-    params = dict(n_estimators=200, num_leaves=31, learning_rate=0.05, random_state=101, n_jobs=1, verbose=-1, force_col_wise=True)
+    params: dict[str, Any] = dict(n_estimators=200, num_leaves=31, learning_rate=0.05, random_state=101, n_jobs=1, verbose=-1, force_col_wise=True)
     lgb.LGBMClassifier(**params).fit(Xtr, ytr)  # warm
 
     cts = []

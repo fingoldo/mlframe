@@ -5,6 +5,7 @@ or does refine=False + wider revalidation (top_n 20->40) win? (R2s-1/4) does a T
 with refine ON beat refine=False (i.e. is the over-pruning just a too-loose tol)? Downstream honest-holdout AUC.
 """
 from __future__ import annotations
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ CONFIGS = {
     "refineON_tol02": dict(within_cluster_refine=True, parsimony_tol=0.02, top_n=20),
     "refineON_tol005": dict(within_cluster_refine=True, parsimony_tol=0.005, top_n=20),
 }
-BASE = dict(classification=True, n_splits=3, min_features=1, prefilter_top=40, prefilter_n_estimators=50,
+BASE: dict[str, Any] = dict(classification=True, n_splits=3, min_features=1, prefilter_top=40, prefilter_n_estimators=50,
             oof_shap_n_estimators=50, revalidation_n_estimators=50, n_revalidation_models=2,
             trust_guard=True, trust_guard_n_estimators=15, cluster_features="auto", random_state=0, verbose=False)
 
@@ -60,7 +61,7 @@ def main():
     print("\n=== mean over scenarios x seeds ===")
     print(df.groupby("config").agg(auc_mean=("auc_mean", "mean"), lgbm=("auc", lambda s: np.mean([a["lgbm"] for a in s])),
                                    n=("n", "mean"), base=("base", "mean"), fit_s=("fit_s", "mean")).round(4).to_string())
-    wins = {}
+    wins: dict[Any, Any] = {}
     for (_sc, _sd), g in df.groupby(["scenario", "seed"]):
         b = g.loc[g["auc_mean"].idxmax(), "config"]; wins[b] = wins.get(b, 0) + 1
     print("win counts (best auc_mean):", wins)

@@ -37,6 +37,7 @@ USAGE
 """
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,7 @@ REGIMES = ("synergistic", "additive")
 def _make_synergistic(n: int, n_pairs: int, n_decoy: int, n_noise: int, seed: int):
     """K XOR/sign-product pairs; each operand ~useless alone, pair drives y. Returns X, y, relevant_idx."""
     rng = np.random.default_rng(seed)
-    cols = []
+    cols: list[Any] = []
     relevant = []
     logit = np.zeros(n)
     for k in range(n_pairs):

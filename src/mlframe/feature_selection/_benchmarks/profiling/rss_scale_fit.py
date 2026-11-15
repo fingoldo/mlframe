@@ -3,6 +3,7 @@
 Usage: rss_scale_fit.py ROWS [COLS] [all|default]; RSS_TICK_S=20 adds a timeline line of the main thread every 20 s. The frame is a float32 DataFrame (the project dtype), the target a noisy function of five columns. The sampler records the
 process RSS every 0.2 s; a new peak is attributed to the main thread's innermost mlframe frame, which names the step that allocated.
 """
+from typing import Any
 import os
 import sys
 import threading
@@ -44,11 +45,11 @@ if TRACE:
 trace = types.SimpleNamespace(snapshots=[])  # the sampler thread appends its tracemalloc snapshots here
 proc = psutil.Process()
 TICK = float(os.environ.get("RSS_TICK_S", "0"))  # seconds between timeline lines of the main thread's step (0: off)
-ticks = []
+ticks: list[Any] = []
 MIN_AVAILABLE = float(os.environ.get("RSS_MIN_AVAILABLE_GB", "1.0")) * 1e9
 base = proc.memory_info().rss
 peak = [base]
-events = []
+events: list[Any] = []
 stop = threading.Event()
 main_id = threading.main_thread().ident
 
@@ -149,7 +150,7 @@ if ticks:
     for when, mb, where in ticks:
         print(f"  tick t={when:7.1f}s +{mb:7.0f} MB  {where}")
 
-for rss, mb, stats in trace.snapshots[-2:]:
+for _rss, mb, stats in trace.snapshots[-2:]:
     print(f"--- tracemalloc at RSS growth {mb:.0f} MB: the largest live allocations")
     for st in stats:
         print(f"  {st.size / 1e6:8.0f} MB in {st.count} blocks")

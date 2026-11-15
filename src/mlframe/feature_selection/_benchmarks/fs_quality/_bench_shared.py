@@ -5,6 +5,7 @@ across copies. Each benchmark script stays independently runnable from this same
 """
 from __future__ import annotations
 
+from typing import Any
 import numpy as np
 
 
@@ -13,7 +14,7 @@ def build_mrmr(variant, seed: int, variants):
     driver index set): fixed base kwargs overridden by ``variants[variant]``."""
     from mlframe.feature_selection.filters import MRMR
 
-    base = dict(
+    base: dict[str, Any] = dict(
         fe_max_steps=0,
         interactions_max_order=1,
         full_npermutations=3,

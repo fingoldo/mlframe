@@ -1,4 +1,5 @@
 """Same-process A/B: the single-column resident Fourier detector in a loop against detect_fourier_freqs_batch (100 columns x 100000 rows)."""
+from typing import Any
 import os, time, numpy as np
 for k, v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_FE_GPU_STRICT_RESIDENT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1"}.items(): os.environ.setdefault(k, v)
 import cupy as cp
@@ -14,7 +15,7 @@ for i in range(ncol):
     f = [3.0, 2.0, 4.25, 0.0][i % 4]
     y = (np.sin(2 * np.pi * f * z) if f else 0) + 0.5 * r.standard_normal(n)
     jobs.append((z, y.astype(dt), grid))
-P = dict(min_val_corr=0.15, min_rows=500, max_freqs=6)
+P: dict[str, Any] = dict(min_val_corr=0.15, min_rows=500, max_freqs=6)
 def loop(): return [_detect_fourier_freqs_for_col(z, y, f_grid=g, **P) for z, y, g in jobs]
 def batch(): return detect_fourier_freqs_batch(jobs, **P)
 res = {}

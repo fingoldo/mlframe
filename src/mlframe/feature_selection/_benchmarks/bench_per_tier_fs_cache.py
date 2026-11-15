@@ -27,6 +27,7 @@ without a content hash.
 """
 from __future__ import annotations
 
+from typing import Any
 import json
 import time
 from datetime import datetime
@@ -74,7 +75,7 @@ def main():
     results["per_tier_refit_total_s"] = float(np.sum(per_tier_times))
 
     # WITH cheap-key support cache: fit once, reuse support for the remaining tiers (cost ~ token build).
-    cache = {}
+    cache: dict[Any, Any] = {}
     params_hash = hash(tuple(sorted((k, str(v)) for k, v in m0.get_params(deep=False).items())))
     t = time.perf_counter()
     for _ in range(n_tiers - 1):

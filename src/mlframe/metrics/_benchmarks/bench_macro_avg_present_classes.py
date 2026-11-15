@@ -13,6 +13,7 @@ Run: python -m mlframe.metrics._benchmarks.bench_macro_avg_present_classes
 """
 from __future__ import annotations
 
+from typing import Any
 import numpy as np
 from sklearn.metrics import precision_recall_fscore_support
 
@@ -92,7 +93,7 @@ def main():
     configs = [(6, 400), (10, 1000)]  # (nclasses_declared, n)
     print("scen | nclasses n | seed | old|err| new|err|  (avg over P/R/F1 vs sklearn macro)")
     win_old = win_new = 0
-    agg = {}
+    agg: dict[Any, Any] = {}
     for nclasses, n in configs:
         for scen in scenarios:
             for seed in seeds:

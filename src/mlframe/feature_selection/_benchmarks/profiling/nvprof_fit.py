@@ -1,7 +1,6 @@
 """The profiled fit with the CUDA profiler window opened only around one warm fit (``nvprof --profile-from-start off``)."""
-import os, sys, time, warnings
+import os, sys, warnings
 import functools
-import sys
 from pathlib import Path
 
 _root = next((q for q in Path(__file__).resolve().parents if (q / "mlframe").is_dir()), None)  # this checkout, not an installed copy; a generated copy outside the package has none and relies on PYTHONPATH

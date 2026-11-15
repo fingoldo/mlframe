@@ -17,6 +17,7 @@ gate) while every other variant recovers mi=0.4813 from the same warm seeds -- r
 _numba_polynom_optimizer.py's module docstring. bilinear_xor is non-discriminative as constructed
 (trivial baseline captures it; all variants 0.0).
 """
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ CASES["saddle_noisy"] = (i_, j, np.where(_flip, -_saddle, _saddle).astype(np.int
 k = _r.standard_normal(N); l_ = _r.standard_normal(N)
 CASES["cross_cheb"] = (k, l_, (((2*k**2 - 1) * (4*l_**3 - 3*l_) + 0.5*k) > 0).astype(np.int64))  # cross-term product
 
-BUDGET = dict(n_trials=100, min_degree=3, max_degree=6, coef_range=(-2.0, 2.0), l2_penalty=0.05,
+BUDGET: dict[str, Any] = dict(n_trials=100, min_degree=3, max_degree=6, coef_range=(-2.0, 2.0), l2_penalty=0.05,
               sweep_degrees=True, basis="chebyshev", mi_estimator="plugin", discrete_target=True,
               warm_start=True, multi_fidelity=False)
 SEEDS = [42, 43, 44, 45, 46]

@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import logging
 import time
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -131,7 +132,7 @@ def main():
         return
 
     # ---- MRMR paths ----
-    base_kw = dict(
+    base_kw: dict[str, Any] = dict(
         quantization_nbins=10, full_npermutations=10, baseline_npermutations=5,
         n_jobs=1, verbose=0, fe_max_steps=0, cv=2,
     )
