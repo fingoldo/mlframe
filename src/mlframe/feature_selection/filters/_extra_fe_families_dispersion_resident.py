@@ -194,7 +194,7 @@ void disp_bin_codes(const {REAL}* __restrict__ xj_all, const {REAL}* __restrict_
 _CODES_KERNELS: dict = {}
 
 
-def codes_kernel(cp: Any, real: Any) -> Any:
+def kernel_codes(cp: Any, real: Any) -> Any:
     """``disp_bin_codes`` for values of the dtype ``real``; compiled once per type."""
     key = np.dtype(real).str
     compiled = _CODES_KERNELS.get(key)
@@ -216,7 +216,7 @@ def _bin_codes_block(cp: Any, xj_list: list, edge_rows: list) -> Any:
         tab[k, : e.shape[0]] = e
     J, n = int(xj_all.shape[0]), int(xj_all.shape[1])
     out = cp.empty((J, n), dtype=cp.int64)
-    kern = codes_kernel(cp, dt)
+    kern = kernel_codes(cp, dt)
     threads = block_size_for(kern, work_items=J * n)
     sms = int(cp.cuda.Device().attributes["MultiProcessorCount"])
     grid = int(max(1, min((J * n + threads - 1) // threads, sms * 32)))

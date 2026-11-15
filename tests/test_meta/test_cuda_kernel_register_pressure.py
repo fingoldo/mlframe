@@ -70,7 +70,7 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
     ),
     "extra_fe_families_dispersion_resident.disp_bin_codes": (
         "mlframe.feature_selection.filters._extra_fe_families_dispersion_resident",
-        "codes_kernel",
+        "kernel_codes",
         ("float32", "float64"),
     ),
     "rolling_window_gpu.rolling_stat_past_only": (
