@@ -206,37 +206,42 @@ def _gpu_quantile_bin_codes(V, qs):
     return codes, kx
 
 
+_MARGINAL_MI_CELLS = 1 << 25  # joint cells (rows x Kx x ky) one block of ``_gpu_marginal_mi`` counts at once (int64: 256 MB)
+
+
 def _gpu_marginal_mi(codes, kx, y_codes, h_y, k_y, n):
     """Vectorised Miller-Madow marginal MI for each ROW of ``codes`` (shape ``(m, n)`` dense 0..kx[r]-1)
-    vs the shared ``y_codes`` (dense 0..k_y-1). BIT-FAITHFUL to :func:`_marginal_mi_njit`: same plug-in
-    entropies (natural log), same bias ``(kx_occ + k_y - kxy - 1)/(2n)``, same clamp. Returns (m,) MI."""
+    vs the shared ``y_codes`` (dense 0..k_y-1). Same plug-in entropies (natural log), same bias
+    ``(kx_occ + k_y - kxy - 1)/(2n)``, same clamp as :func:`_marginal_mi_njit`, up to the order of the entropy sums (~1e-15).
+    Returns (m,) MI.
+
+    The rows are counted together: one ``bincount`` over ``row * Kx * k_y + code * k_y + y`` gives every row's joint table, the marginals are its sum over y, and the entropies and
+    occupancies are reductions over the table axes, so a block of rows costs about a dozen launches instead of about fifteen per row."""
     cp = _cp
-    m = codes.shape[0]
+    m = int(codes.shape[0])
     invn = 1.0 / n
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = cp.empty(m, dtype=cp.float64)
-    for r in range(m):
-        xb = codes[r]
-        kxr = int(kx[r])
-        # marginal H(X)
+    if m == 0:
+        return out
+    k_x = max(1, int(cp.max(kx).item()) if hasattr(kx, "get") else int(np.max(kx)))
+    rows = max(1, _MARGINAL_MI_CELLS // max(1, k_x * int(k_y)))
+    y64 = y_codes.astype(cp.int64, copy=False)
+    for r0 in range(0, m, rows):
+        r1 = min(m, r0 + rows)
+        mb = r1 - r0
+        flat = (cp.arange(mb, dtype=cp.int64)[:, None] * (k_x * int(k_y))) + codes[r0:r1].astype(cp.int64, copy=False) * int(k_y) + y64[None, :]
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-        cx = cp.bincount(xb, minlength=kxr).astype(cp.float64)
-        nzx = cx[cx > 0]
-        px = nzx * invn
-        hx = float(-(px * cp.log(px)).sum())
-        kx_occ = int((cx > 0).sum())
-        # joint H(X,Y) via flat id xb*k_y + y
-        joint = xb * k_y + y_codes
-        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-        cj = cp.bincount(joint, minlength=kxr * k_y).astype(cp.float64)
-        nzj = cj[cj > 0]
-        pj = nzj * invn
-        hxy = float(-(pj * cp.log(pj)).sum())
-        kxy = int((cj > 0).sum())
-        mi = hx + h_y - hxy
-        correction = (kx_occ + k_y - kxy - 1) / (2.0 * n)  # Miller-Madow: the negative of the plug-in bias, so it is added
-        r_mi = mi + correction
-        out[r] = r_mi if r_mi > 0.0 else 0.0
+        cj = cp.bincount(flat.ravel(), minlength=mb * k_x * int(k_y)).astype(cp.float64).reshape(mb, k_x, int(k_y))
+        cx = cj.sum(axis=2)
+        pj = cj * invn
+        px = cx * invn
+        hxy = -cp.where(cj > 0, pj * cp.log(cp.where(cj > 0, pj, 1.0)), 0.0).sum(axis=(1, 2))
+        hx = -cp.where(cx > 0, px * cp.log(cp.where(cx > 0, px, 1.0)), 0.0).sum(axis=1)
+        kx_occ = (cx > 0).sum(axis=1)
+        kxy = (cj > 0).sum(axis=(1, 2))
+        mi = hx + h_y - hxy + (kx_occ + int(k_y) - kxy - 1) / (2.0 * n)  # Miller-Madow: the negative of the plug-in bias, so it is added
+        out[r0:r1] = cp.where(mi > 0.0, mi, 0.0)
     return out
 
 

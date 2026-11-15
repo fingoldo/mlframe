@@ -96,7 +96,6 @@ Rows: 108.
 | feature_selection/filters/_usability_greedy_gpu_resident.py | _usability_greedy_gpu_step2_def_shortlist_sel._shortlist | 273 | FALSE POSITIVE: a host shortlist loop with host correlation vectors |
 | feature_selection/filters/_usability_greedy_gpu_resident.py | _usability_greedy_gpu_step3_def_cv_candidates._cv_candidates | 353, 359 | REAL, not yet measured: several device ops per candidate over the folds, with one D2H per candidate |
 | feature_selection/filters/_usability_greedy_steps.py | _usability_greedy_step4_consistency_across_folds | 249 | FALSE POSITIVE: the sequential greedy rounds, each one batched scoring call |
-| feature_selection/filters/_usability_njit_pool.py | _gpu_marginal_mi | 218 | REAL, not yet measured: several small device ops per candidate row for the entropies |
 | feature_selection/filters/_usability_njit_pool.py | _pair_combo_mi_cupy | 296 | FALSE POSITIVE: loops over the few distinct binary operations, each one op over its columns |
 | feature_selection/filters/_usability_njit_pool.py | _pair_combo_mi_cupy_loop | 350 | REAL, not yet measured: one apply per combination; the grouped sibling batches by operation |
 | feature_selection/filters/_usability_pool_resident.py | score_pair_combos_table_resident | 251 | REAL, not yet measured: one scoring call per pair, with the D2H already collapsed to one per table |
