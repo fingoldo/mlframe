@@ -28,7 +28,6 @@ from ._raw_module_cache import RawModuleCache
 logger = logging.getLogger(__name__)
 
 MAX_CELLS = 6144  # int32 cells of the joint table of one pair held in shared memory (24 KB)
-_THREADS = 256
 
 _SRC = render(
     r"""
@@ -120,10 +119,44 @@ def kernel(cp: Any, code_type: Any) -> Any:
     return _MODULES[key].get(cp).get_function("cmim_min_blocks")
 
 
+@njit(cache=True, nogil=True)
+def _pair_cmi(x_row: np.ndarray, y: np.ndarray, z_row: np.ndarray, kx: int, ky: int, kz: int, cxyz: np.ndarray, cxz: np.ndarray, cyz: np.ndarray, cz: np.ndarray) -> float:
+    """Miller-Madow CMI of one (candidate, reference) pair, clipped at 0, from the joint table ``cxyz`` and the marginals (scratch arrays of the caller, cleared here)."""
+    n = x_row.shape[0]
+    cxyz[: kx * ky * kz] = 0
+    cxz[: kx * kz] = 0
+    cyz[: ky * kz] = 0
+    cz[:kz] = 0
+    for i in range(n):
+        cxyz[(x_row[i] * ky + y[i]) * kz + z_row[i]] += 1
+    k_xyz = 0
+    for xx in range(kx):
+        for yy in range(ky):
+            for z in range(kz):
+                v = cxyz[(xx * ky + yy) * kz + z]
+                if v:
+                    cxz[xx * kz + z] += v
+                    cyz[yy * kz + z] += v
+                    cz[z] += v
+                    k_xyz += 1
+    s = 0.0
+    for xx in range(kx):
+        for yy in range(ky):
+            for z in range(kz):
+                v = cxyz[(xx * ky + yy) * kz + z]
+                if v:
+                    s += v * np.log(v * np.float64(cz[z]) / (np.float64(cxz[xx * kz + z]) * np.float64(cyz[yy * kz + z])))
+    k_xz = np.count_nonzero(cxz[: kx * kz])
+    k_yz = np.count_nonzero(cyz[: ky * kz])
+    k_z = np.count_nonzero(cz[:kz])
+    cmi = s / n - (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
+    return cmi if cmi > 0.0 else 0.0
+
+
 @njit(cache=True, parallel=True, nogil=True)
 def _scores_njit(x: np.ndarray, y: np.ndarray, zs: np.ndarray, kzs: np.ndarray, allowed: np.ndarray, kx: int, ky: int) -> np.ndarray:
     """``(K,)`` minima over the allowed references of the Miller-Madow CMI clipped at 0 (``1e300`` for a candidate with no allowed reference); ``x`` is ``(K, n)``, ``zs`` ``(S, n)``, ``allowed`` ``(S, K)``."""
-    k, n = x.shape
+    k = x.shape[0]
     s_count = zs.shape[0]
     kz_max = 1
     for j in range(s_count):
@@ -139,45 +172,7 @@ def _scores_njit(x: np.ndarray, y: np.ndarray, zs: np.ndarray, kzs: np.ndarray, 
         for j in range(s_count):
             if not allowed[j, c]:
                 continue
-            kz = kzs[j]
-            cxyz[: kx * ky * kz] = 0
-            cxz[: kx * kz] = 0
-            cyz[: ky * kz] = 0
-            cz[:kz] = 0
-            for i in range(n):
-                cxyz[(x[c, i] * ky + y[i]) * kz + zs[j, i]] += 1
-            k_xyz = 0
-            for xx in range(kx):
-                for yy in range(ky):
-                    for z in range(kz):
-                        v = cxyz[(xx * ky + yy) * kz + z]
-                        if v:
-                            cxz[xx * kz + z] += v
-                            cyz[yy * kz + z] += v
-                            cz[z] += v
-                            k_xyz += 1
-            s = 0.0
-            for xx in range(kx):
-                for yy in range(ky):
-                    for z in range(kz):
-                        v = cxyz[(xx * ky + yy) * kz + z]
-                        if v:
-                            s += v * np.log(v * np.float64(cz[z]) / (np.float64(cxz[xx * kz + z]) * np.float64(cyz[yy * kz + z])))
-            k_xz = 0
-            for q in range(kx * kz):
-                if cxz[q] > 0:
-                    k_xz += 1
-            k_yz = 0
-            for q in range(ky * kz):
-                if cyz[q] > 0:
-                    k_yz += 1
-            k_z = 0
-            for q in range(kz):
-                if cz[q] > 0:
-                    k_z += 1
-            cmi = s / n - (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
-            if cmi < 0.0:
-                cmi = 0.0
+            cmi = _pair_cmi(x[c], y, zs[j], kx, ky, kzs[j], cxyz, cxz, cyz, cz)
             if cmi < best:
                 best = cmi
             if best <= 0.0:
@@ -218,6 +213,7 @@ def _scores_device(x: np.ndarray, y: np.ndarray, zs: Sequence[np.ndarray], allow
     """Device form: one launch for the block, or ``None`` (no cupy, codes out of range, a device fault)."""
     try:
         import cupy as cp
+        from pyutilz.performance.gpu_hw_launch import block_size_for
 
         packed = _prepare(x, y, zs, n_bins)
         if packed is None:
@@ -229,8 +225,9 @@ def _scores_device(x: np.ndarray, y: np.ndarray, zs: Sequence[np.ndarray], allow
         kz_max = int(kzs.max())
         shared = 4 * (kx * ky * kz_max + kx * kz_max + ky * kz_max + kz_max)
         out = cp.empty(k, dtype=cp.float64)
-        kernel(cp, code_dtype)(
-            (k,), (_THREADS,),
+        ker = kernel(cp, code_dtype)
+        ker(
+            (k,), (block_size_for(ker, dyn_smem=shared, work_items=n),),
             (cp.asarray(xp.astype(code_dtype, copy=False)), cp.asarray(y_i), cp.asarray(z_mat), cp.asarray(kzs), cp.asarray(np.ascontiguousarray(allowed, dtype=np.uint8)),
              np.int64(n), np.int32(k), np.int32(s_count), np.int32(kx), np.int32(ky), np.int32(kz_max), out),
             shared_mem=shared,

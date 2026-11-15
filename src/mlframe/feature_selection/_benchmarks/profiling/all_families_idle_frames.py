@@ -43,7 +43,6 @@ def inner(fr):
     while g is not None and 'filters' not in g.f_code.co_filename: g=g.f_back
     near=(g.f_code.co_name+':'+str(g.f_lineno)) if g is not None else '?'
     return (f"{fr.f_code.co_filename.split('Lib')[-1].split('filters')[-1][-26:]}:{fr.f_code.co_name}  <- {near}" if fr is not None else None)
-    return f"{fr.f_code.co_filename.split('filters')[-1][-34:]}:{fr.f_code.co_name}" if fr is not None else None
 chain=collections.Counter()
 def in_stack(fr):
     t=os.environ.get('TARGET_STACK')

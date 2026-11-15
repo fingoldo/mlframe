@@ -42,7 +42,6 @@ def inner(fr):
     while g is not None and 'filters' not in g.f_code.co_filename: g=g.f_back
     near=(g.f_code.co_name+':'+str(g.f_lineno)) if g is not None else '?'
     return (f"{fr.f_code.co_filename.split('Lib')[-1].split('filters')[-1][-26:]}:{fr.f_code.co_name}  <- {near}" if fr is not None else None)
-    return f"{fr.f_code.co_filename.split('filters')[-1][-34:]}:{fr.f_code.co_name}" if fr is not None else None
 import psutil, pynvml
 pynvml.nvmlInit(); _gh=[pynvml.nvmlDeviceGetHandleByIndex(i) for i in range(pynvml.nvmlDeviceGetCount())]
 util=[]  # (t, cpu% all cores, [gpu busy %], [gpu mem used GB])

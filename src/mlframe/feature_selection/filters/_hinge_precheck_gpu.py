@@ -32,7 +32,6 @@ from ._raw_module_cache import RawModuleCache
 logger = logging.getLogger(__name__)
 
 N_CUTS = 3  # the precheck is defined on exactly three coarse quantiles (_HINGE_PRECHECK_QS)
-_THREADS = 256
 
 _SRC = render(
     r"""
@@ -110,70 +109,83 @@ def kernel(cp: Any, real: Any) -> Any:
     return _MODULES["float" if np.dtype(real) == np.float32 else "double"].get(cp).get_function("hinge_precheck_drops")
 
 
+@njit(cache=True, nogil=True)
+def _cut_drop(row: np.ndarray, yc: np.ndarray, mean_x: float, sxx: float, sxy: float, sse_lin: float, cut: float, min_seg: int, floor_var: float) -> float:
+    """Fractional SSE drop of the hinge at ``cut`` over the line for one column (``-1`` when a segment is shorter than ``min_seg`` or the fit is not finite): the Frisch-Waugh-Lovell terms of the relu leg
+    from one pass over the column."""
+    n = row.shape[0]
+    cnt = 0
+    r1 = 0.0
+    rx = 0.0
+    rr = 0.0
+    ry = 0.0
+    for i in range(n):
+        xv = row[i] - mean_x
+        r = row[i] - cut
+        if r > 0.0:
+            cnt += 1
+            r1 += r
+            rx += r * xv
+            rr += r * r
+            ry += r * yc[i]
+    if cnt < min_seg or (n - cnt) < min_seg:
+        return -1.0
+    denom = rr - r1 * r1 / n - rx * rx / sxx
+    sse_h = sse_lin
+    if not (denom < floor_var):
+        num = ry - rx * sxy / sxx
+        sse_h = sse_lin - num * num / denom
+    if not np.isfinite(sse_h):
+        return -1.0
+    return 1.0 - sse_h / sse_lin
+
+
+@njit(cache=True, nogil=True)
+def _column_drop(row: np.ndarray, yc: np.ndarray, syy: float, qs: np.ndarray, min_seg: int, floor_var: float) -> float:
+    """Best fractional SSE drop of the three-cut hinge over the line for one column against the centred target ``yc`` (``syy`` = its sum of squares); ``-1`` for a column the precheck rejects outright."""
+    n = row.shape[0]
+    mean_x = 0.0
+    for i in range(n):
+        mean_x += row[i]
+    mean_x /= n
+    sxx = 0.0
+    sxy = 0.0
+    for i in range(n):
+        xv = row[i] - mean_x
+        sxx += xv * xv
+        sxy += xv * yc[i]
+    if sxx <= 0.0:
+        return -1.0
+    sse_lin = syy - sxy * sxy / sxx
+    if not np.isfinite(sse_lin) or sse_lin <= floor_var:
+        return -1.0
+    cuts = np.quantile(row, qs)
+    best = 0.0
+    for c in range(cuts.shape[0]):
+        if c > 0 and cuts[c] == cuts[c - 1]:
+            continue
+        drop = _cut_drop(row, yc, mean_x, sxx, sxy, sse_lin, cuts[c], min_seg, floor_var)
+        if drop > best:
+            best = drop
+    return best
+
+
 @njit(cache=True, parallel=True, nogil=True)
 def _drops_njit(xs: np.ndarray, y: np.ndarray, qs: np.ndarray, min_seg: int, floor_var: float) -> np.ndarray:
     """Best fractional SSE drop of the three-cut hinge over the line for every row of ``xs`` ``(columns, n)``; ``-1`` for a column the precheck rejects outright. ``y`` is the raw float64 target."""
     k, n = xs.shape
     out = np.empty(k, dtype=np.float64)
+    yc = np.empty(n, dtype=np.float64)
     my = 0.0
     for i in range(n):
         my += y[i]
     my /= n
-    yc = np.empty(n, dtype=np.float64)
     syy = 0.0
     for i in range(n):
         yc[i] = y[i] - my
         syy += yc[i] * yc[i]
     for j in prange(k):
-        mean_x = 0.0
-        for i in range(n):
-            mean_x += xs[j, i]
-        mean_x /= n
-        sxx = 0.0
-        sxy = 0.0
-        for i in range(n):
-            xv = xs[j, i] - mean_x
-            sxx += xv * xv
-            sxy += xv * yc[i]
-        if sxx <= 0.0:
-            out[j] = -1.0
-            continue
-        sse_lin = syy - sxy * sxy / sxx
-        if not np.isfinite(sse_lin) or sse_lin <= floor_var:
-            out[j] = -1.0
-            continue
-        cuts = np.quantile(xs[j], qs)
-        best = 0.0
-        for c in range(cuts.shape[0]):
-            if c > 0 and cuts[c] == cuts[c - 1]:
-                continue
-            cnt = 0
-            r1 = 0.0
-            rx = 0.0
-            rr = 0.0
-            ry = 0.0
-            for i in range(n):
-                xv = xs[j, i] - mean_x
-                r = xs[j, i] - cuts[c]
-                if r > 0.0:
-                    cnt += 1
-                    r1 += r
-                    rx += r * xv
-                    rr += r * r
-                    ry += r * yc[i]
-            if cnt < min_seg or (n - cnt) < min_seg:
-                continue
-            denom = rr - r1 * r1 / n - rx * rx / sxx
-            sse_h = sse_lin
-            if not (denom < floor_var):
-                num = ry - rx * sxy / sxx
-                sse_h = sse_lin - num * num / denom
-            if not np.isfinite(sse_h):
-                continue
-            drop = 1.0 - sse_h / sse_lin
-            if drop > best:
-                best = drop
-        out[j] = best
+        out[j] = _column_drop(xs[j], yc, syy, qs, min_seg, floor_var)
     return out
 
 
@@ -181,7 +193,7 @@ def _drops_device(xs: np.ndarray, y: np.ndarray, qs: Sequence[float], min_seg: i
     """The device form of :func:`_drops_njit`, or ``None`` when cupy is absent or the device refuses (the caller runs the njit form)."""
     try:
         import cupy as cp
-        from pyutilz.performance.gpu_hw_launch import block_size_for  # noqa: F401  (the block is fixed: warp-shuffle reductions need a multiple of 32)
+        from pyutilz.performance.gpu_hw_launch import block_size_for
 
         from ._gpu_resident_select import _radix_quantiles
 
@@ -197,8 +209,9 @@ def _drops_device(xs: np.ndarray, y: np.ndarray, qs: Sequence[float], min_seg: i
         yc[:n] = np.asarray(y, dtype=np.float64) - float(np.mean(y))
         yc[n] = float(yc[:n] @ yc[:n])
         out = cp.empty(k, dtype=cp.float64)
-        kernel(cp, real)(
-            (k,), (_THREADS,),
+        ker = kernel(cp, real)
+        ker(
+            (k,), (block_size_for(ker, work_items=n),),
             (xd, cp.asarray(yc), cp.ascontiguousarray(cuts), np.int64(n), np.int32(min_seg), np.float64(floor_var), out),
         )
         return np.asarray(cp.asnumpy(out), dtype=np.float64)
