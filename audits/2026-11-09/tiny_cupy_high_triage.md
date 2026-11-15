@@ -3,7 +3,7 @@
 The detector's `high` hits in the current source, one row per function. The baseline (`tests/test_meta/_tiny_cupy_loops_baseline.json`) holds these keys.
 Dispositions to fill in: **FALSE POSITIVE** (the loop is a chunk, fold or fallback loop with a few trips and real work per trip), **FALLBACK** (the cupy loop runs only when a batched path is not taken, measured), **REAL** (a launch-bound loop, to restructure), **OPEN** (not yet read).
 
-Rows: 113.
+Rows: 112.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -114,7 +114,6 @@ Rows: 113.
 | feature_selection/filters/hermite_fe/_als_fused_gpu.py | als_sweep_fused | 206 | FALSE POSITIVE: the sequential ALS iterations, each a few fused kernels (launches are documented launch-ok) |
 | feature_selection/filters/hermite_fe/_hermite_prewarp.py | warm_start_als_seed | 318 | FALSE POSITIVE: the sequential ALS iterations of a host numpy seed, a few trips |
 | feature_selection/filters/hermite_fe/_hermite_prewarp_gpu_resident.py | _als_sweep_gpu | 173 | FALSE POSITIVE: the sequential ALS iterations, each a few fused device ops |
-| feature_selection/shap_proxied_fs/_shap_proxy_cluster.py | _edges_blocked | 122 | REAL, not yet measured: a where and slice per row of a block, two or more launches per row |
 | feature_selection/shap_proxied_fs/_shap_proxy_gpu.py | brute_force_top_n_gpu | 141 | FALSE POSITIVE: loops over the few combination sizes, each one batched |
 | metrics/_gpu_metrics.py | compute_batch_aucs | 597 | FALLBACK: the per-column branch; the batched call over all columns is the default |
 | models/ensembling/_correlation.py | _probs_pairs | 94 | FALSE POSITIVE: loops over the classes on host numpy arrays |

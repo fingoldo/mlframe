@@ -118,20 +118,18 @@ def _edges_blocked(Z, threshold, edge_cap, block, use_gpu):
     for b0 in range(0, f, block):
         b1 = min(b0 + block, f)
         Cb = (Zb[:, b0:b1].T @ Zb) / np.float32(n)  # (blk, f)
-        absCb = xp.abs(Cb)
-        for r in range(b1 - b0):
-            i = b0 + r
-            row = absCb[r]
-            js = xp.where(row > np.float32(threshold))[0]
-            js = js[js > i]  # upper triangle only
-            if js.size:
-                if use_gpu:
-                    js = xp.asnumpy(js)
-                ei_parts.append(np.full(js.shape[0], i, dtype=np.int64))
-                ej_parts.append(js.astype(np.int64))
-                total += int(js.shape[0])
-                if total > edge_cap:
-                    return None
+        # one mask over the whole (blk, f) block: above the threshold and strictly right of the diagonal (the upper triangle only); the row-major nonzero lists the pairs in
+        # row order and, inside a row, by increasing column, the order the per-row scan produced
+        keep = (xp.abs(Cb) > np.float32(threshold)) & (xp.arange(f)[None, :] > xp.arange(b0, b1)[:, None])
+        rows, cols = xp.nonzero(keep)
+        if rows.size:
+            if use_gpu:
+                rows, cols = xp.asnumpy(rows), xp.asnumpy(cols)
+            ei_parts.append(rows.astype(np.int64) + b0)
+            ej_parts.append(cols.astype(np.int64))
+            total += int(rows.shape[0])
+            if total > edge_cap:
+                return None
     if not ei_parts:
         return np.empty(0, np.int64), np.empty(0, np.int64)
     return np.concatenate(ei_parts), np.concatenate(ej_parts)
