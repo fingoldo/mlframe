@@ -117,6 +117,7 @@ def adaptive_degree_cells_on_device(
             )
             return [(lo + meta[int(j)][0], meta[int(j)][2], meta[int(j)][1], float(mi[pos])) for pos, j in enumerate(keep)]  # (column, degree, basis, MI): meta rows are (column, basis, degree)
 
+        # the columns go through in column blocks sized from the room under the pool (``first_block``: every column makes ``multiple`` device columns of the cell matrix), a block that still runs out is halved
         multiple = (len(list(evaluable_bases())) if basis == "auto" else 1) * max(1, len(degree_range)) + 6
         pieces = run_column_blocks(cp, len(columns), first_block(cp, n, len(columns), np.dtype(dt).itemsize, multiple), block_cells)
         if any(p is None for p in pieces):

@@ -111,6 +111,13 @@ KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 #: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
 #: (its own thresholds, variants, block size) registers itself instead.
 KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_orthogonal_adaptive_degree_fe": (
+        "_basis_cells_ktc",
+        (
+            "the device cell enumeration is asked for through use_device_cells of _basis_cells_ktc (kernel_tuner fe_basis_cells_device: a sweep over the row count of the host cells against the device cells at 1e-6 "
+            "equivalence, the measured row mark as fallback, MLFRAME_BASIS_CELLS_DEVICE=0|1 forces a side); the adaptive-degree family is one of its two consumers"
+        ),
+    ),
     "_cupy_polynom_optimizer": (
         "_polynom_search_backend",
         "the polynom_generation_backend sweep times one generation of 100 candidates on the host (_eval_coef_pair_batch) and on the device (_score_generation_gpu) per row count and requires the same top candidates; the pair search asks it before taking the cupy_kernel route",
@@ -155,7 +162,27 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 
 #: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
 #: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
+#: Modules whose device path is a COMPOSITION of the fused kernels of another module that itself meets the whole contract: module -> (kernel module, why the module has no kernel of its own). The point is
+#: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
+#: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
+GPU_BACKENDS: dict[str, tuple[str, str]] = {
+    "_orthogonal_adaptive_degree_fe": (
+        "_gpu_resident_basis",
+        (
+            "the device path (_orthogonal_adaptive_degree_device, carved into this family) routes the basis per column with the batched router, builds every (column, degree) cell with the fused Clenshaw "
+            "kernel clenshaw_basis and the non-polynomial cell kernel nonpoly_cells, checks the cells with the fused validity pass and scores them with the resident plug-in MI; those kernels are owned by _gpu_resident_basis"
+        ),
+    ),
+}
+
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_orthogonal_adaptive_degree_fe": (
+        "hermite_fe",
+        (
+            "the host path builds each (column, degree) cell through _evaluate_basis_column, the numba polynomial evaluators of the hermite_fe package, and scores the stacked matrix with the batched MI of the "
+            "orthogonal layer; it is the path the device twin falls back to and the reference its cells are compared with"
+        ),
+    ),
     "_extra_basis_resident": (
         "_fourier_block_host",
         "fourier_block_host (numba, prange over the rows of every name) is the host evaluation of the Fourier / chirp columns of the pool the device block replaces, and the host generators of the family (generate_extra_basis_features) build the spline and wavelet columns the device columns are checked against; the host matrix is what the resident scorer falls back to",
@@ -217,6 +244,23 @@ CPU_TWINS: dict[str, tuple[str, str]] = {
         "the host side of the Fourier batch is _detect_fourier_freqs_host, whose coarse basis and power reductions are njit(parallel) kernels",
     ),
 }
+
+
+def gpu_backend_problems(name: str) -> list[str]:
+    """Why ``name``'s ``GPU_BACKENDS`` entry does not hold (empty when it holds or there is none): the kernel module must exist, be named by ``name``'s text, and meet the whole contract itself."""
+    if name not in GPU_BACKENDS:
+        return []
+    backend = GPU_BACKENDS[name][0]
+    text, backend_text = module_text(name), module_text(backend)
+    if backend_text is None:
+        return [f"kernel module {backend} not found"]
+    problems = []
+    if text is None or not re.search(rf"\b{re.escape(backend)}\b", text):
+        problems.append(f"{name} does not name its kernel module {backend}")
+    inner = contract_violations(backend)
+    if inner:
+        problems.append(f"kernel module {backend} does not meet the contract: {inner}")
+    return problems
 
 
 def cpu_twin_problems(name: str) -> list[str]:
@@ -298,6 +342,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_residual_rescue_fe": ("_residual_rescue_gpu", "_residual_rescue_ktc"),
     "batch_pair_mi_gpu": ("_batch_pair_mi_cuda_kernels",),
     "_orthogonal_xi_fe": ("_orthogonal_xi_gpu",),
+    "_orthogonal_adaptive_degree_fe": ("_orthogonal_adaptive_degree_device",),
     "_orthogonal_cmim_fe": ("_cmim_min_gpu",),
     "_hinge_basis_fe": ("_hinge_precheck_gpu", "_hinge_detect_gpu_resident", "_hinge_detect_gpu_resident_batch"),
     "_fe_sufficient_summary": ("_fe_sufficient_summary_pairs",),
@@ -425,9 +470,10 @@ def contract_violations(name: str) -> list[str]:
     found = []
     ktc_via_dispatcher = name in KTC_DISPATCHERS and not ktc_dispatch_problems(name)
     cpu_via_twin = name in CPU_TWINS and not cpu_twin_problems(name)
+    gpu_via_backend = name in GPU_BACKENDS and not gpu_backend_problems(name)
     for pattern, message in (
         (re.compile(r".") if cpu_via_twin else CPU_KERNEL, "no numba CPU kernel"),
-        (GPU_KERNEL, "no fused GPU kernel"),
+        (re.compile(r".") if gpu_via_backend else GPU_KERNEL, "no fused GPU kernel"),
         (re.compile(r".") if ktc_via_dispatcher else KTC_REGISTRATION, "not registered with the kernel-tuning cache"),
         (CRIT_DTYPE, "no crit dtype use"),
         (BLOCK_STREAMING, "no column-block streaming"),
