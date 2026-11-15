@@ -55,6 +55,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 import pandas as pd
 
 from ._internals import group_key_strings
+from ._fe_gain_stats import has_few_distinct
 from ._y_encoding import encode_y_for_classif_mi
 from ._added_information_gate import passes_added_information
 from typing import TYPE_CHECKING
@@ -577,8 +578,8 @@ def _grouped_quantile_mi_device(eng_X: pd.DataFrame, eng_cols: list, y_bin: np.n
                 continue
             # at most n_bins distinct values (integer or not): the host cuts at float32 quantiles, where an edge interpolated between two adjacent values can
             # round onto the upper one and merge them; the device's double interpolation keeps them apart (a 6-valued group broadcast: MI 1.6e-5 vs 3.7e-5),
-            # so such columns stay on the host. A 2048-value prefix with more distinct values settles most columns without the full count.
-            if np.unique(a[:2048]).size <= n_bins and pd.unique(a).size <= n_bins:
+            # so such columns stay on the host. The distinct count stops at the first value beyond ``n_bins`` (no sort, no full pass for a continuous column).
+            if has_few_distinct(a, n_bins):
                 continue
             cols.append(c)
         if not cols:
@@ -615,7 +616,7 @@ def _prebinned_codes(frame: pd.DataFrame, cols: list, n_bins: int) -> dict:
     for c in cols:
         a = np.asarray(frame[c].to_numpy(), dtype=np.float32)
         # a column with at most n_bins distinct values stays on the host binner: its float32 quantile edges can merge two adjacent levels, which the kernel's exact level codes do not
-        if a.size and np.isfinite(a).all() and not (np.unique(a[:2048]).size <= n_bins and pd.unique(a).size <= n_bins):
+        if a.size and np.isfinite(a).all() and not has_few_distinct(a, n_bins):
             keep.append(c)
             arrs.append(a)
     out: dict = {}
