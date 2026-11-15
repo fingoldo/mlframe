@@ -342,6 +342,27 @@ def _sweep_cmim() -> list:
     return sweep_scorer(lambda inp: score_features_by_cmim(*inp)["engineered_mi"].to_numpy(), synthetic_scorer_frame)
 
 
+def _cmim_min_scores(eng_bins, y_bin, sel_bins, support_names, eng_sources, n_bins: int):
+    """``(K,)`` CMIM scores of the binned candidates from the fused kernels of :mod:`._cmim_min_gpu` (one joint table per (candidate, reference), the numba or the CUDA form per the kernel-tuning
+    cache), or ``None`` when they do not apply (no reference, codes out of range, a joint table beyond ``MAX_CELLS``): the caller then takes the older paths. A candidate with no reference of another source
+    gets ``inf`` and is scored by the caller (marginal MI). 100000 rows, 150 candidates, 40 references: 1.5-1.8 s host loop, 0.16 s one ``batched_cmi_gpu`` call per reference, 0.034 s numba, 0.043 s CUDA."""
+    import os
+
+    if os.environ.get("MLFRAME_CMIM_MIN", "1").strip() == "0" or not len(sel_bins) or not len(eng_bins):
+        return None
+    try:
+        from ._cmim_min_gpu import cmim_min_scores
+
+        allowed = np.array([[support_names[j] != eng_sources[i] for i in range(len(eng_sources))] for j in range(len(sel_bins))], dtype=bool)
+        got = cmim_min_scores(np.asarray(eng_bins), np.asarray(y_bin), [np.asarray(z) for z in sel_bins], allowed, int(n_bins))
+        if got is None:
+            return None
+        return np.where(got >= 1e299, np.inf, got)
+    except Exception as exc:
+        log_throttle(logger, "_orthogonal_cmim_fe.min_scores", logging.WARNING, "fused CMIM scorer not used (%s: %s); older paths", type(exc).__name__, exc)
+        return None
+
+
 def _cmim_scores_device(eng_bins, y_bin, sel_bins, support_names, eng_sources, n_bins: int):
     """``(K,)`` CMIM scores of the binned candidates on the device: for every reference column one ``batched_cmi_gpu`` call scores all candidates (the
     Miller-Madow CMI of ``_cmi_from_binned``, clipped at 0), and each candidate takes the minimum over the references of a different source, as
@@ -507,7 +528,9 @@ def score_features_by_cmim(
     rows: list[dict] = []
     eng_bins = quantile_bin_columns(engineered_X.to_numpy(dtype=_crit_np_dtype()), int(n_bins), dtype=np.int16)  # int16 codes: 2 bytes a value, not 8  # every candidate column binned at once (not one device round trip per column)
     eng_sources = [source_of_engineered_name(eng_name) for eng_name in engineered_X.columns]
-    device_scores = _cmim_scores_device(eng_bins, y_bin, sel_bins, support_col_names, eng_sources, int(n_bins))
+    device_scores = _cmim_min_scores(eng_bins, y_bin, sel_bins, support_col_names, eng_sources, int(n_bins))
+    if device_scores is None:
+        device_scores = _cmim_scores_device(eng_bins, y_bin, sel_bins, support_col_names, eng_sources, int(n_bins))
     from ._fe_deadline import fe_deadline_passed
 
     for eng_idx, eng_name in enumerate(engineered_X.columns):

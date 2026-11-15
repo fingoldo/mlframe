@@ -24,6 +24,7 @@ def test_device_equals_host(monkeypatch):
         "x5__mix": raw["x0"] * raw["x5"],
     })
     y = ((raw["x0"] ** 2 + raw["x1"] + 0.5 * raw["x3"] + 0.5 * rng.standard_normal(n)) > 1.0).astype(int).to_numpy()
+    monkeypatch.setenv("MLFRAME_CMIM_MIN", "0")  # the fused scorer of _cmim_min_gpu (tests/feature_selection/filters/test_cmim_min_gpu.py) would answer first; this test is about the per-reference device path
     monkeypatch.setenv("MLFRAME_CMIM_DEVICE", "0")
     want = M.score_features_by_cmim(raw, eng, y)
     monkeypatch.setenv("MLFRAME_CMIM_DEVICE", "1")

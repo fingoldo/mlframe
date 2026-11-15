@@ -628,6 +628,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "cmim_min_gpu.cmim_min_blocks": (
+        "mlframe.feature_selection.filters._cmim_min_gpu",
+        "kernel",
+        ("uint8", "int16"),
+    ),
     "hinge_precheck_gpu.hinge_precheck_drops": (
         "mlframe.feature_selection.filters._hinge_precheck_gpu",
         "kernel",
