@@ -663,6 +663,18 @@ def _emit_pair_features_step1_st_simplenamespace_long(
     st._leader_usability = {}
     if len(leading_features) > 1 and _corr_y_cont is not None:
         _corr_y_cont_finite = np.isfinite(_corr_y_cont)
+        _many = getattr(_resolve_col, "abs_corr_many", None) if (_this_chunk_deferred and final_transformed_vals is None) else None
+        _batched = None
+        if _many is not None and len(leading_features) > 1:
+            # every leader of the pair in one materialise block and one reduction launch (about 30 leaders a pair were one launch set each); None leaves the per-leader path below
+            try:
+                _batched = _many([_c[2] for _c in leading_features], _corr_y_cont, _corr_y_cont_finite)
+            except Exception as e:  # nosec B110 - best-effort, the per-leader path is the reference
+                logger.debug("batched leader |corr| failed: %s", e)
+                _batched = None
+            if _batched is not None and len(_batched) == len(leading_features):
+                st._leader_usability.update(zip(leading_features, _batched))
+                return _cached_name, _name_cache, leading_features, st
         for _lc in leading_features:
             try:
                 _li = _lc[2]
