@@ -16,7 +16,8 @@ import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
-from ._fe_gain_stats import has_few_distinct, quantile_codes
+from ._fe_gain_stats import has_few_distinct
+from ._gain_stats_codes_gpu import quantile_codes_columns
 from ._pair_residual_screen import FAMILY_ALPHA, MAX_COLS, N_BINS, main_effect_bins, pair_interaction_screen
 from ._y_encoding import FEW_CLASSES_MAX
 
@@ -39,12 +40,15 @@ def target_has_structure(X: "pd.DataFrame", target: np.ndarray, *, scan_rows: in
     base = float(t[even].mean())
     bins = main_effect_bins(int(even.sum()))
     stats = []
+    kept = []
     for c in cols:
         x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
         finite = np.isfinite(x)
         if finite.sum() < _MIN_ROWS or has_few_distinct(x[finite], FEW_CLASSES_MAX):
             continue
-        q = quantile_codes(x, bins)
+        kept.append(x)
+    codes = quantile_codes_columns(kept, bins)[0] if kept else []  # one device launch (or the host form) codes every kept column
+    for q in codes:
         cnt = np.bincount(q[even], minlength=bins)
         mean = np.where(cnt > 0, np.bincount(q[even], weights=t[even], minlength=bins) / np.maximum(cnt, 1), base)
         odd = ~even

@@ -25,7 +25,8 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 import pandas as pd
 from numba import njit, prange
 
-from ._fe_gain_stats import has_few_distinct, quantile_codes
+from ._fe_gain_stats import has_few_distinct
+from ._gain_stats_codes_gpu import quantile_codes_columns
 from ._numba_utils import _backfit
 from ._y_encoding import FEW_CLASSES_MAX
 
@@ -110,19 +111,18 @@ def pair_interaction_screen(
         return []
     rows = np.arange(n) if n <= scan_rows else np.linspace(0, n - 1, int(scan_rows)).astype(np.int64)
     yr = _winsorised(np.asarray(y, dtype=_crit_np_dtype()).ravel()[rows])
-    names, codes, main_codes = [], [], []
+    names, kept = [], []
     for c in cand:
         x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
         finite = np.isfinite(x)
         if finite.sum() < _MIN_ROWS or has_few_distinct(x[finite], FEW_CLASSES_MAX):
             continue
         names.append(c)
-        codes.append(quantile_codes(x, N_BINS))
-        main_codes.append(quantile_codes(x, main_effect_bins((len(rows) + 1) // 2)))
+        kept.append(x)
     if len(names) < 2:
         return []
-    Q = np.ascontiguousarray(np.stack(codes))
-    Qm = np.ascontiguousarray(np.stack(main_codes))
+    # both bin counts of every kept column from one sort of the block (the device), or the host form per column
+    Q, Qm = (np.ascontiguousarray(a) for a in quantile_codes_columns(kept, [N_BINS, main_effect_bins((len(rows) + 1) // 2)]))
     if len(names) > max_cols:
         mean_by_bin = [np.bincount(Q[j], weights=yr, minlength=N_BINS) / np.maximum(np.bincount(Q[j], minlength=N_BINS), 1) for j in range(len(names))]
         keep = np.argsort([-float(np.var(m)) for m in mean_by_bin], kind="stable")[:max_cols]

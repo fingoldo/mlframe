@@ -116,6 +116,7 @@ _RECIPES: dict = {
     "_gpu_resident_operand_build.py::_BATCH_UNARY_TEMPLATE": lambda s: [(r, _fill(s, **{"{REAL}": r, "{EDGE}": "float"}), ()) for r in _REAL_TYPES],
     "_extra_basis_resident.py::_BSPLINE_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "{ACC}": "double"}), ("--fmad=false",)) for r in _REAL_TYPES],
     "_order_stats_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
+    "_gain_stats_codes_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "{EDGE}": "double", "{CODE}": "unsigned char"}), ()) for r in _REAL_TYPES],
     "_synergy_combo_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],
     "_added_information_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],
     "_residual_rescue_gpu.py::_SCORE_SRC": lambda s: [(qt, _fill(s, **{"{QT}": qt, "{ACC}": "double"}), ()) for qt in ("signed char", "int")],

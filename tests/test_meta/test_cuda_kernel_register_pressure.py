@@ -618,6 +618,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "gain_stats_codes_gpu.quantile_codes_right": (
+        "mlframe.feature_selection.filters._gain_stats_codes_gpu",
+        "kernel",
+        ("float32", "float64"),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",
