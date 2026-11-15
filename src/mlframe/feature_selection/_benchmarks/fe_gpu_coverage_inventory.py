@@ -236,6 +236,7 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_hermite_fe_mi": ("_fe_edge_mi",),
     "_orthogonal_triplet_fe": ("_triple_mi_gpu",),
     "_offset_product_fe": ("_offset_product_gpu",),
     "_parity_fe": ("_parity_gpu",),

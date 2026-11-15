@@ -4,6 +4,9 @@ of ``mlframe.feature_selection.filters.hermite_fe``.
 Re-imported at the parent's module bottom so historical
 ``from mlframe.feature_selection.filters.hermite_fe import plugin_mi_classif_dispatch``
 resolves transparently.
+
+The CPU edge-binning twin of the resident CUDA plug-in MI of this module is ``_fe_edge_mi`` (it bins by percentile edge exactly as the device kernel does, so the CPU and GPU batchers score tied columns
+identically; the contract is pinned in ``_fe_mi_contract``).
 """
 
 from __future__ import annotations
