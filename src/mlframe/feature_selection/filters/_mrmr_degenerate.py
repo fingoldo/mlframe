@@ -35,6 +35,7 @@ from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
+from numba import njit, prange
 
 from ._xxh3_hash import resolve_xxh3_64
 from ._fe_usability_signal import _crit_np_dtype
@@ -147,6 +148,46 @@ def _content_key(values: np.ndarray):
         except Exception as e2:
             logger.warning("tobytes content key also failed, column excluded from duplicate detection: %s", e2)
             return None
+
+
+@njit(parallel=True, cache=True, nogil=True)
+def _standardise_rows(M: np.ndarray) -> np.ndarray:
+    """Standardise every row of ``M`` in place for the Gram matrix and return the per-row scale: a non-finite value takes the row's finite mean, the row is centred and divided by the root of its
+    sum of squares, and a row with no spread (scale 0) is zeroed. One parallel pass per row replaces the finite mask, the mean fill, the centring, the scale and the division, each of which
+    was a separate numpy pass over the whole ``(K, n)`` matrix. Sums accumulate in float64."""
+    k, n = M.shape
+    stds = np.zeros(k, dtype=np.float64)
+    for r in prange(k):
+        s = 0.0
+        c = 0
+        for i in range(n):
+            v = M[r, i]
+            if np.isfinite(v):
+                s += v
+                c += 1
+        fill = s / c if c > 0 else 0.0
+        t = 0.0
+        for i in range(n):
+            v = M[r, i]
+            if not np.isfinite(v):
+                v = fill
+            M[r, i] = v
+            t += v
+        mu = t / n
+        q = 0.0
+        for i in range(n):
+            d = M[r, i] - mu
+            M[r, i] = d
+            q += d * d
+        sd = np.sqrt(q)
+        stds[r] = sd
+        if sd > 0.0 and np.isfinite(sd):
+            for i in range(n):
+                M[r, i] = M[r, i] / sd
+        else:
+            for i in range(n):
+                M[r, i] = 0.0
+    return stds
 
 
 def _gram_matrix(M: np.ndarray) -> np.ndarray:
@@ -387,23 +428,9 @@ def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_
         # BLAS call, just the operand layout that lets each per-column write stay contiguous.
         M = np.empty((len(live), n_rows), dtype=_crit_np_dtype())
         for k, name in enumerate(live):
-            row = M[k]
-            row[:] = _column_values(X, name)  # casts into the row; no separate dtype copy of the column
-            fin = np.isfinite(row)
-            if not fin.all():
-                col_mean = float(np.nanmean(row)) if fin.any() else 0.0
-                row[~fin] = col_mean
-        # Standardise; zero-variance columns (shouldn't reach here - caught as constant)
-        # are guarded by a non-zero std floor so they cannot spuriously read |corr|=1.
-        with np.errstate(invalid="ignore"):  # a non-finite-derived col_mean can make the centre subtract NaN; the std floor below handles it
-            M -= M.mean(axis=1, keepdims=True)
-            # Row by row: the same per-row pairwise sum as (M * M).sum(axis=1), without a second (K, n) temporary.
-            # Intentional float64: per-row sum of squares for the standardisation scale; kept f64 so the floor is precision-stable.
-            stds = np.sqrt(np.fromiter(((row * row).sum() for row in M), dtype=np.float64, count=M.shape[0]))
-        good = stds > 0
-        with np.errstate(invalid="ignore", divide="ignore"):
-            np.divide(M, np.where(stds == 0, 1.0, stds)[:, None], out=M)
-        M[~good] = 0.0
+            M[k, :] = _column_values(X, name)  # casts into the row; no separate dtype copy of the column
+        # standardised by one parallel pass per row; zero-variance columns (shouldn't reach here - caught as constant) get scale 0 and are zeroed, so they cannot spuriously read |corr|=1
+        good = _standardise_rows(M) > 0
         corr = _gram_matrix(M)  # unit-norm rows -> Gram matrix == correlation matrix
         np.fill_diagonal(corr, 0.0)
         abs_corr = np.abs(corr)
