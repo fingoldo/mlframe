@@ -1,6 +1,6 @@
 """Self-time of a cProfile run bucketed by library (cupy, mlframe, numpy, pandas, ...): where the wall goes by who spends it. Reads ``PROF_FILE`` written by ``profile_fit_gpu.py``."""
 
-from typing import Any
+from typing import Any, cast
 import sys
 from pathlib import Path
 

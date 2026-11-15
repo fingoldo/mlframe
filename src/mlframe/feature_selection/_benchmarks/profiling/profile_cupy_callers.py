@@ -1,6 +1,6 @@
 """mlframe functions ranked by how many cupy calls they make directly: finds the launch-heavy call sites. Reads ``PROF_FILE`` written by ``profile_fit_gpu.py``."""
 
-from typing import Any
+from typing import Any, cast
 import sys
 from pathlib import Path
 
