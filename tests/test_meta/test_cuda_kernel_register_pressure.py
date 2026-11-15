@@ -333,6 +333,21 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_interp",
         ("float64",),
     ),
+    "gpu_resident_shared.fused_gen": (
+        "mlframe.feature_selection.filters._gpu_resident_shared",
+        "kernel",
+        ("float64",),
+    ),
+    "gpu_resident_shared.fused_gen_cm": (
+        "mlframe.feature_selection.filters._gpu_resident_shared",
+        "kernel_cm",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_shared.fused_gen_bin_hist": (
+        "mlframe.feature_selection.filters._gpu_resident_shared",
+        "kernel_bin_hist",
+        ("float64",),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",
