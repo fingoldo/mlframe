@@ -29,6 +29,7 @@ from ._fe_batched_mi_cmi_lut import (  # noqa: F401 -- carved lookup-table entro
     _rows_entropy_lut_split,
     _xlogx_table,
 )
+from . import _fe_batched_mi_cmi_hist as _hist_factories
 from ._fe_batched_mi_cmi_hist import (  # noqa: F401  -- carved: row entropies and joint counts
     _get_rows_ent_nnz_kernel,
     _get_rows_ent_nnz_i32_kernel,
@@ -173,8 +174,7 @@ def batched_joint_entropy_global(X: Any, b: Any, Kx: int, Kb: int, inv_n: float,
 
     xt = _code_type(X)
     if xt not in _BATCHED_JOINT_ENTROPY_G_KERNEL:
-        src = _entropy_source(xt)
-        _BATCHED_JOINT_ENTROPY_G_KERNEL[xt] = [cp.RawKernel(src, "batched_joint_entropy2_g"), cp.RawKernel(src, "batched_joint_entropy2_g_wide")]
+        _BATCHED_JOINT_ENTROPY_G_KERNEL[xt] = [kernel_entropy_g(cp, _real_of_xt(xt)), kernel_entropy_g_wide(cp, _real_of_xt(xt))]
     g_kernels = _BATCHED_JOINT_ENTROPY_G_KERNEL[xt]
     n, K = int(X.shape[0]), int(X.shape[1])
     M = int(Kx) * int(Kb)
@@ -240,6 +240,11 @@ def _entropy_source(xt: str) -> str:
     return _BATCHED_JOINT_ENTROPY_SRC.replace("{XT}", xt)
 
 
+def _real_of_xt(xt: str) -> Any:
+    """The registry dtype of a CUDA code type string (inverse of ``_xt_of``)."""
+    return np.uint8 if xt == "unsigned char" else np.int64
+
+
 def _xt_of(real: Any) -> str:
     """The CUDA code type for a registry dtype: ``uint8`` stays bytes, anything else is 64-bit."""
     return "unsigned char" if np.dtype(real) == np.uint8 else "long long"
@@ -299,7 +304,7 @@ def _get_batched_joint_entropy_kernel(cp, xt: str = "long long"):
     """Lazily compile and cache the ``batched_joint_entropy2`` RawKernel for the code type ``xt``, and probe+cache the device's max shared memory per block (used to decide when the kernel's histogram fits in shared memory vs global scratch)."""
     global _BATCHED_JOINT_ENTROPY_SH_LIMIT
     if xt not in _BATCHED_JOINT_ENTROPY_KERNEL:
-        _BATCHED_JOINT_ENTROPY_KERNEL[xt] = cp.RawKernel(_entropy_source(xt), "batched_joint_entropy2")
+        _BATCHED_JOINT_ENTROPY_KERNEL[xt] = kernel_entropy(cp, _real_of_xt(xt))
         try:
             _BATCHED_JOINT_ENTROPY_SH_LIMIT = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
         # best-effort: a smaller shared-memory limit only moves the dispatch to the global-memory kernel, which gives the same counts
@@ -427,7 +432,7 @@ def _ent_nnz_1d(c, inv_n):
     global _ENT_NNZ_1D_KERNEL
     try:
         if _ENT_NNZ_1D_KERNEL is None:
-            _ENT_NNZ_1D_KERNEL = cp.RawKernel(_ENT_NNZ_1D_SRC, "ent_nnz_1d")
+            _ENT_NNZ_1D_KERNEL = kernel_ent_nnz(cp)
         M = int(c.size)
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.zeros(2, dtype=cp.float64)  # cudaMemsetAsync, not a cuLaunchKernel
@@ -542,8 +547,7 @@ def _get_joint_entropy_kernels():
     if _JOINT_ENTROPY_KERNELS is None:
         import cupy as cp
 
-        mod = cp.RawModule(code=_JOINT_ENTROPY_SRC)
-        _JOINT_ENTROPY_KERNELS = (mod.get_function("joint_entropy1"), mod.get_function("joint_entropy2"), mod.get_function("joint_entropy3"))
+        _JOINT_ENTROPY_KERNELS = (kernel_joint1(cp), kernel_joint2(cp), kernel_joint3(cp))
         try:
             _JOINT_ENTROPY_SH_LIMIT = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
         # best-effort: a smaller shared-memory limit only moves the dispatch to the global-memory kernel, which gives the same counts
@@ -657,7 +661,7 @@ def cmi_joint_entropies_gpu(dx: Any, dy: Any, dz: Any, Kx: int, ky: int, kz: int
         return None
     try:
         if _CMI_JOINT_ENTROPIES_KERNEL is None:
-            _CMI_JOINT_ENTROPIES_KERNEL = cp.RawKernel(_CMI_JOINT_ENTROPIES_SRC, "cmi_joint_entropies")
+            _CMI_JOINT_ENTROPIES_KERNEL = kernel_cmi_joint(cp)
         n = int(dz.size)
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.zeros(8, dtype=cp.float64)
@@ -735,7 +739,7 @@ def marginal_mi_entropies_gpu(dx: Any, dy: Any, Kx: int, ky: int, inv_n: float) 
         return None
     try:
         if _MARGINAL_MI_ENTROPIES_KERNEL is None:
-            _MARGINAL_MI_ENTROPIES_KERNEL = cp.RawKernel(_MARGINAL_MI_ENTROPIES_SRC, "marginal_mi_entropies")
+            _MARGINAL_MI_ENTROPIES_KERNEL = kernel_marginal(cp)
         n = int(dx.size)
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.zeros(6, dtype=cp.float64)
@@ -782,7 +786,7 @@ def _cmi_assemble(he1, he2, hc, kc1, kc2, kc, inv2n):
     global _CMI_ASSEMBLE_KERNEL
     try:
         if _CMI_ASSEMBLE_KERNEL is None:
-            _CMI_ASSEMBLE_KERNEL = cp.RawKernel(_CMI_ASSEMBLE_SRC, "cmi_assemble")
+            _CMI_ASSEMBLE_KERNEL = kernel_assemble(cp)
         K = int(he1.shape[0])
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.empty(K, dtype=cp.float64)
@@ -821,8 +825,7 @@ def _get_joint_nnz_kernels():
     if _JOINT_NNZ_KERNELS is None:
         import cupy as cp
 
-        mod = cp.RawModule(code=_JOINT_HIST_SRC)
-        _JOINT_NNZ_KERNELS = (mod.get_function("joint_hist_nnz1"), mod.get_function("joint_hist_nnz2"), mod.get_function("joint_hist_nnz3"))
+        _JOINT_NNZ_KERNELS = (_hist_factories.kernel_joint_hist_nnz1(cp), _hist_factories.kernel_joint_hist_nnz2(cp), _hist_factories.kernel_joint_hist_nnz3(cp))
     return _JOINT_NNZ_KERNELS
 
 

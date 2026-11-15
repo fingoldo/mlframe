@@ -273,6 +273,66 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_assemble",
         ("int64",),
     ),
+    "gpu_resident_select_kernels.radix_select_f64": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_radix_f64",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.radix_select_f32": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_radix_f32",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.radix_select_f32_bsearch": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_radix_f32_bsearch",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.radix_select_f32_v3": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_radix_f32_v3",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.radix_select_interp_f64": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_interp_f64",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.radix_select_interp_f64_v2": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_interp_f64_v2",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.radix_select_interp_f64_v3": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_interp_f64_v3",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.transpose_f32": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_transpose_f32",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.transpose_f64": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_transpose_f64",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.transpose_i8": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_transpose_i8",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.transpose_i16": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_transpose_i16",
+        ("float64",),
+    ),
+    "gpu_resident_select_kernels.radix_interp": (
+        "mlframe.feature_selection.filters._gpu_resident_select_factories",
+        "kernel_interp",
+        ("float64",),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",

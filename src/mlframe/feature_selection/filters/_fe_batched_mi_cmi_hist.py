@@ -141,7 +141,7 @@ def _get_rows_ent_nnz_kernel(cp):
     """Lazily compile (once per process) and cache the double precision ``rows_ent_nnz`` RawKernel; NVCC compilation is a ~30ms one-off, so callers pay it only on the first invocation."""
     global _ROWS_ENT_NNZ_KERNEL
     if _ROWS_ENT_NNZ_KERNEL is None:
-        _ROWS_ENT_NNZ_KERNEL = cp.RawKernel(_ROWS_ENT_NNZ_SRC, "rows_ent_nnz")
+        _ROWS_ENT_NNZ_KERNEL = kernel(cp)
     return _ROWS_ENT_NNZ_KERNEL
 
 
@@ -149,7 +149,7 @@ def _get_rows_ent_nnz_i32_kernel(cp):
     """Lazily compile and cache the int32-count variant ``rows_ent_nnz_i32`` RawKernel (same source module, different entry point)."""
     global _ROWS_ENT_NNZ_I32_KERNEL
     if _ROWS_ENT_NNZ_I32_KERNEL is None:
-        _ROWS_ENT_NNZ_I32_KERNEL = cp.RawKernel(_ROWS_ENT_NNZ_SRC, "rows_ent_nnz_i32")
+        _ROWS_ENT_NNZ_I32_KERNEL = kernel_i32(cp)
     return _ROWS_ENT_NNZ_I32_KERNEL
 
 
@@ -157,29 +157,28 @@ def _get_rows_ent_nnz_split_kernels(cp):
     """Lazily compile and cache the two-stage split/finish kernel pair (partial-sum + reduction) used when the row width exceeds what a single-block reduction can hold."""
     global _ROWS_ENT_NNZ_SPLIT_KERNELS
     if _ROWS_ENT_NNZ_SPLIT_KERNELS is None:
-        mod = cp.RawModule(code=_ROWS_ENT_NNZ_SRC)
-        _ROWS_ENT_NNZ_SPLIT_KERNELS = (mod.get_function("rows_ent_nnz_i32_split"), mod.get_function("rows_ent_nnz_finish"))
+        _ROWS_ENT_NNZ_SPLIT_KERNELS = (kernel_split(cp), kernel_finish(cp))
     return _ROWS_ENT_NNZ_SPLIT_KERNELS
 
 
 def kernel(cp, real=None):
     """``rows_ent_nnz`` (double accumulators; the entropy kernels read integer counts, so ``real`` is unused); the register-pressure registry compiles it through this."""
-    return _get_rows_ent_nnz_kernel(cp)
+    return cp.RawKernel(_ROWS_ENT_NNZ_SRC, "rows_ent_nnz")
 
 
 def kernel_i32(cp, real=None):
     """``rows_ent_nnz_i32`` (int32 counts); registry factory."""
-    return _get_rows_ent_nnz_i32_kernel(cp)
+    return cp.RawKernel(_ROWS_ENT_NNZ_SRC, "rows_ent_nnz_i32")
 
 
 def kernel_split(cp, real=None):
     """``rows_ent_nnz_i32_split`` (the partial-sum stage of the wide-row path); registry factory."""
-    return _get_rows_ent_nnz_split_kernels(cp)[0]
+    return cp.RawModule(code=_ROWS_ENT_NNZ_SRC).get_function("rows_ent_nnz_i32_split")
 
 
 def kernel_finish(cp, real=None):
     """``rows_ent_nnz_finish`` (the reduction stage of the wide-row path); registry factory."""
-    return _get_rows_ent_nnz_split_kernels(cp)[1]
+    return cp.RawModule(code=_ROWS_ENT_NNZ_SRC).get_function("rows_ent_nnz_finish")
 
 
 def _hist_entry(cp, source: str, name: str):
@@ -483,8 +482,7 @@ def _get_joint_hist_kernels():
     if _JOINT_HIST_KERNELS is None:
         import cupy as cp
 
-        mod = cp.RawModule(code=_JOINT_HIST_SRC)
-        _JOINT_HIST_KERNELS = (mod.get_function("joint_hist1"), mod.get_function("joint_hist2"), mod.get_function("joint_hist3"))
+        _JOINT_HIST_KERNELS = (kernel_joint_hist1(cp), kernel_joint_hist2(cp), kernel_joint_hist3(cp))
     return _JOINT_HIST_KERNELS
 
 
@@ -583,12 +581,11 @@ def _get_batched_joint_hist_u8_kernels():
     if _BATCHED_JOINT_HIST_U8_KERNELS is None:
         import cupy as cp
 
-        mod = cp.RawModule(code=_JOINT_HIST_U8_SRC)
         _BATCHED_JOINT_HIST_U8_KERNELS = (
-            mod.get_function("batched_joint_hist1_i32_u8"),
-            mod.get_function("batched_joint_hist2_i32_u8"),
-            mod.get_function("batched_joint_hist2_i32_smem_u8"),
-            mod.get_function("batched_joint_hist2_i32_smem_u8_v2"),
+            kernel_batched_joint_hist1_i32_u8(cp),
+            kernel_batched_joint_hist2_i32_u8(cp),
+            kernel_batched_joint_hist2_i32_smem_u8(cp),
+            kernel_batched_joint_hist2_i32_smem_u8_v2(cp),
         )
     return _BATCHED_JOINT_HIST_U8_KERNELS
 
@@ -602,13 +599,12 @@ def _get_batched_joint_hist_kernels():
     if _BATCHED_JOINT_HIST_KERNELS is None:
         import cupy as cp
 
-        mod = cp.RawModule(code=_JOINT_HIST_SRC)
         _BATCHED_JOINT_HIST_KERNELS = (
-            mod.get_function("batched_joint_hist1"),
-            mod.get_function("batched_joint_hist2"),
-            mod.get_function("batched_joint_hist1_i32"),
-            mod.get_function("batched_joint_hist2_i32"),
-            mod.get_function("batched_joint_hist2_i32_smem"),
+            kernel_batched_joint_hist1(cp),
+            kernel_batched_joint_hist2(cp),
+            kernel_batched_joint_hist1_i32(cp),
+            kernel_batched_joint_hist2_i32(cp),
+            kernel_batched_joint_hist2_i32_smem(cp),
         )
     return _BATCHED_JOINT_HIST_KERNELS
 

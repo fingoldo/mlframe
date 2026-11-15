@@ -296,6 +296,13 @@ _RADIX_STATIC_SHARED_BYTES = 4 * _RADIX_SELECT_MAXR * 8 + 2 * _RADIX_SELECT_MAXR
 _RADIX_THREADS_OVERRIDE: int | None = None  # int set by the KTC sweep probe; None -> use the per-host KTC lookup
 
 
+def _select_factories():
+    """The factory module of this file's kernels (imported on first use: it imports the sources from here)."""
+    from . import _gpu_resident_select_factories
+
+    return _gpu_resident_select_factories
+
+
 def _resolve_radix_threads(n: int) -> int:
     """Threads/block for the radix-select launch: the sweep override when one is active (during the KTC
     timing probe), else the per-host tuned count from the kernel_tuning_cache (falls back to 512)."""
@@ -395,7 +402,7 @@ def _get_transpose_f32_kernel():
     global _TRANSPOSE_F32_KERNEL
     if _TRANSPOSE_F32_KERNEL is None:
         import cupy as cp
-        _TRANSPOSE_F32_KERNEL = cp.RawKernel(_TRANSPOSE_F32_SRC, "transpose_f32")
+        _TRANSPOSE_F32_KERNEL = _select_factories().kernel_transpose_f32(cp)
     return _TRANSPOSE_F32_KERNEL
 
 
@@ -404,7 +411,7 @@ def _get_transpose_f64_kernel():
     global _TRANSPOSE_F64_KERNEL
     if _TRANSPOSE_F64_KERNEL is None:
         import cupy as cp
-        _TRANSPOSE_F64_KERNEL = cp.RawKernel(_TRANSPOSE_F64_SRC, "transpose_f64")
+        _TRANSPOSE_F64_KERNEL = _select_factories().kernel_transpose_f64(cp)
     return _TRANSPOSE_F64_KERNEL
 
 
@@ -504,10 +511,10 @@ def _get_transpose_int_kernel(itemsize: int):
     import cupy as cp
     if itemsize == 1:
         if _TRANSPOSE_I8_KERNEL is None:
-            _TRANSPOSE_I8_KERNEL = cp.RawKernel(_TRANSPOSE_I8_SRC, "transpose_i8")
+            _TRANSPOSE_I8_KERNEL = _select_factories().kernel_transpose_i8(cp)
         return _TRANSPOSE_I8_KERNEL
     if _TRANSPOSE_I16_KERNEL is None:
-        _TRANSPOSE_I16_KERNEL = cp.RawKernel(_TRANSPOSE_I16_SRC, "transpose_i16")
+        _TRANSPOSE_I16_KERNEL = _select_factories().kernel_transpose_i16(cp)
     return _TRANSPOSE_I16_KERNEL
 
 
@@ -540,10 +547,10 @@ def _get_radix_select_kernel(is_f32: bool):
     import cupy as cp
     if is_f32:
         if _RADIX_SELECT_F32_KERNEL is None:
-            _RADIX_SELECT_F32_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_SRC, "radix_select_f32")
+            _RADIX_SELECT_F32_KERNEL = _select_factories().kernel_radix_f32(cp)
         return _RADIX_SELECT_F32_KERNEL
     if _RADIX_SELECT_F64_KERNEL is None:
-        _RADIX_SELECT_F64_KERNEL = cp.RawKernel(_RADIX_SELECT_F64_SRC, "radix_select_f64")
+        _RADIX_SELECT_F64_KERNEL = _select_factories().kernel_radix_f64(cp)
     return _RADIX_SELECT_F64_KERNEL
 
 
@@ -786,7 +793,7 @@ def _get_radix_select_interp_f64_v3_kernel():
         return None
     if _RADIX_SELECT_INTERP_F64_V3_KERNEL is None:
         try:
-            _RADIX_SELECT_INTERP_F64_V3_KERNEL = cp.RawKernel(_RADIX_SELECT_INTERP_F64_V3_SRC, "radix_select_interp_f64_v3")
+            _RADIX_SELECT_INTERP_F64_V3_KERNEL = _select_factories().kernel_interp_f64_v3(cp)
         except Exception:
             import logging
             log_throttle(logging.getLogger(__name__), "gpu_select.f64_v3_compile", logging.WARNING,
@@ -803,7 +810,7 @@ def _get_radix_select_interp_f64_kernel():
     if os.environ.get("MLFRAME_RADIX_F64_V2", "1").strip().lower() in ("1", "true", "on", "yes"):
         if _RADIX_SELECT_INTERP_F64_V2_KERNEL is None:
             try:
-                _RADIX_SELECT_INTERP_F64_V2_KERNEL = cp.RawKernel(_RADIX_SELECT_INTERP_F64_V2_SRC, "radix_select_interp_f64_v2")
+                _RADIX_SELECT_INTERP_F64_V2_KERNEL = _select_factories().kernel_interp_f64_v2(cp)
             except Exception:
                 import logging
                 log_throttle(logging.getLogger(__name__), "gpu_select.f64_v2_compile", logging.WARNING,
@@ -812,7 +819,7 @@ def _get_radix_select_interp_f64_kernel():
         if _RADIX_SELECT_INTERP_F64_V2_KERNEL:
             return _RADIX_SELECT_INTERP_F64_V2_KERNEL
     if _RADIX_SELECT_INTERP_F64_KERNEL is None:
-        _RADIX_SELECT_INTERP_F64_KERNEL = cp.RawKernel(_RADIX_SELECT_INTERP_F64_SRC, "radix_select_interp_f64")
+        _RADIX_SELECT_INTERP_F64_KERNEL = _select_factories().kernel_interp_f64(cp)
     return _RADIX_SELECT_INTERP_F64_KERNEL
 
 
@@ -824,7 +831,7 @@ def _get_radix_select_f32_v3_kernel():
     global _RADIX_SELECT_F32_V3_KERNEL
     import cupy as cp
     if _RADIX_SELECT_F32_V3_KERNEL is None:
-        _RADIX_SELECT_F32_V3_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_V3_SRC, "radix_select_f32_v3")
+        _RADIX_SELECT_F32_V3_KERNEL = _select_factories().kernel_radix_f32_v3(cp)
     return _RADIX_SELECT_F32_V3_KERNEL
 
 
@@ -835,7 +842,7 @@ def _get_radix_select_f32_bsearch_kernel():
     global _RADIX_SELECT_F32_BSEARCH_KERNEL
     import cupy as cp
     if _RADIX_SELECT_F32_BSEARCH_KERNEL is None:
-        _RADIX_SELECT_F32_BSEARCH_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_BSEARCH_SRC, "radix_select_f32_bsearch")
+        _RADIX_SELECT_F32_BSEARCH_KERNEL = _select_factories().kernel_radix_f32_bsearch(cp)
     return _RADIX_SELECT_F32_BSEARCH_KERNEL
 
 
@@ -941,5 +948,5 @@ def _get_radix_interp_kernel():
     global _RADIX_INTERP_KERNEL
     if _RADIX_INTERP_KERNEL is None:
         import cupy as cp
-        _RADIX_INTERP_KERNEL = cp.RawKernel(_RADIX_INTERP_SRC, "radix_interp")
+        _RADIX_INTERP_KERNEL = _select_factories().kernel_interp(cp)
     return _RADIX_INTERP_KERNEL
