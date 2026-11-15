@@ -344,6 +344,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_orthogonal_xi_fe": ("_orthogonal_xi_gpu",),
     "_orthogonal_adaptive_degree_fe": ("_orthogonal_adaptive_degree_device",),
     "_orthogonal_cmim_fe": ("_cmim_min_gpu",),
+    "_orthogonal_meta_scorer_fe": ("_meta_fingerprint_gpu",),
     "_hinge_basis_fe": ("_hinge_precheck_gpu", "_hinge_detect_gpu_resident", "_hinge_detect_gpu_resident_batch"),
     "_fe_sufficient_summary": ("_fe_sufficient_summary_pairs",),
     "_group_distance_fe": ("_group_distance_gpu",),

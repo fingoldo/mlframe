@@ -96,3 +96,21 @@ def test_score_features_by_cmim_ranks_the_same_with_the_fused_scorer(monkeypatch
     got = M.score_features_by_cmim(raw, eng, y)
     assert list(got["engineered_col"]) == list(want["engineered_col"])
     np.testing.assert_allclose(got["engineered_mi"].to_numpy(), want["engineered_mi"].to_numpy(), rtol=1e-9, atol=1e-12)
+
+
+@pytest.mark.parametrize("forced", ["0", "1"])
+def test_a_candidate_with_no_reference_of_another_source_gets_its_marginal_mi(monkeypatch, forced):
+    """With one raw column every candidate of that source has no reference: the score is the Miller-Madow marginal MI, the same through the kernels (a constant reference) as through the host ``_cmi_from_binned``."""
+    rng = np.random.default_rng(1)
+    n = 8000
+    raw = pd.DataFrame({"x0": rng.standard_normal(n)})
+    eng = pd.DataFrame({"x0__sq": raw["x0"] ** 2, "x0__cube": raw["x0"] ** 3})
+    y = ((raw["x0"] ** 2 + 0.5 * rng.standard_normal(n)) > 1.0).astype(int).to_numpy()
+    monkeypatch.setenv("MLFRAME_CMIM_MIN", "0")
+    want = M.score_features_by_cmim(raw, eng, y)
+    monkeypatch.setenv("MLFRAME_CMIM_MIN", "1")
+    monkeypatch.setenv("MLFRAME_CMIM_MIN_DEVICE", forced)
+    got = M.score_features_by_cmim(raw, eng, y)
+    assert list(got["engineered_col"]) == list(want["engineered_col"])
+    np.testing.assert_allclose(got["engineered_mi"].to_numpy(), want["engineered_mi"].to_numpy(), rtol=1e-9, atol=1e-12)
+    assert (want["engineered_mi"] > 0).any()

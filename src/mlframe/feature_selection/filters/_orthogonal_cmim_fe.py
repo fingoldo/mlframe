@@ -357,7 +357,14 @@ def _cmim_min_scores(eng_bins, y_bin, sel_bins, support_names, eng_sources, n_bi
         got = cmim_min_scores(np.asarray(eng_bins), np.asarray(y_bin), [np.asarray(z) for z in sel_bins], allowed, int(n_bins))
         if got is None:
             return None
-        return np.where(got >= 1e299, np.inf, got)
+        none = np.flatnonzero(got >= 1e299)
+        if none.size:
+            # a candidate with no reference of another source is scored by its marginal MI (Miller-Madow, clipped at 0): the CMI against one constant reference is that value (k_xyz + k_z - k_xz - k_yz
+            # = k_xy + 1 - k_x - k_y), so the same kernels score them in one more call instead of one host ``_cmi_from_binned`` each
+            marginal = cmim_min_scores(np.asarray(eng_bins)[none], np.asarray(y_bin), [np.zeros(np.asarray(y_bin).size, dtype=np.int64)], np.ones((1, none.size), dtype=bool), int(n_bins))
+            got = got.copy()
+            got[none] = np.inf if marginal is None else marginal
+        return got
     except Exception as exc:
         log_throttle(logger, "_orthogonal_cmim_fe.min_scores", logging.WARNING, "fused CMIM scorer not used (%s: %s); older paths", type(exc).__name__, exc)
         return None
@@ -548,10 +555,10 @@ def score_features_by_cmim(
         # with OTHER support members; the self-source overlap is
         # accounted for by ranking on engineered_mi vs baseline_mi.
         cache_filtered = filtered_by_source[source]
-        if not cache_filtered:
-            score = float(_cmi_from_binned(cand_bin, y_bin, None))
-        elif device_scores is not None:
+        if device_scores is not None and np.isfinite(device_scores[eng_idx]):
             score = float(device_scores[eng_idx])
+        elif not cache_filtered:
+            score = float(_cmi_from_binned(cand_bin, y_bin, None))
         else:
             score = _cmim_score_cached(cand_bin, y_bin, cache_filtered, n_rows)
         uplift = relative_uplift(score, baseline)

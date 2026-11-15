@@ -9,7 +9,7 @@ import importlib
 
 import pytest
 
-_MODULES = ("_hinge_precheck_gpu", "_cmim_min_gpu", "_fleuret_confirm_gpu", "_gain_stats_codes_gpu")
+_MODULES = ("_hinge_precheck_gpu", "_cmim_min_gpu", "_meta_fingerprint_gpu", "_fleuret_confirm_gpu", "_gain_stats_codes_gpu")
 
 
 @pytest.mark.parametrize("name", _MODULES)
