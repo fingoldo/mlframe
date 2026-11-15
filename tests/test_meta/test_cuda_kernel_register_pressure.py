@@ -523,6 +523,16 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float64",),
     ),
+    "null_max_perm_gpu.null_mi_perms": (
+        "mlframe.feature_selection.filters._null_max_perm_gpu",
+        "kernel_counts",
+        ("float32", "float64"),
+    ),
+    "null_max_perm_gpu.null_mi_perms_bits": (
+        "mlframe.feature_selection.filters._null_max_perm_gpu",
+        "kernel_bits",
+        ("float32", "float64"),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",
@@ -544,6 +554,12 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
 # it. Pack any thread-private triangular-matrix array (Hessian, Cholesky factor) before reaching for this dict - that
 # cut this kernel's spill from 1512 to 936 bytes/thread for free (see the reason string for what remains).
 _SPILL_EXEMPT: dict[str, str] = {
+    "null_max_perm_gpu.null_mi_perms_bits": (
+        "512 bytes/thread = the three per-thread arrays `int cnt[PMAX_LANE][NBMAX]` (2 x 32 x 4 = 256), `int tl[NBMAX]` (128) and `unsigned mb[NBMAX]` (128), indexed by the "
+        "run-time bin, so they sit in the stack frame (L1-resident local memory) next to 39 registers and no register spill. Holding the 256 lane counters in registers is not possible "
+        "(the unrolled form would need over 200 registers and spill for real); the alternative that moves them to shared atomics is the layout the ballot / popcount design replaces (UC11-05 "
+        "measured the coalescing rewrite of this kernel and rejected it). The comment of the kernel used to say the counts stay in registers; it now says where they are."
+    ),
     "shap_proxy_treeshap_gpu.treeshap": (
         "2688 bytes/thread at the reference depth 6 (MAXW 8, MAXSP 28) = the per-thread TreeSHAP path scratch: the extend / unwind weight arrays indexed by the unique-path depth and "
         "the explicit DFS stack that replaces recursion, all dynamically indexed, so they live in the stack frame (54 registers, no register spill). The module header states the design; the "
