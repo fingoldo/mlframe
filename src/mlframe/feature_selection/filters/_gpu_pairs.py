@@ -29,6 +29,8 @@ _SHARED_MEM_SET_LOCK = threading.Lock()
 
 # CUDA gridDim.y is capped at 65535, and the pair index rides on gridDim.y.
 _MAX_PAIRS_PER_LAUNCH = 65535
+# Row tiles (block_size rows each) one block of the shared-memory histogram kernel walks: its shared histogram is zeroed and flushed once per block, not once per tile.
+_ROW_TILES_PER_BLOCK = 16  # measured 1 / 4 / 16 tiles at 100000 rows x 1770 pairs: 46.1 / 30.0 / 26.8 ms
 # Device memory is bounded by pair blocks: a request over the limit is split into column blocks of the pair table (``pair_chunk_bounds``), each one histogrammed and reduced alone, and the
 # 4 GiB guard in ``_mi_direct_gpu_batched_pairs_part1`` refuses a block whose joint tables would not fit.
 
@@ -216,7 +218,7 @@ def mi_direct_gpu_batched_pairs(
                 except Exception:
                     logger.debug("compute_joint_hist_multi_pair_shared_cuda: opt-in shared-mem set failed; launch may fail and fall back", exc_info=True)
             _gpu_module.compute_joint_hist_multi_pair_shared_cuda(
-                (grid_x, n_pairs),
+                (max(1, -(-grid_x // _ROW_TILES_PER_BLOCK)), n_pairs),
                 (block_size,),
                 (
                     factors_data_T_gpu, classes_y_gpu, pairs_a_gpu, pairs_b_gpu,

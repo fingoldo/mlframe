@@ -139,13 +139,13 @@ COMPUTE_JOINT_HIST_MULTI_PAIR_SHARED_CUDA_SRC: str = r"""
         int col_b = pairs_b[pid];
         int nba = nbins_a[pid];
 
-        long long row = (long long)blockIdx.x * nthreads + tid;
-        if (row < n_rows) {
-            int va = factors_data_T[(long long)col_a * n_rows + row];
-            int vb = factors_data_T[(long long)col_b * n_rows + row];
-            int cy = classes_y[row];
-            int merged = va + vb * nba;
-            atomicAdd(&sm_hist[merged * nbins_y + cy], 1);
+        // Grid-stride over the rows: a block fills its shared histogram from many row tiles, so the zeroing above and the flush below (one global atomic per cell) are paid once per
+        // block instead of once per 256 rows.
+        const int *col_a_ptr = factors_data_T + (long long)col_a * n_rows;
+        const int *col_b_ptr = factors_data_T + (long long)col_b * n_rows;
+        for (long long row = (long long)blockIdx.x * nthreads + tid; row < n_rows; row += (long long)gridDim.x * nthreads) {
+            int merged = col_a_ptr[row] + col_b_ptr[row] * nba;
+            atomicAdd(&sm_hist[merged * nbins_y + classes_y[row]], 1);
         }
         __syncthreads();
 

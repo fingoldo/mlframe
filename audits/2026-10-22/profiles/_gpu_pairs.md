@@ -13,6 +13,8 @@ A request over 65535 pairs is split into column blocks of the pair table (`pair_
 2. The code matrix was transposed on the host (`ascontiguousarray(factors_data.T.astype(int32))`, 58 ms at 100000 x 60) and range-checked column by column with strided reductions (94 ms). It is now uploaded as it is, transposed on the card (2.2 ms `cupy_copy__int32_int32`) and range-checked with two row reductions of the transposed copy. One call 209 -> 45 ms.
 3. `backend="auto"` took the device only above a hand-set work product (200 columns x 500000 rows). `cat_pair_search_backend` (host_device_sweep, equal joint MI required) measured the device ahead from 20000 rows up, so the gate now asks the tuner (floor of 64 candidate columns kept).
 
+4. `compute_joint_hist_multi_pair_shared_cuda` took one row per thread, so every 256 rows paid a shared-histogram zeroing and a flush of the pair's cells into the global counts with one atomic each (288 cells for 12 x 12 x 2). The kernel is now grid-stride and the launch gives each block 16 row tiles. Row tiles per block 1 / 4 / 16 at 100000 rows x 1770 pairs: 46.1 / 30.0 / 26.8 ms per call; at 500000 rows 231 -> 145 ms; the joint MI is unchanged (difference under 2e-16).
+
 ## cProfile (one device call, 100000 rows, 1770 pairs)
 0.046 s for 242 function calls: 0.040 s in the blocking copies of the results (the host waiting for the queued kernels), 0.005 s in 5 small uploads, 0.009 s in the part-1 setup. Before: 0.209 s with 0.094 s in 123 numpy reductions and 0.063 s in the host transpose.
 
@@ -32,6 +34,6 @@ Whole-GPU utilization: about 41 ms of GPU time in a 45 ms call (91 percent busy)
 | rows | host | device |
 |---|---|---|
 | 20,000 | 49.4 ms | 10.1 ms (4.9x) |
-| 100,000 | 590 ms | 45.4 ms (13x) |
-| 500,000 | 6.36 s | 244 ms (26x) |
+| 100,000 | 608 ms | 26.8 ms (23x, with the grid-stride histogram) |
+| 500,000 | 6.48 s | 145 ms (45x) |
 | 2,000,000 | 29.5 s | 968 ms (30x) |
