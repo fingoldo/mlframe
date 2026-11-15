@@ -118,18 +118,15 @@ def test_woe_still_orders_the_clipped_extremes_correctly() -> None:
     assert out[0] < out[1]
 
 
-def test_woe_unseen_category_uses_the_prior_log_odds_not_zero() -> None:
-    """0.0 is the neutral log-odds only for a balanced target. On a 99/1 split the true no-
-    information point is log(99) ~= 4.6, so a 0.0 baseline was wildly biased toward the minority
-    class for every test-time unseen string."""
+def test_woe_unseen_category_is_neutral_evidence_at_any_class_balance() -> None:
+    """WoE is log(P(c|y=1) / P(c|y=0)), a ratio of class-conditional shares: a category never seen in train carries no evidence, so it encodes 0.0 on a 99/1 split as on a balanced one.
+    The prior log-odds (about +4.6 here) is a different quantity: as a feature value it would read as strong evidence for the majority class on every unseen string."""
     import numpy as np
 
-    cats = ["a"] * 99 + ["b"]
-    ys = [1.0] * 99 + [0.0]
-    out = _woe_encode(cats, ys, ["never_seen_in_train"])
-
-    assert np.isfinite(out[0])
-    assert out[0] > 1.0, f"unseen encoded as {out[0]}, i.e. near the balanced-target neutral rather than the prior"
+    for cats, ys in ((["a"] * 99 + ["b"], [1.0] * 99 + [0.0]), (["a", "a", "b", "b"], [0.0, 1.0, 0.0, 1.0])):
+        out = _woe_encode(cats, ys, ["never_seen_in_train"])
+        assert np.isfinite(out[0])
+        assert out[0] == 0.0, f"unseen encoded as {out[0]}, not the neutral 0.0"
 
 
 # test_calibration_quality_guards_empty_pit and test_mi_grok_guards_empty_data were removed on
@@ -168,7 +165,9 @@ def test_batch_pair_mi_gpu_host_guards_empty() -> None:
     freqs_y = np.array([1.0], dtype=np.float64)
     out = batch_pair_mi_cupy(empty, pair_a, pair_b, nbins, classes_y, freqs_y)
     assert out.shape == (2,)
-    assert out.dtype == np.float64
+    from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
+    assert out.dtype == _crit_np_dtype()  # the criterion dtype (float32 by default), not a fixed double
     np.testing.assert_array_equal(out, np.zeros(2))
     assert batch_pair_mi_cupy(empty, pair_a[:0], pair_b[:0], nbins, classes_y, freqs_y).shape == (0,)
 

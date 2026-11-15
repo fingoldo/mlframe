@@ -43,6 +43,10 @@ class _SpyKernelTuningCache:
         self.calls.append(("lookup", kernel_name, dims))
         return self._lookup_result
 
+    def get_regions(self, kernel_name):
+        """The entry's regions (none by default: the lookup of an entry without a basis field answers); a test sets ``regions`` for a per-basis entry. Not recorded as a consultation."""
+        return getattr(self, "regions", [])
+
     def get_or_tune(self, kernel_name, dims=None, **kwargs):
         """Record the orchestrated lookup and return the tuned choice, or the supplied fallback."""
         self.calls.append(("get_or_tune", kernel_name, dims))
@@ -318,3 +322,14 @@ def test_wave23_smoke_imports():
     for module_name, attribute in entry_points.items():
         module = importlib.import_module(module_name)
         assert callable(getattr(module, attribute)), (module_name, attribute)
+
+
+def test_polyeval_thresholds_take_the_region_of_the_requested_basis(monkeypatch):
+    """An entry with one region per basis answers each basis from its own region (not the first region), and a basis with no region takes the module defaults."""
+    from mlframe.feature_selection.filters.hermite_fe import _hermite_oracle
+
+    spy = _install_spy_cache(monkeypatch, lookup_result={"par_threshold": 1, "cuda_threshold": 2})
+    spy.regions = [{"basis": "hermite", "par_threshold": 11, "cuda_threshold": 22}, {"basis": "legendre", "par_threshold": 33, "cuda_threshold": 44}]
+    assert _hermite_oracle._lookup_polyeval_thresholds("legendre", 1000) == (33, 44)
+    assert _hermite_oracle._lookup_polyeval_thresholds("hermite", 1000) == (11, 22)
+    assert _hermite_oracle._lookup_polyeval_thresholds("laguerre", 1000) == (_hermite_oracle._PAR_THRESHOLD, _hermite_oracle._CUDA_THRESHOLD)

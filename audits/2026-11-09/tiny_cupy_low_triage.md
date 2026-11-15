@@ -2,7 +2,7 @@
 
 The detector's `low` hits in the current source, one row per function; the same dispositions as the high table (FALSE POSITIVE, FALLBACK, REAL, LEGACY).
 
-Rows: 55.
+Rows: 56.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -61,3 +61,4 @@ Rows: 55.
 | feature_selection/filters/_cat_confirm_permutation.py | _count_nfailed_joint_indep_cupy | 313 | REAL, measured and batched: the permutations are scored in blocks (about a dozen launches and one host sync per block of trials, 100 trials at 20000 rows 860 -> 261 ms, at 200000 rows 1033 -> 478 ms); what remains per trial is the seeded cupy RandomState permutation draw, kept per trial for reproducibility |
 | feature_selection/shap_proxied_fs/_shap_proxy_cluster.py | _edges_blocked | 118 | FALSE POSITIVE: a blocked loop (`for b0 in range(0, f, block)`), each trip one batched operation over its block (the correlation GEMM, one threshold-and-triangle mask and one `nonzero` for the whole block; the per-row scan it replaced took 1278 ms at 2000 features x 20000 rows, the block form 142 ms, 9x, same pairs in the same order) |
 | feature_selection/filters/_permutation_null_pair_resident.py | _joint_code_entropies | 67 | FALSE POSITIVE: a blocked loop (`for p0 in range(0, n_pairs, block)`), each trip one bincount and one row reduction over a block of up to 2^24 count cells; one trip for 400 pairs at 100000 rows (the per-pair loop it replaced: 422 ms, the block form 31 ms, 13x) |
+| feature_selection/filters/batch_pair_mi_gpu.py | batch_pair_mi_cupy | 147 | FALSE POSITIVE: a blocked loop (`for p0 in range(0, n_pairs, block)`), each trip one gather, one bincount over offset flat indices and one reduction for a block of pairs (the per-pair loop it replaced: 559 ms, the block form 77 ms for 300 pairs x 100000 rows, 7.3x, results identical) |

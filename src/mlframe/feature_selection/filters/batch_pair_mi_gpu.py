@@ -134,32 +134,28 @@ def batch_pair_mi_cupy(
     # Bit-identical: same per-pair scalar written to out_dev[p]; only the transfer is batched into one .get().
     out_dev = cp.empty(n_pairs, dtype=crit_float_dtype())
 
-    for p in range(n_pairs):
-        a = int(pa_arr[p])
-        b = int(pb_arr[p])
-        nb_a = int(nb_arr[a])
-        nb_b = int(nb_arr[b])
-        joint_card = nb_a * nb_b
-
-        va = d_data[:, a]
-        vb = d_data[:, b]
-        cls_x = va * nb_b + vb  # 1-D joint code
-        joint_idx = cls_x * n_classes_y + d_classes_y  # 1-D flat index
-        joint_counts_flat = cp.bincount(
-            joint_idx, minlength=joint_card * n_classes_y,
-        )[: joint_card * n_classes_y]
-        joint_counts = joint_counts_flat.reshape(joint_card, n_classes_y).astype(crit_float_dtype())
-        joint_freqs = joint_counts * inv_n
-        fx = joint_freqs.sum(axis=1)
-        # MI reduction: sum where joint_freqs > 0
-        # prob_x[i] = fx[i], prob_y[j] = freqs_y[j]; jf = joint_freqs[i, j]
-        # Vectorised: log(jf / (fx[:, None] * freqs_y[None, :])) where jf > 0
-        denom = fx[:, None] * d_freqs_y[None, :]
-        # Guard zeros to avoid log(0). cupy's where + log are safe under masked.
+    # A block of pairs per step: the joint codes of the block are gathered as one (n, block) matrix, one bincount over offset flat indices builds every pair's table, and the MI is one
+    # reduction over the (block, joint, classes) cube (cells beyond a pair's own cardinality are empty and add zero), instead of a gather, a bincount and a reduction per pair.
+    joint_cards = nb_arr[pa_arr].astype(np.int64) * nb_arr[pb_arr].astype(np.int64)
+    max_joint = int(joint_cards.max())
+    cells = max_joint * n_classes_y
+    block = max(1, min(n_pairs, (1 << 24) // max(1, cells), (1 << 24) // n_samples))
+    pa_d = cp.asarray(pa_arr)
+    pb_d = cp.asarray(pb_arr)
+    nbb_d = cp.asarray(nb_arr.astype(np.int64))[pb_d]
+    y_col = d_classes_y.astype(cp.int64)[:, None]
+    for p0 in range(0, n_pairs, block):
+        p1 = min(n_pairs, p0 + block)
+        cls_x = d_data[:, pa_d[p0:p1]].astype(cp.int64) * nbb_d[p0:p1][None, :] + d_data[:, pb_d[p0:p1]]  # (n, blk) joint codes
+        joint_idx = cls_x * n_classes_y + y_col + (cp.arange(p1 - p0, dtype=cp.int64) * cells)[None, :]
+        counts = cp.bincount(joint_idx.ravel(), minlength=(p1 - p0) * cells).reshape(p1 - p0, max_joint, n_classes_y).astype(crit_float_dtype())
+        joint_freqs = counts * inv_n
+        fx = joint_freqs.sum(axis=2)
+        denom = fx[:, :, None] * d_freqs_y[None, None, :]
         mask = (joint_freqs > 0) & (denom > 0)
         ratio = cp.where(mask, joint_freqs / cp.where(denom > 0, denom, 1.0), 1.0)
         log_term = cp.where(mask, cp.log(ratio), 0.0)
-        out_dev[p] = (joint_freqs * log_term).sum()
+        out_dev[p0:p1] = (joint_freqs * log_term).sum(axis=(1, 2))
 
     return np.asarray(cp.asnumpy(out_dev))
 
