@@ -35,7 +35,7 @@ The combo sweep of ``detect_synergy_combos`` scores all pairs and triples togeth
 """
 from __future__ import annotations
 
-from typing import Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 from numba import njit
@@ -213,39 +213,10 @@ def _marginal_mm_mi(code_x: np.ndarray, target_codes: np.ndarray) -> float:
     return float(_combo_mm_mi_njit(cx.reshape(n, 1), np.array([kx], dtype=np.int64), yt, kt, kx))
 
 
-def detect_synergy_combos(
-    code_cols: Mapping[int, np.ndarray] | Sequence[np.ndarray], target_codes: np.ndarray, candidate_idx: Iterable[int], *,
-    max_order: int = 3, min_order: int = 2, synergy_ratio: float = 1.5,
-    min_joint_mi: float = 0.05, max_candidates: int = 24, max_combos: int = 4000,
-    min_rows_per_cell: float = 5.0,
-) -> list:
-    """Find feature COMBOS whose JOINT MI with the target greatly exceeds the SUM of their members'
-    marginal MIs - i.e. genuine SYNERGY the marginal/greedy screen misses (pure XOR: marginals ~0,
-    joint high). Returns ``[(combo_tuple, joint_mi), ...]`` sorted by joint MI desc, for combos with
-    ``joint_mi >= min_joint_mi`` AND ``joint_mi >= synergy_ratio * sum(member marginals)``.
-
-    ``code_cols`` is an indexable of per-feature integer code arrays; ``candidate_idx`` the feature
-    indices to consider. Candidates are capped to the ``max_candidates`` highest MARGINAL MI first to
-    bound the O(P^order) combo count (a pure-synergy member has ~0 marginal, so we KEEP low-marginal
-    candidates too: rank puts high-marginal first but we always include up to the cap). The MM bias
-    correction keeps a noise combo's joint MI near zero, so the synergy ratio does not fire on noise."""
+def _enumerate_combo_candidates(idx: list, _ccard: dict, _kt: int, _n: int, min_order: int, max_order: int, max_combos: int, min_rows_per_cell: float) -> list:
+    """``(combo, joint cell count)`` of every combo of ``idx`` (orders ``min_order`` to ``max_order``, at most ``max_combos`` visited) that passes the cell-count and rows-per-cell filters, in sweep order."""
     import itertools as _it
-    idx = list(candidate_idx)
-    if len(idx) < min_order:
-        return []
-    _yt = np.ascontiguousarray(np.asarray(target_codes).astype(np.int64).ravel())
-    _n = _yt.shape[0]
-    _kt = int(_yt.max()) + 1 if _n else 1
-    # Per-feature dense codes + cardinalities (cached once).
-    _ccode = {i: np.ascontiguousarray(np.asarray(code_cols[i]).astype(np.int64).ravel()) for i in idx}
-    _ccard = {i: (int(_ccode[i].max()) + 1 if _ccode[i].size else 1) for i in idx}
-    _marg = {i: float(_combo_mm_mi_njit(_ccode[i].reshape(_n, 1), np.array([_ccard[i]], dtype=np.int64), _yt, _kt, _ccard[i])) for i in idx}
-    # Cap: keep the strongest-marginal candidates PLUS (synergy needs low-marginal members) fill the
-    # remaining cap slots with the lowest-marginal ones so pure-XOR operands are not excluded.
-    if len(idx) > max_candidates:
-        _by = sorted(idx, key=lambda i: -_marg[i])
-        idx = _by[: max_candidates // 2] + _by[-(max_candidates - max_candidates // 2) :]
-        idx = sorted(set(idx))
+
     # Dense joint cardinality cap: the njit histogram allocates ``prod(cards)*kt`` cells; skip a combo
     # whose mixed-radix cell count blows past this bound (high-card columns) - such a combo's joint MI
     # would be unreliable anyway (too few samples/cell). Bounds memory + keeps the kernel allocation small.
@@ -279,23 +250,60 @@ def detect_synergy_combos(
             cands.append((combo, int(_ncells)))
         if _seen > max_combos:
             break
+    return cands
 
-    def _host_scores(_codes, _combos, _cards_of, _target, _kt_):
-        """The numba kernels per combo. Orders 2-3 read the contiguous cached code columns DIRECTLY (no per-combo (n, order) _mat materialise, 1.71x); higher orders use the general matrix kernel."""
-        res = np.empty(len(_combos))
-        for q, _combo in enumerate(_combos):
-            _o = len(_combo)
-            _cs = np.array([_cards_of[_c] for _c in _combo], dtype=np.int64)
-            _nc = int(np.prod(_cs))
-            if _o <= 3:
-                _c2 = _codes[_combo[2]] if _o >= 3 else _codes[_combo[1]]
-                res[q] = float(_combo_mm_mi_cols_njit(_codes[_combo[0]], _codes[_combo[1]], _c2, _o, _cs, _target, _kt_, _nc))
-            else:
-                _mat = np.empty((_n, _o), dtype=np.int64)
-                for _k, _c in enumerate(_combo):
-                    _mat[:, _k] = _codes[_c]
-                res[q] = float(_combo_mm_mi_njit(_mat, _cs, _target, _kt_, _nc))
-        return res
+
+def _host_combo_scores(_codes: Any, _combos: Any, _cards_of: Any, _target: np.ndarray, _kt_: int) -> np.ndarray:
+    """The numba kernels per combo. Orders 2-3 read the contiguous cached code columns DIRECTLY (no per-combo (n, order) _mat materialise, 1.71x); higher orders use the general matrix kernel."""
+    res = np.empty(len(_combos))
+    for q, _combo in enumerate(_combos):
+        _o = len(_combo)
+        _cs = np.array([_cards_of[_c] for _c in _combo], dtype=np.int64)
+        _nc = int(np.prod(_cs))
+        if _o <= 3:
+            _c2 = _codes[_combo[2]] if _o >= 3 else _codes[_combo[1]]
+            res[q] = float(_combo_mm_mi_cols_njit(_codes[_combo[0]], _codes[_combo[1]], _c2, _o, _cs, _target, _kt_, _nc))
+        else:
+            _mat = np.empty((_target.shape[0], _o), dtype=np.int64)
+            for _k, _c in enumerate(_combo):
+                _mat[:, _k] = _codes[_c]
+            res[q] = float(_combo_mm_mi_njit(_mat, _cs, _target, _kt_, _nc))
+    return res
+
+
+def detect_synergy_combos(
+    code_cols: Mapping[int, np.ndarray] | Sequence[np.ndarray], target_codes: np.ndarray, candidate_idx: Iterable[int], *,
+    max_order: int = 3, min_order: int = 2, synergy_ratio: float = 1.5,
+    min_joint_mi: float = 0.05, max_candidates: int = 24, max_combos: int = 4000,
+    min_rows_per_cell: float = 5.0,
+) -> list:
+    """Find feature COMBOS whose JOINT MI with the target greatly exceeds the SUM of their members'
+    marginal MIs - i.e. genuine SYNERGY the marginal/greedy screen misses (pure XOR: marginals ~0,
+    joint high). Returns ``[(combo_tuple, joint_mi), ...]`` sorted by joint MI desc, for combos with
+    ``joint_mi >= min_joint_mi`` AND ``joint_mi >= synergy_ratio * sum(member marginals)``.
+
+    ``code_cols`` is an indexable of per-feature integer code arrays; ``candidate_idx`` the feature
+    indices to consider. Candidates are capped to the ``max_candidates`` highest MARGINAL MI first to
+    bound the O(P^order) combo count (a pure-synergy member has ~0 marginal, so we KEEP low-marginal
+    candidates too: rank puts high-marginal first but we always include up to the cap). The MM bias
+    correction keeps a noise combo's joint MI near zero, so the synergy ratio does not fire on noise."""
+    idx = list(candidate_idx)
+    if len(idx) < min_order:
+        return []
+    _yt = np.ascontiguousarray(np.asarray(target_codes).astype(np.int64).ravel())
+    _n = _yt.shape[0]
+    _kt = int(_yt.max()) + 1 if _n else 1
+    # Per-feature dense codes + cardinalities (cached once).
+    _ccode = {i: np.ascontiguousarray(np.asarray(code_cols[i]).astype(np.int64).ravel()) for i in idx}
+    _ccard = {i: (int(_ccode[i].max()) + 1 if _ccode[i].size else 1) for i in idx}
+    _marg = {i: float(_combo_mm_mi_njit(_ccode[i].reshape(_n, 1), np.array([_ccard[i]], dtype=np.int64), _yt, _kt, _ccard[i])) for i in idx}
+    # Cap: keep the strongest-marginal candidates PLUS (synergy needs low-marginal members) fill the
+    # remaining cap slots with the lowest-marginal ones so pure-XOR operands are not excluded.
+    if len(idx) > max_candidates:
+        _by = sorted(idx, key=lambda i: -_marg[i])
+        idx = _by[: max_candidates // 2] + _by[-(max_candidates - max_candidates // 2) :]
+        idx = sorted(set(idx))
+    cands = _enumerate_combo_candidates(idx, _ccard, _kt, _n, min_order, max_order, max_combos, min_rows_per_cell)
 
     # Orders 2 and 3 of the whole sweep are scored together (device when the kernel-tuning entry ``synergy_combo_backend`` says so, the numba kernel otherwise); higher orders stay on the host.
     from ._synergy_combo_gpu import combo_mm_mi_dispatch
@@ -304,9 +312,9 @@ def detect_synergy_combos(
     _low = [q for q, (cb, _) in enumerate(cands) if len(cb) <= 3]
     _high = [q for q, (cb, _) in enumerate(cands) if len(cb) > 3]
     if _low:
-        _jmis[_low] = combo_mm_mi_dispatch(_host_scores, _ccode, [cands[q][0] for q in _low], _ccard, _yt, _kt)
+        _jmis[_low] = combo_mm_mi_dispatch(_host_combo_scores, _ccode, [cands[q][0] for q in _low], _ccard, _yt, _kt)
     if _high:
-        _jmis[_high] = _host_scores(_ccode, [cands[q][0] for q in _high], _ccard, _yt, _kt)
+        _jmis[_high] = _host_combo_scores(_ccode, [cands[q][0] for q in _high], _ccard, _yt, _kt)
     out = []
     for (combo, _), _jmi_v in zip(cands, _jmis):
         _jmi = float(_jmi_v)
