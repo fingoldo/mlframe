@@ -97,7 +97,7 @@ Rows: 108.
 | feature_selection/filters/_usability_greedy_gpu_resident.py | _usability_greedy_gpu_step3_def_cv_candidates._cv_candidates | 353, 359 | REAL, not yet measured: several device ops per candidate over the folds, with one D2H per candidate |
 | feature_selection/filters/_usability_greedy_steps.py | _usability_greedy_step4_consistency_across_folds | 249 | FALSE POSITIVE: the sequential greedy rounds, each one batched scoring call |
 | feature_selection/filters/_usability_njit_pool.py | _pair_combo_mi_cupy | 296 | FALSE POSITIVE: loops over the few distinct binary operations, each one op over its columns |
-| feature_selection/filters/_usability_njit_pool.py | _pair_combo_mi_cupy_loop | 350 | REAL, not yet measured: one apply per combination; the grouped sibling batches by operation |
+| feature_selection/filters/_usability_njit_pool.py | _pair_combo_mi_cupy_loop | 350 | LEGACY: no production caller; `_pair_combo_mi_cupy` (batched per binary operation, one sort for the quantile edges, fused bin + Miller-Madow kernel) replaced it, and `test_usability_pool_cupy_batched_twin.py` keeps the loop as the bit-faithful reference the batched twin is compared against |
 | feature_selection/filters/_usability_pool_resident.py | score_pair_combos_table_resident | 251 | REAL, not yet measured: one scoring call per pair, with the D2H already collapsed to one per table |
 | feature_selection/filters/_wavelet_basis_fe.py | _heldout_incremental_mi_from_prep | 661 | FALSE POSITIVE: the fixed 12-permutation null, a few trips |
 | feature_selection/filters/_wavelet_basis_fe.py | _heldout_incremental_mi_prep | 590 | FALSE POSITIVE: the fixed 12-permutation baseline, a few trips |
