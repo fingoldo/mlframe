@@ -52,6 +52,7 @@ peak = [base]
 events: list[Any] = []
 stop = threading.Event()
 main_id = threading.main_thread().ident
+assert main_id is not None
 
 
 def proc_cpu() -> Any:

@@ -53,8 +53,8 @@ def run(scenario, seed=0, n_anchors=45):
         im = float(np.mean([2 * np.abs(Phi[:, idx[a], idx[b]]).sum() for a in range(len(idx)) for b in range(a + 1, len(idx))]))
         mass.append(im)
         bias.append(honest - proxy)
-    mass, bias = np.array(mass), np.array(bias)
-    return pearsonr(mass, bias)[0], spearmanr(mass, bias)[0]
+    mass_a, bias_a = np.array(mass), np.array(bias)
+    return pearsonr(mass_a, bias_a)[0], spearmanr(mass_a, bias_a)[0]
 
 
 if __name__ == "__main__":

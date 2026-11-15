@@ -5,7 +5,6 @@ Deterministic: NBLK fixed row blocks (independent of thread count), Neumaier mer
 The CUDA twin of (ii) at the bottom (``_GRAM4_SRC``) was NEVER RUN ON A GPU; only ``emulate_gram4_cuda``, a pure-numpy emulation of its arithmetic, is verified (tests/feature_selection/fe/factory).
 """
 
-from typing import Any
 import numpy as np
 from numba import njit, prange
 
@@ -347,7 +346,7 @@ def emulate_gram4_cuda(U, V, yr, nblk=NBLK, threads=CUDA_THREADS):
                 part[b, a] = s_
         tot = np.empty(14)
         for a in range(14):
-            s: Any = 0.0
+            s = 0.0
             comp = 0.0
             for b in range(nblk):
                 x = part[b, a]

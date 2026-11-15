@@ -116,11 +116,15 @@ _cell_key = cell_key
 
 def run_campaign(smoke: bool) -> None:
     path = SMOKE_JSONL if smoke else FULL_JSONL
+    n_values: Any
+    p_values: Any
+    seeds: Any
+    scenarios: Any
     if smoke:
         n_values, p_values, seeds, scenarios = (2000,), (40,), list(range(2)), ("regression",)
     else:
-        n_values: Any = (20000, 100000)
-        p_values: Any = (150, 300) if os.environ.get("FULL_P_SWEEP") else (300,)
+        n_values = (20000, 100000)
+        p_values = (150, 300) if os.environ.get("FULL_P_SWEEP") else (300,)
         seeds, scenarios = list(range(15)), SCENARIOS
 
     cells = [(v, s, n, p, seed) for v in VARIANTS for s in scenarios for n in n_values for p in p_values for seed in seeds]

@@ -18,6 +18,7 @@ Usage::
 """
 
 from __future__ import annotations
+from typing import Any
 
 import json
 import os
@@ -53,7 +54,7 @@ def _split(M, y, frac=0.5):
     return M[:cut], y[:cut], M[cut:], y[cut:]
 
 
-_SCENARIOS = {
+_SCENARIOS: dict[str, dict[str, Any]] = {
     "nnls_dup": dict(strategy="nnls", n_dup=4, jitter=0.02),
     "mean_dup": dict(strategy="mean", n_dup=4, jitter=0.02),
     "nnls_tight": dict(strategy="nnls", n_dup=8, jitter=0.005),

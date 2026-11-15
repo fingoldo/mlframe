@@ -43,7 +43,7 @@ def compute_adversarial_flip_features(
     task: Literal["binary", "regression"] = "regression",
     standardize: bool = True,
     column_prefix: str = "advflip",
-    dtype: np.dtype = np.float32,
+    dtype: Any = np.float32,
 ) -> pl.DataFrame:
     """Adversarial flip distance features per query row.
 

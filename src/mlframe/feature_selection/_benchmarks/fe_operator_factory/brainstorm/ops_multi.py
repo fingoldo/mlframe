@@ -57,7 +57,7 @@ def F2_new(Xtr, ytr, Xte, rng):
     p = Xtr.shape[1]
     for k in range(2, p + 1):
         for S in itertools.combinations(range(p), k):
-            S: Any = list(S)
+            S = list(S)
             f = (Xtr[:, S] > med[S]).sum(1).astype(float)
             m = mi_pair(f, f, yb[0], yb[0], yb[2])[0]
             if best is None or m > best[0]:

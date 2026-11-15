@@ -17,6 +17,7 @@ expand support back. Reports OOS AUC delta (reduced - full) and speedup. SAFE if
 AUC delta >= ~ -0.01 everywhere; USEFUL iff speedup > 1 on correlated data.
 """
 from __future__ import annotations
+from typing import Any
 
 import time
 import warnings
@@ -57,7 +58,7 @@ def _rfecv_reduced(Xtr, ytr, corr_threshold=0.9):
     return expanded, len(medoids)
 
 
-def _run(name, X, y, seed=0):
+def _run(name, X, y, seed=0) -> Any:
     X = pd.DataFrame(StandardScaler().fit_transform(np.asarray(X, float)), columns=[f"f{i}" for i in range(np.asarray(X).shape[1])])
     y = pd.Series(np.asarray(y).astype(int)).reset_index(drop=True)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.35, random_state=seed, stratify=y)
@@ -88,9 +89,10 @@ def _risk_case(n=2000, seed=0):
 
 
 def main():
-    daucs, sps = [], []
+    daucs: list[Any] = []
+    sps: list[Any] = []
     # ---- synthetic make_classification (varied redundancy / sep / imbalance) ----
-    configs = [
+    configs: list[dict[str, Any]] = [
         dict(n_features=60, n_informative=8, n_redundant=30, n_repeated=6, class_sep=1.0, weights=None),
         dict(n_features=80, n_informative=10, n_redundant=10, n_repeated=0, class_sep=0.6, weights=None),
         dict(n_features=40, n_informative=6, n_redundant=20, n_repeated=4, class_sep=1.2, weights=[0.9, 0.1]),
@@ -111,7 +113,7 @@ def main():
     daucs_arr = np.array(daucs)
     print(f"AUC delta (reduced - full): min={daucs_arr.min():+.4f} mean={daucs_arr.mean():+.4f} max={daucs_arr.max():+.4f}")
     print(f"speedup: min={min(sps):.2f}x mean={np.mean(sps):.2f}x max={max(sps):.2f}x")
-    print(f"SAFE (all dAUC >= -0.01)? {bool((daucs >= -0.01).all())}")
+    print(f"SAFE (all dAUC >= -0.01)? {bool((daucs_arr >= -0.01).all())}")
     bad = [i for i, d in enumerate(daucs) if d < -0.01]
     if bad:
         print(f"  HARM on dataset indices: {bad}")

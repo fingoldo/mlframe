@@ -11,7 +11,7 @@ for mlframe's existing RFECV.
 """
 from __future__ import annotations
 
-from typing import Callable, Optional, Sequence
+from typing import Callable, Optional, Sequence, Union
 
 import numpy as np
 from scipy import stats as _scipy_stats
@@ -34,8 +34,8 @@ def _wilson_lower_bound(fraction_improved: float, n_folds: int, confidence: floa
 
 
 def per_fold_majority_accept(
-    baseline_fold_scores: Sequence[float],
-    candidate_fold_scores: Sequence[float],
+    baseline_fold_scores: Union[Sequence[float], np.ndarray],
+    candidate_fold_scores: Union[Sequence[float], np.ndarray],
     maximize: bool = True,
     min_fraction: float = 0.6,
     compute_agreement_score: bool = False,

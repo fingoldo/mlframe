@@ -34,7 +34,7 @@ def compute_counterfactual_substitution_features(
     top_k: int = 3,
     standardize: bool = True,
     column_prefix: str = "cfact",
-    dtype: np.dtype = np.float32,
+    dtype: Any = np.float32,
 ) -> pl.DataFrame:
     """Counterfactual substitution features: per-feature in-leaf-median substitution delta.
 
