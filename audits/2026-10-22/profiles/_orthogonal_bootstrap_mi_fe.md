@@ -6,10 +6,20 @@
 
 30000 rows (the size it runs at inside a fit): 0.80-0.84 s wall, 3.1-3.5 CPU-s. 100000 rows: 2.6-2.7 s wall, 13.1-13.4 CPU-s (5 cores busy). cProfile of the 100000-row call: `_bootstrap_rank_mi_f32` (the numba walk, parallel over column tiles) 1.61 s in 2 calls, `dense_ranks_f32` 0.39 s, `_tied_on_device` 0.51 s cumulative (the tied columns), `ascontiguousarray` 0.13 s.
 
-## Kernel-tuning choice, measured both ways
+## Redesign of the device route (same day, owner: do the batched-sort work instead of noting it)
 
-`fe_bootstrap_rank_device` swept on this host (5000 / 30000 / 100000 rows, 60 columns, 10 resamples): the host walk at every size. Forced to the device (`MLFRAME_BOOTSTRAP_RANK_DEVICE=1`) the same call takes 4.56 s against 2.6 s, so the swept choice is right: the walk kernel itself is fast (14.5 ms per call) but the device path needs a sort of every column (1200 radix-sort launches, 49 ms; 10 `cupy_take` 56 ms; 300 int64 copies 37 ms; uploads 46 ms) and the host walk already runs at 5 cores.
+Before: the walk kernel handled FULLY distinct columns only, sorted every column with its own sort launch (1200 launches per call), took each column out with `take_along_axis` and walked one thread per (column, resample) (1000 threads, occupancy 0.05, 14-320 ms). Continuous float32 columns of 100000 rows nearly always hold a few equal neighbours, so almost no column reached the device and the default stayed on the host; forced onto the device the family call took 4.56 s against 2.6 s on the host.
+Now:
+- ONE sort per column block: the 64-bit key is the column index above the order-preserving 32-bit key of the value (`-0.0` made `+0.0`), the sorted array holds every column's rows one after the other, the tie flags come from the sorted keys (the high word keeps columns apart);
+- `bootstrap_rank_walk_blocks`: a block per (column, resample) walks the sorted rows in chunks of 256: the draws before a row are the exclusive prefix sum of the multiplicities (warp shuffles + one shared scan), a run of equal values takes the bin of the draws before its FIRST row (a running maximum of the prefixes over the run starts, which only grow), the (bin, class) table is a shared histogram; the old kernel stays as the reference;
+- nearly distinct columns (up to 1 % equal neighbours) are walked on the device by default (`MLFRAME_BOOTSTRAP_RANK_TIES_DEVICE=0` restores the fully-distinct rule): the rank-binner tie rule makes the order inside a run irrelevant, MI equal to the host walk to 1.8e-15 on every column.
 
-## nvprof (GTX 1050 Ti, sm_61), device path forced
+Measured, `bootstrap_rank_mi` alone, 100 columns, 10 resamples, host / device: 10000 rows 0.078 / 0.087 s, 30000 rows 0.22 / 0.108 s, 100000 rows 0.755 / 0.396 s, 300000 rows 3.11 / 1.32 s (maxdiff 1.2-1.8e-15). `fe_bootstrap_rank_device` re-swept: device at every swept size (5000 / 30000 / 100000). Family call at 100000 rows: 2.4 s wall / 5.5 CPU-s on the device route against 2.5 s / 12.8 CPU-s on the host (the CPU time is more than halved; the rest of the call is basis generation).
 
-Kernel launches per call: about 600 cub radix-sort launches (a sort per column), 150 copies, 5 `cupy_take`, 1 `bootstrap_rank_walk`. `bootstrap_rank_walk`: achieved occupancy 0.04-0.07 (a thread walks a whole resample of a column: few long threads), multiprocessor activity 95 %, global load efficiency 23 % (the walk gathers by sorted row id), device read throughput 2 GB/s of the 112 GB/s card: latency bound. In the default (host) route the device runs only the tied-column path (`cupy_where`, `cupy_equal`, sgemm: occupancy 0.83, SM activity 97 %, 25-58 GB/s). Whole-GPU utilization of the default call is low (the device is busy about 40 ms of 2.6 s); the lever, if one is wanted, is a batched device sort of all columns (the sort is 70 % of the forced device path), not the walk kernel.
+### nvprof (GTX 1050 Ti, sm_61), batched route
+
+Kernel launches per call: 8 radix-sort launches for the block (the one sort), 1 `bootstrap_rank_walk_blocks`, a handful of elementwise kernels (keys, ties, order) and the uploads; was 1200 sort launches. `bootstrap_rank_walk_blocks`: 156 ms per 100 x 100000 x 10 call, achieved occupancy 0.60, multiprocessor activity 98 %, global load efficiency 20 % (the multiplicity gather by sorted row id is random: `counts_bt[b * n + row]`), device read throughput 25 GB/s of the 112 GB/s card; the sort is 44 ms per call (17 % of the device time). Open lever: a block per COLUMN looping over the resamples would read the 10 multiplicities of a row as one 40-byte line instead of 10 random sectors.
+
+### cProfile (default route, 100000 rows)
+
+`_bootstrap_rank_mi_f32` (host walk) no longer dominates: the columns are finished on the device and the host kernel runs only for the columns above the tie limit; `dense_ranks_f32` 0.39 s remains for the tied-column path.
