@@ -77,11 +77,26 @@ extern "C" __global__ void root_split_stats_k4(const int* __restrict__ order, co
 _kernel_k4f = None
 
 
+def kernel_k4f(cp: Any, real: Any = None) -> Any:
+    """``root_split_stats_k4`` of the rejected 4f source (float values, no fused multiply-add); compile point of the getter and of the register-pressure registry."""
+    return cp.RawKernel(_SOURCE_K4F.replace("{REAL}", "float"), "root_split_stats_k4", options=("--fmad=false",))
+
+
+def kernel_k5(cp: Any, real: Any = None) -> Any:
+    """``root_split_stats_k5`` (float values, no fused multiply-add); registry factory."""
+    return cp.RawKernel(_SOURCE_K5.replace("{REAL}", "float"), "root_split_stats_k5", options=("--fmad=false",))
+
+
+def kernel_k4(cp: Any, real: Any = None) -> Any:
+    """``root_split_stats_k4`` (no fused multiply-add); registry factory."""
+    return cp.RawKernel(_SOURCE_K4, "root_split_stats_k4", options=("--fmad=false",))
+
+
 def get_kernel_k4f(cp: Any) -> Any:
     """Compile v4 once per process (no fused multiply-add: the gains must round as the host's)."""
     global _kernel_k4f
     if _kernel_k4f is None:
-        _kernel_k4f = cp.RawKernel(_SOURCE_K4F.replace("{REAL}", "float"), "root_split_stats_k4", options=("--fmad=false",))
+        _kernel_k4f = kernel_k4f(cp)
     return _kernel_k4f
 
 
@@ -142,7 +157,7 @@ def get_kernel_k5(cp: Any) -> Any:
     """Compile v5 once per process (no fused multiply-add: the gain must round as the host's)."""
     global _kernel_k5
     if _kernel_k5 is None:
-        _kernel_k5 = cp.RawKernel(_SOURCE_K5.replace("{REAL}", "float"), "root_split_stats_k5", options=("--fmad=false",))
+        _kernel_k5 = kernel_k5(cp)
     return _kernel_k5
 
 
@@ -204,5 +219,5 @@ def get_kernel_k4(cp: Any) -> Any:
     """Compile v4 once per process (no fused multiply-add: the gains must round as the host's). It needs ``xlogx_table(n)`` (every count up to ``n``) as its table."""
     global _kernel_k4
     if _kernel_k4 is None:
-        _kernel_k4 = cp.RawKernel(_SOURCE_K4, "root_split_stats_k4", options=("--fmad=false",))
+        _kernel_k4 = kernel_k4(cp)
     return _kernel_k4

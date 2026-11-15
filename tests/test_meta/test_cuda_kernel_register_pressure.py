@@ -438,6 +438,36 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_finish",
         ("float64",),
     ),
+    "honest_null_k4.root_split_stats_k4f": (
+        "mlframe.feature_selection.filters._honest_null_k4",
+        "kernel_k4f",
+        ("float64",),
+    ),
+    "honest_null_k4.root_split_stats_k5": (
+        "mlframe.feature_selection.filters._honest_null_k4",
+        "kernel_k5",
+        ("float64",),
+    ),
+    "honest_null_k4.root_split_stats_k4": (
+        "mlframe.feature_selection.filters._honest_null_k4",
+        "kernel_k4",
+        ("float64",),
+    ),
+    "honest_null_device.root_split_stats": (
+        "mlframe.feature_selection.filters._honest_null_device",
+        "kernel_v1",
+        ("float64",),
+    ),
+    "honest_null_device.root_split_stats_v2": (
+        "mlframe.feature_selection.filters._honest_null_device",
+        "kernel_v2",
+        ("float64",),
+    ),
+    "honest_null_device.root_split_stats_k2": (
+        "mlframe.feature_selection.filters._honest_null_device",
+        "kernel_k2",
+        ("float64",),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",
@@ -459,6 +489,22 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
 # it. Pack any thread-private triangular-matrix array (Hessian, Cholesky factor) before reaching for this dict - that
 # cut this kernel's spill from 1512 to 936 bytes/thread for free (see the reason string for what remains).
 _SPILL_EXEMPT: dict[str, str] = {
+    "honest_null_device.root_split_stats": (
+        "256 bytes/thread = the per-thread class-count arrays `long long cl[16], cr[16]` (2 x 16 x 8), indexed by the runtime label `yi`: a dynamically indexed array lives in the "
+        "stack frame (local memory, L1-resident), it is not a spill of live values (48 registers, far under the cap). The alternative layout that keeps the counters elsewhere "
+        "(version 3, shared/bit-packed) was measured 1.4 to 1.8 times SLOWER than this one (see the header of _honest_null_k3.py and FM11-02), so the frame is the faster design. "
+        "The kernel is the retained v1 of the --fmad=false root-split family."
+    ),
+    "honest_null_device.root_split_stats_v2": (
+        "256 bytes/thread = the same `long long cl[16], cr[16]` class-count arrays as root_split_stats (runtime-indexed by the label, so they sit in the stack frame, 48 registers, no "
+        "register spill); v2 only reads the next row's label one step ahead. Version 3, which moves the counters out of local memory, measured 1.4 to 1.8 times slower (_honest_null_k3.py "
+        "header, FM11-02). v2 is the default of the family."
+    ),
+    "honest_null_device.root_split_stats_k2": (
+        "40 bytes/thread = `int ybuf[TILE + 1]` (9 ints rounded up), the tile of look-ahead labels, indexed by the loop variable `t` of the scoring loop whose trip count depends on the rows "
+        "left (so it cannot be fully unrolled); 56 registers, no register spill. The tile is what makes the label loads independent of the entropy chain (the measured gain of k2 over v2 at the "
+        "binary-target shapes); an unrolled copy would add a second code path for the tail."
+    ),
     "nonpoly_cells_gpu.nonpoly_cells": (
         "the float32 build reserves a 40-byte stack frame (local_size_bytes 40; ptxas: 40 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads) for the "
         "libdevice trig slow path that its sin and cos calls use; cosf on a float argument reserves 32 bytes the same way, and the double build reserves none. "

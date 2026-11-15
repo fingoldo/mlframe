@@ -128,6 +128,21 @@ extern "C" __global__ void root_split_stats_v2(const int* __restrict__ order, co
 _kernel = None
 
 
+def kernel_v1(cp: Any, real: Any = None) -> Any:
+    """``root_split_stats`` (the original source, no fused multiply-add); compile point of the getter and of the register-pressure registry."""
+    return cp.RawKernel(_SOURCE, "root_split_stats", options=("--fmad=false",))
+
+
+def kernel_v2(cp: Any, real: Any = None) -> Any:
+    """``root_split_stats_v2`` (the look-ahead source, the default); registry factory."""
+    return cp.RawKernel(_SOURCE_V2, "root_split_stats_v2", options=("--fmad=false",))
+
+
+def kernel_k2(cp: Any, real: Any = None) -> Any:
+    """``root_split_stats_k2`` (no fused multiply-add); registry factory."""
+    return cp.RawKernel(_SOURCE_K2, "root_split_stats_k2", options=("--fmad=false",))
+
+
 def _get_kernel(cp):
     """Compile the root-split kernel once per process (no fused multiply-add: the gains must round as the host's).
 
@@ -138,9 +153,9 @@ def _get_kernel(cp):
         import os
 
         if os.environ.get("MLFRAME_HONEST_ROOT_SPLIT_V2", "1") == "0":
-            _kernel = cp.RawKernel(_SOURCE, "root_split_stats", options=("--fmad=false",))
+            _kernel = kernel_v1(cp)
         else:
-            _kernel = cp.RawKernel(_SOURCE_V2, "root_split_stats_v2", options=("--fmad=false",))
+            _kernel = kernel_v2(cp)
     return _kernel
 
 
@@ -215,7 +230,7 @@ def _get_kernel_k2(cp):
     """Binary-target variant: class counts in registers, labels read as bits."""
     global _kernel_k2
     if _kernel_k2 is None:
-        _kernel_k2 = cp.RawKernel(_SOURCE_K2, "root_split_stats_k2", options=("--fmad=false",))
+        _kernel_k2 = kernel_k2(cp)
     return _kernel_k2
 
 
