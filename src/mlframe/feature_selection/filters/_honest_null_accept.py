@@ -79,7 +79,17 @@ def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx
     next device pass while the device scans (the launches are asynchronous; the read is the wait). It runs exactly once, here or, with no continuous column, not at all (the caller then runs it)."""
     if kc:
         _t0 = perf_counter()
-        order, tie = _order_and_ties(raw_cont)
+        if n_classes_total == 2:
+            # the packed label bits of the permutations are a host job the accept kernels need next; they are packed on a side thread while the device sorts the columns (the result is kept by
+            # ``_pack_bits_cached``, which the kernels then read as a hit)
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=1, thread_name_prefix="pack_bits") as pool:
+                packing = pool.submit(_pack_bits_cached, y_raw_perm)
+                order, tie = _order_and_ties(raw_cont)
+                packing.result()
+        else:
+            order, tie = _order_and_ties(raw_cont)
         record_fe_family_wall("stage:honest_order_and_ties", perf_counter() - _t0)
         _t0 = perf_counter()
         counts = np.bincount(np.asarray(y_raw_perm[0], dtype=np.int64), minlength=n_classes_total)
