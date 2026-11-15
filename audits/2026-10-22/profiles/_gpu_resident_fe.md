@@ -26,3 +26,17 @@ Dispatch: the chunk size comes from `_gpu_k_chunk` (VRAM fraction, KTC kernel `g
 | `mi_from_counts_col_f32` | 49.7 % | 2.3 % | 0.1 GB/s | 12.5 % (broadcast reads of a small table) |
 
 Whole-GPU utilization and throughput: the four kernels are resident at 50 to 98 percent occupancy; the best DRAM read throughput is 53.0 GB/s (47 percent of the card's 112 GB/s bandwidth) in the radix select and 44.4 GB/s (40 percent) in the fused generation, so the call is neither memory- nor occupancy-starved, and its remaining cost is the sort-like radix select (33.6 percent of the GPU activity of the call in the trace). The CPU twin of the whole call is `_gpu_resident_shared.cpu_pair_candidate_mi` (numpy grid scored by the njit batch MI of the `hermite_fe` package).
+
+## 2026-11-15: the orthogonal-basis block `_gpu_resident_basis` carved under this family
+
+`_gpu_resident_basis` is the prewarp / orthogonal-basis block that `_gpu_resident_fe` carved out of itself (Tier E; the parent imports it as `_grb` and re-exports its names). Its batched evaluator `_gpu_evaluate_basis_matrix` builds the one-hot Clenshaw basis of every (column, degree) cell of a group in one `clenshaw_basis` launch after a batched robust preprocess. Measured on the GTX 1050 Ti (elevated process, hardware counters), 100000 rows, 8 float32 columns (4 chebyshev, 4 legendre), degrees 1 to 4 (a 32-column candidate block), robust axis on, warm call: wall 14.5 ms (median of 5).
+
+GPU time 13 ms in 11 kernel kinds: `clenshaw_basis` 2 launches 3.9 ms (30 percent; the chebyshev group 0.68 ms, the legendre group 3.2 ms), `col_minmax_tiled` 2 launches 2.96 ms (23 percent), `heavy_tail_stats_tiled` 1 launch 2.85 ms (22 percent), `radix_select_interp_f64_v2` 0.77 ms, `radix_select_f32_v3` 0.37 ms, `basis_preprocess_nr` 0.34 ms.
+
+| kernel | achieved occupancy | DP efficiency | DRAM read | global load efficiency |
+|---|---|---|---|---|
+| `clenshaw_basis` | 50.0 % | 31.1 % of the 1:32 peak | 1.3 GB/s | 75.0 % |
+| `heavy_tail_stats_tiled` | 12.5 % | 0.7 % | 3.3 GB/s | 100 % |
+| `robust_scale_combine` | 1.6 % | 0.04 % | 0.9 GB/s | 100 % |
+
+`clenshaw_basis` is compute bound on the double pipe (the recurrence runs in double for either element type). `heavy_tail_stats_tiled` runs one block per column, so with 8 columns it fills 8 of the card's 6 x 8 resident-block slots: 12.5 percent occupancy; the robust decision is basis independent and is computed once per matrix (`heavy_host`), not per basis. The host baseline of the basis values is `polyeval_dispatch` of the `hermite_fe` package (forward recurrence in numba) and the batched kernels agree with it to 1e-12 (the parity tests of the cross-basis and prewarp families). The block works on the column group its caller hands it (`M` of shape (n, K)); the cross-basis builder asks for one leg column at a time (`_leg` in `_gpu_resident_cross_basis`, whose products are then scored in column blocks of at most a quarter of the pool room), so the candidate matrix of one call is (n, degrees x columns of the group) and nothing grows with the number of candidates of a family.
