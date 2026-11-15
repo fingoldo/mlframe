@@ -3,7 +3,7 @@
 The detector's `high` hits in the current source, one row per function. The baseline (`tests/test_meta/_tiny_cupy_loops_baseline.json`) holds these keys.
 Dispositions to fill in: **FALSE POSITIVE** (the loop is a chunk, fold or fallback loop with a few trips and real work per trip), **FALLBACK** (the cupy loop runs only when a batched path is not taken, measured), **REAL** (a launch-bound loop, to restructure), **OPEN** (not yet read).
 
-Rows: 112.
+Rows: 113.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -13,7 +13,6 @@ Rows: 112.
 | feature_selection/filters/_binned_numeric_agg_resident.py | _pair_fold_stat_tables | 372 | FALSE POSITIVE: the fallback fold loop, one full pass per fold (GPU11-60) |
 | feature_selection/filters/_binned_numeric_agg_resident.py | build_binagg_oof_matrix_gpu | 432 | REAL, measured partly launch-bound: 32 us per column launch at 100000 rows, batching open (GPU11-61) |
 | feature_selection/filters/_cat_confirm_permutation.py | _confirm_pairs_via_permutation | 919 | REAL, not yet measured: per surviving pair, a permutation null with launches per permutation; the same class as the batched-permutation item (GPU11-62) |
-| feature_selection/filters/_cat_confirm_permutation.py | _count_nfailed_joint_indep_cupy | 313 | REAL: one permutation per trip, about eight cupy launches per trip over N rows, launch-bound; batching the permutations (as the null path does) is the restructure |
 | feature_selection/filters/_conditional_gate_fe.py | _gate_flush_pending | 717 | FALSE POSITIVE: one trip per pending candidate group (a few), each a host argmax and, for the groups that clear the margin, one fixed 12-permutation null; not a per-element loop |
 | feature_selection/filters/_conditional_gate_fe.py | _rank_and_prune | 615 | REAL, not yet measured: a per-column device loop in the main path (the column gathers and medians), not only in the fallback |
 | feature_selection/filters/_conditional_gate_fe.py | cheap_row_argmax_scan | 513 | REAL, deliberate and budgeted: one device argmax per 3-column combination, the source states that the launch count is kept on purpose until the suite is decoupled from pool ordering |
@@ -119,3 +118,5 @@ Rows: 112.
 | feature_selection/shap_proxied_fs/_shap_proxy_gpu.py | brute_force_top_n_gpu | 141 | FALSE POSITIVE: loops over the few combination sizes, each one batched |
 | metrics/_gpu_metrics.py | compute_batch_aucs | 597 | FALLBACK: the per-column branch; the batched call over all columns is the default |
 | models/ensembling/_correlation.py | _probs_pairs | 94 | FALSE POSITIVE: loops over the classes on host numpy arrays |
+| feature_selection/filters/_extra_fe_families_dispersion.py | generate_conditional_dispersion_features | 337 | REAL, not yet measured: one batched device call per numeric column (`bin_moments_dispatch` over the other p-1 columns), so p launches of a kernel that is itself batched; fusing the x_j loop into one launch over all (x_j, x_i) pairs is open |
+| feature_selection/filters/_grouped_quantile_fe.py | _p_added_by_column | 665 | FALSE POSITIVE: a blocked loop (`for src, members in by_source.items()`), each trip one batched device call over all candidates of that source (`added_information_p_many`); the trips are the number of source columns |

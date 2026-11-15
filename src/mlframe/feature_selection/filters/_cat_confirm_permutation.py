@@ -306,34 +306,22 @@ def _count_nfailed_joint_indep_cupy(
     denom_x2 = freqs_x2_g[:, None] * freqs_y_g[None, :]
 
     nfailed_total = 0
-    # Use a local cupy RandomState per permutation rather
-    # than mutating cp.random's global state. Reproducibility is preserved (same
-    # base_seed -> same per-iter local RNG); caller's cupy global stream is no
-    # longer clobbered.
-    for p in range(n_perms):
-        _local_cp_rng = cp.random.RandomState(base_seed + p)
-        y_perm = _local_cp_rng.permutation(classes_y_g)
-
-        # Joint counts via flat-index bincount.
-        flat_pair = classes_pair_g * K_y + y_perm
-        joint_pair = cp.bincount(flat_pair, minlength=K_pair * K_y).reshape(K_pair, K_y)
-        flat_x1 = classes_x1_g * K_y + y_perm
-        joint_x1 = cp.bincount(flat_x1, minlength=K_x1 * K_y).reshape(K_x1, K_y)
-        flat_x2 = classes_x2_g * K_y + y_perm
-        joint_x2 = cp.bincount(flat_x2, minlength=K_x2 * K_y).reshape(K_x2, K_y)
-
-        jf_pair = joint_pair * inv_n
-        jf_x1 = joint_x1 * inv_n
-        jf_x2 = joint_x2 * inv_n
-
-        # MI sum = sum(jf * log(jf / denom)) over (K_x, K_y); skip
-        # zero-count cells (their contribution is 0 in the limit).
-        i_pair = float(cp.where(jf_pair > 0, jf_pair * cp.log(jf_pair / cp.maximum(denom_pair, 1e-300)), 0.0).sum())
-        i_x1 = float(cp.where(jf_x1 > 0, jf_x1 * cp.log(jf_x1 / cp.maximum(denom_x1, 1e-300)), 0.0).sum())
-        i_x2 = float(cp.where(jf_x2 > 0, jf_x2 * cp.log(jf_x2 / cp.maximum(denom_x2, 1e-300)), 0.0).sum())
-
-        if (i_pair - i_x1 - i_x2) >= ii_obs:
-            nfailed_total += 1
+    # A block of permutations is scored together: the joint counts of the block are one bincount per table over offset flat indices and the MI sums one reduction over the
+    # (block, K_x, K_y) cube, so a block costs about a dozen launches and one host sync instead of the same per permutation. The permutation of trial p is still drawn from a
+    # local cupy RandomState(base_seed + p) (no write to cp.random's global state), so the draws and the failed count are the per-trial loop's.
+    block = max(1, min(int(n_perms), (1 << 24) // max(1, N)))
+    for b0 in range(0, int(n_perms), block):
+        trials = range(b0, min(b0 + block, int(n_perms)))
+        y_perm = cp.stack([cp.random.RandomState(base_seed + p).permutation(classes_y_g) for p in trials])  # (b, N)
+        b = len(trials)
+        mi_terms = []
+        for classes_g, K_x, denom in ((classes_pair_g, K_pair, denom_pair), (classes_x1_g, K_x1, denom_x1), (classes_x2_g, K_x2, denom_x2)):
+            cells = K_x * K_y
+            flat = classes_g[None, :] * K_y + y_perm + (cp.arange(b, dtype=y_perm.dtype) * cells)[:, None]
+            jf = cp.bincount(flat.ravel(), minlength=b * cells).reshape(b, K_x, K_y) * inv_n
+            # MI sum = sum(jf * log(jf / denom)) over (K_x, K_y); zero-count cells contribute 0 in the limit.
+            mi_terms.append(cp.where(jf > 0, jf * cp.log(jf / cp.maximum(denom, 1e-300)[None]), 0.0).sum(axis=(1, 2)))
+        nfailed_total += int(((mi_terms[0] - mi_terms[1] - mi_terms[2]) >= ii_obs).sum())
     return nfailed_total
 
 
