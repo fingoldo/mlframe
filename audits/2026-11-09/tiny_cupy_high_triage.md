@@ -3,7 +3,7 @@
 The detector's `high` hits in the current source, one row per function. The baseline (`tests/test_meta/_tiny_cupy_loops_baseline.json`) holds these keys.
 Dispositions to fill in: **FALSE POSITIVE** (the loop is a chunk, fold or fallback loop with a few trips and real work per trip), **FALLBACK** (the cupy loop runs only when a batched path is not taken, measured), **REAL** (a launch-bound loop, to restructure), **OPEN** (not yet read).
 
-Rows: 109.
+Rows: 108.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -65,7 +65,6 @@ Rows: 109.
 | feature_selection/filters/_mrmr_fit_impl/_fe_stage_concurrency.py | merge_stage_state | 107, 108 | FALSE POSITIVE: merges host attributes of the stage copies, with no device launch in the loop body |
 | feature_selection/filters/_offset_product_gpu.py | scan_offset_products_device | 332, 335 | REAL but small: 0.1% of a 100000-row fit (profile 2026-11-05); restructuring not justified by the measured share |
 | feature_selection/filters/_orth_auto_scorer_fe.py | _batched_bootstrap_values | 352 | FALLBACK: the sequential resample loop is the else branch, used when the batched path is not taken |
-| feature_selection/filters/_orthogonal_adaptive_arity_fe.py | _best_cell_per_tuple | 166 | FALSE POSITIVE: the loop is over arity (2 to max_arity, two or three trips), and each trip is one full batched MI call |
 | feature_selection/filters/_orthogonal_cmim_fe.py | _cmim_scores_device | 391 | REAL, not yet measured: one device update per selected reference over the candidate block |
 | feature_selection/filters/_orthogonal_cmim_fe.py | cmim_score | 306 | FALLBACK: the per-candidate host CMI path; score_features_by_cmim runs the batched device scores first (line 510) |
 | feature_selection/filters/_orthogonal_cmim_fe.py | score_features_by_cmim | 511 | FALSE POSITIVE: a host loop that assembles results from device scores computed once before it |

@@ -205,7 +205,10 @@ def test_pair_scorer_selection_equivalent(monkeypatch):
     monkeypatch.setenv("MLFRAME_FE_GPU_DEVICE_BORN_CROSSBASIS", "0")
     host_sc = score_pair_cross_basis_by_mi_uplift(X[["x1", "x2"]], eng, y, basis="hermite")
 
-    # Device-born path (STRICT-resident ON).
+    # Device-born path (STRICT-resident ON); the row count sits below the tuned host/device crossover, so the tuner's choice is pinned to the device.
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import _gpu_resident_cross_basis as cb
+
+    monkeypatch.setattr(cb, "crossbasis_device_chosen", lambda n: True)
     _strict(monkeypatch)
     monkeypatch.setenv("MLFRAME_FE_GPU_DEVICE_BORN_CROSSBASIS", "1")
     dev_sc = score_pair_cross_basis_by_mi_uplift(X[["x1", "x2"]], eng, y, basis="hermite")

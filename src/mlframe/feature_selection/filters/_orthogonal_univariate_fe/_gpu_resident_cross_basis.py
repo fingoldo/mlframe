@@ -361,6 +361,107 @@ def _raw_baseline_mi(cp: Any, raw_np: np.ndarray, raw_cols: list, y: Any, nbins:
     return dict(zip(raw_cols, found))
 
 
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Host or device for the cross-basis MI scoring: the kernel-tuning entry ``crossbasis_gate_backend``
+DEVICE_FALLBACK_ROWS = 20_000  # rows from which the device-born build is taken before a sweep has run
+_SWEEP_ROWS = [5_000, 30_000, 100_000]
+_SALT = 1
+_SWEEP_COLS = 5
+_SWEEP_TOP = 10
+
+
+def _sweep_inputs(dims: dict) -> tuple:
+    """``dims["n_samples"]`` rows of ``_SWEEP_COLS`` numeric columns, the host-built pair cross-basis matrix of every unordered pair (degrees 1 and 2) with the specs that rebuild it, a binary target."""
+    from ._orth_pair_cross_fe import _pair_device_col_specs, generate_pair_cross_basis_features
+
+    rng = np.random.default_rng(0)
+    n = int(dims["n_samples"])
+    X = pd.DataFrame(rng.standard_normal((n, _SWEEP_COLS)).astype(np.float32), columns=[f"x{i}" for i in range(_SWEEP_COLS)])
+    y = ((X["x0"] * X["x1"] + 0.5 * rng.standard_normal(n)) > 0).astype(np.int64).to_numpy()
+    pairs = [(a, b) for i, a in enumerate(X.columns) for b in X.columns[i + 1 :]]
+    eng = generate_pair_cross_basis_features(X, pairs, max_degree=2, basis="auto", min_degree=1)
+    specs = _pair_device_col_specs(list(eng.columns), list(X.columns), nbins=10)
+    return (X, eng, specs, y, 10)
+
+
+def _view(mi: np.ndarray) -> np.ndarray:
+    """The selection view of a scoring pass: how many candidates, and which are among the best ``_SWEEP_TOP`` (``_ktc_fallback.selection_view``)."""
+    from .._ktc_fallback import selection_view
+
+    return selection_view(np.asarray(mi, dtype=np.float64), top=_SWEEP_TOP, tie_band=1e-4)  # Intentional float64: MI statistic
+
+
+def _sweep_host(X: pd.DataFrame, eng: pd.DataFrame, specs: list, y: np.ndarray, nbins: int) -> np.ndarray:
+    """The host scorer: MI of the host-built product matrix."""
+    from ._orth_mi_backends import mi_classif_batch_chunked
+
+    return _view(mi_classif_batch_chunked(eng, y, nbins=nbins))
+
+
+def _sweep_device(X: pd.DataFrame, eng: pd.DataFrame, specs: list, y: np.ndarray, nbins: int) -> np.ndarray:
+    """The device-born scoring from the specs; a failed launch raises, so the sweep never records a host fallback as a device time."""
+    import cupy as cp
+
+    if specs is None:
+        raise RuntimeError("the sweep specs did not parse")
+    return _view(_product_mi_blocked(cp, X, specs, y, nbins, "auto"))
+
+
+def _run_sweep() -> list:
+    """Time the host and the device scoring per row count; both must put the same candidates at the top."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    return list(sweep_backend_grid({"host": _sweep_host, "device": _sweep_device}, {"n_samples": _SWEEP_ROWS}, _sweep_inputs, reference="host", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6))
+
+
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+    from .._ktc_fallback import rows_fallback
+
+    _SPEC: Any = kernel_tuner(
+        kernel_name="crossbasis_gate_backend",
+        variant_fns=(),  # the two backends are timed by the sweep callable
+        tuner=_run_sweep,
+        axes={"n_samples": list(_SWEEP_ROWS)},
+        fallback=rows_fallback(__name__),
+        gpu_capable=True,
+        salt=_SALT,
+        cli_label="crossbasis_gate_backend",
+    )
+except Exception as e:  # best-effort: without a tuner entry the floor decides
+    logger.warning("kernel_tuner spec build for crossbasis_gate_backend failed: %s", e)
+    _SPEC = None
+
+
+def crossbasis_device_chosen(n_rows: int) -> bool:
+    """Whether the cross-basis scoring of ``n_rows`` rows is made on the device: the per-host cache by the row count, else the ``DEVICE_FALLBACK_ROWS`` floor."""
+    if _SPEC is None:
+        return int(n_rows) >= DEVICE_FALLBACK_ROWS
+    try:
+        return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
+    except Exception as exc:
+        logger.debug("crossbasis_gate_backend: KTC choose() failed, using the floor: %s", exc)
+        return int(n_rows) >= DEVICE_FALLBACK_ROWS
+
+
+def _product_mi_blocked(cp: Any, raw_X: pd.DataFrame, specs: Sequence[dict], y: Any, nbins: int, basis: str) -> np.ndarray:
+    """Plug-in MI of every product column of ``specs`` (built by :func:`build_leg_product_matrix_gpu`) against ``y``, a column block at a time.
+
+    The product matrix is ``n x K`` double; a block of specs is built, scored by the resident plug-in MI and released, so the working set is a block (a quarter of the room under this thread's pool
+    limit over three copies of its columns) however many candidates there are. A column's MI depends on that column alone, so the blocks give the single-matrix values."""
+    from .._device_sort_safe import device_room
+
+    n = len(raw_X)
+    block_cols = int(max(1, min(len(specs), (device_room(cp) // 4) // max(1, 3 * n * 8))))
+    parts = []
+    for c0 in range(0, len(specs), block_cols):
+        mat_gpu = build_leg_product_matrix_gpu(cp, raw_X, list(specs[c0 : c0 + block_cols]), basis=basis)
+        parts.append(_resident_mi(cp, mat_gpu, y, nbins))
+        del mat_gpu
+    return np.concatenate(parts) if parts else np.empty((0,), dtype=np.float64)  # Intentional float64: host cross-basis output contract
+
+
 def raw_and_product_mi_resident(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -392,11 +493,12 @@ def raw_and_product_mi_resident(
     if engineered_X is None or engineered_X.shape[1] == 0:
         return None
     try:
-        mat_gpu = build_leg_product_matrix_gpu(cp, raw_X, list(col_specs), basis=basis)
-        if mat_gpu.shape[1] != engineered_X.shape[1]:
+        if len(col_specs) != engineered_X.shape[1]:
             # Spec / column-count mismatch -> bail to the host scorer (never emit a misaligned ratio).
             return None
-        eng_mi = _resident_mi(cp, mat_gpu, y, nbins)
+        if not crossbasis_device_chosen(len(raw_X)):
+            return None  # the kernel-tuning entry says the host scorer is faster at this row count: the caller runs it
+        eng_mi = _product_mi_blocked(cp, raw_X, list(col_specs), y, nbins, basis)
         # RAW baseline through the SAME resident plug-in (uploaded once via the operand cache). The host scorer's
         # _mi_classif_batch(raw_X) under STRICT already routes here; reproducing it keeps the baseline - and thus
         # the uplift ratio + the abs-MI floor - selection-equivalent.

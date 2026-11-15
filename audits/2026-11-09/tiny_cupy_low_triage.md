@@ -2,7 +2,7 @@
 
 The detector's `low` hits in the current source, one row per function; the same dispositions as the high table (FALSE POSITIVE, FALLBACK, REAL, LEGACY).
 
-Rows: 58.
+Rows: 59.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -64,3 +64,4 @@ Rows: 58.
 | feature_selection/filters/batch_pair_mi_gpu.py | batch_pair_mi_cupy | 147 | FALSE POSITIVE: a blocked loop (`for p0 in range(0, n_pairs, block)`), each trip one gather, one bincount over offset flat indices and one reduction for a block of pairs (the per-pair loop it replaced: 559 ms, the block form 77 ms for 300 pairs x 100000 rows, 7.3x, results identical) |
 | feature_selection/filters/_extra_fe_families_dispersion_resident.py | _mi_by_column_blocks | 280 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, len(col_specs), block_cols)`), each trip one candidate-block build and one resident MI batch over the block; one trip when the candidates fit a quarter of the pool room |
 | feature_selection/filters/_fe_pure_form_retention_gpu_resident.py | _device_verdicts | 385 | FALSE POSITIVE: a blocked loop (`for p0 in range(0, P, block)`), each trip one form-column upload and one batched gate for a block of pairs (two kernel launches per block); one trip when the pool fits a quarter of the pool room |
+| feature_selection/filters/_orthogonal_univariate_fe/_gpu_resident_cross_basis.py | _product_mi_blocked | 458 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, len(specs), block_cols)`), each trip one product-block build (one fused leg-product launch) and one resident MI batch over the block; one trip when the candidates fit a quarter of the pool room |

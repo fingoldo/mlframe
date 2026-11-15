@@ -432,15 +432,12 @@ def _adaptive_arity_mi_resident_block(X, y_arr, eval_results_k, *, basis: str, n
         return None
     try:
         import cupy as cp
-        from ._orthogonal_univariate_fe._gpu_resident_cross_basis import (
-            build_leg_product_matrix_gpu, _resident_mi,
-        )
+        from ._orthogonal_univariate_fe._gpu_resident_cross_basis import _product_mi_blocked, crossbasis_device_chosen
 
+        if not crossbasis_device_chosen(len(X)):
+            return None  # the kernel-tuning entry says the host scorer is faster at this row count
         specs = [{"legs": [(tup[i], int(degs[i])) for i in range(len(tup))]} for (tup, degs, _name, _prod) in eval_results_k]
-        mat_gpu = build_leg_product_matrix_gpu(cp, X, specs, basis=basis)
-        if mat_gpu.shape[1] != len(eval_results_k):
-            return None
-        return _resident_mi(cp, mat_gpu, y_arr, nbins)
+        return _product_mi_blocked(cp, X, specs, y_arr, nbins, basis)
     except Exception as _gpu_exc:
         logger.debug("_adaptive_arity_mi_resident_block: GPU-resident path failed (%s); caller falls back to the host _mi_classif_batch.", _gpu_exc)
         return None

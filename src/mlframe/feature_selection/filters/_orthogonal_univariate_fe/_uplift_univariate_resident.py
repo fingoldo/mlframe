@@ -115,12 +115,13 @@ def uplift_univariate_eng_mi_resident(
     try:
         import cupy as cp
 
-        from ._gpu_resident_cross_basis import _resident_mi, build_leg_product_matrix_gpu
+        from ._gpu_resident_cross_basis import _product_mi_blocked, crossbasis_device_chosen
 
-        mat_gpu = build_leg_product_matrix_gpu(cp, raw_X, specs, basis=basis)
-        if mat_gpu.shape[1] != engineered_X.shape[1]:
+        if len(specs) != engineered_X.shape[1]:
             return None  # spec / column-count mismatch -> host scorer (never emit a misaligned ratio).
-        return _resident_mi(cp, mat_gpu, y, int(nbins))
+        if not crossbasis_device_chosen(len(raw_X)):
+            return None  # the kernel-tuning entry says the host scorer is faster at this row count
+        return _product_mi_blocked(cp, raw_X, specs, y, int(nbins), basis)
     except Exception as _exc:
         logger.debug("uplift_univariate_eng_mi_resident: GPU path failed (%s); host fallback", _exc)
         return None
