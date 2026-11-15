@@ -393,6 +393,36 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_abs_corr",
         ("float32", "float64"),
     ),
+    "gpu.compute_joint_hist_cuda": (
+        "mlframe.feature_selection.filters.gpu",
+        "kernel_joint_hist",
+        ("int64",),
+    ),
+    "gpu.compute_joint_hist_batched_cuda": (
+        "mlframe.feature_selection.filters.gpu",
+        "kernel_joint_hist_batched",
+        ("int64",),
+    ),
+    "gpu.compute_joint_hist_batched_shared_cuda": (
+        "mlframe.feature_selection.filters.gpu",
+        "kernel_joint_hist_batched_shared",
+        ("int64",),
+    ),
+    "gpu.compute_joint_hist_multi_pair_cuda": (
+        "mlframe.feature_selection.filters.gpu",
+        "kernel_multi_pair",
+        ("int64",),
+    ),
+    "gpu.compute_joint_hist_multi_pair_shared_cuda": (
+        "mlframe.feature_selection.filters.gpu",
+        "kernel_multi_pair_shared",
+        ("int64",),
+    ),
+    "gpu.compute_mi_from_classes_cuda": (
+        "mlframe.feature_selection.filters.gpu",
+        "kernel_mi_from_classes",
+        ("int64",),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",
