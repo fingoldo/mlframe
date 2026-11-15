@@ -106,6 +106,7 @@ _RECIPES: dict = {
     "_dcor_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
     "_hsic_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "EXPF": "expf" if r == "float" else "exp"}), ()) for r in _REAL_TYPES],
     "_pair_residual_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
+    "_relaxmrmr_pair_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],
     "_synergy_combo_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],
     "_added_information_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],
     "_residual_rescue_gpu.py::_SCORE_SRC": lambda s: [(qt, _fill(s, **{"{QT}": qt, "{ACC}": "double"}), ()) for qt in ("signed char", "int")],
