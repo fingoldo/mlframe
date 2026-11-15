@@ -319,7 +319,7 @@ def _parse_modular_name(name: str):
     longest-first so ``modsin`` / ``modcos`` win over the bare ``mod`` prefix."""
     if "__" not in name:
         return None
-    src, suffix = name.split("__", 1)
+    src, suffix = name.rsplit("__", 1)
     # Longest fragment first: modsin / modcos before mod.
     for op, frag in (("sin", "modsin"), ("cos", "modcos"), ("mod", "mod"), ("parity", "par")):
         prefix = frag + "_"
