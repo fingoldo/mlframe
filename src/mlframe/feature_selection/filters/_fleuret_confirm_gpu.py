@@ -373,7 +373,7 @@ try:
         kernel_name="fleuret_confirm_backend",
         variant_fns=(),  # the two backends are timed by the sweep callable
         tuner=host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=0.0, atol=0.0),
-        axes={"n_rows": list(_SWEEP_ROWS)},
+        axes={"n_samples": list(_SWEEP_ROWS)},
         fallback=_fallback_choice,
         gpu_capable=True,
         salt=_SALT,
@@ -389,7 +389,7 @@ def fleuret_confirm_on_device(n_rows: int) -> bool:
     if _SPEC is None:
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
     try:
-        return str(_SPEC.choose(n_rows=int(n_rows))) == "device"
+        return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
         logger.debug("fleuret_confirm_backend: KTC choose() failed, using the row-count fallback: %s", exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS

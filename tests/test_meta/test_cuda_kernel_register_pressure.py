@@ -628,6 +628,16 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "grouped_quantile_gpu.group_pct_ranks": (
+        "mlframe.feature_selection.filters._grouped_quantile_gpu",
+        "kernel",
+        ("float32",),
+    ),
+    "grouped_quantile_gpu.group_quantiles": (
+        "mlframe.feature_selection.filters._grouped_quantile_gpu",
+        "quantiles_kernel",
+        ("float32",),
+    ),
     "ksg_cd_gpu.ksg_psi_m_sums": (
         "mlframe.feature_selection.filters._ksg_cd_gpu",
         "kernel",

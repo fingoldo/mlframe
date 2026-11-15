@@ -403,7 +403,7 @@ def _run_sweep() -> list:
     """Time the upload and the rebuild per row count; both tables must agree column by column (means to 1e-4 relative, the same non-finite counts)."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
-    return list(sweep_backend_grid({"host": _sweep_host, "device": _sweep_device}, {"n_samples": _SWEEP_ROWS}, _sweep_inputs, reference="host", repeats=3, equiv_rtol=1e-4, equiv_atol=1e-4))
+    return list(sweep_backend_grid({"host": _sweep_host, "device": _sweep_device}, {"n_samples": _SWEEP_ROWS}, _sweep_inputs, reference="host", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6))
 
 
 try:
