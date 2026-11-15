@@ -274,7 +274,7 @@ def _summarise(results: List[MegaFoldResult]) -> Dict:
     for mv in by_task.values():
         if not mv:
             continue
-        winner = max(mv, key=mv.get)
+        winner = max(mv, key=lambda _k: mv[_k])
         wins[winner] = wins.get(winner, 0) + 1
         total_tasks += 1
     win_rate = {m: (wins.get(m, 0) / max(1, total_tasks)) for m in by_m}

@@ -14,6 +14,7 @@ Measured (separate-process, 4 cols incl. one discrete + one NaN-mixed, n=10M):
 In-process paired A/B: NEW faster 5/5, median 1.232x.
 """
 
+from typing import Any, cast
 import time
 
 import numpy as np
@@ -56,5 +57,5 @@ if __name__ == "__main__":
     # @kernel_tuner-decorated functions) - found live (GPU11-22) when it broke a kernel-tuning-cache refresh
     # that needed real cupy for unrelated kernels.
     if "cupy" not in sys.modules:
-        sys.modules["cupy"] = None
+        cast(Any, sys.modules)["cupy"] = None
     main()

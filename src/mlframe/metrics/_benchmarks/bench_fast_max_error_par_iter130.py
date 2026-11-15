@@ -6,8 +6,9 @@ prange twin is BIT-IDENTICAL (no FP reorder -- only > comparisons). This bench m
 
 Run: PYTHONPATH=src python -m mlframe.metrics._benchmarks.bench_fast_max_error_par_iter130
 """
+from typing import Any, cast
 import sys
-sys.modules.setdefault("cupy", None)
+cast(Any, sys.modules).setdefault("cupy", None)
 import time
 import numpy as np
 import numba

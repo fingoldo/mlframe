@@ -250,7 +250,7 @@ def main():
             prod = float(col.get("product", float("nan")))
             raw = float(col.get("raw_only", float("nan")))
             rich = {op: float(col[op]) for op in REAL_OPS if op != "product" and op in col.index}
-            best_rich_op = max(rich, key=rich.get)
+            best_rich_op = max(rich, key=lambda _k: rich[_k])
             best_rich = rich[best_rich_op]
             tag = ""
             if metric == "logit":
@@ -271,7 +271,7 @@ def main():
             allraw = float(b.get("all_raw", float("nan")))
             rich_ops = {op: float(b[f"tree_top25+{op}"]) for op in REAL_OPS if op != "product" and f"tree_top25+{op}" in b.index}
             allrich = float(b.get("tree_top25+ALLrich", float("nan")))
-            best_rich_op = max(rich_ops, key=rich_ops.get)
+            best_rich_op = max(rich_ops, key=lambda _k: rich_ops[_k])
             best_rich = rich_ops[best_rich_op]
             print(f"\n  [{bed}/{metric}] all_raw={allraw:.4f} tree25_raw={base:.4f} products={prod:.4f}")
             for op, v in sorted(rich_ops.items(), key=lambda kv: -kv[1]):

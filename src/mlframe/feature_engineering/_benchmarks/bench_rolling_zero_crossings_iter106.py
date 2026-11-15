@@ -7,11 +7,12 @@ Run:
     PYTHONPATH=src python src/mlframe/feature_engineering/_benchmarks/bench_rolling_zero_crossings_iter106.py
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 import time
 
-sys.modules.setdefault("cupy", None)
+cast(Any, sys.modules).setdefault("cupy", None)
 import scipy.stats  # noqa: F401  pre-import to dodge py3.14 cold-import segfault
 import numba  # noqa: F401
 import numpy as np

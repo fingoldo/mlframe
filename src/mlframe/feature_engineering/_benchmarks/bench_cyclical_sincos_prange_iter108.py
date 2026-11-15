@@ -8,7 +8,8 @@ below it the ~17ms prange thread-launch floor dwarfs the per-element sin/cos wor
 below ~1M (fixed launch floor), wins decisively from 1M up.
 """
 import sys
-sys.modules["cupy"] = None
+from typing import Any, cast
+cast(Any, sys.modules)["cupy"] = None
 import os
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 os.environ.setdefault("NUMBA_DISABLE_CUDA", "1")

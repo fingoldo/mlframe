@@ -15,6 +15,7 @@ So neither eps gives float32 the honest value: float32 simply cannot carry the n
 """
 import os
 import sys
+from typing import Any, cast
 
 os.environ.setdefault("MLFRAME_SKIP_NUMBA_PREWARM", "1")
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
@@ -22,7 +23,7 @@ os.environ.setdefault("NUMBA_DISABLE_CUDA", "1")
 import scipy.stats  # noqa: F401
 import numba  # noqa: F401
 
-sys.modules["cupy"] = None
+cast(Any, sys.modules)["cupy"] = None
 import numpy as np
 from sklearn.metrics import log_loss as sk_log_loss
 

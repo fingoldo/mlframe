@@ -32,6 +32,7 @@ the tie divergence on different hardware / numpy build.
 """
 
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 import time
@@ -40,7 +41,7 @@ import numpy as np
 import pandas as pd
 from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
-sys.modules.setdefault("cupy", None)  # avoid py3.14 cold-import segfault under contention
+cast(Any, sys.modules).setdefault("cupy", None)  # avoid py3.14 cold-import segfault under contention
 
 
 def _bench(fn, reps: int = 5) -> float:

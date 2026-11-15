@@ -338,7 +338,7 @@ def _summarise(results: List[FoldResult], methods: List[str]) -> Dict:
     for _key, mvals in by_task_all.items():
         if not mvals:
             continue
-        winner = max(mvals, key=mvals.get)
+        winner = max(mvals, key=lambda _k: mvals[_k])
         win_count[winner] = win_count.get(winner, 0) + 1
         total_tasks_with_winner += 1
     win_rate = {m: (win_count[m] / total_tasks_with_winner if total_tasks_with_winner else 0.0) for m in methods}

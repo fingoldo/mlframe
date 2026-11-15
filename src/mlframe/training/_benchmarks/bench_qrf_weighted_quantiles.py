@@ -15,10 +15,11 @@ Output is BIT-IDENTICAL to the Python path within FP reduction-order tolerance (
 ``_HAS_NUMBA`` with the original Python loop as the numba-unavailable fallback.
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 
-sys.modules.setdefault("cupy", None)  # avoid cold cupy import segfault on py3.14
+cast(Any, sys.modules).setdefault("cupy", None)  # avoid cold cupy import segfault on py3.14
 
 import time
 

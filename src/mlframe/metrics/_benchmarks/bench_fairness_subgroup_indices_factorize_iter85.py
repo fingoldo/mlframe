@@ -7,6 +7,7 @@ O(n log n) pass. Measured n=1M, B=200 string categorical: OLD 12046.5 ms -> NEW 
 Run:  python -m mlframe.metrics._benchmarks.bench_fairness_subgroup_indices_factorize_iter85
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 import time
@@ -18,7 +19,7 @@ import pandas as pd
 
 
 def main() -> None:
-    sys.modules.setdefault("cupy", None)  # dodge py3.14 cold cupy import segfault
+    cast(Any, sys.modules).setdefault("cupy", None)  # dodge py3.14 cold cupy import segfault
     import scipy.stats  # noqa: F401
     import numba  # noqa: F401
     from mlframe.metrics._fairness_metrics import create_fairness_subgroups, create_fairness_subgroups_indices

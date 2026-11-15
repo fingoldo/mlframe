@@ -23,13 +23,14 @@ Run:
     python -c "import sys; sys.modules['cupy']=None" ... (see __main__)
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 import time
 
 import numpy as np
 
-sys.modules.setdefault("cupy", None)  # avoid cold-import segfault on py3.14
+cast(Any, sys.modules).setdefault("cupy", None)  # avoid cold-import segfault on py3.14
 
 
 def main() -> None:

@@ -1,7 +1,8 @@
 """Checks that the fused AUC and KS kernel matches the separate computations on random and tied scores, and times it against separate calls."""
 
+from typing import Any, cast
 import sys, time
-sys.modules['cupy'] = None
+cast(Any, sys.modules)['cupy'] = None
 import numpy as np
 from numba import njit
 

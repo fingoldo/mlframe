@@ -16,7 +16,8 @@ vectorized path ~2x SLOWER -- so production GATES on average group size
 Run: CUDA_VISIBLE_DEVICES="" python bench_per_group_cum_count_vectorized_iter135.py
 """
 import sys
-sys.modules["cupy"] = None
+from typing import Any, cast
+cast(Any, sys.modules)["cupy"] = None
 
 import numpy as np
 

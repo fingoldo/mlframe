@@ -12,6 +12,7 @@ pure form that lifts OOF R^2 without regressing the control scenario (where no w
 
 Run: PYTHONPATH=src python -m mlframe.feature_selection._benchmarks.fs_quality.qual23_pure_form_resid_corr
 """
+from typing import Any, cast
 import logging
 import os
 import sys
@@ -26,7 +27,7 @@ if __name__ == "__main__":
     os.environ.setdefault("MLFRAME_SKIP_NUMBA_PREWARM", "1")
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
     os.environ.setdefault("NUMBA_DISABLE_CUDA", "1")
-    sys.modules.setdefault("cupy", None)
+    cast(Any, sys.modules).setdefault("cupy", None)
 
 logger = logging.getLogger(__name__)
 

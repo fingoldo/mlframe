@@ -89,7 +89,7 @@ def run(seeds=(0, 1, 2), k=6, n_bad=2, n=3000):
             rmse_median = _rmse(median_pred, y)
             rmse_robust = _rmse(robust_pred, y)
             trio = {"mean": rmse_mean, "median": rmse_median, "robust": rmse_robust}
-            winner = min(trio, key=trio.get)
+            winner = min(trio, key=lambda _k: trio[_k])
             mean_wins += winner == "mean"
             median_wins += winner == "median"
             robust_wins += winner == "robust"

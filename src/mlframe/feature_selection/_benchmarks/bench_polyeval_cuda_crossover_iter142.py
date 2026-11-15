@@ -62,7 +62,7 @@ def _bench():
         t_par = timeit(njit_par, x) * 1e3
         t_cuda = timeit(lambda xx, cc: _polyeval_cuda(BASIS, xx, cc), x) * 1e3 if _CUDA_AVAILABLE else float("inf")
         cands = {"njit": t_njit, "njit_par": t_par, "cuda": t_cuda}
-        winner = min(cands, key=cands.get)
+        winner = min(cands, key=lambda _k: cands[_k])
         rows.append((n, t_njit, t_par, t_cuda, winner))
         print(f"{n:>10} {t_njit:>10.3f} {t_par:>10.3f} {t_cuda:>10.3f} {winner:>10}")
 

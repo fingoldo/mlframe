@@ -31,6 +31,7 @@ def _load_leaf(name, fname):
         m.__path__ = [_METRICS_DIR]
         sys.modules[pkg] = m
     spec = importlib.util.spec_from_file_location(f"{pkg}.{name}", os.path.join(_METRICS_DIR, fname))
+    assert spec is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules[f"{pkg}.{name}"] = mod
     assert spec is not None

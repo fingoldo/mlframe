@@ -1,6 +1,7 @@
 """Profile per_group_shift / per_group_cum_reduce @10M with many groups."""
 import sys
-sys.modules['cupy'] = None
+from typing import Any, cast
+cast(Any, sys.modules)['cupy'] = None
 import scipy.stats  # noqa: F401
 import numba  # noqa: F401
 import cProfile, pstats, io, time

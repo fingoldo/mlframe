@@ -284,7 +284,7 @@ def main() -> None:
         by_nb_js.setdefault(key, {})[r["block_size"]] = r["wall_ms_shared"]
     bs_wins_acc: dict[int, int] = {}
     for _key, bs_walls in by_nb_js.items():
-        best_bs = min(bs_walls, key=bs_walls.get)
+        best_bs = min(bs_walls, key=lambda _k: bs_walls[_k])
         bs_wins_acc[best_bs] = bs_wins_acc.get(best_bs, 0) + 1
     print("\n  block_size that wins most often (shared kernel):")
     for bs, count in sorted(bs_wins_acc.items(), key=lambda x: -x[1]):
