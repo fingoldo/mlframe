@@ -107,8 +107,8 @@ def main():
         # R3-4 stability re-rank: bootstrap freq, equal-N swap
         from collections import Counter
         freq: Any = Counter()
-        for b in range(10):
-            rng = np.random.default_rng(7 * sd + b)
+        for bi in range(10):
+            rng = np.random.default_rng(7 * sd + bi)
             idx = rng.choice(len(Xtr), int(0.7 * len(Xtr)), replace=False)
             freq.update(fit_rfecv(Xtr.iloc[idx].reset_index(drop=True), ytr.iloc[idx].reset_index(drop=True)))
         top_by_freq = [c for c, _ in freq.most_common(len(surv))]

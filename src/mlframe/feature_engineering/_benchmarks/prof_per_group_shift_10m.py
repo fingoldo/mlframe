@@ -25,7 +25,7 @@ def main():
     ]:
         pr = cProfile.Profile()
         t0 = time.perf_counter(); pr.enable()
-        fn(*args)
+        cast(Any, fn)(*args)
         pr.disable(); wall = time.perf_counter() - t0
         print(f"=== {name} wall={wall:.3f}s (n_groups={n_groups}) ===")
         s = io.StringIO()

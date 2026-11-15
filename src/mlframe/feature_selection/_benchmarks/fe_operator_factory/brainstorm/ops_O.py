@@ -14,7 +14,7 @@ KU = list(UN)
 def make_trees(ntree, seed=7):
     """Random expression trees (two shapes over unary / binary preset operators and random affine arguments)."""
     r = np.random.default_rng(seed)
-    T = []
+    T: list[Any] = []
     A = np.array([-5, -3, -2, -1, -0.5, 0.5, 1, 2, 3, 5.0])
     for _ in range(ntree):
         if r.random() < 0.5:

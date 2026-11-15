@@ -86,6 +86,7 @@ def main():
     print(f"parallel faster in {wins_parallel}/{N_TRIALS} paired trials")
     speedup = np.median(serial_times) / np.median(parallel_times)
     print(f"median speedup (parallel vs serial): {speedup:.2f}x")
+    assert serial_support is not None and parallel_support is not None
     print(f"selection identical across n_workers: {serial_support == parallel_support} "
           f"(serial selected {len(serial_support)}, parallel selected {len(parallel_support)})")
 

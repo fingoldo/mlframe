@@ -303,7 +303,7 @@ def _summarise(results: List[FoldResult], methods: List[str]) -> Dict:
 
     # MI by sample size
     ns = sorted({r.n for r in results})
-    by_method_n: Dict[str, Dict[int, float]] = {}
+    by_method_n: Dict[str, Dict[str, float]] = {}
     for m in methods:
         by_method_n[m] = {}
         for n in ns:

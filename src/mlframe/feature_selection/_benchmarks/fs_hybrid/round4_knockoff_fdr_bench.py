@@ -49,8 +49,8 @@ def main():
     else:
         sel = S.RFECVSel("lgbm_perm"); sel.fit(Xtr, ytr)
         support = [c for c in sel.raw_selected_ if c in Xtr.columns]
-        with open(cache, "wb") as _f:
-            pickle.dump(support, _f)
+        with open(cache, "wb") as fh:
+            pickle.dump(support, fh)
     emit("rfecv (support)", support, t0)
     print(f"  -> RFECV kept {len(support)} features", flush=True)
 

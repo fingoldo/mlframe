@@ -4,6 +4,7 @@ Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.wave2
 """
 
 from __future__ import annotations
+from typing import Any, cast
 
 import itertools
 import json
@@ -30,7 +31,7 @@ def main(seeds: int = 8) -> None:
                         XA, ya = X[:h], y[:h]
                         pairs = list(itertools.combinations(range(X.shape[1]), 2))
                         b = bins_for(h) if nb == "auto" else nb
-                        r = additive_oof_residual(XA, ya, nb=b, seed=s)
+                        r = additive_oof_residual(XA, ya, nb=cast(Any, b), seed=s)
                         Q = np.column_stack([_qcodes(XA[:, j], 6) for j in range(XA.shape[1])])
                         c = cell_screen(Q, r, pairs)
                         sc.append(float(c.max() * h))

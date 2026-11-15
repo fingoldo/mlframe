@@ -1,7 +1,7 @@
 """Multi-column operators F (count above median), G (row statistics), J (log-sum-exp), K (tropical), L (parity), AA (compositional shares / entropy), S (bit features) with their W / N / 0 cases.
 Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.brainstorm.ops_multi <case names, e.g. G_W G_N G_0> [--seeds S] [--n N]``."""
 
-from typing import Any
+from typing import Any, cast
 import itertools
 
 import numpy as np
@@ -57,7 +57,7 @@ def F2_new(Xtr, ytr, Xte, rng):
     p = Xtr.shape[1]
     for k in range(2, p + 1):
         for S in itertools.combinations(range(p), k):
-            S = list(S)
+            S = cast(Any, list(S))
             f = (Xtr[:, S] > med[S]).sum(1).astype(float)
             m = mi_pair(f, f, yb[0], yb[0], yb[2])[0]
             if best is None or m > best[0]:

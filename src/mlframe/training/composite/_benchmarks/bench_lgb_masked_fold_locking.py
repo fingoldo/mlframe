@@ -18,6 +18,7 @@ binned on, so the seed repeats of one spec reuse it where the wrapper rebuilt it
 whole fit is rejected: it serialises the training too, which is most of the work.
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 import threading
@@ -54,7 +55,7 @@ def _worker(mode: str, seed: int, rounds: int, n_rows: int, n_cols: int, n_estim
         for _spec in range(specs):
             target = rng.normal(size=fit_rows.shape[0])
             if mode == "native":
-                fit_on_rows(x, fit_rows, target, params=params, n_estimators=n_estimators)
+                fit_on_rows(x, fit_rows, cast(Any, target), params=params, n_estimators=n_estimators)
             else:
                 _sklearn_fit(
                     x, fit_rows, target, num_leaves=15, learning_rate=0.1, random_state=seed,

@@ -102,7 +102,7 @@ def _f_won(names) -> bool:
 
 
 def run() -> dict:
-    out = {}
+    out: dict[str, Any] = {}
     warnings.simplefilter("ignore")
     for reverse in (False, True):
         pre_auc, post_auc, fpre, fpost = [], [], 0, 0

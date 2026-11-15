@@ -10,7 +10,7 @@ Output: ``wave2/results/rows_Badd_<n>.jsonl`` and ``b_vs_additive.txt``.
 """
 
 from __future__ import annotations
-
+from typing import Any, cast
 import argparse
 import time
 
@@ -74,7 +74,7 @@ def one_case(case: str, n: int, seed: int, ms_: tuple = (3.0, 10.0, 20.0), hgb_i
         for met in ("mae", "rmse"):
             for mod in ("ridge", "hgb"):
                 a, b = row[f"{met}|{mod}|cw"], row[f"{met}|{mod}|cwB_m{m:g}"]
-                row[f"{met}|{mod}|B_over_cw_m{m:g}"] = 1.0 - (1.0 - b) / (1.0 - a)
+                row[f"{met}|{mod}|B_over_cw_m{m:g}"] = 1.0 - (1.0 - cast(Any, b)) / (1.0 - cast(Any, a))
     return row
 
 

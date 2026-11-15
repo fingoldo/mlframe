@@ -204,6 +204,9 @@ def _append(path, row):
 
 def run(smoke):
     path = SMOKE_JSONL if smoke else FULL_JSONL
+    n_values: Any
+    seeds: Any
+    dims: Any
     if smoke:
         n_values, seeds = (1500,), list(range(2))
         dims = (2, 3, 6)

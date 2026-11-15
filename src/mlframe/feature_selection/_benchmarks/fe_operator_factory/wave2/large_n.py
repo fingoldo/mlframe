@@ -116,7 +116,7 @@ def profile_op(op: str, n: int, case: str = "H", top: int = 3) -> str:
     st = pstats.Stats(pr, stream=buf).sort_stats("tottime")
     st.print_stats(15)
     (results_dir("wave2") / f"profile_{op}_{n}.txt").write_text(buf.getvalue())
-    total = st.total_tt
+    total = cast(Any, st).total_tt
     items = sorted(cast(Any, st).stats.items(), key=lambda kv: kv[1][2], reverse=True)[:top]
     return f"{op} n={n} case={case} total={total:.2f}s: " + "; ".join(
         f"{k[2]} ({k[0].split(chr(92))[-1].split('/')[-1]}:{k[1]}) self={v[2]:.2f}s calls={v[1]}" for k, v in items

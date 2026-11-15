@@ -4,6 +4,7 @@ Run it on a new card before trusting the launch constants: ``python -m mlframe.f
 """
 
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 
@@ -27,7 +28,7 @@ def _kernels(cp):
     ]
     radix = qcodes._RADIX.get(cp)
     for name in ("radix_hist1", "radix_hist2", "radix_hist3"):
-        out.append((f"quantile {name}", radix.get_function(name), qcodes.THREADS, lambda n: 0))
+        out.append((f"quantile {name}", radix.get_function(name), cast(Any, qcodes).THREADS, lambda n: 0))
     return out
 
 

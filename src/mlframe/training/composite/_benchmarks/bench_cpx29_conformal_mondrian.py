@@ -9,6 +9,7 @@ Run: CUDA_VISIBLE_DEVICES="" python bench_cpx29_conformal_mondrian.py
 Warm best-of-N wall A/B; identity gate on the full per-alpha {group: radius} dicts.
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 import time
@@ -62,7 +63,7 @@ def main():
         # warm
         _run(stub, None, y_true, groups, alphas)
         t = _best_of(lambda: _run(stub, None, y_true, groups, alphas))
-        out = stub._mondrian_q_
+        out = cast(Any, stub)._mondrian_q_
         ngroups = len(out[round(0.1, 6)]) - 1  # minus the None key
         print(f"n={n:>7} groups={ng:>5}  ->  {t*1000:8.2f} ms  (effective_groups={ngroups})")
 

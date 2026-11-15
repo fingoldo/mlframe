@@ -45,7 +45,7 @@ def _synth_polars(n_rows: int, n_cols: int, seed: int) -> pl.DataFrame:
             data[f"c_str_{i}"] = [f"v{int(x)}" for x in rng.integers(0, max(2, n_rows // 50), size=n_rows)]
         elif kind == 1:
             # mostly-null string column (still text-like)
-            arr = [f"v{int(x)}" for x in rng.integers(0, 500, size=n_rows)]
+            arr: list[Any] = [f"v{int(x)}" for x in rng.integers(0, 500, size=n_rows)]
             mask = rng.random(n_rows) < 0.95
             for j, m in enumerate(mask):
                 if m:

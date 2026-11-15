@@ -3,6 +3,7 @@
 Run: ``python -m mlframe.training._benchmarks.bench_overlapping_walk_forward_cv``
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import cProfile
 import pstats
@@ -38,7 +39,7 @@ def _run_stability(n_calls: int) -> None:
     hp_grid = np.linspace(0, 1, 30)
     for _ in range(n_calls):
         curves = [-((hp_grid - 0.6) ** 2) + rng.normal(0, 0.02, size=len(hp_grid)) for _ in range(8)]
-        cv_stability_check(curves)
+        cv_stability_check(cast(Any, curves))
 
 
 if __name__ == "__main__":

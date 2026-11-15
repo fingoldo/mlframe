@@ -70,7 +70,7 @@ for _, k, th in configs:
     run(k, th)
 times: Any = {i: [] for i in range(len(configs))}
 ref = None
-for _ in range(5):
+for _rep in range(5):
     for i, (_, k, th) in enumerate(configs):
         d, out = run(k, th)
         times[i].append(d)

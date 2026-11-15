@@ -25,6 +25,7 @@ budget ~10min. Per-cell summary lands on stdout immediately for liveness.
 """
 
 from __future__ import annotations
+from typing import Any
 
 from mlframe.feature_selection._benchmarks._bench_shared import build_selector, make_shap_proxy_wide_regime as _make
 
@@ -78,7 +79,7 @@ def main() -> None:
     args = ap.parse_args()
 
     if args.axis == "n_rows":
-        levels = [int(x) for x in args.n_rows_levels.split(",") if x.strip()]
+        levels: list[Any] = [int(x) for x in args.n_rows_levels.split(",") if x.strip()]
         cells = [{"n_features": args.width, "n_rows": lv, "snr": args.fixed_snr} for lv in levels]
         axis_label = "n_rows"
     else:

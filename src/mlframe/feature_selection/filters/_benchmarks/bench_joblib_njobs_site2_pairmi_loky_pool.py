@@ -14,6 +14,7 @@ CPU-only-fallback case directly: real ``compute_pairs_mis`` over chunks of pairs
 Run: PYTHONPATH=src CUDA_VISIBLE_DEVICES="" python src/mlframe/feature_selection/filters/_benchmarks/bench_joblib_njobs_site2_pairmi_loky_pool.py
 """
 from __future__ import annotations
+from typing import Any, cast
 
 from itertools import combinations
 
@@ -41,7 +42,7 @@ _best_of = best_of
 def _run_serial(all_pairs, data, y, nbins, freqs_y, fe_npermutations):
     return compute_pairs_mis(
         all_pairs=list(all_pairs), data=data, target_indices=None, nbins=nbins,
-        classes_y=y, classes_y_safe=None, freqs_y=freqs_y,
+        classes_y=y, classes_y_safe=cast(Any, None), freqs_y=freqs_y,
         fe_min_nonzero_confidence=0.99, fe_npermutations=fe_npermutations,
         cached_confident_MIs={}, cached_MIs={}, fe_min_pair_mi=-1.0, fe_min_pair_mi_prevalence=0.0,
     )

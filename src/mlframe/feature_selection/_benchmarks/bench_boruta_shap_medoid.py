@@ -12,7 +12,6 @@ Compare full BorutaShap vs BorutaShap-on-medoids-then-expand: OOS AUC + wall-clo
 n_trials so BorutaShap stays cheap.
 """
 from __future__ import annotations
-
 import time
 import warnings
 
@@ -84,7 +83,7 @@ def main():
     daucs_arr = np.array(daucs)
     print(f"AUC delta (reduced-full): min={daucs_arr.min():+.4f} mean={daucs_arr.mean():+.4f} max={daucs_arr.max():+.4f}")
     print(f"speedup: min={min(sps):.2f}x mean={np.mean(sps):.2f}x")
-    print(f"SAFE (all dAUC >= -0.01)? {bool((daucs >= -0.01).all())}")
+    print(f"SAFE (all dAUC >= -0.01)? {bool((np.asarray(daucs) >= -0.01).all())}")
 
 
 if __name__ == "__main__":

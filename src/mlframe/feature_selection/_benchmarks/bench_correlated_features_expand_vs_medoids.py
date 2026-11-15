@@ -10,6 +10,7 @@ Run: ``python -m mlframe.feature_selection._benchmarks.bench_correlated_features
 """
 
 from __future__ import annotations
+from typing import Any
 
 import warnings
 
@@ -65,7 +66,7 @@ def _run(name, X, y, seed):
 
 def _datasets(seed):
     """The diverse benchmark's datasets, the synthetic ones re-drawn per seed."""
-    configs = [
+    configs: list[dict[str, Any]] = [
         dict(n_features=60, n_informative=8, n_redundant=30, n_repeated=6, class_sep=1.0, weights=None),
         dict(n_features=80, n_informative=10, n_redundant=10, n_repeated=0, class_sep=0.6, weights=None),
         dict(n_features=40, n_informative=6, n_redundant=20, n_repeated=4, class_sep=1.2, weights=[0.9, 0.1]),
