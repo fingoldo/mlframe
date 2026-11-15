@@ -114,6 +114,7 @@ _RECIPES: dict = {
     "_fe_pure_form_retention_gpu_resident.py::_GRAM_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
     "_extra_fe_families_dispersion_resident.py::_CODES_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r}), ()) for r in _REAL_TYPES],
     "_gpu_resident_operand_build.py::_BATCH_UNARY_TEMPLATE": lambda s: [(r, _fill(s, **{"{REAL}": r, "{EDGE}": "float"}), ()) for r in _REAL_TYPES],
+    "_extra_basis_resident.py::_BSPLINE_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "{ACC}": "double"}), ("--fmad=false",)) for r in _REAL_TYPES],
     "_order_stats_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
     "_synergy_combo_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],
     "_added_information_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],

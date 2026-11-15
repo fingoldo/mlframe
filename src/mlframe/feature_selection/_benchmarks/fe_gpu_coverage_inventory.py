@@ -152,6 +152,10 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
 #: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_extra_basis_resident": (
+        "_fourier_block_host",
+        "fourier_block_host (numba, prange over the rows of every name) is the host evaluation of the Fourier / chirp columns of the pool the device block replaces, and the host generators of the family (generate_extra_basis_features) build the spline and wavelet columns the device columns are checked against; the host matrix is what the resident scorer falls back to",
+    ),
     "_gpu_resident_cross_basis": (
         "hermite_fe",
         "polyeval_dispatch of the hermite_fe package (the numba polynomial evaluators) builds the same per-leg columns on the host and the family generators multiply them into the product matrix that mi_classif_batch_chunked scores; it is the path the resident scorer falls back to and the baseline the device products and MI are checked against",
@@ -255,6 +259,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_target_encoding_order_stats": ("_order_stats_gpu",),
     "_temporal_agg_fe_rolling": ("_rolling_window_gpu",),
     "_periodic_fe": ("_modular_codes_gpu",),
+    "_extra_basis_resident": ("_orth_extra_basis_fe_generate",),
     "_gpu_resident_fe": ("_gpu_resident_basis",),
     "_wavelet_basis_fe": ("_wavelet_basis_fe_batched",),
     "_fe_pure_form_retention_gpu_resident": ("_pure_form_gate_njit",),

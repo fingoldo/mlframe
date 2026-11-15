@@ -73,6 +73,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_codes",
         ("float32", "float64"),
     ),
+    "extra_basis_resident.bspline_block": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._extra_basis_resident",
+        "kernel_spline",
+        ("float32", "float64"),
+    ),
     "rolling_window_gpu.rolling_stat_past_only": (
         "mlframe.feature_selection.filters._rolling_window_gpu",
         "kernel",
