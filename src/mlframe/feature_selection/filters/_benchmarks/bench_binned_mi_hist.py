@@ -6,13 +6,14 @@ code. Bit-identical by construction (same plug-in counts, same row-major nonzero
 
 Run: PYTHONPATH=<worktree>/src python bench_binned_mi_hist.py
 """
+from typing import Any
 import time
 import numpy as np
 
 
 def _binned_mi_legacy(feat, y, nbins=10):
     feat = np.asarray(feat, dtype=np.float64).ravel()
-    y = np.asarray(y).ravel()
+    y: Any = np.asarray(y).ravel()
     n = feat.size
     if n == 0 or n != y.size:
         return 0.0

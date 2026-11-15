@@ -41,6 +41,7 @@ fits = variants(4) x scenarios(2) x n(2: 20k,100k) x p(1: 300) x seeds(15) = 240
 Smoke: --smoke (n=2000, p=40, 2 seeds, regression only). Resume: re-run the same command. Summarize: --summarize.
 """
 from __future__ import annotations
+from typing import Any
 
 import argparse
 import functools
@@ -118,8 +119,8 @@ def run_campaign(smoke: bool) -> None:
     if smoke:
         n_values, p_values, seeds, scenarios = (2000,), (40,), list(range(2)), ("regression",)
     else:
-        n_values = (20000, 100000)
-        p_values = (150, 300) if os.environ.get("FULL_P_SWEEP") else (300,)
+        n_values: Any = (20000, 100000)
+        p_values: Any = (150, 300) if os.environ.get("FULL_P_SWEEP") else (300,)
         seeds, scenarios = list(range(15)), SCENARIOS
 
     cells = [(v, s, n, p, seed) for v in VARIANTS for s in scenarios for n in n_values for p in p_values for seed in seeds]

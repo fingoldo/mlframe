@@ -9,6 +9,7 @@ The summary gives kernel launches and GPU milliseconds per function: a range wit
 is kernel-bound (optimise the kernel).
 """
 
+from typing import Any, cast
 import pstats
 from pathlib import Path
 
@@ -18,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4]))  # this checkout, n
 from mlframe.feature_selection._benchmarks.profiling._paths import OUT_DIR, PROF_FILE
 
 NVPROF_BASE = Path(__file__).with_name("nvprof_fit.py")
-p = pstats.Stats(str(PROF_FILE)); st = p.stats
+p = pstats.Stats(str(PROF_FILE)); st = cast(Any, p).stats
 cands = []
 for k, v in st.items():
     fn = k[0].replace("\\", "/")

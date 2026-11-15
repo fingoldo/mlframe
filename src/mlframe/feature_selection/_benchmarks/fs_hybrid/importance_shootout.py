@@ -6,6 +6,7 @@ Writes _results/importance_shootout.jsonl incrementally + a progress heartbeat.
 """
 
 from __future__ import annotations
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ from .run_experiment import compute_auc_mean
 
 
 def downstream(Xtr, Xte, ytr, yte, cols):
-    out = {}
+    out: dict[str, Any] = {}
     for name, mk in {
         "lgbm": lambda: lgb.LGBMClassifier(n_estimators=300, num_leaves=31, learning_rate=0.05, n_jobs=-1, verbose=-1),
         "logit": lambda: make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)),

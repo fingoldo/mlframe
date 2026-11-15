@@ -314,7 +314,7 @@ def _summarise(results: List[FoldResult], methods: List[str]) -> Dict:
     # Stability of MI ranking across folds (edge stability proxy)
     by_task: Dict[Tuple, List[FoldResult]] = {}
     for r in results:
-        key = (r.method, r.distribution, r.signal_kind, r.n)
+        key: Any = (r.method, r.distribution, r.signal_kind, r.n)
         by_task.setdefault(key, []).append(r)
     cv_of_mi_by_method: Dict[str, float] = {}
     for m in methods:

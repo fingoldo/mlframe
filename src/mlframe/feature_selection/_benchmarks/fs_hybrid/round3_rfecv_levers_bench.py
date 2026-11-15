@@ -117,7 +117,7 @@ def main():
     df = pd.DataFrame(rows)
     print("\n=== mean over seeds (vs baseline) ===")
     g = df.groupby("variant").agg(auc_mean=("auc_mean", "mean"), base_recall=("base_recall", "mean"), noise=("noise", "mean"), n=("n", "mean")).round(4)
-    b = g.loc["baseline", "auc_mean"] if "baseline" in g.index else float("nan")
+    b: Any = g.loc["baseline", "auc_mean"] if "baseline" in g.index else float("nan")
     g["delta"] = (g["auc_mean"] - b).round(4)
     print(g.to_string())
 

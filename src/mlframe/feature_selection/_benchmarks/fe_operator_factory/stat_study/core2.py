@@ -1,5 +1,6 @@
 """Two-parameter extension of ``core``: closed-form ``(s, t)`` of ``(u + s)(v + t)`` from one 4x4 OLS, and a G x G grid of quantile zero-crossings."""
 
+from typing import Any
 import numpy as np
 from numba import njit, prange
 
@@ -36,7 +37,7 @@ def ols_st(u, v, yr, winsor, huber):
         X[i, 2] = b
         X[i, 3] = a * b
     w = np.ones(n)
-    beta = np.zeros(4)
+    beta: Any = np.zeros(4)
     nit = 4 if huber else 1
     for _it in range(nit):
         A = np.zeros((4, 4))

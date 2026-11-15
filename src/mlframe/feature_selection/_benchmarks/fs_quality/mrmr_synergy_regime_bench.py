@@ -127,7 +127,7 @@ def _holdout_auc(X_tr, y_tr, X_ho, y_ho, sel_idx):
     if not sel_idx or len(np.unique(y_ho)) < 2 or len(np.unique(y_tr)) < 2:
         return {"lgbm": None, "logit": None}
     Xtr, Xho = X_tr[:, sel_idx], X_ho[:, sel_idx]
-    out = {}
+    out: dict[str, Any] = {}
     try:
         from lightgbm import LGBMClassifier
         m = LGBMClassifier(n_estimators=80, num_leaves=15, verbose=-1, random_state=0)

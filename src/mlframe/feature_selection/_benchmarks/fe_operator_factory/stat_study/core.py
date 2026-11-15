@@ -1,5 +1,6 @@
 """Numba kernels and helpers of the offset-product statistics study: rank-bin MI, shift estimators (median, zero-crossing, interaction OLS, quantile grid) evaluated over all unary x unary pairs, the preset candidate scorer and a binned rank-1 ALS."""
 
+from typing import Any
 import functools
 import warnings
 
@@ -179,7 +180,7 @@ def ols_t(u, v, yr, winsor, huber):
         X[i, 2] = b
         X[i, 3] = a * b
     w = np.ones(n)
-    beta = np.zeros(4)
+    beta: Any = np.zeros(4)
     nit = 4 if huber else 1
     for _it in range(nit):
         A = np.zeros((4, 4))

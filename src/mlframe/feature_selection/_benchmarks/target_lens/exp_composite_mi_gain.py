@@ -123,7 +123,7 @@ def one(process: str, n: int, seed: int) -> dict:
         null = max(_mi_pair_bin(X_no_base[:, j], perm_rng.permutation(b), nbins=N_BINS) for _ in range(20))
         if mi_j <= null:
             keep.append(j)
-    out = {"mi_gain": _mi_gain(X_no_base, y, T), "mi_gain_excl": _mi_gain(X_no_base[:, keep], y, T) if keep else float("nan"), "n_kept": len(keep)}
+    out: dict[str, Any] = {"mi_gain": _mi_gain(X_no_base, y, T), "mi_gain_excl": _mi_gain(X_no_base[:, keep], y, T) if keep else float("nan"), "n_kept": len(keep)}
     c = float(np.dot(b[tr] - b[tr].mean(), y[tr] - y[tr].mean()) / np.dot(b[tr] - b[tr].mean(), b[tr] - b[tr].mean()))
     for name, make in MODELS.items():
         Xb = X if base_col else np.column_stack([X, b])

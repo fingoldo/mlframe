@@ -155,7 +155,7 @@ def run(process: str, n_train: int, seed: int) -> dict:
     fa = _fit_mrmr(Xtr, ytr, seed)
     A_tr, A_te = _frame(fa, Xtr), _frame(fa, Xte)
     t_a = time.perf_counter() - t0
-    arms = {"A": (A_tr, A_te)}
+    arms: dict[str, Any] = {"A": (A_tr, A_te)}
     # B: residual of a model on A's features
     t0 = time.perf_counter()
     if "B" in ARMS_ON:
@@ -188,7 +188,7 @@ def run(process: str, n_train: int, seed: int) -> dict:
     if "E" in ARMS_ON:
         fe = _fit_mrmr(Xtr, ytr, seed, fe_max_steps=3)
         arms["A+E"] = (_union([A_tr, _frame(fe, Xtr)]), _union([A_te, _frame(fe, Xte)]))
-    res = {"time": {"A": t_a, "B": t_b, "C": t_c}}
+    res: dict[str, Any] = {"time": {"A": t_a, "B": t_b, "C": t_c}}
     for arm, (tr, te) in list(arms.items()):
         row = {"n_feat": tr.shape[1], "n_extra": tr.shape[1] - A_tr.shape[1]}
         for name, make in _models().items():

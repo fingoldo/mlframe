@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4]))  # this checkout, n
 from mlframe.feature_selection._benchmarks.profiling._paths import PROF_FILE
 
 import pstats, collections
-p = pstats.Stats(str(PROF_FILE)); st = p.stats
+p = pstats.Stats(str(PROF_FILE)); st = cast(Any, p).stats
 b: Any = collections.Counter(); tot = 0.0
 for k, v in st.items():
     fn = k[0].replace(chr(92), '/')

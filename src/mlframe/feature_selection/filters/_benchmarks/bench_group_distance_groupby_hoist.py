@@ -12,6 +12,7 @@ Run:
     CUDA_VISIBLE_DEVICES="" python -m mlframe.feature_selection.filters._benchmarks.bench_group_distance_groupby_hoist
 """
 from __future__ import annotations
+from typing import Any
 
 import time
 
@@ -21,7 +22,7 @@ import pandas as pd
 
 def _make_frame(n: int, n_num: int, n_groups: int, seed: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    data = {"grp": rng.integers(0, n_groups, size=n)}
+    data: dict[str, Any] = {"grp": rng.integers(0, n_groups, size=n)}
     for j in range(n_num):
         data[f"x{j}"] = rng.normal(size=n)
     return pd.DataFrame(data)

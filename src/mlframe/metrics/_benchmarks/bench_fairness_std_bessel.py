@@ -18,6 +18,7 @@ Run:
 """
 
 from __future__ import annotations
+from typing import Any
 
 import numpy as np
 
@@ -84,8 +85,8 @@ def run() -> dict:
     print("-" * 96)
     # Per-scenario aggregate mean |bias|.
     for sc_name, K, sigma_true in scenarios:
-        e0 = np.mean([results[(sc_name, s)][0] for s in seeds])
-        e1 = np.mean([results[(sc_name, s)][1] for s in seeds])
+        e0: Any = np.mean([results[(sc_name, s)][0] for s in seeds])
+        e1: Any = np.mean([results[(sc_name, s)][1] for s in seeds])
         print(f"{sc_name:<16} K={K:<3} sigma_true={sigma_true:<6} mean|bias| ddof0={e0:.5f}  ddof1={e1:.5f}  ratio={e0 / e1:.3f}x")
 
     print("-" * 96)

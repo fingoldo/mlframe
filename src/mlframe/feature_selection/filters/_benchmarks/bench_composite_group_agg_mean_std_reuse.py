@@ -22,6 +22,7 @@ min/max/median); regression sensor: tests/feature_selection/test_biz_value_mrmr_
 test_composite_group_key.py::TestMeanStdReuseBitIdentical.
 """
 from __future__ import annotations
+from typing import Any
 
 import time
 
@@ -48,7 +49,7 @@ def main() -> None:
     rng = np.random.default_rng(0)
 
     n = 150_000
-    cols = {"g1": rng.integers(0, 8, n), "g2": rng.integers(0, 6, n)}
+    cols: dict[str, Any] = {"g1": rng.integers(0, 8, n), "g2": rng.integers(0, 6, n)}
     for k in range(12):
         cols[f"v{k}"] = rng.normal(size=n)
     X = pd.DataFrame(cols)
