@@ -223,6 +223,56 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_dedup",
         ("float32", "float64"),
     ),
+    "fe_batched_mi_cmi.batched_joint_entropy2": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_entropy",
+        ("uint8", "int64"),
+    ),
+    "fe_batched_mi_cmi.batched_joint_entropy2_g": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_entropy_g",
+        ("uint8", "int64"),
+    ),
+    "fe_batched_mi_cmi.batched_joint_entropy2_g_wide": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_entropy_g_wide",
+        ("uint8", "int64"),
+    ),
+    "fe_batched_mi_cmi.ent_nnz_1d": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_ent_nnz",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi.joint_entropy1": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_joint1",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi.joint_entropy2": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_joint2",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi.joint_entropy3": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_joint3",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi.cmi_joint_entropies": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_cmi_joint",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi.marginal_mi_entropies": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_marginal",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi.cmi_assemble": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi",
+        "kernel_assemble",
+        ("int64",),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",

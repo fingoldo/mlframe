@@ -240,6 +240,61 @@ def _entropy_source(xt: str) -> str:
     return _BATCHED_JOINT_ENTROPY_SRC.replace("{XT}", xt)
 
 
+def _xt_of(real: Any) -> str:
+    """The CUDA code type for a registry dtype: ``uint8`` stays bytes, anything else is 64-bit."""
+    return "unsigned char" if np.dtype(real) == np.uint8 else "long long"
+
+
+def kernel_entropy(cp: Any, real: Any = None) -> Any:
+    """``batched_joint_entropy2``; the register-pressure registry compiles it through this (``real`` picks bytes or 64-bit codes where the kernel is code-typed)."""
+    return cp.RawKernel(_entropy_source(_xt_of(real)), "batched_joint_entropy2")
+
+
+def kernel_entropy_g(cp: Any, real: Any = None) -> Any:
+    """``batched_joint_entropy2_g``; the register-pressure registry compiles it through this (``real`` picks bytes or 64-bit codes where the kernel is code-typed)."""
+    return cp.RawKernel(_entropy_source(_xt_of(real)), "batched_joint_entropy2_g")
+
+
+def kernel_entropy_g_wide(cp: Any, real: Any = None) -> Any:
+    """``batched_joint_entropy2_g_wide``; the register-pressure registry compiles it through this (``real`` picks bytes or 64-bit codes where the kernel is code-typed)."""
+    return cp.RawKernel(_entropy_source(_xt_of(real)), "batched_joint_entropy2_g_wide")
+
+
+def kernel_ent_nnz(cp: Any, real: Any = None) -> Any:
+    """``ent_nnz_1d``; the register-pressure registry compiles it through this (``real`` picks bytes or 64-bit codes where the kernel is code-typed)."""
+    return cp.RawKernel(_ENT_NNZ_1D_SRC, "ent_nnz_1d")
+
+
+def kernel_joint1(cp: Any, real: Any = None) -> Any:
+    """``joint_entropy1``; the register-pressure registry compiles it through this (``real`` picks bytes or 64-bit codes where the kernel is code-typed)."""
+    return cp.RawModule(code=_JOINT_ENTROPY_SRC).get_function("joint_entropy1")
+
+
+def kernel_joint2(cp: Any, real: Any = None) -> Any:
+    """``joint_entropy2``; the register-pressure registry compiles it through this (``real`` picks bytes or 64-bit codes where the kernel is code-typed)."""
+    return cp.RawModule(code=_JOINT_ENTROPY_SRC).get_function("joint_entropy2")
+
+
+def kernel_joint3(cp: Any, real: Any = None) -> Any:
+    """``joint_entropy3``; the register-pressure registry compiles it through this (``real`` picks bytes or 64-bit codes where the kernel is code-typed)."""
+    return cp.RawModule(code=_JOINT_ENTROPY_SRC).get_function("joint_entropy3")
+
+
+def kernel_cmi_joint(cp: Any, real: Any = None) -> Any:
+    """``cmi_joint_entropies``; the register-pressure registry compiles it through this (``real`` picks bytes or 64-bit codes where the kernel is code-typed)."""
+    return cp.RawKernel(_CMI_JOINT_ENTROPIES_SRC, "cmi_joint_entropies")
+
+
+def kernel_marginal(cp: Any, real: Any = None) -> Any:
+    """``marginal_mi_entropies``; the register-pressure registry compiles it through this (``real`` picks bytes or 64-bit codes where the kernel is code-typed)."""
+    return cp.RawKernel(_MARGINAL_MI_ENTROPIES_SRC, "marginal_mi_entropies")
+
+
+def kernel_assemble(cp: Any, real: Any = None) -> Any:
+    """``cmi_assemble``; the register-pressure registry compiles it through this (``real`` picks bytes or 64-bit codes where the kernel is code-typed)."""
+    return cp.RawKernel(_CMI_ASSEMBLE_SRC, "cmi_assemble")
+
+
 def _get_batched_joint_entropy_kernel(cp, xt: str = "long long"):
     """Lazily compile and cache the ``batched_joint_entropy2`` RawKernel for the code type ``xt``, and probe+cache the device's max shared memory per block (used to decide when the kernel's histogram fits in shared memory vs global scratch)."""
     global _BATCHED_JOINT_ENTROPY_SH_LIMIT
