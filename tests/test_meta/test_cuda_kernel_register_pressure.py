@@ -533,6 +533,26 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_bits",
         ("float32", "float64"),
     ),
+    "offset_product_gpu.scan_offset_products": (
+        "mlframe.feature_selection.filters._offset_product_gpu",
+        "kernel",
+        ("float64",),
+    ),
+    "perm_labels_device.fy_permutations": (
+        "mlframe.feature_selection.filters._perm_labels_device",
+        "kernel_fy",
+        ("int64",),
+    ),
+    "perm_labels_device.pack_class_bits": (
+        "mlframe.feature_selection.filters._perm_labels_device",
+        "kernel_pack",
+        ("int64",),
+    ),
+    "extra_basis_fourier_cuda.fourier_block": (
+        "mlframe.feature_selection.filters._orthogonal_univariate_fe._extra_basis_fourier_cuda",
+        "kernel",
+        ("float32", "float64"),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",
@@ -554,6 +574,19 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
 # it. Pack any thread-private triangular-matrix array (Hessian, Cholesky factor) before reaching for this dict - that
 # cut this kernel's spill from 1512 to 936 bytes/thread for free (see the reason string for what remains).
 _SPILL_EXEMPT: dict[str, str] = {
+    "offset_product_gpu.scan_offset_products": (
+        "160 bytes/thread = `{ACC} M[4][5]` (20 doubles): the augmented matrix of the 4 x 4 normal equations the kernel solves per task by Gaussian elimination, indexed by the run-time pivot row, "
+        "so it is a stack-frame array, not a spill (register spill is zero, `--fmad=false` build). The same system solved with the matrix in registers would need the elimination fully unrolled "
+        "for every pivot order; the kernel is measured at 0.1 percent of a 100000-row fit (the tiny-cupy row for `scan_offset_products_device`), so the frame is not worth a rewrite."
+    ),
+    "perm_labels_device.pack_class_bits": (
+        "128 bytes/thread = `unsigned long long acc[16]`, one 64-bit word of the class bit set per class (at most 16 classes), indexed by the run-time class label of the permuted row, so it "
+        "lives in the stack frame; no register spill. The array is the output accumulator of the pack."
+    ),
+    "extra_basis_fourier_cuda.fourier_block": (
+        "32 bytes/thread (float) and 40 (double) with no thread-private array in the source: the frame is the one libdevice reserves for the slow path of `sin` / `cos` (a large-argument "
+        "reduction), the same effect as the exempted `nonpoly_cells` (40 bytes for its trig calls); no register spill, and the kernel is arithmetic-bound, not occupancy-bound."
+    ),
     "null_max_perm_gpu.null_mi_perms_bits": (
         "512 bytes/thread = the three per-thread arrays `int cnt[PMAX_LANE][NBMAX]` (2 x 32 x 4 = 256), `int tl[NBMAX]` (128) and `unsigned mb[NBMAX]` (128), indexed by the "
         "run-time bin, so they sit in the stack frame (L1-resident local memory) next to 39 registers and no register spill. Holding the 256 lane counters in registers is not possible "
