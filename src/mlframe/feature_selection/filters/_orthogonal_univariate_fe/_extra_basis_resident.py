@@ -205,7 +205,7 @@ def _bspline_block_gpu(cp, xs_list: list, metas: list):
     return out
 
 
-def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict):
+def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict, column_major: bool = False):
     """Build the (n, K) device engineered matrix for ``names`` from the resident raw operands + ``meta``.
 
     Raises ``ValueError`` on any unrecognised basis so the caller falls back to the whole-matrix host scorer.
@@ -245,7 +245,7 @@ def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict):
 
         fourier_block = fourier_block_cuda(cp, [_raw(meta[names[pos]]["src"]) for pos in fourier_row], [meta[names[pos]] for pos in fourier_row])
     if fourier_block is not None and len(fourier_row) == len(names):
-        return cp.ascontiguousarray(fourier_block.T.astype(crit_float_dtype(), copy=False))
+        return cp.ascontiguousarray(fourier_block.astype(crit_float_dtype(), copy=False)) if column_major else cp.ascontiguousarray(fourier_block.T.astype(crit_float_dtype(), copy=False))
 
     # Every cubic-spline name of the pool in ONE launch as well (the per-column Cox-de Boor chain below is the reference and the fallback).
     spline_row: dict = {}
@@ -286,8 +286,9 @@ def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict):
             raise ValueError(f"extra-basis device build: unsupported basis {basis!r} for {name!r}")
         cols.append(col.astype(crit_float_dtype(), copy=False))
     if not cols:
-        return cp.empty((n, 0), dtype=crit_float_dtype())
-    return cp.ascontiguousarray(cp.stack(cols, axis=1).astype(crit_float_dtype(), copy=False))
+        return cp.empty((0, n) if column_major else (n, 0), dtype=crit_float_dtype())
+    # column_major: the rows of the (K, n) block are the columns, which is what the edge select and the MI kernel read, so no transpose follows
+    return cp.ascontiguousarray(cp.stack(cols, axis=0 if column_major else 1).astype(crit_float_dtype(), copy=False))
 
 
 def _mi_by_name_blocks(cp: Any, raw_X: pd.DataFrame, names: list, meta: dict, y: Any, nbins: int) -> np.ndarray:
@@ -303,8 +304,8 @@ def _mi_by_name_blocks(cp: Any, raw_X: pd.DataFrame, names: list, meta: dict, y:
     block_cols = int(max(1, min(len(names), (device_room(cp) // 4) // max(1, 3 * n * np.dtype(crit_float_dtype()).itemsize))))
     parts = []
     for c0 in range(0, len(names), block_cols):
-        mat_gpu = _build_extra_basis_matrix_gpu(cp, raw_X, names[c0 : c0 + block_cols], meta)
-        parts.append(_resident_mi(cp, mat_gpu, y, nbins))
+        mat_gpu = _build_extra_basis_matrix_gpu(cp, raw_X, names[c0 : c0 + block_cols], meta, column_major=True)
+        parts.append(_resident_mi(cp, mat_gpu, y, nbins, column_major=True))
         del mat_gpu
     return np.concatenate(parts) if parts else np.empty((0,), dtype=np.float64)  # Intentional float64: engineered-MI statistic
 
