@@ -93,7 +93,7 @@ def _operand_filled(X: pd.DataFrame, col: str) -> np.ndarray:
     return x
 
 
-def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], *, basis: str = "auto") -> Any:
+def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], *, basis: str = "auto", column_major: bool = False) -> Any:
     """Build the cross-basis product matrix ON the device, one column per ``col_specs`` entry, in the GIVEN
     order. Reproduces the host generators' per-cell body (``prod_i basis(x_i)_deg_i``) on device from resident
     operand columns.
@@ -104,7 +104,8 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
     pin an EXPLICIT basis name (e.g. ``"laguerre"``) - used when the engineered column NAME already carries the
     exact basis code the host generator chose (the univariate uplift scorer), so the device must reproduce THAT
     basis rather than re-deriving it from moments (which can route differently). Returns an (n, K) cupy double
-    matrix whose columns are the device reconstructions.
+    matrix whose columns are the device reconstructions; ``column_major=True`` returns the (K, n) block (the columns are its rows: what the edge select and the MI kernel read, written by the fused
+    launch with consecutive threads on consecutive rows of one output column, so no transpose follows).
 
     The per-leg operand and its polynomial recurrence run at ``_crit_np_dtype()`` - f32 under the default
     ``MLFRAME_CRIT_DTYPE_RELAXED=1``, matching the host generators (_orth_pair_cross_fe.py /
@@ -172,7 +173,7 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
         return h
 
     _prefetch_legs(cp, X, col_specs, basis, basis_of_col, leg_cache, robust_axis)
-    fused = _fused_leg_products(cp, col_specs, leg_cache, basis_of_col, _leg, n)
+    fused = _fused_leg_products(cp, col_specs, leg_cache, basis_of_col, _leg, n, column_major)
     if fused is not None:
         return fused
     out_cols = []
@@ -192,7 +193,9 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
         out_cols.append(prod)
 
     if not out_cols:
-        return cp.empty((n, 0), dtype=cp.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+        return cp.empty((0, n) if column_major else (n, 0), dtype=cp.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+    if column_major:
+        return cp.ascontiguousarray(cp.stack(out_cols, axis=0).astype(cp.float64, copy=False))  # Intentional float64: GPU cross-basis output; kernel contract is float64
     return cp.ascontiguousarray(cp.stack(out_cols, axis=1).astype(cp.float64, copy=False))  # Intentional float64: GPU cross-basis output; kernel contract is float64
 
 
@@ -274,8 +277,8 @@ def _prefetch_legs(cp: Any, X: Any, col_specs: Sequence[dict], basis: str, basis
 _LEG_PRODUCT_KERNELS: dict = {}
 
 
-def _fused_leg_products(cp: Any, col_specs: Sequence[dict], leg_cache: dict, basis_of_col: dict, leg_fn: Any, n: int) -> Any:
-    """The ``(n, K)`` double product matrix in ONE launch, or ``None`` when the legs do not share a float dtype (the caller multiplies them one at a time).
+def _fused_leg_products(cp: Any, col_specs: Sequence[dict], leg_cache: dict, basis_of_col: dict, leg_fn: Any, n: int, column_major: bool = False) -> Any:
+    """The ``(n, K)`` (``(K, n)`` when ``column_major``) double product matrix in ONE launch, or ``None`` when the legs do not share a float dtype (the caller multiplies them one at a time).
 
     Every product of the per-leg loop was a ``prod * h`` cupy operation (about four thousand in a 30000 x 60 fit). Here the distinct legs are stacked once into a ``(legs, n)`` block and each
     output cell multiplies its legs in the spec's order at the legs' own dtype (``acc = acc * v``, as the loop does), then widens to double: the same values bit for bit."""
@@ -310,18 +313,19 @@ def _fused_leg_products(cp: Any, col_specs: Sequence[dict], leg_cache: dict, bas
         kernel = _LEG_PRODUCT_KERNELS[dt] = cp.ElementwiseKernel(
             "raw %s L, raw int32 idx, int32 width, int32 nrows, int32 ncols" % dt,
             "float64 out",
-            "int r = i / ncols; int s = i - r * ncols; %s acc = (%s)1; bool first = true;"
+            "int s = i / nrows; int r = i - s * nrows; %s acc = (%s)1; bool first = true;"
             " for (int p = 0; p < width; ++p) { int k = idx[s * width + p]; if (k < 0) break; %s v = L[(size_t)k * nrows + r]; acc = first ? v : acc * v; first = false; }"
             " out = (double)acc;" % (ctype, ctype, ctype),
-            "mlframe_leg_products_" + dt,
+            "mlframe_leg_products_cm_" + dt,
         )
     block = cp.ascontiguousarray(cp.stack(leg_cols))
-    out = cp.empty((n, len(rows)), dtype=cp.float64)  # Intentional float64: GPU cross-basis output; kernel contract is float64
+    # the kernel walks the (K, n) output with the rows fastest: a warp reads consecutive rows of one leg (coalesced) and writes consecutive words of one output column
+    out = cp.empty((len(rows), n), dtype=cp.float64)  # Intentional float64: GPU cross-basis output; kernel contract is float64
     kernel(block, cp.asarray(idx), np.int32(width), np.int32(n), np.int32(len(rows)), out)
-    return out
+    return out if column_major else cp.ascontiguousarray(out.T)
 
 
-def _resident_mi(cp, mat_gpu, y, nbins: int) -> np.ndarray:
+def _resident_mi(cp, mat_gpu, y, nbins: int, column_major: bool = False) -> np.ndarray:
     """Score per-column MI of an ALREADY-RESIDENT (n, K) cupy matrix through the SAME percentile-edge resident
     plug-in MI the host STRICT ``_mi_classif_batch`` routes to (no estimator switch). Returns a host (K,) f64
     array. The y label vector rides the resident-operand cache (uploaded once per fit) keyed identically to the
@@ -329,14 +333,14 @@ def _resident_mi(cp, mat_gpu, y, nbins: int) -> np.ndarray:
     from .._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
     from .._fe_resident_operands import resident_operand
 
-    if mat_gpu.shape[1] == 0:
+    if mat_gpu.shape[0 if column_major else 1] == 0:
         return np.empty((0,), dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     _yi = np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel()
     y_gpu = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
     _ymin = int(_yi.min()) if _yi.size else 0
     _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
     return np.asarray(
-        _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls),
+        _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, x_is_cm=column_major),
         dtype=np.float64,  # Intentional float64: host cross-basis output contract
     )
 
@@ -456,8 +460,8 @@ def _product_mi_blocked(cp: Any, raw_X: pd.DataFrame, specs: Sequence[dict], y: 
     block_cols = int(max(1, min(len(specs), (device_room(cp) // 4) // max(1, 3 * n * 8))))
     parts = []
     for c0 in range(0, len(specs), block_cols):
-        mat_gpu = build_leg_product_matrix_gpu(cp, raw_X, list(specs[c0 : c0 + block_cols]), basis=basis)
-        parts.append(_resident_mi(cp, mat_gpu, y, nbins))
+        mat_gpu = build_leg_product_matrix_gpu(cp, raw_X, list(specs[c0 : c0 + block_cols]), basis=basis, column_major=True)
+        parts.append(_resident_mi(cp, mat_gpu, y, nbins, column_major=True))
         del mat_gpu
     return np.concatenate(parts) if parts else np.empty((0,), dtype=np.float64)  # Intentional float64: host cross-basis output contract
 
