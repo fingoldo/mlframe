@@ -111,6 +111,10 @@ KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 #: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
 #: (its own thresholds, variants, block size) registers itself instead.
 KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_cupy_polynom_optimizer": (
+        "_polynom_search_backend",
+        "the polynom_generation_backend sweep times one generation of 100 candidates on the host (_eval_coef_pair_batch) and on the device (_score_generation_gpu) per row count and requires the same top candidates; the pair search asks it before taking the cupy_kernel route",
+    ),
     "_offset_product_fe": (
         "_auto_tune_sweeps_c",
         "the njit/prange scan_offset_products and the fused CUDA scan (scan_offset_products_gpu) are timed per (scan rows, pool columns) cell by the offset_product_scan sweep, which _offset_product_fe._scan_all reads through lookup_offset_scan_backend",
@@ -148,6 +152,10 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
 #: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_cupy_polynom_optimizer": (
+        "_numba_polynom_optimizer",
+        "run_numba_kernel_search (one @njit(parallel=True) kernel inlining the polynomial evaluation, the six binary functions and the plug-in MI) is the all-host twin of the same search, with the same return contract and the same candidate scoring",
+    ),
     "_offset_product_fe": (
         "_numba_utils_offset",
         "scan_offset_products (njit, prange over the tasks) is the host scan _offset_product_fe._scan_all runs when the device is not chosen, and the reference the fused CUDA scan is timed against",
@@ -239,6 +247,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_target_encoding_order_stats": ("_order_stats_gpu",),
     "_temporal_agg_fe_rolling": ("_rolling_window_gpu",),
     "_periodic_fe": ("_modular_codes_gpu",),
+    "_cupy_polynom_optimizer": ("_polynom_search_backend",),
     "_relaxmrmr_pair_loop": ("_relaxmrmr_pair_gpu",),
     "_hermite_fe_mi": ("_fe_edge_mi",),
     "_orthogonal_triplet_fe": ("_triple_mi_gpu",),

@@ -28,6 +28,10 @@ DEFAULTS (batch_size=100, elitism_k=10, sigma_frac=0.1) come from the 2026-07-15
 speed->restarts conversion closes the ratio_regime gap entirely (bs=100 x 15 restarts finds it 3/3
 seeds at 0.465-0.487 in 102.9s vs cma_batch's 4/5 at 492.5s full-budget wall).
 
+Streaming: a generation is one column block of ``batch_size`` (100) candidates. The (n, P) matrices H_A, H_B, one binary function's result and its codes exist for one block of P columns at a time
+(3 matrices of n x P x 4 bytes plus the byte codes: 130 MB at 100000 rows), the basis matrices are built once per pair, and nothing grows with the number of generations; the binner underneath
+splits further into column blocks when the free VRAM is short (``batched_quantile_bin_gpu``).
+
 Public entry point: ``run_cupy_kernel_search`` - same return contract as ``run_numba_kernel_search`` /
 ``_run_cma_search_batch`` so the pair-optimiser dispatch swaps it in via ``optimizer="cupy_kernel"``.
 Limitations (same set as the numba kernel): plugin MI only, the 4 polynomial bases only, no
@@ -214,6 +218,13 @@ def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
         best_raw = cp.where(upd, mi, best_raw)
         best_bf = cp.where(upd, k, best_bf)
     return cp.asnumpy(best_score), cp.asnumpy(best_raw), cp.asnumpy(best_bf)
+
+
+def device_search_preferred(n_rows: int) -> bool:
+    """Whether the kernel-tuning entry of ``_polynom_search_backend`` (host against device scoring of one generation, by row count) chooses this device search for ``n_rows`` rows."""
+    from ._polynom_search_backend import polynom_device_chosen
+
+    return polynom_device_chosen(int(n_rows))
 
 
 def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_trials: int, seed: int,

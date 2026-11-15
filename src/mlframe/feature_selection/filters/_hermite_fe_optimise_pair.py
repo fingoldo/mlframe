@@ -671,10 +671,13 @@ def _optimise_hermite_pai_step1_try(optimizer, ca_size, cb_size, coef_range, n_t
                 if gpu_globally_disabled():
                     raise RuntimeError("GPU disabled (MLFRAME_DISABLE_GPU/CUDA_VISIBLE_DEVICES)")
                 import cupy  # noqa: F401
-                from mlframe.feature_selection.filters._cupy_polynom_optimizer import run_cupy_kernel_search
+                from mlframe.feature_selection.filters._cupy_polynom_optimizer import device_search_preferred, run_cupy_kernel_search
+
+                if not device_search_preferred(int(np.asarray(eval_kwargs["z_a"]).shape[0])):
+                    raise RuntimeError("kernel-tuning cache: the host scores a generation faster at this row count")
                 _kernel_search = run_cupy_kernel_search
             except Exception:
-                logger.warning("cupy unavailable or GPU disabled; cupy_kernel default falls back to random_batch")
+                logger.info("cupy unavailable, GPU disabled or the host is faster at this size; cupy_kernel default falls back to random_batch")
                 from mlframe.feature_selection.filters._hermite_fe_optimise import _run_random_batch_search
                 _kernel_search = lambda **kw: _run_random_batch_search(**kw)  # noqa: E731
             cma_result = _kernel_search(
