@@ -133,6 +133,7 @@
     "_temporal_agg_fe_rolling",
     "_triple_mi_gpu",
     "_wavelet_basis_fe",
+    "_wavelet_basis_fe_batched",
     "_wavelet_legs_fused_gpu",
     "batch_mi_noise_gate_gpu",
     "batch_pair_mi_gpu",
@@ -317,7 +318,6 @@
     "_unified_fe_gate",
     "_usability_pool_resident_pairs",
     "_usability_row_stat_pool",
-    "_wavelet_basis_fe_batched",
     "_wavelet_basis_fe_recipes",
     "feature_engineering",
     "polynom_pair_fe"

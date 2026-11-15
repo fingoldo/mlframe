@@ -33,3 +33,7 @@ The device route is about 20 times faster than the host route at this size, and 
 ## Streaming
 
 The leg blocks are bounded by `_LEG_BLOCK_BYTES` (host) and `_DEVICE_LEG_BLOCK_BYTES` (device route), both 256 MB of int64 codes per split; see GPU11-67 and GPU11-68 in the tracker.
+
+## 2026-11-15: the batched device twin `_wavelet_basis_fe_batched` carved under this family
+
+`_wavelet_basis_fe_batched` holds the device route of the leg selection of this module (`_select_wavelet_legs` takes it through `_try_gpu_leg_selection` when `_wavelet_use_device` says so; the host or device choice is the row-count tuner `_wavelet_legs_tuner`, the host body is the numba-backed per-leg loop measured above). It scores the train and held-out MI of every dyadic Haar leg of a column in two batched workloads; the legs are stacked in column blocks of at most `_LEG_BLOCK_BYTES` (`block_legs` = that budget over 8 bytes per row, per split) through `run_column_blocks`, which runs the blocks in order and halves a block that runs out of device memory. A leg's MI depends on that leg alone, so the blocks give the single-stack values; the parity tests (`test_wavelet_batched_mi_parity`) pin the same admitted `(j, k)` legs as the host body. Its device counters are the ones of the fused MI-from-codes launch (`mi_from_codes_tile`, see the batched-MI record) and of the fused leg kernel recorded in `_wavelet_legs_fused_gpu.md`; this entry adds no kernel of its own, so no new counters were taken.
