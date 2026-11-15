@@ -25,6 +25,9 @@ from .._fe_usability_signal import (  # shared leaf detectors (numpy-only, no cy
 )
 from mlframe.utils.log_throttle import log_throttle
 
+# Candidate columns of one pair reduced by a single |corr| launch: 64 columns x 100000 rows x 4 bytes is 26 MB of the materialised block.
+_ABS_CORR_BLOCK = 64
+
 # DEGENERATE-PAIR |corr| threshold. A prospective pair is DEGENERATE when its winning
 # composite is numerically ~= a SINGLE one of its own (warped) operands - the other operand's transform
 # collapsed to ~constant so the binary op is just a re-wrap of one source and adds NO genuine joint
@@ -221,7 +224,40 @@ def _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, t
         _col_dev = _device_col(_buf_col)
         return None if _col_dev is None else abs_corr_or_none(_col_dev, _y, _y_finite)
 
-    _resolve_col.abs_corr = _abs_corr  # type: ignore[attr-defined]  # optional capabilities probed with getattr by the emit step
+    def _abs_corr_many(_buf_cols, _y, _y_finite):
+        """|corr(y)| of every candidate column in ``_buf_cols`` from ONE materialise block and ONE reduction launch (one value per column, in order), or ``None``
+        when a column is already on the host, there is no target, or the device path faults (the caller then runs the per-column capability)."""
+        if final_transformed_vals is not None or _y is None or _y_finite is None or not len(_buf_cols):
+            return None
+        if any(chunk_state["resolved_cols"].get(_c) is not None for _c in _buf_cols):
+            return None
+        try:
+            import cupy as cp
+            from mlframe.feature_selection.filters._gpu_resident_fe import _fe_materialise_block_gpu, _resident_operand_table
+
+            if chunk_state["tv_gpu"] is None:
+                chunk_state["tv_gpu"] = _resident_operand_table(cp, transformed_vars)
+            _meta = chunk_state["defer_meta"]
+            if chunk_state.get("defer_meta_dev_src") is not _meta:
+                chunk_state["defer_meta_dev"] = (cp.asarray(_meta[0]), cp.asarray(_meta[1]), cp.asarray(_meta[2]))
+                chunk_state["defer_meta_dev_src"] = _meta
+            _a, _b, _ops = chunk_state["defer_meta_dev"]
+            if int(_a.shape[0]) and int(chunk_state["tv_gpu"].shape[0]) != int(_y.shape[0]):
+                return None
+            from ._pairs_abs_corr_gpu import abs_corr_finite_batch_gpu
+
+            _out: list = []
+            for _lo in range(0, len(_buf_cols), _ABS_CORR_BLOCK):
+                _idx = cp.asarray(np.asarray(_buf_cols[_lo : _lo + _ABS_CORR_BLOCK], dtype=np.int64))
+                _rm, _cm = _fe_materialise_block_gpu(chunk_state["tv_gpu"], _a[_idx], _b[_idx], _ops[_idx], return_cm=True)
+                _out.extend(abs_corr_finite_batch_gpu(_cm if _cm is not None else cp.ascontiguousarray(_rm.T), _y, _y_finite))
+            return _out
+        except Exception as e:
+            logger.debug("batched device |corr| failed, caller runs it per column: %s", e)
+            return None
+
+    _resolve_col.abs_corr = _abs_corr  # type: ignore[attr-defined]
+    _resolve_col.abs_corr_many = _abs_corr_many  # type: ignore[attr-defined]  # optional capabilities probed with getattr by the emit step
     _resolve_col.device = _device_col  # type: ignore[attr-defined]
     return _resolve_col
 

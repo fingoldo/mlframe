@@ -78,3 +78,61 @@ def test_kernel_is_faster_per_call_than_the_chain():
             mod._abs_corr_finite_cupy(c, y, f, 8)
         old.append((time.perf_counter() - t) / len(cols))
     assert float(np.median(new)) < 0.5 * float(np.median(old)), (np.median(new), np.median(old))
+
+
+@pytest.mark.parametrize("dt", [np.float32, np.float64])
+def test_batch_row_equals_the_single_column_call(dt):
+    """Every row of a (K, n) batch gets exactly the value of the single-column call on that row (plain, constant, non-finite, correlated and near-constant columns together)."""
+    rng = np.random.default_rng(7)
+    n = 30_001
+    y, f = _target(n, nan_frac=0.1)
+    rows = [rng.standard_normal(n), np.full(n, 2.0), 3.0 * y + 0.1 * rng.standard_normal(n), 1e7 + rng.standard_normal(n), rng.standard_normal(n)]
+    rows[4][rng.random(n) < 0.2] = np.nan
+    batch = cp.asarray(np.stack(rows).astype(dt))
+    got = mod.abs_corr_finite_batch_gpu(batch, y, f)
+    want = [mod.abs_corr_finite_gpu(batch[i], y, f) for i in range(len(rows))]
+    assert got == want, "batch and single-column values differ"
+    assert got[1] == 0.0 and got[2] > 0.9 and 0.0 < got[0] < 0.1, "the batch must hold both degenerate and informative columns for the comparison to mean anything"
+
+
+def test_flips_uses_one_batched_call_and_falls_back_per_config():
+    """``_score_one_pair_flips`` asks the resolver for every config at once; when the batched capability declines (``None``) the per-config loop fills the same map."""
+    from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_score_helpers import _score_one_pair_flips
+
+    calls = {"many": 0, "one": 0}
+
+    def resolve(_i):
+        """A resolver whose host column is absent."""
+        return None
+
+    def one(i, y, yf):
+        """The per-column device capability: 0.1 times the column index."""
+        calls["one"] += 1
+        return 0.1 * i
+
+    resolve.abs_corr = one
+
+    class Safe:
+        """A host |corr| helper that carries the target pair the device capability reads."""
+
+        target = (np.ones(4), np.ones(4, dtype=bool))
+
+        def __call__(self, v):
+            """The host fallback value (never reached in this test)."""
+            return -1.0
+
+    perf = {("a", "b", 2): 0, ("a", "b", 5): 0, ("a", "b", 7): 0}
+
+    def many(cols, y, yf):
+        """The batched capability: ten times the column index, counted."""
+        calls["many"] += 1
+        return [10.0 * c for c in cols]
+
+    resolve.abs_corr_many = many
+    m = {}
+    _score_one_pair_flips(perf, resolve, Safe(), m)
+    assert m == {("a", "b", 2): 20.0, ("a", "b", 5): 50.0, ("a", "b", 7): 70.0} and calls == {"many": 1, "one": 0}
+    resolve.abs_corr_many = lambda cols, y, yf: None
+    m2 = {}
+    _score_one_pair_flips(perf, resolve, Safe(), m2)
+    assert m2 == {("a", "b", 2): pytest.approx(0.2), ("a", "b", 5): pytest.approx(0.5), ("a", "b", 7): pytest.approx(0.7)} and calls["one"] == 3
