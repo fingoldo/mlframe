@@ -10,6 +10,7 @@ Handled when the table fits the shared budget (``base**3 * n_y * 4`` bytes) and 
 from __future__ import annotations
 
 import logging
+from typing import Any
 import os
 
 import numpy as np
@@ -121,27 +122,107 @@ def triple_mi_gpu(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> "tup
     m = int(ti.size)
     kernel = _MODULE.get(cp).get_function("triple_mi")
     stride = (n + 3) & ~3  # rows padded to 4 bytes for the 4-byte loads of the kernel; the pad is never read as a row
-    codes_dev = cp.zeros((p, stride), dtype=cp.int8)
-    codes_dev[:, :n] = cp.asarray(np.ascontiguousarray(codes, dtype=np.int8))
     y_dev = cp.zeros(stride, dtype=cp.uint8)
     y_dev[:n] = cp.asarray(np.ascontiguousarray(y, dtype=np.uint8))
     out = np.empty(m, dtype=np.float64)  # Intentional float64: MI statistic vector compared with the host's
     threads = block_size_for(kernel, dyn_smem=n_cells * n_y * 4, work_items=n)
+
+    def upload(cols: np.ndarray) -> Any:
+        """The code rows ``cols`` as a padded byte matrix on the device (a column block of the code matrix)."""
+        dev = cp.zeros((cols.shape[0], stride), dtype=cp.int8)
+        dev[:, :n] = cp.asarray(np.ascontiguousarray(cols, dtype=np.int8))
+        return dev
+
+    whole = None  # the full code matrix, uploaded once when a block of triples touches every column (the usual case)
     for s in range(0, m, TRIPLES_PER_LAUNCH):
         e = min(m, s + TRIPLES_PER_LAUNCH)
+        used = np.unique(np.concatenate([ti[s:e], tj[s:e], tk[s:e]]))
+        if used.shape[0] == p:
+            if whole is None:
+                whole = upload(codes)
+            codes_dev, bi, bj, bk = whole, ti[s:e], tj[s:e], tk[s:e]
+        else:  # a block of triples that touches few columns uploads only those columns, so the device holds the block's columns, not the whole matrix
+            remap = np.zeros(p, dtype=np.int32)
+            remap[used] = np.arange(used.shape[0], dtype=np.int32)
+            codes_dev, bi, bj, bk = upload(codes[used]), remap[ti[s:e]], remap[tj[s:e]], remap[tk[s:e]]
         # Intentional float64: MI statistic vector compared with the host's
         d_out = cp.empty(e - s, dtype=cp.float64)
-        kernel((e - s,), (threads,), (codes_dev, y_dev, cp.asarray(ti[s:e]), cp.asarray(tj[s:e]), cp.asarray(tk[s:e]), np.int64(n), np.int64(stride), np.int32(base), np.int32(n_y), np.int32(n_cells), d_out), shared_mem=n_cells * n_y * 4)
+        kernel((e - s,), (threads,), (codes_dev, y_dev, cp.asarray(bi), cp.asarray(bj), cp.asarray(bk), np.int64(n), np.int64(stride), np.int32(base), np.int32(n_y), np.int32(n_cells), d_out), shared_mem=n_cells * n_y * 4)  # launch-ok: one block per triple is the design
         out[s:e] = cp.asnumpy(d_out)
     return ti.astype(np.int64), tj.astype(np.int64), tk.astype(np.int64), out
 
 
 def use_device_triples(n_rows: int, n_triples: int) -> bool:
-    """Whether ``n_triples`` triples over ``n_rows`` rows are scored on the device: ``MLFRAME_TRIPLE_MI_DEVICE=0|1`` forces a path, else from ``DEVICE_MIN_WORK`` row-triples."""
+    """Whether ``n_triples`` triples over ``n_rows`` rows are scored on the device: ``MLFRAME_TRIPLE_MI_DEVICE=0|1`` forces a path, else the per-host kernel-tuning entry ``triple_mi_backend`` (swept over the
+    row-triple work), else ``DEVICE_MIN_WORK`` row-triples."""
     forced = os.environ.get("MLFRAME_TRIPLE_MI_DEVICE", "").strip()
     if forced in ("0", "1"):
         return forced == "1"
-    return int(n_rows) * int(n_triples) >= DEVICE_MIN_WORK
+    work = int(n_rows) * int(n_triples)
+    if _SPEC is not None:
+        try:
+            return str(_SPEC.choose(n_samples=work)) == "device"
+        except Exception as exc:
+            logger.debug("triple_mi_backend: KTC choose() failed, using the floor: %s", exc)
+    return work >= DEVICE_MIN_WORK
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Kernel-tuning entry ``triple_mi_backend``: the numba triple scan against this device scan, swept over rows x triples
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+_SWEEP_N = 20_000
+_SWEEP_ROWS = [_SWEEP_N * k for k in (50, 500, 4000, 34000)]
+_SWEEP_BASE = 6
+_SALT = 1
+
+
+def _sweep_inputs(dims: dict) -> tuple:
+    """Codes of ``p`` columns over 20000 rows with ``p`` chosen so that C(p, 3) is about ``dims["n_samples"] / 20000``, base 6, a binary target tied to the first two columns."""
+    from math import comb
+
+    rng = np.random.default_rng(0)
+    want = max(1, int(dims["n_samples"]) // _SWEEP_N)
+    p = 3
+    while comb(p + 1, 3) <= want:
+        p += 1
+    codes = rng.integers(0, _SWEEP_BASE, (p, _SWEEP_N)).astype(np.int8)
+    y = ((codes[0].astype(np.int64) + codes[1]) % 2).astype(np.int64)
+    return (codes, y, _SWEEP_BASE, 2)
+
+
+def _sweep_host(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> np.ndarray:
+    """The numba triple scan; its MI vector."""
+    from ._orthogonal_triplet_fe import _triple_mi_kernel
+
+    return np.asarray(_triple_mi_kernel(codes.astype(np.int64), y, base, n_y)[3])
+
+
+def _sweep_device(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> np.ndarray:
+    """The device scan; a failed launch raises, so the sweep never records a host fallback as a device time."""
+    res = triple_mi_gpu(codes, y, base, n_y)
+    if res is None:
+        raise RuntimeError("device triple MI does not apply")
+    return res[3]
+
+
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+    from ._ktc_fallback import host_device_sweep, rows_fallback
+
+    _SPEC: Any = kernel_tuner(
+        kernel_name="triple_mi_backend",
+        variant_fns=(),  # the two backends are timed by the sweep callable
+        tuner=host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=1e-9, atol=1e-12),
+        axes={"n_samples": list(_SWEEP_ROWS)},
+        fallback=rows_fallback(__name__, "DEVICE_MIN_WORK"),
+        gpu_capable=True,
+        salt=_SALT,
+        cli_label="triple_mi_backend",
+    )
+except Exception as e:  # best-effort: without a tuner entry the floor decides
+    logger.warning("kernel_tuner spec build for triple_mi_backend failed: %s", e)
+    _SPEC = None
 
 
 __all__ = ["triple_mi_gpu", "use_device_triples"]
