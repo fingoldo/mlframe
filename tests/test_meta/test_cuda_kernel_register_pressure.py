@@ -123,6 +123,81 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_finish",
         ("float64",),
     ),
+    "fe_batched_mi_cmi_hist.joint_hist1": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_joint_hist1",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.joint_hist2": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_joint_hist2",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.joint_hist3": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_joint_hist3",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist2": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist2",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist1": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist1",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist2_i32": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist2_i32",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist2_i32_smem": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist2_i32_smem",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist1_i32": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist1_i32",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.joint_hist_nnz1": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_joint_hist_nnz1",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.joint_hist_nnz2": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_joint_hist_nnz2",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.joint_hist_nnz3": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_joint_hist_nnz3",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist2_i32_u8": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist2_i32_u8",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist2_i32_smem_u8": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist2_i32_smem_u8",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist2_i32_smem_u8_v2": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist2_i32_smem_u8_v2",
+        ("int64",),
+    ),
+    "fe_batched_mi_cmi_hist.batched_joint_hist1_i32_u8": (
+        "mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+        "kernel_batched_joint_hist1_i32_u8",
+        ("int64",),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",

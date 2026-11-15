@@ -182,6 +182,86 @@ def kernel_finish(cp, real=None):
     return _get_rows_ent_nnz_split_kernels(cp)[1]
 
 
+def _hist_entry(cp, source: str, name: str):
+    """One entry point of a joint-histogram RawModule (compiled once per source by cupy's module cache)."""
+    return cp.RawModule(code=source).get_function(name)
+
+
+def kernel_joint_hist1(cp, real=None):
+    """``joint_hist1`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_SRC, "joint_hist1")
+
+
+def kernel_joint_hist2(cp, real=None):
+    """``joint_hist2`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_SRC, "joint_hist2")
+
+
+def kernel_joint_hist3(cp, real=None):
+    """``joint_hist3`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_SRC, "joint_hist3")
+
+
+def kernel_batched_joint_hist2(cp, real=None):
+    """``batched_joint_hist2`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_SRC, "batched_joint_hist2")
+
+
+def kernel_batched_joint_hist1(cp, real=None):
+    """``batched_joint_hist1`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_SRC, "batched_joint_hist1")
+
+
+def kernel_batched_joint_hist2_i32(cp, real=None):
+    """``batched_joint_hist2_i32`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_SRC, "batched_joint_hist2_i32")
+
+
+def kernel_batched_joint_hist2_i32_smem(cp, real=None):
+    """``batched_joint_hist2_i32_smem`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_SRC, "batched_joint_hist2_i32_smem")
+
+
+def kernel_batched_joint_hist1_i32(cp, real=None):
+    """``batched_joint_hist1_i32`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_SRC, "batched_joint_hist1_i32")
+
+
+def kernel_joint_hist_nnz1(cp, real=None):
+    """``joint_hist_nnz1`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_SRC, "joint_hist_nnz1")
+
+
+def kernel_joint_hist_nnz2(cp, real=None):
+    """``joint_hist_nnz2`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_SRC, "joint_hist_nnz2")
+
+
+def kernel_joint_hist_nnz3(cp, real=None):
+    """``joint_hist_nnz3`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_SRC, "joint_hist_nnz3")
+
+
+def kernel_batched_joint_hist2_i32_u8(cp, real=None):
+    """``batched_joint_hist2_i32_u8`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_U8_SRC, "batched_joint_hist2_i32_u8")
+
+
+def kernel_batched_joint_hist2_i32_smem_u8(cp, real=None):
+    """``batched_joint_hist2_i32_smem_u8`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_U8_SRC, "batched_joint_hist2_i32_smem_u8")
+
+
+def kernel_batched_joint_hist2_i32_smem_u8_v2(cp, real=None):
+    """``batched_joint_hist2_i32_smem_u8_v2`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_U8_SRC, "batched_joint_hist2_i32_smem_u8_v2")
+
+
+def kernel_batched_joint_hist1_i32_u8(cp, real=None):
+    """``batched_joint_hist1_i32_u8`` (integer histogram kernel, ``real`` unused); registry factory."""
+    return _hist_entry(cp, _JOINT_HIST_U8_SRC, "batched_joint_hist1_i32_u8")
+
+
 from ._fe_batched_mi_cmi_lut import (  # noqa: F401 -- carved lookup-table entropy kernels, re-exported
     _ROWS_ENT_NNZ_LUT_SRC,
     _XLOGX_TABLES,
