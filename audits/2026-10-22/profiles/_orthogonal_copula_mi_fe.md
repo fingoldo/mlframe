@@ -12,7 +12,7 @@ Kernel launches per call: `copula_joint` 1 launch (1.53 ms, 9.9 percent of the d
 
 ## Occupancy and throughput
 
-nvprof counters (achieved occupancy, DRAM throughput) could not be collected on 2026-11-14 (`Internal profiling error 4211` for every kernel today). `copula_joint` runs one thread per sorted position (4 million threads in blocks sized by `block_size_for`, the occupancy rule of the code base), so the grid fills the card; its 4 million elements in 1.53 ms are 2.6 G elements/s; the bytes it moves per element were not counted here, so no GB/s figure is given for it. Whole device call: 4 million elements in 15.5 ms, 0.26 G elements/s, of which the sort and the gather are most.
+nvprof counters (achieved occupancy, DRAM throughput) could not be collected on 2026-11-14 (`Internal superseded by the Hardware counters section below` for every kernel today). `copula_joint` runs one thread per sorted position (4 million threads in blocks sized by `block_size_for`, the occupancy rule of the code base), so the grid fills the card; its 4 million elements in 1.53 ms are 2.6 G elements/s; the bytes it moves per element were not counted here, so no GB/s figure is given for it. Whole device call: 4 million elements in 15.5 ms, 0.26 G elements/s, of which the sort and the gather are most.
 
 ## Host-or-device choice
 
@@ -21,3 +21,12 @@ Medians of 7 calls, host njit / device, ms: 5000 rows 1.94 / 4.31; 30000 rows 11
 ## Streaming
 
 `copula_columns_device` takes the columns in column blocks that fit `_BUDGET_FRACTION` of the free device memory and returns `None` on any device fault so the caller runs the host kernel.
+
+## Hardware counters (nvprof --metrics, elevated shell, 2026-11-14)
+Superseding the theoretical occupancy stated above (the counters were blocked by the driver's restriction until the process ran as administrator). Kernel alone, last sweep size, one profiled call after a warm call. Pascal sm_61: Nsight Compute reports the device as unsupported, nvprof is the tool.
+
+| kernel | achieved occupancy | SM efficiency | DRAM read | DRAM write | global load eff. | global store eff. | shared eff. |
+|---|---|---|---|---|---|---|---|
+| copula_joint | 73.7 % | 99.5 % | 15.1 GB/s | 0.08 GB/s | 44.1 % | 0 % | 34.7 % |
+
+Load efficiency 44 percent in `copula_joint`.

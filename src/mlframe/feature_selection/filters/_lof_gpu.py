@@ -29,6 +29,7 @@ LOF_DEVICE_FALLBACK_ROWS = 20_000
 
 _SRC = r"""
 #define K {K}
+#define SINGLE_FILTER {SINGLE_FILTER}
 #define P {P}
 #define INF_D __longlong_as_double(0x7FF0000000000000LL)
 #if K > 32
@@ -51,7 +52,21 @@ extern "C" __global__ void lof_scores(const {REAL}* __restrict__ X, const {REAL}
     for (int t = 0; t < P; ++t) xi[t] = ({ACC})X[i * P + t];
 #pragma unroll
     for (int s = 0; s < K; ++s) { BD(s) = INF_D; BJ(s) = -1; }
+#if SINGLE_FILTER
+    // the Pascal-class cards run the wide type at 1/32 of the narrow rate, and almost every reference point is rejected: the rejection is decided in the value type with a margin far above its rounding
+    // error (the coordinates are exact values of that type, so a difference is rounded once), and only a survivor pays the exact distance in the accumulator type below, so the scores are bit-identical
+    {REAL} xf[P];
+#pragma unroll
+    for (int t = 0; t < P; ++t) xf[t] = X[i * P + t];
+    {REAL} worst_f = ({REAL})BD(K - 1);
+#endif
     for (int j = 0; j < m; ++j) {
+#if SINGLE_FILTER
+        {REAL} d2f = 0.0f;
+#pragma unroll
+        for (int t = 0; t < P; ++t) { const {REAL} df = xf[t] - ref[(long long)j * P + t]; d2f += df * df; }
+        if (d2f > worst_f * 1.00001f + 1e-30f) continue;
+#endif
         {ACC} d2 = 0.0;
 #pragma unroll
         for (int t = 0; t < P; ++t) { const {ACC} dd = xi[t] - ({ACC})ref[(long long)j * P + t]; d2 += dd * dd; }
@@ -70,6 +85,9 @@ extern "C" __global__ void lof_scores(const {REAL}* __restrict__ X, const {REAL}
                 cj = tj;
             }
         }
+#if SINGLE_FILTER
+        worst_f = ({REAL})BD(K - 1);
+#endif
     }
     {ACC} sum_reach = 0.0, sum_lrd = 0.0;
 #pragma unroll
@@ -100,7 +118,7 @@ def kernel(cp: Any, real: Any, k: int = DEFAULT_K, p: int = DEFAULT_P) -> Any:
     with _LOCK:
         mod = _MODULES.get(key)
         if mod is None:
-            src = _SRC.replace("{REAL}", key[0]).replace("{ACC}", "double").replace("{K}", str(key[1])).replace("{P}", str(key[2]))
+            src = _SRC.replace("{REAL}", key[0]).replace("{ACC}", "double").replace("{K}", str(key[1])).replace("{P}", str(key[2])).replace("{SINGLE_FILTER}", "1" if key[0] == "float" else "0")
             mod = _MODULES[key] = cp.RawModule(code=src, options=("-std=c++14",))
         return mod.get_function("lof_scores")
 
@@ -151,7 +169,7 @@ def use_device_lof(n_rows: int) -> bool:
 
 
 _SWEEP_ROWS = [2_000, 20_000, 100_000]
-_SALT = 5  # 5: the equivalence tolerance went from 1e-5 to 1e-6, so regions swept under the looser one are measured again. 4: the kernel is specialised per (k, p) with a shared-memory top-k above 32, so its timings are measured again
+_SALT = 6  # 6: the host path is the njit kNN scan (8 to 12 times the matrix form), so every region is timed against it again. 5: the equivalence tolerance went from 1e-5 to 1e-6, so regions swept under the looser one are measured again. 4: the kernel is specialised per (k, p) with a shared-memory top-k above 32, so its timings are measured again
 
 
 def _make_inputs(dims: dict) -> tuple:

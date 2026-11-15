@@ -134,6 +134,22 @@ def _run_family_null_sweep():
     )
 
 
+# The sweep above is also registered with the central kernel-tuning registry under the name ``_family_null_backend`` reads through ``get_or_tune`` (same tuner function and axes), so ``retune_all`` and the
+# tuning CLI see and refresh it; the lazy asynchronous sweep in ``_family_null_backend`` is unchanged.
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+_SPEC = kernel_tuner(
+    kernel_name="family_null_backend",
+    variant_fns=(),  # the two backends are timed by the sweep callable
+    tuner=_run_family_null_sweep,
+    axes={"n_rows": [2000, 20000], "n_cols": [200, 2000]},
+    fallback={"kernel_choice": "cpu"},
+    gpu_capable=True,
+    salt=2,
+    cli_label="family_null_backend",
+)
+
+
 @njit(cache=True, nogil=True)
 def _mi_one_column_into(col: np.ndarray, n_x: int, y_codes: np.ndarray, n_y: int, joint: np.ndarray) -> float:
     """Plug-in MI of one column, counting into a caller-owned buffer (no allocation per column and permutation).

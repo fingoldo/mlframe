@@ -24,14 +24,14 @@ __all__ = ["score_columns_gpu", "codes_matrix_gpu"]
 _SCORE_SRC = render(
     r"""
 extern "C" __global__
-void rescue_score_columns(const int* __restrict__ Q, const {ACC}* __restrict__ resid, const unsigned char* __restrict__ even, const long long n, const int n_bins, const {ACC} shrink,
+void rescue_score_columns(const {QT}* __restrict__ Q, const {ACC}* __restrict__ resid, const unsigned char* __restrict__ even, const long long n, const int n_bins, const {ACC} shrink,
                           {ACC}* __restrict__ t_out, {ACC}* __restrict__ gain_out) {
     extern __shared__ unsigned long long sh[];            // fixed-point sum[n_bins], count[n_bins], then 8 reduction slots (doubles)
     unsigned long long* s = sh;
     unsigned long long* c = sh + n_bins;
     {ACC}* red = ({ACC}*)(sh + 2 * n_bins);
     const int col = blockIdx.x;
-    const int* q = Q + (long long)col * n;
+    const {QT}* q = Q + (long long)col * n;
     const {ACC} FIX = 68719476736.0;                      // 2^36: the even-row bin sums are added as integers, whose order does not matter, so a run gives the same bits as the next
     for (int b = threadIdx.x; b < 2 * n_bins; b += blockDim.x) sh[b] = 0ULL;
     __syncthreads();
@@ -103,16 +103,15 @@ void rescue_score_columns(const int* __restrict__ Q, const {ACC}* __restrict__ r
 """,
 )
 
-_KERNEL: Any = None
+_KERNELS: dict = {}
 _THREADS = 256
 
 
-def _kernel(cp: Any) -> Any:
-    """The compiled scoring kernel (one per process)."""
-    global _KERNEL
-    if _KERNEL is None:
-        _KERNEL = cp.RawKernel(_SCORE_SRC, "rescue_score_columns")
-    return _KERNEL
+def _kernel(cp: Any, narrow: bool) -> Any:
+    """The compiled scoring kernel: bin codes read as bytes when every code fits (``n_bins <= 127``), else as 32-bit integers; one per code type and process."""
+    if narrow not in _KERNELS:
+        _KERNELS[narrow] = cp.RawKernel(_SCORE_SRC.replace("{QT}", "signed char" if narrow else "int"), "rescue_score_columns")
+    return _KERNELS[narrow]
 
 
 def score_columns_gpu(Q: np.ndarray, resid: np.ndarray, even: np.ndarray, n_bins: int, shrink: float) -> "tuple[np.ndarray, np.ndarray]":
@@ -128,19 +127,20 @@ def score_columns_gpu(Q: np.ndarray, resid: np.ndarray, even: np.ndarray, n_bins
         return np.zeros(0), np.zeros(0)
     resid_d = cp.asarray(np.ascontiguousarray(resid, dtype=np.float64))  # Intentional float64: the residual statistic is formed and summed in double, as the host does
     even_d = cp.asarray(np.ascontiguousarray(even, dtype=np.uint8))
-    kernel = _kernel(cp)
+    narrow = int(n_bins) <= 127  # codes are below n_bins: a byte holds them, a quarter of the traffic of 32-bit codes
+    kernel = _kernel(cp, narrow)
     shared = (2 * int(n_bins) + 8) * 8
 
     def score_block(lo: int, hi: int) -> np.ndarray:
         """``(2, hi - lo)`` array of t and gain of the columns ``lo:hi``."""
-        q_d = cp.asarray(np.ascontiguousarray(Q[lo:hi], dtype=np.int32))
+        q_d = cp.asarray(np.ascontiguousarray(Q[lo:hi], dtype=np.int8 if narrow else np.int32))
         width = hi - lo
         t_d = cp.empty(width, dtype=cp.float64)  # Intentional float64: statistic output compared to the host at full precision
         g_d = cp.empty(width, dtype=cp.float64)  # Intentional float64: statistic output compared to the host at full precision
         kernel((width,), (_THREADS,), (q_d, resid_d, even_d, np.int64(n), np.int32(n_bins), np.float64(shrink), t_d, g_d), shared_mem=shared)  # launch-ok: one block per column is the design
         return np.stack([cp.asnumpy(t_d), cp.asnumpy(g_d)])
 
-    block = first_block(cp, n, p, 4, 3)
+    block = first_block(cp, n, p, 1 if narrow else 4, 3)
     parts = run_column_blocks(cp, p, block, score_block)
     both = np.concatenate(parts, axis=1)
     return both[0], both[1]

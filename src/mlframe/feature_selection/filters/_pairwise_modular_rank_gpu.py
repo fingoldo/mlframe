@@ -298,6 +298,28 @@ def _get_kernel(version: Optional[int] = None, wide: bool = True):
         return _kernels[key]
 
 
+def _score_candidate_blocks(
+    cols: np.ndarray, ia: np.ndarray, ib: np.ndarray, ic: Optional[np.ndarray], mods: np.ndarray, ycls: np.ndarray, n_cls: int
+) -> Optional[np.ndarray]:
+    """Over the VRAM budget: halve the candidates until each half's referenced column blocks fit, then score the halves one after the other.
+
+    A half uploads only the columns its candidates use (remapped), so the cost is the column block of that half, not the whole matrix; ``None`` when a single candidate still does not fit."""
+    m = int(ia.shape[0])
+    if m < 2:
+        return None
+    h = m // 2
+    parts = []
+    for lo, hi in ((0, h), (h, m)):
+        used = np.unique(np.concatenate([ia[lo:hi], ib[lo:hi]] + ([ic[lo:hi]] if ic is not None else [])))
+        remap = np.zeros(cols.shape[0], dtype=np.int64)
+        remap[used] = np.arange(used.shape[0])
+        part = residue_rank_scores_gpu(cols[used], remap[ia[lo:hi]], remap[ib[lo:hi]], remap[ic[lo:hi]] if ic is not None else None, mods, ycls, n_cls)
+        if part is None:
+            return None
+        parts.append(part)
+    return cast(np.ndarray, np.concatenate(parts))
+
+
 def residue_rank_scores_gpu(
     cols: np.ndarray, ia: np.ndarray, ib: np.ndarray, ic: Optional[np.ndarray], mods: np.ndarray, ycls: np.ndarray, n_cls: int
 ) -> Optional[np.ndarray]:
@@ -324,11 +346,11 @@ def residue_rank_scores_gpu(
         biggest = int(np.max(np.abs(cols))) if cols.size else 0
         wide = biggest * biggest > _INT32_PRODUCT_LIMIT or 3 * biggest > _INT32_PRODUCT_LIMIT
         # VRAM bound: the column matrix (int64 when wide, else int32) and the residue table must fit a quarter of the free device memory,
-        # otherwise the CPU kernel runs. Column-block streaming is not implemented yet; this refuses instead of allocating past the budget.
+        # otherwise the candidates are streamed in blocks (``_score_candidate_blocks``), each block uploading only the column blocks it references.
         cols_bytes = int(cols.size) * (8 if wide else 4)
         table_bytes = int(cols.shape[0]) * int(mods.shape[0]) * n if version in _TABLE_VERSIONS else 0
         if cols_bytes + table_bytes > _DEVICE_BUDGET_FRACTION * device_room(cp):
-            return None
+            return _score_candidate_blocks(cols, ia, ib, ic, mods, ycls, n_cls)
         cols_d = cp.asarray(np.ascontiguousarray(cols, dtype=np.int64 if wide else np.int32))
         ia_d = cp.asarray(ia.astype(np.int32))
         ib_d = cp.asarray(ib.astype(np.int32))

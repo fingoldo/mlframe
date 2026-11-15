@@ -29,10 +29,13 @@ WIRED (this docstring was stale): not via
 to ``selected_vars``), gated on ``interactions_max_order>=2``. This is the screen's validated core + its
 detection-vs-noise contract (test_fe_synergy_screen.py); gating stays behind the permutation/analytic null
 so noise pairs are never admitted.
+
+The combo sweep of ``detect_synergy_combos`` scores all pairs and triples together: on the device by ``_synergy_combo_gpu`` (one block per combo, a column block of the code matrix resident, kernel-tuning entry
+``synergy_combo_backend``) or with the numba kernels of this module, whichever the per-host sweep says is faster for the combo count.
 """
 from __future__ import annotations
 
-from typing import Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 from numba import njit
@@ -210,6 +213,64 @@ def _marginal_mm_mi(code_x: np.ndarray, target_codes: np.ndarray) -> float:
     return float(_combo_mm_mi_njit(cx.reshape(n, 1), np.array([kx], dtype=np.int64), yt, kt, kx))
 
 
+def _enumerate_combo_candidates(idx: list, _ccard: dict, _kt: int, _n: int, min_order: int, max_order: int, max_combos: int, min_rows_per_cell: float) -> list:
+    """``(combo, joint cell count)`` of every combo of ``idx`` (orders ``min_order`` to ``max_order``, at most ``max_combos`` visited) that passes the cell-count and rows-per-cell filters, in sweep order."""
+    import itertools as _it
+
+    # Dense joint cardinality cap: the njit histogram allocates ``prod(cards)*kt`` cells; skip a combo
+    # whose mixed-radix cell count blows past this bound (high-card columns) - such a combo's joint MI
+    # would be unreliable anyway (too few samples/cell). Bounds memory + keeps the kernel allocation small.
+    _MAX_CELLS = 1 << 20
+    # OCCUPANCY FLOOR (adversarial-found). The Miller-Madow occupancy debit does NOT keep a
+    # NOISE combo's joint MI near zero once rows-per-cell gets small: a pure-noise grid's finite-sample
+    # joint MI scales with cardinality (measured n=3000: k=10->0.034, k=20->0.14, k=30->0.29, k=50->0.48
+    # nats), so two independent high-cardinality columns clear the ``min_joint_mi`` floor AND the
+    # ``synergy_ratio`` gate (both marginals ~0) and a noise pair is wrongly admitted as synergy. ``_MAX_CELLS``
+    # only bounds memory, not this regime. Require at least ``min_rows_per_cell`` samples per joint cell
+    # (n / prod(card) >= min_rows_per_cell) so the joint MI estimate is statistically reliable before the
+    # MM-ratio gate is even consulted - the genuine low-cardinality XOR/parity synergies are unaffected
+    # (a 2-3 way binary/low-card grid has hundreds of rows/cell), while a sparse high-card grid is skipped.
+    _MIN_ROWS_PER_CELL = float(min_rows_per_cell)
+    cands: list = []  # (combo, joint cell count) of every combo that passes the cell and rows-per-cell filters, in sweep order
+    _seen = 0
+    for _order in range(max(2, int(min_order)), int(max_order) + 1):
+        for combo in _it.combinations(idx, _order):
+            _seen += 1
+            if _seen > max_combos:
+                break
+            _ncells = 1
+            for _c in combo:
+                _ncells *= _ccard[_c]
+            if _ncells <= 0 or _ncells * _kt > _MAX_CELLS:
+                continue
+            # statistical-reliability floor: a grid with too few rows/cell yields an inflated joint MI
+            # the MM debit cannot correct (false synergy on high-card noise) - skip it.
+            if _MIN_ROWS_PER_CELL > 0.0 and _n < _MIN_ROWS_PER_CELL * float(_ncells):
+                continue
+            cands.append((combo, int(_ncells)))
+        if _seen > max_combos:
+            break
+    return cands
+
+
+def _host_combo_scores(_codes: Any, _combos: Any, _cards_of: Any, _target: np.ndarray, _kt_: int) -> np.ndarray:
+    """The numba kernels per combo. Orders 2-3 read the contiguous cached code columns DIRECTLY (no per-combo (n, order) _mat materialise, 1.71x); higher orders use the general matrix kernel."""
+    res = np.empty(len(_combos))
+    for q, _combo in enumerate(_combos):
+        _o = len(_combo)
+        _cs = np.array([_cards_of[_c] for _c in _combo], dtype=np.int64)
+        _nc = int(np.prod(_cs))
+        if _o <= 3:
+            _c2 = _codes[_combo[2]] if _o >= 3 else _codes[_combo[1]]
+            res[q] = float(_combo_mm_mi_cols_njit(_codes[_combo[0]], _codes[_combo[1]], _c2, _o, _cs, _target, _kt_, _nc))
+        else:
+            _mat = np.empty((_target.shape[0], _o), dtype=np.int64)
+            for _k, _c in enumerate(_combo):
+                _mat[:, _k] = _codes[_c]
+            res[q] = float(_combo_mm_mi_njit(_mat, _cs, _target, _kt_, _nc))
+    return res
+
+
 def detect_synergy_combos(
     code_cols: Mapping[int, np.ndarray] | Sequence[np.ndarray], target_codes: np.ndarray, candidate_idx: Iterable[int], *,
     max_order: int = 3, min_order: int = 2, synergy_ratio: float = 1.5,
@@ -226,7 +287,6 @@ def detect_synergy_combos(
     bound the O(P^order) combo count (a pure-synergy member has ~0 marginal, so we KEEP low-marginal
     candidates too: rank puts high-marginal first but we always include up to the cap). The MM bias
     correction keeps a noise combo's joint MI near zero, so the synergy ratio does not fire on noise."""
-    import itertools as _it
     idx = list(candidate_idx)
     if len(idx) < min_order:
         return []
@@ -243,55 +303,26 @@ def detect_synergy_combos(
         _by = sorted(idx, key=lambda i: -_marg[i])
         idx = _by[: max_candidates // 2] + _by[-(max_candidates - max_candidates // 2) :]
         idx = sorted(set(idx))
-    # Dense joint cardinality cap: the njit histogram allocates ``prod(cards)*kt`` cells; skip a combo
-    # whose mixed-radix cell count blows past this bound (high-card columns) - such a combo's joint MI
-    # would be unreliable anyway (too few samples/cell). Bounds memory + keeps the kernel allocation small.
-    _MAX_CELLS = 1 << 20
-    # OCCUPANCY FLOOR (adversarial-found). The Miller-Madow occupancy debit does NOT keep a
-    # NOISE combo's joint MI near zero once rows-per-cell gets small: a pure-noise grid's finite-sample
-    # joint MI scales with cardinality (measured n=3000: k=10->0.034, k=20->0.14, k=30->0.29, k=50->0.48
-    # nats), so two independent high-cardinality columns clear the ``min_joint_mi`` floor AND the
-    # ``synergy_ratio`` gate (both marginals ~0) and a noise pair is wrongly admitted as synergy. ``_MAX_CELLS``
-    # only bounds memory, not this regime. Require at least ``min_rows_per_cell`` samples per joint cell
-    # (n / prod(card) >= min_rows_per_cell) so the joint MI estimate is statistically reliable before the
-    # MM-ratio gate is even consulted - the genuine low-cardinality XOR/parity synergies are unaffected
-    # (a 2-3 way binary/low-card grid has hundreds of rows/cell), while a sparse high-card grid is skipped.
-    _MIN_ROWS_PER_CELL = float(min_rows_per_cell)
+    cands = _enumerate_combo_candidates(idx, _ccard, _kt, _n, min_order, max_order, max_combos, min_rows_per_cell)
+
+    # Orders 2 and 3 of the whole sweep are scored together (device when the kernel-tuning entry ``synergy_combo_backend`` says so, the numba kernel otherwise); higher orders stay on the host.
+    from ._synergy_combo_gpu import combo_mm_mi_dispatch
+
+    _jmis = np.empty(len(cands))
+    _low = [q for q, (cb, _) in enumerate(cands) if len(cb) <= 3]
+    _high = [q for q, (cb, _) in enumerate(cands) if len(cb) > 3]
+    if _low:
+        _jmis[_low] = combo_mm_mi_dispatch(_host_combo_scores, _ccode, [cands[q][0] for q in _low], _ccard, _yt, _kt)
+    if _high:
+        _jmis[_high] = _host_combo_scores(_ccode, [cands[q][0] for q in _high], _ccard, _yt, _kt)
     out = []
-    _seen = 0
-    for _order in range(max(2, int(min_order)), int(max_order) + 1):
-        for combo in _it.combinations(idx, _order):
-            _seen += 1
-            if _seen > max_combos:
-                break
-            _ncells = 1
-            for _c in combo:
-                _ncells *= _ccard[_c]
-            if _ncells <= 0 or _ncells * _kt > _MAX_CELLS:
-                continue
-            # statistical-reliability floor: a grid with too few rows/cell yields an inflated joint MI
-            # the MM debit cannot correct (false synergy on high-card noise) - skip it.
-            if _MIN_ROWS_PER_CELL > 0.0 and _n < _MIN_ROWS_PER_CELL * float(_ncells):
-                continue
-            _cards = np.array([_ccard[_c] for _c in combo], dtype=np.int64)
-            # joint MI of the combo's mixed-radix cell-codes vs the target (MM-corrected, njit). Orders 2-3
-            # read the contiguous cached code columns DIRECTLY (no per-combo (n, order) _mat materialise, 1.71x);
-            # higher orders fall back to the general matrix kernel.
-            if _order <= 3:
-                _c2 = _ccode[combo[2]] if _order >= 3 else _ccode[combo[1]]
-                _jmi = float(_combo_mm_mi_cols_njit(_ccode[combo[0]], _ccode[combo[1]], _c2, _order, _cards, _yt, _kt, int(_ncells)))
-            else:
-                _mat = np.empty((_n, _order), dtype=np.int64)
-                for _k, _c in enumerate(combo):
-                    _mat[:, _k] = _ccode[_c]
-                _jmi = float(_combo_mm_mi_njit(_mat, _cards, _yt, _kt, int(_ncells)))
-            if _jmi < min_joint_mi:
-                continue
-            _msum = sum(_marg[c] for c in combo)
-            if _jmi >= synergy_ratio * max(_msum, 1e-12):
-                out.append((combo, _jmi))
-        if _seen > max_combos:
-            break
+    for (combo, _), _jmi_v in zip(cands, _jmis):
+        _jmi = float(_jmi_v)
+        if _jmi < min_joint_mi:
+            continue
+        _msum = sum(_marg[c] for c in combo)
+        if _jmi >= synergy_ratio * max(_msum, 1e-12):
+            out.append((combo, _jmi))
     out.sort(key=lambda t: -t[1])
     return out
 

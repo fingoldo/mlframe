@@ -5,6 +5,7 @@ Leaf module: the resident discretiser, pair, select, k-chunk and materialise sib
 
 from __future__ import annotations
 
+from ._device_power import small_power
 import logging
 import os
 import threading
@@ -222,9 +223,9 @@ def _unary_minimal(xp, name, x):
     if name == "abs":
         return xp.abs(x)
     if name == "sqr":
-        return xp.power(x, 2)
+        return small_power(xp, x, 2)
     if name == "reciproc":
-        return xp.power(x, -1.0)
+        return small_power(xp, x, -1)
     if name == "sqrt":
         return xp.sqrt(xp.abs(x))
     if name == "log":
@@ -244,11 +245,11 @@ def _unary_medium(xp, name, x):
     if name == "rint":
         return xp.rint(x)
     if name == "qubed":
-        return xp.power(x, 3)
+        return small_power(xp, x, 3)
     if name == "invsquared":
-        return xp.power(x, -2)
+        return small_power(xp, x, -2)
     if name == "invqubed":
-        return xp.power(x, -3)
+        return small_power(xp, x, -3)
     if name == "cbrt":
         return xp.cbrt(x)
     if name == "invcbrt":

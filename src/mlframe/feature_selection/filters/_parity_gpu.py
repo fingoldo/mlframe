@@ -12,6 +12,7 @@ scan stays for more classes). Columns with a non-finite value keep the host path
 from __future__ import annotations
 
 import logging
+from typing import Any
 import os
 
 import numpy as np
@@ -24,23 +25,23 @@ logger = logging.getLogger(__name__)
 
 PB = 8  # periods per block
 NC = 4  # largest class count the kernel handles
-COLUMN_BLOCK = 32  # columns per launch: bounds the double copy of the block on the device (32 x n x 8 bytes)
+COLUMN_BLOCK = 32  # columns per launch: bounds the double copy of the block on the device (32 x n x 8 bytes); the columns go up in column blocks of this size
 
 _SRC = r"""
 #define PB 8
 #define NC 4
-// dtype-ok: Intentional float64, reviewed 2026-11-05: float64 on purpose, floor(v * inv) of a timestamp needs double as on the host; the host uploads float64 explicitly.
-extern "C" __global__ void parity_mi_grid(const double* __restrict__ V, const unsigned char* __restrict__ Y, const double* __restrict__ INV,
-                                          const long long* __restrict__ cls_tot, const long long n, const int G, const int nc, double* __restrict__ out) {
+// dtype-ok: Intentional wide type, reviewed 2026-11-05: on purpose, floor(v * inv) of a timestamp needs the wide type as on the host; the host uploads float64 explicitly.
+extern "C" __global__ void parity_mi_grid(const {ACC}* __restrict__ V, const unsigned char* __restrict__ Y, const {ACC}* __restrict__ INV,
+                                          const long long* __restrict__ cls_tot, const long long n, const int G, const int nc, {ACC}* __restrict__ out) {
     const int col = blockIdx.x;
     const int p0 = blockIdx.y * PB;
-    const double* v = V + (long long)col * n;
-    double inv[PB];
+    const {ACC}* v = V + (long long)col * n;
+    {ACC} inv[PB];
     for (int p = 0; p < PB; ++p) inv[p] = (p0 + p < G) ? INV[(long long)col * G + p0 + p] : 1.0;
     unsigned int ones[PB][NC];
     for (int p = 0; p < PB; ++p) for (int k = 0; k < NC; ++k) ones[p][k] = 0u;
     for (long long i = threadIdx.x; i < n; i += blockDim.x) {
-        const double x = v[i];
+        const {ACC} x = v[i];
         const int y = (int)Y[i];
 #pragma unroll
         for (int p = 0; p < PB; ++p) {
@@ -59,8 +60,8 @@ extern "C" __global__ void parity_mi_grid(const double* __restrict__ V, const un
     __syncthreads();
     if (threadIdx.x < PB && p0 + (int)threadIdx.x < G) {
         const int p = threadIdx.x;
-        const double nn = (double)n;
-        double mi = 0.0;
+        const {ACC} nn = ({ACC})n;
+        {ACC} mi = 0.0;
         long long row[2] = {0, 0};
         for (int k = 0; k < nc; ++k) { const long long o = (long long)hist[p * NC + k]; row[1] += o; row[0] += cls_tot[k] - o; }
         for (int c = 0; c < 2; ++c) {
@@ -69,7 +70,7 @@ extern "C" __global__ void parity_mi_grid(const double* __restrict__ V, const un
                 const long long o = (long long)hist[p * NC + k];
                 const long long nij = c == 1 ? o : cls_tot[k] - o;
                 if (nij == 0) continue;
-                mi += ((double)nij / nn) * log(((double)nij * nn) / ((double)row[c] * (double)cls_tot[k]));
+                mi += (({ACC})nij / nn) * log((({ACC})nij * nn) / (({ACC})row[c] * ({ACC})cls_tot[k]));
             }
         }
         out[(long long)col * G + p0 + p] = mi;
@@ -77,7 +78,7 @@ extern "C" __global__ void parity_mi_grid(const double* __restrict__ V, const un
 }
 """
 
-_MODULE = RawModuleCache(_SRC)
+_MODULE = RawModuleCache(_SRC.replace("{ACC}", "double"))
 
 
 def parity_mi_grids_gpu(columns: "list[np.ndarray]", y_codes: np.ndarray, n_classes: int, grids: "list[np.ndarray]") -> "list[np.ndarray] | None":
@@ -109,13 +110,73 @@ def parity_mi_grids_gpu(columns: "list[np.ndarray]", y_codes: np.ndarray, n_clas
 
 
 def use_device_parity(n_rows: int) -> bool:
-    """Whether a parity scan over ``n_rows`` rows runs on the device: ``MLFRAME_PARITY_DEVICE=0|1`` forces a path, else from ``PARITY_DEVICE_MIN_ROWS`` rows (the measured crossover, see the profile note)."""
+    """Whether a parity scan over ``n_rows`` rows runs on the device: ``MLFRAME_PARITY_DEVICE=0|1`` forces a path, else the per-host kernel-tuning entry ``parity_scan_backend`` (swept over the row count),
+    else ``PARITY_DEVICE_MIN_ROWS`` rows (the measured crossover, see the profile note)."""
     forced = os.environ.get("MLFRAME_PARITY_DEVICE", "").strip()
     if forced in ("0", "1"):
         return forced == "1"
+    if _SPEC is not None:
+        try:
+            return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
+        except Exception as exc:
+            logger.debug("parity_scan_backend: KTC choose() failed, using the floor: %s", exc)
     return int(n_rows) >= PARITY_DEVICE_MIN_ROWS
 
 
 PARITY_DEVICE_MIN_ROWS = 5_000
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Kernel-tuning entry ``parity_scan_backend``: the numba scan against the device scan of 16 columns, swept over the row count
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+_SWEEP_ROWS = [2_000, 5_000, 20_000, 100_000]
+_SWEEP_COLUMNS = 16
+_SALT = 1
+
+
+def _sweep_inputs(dims: dict) -> tuple:
+    """``_SWEEP_COLUMNS`` timestamp-like double columns of ``dims["n_samples"]`` rows, a two-class target with a period-7 parity pattern, and each column's period grid."""
+    from ._parity_fe import _parity_grid
+
+    rng = np.random.default_rng(0)
+    n = int(dims["n_samples"])
+    cols = [np.sort(rng.random(n)) * 1e6 + 1.6e9 for _ in range(_SWEEP_COLUMNS)]
+    y = (np.floor(cols[0] / 7.0) % 2).astype(np.int64)
+    return (cols, y, [_parity_grid(c) for c in cols])
+
+
+def _sweep_host(cols: list, y: np.ndarray, grids: list) -> np.ndarray:
+    """The numba prange kernel per column."""
+    from ._parity_fe import _parity_mi_grid_njit
+
+    return np.concatenate([np.asarray(_parity_mi_grid_njit(c, y, int(y.max()) + 1, g)) for c, g in zip(cols, grids)])
+
+
+def _sweep_device(cols: list, y: np.ndarray, grids: list) -> np.ndarray:
+    """The device scan; a failed launch raises, so the sweep never records a host fallback as a device time."""
+    out = parity_mi_grids_gpu(cols, y, int(y.max()) + 1, grids)
+    if out is None:
+        raise RuntimeError("device parity scan unavailable")
+    return np.concatenate(out)
+
+
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+    from ._ktc_fallback import host_device_sweep, rows_fallback
+
+    _SPEC: Any = kernel_tuner(
+        kernel_name="parity_scan_backend",
+        variant_fns=(),  # the two backends are timed by the sweep callable
+        tuner=host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=1e-9, atol=1e-12),
+        axes={"n_samples": list(_SWEEP_ROWS)},
+        fallback=rows_fallback(__name__, "PARITY_DEVICE_MIN_ROWS"),
+        gpu_capable=True,
+        salt=_SALT,
+        cli_label="parity_scan_backend",
+    )
+except Exception as e:  # best-effort: without a tuner entry the floor decides
+    logger.warning("kernel_tuner spec build for parity_scan_backend failed: %s", e)
+    _SPEC = None
 
 __all__ = ["parity_mi_grids_gpu", "use_device_parity"]

@@ -39,7 +39,7 @@ _SRC = r"""
 #define D_NAN __longlong_as_double(0x7ff8000000000000LL)
 #define D_INF __longlong_as_double(0x7ff0000000000000LL)
 
-__device__ __forceinline__ double block_sum(double v, double* red) {
+__device__ __forceinline__ {ACC} block_sum({ACC} v, {ACC}* red) {
     __syncthreads();
     red[threadIdx.x] = v;
     __syncthreads();
@@ -47,37 +47,37 @@ __device__ __forceinline__ double block_sum(double v, double* red) {
         if (threadIdx.x < s) red[threadIdx.x] += red[threadIdx.x + s];
         __syncthreads();
     }
-    const double r = red[0];
+    const {ACC} r = red[0];
     __syncthreads();
     return r;
 }
 
 // 4x4 normal equations (upper triangle in acc[0..9], rhs acc[10..13]); NaN coefficients when singular. Mirrors _offset_product_kernels._solve4.
-__device__ void solve4(const double* acc, double* coef) {
-    double M[4][5];
+__device__ void solve4(const {ACC}* acc, {ACC}* coef) {
+    {ACC} M[4][5];
     int t = 0;
     for (int j = 0; j < 4; ++j) for (int k = j; k < 4; ++k) { M[j][k] = acc[t]; M[k][j] = acc[t]; ++t; }
     for (int j = 0; j < 4; ++j) M[j][4] = acc[10 + j];
-    double scale = 0.0;
+    {ACC} scale = 0.0;
     for (int j = 0; j < 4; ++j) scale = fmax(scale, fabs(M[j][j]));
     for (int col = 0; col < 4; ++col) {
-        int piv = col; double best = fabs(M[col][col]);
+        int piv = col; {ACC} best = fabs(M[col][col]);
         for (int r = col + 1; r < 4; ++r) if (fabs(M[r][col]) > best) { best = fabs(M[r][col]); piv = r; }
         if (!(best > SING_TOL * scale) || !isfinite(best)) { for (int k = 0; k < 4; ++k) coef[k] = D_NAN; return; }
-        if (piv != col) for (int k = 0; k < 5; ++k) { const double tmp = M[col][k]; M[col][k] = M[piv][k]; M[piv][k] = tmp; }
+        if (piv != col) for (int k = 0; k < 5; ++k) { const {ACC} tmp = M[col][k]; M[col][k] = M[piv][k]; M[piv][k] = tmp; }
         for (int r = col + 1; r < 4; ++r) {
-            const double f = M[r][col] / M[col][col];
+            const {ACC} f = M[r][col] / M[col][col];
             for (int k = col; k < 5; ++k) M[r][k] -= f * M[col][k];
         }
     }
     for (int r = 3; r >= 0; --r) {
-        double s = M[r][4];
+        {ACC} s = M[r][4];
         for (int k = r + 1; k < 4; ++k) s -= M[r][k] * coef[k];
         coef[r] = s / M[r][r];
     }
 }
 
-__device__ __forceinline__ double feature(const int q, const double u, const double v, const double s, const double t, const double wb, const double wc) {
+__device__ __forceinline__ {ACC} feature(const int q, const {ACC} u, const {ACC} v, const {ACC} s, const {ACC} t, const {ACC} wb, const {ACC} wc) {
     if (q == 0) return (u + s) * (v + t);
     if (q == 1) return u * v;
     if (q == 2) return u + v;
@@ -86,14 +86,14 @@ __device__ __forceinline__ double feature(const int q, const double u, const dou
     return wb * u + wc * v;
 }
 
-__device__ void bitonic_sort(double* a, const int n) {
+__device__ void bitonic_sort({ACC}* a, const int n) {
     for (int k = 2; k <= n; k <<= 1) {
         for (int j = k >> 1; j > 0; j >>= 1) {
             for (int i = threadIdx.x; i < n; i += THREADS) {
                 const int ixj = i ^ j;
                 if (ixj > i) {
                     const bool up = ((i & k) == 0);
-                    const double x = a[i], y = a[ixj];
+                    const {ACC} x = a[i], y = a[ixj];
                     if ((x > y) == up) { a[i] = y; a[ixj] = x; }
                 }
             }
@@ -102,61 +102,61 @@ __device__ void bitonic_sort(double* a, const int n) {
     }
 }
 
-// dtype-ok: Intentional float64, reviewed 2026-11-05: 12 ms of a 9.3 s kernel profile (0.1%) in a full 100k x 100 fit. The kernel solves 4 x 4 normal equations of the offset-product shift from sums over the rows, which is a double-precision statistic by CUDA.md; the host uploads float64 explicitly (U, yr, clips). Float32 operands would only save table memory.
+// dtype-ok: Intentional wide type, reviewed 2026-11-05: 12 ms of a 9.3 s kernel profile (0.1%) in a full 100k x 100 fit. The kernel solves 4 x 4 normal equations of the offset-product shift from sums over the rows, which is an accumulator-type statistic by CUDA.md; the host uploads the wide type explicitly (U, yr, clips). Narrow operands would only save table memory.
 extern "C" __global__ void scan_offset_products(
-    const double* __restrict__ U, const int* __restrict__ tasks, const double* __restrict__ yr, const int* __restrict__ ycodes,
-    const double* __restrict__ clips, const int m, const int nu, const long long n, const int ky, const int nb,
-    double* __restrict__ out_shift, double* __restrict__ out_mi) {
+    const {ACC}* __restrict__ U, const int* __restrict__ tasks, const {ACC}* __restrict__ yr, const int* __restrict__ ycodes,
+    const {ACC}* __restrict__ clips, const int m, const int nu, const long long n, const int ky, const int nb,
+    {ACC}* __restrict__ out_shift, {ACC}* __restrict__ out_mi) {
     extern __shared__ unsigned char smem_raw[];
-    double* sub = reinterpret_cast<double*>(smem_raw);                       // NSUB sort buffer
+    {ACC}* sub = reinterpret_cast<{ACC}*>(smem_raw);                       // NSUB sort buffer
     int* counts = reinterpret_cast<int*>(sub + NSUB);                        // NF * 2 * nb * ky joint counts
-    __shared__ double red[THREADS];
-    __shared__ double sh[4];            // s, t, wb, wc ; NaN when the shifts could not be fitted
-    __shared__ double edges[NF][32];    // interior edges per feature (nb - 1 <= 31)
+    __shared__ {ACC} red[THREADS];
+    __shared__ {ACC} sh[4];            // s, t, wb, wc ; NaN when the shifts could not be fitted
+    __shared__ {ACC} edges[NF][32];    // interior edges per feature (nb - 1 <= 31)
     const int k = blockIdx.x;
     const int cu = tasks[4 * k], cv = tasks[4 * k + 1], ui = tasks[4 * k + 2], vi = tasks[4 * k + 3];
-    const double* u = U + ((long long)cu * nu + ui) * n;
-    const double* v = U + ((long long)cv * nu + vi) * n;
-    const double ulo = clips[2 * (cu * nu + ui)], uhi = clips[2 * (cu * nu + ui) + 1];
-    const double vlo = clips[2 * (cv * nu + vi)], vhi = clips[2 * (cv * nu + vi) + 1];
+    const {ACC}* u = U + ((long long)cu * nu + ui) * n;
+    const {ACC}* v = U + ((long long)cv * nu + vi) * n;
+    const {ACC} ulo = clips[2 * (cu * nu + ui)], uhi = clips[2 * (cu * nu + ui) + 1];
+    const {ACC} vlo = clips[2 * (cv * nu + vi)], vhi = clips[2 * (cv * nu + vi) + 1];
     const long long n_even = (n + 1) / 2;
     const int tid = threadIdx.x;
 
     // phase A: means over the even rows
-    double a0 = 0.0, a1 = 0.0, a2 = 0.0;
+    {ACC} a0 = 0.0, a1 = 0.0, a2 = 0.0;
     for (long long i = 2LL * tid; i < n; i += 2LL * THREADS) {
         a0 += fmin(fmax(u[i], ulo), uhi);
         a1 += fmin(fmax(v[i], vlo), vhi);
         a2 += yr[i];
     }
-    const double mu = block_sum(a0, red) / (double)n_even;
-    const double mv = block_sum(a1, red) / (double)n_even;
-    const double my = block_sum(a2, red) / (double)n_even;
+    const {ACC} mu = block_sum(a0, red) / ({ACC})n_even;
+    const {ACC} mv = block_sum(a1, red) / ({ACC})n_even;
+    const {ACC} my = block_sum(a2, red) / ({ACC})n_even;
     // phase A: the 14 normal-equation sums
-    double acc[NACC];
+    {ACC} acc[NACC];
     for (int j = 0; j < NACC; ++j) acc[j] = 0.0;
     for (long long i = 2LL * tid; i < n; i += 2LL * THREADS) {
-        const double x = fmin(fmax(u[i], ulo), uhi) - mu, w = fmin(fmax(v[i], vlo), vhi) - mv, yy = yr[i] - my, f3 = x * w;
+        const {ACC} x = fmin(fmax(u[i], ulo), uhi) - mu, w = fmin(fmax(v[i], vlo), vhi) - mv, yy = yr[i] - my, f3 = x * w;
         acc[0] += 1.0; acc[1] += x; acc[2] += w; acc[3] += f3; acc[4] += x * x; acc[5] += x * w; acc[6] += x * f3;
         acc[7] += w * w; acc[8] += w * f3; acc[9] += f3 * f3; acc[10] += yy; acc[11] += x * yy; acc[12] += w * yy; acc[13] += f3 * yy;
     }
-    double tot[NACC];
+    {ACC} tot[NACC];
     for (int j = 0; j < NACC; ++j) tot[j] = block_sum(acc[j], red);
     if (tid == 0) {
         sh[0] = D_NAN; sh[1] = D_NAN; sh[2] = D_NAN; sh[3] = D_NAN;
         if (n_even >= 8) {
-            double coef[4];
+            {ACC} coef[4];
             solve4(tot, coef);
-            const double det = tot[4] * tot[7] - tot[5] * tot[5];
-            double wb = D_NAN, wc = D_NAN;
+            const {ACC} det = tot[4] * tot[7] - tot[5] * tot[5];
+            {ACC} wb = D_NAN, wc = D_NAN;
             if (det > SING_TOL * tot[4] * tot[7]) {
                 wb = (tot[11] * tot[7] - tot[12] * tot[5]) / det;
                 wc = (tot[12] * tot[4] - tot[11] * tot[5]) / det;
             }
-            const double d = coef[3];
+            const {ACC} d = coef[3];
             if (isfinite(d) && d != 0.0) {
-                const double s = coef[2] / d - mu, t = coef[1] / d - mv;
-                const double span_u = fmax(uhi - ulo, MIN_SPAN), span_v = fmax(vhi - vlo, MIN_SPAN);
+                const {ACC} s = coef[2] / d - mu, t = coef[1] / d - mv;
+                const {ACC} span_u = fmax(uhi - ulo, MIN_SPAN), span_v = fmax(vhi - vlo, MIN_SPAN);
                 sh[0] = fmin(fmax(s, -uhi - span_u), -ulo + span_u);
                 sh[1] = fmin(fmax(t, -vhi - span_v), -vlo + span_v);
                 sh[2] = wb; sh[3] = wc;
@@ -164,7 +164,7 @@ extern "C" __global__ void scan_offset_products(
         }
     }
     __syncthreads();
-    const double s = sh[0], t = sh[1], wb = sh[2], wc = sh[3];
+    const {ACC} s = sh[0], t = sh[1], wb = sh[2], wc = sh[3];
     if (tid == 0) { out_shift[2 * k] = s; out_shift[2 * k + 1] = t; }
     const bool ok = isfinite(s) && isfinite(t) && isfinite(wb) && isfinite(wc);
     if (!ok) {
@@ -199,9 +199,9 @@ extern "C" __global__ void scan_offset_products(
     __syncthreads();
     for (long long i = tid; i < n; i += THREADS) {
         const int sp = (int)(i & 1LL), c = ycodes[i];
-        const double ui_ = u[i], vi_ = v[i];
+        const {ACC} ui_ = u[i], vi_ = v[i];
         for (int q = 0; q < NF; ++q) {
-            const double x = feature(q, ui_, vi_, s, t, wb, wc);
+            const {ACC} x = feature(q, ui_, vi_, s, t, wb, wc);
             int lo = 0, hi = nb - 1;
             while (lo < hi) { const int mid = (lo + hi) >> 1; if (edges[q][mid] <= x) lo = mid + 1; else hi = mid; }
             atomicAdd(&counts[q * per_feat + (sp * nb + lo) * ky + c], 1);
@@ -213,17 +213,17 @@ extern "C" __global__ void scan_offset_products(
     if (tid < 2 * NF) {
         const int q = tid >> 1, sp = tid & 1;
         const int* cnt = counts + q * per_feat + sp * nb * ky;
-        const double n_tot = (double)(sp == 0 ? n_even : n - n_even);
-        double mi = 0.0;
+        const {ACC} n_tot = ({ACC})(sp == 0 ? n_even : n - n_even);
+        {ACC} mi = 0.0;
         if (n_tot > 0.0) {
             for (int b = 0; b < nb; ++b) {
-                double px = 0.0;
-                for (int c = 0; c < ky; ++c) px += (double)cnt[b * ky + c];
+                {ACC} px = 0.0;
+                for (int c = 0; c < ky; ++c) px += ({ACC})cnt[b * ky + c];
                 for (int c = 0; c < ky; ++c) {
-                    const double kk = (double)cnt[b * ky + c];
+                    const {ACC} kk = ({ACC})cnt[b * ky + c];
                     if (kk > 0.0) {
-                        double py = 0.0;
-                        for (int bb = 0; bb < nb; ++bb) py += (double)cnt[bb * ky + c];
+                        {ACC} py = 0.0;
+                        for (int bb = 0; bb < nb; ++bb) py += ({ACC})cnt[bb * ky + c];
                         mi += (kk / n_tot) * log(kk * n_tot / (px * py));
                     }
                 }
@@ -245,7 +245,7 @@ def _kernel(cp: Any) -> Any:
     global _KERNEL
     with _LOCK:
         if _KERNEL is None:
-            src = _SRC.replace("__NSUB__", str(N_EDGE_SUBSAMPLE)).replace("__NF__", str(_N_FEATURES)).replace("__THREADS__", str(_THREADS))
+            src = _SRC.replace("{ACC}", "double").replace("__NSUB__", str(N_EDGE_SUBSAMPLE)).replace("__NF__", str(_N_FEATURES)).replace("__THREADS__", str(_THREADS))
             _KERNEL = cp.RawKernel(src, "scan_offset_products", options=("--fmad=false", "-std=c++14"))
         return _KERNEL
 
@@ -259,25 +259,48 @@ def scan_offset_products_gpu(U: Any, tasks: np.ndarray, yr: Any, ycodes: Any, ky
 
     if nb > 32 or nb < 2 or _shared_bytes(nb, ky) > _SHARED_BUDGET:
         return None
-    Ud = cp.ascontiguousarray(cp.asarray(U, dtype=cp.float64))  # Intentional float64: operand tables, ranks and clips feed the 4x4 normal-equation solve (kernel contract double*)
-    m, nu, n = (int(d) for d in Ud.shape)
+    from ._device_blocks import first_block, run_column_blocks
+
+    m, nu, n = (int(d) for d in U.shape)
     T = int(tasks.shape[0])
-    td = cp.asarray(np.ascontiguousarray(tasks, dtype=np.int32))
+    tasks32 = np.ascontiguousarray(tasks, dtype=np.int32)
     # Intentional float64: device operand the offset-product kernel reads in double
     yrd = cp.ascontiguousarray(cp.asarray(yr, dtype=cp.float64))
     ycd = cp.ascontiguousarray(cp.asarray(ycodes, dtype=cp.int32))
-    # Intentional float64: device operand the offset-product kernel reads in double
-    cd = cp.ascontiguousarray(cp.asarray(clips, dtype=cp.float64))
-    # Intentional float64: output buffer the offset-product kernel writes in double
-    out_shift = cp.empty((T, 2), dtype=cp.float64)
-    # Intentional float64: output buffer the offset-product kernel writes in double
-    out_mi = cp.empty((T, 2, _N_FEATURES), dtype=cp.float64)
-    _kernel(cp)(  # launch-ok: THREADS is a compile-time macro of the kernel (sizes its shared reduction array and every strided loop); the module is compiled once for this width, which is the one the block reductions were tuned at
-        (T,), (_THREADS,),
-        (Ud, td, yrd, ycd, cd, np.int32(m), np.int32(nu), np.int64(n), np.int32(ky), np.int32(nb), out_shift, out_mi),
-        shared_mem=_shared_bytes(nb, ky),
-    )
-    return cp.asnumpy(out_shift), cp.asnumpy(out_mi)
+    out_shift_h = np.empty((T, 2))  # Intentional float64: output of the offset-product scan compared with the CPU's
+    out_mi_h = np.empty((T, 2, _N_FEATURES))  # Intentional float64: output of the offset-product scan compared with the CPU's
+    kernel = _kernel(cp)
+    shared = _shared_bytes(nb, ky)
+
+    def task_block(lo: int, hi: int) -> int:
+        """Score the tasks ``lo:hi``, uploading only the columns of ``U`` (and their clips) those tasks reference: a column block of the operand tables, so the device holds the block's columns, not the pool."""
+        used = np.unique(tasks32[lo:hi, :2])
+        remap = np.zeros(m, dtype=np.int32)
+        remap[used] = np.arange(used.shape[0], dtype=np.int32)
+        blk = tasks32[lo:hi].copy()
+        blk[:, 0], blk[:, 1] = remap[blk[:, 0]], remap[blk[:, 1]]
+        # Intentional float64: operand tables, ranks and clips feed the 4x4 normal-equation solve (kernel contract double*)
+        every = used.shape[0] == m  # the block touches every column: no gather, the tables go up as they are
+        ud = cp.ascontiguousarray(cp.asarray(U if every else (U[used] if not hasattr(U, "device") else U[cp.asarray(used)]), dtype=cp.float64))
+        cd = cp.ascontiguousarray(cp.asarray(clips if every else (np.asarray(clips)[used] if not hasattr(clips, "device") else clips[cp.asarray(used)]), dtype=cp.float64))
+        out_shift = cp.empty((hi - lo, 2), dtype=cp.float64)  # Intentional float64: output buffer the offset-product kernel writes in double
+        out_mi = cp.empty((hi - lo, 2, _N_FEATURES), dtype=cp.float64)  # Intentional float64: output buffer the offset-product kernel writes in double
+        kernel(  # launch-ok: THREADS is a compile-time macro of the kernel (sizes its shared reduction array and every strided loop); the module is compiled once for this width
+            (hi - lo,), (_THREADS,),
+            (ud, cp.asarray(blk), yrd, ycd, cd, np.int32(used.shape[0]), np.int32(nu), np.int64(n), np.int32(ky), np.int32(nb), out_shift, out_mi),
+            shared_mem=shared,
+        )
+        out_shift_h[lo:hi] = cp.asnumpy(out_shift)
+        out_mi_h[lo:hi] = cp.asnumpy(out_mi)
+        return hi - lo
+
+    # a block of tasks needs at most two columns of nu unary tables per task: size the first block from that bound, halved on an out-of-memory error
+    from ._device_sort_safe import device_room
+
+    whole_bytes = m * nu * n * 8
+    block = T if whole_bytes <= device_room(cp) // 4 else first_block(cp, n, T, 8, max(1, 2 * nu))  # the whole pool fits: one launch, as before; else blocks of tasks with their columns
+    run_column_blocks(cp, T, max(block, 1), task_block)
+    return out_shift_h, out_mi_h
 
 
 def _device_unary(cp: Any, name: str, x: Any, log_shift: float) -> Any:

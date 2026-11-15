@@ -7,6 +7,10 @@ small scalar vector per phase of an iteration instead of one per column, and the
 
 The sample and target blocks keep the dtype they arrive in (the critical dtype, float32 by default) and the kernels are compiled for it; every sum, the frequencies and the power statistic are double precision. The detected frequencies are grid points of a 0.0125 refinement, far coarser than float32 rounding.
 A column whose cubic detrend or deflation system is singular is handled by the single-column path.
+
+The family around it: `_fourier_detect_batch` is the dispatcher (the host loop of the single-column detector or this batch, chosen by the kernel-tuning entry `fe_fourier_batch_backend` by row count);
+`_fourier_detect_gpu_resident` is the single-column device detector and `_fourier_fused_gpu` holds its kernels (`periodogram_power`, `sincos_gram`, `solve3`, `apply_deflate`), of which the `_b` kernels
+here are the column-block versions; the host CPU twin of the whole detection is the numba coarse-basis detector of `_orth_extra_basis_fe`. Columns go to the device in column blocks.
 """
 
 from __future__ import annotations

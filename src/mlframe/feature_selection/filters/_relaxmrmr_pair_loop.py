@@ -8,6 +8,9 @@ The pairs are independent given the candidate, the target and the selected colum
 keeps one composite buffer and rewrites it per pair instead of allocating, and every pair writes its own slot of the output, which is summed
 afterwards rather than accumulated across threads. Each pair's mutual information comes from the same Miller-Madow kernels the serial form
 called, so the arithmetic is unchanged.
+
+The pairs also have a device twin, ``_relaxmrmr_pair_gpu`` (one block per pair; the selected-feature code rows go up as bytes, in one launch), chosen against this ``prange`` loop by the kernel-tuning entry
+``relaxmrmr_pair_backend``; pairs the device cannot hold fall back to the loop here.
 """
 
 from __future__ import annotations
@@ -82,19 +85,41 @@ def pair_interaction_sum(x_int: np.ndarray, y_int: np.ndarray, sel_int: Sequence
 
     scratch = np.empty((max(1, int(numba.get_num_threads())), n), dtype=np.int64)
     pair_i, pair_j = np.triu_indices(n_S, k=1)
+    k_sel_arr = np.asarray(K_sel, dtype=np.int64)
+    cmi_arr = np.asarray(cmi_y_mm, dtype=np.float64)  # Intentional float64: CMI/marginal accumulator input to the pair kernels
+    marg_arr = np.asarray(marg_mm, dtype=np.float64)  # Intentional float64: CMI/marginal accumulator input to the pair kernels
+    from ._relaxmrmr_pair_gpu import pair_terms_dispatch
+
+    # estimable pairs only (the host loop skips the undersampled composite tables); the device scores them in one launch when the tuned choice says so, the pairs it cannot hold go to the numba loop below
+    estimable = float(n) >= float(min_rows_per_cell) * K_x * k_sel_arr[pair_i] * k_sel_arr[pair_j] * K_y
+    ei, ej = pair_i[estimable].astype(np.int64), pair_j[estimable].astype(np.int64)
+    dev = pair_terms_dispatch(x_int, y_int, sel_mat, k_sel_arr, int(K_x), int(K_y), ei, ej) if ei.size else None
+    if dev is not None:
+        cmi_ij, mi_xzz, fits = dev
+        terms = (cmi_arr[ei] + cmi_arr[ej] - cmi_ij) - (marg_arr[ei] + marg_arr[ej] - mi_xzz)
+        total = float(terms[fits].sum())
+        rest = ~fits
+        if rest.any():
+            total += _numba_sum(x_int, y_int, sel_mat, k_sel_arr, K_x, K_y, cmi_arr, marg_arr, min_rows_per_cell, scratch, ei[rest], ej[rest])
+        return total
+    return _numba_sum(x_int, y_int, sel_mat, k_sel_arr, K_x, K_y, cmi_arr, marg_arr, min_rows_per_cell, scratch, np.ascontiguousarray(pair_i, dtype=np.int64), np.ascontiguousarray(pair_j, dtype=np.int64))
+
+
+def _numba_sum(x_int, y_int, sel_mat, k_sel_arr, K_x, K_y, cmi_arr, marg_arr, min_rows_per_cell, scratch, pair_i, pair_j) -> float:
+    """Sum of the pair terms of the given pairs by the numba ``prange`` loop."""
     with parallel_kernel_entry():
         terms = _pair_interaction_terms_njit(
             x_int,
             y_int,
             sel_mat,
-            np.asarray(K_sel, dtype=np.int64),
+            k_sel_arr,
             np.int64(K_x),
             np.int64(K_y),
-            np.asarray(cmi_y_mm, dtype=np.float64),  # Intentional float64: CMI/marginal accumulator input to the njit pair kernel
-            np.asarray(marg_mm, dtype=np.float64),  # Intentional float64: CMI/marginal accumulator input to the njit pair kernel
+            cmi_arr,
+            marg_arr,
             float(min_rows_per_cell),
             scratch,
-            np.ascontiguousarray(pair_i, dtype=np.int64),
-            np.ascontiguousarray(pair_j, dtype=np.int64),
+            pair_i,
+            pair_j,
         )
     return float(terms.sum())

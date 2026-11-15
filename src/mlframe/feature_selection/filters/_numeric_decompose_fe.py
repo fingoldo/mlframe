@@ -56,7 +56,7 @@ from __future__ import annotations
 from typing import cast
 import logging
 import math
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
@@ -166,6 +166,27 @@ def _numeric_cols(X: pd.DataFrame, cols: Optional[Sequence[str]]) -> list[str]:
     return [c for c in candidates if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
 
 
+def _device_columns(X: pd.DataFrame, cols: Sequence[str], kind: int, params: Sequence[Any]) -> "np.ndarray | None":
+    """``(len(cols), len(params), n)`` columns made on the device when the tuned choice says so (kernel-tuning entry ``numeric_decompose_backend``) and a device is usable, else ``None`` (the host loop runs).
+    A device fault falls back to the host with a throttled warning."""
+    if not cols or not params:
+        return None
+    from ._numeric_decompose_gpu import decompose_columns_gpu, decompose_device_chosen
+
+    if not decompose_device_chosen(len(X), len(cols), len(params)):
+        return None
+    try:
+        from ._gpu_policy import cuda_available_for_run
+
+        if cuda_available_for_run():
+            return decompose_columns_gpu([X[c].to_numpy() for c in cols], [kind] * len(params), params)
+    except Exception as exc:  # a device fault must not lose the stage
+        from mlframe.utils.log_throttle import log_throttle
+
+        log_throttle(logger, "numeric_decompose.device_failed", logging.WARNING, "numeric decompose device path failed (%s: %s); host loop", type(exc).__name__, exc)
+    return None
+
+
 @fe_timed("rounding")
 def generate_rounding_features(
     X: pd.DataFrame,
@@ -179,6 +200,9 @@ def generate_rounding_features(
     of ``X`` - no y reference.
     """
     cols = _numeric_cols(X, num_cols)
+    dev = _device_columns(X, cols, 0, list(precisions))
+    if dev is not None:
+        return pd.DataFrame({engineered_name_rounding(c, p): dev[i, j].astype(_crit_np_dtype()) for i, c in enumerate(cols) for j, p in enumerate(precisions)}, index=X.index)
     from ._edge_pool import map_on_edge_pool
 
     def _one_column(c):
@@ -203,6 +227,9 @@ def generate_digit_features(
     :func:`engineered_name_digit`. Pure function of ``X`` - no y reference.
     """
     cols = _numeric_cols(X, num_cols)
+    dev = _device_columns(X, cols, 1, list(digit_positions))
+    if dev is not None:
+        return pd.DataFrame({engineered_name_digit(c, k): dev[i, j] for i, c in enumerate(cols) for j, k in enumerate(digit_positions)}, index=X.index)
     from ._edge_pool import map_on_edge_pool
 
     def _one_column(c):

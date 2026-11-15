@@ -7,7 +7,7 @@ Versions (all kept; every one is bit-identical to the host kernel, because every
 host kernel's order):
 
 * ``_block_counts_packed`` (float32 columns, the default): one kernel (``pack_keys``) packs the target's two tail flags are packed into the low bits of a 64-bit key together with the order-preserving bits of the value and
-  the column number, one flat array of keys is sorted with no payload, and ONE kernel (``tail_counts``, a block per column) walks the sorted keys, finds each run, forms its average rank in
+  the column number, one flat array of keys is sorted with no payload, and ONE kernel (``tail_counts``, a block per column segment) walks the sorted keys, finds each run, forms its average rank in
   double as the host does and adds the four counts in shared memory. Win axis: the sort is the only heavy step; there is no permutation of the target, no gather and no intermediate table.
 * ``_block_counts_chain`` (float64 columns, and the reference the tests compare against): ``argsort`` of each column, then about twenty array operations with ``(b, n)`` int64 tables in
   global memory. Slower; kept for float64 input, which the 64-bit key cannot hold.
@@ -54,14 +54,15 @@ extern "C" __global__ void pack_keys(const {REAL}* __restrict__ x, const unsigne
     keys[t] = ((unsigned long long)c << 34) | ((unsigned long long)ordered << 2) | vflag[r];
 }
 
-extern "C" __global__ void tail_counts(const unsigned long long* __restrict__ keys, const long long n, const {ACC} hi, const {ACC} lo, const int b, int* __restrict__ out) {
-    __shared__ int acc[4];
+extern "C" __global__ void tail_counts(const unsigned long long* __restrict__ keys, const long long n, const {ACC} hi, const {ACC} lo, const int b, const long long seg, int* __restrict__ out) {
     const int c = blockIdx.x;
-    if (threadIdx.x < 4) acc[threadIdx.x] = 0;
-    __syncthreads();
+    const long long begin = (long long)blockIdx.y * seg;
+    long long stop = begin + seg;
+    if (stop > n) stop = n;
     const unsigned long long* col = keys + (long long)c * n;
     int n_u_hi = 0, both_hi = 0, n_u_lo = 0, both_lo = 0;
-    for (long long i = threadIdx.x; i < n; i += blockDim.x) {
+    // a run belongs to its first element, wherever the segments cut the column; the walk to the end of a run may leave the segment, which only reads
+    for (long long i = begin + threadIdx.x; i < stop; i += blockDim.x) {
         const unsigned long long k0 = col[i] >> 2;
         if (i > 0 && (col[i - 1] >> 2) == k0) continue;  // inside a run: its first element owns it
         long long e = i;
@@ -75,12 +76,18 @@ extern "C" __global__ void tail_counts(const unsigned long long* __restrict__ ke
         if (u > hi) { n_u_hi += (int)(e - i); both_hi += cnt_hi; }
         if (u < lo) { n_u_lo += (int)(e - i); both_lo += cnt_lo; }
     }
-    atomicAdd(&acc[0], n_u_hi);
-    atomicAdd(&acc[1], both_hi);
-    atomicAdd(&acc[2], n_u_lo);
-    atomicAdd(&acc[3], both_lo);
-    __syncthreads();
-    if (threadIdx.x < 4) out[threadIdx.x * b + c] = acc[threadIdx.x];
+    for (int o = 16; o > 0; o >>= 1) {
+        n_u_hi += __shfl_down_sync(0xffffffffu, n_u_hi, o);
+        both_hi += __shfl_down_sync(0xffffffffu, both_hi, o);
+        n_u_lo += __shfl_down_sync(0xffffffffu, n_u_lo, o);
+        both_lo += __shfl_down_sync(0xffffffffu, both_lo, o);
+    }
+    if ((threadIdx.x & 31) == 0) {                          // integer adds: the totals do not depend on the order of the blocks and warps
+        atomicAdd(&out[0 * b + c], n_u_hi);
+        atomicAdd(&out[1 * b + c], both_hi);
+        atomicAdd(&out[2 * b + c], n_u_lo);
+        atomicAdd(&out[3 * b + c], both_lo);
+    }
 }
 """
 _SRC = render(_SRC, real=np.float32)  # the packed path takes float32 columns only; {ACC} is double (the rank is compared with the tail quantile)
@@ -112,6 +119,17 @@ def _block_counts_chain(cp, x, v_d, n: int, hi: float, lo: float) -> np.ndarray:
     return np.asarray(cp.stack([u_hi.sum(axis=1), (u_hi & (vs > hi)).sum(axis=1), u_lo.sum(axis=1), (u_lo & (vs < lo)).sum(axis=1)]).get(), dtype=np.int64)
 
 
+_MIN_SEGMENT_ROWS = 4096  # a block is not worth fewer rows than this
+_BLOCKS_PER_SM = 8
+
+
+def _segments_for(cp, b: int, n: int) -> int:
+    """Segments per column so that ``b * segments`` blocks fill the card (``_BLOCKS_PER_SM`` per multiprocessor), none shorter than ``_MIN_SEGMENT_ROWS`` rows."""
+    sms = int(cp.cuda.Device().attributes["MultiProcessorCount"])
+    want = -(-_BLOCKS_PER_SM * sms // max(1, b))
+    return int(max(1, min(want, n // _MIN_SEGMENT_ROWS)))
+
+
 def _block_counts_packed(cp, x, vflag, n: int, hi: float, lo: float) -> np.ndarray:
     """``(4, b)`` counts of one float32 block ``x`` ``(b, n)``: pack, sort the flat keys without a payload, count in one kernel."""
     b = int(x.shape[0])
@@ -127,7 +145,9 @@ def _block_counts_packed(cp, x, vflag, n: int, hi: float, lo: float) -> np.ndarr
     kernel = module.get_function("tail_counts")
     out = cp.zeros((4, b), dtype=cp.int32)
     threads = block_size_for(kernel, work_items=n)
-    kernel((b,), (threads,), (sorted_keys, np.int64(n), np.float64(hi), np.float64(lo), np.int32(b), out))  # Intentional float64: tail quantiles are compared with a double rank
+    segments = _segments_for(cp, b, n)
+    seg = -(-n // segments)
+    kernel((b, segments), (threads,), (sorted_keys, np.int64(n), np.float64(hi), np.float64(lo), np.int32(b), np.int64(seg), out))  # Intentional float64: tail quantiles are compared with a double rank
     return np.asarray(out.get(), dtype=np.int64)
 
 

@@ -71,3 +71,15 @@ def test_packed_kernel_equals_the_chain_version_on_float32(n):
     packed = gpu._block_counts_packed(cp, x, vflag, n, hi, lo)
     chain = gpu._block_counts_chain(cp, x, cp.asarray(v), n, hi, lo)
     np.testing.assert_array_equal(packed, chain)
+
+
+@pytest.mark.parametrize("min_rows", [64, 1000])
+def test_many_segments_cut_runs_and_change_nothing(monkeypatch, min_rows):
+    """Segments of 64 or 1000 rows cut the long tie runs of the sorted keys; a run belongs to its first element, so every count is the host's."""
+    cols, v = _columns(20000, np.float32, seed=11)
+    want = gpu._host(cols, v)
+    monkeypatch.setattr(gpu, "_MIN_SEGMENT_ROWS", min_rows)
+    monkeypatch.setattr(gpu, "_BLOCKS_PER_SM", 64)
+    got = gpu.tail_dependence_columns_device(cols, v, 0.95)
+    assert got is not None
+    np.testing.assert_array_equal(got, want)

@@ -75,9 +75,9 @@ _RECIPES: dict = {
     "_batch_mi_noise_gate_bits.py::_PACK_SRC": lambda s: [
         (f"DT={c}", _fill(s, **{"{DT}": c}), ("-DCAP=32", "-DNYC=4")) for c in ("unsigned char", "unsigned short", "int")
     ],
-    "_family_maxt_cuda_bits.py::_SOURCE_V2": lambda s: [(f"{r} NY1=4", _fill(s, **{"{REAL}": r}), ("-DNY1=4",)) for r in _REAL_TYPES],
+    "_family_maxt_cuda_bits.py::_SOURCE_V2": lambda s: [(f"{r} NY1=4", _fill(s, **{"{REAL}": r, "{ACC}": "double"}), ("-DNY1=4",)) for r in _REAL_TYPES],
     "_family_maxt_cuda_bits.py::_SOURCE_V3": lambda s: [
-        (f"{r} NY1={ny1} PB={pb} CAP={cap}", _fill(s, **{"{REAL}": r}), (f"-DNY1={ny1}", f"-DPB={pb}", f"-DCAP={cap}"))
+        (f"{r} NY1={ny1} PB={pb} CAP={cap}", _fill(s, **{"{REAL}": r, "{ACC}": "double"}), (f"-DNY1={ny1}", f"-DPB={pb}", f"-DCAP={cap}"))
         for r in _REAL_TYPES
         for ny1, pb, cap in ((1, 4, 8), (2, 2, 8), (1, 2, 2), (3, 2, 5), (4, 2, 4), (2, 4, 4), (1, 4, 4))
     ],
@@ -102,9 +102,20 @@ _RECIPES: dict = {
     ],
     "_pair_mi_perm_cuda.py::_SRC": lambda s: [(f"KB={kb}", _fill(s, **{"{ACC}": "double"}), (f"-DKB={kb}",)) for kb in (1, 4, 8)],
     "_fe_batched_mi_cmi.py::_BATCHED_JOINT_ENTROPY_SRC": lambda s: [(xt, _fill(s, **{"{ACC}": "double", "{XT}": xt}), ()) for xt in ("long long", "unsigned char")],
-    "_hsic_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "EXPF": "expf" if r == "float" else "exp"}), ()) for r in _REAL_TYPES],
+    "_parity_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
+    "_dcor_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
+    "_hsic_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "EXPF": "expf" if r == "float" else "exp"}), ()) for r in _REAL_TYPES],
+    "_pair_residual_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
+    "_relaxmrmr_pair_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],
+    "_rolling_window_gpu.py::_SRC": lambda s: [(tt, _fill(s, **{"{TT}": tt, "{ACC}": "double"}), ()) for tt in ("long long", "double")],
+    "_cupy_polynom_optimizer.py::_BF_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "{ATAN2}": "atan2f" if r == "float" else "atan2", "{LOG}": "logf" if r == "float" else "log", "{FABS}": "fabsf" if r == "float" else "fabs"}), ("--fmad=false",)) for r in _REAL_TYPES],
+    "_fe_batched_mi.py::_MI_FROM_CODES_TILE_SRC": lambda s: [(ct, _fill(s, **{"{ACC}": "double", "{CT}": ct}), ()) for ct in ("long long", "unsigned char")],
+    "_order_stats_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
+    "_synergy_combo_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],
+    "_added_information_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CT}": ct, "{ACC}": "double"}), ()) for ct in ("signed char", "int")],
+    "_residual_rescue_gpu.py::_SCORE_SRC": lambda s: [(qt, _fill(s, **{"{QT}": qt, "{ACC}": "double"}), ()) for qt in ("signed char", "int")],
     "_lof_gpu.py::_SRC": lambda s: [
-        (f"{r} k={k} p={p}", _fill(s, **{"{REAL}": r, "{ACC}": "double", "{K}": str(k), "{P}": str(p)}), ()) for r in _REAL_TYPES for k, p in ((20, 3), (64, 16))
+        (f"{r} k={k} p={p}", _fill(s, **{"{REAL}": r, "{ACC}": "double", "{K}": str(k), "{P}": str(p), "{SINGLE_FILTER}": "1" if r == "float" else "0"}), ()) for r in _REAL_TYPES for k, p in ((20, 3), (64, 16))
     ],
     "_modular_codes_gpu.py::_SRC": lambda s: [(t, _define(SRC_T=t) + _fill(s, **{"{REAL}": "float", "{ACC}": "double"}), ()) for t in _REAL_TYPES],
     "_family_maxt_counts_device.py::_SRC": lambda s: [("MAXC=64", _fill(s, **{"MAXC": "64"}), ())],
@@ -112,7 +123,7 @@ _RECIPES: dict = {
         (f"{x}/{y}", _fill(s, **{"{XT}": x, "{YT}": y}), ()) for x, y in (("short", "signed char"), ("long long", "int"), ("unsigned char", "unsigned char"))
     ],
     "_null_max_perm_gpu.py::_SRC": lambda s: [(x, _fill(s, **{"{XT}": x, "{REAL}": "float", "{ACC}": "double"}), ()) for x in _REAL_TYPES],
-    "_offset_product_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"__NSUB__": "2000", "__NF__": "8", "__THREADS__": "256"}), ())],
+    "_offset_product_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"__NSUB__": "2000", "__NF__": "8", "__THREADS__": "256", "{ACC}": "double"}), ())],
     "_orthogonal_univariate_fe/_extra_basis_fourier_cuda.py::_SRC": lambda s: [
         (r, _fill(s, **{"{MUL_RN}": "__fmul_rn" if r == "float" else "__dmul_rn", "{REAL}": r, "{ACC}": "double"}), ()) for r in _REAL_TYPES
     ],

@@ -82,6 +82,10 @@ def module_file(name: str) -> Path | None:
     for cand in FILTERS.glob(f"*/{name}/__init__.py"):
         if cand.is_file():
             return cand
+    # last: the shared kernel-tuning-cache package, whose sweep modules are the dispatchers of some families (``KTC_DISPATCHERS``)
+    cand = FILTERS.parent / "_benchmarks" / "kernel_tuning_cache" / f"{name}.py"
+    if cand.is_file():
+        return cand
     return None
 
 
@@ -107,6 +111,18 @@ KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 #: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
 #: (its own thresholds, variants, block size) registers itself instead.
 KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_cupy_polynom_optimizer": (
+        "_polynom_search_backend",
+        "the polynom_generation_backend sweep times one generation of 100 candidates on the host (_eval_coef_pair_batch) and on the device (_score_generation_gpu) per row count and requires the same top candidates; the pair search asks it before taking the cupy_kernel route",
+    ),
+    "_offset_product_fe": (
+        "_auto_tune_sweeps_c",
+        "the njit/prange scan_offset_products and the fused CUDA scan (scan_offset_products_gpu) are timed per (scan rows, pool columns) cell by the offset_product_scan sweep, which _offset_product_fe._scan_all reads through lookup_offset_scan_backend",
+    ),
+    "_gpu_resident_fe": (
+        "_gpu_resident_k_chunk_ktc",
+        "the candidate chunk width (K) of the resident generation + scoring loop is the kernel_tuner entry gpu_k_chunk of _gpu_resident_k_chunk_ktc, swept per host over the row count",
+    ),
     "_hermite_fe_mi": (
         "_resident_candidate_mi_ktc",
         "its resident plug-in MI (_plugin_mi_classif_batch_cuda_resident) is timed against the host njit batch MI it replaces by fe_gate_resident_candidate_mi_crossover (kernel_tuner over (n, k)); the resident path engages only where measured faster",
@@ -136,6 +152,18 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: Device modules whose host twin (the numba kernels the same decision runs when the device is not taken) lives in another module: backend -> (twin module, why). The CPU-kernel point is met
 #: when the twin module carries an ``@njit`` kernel (``cpu_twin_problems`` checks it, so a stale mapping fails the contract test).
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_cupy_polynom_optimizer": (
+        "_numba_polynom_optimizer",
+        "run_numba_kernel_search (one @njit(parallel=True) kernel inlining the polynomial evaluation, the six binary functions and the plug-in MI) is the all-host twin of the same search, with the same return contract and the same candidate scoring",
+    ),
+    "_offset_product_fe": (
+        "_numba_utils_offset",
+        "scan_offset_products (njit, prange over the tasks) is the host scan _offset_product_fe._scan_all runs when the device is not chosen, and the reference the fused CUDA scan is timed against",
+    ),
+    "_gpu_resident_fe": (
+        "hermite_fe",
+        "_gpu_resident_shared.cpu_pair_candidate_mi builds the same candidate grid with numpy and scores it with the production njit batch MI (plugin_mi_classif_batch_njit of the hermite_fe package); it is the baseline the resident path is checked against",
+    ),
     "batch_pair_mi_gpu": (
         "info_theory",
         "the host backends of the dispatcher are the njit batch_pair_mi_serial / batch_pair_mi_prange kernels of the info_theory package, the numerical reference every device backend is checked against",
@@ -199,7 +227,8 @@ def ktc_dispatch_problems(name: str) -> list[str]:
 
 
 CRIT_DTYPE = re.compile(r"_crit_np_dtype|crit_float_dtype|Intentional float64")
-BLOCK_STREAMING = re.compile(r"block_cols|BLOCK_COLS|column block|best_pair_streamed")
+#: Device memory bounded by blocks: column blocks, or row blocks for a kernel whose operand is one small column set and many rows (a row-streamed scorer such as the LOF transform).
+BLOCK_STREAMING = re.compile(r"block_cols|BLOCK_COLS|column block|row block|best_pair_streamed")
 HOST_PROFILE = re.compile(r"cProfile")
 GPU_PROFILE = re.compile(r"\bnsys\b|\bncu\b|\bnvprof\b")
 GPU_OCCUPANCY = re.compile(r"occupancy", re.IGNORECASE)
@@ -215,6 +244,28 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_target_encoding_order_stats": ("_order_stats_gpu",),
+    "_temporal_agg_fe_rolling": ("_rolling_window_gpu",),
+    "_periodic_fe": ("_modular_codes_gpu",),
+    "_cupy_polynom_optimizer": ("_polynom_search_backend",),
+    "_relaxmrmr_pair_loop": ("_relaxmrmr_pair_gpu",),
+    "_hermite_fe_mi": ("_fe_edge_mi",),
+    "_orthogonal_triplet_fe": ("_triple_mi_gpu",),
+    "_offset_product_fe": ("_offset_product_gpu",),
+    "_parity_fe": ("_parity_gpu",),
+    "_orthogonal_dcor_fe": ("_dcor_gpu",),
+    "_family_maxt_gate": ("_family_maxt_cuda_bits", "_family_maxt_cuda", "_family_maxt_stack", "_family_maxt_stream", "_family_maxt_null_v2_njit"),
+    "_orthogonal_hsic_fe": ("_hsic_gpu",),
+    "_pair_residual_screen": ("_pair_residual_gpu",),
+    "_fe_synergy_screen": ("_synergy_combo_gpu",),
+    "_cat_target_encoding_and_weighted": ("_cat_weighted_pair_gpu",),
+    "_fourier_batch_gpu": ("_fourier_detect_batch", "_fourier_detect_gpu_resident", "_fourier_fused_gpu"),
+    "_extra_basis_fourier_cuda": ("_fourier_block_host",),
+    "_dcd_pair_su_batch": ("_dcd_pair_su_gpu",),
+    "_added_information_gate": ("_added_information_gpu",),
+    "_cat_pair_joint_njit": ("_cat_pair_joint_gpu",),
+    "_numeric_decompose_fe": ("_numeric_decompose_gpu",),
+    "_extra_fe_families": ("_extra_fe_families_dispersion", "_conditional_bin_moments"),
     "_fe_interaction_prerank": ("_fe_interaction_prerank_kernels",),
     "_residual_rescue_fe": ("_residual_rescue_gpu", "_residual_rescue_ktc"),
     "batch_pair_mi_gpu": ("_batch_pair_mi_cuda_kernels",),
@@ -224,6 +275,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_orthogonal_copula_mi_fe": ("_orthogonal_copula_gpu",),
     "_orthogonal_tail_dependence_fe": ("_tail_dependence_gpu",),
     "_lof_fe": ("_lof_gpu",),
+    "_pairwise_modular_fe": ("_pairwise_modular_rank_gpu", "_pairwise_modular_resident"),
     "_fe_batched_mi": (
         "_fe_batched_mi_blocks",
         "_fe_batched_mi_cmi",

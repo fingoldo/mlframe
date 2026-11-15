@@ -18,3 +18,13 @@ Only rows whose 21 order statistics hold at most `n_bins` distinct values come b
 
 1500 candidates x 100000 rows: pool + codes 1.29 s (host pool, device coder) -> 0.83 s; codes equal to the host pool's in every row. Warm family wall 2.90 -> 2.54 s
 (3.29 s before the row-matrix change), cold 5.66 -> 5.07 s, same six columns. `MLFRAME_MODULAR_CODES_DEVICE=0|1` forces the path; any device fault keeps the host pool.
+
+## 2026-11-15: family record with hardware counters (device twin `_modular_codes_gpu`, full figures in its record)
+
+The residue / sine / cosine family of `_periodic_fe` (host kernels `_modular_njit`, `_modular_all_ops_njit`, `_modular_all_ops_into`) runs on the device through `_modular_codes_gpu`, which owns the kernel `modular_all_ops`, the kernel-tuning entry choosing host or device by rows and sources, and the column-block streaming (a block of source columns sized from the free pool, one launch per block, the next block built by a host prefetch thread). Measured on the GTX 1050 Ti (sm_61, double rate 1:32), 16 sources x 400000 rows x 5 periods, elevated process, nvprof hardware counters:
+
+- cProfile of one call: 0.267 s, 4189 function calls; the device sort waits 0.127 s for the queued kernels, the blocking copies back 0.093 s, the coder's own Python 0.061 s.
+- Launches per call: one `modular_all_ops` launch per source column block, then the resident quantile coder (about 20 launches per block); the three candidates of every period come from that single launch, not from three.
+- Occupancy: achieved 0.51 before the change below, multiprocessor activity 98 to 99 percent; double FLOP efficiency 69 percent of the 1:32 peak, i.e. the kernel was bound by double-precision sincos, device-memory bandwidth only 3 to 9 GB/s.
+- Throughput after taking sine and cosine of the double-formed angle at the stored float type: 15.2 ms per launch (was 38 ms), 45.6 ms of the call's 640 ms GPU time (7 percent); the quantile coder (22 percent), radix histograms (35 percent) and the copy back to host (20 percent) dominate the whole-GPU utilization.
+- Wall: host pool against device pool at 400000 rows 0.195 s / 0.072 s, at 100000 rows 0.057 s / 0.025 s; below 5000 rows the host wins and the tuner keeps it.

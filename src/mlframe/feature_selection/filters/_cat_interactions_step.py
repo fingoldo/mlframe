@@ -576,14 +576,10 @@ def _run_cat_interactio_use_gpu(use_gpu, use_weights, verbose, data, pairs_a, pa
         if use_weights:
             if verbose:
                 logger.info("cat-FE: pair search with sample weights (CPU prange)")
-            joint_mi_arr, ii_arr, n_uniq_arr = _pair_search_kernel_weighted_njit(
-                factors_data=data,
-                pairs_a=pairs_a, pairs_b=pairs_b,
-                marginal_mi=marginal_mi_full,
-                nbins=nbins,
-                classes_y=classes_y,
-                weights=np.asarray(weights, dtype=_crit_np_dtype()),
-                dtype=dtype,
+            from mlframe.feature_selection.filters._cat_weighted_pair_gpu import weighted_pair_search_dispatch
+
+            joint_mi_arr, ii_arr, n_uniq_arr = weighted_pair_search_dispatch(
+                _pair_search_kernel_weighted_njit, data, pairs_a, pairs_b, marginal_mi_full, nbins, classes_y, np.asarray(weights, dtype=_crit_np_dtype()), dtype,
             )
         else:
             joint_mi_arr, ii_arr, n_uniq_arr = _pair_search_kernel_njit(

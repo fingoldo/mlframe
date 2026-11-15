@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 _QBIN_CODERS: dict = {}
+_QBIN_TABLE_BYTES = 24 * 1024  # shared bytes of the staged edge-key table per block
+_QBIN_BLOCKS_PER_SM = 8  # grid-stride blocks per SM (interleaved sweep at 100000 x 100: 2 -> 2.3 ms, 4 -> 1.3, 8 -> 1.16, 16 -> 1.19)
 
 # One coder source for both column types. {REAL} is the column type, {KEY} the signed integer type of its order-preserving key, {AS_INT} the bit reinterpretation and {SIGN} the mask that
 # flips the magnitude bits of a negative: for double the key is 64-bit, for float it is 32-bit, so a float32 column is read at half the width and compared on the same integer pipeline.
@@ -28,22 +30,32 @@ __device__ __forceinline__ {KEY} mono_key({REAL} v) {
     return b >= 0 ? b : (b ^ {SIGN});            // signed-compare monotonic map
 }
 extern "C" __global__ void qbin_code(const {REAL}* __restrict__ x, const {KEY}* __restrict__ edge_keys,
-                                     const long long n, const long long K, const int ne1,
+                                     const long long n, const long long K, const int ne1, const int slab,
                                      {OUT}* __restrict__ codes) {
-    // edge_keys is (ne1, K) with non-interior slots pre-set to the key maximum host-side (compare always false)
-    // and the binary-column top-edge duplicated into the extra last row - so the whole coder is one
-    // branch-free strided int-compare loop.
-    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
-    long long total = n * K;
-    if (t >= total) return;
-    {KEY} vk = mono_key(x[t]);
-    long long idx = t % K + K;                  // start at j=1: j=0 is never interior (== column min)
-    long long c = 0;
-    #pragma unroll 7
-    for (int j = 1; j < ne1; ++j, idx += K) {
-        c += (long long)(vk >= edge_keys[idx]);
+    // edge_keys is (ne1, K): non-interior slots hold the key maximum (never counted), the binary-column top edge is the extra last row, and rows 1.. are sorted ascending per column,
+    // so the number of keys <= x is a binary search. blockIdx.y owns a slab of `slab` columns whose (ne1 - 1, w) key table is staged in shared memory once per block; the blocks of
+    // blockIdx.x stride over the rows of the slab. The count of keys <= x does not depend on their order, so the codes are those of the former linear scan.
+    extern __shared__ {KEY} tab[];
+    const int m = ne1 - 1;
+    const long long c0 = (long long)blockIdx.y * slab;
+    const int w = (int)min((long long)slab, K - c0);
+    for (int s = threadIdx.x; s < m * w; s += blockDim.x) tab[s] = edge_keys[(long long)(1 + s / w) * K + c0 + s % w];
+    __syncthreads();
+    const long long total = n * w;
+    const bool small = total <= 0x7FFFFFFFLL;
+    for (long long e = (long long)blockIdx.x * blockDim.x + threadIdx.x; e < total; e += (long long)gridDim.x * blockDim.x) {
+        long long row;
+        int col;
+        if (small) { row = (long long)((unsigned int)e / (unsigned int)w); col = (int)((unsigned int)e - (unsigned int)row * (unsigned int)w); }
+        else { row = e / w; col = (int)(e - row * w); }
+        const {KEY} vk = mono_key(x[row * K + c0 + col]);
+        int lo = 0, hi = m;
+        while (lo < hi) {
+            const int mid = (lo + hi) >> 1;
+            if (vk >= tab[mid * w + col]) lo = mid + 1; else hi = mid;
+        }
+        codes[row * K + c0 + col] = ({OUT})lo;
     }
-    codes[t] = ({OUT})c;
 }
 """
 _QBIN_VARIANTS = {
@@ -92,7 +104,9 @@ def _edge_keys(cp: Any, edges_all: Any, interior: Any, ndistinct: Any, real: str
     keys = cp.where(interior, keys, imax)  # fold the interior mask into the key table (false -> never counted)
     top = cp.where(eb[-1] >= 0, eb[-1], eb[-1] ^ sign)
     extra = cp.where(ndistinct == 2, top, imax)  # fold the ndistinct==2 extra count into one appended row
-    return cp.ascontiguousarray(cp.concatenate([keys, extra[None, :]], axis=0).astype(kdt, copy=False))
+    table = cp.concatenate([keys, extra[None, :]], axis=0).astype(kdt, copy=False)
+    table[1:] = cp.sort(table[1:], axis=0)  # row 0 is never read; the rest ascending per column for the coder's binary search
+    return cp.ascontiguousarray(table)
 
 
 def _edges_of_block(cp: Any, Xd: Any, nbins: int, single: bool, radix: bool) -> Any:
@@ -135,11 +149,13 @@ def _codes_of_block(cp: Any, Xd: Any, edges_all: Any, single: bool, byte_codes: 
         real = "float" if single else "double"
         kern = _get_qbin_coder_kernel(real, "unsigned char" if byte_codes else "long long")
         codes = cp.empty((n, K), dtype=cp.uint8 if byte_codes else cp.int64)
-        total = n * K
-        threads = block_size_for(kern, work_items=total)
-        blocks = (total + threads - 1) // threads
         keys = _edge_keys(cp, edges_all, interior, ndistinct, real)
-        kern((int(blocks),), (threads,), (Xd, keys, np.int64(n), np.int64(K), np.int32(keys.shape[0]), codes))
+        m = int(keys.shape[0]) - 1
+        slab = int(min(K, max(32, (_QBIN_TABLE_BYTES // (m * keys.dtype.itemsize)) // 32 * 32)))  # columns per block row: the staged table stays within _QBIN_TABLE_BYTES
+        threads = block_size_for(kern, dyn_smem=m * slab * keys.dtype.itemsize, work_items=n * slab)
+        sms = int(cp.cuda.Device().attributes["MultiProcessorCount"])
+        grid_x = int(max(1, min((n * slab + threads - 1) // threads, sms * _QBIN_BLOCKS_PER_SM)))
+        kern((grid_x, (K + slab - 1) // slab), (threads,), (Xd, keys, np.int64(n), np.int64(K), np.int32(keys.shape[0]), np.int32(slab), codes), shared_mem=m * slab * keys.dtype.itemsize)
         return codes
     except Exception:
         logger.debug("qbin fused coder failed; broadcast-loop fallback", exc_info=True)

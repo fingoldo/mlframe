@@ -38,7 +38,7 @@ _SRC = render(r"""
 extern "C" __global__
 void pair_mi_perm(const unsigned char* __restrict__ cols, const long long* __restrict__ pair_a, const long long* __restrict__ pair_b,
                   const int* __restrict__ nbins, const unsigned char* __restrict__ yperm, const {ACC}* __restrict__ freqs_y,
-                  const long long n, const int n_pairs, const int K, const int ky, const long long cap, const {ACC} inv_n,
+                  const long long n, const long long stride, const int n_pairs, const int K, const int ky, const long long cap, const {ACC} inv_n,
                   {ACC}* __restrict__ mi_out) {
     extern __shared__ int sh[];
     __shared__ {ACC} warp_sums[32];
@@ -55,23 +55,46 @@ void pair_mi_perm(const unsigned char* __restrict__ cols, const long long* __res
     const int cells = joint * ky;
     int* fx = sh + KB * cells;
     int* hist = sh;
-    const unsigned char* ca = cols + a * n;
-    const unsigned char* cb = cols + b * n;
+    const unsigned char* ca = cols + a * stride;    // rows of ``cols`` and ``yperm`` are padded to ``stride`` (a multiple of 4), so every row starts on a 4-byte boundary
+    const unsigned char* cb = cols + b * stride;
     const int nbb = (int)nb_b;
     for (int i = tid; i < joint; i += nt) fx[i] = 0;
     __syncthreads();
-    for (long long i = tid; i < n; i += nt) atomicAdd(&fx[(int)ca[i] * nbb + (int)cb[i]], 1);
+    const unsigned int* ca4 = (const unsigned int*)ca;
+    const unsigned int* cb4 = (const unsigned int*)cb;
+    const long long n4 = n >> 2;
+    for (long long g = tid; g < n4; g += nt) {
+        const unsigned int ra = ca4[g], rb = cb4[g];
+#pragma unroll
+        for (int u = 0; u < 4; ++u) atomicAdd(&fx[(int)((ra >> (8 * u)) & 0xffu) * nbb + (int)((rb >> (8 * u)) & 0xffu)], 1);
+    }
+    for (long long i = (n & ~3LL) + tid; i < n; i += nt) atomicAdd(&fx[(int)ca[i] * nbb + (int)cb[i]], 1);
     __syncthreads();
     // KB targets share one pass over the rows: the joint code of a row is formed once and feeds KB shared histograms, so the byte loads and the index arithmetic are paid per KB targets
     for (int k0 = 0; k0 < K; k0 += KB) {
         const int kb = (K - k0 < KB) ? (K - k0) : KB;
         for (int i = tid; i < kb * cells; i += nt) hist[i] = 0;
         __syncthreads();
-        for (long long i = tid; i < n; i += nt) {
+        // four rows per thread: one 4-byte load of the two code columns and of each of the KB targets, then four counting steps
+        for (long long g = tid; g < n4; g += nt) {
+            const unsigned int ra = ca4[g], rb = cb4[g];
+            unsigned int yv[KB];
+            #pragma unroll
+            for (int q = 0; q < KB; ++q) yv[q] = (q < kb) ? ((const unsigned int*)(yperm + (long long)(k0 + q) * stride))[g] : 0u;
+            #pragma unroll
+            for (int u = 0; u < 4; ++u) {
+                const int jc = ((int)((ra >> (8 * u)) & 0xffu) * nbb + (int)((rb >> (8 * u)) & 0xffu)) * ky;
+                #pragma unroll
+                for (int q = 0; q < KB; ++q) {
+                    if (q < kb) atomicAdd(&hist[q * cells + jc + (int)((yv[q] >> (8 * u)) & 0xffu)], 1);
+                }
+            }
+        }
+        for (long long i = (n & ~3LL) + tid; i < n; i += nt) {
             const int jc = ((int)ca[i] * nbb + (int)cb[i]) * ky;
             #pragma unroll
             for (int q = 0; q < KB; ++q) {
-                if (q < kb) atomicAdd(&hist[q * cells + jc + (int)yperm[(long long)(k0 + q) * n + i]], 1);
+                if (q < kb) atomicAdd(&hist[q * cells + jc + (int)yperm[(long long)(k0 + q) * stride + i]], 1);
             }
         }
         __syncthreads();
@@ -144,10 +167,13 @@ def _launch_pairs(
     """Upload the byte columns, the pair index vectors and the targets of one set of pairs and run the kernel once: the ``(K, n_pairs)`` MI matrix."""
     n = int(factors_data.shape[0])
     K, ky = int(y_perms.shape[0]), int(freqs_y.shape[0])
-    cols = cp.asarray(np.ascontiguousarray(factors_data.T, dtype=np.uint8))
+    stride = (n + 3) & ~3  # rows padded to 4 bytes for the 4-byte loads of the kernel; the pad is never read as a row
+    cols = cp.zeros((int(factors_data.shape[1]), stride), dtype=cp.uint8)
+    cols[:, :n] = cp.asarray(np.ascontiguousarray(factors_data.T, dtype=np.uint8))
     d_a, d_b = cp.asarray(a), cp.asarray(b)
     d_nb = cp.asarray(nb.astype(np.int32))
-    d_y = cp.asarray(np.ascontiguousarray(y_perms, dtype=np.uint8))
+    d_y = cp.zeros((K, stride), dtype=cp.uint8)
+    d_y[:, :n] = cp.asarray(np.ascontiguousarray(y_perms, dtype=np.uint8))
     d_fy = cp.asarray(np.ascontiguousarray(freqs_y, dtype=np.float64))  # Intentional float64: frequency vector of the MI formula (kernel contract double*)
     out = cp.empty((K, n_pairs), dtype=cp.float64)  # Intentional float64: MI output buffer (kernel contract double*)
     kb = _targets_per_pass(max_joint, ky, K)
@@ -166,6 +192,7 @@ def _launch_pairs(
             d_y,
             d_fy,
             np.int64(n),
+            np.int64(stride),
             np.int32(n_pairs),
             np.int32(K),
             np.int32(ky),

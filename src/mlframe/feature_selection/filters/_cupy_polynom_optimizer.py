@@ -28,6 +28,10 @@ DEFAULTS (batch_size=100, elitism_k=10, sigma_frac=0.1) come from the 2026-07-15
 speed->restarts conversion closes the ratio_regime gap entirely (bs=100 x 15 restarts finds it 3/3
 seeds at 0.465-0.487 in 102.9s vs cma_batch's 4/5 at 492.5s full-budget wall).
 
+Streaming: a generation is one column block of ``batch_size`` (100) candidates. The (n, P) matrices H_A, H_B, one binary function's result and its codes exist for one block of P columns at a time
+(3 matrices of n x P x 4 bytes plus the byte codes: 130 MB at 100000 rows), the basis matrices are built once per pair, and nothing grows with the number of generations; the binner underneath
+splits further into column blocks when the free VRAM is short (``batched_quantile_bin_gpu``).
+
 Public entry point: ``run_cupy_kernel_search`` - same return contract as ``run_numba_kernel_search`` /
 ``_run_cma_search_batch`` so the pair-optimiser dispatch swaps it in via ``optimizer="cupy_kernel"``.
 Limitations (same set as the numba kernel): plugin MI only, the 4 polynomial bases only, no
@@ -40,6 +44,8 @@ from typing import Optional
 from collections.abc import Sequence
 
 import numpy as np
+
+from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +91,7 @@ def _build_basis(cp, x, degree: int, basis_id: int, dtype):
 
 
 def _bf_apply_gpu(cp, bf_name: str, A, Bm):
-    """Elementwise binary function on (n, P) device matrices, bit-parity with _DEFAULT_BIN_FUNCS."""
+    """Elementwise binary function on (n, P) device matrices, bit-parity with _DEFAULT_BIN_FUNCS; the cupy-op reference of the fused ``bf_apply`` kernel (``_bf_apply_checked``) that the search runs."""
     if bf_name == "mul":
         return A * Bm
     if bf_name == "add":
@@ -113,25 +119,59 @@ def _rank_bin_batched_gpu(cp, M, n_bins: int):
     arguably more correct on genuine ties; the e2e winner-recovery regressions pin the quality bar."""
     from ._fe_batched_mi import batched_quantile_bin_gpu
 
-    return batched_quantile_bin_gpu(M, n_bins)
+    return batched_quantile_bin_gpu(M, n_bins, byte_codes=True)
 
 
-_ALL_FINITE_AXIS0_KERNEL = None
+_BF_SRC = render(
+    r"""
+extern "C" __global__
+void bf_apply(const {REAL}* __restrict__ A, const {REAL}* __restrict__ B, const int bf, const long long total, const int P, {REAL}* __restrict__ C, int* __restrict__ bad) {
+    // C = bf(A, B) elementwise on (n, P) row-major matrices, and bad[column] = 1 when A, B or the result holds a non-finite value in that column. The matrices are read and written once
+    // (the former chain of cupy elementwise ops made 3 to 7 passes per function, plus one reduction launch per matrix for the finiteness check). Compiled with --fmad=false so a*b+eps
+    // rounds as the separate cupy multiply and add did.
+    const long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (t >= total) return;
+    const {REAL} a = A[t];
+    const {REAL} b = B[t];
+    const {REAL} eps = ({REAL})1e-9;
+    {REAL} r;
+    if (bf == 0) r = a * b;
+    else if (bf == 1) r = a + b;
+    else if (bf == 2) r = a - b;
+    else if (bf == 3) r = a / (b == ({REAL})0.0 ? eps : b);   // _safe_div: exact sign-preserving divide, eps only at an exact zero
+    else if (bf == 4) r = {ATAN2}(a, b);
+    else {                                                    // logabs: sign(a*b + eps) * (log(|a|+eps) + log(|b|+eps))
+        const {REAL} s = a * b + eps;
+        const {REAL} sg = ({REAL})((s > ({REAL})0.0) - (s < ({REAL})0.0));
+        r = sg * ({LOG}({FABS}(a) + eps) + {LOG}({FABS}(b) + eps));
+    }
+    C[t] = r;
+    if (!isfinite(a) || !isfinite(b) || !isfinite(r)) bad[t % P] = 1;
+}
+""",
+)
+_BF_FUNCS = {"float": {"ATAN2": "atan2f", "LOG": "logf", "FABS": "fabsf"}, "double": {"ATAN2": "atan2", "LOG": "log", "FABS": "fabs"}}
+_BF_KERNELS: dict = {}
 
 
-def _get_all_finite_axis0_kernel(cp):
-    """Lazy-compiled ``cp.ReductionKernel`` fusing ``cp.isfinite(x).all(axis=0)`` into ONE kernel launch
-    (nsys, 2026-07-15: the two-kernel form - elementwise isfinite materializing a full boolean array, then
-    a separate .all() reduce - cost cupy_isfinite 5.9%% + cupy_all 10%% of GPU time in the cupy-search
-    microbench, ~480 launches each). Bit-identical (verified incl. NaN columns): 'isfinite(x)' as the map
-    expression, '&&' as the reduce, avoids ever materializing the intermediate boolean array. ~7x faster
-    isolated at (20, 20000)."""
-    global _ALL_FINITE_AXIS0_KERNEL
-    if _ALL_FINITE_AXIS0_KERNEL is None:
-        _ALL_FINITE_AXIS0_KERNEL = cp.ReductionKernel(
-            "T x", "bool y", "isfinite(x)", "a && b", "y = a", "true", "all_finite_axis0",
-        )
-    return _ALL_FINITE_AXIS0_KERNEL
+def _bf_apply_checked(cp, bf_idx: int, A, Bm):
+    """``(C, ok)``: the binary function ``_BF_ORDER[bf_idx]`` of two (n, P) device matrices in one launch, and the per-column mask of columns whose inputs and result are all finite."""
+    from pyutilz.performance.gpu_hw_launch import block_size_for
+
+    A, Bm = cp.ascontiguousarray(A), cp.ascontiguousarray(Bm)
+    real = "float" if A.dtype == cp.float32 else "double"
+    kernel = _BF_KERNELS.get(real)
+    if kernel is None:
+        src = render(_BF_SRC, real=A.dtype)
+        for key, value in _BF_FUNCS[real].items():
+            src = src.replace("{" + key + "}", value)
+        kernel = _BF_KERNELS[real] = cp.RawKernel(src, "bf_apply", options=("--fmad=false",))
+    total, P = int(A.size), int(A.shape[1])
+    C = cp.empty_like(A)
+    bad = cp.zeros(P, dtype=cp.int32)
+    threads = block_size_for(kernel, work_items=total)
+    kernel(((total + threads - 1) // threads,), (threads,), (A, Bm, np.int32(bf_idx), np.int64(total), np.int32(P), C, bad))
+    return C, bad == 0
 
 
 def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int, l2_penalty: float, direction_only: bool, bf_names: Sequence[str]):
@@ -145,8 +185,6 @@ def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
     100k GPU-strict trace showed cudaStreamSynchronize/cudaMemcpyAsync call counts consistent with this
     exact multiplicity. Selection logic (upd/where) is bit-identical, just evaluated on-device."""
     from ._fe_batched_mi import binned_mi_from_codes_gpu
-
-    all_finite0 = _get_all_finite_axis0_kernel(cp)
 
     P = Ca.shape[0]
     if direction_only:
@@ -163,14 +201,12 @@ def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
 
     HA = Ba @ Ca.T  # (n, P)
     HB = Bb @ Cb.T
-    col_finite = all_finite0(HA, axis=0) & all_finite0(HB, axis=0)
 
     best_score = cp.full(P, -cp.inf)
     best_raw = cp.zeros(P)
     best_bf = cp.full(P, -1, dtype=cp.int64)
     for k, bf in enumerate(bf_names):
-        C = _bf_apply_gpu(cp, bf, HA, HB)
-        finite = col_finite & all_finite0(C, axis=0)
+        C, finite = _bf_apply_checked(cp, _BF_ORDER.index(bf), HA, HB)
         codes = _rank_bin_batched_gpu(cp, C, n_bins)
         # kx_per_col=n_bins (codes are always in [0, n_bins) by construction of the quantile binner) skips
         # binned_mi_from_codes_gpu's int(C.max())+1 fallback - a BLOCKING device sync that nsys showed
@@ -182,6 +218,13 @@ def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
         best_raw = cp.where(upd, mi, best_raw)
         best_bf = cp.where(upd, k, best_bf)
     return cp.asnumpy(best_score), cp.asnumpy(best_raw), cp.asnumpy(best_bf)
+
+
+def device_search_preferred(n_rows: int) -> bool:
+    """Whether the kernel-tuning entry of ``_polynom_search_backend`` (host against device scoring of one generation, by row count) chooses this device search for ``n_rows`` rows."""
+    from ._polynom_search_backend import polynom_device_chosen
+
+    return polynom_device_chosen(int(n_rows))
 
 
 def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_trials: int, seed: int,

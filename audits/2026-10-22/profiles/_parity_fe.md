@@ -1,0 +1,10 @@
+# Profile record: floor-parity period scan (`_parity_fe`, device twin `_parity_gpu`)
+
+Host: GTX 1050 Ti (sm_61, 4 GiB), 8 logical cores. The first device attempt, its rejected predecessor and the design of the kernel are in `_parity_gpu.md`; this record is the family record the contract reads.
+
+## Tuner, wall clock, cProfile, counters and utilization (2026-11-14)
+`use_device_parity` no longer reads only a fixed row threshold: the numba prange scan (`_parity_mi_grid_njit` per column) and `parity_mi_grids_gpu` are swept per host over the row count in the kernel-tuning entry `parity_scan_backend` (16 timestamp-like double columns, two classes, a period-7 parity pattern), with `PARITY_DEVICE_MIN_ROWS` as the pre-sweep floor and `MLFRAME_PARITY_DEVICE=0|1` still forcing a path. The kernel text uses `{ACC}` for its all-wide types (floor of a timestamp needs the wide type, as the dtype note in the kernel says); columns go up in column blocks of 32.
+
+Measured on the sweep inputs (16 columns, numba against the whole device call with uploads), elevated process: 2,000 rows 3.4 / 3.7 ms, 5,000 rows 6.6 / 4.1 ms, 20,000 rows 19.1 / 6.7 ms, 100,000 rows 96.8 / 19.9 ms (4.9x). Agreement 3.5e-18 absolute. cProfile of the device call at 100,000 rows: the host side is the column stack (2 ms) and the uploads (1 ms); the rest is the kernel wait.
+
+Hardware counters (nvprof `--metrics`, 100,000 rows x 16 columns): `parity_mi_grid` launches per call: 1 per column block (one here), 13.6 ms of the 15.6 ms traced GPU time (87 percent; the uploads 12.8 percent); achieved occupancy 21.6 percent (100 plus registers for the 8 periods x 4 class counters per thread), double-precision efficiency 18.6, DRAM read throughput 14.2 GB/s (13 percent of the card's 112 GB/s peak bandwidth), global load efficiency 99.8 percent. Utilization: neither memory nor arithmetic is saturated; the low occupancy is the price of keeping 32 counters in registers (the design choice of the kernel); lowering the periods per block was not tried.

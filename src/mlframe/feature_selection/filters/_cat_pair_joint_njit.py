@@ -3,6 +3,8 @@
 For each pair ``(i, j)`` the two dense code columns are combined into one key (``code_i * radix_j + code_j``), re-numbered by first appearance in one pass and scored with the same njit plug-in MI core
 the per-pair path calls (``_plug_in_mi_njit``), so every value is bit-equal to ``_plug_in_mi(joint_codes, y)``. The pairs are independent, hence one ``prange`` over them instead of a Python loop
 with a kernel launch, an array allocation and a dictionary row per pair.
+
+The device twin ``_cat_pair_joint_gpu.pair_joint_mi_gpu`` (kernel-tuning entry ``cat_pair_joint_backend``) scores the pairs in blocks and uploads for each block only its column block of the code matrix.
 """
 
 from __future__ import annotations

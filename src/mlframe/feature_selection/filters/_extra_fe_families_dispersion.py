@@ -185,6 +185,7 @@ def _per_bin_mean_std(
     codes_j: np.ndarray,
     n_bins_eff: int,
     col_stats: tuple | None = None,
+    moments: tuple | None = None,
 ) -> tuple[np.ndarray, np.ndarray, float, float]:
     """Per-bin (mean, std) of the FINITE ``x_i`` values grouped by ``codes_j``.
 
@@ -197,19 +198,24 @@ def _per_bin_mean_std(
     if xi_f.size == 0:
         z = np.zeros(n_bins_eff, dtype=_crit_np_dtype())
         return z.copy(), np.ones(n_bins_eff, dtype=_crit_np_dtype()), 0.0, 1.0
-    codes_f = codes_j if all_finite else codes_j[finite_i]
+    if moments is not None:
+        # ``(count, mean, css)`` of this column from ``_conditional_bin_moments.bin_moments_dispatch`` (one launch for every x_i of an x_j on the device)
+        bin_cnt, m_raw, bin_css = moments
+        bin_mean = np.where(bin_cnt > 0.0, m_raw, global_mean)
+    else:
+        codes_f = codes_j if all_finite else codes_j[finite_i]
 
-    # Per-bin sum + count in one compiled O(n) walk (bit-identical to the two ``np.add.at`` scatter-adds it
-    # replaces - same ascending-i accumulation order - but ~10-50x faster; ``np.add.at`` was the tottime sink).
-    codes_f = np.ascontiguousarray(codes_f, dtype=np.int64)
-    xi_f = np.ascontiguousarray(xi_f, dtype=_crit_np_dtype())
-    bin_sum, bin_cnt = _bin_sum_cnt_njit(xi_f, codes_f, int(n_bins_eff))
-    bin_mean = np.where(
-        bin_cnt > 0.0, bin_sum / np.maximum(bin_cnt, 1.0), global_mean,
-    )
-    # Centred sum of squares per bin: sum((x_i - bin_mean[bin])^2). Same compiled single-pass accumulation as the
-    # ``np.add.at(bin_css, codes_f, centred*centred)`` it replaces (bit-identical order + per-row op).
-    bin_css = _bin_css_njit(xi_f, codes_f, np.ascontiguousarray(bin_mean, dtype=_crit_np_dtype()), int(n_bins_eff))
+        # Per-bin sum + count in one compiled O(n) walk (bit-identical to the two ``np.add.at`` scatter-adds it
+        # replaces - same ascending-i accumulation order - but ~10-50x faster; ``np.add.at`` was the tottime sink).
+        codes_f = np.ascontiguousarray(codes_f, dtype=np.int64)
+        xi_f = np.ascontiguousarray(xi_f, dtype=_crit_np_dtype())
+        bin_sum, bin_cnt = _bin_sum_cnt_njit(xi_f, codes_f, int(n_bins_eff))
+        bin_mean = np.where(
+            bin_cnt > 0.0, bin_sum / np.maximum(bin_cnt, 1.0), global_mean,
+        )
+        # Centred sum of squares per bin: sum((x_i - bin_mean[bin])^2). Same compiled single-pass accumulation as the
+        # ``np.add.at(bin_css, codes_f, centred*centred)`` it replaces (bit-identical order + per-row op).
+        bin_css = _bin_css_njit(xi_f, codes_f, np.ascontiguousarray(bin_mean, dtype=_crit_np_dtype()), int(n_bins_eff))
     # Population std per bin (ddof=0): sqrt(CSS / count). Bins below the min-row
     # floor or with a (near-)constant x_i fall back to the global std.
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -333,14 +339,16 @@ def generate_conditional_dispersion_features(
         edges = _quantile_edges(xj, n_bins)
         codes_j = _digitize_with_edges(xj, edges)
         n_bins_eff = edges.size - 1
-        for x_i in num_cols:
-            if x_i == x_j:
-                continue
+        others = [c for c in num_cols if c != x_j]
+        from ._conditional_bin_moments import bin_moments_dispatch
+
+        mom_cnt, mom_mean, mom_css = bin_moments_dispatch(codes_j, [col_vals[c] for c in others], n_bins_eff)
+        for k_i, x_i in enumerate(others):
             xi = col_vals[x_i]
             if x_i not in col_stats:
                 col_stats[x_i] = _column_finite_stats(xi)
             bin_mean, bin_std, global_mean, global_std = _per_bin_mean_std(
-                xi, codes_j, n_bins_eff, col_stats[x_i],
+                xi, codes_j, n_bins_eff, col_stats[x_i], (mom_cnt[k_i], mom_mean[k_i], mom_css[k_i]),
             )
             z = _zscore_from_bins(xi, codes_j, bin_mean, bin_std)
             payload = {

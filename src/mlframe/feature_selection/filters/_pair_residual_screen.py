@@ -11,6 +11,9 @@ carry a lot of joint information with no interaction at all. This screen first f
   gain over the additive model, so noise cells cannot score).
 
 A pair is reported when its score exceeds the one-sided normal quantile of a family-wise 5% level over all the pairs screened (Bonferroni), strongest first. All the pairs of up to ``MAX_COLS`` columns cost a few tens of milliseconds (one ``n`` pass per pair, in parallel).
+
+The pair scores have a device twin, ``_pair_residual_gpu`` (one block per pair, bin-code rows streamed to the device in column blocks of the pair list), chosen against the numba pass ``_score_pairs`` by the kernel-tuning entry
+``pair_residual_backend``.
 """
 
 from __future__ import annotations
@@ -132,7 +135,9 @@ def pair_interaction_screen(
         pred += f[j, Qm[j]]
     resid = yr - mu - pred
     pairs = np.array([(a, b) for a in range(len(names)) for b in range(a + 1, len(names))], dtype=np.int64)
-    t = _score_pairs(Q, resid, even, pairs, N_BINS, SHRINK)
+    from ._pair_residual_gpu import score_pairs_dispatch
+
+    t = score_pairs_dispatch(_score_pairs, Q, resid, even, pairs, N_BINS, SHRINK)
     from scipy.stats import norm
 
     z = float(norm.isf(float(alpha) / len(pairs)))

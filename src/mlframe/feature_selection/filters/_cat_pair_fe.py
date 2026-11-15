@@ -308,7 +308,7 @@ def score_cat_pairs_by_interaction_information(
 
     # Every pair's joint MI in one parallel pass (see ``_cat_pair_joint_njit``); the marginals stay the cached per-column values.
     from ._adaptive_nbins import _bin_y_for_mi
-    from ._cat_pair_joint_njit import pair_joint_mi
+    from ._cat_pair_joint_gpu import pair_joint_mi_dispatch
 
     columns = sorted({c for pair in pairs for c in pair})
     column_row = {c: r for r, c in enumerate(columns)}
@@ -318,7 +318,7 @@ def score_cat_pairs_by_interaction_information(
     if y_b.size == 0 or k_y < 1:
         joint_mis = np.zeros(len(pairs), dtype=np.float64)  # Intentional float64: MI statistic vector
     else:
-        joint_mis = pair_joint_mi(
+        joint_mis = pair_joint_mi_dispatch(
             code_matrix, radix, np.array([column_row[a] for a, _ in pairs], dtype=np.int64), np.array([column_row[b] for _, b in pairs], dtype=np.int64),
             np.ascontiguousarray(y_b, dtype=np.int64), int(k_y),
         )

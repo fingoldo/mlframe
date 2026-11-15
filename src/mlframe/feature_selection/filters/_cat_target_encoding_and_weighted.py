@@ -13,6 +13,9 @@ What lives here:
     marginal pair-search kernel used when ``cfg.use_pair_weights`` is on)
   - ``_group_aware_shuffle`` (within-strata permutation used by the
     permutation-confirm path)
+
+The weighted pair search has a device twin, ``_cat_weighted_pair_gpu`` (one block per pair, fixed-point weights, pair blocks that upload only their column block of the codes), chosen against
+``_pair_search_kernel_weighted_njit`` by the kernel-tuning entry ``cat_weighted_pair_backend``.
 """
 from __future__ import annotations
 
