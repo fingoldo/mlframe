@@ -5,16 +5,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.feature_selection.gpu._gpu_support import has_device
+
 from mlframe.feature_selection.filters import _polynom_search_backend as pb
 
 
 def _needs_gpu():
     """Skip when no usable CUDA device is visible."""
-    try:
-        import cupy as cp
-
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
+    cp = pytest.importorskip("cupy")
+    if not has_device(cp):
         pytest.skip("no usable CUDA device")
 
 

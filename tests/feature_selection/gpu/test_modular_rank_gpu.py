@@ -173,4 +173,4 @@ def test_over_budget_candidates_stream_in_blocks_and_match():
     assert whole is not None
     blocked = rg._score_candidate_blocks(mat, ia, ib, None, _MODS, ysub, n_cls)
     assert blocked is not None
-    np.testing.assert_allclose(blocked, whole, rtol=0, atol=0)
+    assert np.array_equal(np.asarray(blocked), np.asarray(whole))

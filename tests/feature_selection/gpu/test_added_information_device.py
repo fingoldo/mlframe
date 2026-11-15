@@ -5,17 +5,16 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.feature_selection.gpu._gpu_support import has_device
+
 from mlframe.feature_selection.filters import _added_information_gpu as g
 from mlframe.feature_selection.filters._added_information_gate import added_information_p
 
 
 def _needs_gpu():
     """Skip when no usable CUDA device is visible."""
-    try:
-        import cupy as cp
-
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
+    cp = pytest.importorskip("cupy")
+    if not has_device(cp):
         pytest.skip("no usable CUDA device")
 
 
@@ -36,11 +35,11 @@ def test_p_values_equal_the_host(monkeypatch):
     monkeypatch.setattr(g, "added_device_chosen", lambda n, k: True)
     got = g.added_information_p_many(cands, s, t)
     want = [added_information_p(c, s, t) for c in cands]
-    for a, b in zip(got, want):
-        if np.isnan(b):
-            assert np.isnan(a)
-        else:
-            assert a == pytest.approx(b, rel=1e-9, abs=1e-12)
+    got_a, want_a = np.asarray(got, dtype=float), np.asarray(want, dtype=float)
+    assert got_a.shape == want_a.shape and want_a.size > 0
+    assert np.array_equal(np.isnan(got_a), np.isnan(want_a))
+    finite = ~np.isnan(want_a)
+    assert got_a[finite] == pytest.approx(want_a[finite], rel=1e-9, abs=1e-12)
 
 
 def test_g_statistics_match_the_host_expression():

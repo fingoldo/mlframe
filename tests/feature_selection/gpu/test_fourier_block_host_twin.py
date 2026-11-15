@@ -7,6 +7,8 @@ import math
 import numpy as np
 import pytest
 
+from tests.feature_selection.gpu._gpu_support import has_device
+
 from mlframe.feature_selection.filters._orthogonal_univariate_fe import _extra_basis_fourier_cuda as cuda_mod
 from mlframe.feature_selection.filters._orthogonal_univariate_fe import _extra_basis_resident as resident
 from mlframe.feature_selection.filters._orthogonal_univariate_fe import _fourier_block_host as host
@@ -50,16 +52,14 @@ def test_block_equals_the_numpy_chain(dt, tol):
 def test_block_equals_the_device_kernel(dt, tol):
     """The host twin and the device kernel agree to the rounding of the element type."""
     cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
+    if not has_device(cp):
         pytest.skip("no usable CUDA device")
     rng = np.random.default_rng(2)
     xs = rng.standard_normal((6, 5003)).astype(dt)
     metas = _metas(32, 6)
     dev = cuda_mod.fourier_block_cuda(cp, [cp.asarray(xs[m["src"]]) for m in metas], metas)
     assert dev is not None
-    np.testing.assert_allclose(host.fourier_block_host(*_args(xs, metas)), cp.asnumpy(dev), rtol=0, atol=tol)
+    assert np.allclose(host.fourier_block_host(*_args(xs, metas)), cp.asnumpy(dev), rtol=0, atol=tol)
 
 
 def test_sincos_legs_double_axis_is_exact_and_single_axis_defers_to_numpy():
@@ -81,9 +81,7 @@ def test_sincos_legs_double_axis_is_exact_and_single_axis_defers_to_numpy():
 def test_name_blocks_give_the_same_block(monkeypatch):
     """Forcing one name per block (each stacking only its own source column) gives the single-launch block bit for bit."""
     cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
+    if not has_device(cp):
         pytest.skip("no usable CUDA device")
     from mlframe.feature_selection.filters import _device_blocks as db
 

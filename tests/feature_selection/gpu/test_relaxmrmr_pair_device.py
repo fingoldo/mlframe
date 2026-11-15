@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.feature_selection.gpu._gpu_support import has_device
+
 from mlframe.feature_selection.filters import _relaxmrmr_pair_gpu as g
 from mlframe.feature_selection.filters import _relaxmrmr_pair_loop as loop
 from mlframe.feature_selection.filters._relaxmrmr_kernels import _cmi_mm_njit, _mi_mm_njit
@@ -12,11 +14,8 @@ from mlframe.feature_selection.filters._relaxmrmr_kernels import _cmi_mm_njit, _
 
 def _needs_gpu():
     """Skip when no usable CUDA device is visible."""
-    try:
-        import cupy as cp
-
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
+    cp = pytest.importorskip("cupy")
+    if not has_device(cp):
         pytest.skip("no usable CUDA device")
 
 
