@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 import itertools
 
 import numpy as np
@@ -19,7 +20,7 @@ LSE_BETA = 4.0
 STATS = ("min", "max", "med", "rng", "std", "mean", "lse_pos", "lse_neg")
 
 
-def row_stat(name: str, Z: np.ndarray) -> np.ndarray:
+def row_stat(name: str, Z: np.ndarray) -> Any:
     """Statistic ``name`` of every row of ``Z`` (rows x selected columns); ``lse_pos`` / ``lse_neg`` are soft max / soft min via log-mean-exp with sharpness +-4."""
     if name == "min":
         return Z.min(1)

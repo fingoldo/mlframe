@@ -54,7 +54,7 @@ BASE: dict[str, Any] = dict(min_degree=3, max_degree=6, coef_range=(-2.0, 2.0), 
 RESULTS_PATH = join(dirname(__file__), "results", "bench_polynom_optimizer_bases.json")
 
 
-def _load() -> dict:
+def _load() -> Any:
     if os.path.exists(RESULTS_PATH):
         with open(RESULTS_PATH, encoding="utf-8") as fh:
             return json.load(fh)

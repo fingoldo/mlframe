@@ -1,6 +1,7 @@
 """Cost of scoring 10 forms x 8 offsets (80 columns) on the CPU against the full 1734-combo pair table at n = 100k and 1M, plus the 20k-subsample variant.
 Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.kernel_prototypes.cost_bench``."""
 
+from typing import Any, cast
 import time
 import warnings
 
@@ -60,9 +61,11 @@ def main(sizes=(100_000, 1_000_000)) -> None:
         # full existing pair-combo table (medium unary x minimal binary = 1734 combos)
         ua = njit_unary_codes_or_none(list(_NJIT_UNARY_OP_CODES))
         bn = njit_binary_codes_or_none(["mul", "add", "sub", "div", "max", "min"])
+        assert ua is not None and bn is not None, "numba codes unavailable"
         yt = y_terms_of(yc)
-        score_pair_combos(c[:3000], d[:3000], yc[:3000], yt, 10, ua, ua, bn)
-        tt, _ = best(lambda: score_pair_combos(c, d, yc, yt, 10, ua, ua, bn), reps=2)
+        ua_a, bn_a = cast(Any, ua), cast(Any, bn)  # the callee is annotated Sequence[int]; it takes the numba code arrays
+        score_pair_combos(c[:3000], d[:3000], yc[:3000], yt, 10, ua_a, ua_a, bn_a)
+        tt, _ = best(lambda: score_pair_combos(c, d, yc, yt, 10, ua_a, ua_a, bn_a), reps=2)
         # subsample design: 80 cols on 20k subsample
         sub = np.arange(0, n, max(1, n // 20000))[:20000]
         ts20, _ = best(lambda: cpu_fe_batch_mi(np.ascontiguousarray(cols[sub]), yc[sub], 10))

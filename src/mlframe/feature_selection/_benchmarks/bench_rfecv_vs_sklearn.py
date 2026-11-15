@@ -32,7 +32,7 @@ import warnings
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -299,7 +299,7 @@ def main(seeds: tuple[int, ...] = (0, 1, 2), out_dir: Optional[Path] = None) -> 
     return out_path
 
 
-def _aggregate(rows: list[dict]) -> dict:
+def _aggregate(rows: list[dict]) -> Any:
     """Collapse per-seed rows into per-(problem, estimator, selector) means."""
     df = pd.DataFrame(rows)
     if df.empty:
@@ -314,7 +314,7 @@ def _aggregate(rows: list[dict]) -> dict:
     return grp.to_dict(orient="records")
 
 
-def _render_summary_table(summary: list[dict]) -> str:
+def _render_summary_table(summary: list[dict]) -> Any:
     if not summary:
         return "  (no rows)"
     df = pd.DataFrame(summary)

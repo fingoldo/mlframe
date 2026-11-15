@@ -6,6 +6,7 @@ Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.wave2
 
 from __future__ import annotations
 
+from typing import Any
 import argparse
 import itertools
 import json
@@ -22,7 +23,7 @@ from .targets import CASES
 from .warp_service import oof_fit, replay
 
 
-def _train_mi(f: np.ndarray, yb: tuple) -> float:
+def _train_mi(f: np.ndarray, yb: tuple) -> Any:
     """In-sample MI of a (out-of-fold) training feature against the fit-half target codes."""
     return mi_pair(clean(f), clean(f), yb[0], yb[0], yb[2])[0]
 

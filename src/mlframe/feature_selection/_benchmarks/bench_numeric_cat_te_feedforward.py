@@ -15,6 +15,7 @@ Run:  python -m mlframe.feature_selection._benchmarks.bench_numeric_cat_te_feedf
 """
 from __future__ import annotations
 
+from typing import Any
 import time
 
 import numpy as np
@@ -99,7 +100,7 @@ def _oof_target_encode(codes_tr: np.ndarray, y_tr: np.ndarray, n_folds: int, smo
     return te, cell_means_global, global_mean
 
 
-def _logreg_auc(Xtr: np.ndarray, ytr: np.ndarray, Xte: np.ndarray, yte: np.ndarray) -> float:
+def _logreg_auc(Xtr: np.ndarray, ytr: np.ndarray, Xte: np.ndarray, yte: np.ndarray) -> Any:
     sc = StandardScaler()
     Xtr = sc.fit_transform(Xtr)
     Xte = sc.transform(Xte)
@@ -108,7 +109,7 @@ def _logreg_auc(Xtr: np.ndarray, ytr: np.ndarray, Xte: np.ndarray, yte: np.ndarr
     return roc_auc_score(yte, clf.predict_proba(Xte)[:, 1])
 
 
-def _rf_auc(Xtr: np.ndarray, ytr: np.ndarray, Xte: np.ndarray, yte: np.ndarray) -> float:
+def _rf_auc(Xtr: np.ndarray, ytr: np.ndarray, Xte: np.ndarray, yte: np.ndarray) -> Any:
     """Tree downstream context: trees recover axis-aligned interactions natively (no FE needed)."""
     from sklearn.ensemble import RandomForestClassifier
     clf = RandomForestClassifier(n_estimators=200, max_depth=8, n_jobs=-1, random_state=0)

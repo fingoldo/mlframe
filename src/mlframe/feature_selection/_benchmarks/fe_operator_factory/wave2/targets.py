@@ -5,12 +5,13 @@ Every generator is ``gen(rng, n) -> (X, y, truth)``; ``truth`` is the oracle fea
 
 from __future__ import annotations
 
+from typing import Any
 import numpy as np
 
 __all__ = ["CASES", "gen_M"]
 
 
-def _noisy(s: np.ndarray, rng, nz: float) -> np.ndarray:
+def _noisy(s: np.ndarray, rng, nz: float) -> Any:
     """``s`` plus Gaussian noise at ``nz`` times the std of ``s``."""
     return s + nz * s.std() * rng.standard_normal(len(s))
 

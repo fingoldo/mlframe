@@ -47,7 +47,7 @@ import pstats
 import time
 import warnings
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -55,7 +55,7 @@ import pandas as pd
 from mlframe.feature_selection._benchmarks._bench_shared import make_shap_proxy_fit_data as make_data
 
 if TYPE_CHECKING:
-    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+    pass
 
 warnings.filterwarnings("ignore")
 
@@ -76,7 +76,7 @@ def _small_model():
     return HistGradientBoostingClassifier(max_iter=60, max_depth=4, random_state=0)
 
 
-def profile_fit(X: pd.DataFrame, y: np.ndarray, label: str) -> ShapProxiedFS:
+def profile_fit(X: pd.DataFrame, y: np.ndarray, label: str) -> Any:
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS  # noqa: F401
 
     sel = _make_selector()

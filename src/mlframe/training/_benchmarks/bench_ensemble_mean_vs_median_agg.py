@@ -18,7 +18,7 @@ Run::
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
@@ -55,7 +55,7 @@ def _make_members(rng: np.random.Generator, y: np.ndarray, k: int, n_bad: int, s
 SCENARIOS = ("bias", "scale", "heavy_tail", "flip_sign", "mixed")
 
 
-def robust_aggregate(members: np.ndarray, mad_factor: float = 3.5) -> np.ndarray:
+def robust_aggregate(members: np.ndarray, mad_factor: float = 3.5) -> Any:
     """Mean unless a member is a per-column outlier (|member - median| > mad_factor * MAD); then
     drop the flagged member from that column's average. Falls back to mean where MAD==0."""
     med = np.median(members, axis=0)

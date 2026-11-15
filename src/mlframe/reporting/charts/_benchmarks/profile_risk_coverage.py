@@ -35,7 +35,7 @@ def main() -> None:
     t0 = time.perf_counter()
     res = build_risk_coverage_spec(y, score, task="binary")
     wall = time.perf_counter() - t0
-    print(f"n={n}  wall={wall * 1e3:.1f} ms  AURC={res.aurc:.4f}  plotted_points={res.figure.panels[0][0].x.size}")
+    print(f"n={n}  wall={wall * 1e3:.1f} ms  AURC={res.aurc:.4f}  plotted_points={np.size(getattr(res.figure.panels[0][0], 'x', ()))}")
 
     pr = cProfile.Profile()
     pr.enable()

@@ -22,6 +22,7 @@ takes 5-15 minutes depending on backend and CPU.
 """
 from __future__ import annotations
 
+from typing import Any
 import argparse
 import gc
 import logging
@@ -49,7 +50,7 @@ def _build_frame(n_rows: int, seed: int) -> tuple[pd.DataFrame, pd.Series]:
     return df, y
 
 
-def _peak_rss_mb() -> float:
+def _peak_rss_mb() -> Any:
     try:
         import psutil
         return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)

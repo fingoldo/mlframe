@@ -54,7 +54,7 @@ stop = threading.Event()
 main_id = threading.main_thread().ident
 
 
-def proc_cpu() -> float:
+def proc_cpu() -> Any:
     """System CPU percent since the previous call."""
     return psutil.cpu_percent(interval=None)
 

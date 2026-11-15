@@ -22,13 +22,14 @@ Run: python -m mlframe.metrics._benchmarks.bench_adjusted_r2
 """
 from __future__ import annotations
 
+from typing import Any
 import numpy as np
 from sklearn.linear_model import LinearRegression
 
 TRUE_R2 = 0.5  # y = x0 + noise, both N(0,1)
 
 
-def _r2(yt: np.ndarray, yp: np.ndarray) -> float:
+def _r2(yt: np.ndarray, yp: np.ndarray) -> Any:
     return 1.0 - ((yt - yp) ** 2).sum() / ((yt - yt.mean()) ** 2).sum()
 
 

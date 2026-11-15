@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 import itertools
 import json
 import time
@@ -42,7 +43,7 @@ C_PROJECT = 40.0
 REL_FLOOR = 0.03
 
 
-def _train_mi(f: np.ndarray, yb: tuple) -> float:
+def _train_mi(f: np.ndarray, yb: tuple) -> Any:
     """In-sample MI of a (out-of-fold) training feature against the fit-half target codes."""
     f = clean(f)
     return mi_pair(f, f, yb[0], yb[0], yb[2])[0]

@@ -1,5 +1,6 @@
 """Brainstorm harness: held-out binned MI helpers, the existing-candidate baseline (17 unary x 17 unary x 6 binary = 1734 combos), out-of-fold helpers and ``run_case`` (held-out MI plus ridge / HGB MAE and RMSE)."""
 
+from typing import Any
 import argparse
 import itertools
 import json
@@ -84,7 +85,7 @@ def _sp(x, p):
     return np.power(np.abs(x), p) * np.sign(x) if p == -1 else np.power(np.abs(x), p)
 
 
-UN = {
+UN: dict[str, Any] = {
     "identity": lambda x: x,
     "neg": lambda x: -x,
     "abs": np.abs,
@@ -103,7 +104,7 @@ UN = {
     "invsqrt": lambda x: 1 / np.where(x == 0, 1e-9, np.sqrt(np.abs(x))),
     "exp": lambda x: np.exp(np.clip(x, -50, 50)),
 }
-BI = {"mul": np.multiply, "add": np.add, "sub": np.subtract, "div": lambda a, b: a / np.where(b == 0, 1e-9, b), "max": np.maximum, "min": np.minimum}
+BI: dict[str, Any] = {"mul": np.multiply, "add": np.add, "sub": np.subtract, "div": lambda a, b: a / np.where(b == 0, 1e-9, b), "max": np.maximum, "min": np.minimum}
 
 
 @nb.njit(cache=True)
@@ -177,7 +178,7 @@ def existing_pair(atr, btr, ate, bte, yb):
 
 def existing(Xtr, Xte, yb, cols, pairs=True):
     """Best existing candidate: raw columns and (optionally) every pair preset combo, by train MI; returns (train MI, test MI, train feature, test feature, name)."""
-    best = (-1,)
+    best: tuple[Any, ...] = (-1,)
     for c in cols:
         a, b = MI(Xtr[:, c], Xte[:, c], yb)
         if a > best[0]:

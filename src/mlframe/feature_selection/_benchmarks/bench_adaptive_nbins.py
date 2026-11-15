@@ -42,7 +42,7 @@ import time
 logger = logging.getLogger(__name__)
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -91,7 +91,7 @@ def _draw_distribution(name: str, n: int, rng: np.random.Generator) -> np.ndarra
     raise ValueError(f"unknown distribution {name!r}")
 
 
-def _draw_signal(signal_kind: str, x: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+def _draw_signal(signal_kind: str, x: np.ndarray, rng: np.random.Generator) -> Any:
     """Generate y from x according to signal_kind. Returns y as int classes for MI scoring."""
     if signal_kind == "no_signal":
         return rng.integers(0, 2, x.size).astype(np.int64)

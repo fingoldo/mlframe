@@ -15,6 +15,7 @@ Output: ``wave2/results/rows_cls_<n>.jsonl`` and ``classif.txt``.
 
 from __future__ import annotations
 
+from typing import Any
 import argparse
 import time
 
@@ -37,7 +38,7 @@ __all__ = ["make_labels", "cv_class", "one_run", "summarize", "main"]
 PERM = np.array([2, 0, 3, 1])
 
 
-def make_labels(rng, z: np.ndarray, kind: str) -> np.ndarray:
+def make_labels(rng, z: np.ndarray, kind: str) -> Any:
     """Class labels from the standardised signal ``z``: ``bin`` Bernoulli(sigmoid(2 z)); ``4c`` softmax with logits 1.2 z (k - 1.5); ``4cp`` = ``4c`` relabelled by ``PERM``."""
     if kind == "bin":
         return (rng.random(len(z)) < 1.0 / (1.0 + np.exp(-2.0 * z))).astype(np.int64)

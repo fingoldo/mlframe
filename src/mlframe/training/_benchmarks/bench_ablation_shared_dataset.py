@@ -135,7 +135,8 @@ def check_ignore_column_not_bit_identical() -> None:
     Xdf, y, cols = _make_data(n=4000, nf=8)
     params = dict(objective="binary", num_leaves=31, learning_rate=0.05, verbose=-1, seed=42, force_col_wise=True, deterministic=True)
     keep = [c for c in cols if c != cols[0]]
-    m = lgb.LGBMClassifier(n_estimators=50, **{k: v for k, v in params.items() if k != "objective"})
+    lgb_kw: dict[str, Any] = {k: v for k, v in params.items() if k != "objective"}
+    m = lgb.LGBMClassifier(n_estimators=50, **lgb_kw)
     m.fit(Xdf[keep], y)
     p_drop = m.predict_proba(Xdf[keep])[:, 1]
 

@@ -18,6 +18,7 @@ Run (host env vars required to avoid the cupy-probe segfault on this box):
 
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ def _score(scenario, mode, n_tr, n_te, n_feat, seed, val_size, tmp_root):
         train_df, test_df = _make_regression(n_tr, n_te, n_feat, seed)
     else:
         train_df, test_df = _make_classification(n_tr, n_te, n_feat, seed)
-    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=regression)
+    fte: Any = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=regression)
     vtag = f"v{round(val_size * 100):03d}"
     model_name = f"{scenario}_{mode}_s{seed}_{vtag}"
     data_dir = str(Path(tmp_root) / model_name)
@@ -130,10 +131,10 @@ def _score(scenario, mode, n_tr, n_te, n_feat, seed, val_size, tmp_root):
 
 def main():
     tmp_root = tempfile.mkdtemp(prefix="bench_valsize_")
-    cells = {}  # (scenario, seed) -> {val_size: metric}
+    cells: dict[str, dict[str, Any]] = {}  # (scenario, seed) -> {val_size: metric}
     for name, mode, n_tr, n_te, n_feat in SCENARIOS:
         for seed in SEEDS:
-            row = {}
+            row: dict[Any, Any] = {}
             for v in VAL_SIZES:
                 metric = _score(name, mode, n_tr, n_te, n_feat, seed, v, tmp_root)
                 row[v] = metric
@@ -141,7 +142,7 @@ def main():
             cells[f"{name}|{seed}"] = {"mode": mode, **{str(k): v for k, v in row.items()}}
 
     baseline = 0.10
-    summary = {}
+    summary: dict[str, dict[str, Any]] = {}
     for alt in [x for x in VAL_SIZES if x != baseline]:
         wins = ties = losses = 0
         for row in cells.values():
@@ -168,8 +169,8 @@ def main():
     res_path = res_dir / "val_size_default.json"
     res_path.write_text(json.dumps(out, indent=2, sort_keys=True))
     print("\nSUMMARY (alt vs baseline val_size=0.10):")
-    for alt, s in summary.items():
-        print(f"  val={alt}: wins={s['wins']} ties={s['ties']} losses={s['losses']} / {s['n']} -> {s['verdict']}")
+    for alt_key, s in summary.items():
+        print(f"  val={alt_key}: wins={s['wins']} ties={s['ties']} losses={s['losses']} / {s['n']} -> {s['verdict']}")
     print(f"\nwrote {res_path}")
     return out
 

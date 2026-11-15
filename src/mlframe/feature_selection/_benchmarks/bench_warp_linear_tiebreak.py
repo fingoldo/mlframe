@@ -26,6 +26,7 @@ end-to-end, so +0.0128 is the conservative end-to-end figure.
 """
 from __future__ import annotations
 
+from typing import Any
 import warnings
 
 import numpy as np
@@ -84,7 +85,7 @@ def _make_correlated_noise(seed: int, n: int = 2500):
     return pd.DataFrame(cols), pd.Series(y, name="y")
 
 
-def _downstream_auc(sel, df, y, seed: int) -> float:
+def _downstream_auc(sel, df, y, seed: int) -> Any:
     Xt = sel.transform(df.copy())
     if hasattr(Xt, "to_numpy"):
         Xt = Xt.to_numpy()

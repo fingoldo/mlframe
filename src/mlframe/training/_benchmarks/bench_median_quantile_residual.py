@@ -17,6 +17,7 @@ Run:
 """
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -118,7 +119,7 @@ if _HAS_NB:
         return meds, iqrs, sizes
 
 
-def _median_v4_njit_sort(y: np.ndarray, bin_idx: np.ndarray, n_bins: int) -> np.ndarray:
+def _median_v4_njit_sort(y: np.ndarray, bin_idx: np.ndarray, n_bins: int) -> Any:
     if not _HAS_NB:
         return _median_v1_pyloop(y, bin_idx, n_bins)
     order = np.argsort(bin_idx, kind="stable")
