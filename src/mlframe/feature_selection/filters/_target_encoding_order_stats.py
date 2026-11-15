@@ -17,6 +17,9 @@ Sample-stability floors mirror ``_binned_numeric_agg_fe._N_MIN`` (mean:5 / std:1
 from too few rows is noise (a median from n=1 is the single value), so a category with fewer rows than the stat's floor
 falls back to the GLOBAL stat value - the same rare-cell shrinkage discipline the smoothed mean uses, expressed as a hard
 threshold because order stats are not additively blendable the way Micci-Barreca shrinks a mean.
+
+On a large column the grouping sort and the segment sweep run on the device (``_order_stats_gpu``: ``cupy.lexsort`` and one block per category, a column block of the encoder's input), chosen against this host
+path by the kernel-tuning entry ``order_stats_backend``.
 """
 from __future__ import annotations
 
@@ -110,17 +113,23 @@ def per_category_order_stats(
     if not wanted:
         return {}
     counts = counts.astype(np.int64) if counts is not None else np.bincount(inverse, minlength=n_cats).astype(np.int64)
-    # lexsort: primary key = category code (last), secondary = y -> rows grouped by category, y ascending within group.
-    order = np.lexsort((y_arr, inverse))
-    y_sorted = np.ascontiguousarray(y_arr[order])
-    starts = np.zeros(n_cats, dtype=np.int64)
-    if n_cats > 1:
-        np.cumsum(counts[:-1], out=starts[1:])
-    med, trm, q10, q90, iqr, mn, mx = _segment_order_stats(
-        y_sorted, starts, counts,
-        "median" in wanted, "trimmed_mean" in wanted, "q10" in wanted, "q90" in wanted,
-        "iqr" in wanted, "min" in wanted, "max" in wanted, _TRIM_FRAC,
-    )
+    from ._order_stats_gpu import order_stats_dispatch
+
+    dev = order_stats_dispatch(inverse, y_arr, counts, wanted, _TRIM_FRAC)  # the device sort and sweep when the tuned choice says so (kernel-tuning entry ``order_stats_backend``)
+    if dev is not None:
+        med, trm, q10, q90, iqr, mn, mx = dev
+    else:
+        # lexsort: primary key = category code (last), secondary = y -> rows grouped by category, y ascending within group.
+        order = np.lexsort((y_arr, inverse))
+        y_sorted = np.ascontiguousarray(y_arr[order])
+        starts = np.zeros(n_cats, dtype=np.int64)
+        if n_cats > 1:
+            np.cumsum(counts[:-1], out=starts[1:])
+        med, trm, q10, q90, iqr, mn, mx = _segment_order_stats(
+            y_sorted, starts, counts,
+            "median" in wanted, "trimmed_mean" in wanted, "q10" in wanted, "q90" in wanted,
+            "iqr" in wanted, "min" in wanted, "max" in wanted, _TRIM_FRAC,
+        )
     raw_by_stat = {"median": med, "trimmed_mean": trm, "q10": q10, "q90": q90, "iqr": iqr, "min": mn, "max": mx}
     out: dict = {}
     for stat in wanted:
