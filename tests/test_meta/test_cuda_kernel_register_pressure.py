@@ -613,6 +613,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_for_source",
         ("float32", "float64"),
     ),
+    "pairs_abs_corr_gpu.abs_corr_finite_stats": (
+        "mlframe.feature_selection.filters._feature_engineering_pairs._pairs_abs_corr_gpu",
+        "kernel",
+        ("float32", "float64"),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",
