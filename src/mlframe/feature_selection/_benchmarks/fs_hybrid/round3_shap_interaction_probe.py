@@ -5,6 +5,7 @@ heavy cells, measuring interaction-operand recovery + base recall + downstream h
 ranking (S2/B3/R1); candidates still go through honest revalidation. KILL if operands still absent or AUC flat.
 """
 from __future__ import annotations
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 CASES = [("make_dataset", 0), ("make_dataset", 1), ("xor2", 0), ("xor2", 1)]
 # interaction_on16 = the default gate (phi.shape[1] <= 16) -> never fires on these wide cells (== off, confirmed).
 # interaction_on60 raises the gate so the coalition path ACTUALLY engages (phi units <= 60). This is the real test.
-CONFIGS = {"interaction_off": dict(interaction_aware=False), "interaction_on60": dict(interaction_aware=True, max_interaction_features=60)}
+CONFIGS: dict[str, dict[str, Any]] = {"interaction_off": dict(interaction_aware=False), "interaction_on60": dict(interaction_aware=True, max_interaction_features=60)}
 
 
 def load(name, seed):
@@ -50,14 +51,14 @@ def main():
                 sel = [c for c in s.selected_features_ if c in X.columns]
                 a = downstream_on_cols(Xtr, Xte, ytr, yte, sel)
                 am = round(float(np.nanmean(list(a.values()))), 4)
-                row = dict(case=f"{name}_sd{sd}", config=cname, n=len(sel),
+                row: dict[str, Any] = dict(case=f"{name}_sd{sd}", config=cname, n=len(sel),
                            base=len(set(sel) & base), oper=len(set(sel) & oper), n_oper=len(oper),
                            fit_s=round(dt, 1), auc=a, auc_mean=am)
             except Exception as e:
                 logger.debug("case=%s_sd%s config=%s failed: %s: %s", name, sd, cname, type(e).__name__, e)
                 row = dict(case=f"{name}_sd{sd}", config=cname, error=f"{type(e).__name__}: {e}")
             rows.append(row)
-            print(f"{row['case']:16s} {cname:15s} " + (row.get("error") if row.get("error") else
+            print(f"{row['case']:16s} {cname:15s} " + (str(row.get("error")) if row.get("error") else
                   f"n={row['n']:2d} base={row['base']}/{len(base)} oper={row['oper']}/{row['n_oper']} {row['fit_s']:5.1f}s mean={row['auc_mean']} auc={row['auc']}"), flush=True)
     df = pd.DataFrame([r for r in rows if not r.get("error")])
     print("\n=== mean over cases ===")

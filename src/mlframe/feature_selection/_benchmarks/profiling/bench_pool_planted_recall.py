@@ -5,6 +5,7 @@ columns, the selected columns that mention a planted source, and ``recall``: 1 w
 else 0, and the noise-only selected columns (names that mention no planted source; the user's criterion is signal in, noise out). Run it once per pool arm (``BENCH_FE_SHAPE_POOL=all|relevant``) and compare the lines; one process, so the timings share the same warm kernels.
 """
 
+from typing import Any
 import os
 import sys
 import time

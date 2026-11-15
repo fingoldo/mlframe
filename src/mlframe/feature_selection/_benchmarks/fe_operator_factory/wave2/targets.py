@@ -23,7 +23,7 @@ def bumps(X: np.ndarray) -> np.ndarray:
         """One bump centred at ``(c1, c2)``."""
         return np.exp(-((X[:, 0] - c1) ** 2 + (X[:, 1] - c2) ** 2) / 0.02)
 
-    return f(0.25, 0.25) + f(0.75, 0.7)
+    return np.asarray(f(0.25, 0.25) + f(0.75, 0.7))
 
 
 def _mk(p, sig, truth=None, nz=0.3, null=False, corr3=False):

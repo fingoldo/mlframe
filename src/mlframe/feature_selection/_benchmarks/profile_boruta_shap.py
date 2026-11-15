@@ -20,6 +20,7 @@ The golden (sets + hit vector) is written to ``_results/boruta_shap_golden.json`
 so optimisation candidates can be diffed against it for bit-identity.
 """
 from __future__ import annotations
+from typing import Any
 
 import cProfile
 import io
@@ -49,7 +50,7 @@ def make_selector() -> "object":
 def run_once_walltime() -> tuple[float, dict]:
     """Run one un-profiled fit and return (wall seconds, golden) -- the honest baseline number."""
     X, y = build_scene()
-    bs = make_selector()
+    bs: Any = make_selector()
     t0 = time.perf_counter()
     bs.fit(X, y)
     dt = time.perf_counter() - t0
@@ -59,7 +60,7 @@ def run_once_walltime() -> tuple[float, dict]:
 def run_once_profiled(out_dir: Path) -> tuple[str, dict]:
     """Run one cProfile'd fit, dump the .prof + top-tottime table to out_dir, and return (table text, golden)."""
     X, y = build_scene()
-    bs = make_selector()
+    bs: Any = make_selector()
     profiler = cProfile.Profile()
     profiler.enable()
     bs.fit(X, y)

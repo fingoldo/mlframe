@@ -100,7 +100,7 @@ class H35(HybridSelector):  # auto-pick (vote, expand) by internal OOF-AUC
     def fit(self, X, y):
         super().fit(X, y)
         Xa, y_ = self._Xaug_, self._y_
-        best, best_auc = (self.vote, self.expand_clusters), -1.0
+        best, best_auc = (getattr(self, "vote"), getattr(self, "expand_clusters")), -1.0
         for vote in (1, 2):
             for expand in (False, True):
                 self.vote, self.expand_clusters = vote, expand

@@ -252,6 +252,7 @@ def main():
     res_pre = optimise_hermite_pair(
         x_a, x_b, y, n_trials=args.n_trials, max_degree=3, basis="chebyshev", baseline_uplift_threshold=0.0, use_trivial_baseline=False
     )
+    assert res_pre is not None and res_post is not None
     print(f"    pair-FE WITHOUT unary: mi={res_pre.mi:.4f}")
     print(f"    pair-FE WITH unary:    mi={res_post.mi:.4f}  " f"(uplift x{res_post.mi/max(res_pre.mi, 1e-9):.2f})")
 

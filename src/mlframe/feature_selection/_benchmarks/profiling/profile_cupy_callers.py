@@ -9,7 +9,8 @@ from mlframe.feature_selection._benchmarks.profiling._paths import PROF_FILE
 
 import pstats, collections
 p = pstats.Stats(str(PROF_FILE)); st = cast(Any, p).stats
-cnt: Any = collections.Counter(); tim = collections.Counter()
+cnt: Any = collections.Counter()
+tim: Any = collections.Counter()
 for callee, v in st.items():
     fn = callee[0]
     is_cupy = ('cupy' in fn) or ('_ndarray_base' in callee[2] and fn == '~')
