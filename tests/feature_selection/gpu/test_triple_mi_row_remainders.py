@@ -20,6 +20,7 @@ def test_padded_four_byte_loads_equal_the_host_for_every_row_remainder(n):
     got = t.triple_mi_gpu(codes, y, base, n_y)
     assert got is not None
     oi, oj, ok, mi = got
+    assert len(mi) > 0 and bool(np.all(np.isfinite(mi)))
     for q in range(0, len(mi), 7):
         i, j, k = int(oi[q]), int(oj[q]), int(ok[q])
         cell = (codes[i].astype(np.int64) * base + codes[j]) * base + codes[k]

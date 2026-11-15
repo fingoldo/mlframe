@@ -4,6 +4,8 @@ import os
 
 import pytest
 
+pytest.importorskip("mlflow")
+
 from mlframe.integrations import mlflow as ml
 
 

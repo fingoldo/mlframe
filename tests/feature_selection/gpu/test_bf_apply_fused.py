@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.feature_selection.gpu._gpu_support import has_device
+
 from mlframe.feature_selection.filters import _cupy_polynom_optimizer as m
 
 
@@ -14,9 +16,7 @@ from mlframe.feature_selection.filters import _cupy_polynom_optimizer as m
 def test_matches_the_cupy_chain(dtype, bf, n, p):
     """Values equal (NaN in the same cells), the finite mask equals isfinite().all(axis=0) of inputs and result; exact zeros in B cover the safe divide, tiny values the logabs sign."""
     cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
+    if not has_device(cp):
         pytest.skip("no usable CUDA device")
     rng = np.random.default_rng(7)
     a = rng.standard_normal((n, p)).astype(dtype)

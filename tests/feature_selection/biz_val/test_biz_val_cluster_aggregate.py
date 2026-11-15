@@ -11,6 +11,7 @@ no-harm uniformly and treat any lift as a bonus.
 
 from __future__ import annotations
 
+import inspect
 import warnings
 
 import numpy as np
@@ -20,6 +21,7 @@ warnings.filterwarnings("ignore")
 
 from tests.feature_selection._biz_val_synth import make_latent_reflections, make_two_latent_groups, as_df
 from sklearn.metrics import roc_auc_score
+from mlframe.feature_selection.filters.mrmr import MRMR
 
 pytestmark = pytest.mark.timeout(
     1800
@@ -63,6 +65,8 @@ _CA_KW = dict(
     # the cluster_aggregate path itself, so disable DCD.
     dcd_enable=False,
 )
+# the default-on FE families (sir__, rff__, ...) build columns over the same reflections and displace the aggregate being measured
+_CA_KW.update({name: False for name, p in inspect.signature(MRMR.__init__).parameters.items() if name.startswith("fe_") and name.endswith("_enable") and p.default is True})
 
 
 # ---------------------------------------------------------------------------

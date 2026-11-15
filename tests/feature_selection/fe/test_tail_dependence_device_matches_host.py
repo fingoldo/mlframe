@@ -82,4 +82,4 @@ def test_many_segments_cut_runs_and_change_nothing(monkeypatch, min_rows):
     monkeypatch.setattr(gpu, "_BLOCKS_PER_SM", 64)
     got = gpu.tail_dependence_columns_device(cols, v, 0.95)
     assert got is not None
-    np.testing.assert_array_equal(got, want)
+    assert np.array_equal(got, want)

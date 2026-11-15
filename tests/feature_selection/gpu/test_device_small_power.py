@@ -5,15 +5,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.feature_selection.gpu._gpu_support import has_device
+
 from mlframe.feature_selection.filters._device_power import small_power
 
 
 def _cp():
     """cupy with a usable device, or skip."""
     cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
+    if not has_device(cp):
         pytest.skip("no usable CUDA device")
     return cp
 
