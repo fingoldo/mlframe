@@ -63,6 +63,7 @@
     "_fourier_fused_gpu",
     "_gpu_pairs",
     "_gpu_resident_basis",
+    "_gpu_resident_basis_factories",
     "_gpu_resident_cross_basis",
     "_gpu_resident_fe",
     "_group_distance_fe",

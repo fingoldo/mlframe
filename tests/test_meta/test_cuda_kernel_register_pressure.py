@@ -348,6 +348,51 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_bin_hist",
         ("float64",),
     ),
+    "gpu_resident_basis.clenshaw_basis": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_clenshaw",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.robust_scale_combine": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_robust_scale",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.heavy_tail_stats_tiled": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_heavy_tail",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.heavy_tail_finish": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_heavy_tail_finish",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.basis_preprocess": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_preprocess",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.basis_preprocess_nr": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_preprocess_nr",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.col_meanstd_tiled": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_meanstd",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.col_minmax_tiled": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_minmax",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.abs_corr": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_abs_corr",
+        ("float32", "float64"),
+    ),
     "relaxmrmr_pair_gpu.relaxmrmr_pair": (
         "mlframe.feature_selection.filters._relaxmrmr_pair_gpu",
         "kernel",

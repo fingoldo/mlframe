@@ -272,6 +272,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "hermite_fe": ("_hermite_basis_eval", "_hermite_oracle", "_hermite_prewarp", "_hermite_prewarp_gpu_resident", "_hermite_robust"),
     "_extra_basis_resident": ("_orth_extra_basis_fe_generate",),
     "_gpu_resident_fe": ("_gpu_resident_basis",),
+    "_gpu_resident_basis": ("_gpu_resident_basis_factories",),
     "_wavelet_basis_fe": ("_wavelet_basis_fe_batched",),
     "_fe_pure_form_retention_gpu_resident": ("_pure_form_gate_njit",),
     "_cupy_polynom_optimizer": ("_polynom_search_backend",),
