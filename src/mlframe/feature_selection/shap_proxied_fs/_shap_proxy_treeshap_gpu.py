@@ -245,11 +245,11 @@ def _treeshap_real():
     return np.float64 if os.environ.get("MLFRAME_SHAP_TREESHAP_REAL", "").strip().lower() == "float64" else np.float32
 
 
-def treeshap_phi_base_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, float]:
+def treeshap_phi_base_gpu(ensemble: TreeEnsemble, X: np.ndarray, use_table: bool = True) -> tuple[np.ndarray, float]:
     """cupy path-dependent TreeSHAP. Identical contract to ``treeshap_phi_base_numba``: ``(phi, base)``.
 
     Raises ``ValueError`` if the ensemble depth exceeds the local-memory scratch cap (caller falls back
-    to the numba kernel, which has no such cap)."""
+    to the numba kernel, which has no such cap). ``use_table=False`` runs the path kernel (the reference of the table form and its fallback)."""
     import cupy as cp
 
     if ensemble.max_depth > _MAX_SUPPORTED_DEPTH:
@@ -259,6 +259,13 @@ def treeshap_phi_base_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.nda
     n, f = Xf.shape
     if f != ensemble.n_features:
         raise ValueError(f"X has {f} features but ensemble expects {ensemble.n_features}.")
+
+    # Table form first (``_shap_proxy_treeshap_table_gpu``: no per-leaf unwinding in the per-sample work); ``None`` when the ensemble does not fit the table or the rows do not repay its build.
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table_gpu import treeshap_phi_base_table_gpu
+
+    tabled = treeshap_phi_base_table_gpu(ensemble, Xf) if use_table else None
+    if tabled is not None:
+        return tabled
 
     real = _treeshap_real()
     kernel = _ensure_kernel(ensemble.max_depth, real)

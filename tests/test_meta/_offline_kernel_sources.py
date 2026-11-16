@@ -155,6 +155,9 @@ _RECIPES: dict = {
     "../shap_proxied_fs/_shap_proxy_treeshap_gpu.py::_KERNEL_SRC": lambda s: [
         (f"{r} depth 6", _fill(_define(MAXW=8, MAXSP=28) + s, **{"{REAL}": r, "{ACC}": r}), ()) for r in _REAL_TYPES
     ],
+    "../shap_proxied_fs/_shap_proxy_treeshap_table_gpu.py::_KERNEL_SRC": lambda s: [
+        (r, _fill(_define(MAXSP=24) + s, **{"{REAL}": r, "{ACC}": r}), ()) for r in _REAL_TYPES
+    ],
     "../shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py::_KERNEL_SRC": lambda s: [
         (
             "depth 6",

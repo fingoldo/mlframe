@@ -516,7 +516,12 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "shap_proxy_treeshap_gpu.treeshap": (
         "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu",
         "kernel",
-        ("float64",),
+        ("float32", "float64"),
+    ),
+    "shap_proxy_treeshap_table_gpu.treeshap_table": (
+        "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table_gpu",
+        "kernel",
+        ("float32", "float64"),
     ),
     "shap_proxy_treeshap_interactions_gpu.treeshap_interactions": (
         "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu",
