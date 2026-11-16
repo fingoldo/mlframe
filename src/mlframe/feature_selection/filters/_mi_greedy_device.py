@@ -198,11 +198,9 @@ def _device(X: pd.DataFrame, candidates: list, y: np.ndarray, nbins: int) -> np.
     return _selection_view(got[2])
 
 
-def _run_sweep() -> list:
-    """Time the host and the device path per row count; the device must agree with the host on the candidates the greedy step would take (``_selection_view``)."""
-    from pyutilz.dev.benchmarking import sweep_backend_grid
+from ._ktc_fallback import host_device_sweep as _host_device_sweep
 
-    return sweep_backend_grid({"host": _host, "device": _device}, {"n_samples": _SWEEP_ROWS}, _sweep_inputs, reference="host", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6)
+_run_sweep = _host_device_sweep(__name__, _host, _device, rtol=1e-6, atol=1e-6)
 
 
 _SWEEP_ROWS = [5_000, 30_000, 100_000]

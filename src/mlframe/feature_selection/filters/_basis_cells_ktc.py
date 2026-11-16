@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import cast
 
 import numpy as np
 
@@ -30,7 +29,7 @@ _DEGREES = (2, 3)
 _SALT = 2  # 2: the sweep compares the selection view at the strict tolerance
 
 
-def _make_inputs(dims: dict) -> tuple:
+def _sweep_inputs(dims: dict) -> tuple:
     """A frame of ``_SWEEP_COLUMNS`` float32 columns with a nonlinear binary target, ``dims["n_samples"]`` rows."""
     import pandas as pd
 
@@ -62,22 +61,9 @@ def _device_variant(X, ya):
     return selection_view(got[2])
 
 
-def _run_sweep() -> list:
-    """Time the host and the device variant per row count; the fastest variant that picks the same best cells as the host (``selection_view``, at the strict tolerance: the device bins by edge selection, so the MI values differ in the last digits while the cells the routing takes agree) wins each region."""
-    from pyutilz.dev.benchmarking import sweep_backend_grid
+from ._ktc_fallback import host_device_sweep as _host_device_sweep
 
-    return cast(
-        list,
-        sweep_backend_grid(
-            {"host": lambda X, ya: _host_variant(X, ya), "device": lambda X, ya: _device_variant(X, ya)},
-            {"n_samples": _SWEEP_ROWS},
-            _make_inputs,
-            reference="host",
-            repeats=3,
-            equiv_rtol=1e-6,
-            equiv_atol=1e-6,
-        ),
-    )
+_run_sweep = _host_device_sweep(__name__, _host_variant, _device_variant, rtol=1e-6, atol=1e-6)
 
 
 def _basis_cells_fallback_choice(n_samples: int) -> str:

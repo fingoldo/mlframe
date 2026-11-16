@@ -399,11 +399,9 @@ def _sweep_device(table: np.ndarray, specs: list) -> np.ndarray:
 _FORCE_DEVICE = False
 
 
-def _run_sweep() -> list:
-    """Time the upload and the rebuild per row count; both tables must agree column by column (means to 1e-4 relative, the same non-finite counts)."""
-    from pyutilz.dev.benchmarking import sweep_backend_grid
+from ._ktc_fallback import host_device_sweep as _host_device_sweep
 
-    return list(sweep_backend_grid({"host": _sweep_host, "device": _sweep_device}, {"n_samples": _SWEEP_ROWS}, _sweep_inputs, reference="host", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6))
+_run_sweep = _host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=1e-6, atol=1e-6)
 
 
 try:

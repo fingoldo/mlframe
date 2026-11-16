@@ -396,11 +396,9 @@ def _sweep_device(X: pd.DataFrame, enc_df: pd.DataFrame, recipes: dict, y: np.nd
     return _view(_mi_by_column_blocks(cp, build_dispersion_matrix_gpu, X, specs, y, nbins))
 
 
-def _run_sweep() -> list:
-    """Time the host and the device scoring per row count; both must put the same candidates at the top."""
-    from pyutilz.dev.benchmarking import sweep_backend_grid
+from ._ktc_fallback import host_device_sweep as _host_device_sweep
 
-    return list(sweep_backend_grid({"host": _sweep_host, "device": _sweep_device}, {"n_samples": _SWEEP_ROWS}, _sweep_inputs, reference="host", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6))
+_run_sweep = _host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=1e-6, atol=1e-6)
 
 
 try:
