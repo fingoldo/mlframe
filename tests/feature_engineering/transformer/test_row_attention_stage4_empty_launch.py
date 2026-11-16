@@ -30,3 +30,19 @@ def test_zero_neighbours_is_rejected_with_a_clear_error():
     y_mean, y_std, x_mean = _outputs(2)
     with pytest.raises(ValueError, match="at least 1 neighbour"):
         row_attention_stage4_cupy(q, k, y, topk, 1.0, y_mean, y_std, x_mean)
+
+
+def test_resident_float64_bank_is_rejected_not_reinterpreted(monkeypatch):
+    """A device bank of the wrong dtype must raise before any kernel reads it as float32."""
+    import mlframe.feature_engineering.transformer._kernels_cupy as kc
+
+    monkeypatch.setattr(kc, "is_gpu_available", lambda: True)
+    monkeypatch.setattr(kc, "_ensure_kernels_inited", lambda: None)
+    q = np.zeros((2, 4), dtype=np.float32)
+    k = np.zeros((10, 4), dtype=np.float32)
+    y = np.zeros(10, dtype=np.float32)
+    topk = np.zeros((2, 3), dtype=np.int64)
+    y_mean, y_std, x_mean = _outputs(2)
+    bank64 = np.zeros((10, 4), dtype=np.float64)
+    with pytest.raises(TypeError, match="float32"):
+        row_attention_stage4_cupy(q, k, y, topk, 1.0, y_mean, y_std, x_mean, k_proj_device=bank64)
