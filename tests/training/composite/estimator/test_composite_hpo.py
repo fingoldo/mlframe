@@ -134,7 +134,7 @@ def test_best_score_le_fixed_baseline():
         splits=splits,
         scorer=_rmse,
     )
-    assert res.cv_score <= base_score + 1e-9
+    assert res.selection_score <= base_score + 1e-9
 
 
 def test_invalid_n_trials_raises():
@@ -168,7 +168,7 @@ def test_time_ordering_uses_purged_cv():
         time_ordering=order,
         prefer_optuna=False,
     )
-    assert np.isfinite(res.cv_score)
+    assert np.isfinite(res.selection_score)
     assert isinstance(res.estimator, CompositeTargetEstimator)
 
 
@@ -218,3 +218,14 @@ def test_biz_val_optimize_composite_recovers_base_aware_transform_and_beats_defa
     rmse_default = float(np.sqrt(np.mean((y_te - default.predict(X_te)) ** 2)))
     rmse_opt = float(np.sqrt(np.mean((y_te - res.estimator.predict(X_te)) ** 2)))
     assert rmse_opt <= 0.9 * rmse_default, f"opt {rmse_opt:.4f} vs default {rmse_default:.4f}"
+
+
+def test_cv_score_alias_warns_and_returns_selection_score():
+    """Reading the deprecated alias warns and returns the selection score unchanged."""
+    from types import SimpleNamespace
+
+    from mlframe.training.composite.hpo import CompositeHPOResult
+
+    fake = SimpleNamespace(selection_score=0.42)
+    with pytest.warns(DeprecationWarning, match="selection_score"):
+        assert CompositeHPOResult.cv_score.fget(fake) == 0.42

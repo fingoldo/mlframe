@@ -42,6 +42,7 @@ import logging
 import math
 import random
 import time
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -206,6 +207,11 @@ class CompositeHPOResult:
         """Deprecated alias of :attr:`selection_score` (a selection score, not an
         unbiased OOS estimate). Kept so existing ``result.cv_score`` callers keep
         working; new code should read ``selection_score`` and honor its caveat."""
+        warnings.warn(
+            "CompositeHPOResult.cv_score is deprecated; read selection_score (a selection score, not an unbiased OOS estimate)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.selection_score
 
     def select_ensemble_from_pool(self, y: Any, **kwargs: Any) -> Any:
