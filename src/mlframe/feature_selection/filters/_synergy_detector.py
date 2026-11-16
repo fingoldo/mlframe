@@ -88,8 +88,19 @@ def _excess_for_pairs(codes: list[np.ndarray], marg: list[float], yc: np.ndarray
     false-positive on redundancy (two views of one driver jointly beat either single view) - measured,
     rejected. Returns the max over pairs (can be <=0 when no pair is synergistic)."""
     best = -np.inf
+    # The per-pair casts and maxima of ``_pair_mm_mi`` (three astype / ascontiguousarray / max per call, 62 ms of the 100 ms probe over 1840 pair calls) are loop invariants: each column's int64 view and
+    # level count and the target's are prepared once and the kernel is called directly.
+    yt = np.ascontiguousarray(np.asarray(yc).astype(np.int64).ravel())
+    n = yt.shape[0]
+    kt = int(yt.max()) + 1 if n else 0
+    prepared: dict = {}
     for i, j in pairs:
-        joint = _pair_mm_mi(codes[i], codes[j], yc)
+        for c in (i, j):
+            if c not in prepared:
+                a = np.ascontiguousarray(np.asarray(codes[c]).astype(np.int64).ravel())
+                prepared[c] = (a, int(a.max()) + 1 if a.shape[0] else 0)
+        (cx, kx), (cy, ky) = prepared[i], prepared[j]
+        joint = 0.0 if (n == 0 or cx.shape[0] != n or cy.shape[0] != n) else float(_pair_mm_mi_njit(cx, cy, yt, kx, ky, kt, 5.0))
         exc = joint - marg[i] - marg[j]
         if exc > best and exc >= _MIN_SYNERGY_SHARE * joint:
             best = exc
