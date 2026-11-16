@@ -378,6 +378,46 @@ def _tau_grid_kernel(cp, mode: str, out_ctype: str):
     return kern
 
 
+def _tau_grid_block(cp, mode: str, ctup: tuple, cols: tuple, taus_g, out_ctype: str, out):
+    """The tau-grid block of one combo built from its resident operands, op for op like the host grid; ``None`` for an unknown mode.
+
+    Column-major (``out`` given): the kernel writes the ``(k, n)`` rows straight into ``out``. Row-major: a new ``(n, k)`` float64 block (the layout the rank-binning kernel takes)."""
+    from ._fe_resident_operands import resident_operand
+
+    if mode == "mask":
+        a_name, c_name = ctup  # mask ctup = (a, c); operands = (cv=c, av=a)
+        cv_g = resident_operand(cols[0], ("gate_op", c_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
+        av_g = resident_operand(cols[1], ("gate_op", a_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
+        if out is not None:  # column j = (cv > taus[j]) * av ; broadcast (n,1) > (k,) -> (n,k), * (n,1)
+            _tau_grid_kernel(cp, "mask", out_ctype)(cv_g[None, :], taus_g[:, None], av_g[None, :], out)
+            return out
+        # Intentional float64: GPU gate block; the row-major layout feeds the rank-binning kernel at float64
+        return (cv_g[:, None] > taus_g[None, :]).astype(cp.float64) * av_g[:, None]
+    if mode == "select":
+        a_name, b_name, c_name = ctup  # select ctup = (a, b, c); operands = (cv=c, av=a, bv=b)
+        cv_g = resident_operand(cols[0], ("gate_op", c_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
+        av_g = resident_operand(cols[1], ("gate_op", a_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
+        bv_g = resident_operand(cols[2], ("gate_op", b_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
+        if out is not None:  # column j = where(cv > taus[j], av, bv)
+            _tau_grid_kernel(cp, "select", out_ctype)(cv_g[None, :], taus_g[:, None], av_g[None, :], bv_g[None, :], out)
+            return out
+        return cp.where(cv_g[:, None] > taus_g[None, :], av_g[:, None], bv_g[:, None])
+    return None
+
+
+def _note_oom(exc: BaseException) -> None:
+    """Tell the VRAM guard when the failure was an out-of-memory (GPU11-13: the cushion check passed but a race against another allocation can still OOM there); never raises."""
+    try:
+        import cupy as _cp
+
+        if isinstance(exc, _cp.cuda.memory.OutOfMemoryError):
+            from ._fe_gpu_vram import note_gpu_oom
+
+            note_gpu_oom()
+    except Exception:  # nosec B110  # best-effort: the cooldown note must never mask the original failure, which still returns None for the host fallback
+        pass
+
+
 def gate_grid_mi_resident(
     specs: Sequence[tuple], yi: np.ndarray, nbins: int,
     *, rank_binning: bool = False, y_gpu: object = None, y_min: int | None = None, n_classes: int | None = None,
@@ -435,34 +475,11 @@ def gate_grid_mi_resident(
             grid_out = cp.empty((int(sum(len(t) for (_m, _c, _o, t) in specs)), int(np.asarray(specs[0][2][0]).shape[0])), dtype=_gdt)
         for mode, ctup, cols, taus in specs:
             taus_g = cp.asarray(np.ascontiguousarray(np.asarray(taus, dtype=np.float64)))  # (k,)  # Intentional float64: gate threshold grid; compared at full precision
-            if mode == "mask":
-                cv, av = cols
-                a_name, c_name = ctup  # mask ctup = (a, c); operands = (cv=c, av=a)
-                cv_g = resident_operand(cv, ("gate_op", c_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
-                av_g = resident_operand(av, ("gate_op", a_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
-                # column j = (cv > taus[j]) * av ; broadcast (n,1) > (k,) -> (n,k), * (n,1)
-                if cm:
-                    blk = grid_out[grid_off : grid_off + int(taus_g.shape[0])]
-                    _tau_grid_kernel(cp, "mask", out_ctype)(cv_g[None, :], taus_g[:, None], av_g[None, :], blk)
-                    grid_off += int(taus_g.shape[0])
-                else:
-                    # Intentional float64: GPU gate block; the row-major layout feeds the rank-binning kernel at float64
-                    blk = (cv_g[:, None] > taus_g[None, :]).astype(cp.float64) * av_g[:, None]
-            elif mode == "select":
-                cv, av, bv = cols
-                a_name, b_name, c_name = ctup  # select ctup = (a, b, c); operands = (cv=c, av=a, bv=b)
-                cv_g = resident_operand(cv, ("gate_op", c_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
-                av_g = resident_operand(av, ("gate_op", a_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
-                bv_g = resident_operand(bv, ("gate_op", b_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
-                # column j = where(cv > taus[j], av, bv)
-                if cm:
-                    blk = grid_out[grid_off : grid_off + int(taus_g.shape[0])]
-                    _tau_grid_kernel(cp, "select", out_ctype)(cv_g[None, :], taus_g[:, None], av_g[None, :], bv_g[None, :], blk)
-                    grid_off += int(taus_g.shape[0])
-                else:
-                    blk = cp.where(cv_g[:, None] > taus_g[None, :], av_g[:, None], bv_g[:, None])
-            else:
+            k_combo = int(taus_g.shape[0])
+            blk = _tau_grid_block(cp, mode, ctup, cols, taus_g, out_ctype, grid_out[grid_off : grid_off + k_combo] if cm else None)
+            if blk is None:
                 return None  # unknown mode -> host fallback
+            grid_off += k_combo if cm else 0
             if not cm:
                 blocks.append(cp.ascontiguousarray(blk.astype(cp.float64, copy=False)))  # Intentional float64: GPU gate block; kernel contract is float64
         if cm:
@@ -485,13 +502,5 @@ def gate_grid_mi_resident(
         return np.asarray(mis, dtype=np.float64)  # Intentional float64: MI statistic output contract
     except Exception as _exc:
         logger.debug("gate_grid_mi_resident: GPU path failed (%s); host fallback", _exc)
-        try:
-            import cupy as _cp
-
-            if isinstance(_exc, _cp.cuda.memory.OutOfMemoryError):
-                from ._fe_gpu_vram import note_gpu_oom
-
-                note_gpu_oom()  # GPU11-13: the cushion check above passed but a race against another allocation can still OOM here.
-        except Exception:  # nosec B110  # best-effort: the cooldown note must never mask the original failure, which still returns None for the host fallback
-            pass
+        _note_oom(_exc)
         return None

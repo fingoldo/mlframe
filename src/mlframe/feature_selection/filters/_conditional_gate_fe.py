@@ -628,6 +628,30 @@ def cheap_row_argmax_scan(
     hits.sort(key=lambda h: (-h.margin_over_operands, tuple(str(c) for c in h.cols)))
     return hits
 
+def _walked_gate_divergence(mat, yi, probe_idx, nbins, gate_dev, gate_meds):
+    """Divergence of every gate column in one walk per probe (``_gate_rank_divergence``: the rank binner's bins and tie rule inside each half, no re-sort, 2 p batched-MI calls become none), or ``None``
+    when the per-column loop of ``_rank_and_prune`` must run (``MLFRAME_GATE_RANK_LOOP=1``, a non-finite matrix, a device fault).
+
+    ``gate_dev`` is the resident ``(cupy, matrix, labels, probes)`` tuple of the STRICT path (the device walk on it, the device medians reused); otherwise the per-host tuning cache picks the host or the
+    device walk by row count (the device one uploads the matrix once)."""
+    if os.environ.get("MLFRAME_GATE_RANK_LOOP", "").strip() == "1":
+        return None
+    from ._gate_rank_divergence import gate_divergence, gate_divergence_device, gate_divergence_on_device
+
+    if gate_dev is not None:
+        return gate_divergence_device(gate_dev[0], gate_dev[1], gate_dev[2], probe_idx, nbins, medians=gate_meds)
+    if gate_divergence_on_device(int(mat.shape[0])) and np.isfinite(mat).all():
+        try:
+            import cupy as cp
+
+            walked = gate_divergence_device(cp, cp.asarray(mat), cp.asarray(np.asarray(yi)), probe_idx, nbins)
+            if walked is not None:
+                return walked
+        except Exception as exc:  # no usable device: the host walk gives the same values
+            logger.debug("device gate walk unavailable (%s); host walk", exc)
+    return gate_divergence(mat, yi, probe_idx, nbins)
+
+
 def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: int, k_operand: int) -> tuple[list[str], list[str]]:
     """Cheap-first candidate prune that makes the gate sweep O(k_operand^2 * k_gate), FLAT in p, returning (gate pool, operand pool).
 
@@ -703,24 +727,7 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
         except Exception as _gm_exc:  # best-effort: the per-column cp.median gives the same medians
             logger.debug("batched gate medians not used (%s); per-column cp.median", _gm_exc)
             _gate_meds = None
-    # Host path: every gate column's divergence in one walk per probe (``_gate_rank_divergence``: the rank binner's bins and tie rule inside each half, no re-sort, 2 p batched-MI calls become none).
-    # ``MLFRAME_GATE_RANK_LOOP=1`` keeps the per-column loop below; a non-finite matrix takes it as well.
-    _walked = None
-    if os.environ.get("MLFRAME_GATE_RANK_LOOP", "").strip() != "1":
-        from ._gate_rank_divergence import gate_divergence, gate_divergence_device, gate_divergence_on_device
-
-        if _gate_dev is None:
-            if gate_divergence_on_device(int(mat.shape[0])) and np.isfinite(mat).all():  # the per-host tuning cache prefers the device walk at this row count: upload once, same values
-                try:
-                    import cupy as _cpw
-
-                    _walked = gate_divergence_device(_cpw, _cpw.asarray(mat), _cpw.asarray(np.asarray(yi)), probe_idx, nbins)
-                except Exception as _walk_exc:  # no usable device: the host walk below gives the same values
-                    logger.debug("device gate walk unavailable (%s); host walk", _walk_exc)
-            if _walked is None:
-                _walked = gate_divergence(mat, yi, probe_idx, nbins)
-        else:  # STRICT-resident: the same walk on the resident matrix (the device medians already computed above), the per-column loop below on any device fault
-            _walked = gate_divergence_device(_gate_dev[0], _gate_dev[1], _gate_dev[2], probe_idx, nbins, medians=_gate_meds)
+    _walked = _walked_gate_divergence(mat, yi, probe_idx, nbins, _gate_dev, _gate_meds)
     if _walked is not None:
         div[:] = _walked
     for gi in range(0 if _walked is not None else len(cols)):

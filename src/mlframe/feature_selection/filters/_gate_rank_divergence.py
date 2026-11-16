@@ -76,10 +76,9 @@ def _column_median(mat: np.ndarray, g: int) -> float:
 
 
 @njit(cache=True, nogil=True)
-def _walk_chunk(mat: np.ndarray, g0: int, g1: int, meds: np.ndarray, order: np.ndarray, probe_idx: np.ndarray, y: np.ndarray, n_classes: int, nbins: int, out: np.ndarray) -> None:
-    """Divergence of the gate columns ``g0:g1``: one walk per probe over its global order, every row updating the running positions and histograms of all the chunk's columns."""
+def _upper_counts(mat: np.ndarray, g0: int, w: int, meds: np.ndarray, nbins: int) -> tuple:
+    """``(m_hi, ok)`` of the gate columns ``g0 .. g0 + w``: the rows above each column's median (one pass over the rows, the chunk's columns of a row read together) and whether both halves hold at least ``nbins`` rows."""
     n = mat.shape[0]
-    w = g1 - g0
     m_hi = np.zeros(w, dtype=np.int64)
     for i in range(n):
         for j in range(w):
@@ -88,6 +87,23 @@ def _walk_chunk(mat: np.ndarray, g0: int, g1: int, meds: np.ndarray, order: np.n
     ok = np.zeros(w, dtype=np.bool_)
     for j in range(w):
         ok[j] = m_hi[j] >= nbins and (n - m_hi[j]) >= nbins
+    return m_hi, ok
+
+
+@njit(cache=True, nogil=True)
+def _finish_chunk(hi: np.ndarray, lo: np.ndarray, m_hi: np.ndarray, n: int, ok: np.ndarray, total: np.ndarray) -> None:
+    """Add the divergence of the walk just finished (one probe) to ``total`` for every usable gate column of the chunk."""
+    for j in range(ok.shape[0]):
+        if ok[j]:
+            total[j] += abs(_plug_in_mi(hi[j], m_hi[j]) - _plug_in_mi(lo[j], n - m_hi[j]))
+
+
+@njit(cache=True, nogil=True)
+def _walk_chunk(mat: np.ndarray, g0: int, g1: int, meds: np.ndarray, order: np.ndarray, probe_idx: np.ndarray, y: np.ndarray, n_classes: int, nbins: int, out: np.ndarray) -> None:
+    """Divergence of the gate columns ``g0:g1``: one walk per probe over its global order, every row updating the running positions and histograms of all the chunk's columns."""
+    n = mat.shape[0]
+    w = g1 - g0
+    m_hi, ok = _upper_counts(mat, g0, w, meds, nbins)
     hi = np.zeros((w, nbins, n_classes), dtype=np.int64)
     lo = np.zeros((w, nbins, n_classes), dtype=np.int64)
     r_hi = np.zeros(w, dtype=np.int64)
@@ -108,9 +124,9 @@ def _walk_chunk(mat: np.ndarray, g0: int, g1: int, meds: np.ndarray, order: np.n
         r_lo[:] = 0
         gs_hi[:] = 0
         gs_lo[:] = 0
+        bin_hi[:] = 0
+        bin_lo[:] = 0
         for j in range(w):
-            bin_hi[j] = 0
-            bin_lo[j] = 0
             end_hi[j] = _bin_size(0, m_hi[j], nbins)
             end_lo[j] = _bin_size(0, n - m_hi[j], nbins)
         pc = probe_idx[a]
@@ -139,9 +155,7 @@ def _walk_chunk(mat: np.ndarray, g0: int, g1: int, meds: np.ndarray, order: np.n
                     prev_lo[j] = v
                     lo[j, bin_lo[j], yi] += 1
                     r_lo[j] += 1
-        for j in range(w):
-            if ok[j]:
-                total[j] += abs(_plug_in_mi(hi[j], m_hi[j]) - _plug_in_mi(lo[j], n - m_hi[j]))
+        _finish_chunk(hi, lo, m_hi, n, ok, total)
     for j in range(w):
         out[g0 + j] = total[j] if ok[j] else 0.0
 
