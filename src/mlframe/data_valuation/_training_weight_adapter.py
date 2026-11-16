@@ -19,7 +19,7 @@ from typing import Optional
 
 import numpy as np
 
-from mlframe.data_valuation._knn_shapley import knn_shapley
+from mlframe.data_valuation._knn_shapley import _column_standardise_stats, knn_shapley
 from mlframe.data_valuation._mc_sampling import propagate_subsample_values
 from mlframe.data_valuation._weights import valuation_sample_weight
 
@@ -62,9 +62,7 @@ def training_sample_weight_from_valuation(
     if rng is None:
         rng = np.random.default_rng(0)
 
-    mu = X_train.mean(axis=0)
-    sigma = X_train.std(axis=0)
-    sigma = np.where(sigma == 0.0, 1.0, sigma)
+    mu, sigma = _column_standardise_stats(X_train)
     X_train_std = (X_train - mu) / sigma
     X_val_std = (np.ascontiguousarray(X_val, dtype=np.float64) - mu) / sigma
 

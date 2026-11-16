@@ -22,6 +22,14 @@ from numba import njit
 from scipy.spatial.distance import cdist
 
 
+def _column_standardise_stats(X):
+    """Column means and standard deviations for standardisation; a spread at float-rounding level of the column's own scale is noise, so it is treated as constant."""
+    mu = X.mean(axis=0)
+    sigma = X.std(axis=0)
+    tiny = 1e-12 * np.maximum(1.0, np.abs(mu))
+    return mu, np.where(sigma <= tiny, 1.0, sigma)
+
+
 @njit(cache=True, fastmath=True)
 def _knn_shapley_recursion(match: np.ndarray, k: int) -> np.ndarray:
     """One validation point's per-training-point KNN-Shapley value, ``match`` sorted nearest(0)->farthest(n-1).
@@ -99,9 +107,7 @@ def knn_shapley(
         )
 
     if standardize:
-        mu = X_train.mean(axis=0)
-        sigma = X_train.std(axis=0)
-        sigma = np.where(sigma == 0.0, 1.0, sigma)
+        mu, sigma = _column_standardise_stats(X_train)
         X_train = (X_train - mu) / sigma
         X_val = (X_val - mu) / sigma
 
