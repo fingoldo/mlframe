@@ -388,7 +388,8 @@ Phi = explainer.shap_interaction_values(X)             # (n, features, features)
 print(explainer.backend_)                              # treeshap_numba | treeshap_gpu | shap (fallback)
 ```
 
-Measured against `shap` 0.51.0 on one machine (4 cores / 8 threads, GTX 1050 Ti, 100 trees
+Measured against `shap` 0.51.0 in its default exact mode (`approximate=False`, path-dependent TreeSHAP, the same quantity our kernels compute; its `approximate=True` is Saabas, a different
+value, supported for XGBoost only) on one machine (4 cores / 8 threads, GTX 1050 Ti, 100 trees
 of depth 6, 100 features; best of several runs, GPU calls include the upload):
 
 | model, rows | public `shap` | mlframe numba | mlframe CUDA | max abs difference to `shap` (numba / CUDA) |

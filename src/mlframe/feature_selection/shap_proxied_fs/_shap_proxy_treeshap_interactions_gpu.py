@@ -307,7 +307,17 @@ def _defines_header(max_depth: int, n_features: int) -> str:
 
 
 def interaction_tensor_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
-    """cupy path-dependent TreeSHAP interaction tensor. Identical contract to
+    """Interaction tensor on the device: the pair-table kernel (``_shap_proxy_treeshap_interactions_table_gpu``) when the ensemble fits its tables, else the conditioned-scan path kernel below."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_table_gpu import interaction_tensor_table_gpu
+
+    if ensemble.max_depth > _MAX_SUPPORTED_DEPTH or ensemble.n_features > _MAX_SUPPORTED_FEATURES:
+        return interaction_tensor_gpu_path(ensemble, X)  # raises the documented ValueError: the caller falls back to numba
+    out = interaction_tensor_table_gpu(ensemble, X)
+    return out if out is not None else interaction_tensor_gpu_path(ensemble, X)
+
+
+def interaction_tensor_gpu_path(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+    """cupy path-dependent TreeSHAP interaction tensor (conditioned-scan kernel, all float64; the reference and the fallback). Identical contract to
     ``interaction_tensor_numba``: returns ``(Phi (n,P,P), phi (n,P), base float)`` in double precision.
 
     Raises ``ValueError`` if the ensemble depth or width exceeds the local-memory scratch caps (caller

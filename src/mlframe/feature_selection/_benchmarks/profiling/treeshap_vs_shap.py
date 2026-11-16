@@ -75,6 +75,10 @@ def main(argv: "list[str] | None" = None) -> int:
     for name, fn in runs.items():
         phis[name] = np.asarray(fn(), dtype=np.float64)
         times[name] = best(fn, reps[name])
+    # shap approximate=True is a different quantity (Saabas), timing context only: supported for XGBoost, asserted off for LightGBM and CatBoost; every row above is exact path-dependent TreeSHAP
+    approx_ms = None
+    if kind != "lightgbm":
+        approx_ms = best(lambda: np.asarray(explainer.shap_values(X, check_additivity=False, approximate=True)), 1) * 1e3
     ref = phis["shap (public)"]
     scale = float(np.abs(ref).mean())
     rank_ref = np.argsort(-np.abs(ref).mean(0))
@@ -98,6 +102,8 @@ def main(argv: "list[str] | None" = None) -> int:
         add = float(np.max(np.abs(base + a.sum(1) - margin)))
         print(f"{name:18s} {times[name] * 1e3:10.1f} {times['shap (public)'] / times[name]:9.2f} {d.max():10.2e} {d.mean():10.2e} {d.max() / scale:8.1e} {rho:8.4f} {same10!s:>7s} {add:10.2e}")
 
+    if approx_ms is not None:
+        print(f"shap approximate=True (Saabas, not the same values): {approx_ms:.1f} ms; every row above is exact TreeSHAP (shap exact is its default, approximate=False)")
     return 0
 
 

@@ -528,6 +528,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float64",),
     ),
+    "shap_proxy_treeshap_interactions_table_gpu.treeshap_interactions_table": (
+        "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_table_gpu",
+        "kernel",
+        ("float32", "float64"),
+    ),
     "null_max_perm_gpu.null_mi_perms": (
         "mlframe.feature_selection.filters._null_max_perm_gpu",
         "kernel_counts",
@@ -773,6 +778,11 @@ _SPILL_EXEMPT: dict[str, str] = {
         "the explicit DFS stack that replaces recursion, all dynamically indexed, so they live in the stack frame (54 registers, no register spill). The module header states the design; the "
         "frame grows with the square of the depth, which is why `_ensure_kernel` sizes it by the ensemble's real depth and not the cap (at the cap of 24 it reserved gigabytes of device "
         "local memory and starved later GPU paths). Removing the frame means a different algorithm (the shared-memory tile of the tree), not a register fix."
+    ),
+    "shap_proxy_treeshap_interactions_table_gpu.treeshap_interactions_table": (
+        "The same two int DFS stack arrays as treeshap_table (MAXSP 24, indexed by the run-time depth, so they sit in the stack frame). Interleaved A/B of the shared-memory placement against the "
+        "frame, one process, 7 rounds, 20000 rows x 40 features x 200 trees of depth 4, GPU 73 to 77 C, no throttle: frame best 251.7 ms / median 277.8 ms, shared best 280.2 ms / median 297.5 ms "
+        "(shared 11 percent slower)."
     ),
     "shap_proxy_treeshap_interactions_gpu.treeshap_interactions": (
         "3136 bytes/thread at depth 6 with 16 features (MAXW 8, MAXLVL 9, MAXP 16) = the same per-thread path scratch as treeshap plus the conditioned-pass accumulators (one level deeper, "
