@@ -170,6 +170,11 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_fe_auto_escalation": (
+        ("_fe_cmi_redundancy_gate", "_mi_greedy_cmi_fe"),
+        "the escalation proposes on a deterministic row subsample and lets the existing gates decide: the CMI redundancy gate (_cmi_gate_accepted -> apply_cmi_redundancy_gate of _fe_cmi_redundancy_gate, device partition counting and null, tuned choice) and the batched CMI of _mi_greedy_cmi_fe score the candidates",
+        True,
+    ),
     "_fe_stability_vote": (
         ("_mi_greedy_cmi_fe",),
         "the per-fold MI statistics are _cmi_from_binned of _mi_greedy_cmi_fe (device partition counting, own tuning entries); under STRICT-resident the recipe is replayed and binned on the device (apply_unary_binary_gpu_resident, the sync-free binner of _mi_greedy_cmi_fe_binning)",
@@ -304,6 +309,10 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_fe_auto_escalation": (
+        "_mi_greedy_cmi_fe",
+        "the host form of the escalation's decision statistics is the njit partition kernels of _mi_greedy_cmi_fe (_cmi_from_binned on _quantile_bin codes) and the host contingency-table null of the CMI redundancy gate; the proposers are numpy / njit prewarp fits on a row subsample",
+    ),
     "_fe_stability_vote": (
         "_mi_greedy_cmi_fe",
         "the per-fold gate statistic is the plug-in MI / CMI of _mi_greedy_cmi_fe (_cmi_from_binned, njit partition kernels) on equi-frequency codes of _quantile_bin; the replayed recipe is the host apply_recipe",
@@ -509,6 +518,7 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_fe_auto_escalation": ("_fe_auto_escalation_proposers",),
     "_ratio_delta_fe": ("_ratio_delta_screen",),
     "_orth_extra_basis_fe": ("_orth_extra_basis_fe_helpers",),
     "_orth_extra_basis_fe_generate": ("_orth_extra_basis_fe_generate_doc",),
