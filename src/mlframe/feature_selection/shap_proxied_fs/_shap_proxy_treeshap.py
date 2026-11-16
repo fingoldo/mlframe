@@ -436,8 +436,21 @@ def _treeshap_batch(
 def treeshap_phi_base_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, float]:
     """Run the numba path-dependent TreeSHAP. Returns ``(phi (n,f) double precision, base float)``.
 
-    ``X`` is cast to float32 for routing (xgboost's internal comparison dtype). ``phi`` is in margin /
-    log-odds space; ``base`` is the ensemble intercept so ``base + phi.sum(1)`` is the model margin.
+    ``X`` is cast to float32 for routing (xgboost's internal comparison dtype). ``phi`` is in margin / log-odds space; ``base`` is the ensemble intercept so ``base + phi.sum(1)`` is the model margin.
+
+    The table form (``_shap_proxy_treeshap_table``: the per-leaf weight work is paid once per ensemble, a sample only walks the nodes with a bit mask) answers when the ensemble fits it and the rows repay the
+    build; otherwise, and always as the reference, the path kernel ``treeshap_phi_base_path`` runs. The two agree to ~1e-15."""
+    from ._shap_proxy_treeshap_table import treeshap_phi_base_table
+
+    Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
+    tabled = treeshap_phi_base_table(ensemble, Xf)
+    if tabled is not None:
+        return tabled
+    return treeshap_phi_base_path(ensemble, Xf)
+
+
+def treeshap_phi_base_path(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, float]:
+    """The path kernel: every sample walks every leaf and unwinds its path (``O(depth^2)`` per leaf). The reference of the table form and its fallback. Returns ``(phi (n,f) double precision, base float)``.
 
     ``_treeshap_batch`` is a numba ``parallel=True`` kernel reached via joblib-threaded fan-outs
     (``_shap_proxy_explain.py``'s per-fold ``Parallel``) as well as ``ThreadPoolExecutor`` ones -- numba's

@@ -16,8 +16,8 @@ import numpy as np
 from mlframe.feature_selection._benchmarks.profiling.hardware_state import line, snapshot
 
 
-def build_ensemble(n: int, f: int, trees: int, depth: int, seed: int = 0):
-    """``(ensemble, X)`` of a LightGBM regressor trained on ``n`` synthetic rows with ``f`` features."""
+def build_ensemble(n: int, f: int, trees: int, depth: int, seed: int = 0, with_model: bool = False):
+    """``(ensemble, X)`` (and the fitted model when ``with_model``) of a LightGBM regressor trained on ``n`` synthetic rows with ``f`` features."""
     import lightgbm as lgb
 
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import extract_ensemble
@@ -26,7 +26,7 @@ def build_ensemble(n: int, f: int, trees: int, depth: int, seed: int = 0):
     X = rng.standard_normal((n, f)).astype(np.float32)
     y = X[:, 0] * 2 + X[:, 1] * X[:, 2] + np.sin(X[:, 3]) + 0.3 * rng.standard_normal(n)
     model = lgb.LGBMRegressor(n_estimators=trees, max_depth=depth, num_leaves=2**depth, verbose=-1, n_jobs=4).fit(X, y)
-    return extract_ensemble(model), X
+    return (extract_ensemble(model), X, model) if with_model else (extract_ensemble(model), X)
 
 
 def best_of(fn, repeats: int = 5) -> float:
@@ -53,8 +53,10 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--trees", type=int, default=100)
     ap.add_argument("--depth", type=int, default=6)
     ap.add_argument("--repeats", type=int, default=5)
+    ap.add_argument("--shap", action="store_true", help="also time the public shap library (TreeExplainer, path-dependent) on the same model")
+    ap.add_argument("--cprofile", action="store_true", help="print the cProfile table of one numba call")
     args = ap.parse_args(argv)
-    ens, X = build_ensemble(args.n, args.f, args.trees, args.depth)
+    ens, X, model = build_ensemble(args.n, args.f, args.trees, args.depth, with_model=True)
     print("hardware before:", line(snapshot()))
     phi_n, _ = treeshap_phi_base_numba(ens, X)
     t_numba = best_of(lambda: treeshap_phi_base_numba(ens, X), 2)
@@ -67,6 +69,22 @@ def main(argv: "list[str] | None" = None) -> int:
 
     phi_g, _ = gpu()
     t_gpu = best_of(gpu, args.repeats)
+    if args.shap:
+        import shap
+
+        explainer = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+        phi_s = np.asarray(explainer.shap_values(X, check_additivity=False))
+        t_shap = best_of(lambda: explainer.shap_values(X, check_additivity=False), 2)
+        print(f"shap library {t_shap * 1e3:9.1f} ms | numba {t_numba * 1e3:9.1f} ms | numba vs shap {t_shap / t_numba:5.2f}x | max|d(numba,shap)| {float(np.max(np.abs(phi_n - phi_s))):.3e}")
+    if args.cprofile:
+        import cProfile
+        import pstats
+
+        prof = cProfile.Profile()
+        prof.enable()
+        treeshap_phi_base_numba(ens, X)
+        prof.disable()
+        pstats.Stats(prof).sort_stats("cumulative").print_stats(8)
     diff = float(np.max(np.abs(phi_n - phi_g)))
     rank_n, rank_g = np.argsort(-np.abs(phi_n).mean(0)), np.argsort(-np.abs(phi_g).mean(0))
     print(f"n={args.n} f={args.f} trees={args.trees} depth={args.depth} (ensemble depth {ens.max_depth})")
