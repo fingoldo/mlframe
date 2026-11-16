@@ -293,19 +293,23 @@ def generate_expanding_agg_features(
     n_codes = int(codes_sorted.max()) + 1 if codes_sorted.size else 0
     times_ord = time_vals[order]
     row_slices = _group_row_slices(codes_sorted, n_codes)
+    # The per-entity history is split out of ONE whole-array ``tolist`` per column and sliced by the group bounds, instead of two ``tolist`` calls (and a ``str`` of the key) per entity per value column
+    # (86000 entities x 6 columns made 1.0 million small calls, 2.0 s of a 2.8 s pass at 100000 rows). The lists hold the same Python values in the same order; the time lists are shared by the value columns.
+    group_rows = np.concatenate(row_slices) if row_slices else np.empty(0, dtype=np.int64)
+    group_bounds = np.concatenate([[0], np.cumsum([r.size for r in row_slices])]).astype(np.int64).tolist() if row_slices else [0]
+    ent_keys = [str(key_sorted[rows[0]]) for rows in row_slices]
+    # A datetime axis is stored as int64 nanoseconds, as the lag and rolling recipes do and as the replay compares it (``tolist()`` of a ``datetime64[us]`` column gives ``datetime`` objects, which the replay cannot
+    # compare with its int64-ns test times; a ``datetime64[ns]`` column happened to give ints).
+    t_all = (times_ord.astype("datetime64[ns]").astype(np.int64) if _is_datetime_like(times_ord) else times_ord)[group_rows].tolist()
+    t_lists = [t_all[group_bounds[g] : group_bounds[g + 1]] for g in range(len(row_slices))]
 
     # Persist the per-entity sorted history (train snapshot) once per value col.
     for value_col in value_cols:
         vals = np.asarray(X[value_col].to_numpy(), dtype=_STAT_DTYPE)
         vals_sorted = vals[order]
         # History snapshot: per-entity sorted (time, value) lists.
-        history: dict[str, dict] = {}
-        for rows in row_slices:
-            ent_key = str(key_sorted[rows[0]])
-            history[ent_key] = {
-                "t": times_ord[rows].tolist(),
-                "v": vals_sorted[rows].tolist(),
-            }
+        v_all = vals_sorted[group_rows].tolist()
+        history: dict[str, dict] = {ent_keys[g]: {"t": t_lists[g], "v": v_all[group_bounds[g] : group_bounds[g + 1]]} for g in range(len(row_slices))}
         for stat in stats:
             res_sorted = _expanding_stat_past_only(vals_sorted, codes_sorted, stat)
             prior = _global_prior(vals, stat)
