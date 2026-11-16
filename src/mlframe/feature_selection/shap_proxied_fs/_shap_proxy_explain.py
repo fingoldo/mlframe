@@ -211,6 +211,9 @@ _ADDITIVITY_REL_TOL = 1e-2
 # narrow data the shap C-extension is already fast and the numba JIT warmup is not worth it; the win
 # grows with width (OOF-SHAP on ~2000 features was the profiled hotspot). Routed by ``_pick_backend``;
 # a fixed, hand-calibrated crossover (no per-host cache entry is read).
+# TODO(per-host thresholds): measure this crossover per machine like ``_shap_proxy_score_margin_ktc`` does for the score dispatch. A sweep would train small XGBoost/LightGBM
+# models of growing width (and rows), time the ``shap`` library against the numba kernel and the GPU kernel on each, register the result as a ``kernel_tuner`` entry and read it here with
+# the constant as the fallback. Deferred: the selector is off the MRMR fit path and the hand-calibrated constants work.
 _TREESHAP_NUMBA_MIN_FEATURES = 64
 
 

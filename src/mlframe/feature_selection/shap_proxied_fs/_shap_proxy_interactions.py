@@ -40,12 +40,18 @@ logger = logging.getLogger(__name__)
 # every width from P=10 (~1.5x) upward, so the interaction crossover is far LOWER than the main-effect
 # one (the shap interaction call is much heavier than its main-effect call). We keep a small floor so
 # the numba JIT warmup is not paid on trivial widths.
+# TODO(per-host thresholds): measure this threshold per machine like ``_shap_proxy_score_margin_ktc`` does for the score dispatch. A sweep would train small XGBoost/LightGBM
+# models of growing width (and rows), time the ``shap`` library against the interaction numba kernel and the GPU kernel on each, register the result as a ``kernel_tuner`` entry and read it here with
+# the constant as the fallback. Deferred: the selector is off the MRMR fit path and the hand-calibrated constants work.
 _INTERACTION_NUMBA_MIN_FEATURES = 8
 
 # Min problem size (rows * P^2 interaction-tensor cells) at which the cupy/CUDA interaction kernel is
 # preferred over numba on a CUDA box. The GPU kernel carries large per-thread local-memory scratch (it
 # spills on small GPUs) so it only pays off once the per-sample tree*cond_feat work amortises the
 # upload + spill; below this we stay on numba (no JIT/launch overhead win). A fixed, hand-calibrated floor.
+# TODO(per-host thresholds): measure this threshold per machine like ``_shap_proxy_score_margin_ktc`` does for the score dispatch. A sweep would train small XGBoost/LightGBM
+# models of growing width (and rows), time the ``shap`` library against the interaction numba kernel and the GPU kernel on each, register the result as a ``kernel_tuner`` entry and read it here with
+# the constant as the fallback. Deferred: the selector is off the MRMR fit path and the hand-calibrated constants work.
 _INTERACTION_GPU_MIN_CELLS = 3_000 * 40 * 40  # ~4.8M cells (e.g. 3000 rows x P=40)
 
 
