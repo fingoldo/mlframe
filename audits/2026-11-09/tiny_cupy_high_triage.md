@@ -3,7 +3,7 @@
 The detector's `high` hits in the current source, one row per function. The baseline (`tests/test_meta/_tiny_cupy_loops_baseline.json`) holds these keys.
 Dispositions to fill in: **FALSE POSITIVE** (the loop is a chunk, fold or fallback loop with a few trips and real work per trip), **FALLBACK** (the cupy loop runs only when a batched path is not taken, measured), **REAL** (a launch-bound loop, to restructure), **OPEN** (not yet read).
 
-Rows: 108.
+Rows: 110.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -14,7 +14,7 @@ Rows: 108.
 | feature_selection/filters/_binned_numeric_agg_resident.py | build_binagg_oof_matrix_gpu | 432 | REAL, measured partly launch-bound: 32 us per column launch at 100000 rows, batching open (GPU11-61) |
 | feature_selection/filters/_cat_confirm_permutation.py | _confirm_pairs_via_permutation | 919 | REAL, not yet measured: per surviving pair, a permutation null with launches per permutation; the same class as the batched-permutation item (GPU11-62) |
 | feature_selection/filters/_conditional_gate_fe.py | _gate_flush_pending | 717 | FALSE POSITIVE: one trip per pending candidate group (a few), each a host argmax and, for the groups that clear the margin, one fixed 12-permutation null; not a per-element loop |
-| feature_selection/filters/_conditional_gate_fe.py | _rank_and_prune | 615 | REAL, not yet measured: a per-column device loop in the main path (the column gathers and medians), not only in the fallback |
+| feature_selection/filters/_conditional_gate_fe.py | _rank_and_prune | 615 | FALLBACK: measured 2026-11-16 (100k x 100, 0.98 s host / 0.72 s STRICT-resident of which the per-column loop was most): the divergence of all gate columns is one walk per probe (`_gate_rank_divergence`, numba and cupy forms, values equal the loop to 1e-14); the per-column loop runs only for a non-finite matrix, a device fault or `MLFRAME_GATE_RANK_LOOP=1` |
 | feature_selection/filters/_conditional_gate_fe.py | cheap_row_argmax_scan | 513 | REAL, deliberate and budgeted: one device argmax per 3-column combination, the source states that the launch count is kept on purpose until the suite is decoupled from pool ordering |
 | feature_selection/filters/_cupy_polynom_optimizer.py | _score_generation_gpu | 171 | FALSE POSITIVE: loops over the fixed basis families (about nine), each one batched over the whole population |
 | feature_selection/filters/_cupy_polynom_optimizer.py | run_cupy_kernel_search | 251 | FALSE POSITIVE: loops over the sequential generations of the search, each trip one whole batched generation |
@@ -114,3 +114,6 @@ Rows: 108.
 | feature_selection/filters/_grouped_quantile_fe.py | _p_added_by_column | 665 | FALSE POSITIVE: a blocked loop (`for src, members in by_source.items()`), each trip one batched device call over all candidates of that source (`added_information_p_many`); the trips are the number of source columns |
 | feature_selection/filters/_extra_fe_families_dispersion_resident.py | _stage_columns | 190 | REAL, measured and small: the loop is over candidates and costs host dictionary lookups plus one cached resident upload per distinct x_i and x_j; the bin codes of all distinct x_j are ONE `disp_bin_codes` launch and the candidate build ONE `disp_columns` launch (396 columns at 100000 rows 210 -> 17 ms; the 60-candidate scoring 15.8 -> 10.0 ms wall). What remains per distinct column is the resident-operand lookup (content hash), not a launch |
 | feature_selection/filters/_gpu_resident_operand_build.py | build_resident_operand_table | 182 | FALSE POSITIVE: a blocked loop (`for block in _spec_blocks(...)`), each trip one raw-operand group upload and one batched unary launch for a block of specs; one trip when the distinct raw operands fit a quarter of the pool room (the 54-column pool of the sweep is one trip) |
+| feature_selection/filters/_fleuret_confirm_gpu.py | precompute_window | 483 | FALSE POSITIVE: a loop over the DISTINCT candidate sizes (a handful of values), each trip one batched confirmation of every candidate of that size (thousands of permutations on the device) |
+| feature_selection/filters/_gain_stats_codes_gpu.py | _codes_of_block | 113 | FALSE POSITIVE: a loop over the requested bin counts (one to three values), each trip one edge pass and one coding launch over the whole column block that the single sort before the loop serves |
+| feature_selection/filters/_gate_rank_divergence.py | _device_block | 223 | FALSE POSITIVE: a loop over the three probe operands, each trip about 20 operations over the (rows x gate columns) block (argsort, prefix counts, keys, one bincount, the MI reductions) |

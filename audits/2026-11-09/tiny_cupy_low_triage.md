@@ -2,7 +2,7 @@
 
 The detector's `low` hits in the current source, one row per function; the same dispositions as the high table (FALSE POSITIVE, FALLBACK, REAL, LEGACY).
 
-Rows: 60.
+Rows: 71.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -67,3 +67,13 @@ Rows: 60.
 | feature_selection/filters/_fe_pure_form_retention_gpu_resident.py | _device_verdicts | 385 | FALSE POSITIVE: a blocked loop (`for p0 in range(0, P, block)`), each trip one form-column upload and one batched gate for a block of pairs (two kernel launches per block); one trip when the pool fits a quarter of the pool room |
 | feature_selection/filters/_orthogonal_univariate_fe/_gpu_resident_cross_basis.py | _product_mi_blocked | 458 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, len(specs), block_cols)`), each trip one product-block build (one fused leg-product launch) and one resident MI batch over the block; one trip when the candidates fit a quarter of the pool room |
 | feature_selection/filters/_orthogonal_univariate_fe/_extra_basis_resident.py | _mi_by_name_blocks | 305 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, len(names), block_cols)`), each trip one block build (one spline launch, one Fourier launch) and one resident MI batch; one trip when the candidates fit a quarter of the pool room |
+| feature_selection/filters/_cmim_min_gpu.py | cmim_min_scores | 328 | FALSE POSITIVE: a blocked loop (`for a in range(0, rows, width)`), each trip one fused kernel launch over a column block bounded by the VRAM cushion |
+| feature_selection/filters/_feature_engineering_pairs/_pairs_score_steps.py | _batched_abs_corr | 181 | FALSE POSITIVE: a blocked loop (`for lo in range(0, len(buf_cols), _ABS_CORR_BLOCK)`), each trip one batched correlation over its block |
+| feature_selection/filters/_gain_stats_codes_gpu.py | main_effect_z_device | 205 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, k, width)`), each trip one batched pass over its column block |
+| feature_selection/filters/_gain_stats_codes_gpu.py | quantile_codes_columns_device | 157 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, idx.size, width)`), each trip one sort and one coding launch over its column block |
+| feature_selection/filters/_gate_rank_divergence.py | gate_divergence_device | 257 | FALSE POSITIVE: a blocked loop (`for lo in range(0, p, width)`), each trip the whole walk for its block of gate columns (about 25 launches over n x width cells) |
+| feature_selection/filters/_grouped_quantile_gpu.py | _stats_device | 159 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, k, block)`), each trip two kernel launches over its column block |
+| feature_selection/filters/_hinge_precheck_gpu.py | hinge_precheck_drops | 310 | FALSE POSITIVE: a blocked loop (`for a in range(0, rows, width)`), each trip the batched closed-form precheck of its column block |
+| feature_selection/filters/_meta_fingerprint_gpu.py | column_moments | 214 | FALSE POSITIVE: a blocked loop (`for a in range(0, rows, width)`), each trip one kernel launch over a block of _BLOCK_BYTES |
+| feature_selection/filters/_mi_greedy_cmi_fe.py | quantile_bin_columns | 436 | FALSE POSITIVE: a blocked loop (`for j0 in range(0, k, block)`), each trip the device quantile binner over its column block |
+| feature_selection/filters/_orth_auto_scorer_fe.py | _batched_bootstrap_values_in_column_blocks | 371 | FALSE POSITIVE: a blocked loop (`for a in range(0, len(columns), width)`), each trip the batched scorers over its column block (the width is the VRAM-bound block of the scorers) |

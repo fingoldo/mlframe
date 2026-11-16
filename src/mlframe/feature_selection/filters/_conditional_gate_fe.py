@@ -696,7 +696,19 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
         except Exception as _gm_exc:  # best-effort: the per-column cp.median gives the same medians
             logger.debug("batched gate medians not used (%s); per-column cp.median", _gm_exc)
             _gate_meds = None
-    for gi in range(len(cols)):
+    # Host path: every gate column's divergence in one walk per probe (``_gate_rank_divergence``: the rank binner's bins and tie rule inside each half, no re-sort, 2 p batched-MI calls become none).
+    # ``MLFRAME_GATE_RANK_LOOP=1`` keeps the per-column loop below; a non-finite matrix takes it as well.
+    _walked = None
+    if os.environ.get("MLFRAME_GATE_RANK_LOOP", "").strip() != "1":
+        from ._gate_rank_divergence import gate_divergence, gate_divergence_device
+
+        if _gate_dev is None:
+            _walked = gate_divergence(mat, yi, probe_idx, nbins)
+        else:  # STRICT-resident: the same walk on the resident matrix (the device medians already computed above), the per-column loop below on any device fault
+            _walked = gate_divergence_device(_gate_dev[0], _gate_dev[1], _gate_dev[2], probe_idx, nbins, medians=_gate_meds)
+    if _walked is not None:
+        div[:] = _walked
+    for gi in range(0 if _walked is not None else len(cols)):
         if _gate_dev is not None:
             _cp, _mat_dev, _yi_dev, _probe_dev = _gate_dev
             _cvd = _mat_dev[:, gi]
