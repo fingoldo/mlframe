@@ -339,7 +339,7 @@ def interaction_tensor_table(ensemble: TreeEnsemble, X: np.ndarray, tables: Opti
     """``(Phi (n, P, P), phi (n, P), base)`` from the interaction tables, or ``None`` when the ensemble does not fit them (the caller keeps the conditioned reference kernel)."""
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
-    Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
+    Xf = ensemble.as_float32(X)
     tab = tables if tables is not None else build_interaction_tables(ensemble, int(Xf.shape[0]))
     if tab is None:
         return None
