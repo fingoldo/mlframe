@@ -170,6 +170,11 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_mrmr_fe_step_helpers": (
+        ("_pair_mi_perm_cuda",),
+        "the FE-step blocks carved here are orchestration; the order-2 maxT floor runs the one-launch pair_mi_perm kernel of _pair_mi_perm_cuda (tuned host-or-device choice floor_backend_choice, shape rules, declined -> cupy twin -> njit floor)",
+        True,
+    ),
     "polynom_pair_fe": (
         ("_hermite_fe_optimise",),
         "the per-pair search is run by optimise_hermite_pair of _hermite_fe_optimise (host numba optimizers, or fe_optimizer=cupy_kernel through _cupy_polynom_optimizer, tuned generation scoring); this module only dispatches pairs, subsamples rows and commits survivors",
@@ -294,6 +299,10 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_mrmr_fe_step_helpers": (
+        "_permutation_null",
+        "the host form of the order-2 maxT floor is the permutation-batched njit kernel behind pooled_pair_permutation_null_joint_mi_floor of _permutation_null (same host shuffles as the device kernel)",
+    ),
     "polynom_pair_fe": (
         "_numba_polynom_optimizer",
         "the host form of the per-pair polynomial search is the njit batch evaluators and the CMA / random-batch optimizers of _numba_polynom_optimizer (reached through optimise_hermite_pair)",
