@@ -38,7 +38,7 @@ def auc(Xtr, Xte, ytr, yte, cols):
     if not cols:
         return float("nan")
     m = lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Xtr[cols], ytr)
-    return float(roc_auc_score(yte, m.predict_proba(Xte[cols])[:, 1]))
+    return float(roc_auc_score(yte, np.asarray(m.predict_proba(Xte[cols]))[:, 1]))
 
 
 def jaccard(a, b):

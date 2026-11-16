@@ -67,12 +67,12 @@ def compute_counterfactual_substitution_features(
         if task == "binary":
             model = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1)
             model.fit(Xt_s, y_t.astype(np.int32))
-            pred_orig = model.predict_proba(Xq_s)[:, 1].astype(np.float32)
+            pred_orig = np.asarray(model.predict_proba(Xq_s))[:, 1].astype(np.float32)
             global_medians = np.median(Xt_s, axis=0).astype(np.float32)
         else:
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1)
             model.fit(Xt_s, y_t)
-            pred_orig = model.predict(Xq_s).astype(np.float32)
+            pred_orig = np.asarray(model.predict(Xq_s)).astype(np.float32)
             global_medians = np.median(Xt_s, axis=0).astype(np.float32)
 
         n_q = Xq_s.shape[0]
@@ -81,9 +81,9 @@ def compute_counterfactual_substitution_features(
             Xq_subst = Xq_s.copy()
             Xq_subst[:, j] = global_medians[j]  # simplified: use global median (faster than per-leaf)
             if task == "binary":
-                pred_sub = model.predict_proba(Xq_subst)[:, 1].astype(np.float32)
+                pred_sub = np.asarray(model.predict_proba(Xq_subst))[:, 1].astype(np.float32)
             else:
-                pred_sub = model.predict(Xq_subst).astype(np.float32)
+                pred_sub = np.asarray(model.predict(Xq_subst)).astype(np.float32)
             deltas[:, j] = pred_sub - pred_orig
 
         abs_deltas = np.abs(deltas)

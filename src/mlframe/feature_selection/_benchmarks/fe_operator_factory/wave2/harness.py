@@ -20,7 +20,7 @@ def prep(fa: np.ndarray, fb: np.ndarray, q: float = 0.005) -> np.ndarray:
     """Make an engineered column safe for a linear model: non-finite to 0, clipped to the fit-half ``[q, 1 - q]`` quantiles (the clip bounds belong in the recipe)."""
     fa, fb = clean(fa), clean(fb)
     lo, hi = np.quantile(fa, [q, 1 - q])
-    return np.clip(fb, lo, hi)
+    return np.asarray(np.clip(fb, lo, hi))
 
 
 def top_cols(XA: np.ndarray, yb: tuple, cols: list, cap: int = 6) -> list:

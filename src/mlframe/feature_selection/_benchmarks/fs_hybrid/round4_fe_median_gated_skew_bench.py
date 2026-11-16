@@ -71,7 +71,7 @@ def auc(Xtr, ytr, Xte, yte):
     kn = KNeighborsClassifier(n_neighbors=25, n_jobs=N_JOBS); kn.fit(a, ytr); out["knn"] = roc_auc_score(yte, kn.predict_proba(b)[:,1])
     if _HAVE_LGBM:
         gb = LGBMClassifier(n_estimators=150, num_leaves=31, n_jobs=N_JOBS, verbose=-1, random_state=42)
-        gb.fit(Xtr, ytr); out["lgbm"] = roc_auc_score(yte, gb.predict_proba(Xte)[:,1])
+        gb.fit(Xtr, ytr); out["lgbm"] = roc_auc_score(yte, np.asarray(gb.predict_proba(Xte))[:,1])
     out["mean"] = float(np.mean(list(out.values()))); return out
 
 

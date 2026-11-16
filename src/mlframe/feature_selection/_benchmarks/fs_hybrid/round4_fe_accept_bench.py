@@ -101,7 +101,7 @@ def holdout_greedy_accept(base_df, prod_dict, y, floor=0.0015, seed=0):
         Mva = np.hstack([base_va, *extra_va]) if extra_va else base_va
         m = lgb.LGBMClassifier(n_estimators=150, num_leaves=31, learning_rate=0.05, n_jobs=NJ, verbose=-1, random_state=seed)
         m.fit(Mtr, yi_tr)
-        return roc_auc_score(yi_va, m.predict_proba(Mva)[:, 1])
+        return roc_auc_score(yi_va, np.asarray(m.predict_proba(Mva))[:, 1])
 
     accepted: list[Any] = []
     acc_tr: list[Any] = []

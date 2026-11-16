@@ -104,7 +104,7 @@ def downstream_frugal(Xtr, Xte, ytr, yte):
     from sklearn.metrics import roc_auc_score
     import lightgbm as lgb
     o = {}
-    o["lgbm"] = roc_auc_score(yte, lgb.LGBMClassifier(n_estimators=200, n_jobs=N_JOBS, verbose=-1, random_state=0).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
+    o["lgbm"] = roc_auc_score(yte, np.asarray(lgb.LGBMClassifier(n_estimators=200, n_jobs=N_JOBS, verbose=-1, random_state=0).fit(Xtr, ytr).predict_proba(Xte))[:, 1])
     o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
     o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
     return {k: round(float(v), 4) for k, v in o.items()}

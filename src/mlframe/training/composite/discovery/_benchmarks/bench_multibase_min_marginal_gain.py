@@ -85,7 +85,7 @@ def _eval_threshold(thr, X_tr, y_tr, base_tr, X_ho, base_ho, y_ho, seed):
     model.fit(X_tr, T_tr)
     base_mat_ho = np.column_stack([base_ho[n] for n in kept])
     T_hat = model.predict(X_ho)
-    y_hat = _linear_residual_multi_inverse(T_hat, base_mat_ho, params)
+    y_hat = _linear_residual_multi_inverse(np.asarray(T_hat), base_mat_ho, params)
     return _fast_rmse(y_hat, y_ho), len(kept)
 
 

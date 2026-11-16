@@ -35,7 +35,7 @@ def _pair_loop(M: np.ndarray) -> np.ndarray:
 
 
 def _numpy_full(M: np.ndarray) -> np.ndarray:
-    return np.corrcoef(M)
+    return np.asarray(np.corrcoef(M))
 
 
 def _bench(shape: tuple, n_repeats: int = 3) -> dict:

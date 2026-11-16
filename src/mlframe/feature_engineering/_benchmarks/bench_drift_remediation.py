@@ -19,7 +19,7 @@ def _make_data(n_time_ids: int, n_entities: int, n_features: int, seed: int) -> 
     rng = np.random.default_rng(seed)
     time_ids = np.repeat(np.arange(n_time_ids), n_entities)
     n = time_ids.shape[0]
-    data = {"time_id": time_ids}
+    data: dict = {"time_id": time_ids}
     for i in range(n_features):
         if i % 3 == 0:
             data[f"feat_{i}"] = time_ids.astype(np.float64) * 5.0 + rng.standard_normal(n)

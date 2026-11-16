@@ -96,7 +96,7 @@ def downstream(Xtr, Xte, ytr, yte):
     if not keep:
         keep = list(Xtr.columns[:1])
     m = lgb.LGBMClassifier(n_estimators=300, verbose=-1, n_jobs=4).fit(Xtr[keep], ytr)
-    return round(float(roc_auc_score(yte, m.predict_proba(Xte[keep])[:, 1])), 4)
+    return round(float(roc_auc_score(yte, np.asarray(m.predict_proba(Xte[keep]))[:, 1])), 4)
 
 
 def block_recall(sel, block):

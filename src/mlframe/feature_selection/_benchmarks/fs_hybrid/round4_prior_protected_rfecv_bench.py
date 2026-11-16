@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
+import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
@@ -49,7 +50,7 @@ def downstream(Xtr, Xte, ytr, yte, sel):
     if not sel:
         sel = list(Xtr.columns[:1])
     m = lgb.LGBMClassifier(n_estimators=300, verbose=-1, n_jobs=4).fit(Xtr[sel], ytr)
-    return round(float(roc_auc_score(yte, m.predict_proba(Xte[sel])[:, 1])), 4), len(sel)
+    return round(float(roc_auc_score(yte, np.asarray(m.predict_proba(Xte[sel]))[:, 1])), 4), len(sel)
 
 
 def high_conf_core(Xtr, ytr):

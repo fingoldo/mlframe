@@ -132,7 +132,7 @@ def _holdout_auc(X_tr, y_tr, X_ho, y_ho, sel_idx):
         from lightgbm import LGBMClassifier
         m = LGBMClassifier(n_estimators=80, num_leaves=15, verbose=-1, random_state=0)
         m.fit(Xtr, y_tr)
-        out["lgbm"] = float(roc_auc_score(y_ho, m.predict_proba(Xho)[:, 1]))
+        out["lgbm"] = float(roc_auc_score(y_ho, np.asarray(m.predict_proba(Xho))[:, 1]))
     except Exception as e:
         logger.warning("lgbm fit/score failed: %s", e)
         out["lgbm"] = None
