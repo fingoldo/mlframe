@@ -55,12 +55,14 @@ class _ParquetStore:
 
     def __init__(self, store_path: str):
         self._path = store_path
+        self._unreadable = False
         os.makedirs(os.path.dirname(os.path.abspath(store_path)), exist_ok=True)
 
     # ---- low-level read ----
 
     def read_rows(self) -> list[dict]:
         """Read all rows from the parquet store, or ``[]`` if it doesn't exist yet or fails to parse."""
+        self._unreadable = False
         if not os.path.isfile(self._path):
             return []
         try:
@@ -68,6 +70,7 @@ class _ParquetStore:
             tbl = pq.read_table(self._path)
             return list(tbl.to_pylist())
         except Exception as e:
+            self._unreadable = True
             logger.warning("param_oracle: failed to read %s: %s", self._path, e)
             return []
 
@@ -80,8 +83,15 @@ class _ParquetStore:
         cols = {c: [r.get(c) for r in rows] for c in _STORE_COLUMNS}
         tbl = pa.table(cols)
         tmp = dest + f".{uuid.uuid4().hex}.tmp"
-        pq.write_table(tbl, tmp)
-        os.replace(tmp, dest)
+        try:
+            pq.write_table(tbl, tmp)
+            os.replace(tmp, dest)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
     def append(self, rows: list[dict]) -> None:
         """Append observation rows, then re-aggregate, concurrency-safely."""
@@ -97,6 +107,12 @@ class _ParquetStore:
         def _do() -> None:
             """Read-aggregate-write cycle, run inside the cross-process file lock (when available) so concurrent appenders don't clobber each other's writes."""
             existing = self.read_rows()
+            if not existing and os.path.isfile(self._path) and self._unreadable:
+                # read_rows() answered [] because the store could not be parsed, not because it is empty: writing now would overwrite
+                # every accumulated observation. Keep the bytes aside, then start a fresh store.
+                aside = self._path + f".corrupt-{uuid.uuid4().hex[:8]}"
+                os.replace(self._path, aside)
+                logger.warning("param_oracle: unreadable store %s moved to %s; starting a fresh store", self._path, aside)
             merged = self._aggregate(existing + rows)
             self._write_rows(merged, self._path)
 
@@ -179,8 +195,11 @@ def _weighted_median(pairs: "list[tuple[float, int]]") -> float:
     total = sum(w for _, w in ordered)
     half = total / 2.0
     seen = 0
-    for value, weight in ordered:
+    for idx, (value, weight) in enumerate(ordered):
         seen += weight
-        if seen >= half:
+        if seen > half:
             return float(value)
+        if seen == half:
+            # the boundary falls between two expanded elements: the median is their mean, as in numpy.median
+            return (float(value) + float(ordered[idx + 1][0])) / 2.0
     return float(ordered[-1][0])

@@ -79,10 +79,11 @@ def install_log_sanitizer() -> bool:
         if getattr(current, _MARK, False):
             return False
         _original_factory = current
+        previous = current  # captured, not read from the module global: uninstall sets that to None while records may still be built through this closure
 
         def factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
             """Build the record with the previous factory, then escape its arguments when the logger is one of ours."""
-            record: logging.LogRecord = _original_factory(*args, **kwargs)
+            record: logging.LogRecord = previous(*args, **kwargs)
             if record.args and record.name.startswith(_PREFIX):
                 record.args = _sanitize_args(record.args)
             return record

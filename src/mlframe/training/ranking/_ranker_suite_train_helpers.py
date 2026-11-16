@@ -498,7 +498,8 @@ def _train_mlframe_rank_save_dir(save_dir, model_name, flavor_order, models_dict
         import orjson
 
         meta_path = os.path.join(save_dir, f"{_safe_model_name}_metadata.json")
-        with open(meta_path, "wb") as f:
+        def _write_meta(f: Any) -> None:
+            """Serialise the run metadata into the open file handle."""
             # numpy types aren't json-serialisable; coerce.
             # NOTE: no shared numpy->json coercer exists in mlframe.utils or
             # pyutilz today; not worth a new util for this single call site.
@@ -512,5 +513,7 @@ def _train_mlframe_rank_save_dir(save_dir, model_name, flavor_order, models_dict
                     return o.tolist()
                 return o
             f.write(orjson.dumps(metadata, option=orjson.OPT_INDENT_2, default=_coerce))
+
+        atomic_write_bytes(meta_path, _write_meta)
         if verbose:
             logger.info("  saved metadata -> %s", meta_path)

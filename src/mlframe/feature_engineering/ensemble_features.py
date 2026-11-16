@@ -48,6 +48,7 @@ __all__ = [
 
 
 import numpy as np
+from scipy.special import xlogy as _xlogy
 import numba
 
 
@@ -169,7 +170,7 @@ def _entropy_from_counts(counts: np.ndarray) -> np.ndarray:
     totals = counts.sum(axis=1, keepdims=True)
     with np.errstate(invalid="ignore", divide="ignore"):
         probs = np.where(totals > 0, counts / totals, np.nan)
-        return np.asarray(-np.sum(probs * np.log(probs + 1e-12), axis=1))
+        return np.asarray(-np.nansum(_xlogy(probs, probs), axis=1) + np.where(totals[:, 0] > 0, 0.0, np.nan))
 
 
 def _top2_gap_from_counts(counts: np.ndarray) -> np.ndarray:

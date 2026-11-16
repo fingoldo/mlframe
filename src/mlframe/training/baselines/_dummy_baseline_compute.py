@@ -14,6 +14,7 @@ They are re-exported below so existing
 from __future__ import annotations
 
 import logging
+import weakref
 from typing import Any, Callable, OrderedDict, Sequence
 
 import numpy as np
@@ -67,9 +68,9 @@ def _per_target_seed(base_seed: int, target_name: str) -> int:
 # the second call is cheap, but the log line + the get_pandas_view_of_polars_df overhead repeat.
 # A weak-id memo keyed by ``id(X)`` (the caller holds a strong ref across the per-target loop)
 # threads the view through without changing the function signature. Bounded to 4 entries because
-# at most train/val/test/df are live in one per-target iteration; weakrefs are NOT used (polars
-# DataFrames don't support weakref because they are pyo3-backed) so we rely on the explicit cap
-# + an id() key that the caller's strong reference keeps alive for the duration of the call.
+# at most train/val/test/df are live in one per-target iteration; each entry also stores a weakref
+# to X (a pinning closure if X is not weak-referenceable) and a hit requires ``ref() is X``, so a recycled id()
+# can never serve another frame's view.
 # Maps id(X) -> (cols, shape, pandas_view). The id() can recycle onto a different polars frame after GC, so
 # the hit is CO-VALIDATED against the live X's columns + shape before reuse (a recycled id with a different
 # frame fails the check and falls through to a fresh bridge call rather than returning a stale wrong view).
@@ -114,8 +115,10 @@ def _to_pandas_for_baseline(X: Any) -> pd.DataFrame | None:
         _shape = getattr(X, "shape", None)
         cached = _TO_PANDAS_BASELINE_CACHE.get(key)
         if cached is not None:
-            _c_cols, _c_shape, _c_view = cached
-            if _c_cols == _cols and _c_shape == _shape:
+            _c_cols, _c_shape, _c_view, _c_ref = cached
+            # Identity, not just id(): a freed frame's id() is recycled onto a NEW frame of the same
+            # schema and row count, which would otherwise be served the OLD frame's pandas view.
+            if _c_ref() is X and _c_cols == _cols and _c_shape == _shape:
                 return _c_view
             # id() recycled onto a different frame -> stale entry, drop and rebuild.
             _TO_PANDAS_BASELINE_CACHE.pop(key, None)
@@ -124,7 +127,11 @@ def _to_pandas_for_baseline(X: Any) -> pd.DataFrame | None:
         # scope risks circular-load.
         from ..utils import get_pandas_view_of_polars_df
         view = get_pandas_view_of_polars_df(X)
-        _TO_PANDAS_BASELINE_CACHE[key] = (_cols, _shape, view)
+        try:
+            _ref: Any = weakref.ref(X)
+        except TypeError:
+            _ref = lambda _x=X: _x  # noqa: E731 -- not weak-referenceable: pin it so identity stays checkable
+        _TO_PANDAS_BASELINE_CACHE[key] = (_cols, _shape, view, _ref)
         # Bound cache to 4 entries (train / val / test / scratch).
         while len(_TO_PANDAS_BASELINE_CACHE) > 4:
             _TO_PANDAS_BASELINE_CACHE.popitem(last=False)
