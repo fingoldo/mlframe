@@ -11,7 +11,10 @@ It uses the SAME percentile-edge binning + plain plug-in MI as the GPU resident 
 score every column identically (``test_fe_batch_parity``). Partial-NaN columns are masked to their finite
 subset per column, matching ``_orth_mi_backends._mi_classif_batch`` semantics; an all-NaN or single-bin
 column returns 0.0.
-"""
+
+
+Backends and memory (2026-11-16): the device half is ``_fe_gpu_batch`` and the host-or-device choice is the ``fe_batch_backend_choice`` entry of ``_fe_batch_dispatch_ktc``. The host scorer works on a column block of at most ``_cpu_col_chunk`` columns (the RAM-budget chunk), so the transient binning scratch is bounded by the chunk and not by the width of the candidate matrix.
+``audits/2026-10-22/profiles/_fe_cpu_batch.md`` has the measured figures."""
 from __future__ import annotations
 
 import logging

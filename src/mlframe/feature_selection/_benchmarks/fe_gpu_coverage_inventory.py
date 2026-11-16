@@ -111,6 +111,14 @@ KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 #: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
 #: (its own thresholds, variants, block size) registers itself instead.
 KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_fe_cpu_batch": (
+        "_fe_batch_dispatch_ktc",
+        "the host or device choice of the FE batcher is the kernel_tuner entry fe_batch_backend_choice of _fe_batch_dispatch_ktc (cpu_fe_batch_mi timed against multi_gpu_fe_batch_mi over the candidate work n x K at identical MI vectors, the work mark as fallback, MLFRAME_FE_BATCH_DEVICE=0|1 forces a side)",
+    ),
+    "_fe_gpu_batch": (
+        "_fe_batch_dispatch_ktc",
+        "the host or device choice of the FE batcher is the kernel_tuner entry fe_batch_backend_choice of _fe_batch_dispatch_ktc (cpu_fe_batch_mi timed against multi_gpu_fe_batch_mi over the candidate work n x K at identical MI vectors, the work mark as fallback, MLFRAME_FE_BATCH_DEVICE=0|1 forces a side)",
+    ),
     "_fe_additive_fusion_gpu_resident": (
         "_fe_additive_fusion_ktc",
         "the host or device choice of the additive-fusion proposal is fe_additive_fusion_backend of _fe_additive_fusion_ktc (sweep over the row count of the host proposal against this module at identical admitted sets, the measured row window as fallback, MLFRAME_FE_FUSION_DEVICE=0|1 forces a side)",
@@ -170,6 +178,11 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_fe_cpu_batch": (
+        ("_fe_gpu_batch",),
+        "the device half of the FE batcher is _fe_gpu_batch (resident edge-binned plug-in MI, VRAM column chunks, multi-GPU packing); the host or device choice is fe_batch_backend_choice of _fe_batch_dispatch_ktc",
+        True,
+    ),
     "_fe_auto_escalation": (
         ("_fe_cmi_redundancy_gate", "_mi_greedy_cmi_fe"),
         "the escalation proposes on a deterministic row subsample and lets the existing gates decide: the CMI redundancy gate (_cmi_gate_accepted -> apply_cmi_redundancy_gate of _fe_cmi_redundancy_gate, device partition counting and null, tuned choice) and the batched CMI of _mi_greedy_cmi_fe score the candidates",
@@ -309,6 +322,14 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_fe_cpu_batch": (
+        "_fe_edge_mi",
+        "the host scorer is the parallel njit edge-binned plug-in MI kernel plugin_mi_classif_batch_edge_njit of _fe_edge_mi (parallel over columns), column-chunked to the RAM budget",
+    ),
+    "_fe_gpu_batch": (
+        "_fe_edge_mi",
+        "the host twin of the resident edge-binned plug-in MI is the njit kernel plugin_mi_classif_batch_edge_njit of _fe_edge_mi (identical MI vectors to 1e-15, test_fe_batch_parity)",
+    ),
     "_fe_auto_escalation": (
         "_mi_greedy_cmi_fe",
         "the host form of the escalation's decision statistics is the njit partition kernels of _mi_greedy_cmi_fe (_cmi_from_binned on _quantile_bin codes) and the host contingency-table null of the CMI redundancy gate; the proposers are numpy / njit prewarp fits on a row subsample",

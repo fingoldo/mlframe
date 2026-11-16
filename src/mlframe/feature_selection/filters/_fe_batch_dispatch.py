@@ -6,10 +6,10 @@ FASTEST path for the host - it can never change which features are selected. Sel
 
   1. ``MLFRAME_FE_VRAM_BACKEND = cpu | gpu`` - explicit force (tests / diagnostics / a known-good host).
   2. ``MLFRAME_FE_GPU_STRICT`` - the diagnostic full-residency flag forces GPU.
-  3. AUTO - KTC per-host crossover (``fe_batch_backend`` cache key) when a tuned entry exists; else the
-     conservative default CPU. The dev GTX 1050 Ti measured 0.5x for the resident pack-and-batch pattern,
-     so AUTO must NOT route to GPU on an unprofiled weak card - GPU is opt-in (force / STRICT) or a tuned
-     crossover until the Phase-3 sweep populates the cache. A GPU choice degrades to CPU when CUDA is absent.
+  3. AUTO - the per-host tuned choice (kernel-tuning entry ``fe_batch_backend_choice``: ``fe_batch_mi`` timed on both backends over the
+     candidate work, identical MI vectors required), the work mark before a sweep. The dev GTX 1050 Ti now measures the device 7 to 11 times
+     ahead of the numba path from 4e6 candidate cells (an older measurement had put the resident pack-and-batch pattern at 0.5x), and a weak
+     card is still protected: the sweep decides per host. A GPU choice degrades to CPU when CUDA is absent.
 
 This mirrors the established ``batch_pair_mi_gpu.dispatch_batch_pair_mi`` / ``plugin_mi_classif_batch_dispatch``
 shape (force-env override + KTC + CPU-default fallback), not a default-off opt-in flag.
@@ -36,23 +36,15 @@ def _cuda_available() -> bool:
 
 
 def _ktc_backend_choice(n_rows: int, n_cands: int) -> str | None:
-    """Per-host tuned CPU/GPU crossover for the FE batch, or None on miss. The Phase-3 sweep populates the
-    ``fe_batch_backend`` cache key; until then this returns None (-> conservative CPU default)."""
+    """Per-host tuned CPU/GPU choice for the FE batch (kernel-tuning entry ``fe_batch_backend_choice`` of ``_fe_batch_dispatch_ktc``: a sweep of ``fe_batch_mi`` over the candidate work), the work
+    mark before any sweep; None only when the tuner module cannot be used (-> conservative CPU default)."""
     try:
-        from ._kernel_tuning import get_kernel_tuning_cache
-        cache = get_kernel_tuning_cache()
-        if cache is None:
-            return None
-        tuned = cache.lookup("fe_batch_backend")
-        if not tuned:
-            return None
-        crossover = int(tuned.get("gpu_min_work", 0) or 0)
-        if crossover > 0 and int(n_rows) * int(n_cands) >= crossover:
-            return "gpu"
-        return "cpu"
+        from ._fe_batch_dispatch_ktc import fe_batch_use_device
+
+        return "gpu" if fe_batch_use_device(n_rows, n_cands) else "cpu"
     except Exception as e:
-        # fallback: the kernel-tuning cache is an optional hint, so a failed lookup is not fatal.
-        logger.debug("_ktc_backend_choice: kernel-tuning cache lookup failed, falling back to conservative CPU default: %s", e)
+        # fallback: the kernel-tuning choice is an optional hint, so a failed lookup is not fatal.
+        logger.debug("_ktc_backend_choice: tuned choice failed, falling back to conservative CPU default: %s", e)
         return None
 
 

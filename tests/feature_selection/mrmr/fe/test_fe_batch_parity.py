@@ -81,8 +81,13 @@ def test_dispatcher_force_env(monkeypatch):
     assert choose_fe_batch_backend(10_000, 100) == "cpu"
     monkeypatch.delenv("MLFRAME_FE_VRAM_BACKEND", raising=False)
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
-    # default (no force, no tuned entry) is the conservative CPU
+    # AUTO follows the tuned host-or-device choice (fe_batch_backend_choice); its own force env pins either side, and a device choice degrades to the CPU without CUDA
+    monkeypatch.setenv("MLFRAME_FE_BATCH_DEVICE", "0")
     assert choose_fe_batch_backend(10_000, 100) == "cpu"
+    monkeypatch.setenv("MLFRAME_FE_BATCH_DEVICE", "1")
+    from mlframe.feature_selection.filters._fe_batch_dispatch import _cuda_available
+
+    assert choose_fe_batch_backend(10_000, 100) == ("gpu" if _cuda_available() else "cpu")
 
 
 def test_dispatcher_cpu_path_matches_primitive():
