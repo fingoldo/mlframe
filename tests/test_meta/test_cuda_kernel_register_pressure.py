@@ -699,6 +699,14 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
 # it. Pack any thread-private triangular-matrix array (Hessian, Cholesky factor) before reaching for this dict - that
 # cut this kernel's spill from 1512 to 936 bytes/thread for free (see the reason string for what remains).
 _SPILL_EXEMPT: dict[str, str] = {
+    "shap_proxy_treeshap_table_gpu.treeshap_table": (
+        "160 bytes/thread (float32 build, 32 registers): the explicit DFS stack of the table walk (node and mask per level, two frames per level, MAXSP 24 at the reference depth 6), dynamically indexed so it lives in the "
+        "stack frame; no register spill of live values. The spill-free alternative exists and is selectable (`MLFRAME_SHAP_TREESHAP_STACK=shared`: the stacks in shared memory laid out [level][thread]) and was measured "
+        "slower, in seven interleaved local/shared pairs at each size on this host (GTX 1050 Ti, 75-82 C, no throttle, SM 1695 MHz, CPU load 59-74 percent from other jobs): 20000 rows x 100 trees depth 6 "
+        "local best 92.9 ms median 100.3 ms against shared best 114.5 ms median 116.4 ms (shared 1.16x slower at the median, every shared run slower than every local run); 100000 rows local best 523.5 ms "
+        "median 537.9 ms against shared best 607.6 ms median 618.5 ms (1.15x slower, again no overlap). The walk is divergence-free (every lane visits the same node at each step), so the stack frame is L1-resident "
+        "and the shared-memory form only adds bank traffic and a smaller resident block count."
+    ),
     "modular_codes_gpu.modular_all_ops": (
         "32 bytes/thread with no thread-private array in the source: the stack frame libdevice reserves for the slow path of the single-precision `sincos` (the sine and cosine are taken at the "
         "stored type to keep the 1:32 FP64 pipe out of the transcendental); no register spill, memory-bound residue / sin / cos writes. Same effect as the exempted `nonpoly_cells` and "
