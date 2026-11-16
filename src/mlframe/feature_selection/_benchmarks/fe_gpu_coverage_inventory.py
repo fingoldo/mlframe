@@ -178,6 +178,11 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_cat_pair_fe": (
+        ("_cat_pair_joint_gpu",),
+        "the pair joint-MI pass goes through pair_joint_mi_dispatch of _cat_pair_joint_gpu (device kernel against the njit pass, per-host choice cat_pair_search_backend of _cat_pair_search_tuner); the string factorisation stays on the host",
+        True,
+    ),
     "_target_mix_gate": (
         ("_pair_residual_screen",),
         "the pair screen is pair_interaction_screen of _pair_residual_screen (pair_residual_t device kernel, tuned choice) and the one-column main-effect statistics come from main_effect_z_columns of _gain_stats_codes_gpu (batched device quantile codes), the host loop when the device declines",
@@ -332,6 +337,10 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_cat_pair_fe": (
+        "_cat_pair_joint_njit",
+        "the host scorer of the cat x cat pairs is the parallel njit joint-MI pass of _cat_pair_joint_njit over every pair at once (marginals cached per column)",
+    ),
     "_target_mix_gate": (
         "_pair_residual_screen",
         "the host form of the structure check is the main-effect statistic loop of this module and pair_interaction_screen of _pair_residual_screen (njit pair residual kernel), on the same row subsample",

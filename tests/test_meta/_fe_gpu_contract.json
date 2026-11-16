@@ -23,6 +23,7 @@
     "_binned_numeric_agg_fe",
     "_binned_numeric_agg_redundancy",
     "_binned_numeric_agg_resident",
+    "_cat_pair_fe",
     "_cat_pair_joint_gpu",
     "_cat_pair_joint_njit",
     "_cat_target_encoding_and_weighted",
@@ -303,7 +304,6 @@
     "_synergy_detector": "measured exemption: bounded opt-in probe (redundancy_aggregator='auto' only) on at most 4000 rows, 60 features and 400 pairs; detect_synergy at 100000 x 100 takes 0.10 s (0.136 s under cProfile: 1840 calls of the njit _pair_mm_mi_njit of _numba_utils, 26 ms of numba time and 62 ms of per-call Python overhead; 61 quantisations 39 ms), independent of n beyond the subsample draw, so a device launch would not repay its transfer; GPU not used (GTX 1050 Ti host, CPU 2808 MHz, no throttle)"
   },
   "pending": [
-    "_cat_pair_fe",
     "_cat_triple_fe",
     "_categorical_encoding",
     "_count_freq_interaction_fe",
