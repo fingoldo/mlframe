@@ -20,9 +20,10 @@ pytestmark = pytest.mark.skipif(not _device_ok(), reason="no CUDA device")
 
 
 @pytest.mark.parametrize("dtype", [np.int8, np.int16, np.int32, np.int64, np.uint8])
-def test_device_matrix_is_int32_with_the_same_values(dtype):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_device_matrix_is_int32_with_the_same_values(dtype, seed):
     """Every input width lands on the device as the same int32 matrix."""
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     nbins = np.array([5, 9, 3, 12])
     host = np.stack([rng.integers(0, int(b), 400) for b in nbins], axis=1).astype(dtype)
     dev = R._widen_on_device(cp, R._host_codes_for_upload(host))

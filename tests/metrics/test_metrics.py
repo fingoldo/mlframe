@@ -1747,12 +1747,13 @@ class TestGpuMetrics:
     to run the rest of the suite).
     """
 
-    def test_rmse_matches_numpy_continuous(self):
+    @pytest.mark.parametrize("seed", [0, 1])
+    def test_rmse_matches_numpy_continuous(self, seed):
         """Rmse matches numpy continuous."""
         from mlframe.metrics.core import gpu_multiple_rmse_scores
         import cupy as cp
 
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng(seed)
         N, M = 5_000, 4
         y = rng.standard_normal(N)
         p = rng.standard_normal((N, M))
@@ -1760,12 +1761,13 @@ class TestGpuMetrics:
         gpu = cp.asnumpy(gpu_multiple_rmse_scores(y, p))
         np.testing.assert_allclose(gpu, cpu, rtol=0, atol=1e-12)
 
-    def test_rmse_accepts_2d_actual(self):
+    @pytest.mark.parametrize("seed", [0, 1])
+    def test_rmse_accepts_2d_actual(self, seed):
         """Rmse accepts 2d actual."""
         from mlframe.metrics.core import gpu_multiple_rmse_scores
         import cupy as cp
 
-        rng = np.random.default_rng(0)
+        rng = np.random.default_rng(seed)
         N, M = 1_000, 3
         y = rng.standard_normal((N, M))
         p = rng.standard_normal((N, M))

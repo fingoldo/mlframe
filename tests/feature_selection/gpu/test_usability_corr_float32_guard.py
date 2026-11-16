@@ -7,6 +7,7 @@ near-constant column reads as constant. Such inputs must not take the float32 pa
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from mlframe.feature_selection.filters import batch_pair_usability_corr_gpu as bp
 
@@ -36,12 +37,13 @@ def test_non_finite_values_take_the_double_path():
     assert bp._float32_unsafe(y, X) is True
 
 
-def test_one_nan_operand_moves_only_its_own_pairs_to_the_double_kernel():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_one_nan_operand_moves_only_its_own_pairs_to_the_double_kernel(seed):
     """A NaN in one operand used to send every pair to the double kernel; now only the pairs on that operand run in double, the rest in float32, and every value matches the double reference."""
     pytest = __import__("pytest")
     if not bp._CUDA_AVAIL:
         pytest.skip("no CUDA device")
-    rng = np.random.default_rng(3)
+    rng = np.random.default_rng(seed)
     n, k = 4000, 12
     ops = rng.standard_normal((k, n)).astype(np.float32)
     ops[4, 7] = np.nan
