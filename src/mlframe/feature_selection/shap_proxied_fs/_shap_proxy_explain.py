@@ -208,9 +208,14 @@ _BASE_BLOAT_REL_TOL = 0.25
 _ADDITIVITY_REL_TOL = 1e-2
 
 # Cells (rows x columns) from which ``auto`` sends a supported xgboost / lightgbm model to the CUDA TreeSHAP instead of the numba one. Below it the upload and launch overhead is not repaid on a typical card.
-# TODO(per-host thresholds): sweep this crossover per machine like ``_shap_proxy_score_margin_ktc`` does for the score dispatch, AFTER the kernels are optimised: train small XGBoost / LightGBM
-# models of growing size, time the numba table form against the device table kernel on each, register the result as a ``kernel_tuner`` entry and read it here with this constant as the fallback.
-_TREESHAP_GPU_MIN_CELLS = 1_000_000
+def _n_trees(est) -> int:
+    """Number of trees of a fitted xgboost / lightgbm model (0 when it cannot be read), the model-size axis of the TreeSHAP backend choice."""
+    try:
+        if type(est).__name__.startswith("LGBM"):
+            return int(est.booster_.num_trees())
+        return int(est.get_booster().num_boosted_rounds())
+    except Exception:
+        return 0
 
 
 def _unwrap_estimator(model):
@@ -223,6 +228,13 @@ def _unwrap_estimator(model):
 
         return get_pipeline_last_element(model)
     return model
+
+
+def _treeshap_gpu_pays(n_rows: int, trees: int) -> bool:
+    """Whether the device table kernel beats the host one for this many rows and trees: the per-host kernel-tuning entry (``_shap_proxy_treeshap_ktc``), else its measured work mark."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_ktc import use_gpu
+
+    return use_gpu(n_rows, trees)
 
 
 def _pick_backend(explainer_base, X: pd.DataFrame, backend: str) -> str:
@@ -242,7 +254,7 @@ def _pick_backend(explainer_base, X: pd.DataFrame, backend: str) -> str:
     try:
         from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import gpu_treeshap_available
 
-        if gpu_treeshap_available() and X.shape[0] * X.shape[1] >= _TREESHAP_GPU_MIN_CELLS:
+        if gpu_treeshap_available() and _treeshap_gpu_pays(X.shape[0], _n_trees(explainer_base)):
             return "treeshap_gpu"
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("gpu_treeshap_available() check failed, falling back to treeshap_numba: %s", e)
