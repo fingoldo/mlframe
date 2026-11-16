@@ -102,7 +102,7 @@ def honest_auc(Xtr, ytr, Xte, yte, sel, seed):
         return 0.5
     m = lgb.LGBMClassifier(n_estimators=300, num_leaves=31, learning_rate=0.05, n_jobs=-1, verbose=-1, random_state=seed)
     m.fit(Xtr[feats], ytr)
-    return float(roc_auc_score(yte, m.predict_proba(Xte[feats])[:, 1]))
+    return float(roc_auc_score(yte, np.asarray(m.predict_proba(Xte[feats]))[:, 1]))
 
 
 def fit_select(X, y, **kw):

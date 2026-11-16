@@ -72,7 +72,7 @@ def _quantile_edges(x: np.ndarray, n_bins: int) -> np.ndarray:
 
 
 def _apply_edges(x: np.ndarray, edges: np.ndarray) -> np.ndarray:
-    return np.digitize(x, edges).astype(np.int64)
+    return np.asarray(np.digitize(x, edges)).astype(np.int64)
 
 
 def _oof_target_encode(codes_tr: np.ndarray, y_tr: np.ndarray, n_folds: int, smoothing: float, seed: int):

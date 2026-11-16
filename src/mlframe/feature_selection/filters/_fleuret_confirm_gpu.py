@@ -202,7 +202,7 @@ def _term(stats: np.ndarray, n: int, statistic: str, nexisting: np.ndarray, jmim
     if statistic == "jmim":
         ak = s_xyz - s_xz - s_y
         disc = np.where(ne > 0, ak ** (ne + 1), ak)
-        return np.where(bool(jmim_discount_only) & (disc > ak) & (ne > 0), ak, disc)
+        return np.asarray(np.where(bool(jmim_discount_only) & (disc > ak) & (ne > 0), ak, disc))
     if statistic == "su":
         h_xz, h_yz, h_z, h_xyz = _h_mm(s_xz, k_xz, n), _h_mm(s_yz, k_yz, n), _h_mm(s_z, k_z, n), _h_mm(s_xyz, k_xyz, n)
         cmi = h_xz + h_yz - h_z - h_xyz
@@ -212,7 +212,7 @@ def _term(stats: np.ndarray, n: int, statistic: str, nexisting: np.ndarray, jmim
         ak = np.maximum(-s_xz - s_yz + s_z + s_xyz, 0.0)
         if statistic == "mm":
             ak = np.maximum(ak - (k_xyz + k_z - k_xz - k_yz) / (2.0 * n), 0.0)
-    return np.where(ne > 0, ak ** (ne + 1), ak)
+    return np.asarray(np.where(ne > 0, ak ** (ne + 1), ak))
 
 
 def fleuret_confirm_batch(

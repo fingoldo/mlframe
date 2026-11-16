@@ -83,7 +83,7 @@ def _names_from_support(support: Any, feature_names: Sequence[str]) -> List[str]
     if arr.dtype == bool:
         if arr.shape[0] != len(feature_names):
             raise ValueError(f"support length {arr.shape[0]} != n_features {len(feature_names)}")
-        return [feature_names[i] for i in np.flatnonzero(arr)]
+        return [feature_names[int(i)] for i in np.flatnonzero(arr)]
     return [feature_names[int(i)] for i in arr]
 
 

@@ -138,7 +138,7 @@ def check_ignore_column_not_bit_identical() -> None:
     lgb_kw: dict[str, Any] = {k: v for k, v in params.items() if k != "objective"}
     m = lgb.LGBMClassifier(n_estimators=50, **lgb_kw)
     m.fit(Xdf[keep], y)
-    p_drop = m.predict_proba(Xdf[keep])[:, 1]
+    p_drop = np.asarray(m.predict_proba(Xdf[keep]))[:, 1]
 
     ds = lgb.Dataset(Xdf, label=y, free_raw_data=False, params={"ignore_column": "0"})
     b = lgb.train({**params, "num_iterations": 50}, ds)

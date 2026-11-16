@@ -73,15 +73,15 @@ def _score(task, Xtr, ytr, Xho, yho):
         m = lgb.LGBMRegressor(n_estimators=200, max_depth=4, learning_rate=0.05, random_state=0, verbose=-1, n_jobs=-1)
         m.fit(Xtr, ytr)
         pred = m.predict(Xho)
-        blk = fast_regression_metrics_block_extended(yho, pred)
-        out = {"R2": float(fast_r2_score(yho, pred))}
+        blk = fast_regression_metrics_block_extended(yho, np.asarray(pred))
+        out = {"R2": float(fast_r2_score(yho, np.asarray(pred)))}
         for k in ("RMSE", "MAE", "MAPE_mean", "wMAPE", "SMAPE"):
             out[k] = float(blk.get(k, np.nan))
         return out
 
     m = lgb.LGBMClassifier(n_estimators=200, max_depth=4, learning_rate=0.05, random_state=0, verbose=-1, n_jobs=-1)
     m.fit(Xtr, ytr)
-    proba = np.clip(m.predict_proba(Xho)[:, 1], 1e-7, 1 - 1e-7)
+    proba = np.clip(np.asarray(m.predict_proba(Xho))[:, 1], 1e-7, 1 - 1e-7)
     roc, pr = fast_aucs(np.asarray(yho, dtype=np.int64), proba)
     brier = float(fast_brier_score_loss(np.asarray(yho, dtype=np.int64), proba))
     logloss = float(-np.mean(yho * np.log(proba) + (1 - yho) * np.log(1 - proba)))

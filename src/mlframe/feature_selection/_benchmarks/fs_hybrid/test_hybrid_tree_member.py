@@ -213,7 +213,7 @@ def test_mrmr_synergy_cap_does_not_regress_on_wide_interaction_frame():
         h = HybridSelector(vote=1, use_fe=True, mrmr_synergy_cap=cap, random_state=2).fit(Xtr, ytr)
         Ztr, Zte = h.transform(Xtr), h.transform(Xte)
         m = lgb.LGBMClassifier(n_estimators=200, verbose=-1).fit(Ztr, ytr)
-        return roc_auc_score(yte, m.predict_proba(Zte)[:, 1])
+        return roc_auc_score(yte, np.asarray(m.predict_proba(Zte))[:, 1])
 
     a60, a250 = auc(60), auc(250)
     # Spec: raising the cap may cost at most 0.01 AUC on a wide interaction frame.

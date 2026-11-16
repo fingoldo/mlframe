@@ -31,10 +31,10 @@ Ttr=m.transform(Xtr); Tte=m.transform(Xte)
 cols=list(Ttr.columns) if hasattr(Ttr,'columns') else []
 A=np.asarray(Ttr,dtype=np.float32); B=np.asarray(Tte,dtype=np.float32)
 clf=lgb.LGBMClassifier(n_estimators=400,learning_rate=0.05,num_leaves=31,verbose=-1,random_state=0).fit(A,ytr)
-auc=roc_auc_score(yte,clf.predict_proba(B)[:,1])
+auc=roc_auc_score(yte,np.asarray(clf.predict_proba(B))[:,1])
 raw=[c for c in Xtr.columns if c!='c0']
 r=lgb.LGBMClassifier(n_estimators=400,learning_rate=0.05,num_leaves=31,verbose=-1,random_state=0).fit(np.asarray(Xtr[raw],dtype=np.float32),ytr)
-auc_raw=roc_auc_score(yte,r.predict_proba(np.asarray(Xte[raw],dtype=np.float32))[:,1])
+auc_raw=roc_auc_score(yte,np.asarray(r.predict_proba(np.asarray(Xte[raw],dtype=np.float32)))[:,1])
 from sklearn.linear_model import LogisticRegression
 lr=LogisticRegression(max_iter=2000).fit(np.nan_to_num(A.astype(float)),ytr); auc_lr=roc_auc_score(yte,lr.predict_proba(np.nan_to_num(B.astype(float)))[:,1])
 print("RES",mode,"wall",round(wall,1),"n_sel",Ttr.shape[1],"test AUC lgbm",round(auc,4),"logreg",round(auc_lr,4),"raw-all lgbm",round(auc_raw,4),cols,flush=True)

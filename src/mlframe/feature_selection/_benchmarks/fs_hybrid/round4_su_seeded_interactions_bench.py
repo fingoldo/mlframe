@@ -127,7 +127,7 @@ def make_pure_interaction(n=5000, p_noise=60, seed=0):
 
 def downstream_auc(Xtr, Xte, ytr, yte):
     m = lgb.LGBMClassifier(n_estimators=300, verbose=-1, n_jobs=4).fit(Xtr, ytr)
-    return round(float(roc_auc_score(yte, m.predict_proba(Xte)[:, 1])), 4)
+    return round(float(roc_auc_score(yte, np.asarray(m.predict_proba(Xte))[:, 1])), 4)
 
 
 def run_bed(name, X, y, truth):

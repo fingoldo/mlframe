@@ -56,7 +56,7 @@ def checkpoint(msg: str):
 def downstream(Xtr, Xte, ytr, yte):
     """3-model honest held-out AUC (lgbm/logit/knn). Same shape as round3_realdata_bench.downstream but n_jobs-capped."""
     o = {}
-    o["lgbm"] = roc_auc_score(yte, lgb.LGBMClassifier(n_estimators=300, verbose=-1, n_jobs=NJOBS).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
+    o["lgbm"] = roc_auc_score(yte, np.asarray(lgb.LGBMClassifier(n_estimators=300, verbose=-1, n_jobs=NJOBS).fit(Xtr, ytr).predict_proba(Xte))[:, 1])
     o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
     o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
     return {k: round(float(v), 4) for k, v in o.items()}

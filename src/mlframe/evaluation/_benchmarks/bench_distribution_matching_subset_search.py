@@ -18,7 +18,7 @@ from mlframe.evaluation.distribution_matching_subset_search import distribution_
 
 def _make_data(n_blocks_total: int, rows_per_block: int, n_features: int, seed: int = 0):
     rng = np.random.default_rng(seed)
-    data = {"block": np.repeat(np.arange(n_blocks_total), rows_per_block)}
+    data: dict = {"block": np.repeat(np.arange(n_blocks_total), rows_per_block)}
     n = n_blocks_total * rows_per_block
     for c in range(n_features):
         data[f"f{c}"] = rng.normal(size=n)

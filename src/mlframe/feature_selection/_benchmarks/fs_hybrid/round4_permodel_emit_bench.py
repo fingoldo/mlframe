@@ -63,7 +63,7 @@ def _ckpt(msg):
 def _lgbm_auc(Xtr, Xte, ytr, yte):
     m = lgb.LGBMClassifier(n_estimators=200, num_leaves=31, n_jobs=4, verbose=-1, random_state=0)
     m.fit(Xtr, ytr)
-    return round(float(roc_auc_score(yte, m.predict_proba(Xte)[:, 1])), 4)
+    return round(float(roc_auc_score(yte, np.asarray(m.predict_proba(Xte))[:, 1])), 4)
 
 
 def _logit_auc(Xtr, Xte, ytr, yte):

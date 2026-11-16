@@ -35,7 +35,7 @@ def downstream(Xtr, Xte, ytr, yte, cols):
     for mk in (lambda: lgb.LGBMClassifier(n_estimators=300, verbose=-1),
                lambda: make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)),
                lambda: make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25))):
-        aucs.append(roc_auc_score(yte, mk().fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1]))
+        aucs.append(roc_auc_score(yte, np.asarray(mk().fit(Xtr[cols], ytr).predict_proba(Xte[cols]))[:, 1]))
     return round(float(np.mean(aucs)), 4)
 
 

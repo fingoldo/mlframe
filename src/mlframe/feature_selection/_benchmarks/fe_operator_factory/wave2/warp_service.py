@@ -66,7 +66,7 @@ def _apply_one(st: dict, cols: list) -> np.ndarray:
     if st["type"] == "warp1d":
         x = cols[0]
         out = np.interp(np.where(np.isfinite(x), x, 0.0), st["cx"], st["cy"])
-        return np.where(np.isfinite(x), out, st["fill"])
+        return np.asarray(np.where(np.isfinite(x), out, st["fill"]))
     ix = np.searchsorted(np.asarray(st["ex"]), np.where(np.isfinite(cols[0]), cols[0], 0.0), side="right")
     iz = np.searchsorted(np.asarray(st["ez"]), np.where(np.isfinite(cols[1]), cols[1], 0.0), side="right")
     out = np.asarray(st["tab"])[ix, iz]
@@ -93,7 +93,7 @@ def replay(recipe: dict, X, mode: str | None = None) -> np.ndarray:
         out = _apply_one(recipe["full"], cols)
     else:
         out = np.mean([_apply_one(f, cols) for f in recipe["folds"]], axis=0)
-    return np.clip(out, recipe["lo"], recipe["hi"])
+    return np.asarray(np.clip(out, recipe["lo"], recipe["hi"]))
 
 
 def oof_fit(kind: str, X: np.ndarray, y: np.ndarray, src: list, k: int = 5, seed: int = 0, **params) -> tuple:

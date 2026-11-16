@@ -23,7 +23,7 @@ def lgb_logit_knn_mean_auc(Xtr, Xte, ytr, yte, cols) -> float:
     if not cols:
         return float("nan")
     a = [
-        roc_auc_score(yte, mk().fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
+        roc_auc_score(yte, np.asarray(mk().fit(Xtr[cols], ytr).predict_proba(Xte[cols]))[:, 1])
         for mk in (
             lambda: lgb.LGBMClassifier(n_estimators=300, verbose=-1),
             lambda: make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)),
@@ -111,7 +111,7 @@ def downstream_on_cols(Xtr, Xte, ytr, yte, cols):
     if not cols:
         return {"lgbm": float("nan"), "logit": float("nan"), "knn": float("nan")}
     o = {}
-    o["lgbm"] = roc_auc_score(yte, lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
+    o["lgbm"] = roc_auc_score(yte, np.asarray(lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Xtr[cols], ytr).predict_proba(Xte[cols]))[:, 1])
     o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
     o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
     return {k: round(float(v), 4) for k, v in o.items()}
@@ -120,7 +120,7 @@ def downstream_on_cols(Xtr, Xte, ytr, yte, cols):
 def downstream_on_matrix(Ztr, Zte, ytr, yte):
     """Fit LGBM / logistic / kNN directly on already-selected matrices ``Ztr``/``Zte`` and return each model's test AUC."""
     o = {}
-    o["lgbm"] = roc_auc_score(yte, lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
+    o["lgbm"] = roc_auc_score(yte, np.asarray(lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Ztr, ytr).predict_proba(Zte))[:, 1])
     o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
     o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
     return {k: round(float(v), 4) for k, v in o.items()}

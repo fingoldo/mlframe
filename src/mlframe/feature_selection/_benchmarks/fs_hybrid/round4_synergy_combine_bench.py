@@ -127,7 +127,7 @@ class SynergyHybrid(HybridSelector):
                 return 0.5
             m = lgb.LGBMClassifier(n_estimators=120, num_leaves=15, learning_rate=0.08, n_jobs=-1, verbose=-1)
             m.fit(Xtr[feats], ytr)
-            return roc_auc_score(yva, m.predict_proba(Xva[feats])[:, 1])
+            return roc_auc_score(yva, np.asarray(m.predict_proba(Xva[feats]))[:, 1])
         kept = list(core); base_auc = auc_of(core) if core else 0.5
         # order contested reps by shared FI, greedily admit those that lift held-out AUC
         contested_reps = sorted(contested, key=lambda r: max((self.fi_.get(m, 0.0) for m in self.members_[r]), default=0.0), reverse=True)
