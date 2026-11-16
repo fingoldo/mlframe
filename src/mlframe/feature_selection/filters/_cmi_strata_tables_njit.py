@@ -104,9 +104,40 @@ def _stratum_margins(x_codes, y_codes, s_codes, n_s, n_x, n_y):
     return row_m, col_m
 
 
+@njit(cache=True, nogil=True)
+def _occupied_terms(counts):
+    """``(k_xyz - k_xz - k_yz + k_z)``: the occupied-cell counts of the ``(strata, x levels, y levels)`` table that make the Miller-Madow bias of the plug-in CMI (the plug-in is high by this over ``2 n``)."""
+    n_s, n_x, n_y = counts.shape
+    k_xyz = 0
+    k_xz = 0
+    k_yz = 0
+    k_z = 0
+    for sv in range(n_s):
+        total = 0
+        for a in range(n_x):
+            row = 0
+            for b in range(n_y):
+                c = counts[sv, a, b]
+                if c > 0:
+                    k_xyz += 1
+                row += c
+            if row > 0:
+                k_xz += 1
+            total += row
+        if total > 0:
+            k_z += 1
+        for b in range(n_y):
+            col = 0
+            for a in range(n_x):
+                col += counts[sv, a, b]
+            if col > 0:
+                k_yz += 1
+    return k_xyz - k_xz - k_yz + k_z
+
+
 @njit(cache=True, parallel=True, nogil=True)
-def _null_njit(row_m, col_m, n, n_perm, seed, min_rows, lf):
-    """The stratified CMI of ``n_perm`` random within-stratum permutation tables (permutation ``p`` seeded ``seed + p``)."""
+def _null_njit(row_m, col_m, n, n_perm, seed, min_rows, lf, debias):
+    """The stratified CMI of ``n_perm`` random within-stratum permutation tables (permutation ``p`` seeded ``seed + p``); with ``debias`` the Miller-Madow corrected CMI clamped at zero."""
     n_s, n_x = row_m.shape
     n_y = col_m.shape[1]
     out = np.zeros(n_perm, dtype=np.float64)  # Intentional float64: statistic vector (null values), exact permutation ties
@@ -123,7 +154,10 @@ def _null_njit(row_m, col_m, n, n_perm, seed, min_rows, lf):
                 continue
             x = _draw_table(x, row_m[sv], col_m[sv], lf, tab)
             counts[sv, :, :] = tab
-        out[p] = _cmi_from_counts(counts, n, min_rows)
+        v = _cmi_from_counts(counts, n, min_rows)
+        if debias:
+            v = max(v - _occupied_terms(counts) / (2.0 * n), 0.0)
+        out[p] = v
     return out
 
 
@@ -135,11 +169,12 @@ def _log_factorials(n: int) -> np.ndarray:
 
 
 class StratifiedNull:
-    """The margins of ``(x, y, s)`` (dense non-negative codes) and the log-factorial table, built once; :meth:`chunk` draws permutations ``first .. first + count - 1`` of the null seeded by ``seed``."""
+    """The margins of ``(x, y, s)`` (dense non-negative codes) and the log-factorial table, built once (``debias``: the Miller-Madow corrected CMI of the device scorers instead of the plug-in); :meth:`chunk` draws permutations ``first .. first + count - 1`` of the null seeded by ``seed``."""
 
-    def __init__(self, x_codes: np.ndarray, y_codes: np.ndarray, s_codes: np.ndarray, min_rows: int) -> None:
+    def __init__(self, x_codes: np.ndarray, y_codes: np.ndarray, s_codes: np.ndarray, min_rows: int, debias: bool = False) -> None:
         self.n = int(x_codes.shape[0])
         self.min_rows = int(min_rows)
+        self.debias = bool(debias)
         self.row_m, self.col_m = _stratum_margins(x_codes, y_codes, s_codes, int(s_codes.max()) + 1, int(x_codes.max()) + 1, int(y_codes.max()) + 1)
         self.lf = _log_factorials(self.n)
 
@@ -148,7 +183,7 @@ class StratifiedNull:
         from mlframe._numba_parallel_guard import parallel_kernel_entry
 
         with parallel_kernel_entry():
-            out: np.ndarray = _null_njit(self.row_m, self.col_m, self.n, int(count), int(seed) + int(first), self.min_rows, self.lf)
+            out: np.ndarray = _null_njit(self.row_m, self.col_m, self.n, int(count), int(seed) + int(first), self.min_rows, self.lf, self.debias)
         return out
 
 

@@ -455,8 +455,57 @@ def _conditional_batched_gpu_null(inp: _NullInputs, sup: _StratifiedSupport, npe
     return None
 
 
+#: Largest ``strata x x levels x y levels`` table the contingency-table null keeps per thread (int64 cells); a near-continuous support goes through the shuffle loop.
+_TABLE_NULL_MAX_CELLS = 4_000_000
+
+
+def _table_null_enabled() -> bool:
+    """The contingency-table null of the host path (``MLFRAME_CMI_NULL_SHUFFLE=1`` keeps the row-shuffle loop)."""
+    return _os.environ.get("MLFRAME_CMI_NULL_SHUFFLE", "").strip() != "1"
+
+
+def _conditional_table_null(inp: _NullInputs, sup: _StratifiedSupport, nperm: int, quantile: float) -> Optional[tuple[float, float]]:
+    """``(floor, mean)`` of the Miller-Madow CMI null with the candidate permuted within the strata, drawn as contingency tables (``StratifiedNull``): the within-stratum shuffle only changes the table of
+    (x, y) counts of a stratum, and that table is a multivariate hypergeometric draw with the stratum's own margins, so a permutation costs O(strata x levels) instead of O(n). The null values are
+    another random stream of the same distribution; ``None`` when the table would be too large (the shuffle loop runs)."""
+    from ._cmi_strata_tables_njit import StratifiedNull
+    from ._internals import dense_codes
+
+    xd = dense_codes(inp.host_x())
+    yd = dense_codes(inp.y)
+    zd = dense_codes(sup.z)
+    if (int(zd.max()) + 1) * (int(xd.max()) + 1) * (int(yd.max()) + 1) > _TABLE_NULL_MAX_CELLS:
+        return None
+    seed = int(inp.rng.integers(0, 2**31 - 1))
+    nulls = StratifiedNull(xd, yd, zd, 1, debias=True).chunk(0, nperm, seed)
+    return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+
+
+def _swept_device_null(inp: _NullInputs, sup: _StratifiedSupport, nperm: int, quantile: float, seed: int, salt: int) -> Optional[tuple[float, float]]:
+    """The device null where the per-host kernel-tuning cache (``cmi_perm_null_backend``) prefers it and STRICT-GPU has not already routed there; ``None`` otherwise (the host table null runs)."""
+    from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
+
+    if nperm <= 1 or _cmi_gpu_enabled(n=inp.n_size, p=nperm, min_p=2):
+        return None  # STRICT decides on its own branches below, the tuning cache is not consulted there
+    try:
+        from ._fe_cmi_perm_null_gpu import conditional_perm_null_gpu, perm_null_on_device
+
+        if not perm_null_on_device(inp.n_size):
+            return None
+        return conditional_perm_null_gpu(
+            inp.resident_or_host(), inp.y, np.ascontiguousarray(sup.z, dtype=np.int64), order=sup.order, z_rank=sup.z_rank, n_permutations=nperm, quantile=quantile, seed=seed, salt=salt
+        )
+    except Exception:
+        logger.debug("swept device conditional perm-null failed; host table null", exc_info=True)
+        return None
+
+
 def _conditional_cpu_null(inp: _NullInputs, sup: _StratifiedSupport, nperm: int, quantile: float) -> tuple[float, float]:
-    """Exact per-perm CPU loop: within-stratum shuffle of the candidate, one fixed-(y, z) CMI evaluation per draw."""
+    """Host null: the contingency-table draw (``_conditional_table_null``) where it applies, else the exact per-perm loop: within-stratum shuffle of the candidate, one fixed-(y, z) CMI evaluation per draw."""
+    if _table_null_enabled():
+        tabled = _conditional_table_null(inp, sup, nperm, quantile)
+        if tabled is not None:
+            return tabled
     from ._mi_greedy_cmi_fe import cmi_from_binned_fixed_yz
 
     xh = inp.host_x()
@@ -595,6 +644,9 @@ def _conditional_perm_null(
     if not sup.has_groups:
         return 0.0, 0.0
     nperm = int(n_permutations)
+    swept = _swept_device_null(inp, sup, nperm, quantile, seed, salt)
+    if swept is not None:
+        return swept
     for gpu_null in (
         lambda: _conditional_gpu_resident_null(inp, sup, nperm, quantile, seed, salt),
         lambda: _conditional_batched_gpu_null(inp, sup, nperm, quantile),

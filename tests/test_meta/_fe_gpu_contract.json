@@ -163,7 +163,8 @@
     "batch_pair_mi_gpu",
     "batch_pair_usability_corr_gpu",
     "hermite_fe",
-    "_row_argmax_gpu"
+    "_row_argmax_gpu",
+    "_fe_cmi_perm_null_gpu"
   ],
   "exempt": {
     "_basis_cells_ktc": "the tuner entry of the device basis-cell path (kernel_tuner fe_basis_cells_device, sweep over the row count against the host variant at 1e-6 equivalence, fallback = the measured row mark, MLFRAME_BASIS_CELLS_DEVICE=0|1 forces a side): it owns no kernel and no array work; the cell kernels and their profile belong to _orthogonal_routing_device and _orthogonal_adaptive_degree_device, which are tracked in this registry as pending",
@@ -267,7 +268,6 @@
     "_fe_auto_escalation",
     "_fe_auto_escalation_proposers",
     "_fe_cmi_fused_backend",
-    "_fe_cmi_perm_null_gpu",
     "_fe_cmi_redundancy_gate",
     "_fe_cmi_redundancy_null",
     "_fe_cpu_batch",

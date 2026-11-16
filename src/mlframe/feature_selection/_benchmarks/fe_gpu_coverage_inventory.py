@@ -194,6 +194,13 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_fe_cmi_perm_null_gpu": (
+        "_cmi_strata_tables_njit",
+        (
+            "the host form of the conditional permutation null is the numba contingency-table draw StratifiedNull(debias=True) (prange over permutations, one multivariate-hypergeometric table per stratum, the same "
+            "Miller-Madow CMI): the null distribution of the device module's shuffle at O(strata x levels) per permutation; it is the path _conditional_cpu_null takes and the reference the device null is swept against"
+        ),
+    ),
     "_orth_auto_scorer_fe": (
         "_ksg_cd_fast",
         (
