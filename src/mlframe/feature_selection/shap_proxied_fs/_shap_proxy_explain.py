@@ -210,23 +210,12 @@ _ADDITIVITY_REL_TOL = 1e-2
 # Min column count at which the custom numba TreeSHAP is expected to beat the ``shap`` library. On
 # narrow data the shap C-extension is already fast and the numba JIT warmup is not worth it; the win
 # grows with width (OOF-SHAP on ~2000 features was the profiled hotspot). Routed by ``_pick_backend``;
-# overridable via kernel_tuning_cache so the crossover is tuned per-HW rather than hardcoded.
+# a fixed, hand-calibrated crossover (no per-host cache entry is read).
 _TREESHAP_NUMBA_MIN_FEATURES = 64
 
 
 def _treeshap_numba_min_features() -> int:
-    """Crossover width for routing to the custom numba TreeSHAP, from kernel_tuning_cache if present."""
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
-
-        ktc = get_kernel_tuning_cache()
-        if ktc is not None:
-            entry = cast(Any, ktc).lookup("shap_proxy_treeshap")
-            if isinstance(entry, dict) and entry.get("numba_min_features"):
-                return int(entry["numba_min_features"])
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    """Feature count from which TreeSHAP routes to the custom numba kernel (a hand-calibrated crossover; no per-host cache entry exists or is read)."""
     return _TREESHAP_NUMBA_MIN_FEATURES
 
 
