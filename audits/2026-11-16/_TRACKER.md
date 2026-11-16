@@ -27,7 +27,7 @@ TODO total: 34. Nothing is fixed yet; no code was changed in this audit.
 
 | ID | Sev | Location | Finding | Proposed regression test |
 |---|---|---|---|---|
-| L1 (03) | med | training/composite/stacking_multi_stage.py:169-171 | MultiStageMetaFeatureStacker builds stage-1 OOF with plain KFold; fit() has no groups/time_aware | test_multi_stage_stacker_oof_respects_groups_no_group_in_both_train_and_val_fold |
+| L1 (03) | RESOLVED | training/composite/stacking_multi_stage.py:169-171 | fit takes groups and time_aware and forwards them to the stage-1 OOF split (previously plain KFold, leaking group structure) | tests/training/composite/test_multi_stage_stacker_forwards_groups.py 1/1 (fails on old code: fit has no groups kwarg); sample_weight and composite selection tests 3/3 |
 | NS-01 (04) | RESOLVED | data_valuation/_knn_shapley.py | standardisation guarded only sigma == 0.0; ulp-noise column changed Shapley values by 0.0107 | test_knn_shapley_ulp_noise_column.py::test_ulp_noise_column_does_not_change_standardised_values |
 | NS-02 (04) | RESOLVED | data_valuation/_training_weight_adapter.py:67 | same exact-zero sigma guard; shared helper _column_standardise_stats now used by both | same test (shared helper); test_biz_val_training_weight_adapter.py passes (3/3) |
 | C3 (05) | RESOLVED | metrics/_gpu_metrics.py | is_gpu_metrics_available runs the probe once under a lock with a re-check; the probe body is unchanged | tests/metrics/test_gpu_metrics_probe_runs_once_under_threads.py 1/1 (fails on old code: the monkeypatched probe is not reached); gpu probe tests 9/9 |

@@ -138,6 +138,8 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
         y_primary: np.ndarray,
         y_auxiliary: Mapping[str, np.ndarray],
         sample_weight: Optional[np.ndarray] = None,
+        groups: Optional[np.ndarray] = None,
+        time_aware: bool = False,
     ) -> "MultiStageMetaFeatureStacker":
         """Fit stage-1 OOF meta-features from the auxiliary targets, then fit stage 2 on features plus meta-features."""
         if not self.stage1_estimator_factories:
@@ -168,6 +170,7 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
                 stage1_fit_kwargs["sample_weight"] = sample_weight_arr
             oof_pred = composite_oof_predictions(
                 effective_factory, X, y_aux, n_splits=self.n_splits, random_state=self.random_state, fit_kwargs=stage1_fit_kwargs or None,
+                groups=groups, time_aware=time_aware,
             )
             if self.quantile_transform:
                 from sklearn.preprocessing import QuantileTransformer
