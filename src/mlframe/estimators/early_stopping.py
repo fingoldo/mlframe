@@ -85,7 +85,10 @@ def _truncate_fitted_stages(model, best_stage: int) -> None:
 
 
 class EarlyStoppingWrapper(BaseEstimator):
-    """sklearn-compatible meta-estimator adding held-out-validation early stopping (see module docstring for the three backends)."""
+    """sklearn-compatible meta-estimator adding held-out-validation early stopping (see module docstring for the three backends).
+
+    ``max_iter`` must be set: the constructor accepts ``None`` (the sklearn ``clone`` convention), and ``fit`` rejects it with a ValueError.
+    """
 
     # __init__ params are set on self dynamically via store_params_in_object(); fit()-time state is
     # set the same way / directly on self without a preceding class-scope assignment. Declared here
