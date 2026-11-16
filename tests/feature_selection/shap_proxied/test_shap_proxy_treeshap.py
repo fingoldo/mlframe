@@ -165,12 +165,9 @@ def _gpu_treeshap_available():
         return False
 
 
-@pytest.mark.skipif(not _gpu_treeshap_available(), reason="no CUDA device / cupy unavailable")
-@pytest.mark.parametrize("classification", [False, True])
-def test_treeshap_gpu_matches_numba(classification):
-    """The cupy kernel must match the numba kernel (the always-available fallback) to ~machine eps."""
+def _gpu_vs_numba_inputs(classification):
+    """``(ensemble, X, numba phi, numba base)`` of a small XGBoost model."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import extract_ensemble, treeshap_phi_base_numba
-    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import treeshap_phi_base_gpu
 
     rng = np.random.default_rng(7)
     X = pd.DataFrame(rng.normal(size=(220, 9)), columns=[f"f{i}" for i in range(9)])
@@ -178,11 +175,36 @@ def test_treeshap_gpu_matches_numba(classification):
     y = (signal + 0.3 * rng.normal(size=220) > 0).astype(int) if classification else (signal + 0.1 * rng.normal(size=220)).to_numpy()
     model = _fit_xgb(X, y, classification=classification, n_estimators=40, max_depth=6)
     ens = extract_ensemble(model)
-
     phi_n, base_n = treeshap_phi_base_numba(ens, X.values)
+    return ens, X, phi_n, base_n
+
+
+@pytest.mark.skipif(not _gpu_treeshap_available(), reason="no CUDA device / cupy unavailable")
+@pytest.mark.parametrize("classification", [False, True])
+def test_treeshap_gpu_float64_matches_numba(classification, monkeypatch):
+    """The exact reference (float64) cupy kernel matches the numba kernel to ~machine eps."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import treeshap_phi_base_gpu
+
+    monkeypatch.setenv("MLFRAME_SHAP_TREESHAP_REAL", "float64")
+    ens, X, phi_n, base_n = _gpu_vs_numba_inputs(classification)
     phi_g, base_g = treeshap_phi_base_gpu(ens, X.values)
     np.testing.assert_allclose(phi_g, phi_n, rtol=0, atol=1e-9)
     np.testing.assert_allclose(base_g, base_n, rtol=0, atol=1e-12)
+
+
+@pytest.mark.skipif(not _gpu_treeshap_available(), reason="no CUDA device / cupy unavailable")
+@pytest.mark.parametrize("classification", [False, True])
+def test_treeshap_gpu_default_float32_is_close_and_keeps_the_rank(classification, monkeypatch):
+    """The default (float32) cupy kernel stays within 1e-4 of the numba kernel, keeps the base exactly and ranks the features the same way."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import treeshap_phi_base_gpu
+
+    monkeypatch.delenv("MLFRAME_SHAP_TREESHAP_REAL", raising=False)
+    ens, X, phi_n, base_n = _gpu_vs_numba_inputs(classification)
+    phi_g, base_g = treeshap_phi_base_gpu(ens, X.values)
+    assert phi_g.dtype == np.float64  # the caller's contract is float64 whatever the device type
+    np.testing.assert_allclose(phi_g, phi_n, rtol=0, atol=1e-4)
+    np.testing.assert_allclose(base_g, base_n, rtol=0, atol=1e-12)
+    assert list(np.argsort(-np.abs(phi_n).mean(0))[:3]) == list(np.argsort(-np.abs(phi_g).mean(0))[:3])
 
 
 @pytest.mark.slow
