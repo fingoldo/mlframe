@@ -1695,7 +1695,7 @@ class TestFinancialAdvancedCoverage:
             prefix="",
         )
         # The expression should carry the alias rsi5.
-        assert "rsi5" in str(expr.meta.output_name()) or True  # alias check is best-effort
+        assert "rsi5" in str(expr.meta.output_name())
 
     def test_create_ohlcv_wholemarket_features_basic(self):
         """Create ohlcv wholemarket features basic."""
