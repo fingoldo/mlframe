@@ -364,3 +364,43 @@ def test_cprofile_replay_cost_negligible():
     assert (
         vote_cum <= 0.25 * total
     ), f"stability vote took {vote_cum:.3f}s of {total:.3f}s total fit ({100 * vote_cum / max(total, 1e-9):.1f}%); expected negligible (replay only)"
+
+
+def test_row_batched_binning_equals_columnwise_device_binner():
+    """``qbin_codes_rows`` bins each row exactly like the column-at-a-time sync-free binner (continuous, tied, binary, constant and mass-point rows; float32 and float64)."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe_binning import _sync_free_qbin_codes
+    from mlframe.feature_selection.filters._qbin_rows_gpu import qbin_codes_rows
+
+    rng = np.random.default_rng(0)
+    n = 3000
+    rows = [rng.normal(size=n), np.round(rng.normal(size=n) * 2), (rng.random(n) > 0.5).astype(float), np.zeros(n), rng.integers(0, 3, n).astype(float), np.where(rng.random(n) < 0.7, 1.0, rng.normal(size=n))]
+    for dt in (np.float32, np.float64):
+        x = cp.asarray(np.vstack(rows).astype(dt))
+        batched = qbin_codes_rows(cp, x, 10)
+        for i in range(len(rows)):
+            assert bool(cp.array_equal(batched[i], _sync_free_qbin_codes(cp, x[i], 10)))
+
+
+def test_batched_fold_replay_gives_the_same_vote_as_per_recipe_replay(monkeypatch):
+    """The strict-resident vote (batched device replay) fails the same recipes as the host vote."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters.engineered_recipes import build_unary_binary_recipe
+
+    rng = np.random.default_rng(0)
+    n, r = 20000, 8
+    X = pd.DataFrame(rng.standard_normal((n, 2 * r)), columns=[f"f{i}" for i in range(2 * r)])
+    y = ((X.f0**2 / (X.f1.abs() + 0.5) + rng.standard_normal(n)) > 1).astype(np.int64).values
+    rec = {}
+    for i in range(r):
+        nm = f"mul(f{2 * i},f{2 * i + 1})"
+        rec[nm] = build_unary_binary_recipe(name=nm, src_a_name=f"f{2 * i}", src_b_name=f"f{2 * i + 1}", unary_a_name="identity", unary_b_name="identity", binary_name="mul", unary_preset="minimal", binary_preset="minimal", quantization_nbins=10, quantization_method="quantile", quantization_dtype=np.int16)
+
+    def vote():
+        """Failed recipe names under the current environment."""
+        return confirm_recipes_cross_fold(recipes=rec, X=X, y_codes=y, feature_names_in=list(X.columns), nbins=10, k=5, quorum=0.6, rng=np.random.default_rng(0))
+
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "0")
+    host = vote()
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
+    assert vote() == host

@@ -8,7 +8,8 @@ Bench: `confirm_recipes_cross_fold` on 100000 rows x 60 columns, 30 `mul` recipe
 | path | wall per vote |
 |---|---|
 | host (`MLFRAME_FE_GPU_STRICT=0`) | 0.767 s |
-| STRICT-resident (device replay and binning) | 1.869 s |
+| STRICT-resident, per-job device replay (before) | 1.869 s |
+| STRICT-resident, row-batched replay and binning (`qbin_codes_rows`, after) | 0.700 s (cProfile run 1.54 s with profiler overhead before the operand batching: 1.59 s) |
 
 ## Host profile (cProfile, host path, 164117 function calls, 0.858 s)
 
@@ -16,7 +17,7 @@ Bench: `confirm_recipes_cross_fold` on 100000 rows x 60 columns, 30 `mul` recipe
 
 ## Launches per call and the GPU profile (nvprof, STRICT-resident pass)
 
-About 30000 launches for the 150 (recipe, fold) jobs of the 30 recipes: the radix sort of the sync-free binner is 3608 launches of 12 us (22.8 %) plus 902 of 21 us (9.8 %), 1779 small host-to-device copies (13.8 %), `marginal_mi_entropies` 572 launches of 18 us (5.4 %), 8088 memsets, 2096 device-to-host copies. Every kernel runs for 1 to 30 us on a 20000-row fold: the device path is launch and transfer bound, so whole-GPU utilization is low and the STRICT pass is 2.4 times slower than the host here. Occupancy of these small kernels is not the limit (they are latency-bound); the batched MI kernel's occupancy and throughput are in `_fe_batched_mi.md`. Optimisation lead: batch all recipes of a fold into one (recipes, fold rows) matrix and bin it with the segmented device binner in one call (recipes x folds launches become folds).
+About 30000 launches for the 150 (recipe, fold) jobs of the 30 recipes: the radix sort of the sync-free binner is 3608 launches of 12 us (22.8 %) plus 902 of 21 us (9.8 %), 1779 small host-to-device copies (13.8 %), `marginal_mi_entropies` 572 launches of 18 us (5.4 %), 8088 memsets, 2096 device-to-host copies. Every kernel runs for 1 to 30 us on a 20000-row fold: the device path is launch and transfer bound, so whole-GPU utilization is low and the STRICT pass is 2.4 times slower than the host here. Occupancy of these small kernels is not the limit (they are latency-bound); the batched MI kernel's occupancy and throughput are in `_fe_batched_mi.md`. Fix applied (OP11-14): the recipes of a fold are replayed on the device and binned together, and so are the raw source operands of the fold, by `qbin_codes_rows` (`_qbin_rows_gpu`: one segmented sort and one comparison tensor per block of rows, codes equal to the column-at-a-time binner on continuous, tied, binary, constant and mass-point rows). The per-job paths remain the fallback. Same 26 failed recipes on the host and the device vote; the STRICT pass went 1.869 -> 0.700 s, now ahead of the host 0.765 s.
 
 ## Backend choice and memory
 
