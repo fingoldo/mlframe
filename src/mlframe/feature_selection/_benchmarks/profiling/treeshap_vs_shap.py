@@ -102,6 +102,31 @@ def main(argv: "list[str] | None" = None) -> int:
         add = float(np.max(np.abs(base + a.sum(1) - margin)))
         print(f"{name:18s} {times[name] * 1e3:10.1f} {times['shap (public)'] / times[name]:9.2f} {d.max():10.2e} {d.mean():10.2e} {d.max() / scale:8.1e} {rho:8.4f} {same10!s:>7s} {add:10.2e}")
 
+    # Thread sweep: the rows above ran shap with the model's own n_jobs=4 and numba with every logical core, so they are not like for like. Here both sides get the same thread count.
+    import numba
+
+    from threadpoolctl import threadpool_limits
+
+    def set_threads(t):
+        """Same thread count for numba and for the library's native predict (OpenMP, limited with threadpoolctl; LightGBM's predict ignores the booster's num_threads parameter); returns the limiter to wrap the shap call in."""
+        numba.set_num_threads(t)
+        if kind != "lightgbm":
+            model.get_booster().set_param({"nthread": t})
+        return threadpool_limits(limits=t, user_api="openmp")
+
+    max_threads = numba.config.NUMBA_NUM_THREADS
+    sweep = sorted({1, 2, 4, max_threads})
+    print(f"thread sweep (best ms; same thread count for shap native and numba; GPU rows above do not depend on it), logical cores {max_threads}")
+    print(f"{'threads':>8s} {'shap':>10s} {'numba path':>11s} {'numba table':>12s} {'table x shap(same t)':>21s} {'table x shap(1 thread)':>23s}")
+    shap_1 = None
+    for t in sweep:
+        with set_threads(t):
+            t_shap = best(runs["shap (public)"], 1)
+        t_path = best(runs["numba path"], 1)
+        t_table = best(runs["numba table"], 3)
+        shap_1 = t_shap if shap_1 is None else shap_1
+        print(f"{t:8d} {t_shap * 1e3:10.1f} {t_path * 1e3:11.1f} {t_table * 1e3:12.1f} {t_shap / t_table:21.2f} {shap_1 / t_table:23.2f}")
+    numba.set_num_threads(max_threads)
     if approx_ms is not None:
         print(f"shap approximate=True (Saabas, not the same values): {approx_ms:.1f} ms; every row above is exact TreeSHAP (shap exact is its default, approximate=False)")
     return 0

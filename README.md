@@ -394,10 +394,23 @@ of depth 6, 100 features; best of several runs, GPU calls include the upload):
 
 | model, rows | public `shap` | mlframe numba | mlframe CUDA | max abs difference to `shap` (numba / CUDA) |
 |---|---|---|---|---|
-| LightGBM, 20 000 | 3 292 ms | 563 ms (**5.9x**) | 91 ms (**36x**) | 1.8e-15 / 1.7e-5 |
-| LightGBM, 100 000 | 17 707 ms | 3 421 ms (**5.2x**) | 531 ms (**33x**) | 1.8e-15 / 2.7e-5 |
-| XGBoost, 20 000 | 8 112 ms | 1 060 ms (**7.7x**) | 147 ms (**55x**) | 4.3e-6 / 1.7e-5 |
-| XGBoost, 100 000 | 43 007 ms | 5 631 ms (**7.6x**) | 725 ms (**59x**) | 6.3e-6 / 1.8e-5 |
+| LightGBM, 20 000 | 3 192 ms | 223 ms (**14.3x**) | 56 ms (**57x**) | 7.1e-15 / 1.7e-5 |
+| LightGBM, 100 000 | 18 945 ms | 1 461 ms (**13.0x**) | 275 ms (**69x**) | 8.9e-15 / 2.8e-5 |
+| XGBoost, 20 000 | 8 207 ms | 435 ms (**18.9x**) | 75 ms (**110x**) | 4.3e-6 / 1.7e-5 |
+| XGBoost, 100 000 | 40 854 ms | 1 696 ms (**24.1x**) | 318 ms (**129x**) | 6.3e-6 / 1.8e-5 |
+
+Thread counts matter for an honest comparison: the numba kernel is parallel over rows and uses every logical core by default, and `shap` computes LightGBM and XGBoost contributions in the
+library's own OpenMP code. With the same thread count on both sides (20 000 rows, best ms):
+
+| threads | LightGBM `shap` | LightGBM numba | ratio | XGBoost `shap` | XGBoost numba | ratio |
+|---|---|---|---|---|---|---|
+| 1 | 13 615 | 953 | 14.3x | 27 343 | 1 682 | 16.3x |
+| 2 | 7 173 | 508 | 14.1x | 14 335 | 851 | 16.8x |
+| 4 | 4 673 | 301 | 15.5x | 8 507 | 489 | 17.4x |
+| 8 | 3 410 | 232 | 14.7x | 6 811 | 395 | 17.2x |
+
+Our kernel is faster at every thread count (14x to 17x), and the 8-thread numba run is 59x (LightGBM) / 69x (XGBoost) faster than the single-threaded `shap` call. `shap`'s own
+`approximate=True` (Saabas values, XGBoost only) takes 192 ms at 20 000 rows, still slower than the exact CUDA kernel above (75 ms).
 
 In all four cases the per-feature mean |phi| ranking is identical to `shap` (Spearman 1.0000,
 the same top 10) and `base + sum(phi)` reproduces the model margin. The CUDA kernel works in
