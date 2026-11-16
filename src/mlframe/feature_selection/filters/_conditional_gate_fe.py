@@ -393,7 +393,7 @@ def _argmax_resident(arrs, tri):
 
         from ._fe_resident_operands import resident_operand
         from ._row_argmax_gpu import all_finite_cached, row_argmax_cm, row_argmax_on_device
-        _ops = []
+        _ops: list = []
         for c in tri:
             _h = np.ascontiguousarray(np.asarray(arrs[c], dtype=_crit_np_dtype()))
             if not all_finite_cached(_h):

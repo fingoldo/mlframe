@@ -90,7 +90,8 @@ def _sample(index: Any) -> Any:
 
 def _sweep_host(columns: np.ndarray) -> np.ndarray:
     """The host form on the sweep inputs, sampled."""
-    return _sample(row_argmax_host(list(columns)))
+    sampled: np.ndarray = _sample(row_argmax_host(list(columns)))
+    return sampled
 
 
 _SWEEP_RESIDENT: dict = {}  # id(host columns) -> (host columns, their device copies): the gate's operands are uploaded once and shared (``resident_operand``), so the device form is timed on resident columns
@@ -104,7 +105,8 @@ def _sweep_device(columns: np.ndarray) -> np.ndarray:
     if hit is None or hit[0] is not columns:
         _SWEEP_RESIDENT.clear()
         hit = _SWEEP_RESIDENT[id(columns)] = (columns, [cp.asarray(c) for c in columns])
-    return cp.asnumpy(_sample(row_argmax_cm(cp, hit[1])))
+    sampled: np.ndarray = cp.asnumpy(_sample(row_argmax_cm(cp, hit[1])))
+    return sampled
 
 
 _fallback_choice = rows_fallback(__name__)

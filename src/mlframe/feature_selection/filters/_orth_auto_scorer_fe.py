@@ -367,9 +367,12 @@ def _batched_bootstrap_values_in_column_blocks(columns: list, y_arr: np.ndarray,
     width = max(1, _BOOTSTRAP_BLOCK_BYTES // max(1, len(boot_idx[0]) * itemsize)) if len(boot_idx) else len(columns)
     if len(columns) <= width:
         return _batched_bootstrap_values(columns, y_arr, boot_idx, random_state, hyper)
-    parts = [_batched_bootstrap_values(columns[a : a + width], y_arr, boot_idx, random_state, hyper) for a in range(0, len(columns), width)]
-    if any(p is None for p in parts):
-        return None
+    parts = []
+    for a in range(0, len(columns), width):
+        part = _batched_bootstrap_values(columns[a : a + width], y_arr, boot_idx, random_state, hyper)
+        if part is None:
+            return None
+        parts.append(part)
     return {s: np.concatenate([p[s] for p in parts], axis=0) for s in parts[0]}
 
 

@@ -350,7 +350,8 @@ def _materialise_candidate(
     """Compute ONE candidate column as a double ndarray. NaN/Inf scrubbed. ``col_cache`` (column name -> ndarray) replaces the per-candidate frame lookup of the source columns."""
     def _col(name: str) -> np.ndarray:
         """The source column as an array, from the cache when one is given."""
-        return col_cache[name] if col_cache is not None else X[name].to_numpy()
+        col: np.ndarray = col_cache[name] if col_cache is not None else X[name].to_numpy()
+        return col
 
     try:
         if len(src_cols) == 1:
