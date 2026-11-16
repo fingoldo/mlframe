@@ -245,6 +245,7 @@ def _oneshot_write_static(fig: Any, path: str, fmt: str) -> None:
         logger.debug("fig.write_image() failed, falling back to kaleido.calc_fig_sync(): %s", e)
         import kaleido
         data = kaleido.calc_fig_sync(fig, opts={"format": fmt})
+        ensure_parent_dir(path)
         with open(path, "wb") as fh:
             fh.write(data)
 

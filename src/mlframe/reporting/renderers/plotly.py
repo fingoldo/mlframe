@@ -421,8 +421,18 @@ class PlotlyRenderer:
             # ``_plotlyjs_mode`` for the escape hatch.
             fig.write_html(ensure_parent_dir(path), include_plotlyjs=_plotlyjs_mode(), auto_open=False, config=html_config())
         elif fmt == "json":
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(fig.to_json())
+            # Temp file then os.replace: a failed write must not truncate the previous file at this path.
+            tmp = f"{path}.partial"
+            try:
+                with open(tmp, "w", encoding="utf-8") as f:
+                    f.write(fig.to_json())
+                os.replace(tmp, path)
+            except BaseException:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                raise
         elif fmt in ("png", "svg", "pdf"):
             write_image_via_kaleido(fig, path, fmt)
         else:
