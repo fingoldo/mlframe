@@ -63,7 +63,9 @@ def test_generated_features_do_not_change(monkeypatch, forced, with_nan):
     for c in want_df.columns:
         assert np.array_equal(got_df[c].to_numpy(), want_df[c].to_numpy(), equal_nan=True), c
     assert set(got_rec) == set(want_rec)
+    assert want_rec
     for name, payload in want_rec.items():
         assert payload["iqr_lookup"] == got_rec[name]["iqr_lookup"] and payload["p90p10_lookup"] == got_rec[name]["p90p10_lookup"], name
+        assert payload["group_sorted"]
         for key, sv in payload["group_sorted"].items():
             assert np.array_equal(np.asarray(sv), np.asarray(got_rec[name]["group_sorted"][key])), (name, key)

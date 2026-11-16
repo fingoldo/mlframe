@@ -67,6 +67,7 @@ def test_composite_fe_skip_as_unit_val_failure_leaves_all_splits_unchanged(runne
     """A val-split failure must leave train, val and test with identical, original column sets, logged at WARNING."""
     with caplog.at_level(logging.WARNING):
         frames, out = runner(monkeypatch)
+    assert len(frames) == len(out) == 3  # train, val, test
     for before, after in zip(frames, out):
         assert list(after.columns) == list(before.columns)
     assert any(r.levelno == logging.WARNING and "skipping the step for all splits" in r.getMessage() for r in caplog.records)
