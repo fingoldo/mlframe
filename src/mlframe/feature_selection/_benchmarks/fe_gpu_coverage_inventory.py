@@ -178,6 +178,11 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_target_mix_gate": (
+        ("_pair_residual_screen",),
+        "the pair screen is pair_interaction_screen of _pair_residual_screen (pair_residual_t device kernel, tuned choice) and the one-column main-effect statistics come from main_effect_z_columns of _gain_stats_codes_gpu (batched device quantile codes), the host loop when the device declines",
+        True,
+    ),
     "_fe_synergy_exhaustive": (
         ("batch_pair_mi_gpu",),
         "the sweep itself is batch_pair_mi_cuda of batch_pair_mi_gpu (one launch per pair block, tuned backend choice); this module decides whether the full sweep is affordable from per-host measured pairs per second (get_or_tune keys batch_pair_mi_exhaustive_throughput and batch_pair_mi_exhaustive_cpu_throughput)",
@@ -327,6 +332,10 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_target_mix_gate": (
+        "_pair_residual_screen",
+        "the host form of the structure check is the main-effect statistic loop of this module and pair_interaction_screen of _pair_residual_screen (njit pair residual kernel), on the same row subsample",
+    ),
     "_fe_synergy_exhaustive": (
         "batch_pair_mi_gpu",
         "the host backend of the exhaustive C(p,2) joint-MI sweep is batch_pair_mi_njit_prange of batch_pair_mi_gpu (parallel numba over pairs); the module times it for the affordability prediction",

@@ -8,7 +8,10 @@ family-wise 5% screens on ``T`` decide whether it is worth running, the same cal
 * pairs: ``pair_interaction_screen`` on ``T`` (interaction left after the additive model).
 
 Either one significant sends ``T`` to the child; neither skips it.
-"""
+
+
+Backends and memory (2026-11-16): the check owns no kernel. It works on a row block of at most ``scan_rows`` (50000) evenly spaced rows and on at most ``MAX_COLS`` columns for the pair screen, so the device holds a column block of the codes of the
+kept columns and never the full frame; the statistics come from ``_gain_stats_codes_gpu`` and the pair screen from ``_pair_residual_screen``. ``audits/2026-10-22/profiles/_target_mix_gate.md`` has the measured figures."""
 
 from __future__ import annotations
 
