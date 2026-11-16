@@ -15,7 +15,6 @@ from pyutilz.system import tqdmu
 
 import pandas as pd
 import numpy as np
-from mlframe._optional_imports import import_optional
 
 try:
     import polars as pl
@@ -643,8 +642,11 @@ def explain(self) -> None:
     # can flip a borderline hit at the nanpercentile/`>` gate -> selection-altering. The mlframe-side per-trial
     # overhead (shadow build, hit counting, binomial test, history) is now <0.1s total after the single-call drop
     # + homogeneous-numeric shadow fast path; nothing further is actionable without changing the wrapped model.
-    shap = import_optional("shap", "calibration", "BorutaShap importance")
-    explainer = shap.TreeExplainer(explainer_base, feature_perturbation="tree_path_dependent")
+    # mlframe's own TreeSHAP answers for XGBoost / LightGBM / CatBoost regressors and binary classifiers (values equal to the public library to machine precision on the CPU);
+    # the public library answers the families we do not implement (multiclass, sklearn forests) and the fallback is logged.
+    from mlframe.inference.tree_shap import TreeExplainer as _TreeExplainer
+
+    explainer = _TreeExplainer(explainer_base)
 
     """
     ipdb> explainer_base.feature_names_

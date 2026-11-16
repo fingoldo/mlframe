@@ -667,8 +667,14 @@ def shap_summary_and_dependence(
 
     if tree:
         try:
-            explainer = _construct_tree_explainer_with_xgb_base_score_shim(model)
-            shap_values = explainer(X_sample, check_additivity=False)
+            from mlframe.inference.tree_shap import TreeExplainer as _TreeExplainer, is_supported as _tree_supported
+
+            if _tree_supported(model):
+                # mlframe's own TreeSHAP computes the values; the public library only draws below
+                shap_values = _TreeExplainer(model).explain(X_sample)
+            else:
+                explainer = _construct_tree_explainer_with_xgb_base_score_shim(model)
+                shap_values = explainer(X_sample, check_additivity=False)
         except Exception as _shap_exc:
             # Tree-SHAP on categorical / text / non-pandas frames is fragile across shap + backend versions. shap runs
             # the model's OWN predict internally, so the carrier must be in the exact form each backend expects: shap

@@ -114,22 +114,21 @@ def test_treeshap_handles_missing_values():
     np.testing.assert_allclose(phi, phi_ref, rtol=1e-4, atol=1e-4)
 
 
-def test_dispatcher_routes_by_width_and_model():
-    """auto picks the custom numba path on WIDE xgboost, falls back to shap on narrow / unsupported."""
+def test_dispatcher_routes_supported_models_to_our_treeshap_at_every_width():
+    """auto picks our numba TreeSHAP for every supported xgboost model, narrow or wide (it beats the shap library from a few hundred rows on), and the shap library only for an unsupported family."""
     from sklearn.linear_model import LogisticRegression
 
-    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _pick_backend, _treeshap_numba_min_features
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _pick_backend
 
     rng = np.random.default_rng(3)
     narrow = pd.DataFrame(rng.normal(size=(50, 8)), columns=[f"f{i}" for i in range(8)])
-    wide_f = _treeshap_numba_min_features() + 16
-    wide = pd.DataFrame(rng.normal(size=(50, wide_f)), columns=[f"f{i}" for i in range(wide_f)])
+    wide = pd.DataFrame(rng.normal(size=(50, 80)), columns=[f"f{i}" for i in range(80)])
     y = (narrow["f0"] > 0).astype(int)
 
     xgb_wide = _fit_xgb(wide, y, classification=True, n_estimators=10)
     xgb_narrow = _fit_xgb(narrow, y, classification=True, n_estimators=10)
     assert _pick_backend(xgb_wide, wide, "auto") == "treeshap_numba"
-    assert _pick_backend(xgb_narrow, narrow, "auto") == "shap"  # narrow -> shap C-ext already fast
+    assert _pick_backend(xgb_narrow, narrow, "auto") == "treeshap_numba"
 
     # Unsupported model type always falls back to shap.
     lr = LogisticRegression(max_iter=200).fit(wide, y)
