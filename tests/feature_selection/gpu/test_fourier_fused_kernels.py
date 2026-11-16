@@ -100,3 +100,47 @@ def test_float32_trig_keeps_the_power_grid_and_its_argmax(n):
     got = cp.asnumpy(fused.power_sincos(cp, z.astype(cp.float32), yc.astype(cp.float32), y_ss, freqs))
     np.testing.assert_allclose(got, want, rtol=1e-4, atol=1e-5 * float(np.max(np.abs(want))))
     assert int(np.argmax(got)) == int(np.argmax(want))
+
+
+def test_short_frequency_lists_get_wide_blocks_and_the_same_powers(monkeypatch):
+    """With fewer than 8 blocks per SM (a few frequencies) the power kernel launches blocks of at least 256 threads; a long list keeps the occupancy rule's block. The powers agree between the widths to summation order."""
+    cp = pytest.importorskip("cupy")
+    import numpy as np
+
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import _fourier_fused_gpu as G
+
+    rng = np.random.default_rng(1)
+    n = 6000
+    z = cp.asarray(rng.uniform(0, 1, n))
+    y = rng.normal(size=n)
+    y -= y.mean()
+    yc = cp.asarray(y)
+    y_ss = float((y**2).sum())
+    real_kernel = G.kernel_power(cp, z.dtype)
+    launches = []
+
+    class _Spy:
+        """Delegates to the real kernel and records the launch geometry."""
+
+        def __call__(self, grid, block, args):
+            launches.append((grid[0], block[0]))
+            return real_kernel(grid, block, args)
+
+        def __getattr__(self, name):
+            return getattr(real_kernel, name)
+
+    monkeypatch.setattr(G, "kernel_power", lambda cp_, real: _Spy())
+    sms = int(cp.cuda.Device().attributes["MultiProcessorCount"])
+    few = cp.asarray(np.linspace(1.0, 20.0, 4))
+    many = cp.asarray(np.linspace(1.0, 20.0, 8 * sms))
+    p_few = cp.asnumpy(G.power_sincos(cp, z, yc, y_ss, few))
+    G.power_sincos(cp, z, yc, y_ss, many)
+    assert launches[0][1] >= 256
+    from pyutilz.performance.gpu_hw_launch import block_size_for
+
+    assert launches[1][1] == block_size_for(real_kernel, work_items=n, max_width=1024)  # a long list keeps the occupancy rule's block
+    ref = []
+    for f in cp.asnumpy(few):
+        s, c = np.sin(2 * np.pi * f * cp.asnumpy(z)), np.cos(2 * np.pi * f * cp.asnumpy(z))
+        ref.append(sum((np.dot(v, y) ** 2) / ((np.dot(v, v) - v.sum() ** 2 / n) * y_ss) for v in (s, c)))
+    np.testing.assert_allclose(p_few, ref, rtol=1e-6)
