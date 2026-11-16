@@ -56,7 +56,7 @@ TODO total: 34. Nothing is fixed yet; no code was changed in this audit.
 | P11-01 (11) | low | reporting/report_html.py:258 | final HTML written in place, not atomic | test_report_html_write_is_atomic_on_crash |
 | P11-02 (11) | low | reporting/renderers/plotly.py:424 | plotly json branch non-atomic | test_plotly_json_write_is_atomic |
 | P11-03 (11) | low | reporting/renderers/_kaleido.py:248 | calc_fig_sync fallback writes in place, no ensure_parent_dir | test_kaleido_fallback_creates_parent_dir |
-| P11-04 (11) | med | training/_io_save.py:453-455 | verbose=0 silently drops preds/probs/target on lean flip | test_save_mlframe_model_lean_flip_keeps_or_warns_on_preds |
+| P11-04 (11) | RESOLVED | training/_io_save.py:453-455 | verbose=0 silently flipped lean (drops preds/probs/target); the flip is now always logged as a warning | tests/training/test_save_lean_flip_warns_when_quiet.py::test_lean_pre_flip_logs_warning_at_verbose_zero; test_io_save_size_sensor_and_lightning_bloat.py 9/9 |
 | G1 (12) | med | feature_engineering/transformer/_kernels_cupy.py:256-261 | rff_matmul_cupy allocates without VRAM budget check | test_rff_matmul_cupy_refuses_or_chunks_over_vram_budget |
 | G2 (12) | med | _kernels_cupy.py:341-342 | float64 device bank read as float32 by float* kernel | test_row_attention_rejects_or_converts_float64_device_bank |
 | G3 (12) | low | _kernels_cupy.py:320, 352-354 | K==0 and n_queries==0 launches unguarded | test_row_attention_empty_k_and_queries_do_not_launch |
