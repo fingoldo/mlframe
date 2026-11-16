@@ -170,6 +170,11 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "polynom_pair_fe": (
+        ("_hermite_fe_optimise",),
+        "the per-pair search is run by optimise_hermite_pair of _hermite_fe_optimise (host numba optimizers, or fe_optimizer=cupy_kernel through _cupy_polynom_optimizer, tuned generation scoring); this module only dispatches pairs, subsamples rows and commits survivors",
+        True,
+    ),
     "_ratio_delta_fe": (
         ("_ratio_delta_screen_gpu",),
         "the device form of the ratio / log-ratio redundancy screen is _ratio_delta_screen_gpu (one block per ordered pair, row-streamed); the host or device choice is ratio_pair_screen_backend; the MI gate that follows runs through local_mi_gate on the batched MI backends",
@@ -289,6 +294,10 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "polynom_pair_fe": (
+        "_numba_polynom_optimizer",
+        "the host form of the per-pair polynomial search is the njit batch evaluators and the CMA / random-batch optimizers of _numba_polynom_optimizer (reached through optimise_hermite_pair)",
+    ),
     "_ratio_delta_fe": (
         "_ratio_delta_screen",
         "the host redundancy screen of the ratio / log-ratio pools is the parallel numba kernel of _ratio_delta_screen (one candidate buffer per task, only accepted columns materialised); the grouped-delta statistics are a gather of per-group values by once-factorised row codes",
