@@ -37,7 +37,11 @@ the backlog targets. Other recipe kinds (cat-FE encoders, orth-basis, cluster
 aggregates, hinge / wavelet) are passed through untouched: they either carry no
 per-fold gate analogue here or are produced by separate stages with their own
 held-out validation. The voter is a no-op when fewer than 2 such recipes exist.
-"""
+
+
+Backends and memory (2026-11-16): the vote owns no array kernel. Each fold is a row block of ``n / K`` rows replayed for one recipe at a time (the fold frames are cached per fold), so the working set is a
+fold of the operands and codes, not the recipe pool; the statistics are ``_cmi_from_binned`` of ``_mi_greedy_cmi_fe`` and, under STRICT-resident, the replay and binning run on the device
+(``_replay_codes_on_device``). ``audits/2026-10-22/profiles/_fe_stability_vote.md`` has the measured figures."""
 from __future__ import annotations
 
 import logging

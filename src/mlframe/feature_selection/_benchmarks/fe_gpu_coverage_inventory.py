@@ -170,6 +170,11 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_fe_stability_vote": (
+        ("_mi_greedy_cmi_fe",),
+        "the per-fold MI statistics are _cmi_from_binned of _mi_greedy_cmi_fe (device partition counting, own tuning entries); under STRICT-resident the recipe is replayed and binned on the device (apply_unary_binary_gpu_resident, the sync-free binner of _mi_greedy_cmi_fe_binning)",
+        True,
+    ),
     "_mrmr_fe_step_helpers": (
         ("_pair_mi_perm_cuda",),
         "the FE-step blocks carved here are orchestration; the order-2 maxT floor runs the one-launch pair_mi_perm kernel of _pair_mi_perm_cuda (tuned host-or-device choice floor_backend_choice, shape rules, declined -> cupy twin -> njit floor)",
@@ -299,6 +304,10 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_fe_stability_vote": (
+        "_mi_greedy_cmi_fe",
+        "the per-fold gate statistic is the plug-in MI / CMI of _mi_greedy_cmi_fe (_cmi_from_binned, njit partition kernels) on equi-frequency codes of _quantile_bin; the replayed recipe is the host apply_recipe",
+    ),
     "_mrmr_fe_step_helpers": (
         "_permutation_null",
         "the host form of the order-2 maxT floor is the permutation-batched njit kernel behind pooled_pair_permutation_null_joint_mi_floor of _permutation_null (same host shuffles as the device kernel)",
