@@ -58,12 +58,20 @@ def _row_argmax_njit(cols: tuple, out: np.ndarray) -> None:
         out[i] = bi
 
 
+def _read_only_view(a: np.ndarray) -> np.ndarray:
+    """A read-only view of ``a``: numba types a read-only and a writable array differently, and a tuple of mixed ones cannot be indexed by a loop variable (``TypingError: getitem(Tuple(readonly array, ..., array), int64)``,
+    which skipped the whole row-argmax FE of a fit whose columns were a mix of frame views and fresh arrays); read-only views give every column of the tuple one type."""
+    v = a.view()
+    v.flags.writeable = False
+    return v
+
+
 def row_argmax_host(columns: Sequence[np.ndarray]) -> np.ndarray:
     """Host form: the parallel numba kernel over the columns (promoted to one common dtype); float64 ``(n,)`` index of the first maximum."""
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
     common = np.result_type(*[np.asarray(c).dtype for c in columns])
-    cols = tuple(np.ascontiguousarray(c, dtype=common) for c in columns)
+    cols = tuple(_read_only_view(np.ascontiguousarray(c, dtype=common)) for c in columns)
     out = np.empty(cols[0].shape[0], dtype=np.float64)  # Intentional float64: index output matches the caller's float64 cast contract
     with parallel_kernel_entry():
         _row_argmax_njit(cols, out)
@@ -94,6 +102,7 @@ def _sweep_host(columns: np.ndarray) -> np.ndarray:
     return sampled
 
 
+_SWEEP_LOCK = threading.Lock()
 _SWEEP_RESIDENT: dict = {}  # id(host columns) -> (host columns, their device copies): the gate's operands are uploaded once and shared (``resident_operand``), so the device form is timed on resident columns
 
 
@@ -101,10 +110,11 @@ def _sweep_device(columns: np.ndarray) -> np.ndarray:
     """The device form on the sweep inputs: the kernel over columns already on the device (the upload is paid once per operand, not per triple); the index stays on the device (the gate keeps it there), its sample is copied back."""
     import cupy as cp
 
-    hit = _SWEEP_RESIDENT.get(id(columns))
-    if hit is None or hit[0] is not columns:
-        _SWEEP_RESIDENT.clear()
-        hit = _SWEEP_RESIDENT[id(columns)] = (columns, [cp.asarray(c) for c in columns])
+    with _SWEEP_LOCK:
+        hit = _SWEEP_RESIDENT.get(id(columns))
+        if hit is None or hit[0] is not columns:
+            _SWEEP_RESIDENT.clear()
+            hit = _SWEEP_RESIDENT[id(columns)] = (columns, [cp.asarray(c) for c in columns])
     sampled: np.ndarray = cp.asnumpy(_sample(row_argmax_cm(cp, hit[1])))
     return sampled
 

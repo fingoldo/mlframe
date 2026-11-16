@@ -378,8 +378,8 @@ def test_row_batched_binning_equals_columnwise_device_binner():
     for dt in (np.float32, np.float64):
         x = cp.asarray(np.vstack(rows).astype(dt))
         batched = qbin_codes_rows(cp, x, 10)
-        for i in range(len(rows)):
-            assert bool(cp.array_equal(batched[i], _sync_free_qbin_codes(cp, x[i], 10)))
+        same = [bool(cp.array_equal(batched[i], _sync_free_qbin_codes(cp, x[i], 10))) for i in range(len(rows))]
+        assert len(same) == len(rows) and all(same)
 
 
 def test_batched_fold_replay_gives_the_same_vote_as_per_recipe_replay(monkeypatch):

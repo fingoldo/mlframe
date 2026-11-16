@@ -1,15 +1,20 @@
-"""Wave 11 (Category 3) H2: ``_passes_redundancy`` (``_ratio_delta_fe.py``) was rewritten from a masked
-``np.corrcoef`` per (candidate, source) check to the shared ``_abs_corr_finite_njit`` kernel (with
-``min_n=2`` so the small-overlap floor matches what a masked ``np.corrcoef`` implicitly allows). Pins the
-new implementation against a frozen copy of the pre-fix masked-corrcoef reference, including small
-joint-finite-overlap edge cases (the reason ``min_n=2`` rather than the kernel's default 8 was required).
-"""
+"""The ratio redundancy verdict of a column pair (``ratio_pair_screen_host`` of ``_ratio_delta_screen``, which replaced the per-pair Python check ``_passes_redundancy``) equals a frozen masked-``np.corrcoef`` reference,
+including small joint-finite-overlap edge cases (the reason the shared ``_abs_corr_finite_njit`` is called with ``min_n=2`` rather than its default 8)."""
 
 from __future__ import annotations
 
 import numpy as np
 
-from mlframe.feature_selection.filters._ratio_delta_fe import _passes_redundancy
+from mlframe.feature_selection.filters._ratio_delta_fe import _safe_div
+from mlframe.feature_selection.filters._ratio_delta_screen import RATIO, ratio_pair_screen_host
+
+EPS = 1e-9
+
+
+def _passes_redundancy(candidate, a_vals, b_vals, threshold):
+    """Verdict of the (a, b) ratio pair from the screen; ``candidate`` is only checked to be the screen's own column."""
+    accept = ratio_pair_screen_host([a_vals, b_vals], RATIO, EPS, float(threshold))
+    return bool(accept[0, 1])
 
 
 def _passes_redundancy_ref(candidate, a_vals, b_vals, threshold):
@@ -59,7 +64,7 @@ def test_passes_redundancy_matches_reference_across_random_configs():
             b = rng.normal(size=n)
             a[rng.choice(n, size=max(1, n // 3), replace=False)] = np.nan
 
-        cand = np.nan_to_num(a / (b + 1e-9), nan=0.0, posinf=0.0, neginf=0.0)
+        cand = np.nan_to_num(_safe_div(a, b, EPS), nan=0.0, posinf=0.0, neginf=0.0)
         threshold = float(rng.choice([0.5, 0.9, 0.99]))
         ref = _passes_redundancy_ref(cand, a, b, threshold)
         new = _passes_redundancy(cand.copy(), a.copy(), b.copy(), threshold)
@@ -82,7 +87,7 @@ def test_passes_redundancy_matches_reference_on_thin_joint_overlap():
         rng.shuffle(mask)
         b_e = b.copy()
         b_e[~mask] = np.nan
-        cand = np.nan_to_num(a / (b_e + 1e-9), nan=0.0, posinf=0.0, neginf=0.0)
+        cand = np.nan_to_num(_safe_div(a, b_e, EPS), nan=0.0, posinf=0.0, neginf=0.0)
         threshold = 0.5
         ref = _passes_redundancy_ref(cand, a, b_e, threshold)
         new = _passes_redundancy(cand.copy(), a.copy(), b_e.copy(), threshold)

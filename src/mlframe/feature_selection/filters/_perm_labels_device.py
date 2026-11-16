@@ -16,6 +16,7 @@ from pyutilz.performance.gpu_hw_launch import launch_1d
 logger = logging.getLogger(__name__)
 
 _FY_SRC = r"""
+// coalescing-ok: one thread shuffles one whole permutation row with data-dependent swap partners (Fisher-Yates), so the access is a private random gather by construction; rows of different permutations cannot share a transaction, and the kernel does not appear in the whole-fit nvprof table of the 100000 x 100 run
 extern "C" __global__
 void fy_permutations(int* __restrict__ idx, const long long n, const unsigned long long base_seed, const int m) {
     const int r = blockIdx.x * blockDim.x + threadIdx.x;

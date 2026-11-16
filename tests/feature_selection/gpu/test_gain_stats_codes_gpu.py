@@ -47,8 +47,8 @@ def test_two_bin_counts_come_from_one_call_and_match_separate_calls():
     cols = _columns(np.float32)
     both = mod.quantile_codes_columns_device(cols, [10, 60])
     assert len(both) == 2
-    for b, m in zip((10, 60), both):
-        assert np.array_equal(m, np.stack([quantile_codes(c, b) for c in cols]))
+    same = [np.array_equal(m, np.stack([quantile_codes(c, b) for c in cols])) for b, m in zip((10, 60), both)]
+    assert len(same) == 2 and all(same)
 
 
 def test_edges_are_bit_identical_to_np_quantile():

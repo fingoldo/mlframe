@@ -275,49 +275,24 @@ def _frac_diff_inv_force_backend() -> str:
 
 
 def _lookup_ewma_backend(K: int, N: int) -> str:
-    """Return ``"njit"`` or ``"njit_par"`` via the kernel_tuning_cache when available, else the measurement-backed size-based fallback (K=1 -> njit; K>=2 AND N>=50k -> njit_par). Cache key axes are (K, N); HW-tuned crossovers persist via the same pyutilz KernelTuningCache that powers joint_hist_batched."""
+    """Return ``"njit"`` or ``"njit_par"``: the env override, else the per-host tuned choice (kernel-tuning entry ``ewma_dispatch`` of ``_nonlinear_ewma_fracdiff_ktc``, a sweep of both backends over (K, N)), else the
+    measurement-backed size rule (K>=2 AND N>=50k -> njit_par)."""
     forced = _ewma_force_backend()
     if forced:
         return forced
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
+    from ._nonlinear_ewma_fracdiff_ktc import _EWMA_SPEC, _ewma_fallback, tuned_backend
 
-        cache = get_kernel_tuning_cache()
-        if cache is not None:
-            choice = cache.lookup("ewma_dispatch", K=K, N=N)
-            if choice is not None:
-                bc = str(choice.get("backend_choice", "")).strip().lower()
-                if bc in ("njit", "njit_par"):
-                    return bc
-    except Exception as e:
-        logger.debug("swallowed exception in _nonlinear_ewma_fracdiff.py: %s", e)
-        pass
-    if K >= _EWMA_PAR_MIN_K and N >= _EWMA_PAR_MIN_N:
-        return "njit_par"
-    return "njit"
+    return tuned_backend(_EWMA_SPEC, _ewma_fallback, K, N)
 
 
 def _lookup_frac_diff_inv_backend(K: int, N: int) -> str:
-    """Same contract as :func:`_lookup_ewma_backend` for the frac-diff-inverse kernel. Cache key: ``frac_diff_inverse_dispatch``."""
+    """Same contract as :func:`_lookup_ewma_backend` for the frac-diff-inverse kernel (kernel-tuning entry ``frac_diff_inverse_dispatch``)."""
     forced = _frac_diff_inv_force_backend()
     if forced:
         return forced
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
+    from ._nonlinear_ewma_fracdiff_ktc import _FRAC_SPEC, _frac_fallback, tuned_backend
 
-        cache = get_kernel_tuning_cache()
-        if cache is not None:
-            choice = cache.lookup("frac_diff_inverse_dispatch", K=K, N=N)
-            if choice is not None:
-                bc = str(choice.get("backend_choice", "")).strip().lower()
-                if bc in ("njit", "njit_par"):
-                    return bc
-    except Exception as e:
-        logger.debug("swallowed exception in _nonlinear_ewma_fracdiff.py: %s", e)
-        pass
-    if K >= _FRAC_DIFF_INV_PAR_MIN_K and N >= _FRAC_DIFF_INV_PAR_MIN_N:
-        return "njit_par"
-    return "njit"
+    return tuned_backend(_FRAC_SPEC, _frac_fallback, K, N)
 
 
 def _ewma_dispatch(base_f: np.ndarray, k_param: float, anchor: float) -> np.ndarray:

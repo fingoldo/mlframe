@@ -300,7 +300,7 @@ def _drop_near_duplicate_columns(self, X, _group_protected):
                     _is_dup = False
                     for _j in _kept_idx:
                         _v = _rc[_i, _j]
-                        if np.isfinite(_v) and _v >= _thr and np.array_equal(_nan_masks[_i], _nan_masks[_j]):
+                        if _v >= _thr and np.array_equal(_nan_masks[_i], _nan_masks[_j]):
                             _is_dup = True
                             break
                     if _is_dup:

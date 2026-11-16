@@ -831,11 +831,13 @@ def test_registered_kernel_has_no_register_spill(name: str):
         )
 
 
-@pytest.mark.parametrize("name,reason", sorted(_SPILL_EXEMPT.items()) or [pytest.param(None, None, marks=pytest.mark.skip(reason="no spill exemptions registered"))])
-def test_every_exempted_kernel_states_its_reason(name, reason):
-    """Every entry in _SPILL_EXEMPT names a registered kernel and carries a non-empty reason (an empty registry is a skip, not a silent pass)."""
-    assert name in _REGISTRY, f"{name} is exempted but not registered"
-    assert reason.strip(), f"{name} has an empty exemption reason"
+def test_every_exempted_kernel_states_its_reason():
+    """Every entry in _SPILL_EXEMPT names a registered kernel and carries a non-empty reason (the registry may be empty; nothing is skipped)."""
+    assert _REGISTRY  # the registry the exemptions are checked against is never empty
+    unregistered = sorted(name for name in _SPILL_EXEMPT if name not in _REGISTRY)
+    assert not unregistered, f"{unregistered} are exempted but not registered"
+    empty = sorted(name for name, reason in _SPILL_EXEMPT.items() if not reason.strip())
+    assert not empty, f"{empty} have an empty exemption reason"
 
 
 _OFFLINE_ARCHS = (52, 61, 70, 75, 86, 89, 90, 120)

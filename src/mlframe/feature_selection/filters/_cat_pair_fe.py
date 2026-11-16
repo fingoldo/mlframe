@@ -47,7 +47,11 @@ per-code mean-of-y lookup + global mean). Replay reads ONLY X: each test row's
 (cat_i_val, cat_j_val) tuple is looked up in the stored mapping; unseen tuples
 map to a sentinel code (raw mode) or the global mean (TE mode). No ``y``
 reference is captured, so ``transform()`` is leakage-free by construction.
-"""
+
+
+Backends and memory (2026-11-16): the pair joint MI is one parallel pass (``_cat_pair_joint_njit``, or the device kernel of ``_cat_pair_joint_gpu`` when the per-host ``cat_pair_search_backend`` choice says so) over the
+dense integer codes of the columns, so the working set is a column block of int codes (one int per row and column), never the string columns; the string factorisation stays on the host and is cached by column content
+(``_target_encoding_fe.column_string_codes``). ``audits/2026-10-22/profiles/_cat_pair_fe.md`` has the measured figures."""
 from __future__ import annotations
 
 from typing import cast

@@ -59,6 +59,7 @@ void treeshap(const float* X, const int n, const int f,
               const int* feat, const float* thr, const double* val, const double* cover,
               const int* roots, const int n_trees, const int max_path,
               double* phi){
+    // coalescing-ok: one thread walks the trees for one sample; xi[feat[node]] is a data-dependent gather and the walks diverge, so no layout makes lanes adjacent; selector off the MRMR fit path
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
     const int width = max_path + 2;        // entries per recursion level

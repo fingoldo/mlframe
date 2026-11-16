@@ -393,6 +393,18 @@ def _basis_source_cols(X: pd.DataFrame, cols: Any, dedup_collinear_sources: bool
     return list(cols)
 
 
+def _fit_basis_once(x: np.ndarray, chosen_basis: str, aux_col: Any) -> tuple:
+    """``(z, params)`` of the basis preprocess fitted once on ``x`` (float64, the replay precision), or ``(None, None)`` when the aux pool is in play (its fit concatenates the pool per degree) or the fit raised."""
+    if aux_col is not None and length_of(aux_col) != 0:
+        return None, None
+    try:
+        z_fit, p_fit = _POLY_BASES[chosen_basis]["fit"](x)
+        return np.ascontiguousarray(z_fit, dtype=np.float64), p_fit  # Intentional float64: fit/replay bit-identity contract (basis axis)
+    except Exception as e:
+        log_throttle(logger, "orth_basis_fit_failed_gen", logging.WARNING, "basis fit for %r failed: %s", chosen_basis, e)
+        return None, None
+
+
 def _generate_univariate_basis_features_impl(
     X: pd.DataFrame,
     *,
@@ -518,14 +530,7 @@ def _generate_univariate_basis_features_impl(
             # and evaluate each degree via polyeval_dispatch on the cached ``z`` - BYTE-IDENTICAL to the
             # per-degree _evaluate_basis_column (same fit_fn(x) -> same z -> same polyeval). The rare
             # aux-pool path keeps the per-degree call (its fit concatenates the pool; left untouched).
-            _z_cached = None
-            if aux_col is None or length_of(aux_col) == 0:
-                try:
-                    _z_fit, _p_fit = _POLY_BASES[chosen_basis]["fit"](x)
-                    _z_cached = np.ascontiguousarray(_z_fit, dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
-                except Exception as e:
-                    log_throttle(logger, "orth_basis_fit_failed_gen", logging.WARNING, "basis fit for %r failed: %s", chosen_basis, e)
-                    _z_cached = None
+            _z_cached, _p_fit = _fit_basis_once(x, chosen_basis, aux_col)
         for d in degrees:
             try:
                 if _z_cached is not None:

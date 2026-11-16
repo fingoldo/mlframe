@@ -9,58 +9,40 @@ engage ONLY when the data actually contains synergy. This module is the cheap pr
 
 SIGNATURE OF SYNERGY
 --------------------
-A pair ``(X, Z)`` is synergistic for target ``y`` when their JOINT carries materially MORE information about ``y`` than EITHER
-marginal: ``I({X,Z}; Y) >> max(I(X;Y), I(Z;Y))``. For pure XOR/sign-product the marginals are ~0 while the joint is large. We
-score this excess with the Miller-Madow-corrected joint MI (``joint_synergy_mi``, which keeps a noise pair's joint near zero), so
-a noise grid does NOT masquerade as synergy.
+A pair ``(X, Z)`` is synergistic for target ``y`` when the target depends on ``(X, Z)`` in a way NO additive model of the two
+marginal effects reproduces: the log-linear model without the three-way term (``logit P(y|x,z) = f(x) + g(z)`` for a binary target)
+fits the ``kx x kz x ky`` count table badly. The lack of fit is the deviance ``G = 2 sum n log(n / m)`` against the maximum-likelihood
+no-three-way fit ``m`` (iterative proportional fitting of the three two-way margins). ``(G - df) / (2 n)`` is a bias-corrected
+interaction information in nats, ``df = (kx-1)(kz-1)(ky-1)``. A pure XOR / sign-product pair reads about 0.6 nats (most of ``H(y)``).
+Two additive drivers behind a logistic or hard-threshold link, correlated decoys of one driver and main-effect-only targets all
+read at the chance level, because their joint IS additive in the logit: that is what the earlier ``I(XZ;Y) - I(X;Y) - I(Z;Y)``
+excess could not separate (a saturating link makes it a few percent of the joint and its permutation null did not model that).
 
-DECISION (subsample, bounded cost)
------------------------------------
-On a random row subsample we quantize columns to integer codes, then over a bounded number of random feature PAIRS compute the
-synergy excess ``joint - max(marg_x, marg_z)``. We declare the data synergistic when the BEST pair's excess clears a data-derived
-threshold: a multiple of the per-pair noise scale estimated from the SAME estimator on label-permuted targets (an analytic null),
-so the threshold adapts to n / cardinality / class balance rather than being a hardcoded magic constant. The multiple
-(``excess_null_mult``) is read from kernel_tuning_cache so it can be re-tuned per dataset/HW without code change.
+DECISION (subsample, every pair)
+--------------------------------
+Rows are subsampled to ``max_rows``, columns quantile-binned, and the deviance is computed for EVERY pair of up to ``max_features``
+columns (default 300, 44850 pairs, one numba prange pass over the integer codes; random column sampling is the fallback above that).
+No pair is sampled away, so a planted pair is never missed by coverage. A pair counts when BOTH hold:
+  * significance: ``G`` exceeds the chi-square quantile of its own ``df`` at the Bonferroni level ``alpha / n_pairs``, so the null
+    maximum over all pairs is controlled analytically (no label permutations, no null-scale multiple);
+  * effect size: ``(G - df) / (2 n) >= _MIN_SYNERGY_SHARE * H(y)``, which keeps a genuine but tiny interaction (discretisation of a
+    smooth additive link, sparse multiclass tables) from firing.
+The cut points ``_ALPHA`` and ``_MIN_SYNERGY_SHARE`` are fixed by the calibration table in ``audits/2026-11-09/_TRACKER.md`` (OP11-17).
+Bin count per pair is capped so the mean cell holds at least ``_MIN_ROWS_PER_CELL`` rows, which keeps the chi-square approximation valid.
+``n_null`` is accepted for API compatibility and unused.
 """
+
 from __future__ import annotations
 
 import logging
 
 import numpy as np
+from numba import njit, prange
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 from ._fe_synergy_screen import joint_synergy_mi  # noqa: F401
-from ._numba_utils import _pair_mm_mi_njit
 from ._fe_usability_signal import _crit_np_dtype
-
-
-def _pair_mm_mi(code_x: np.ndarray, code_y: np.ndarray, yc: np.ndarray, min_rows_per_cell: float = 5.0) -> float:
-    """Fused-njit equivalent of ``joint_synergy_mi(code_x, code_y, yc)``.
-
-    Builds the dense mixed-radix ``(kx*ky) x kt`` joint histogram in one O(n) pass (no
-    ``np.unique`` densify, no ``np.add.at`` scatter) and returns the SAME Miller-Madow-
-    corrected joint MI. ~9.6x faster per call at the detector's (n=4000, nbins=8) shape;
-    output matches ``joint_synergy_mi`` to FP reduction order (~5e-16), so the synergy
-    verdict is unchanged (selection-equivalent). Bench:
-    ``_benchmarks/bench_synergy_detector_pair_mi_njit.py``."""
-    cx = np.ascontiguousarray(np.asarray(code_x).astype(np.int64).ravel())
-    cy = np.ascontiguousarray(np.asarray(code_y).astype(np.int64).ravel())
-    yt = np.ascontiguousarray(np.asarray(yc).astype(np.int64).ravel())
-    n = cx.shape[0]
-    if n == 0 or cy.shape[0] != n or yt.shape[0] != n:
-        return 0.0
-    kx = int(cx.max()) + 1
-    ky = int(cy.max()) + 1
-    kt = int(yt.max()) + 1
-    return float(_pair_mm_mi_njit(cx, cy, yt, kx, ky, kt, float(min_rows_per_cell)))
-
-# kernel_tuning_cache key + conservative default multiple of the permuted-null scale.
-_TUNING_KEY = "mrmr_synergy_auto_excess_null_mult"
-_DEFAULT_NULL_MULT = 3.0
-#: A pair counts as synergistic only if the interaction is at least this share of its joint information. A saturating (logistic) link makes even additive drivers carry a small
-#: real interaction (about 0.015 nats against 0.17 joint, ~9%), which the bias-free estimator now resolves above the permuted-null scale; XOR-type synergy is ~100% of the joint.
-_MIN_SYNERGY_SHARE = 0.25
 
 
 def _quantize(col: np.ndarray, nbins: int, rng: np.random.Generator) -> np.ndarray:
@@ -78,33 +60,134 @@ def _quantize(col: np.ndarray, nbins: int, rng: np.random.Generator) -> np.ndarr
     return np.clip(np.searchsorted(qs, col), 0, nbins - 1).astype(np.int64)
 
 
-def _excess_for_pairs(codes: list[np.ndarray], marg: list[float], yc: np.ndarray, pairs: list[tuple[int, int]]) -> float:
-    """Max INTERACTION INFORMATION ``I({X,Z};Y) - I(X;Y) - I(Z;Y)`` over the given pairs.
+#: Family-wise significance level of the max-over-pairs test (Bonferroni across every pair examined).
+_ALPHA = 0.01
+#: A pair counts only if its bias-corrected interaction information is at least this share of the target entropy H(y). XOR / sign-product
+#: reads ~0.9 of H(y); the residual non-additivity of a binned logistic / threshold link reads at most a few percent.
+_MIN_SYNERGY_SHARE = 0.10
+#: Mean rows per cell of the (kx, kz, ky) table kept by capping the pair bin count; keeps the chi-square tail valid for multiclass targets at small n.
+_MIN_ROWS_PER_CELL = 5.0
+_IPF_ITERS = 12
 
-    This co-information is the correct synergy signature: it is POSITIVE only when the joint carries
-    information NEITHER marginal explains (XOR / sign-product), and NEGATIVE/zero for redundant pairs
-    (two noisy views of the same driver, the additive-regime decoy trap), whose joint merely re-recovers
-    a shared signal already counted in both marginals. Using ``joint - max(marg)`` instead would
-    false-positive on redundancy (two views of one driver jointly beat either single view) - measured,
-    rejected. Returns the max over pairs (can be <=0 when no pair is synergistic)."""
-    best = -np.inf
-    # The per-pair casts and maxima of ``_pair_mm_mi`` (three astype / ascontiguousarray / max per call, 62 ms of the 100 ms probe over 1840 pair calls) are loop invariants: each column's int64 view and
-    # level count and the target's are prepared once and the kernel is called directly.
-    yt = np.ascontiguousarray(np.asarray(yc).astype(np.int64).ravel())
-    n = yt.shape[0]
-    kt = int(yt.max()) + 1 if n else 0
-    prepared: dict = {}
-    for i, j in pairs:
-        for c in (i, j):
-            if c not in prepared:
-                a = np.ascontiguousarray(np.asarray(codes[c]).astype(np.int64).ravel())
-                prepared[c] = (a, int(a.max()) + 1 if a.shape[0] else 0)
-        (cx, kx), (cy, ky) = prepared[i], prepared[j]
-        joint = 0.0 if (n == 0 or cx.shape[0] != n or cy.shape[0] != n) else float(_pair_mm_mi_njit(cx, cy, yt, kx, ky, kt, 5.0))
-        exc = joint - marg[i] - marg[j]
-        if exc > best and exc >= _MIN_SYNERGY_SHARE * joint:
-            best = exc
-    return float(best)
+
+@njit(cache=True, nogil=True)
+def _two_way_margins(tab, ka, kb, kt):
+    """The (a, b), (a, t) and (b, t) margins of a flat ``ka x kb x kt`` count table (index ``(a*kb+b)*kt+t``)."""
+    nab = np.zeros((ka, kb))
+    nat = np.zeros((ka, kt))
+    nbt = np.zeros((kb, kt))
+    for a in range(ka):
+        for b in range(kb):
+            for t in range(kt):
+                v = tab[(a * kb + b) * kt + t]
+                nab[a, b] += v
+                nat[a, t] += v
+                nbt[b, t] += v
+    return nab, nat, nbt
+
+
+@njit(cache=True, nogil=True)
+def _fit_ab(m, nab, ka, kb, kt):
+    """One proportional-fitting pass of the fitted table ``m`` to the (a, b) margin."""
+    for a in range(ka):
+        for b in range(kb):
+            s = 0.0
+            for t in range(kt):
+                s += m[(a * kb + b) * kt + t]
+            if s > 0.0:
+                f = nab[a, b] / s
+                for t in range(kt):
+                    m[(a * kb + b) * kt + t] *= f
+
+
+@njit(cache=True, nogil=True)
+def _fit_at(m, nat, ka, kb, kt):
+    """One proportional-fitting pass of ``m`` to the (a, t) margin."""
+    for a in range(ka):
+        for t in range(kt):
+            s = 0.0
+            for b in range(kb):
+                s += m[(a * kb + b) * kt + t]
+            if s > 0.0:
+                f = nat[a, t] / s
+                for b in range(kb):
+                    m[(a * kb + b) * kt + t] *= f
+
+
+@njit(cache=True, nogil=True)
+def _fit_bt(m, nbt, ka, kb, kt):
+    """One proportional-fitting pass of ``m`` to the (b, t) margin."""
+    for b in range(kb):
+        for t in range(kt):
+            s = 0.0
+            for a in range(ka):
+                s += m[(a * kb + b) * kt + t]
+            if s > 0.0:
+                f = nbt[b, t] / s
+                for a in range(ka):
+                    m[(a * kb + b) * kt + t] *= f
+
+
+@njit(cache=True, nogil=True)
+def _deviance_sum(tab, m):
+    """``2 sum n log(n / m)`` over the occupied cells."""
+    g = 0.0
+    for c in range(tab.shape[0]):
+        if tab[c] > 0.0 and m[c] > 0.0:
+            g += tab[c] * np.log(tab[c] / m[c])
+    return 2.0 * g
+
+
+@njit(cache=True, nogil=True)
+def _no_three_way_deviance(tab, ka, kb, kt, iters):
+    """Deviance ``2 sum n log(n/m)`` of a ``ka x kb x kt`` count table (flat, index ``(a*kb+b)*kt+t``) against the maximum-likelihood
+    model with the three two-way margins fixed and no three-way term, fitted by iterative proportional fitting."""
+    m = np.ones_like(tab)
+    nab, nat, nbt = _two_way_margins(tab, ka, kb, kt)
+    for _ in range(iters):
+        _fit_ab(m, nab, ka, kb, kt)
+        _fit_at(m, nat, ka, kb, kt)
+        _fit_bt(m, nbt, ka, kb, kt)
+    return _deviance_sum(tab, m)
+
+
+@njit(cache=True, nogil=True, parallel=True)
+def _pair_deviances(codes, levels, yc, kt, pair_a, pair_b, iters):
+    """No-three-way-interaction deviance for each ``(pair_a[q], pair_b[q])`` column pair; ``codes`` is ``(p, n)`` int8 (feature-major),
+    ``levels[j]`` the number of codes of column ``j``, ``yc`` the int target codes in ``[0, kt)``."""
+    n = codes.shape[1]
+    out = np.zeros(pair_a.shape[0])
+    for q in prange(pair_a.shape[0]):
+        a = pair_a[q]
+        b = pair_b[q]
+        ka = levels[a]
+        kb = levels[b]
+        if ka < 2 or kb < 2:
+            continue
+        tab = np.zeros(ka * kb * kt)
+        ca = codes[a]
+        cb = codes[b]
+        for r in range(n):
+            tab[(ca[r] * kb + cb[r]) * kt + yc[r]] += 1.0
+        out[q] = _no_three_way_deviance(tab, ka, kb, kt, iters)
+    return out
+
+
+def _all_pairs(p: int) -> tuple[np.ndarray, np.ndarray]:
+    """Index arrays of every unordered column pair ``(i < j)`` of ``p`` columns."""
+    ia, ib = np.triu_indices(p, k=1)
+    return ia.astype(np.int64), ib.astype(np.int64)
+
+
+def _critical_deviance(df: np.ndarray, alpha: float) -> np.ndarray:
+    """Chi-square upper-tail critical value of each ``df`` at level ``alpha`` (one scipy call per distinct ``df``)."""
+    from scipy.stats import chi2
+
+    crit = np.zeros(df.shape[0])
+    for d in np.unique(df):
+        if d > 0:
+            crit[df == d] = chi2.isf(alpha, d)
+    return crit
 
 
 def detect_synergy(
@@ -112,113 +195,87 @@ def detect_synergy(
     y: np.ndarray,
     *,
     max_rows: int = 4000,
-    max_features: int = 60,
-    max_pairs: int = 400,
+    max_features: int = 300,
+    max_pairs: int = 50000,
     n_null: int = 3,
     nbins: int = 8,
     random_seed: int = 0,
 ) -> tuple[bool, dict]:
     """Cheap pre-fit probe: is ``(X, y)`` synergistic enough to warrant the JMIM aggregator?
 
-    Returns ``(is_synergistic, info)``. ``info`` carries the measured best real-pair excess, the
-    permuted-null excess scale, the data-derived threshold and the null multiple used (for explain/logging).
-    Bounded cost: subsample rows/features/pairs, a handful of label permutations for the null.
+    Returns ``(is_synergistic, info)``. Every pair of up to ``max_features`` columns (``max_pairs`` caps the pair count; the default covers all
+    pairs of 300 columns) is scored by the no-three-way-interaction deviance on a ``max_rows`` row subsample, see the module docstring. ``info``
+    keeps the keys earlier callers read: ``real_excess`` (best pair's bias-corrected interaction information in nats), ``threshold`` (the larger
+    of the pair's chi-square critical effect at the Bonferroni level and the entropy-share floor), ``null_excess`` (the chi-square critical
+    effect of that pair, the null maximum), ``n_pairs``, ``n_features``; plus ``best_pair`` (column indices in ``X``), ``target_entropy`` and
+    ``effect_floor``. ``n_null`` is accepted for API compatibility and unused: the null is analytic.
 
-    STATISTICAL CAVEATS (this is a coarse OPT-IN gate, reached only when ``redundancy_aggregator='auto'``; the constructor default is
-    ``None`` = plain Fleuret, so a default fit never runs it):
-      * The interaction-information excess ``I({X,Z};Y) - I(X;Y) - I(Z;Y)`` is built from Miller-Madow-corrected plug-in joint MIs, which still carry a residual UPWARD bias of
-        order ``(kx-1)(ky-1)(kt-1)/(2n)`` at small n / high cardinality. Both the real and permuted-null excess inherit the same bias, so taking ``real_excess`` over a multiple of
-        the null scale cancels most of it - but a very high-cardinality pair at small n can still read a small spurious positive excess.
-      * The null uses only ``n_null`` (default 3) label permutations and takes the MAX excess over those runs, so the null scale is a HIGH-VARIANCE max-over-3 estimate. The
-        threshold is deliberately a multiple of it (``null_mult``, from kernel_tuning_cache) with an ``eps`` floor to stay conservative. Raising ``n_null`` shrinks that variance
-        but is NOT default-bumped: a larger budget RAISES the max-over-runs null scale (and so the threshold), which is selection-altering for the gate decision, plus it costs
-        ``n_null x pp`` extra marginal-MI passes per call. Pass a larger ``n_null`` explicitly if the gate flickers on a borderline dataset."""
+    Caveats: columns beyond ``max_features`` are dropped by random sampling, so a planted pair is found with probability ``(max_features/p)^2``
+    there; the tables use equal-frequency bins, so a synergy living inside one bin is invisible."""
     X = np.asarray(X)
     if X.ndim != 2 or X.shape[1] < 2 or X.shape[0] < 50:
         return False, {"reason": "too_small"}
     rng = np.random.default_rng(int(random_seed))
     n, p = X.shape
 
-    # row subsample
     if n > max_rows:
         ridx = rng.choice(n, size=max_rows, replace=False)
         Xs, ys = X[ridx], np.asarray(y)[ridx]
     else:
         Xs, ys = X, np.asarray(y)
 
-    # feature subsample
+    cols = np.arange(p)
     if p > max_features:
-        fidx = rng.choice(p, size=max_features, replace=False)
-        Xs = Xs[:, fidx]
-    pp = Xs.shape[1]
+        cols = np.sort(rng.choice(p, size=max_features, replace=False))
+    pp = cols.shape[0]
 
-    # target codes (quantize if continuous/regression)
     yc = _quantize(ys, nbins, rng)
     if np.unique(yc).size < 2:
         return False, {"reason": "degenerate_target"}
+    kt = int(yc.max()) + 1
+    ns = Xs.shape[0]
+    ycount = np.bincount(yc, minlength=kt).astype(np.float64)
+    py = ycount[ycount > 0] / ns
+    h_y = float(-(py * np.log(py)).sum())
 
-    codes = [_quantize(Xs[:, j], nbins, rng) for j in range(pp)]
-    # per-feature marginal MI = joint of the column with a constant (collapses to plain MI(X;Y))
-    const = np.zeros(Xs.shape[0], dtype=np.int64)
-    marg = [_pair_mm_mi(codes[j], const, yc) for j in range(pp)]
+    # Cap the per-pair bin count so a (kb x kb x kt) table averages >= _MIN_ROWS_PER_CELL rows per cell.
+    pair_bins = int(max(3, min(nbins, np.floor(np.sqrt(ns / (_MIN_ROWS_PER_CELL * kt))))))
+    codes = np.empty((pp, ns), dtype=np.int8)
+    levels = np.empty(pp, dtype=np.int64)
+    for k, j in enumerate(cols.tolist()):
+        c = _quantize(Xs[:, j], pair_bins, rng)
+        codes[k] = c
+        levels[k] = int(c.max()) + 1
+    yc = np.ascontiguousarray(yc, dtype=np.int64)
 
-    # bounded random pair set
-    all_pairs = [(i, j) for i in range(pp) for j in range(i + 1, pp)]
-    if len(all_pairs) > max_pairs:
-        sel = rng.choice(len(all_pairs), size=max_pairs, replace=False)
-        pairs = [all_pairs[k] for k in sel.tolist()]
-    else:
-        pairs = all_pairs
+    pa, pb = _all_pairs(pp)
+    if pa.shape[0] > max_pairs:
+        sel = np.sort(rng.choice(pa.shape[0], size=int(max_pairs), replace=False))
+        pa, pb = pa[sel], pb[sel]
+    n_pairs = int(pa.shape[0])
+    g = _pair_deviances(codes, levels, yc, kt, pa, pb, _IPF_ITERS)
+    df = ((levels[pa] - 1) * (levels[pb] - 1) * (kt - 1)).astype(np.float64)
+    valid = df > 0
+    if not valid.any():
+        return False, {"reason": "degenerate_features"}
 
-    real_excess = _excess_for_pairs(codes, marg, yc, pairs)
-
-    # analytic-style null: permute the target, recompute marginals + best excess; take the scale (max over runs)
-    null_excess = 0.0
-    for _ in range(int(max(1, n_null))):
-        yc_perm = yc[rng.permutation(yc.size)]
-        marg_p = [_pair_mm_mi(codes[j], const, yc_perm) for j in range(pp)]
-        e = _excess_for_pairs(codes, marg_p, yc_perm, pairs)
-        if e > null_excess:
-            null_excess = e
-
-    # data-derived threshold: a multiple of the permuted-null excess scale (read from kernel_tuning_cache).
-    null_mult = _DEFAULT_NULL_MULT
-    try:
-        from pyutilz.system import kernel_tuning_cache  # noqa: F401
-        null_mult = float(_lookup_null_mult())
-    except Exception as exc:  # nosec B110 - optional dependency import guard
-        # A genuine kernel_tuning_cache registry bug would
-        # otherwise silently and permanently pin the synergy threshold to the hardcoded default forever.
-        logger.debug("mrmr: kernel_tuning_cache lookup failed for the synergy-detector null multiple; using the hardcoded default: %r", exc, exc_info=True)
-    # floor the null scale so a perfectly-clean permuted null (excess==0) still needs a non-trivial real excess.
-    eps = 1e-4
-    threshold = null_mult * max(null_excess, eps)
-    is_syn = real_excess > threshold
-    return bool(is_syn), {
-        "real_excess": float(real_excess),
-        "null_excess": float(null_excess),
-        "threshold": float(threshold),
-        "null_mult": float(null_mult),
-        "n_pairs": len(pairs),
-        "n_features": pp,
+    crit = _critical_deviance(df, _ALPHA / n_pairs)
+    floor = _MIN_SYNERGY_SHARE * h_y
+    eff = (g - df) / (2.0 * ns)
+    thr = np.maximum(floor, (crit - df) / (2.0 * ns))
+    margin = np.where(valid, eff - thr, -np.inf)
+    k = int(np.argmax(margin))
+    is_syn = bool(margin[k] > 0.0)
+    return is_syn, {
+        "real_excess": float(eff[k]),
+        "null_excess": float((crit[k] - df[k]) / (2.0 * ns)),
+        "threshold": float(thr[k]),
+        "effect_floor": float(floor),
+        "target_entropy": h_y,
+        "best_pair": (int(cols[pa[k]]), int(cols[pb[k]])),
+        "n_pairs": n_pairs,
+        "n_features": int(pp),
     }
-
-
-def _lookup_null_mult() -> float:
-    """Read the synergy-excess null multiple from kernel_tuning_cache (data-derived, no hardcoded magic).
-
-    Falls back to the conservative default when the cache has no calibrated entry. Kept tiny + isolated so
-    the import is optional and detection still works without pyutilz's tuning cache present."""
-    try:
-        from pyutilz.system import kernel_tuning_cache as ktc
-        getter = getattr(ktc, "get_cached_param", None) or getattr(ktc, "get", None)
-        if getter is not None:
-            val = getter(_TUNING_KEY)
-            if val is not None:
-                return float(val)
-    except Exception as exc:  # nosec B110 - best-effort path
-        logger.debug("mrmr: kernel_tuning_cache get_cached_param lookup failed; using the hardcoded synergy-detector default: %r", exc, exc_info=True)
-    return _DEFAULT_NULL_MULT
 
 
 __all__ = ["detect_synergy"]

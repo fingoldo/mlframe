@@ -19,6 +19,19 @@ def _native_ordinal_encode_2d(vals: np.ndarray) -> np.ndarray:
     return np.asarray(codes, dtype=_crit_np_dtype()).reshape(vals.shape)
 
 
+_BLOCK = 16  # columns per transposed block
+_TILE_ROWS = 1024  # rows per cache-resident tile of the transposed copies
+
+
+def _transposed_block(mat: np.ndarray, j0: int, j1: int) -> np.ndarray:
+    """Columns ``j0:j1`` of the row-major ``mat`` as a contiguous (j1 - j0, n) copy, built through row tiles (numpy's whole-slice transpose copy is 7 to 9 times slower)."""
+    n = mat.shape[0]
+    blk = np.empty((j1 - j0, n), dtype=mat.dtype)
+    for r0 in range(0, n, _TILE_ROWS):
+        blk[:, r0 : r0 + _TILE_ROWS] = mat[r0 : r0 + _TILE_ROWS, j0:j1].T
+    return blk
+
+
 def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> np.ndarray:
     """Collapse the rare-category tail of each column so no column exceeds ``max_cardinality`` distinct codes.
 
@@ -35,31 +48,37 @@ def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> n
     out = codes_2d
     _copied = False
     _n, p = codes_2d.shape
-    for j in range(p):
-        col = codes_2d[:, j]
-        finite = col[col >= 0]
-        if finite.size == 0:
-            continue
-        # cardinality = number of distinct non-negative codes; cheap via max (codes are dense 0..k-1 from factorize).
-        k = int(finite.max()) + 1
-        if k <= max_cardinality:
-            continue
-        counts = np.bincount(finite.astype(np.int64), minlength=k)
-        # keep the (cap-1) most frequent as 0..cap-2 (freq desc); everything else -> the "other" bucket cap-1.
-        # kind="stable" so two categories tied exactly at
-        # the cutoff boundary have a deterministic, documented tie-break (first-seen/lowest-index order)
-        # rather than relying on the non-guaranteed default sort's tie behaviour across numpy
-        # versions/architectures. Sort by NEGATED counts (descending) directly, rather than
-        # ascending-then-reverse - reversing a stable ascending sort would itself un-stabilize the tie
-        # order (it reverses ties' relative order too), defeating the point of "stable".
-        keep = np.argsort(-counts, kind="stable")[: max_cardinality - 1]
-        remap = np.full(k, max_cardinality - 1, dtype=_crit_np_dtype())
-        remap[keep] = np.arange(max_cardinality - 1, dtype=_crit_np_dtype())
-        if not _copied:
-            out = codes_2d.copy()
-            _copied = True
-        mask = col >= 0
-        out[mask, j] = remap[col[mask].astype(np.int64)]
+    for j0 in range(0, p, _BLOCK):
+        # Columns are read and written through cache-resident tiles of a (block, n) transposed copy: a strided column of the row-major matrix costs a cache line per row (this loop was 7 ms a column).
+        j1 = min(j0 + _BLOCK, p)
+        blk = _transposed_block(codes_2d, j0, j1)
+        changed = False
+        for k in range(j1 - j0):
+            col = blk[k]
+            mask = col >= 0
+            finite = col[mask]
+            if finite.size == 0:
+                continue
+            # cardinality = number of distinct non-negative codes; cheap via max (codes are dense 0..k-1 from factorize).
+            card = int(finite.max()) + 1
+            if card <= max_cardinality:
+                continue
+            counts = np.bincount(finite.astype(np.int64), minlength=card)
+            # keep the (cap-1) most frequent as 0..cap-2 (freq desc); everything else -> the "other" bucket cap-1.
+            # kind="stable" so two categories tied exactly at the cutoff boundary have a deterministic, documented tie-break (first-seen/lowest-index order)
+            # rather than relying on the non-guaranteed default sort's tie behaviour across numpy versions/architectures. Sort by NEGATED counts (descending) directly,
+            # rather than ascending-then-reverse - reversing a stable ascending sort would itself un-stabilize the tie order (it reverses ties' relative order too).
+            keep = np.argsort(-counts, kind="stable")[: max_cardinality - 1]
+            remap = np.full(card, max_cardinality - 1, dtype=_crit_np_dtype())
+            remap[keep] = np.arange(max_cardinality - 1, dtype=_crit_np_dtype())
+            col[mask] = remap[finite.astype(np.int64)]
+            changed = True
+        if changed:
+            if not _copied:
+                out = codes_2d.copy()
+                _copied = True
+            for r0 in range(0, _n, _TILE_ROWS):
+                out[r0 : r0 + _TILE_ROWS, j0:j1] = blk[:, r0 : r0 + _TILE_ROWS].T
     return out
 
 

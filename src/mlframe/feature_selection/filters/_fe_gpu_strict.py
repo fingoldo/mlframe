@@ -257,6 +257,13 @@ def _retry_cuda_available(first_error: Exception) -> bool:
     return False
 
 
+def fe_gpu_strict_forced() -> bool:
+    """Whether STRICT GPU mode is explicitly forced (``MLFRAME_FE_GPU_STRICT`` truthy) and a CUDA device is usable. A forced STRICT takes the device path of every dispatcher regardless of its kernel-tuning
+    choice (the caller asked for the GPU); the AUTO mode, which engages from the fit size, still lets the per-host tuned choice decide."""
+    raw = os.environ.get("MLFRAME_FE_GPU_STRICT", "").strip().lower()
+    return raw in ("1", "true", "on", "yes") and bool(_cuda_usable())
+
+
 def fe_gpu_strict_enabled(*, n: int | None = None, p: int | None = None, min_p: int | None = None) -> bool:
     """Whether STRICT GPU mode is active. Three-state ``MLFRAME_FE_GPU_STRICT``:
 

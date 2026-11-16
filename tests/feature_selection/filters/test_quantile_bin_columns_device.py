@@ -25,5 +25,6 @@ def test_device_codes_equal_the_host_codes(monkeypatch, nbins):
     host = quantile_bin_columns(X, nbins, dtype=np.int16)
     monkeypatch.setenv("MLFRAME_QBIN_COLUMNS_DEVICE", "1")
     dev = quantile_bin_columns(X, nbins, dtype=np.int16)
+    assert len(host) == len(dev) > 0
     for j, (h, d) in enumerate(zip(host, dev)):
         assert np.array_equal(h, d), j

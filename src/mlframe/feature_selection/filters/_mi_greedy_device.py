@@ -198,11 +198,9 @@ def _device(X: pd.DataFrame, candidates: list, y: np.ndarray, nbins: int) -> np.
     return _selection_view(got[2])
 
 
-def _run_sweep() -> list:
-    """Time the host and the device path per row count; the device must agree with the host on the candidates the greedy step would take (``_selection_view``)."""
-    from pyutilz.dev.benchmarking import sweep_backend_grid
+from ._ktc_fallback import host_device_sweep as _host_device_sweep
 
-    return sweep_backend_grid({"host": _host, "device": _device}, {"n_samples": _SWEEP_ROWS}, _sweep_inputs, reference="host", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6)
+_run_sweep = _host_device_sweep(__name__, _host, _device, rtol=1e-6, atol=1e-6)
 
 
 _SWEEP_ROWS = [5_000, 30_000, 100_000]
@@ -230,19 +228,9 @@ except Exception as e:
     _SPEC = None
 
 
-def use_device(n_rows: int) -> bool:
-    """Whether ``n_rows`` rows take the device path: the per-host kernel-tuning cache decides (fallback ``DEVICE_FALLBACK_ROWS``, the host until a sweep says otherwise)."""
-    from ._gpu_policy import gpu_globally_disabled
+from ._ktc_fallback import ktc_device_chooser as _ktc_device_chooser
 
-    if gpu_globally_disabled():
-        return False
-    if _SPEC is None:
-        return int(n_rows) >= DEVICE_FALLBACK_ROWS
-    try:
-        return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
-    except Exception as exc:
-        logger.debug("fe_mi_greedy_candidates_device: KTC choose() failed, using the fallback: %s", exc)
-        return int(n_rows) >= DEVICE_FALLBACK_ROWS
+use_device = _ktc_device_chooser(__name__, "fe_mi_greedy_candidates_device")
 
 
 __all__ = ["score_candidates_device", "use_device"]

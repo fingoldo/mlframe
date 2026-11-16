@@ -63,10 +63,10 @@ def ratio_pair_screen(columns: list, kind: int, eps: float, threshold: float) ->
     """Boolean (p, p) accept matrix of the ratio / log-ratio pool: the device kernel of ``_ratio_delta_screen_gpu`` when the GPU strategies are engaged and the tuned choice (``ratio_pair_screen_backend``) says so, else the numba form."""
     n = int(columns[0].shape[0]) if columns else 0
     try:
-        from ._fe_gpu_strict import fe_gpu_strict_enabled
+        from ._fe_gpu_strict import fe_gpu_strict_enabled, fe_gpu_strict_forced
         from ._ratio_delta_screen_gpu import ratio_pair_screen_device, ratio_pair_screen_on_device
 
-        if columns and fe_gpu_strict_enabled() and ratio_pair_screen_on_device(n):
+        if columns and fe_gpu_strict_enabled() and (fe_gpu_strict_forced() or ratio_pair_screen_on_device(n)):
             import cupy as cp
 
             return ratio_pair_screen_device(cp.asarray(np.ascontiguousarray(np.vstack([np.asarray(c).reshape(1, -1) for c in columns]))), kind, eps, threshold)

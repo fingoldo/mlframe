@@ -178,6 +178,16 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_orthogonal_routing_fe": (
+        ("_gpu_resident_basis",),
+        "the device twin _orthogonal_routing_device builds the cells with the batched Clenshaw kernels of _gpu_resident_basis (clenshaw_basis, basis_preprocess_nr) and scores them with the resident MI and abs-corr kernels; the host or device choice is fe_basis_cells_device of _basis_cells_ktc",
+        True,
+    ),
+    "_cat_pair_fe": (
+        ("_cat_pair_joint_gpu",),
+        "the pair joint-MI pass goes through pair_joint_mi_dispatch of _cat_pair_joint_gpu (device kernel against the njit pass, per-host choice cat_pair_search_backend of _cat_pair_search_tuner); the string factorisation stays on the host",
+        True,
+    ),
     "_target_mix_gate": (
         ("_pair_residual_screen",),
         "the pair screen is pair_interaction_screen of _pair_residual_screen (pair_residual_t device kernel, tuned choice) and the one-column main-effect statistics come from main_effect_z_columns of _gain_stats_codes_gpu (batched device quantile codes), the host loop when the device declines",
@@ -332,6 +342,14 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_orthogonal_routing_fe": (
+        "_numba_utils",
+        "the host path of the conditional basis routing builds every cell as a host vector and scores the stacked matrix with _mi_classif_batch (the njit batch plug-in MI of _numba_utils, reached through _orth_mi_backends) plus the host |Pearson corr|",
+    ),
+    "_cat_pair_fe": (
+        "_cat_pair_joint_njit",
+        "the host scorer of the cat x cat pairs is the parallel njit joint-MI pass of _cat_pair_joint_njit over every pair at once (marginals cached per column)",
+    ),
     "_target_mix_gate": (
         "_pair_residual_screen",
         "the host form of the structure check is the main-effect statistic loop of this module and pair_interaction_screen of _pair_residual_screen (njit pair residual kernel), on the same row subsample",
@@ -557,6 +575,7 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_orthogonal_routing_fe": ("_orthogonal_routing_device",),
     "_fe_auto_escalation": ("_fe_auto_escalation_proposers",),
     "_ratio_delta_fe": ("_ratio_delta_screen",),
     "_orth_extra_basis_fe": ("_orth_extra_basis_fe_helpers",),
