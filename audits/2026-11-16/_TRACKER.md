@@ -53,7 +53,7 @@ TODO total: 34. Nothing is fixed yet; no code was changed in this audit.
 | CI-08 (10) | low | .github/workflows/black-filtered.yml:29-32 | reusable-workflow caller without timeout-minutes | (CI config) |
 | CI-09 (10) | low | .github/workflows/ci.yml | some jobs without timeout-minutes (count approximate) | (CI config; verify each job) |
 | CI-12 (10) | low | .pre-commit-config.yaml:126, 200 | ruff-pre-commit pinned by tag, not SHA | (config; pin to SHA) |
-| P11-01 (11) | low | reporting/report_html.py:258 | final HTML written in place, not atomic | test_report_html_write_is_atomic_on_crash |
+| P11-01 (11) | RESOLVED | reporting/report_html.py:258 | combined report is written to a .partial file and swapped in with os.replace; a failed write keeps the previous report | tests/reporting/test_report_html_write_is_atomic.py 1/1 (fails on old code: the open('w') truncates the target); test_report_html.py 21/21 |
 | P11-02 (11) | low | reporting/renderers/plotly.py:424 | plotly json branch non-atomic | test_plotly_json_write_is_atomic |
 | P11-03 (11) | low | reporting/renderers/_kaleido.py:248 | calc_fig_sync fallback writes in place, no ensure_parent_dir | test_kaleido_fallback_creates_parent_dir |
 | P11-04 (11) | RESOLVED | training/_io_save.py:453-455 | verbose=0 silently flipped lean (drops preds/probs/target); the flip is now always logged as a warning | tests/training/test_save_lean_flip_warns_when_quiet.py::test_lean_pre_flip_logs_warning_at_verbose_zero; test_io_save_size_sensor_and_lightning_bloat.py 9/9 |
