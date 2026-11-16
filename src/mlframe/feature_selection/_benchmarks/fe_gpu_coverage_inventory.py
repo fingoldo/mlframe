@@ -166,6 +166,14 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_orth_extra_basis_fe": (
+        ("_orth_extra_basis_fe_generate",),
+        (
+            "the extra-basis generator (spline, Fourier with the adaptive and chirp grids, wavelet) is _orth_extra_basis_fe_generate, which builds the columns on the host from this module's fits or, device-born, through "
+            "_extra_basis_resident (periodogram_power, the leg and fourier code kernels, the resident MI); the fits, the njit coarse-basis kernels and the carved helpers are this module"
+        ),
+        True,
+    ),
     "_fe_pure_form_retention": (
         ("_fe_pure_form_retention_gpu_resident",),
         (
@@ -444,6 +452,8 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_orth_extra_basis_fe": ("_orth_extra_basis_fe_helpers",),
+    "_orth_extra_basis_fe_generate": ("_orth_extra_basis_fe_generate_doc",),
     "_fe_pure_form_retention": ("_fe_pure_form_sides",),
     "_fe_raw_redundancy_drop": ("_fe_raw_redundancy_anchors", "_fe_raw_redundancy_helpers"),
     "_fe_cmi_redundancy_gate": ("_fe_cmi_redundancy_null",),

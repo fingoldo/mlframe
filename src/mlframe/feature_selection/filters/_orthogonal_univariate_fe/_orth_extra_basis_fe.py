@@ -7,7 +7,11 @@ adaptive-frequency + quadratic-argument-chirp detector. The shared univariate
 scaffolding (``_dedup_collinear_source_cols``, ``score_features_by_mi_uplift``)
 lives in the parent module ``_orthogonal_univariate_fe`` and is lazy-imported
 in-body to avoid a cycle.
-"""
+
+
+Backends and memory (2026-11-16): the columns of one call are emitted in column blocks (one fit and one basis matrix per source column and basis, never the whole candidate set at once), and the device-born path
+(``_orth_extra_basis_fe_generate`` with ``_extra_basis_resident``) builds them block by block on the device from the resident source columns, under the VRAM cushion of the resident-operand cache; the host path runs
+the njit kernels of this module and its carved helpers. ``audits/2026-10-22/profiles/_orth_extra_basis_fe.md`` has the measured figures (2026-11-16 section)."""
 from __future__ import annotations
 
 
