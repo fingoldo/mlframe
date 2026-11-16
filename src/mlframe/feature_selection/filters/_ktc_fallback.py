@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from typing import Callable
 
 import numpy as np
 
@@ -11,7 +12,7 @@ def device_from_rows(n_samples: int, min_rows: int) -> str:
     return "device" if int(n_samples) >= int(min_rows) else "host"
 
 
-def rows_fallback(owner: str, name: str = "DEVICE_FALLBACK_ROWS"):
+def rows_fallback(owner: str, name: str = "DEVICE_FALLBACK_ROWS") -> "Callable[[int], str]":
     """The pre-sweep fallback of a row-count-gated kernel: ``device_from_rows`` with the threshold read from the module named ``owner`` (pass ``__name__``) at call
     time, so a test or an operator lowering the module constant takes effect."""
 
@@ -39,12 +40,12 @@ def ktc_device_chooser(owner: str, label: str, *, env: "str | None" = None, pair
         floor = module.DEVICE_FALLBACK_ROWS
         spec = module._SPEC
         if spec is None:
-            return work >= floor
+            return bool(work >= floor)
         try:
-            return str(spec.choose(n_samples=work)) == "device"
+            return bool(str(spec.choose(n_samples=work)) == "device")
         except Exception as exc:
             logger.debug("%s: KTC choose() failed, using the fallback: %s", label, exc)
-            return work >= floor
+            return bool(work >= floor)
 
     if pairs:
 
