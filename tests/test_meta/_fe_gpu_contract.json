@@ -299,7 +299,8 @@
     "_permutation_null_pair_resident": "measured exemption: the cupy fallback of the order-2 maxT floor, tried only when the one-launch pair_mi_perm kernel of _pair_mi_perm_cuda declines the pool; at 100000 x 60 (1770 pairs, 25 shuffles) the one-launch floor takes 0.032 s, the njit floor 0.29 s and this twin 0.95 s (25.9 s before it read the same capped rows as the other two), so it is never the fast path and owns no kernel of its own (cupy bincount / argsort stages); profile in audits/2026-10-22/profiles/_pair_mi_perm_cuda.md and _mrmr_fe_step_helpers.md",
     "_permutation_null_pair_tiles": "measured exemption: the perm-tile stage of the cupy fallback _permutation_null_pair_resident (flat joint index and bincount per tile of shuffles); no kernel of its own, 0.95 s for the whole fallback floor at 100000 x 60 against 0.032 s for the one-launch kernel it stands behind",
     "_screen_predictors_gate": "measured exemption: per-selected-candidate scalar gate logic (absolute / relative / maxT floors, Miller-Madow bias) with no array kernel; its one array cost was two np.unique passes over a code column for the effective occupied bin counts, 2.0 ms each for 100000 rows, now a bincount pass of 0.46 ms (4.4x), so a selection step pays under 1 ms and nothing here would repay a device launch; the MI scoring that feeds it is on the batched MI backends",
-    "_fe_matrix_io": "measured exemption: host framework adapter (pandas / polars / pyarrow / ndarray to a contiguous float32 plane and back), no numeric kernel and no device work; its cost was strided column writes and reads of the row-major plane, now tiled block transposes: 100000 x 100 float32 pandas -> matrix 193 -> 62-78 ms, polars 204 -> 66-78 ms, matrix -> pandas 238 -> 78 ms (memcpy of the 40 MB plane is 10 ms), identical outputs"
+    "_fe_matrix_io": "measured exemption: host framework adapter (pandas / polars / pyarrow / ndarray to a contiguous float32 plane and back), no numeric kernel and no device work; its cost was strided column writes and reads of the row-major plane, now tiled block transposes: 100000 x 100 float32 pandas -> matrix 193 -> 62-78 ms, polars 204 -> 66-78 ms, matrix -> pandas 238 -> 78 ms (memcpy of the 40 MB plane is 10 ms), identical outputs",
+    "_synergy_detector": "measured exemption: bounded opt-in probe (redundancy_aggregator='auto' only) on at most 4000 rows, 60 features and 400 pairs; detect_synergy at 100000 x 100 takes 0.10 s (0.136 s under cProfile: 1840 calls of the njit _pair_mm_mi_njit of _numba_utils, 26 ms of numba time and 62 ms of per-call Python overhead; 61 quantisations 39 ms), independent of n beyond the subsample draw, so a device launch would not repay its transfer; GPU not used (GTX 1050 Ti host, CPU 2808 MHz, no throttle)"
   },
   "pending": [
     "_cat_pair_fe",
@@ -325,7 +326,6 @@
     "_orthogonal_shared",
     "_orthogonal_three_gate_mi_fe",
     "_row_stat_fe",
-    "_synergy_detector",
     "_target_encoding_fe",
     "_temporal_agg_fe",
     "_unified_fe_gate",
