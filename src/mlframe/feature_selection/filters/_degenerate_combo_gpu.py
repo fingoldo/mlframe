@@ -16,10 +16,10 @@ import numpy as np
 
 from ._kernel_types import render
 
-THREADS = 256
+THREADS = 256  # the TH define of the kernel source: keep the two equal (test_cuda_kernel_register_pressure compiles both)
 
 _SRC = r"""
-#define TH __THREADS__
+#define TH 256  // equals THREADS below
 extern "C" __global__ void degenerate_rows(const {REAL}* __restrict__ cand, const long long n, const {ACC} rel_tol, unsigned char* __restrict__ live, {ACC}* __restrict__ rmin, {ACC}* __restrict__ rmax) {
     __shared__ {ACC} s0[TH];
     __shared__ {ACC} s1[TH];
@@ -57,7 +57,7 @@ extern "C" __global__ void degenerate_rows(const {REAL}* __restrict__ cand, cons
         live[blockIdx.x] = (var > bar * bar) ? 1 : 0;
     }
 }
-""".replace("__THREADS__", str(THREADS))
+"""
 
 _KERNELS: dict = {}
 _LOCK = threading.Lock()

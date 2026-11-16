@@ -22,11 +22,11 @@ from ._ktc_fallback import host_device_sweep, rows_fallback
 
 logger = logging.getLogger(__name__)
 
-THREADS = 256
+THREADS = 256  # the TH define of the kernel source: keep the two equal (test_cuda_kernel_register_pressure compiles both)
 
 _SRC = r"""
 #define NQ 9
-#define TH __THREADS__
+#define TH 256  // equals THREADS below
 extern "C" __global__ void ratio_pair_screen(const {REAL}* __restrict__ mat, const long long n, const int p, const int kind, const {ACC} eps, const {ACC} thr, const {ACC} rel_tol,
                                              unsigned char* __restrict__ accept) {
     __shared__ {ACC} sh[TH];
@@ -102,7 +102,7 @@ extern "C" __global__ void ratio_pair_screen(const {REAL}* __restrict__ mat, con
         accept[blockIdx.x] = ok ? 1 : 0;
     }
 }
-""".replace("__THREADS__", str(THREADS))
+"""
 
 _KERNELS: dict = {}
 _LOCK = threading.Lock()
