@@ -255,11 +255,13 @@ if _NUMBA_AVAILABLE:
                     ym /= w
                     num = 0.0
                     den = 0.0
+                    sxx = 0.0
                     for j in range(lo, n_anch):
                         dx = pos[j] - xm
                         num += dx * (val[j] - ym)
                         den += dx * dx
-                    cached_slope = num / den if den > 1e-12 else 0.0
+                        sxx += pos[j] * pos[j]
+                    cached_slope = num / den if den > 1e-24 * (sxx if sxx > 0.0 else 1.0) else 0.0
                     have_slope = True
                 elif w == 1:
                     cached_slope = 0.0
@@ -293,6 +295,16 @@ if _NUMBA_AVAILABLE:
             count_out[i] = float(cnt)
             if cnt >= 2:
                 gap_out[i] = (pos[n_anch - 1] - pos[head]) / (cnt - 1)
+
+
+def _window_ols_slope(xs: np.ndarray, ys: np.ndarray) -> float:
+    """OLS slope of ``ys`` on ``xs``; 0.0 when the spread of ``xs`` is negligible relative to its own scale (den <= 1e-24 * sum(xs**2), the squared analogue of the 1e-12 relative guard used by the EWM sibling)."""
+    xm = xs.mean()
+    ym = ys.mean()
+    num = ((xs - xm) * (ys - ym)).sum()
+    den = ((xs - xm) ** 2).sum()
+    sxx = float((xs * xs).sum())
+    return float(num / den) if den > 1e-24 * (sxx if sxx > 0.0 else 1.0) else 0.0
 
 
 def _anchor_features_for_segment(
@@ -340,11 +352,7 @@ def _anchor_features_for_segment(
             if len(anchor_positions) >= 2:
                 xs = np.asarray(anchor_positions, dtype=np.float64)
                 ys = np.asarray(anchor_values, dtype=np.float64)
-                xm = xs.mean()
-                ym = ys.mean()
-                num = ((xs - xm) * (ys - ym)).sum()
-                den = ((xs - xm) ** 2).sum()
-                cached_slope = num / den if den > 1e-12 else 0.0
+                cached_slope = _window_ols_slope(xs, ys)
                 have_slope = True
             elif len(anchor_positions) == 1:
                 cached_slope = 0.0

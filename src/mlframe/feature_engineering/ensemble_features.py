@@ -289,7 +289,7 @@ def predictor_outlier_signature(
     arr = _coerce_preds(preds)
     median = np.median(arr, axis=1, keepdims=True)
     dev = np.abs(arr - median)
-    mad = np.median(dev, axis=1, keepdims=True) + 1e-12
+    mad = np.median(dev, axis=1, keepdims=True) + 1e-12 * np.abs(median)
     outlier_mask = dev > (k_mad * mad * 1.4826)
     n_outliers = outlier_mask.sum(axis=1).astype(np.float64)
     argmax_dev_idx = np.argmax(dev, axis=1).astype(np.float64)

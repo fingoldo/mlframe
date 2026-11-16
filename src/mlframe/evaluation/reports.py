@@ -377,11 +377,12 @@ def _evaluate_test_set(
             )
 
             ax_cm.grid(visible=None)
-            if confusion_matrix_file:
-                fig_cm.savefig(ensure_parent_dir(confusion_matrix_file), dpi=dpi, bbox_inches="tight")
-
-            # Library code must not leave figures open (memory leak under repeated evaluation) nor block on plt.show().
-            plt.close(fig_cm if fig_cm is not None else plt.gcf())
+            try:
+                if confusion_matrix_file:
+                    fig_cm.savefig(ensure_parent_dir(confusion_matrix_file), dpi=dpi, bbox_inches="tight")
+            finally:
+                # Library code must not leave figures open (memory leak under repeated evaluation) nor block on plt.show().
+                plt.close(fig_cm if fig_cm is not None else plt.gcf())
 
         _evaluate_estimator_library_code_must_leave(show_calibration_plot, use_sklearn_calibration, nclasses, probs, y_test_test, calibration_nbins, figsize, est_name, display_labels, competing_probs, X_test_test)
     return classification_report_dict, classification_report_text, cm

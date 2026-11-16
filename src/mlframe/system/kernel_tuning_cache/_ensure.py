@@ -13,6 +13,7 @@ import logging
 import os
 import subprocess  # nosec B404 - runs this same interpreter on a fixed module path, never a shell or user-supplied command
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Iterator, Optional
@@ -121,6 +122,16 @@ def _lock_holder(path: Path) -> int:
         return 0
 
 
+_HELD_LOCKS: set = set()  # lock paths held by a single_flight in THIS process; a pid match alone cannot tell a live thread's lock from a stale one
+_HELD_GUARD = threading.Lock()
+
+
+def _held_here(path: Path) -> bool:
+    """Whether a ``single_flight`` of this process currently holds ``path``."""
+    with _HELD_GUARD:
+        return str(path) in _HELD_LOCKS
+
+
 @contextlib.contextmanager
 def single_flight() -> Iterator[bool]:
     """Yield True when this process holds the machine-wide tuning lock, False when a live process already does.
@@ -131,11 +142,18 @@ def single_flight() -> Iterator[bool]:
     path = _lock_path()
     for _ in range(2):
         if _create_lock(path):
+            with _HELD_GUARD:
+                _HELD_LOCKS.add(str(path))
             try:
                 yield True
             finally:
+                with _HELD_GUARD:
+                    _HELD_LOCKS.discard(str(path))
                 with contextlib.suppress(OSError):
                     path.unlink()
+            return
+        if _held_here(path):
+            yield False
             return
         holder = _lock_holder(path)
         if holder and holder != os.getpid() and _pid_alive(holder):

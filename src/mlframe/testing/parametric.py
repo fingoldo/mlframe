@@ -48,6 +48,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any, Callable, Iterable, Literal, Optional, Sequence, Tuple, Union
 
 try:
@@ -63,13 +64,21 @@ from polars.testing.parametric import column, dataframes
 # =============================================================================
 
 _PROFILES_REGISTERED: bool = False
+_PROFILES_LOCK = threading.Lock()
 
 
 def register_profiles() -> None:
     """Register mlframe-tuned Hypothesis profiles. Idempotent."""
-    global _PROFILES_REGISTERED
     if _PROFILES_REGISTERED:
         return
+    with _PROFILES_LOCK:
+        if not _PROFILES_REGISTERED:
+            _register_profiles_locked()
+
+
+def _register_profiles_locked() -> None:
+    """Register the profiles under ``_PROFILES_LOCK``; the flag is set only after every registration succeeded."""
+    global _PROFILES_REGISTERED
 
     common = dict(
         deadline=None,  # frame generation can be slow, deadline isn't meaningful

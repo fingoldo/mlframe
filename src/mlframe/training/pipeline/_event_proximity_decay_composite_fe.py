@@ -22,7 +22,6 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_engineering.event_proximity_decay import event_proximity_decay_features
-from mlframe.utils.log_throttle import log_throttle
 from ._composite_fe_shared import attach_new_columns, row_count
 
 logger = logging.getLogger(__name__)
@@ -92,8 +91,8 @@ def apply_event_proximity_decay_composite_fe(
             if verbose:
                 logger.info("apply_event_proximity_decay_composite_fe[%s]: added %d column(s)", split_name, result.shape[1])
         except Exception:
-            log_throttle(logger, "event_proximity_decay_fe_step_failed", logging.ERROR, "apply_event_proximity_decay_composite_fe: step failed for split %r; skipping.", split_name, exc_info=True)
-            out[split_name] = df
+            logger.warning("apply_event_proximity_decay_composite_fe: step failed for split %r; skipping the step for all splits.", split_name, exc_info=True)
+            return train_df, val_df, test_df
 
     return out["train"], out["val"], out["test"]
 

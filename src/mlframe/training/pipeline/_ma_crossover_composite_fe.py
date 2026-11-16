@@ -16,7 +16,6 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_engineering.ma_crossover import ma_crossover_features
-from mlframe.utils.log_throttle import log_throttle
 from ._composite_fe_shared import attach_new_columns, to_pandas
 
 logger = logging.getLogger(__name__)
@@ -119,8 +118,8 @@ def apply_ma_crossover_composite_fe(
             if verbose:
                 logger.info("apply_ma_crossover_composite_fe[%s]: added %d column(s)", split_name, new_cols.shape[1])
         except Exception:
-            log_throttle(logger, "ma_crossover_fe_step_failed", logging.ERROR, "apply_ma_crossover_composite_fe: step failed for split %r; skipping.", split_name, exc_info=True)
-            out[split_name] = df
+            logger.warning("apply_ma_crossover_composite_fe: step failed for split %r; skipping the step for all splits.", split_name, exc_info=True)
+            return train_df, val_df, test_df
 
     return out["train"], out["val"], out["test"]
 

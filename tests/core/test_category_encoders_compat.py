@@ -205,3 +205,16 @@ class TestMissingCategoryEncoders:
             if _saved_ce_utils is not None:
                 sys.modules["category_encoders.utils"] = _saved_ce_utils
         assert cec._PATCHED is True
+
+
+def test_shim_flag_unset_after_failed_import_and_retried(monkeypatch):
+    """A first call whose category_encoders.utils import fails leaves the flag unset; the next call patches."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "category_encoders.utils", None)
+    cec.ensure_category_encoders_sklearn_tags_shim()
+    assert cec._PATCHED is False
+    monkeypatch.undo()
+    monkeypatch.setattr(cec, "_PATCHED", False)
+    cec.ensure_category_encoders_sklearn_tags_shim()
+    assert cec._PATCHED is True

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import uuid
 from typing import Any
 
@@ -18,6 +19,9 @@ from .log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
+
+# Serialises the read-merge-write of ``append`` between threads of this process (the file lock, when present, covers other processes).
+_APPEND_LOCK = threading.Lock()
 
 
 _STORE_COLUMNS = (
@@ -116,11 +120,12 @@ class _ParquetStore:
             merged = self._aggregate(existing + rows)
             self._write_rows(merged, self._path)
 
-        if lock is not None:
-            with lock:
+        with _APPEND_LOCK:
+            if lock is not None:
+                with lock:
+                    _do()
+            else:
                 _do()
-        else:
-            _do()
 
     # ---- aggregation ----
 

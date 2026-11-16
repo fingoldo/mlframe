@@ -16,6 +16,7 @@ every measured size, so pinned memory is kept for sources that are page-locked f
 from __future__ import annotations
 
 import logging
+import threading
 
 from mlframe.utils.env_flags import env_int
 from mlframe.utils.warning_filters import install_filter_once
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 _CUDA_ERROR_MEMORY_ALLOCATION = 2
 _installed = False
+_install_lock = threading.Lock()
 
 
 def _make_pool(pinned_memory):
@@ -33,10 +35,16 @@ def _make_pool(pinned_memory):
 
 def install_pinned_policy() -> None:
     """Install the pinned-allocator wrapper once per process (no-op without cupy or a device)."""
-    global _installed
     if _installed:
         return
-    _installed = True
+    with _install_lock:
+        if not _installed:
+            _install_locked()
+
+
+def _install_locked() -> None:
+    """Do the install under ``_install_lock``; the flag is set only once the work finished (a failed import leaves it unset so the next call retries)."""
+    global _installed
     try:
         import cupy as cp
         from cupy.cuda import pinned_memory
@@ -60,6 +68,7 @@ def install_pinned_policy() -> None:
     cp.cuda.set_pinned_memory_allocator(_alloc)
     # cupy warns on every synchronous fallback; here it is the chosen path, not a degradation.
     install_filter_once("ignore", message="Using synchronous transfer as pinned memory")
+    _installed = True
 
 
 __all__ = ["install_pinned_policy"]
