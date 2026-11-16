@@ -166,6 +166,14 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_numba_polynom_optimizer": (
+        ("_cupy_polynom_optimizer",),
+        (
+            "the pair-polynomial search kernel on the host; its generation-batched device twin run_cupy_kernel_search (two cuBLAS GEMMs per generation, bf_apply, the radix-edge binner, mi_from_codes_tile) "
+            "is the default optimizer (fe_optimizer=cupy_kernel) and the host-versus-device choice is the polynom_generation_backend entry of _polynom_search_backend"
+        ),
+        True,
+    ),
     "_orth_mi_backends": (
         ("_hermite_fe_mi",),
         (
