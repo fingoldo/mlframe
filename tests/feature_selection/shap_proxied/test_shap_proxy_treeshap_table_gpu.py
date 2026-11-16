@@ -100,3 +100,19 @@ def test_use_table_false_runs_the_device_path_kernel(monkeypatch):
     monkeypatch.setenv("MLFRAME_SHAP_TREESHAP_REAL", "float64")
     ens, X = _ensemble(6, 4, 20)
     np.testing.assert_allclose(treeshap_phi_base_gpu(ens, X, use_table=False)[0], treeshap_phi_base_path(ens, X)[0], rtol=0, atol=1e-9)
+
+
+def test_preorder_kernel_equals_stack_kernel_with_nan(monkeypatch):
+    """The static-preorder walk (default) gives the stack walk's phi bit for bit, NaN rows included."""
+    from mlframe.feature_selection._benchmarks.profiling.treeshap_gpu_profile import build_ensemble
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table_gpu import treeshap_phi_base_table_gpu
+
+    ens, X = build_ensemble(3000, 20, 30, 5)
+    X = X.copy()
+    X[::7, 2] = np.nan
+    X[::5, 9] = np.nan
+    monkeypatch.setenv("MLFRAME_SHAP_TREESHAP_KERNEL", "stack")
+    ref = treeshap_phi_base_table_gpu(ens, X)
+    monkeypatch.setenv("MLFRAME_SHAP_TREESHAP_KERNEL", "preorder")
+    got = treeshap_phi_base_table_gpu(ens, X)
+    np.testing.assert_array_equal(got[0], ref[0])

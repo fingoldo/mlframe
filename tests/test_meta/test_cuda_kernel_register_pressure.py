@@ -523,6 +523,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "shap_proxy_treeshap_table_gpu.treeshap_table_preorder": (
+        "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table_gpu",
+        "kernel_preorder",
+        ("float32", "float64"),
+    ),
     "shap_proxy_treeshap_interactions_gpu.treeshap_interactions": (
         "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu",
         "kernel",
@@ -778,6 +783,10 @@ _SPILL_EXEMPT: dict[str, str] = {
         "the explicit DFS stack that replaces recursion, all dynamically indexed, so they live in the stack frame (54 registers, no register spill). The module header states the design; the "
         "frame grows with the square of the depth, which is why `_ensure_kernel` sizes it by the ensemble's real depth and not the cap (at the cap of 24 it reserved gigabytes of device "
         "local memory and starved later GPU paths). Removing the frame means a different algorithm (the shared-memory tile of the tree), not a register fix."
+    ),
+    "shap_proxy_treeshap_table_gpu.treeshap_table_preorder": (
+        "64 bytes/thread = the two int arrays mL / mR (the child masks per depth, MAXD 8) indexed by the run-time depth, in the stack frame, 32 registers, no register spill. Shared-memory placement (spill-free) "
+        "measured in 7 interleaved rounds, 20000 x 100 x 100 trees depth 6, GPU 72 to 82 C, no throttle: frame best 24.75 ms / median 24.96 ms, shared best 25.82 ms / median 26.77 ms (4 percent slower)."
     ),
     "shap_proxy_treeshap_interactions_table_gpu.treeshap_interactions_table": (
         "The same two int DFS stack arrays as treeshap_table (MAXSP 24, indexed by the run-time depth, so they sit in the stack frame). Interleaved A/B of the shared-memory placement against the "
