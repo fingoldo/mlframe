@@ -8,7 +8,6 @@
     "mrmr_fast_search_screen_n",
     "shap_proxy_brute_force",
     "shap_proxy_prefilter",
-    "shap_proxy_prefilter_univariate_batch",
-    "shap_proxy_subsetrank"
+    "shap_proxy_prefilter_univariate_batch"
   ]
 }
