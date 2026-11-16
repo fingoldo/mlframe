@@ -166,6 +166,14 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_fe_raw_redundancy_drop": (
+        ("_fe_cmi_redundancy_gate",),
+        (
+            "the observed CMI and the conditional permutation null of each raw operand are scored by _cmi_from_binned and _conditional_perm_null of _fe_cmi_redundancy_gate (compliant: device partition counting, the "
+            "device null and the host table null, the host-versus-device choice of cmi_perm_null_backend); the pass itself touches only the final selection"
+        ),
+        True,
+    ),
     "_fe_cmi_redundancy_gate": (
         ("_fe_cmi_perm_null_gpu", "_fe_batched_mi"),
         (
@@ -243,6 +251,13 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_fe_raw_redundancy_drop": (
+        "_cmi_strata_tables_njit",
+        (
+            "the pass is a decision layer over a handful of raw operands: its conditional permutation null on the host is the numba contingency-table draw (StratifiedNull, through _conditional_perm_null of "
+            "_fe_cmi_redundancy_gate) and its observed CMI the njit partition kernels of _mi_greedy_cmi_fe"
+        ),
+    ),
     "_fe_cmi_redundancy_gate": (
         "_cmi_strata_tables_njit",
         (
@@ -405,6 +420,7 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_fe_raw_redundancy_drop": ("_fe_raw_redundancy_anchors", "_fe_raw_redundancy_helpers"),
     "_fe_cmi_redundancy_gate": ("_fe_cmi_redundancy_null",),
     "_fe_batched_mi_cmi": ("_fe_cmi_fused_backend",),
     "_conditional_gate_fe": ("_conditional_gate_hybrid", "_conditional_gate_kernels"),

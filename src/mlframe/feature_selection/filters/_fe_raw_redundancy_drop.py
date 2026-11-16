@@ -60,7 +60,12 @@ All MI/CMI uses the production primitives (``_cmi_from_binned`` / ``_quantile_bi
 / ``_renumber_joint``) and the production conditional-permutation null
 (``_conditional_perm_null`` from the S5 gate). The function is pure - no live
 framework state captured - so a fitted MRMR stays picklable.
-"""
+
+
+Backends and memory (2026-11-16): the pass reads the FINAL selection only, a column block of the selected raw operands and their engineered children (tens of columns, never the candidate pool), so its
+working set is that block of binned columns. The observed CMI and the conditional permutation null of each raw operand are scored by ``_cmi_from_binned`` and ``_conditional_perm_null`` of
+``_fe_cmi_redundancy_gate`` (device partition counting, the device null or the host contingency-table null, chosen per host by the ``cmi_perm_null_backend`` entry; STRICT-GPU routes them to the device). The carved
+siblings are ``_fe_raw_redundancy_anchors`` (the engineered conditioning anchors) and ``_fe_raw_redundancy_helpers``. ``audits/2026-10-22/profiles/_fe_raw_redundancy_drop.md`` has the measured figures."""
 
 from __future__ import annotations
 
