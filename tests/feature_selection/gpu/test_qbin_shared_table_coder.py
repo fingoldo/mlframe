@@ -35,10 +35,11 @@ def _reference(cp, X, nbins, single):
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("n,K,nbins", [(5000, 7, 10), (20_000, 100, 20), (3001, 700, 20), (1000, 33, 64)])
 @pytest.mark.parametrize("byte_codes", [False, True])
-def test_codes_equal_the_broadcast_loop(dtype, n, K, nbins, byte_codes):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_codes_equal_the_broadcast_loop(dtype, n, K, nbins, byte_codes, seed):
     """Gaussian columns plus a constant, a binary and a heavily tied column."""
     cp = _cp()
-    rng = np.random.default_rng(4)
+    rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, K)).astype(dtype)
     X[:, 0] = 3.0
     X[:, 1] = rng.integers(0, 2, n)

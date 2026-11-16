@@ -18,11 +18,12 @@ except Exception:  # pragma: no cover
 pytestmark = pytest.mark.skipif(not _HAS_DEVICE, reason="needs a CUDA device")
 
 
-def test_cupy_dtw_matches_cpu_for_unequal_lengths():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_cupy_dtw_matches_cpu_for_unequal_lengths(seed):
     """Lengths 1000 and 1300: the GPU banded and full distances both equal the CPU distance."""
     from mlframe.signal import dtw as d
 
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     x = rng.normal(size=1000)
     y = rng.normal(size=1300)
     cpu = d.dtw_cpu(x, y)[0]

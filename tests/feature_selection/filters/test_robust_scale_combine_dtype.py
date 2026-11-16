@@ -16,11 +16,12 @@ def _reference(M):
     return np.where(sc > 1e-12, sc, np.where(iqr > 1e-12, iqr, 0.0))
 
 
-def test_robust_scale_float64_matrix_matches_reference():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_robust_scale_float64_matrix_matches_reference(seed):
     """A float64 matrix under the float32 crit dtype gives the float64 reference scale, not values read through a mismatched pointer type."""
     from mlframe.feature_selection.filters._gpu_resident_basis import _batched_quantiles, _gpu_robust_scale_batched
 
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     M = rng.standard_normal((2000, 253)) * rng.uniform(0.5, 5.0, size=253)
     M[:, 7] = 3.0  # degenerate column: zero MAD and zero IQR
     Md = cp.asarray(M)

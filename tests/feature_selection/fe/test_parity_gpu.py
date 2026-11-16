@@ -20,10 +20,11 @@ def _device_or_skip():
 
 
 @pytest.mark.parametrize("n,k,nc", [(997, 5, 2), (5003, 9, 3), (20000, 33, 4), (4001, 40, 2)])
-def test_grid_mi_equals_the_host_kernel(n, k, nc):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_grid_mi_equals_the_host_kernel(n, k, nc, seed):
     """Odd sizes, tied columns, 2 to 4 classes, more columns than one launch block: the same MI per period."""
     gpu = _device_or_skip()
-    rng = np.random.default_rng(n + k)
+    rng = np.random.default_rng(seed + n + k)
     cols = [rng.normal(size=n) * s + off for s, off in zip(rng.uniform(0.5, 50, k), rng.uniform(-100, 100, k))]
     cols[1] = np.round(cols[1], 1)
     y = rng.integers(0, nc, n)
@@ -44,10 +45,11 @@ def test_more_than_four_classes_stay_on_the_host():
     assert gpu.parity_mi_grids_gpu(cols, np.arange(500) % 5, 5, [P._parity_grid(cols[0])]) is None
 
 
-def test_hybrid_parity_device_equals_host(monkeypatch):
+@pytest.mark.parametrize("seed", [3, 4])
+def test_hybrid_parity_device_equals_host(monkeypatch, seed):
     """The scores frame, the appended names and the recipes do not depend on the path (a NaN column keeps the host scan)."""
     _device_or_skip()
-    rng = np.random.default_rng(3)
+    rng = np.random.default_rng(seed)
     n = 6000
     X = pd.DataFrame({f"x{i}": rng.uniform(0, 20, n) for i in range(8)})
     X.loc[::17, "x4"] = np.nan

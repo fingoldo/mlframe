@@ -20,12 +20,13 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _has_device(), reason="no 
 
 
 @pytest.mark.parametrize("metric,classification", [("rmse", False), ("mae", False), ("brier", True), ("logloss", True)])
-def test_gpu_matches_numba(metric, classification):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_gpu_matches_numba(metric, classification, seed):
     """The GPU brute-force top-N subset scan matches the numba CPU version's winning subset and score, and agrees on the top-5 subset set, for every metric/task-type combo."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gpu import brute_force_top_n_gpu
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     phi = rng.normal(size=(400, 9))
     base = np.full(400, 0.1)
     margin = base + phi[:, [1, 4, 6]].sum(axis=1)

@@ -80,12 +80,13 @@ def test_binning_fallback_crossover_math(monkeypatch):
 
 
 @pytest.mark.skipif(not _has_cuda(), reason="CUDA required")
-def test_gpu_binning_bit_identical_to_cpu():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_gpu_binning_bit_identical_to_cpu(seed):
     """``gpu_discretize_codes_host`` == ``discretize_2d_quantile_batch`` codes, maxdiff 0."""
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
     from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host
 
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     cand = np.ascontiguousarray(rng.uniform(0.1, 5.0, (20_000, 64)).astype(np.float32))
     for nb in (10, 20):
         c_cpu = discretize_2d_quantile_batch(cand, n_bins=nb, dtype=np.int8, assume_finite=True)

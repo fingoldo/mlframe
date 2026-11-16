@@ -50,13 +50,14 @@ def test_cmi_from_joint_launch_matches_cpu(monkeypatch, relaxed, rtol):
 
 @_gpu_only
 @_ENV
-def test_subset_loss_launch_matches_host(monkeypatch, relaxed, rtol):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_subset_loss_launch_matches_host(monkeypatch, relaxed, rtol, seed):
     """subset_loss (templated buffers) returns the same best subset and loss as the numba search at the launch dtype's tolerance."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gpu import brute_force_top_n_gpu
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 
     monkeypatch.setenv("MLFRAME_CRIT_DTYPE_RELAXED", relaxed)
-    rng = np.random.default_rng(3)
+    rng = np.random.default_rng(seed)
     phi = rng.normal(size=(300, 8))
     base = np.full(300, 0.1)
     y = (1.0 / (1.0 + np.exp(-(base + phi[:, [1, 4]].sum(axis=1)))) > rng.random(300)).astype(float)
