@@ -44,3 +44,34 @@ def test_lock_is_created_with_the_pid_already_in_it(lock_dir):
         assert acquired is True
         assert (lock_dir / ".ensure.lock").read_text(encoding="utf-8").strip() == str(os.getpid())
     assert not (lock_dir / ".ensure.lock").exists()
+
+
+def test_single_flight_same_process_second_thread_does_not_steal_live_lock(lock_dir):
+    """While one thread holds the lock, a second thread of the same process gets False and the lock file stays."""
+    import threading
+
+    lock = lock_dir / ".ensure.lock"
+    held = threading.Event()
+    release = threading.Event()
+    got = {}
+
+    def _holder():
+        """Take the lock and keep it until released."""
+        with _ensure.single_flight() as acquired:
+            got["holder"] = acquired
+            held.set()
+            release.wait(timeout=5)
+
+    t = threading.Thread(target=_holder)
+    t.start()
+    assert held.wait(timeout=5)
+    try:
+        with _ensure.single_flight() as second:
+            got["second"] = second
+        got["still_there"] = lock.exists()
+    finally:
+        release.set()
+        t.join(timeout=5)
+    assert got["holder"] is True
+    assert got["second"] is False
+    assert got["still_there"] is True

@@ -55,20 +55,27 @@ natively (>=2.8.0) or sklearn itself predates 1.6 (no ``__sklearn_tags__`` conce
 
 from __future__ import annotations
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
 _PATCHED = False
+_PATCH_LOCK = threading.Lock()
 
 
 def ensure_category_encoders_sklearn_tags_shim() -> None:
     """Patch category-encoders' tag machinery in if the installed release predates 2.8.0's native
     fix. Call this once, right after ``import category_encoders``, before any encoder is fit."""
-    global _PATCHED
     if _PATCHED:
         return
-    _PATCHED = True
+    with _PATCH_LOCK:
+        if not _PATCHED:
+            _apply_shim()
 
+
+def _apply_shim() -> None:
+    """Run the patch under ``_PATCH_LOCK``; ``_PATCHED`` is set only when the outcome is final (patched, or nothing to patch), so a failed import is retried by the next call."""
+    global _PATCHED
     try:
         import category_encoders.utils as ce_utils
     except ImportError as _exc:
@@ -79,6 +86,7 @@ def ensure_category_encoders_sklearn_tags_shim() -> None:
     # as defining it directly, and hasattr() would report True either way, silently no-op'ing this
     # shim on exactly the releases that need it.
     if "__sklearn_tags__" in vars(ce_utils.BaseEncoder):
+        _PATCHED = True
         return
 
     try:
@@ -92,6 +100,7 @@ def ensure_category_encoders_sklearn_tags_shim() -> None:
         logger.debug("ensure_category_encoders_sklearn_tags_shim fell back to its default after %s", type(_exc).__name__)
         return
     if (_major, _minor) < (1, 6):
+        _PATCHED = True
         return
 
     import inspect
@@ -121,3 +130,4 @@ def ensure_category_encoders_sklearn_tags_shim() -> None:
         return {"supervised_encoder": isinstance(self, supervised_mixins)}
 
     ce_utils.BaseEncoder._get_tags = _get_tags
+    _PATCHED = True

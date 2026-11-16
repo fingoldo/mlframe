@@ -47,3 +47,32 @@ def test_failed_pinned_alloc_falls_back(monkeypatch):
     mod.install_pinned_policy()
     a = np.arange(1000, dtype=np.float64)
     np.testing.assert_array_equal(cp.asnumpy(cp.asarray(a)), a)
+
+
+def test_install_retries_after_failed_import_and_sets_flag_only_on_success(monkeypatch):
+    """A first call whose cupy import fails leaves the flag unset; the next call performs the install."""
+    import sys
+    import types
+
+    import mlframe.utils.cupy_pinned as mod
+
+    calls = []
+    fake_cp = types.ModuleType("cupy")
+    fake_cuda = types.ModuleType("cupy.cuda")
+    fake_cuda.pinned_memory = types.ModuleType("cupy.cuda.pinned_memory")
+    fake_cuda.set_pinned_memory_allocator = lambda alloc: calls.append(alloc)
+    fake_cp.cuda = fake_cuda
+    fake_api = types.ModuleType("cupy_backends.cuda.api")
+    fake_api.runtime = types.ModuleType("cupy_backends.cuda.api.runtime")
+    monkeypatch.setattr(mod, "_installed", False)
+    monkeypatch.setattr(mod, "_make_pool", lambda _pm: object())
+    monkeypatch.setitem(sys.modules, "cupy", None)
+    mod.install_pinned_policy()
+    assert mod._installed is False
+    for name, m in (("cupy", fake_cp), ("cupy.cuda", fake_cuda), ("cupy.cuda.pinned_memory", fake_cuda.pinned_memory),
+                    ("cupy_backends", types.ModuleType("cupy_backends")), ("cupy_backends.cuda", types.ModuleType("cupy_backends.cuda")),
+                    ("cupy_backends.cuda.api", fake_api), ("cupy_backends.cuda.api.runtime", fake_api.runtime)):
+        monkeypatch.setitem(sys.modules, name, m)
+    mod.install_pinned_policy()
+    assert len(calls) == 1
+    assert mod._installed is True
