@@ -139,7 +139,7 @@ def treeshap_phi_base_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Opti
 
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table import build_tables
 
-    Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
+    Xf = ensemble.as_float32(X)
     n, f = Xf.shape
     tab = build_tables(ensemble, n)
     if tab is None:

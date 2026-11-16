@@ -205,7 +205,7 @@ def treeshap_phi_base_table(ensemble: TreeEnsemble, X: np.ndarray, tables: Optio
     tab = tables if tables is not None else build_tables(ensemble, int(np.asarray(X).shape[0]))
     if tab is None:
         return None
-    Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
+    Xf = ensemble.as_float32(X)
     phi = np.zeros((Xf.shape[0], ensemble.n_features), dtype=np.float64)  # Intentional float64: the caller's phi contract
     with parallel_kernel_entry():
         _table_batch(

@@ -316,7 +316,7 @@ def interaction_tensor_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.
     identity), and ``base`` is the ensemble intercept so ``base + Phi.sum((1,2)) == model margin``.
     The off-diagonal is symmetrised inside the kernel so the exact symmetry invariant holds.
     """
-    Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
+    Xf = ensemble.as_float32(X)
     n = Xf.shape[0]
     P = ensemble.n_features
     # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)

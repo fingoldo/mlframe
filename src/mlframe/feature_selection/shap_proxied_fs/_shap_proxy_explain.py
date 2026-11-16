@@ -300,6 +300,14 @@ def _shap_phi_and_base(explainer_base, X: pd.DataFrame, backend: str = "auto"):
             cat_features = None
         if cat_features is None:
             cat_features = getattr(explainer_base, "_shap_proxy_cat_features", None)
+        if not cat_features:
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import treeshap_phi_base_numba
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_catboost import cached_nonsymmetric_ensemble
+
+            # CatBoost's native SHAP of non-symmetric trees does not add up to the prediction; our TreeSHAP over the JSON export does
+            ensemble = cached_nonsymmetric_ensemble(explainer_base)
+            if ensemble is not None:
+                return treeshap_phi_base_numba(ensemble, X.to_numpy() if hasattr(X, "to_numpy") else X)
         return catboost_shap(explainer_base, X, cat_features=cat_features)
 
     resolved = _pick_backend(explainer_base, X, backend)

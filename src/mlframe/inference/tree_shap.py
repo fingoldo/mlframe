@@ -110,6 +110,12 @@ class TreeExplainer:
         except Exception:
             return False
 
+    def _catboost_backend(self) -> str:
+        """``"treeshap_numba"`` for non-symmetric CatBoost trees (explained by our kernel from the JSON export), ``"catboost"`` otherwise."""
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_catboost import cached_nonsymmetric_ensemble
+
+        return "treeshap_numba" if not self._est.get_params().get("cat_features") and cached_nonsymmetric_ensemble(self._est) is not None else "catboost"
+
     def _public_explainer(self) -> Any:
         """The public ``shap.TreeExplainer`` (built once, with the xgboost base_score workaround the project already applies)."""
         if self._public is None:
@@ -128,7 +134,7 @@ class TreeExplainer:
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _pick_backend, _shap_phi_and_base
 
             phi, base = _shap_phi_and_base(self._est, frame, self._backend_request)
-            self.backend_ = _pick_backend(self._est, frame, self._backend_request) if _is_flat_tree_model(self._est) else "catboost"
+            self.backend_ = _pick_backend(self._est, frame, self._backend_request) if _is_flat_tree_model(self._est) else self._catboost_backend()
             self.expected_value = base
             return phi
         if self._backend_request != "shap":
@@ -166,6 +172,16 @@ class TreeExplainer:
                     Phi, base = out
                     self.expected_value = float(np.asarray(base).ravel()[0])
                     return Phi
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_catboost import is_catboost_estimator
+
+            if is_catboost_estimator(est):
+                from catboost import EFstrType, Pool
+
+                cat_features = est.get_params().get("cat_features")
+                contribs = np.asarray(est.get_feature_importance(Pool(frame, cat_features=cat_features), type=EFstrType.ShapInteractionValues), dtype=np.float64)  # Intentional float64: the interaction tensor contract
+                self.backend_ = "catboost"
+                self.expected_value = float(contribs[0, -1, -1])
+                return contribs[:, :-1, :-1]
             if name.startswith("XGB"):
                 import xgboost as xgb
 

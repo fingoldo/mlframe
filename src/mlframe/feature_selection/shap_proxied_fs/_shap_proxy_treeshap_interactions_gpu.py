@@ -322,7 +322,7 @@ def interaction_tensor_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.nd
     if P > _MAX_SUPPORTED_FEATURES:
         raise ValueError(f"GPU TreeSHAP interactions support width <= {_MAX_SUPPORTED_FEATURES}; ensemble width is " f"{P}. Use the numba backend.")
 
-    Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
+    Xf = ensemble.as_float32(X)
     n, f = Xf.shape
     if f != P:
         raise ValueError(f"X has {f} features but ensemble expects {P}.")
