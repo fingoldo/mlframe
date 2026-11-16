@@ -388,6 +388,10 @@ except Exception as e:  # best-effort: without a tuner entry the floor decides
 
 def extra_basis_device_chosen(n_rows: int) -> bool:
     """Whether the extra-basis scoring of ``n_rows`` rows is made on the device: the per-host cache by the row count, else the ``DEVICE_FALLBACK_ROWS`` floor."""
+    from .._fe_gpu_strict import fe_gpu_strict_forced
+
+    if fe_gpu_strict_forced():
+        return True  # an explicit STRICT takes the device whatever the tuned choice says
     if _SPEC is None:
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
     try:
