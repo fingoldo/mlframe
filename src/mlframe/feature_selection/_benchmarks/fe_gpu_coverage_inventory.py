@@ -166,6 +166,15 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_hermite_fe_optimise": (
+        ("_cupy_polynom_optimizer",),
+        (
+            "the pair-polynomial optimizer dispatcher: optimise_hermite_pair (carved into _hermite_fe_optimise_pair) runs the host optimizers (random_batch / cma_batch through _eval_coef_pair_batch, the njit batch "
+            "evaluators) or, as the default fe_optimizer=cupy_kernel, run_cupy_kernel_search of _cupy_polynom_optimizer (cuBLAS GEMMs, bf_apply, the radix-edge binner, mi_from_codes_tile); the host-versus-device "
+            "scoring of a generation is the polynom_generation_backend entry of _polynom_search_backend"
+        ),
+        True,
+    ),
     "_numba_polynom_optimizer": (
         ("_cupy_polynom_optimizer",),
         (
@@ -218,6 +227,10 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_hermite_fe_optimise": (
+        "_numba_polynom_optimizer",
+        "the host optimizers of the pair search: _eval_coef_pair_batch scores a generation with the njit batch evaluators (_fill_bf_batch_njit of _numba_polynom_optimizer, the plug-in MI row kernels), and optimizer=numba_kernel is the all-njit search",
+    ),
     "_orth_mi_backends": (
         "_hermite_fe_mi",
         "the batched plug-in MI the orthogonal stage scores with is routed here to the numba plug-in kernel (plugin_mi_classif_batch_njit through plugin_mi_classif_batch_dispatch, parallel over columns) on the host path",
@@ -369,6 +382,7 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_hermite_fe_optimise": ("_hermite_fe_optimise_pair", "_hermite_fe_optimise_parts"),
     "_target_encoding_order_stats": ("_order_stats_gpu",),
     "_temporal_agg_fe_rolling": ("_rolling_window_gpu",),
     "_periodic_fe": ("_modular_codes_gpu",),

@@ -169,7 +169,10 @@
     "_orth_dedup",
     "_orth_mi_backends",
     "_gate_rank_divergence",
-    "_numba_polynom_optimizer"
+    "_numba_polynom_optimizer",
+    "_hermite_fe_optimise",
+    "_hermite_fe_optimise_pair",
+    "_hermite_fe_optimise_parts"
   ],
   "exempt": {
     "_basis_cells_ktc": "the tuner entry of the device basis-cell path (kernel_tuner fe_basis_cells_device, sweep over the row count against the host variant at 1e-6 equivalence, fallback = the measured row mark, MLFRAME_BASIS_CELLS_DEVICE=0|1 forces a side): it owns no kernel and no array work; the cell kernels and their profile belong to _orthogonal_routing_device and _orthogonal_adaptive_degree_device, which are tracked in this registry as pending",
@@ -289,9 +292,6 @@
     "_fe_usability_signal",
     "_feature_engineering_mem_budget",
     "_grouped_agg_fe",
-    "_hermite_fe_optimise",
-    "_hermite_fe_optimise_pair",
-    "_hermite_fe_optimise_parts",
     "_mi_greedy_device",
     "_mi_greedy_fe",
     "_missingness_fe",
