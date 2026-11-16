@@ -42,29 +42,7 @@ from numba import njit, prange
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 from ._fe_synergy_screen import joint_synergy_mi  # noqa: F401
-from ._numba_utils import _pair_mm_mi_njit
 from ._fe_usability_signal import _crit_np_dtype
-
-
-def _pair_mm_mi(code_x: np.ndarray, code_y: np.ndarray, yc: np.ndarray, min_rows_per_cell: float = 5.0) -> float:
-    """Fused-njit equivalent of ``joint_synergy_mi(code_x, code_y, yc)``.
-
-    Builds the dense mixed-radix ``(kx*ky) x kt`` joint histogram in one O(n) pass (no
-    ``np.unique`` densify, no ``np.add.at`` scatter) and returns the SAME Miller-Madow-
-    corrected joint MI. ~9.6x faster per call at the detector's (n=4000, nbins=8) shape;
-    output matches ``joint_synergy_mi`` to FP reduction order (~5e-16), so the synergy
-    verdict is unchanged (selection-equivalent). Bench:
-    ``_benchmarks/bench_synergy_detector_pair_mi_njit.py``."""
-    cx = np.ascontiguousarray(np.asarray(code_x).astype(np.int64).ravel())
-    cy = np.ascontiguousarray(np.asarray(code_y).astype(np.int64).ravel())
-    yt = np.ascontiguousarray(np.asarray(yc).astype(np.int64).ravel())
-    n = cx.shape[0]
-    if n == 0 or cy.shape[0] != n or yt.shape[0] != n:
-        return 0.0
-    kx = int(cx.max()) + 1
-    ky = int(cy.max()) + 1
-    kt = int(yt.max()) + 1
-    return float(_pair_mm_mi_njit(cx, cy, yt, kx, ky, kt, float(min_rows_per_cell)))
 
 
 def _quantize(col: np.ndarray, nbins: int, rng: np.random.Generator) -> np.ndarray:
