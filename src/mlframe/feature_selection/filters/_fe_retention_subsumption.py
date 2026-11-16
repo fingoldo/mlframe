@@ -22,7 +22,11 @@ incumbents do NOT already span - the case the retention pass exists to rescue) k
 residual and is admitted; only a sub-fragment of an incumbent compound is dropped.
 
 Pure (no live framework state captured) so a fitted MRMR stays picklable.
-"""
+
+
+Backends and memory (2026-11-16): the guard scores one re-attached form at a time against the admitted engineered survivors (a column block of the incumbents plus the candidate), by the CMI redundancy gate
+(``_fe_cmi_redundancy_gate``: device partition counting, the device or the host contingency-table null, the host-versus-device choice of ``cmi_perm_null_backend``). It adds no kernel of its own;
+``audits/2026-10-22/profiles/_fe_retention_subsumption.md`` has the measured figures."""
 from __future__ import annotations
 
 import logging

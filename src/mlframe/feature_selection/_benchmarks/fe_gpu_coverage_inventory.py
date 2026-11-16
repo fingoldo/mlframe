@@ -166,6 +166,22 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_fe_pure_form_retention": (
+        ("_fe_pure_form_retention_gpu_resident",),
+        (
+            "the device form of the pure-form relevance gate and the resident usability scoring is _fe_pure_form_retention_gpu_resident (njit twin _pure_form_gate_njit, tuned host/device choice, column-block streaming); "
+            "the pool-wide usability greedy has its own resident scorer (_usability_greedy_gpu_resident), reached from retain_usable_pure_forms"
+        ),
+        True,
+    ),
+    "_fe_retention_subsumption": (
+        ("_fe_cmi_redundancy_gate",),
+        (
+            "the subsumption guard is the CMI redundancy gate applied to a re-attached form: _conditional_perm_null and _cmi_from_binned of _fe_cmi_redundancy_gate score it "
+            "(device partition counting, the device or host-table null, tuned choice)"
+        ),
+        True,
+    ),
     "_fe_raw_redundancy_drop": (
         ("_fe_cmi_redundancy_gate",),
         (
@@ -251,6 +267,14 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_fe_pure_form_retention": (
+        "_pure_form_gate_njit",
+        "the host form of the pure-form relevance gate is the njit kernel family of _pure_form_gate_njit (parallel over candidate forms), the usability pool is built by the njit pair kernels (_pair_combo_mi_njit_table_parallel, _combine_factorize_njit)",
+    ),
+    "_fe_retention_subsumption": (
+        "_cmi_strata_tables_njit",
+        "the subsumption guard conditions a re-attached form on the admitted engineered survivors through the CMI redundancy gate, whose host null is the numba contingency-table draw (StratifiedNull) and whose observed CMI is the njit partition kernels",
+    ),
     "_fe_raw_redundancy_drop": (
         "_cmi_strata_tables_njit",
         (
@@ -420,6 +444,7 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_fe_pure_form_retention": ("_fe_pure_form_sides",),
     "_fe_raw_redundancy_drop": ("_fe_raw_redundancy_anchors", "_fe_raw_redundancy_helpers"),
     "_fe_cmi_redundancy_gate": ("_fe_cmi_redundancy_null",),
     "_fe_batched_mi_cmi": ("_fe_cmi_fused_backend",),
