@@ -126,7 +126,7 @@ def ratio_pair_screen_device(mat_dev: Any, kind: int, eps: float, threshold: flo
 
     p, n = (int(mat_dev.shape[0]), int(mat_dev.shape[1]))
     out = cp.zeros(p * p, dtype=cp.uint8)
-    kernel(cp, mat_dev.dtype)((p * p,), (THREADS,), (mat_dev, np.int64(n), np.int32(p), np.int32(kind), np.float64(eps), np.float64(threshold), np.float64(_DEGENERATE_REL_TOL), out))  # Intentional float64: scalar arguments
+    kernel(cp, mat_dev.dtype)((p * p,), (THREADS,), (mat_dev, np.int64(n), np.int32(p), np.int32(kind), np.float64(eps), np.float64(threshold), np.float64(_DEGENERATE_REL_TOL), out))  # Intentional float64: scalar arguments  # launch-ok: the shared reduction array is statically sized by the TH define (256), so the block is fixed by the source
     return np.asarray(cp.asnumpy(out)).reshape(p, p).astype(bool)
 
 

@@ -198,7 +198,7 @@ def _operand_codes(X: Any, name: Optional[str], idx: np.ndarray, fold_no: int, r
         return None
     hit = (pre_codes or {}).get((("raw", name), fold_no))
     if hit is not None:
-        return hit
+        return np.asarray(hit)
     return _raw_fold_codes(X, name, idx, raw_set, n, nbins, cache)
 
 

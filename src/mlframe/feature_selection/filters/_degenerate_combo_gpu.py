@@ -80,5 +80,5 @@ def live_rows(cp: Any, cand: Any, rel_tol: float) -> tuple:
     out = cp.empty(kk, dtype=cp.uint8)
     rmin = cp.empty(kk, dtype=cp.float64)  # Intentional float64: MI edge bounds, compared at full precision
     rmax = cp.empty(kk, dtype=cp.float64)  # Intentional float64: MI edge bounds, compared at full precision
-    kernel(cp, cand.dtype)((kk,), (THREADS,), (cand, np.int64(n), np.float64(rel_tol), out, rmin, rmax))  # Intentional float64: accumulator-typed scalar
+    kernel(cp, cand.dtype)((kk,), (THREADS,), (cand, np.int64(n), np.float64(rel_tol), out, rmin, rmax))  # Intentional float64: accumulator-typed scalar  # launch-ok: the four shared arrays are statically sized by the TH define (256), so the block is fixed by the source
     return out.view(cp.bool_), rmin, rmax
