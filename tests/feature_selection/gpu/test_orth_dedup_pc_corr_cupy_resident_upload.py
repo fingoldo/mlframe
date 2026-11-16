@@ -173,6 +173,7 @@ def test_resolve_pc_backend_prefers_cupy_under_strict(monkeypatch):
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_dedup as od
 
     monkeypatch.delenv("MLFRAME_FE_DEDUP_CORR_BACKEND", raising=False)
+    monkeypatch.setattr(od, "_SPEC", None)  # the non-strict answers below are the untuned default, not whatever this host's tuning cache holds
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     # Big enough to clear the strict per-call work floor (p=max(q,r)=500 >= 64; n*p = 25M >= 1M).
     assert od._resolve_pc_backend(500, 300, 50_000) == "cupy"
