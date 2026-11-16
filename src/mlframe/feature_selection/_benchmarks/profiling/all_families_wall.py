@@ -24,6 +24,7 @@ How to run it so the number means something.
 - Quiet machine only: check ``nvidia-smi`` memory.used (the desktop holds 0.5-1 GB of the 4 GB card and moves the cupy pool limit), free RAM, and that nothing CPU-heavy runs (Defender scans, scrapers,
   a second pytest): the same code swings by 100+ s with load. Never run two GPU processes at once (a 4 GB card turns the second one into OOM fallbacks).
 - No cProfile on the GPU path (its memory flips the host-buffer hoist decision and the pair search falls onto the 50-100x slower recompute route). Use the samplers of this package.
+- Thermal state: the harness prints the GPU temperature, SM clock, throttle reasons and CPU clock before and after the fit; ``MLFRAME_BENCH_WAIT_COOL_C=60`` waits for the card to cool first. A wall quoted without them is not comparable (CUDA.md section 6).
 - ``MRMR._FIT_CACHE`` memoises by content hash: clear it between same-process fits or a refit returns in 0.4 s.
 - After a run grep the log for ``OutOfMemoryError``, ``Out of memory allocating`` and ``falling back``: a fallback changes the op counts and the wall.
 - Compare family-wall sums or same-process laps, not single walls, when the machine was not quiet.
@@ -74,7 +75,13 @@ lg = logging.getLogger("mlframe.feature_selection.filters._mrmr_fit_impl._fe_sta
 lg.setLevel(logging.DEBUG)
 lg.addHandler(H())
 lg.propagate = False
+from mlframe.feature_selection._benchmarks.profiling import hardware_state
+
+if os.environ.get("MLFRAME_BENCH_WAIT_COOL_C"):
+    hardware_state.wait_until_cool(float(os.environ["MLFRAME_BENCH_WAIT_COOL_C"]))  # the card cooled to this temperature (C) before the measured fit
+print("hardware before: " + hardware_state.line(), flush=True)
 H.t0 = time.time()
 MRMR._FIT_CACHE.clear()
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*data)
 print("WALL %.1f" % (time.time() - H.t0))
+print("hardware after:  " + hardware_state.line(), flush=True)

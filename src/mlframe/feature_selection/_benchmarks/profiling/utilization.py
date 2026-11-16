@@ -30,8 +30,10 @@ def _gpu_busy_percent() -> float:
         return float("nan")
 
 
-def sample_during(fn, interval: float = 0.5) -> "tuple[object, np.ndarray, np.ndarray, np.ndarray]":
-    """Run ``fn()`` while sampling; returns ``(result, times, cpu_busy_percent_per_core (samples x cores), gpu_busy_percent)``."""
+def sample_during(fn, interval: float = 0.5, hardware: "list | None" = None) -> "tuple[object, np.ndarray, np.ndarray, np.ndarray]":
+    """Run ``fn()`` while sampling; returns ``(result, times, cpu_busy_percent_per_core (samples x cores), gpu_busy_percent)``.
+
+    A list passed as ``hardware`` is filled with one ``hardware_state.snapshot()`` per sample (GPU temperature, SM clock, throttle mask, CPU clock), for ``hardware_state.summarise_samples``."""
     import psutil
 
     times: list = []
@@ -47,6 +49,10 @@ def sample_during(fn, interval: float = 0.5) -> "tuple[object, np.ndarray, np.nd
             times.append(time.perf_counter() - t0)
             cpu.append(psutil.cpu_percent(None, percpu=True))
             gpu.append(_gpu_busy_percent())
+            if hardware is not None:
+                from mlframe.feature_selection._benchmarks.profiling import hardware_state
+
+                hardware.append(hardware_state.snapshot())
 
     thread = threading.Thread(target=_sampler, daemon=True)
     thread.start()
@@ -91,9 +97,17 @@ def main() -> None:
     MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20_000, 30, 1))  # warm-up: compilation stays out of the measured fit
     data = F._make(n, p, 0)
     MRMR._FIT_CACHE.clear()
+    from mlframe.feature_selection._benchmarks.profiling import hardware_state
+
+    if os.environ.get("MLFRAME_BENCH_WAIT_COOL_C"):
+        hardware_state.wait_until_cool(float(os.environ["MLFRAME_BENCH_WAIT_COOL_C"]))
+    print("before: " + hardware_state.line())
+    hardware: list = []
     t0 = time.perf_counter()
-    _, times, cpu, gpu = sample_during(lambda: MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*data))
+    _, times, cpu, gpu = sample_during(lambda: MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*data), hardware=hardware)
     print(f"fit wall {time.perf_counter() - t0:.1f} s")
+    print("after:  " + hardware_state.line())
+    print(hardware_state.summarise_samples(hardware))
     print(summarise(times, cpu, gpu))
 
 
