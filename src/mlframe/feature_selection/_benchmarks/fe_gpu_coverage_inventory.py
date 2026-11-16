@@ -166,6 +166,14 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_orth_mi_backends": (
+        ("_hermite_fe_mi",),
+        (
+            "the resident device path of the batched MI is _plugin_mi_classif_batch_cuda_resident of _hermite_fe_mi (radix-select edges, mi_hist_split, mi_from_counts_col), reached through _strict_resident_mi; "
+            "the streamed path (_streamed_gpu_mi) runs the same MI in column blocks sized to free VRAM, and the choice between the paths is made per call from free VRAM and RAM"
+        ),
+        True,
+    ),
     "_class_encoding": (
         ("_fe_batched_mi",),
         (
@@ -202,6 +210,10 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_orth_mi_backends": (
+        "_hermite_fe_mi",
+        "the batched plug-in MI the orthogonal stage scores with is routed here to the numba plug-in kernel (plugin_mi_classif_batch_njit through plugin_mi_classif_batch_dispatch, parallel over columns) on the host path",
+    ),
     "_fe_cmi_perm_null_gpu": (
         "_cmi_strata_tables_njit",
         (

@@ -15,6 +15,7 @@ binner (same bins, same tie rule); only the summation order of the plug-in diffe
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Optional
 
 import numpy as np
@@ -268,4 +269,77 @@ def gate_divergence_device(cp: Any, mat: Any, y: Any, probe_idx: "list[int]", nb
         return None
 
 
-__all__: Any = ["gate_divergence", "gate_divergence_device", "probe_orders"]
+# ----------------------------------------------------------------------------------------------------------------------
+# Host or device walk (kernel-tuning entry ``gate_rank_divergence_backend``)
+# ----------------------------------------------------------------------------------------------------------------------
+_SWEEP_ROWS = [5_000, 20_000, 100_000, 300_000]
+_SWEEP_COLS = 100
+_SALT = 1
+DEVICE_FALLBACK_ROWS = 10_000_000  # the host walk is as fast or faster at every measured size on the measured card: the device only where a sweep says so
+
+
+def _sweep_inputs(dims: dict) -> tuple:
+    """``(mat, y)``: ``_SWEEP_COLS`` float32 columns of ``dims["n_samples"]`` rows and a 3-class target the first columns drive."""
+    rng = np.random.default_rng(0)
+    n = int(dims["n_samples"])
+    mat = rng.normal(size=(n, _SWEEP_COLS)).astype(np.float32)
+    y = ((mat[:, 0] > 0).astype(np.int64) + (mat[:, 1] > 0.3) + 2 * (mat[:, 2] < -0.5)) % 3
+    return (mat, y.astype(np.int64))
+
+
+def _sweep_host(mat: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """The host walk on the sweep inputs."""
+    got = gate_divergence(mat, y, [0, 1, 2], 10)
+    if got is None:
+        raise RuntimeError("host gate walk declined")
+    return got
+
+
+def _sweep_device(mat: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """The device walk on the sweep inputs, host in and host out (the upload is part of the cost: a non-STRICT caller holds the matrix on the host)."""
+    import cupy as cp
+
+    got = gate_divergence_device(cp, cp.asarray(mat), cp.asarray(y), [0, 1, 2], 10)
+    if got is None:
+        raise RuntimeError("device gate walk declined")
+    return got
+
+
+try:
+    from ._ktc_fallback import host_device_sweep, rows_fallback
+
+    _fallback_choice = rows_fallback(__name__)
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+    _SPEC: Any = kernel_tuner(
+        kernel_name="gate_rank_divergence_backend",
+        variant_fns=(),  # the two backends are timed by the sweep callable
+        tuner=host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=1e-9, atol=1e-9),
+        axes={"n_samples": list(_SWEEP_ROWS)},
+        fallback=_fallback_choice,
+        gpu_capable=True,
+        salt=_SALT,
+        cli_label="gate_rank_divergence_backend",
+    )
+except Exception as e:  # best-effort: without a tuner entry the host walk decides
+    logger.warning("kernel_tuner spec build for gate_rank_divergence_backend failed: %s", e)
+    _SPEC = None
+
+
+def gate_divergence_on_device(n_rows: int) -> bool:
+    """Whether a host-resident gate matrix of ``n_rows`` rows is walked on the device: ``MLFRAME_GATE_DIVERGENCE_DEVICE=0|1`` forces a side, else the per-host kernel-tuning cache, else the row mark.
+
+    STRICT-GPU keeps the resident matrix on the device and does not consult this."""
+    forced = os.environ.get("MLFRAME_GATE_DIVERGENCE_DEVICE", "").strip()
+    if forced in ("0", "1"):
+        return forced == "1"
+    if _SPEC is None:
+        return int(n_rows) >= DEVICE_FALLBACK_ROWS
+    try:
+        return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
+    except Exception as exc:
+        logger.debug("gate_rank_divergence_backend: KTC choose() failed, using the row-count fallback: %s", exc)
+        return int(n_rows) >= DEVICE_FALLBACK_ROWS
+
+
+__all__: Any = ["gate_divergence", "gate_divergence_device", "gate_divergence_on_device", "probe_orders"]

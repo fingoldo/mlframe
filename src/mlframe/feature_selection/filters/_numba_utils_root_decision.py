@@ -528,22 +528,34 @@ def rows_to_columns(rows: np.ndarray) -> np.ndarray:
     return out
 
 
+_FINGERPRINT_BLOCK = 16  # columns hashed together: 16 float32 neighbours of a row are one 64-byte cache line
+
+
 @njit(cache=True, parallel=True, nogil=True)
 def column_fingerprints(bits: np.ndarray) -> np.ndarray:
-    """``(k, 2)`` uint64 content fingerprints of the columns of the ``(n, k)`` integer matrix ``bits`` (the raw bit patterns of a float matrix): two independent FNV-1a style lanes over the column in row order, so
-    two columns with equal values in the same order get equal fingerprints and a different value or order changes both. Reads the columns in place (no per-column copy of a strided column)."""
+    """``(k, 2)`` uint64 content fingerprints of the columns of the ``(n, k)`` integer matrix ``bits`` (the raw bit patterns of a float matrix): two independent FNV-1a style lanes over the column in r
+    two columns with equal values in the same order get equal fingerprints and a different value or order changes both. Reads the columns in place (no per-column copy of a strided column).
+
+    A block of ``_FINGERPRINT_BLOCK`` neighbouring columns is hashed in one pass over the rows: every row contributes one cache line to the whole block instead of one line per column (the matrix is row-major,
+    so the walk down one column used 4 of the 64 bytes of each line), and the block's independent hash chains overlap their multiplies. Each column still sees its values in row order, so the fingerprints
+    are those of the column-at-a-time loop."""
     n, k = bits.shape
     out = np.empty((k, 2), dtype=np.uint64)
-    for j in prange(k):
-        h1 = np.uint64(14695981039346656037)
-        h2 = np.uint64(0x9E3779B97F4A7C15)
+    n_blocks = (k + _FINGERPRINT_BLOCK - 1) // _FINGERPRINT_BLOCK
+    for blk in prange(n_blocks):
+        j0 = blk * _FINGERPRINT_BLOCK
+        w = min(_FINGERPRINT_BLOCK, k - j0)
+        h1 = np.full(w, np.uint64(14695981039346656037), dtype=np.uint64)
+        h2 = np.full(w, np.uint64(0x9E3779B97F4A7C15), dtype=np.uint64)
         for i in range(n):
-            v = np.uint64(bits[i, j])
-            h1 = (h1 ^ v) * np.uint64(1099511628211)
-            h2 = (h2 ^ (v + np.uint64(0x632BE59BD9B4E019))) * np.uint64(0xC2B2AE3D27D4EB4F)
-            h2 ^= h2 >> np.uint64(29)
-        out[j, 0] = h1
-        out[j, 1] = h2
+            for jj in range(w):
+                v = np.uint64(bits[i, j0 + jj])
+                h1[jj] = (h1[jj] ^ v) * np.uint64(1099511628211)
+                x = (h2[jj] ^ (v + np.uint64(0x632BE59BD9B4E019))) * np.uint64(0xC2B2AE3D27D4EB4F)
+                h2[jj] = x ^ (x >> np.uint64(29))
+        for jj in range(w):
+            out[j0 + jj, 0] = h1[jj]
+            out[j0 + jj, 1] = h2[jj]
     return out
 
 

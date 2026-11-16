@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from mlframe.feature_selection.filters import _hermite_fe_mi as H
 
@@ -61,6 +62,24 @@ def test_column_fingerprints_follow_content_and_order_not_layout():
     swapped = X.copy()
     swapped[[10, 11], 1] = swapped[[11, 10], 1]
     assert not np.array_equal(column_fingerprints(swapped.view(np.uint32))[1], fp[1])
+
+
+@pytest.mark.parametrize("n,k", [(3000, 1), (3000, 15), (3000, 16), (3000, 17), (2500, 49)])
+def test_column_fingerprints_equal_the_column_at_a_time_hash(n, k):
+    """The blocked pass (16 columns per walk over the rows, a partial last block included) gives each column the fingerprint of the plain one-column loop: two FNV-1a style lanes over its values in row order."""
+    from mlframe.feature_selection.filters._numba_utils import column_fingerprints
+
+    mask = (1 << 64) - 1
+    rng = np.random.default_rng(11)
+    bits = rng.integers(0, 2**32, (n, k), dtype=np.uint64).astype(np.uint32)
+    got = column_fingerprints(bits)
+    for j in {0, k // 2, k - 1}:
+        h1, h2 = 14695981039346656037, 0x9E3779B97F4A7C15
+        for v in bits[:, j].tolist():
+            h1 = ((h1 ^ v) * 1099511628211) & mask
+            h2 = ((h2 ^ ((v + 0x632BE59BD9B4E019) & mask)) * 0xC2B2AE3D27D4EB4F) & mask
+            h2 ^= h2 >> 29
+        assert (int(got[j, 0]), int(got[j, 1])) == (h1, h2), f"column {j} of {k}"
 
 
 def test_memo_disabled_scope_neither_reads_nor_fills_the_memo():

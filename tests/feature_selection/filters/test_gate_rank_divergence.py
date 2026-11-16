@@ -89,3 +89,23 @@ def test_rank_and_prune_ranking_is_the_loops(monkeypatch):
     monkeypatch.setenv("MLFRAME_GATE_RANK_LOOP", "1")
     loop = g._rank_and_prune(X, list(X.columns), y, 10, 6, 6)
     assert fast == loop
+
+
+def test_device_choice_is_forced_by_the_environment(monkeypatch):
+    """``MLFRAME_GATE_DIVERGENCE_DEVICE`` forces either side of the tuned host / device choice."""
+    monkeypatch.setenv("MLFRAME_GATE_DIVERGENCE_DEVICE", "1")
+    assert gd.gate_divergence_on_device(10) is True
+    monkeypatch.setenv("MLFRAME_GATE_DIVERGENCE_DEVICE", "0")
+    assert gd.gate_divergence_on_device(10**9) is False
+
+
+def test_sweep_inputs_take_the_row_axis_and_the_two_walks_agree():
+    """The sweep builds ``n_samples`` rows by ``_SWEEP_COLS`` columns, and its host and device callables agree to the sweep's tolerance."""
+    cp = pytest.importorskip("cupy")
+    try:
+        cp.cuda.runtime.getDeviceCount()
+    except Exception:
+        pytest.skip("no CUDA device")
+    mat, y = gd._sweep_inputs({"n_samples": 3000})
+    assert mat.shape == (3000, gd._SWEEP_COLS)
+    np.testing.assert_allclose(gd._sweep_device(mat, y), gd._sweep_host(mat, y), rtol=1e-9, atol=1e-9)
