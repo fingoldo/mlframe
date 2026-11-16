@@ -115,12 +115,13 @@ def test_returns_none_when_operand_missing_from_base_set():
 
 @pytest.mark.gpu
 @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
-def test_batch_matches_cpu_reference_gate_on_mixed_candidates():
+@pytest.mark.parametrize("seed", [3, 4])
+def test_batch_matches_cpu_reference_gate_on_mixed_candidates(seed):
     """The resident batched gate must return the SAME boolean verdict as the from-scratch sklearn CPU
     reference for every candidate in a pool mixing a genuinely non-separable+relevant joint form, a
     purely-additive (separable) form, and a non-separable-but-target-irrelevant form."""
     pytest.importorskip("cupy")
-    rng = np.random.default_rng(3)
+    rng = np.random.default_rng(seed)
     n = 4000
     xa = rng.normal(size=n)
     xb = rng.normal(size=n)

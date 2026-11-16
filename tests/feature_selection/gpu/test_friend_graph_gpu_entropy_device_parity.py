@@ -44,14 +44,15 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 class TestEntropySegmentsGpuUnit:
     """Direct unit coverage of the segmented-reduction primitive against the exact CPU path."""
 
-    def test_segments_match_cpu_reference_at_1e9_tolerance(self):
+    @pytest.mark.parametrize("seed", [0, 1])
+    def test_segments_match_cpu_reference_at_1e9_tolerance(self, seed):
         """Each segment's device-computed entropy must match the exact CPU
         ``_entropy_from_counts`` reduction to within the codebase's standard ~1e-9 parity bar,
         across a mix of segment cardinalities and sparsity levels (some zero bins)."""
         from mlframe.feature_selection.filters._friend_graph_gpu_entropy_resident import entropy_segments_gpu
         from mlframe.feature_selection.filters.friend_graph_gpu import _entropy_from_counts
 
-        rng = np.random.default_rng(0)
+        rng = np.random.default_rng(seed)
         n = 50000
         segs = []
         offsets = [0]

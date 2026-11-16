@@ -19,11 +19,12 @@ except Exception:  # pragma: no cover - no usable CUDA runtime
 pytestmark = pytest.mark.skipif(not _HAS_DEVICE, reason="needs a CUDA device")
 
 
-def test_fused_candidate_matrix_matches_cpu_on_nan_operands():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_fused_candidate_matrix_matches_cpu_on_nan_operands(seed):
     """With NaN in the first operand, the GPU candidate matrix equals the NumPy one column for column."""
     from mlframe.feature_selection.filters import _gpu_resident_shared as shared
 
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     n = 500
     a = rng.normal(size=n)
     a[::7] = np.nan

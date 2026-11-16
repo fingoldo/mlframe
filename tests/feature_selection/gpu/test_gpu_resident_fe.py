@@ -151,13 +151,14 @@ def test_cpu_path_edge_cases_no_nonfinite_escapes():
             assert np.all(mi >= -1e-9), (n, kind)
 
 
-def test_gpu_cpu_agree_heavytail_and_varied_targets():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_gpu_cpu_agree_heavytail_and_varied_targets(seed):
     """Exact GPU path must match CPU on HEAVY-TAILED operands (the regime the docstring says breaks the
     approximate path) and on NON-a**2/b targets -- the cases the original suite never covered."""
     _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import gpu_resident_pair_candidate_mi
 
-    rng = np.random.default_rng(11)
+    rng = np.random.default_rng(seed)
     n = 50_000
     a = rng.lognormal(0.0, 2.5, n)  # heavy tail
     b = rng.lognormal(0.0, 2.5, n)
@@ -456,7 +457,8 @@ def test_dispatch_routes_and_recovers():
     assert "div" in top and "sqr" in top
 
 
-def test_gpu_discretize_codes_host_f64_bit_identical_to_cpu(monkeypatch):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_gpu_discretize_codes_host_f64_bit_identical_to_cpu(seed, monkeypatch):
     """With the EXACT f64 binning fallback (MLFRAME_FE_GPU_BINNING_DTYPE=float64) the GPU codes must be
     BIT-IDENTICAL to the CPU discretize_2d_quantile_batch (maxdiff 0) -- np.percentile upcasts the float32
     FE buffer to float64, so the f64 GPU path matches it exactly. This is the bit-exact fallback contract."""
@@ -468,7 +470,7 @@ def test_gpu_discretize_codes_host_f64_bit_identical_to_cpu(monkeypatch):
     )
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
 
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     for n in (20_000, 50_000):
         a = rng.uniform(1, 5, n)
         b = rng.uniform(1, 5, n)
@@ -479,7 +481,8 @@ def test_gpu_discretize_codes_host_f64_bit_identical_to_cpu(monkeypatch):
         assert np.array_equal(cpu, gpu), f"n={n} K={cand.shape[1]} codes differ"
 
 
-def test_gpu_discretize_codes_host_f32_default_selection_safe():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_gpu_discretize_codes_host_f32_default_selection_safe(seed):
     """DEFAULT (native float32) binning: the FE candidate buffer is already float32, so binning it in f32
     (no f64 up-cast, half the sort bandwidth) is the default. The acceptance bar is SELECTION-equivalence,
     not bit-identity: f32 codes must agree with the CPU f64 codes to ~100% (measured 100.000% @ K=384,
@@ -492,7 +495,7 @@ def test_gpu_discretize_codes_host_f32_default_selection_safe():
     )
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
 
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     for n in (20_000, 50_000):
         a = rng.uniform(1, 5, n)
         b = rng.uniform(1, 5, n)
@@ -504,7 +507,8 @@ def test_gpu_discretize_codes_host_f32_default_selection_safe():
         assert agree >= 0.999, f"n={n} f32 code agreement {agree:.5f} < 0.999 (selection at risk)"
 
 
-def test_gpu_discretize_codes_host_k1_chunk_guard(monkeypatch):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_gpu_discretize_codes_host_k1_chunk_guard(seed, monkeypatch):
     """A single-column (n, 1) candidate block must still bin bit-identically -- guards the cupy
     cp.percentile(axis=0) single-column bug (wrong edges) that would corrupt a K==1 last chunk. Asserted
     against the f64 fallback so it is a clean bit-identity check of the K==1 ravel guard (independent of
@@ -514,7 +518,7 @@ def test_gpu_discretize_codes_host_k1_chunk_guard(monkeypatch):
     from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
 
-    rng = np.random.default_rng(1)
+    rng = np.random.default_rng(seed)
     one = np.ascontiguousarray((rng.uniform(1, 5, 40_000) * rng.uniform(1, 5, 40_000)).reshape(-1, 1)).astype(np.float32)
     cpu = discretize_2d_quantile_batch(one, n_bins=20, dtype=np.int8, assume_finite=True)
     gpu = gpu_discretize_codes_host(one, 20, dtype=np.int8)
@@ -758,7 +762,8 @@ def test_fused_bin_codes_bit_identical_to_per_column_searchsorted():
         np.testing.assert_array_equal(fused, cp.asnumpy(ref))
 
 
-def test_deferred_host_codes_bit_identical_to_eager():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_deferred_host_codes_bit_identical_to_eager(seed):
     """DEFERRED host-codes D2H (MLFRAME_FE_GPU_DEFER_HOST_CODES, default ON when the resident handoff is
     on) must be SELECTION-EQUIVALENT to the eager per-block fill: the host codes are produced unfilled and
     the resident DEVICE codes kept, so a host-reading consumer materialises ``out`` lazily via
@@ -771,7 +776,7 @@ def test_deferred_host_codes_bit_identical_to_eager():
     import cupy as cp
     import mlframe.feature_selection.filters._gpu_resident_fe as G
 
-    rng = np.random.default_rng(7)
+    rng = np.random.default_rng(seed)
     n, n_oper, K, nbins = 4000, 6, 40, 20
     tv = rng.random((n, n_oper)).astype(np.float32) + 0.1
     a_cols = rng.integers(0, n_oper, size=K).astype(np.int64)

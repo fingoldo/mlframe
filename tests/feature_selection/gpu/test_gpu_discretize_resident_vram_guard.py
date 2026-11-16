@@ -19,14 +19,15 @@ except Exception:
 pytestmark = pytest.mark.skipif(not _HAS_DEVICE, reason="no CUDA device")
 
 
-def test_discretize_drops_resident_codes_when_vram_is_short_and_stays_bit_identical(monkeypatch, caplog):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_discretize_drops_resident_codes_when_vram_is_short_and_stays_bit_identical(seed, monkeypatch, caplog):
     """With no VRAM cushion the leg logs the decision and returns codes equal to the CPU binning."""
     from mlframe.feature_selection.filters import _fe_gpu_vram
     from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
 
     monkeypatch.setenv("MLFRAME_FE_GPU_RESIDENT_CODES", "1")
-    rng = np.random.default_rng(7)
+    rng = np.random.default_rng(seed)
     n, K = 20_000, 30
     cand = np.ascontiguousarray(rng.uniform(1, 5, size=(n, K)) * rng.uniform(1, 5, size=(n, K))).astype(np.float32)
     cpu = discretize_2d_quantile_batch(cand, n_bins=20, dtype=np.int8, assume_finite=True)

@@ -19,9 +19,10 @@ def _reference(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.where(np.isfinite(q), q, np.float32(0.0)).astype(np.float32)
 
 
-def test_div_equals_the_double_quotient_rounded_to_float():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_div_equals_the_double_quotient_rounded_to_float(seed):
     """Random magnitudes over 60 binades plus zeros, signed zeros, infinities, NaN and the smallest normal numbers on both sides: the same bits as the reference (denormal results flushed to a signed zero, as the kernel does)."""
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     n = 60000
     specials = np.array(
         [0.0, -0.0, 1.0, -1.0, np.inf, -np.inf, np.nan, 1.2e-38, -1.2e-38, 3.4e38, -3.4e38, 7.0, 3.0], dtype=np.float32
