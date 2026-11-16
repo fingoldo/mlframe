@@ -112,7 +112,7 @@
   "src/mlframe/feature_selection/filters/_orthogonal_adaptive_arity_fe.py::_best_cell_per_tuple",
   "src/mlframe/feature_selection/filters/_orthogonal_cmim_fe.py::_cmim_scores_device",
   "src/mlframe/feature_selection/filters/_orthogonal_cmim_fe.py::cmim_score",
-  "src/mlframe/feature_selection/filters/_orthogonal_cmim_fe.py::score_features_by_cmim",
+  "src/mlframe/feature_selection/filters/_orthogonal_cmim_fe.py::_cmim_rows",
   "src/mlframe/feature_selection/filters/_orthogonal_copula_gpu.py::copula_columns_device",
   "src/mlframe/feature_selection/filters/_orthogonal_copula_mi_fe.py::_copula_mi_batch",
   "src/mlframe/feature_selection/filters/_orthogonal_jmim_fe.py::_jmim_scores_device",
