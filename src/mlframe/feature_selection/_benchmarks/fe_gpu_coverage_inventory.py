@@ -166,6 +166,14 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_conditional_gate_fe": (
+        ("_row_argmax_gpu", "_gate_rank_divergence"),
+        (
+            "the row-argmax candidate is built by the fused row_argmax kernel of _row_argmax_gpu (numba twin, per-host choice) and the gate columns are ranked by the one-walk divergence of _gate_rank_divergence "
+            "(numba and cupy forms, per-host choice); the tau grids go through gate_grid_mi_resident / the host scan under the fe_gate_grid_backend entry of _resident_candidate_mi_ktc"
+        ),
+        True,
+    ),
     "_hermite_fe_optimise": (
         ("_cupy_polynom_optimizer",),
         (
@@ -382,6 +390,7 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_conditional_gate_fe": ("_conditional_gate_hybrid", "_conditional_gate_kernels"),
     "_hermite_fe_optimise": ("_hermite_fe_optimise_pair", "_hermite_fe_optimise_parts"),
     "_target_encoding_order_stats": ("_order_stats_gpu",),
     "_temporal_agg_fe_rolling": ("_rolling_window_gpu",),

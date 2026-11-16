@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
-from typing import cast
+from typing import Any, cast
 from mlframe.utils.log_throttle import log_throttle
 
 from ._ktc_fallback import selection_view
@@ -135,3 +135,94 @@ try:
 except Exception as e:
     logger.warning("fe_gate_resident_candidate_mi_crossover kernel_tuner registration failed: %s", e)
     _RESCAND_SPEC = None
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Host or device-born tau grid of the conditional gate (kernel-tuning entry ``fe_gate_grid_backend``)
+# ----------------------------------------------------------------------------------------------------------------------
+_GRID_SWEEP_N_SAMPLES = [2_000, 10_000, 50_000, 200_000]
+_GRID_SPECS = 12  # tau-grid specs of one flush (the gate flushes batches of this order: 27 specs x 17 taus at 100000 rows)
+_GRID_TAUS = 17
+_GRID_NBINS = 12
+_GRID_SALT = 1
+
+
+def _grid_inputs(dims: dict) -> tuple:
+    """``(specs, y)``: ``_GRID_SPECS`` select-mode specs of ``_GRID_TAUS`` quantile thresholds each over three float32 operand columns of ``dims["n_samples"]`` rows, and a 3-class target the first operand drives."""
+    n = int(dims["n_samples"])
+    rng = np.random.default_rng(0)
+    cols = [rng.normal(size=n).astype(np.float32) for _ in range(_GRID_SPECS + 2)]
+    y = (np.digitize(cols[0], [-0.5, 0.5]) + (cols[1] > 0)) % 3
+    specs = []
+    for i in range(_GRID_SPECS):
+        c, a, b = cols[(i + 2) % len(cols)], cols[i % len(cols)], cols[(i + 1) % len(cols)]
+        specs.append(("select", (f"sweep_a{i}", f"sweep_b{i}", f"sweep_c{i}"), (c, a, b), np.quantile(c, np.linspace(0.1, 0.9, _GRID_TAUS)).astype(np.float32)))
+    return (specs, y.astype(np.int64))
+
+
+def _grid_host(specs: list, y: np.ndarray) -> np.ndarray:
+    """The host path of the gate flush: the tau-grid blocks built on the host and scored by the batched rank-binned MI."""
+    from ._conditional_gate_fe import _gate_build_feats, _gate_grid_mi
+
+    big = np.ascontiguousarray(np.concatenate([_gate_build_feats(mode, operands, taus) for (mode, _ctup, operands, taus) in specs], axis=1))
+    return np.asarray(_gate_grid_mi(big, y, _GRID_NBINS), dtype=np.float64)  # Intentional float64: comparison vector
+
+
+def _grid_device(specs: list, y: np.ndarray) -> np.ndarray:
+    """The device-born path: the grids built on the device from the resident operands (uploaded once, the cache keys are the spec's column names) and scored there, rank-binned like the host."""
+    from ._resident_candidate_mi import gate_grid_mi_resident
+
+    got = gate_grid_mi_resident(specs, y, _GRID_NBINS, rank_binning=True, y_min=int(y.min()), n_classes=int(y.max() - y.min()) + 1)
+    if got is None:
+        raise RuntimeError("device-born gate grid declined")
+    return np.asarray(got, dtype=np.float64)  # Intentional float64: comparison vector
+
+
+def _grid_sweep() -> list:
+    """Time the host and the device-born tau grid over the row axis; they must agree to 1e-7 (measured 3e-9 to 7e-9 between the float32 host scan and the device grid on 10000 to 200000 rows, the two accumulate the plug-in sums in another order)."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    return cast(list, sweep_backend_grid({"host": _grid_host, "device": _grid_device}, {"n_samples": _GRID_SWEEP_N_SAMPLES}, _grid_inputs, reference="host", repeats=3, equiv_rtol=1e-7, equiv_atol=1e-7))
+
+
+DEVICE_FALLBACK_ROWS = 10_000  # before any sweep: the device-born grid from the row count the first measurement put it ahead
+
+
+def _grid_fallback_choice(n_samples: int) -> str:
+    """Pre-sweep choice from the row mark."""
+    return "device" if int(n_samples) >= DEVICE_FALLBACK_ROWS else "host"
+
+
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner as _kernel_tuner
+
+    _GRID_SPEC: Any = _kernel_tuner(
+        kernel_name="fe_gate_grid_backend",
+        variant_fns=(),  # both backends are timed by the sweep callable
+        tuner=_grid_sweep,
+        axes={"n_samples": list(_GRID_SWEEP_N_SAMPLES)},
+        fallback=_grid_fallback_choice,
+        gpu_capable=True,
+        salt=_GRID_SALT,
+        cli_label="fe_gate_grid_backend",
+    )
+except Exception as e:
+    logger.warning("fe_gate_grid_backend kernel_tuner registration failed: %s", e)
+    _GRID_SPEC = None
+
+
+def gate_grid_use_device(n: int) -> bool:
+    """Whether the tau grid of a conditional-gate flush over ``n`` rows is built and scored on the device (outside STRICT, which forces the device): the per-host tuning cache, else the row mark.
+    ``MLFRAME_FE_GATE_GRID_DEVICE=0|1`` forces a side."""
+    import os
+
+    forced = os.environ.get("MLFRAME_FE_GATE_GRID_DEVICE", "").strip()
+    if forced in ("0", "1"):
+        return forced == "1"
+    if _GRID_SPEC is None:
+        return int(n) >= DEVICE_FALLBACK_ROWS
+    try:
+        return str(_GRID_SPEC.choose(n_samples=int(n))) == "device"
+    except Exception as exc:
+        log_throttle(logger, "_resident_candidate_mi_ktc.gate_grid_use_device", logging.WARNING, "gate_grid_use_device: KTC choose() failed, using the row mark: %s", exc)
+        return int(n) >= DEVICE_FALLBACK_ROWS
